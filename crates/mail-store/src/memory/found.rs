@@ -4,7 +4,8 @@
 use super::{Inner, same_remote};
 use crate::StoreError;
 use chrono::{DateTime, Utc};
-use mail_domain::{AccountId, MessageId, RemoteRef, ThreadId};
+use mail_domain::{MessageId, RemoteRef, ThreadId};
+use porter_core::AccountId;
 
 impl Inner {
     pub(super) fn mark_found(
@@ -21,7 +22,7 @@ impl Inner {
         }
         for id in messages {
             // The first search to bring it stands, as SQLite's `INSERT OR IGNORE`.
-            self.found.entry(*id).or_insert((account, now));
+            self.found.entry(*id).or_insert((account.clone(), now));
         }
         Ok(())
     }
@@ -54,7 +55,7 @@ impl Inner {
             .filter_map(|remote| {
                 self.remotes
                     .iter()
-                    .find(|row| same_remote(row, account, remote))
+                    .find(|row| same_remote(row, account.clone(), remote))
                     .map(|row| (remote.clone(), row.message))
             })
             .collect()

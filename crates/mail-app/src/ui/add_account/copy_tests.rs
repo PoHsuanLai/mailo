@@ -1,7 +1,8 @@
 //! What the sheet says of a failure: each reason's wording and action, and that none of it
 //! sends anyone to a terminal.
 
-use mail_domain::{OAuthIssuer, Retry};
+use mail_domain::Retry;
+use porter_provider::Issuer;
 
 use super::copy::{self, Action, Notice};
 use super::flow::{Miss, Refusal, What};
@@ -75,14 +76,14 @@ fn every_refusal_has_its_sentence() {
         copy::refused(&Refusal::Blank(What::Token)).headline,
         "Type the token first."
     );
-    let said = copy::refused(&Refusal::NeedsClientId(OAuthIssuer::Google));
+    let said = copy::refused(&Refusal::NeedsClientId(Issuer::Google));
     assert_eq!(
         said.headline,
         "Signing in with Google isn\u{2019}t set up in this build of Mailo."
     );
     assert!(said.detail.unwrap().contains("MAILO_OAUTH_CLIENT_ID"));
     assert_eq!(said.action, Some(Action::EnterServerSettings));
-    let said = copy::refused(&Refusal::NeedsClientId(OAuthIssuer::Microsoft));
+    let said = copy::refused(&Refusal::NeedsClientId(Issuer::Microsoft));
     assert!(said.headline.contains("Microsoft"));
     let said = copy::refused(&Refusal::Other(
         "cannot save the password: the keyring is locked".to_owned(),
@@ -150,7 +151,7 @@ fn nothing_the_sheet_can_say_sends_anyone_to_the_command_line() {
     for what in [What::Password, What::Token] {
         notices.push(copy::refused(&Refusal::Blank(what)));
     }
-    for issuer in [OAuthIssuer::Google, OAuthIssuer::Microsoft] {
+    for issuer in [Issuer::Google, Issuer::Microsoft] {
         notices.push(copy::refused(&Refusal::NeedsClientId(issuer)));
         notices.push(copy::needs_client_id(issuer));
     }

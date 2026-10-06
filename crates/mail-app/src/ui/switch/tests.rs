@@ -12,12 +12,14 @@ use ds::prelude::{Scheme, SpaceLook, Theme, Word};
 use ds::style::space::frame_vars::FrameVars;
 use ds::style::space::look::CardAccent;
 use ds::style::space::palette::{Dot, derive, gradient};
-use mail_domain::{AccountId, ThreadId};
+use mail_domain::ThreadId;
+use mail_domain::id::account_id_from_uuid;
+use porter_core::AccountId;
 use std::collections::BTreeMap;
 use uuid::Uuid;
 
 fn account(n: u128) -> AccountId {
-    AccountId::from_uuid(Uuid::from_u128(n))
+    account_id_from_uuid(Uuid::from_u128(n))
 }
 
 fn thread(n: u128) -> ThreadId {
@@ -160,7 +162,7 @@ async fn ctrl_2_repaints_the_frame_and_scopes_the_list() {
             theme: Theme::Light,
             ..Space::default().look
         },
-        scope: Scope::Accounts(vec![ids[0]]),
+        scope: Scope::Accounts(vec![ids[0].clone()]),
         ..Space::default()
     };
     stored.spaces.push(home.clone());

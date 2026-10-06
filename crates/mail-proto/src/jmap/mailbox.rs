@@ -2,7 +2,8 @@
 
 use super::field::{malformed, opt_string, string, unsigned};
 use crate::ProtoError;
-use mail_domain::{AccountId, Folder, FolderRoles, Holds, MailboxRole, SpecialUse, Subscription};
+use mail_domain::{Folder, FolderRoles, Holds, MailboxRole, SpecialUse, Subscription};
+use porter_core::AccountId;
 use serde_json::Value;
 
 /// The separator this client puts between a mailbox and its parent's name.
@@ -191,7 +192,7 @@ impl Mailboxes {
             .iter()
             .filter_map(|m| {
                 Some(Folder {
-                    account,
+                    account: account.clone(),
                     path: self.path(&m.id)?,
                     delimiter: Some(DELIMITER),
                     special: m.role.as_ref().and_then(JmapRole::special),

@@ -68,7 +68,7 @@ dependencies = [
 [[package]]
 name = "accesskit_xplat"
 version = "0.2.0"
-source = "git+https://github.com/PoHsuanLai/blitz?rev=1b23fbd9d6465b7ee8acfe8e7deb36a2d5be6fad#1b23fbd9d6465b7ee8acfe8e7deb36a2d5be6fad"
+source = "git+https://github.com/PoHsuanLai/blitz?rev=5fbd299d30d648496b2095cd2591aa30db8e761b#5fbd299d30d648496b2095cd2591aa30db8e761b"
 dependencies = [
  "accesskit",
  "accesskit_macos",
@@ -103,6 +103,7 @@ dependencies = [
  "cfg-if",
  "cipher 0.4.4",
  "cpufeatures 0.2.17",
+ "zeroize",
 ]
 
 [[package]]
@@ -369,6 +370,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0bb44936d800fea8f016d7f2311c6a4f97aebd5dc86f09906139ec848cf3a46f"
 dependencies = [
  "libloading",
+]
+
+[[package]]
+name = "ashpd"
+version = "0.13.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fb8421aaa9644a5faf26735f258b669b15f063313ef8f8e2bdb28912a1a6f111"
+dependencies = [
+ "enumflags2",
+ "futures-util",
+ "getrandom 0.4.3",
+ "serde",
+ "tokio",
+ "zbus",
 ]
 
 [[package]]
@@ -670,7 +685,7 @@ dependencies = [
 [[package]]
 name = "blitz-dom"
 version = "0.3.0-beta.2"
-source = "git+https://github.com/PoHsuanLai/blitz?rev=1b23fbd9d6465b7ee8acfe8e7deb36a2d5be6fad#1b23fbd9d6465b7ee8acfe8e7deb36a2d5be6fad"
+source = "git+https://github.com/PoHsuanLai/blitz?rev=5fbd299d30d648496b2095cd2591aa30db8e761b#5fbd299d30d648496b2095cd2591aa30db8e761b"
 dependencies = [
  "accesskit",
  "anyrender",
@@ -681,7 +696,7 @@ dependencies = [
  "color",
  "cssparser 0.37.0",
  "cursor-icon",
- "debug_timer 0.1.3 (git+https://github.com/PoHsuanLai/blitz?rev=1b23fbd9d6465b7ee8acfe8e7deb36a2d5be6fad)",
+ "debug_timer 0.1.3 (git+https://github.com/PoHsuanLai/blitz?rev=5fbd299d30d648496b2095cd2591aa30db8e761b)",
  "euclid",
  "html-escape",
  "image",
@@ -714,7 +729,7 @@ dependencies = [
 [[package]]
 name = "blitz-html"
 version = "0.3.0-beta.2"
-source = "git+https://github.com/PoHsuanLai/blitz?rev=1b23fbd9d6465b7ee8acfe8e7deb36a2d5be6fad#1b23fbd9d6465b7ee8acfe8e7deb36a2d5be6fad"
+source = "git+https://github.com/PoHsuanLai/blitz?rev=5fbd299d30d648496b2095cd2591aa30db8e761b#5fbd299d30d648496b2095cd2591aa30db8e761b"
 dependencies = [
  "blitz-dom",
  "blitz-traits",
@@ -725,7 +740,7 @@ dependencies = [
 [[package]]
 name = "blitz-kit"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/blitz-kit?rev=953c2ecf277829b5a57b8d3e1227df5b5f50dfd8#953c2ecf277829b5a57b8d3e1227df5b5f50dfd8"
+source = "git+https://github.com/PoHsuanLai/blitz-kit?rev=0da932ed58d7e346730fefca626bc3a0fa27abd9#0da932ed58d7e346730fefca626bc3a0fa27abd9"
 dependencies = [
  "blitz-dom",
  "blitz-traits",
@@ -738,7 +753,7 @@ dependencies = [
 [[package]]
 name = "blitz-paint"
 version = "0.3.0-beta.2"
-source = "git+https://github.com/PoHsuanLai/blitz?rev=1b23fbd9d6465b7ee8acfe8e7deb36a2d5be6fad#1b23fbd9d6465b7ee8acfe8e7deb36a2d5be6fad"
+source = "git+https://github.com/PoHsuanLai/blitz?rev=5fbd299d30d648496b2095cd2591aa30db8e761b#5fbd299d30d648496b2095cd2591aa30db8e761b"
 dependencies = [
  "anyrender",
  "anyrender_svg",
@@ -759,7 +774,7 @@ dependencies = [
 [[package]]
 name = "blitz-shell"
 version = "0.3.0-beta.2"
-source = "git+https://github.com/PoHsuanLai/blitz?rev=1b23fbd9d6465b7ee8acfe8e7deb36a2d5be6fad#1b23fbd9d6465b7ee8acfe8e7deb36a2d5be6fad"
+source = "git+https://github.com/PoHsuanLai/blitz?rev=5fbd299d30d648496b2095cd2591aa30db8e761b#5fbd299d30d648496b2095cd2591aa30db8e761b"
 dependencies = [
  "accesskit",
  "accesskit_xplat",
@@ -781,7 +796,7 @@ dependencies = [
 [[package]]
 name = "blitz-traits"
 version = "0.3.0-beta.2"
-source = "git+https://github.com/PoHsuanLai/blitz?rev=1b23fbd9d6465b7ee8acfe8e7deb36a2d5be6fad#1b23fbd9d6465b7ee8acfe8e7deb36a2d5be6fad"
+source = "git+https://github.com/PoHsuanLai/blitz?rev=5fbd299d30d648496b2095cd2591aa30db8e761b#5fbd299d30d648496b2095cd2591aa30db8e761b"
 dependencies = [
  "atomic_refcell",
  "bitflags",
@@ -1102,6 +1117,7 @@ checksum = "773f3b9af64447d2ce9850330c473515014aa235e6a783b02db81ff39e4a3dad"
 dependencies = [
  "crypto-common 0.1.7",
  "inout 0.1.4",
+ "zeroize",
 ]
 
 [[package]]
@@ -1674,7 +1690,7 @@ checksum = "da220af51a1a335e9a930beaaef53d261e41ea9eecfb3d973a3ddae1a7284b9c"
 [[package]]
 name = "debug_timer"
 version = "0.1.3"
-source = "git+https://github.com/PoHsuanLai/blitz?rev=1b23fbd9d6465b7ee8acfe8e7deb36a2d5be6fad#1b23fbd9d6465b7ee8acfe8e7deb36a2d5be6fad"
+source = "git+https://github.com/PoHsuanLai/blitz?rev=5fbd299d30d648496b2095cd2591aa30db8e761b#5fbd299d30d648496b2095cd2591aa30db8e761b"
 
 [[package]]
 name = "der"
@@ -2047,7 +2063,7 @@ dependencies = [
 [[package]]
 name = "dioxus-native"
 version = "0.7.0"
-source = "git+https://github.com/PoHsuanLai/blitz?rev=1b23fbd9d6465b7ee8acfe8e7deb36a2d5be6fad#1b23fbd9d6465b7ee8acfe8e7deb36a2d5be6fad"
+source = "git+https://github.com/PoHsuanLai/blitz?rev=5fbd299d30d648496b2095cd2591aa30db8e761b#5fbd299d30d648496b2095cd2591aa30db8e761b"
 dependencies = [
  "android-activity",
  "anyrender",
@@ -2079,7 +2095,7 @@ dependencies = [
 [[package]]
 name = "dioxus-native-dom"
 version = "0.7.0"
-source = "git+https://github.com/PoHsuanLai/blitz?rev=1b23fbd9d6465b7ee8acfe8e7deb36a2d5be6fad#1b23fbd9d6465b7ee8acfe8e7deb36a2d5be6fad"
+source = "git+https://github.com/PoHsuanLai/blitz?rev=5fbd299d30d648496b2095cd2591aa30db8e761b#5fbd299d30d648496b2095cd2591aa30db8e761b"
 dependencies = [
  "blitz-dom",
  "blitz-traits",
@@ -2206,7 +2222,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -2271,7 +2287,7 @@ checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
 [[package]]
 name = "ds"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.8#834c9f404f05b9a7621a4bff7056568760dbdbe0"
+source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.11#e3a5830ea68aa098d2d5eadbaf9e9fb7734b1f79"
 dependencies = [
  "dioxus",
  "ds-core",
@@ -2286,7 +2302,7 @@ dependencies = [
 [[package]]
 name = "ds-behaviour"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.8#834c9f404f05b9a7621a4bff7056568760dbdbe0"
+source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.11#e3a5830ea68aa098d2d5eadbaf9e9fb7734b1f79"
 dependencies = [
  "ds-core",
 ]
@@ -2294,7 +2310,7 @@ dependencies = [
 [[package]]
 name = "ds-blitz"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.8#834c9f404f05b9a7621a4bff7056568760dbdbe0"
+source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.11#e3a5830ea68aa098d2d5eadbaf9e9fb7734b1f79"
 dependencies = [
  "anyrender",
  "anyrender_vello_hybrid",
@@ -2334,7 +2350,7 @@ dependencies = [
 [[package]]
 name = "ds-core"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.8#834c9f404f05b9a7621a4bff7056568760dbdbe0"
+source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.11#e3a5830ea68aa098d2d5eadbaf9e9fb7734b1f79"
 dependencies = [
  "ds-core-derive",
  "futures-timer",
@@ -2346,7 +2362,7 @@ dependencies = [
 [[package]]
 name = "ds-core-derive"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.8#834c9f404f05b9a7621a4bff7056568760dbdbe0"
+source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.11#e3a5830ea68aa098d2d5eadbaf9e9fb7734b1f79"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -2357,7 +2373,7 @@ dependencies = [
 [[package]]
 name = "ds-harness"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.8#834c9f404f05b9a7621a4bff7056568760dbdbe0"
+source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.11#e3a5830ea68aa098d2d5eadbaf9e9fb7734b1f79"
 dependencies = [
  "anyrender",
  "anyrender_vello_cpu",
@@ -2386,7 +2402,7 @@ dependencies = [
 [[package]]
 name = "ds-intents"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.8#834c9f404f05b9a7621a4bff7056568760dbdbe0"
+source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.11#e3a5830ea68aa098d2d5eadbaf9e9fb7734b1f79"
 dependencies = [
  "ds-core",
 ]
@@ -2394,7 +2410,7 @@ dependencies = [
 [[package]]
 name = "ds-lint"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.8#834c9f404f05b9a7621a4bff7056568760dbdbe0"
+source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.11#e3a5830ea68aa098d2d5eadbaf9e9fb7734b1f79"
 dependencies = [
  "cssparser 0.37.0",
  "ds-core",
@@ -2404,7 +2420,7 @@ dependencies = [
 [[package]]
 name = "ds-motion"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.8#834c9f404f05b9a7621a4bff7056568760dbdbe0"
+source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.11#e3a5830ea68aa098d2d5eadbaf9e9fb7734b1f79"
 dependencies = [
  "dioxus",
  "ds-core",
@@ -2414,7 +2430,7 @@ dependencies = [
 [[package]]
 name = "ds-settings"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.8#834c9f404f05b9a7621a4bff7056568760dbdbe0"
+source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.11#e3a5830ea68aa098d2d5eadbaf9e9fb7734b1f79"
 dependencies = [
  "dioxus",
  "ds-behaviour",
@@ -2433,7 +2449,7 @@ dependencies = [
 [[package]]
 name = "ds-settings-derive"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.8#834c9f404f05b9a7621a4bff7056568760dbdbe0"
+source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.11#e3a5830ea68aa098d2d5eadbaf9e9fb7734b1f79"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2443,7 +2459,7 @@ dependencies = [
 [[package]]
 name = "ds-style"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.8#834c9f404f05b9a7621a4bff7056568760dbdbe0"
+source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.11#e3a5830ea68aa098d2d5eadbaf9e9fb7734b1f79"
 dependencies = [
  "dioxus",
  "ds-core",
@@ -2460,7 +2476,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "48bc224a9084ad760195584ce5abb3c2c34a225fa312a128ad245a6b412b7689"
 dependencies = [
  "digest 0.10.7",
- "num-bigint-dig",
+ "num-bigint-dig 0.8.6",
  "num-traits",
  "pkcs8",
  "rfc6979",
@@ -2657,7 +2673,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -4418,6 +4434,9 @@ dependencies = [
  "objc2-foundation 0.3.2",
  "p256",
  "pdfrum",
+ "porter-core",
+ "porter-provider",
+ "porter-secrets",
  "proptest",
  "rand 0.8.8",
  "regex",
@@ -4471,6 +4490,9 @@ dependencies = [
  "nucleo-matcher",
  "p256",
  "pdfrum",
+ "porter-core",
+ "porter-provider",
+ "porter-secrets",
  "proptest",
  "psl",
  "rand 0.8.8",
@@ -4497,6 +4519,8 @@ name = "mail-domain"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "porter-core",
+ "porter-provider",
  "proptest",
  "serde",
  "serde_json",
@@ -4532,6 +4556,7 @@ dependencies = [
  "pkcs12",
  "pkcs5",
  "pkcs8",
+ "porter-core",
  "proptest",
  "rand 0.8.8",
  "rsa",
@@ -4566,6 +4591,7 @@ dependencies = [
  "chrono-tz",
  "encoding_rs",
  "mail-domain",
+ "porter-core",
  "roxmltree 0.21.1",
  "thiserror 2.0.21",
 ]
@@ -4581,6 +4607,8 @@ dependencies = [
  "mail-domain",
  "mail-mime",
  "nom 7.1.3",
+ "porter-core",
+ "porter-provider",
  "proptest",
  "roxmltree 0.21.1",
  "serde_json",
@@ -4608,6 +4636,9 @@ dependencies = [
  "mail-store",
  "oauth2",
  "p256",
+ "porter-core",
+ "porter-provider",
+ "porter-secrets",
  "psl",
  "rand 0.8.8",
  "reqwest",
@@ -4643,6 +4674,7 @@ dependencies = [
  "chrono",
  "mail-domain",
  "parking_lot",
+ "porter-core",
  "proptest",
  "rusqlite",
  "serde",
@@ -5058,6 +5090,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "num-bigint-dig"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a7f9a86e097b0d187ad0e65667c2f58b9254671e86e7dbb78036b16692eae099"
+dependencies = [
+ "libm",
+ "num-integer",
+ "num-iter",
+ "num-traits",
+ "once_cell",
+ "rand 0.9.5",
+ "serde",
+ "smallvec",
+ "zeroize",
+]
+
+[[package]]
 name = "num-complex"
 version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5424,6 +5473,37 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 dependencies = [
  "critical-section",
  "portable-atomic",
+]
+
+[[package]]
+name = "oo7"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "78f2bfed90f1618b4b48dcad9307f25e14ae894e2949642c87c351601d62cebd"
+dependencies = [
+ "aes 0.8.4",
+ "ashpd",
+ "cbc 0.1.2",
+ "cipher 0.4.4",
+ "digest 0.10.7",
+ "endi",
+ "futures-util",
+ "getrandom 0.4.3",
+ "hkdf 0.12.4",
+ "hmac 0.12.1",
+ "md-5 0.10.6",
+ "num",
+ "num-bigint-dig 0.9.1",
+ "pbkdf2",
+ "serde",
+ "serde_bytes",
+ "sha2 0.10.9",
+ "subtle",
+ "tokio",
+ "zbus",
+ "zbus_macros",
+ "zeroize",
+ "zvariant",
 ]
 
 [[package]]
@@ -5921,7 +6001,7 @@ dependencies = [
  "md-5 0.10.6",
  "memchr",
  "nom 8.0.0",
- "num-bigint-dig",
+ "num-bigint-dig 0.8.6",
  "num-traits",
  "num_enum",
  "ocb3",
@@ -6264,6 +6344,41 @@ dependencies = [
 ]
 
 [[package]]
+name = "porter-core"
+version = "0.1.0"
+source = "git+https://github.com/PoHsuanLai/porter?rev=286d55ee92d413612bf4ebb382fcbd3926611eb3#286d55ee92d413612bf4ebb382fcbd3926611eb3"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "porter-provider"
+version = "0.1.0"
+source = "git+https://github.com/PoHsuanLai/porter?rev=286d55ee92d413612bf4ebb382fcbd3926611eb3#286d55ee92d413612bf4ebb382fcbd3926611eb3"
+dependencies = [
+ "porter-core",
+ "serde",
+ "thiserror 2.0.21",
+ "toml",
+]
+
+[[package]]
+name = "porter-secrets"
+version = "0.1.0"
+source = "git+https://github.com/PoHsuanLai/porter?rev=286d55ee92d413612bf4ebb382fcbd3926611eb3#286d55ee92d413612bf4ebb382fcbd3926611eb3"
+dependencies = [
+ "apple-native-keyring-store",
+ "keyring-core",
+ "oo7",
+ "porter-core",
+ "serde_json",
+ "thiserror 2.0.21",
+ "windows-native-keyring-store",
+]
+
+[[package]]
 name = "potential_utf"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6471,7 +6586,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -6918,7 +7033,7 @@ checksum = "b8573f03f5883dcaebdfcf4725caa1ecb9c15b2ef50c43a07b816e06799bb12d"
 dependencies = [
  "const-oid 0.9.6",
  "digest 0.10.7",
- "num-bigint-dig",
+ "num-bigint-dig 0.8.6",
  "num-integer",
  "num-traits",
  "pkcs1",
@@ -6997,7 +7112,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -7258,6 +7373,16 @@ dependencies = [
  "js-sys",
  "serde",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "serde_bytes"
+version = "0.11.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a5d440709e79d88e51ac01c4b72fc6cb7314017bb7da9eeff678aa94c10e3ea8"
+dependencies = [
+ "serde",
+ "serde_core",
 ]
 
 [[package]]
@@ -7653,7 +7778,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3d1e2c7f27f8d4cb10542a02c49005dbd6e93095799d6f3be745fae9f8fedd4"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -7662,8 +7787,8 @@ version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0d204abcbdf8e88729306a8d0ca01a79d8a49969fe1f84696909d6dbc4321c1a"
 dependencies = [
- "foldhash 0.2.0",
- "hashbrown 0.17.1",
+ "foldhash 0.1.5",
+ "hashbrown 0.15.5",
 ]
 
 [[package]]
@@ -7929,7 +8054,7 @@ dependencies = [
 [[package]]
 name = "stylo_taffy"
 version = "0.3.0-beta.2"
-source = "git+https://github.com/PoHsuanLai/blitz?rev=1b23fbd9d6465b7ee8acfe8e7deb36a2d5be6fad#1b23fbd9d6465b7ee8acfe8e7deb36a2d5be6fad"
+source = "git+https://github.com/PoHsuanLai/blitz?rev=5fbd299d30d648496b2095cd2591aa30db8e761b#5fbd299d30d648496b2095cd2591aa30db8e761b"
 dependencies = [
  "bitflags",
  "stylo",
@@ -8132,7 +8257,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -8150,7 +8275,7 @@ version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d8c27177b12a6399ffc08b98f76f7c9a1f4fe9fc967c784c5a071fa8d93cf7e1"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -8341,6 +8466,7 @@ dependencies = [
  "signal-hook-registry",
  "socket2",
  "tokio-macros",
+ "tracing",
  "windows-sys 0.61.2",
 ]
 
@@ -8585,7 +8711,7 @@ checksum = "f2f6fb2847f6742cd76af783a2a2c49e9375d0a111c7bef6f71cd9e738c72d6e"
 dependencies = [
  "memoffset",
  "tempfile",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -9461,7 +9587,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -10279,6 +10405,7 @@ dependencies = [
  "rustix",
  "serde",
  "serde_repr",
+ "tokio",
  "tracing",
  "uds_windows",
  "uuid",
@@ -10467,6 +10594,7 @@ dependencies = [
  "endi",
  "enumflags2",
  "serde",
+ "serde_bytes",
  "winnow 1.0.4",
  "zcheapstr",
  "zvariant_derive",

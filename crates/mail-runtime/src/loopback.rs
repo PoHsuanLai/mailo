@@ -215,7 +215,7 @@ mod tests {
         // The attack this defends against: another party's code delivered to our listener.
         let lb = Loopback::bind().await.unwrap();
         let auth = crate::oauth::begin(
-            mail_domain::OAuthIssuer::Google,
+            porter_provider::Issuer::Google,
             "client.apps.googleusercontent.com",
             None,
             &["https://mail.google.com/".to_owned()],

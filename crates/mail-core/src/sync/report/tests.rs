@@ -1,13 +1,18 @@
 use super::*;
 use crate::sync::run_with;
 use chrono::{DateTime, TimeZone, Utc};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
-use mail_runtime::{MapSecrets, OAuthRegistry, Secrets};
+use mail_runtime::{AccountSecrets, OAuthRegistry};
 use mail_store::SqliteStore;
+use porter_core::SecretText;
+use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
+use porter_secrets::MemorySecrets;
 use std::sync::Arc;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000f1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000f1"))
+}
 
 fn now() -> DateTime<Utc> {
     Utc.timestamp_opt(1_700_000_000, 0).unwrap()
@@ -56,13 +61,16 @@ fn store_at(port: u16) -> (Arc<SqliteStore>, tempfile::TempDir) {
     db.execute(
         "INSERT INTO accounts (id, address, plan, created_at)
          VALUES (?1, 'ada@example.test', ?2, datetime('now'))",
-        rusqlite::params![ACCOUNT.to_string(), serde_json::to_string(&plan).unwrap()],
+        rusqlite::params![
+            acct_account().to_string(),
+            serde_json::to_string(&plan).unwrap()
+        ],
     )
     .unwrap();
     db.execute(
         "INSERT INTO account_caps (account, caps, observed_at) VALUES (?1, ?2, ?3)",
         rusqlite::params![
-            ACCOUNT.to_string(),
+            acct_account().to_string(),
             serde_json::to_string(&caps).unwrap(),
             now().to_rfc3339()
         ],
@@ -72,16 +80,15 @@ fn store_at(port: u16) -> (Arc<SqliteStore>, tempfile::TempDir) {
     (store, dir)
 }
 
-fn with_password(secrets: &MapSecrets) {
-    secrets
-        .put(
-            &SecretKey {
-                account: ACCOUNT,
-                purpose: SecretPurpose::IncomingPassword,
-            },
-            &Credential::Password("s3cr3t-pass".to_owned()),
-        )
-        .unwrap();
+fn with_password(secrets: &MemorySecrets) {
+    mail_runtime::block_on(secrets.put(
+        &SecretKey {
+            account: acct_account(),
+            purpose: SecretPurpose::IncomingPassword,
+        },
+        &Credential::Password(SecretText::new("s3cr3t-pass".to_owned())),
+    ))
+    .unwrap();
 }
 
 #[test]
@@ -89,7 +96,7 @@ fn a_missing_credential_fails_the_account_as_needing_a_sign_in() {
     let (store, _dir) = store_at(1);
     let ends = run_with(
         store,
-        Arc::new(MapSecrets::default()),
+        Arc::new(MemorySecrets::default()),
         &OAuthRegistry::default(),
         now(),
         Hooks::default(),
@@ -105,7 +112,7 @@ fn a_missing_credential_fails_the_account_as_needing_a_sign_in() {
 #[test]
 fn an_unreachable_server_fails_the_account_with_a_wait() {
     let (store, _dir) = store_at(1);
-    let secrets = MapSecrets::default();
+    let secrets = MemorySecrets::default();
     with_password(&secrets);
     let ends = run_with(
         store,
@@ -142,11 +149,11 @@ fn a_mailbox_that_fails_lands_in_trouble_with_its_decision() {
         let db = store.connection();
         db.execute(
             "INSERT INTO folders (account, path, role, followed) VALUES (?1, 'INBOX', 'inbox', 1)",
-            [ACCOUNT.to_string()],
+            [acct_account().to_string()],
         )
         .ok();
     }
-    let secrets = MapSecrets::default();
+    let secrets = MemorySecrets::default();
     with_password(&secrets);
     let ends = run_with(
         store,
@@ -271,20 +278,20 @@ fn each_failure_says_what_kind_of_wait_it_asks_for() {
 #[test]
 fn only_a_pass_that_ran_may_have_stored_something() {
     let finished = PassEnd::Finished(AccountReport {
-        account: ACCOUNT,
+        account: acct_account(),
         address: "ada@example.test".to_owned(),
         counts: Counts::default(),
         trouble: vec![],
     });
     let failed = PassEnd::Failed {
-        account: ACCOUNT,
+        account: acct_account(),
         address: "ada@example.test".to_owned(),
         retry: Retry::After(std::time::Duration::from_secs(5)),
         why: "cannot connect".to_owned(),
         pause: crate::fetch::Pause::Unreachable,
     };
     let cancelled = PassEnd::Cancelled {
-        account: ACCOUNT,
+        account: acct_account(),
         address: "ada@example.test".to_owned(),
     };
     // A flag sweep stores without counting, so even an all-zero pass that ran says yes.

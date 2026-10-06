@@ -1,11 +1,15 @@
 use super::*;
-use mail_domain::{AccountId, Draft, SendState};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::{
     Address, Body, Change, ChangeId, MailboxRole, MessageId, MessageKey, Patch, ReadState, Star,
 };
+use mail_domain::{Draft, SendState};
+use porter_core::AccountId;
 use std::sync::Mutex;
 
-const ACCOUNT: AccountId = AccountId::from_uuid(uuid::Uuid::from_u128(0xa1));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::Uuid::from_u128(0xa1))
+}
 const ME: &str = "me@example.test";
 
 /// Noon on a Monday, 2026-09-28, and whole days from it.
@@ -24,7 +28,7 @@ fn store(dir: &std::path::Path) -> SqliteStore {
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, ?2, '{}', datetime('now'))",
-            [ACCOUNT.to_string(), ME.to_owned()],
+            [acct_account().to_string(), ME.to_owned()],
         )
         .unwrap();
     store
@@ -34,7 +38,7 @@ fn store(dir: &std::path::Path) -> SqliteStore {
              VALUES (?1, ?2, NULL, ?3, '\"default\"')",
             [
                 mail_domain::IdentityId::generate().to_string(),
-                ACCOUNT.to_string(),
+                acct_account().to_string(),
                 ME.to_owned(),
             ],
         )
@@ -47,7 +51,7 @@ fn message(n: u128, t: ThreadId, from: &str, at: DateTime<Utc>, role: MailboxRol
     Message {
         id: MessageId::from_uuid(uuid::Uuid::from_u128(0x9000 + n)),
         thread: t,
-        account: ACCOUNT,
+        account: acct_account(),
         key: MessageKey::Rfc(format!("m{n}@example.test")),
         date: at,
         from: Address {
@@ -74,7 +78,7 @@ fn message(n: u128, t: ThreadId, from: &str, at: DateTime<Utc>, role: MailboxRol
 fn put(store: &SqliteStore, message: Message) {
     store
         .apply(
-            ACCOUNT,
+            acct_account(),
             &Patch {
                 id: ChangeId::generate(),
                 changes: vec![Change::MessageUpsert(Box::new(message))],
@@ -301,14 +305,21 @@ fn a_returned_conversation_leaves_the_top_when_archived_or_snoozed() {
     // Still waiting in the Waiting place, which lists every reminder.
     assert_eq!(waiting(&store, None, day(2)).len(), 1);
     // And not on another account's list.
-    let elsewhere = Filter::Account(AccountId::from_uuid(uuid::Uuid::from_u128(0xa2)));
+    let elsewhere = Filter::Account(account_id_from_uuid(uuid::Uuid::from_u128(0xa2)));
     assert_eq!(waiting(&store, Some(&elsewhere), day(2)).len(), 0);
 }
 
 /// A draft queued to leave, as `crate::compose` leaves it.
 fn queued(store: &SqliteStore, in_reply_to: Option<MessageId>) -> Draft {
-    let draft =
-        crate::compose::draft_new(store, ACCOUNT, &[], "Checking in", "Any news?", day(0)).unwrap();
+    let draft = crate::compose::draft_new(
+        store,
+        acct_account(),
+        &[],
+        "Checking in",
+        "Any news?",
+        day(0),
+    )
+    .unwrap();
     let draft = Draft {
         in_reply_to,
         state: SendState::Queued,

@@ -2,13 +2,14 @@
 //! offline draft is never lost.
 
 use crate::content::Address;
-use crate::id::{AccountId, BlobId, DraftId, IdentityId, MessageId};
+use crate::id::{BlobId, DraftId, IdentityId, MessageId};
 use crate::message::Message;
 use crate::pgp::OpenPgp;
 use crate::receipt::ReceiptRequest;
 use crate::retry::Retry;
 use crate::smime::Smime;
 use chrono::{DateTime, Utc};
+use porter_core::AccountId;
 use serde::{Deserialize, Serialize};
 
 /// A file the user attached, already read into the blob store.
@@ -135,7 +136,7 @@ impl Draft {
 
         Draft {
             id: DraftId::generate(),
-            account: identity.account,
+            account: identity.account.clone(),
             identity: identity.id,
             to,
             cc,
@@ -167,7 +168,7 @@ impl Draft {
     ) -> Draft {
         Draft {
             id: DraftId::generate(),
-            account: identity.account,
+            account: identity.account.clone(),
             identity: identity.id,
             to: Vec::new(),
             cc: Vec::new(),
@@ -200,7 +201,7 @@ impl Draft {
     pub fn blank(identity: &crate::account::Identity, now: DateTime<Utc>) -> Draft {
         Draft {
             id: DraftId::generate(),
-            account: identity.account,
+            account: identity.account.clone(),
             identity: identity.id,
             to: Vec::new(),
             cc: Vec::new(),
@@ -274,6 +275,7 @@ mod tests {
     use super::*;
     use crate::account::Identity;
     use crate::content::Body;
+    use crate::id::new_account_id;
     use crate::id::{BlobId, ThreadId};
     use crate::message::MessageKey;
     use crate::state::{IsDefault, MailboxRole, ReadState, Star};
@@ -294,7 +296,7 @@ mod tests {
     fn identity() -> Identity {
         Identity {
             id: IdentityId::generate(),
-            account: AccountId::generate(),
+            account: new_account_id(),
             from: addr("me@example.test"),
             reply_to: None,
             signature: None,
@@ -306,7 +308,7 @@ mod tests {
         Message {
             id: MessageId::generate(),
             thread: ThreadId::generate(),
-            account: AccountId::generate(),
+            account: new_account_id(),
             key: MessageKey::Rfc("original@example.test".to_owned()),
             date: at(),
             from: addr("sender@example.test"),

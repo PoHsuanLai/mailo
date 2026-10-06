@@ -5,7 +5,8 @@
 use super::{Contact, Kind, Origin, Tally};
 use chrono::{DateTime, Utc};
 use mail_domain::filter::search_tokens;
-use mail_domain::{AccountId, Address, MailboxRole};
+use mail_domain::{Address, MailboxRole};
+use porter_core::AccountId;
 use std::cmp::Ordering;
 
 /// How much writing to someone counts against receiving from them.

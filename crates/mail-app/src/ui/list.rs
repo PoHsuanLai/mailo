@@ -28,6 +28,7 @@ use mail_core::fetch::Link;
 use mail_core::provider::provider;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -146,7 +147,7 @@ pub(super) fn ThreadList(
         .get(shell.read().selected)
         .map(|place| place.name.clone())
         .unwrap_or_else(|| "Inbox".to_owned());
-    let address = shell.read().account.and_then(|id| {
+    let address = shell.read().account.clone().and_then(|id| {
         shell
             .read()
             .accounts
@@ -174,7 +175,7 @@ pub(super) fn ThreadList(
         .map(|(name, id)| (*id, name.clone()))
         .collect();
     // Local folders are never synced: with only them in view there is no Sync, and no word of one.
-    let quiet = syncs_nothing(&rows(), shell.read().account, &shell.read().scope);
+    let quiet = syncs_nothing(&rows(), shell.read().account.clone(), &shell.read().scope);
     // Said by the links of the accounts in view, and said of nothing when they have none.
     let fetching = try_consume_context::<Fetching>();
     let links: Vec<Link> = fetching
@@ -202,12 +203,12 @@ pub(super) fn ThreadList(
     } else {
         accounts
             .iter()
-            .filter(|row| match shell.read().account {
+            .filter(|row| match shell.read().account.clone() {
                 Some(id) => row.id == id,
-                None => shell.read().scope.shows(row.id),
+                None => shell.read().scope.shows(row.id.clone()),
             })
             .filter(|row| mail_core::server_search::searchable(&row.plan))
-            .map(|row| (row.id, row.shown()))
+            .map(|row| (row.id.clone(), row.shown()))
             .collect()
     };
     let server_rows = found();

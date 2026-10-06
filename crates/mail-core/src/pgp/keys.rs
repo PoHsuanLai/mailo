@@ -6,10 +6,12 @@
 
 use super::{PgpError, epoch_changed};
 use chrono::{DateTime, Utc};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_mime::openpgp::{self, Cert, Protection, ReadKey, SecretCert};
-use mail_runtime::Secrets;
+use mail_runtime::SigningStore;
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 
 /// An identity of the user's, found by its address on any account.
 pub(crate) fn identity_for(store: &SqliteStore, address: &str) -> Option<Identity> {
@@ -22,7 +24,7 @@ pub(crate) fn identity_for(store: &SqliteStore, address: &str) -> Option<Identit
             |r| Ok((r.get(0)?, r.get(1)?)),
         )
         .ok()?;
-    let account = AccountId::from_uuid(account.parse().ok()?);
+    let account = account_id_from_uuid(account.parse().ok()?);
     let id = IdentityId::from_uuid(id.parse().ok()?);
     drop(db);
     crate::compose::identity_of(store, account, Some(id)).ok()
@@ -60,7 +62,7 @@ pub fn key_for(
 /// the one used, and mail encrypted to the first would still need the first.
 pub fn generate(
     store: &SqliteStore,
-    secrets: &dyn Secrets,
+    secrets: &dyn SigningStore,
     address: &str,
     now: DateTime<Utc>,
 ) -> Result<PgpKey, PgpError> {
@@ -102,7 +104,7 @@ pub struct Imported {
 /// nobody's here is refused rather than kept, since there is no identity it could sign for.
 pub fn import(
     store: &SqliteStore,
-    secrets: &dyn Secrets,
+    secrets: &dyn SigningStore,
     bytes: &[u8],
     now: DateTime<Utc>,
 ) -> Result<Vec<Imported>, PgpError> {
@@ -125,7 +127,7 @@ pub fn import(
 
 fn import_secret(
     store: &SqliteStore,
-    secrets: &dyn Secrets,
+    secrets: &dyn SigningStore,
     secret: &SecretCert,
     now: DateTime<Utc>,
 ) -> Result<Imported, PgpError> {
@@ -169,7 +171,7 @@ pub fn export_public(key: &PgpKey) -> Result<String, PgpError> {
 /// The secret key, armored, from the keyring. Only for a key whose secret half is held.
 pub fn export_secret(
     store: &SqliteStore,
-    secrets: &dyn Secrets,
+    secrets: &dyn SigningStore,
     key: &PgpKey,
 ) -> Result<String, PgpError> {
     if key.secret != SecretHeld::Held {
@@ -192,7 +194,7 @@ pub enum WithSecret {
 /// Forget a key: its row, and — when confirmed — its secret half in the keyring.
 pub fn delete(
     store: &SqliteStore,
-    secrets: &dyn Secrets,
+    secrets: &dyn SigningStore,
     key: &PgpKey,
     with_secret: WithSecret,
 ) -> Result<(), PgpError> {
@@ -222,7 +224,7 @@ fn account_of(store: &SqliteStore, key: &PgpKey) -> AccountId {
     key.emails
         .iter()
         .find_map(|email| identity_for(store, email))
-        .map_or(AccountId::from_uuid(uuid::Uuid::nil()), |i| i.account)
+        .map_or(account_id_from_uuid(uuid::Uuid::nil()), |i| i.account)
 }
 
 /// The secret key to sign with or decrypt by, with its passphrase when it has one.
@@ -230,7 +232,7 @@ fn account_of(store: &SqliteStore, key: &PgpKey) -> AccountId {
 /// `ask` is asked only for a protected key, and only once.
 pub(crate) fn unlocking(
     store: &SqliteStore,
-    secrets: &dyn Secrets,
+    secrets: &dyn SigningStore,
     key: &PgpKey,
     ask: super::Ask<'_>,
 ) -> Result<openpgp::Unlocking, PgpError> {

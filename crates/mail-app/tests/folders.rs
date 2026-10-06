@@ -3,8 +3,10 @@
 
 use chrono::{DateTime, TimeZone, Utc};
 use mail_app::cli;
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 
 fn now() -> DateTime<Utc> {
     Utc.timestamp_opt(1_700_000_000, 0).unwrap()
@@ -45,10 +47,10 @@ fn configure(store: &SqliteStore, id: AccountId, preset: presets::Preset) {
 fn store() -> (SqliteStore, tempfile::TempDir, AccountId) {
     let dir = tempfile::tempdir().unwrap();
     let store = SqliteStore::in_memory(dir.path()).unwrap();
-    let account = AccountId::from_uuid(uuid::Uuid::from_u128(0xa1));
+    let account = account_id_from_uuid(uuid::Uuid::from_u128(0xa1));
     configure(
         &store,
-        account,
+        account.clone(),
         presets::manual(
             IMAP,
             &presets::Manual {
@@ -63,7 +65,7 @@ fn store() -> (SqliteStore, tempfile::TempDir, AccountId) {
     );
     configure(
         &store,
-        AccountId::from_uuid(uuid::Uuid::from_u128(0xa2)),
+        account_id_from_uuid(uuid::Uuid::from_u128(0xa2)),
         presets::manual_pop3(
             POP,
             &presets::ManualPop3 {
@@ -77,7 +79,7 @@ fn store() -> (SqliteStore, tempfile::TempDir, AccountId) {
         ),
     );
     let folder = |path: &str, special: Option<SpecialUse>| Folder {
-        account,
+        account: account.clone(),
         path: path.to_owned(),
         delimiter: Some('/'),
         special,
@@ -86,7 +88,7 @@ fn store() -> (SqliteStore, tempfile::TempDir, AccountId) {
     };
     store
         .put_folders(
-            account,
+            account.clone(),
             vec![
                 folder("INBOX", None),
                 folder("Sent", Some(SpecialUse::Sent)),
@@ -109,7 +111,7 @@ fn queued(store: &SqliteStore, account: AccountId) -> Vec<ProtoOp> {
 #[test]
 fn a_new_folder_is_listed_at_once_and_queued_for_the_server() {
     let (store, _dir, account) = store();
-    let before = queued(&store, account).len();
+    let before = queued(&store, account.clone()).len();
 
     let said = run(&store, &format!("folder new {IMAP} Receipts")).unwrap();
     assert!(said.contains("created Receipts"), "{said}");
@@ -138,7 +140,7 @@ fn a_rename_moves_it_here_and_queues_the_rename() {
     let (store, _dir, account) = store();
     run(&store, &format!("folder rename {IMAP} Work Jobs")).unwrap();
     let paths: Vec<String> = store
-        .folders(account)
+        .folders(account.clone())
         .unwrap()
         .into_iter()
         .map(|f| f.path)
@@ -155,7 +157,7 @@ fn a_rename_moves_it_here_and_queues_the_rename() {
 #[test]
 fn the_sent_folder_and_the_inbox_are_refused_by_name() {
     let (store, _dir, account) = store();
-    let before = queued(&store, account).len();
+    let before = queued(&store, account.clone()).len();
     let error = run(
         &store,
         &format!("folder delete {IMAP} Sent --with-messages"),
@@ -174,10 +176,10 @@ fn deleting_a_folder_with_mail_in_it_needs_saying_so() {
     let (store, _dir, account) = store();
     store
         .ingest(
-            account,
+            account.clone(),
             Ingest {
                 mailbox: MailboxRef {
-                    account,
+                    account: account.clone(),
                     path: "Work".to_owned(),
                 },
                 validity: UidValidity::Same,

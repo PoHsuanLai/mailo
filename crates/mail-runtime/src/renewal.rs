@@ -11,14 +11,13 @@
 //! factory reads each time it connects, and — for an account that sends through Graph — the
 //! separate Graph token, which lives in the keyring where submission already reads it.
 
+use crate::AccountSecrets;
 use crate::RuntimeError;
 use crate::oauth::{self, Freshness};
-use crate::secrets::Secrets;
 use crate::signin::{self, Registration};
 use chrono::{DateTime, Utc};
-use mail_domain::{
-    AccountId, AccountPlan, AuthPlan, Credential, Incoming, Outgoing, Retry, Retryable,
-};
+use mail_domain::{AccountPlan, AuthPlan, Incoming, Outgoing, Retry, Retryable};
+use porter_core::{AccountId, Credential};
 use std::sync::{Arc, Mutex};
 
 /// Where a [`Renewal`] reads the time.
@@ -102,7 +101,7 @@ pub struct Renewal {
     incoming_scopes: Vec<String>,
     outgoing: Outgoing,
     incoming: Incoming,
-    secrets: Arc<dyn Secrets>,
+    secrets: Arc<dyn AccountSecrets>,
     http: reqwest::Client,
     held: Held,
     now: Now,
@@ -127,7 +126,7 @@ impl Renewal {
         account: AccountId,
         plan: &AccountPlan,
         registration: Registration,
-        secrets: Arc<dyn Secrets>,
+        secrets: Arc<dyn AccountSecrets>,
         held: Held,
     ) -> Result<Self, RuntimeError> {
         let incoming_scopes = match &plan.auth {
@@ -177,7 +176,7 @@ impl Renewal {
             }
             Token::Sending => {
                 let minted = signin::graph_token(
-                    self.account,
+                    self.account.clone(),
                     &self.registration,
                     self.reach(),
                     self.secrets.as_ref(),
@@ -204,22 +203,23 @@ impl Renewal {
                     // A password is not renewed; its refusal is the user's to answer.
                     return Ok(AfterRefusal::StillRefused);
                 };
-                if self.spent().incoming.as_deref() == Some(access.as_str()) {
+                if self.spent().incoming.as_deref() == Some(access.expose()) {
                     return Ok(AfterRefusal::StillRefused);
                 }
-                let renewed = self.incoming(&refresh, now).await?;
+                let renewed = self.incoming(refresh.expose(), now).await?;
                 self.spent().incoming = access_of(&renewed);
             }
             Token::Sending => {
-                let held = self.secrets.get(&self.sending_key()).ok();
+                let held = self.secrets.get(&self.sending_key()).await.ok();
                 if let Some(Credential::OAuth { access, .. }) = &held
-                    && self.spent().sending.as_deref() == Some(access.as_str())
+                    && self.spent().sending.as_deref() == Some(access.expose())
                 {
                     return Ok(AfterRefusal::StillRefused);
                 }
-                let refresh_token = signin::graph_refresh(self.secrets.as_ref(), self.account)?;
+                let refresh_token =
+                    signin::graph_refresh(self.secrets.as_ref(), self.account.clone()).await?;
                 let minted = signin::mint_graph(
-                    self.account,
+                    self.account.clone(),
                     &self.registration,
                     self.reach(),
                     &refresh_token,
@@ -242,7 +242,7 @@ impl Renewal {
         now: DateTime<Utc>,
     ) -> Result<Credential, RuntimeError> {
         let renewed = signin::renew_incoming(
-            self.account,
+            self.account.clone(),
             &self.registration,
             &self.incoming_scopes,
             refresh_token,
@@ -316,10 +316,10 @@ impl Renewal {
         }
     }
 
-    fn sending_key(&self) -> mail_domain::SecretKey {
-        mail_domain::SecretKey {
-            account: self.account,
-            purpose: mail_domain::SecretPurpose::OutgoingPassword,
+    fn sending_key(&self) -> porter_core::SecretKey {
+        porter_core::SecretKey {
+            account: self.account.clone(),
+            purpose: porter_core::SecretPurpose::OutgoingPassword,
         }
     }
 
@@ -333,7 +333,7 @@ impl Renewal {
 
 fn access_of(credential: &Credential) -> Option<String> {
     match credential {
-        Credential::OAuth { access, .. } => Some(access.clone()),
-        Credential::Password(_) | Credential::OpenPgp(_) | Credential::SmimeKey(_) => None,
+        Credential::OAuth { access, .. } => Some(access.expose().to_owned()),
+        Credential::Password(_) | Credential::ApiKey(_) | Credential::KeyPair { .. } => None,
     }
 }

@@ -31,15 +31,18 @@ use ds::prelude::{Point, Px};
 use ds_blitz::{NetPolicy, PrintOutcome};
 use ds_harness::{Clock, Driver, Harness, HarnessConfig, Query as Read, Viewport};
 use mail_app::ui::appearance::WindowDirs;
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_runtime::{Arrival, absorb};
 use mail_store::SqliteStore;
+use porter_core::AccountId;
 use settle::{WAIT_BOUND, settle_until};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000c3"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000c3"))
+}
 
 const VIEW: Viewport = Viewport {
     width: 1200,
@@ -79,13 +82,16 @@ fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
         db.execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [ACCOUNT.to_string()],
+            [acct_account().to_string()],
         )
         .unwrap();
         db.execute(
             "INSERT INTO identities (id, account, from_name, from_email, is_default)
              VALUES (?1, ?2, NULL, 'me@example.test', '\"default\"')",
-            [IdentityId::generate().to_string(), ACCOUNT.to_string()],
+            [
+                IdentityId::generate().to_string(),
+                acct_account().to_string(),
+            ],
         )
         .unwrap();
     }
@@ -103,9 +109,9 @@ fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
         .collect();
     absorb(
         &store,
-        ACCOUNT,
+        acct_account(),
         MailboxRef {
-            account: ACCOUNT,
+            account: acct_account(),
             path: "INBOX".to_owned(),
         },
         Some(SyncCursor::Pop),

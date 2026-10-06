@@ -13,9 +13,15 @@ use chrono::{DateTime, TimeZone, Utc};
 use mail_core::fetch::{self, Effect, Event, First, Link, Step};
 use mail_core::sync::report::PassEnd;
 use mail_core::{account, sync};
+use mail_domain::id::{account_id_from_uuid, new_account_id};
 use mail_domain::*;
-use mail_runtime::{MapSecrets, OAuthRegistry, Secrets};
+use mail_runtime::{AccountSecrets, OAuthRegistry};
 use mail_store::SqliteStore;
+use porter_core::SecretText;
+use porter_core::UnixSeconds;
+use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
+use porter_provider::Issuer;
+use porter_secrets::MemorySecrets;
 use std::sync::Arc;
 
 /// What a run says, as one string to search: each address with its reason or its trouble.
@@ -65,8 +71,9 @@ fn waiting(failures: u32) -> Link {
     }
 }
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 
 fn now() -> DateTime<Utc> {
     Utc.timestamp_opt(1_700_000_000, 0).unwrap()
@@ -117,13 +124,16 @@ fn configured_with(
         db.execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'ada@example.test', ?2, datetime('now'))",
-            rusqlite::params![ACCOUNT.to_string(), serde_json::to_string(&plan).unwrap()],
+            rusqlite::params![
+                acct_account().to_string(),
+                serde_json::to_string(&plan).unwrap()
+            ],
         )
         .unwrap();
         db.execute(
             "INSERT INTO account_caps (account, caps, observed_at) VALUES (?1, ?2, ?3)",
             rusqlite::params![
-                ACCOUNT.to_string(),
+                acct_account().to_string(),
                 serde_json::to_string(&caps).unwrap(),
                 now().to_rfc3339()
             ],
@@ -154,16 +164,15 @@ fn caps() -> AccountCaps {
     }
 }
 
-fn with_password(store_secrets: &MapSecrets, password: &str) {
-    store_secrets
-        .put(
-            &SecretKey {
-                account: ACCOUNT,
-                purpose: SecretPurpose::IncomingPassword,
-            },
-            &Credential::Password(password.to_owned()),
-        )
-        .unwrap();
+fn with_password(store_secrets: &MemorySecrets, password: &str) {
+    mail_runtime::block_on(store_secrets.put(
+        &SecretKey {
+            account: acct_account(),
+            purpose: SecretPurpose::IncomingPassword,
+        },
+        &Credential::Password(SecretText::new(password.to_owned())),
+    ))
+    .unwrap();
 }
 
 #[test]
@@ -173,7 +182,7 @@ fn an_account_with_no_credential_is_skipped_with_a_reason() {
     let (store, _dir) = configured(1, caps());
     let out = sync::run_with(
         store,
-        Arc::new(MapSecrets::default()),
+        Arc::new(MemorySecrets::default()),
         &OAuthRegistry::default(),
         now(),
         sync::report::Hooks::default(),
@@ -193,7 +202,7 @@ fn an_account_with_no_credential_is_skipped_with_a_reason() {
 fn an_unreachable_server_is_reported_per_account_not_thrown() {
     // Port 1 refuses. The pass should say so against that account and return.
     let (store, _dir) = configured(1, caps());
-    let secrets = MapSecrets::default();
+    let secrets = MemorySecrets::default();
     with_password(&secrets, "s3cr3t-pass");
 
     let out = sync::run_with(
@@ -219,7 +228,7 @@ fn no_accounts_is_a_run_with_no_account_in_it() {
     let store = Arc::new(SqliteStore::in_memory(dir.path()).unwrap());
     let ends = sync::run_with(
         store,
-        Arc::new(MapSecrets::default()),
+        Arc::new(MemorySecrets::default()),
         &OAuthRegistry::default(),
         now(),
         sync::report::Hooks::default(),
@@ -234,7 +243,7 @@ async fn a_whole_pass_against_a_real_server_lands_mail_and_reports_what_it_fetch
     // The assembly, end to end: stored plan, stored capabilities, a credential, a real server,
     // and a report of what the pass fetched. How it is worded is the command line's.
     let (store, _dir) = configured(11143, caps());
-    let secrets = MapSecrets::default();
+    let secrets = MemorySecrets::default();
     with_password(&secrets, "s3cr3t-pass");
 
     let store_for_pass = store.clone();
@@ -372,7 +381,7 @@ mod renewing_an_expired_sign_in {
                 tls: Tls::Plaintext,
             },
             auth: AuthPlan::OAuth {
-                issuer: OAuthIssuer::Google,
+                issuer: Issuer::Google,
                 scopes: vec!["https://mail.google.com/".to_owned()],
             },
             identities: Vec::new(),
@@ -381,7 +390,10 @@ mod renewing_an_expired_sign_in {
             .connection()
             .execute(
                 "UPDATE accounts SET plan = ?1 WHERE id = ?2",
-                rusqlite::params![serde_json::to_string(&plan).unwrap(), ACCOUNT.to_string()],
+                rusqlite::params![
+                    serde_json::to_string(&plan).unwrap(),
+                    acct_account().to_string()
+                ],
             )
             .unwrap();
         (store, dir)
@@ -389,7 +401,7 @@ mod renewing_an_expired_sign_in {
 
     fn key() -> SecretKey {
         SecretKey {
-            account: ACCOUNT,
+            account: acct_account(),
             purpose: SecretPurpose::IncomingPassword,
         }
     }
@@ -397,25 +409,27 @@ mod renewing_an_expired_sign_in {
     /// An OAuth credential expiring `minutes` from `now()`.
     fn token(minutes: i64) -> Credential {
         Credential::OAuth {
-            access: "ya29.stale".to_owned(),
-            refresh: "the-refresh-token".to_owned(),
-            expires_at: now() + chrono::TimeDelta::try_minutes(minutes).unwrap(),
+            access: SecretText::new("ya29.stale".to_owned()),
+            refresh: SecretText::new("the-refresh-token".to_owned()),
+            expires_at: UnixSeconds(
+                (now() + chrono::TimeDelta::try_minutes(minutes).unwrap()).timestamp(),
+            ),
         }
     }
 
     fn registry(ends: Endpoints) -> OAuthRegistry {
         let mut registry = OAuthRegistry::default();
-        registry.set(Registration::new(OAuthIssuer::Google, "client-id").at(ends));
+        registry.set(Registration::new(Issuer::Google, "client-id").at(ends));
         registry
     }
 
     #[test]
     fn an_expired_access_token_is_renewed_and_the_new_one_stored() {
         let (store, _dir) = oauth_account();
-        let secrets: Arc<dyn Secrets> = Arc::new(MapSecrets::default());
+        let secrets: Arc<dyn AccountSecrets> = Arc::new(MemorySecrets::default());
         // Two hours past expiry, which is where every OAuth account ended up an hour after it
         // was added and stayed forever.
-        secrets.put(&key(), &token(-120)).unwrap();
+        mail_runtime::block_on(secrets.put(&key(), &token(-120))).unwrap();
         let (ends, seen) = token_endpoint(RENEWED);
 
         let _ = sync::run_with(
@@ -436,17 +450,25 @@ mod renewing_an_expired_sign_in {
             "the stored refresh token was not the one spent: {asked:?}"
         );
 
-        match secrets.get(&key()).unwrap() {
+        match mail_runtime::block_on(secrets.get(&key())).unwrap() {
             Credential::OAuth {
                 access,
                 refresh,
                 expires_at,
             } => {
-                assert_eq!(access, "ya29.renewed", "the new token was not written back");
+                assert_eq!(
+                    access.expose(),
+                    "ya29.renewed",
+                    "the new token was not written back"
+                );
                 // This issuer returned no new refresh token, which is the usual case. Dropping
                 // the old one logs the user out at the next expiry with nothing to recover from.
-                assert_eq!(refresh, "the-refresh-token");
-                assert!(expires_at > now(), "{expires_at} is not in the future");
+                assert_eq!(refresh.expose(), "the-refresh-token");
+                assert!(
+                    expires_at.0 > now().timestamp(),
+                    "{} is not in the future",
+                    expires_at.0
+                );
             }
             other => panic!("the stored credential became {other:?}"),
         }
@@ -458,8 +480,8 @@ mod renewing_an_expired_sign_in {
         // `OAuthRefresh`. Renewing only one leaves the other stale, which is the same account
         // failing an hour later by a different route.
         let (store, _dir) = oauth_account();
-        let secrets: Arc<dyn Secrets> = Arc::new(MapSecrets::default());
-        secrets.put(&key(), &token(-120)).unwrap();
+        let secrets: Arc<dyn AccountSecrets> = Arc::new(MemorySecrets::default());
+        mail_runtime::block_on(secrets.put(&key(), &token(-120))).unwrap();
         let (ends, _seen) = token_endpoint(RENEWED);
 
         let _ = sync::run_with(
@@ -470,14 +492,13 @@ mod renewing_an_expired_sign_in {
             sync::report::Hooks::default(),
         );
 
-        let stored = secrets
-            .get(&SecretKey {
-                account: ACCOUNT,
-                purpose: SecretPurpose::OAuthRefresh,
-            })
-            .expect("the refresh entry should have been rewritten");
+        let stored = mail_runtime::block_on(secrets.get(&SecretKey {
+            account: acct_account(),
+            purpose: SecretPurpose::OAuthRefresh,
+        }))
+        .expect("the refresh entry should have been rewritten");
         match stored {
-            Credential::OAuth { access, .. } => assert_eq!(access, "ya29.renewed"),
+            Credential::OAuth { access, .. } => assert_eq!(access.expose(), "ya29.renewed"),
             other => panic!("{other:?}"),
         }
     }
@@ -487,8 +508,8 @@ mod renewing_an_expired_sign_in {
         // Renewing on every pass would turn a five-minute poll into a five-minute round trip to
         // the issuer, and issuers rate-limit that.
         let (store, _dir) = oauth_account();
-        let secrets: Arc<dyn Secrets> = Arc::new(MapSecrets::default());
-        secrets.put(&key(), &token(45)).unwrap();
+        let secrets: Arc<dyn AccountSecrets> = Arc::new(MemorySecrets::default());
+        mail_runtime::block_on(secrets.put(&key(), &token(45))).unwrap();
         let (ends, seen) = token_endpoint(RENEWED);
 
         let _ = sync::run_with(
@@ -504,7 +525,11 @@ mod renewing_an_expired_sign_in {
             "a valid token was sent to the issuer anyway: {:?}",
             seen.lock().unwrap()
         );
-        assert_eq!(secrets.get(&key()).unwrap(), token(45), "and left alone");
+        assert_eq!(
+            mail_runtime::block_on(secrets.get(&key())).unwrap(),
+            token(45),
+            "and left alone"
+        );
     }
 
     /// A Microsoft sign-in that also consented to Graph renews its IMAP token by name.
@@ -523,23 +548,25 @@ mod renewing_an_expired_sign_in {
             .connection()
             .execute(
                 "UPDATE accounts SET plan = ?1 WHERE id = ?2",
-                rusqlite::params![serde_json::to_string(&plan).unwrap(), ACCOUNT.to_string()],
+                rusqlite::params![
+                    serde_json::to_string(&plan).unwrap(),
+                    acct_account().to_string()
+                ],
             )
             .unwrap();
-        let secrets: Arc<dyn Secrets> = Arc::new(MapSecrets::default());
-        secrets.put(&key(), &token(-120)).unwrap();
-        secrets
-            .put(
-                &SecretKey {
-                    account: ACCOUNT,
-                    purpose: SecretPurpose::OAuthRefresh,
-                },
-                &token(-120),
-            )
-            .unwrap();
+        let secrets: Arc<dyn AccountSecrets> = Arc::new(MemorySecrets::default());
+        mail_runtime::block_on(secrets.put(&key(), &token(-120))).unwrap();
+        mail_runtime::block_on(secrets.put(
+            &SecretKey {
+                account: acct_account(),
+                purpose: SecretPurpose::OAuthRefresh,
+            },
+            &token(-120),
+        ))
+        .unwrap();
         let (ends, seen) = token_endpoint(RENEWED);
         let mut registry = OAuthRegistry::default();
-        registry.set(Registration::new(OAuthIssuer::Microsoft, "client-id").at(ends));
+        registry.set(Registration::new(Issuer::Microsoft, "client-id").at(ends));
 
         let _ = sync::run_with(
             store,
@@ -571,10 +598,12 @@ mod renewing_an_expired_sign_in {
         // The plan is what decides, not the credential: a password has no expiry and there is
         // nothing to renew it with.
         let (store, _dir) = configured(1, caps());
-        let secrets: Arc<dyn Secrets> = Arc::new(MapSecrets::default());
-        secrets
-            .put(&key(), &Credential::Password("hunter2".to_owned()))
-            .unwrap();
+        let secrets: Arc<dyn AccountSecrets> = Arc::new(MemorySecrets::default());
+        mail_runtime::block_on(secrets.put(
+            &key(),
+            &Credential::Password(SecretText::new("hunter2".to_owned())),
+        ))
+        .unwrap();
         let (ends, seen) = token_endpoint(RENEWED);
 
         let _ = sync::run_with(
@@ -593,8 +622,8 @@ mod renewing_an_expired_sign_in {
         // "authentication failed" points at the password the user does not have. The actual
         // problem is that this installation cannot renew, and the message has to say that.
         let (store, _dir) = oauth_account();
-        let secrets: Arc<dyn Secrets> = Arc::new(MapSecrets::default());
-        secrets.put(&key(), &token(-120)).unwrap();
+        let secrets: Arc<dyn AccountSecrets> = Arc::new(MemorySecrets::default());
+        mail_runtime::block_on(secrets.put(&key(), &token(-120))).unwrap();
 
         let out = sync::run_with(
             store,
@@ -630,7 +659,10 @@ mod folders {
             .connection()
             .execute(
                 "UPDATE account_caps SET caps = ?1 WHERE account = ?2",
-                rusqlite::params![serde_json::to_string(&caps).unwrap(), ACCOUNT.to_string()],
+                rusqlite::params![
+                    serde_json::to_string(&caps).unwrap(),
+                    acct_account().to_string()
+                ],
             )
             .unwrap();
         // Through the same function the pass uses, rather than a copy of its rules — the
@@ -697,7 +729,10 @@ mod polling {
             .connection()
             .execute(
                 "UPDATE account_caps SET caps = ?1 WHERE account = ?2",
-                rusqlite::params![serde_json::to_string(&caps).unwrap(), ACCOUNT.to_string()],
+                rusqlite::params![
+                    serde_json::to_string(&caps).unwrap(),
+                    acct_account().to_string()
+                ],
             )
             .unwrap();
     }
@@ -794,7 +829,7 @@ mod a_refused_sign_in {
     #[test]
     fn the_pass_says_the_credential_was_rejected() {
         let (store, _dir) = configured(serve_refusing(), caps());
-        let secrets = MapSecrets::default();
+        let secrets = MemorySecrets::default();
         with_password(&secrets, "definitely-not-the-password");
 
         let ends = sync::run_with(
@@ -831,7 +866,7 @@ mod a_refused_sign_in {
     #[test]
     fn a_server_that_is_simply_down_is_not_a_refusal() {
         let (store, _dir) = configured(1, caps()); // port 1 refuses the connection
-        let secrets = MapSecrets::default();
+        let secrets = MemorySecrets::default();
         with_password(&secrets, "the-right-password");
 
         let ends = sync::run_with(
@@ -879,7 +914,7 @@ mod a_refused_sign_in {
         // The two halves joined: the classification the pass produces, fed to the decision the
         // loop makes. Either alone proves nothing about what the client does to a mail server.
         let (store, _dir) = configured(serve_refusing(), caps());
-        let secrets = MapSecrets::default();
+        let secrets = MemorySecrets::default();
         with_password(&secrets, "wrong");
 
         let ends = sync::run_with(
@@ -947,7 +982,7 @@ mod a_server_asking_to_be_left_alone {
     #[test]
     fn the_wait_the_server_asked_for_survives_as_far_as_the_loop() {
         let (store, _dir) = configured(serve_throttling(), caps());
-        let secrets = MapSecrets::default();
+        let secrets = MemorySecrets::default();
         with_password(&secrets, "the-right-password");
 
         let ends = sync::run_with(
@@ -976,7 +1011,7 @@ mod a_server_asking_to_be_left_alone {
     #[test]
     fn and_the_loop_waits_that_long_rather_than_the_usual_five_minutes() {
         let (store, _dir) = configured(serve_throttling(), caps());
-        let secrets = MapSecrets::default();
+        let secrets = MemorySecrets::default();
         with_password(&secrets, "the-right-password");
 
         let ends = sync::run_with(
@@ -1022,7 +1057,7 @@ mod an_account_with_nothing_stored {
         let (store, _dir) = configured_with(1, caps(), auth);
         sync::run_with(
             store,
-            Arc::new(MapSecrets::default()),
+            Arc::new(MemorySecrets::default()),
             &OAuthRegistry::default(),
             now(),
             sync::report::Hooks::default(),
@@ -1047,7 +1082,7 @@ mod an_account_with_nothing_stored {
     #[test]
     fn an_oauth_account_is_not_sent_to_find_a_password() {
         let out = told(AuthPlan::OAuth {
-            issuer: OAuthIssuer::Google,
+            issuer: Issuer::Google,
             scopes: vec!["https://mail.google.com/".to_owned()],
         });
         assert!(
@@ -1070,7 +1105,7 @@ mod an_account_with_nothing_stored {
             1,
             caps(),
             AuthPlan::OAuth {
-                issuer: OAuthIssuer::Google,
+                issuer: Issuer::Google,
                 scopes: vec!["https://mail.google.com/".to_owned()],
             },
         );
@@ -1098,7 +1133,7 @@ mod an_account_with_nothing_stored {
     #[test]
     fn a_microsoft_account_keeps_the_flag_that_makes_the_command_work() {
         let out = told(AuthPlan::OAuth {
-            issuer: OAuthIssuer::Microsoft,
+            issuer: Issuer::Microsoft,
             scopes: vec!["https://outlook.office.com/IMAP.AccessAsUser.All".to_owned()],
         });
         assert!(
@@ -1132,7 +1167,7 @@ mod capabilities_the_window_reads {
             },
         );
 
-        let read = sync::caps_of(&store, ACCOUNT).expect("the account has capabilities");
+        let read = sync::caps_of(&store, acct_account()).expect("the account has capabilities");
         assert_eq!(read.archive, ArchiveMeans::DropInbox);
         assert_eq!(read.labels, ServerLabels::Supported);
     }
@@ -1142,7 +1177,7 @@ mod capabilities_the_window_reads {
         // Not an error: the window can be opened before the first sync, and the caller's answer
         // is to assume nothing rather than to refuse to act.
         let (store, _dir) = configured(1, caps());
-        assert!(sync::caps_of(&store, AccountId::generate()).is_none());
+        assert!(sync::caps_of(&store, new_account_id()).is_none());
     }
 }
 
@@ -1184,7 +1219,7 @@ mod both_accounts_at_once {
 
     /// A store with two password accounts, each pointed at its own port.
     fn other_account() -> AccountId {
-        AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a2"))
+        account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a2"))
     }
 
     fn two_accounts(first: u16, second: u16) -> (Arc<SqliteStore>, tempfile::TempDir) {
@@ -1245,17 +1280,16 @@ mod both_accounts_at_once {
 
         // Both accounts need a credential, or the one without it is skipped before it ever
         // opens a socket — and a test of concurrency with one participant proves nothing.
-        let secrets = MapSecrets::default();
+        let secrets = MemorySecrets::default();
         with_password(&secrets, "s3cr3t-pass");
-        secrets
-            .put(
-                &SecretKey {
-                    account: other_account(),
-                    purpose: SecretPurpose::IncomingPassword,
-                },
-                &Credential::Password("s3cr3t-pass".to_owned()),
-            )
-            .unwrap();
+        mail_runtime::block_on(secrets.put(
+            &SecretKey {
+                account: other_account(),
+                purpose: SecretPurpose::IncomingPassword,
+            },
+            &Credential::Password(SecretText::new("s3cr3t-pass".to_owned())),
+        ))
+        .unwrap();
         let _ = sync::run_with(
             store,
             Arc::new(secrets),
@@ -1376,7 +1410,7 @@ mod watching {
 
     fn account(caps: AccountCaps, port: u16) -> Configured {
         Configured {
-            id: ACCOUNT,
+            id: acct_account(),
             address: "ada@example.test".to_owned(),
             plan: AccountPlan {
                 address: "ada@example.test".to_owned(),
@@ -1413,15 +1447,15 @@ mod watching {
             asked: asked.clone(),
         };
         let mut engine = mail_runtime::AccountEngine::new(
-            ACCOUNT,
+            acct_account(),
             account(caps.clone(), port).plan.clone(),
             backend,
             store.clone(),
-            StdArc::new(MapSecrets::default()),
+            StdArc::new(MemorySecrets::default()),
         );
         let (_tx, mut cancel) = tokio::sync::watch::channel(false);
         let inboxes = vec![MailboxRef {
-            account: ACCOUNT,
+            account: acct_account(),
             path: "INBOX".to_owned(),
         }];
         let account = account(caps, port);
@@ -1510,9 +1544,9 @@ fn fetching_a_part_of_a_pop3_message_is_refused_before_anything_is_sent() {
         .unwrap();
     mail_runtime::absorb(
         &store,
-        ACCOUNT,
+        acct_account(),
         MailboxRef {
-            account: ACCOUNT,
+            account: acct_account(),
             path: "INBOX".to_owned(),
         },
         None,
@@ -1533,7 +1567,7 @@ fn fetching_a_part_of_a_pop3_message_is_refused_before_anything_is_sent() {
 
     let err = sync::fetch_part_with(
         &store,
-        Arc::new(MapSecrets::default()),
+        Arc::new(MemorySecrets::default()),
         &OAuthRegistry::default(),
         MessageId::from_uuid(id.parse().unwrap()),
         "2",

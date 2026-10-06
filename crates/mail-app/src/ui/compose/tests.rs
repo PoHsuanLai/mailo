@@ -23,6 +23,7 @@ use std::sync::Arc;
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
 use dioxus_core::{NoOpMutations, VirtualDom};
+use mail_domain::id::new_account_id;
 use mail_domain::*;
 use mail_store::SqliteStore;
 
@@ -47,7 +48,7 @@ fn at(minutes: i64) -> DateTime<Utc> {
 fn draft_of(text: &str) -> Draft {
     Draft {
         id: DraftId::generate(),
-        account: AccountId::generate(),
+        account: new_account_id(),
         identity: IdentityId::generate(),
         to: Vec::new(),
         cc: Vec::new(),

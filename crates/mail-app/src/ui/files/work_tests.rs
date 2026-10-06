@@ -6,9 +6,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_domain::id::new_account_id;
 use mail_domain::*;
 use mail_mime::archive::maildir::INFO;
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 
 use super::work::{
     self, Counted, Dest, Format, Looked, expand, export_now, import_now, look, prefill, suggested,
@@ -99,7 +101,7 @@ fn subjects(store: &SqliteStore, account: AccountId) -> Vec<String> {
 fn the_local_account(store: &SqliteStore) -> AccountId {
     let local = mail_core::sync::local_accounts(store);
     assert_eq!(local.len(), 1, "one local account: {local:?}");
-    local[0]
+    local[0].clone()
 }
 
 /// What the sheet says is at `path`, and the source it will read.
@@ -156,7 +158,10 @@ fn an_mbox_is_counted_then_imported_into_local_folders_once() {
         "2 message(s) read; 2 kept in local folders; 0 already there"
     );
     let account = the_local_account(&store);
-    assert_eq!(subjects(&store, account), vec!["Re: lunch", "lunch"]);
+    assert_eq!(
+        subjects(&store, account.clone()),
+        vec!["Re: lunch", "lunch"]
+    );
 
     let again = import_now(&store, &source, &Dest::Local, now(), &mut |_| {}).unwrap();
     assert_eq!(
@@ -400,7 +405,7 @@ fn with_folders() -> (Arc<SqliteStore>, tempfile::TempDir, AccountId) {
             )
             .unwrap();
     };
-    let imap = AccountId::generate();
+    let imap = new_account_id();
     let manual = presets::Manual {
         imap_host: "imap.nowhere.example".to_owned(),
         imap_port: 993,
@@ -409,7 +414,7 @@ fn with_folders() -> (Arc<SqliteStore>, tempfile::TempDir, AccountId) {
         login: None,
     };
     add(
-        imap,
+        imap.clone(),
         &presets::manual("me@nowhere.example", &manual, now()).plan,
     );
     let pop = presets::ManualPop3 {
@@ -420,11 +425,11 @@ fn with_folders() -> (Arc<SqliteStore>, tempfile::TempDir, AccountId) {
         login: None,
     };
     add(
-        AccountId::generate(),
+        new_account_id(),
         &presets::manual_pop3("pop@nowhere.example", &pop, now()).plan,
     );
     let folder = |path: &str| Folder {
-        account: imap,
+        account: imap.clone(),
         path: path.to_owned(),
         delimiter: Some('/'),
         special: None,
@@ -432,7 +437,7 @@ fn with_folders() -> (Arc<SqliteStore>, tempfile::TempDir, AccountId) {
         holds: Holds::Mail,
     };
     store
-        .put_folders(imap, vec![folder("INBOX"), folder("Archive/2023")])
+        .put_folders(imap.clone(), vec![folder("INBOX"), folder("Archive/2023")])
         .unwrap();
     (store, dir, imap)
 }
@@ -441,7 +446,7 @@ fn with_folders() -> (Arc<SqliteStore>, tempfile::TempDir, AccountId) {
 fn imported_mail_goes_to_local_folders_or_an_imap_accounts_folder() {
     let (store, _dir, imap) = with_folders();
     let folder = |path: &str| Dest::Folder {
-        account: imap,
+        account: imap.clone(),
         address: "me@nowhere.example".to_owned(),
         folder: path.to_owned(),
     };

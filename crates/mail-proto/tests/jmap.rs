@@ -1,9 +1,8 @@
 //! JMAP as values: sessions and responses parsed, requests built, against RFC 8620 and RFC 8621's
 //! own examples where they give one and this client's own where they do not.
 
-use mail_domain::{
-    AccountId, FolderWork, MailboxRole, NonEmpty, ReadState, SpecialUse, Star, Subscription,
-};
+use mail_domain::id::new_account_id;
+use mail_domain::{FolderWork, MailboxRole, NonEmpty, ReadState, SpecialUse, Star, Subscription};
 use mail_proto::jmap::{self, *};
 use mail_proto::{ProtoError, Refusal};
 use serde_json::{Value, json};
@@ -209,7 +208,7 @@ fn mailboxes_become_folders_with_paths_and_roles() {
     let roles = m.roles();
     assert_eq!(roles.path(MailboxRole::Sent), Some("Sent"));
     assert_eq!(roles.path(MailboxRole::Archive), Some("Archive"));
-    let folders = m.folders(AccountId::generate());
+    let folders = m.folders(new_account_id());
     let nested = folders.iter().find(|f| f.path == "Work/2026").unwrap();
     assert_eq!(nested.subscription, Subscription::Unsubscribed);
     assert_eq!(nested.delimiter, Some('/'));

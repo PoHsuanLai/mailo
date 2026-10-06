@@ -4,11 +4,15 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
+use mail_domain::Retry;
+use mail_domain::id::new_account_id;
 use mail_domain::presets::{Manual, ManualPop3, manual};
-use mail_domain::{AccountId, OAuthIssuer, Retry, SecretKey, SecretPurpose};
 use mail_proto::discover::{Found, Source};
-use mail_runtime::{MapSecrets, OAuthRegistry, Secrets};
+use mail_runtime::{AccountSecrets, OAuthRegistry};
 use mail_store::SqliteStore;
+use porter_core::{AccountId, SecretKey, SecretPurpose};
+use porter_provider::Issuer;
+use porter_secrets::MemorySecrets;
 
 use super::flow::{
     self, Client, Endpoint, Field, Hand, Hint, JmapHand, Kind, Miss, Offer, Refusal, Role, Seams,
@@ -51,7 +55,7 @@ pub(super) struct Fake {
     /// Copied out by the fake add, the one place a test may hold the password.
     pub handed: Mutex<Vec<String>>,
     /// Where the fake add keeps credentials: `add_with_password` into a map, never the keyring.
-    pub secrets: MapSecrets,
+    pub secrets: MemorySecrets,
     /// Every address the browser fake was asked to open. No browser is.
     pub browsed: Mutex<Vec<String>>,
     /// Every URL the JMAP search was handed.
@@ -71,11 +75,11 @@ impl Fake {
 
     /// The password the keyring fake holds for `account`, if any.
     pub(super) fn kept(&self, account: AccountId) -> Option<String> {
-        match self.secrets.get(&SecretKey {
+        match mail_runtime::block_on(self.secrets.get(&SecretKey {
             account,
             purpose: SecretPurpose::IncomingPassword,
-        }) {
-            Ok(mail_domain::Credential::Password(password)) => Some(password),
+        })) {
+            Ok(porter_core::Credential::Password(password)) => Some(password.expose().to_owned()),
             _ => None,
         }
     }
@@ -208,7 +212,7 @@ fn a_known_domain_is_not_looked_up_but_is_still_shown() {
     assert_eq!(
         offer.sign_in,
         SignIn::OAuth {
-            issuer: OAuthIssuer::Google,
+            issuer: Issuer::Google,
             client: Client::Missing,
         }
     );
@@ -367,7 +371,10 @@ fn jmap_found_alone_is_offered_and_added_with_its_session() {
             auth: mail_domain::HttpAuth::Basic,
         }]
     );
-    assert_eq!(fake.kept(account.unwrap()).as_deref(), Some("s3cret-pass"));
+    assert_eq!(
+        fake.kept(account.clone().unwrap()).as_deref(),
+        Some("s3cret-pass")
+    );
     assert!(
         said.iter().any(|line| line.contains("Password saved for")),
         "{said:?}"
@@ -416,7 +423,7 @@ fn a_session_typed_by_hand_with_a_token_adds_with_bearer() {
             auth: mail_domain::HttpAuth::Bearer,
         }]
     );
-    assert_eq!(fake.kept(account.unwrap()).as_deref(), Some(TOKEN));
+    assert_eq!(fake.kept(account.clone().unwrap()).as_deref(), Some(TOKEN));
     assert!(said.contains(&"Token saved.".to_owned()), "{said:?}");
     assert!(!format!("{stage:?}").contains(TOKEN), "{stage:?}");
     assert_eq!(fake.looked(), 0, "a typed server is not looked up");
@@ -783,7 +790,10 @@ fn an_imap_form_adds_with_the_same_setup_and_the_password_goes_to_the_keyring() 
             ..
         })
     ));
-    assert_eq!(fake.kept(account.unwrap()).as_deref(), Some("s3cret-pass"));
+    assert_eq!(
+        fake.kept(account.clone().unwrap()).as_deref(),
+        Some("s3cret-pass")
+    );
     assert_eq!((fake.looked(), fake.added()), (0, 1));
 }
 
@@ -826,7 +836,10 @@ fn using_the_offer_hands_the_password_to_the_add_and_it_lands_in_the_keyring_fak
     };
     assert_eq!(fake.added(), 1);
     assert_eq!(*fake.handed.lock().unwrap(), ["s3cret-pass"]);
-    assert_eq!(fake.kept(account.unwrap()).as_deref(), Some("s3cret-pass"));
+    assert_eq!(
+        fake.kept(account.clone().unwrap()).as_deref(),
+        Some("s3cret-pass")
+    );
     assert_eq!(said[0], "Added ada@example.test.");
     assert!(
         said.iter().any(|line| line.contains("Password saved")),
@@ -861,7 +874,7 @@ fn nothing_is_added_without_a_password_or_a_client_id() {
     let Stage::Refused(_, why) = stage else {
         panic!("added without a client id");
     };
-    assert_eq!(why, Refusal::NeedsClientId(OAuthIssuer::Google));
+    assert_eq!(why, Refusal::NeedsClientId(Issuer::Google));
     assert_eq!(fake.added(), 0);
     assert!(crate::ui::data::account_rows(&store).is_empty());
 }
@@ -919,18 +932,18 @@ fn what_add_printed_is_said_in_words() {
 
 #[test]
 fn a_new_account_joins_a_scoped_space_and_not_an_open_one() {
-    let account = AccountId::generate();
+    let account = new_account_id();
     let mut open = Space::default();
-    assert!(!flow::widen(&mut open, account));
+    assert!(!flow::widen(&mut open, account.clone()));
     assert_eq!(open.scope, Scope::All);
 
-    let other = AccountId::generate();
+    let other = new_account_id();
     let mut scoped = Space {
-        scope: Scope::Accounts(vec![other]),
+        scope: Scope::Accounts(vec![other.clone()]),
         ..Space::default()
     };
-    assert!(flow::widen(&mut scoped, account));
-    assert!(!flow::widen(&mut scoped, account), "added twice");
+    assert!(flow::widen(&mut scoped, account.clone()));
+    assert!(!flow::widen(&mut scoped, account.clone()), "added twice");
     assert_eq!(scoped.scope, Scope::Accounts(vec![other, account]));
 }
 

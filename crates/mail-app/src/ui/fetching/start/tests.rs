@@ -2,10 +2,17 @@ use super::*;
 use chrono::TimeZone;
 use mail_core::fetch::{First, Live};
 use mail_domain::SyncCursor;
+use mail_domain::id::account_id_from_uuid;
 
-const NEW: AccountId = AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
-const KNOWN: AccountId = AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a2"));
-const GONE: AccountId = AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a3"));
+fn acct_new() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
+fn acct_known() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a2"))
+}
+fn acct_gone() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a3"))
+}
 
 fn now() -> DateTime<Utc> {
     Utc.with_ymd_and_hms(2026, 10, 1, 12, 0, 0).unwrap()
@@ -47,21 +54,21 @@ fn stamped(store: &SqliteStore, account: AccountId, path: &str, at: &str) {
 #[test]
 fn an_account_the_store_knows_nothing_of_begins_fresh() {
     let (store, _dir) = empty_store();
-    assert_eq!(last_synced(&store, NEW), None);
-    assert_eq!(probe(&store, NEW, now()), Link::Fresh);
+    assert_eq!(last_synced(&store, acct_new()), None);
+    assert_eq!(probe(&store, acct_new(), now()), Link::Fresh);
     assert_eq!(Link::Fresh.first(), First::Yes);
 }
 
 #[test]
 fn an_account_with_a_recorded_pass_begins_current_as_of_it() {
     let (store, _dir) = empty_store();
-    stamped(&store, KNOWN, "INBOX", "2026-10-01 11:55:30");
+    stamped(&store, acct_known(), "INBOX", "2026-10-01 11:55:30");
     // The newest of its mailboxes' stamps, not the first.
-    stamped(&store, KNOWN, "Sent", "2026-10-01 11:58:00");
+    stamped(&store, acct_known(), "Sent", "2026-10-01 11:58:00");
     let at = Utc.with_ymd_and_hms(2026, 10, 1, 11, 58, 0).unwrap();
-    assert_eq!(last_synced(&store, KNOWN), Some(at));
+    assert_eq!(last_synced(&store, acct_known()), Some(at));
     assert_eq!(
-        probe(&store, KNOWN, now()),
+        probe(&store, acct_known(), now()),
         Link::Current {
             at,
             trouble: vec![],
@@ -69,13 +76,13 @@ fn an_account_with_a_recorded_pass_begins_current_as_of_it() {
         }
     );
     // Another account's stamp is not this one's.
-    assert_eq!(probe(&store, NEW, now()), Link::Fresh);
+    assert_eq!(probe(&store, acct_new(), now()), Link::Fresh);
 }
 
 #[test]
 fn mail_with_no_stamp_is_a_fetched_account_current_as_of_now() {
     let (store, _dir) = crate::ui::fixtures::seeded();
-    let link = probe(&store, crate::ui::fixtures::ACCOUNT, now());
+    let link = probe(&store, crate::ui::fixtures::acct_account(), now());
     assert_eq!(
         link,
         Link::Current {
@@ -113,8 +120,15 @@ fn local_only_accounts_have_no_link_because_they_are_not_listed() {
     // `initial` makes a link for each account it is given, and it is given the ones with a
     // server (`sync::due::intervals` leaves out the ones that keep mail here).
     let (store, _dir) = empty_store();
-    let links = initial(&store, &[(NEW, every()), (KNOWN, every())], now());
-    assert_eq!(links.keys().copied().collect::<Vec<_>>(), [NEW, KNOWN]);
+    let links = initial(
+        &store,
+        &[(acct_new(), every()), (acct_known(), every())],
+        now(),
+    );
+    assert_eq!(
+        links.keys().cloned().collect::<Vec<_>>(),
+        [acct_new(), acct_known()]
+    );
     assert!(initial(&store, &[], now()).is_empty());
 }
 
@@ -123,35 +137,39 @@ type Case = (&'static str, Vec<(AccountId, Duration)>, Changes);
 
 #[test]
 fn the_links_follow_the_accounts_as_they_come_and_go() {
-    let known: BTreeSet<AccountId> = [KNOWN, GONE].into();
+    let known: BTreeSet<AccountId> = [acct_known(), acct_gone()].into();
     let cases: [Case; 4] = [
         (
             "nothing changed",
-            vec![(KNOWN, every()), (GONE, every())],
+            vec![(acct_known(), every()), (acct_gone(), every())],
             Changes::default(),
         ),
         (
             "one added",
-            vec![(KNOWN, every()), (GONE, every()), (NEW, every())],
+            vec![
+                (acct_known(), every()),
+                (acct_gone(), every()),
+                (acct_new(), every()),
+            ],
             Changes {
-                added: vec![NEW],
+                added: vec![acct_new()],
                 removed: vec![],
             },
         ),
         (
             "one removed",
-            vec![(KNOWN, every())],
+            vec![(acct_known(), every())],
             Changes {
                 added: vec![],
-                removed: vec![GONE],
+                removed: vec![acct_gone()],
             },
         ),
         (
             "swapped",
-            vec![(KNOWN, every()), (NEW, every())],
+            vec![(acct_known(), every()), (acct_new(), every())],
             Changes {
-                added: vec![NEW],
-                removed: vec![GONE],
+                added: vec![acct_new()],
+                removed: vec![acct_gone()],
             },
         ),
     ];
@@ -160,7 +178,13 @@ fn the_links_follow_the_accounts_as_they_come_and_go() {
     }
     // A changed interval is not a change of accounts.
     assert_eq!(
-        reconcile(&known, &[(KNOWN, Duration::from_secs(60)), (GONE, every())]),
+        reconcile(
+            &known,
+            &[
+                (acct_known(), Duration::from_secs(60)),
+                (acct_gone(), every())
+            ]
+        ),
         Changes::default()
     );
 }

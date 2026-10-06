@@ -6,45 +6,42 @@
 //! arriving mail taught. Nothing here decrypts anything — mail is decrypted when the reader opens
 //! it, never as it arrives.
 
-use crate::{RuntimeError, Secrets};
+use crate::{RuntimeError, SigningStore};
 use chrono::{DateTime, Utc};
-use mail_domain::{
-    AccountId, CertFingerprint, CertProblem, CertSource, Credential, SecretKey, SecretPurpose,
-    SmimeVerification,
-};
+use mail_domain::signing::{SigningKeyId, SigningKeyRef, SigningSecret};
+use mail_domain::{CertFingerprint, CertProblem, CertSource, SmimeVerification};
 use mail_mime::smime::{self, Cert, Keys, PrivateKey};
 use mail_store::Store;
+use porter_core::AccountId;
 use std::sync::OnceLock;
 
-fn entry(account: AccountId, fingerprint: CertFingerprint) -> SecretKey {
-    SecretKey {
+fn entry(account: AccountId, fingerprint: CertFingerprint) -> SigningKeyRef {
+    SigningKeyRef {
         account,
-        purpose: SecretPurpose::Smime(fingerprint),
+        key: SigningKeyId::Smime(fingerprint),
     }
 }
 
 /// The private key of the certificate with `fingerprint`, from the keyring.
 pub fn private_key(
-    secrets: &dyn Secrets,
+    secrets: &dyn SigningStore,
     account: AccountId,
     fingerprint: CertFingerprint,
 ) -> Result<PrivateKey, RuntimeError> {
     match secrets.get(&entry(account, fingerprint))? {
-        Credential::SmimeKey(pem) => {
+        SigningSecret::SmimeKey(pem) => {
             let pem = zeroize::Zeroizing::new(pem);
             Ok(PrivateKey::from_pkcs8_pem(&pem)?)
         }
-        Credential::Password(_) | Credential::OAuth { .. } | Credential::OpenPgp(_) => {
-            Err(RuntimeError::Secrets(format!(
-                "the keyring entry for S/MIME certificate {fingerprint} holds something else"
-            )))
-        }
+        SigningSecret::OpenPgp(_) => Err(RuntimeError::Secrets(format!(
+            "the keyring entry for S/MIME certificate {fingerprint} holds something else"
+        ))),
     }
 }
 
 /// Keep the private key of the certificate with `fingerprint` in the keyring.
 pub fn keep_private_key(
-    secrets: &dyn Secrets,
+    secrets: &dyn SigningStore,
     account: AccountId,
     fingerprint: CertFingerprint,
     key: &PrivateKey,
@@ -52,13 +49,13 @@ pub fn keep_private_key(
     let pem = key.to_pkcs8_pem()?;
     secrets.put(
         &entry(account, fingerprint),
-        &Credential::SmimeKey(pem.as_str().to_owned()),
+        &SigningSecret::SmimeKey(pem.as_str().to_owned()),
     )
 }
 
 /// Remove the private key of `fingerprint` from the keyring. Already gone is success.
 pub fn forget_private_key(
-    secrets: &dyn Secrets,
+    secrets: &dyn SigningStore,
     account: AccountId,
     fingerprint: CertFingerprint,
 ) -> Result<(), RuntimeError> {

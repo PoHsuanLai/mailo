@@ -1,19 +1,23 @@
 //! OpenPGP from the user's side (`plan.md` 10.15): keys made and moved, drafts sent signed and
 //! encrypted, protected mail opened when it is read — against a real store, with the keyring a
-//! [`MapSecrets`] so the user's own is never touched.
+//! [`MapSigningStore`] so the user's own is never touched.
 
 use chrono::{DateTime, TimeZone, Utc};
 use mail_app::cli;
 use mail_core::compose;
 use mail_core::pgp;
+use mail_domain::id::account_id_from_uuid;
+use mail_domain::signing::{SigningKeyId, SigningKeyRef, SigningSecret};
 use mail_domain::*;
 use mail_mime::openpgp::{self, Keys, SecretCert, Unlocking};
-use mail_runtime::{Arrival, MapSecrets, Secrets};
+use mail_runtime::{Arrival, MapSigningStore, SigningStore};
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 use rand::SeedableRng;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 const IDENTITY: IdentityId =
     IdentityId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b1"));
 const ME: &str = "me@example.test";
@@ -28,13 +32,17 @@ fn seed(store: &SqliteStore) {
     db.execute(
         "INSERT INTO accounts (id, address, plan, created_at)
          VALUES (?1, ?2, '{}', datetime('now'))",
-        [ACCOUNT.to_string(), ME.to_owned()],
+        [acct_account().to_string(), ME.to_owned()],
     )
     .unwrap();
     db.execute(
         "INSERT INTO identities (id, account, from_name, from_email, is_default)
          VALUES (?1, ?2, 'Me', ?3, '\"default\"')",
-        [IDENTITY.to_string(), ACCOUNT.to_string(), ME.to_owned()],
+        [
+            IDENTITY.to_string(),
+            acct_account().to_string(),
+            ME.to_owned(),
+        ],
     )
     .unwrap();
 }
@@ -48,9 +56,9 @@ fn seeded() -> (SqliteStore, tempfile::TempDir) {
 }
 
 /// The same, with a key of the user's own already made.
-fn with_key() -> (SqliteStore, tempfile::TempDir, MapSecrets, PgpKey) {
+fn with_key() -> (SqliteStore, tempfile::TempDir, MapSigningStore, PgpKey) {
     let (store, dir) = seeded();
-    let secrets = MapSecrets::default();
+    let secrets = MapSigningStore::default();
     let key = pgp::keys::generate(&store, &secrets, ME, now()).unwrap();
     (store, dir, secrets, key)
 }
@@ -66,7 +74,7 @@ fn someone_elses(address: &str, seed: u64) -> SecretCert {
 }
 
 /// Import `key`'s public half, as `mailo pgp import` would.
-fn import_public(store: &SqliteStore, secrets: &MapSecrets, key: &SecretCert) {
+fn import_public(store: &SqliteStore, secrets: &MapSigningStore, key: &SecretCert) {
     let armored = key.public().armored().unwrap();
     pgp::keys::import(store, secrets, armored.as_bytes(), now()).unwrap();
 }
@@ -84,7 +92,7 @@ fn to(addresses: &[&str]) -> Vec<Address> {
 fn draft(store: &SqliteStore, openpgp: OpenPgp, recipients: &[&str], bcc: &[&str]) -> Draft {
     let mut draft = compose::draft_new(
         store,
-        ACCOUNT,
+        acct_account(),
         &to(recipients),
         "Secret plans",
         "meet at the usual place",
@@ -99,7 +107,10 @@ fn draft(store: &SqliteStore, openpgp: OpenPgp, recipients: &[&str], bcc: &[&str
 
 fn submissions(store: &SqliteStore) -> Vec<mail_store::OutboxEntry> {
     store
-        .outbox_due(ACCOUNT, now() + chrono::TimeDelta::try_days(365).unwrap())
+        .outbox_due(
+            acct_account(),
+            now() + chrono::TimeDelta::try_days(365).unwrap(),
+        )
         .unwrap()
 }
 
@@ -113,7 +124,7 @@ fn frozen(store: &SqliteStore) -> Vec<u8> {
     store.blobs().get(&store.connection(), *raw).unwrap()
 }
 
-fn send(store: &SqliteStore, secrets: &MapSecrets, draft: DraftId) -> Result<String, String> {
+fn send(store: &SqliteStore, secrets: &MapSigningStore, draft: DraftId) -> Result<String, String> {
     compose::send_with(store, secrets, &pgp::no_passphrase, draft, now()).map_err(|e| e.to_string())
 }
 
@@ -121,9 +132,9 @@ fn send(store: &SqliteStore, secrets: &MapSecrets, draft: DraftId) -> Result<Str
 fn arrive(store: &SqliteStore, raw: Vec<u8>) -> Message {
     let ingest = mail_runtime::assemble(
         store,
-        ACCOUNT,
+        acct_account(),
         MailboxRef {
-            account: ACCOUNT,
+            account: acct_account(),
             path: "INBOX".to_owned(),
         },
         MailboxRole::Inbox,
@@ -138,7 +149,7 @@ fn arrive(store: &SqliteStore, raw: Vec<u8>) -> Message {
     )
     .unwrap();
     let id = ingest.messages[0].message.id;
-    store.ingest(ACCOUNT, ingest).unwrap();
+    store.ingest(acct_account(), ingest).unwrap();
     store.message(id).unwrap()
 }
 
@@ -148,7 +159,7 @@ mod keys {
     #[test]
     fn a_generated_key_keeps_its_secret_in_the_keyring_and_its_public_half_in_the_store() {
         let (store, _dir) = seeded();
-        let secrets = MapSecrets::default();
+        let secrets = MapSigningStore::default();
         assert!(store.pgp_keys().unwrap().is_empty());
         let key = pgp::keys::generate(&store, &secrets, ME, now()).unwrap();
         assert_eq!(key.source, KeySource::Generated);
@@ -157,12 +168,12 @@ mod keys {
         assert_eq!(key.user_ids, vec!["Me <me@example.test>"]);
         assert_eq!(store.pgp_keys().unwrap(), vec![key.clone()]);
         let held = secrets
-            .get(&SecretKey {
-                account: ACCOUNT,
-                purpose: SecretPurpose::OpenPgp(key.fingerprint),
+            .get(&SigningKeyRef {
+                account: acct_account(),
+                key: SigningKeyId::OpenPgp(key.fingerprint),
             })
             .unwrap();
-        assert!(matches!(held, Credential::OpenPgp(armored) if armored.contains("PRIVATE KEY")));
+        assert!(matches!(held, SigningSecret::OpenPgp(armored) if armored.contains("PRIVATE KEY")));
         assert_eq!(pgp::own_key(&store, ME).unwrap(), Some(key));
     }
 
@@ -211,7 +222,7 @@ mod keys {
 
         // A second client, the same person: the public key alone, then the secret too.
         let (other, _dir2) = seeded();
-        let other_secrets = MapSecrets::default();
+        let other_secrets = MapSigningStore::default();
         let imported = pgp::keys::import(&other, &other_secrets, public.as_bytes(), now()).unwrap();
         assert_eq!(imported.len(), 1);
         assert_eq!(imported[0].key.fingerprint, key.fingerprint);
@@ -228,7 +239,7 @@ mod keys {
     #[test]
     fn a_secret_key_for_none_of_the_users_addresses_is_refused() {
         let (store, _dir) = seeded();
-        let secrets = MapSecrets::default();
+        let secrets = MapSigningStore::default();
         let theirs = someone_elses(BEA, 1).armored().unwrap();
         assert!(matches!(
             pgp::keys::import(&store, &secrets, theirs.as_bytes(), now()),
@@ -250,7 +261,7 @@ mod keys {
         );
         pgp::keys::delete(&store, &secrets, &key, pgp::WithSecret::Confirmed).unwrap();
         assert!(store.pgp_key(key.fingerprint).unwrap().is_none());
-        assert!(mail_runtime::pgp::secret_key(&secrets, ACCOUNT, key.fingerprint).is_err());
+        assert!(mail_runtime::pgp::secret_key(&secrets, acct_account(), key.fingerprint).is_err());
 
         // A correspondent's key needs no confirmation: nothing is lost that cannot be fetched again.
         let bea = someone_elses(BEA, 2);
@@ -291,7 +302,7 @@ mod keys {
         std::fs::create_dir_all(&blobs).unwrap();
         let store = SqliteStore::open(dir.path().join("mail.db"), &blobs).unwrap();
         seed(&store);
-        let secrets = MapSecrets::default();
+        let secrets = MapSigningStore::default();
         let generated = pgp::keys::generate(&store, &secrets, ME, now()).unwrap();
         // And a secret imported with a passphrase, for the address of a second identity.
         store
@@ -299,7 +310,10 @@ mod keys {
             .execute(
                 "INSERT INTO identities (id, account, from_name, from_email, is_default)
                  VALUES (?1, ?2, NULL, 'alias@example.test', '\"alternate\"')",
-                [IdentityId::generate().to_string(), ACCOUNT.to_string()],
+                [
+                    IdentityId::generate().to_string(),
+                    acct_account().to_string(),
+                ],
             )
             .unwrap();
         let locked = someone_elses("alias@example.test", 4)
@@ -334,7 +348,7 @@ mod keys {
             .to_bytes();
         assert!(contains(&public[..64]), "the public key is in the database");
         assert!(!contains(b"PRIVATE KEY"), "no armored secret key");
-        let secret = mail_runtime::pgp::secret_key(&secrets, ACCOUNT, generated.fingerprint)
+        let secret = mail_runtime::pgp::secret_key(&secrets, acct_account(), generated.fingerprint)
             .unwrap()
             .armored()
             .unwrap();
@@ -389,7 +403,7 @@ mod sending {
     #[test]
     fn plain_mail_from_an_identity_with_a_key_carries_its_autocrypt_header() {
         let (store, _dir) = seeded();
-        let secrets = MapSecrets::default();
+        let secrets = MapSigningStore::default();
         let before = draft(&store, OpenPgp::None, &[BEA], &[]);
         send(&store, &secrets, before.id).unwrap();
         assert!(!String::from_utf8_lossy(&frozen(&store)).contains("Autocrypt:"));
@@ -523,7 +537,7 @@ mod sending {
     #[test]
     fn a_passphrase_protected_key_is_asked_for_it_and_the_send_waits_without_it() {
         let (store, _dir) = seeded();
-        let secrets = MapSecrets::default();
+        let secrets = MapSigningStore::default();
         let locked = someone_elses(ME, 11)
             .with_passphrase("pw", &mut rand::rngs::StdRng::seed_from_u64(12))
             .unwrap();
@@ -711,7 +725,7 @@ mod reading {
     fn show_says_a_message_is_signed_and_by_whom() {
         let (store, _dir, secrets, key) = with_key();
         let signer = Unlocking {
-            key: mail_runtime::pgp::secret_key(&secrets, ACCOUNT, key.fingerprint).unwrap(),
+            key: mail_runtime::pgp::secret_key(&secrets, acct_account(), key.fingerprint).unwrap(),
             passphrase: String::new(),
         };
         let raw = "From: me@example.test\r\nTo: bea@example.test\r\nSubject: note\r\n\

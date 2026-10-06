@@ -23,9 +23,10 @@ use crate::imap::{Untagged, has_capability};
 use crate::machine::ProtoError;
 use chrono::NaiveDate;
 use mail_domain::{
-    AccountId, Filter, Folder, FolderRoles, LabelId, MailboxRole, ReadState, ServerLabels,
-    SpecialUse, Star, TextMatch,
+    Filter, Folder, FolderRoles, LabelId, MailboxRole, ReadState, ServerLabels, SpecialUse, Star,
+    TextMatch,
 };
+use porter_core::AccountId;
 
 /// One search key (RFC 3501 §6.4.4), as a tree rather than text so a test can read it and nothing
 /// but these reaches the wire.
@@ -63,7 +64,7 @@ pub struct ImapPlan {
 }
 
 /// What the translation needs to know about the account.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct ImapCtx<'a> {
     pub account: AccountId,
     /// The folders the server lists, for the one marked `\All`.
@@ -76,7 +77,7 @@ pub struct ImapCtx<'a> {
 
 /// `filter` as a search of this IMAP account, or what of it cannot be asked.
 pub fn translate(filter: &Filter, ctx: &ImapCtx<'_>) -> Result<Asked<ImapPlan>, Unsaid> {
-    let filter = on_account(filter, ctx.account);
+    let filter = on_account(filter, ctx.account.clone());
     if filter == Filter::Nothing {
         return Ok(Asked::Nothing);
     }

@@ -12,8 +12,8 @@
 //! and a stored message is never stored for the first time again.
 
 use chrono::{DateTime, Utc};
-use mail_domain::AccountId;
 use mail_store::SqliteStore;
+use porter_core::AccountId;
 
 /// The account's floor, arming it at `now` if nothing has watched it before.
 pub fn armed(

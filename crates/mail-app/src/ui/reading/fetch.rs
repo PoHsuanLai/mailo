@@ -10,8 +10,9 @@ use dioxus::prelude::*;
 use ds::prelude::*;
 use ds::root::common::Common;
 use mail_core::fetch::{Body as BodyState, BodyEffect, BodyEvent};
-use mail_domain::{AccountId, Incoming, MessageId, Retry};
+use mail_domain::{Incoming, MessageId, Retry};
 use mail_store::{SqliteStore, Store as _};
+use porter_core::AccountId;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -217,7 +218,7 @@ pub(super) fn fetch_then_save(
 #[component]
 pub(super) fn BodyPane(message: MessageId, account: AccountId, mut landed: Signal<u64>) -> Element {
     let store = use_context::<Arc<SqliteStore>>();
-    let address = use_hook(|| account_address(&store, account));
+    let address = use_hook(|| account_address(&store, account.clone()));
     // Mail fetches a body when its message is opened; so does this, where the account can. The
     // pane starts as Fetching with no operation yet, and the effect below starts it: an
     // operation's token is made where the work starts, not while drawing.

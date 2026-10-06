@@ -1,11 +1,14 @@
 //! Fixtures for the search tests. Not compiled into the binary.
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_store::{MemoryStore, SqliteStore, Store};
+use porter_core::AccountId;
 
-pub const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+pub fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 
 pub fn at(secs: i64) -> DateTime<Utc> {
     Utc.timestamp_opt(1_700_000_000 + secs, 0)
@@ -24,7 +27,7 @@ pub fn summary(
 ) -> ThreadSummary {
     ThreadSummary {
         id: ThreadId::from_uuid(uuid::Uuid::from_u128(n)),
-        account: ACCOUNT,
+        account: acct_account(),
         subject: subject.to_owned(),
         snippet: snippet.to_owned(),
         from: Address {
@@ -51,7 +54,7 @@ pub fn remember(store: &MemoryStore, n: u128, subject: &str, body: &str, secs: i
     let message = message(n, subject, body, secs, ReadState::Read, Star::Unstarred);
     store
         .apply(
-            ACCOUNT,
+            acct_account(),
             &Patch {
                 id: ChangeId::generate(),
                 changes: vec![Change::MessageUpsert(Box::new(message))],
@@ -71,7 +74,7 @@ pub fn message(
     Message {
         id: MessageId::from_uuid(uuid::Uuid::from_u128(0x9000 + n)),
         thread: ThreadId::from_uuid(uuid::Uuid::from_u128(0x7000 + n)),
-        account: ACCOUNT,
+        account: acct_account(),
         key: MessageKey::Rfc(format!("m{n}@b.c")),
         date: at(secs),
         from: Address {
@@ -107,7 +110,7 @@ pub fn sqlite_with(rows: &[(&str, &str, i64)]) -> (SqliteStore, tempfile::TempDi
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [ACCOUNT.to_string()],
+            [acct_account().to_string()],
         )
         .expect("account");
     for (i, (subject, body, secs)) in rows.iter().enumerate() {
@@ -128,7 +131,7 @@ pub fn sqlite_with(rows: &[(&str, &str, i64)]) -> (SqliteStore, tempfile::TempDi
         }
         store
             .apply(
-                ACCOUNT,
+                acct_account(),
                 &Patch {
                     id: ChangeId::generate(),
                     changes: vec![Change::MessageUpsert(Box::new(message))],

@@ -14,6 +14,7 @@ use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use mail_domain::*;
 use mail_store::SqliteStore;
+use porter_core::AccountId;
 use std::sync::Arc;
 
 /// The four times the snooze menu offers, as `(what it says, the phrase it means)`.
@@ -241,11 +242,11 @@ pub(super) fn LabelMenu(
                     .into_iter()
                     .filter(|thread| {
                         *thread == id
-                            || super::move_to::account_of(&store, *thread) == Some(account)
+                            || super::move_to::account_of(&store, *thread) == Some(account.clone())
                     })
                     .collect();
                 if let Some(name) = key.strip_prefix("create:") {
-                    let Some(created) = create_label(&store, account, name) else {
+                    let Some(created) = create_label(&store, account.clone(), name) else {
                         return;
                     };
                     let ops = targets

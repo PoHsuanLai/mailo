@@ -5,8 +5,9 @@
 //! only draws what these answer, so the tests drive these and not the markup.
 
 use chrono::{DateTime, TimeZone, Utc};
-use mail_domain::{AccountId, AfterMatch, Filter, LabelId, Rule, RuleAction, RuleId, RuleState};
+use mail_domain::{AfterMatch, Filter, LabelId, Rule, RuleAction, RuleId, RuleState};
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 
 use super::super::files::work::{grouped, messages};
 
@@ -99,7 +100,7 @@ pub(in crate::ui) fn listed(
     store: &SqliteStore,
     account: AccountId,
 ) -> Result<Vec<Listed>, String> {
-    let index = labels(store, account);
+    let index = labels(store, account.clone());
     let name = name_of(&index);
     let mut rules = store.rules(account).map_err(failed)?;
     rules.sort_by(|a, b| {
@@ -227,14 +228,14 @@ pub(in crate::ui) fn save<Tz: TimeZone>(
     if name.is_empty() {
         return Err("A rule needs a name.".to_owned());
     }
-    let existing = store.rules(account).map_err(failed)?;
+    let existing = store.rules(account.clone()).map_err(failed)?;
     if existing
         .iter()
         .any(|rule| rule.name == name && Some(rule.id) != draft.id)
     {
         return Err(format!("A rule called “{name}” already exists."));
     }
-    let filter = read_condition(&draft.query, &labels(store, account), zone)?;
+    let filter = read_condition(&draft.query, &labels(store, account.clone()), zone)?;
     if draft.actions.is_empty() && draft.after == AfterMatch::Continue {
         return Err("Add an action.".to_owned());
     }
@@ -338,8 +339,8 @@ pub(in crate::ui) fn run(
     now: DateTime<Utc>,
     report: &(dyn Fn(usize) + Sync),
 ) -> Result<String, String> {
-    let caps = super::super::ops::caps_here(store, rule.account, now);
-    let total = conversations(store, rule.account, now);
+    let caps = super::super::ops::caps_here(store, rule.account.clone(), now);
+    let total = conversations(store, rule.account.clone(), now);
     let mut pages = 0usize;
     let ran = mail_store::rules::run_now(store, &caps, rule, BATCH, now, &mut |_| {
         pages += 1;

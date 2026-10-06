@@ -10,8 +10,9 @@
 //! `Endpoints` being substitutable is for.
 
 use chrono::{DateTime, TimeZone, Utc};
-use mail_domain::{Credential, OAuthIssuer};
 use mail_runtime::oauth::{self, Endpoints};
+use porter_core::{Credential, UnixSeconds};
+use porter_provider::Issuer;
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -69,7 +70,7 @@ const GOOD: &str = r#"{"access_token":"ya29.the-access-token",
 
 fn pending(ends: Endpoints) -> oauth::Pending {
     oauth::begin(
-        OAuthIssuer::Google,
+        Issuer::Google,
         "client-id.apps.googleusercontent.com",
         None,
         &["https://mail.google.com/".to_owned()],
@@ -96,13 +97,13 @@ async fn an_authorization_code_becomes_a_stored_credential() {
             refresh,
             expires_at,
         } => {
-            assert_eq!(access, "ya29.the-access-token");
+            assert_eq!(access.expose(), "ya29.the-access-token");
             // Without a refresh token the account stops working an hour later, which is the
             // failure `access_type=offline` exists to prevent.
-            assert_eq!(refresh, "1//the-refresh-token");
+            assert_eq!(refresh.expose(), "1//the-refresh-token");
             assert_eq!(
                 expires_at,
-                now() + chrono::TimeDelta::try_seconds(3599).unwrap()
+                UnixSeconds((now() + chrono::TimeDelta::try_seconds(3599).unwrap()).timestamp())
             );
         }
         other => panic!("expected an OAuth credential, got {other:?}"),
@@ -141,9 +142,9 @@ async fn a_refresh_returns_a_credential_with_a_new_expiry() {
         Credential::OAuth {
             access, expires_at, ..
         } => {
-            assert_eq!(access, "ya29.the-access-token");
+            assert_eq!(access.expose(), "ya29.the-access-token");
             assert!(
-                expires_at > now(),
+                expires_at.0 > now().timestamp(),
                 "a refreshed token must not be already expired"
             );
         }
@@ -168,7 +169,8 @@ async fn a_response_with_no_refresh_token_keeps_the_one_we_had() {
         oauth::refresh_at(&ends, "client-id", None, "1//still-good", &http, now()).await;
     match credential {
         Ok(Credential::OAuth { refresh, .. }) => assert_eq!(
-            refresh, "1//still-good",
+            refresh.expose(),
+            "1//still-good",
             "the refresh token we already had was discarded"
         ),
         Ok(other) => panic!("{other:?}"),
@@ -207,7 +209,7 @@ mod the_application_secret {
 
     fn pending_with(ends: Endpoints, secret: Option<&str>) -> oauth::Pending {
         oauth::begin(
-            OAuthIssuer::Google,
+            Issuer::Google,
             "client-id.apps.googleusercontent.com",
             secret,
             &["https://mail.google.com/".to_owned()],

@@ -7,7 +7,8 @@
 use crate::machine::{IoNeed, IoReady, Machine, Progress, ProtoError, Refusal};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
-use mail_domain::{Credential, SaslMech, Tls};
+use mail_domain::{SaslMech, Tls};
+use porter_core::Credential;
 use std::fmt;
 
 /// A reply longer than this is rejected. Real EHLO banners are a few kilobytes.
@@ -1292,24 +1293,24 @@ fn auth_command(mech: SaslMech, sub: &Submission) -> Result<(Phase, Vec<u8>), Pr
 
 fn password(cred: &Credential) -> Result<&str, ProtoError> {
     match cred {
-        Credential::Password(pass) => Ok(pass.as_str()),
+        Credential::Password(pass) => Ok(pass.expose()),
         Credential::OAuth { .. } => Err(ProtoError::Unsupported(
             "a password mechanism with an OAuth credential".into(),
         )),
-        Credential::OpenPgp(_) | Credential::SmimeKey(_) => Err(ProtoError::Unsupported(
-            "a private key is not a sign-in credential".into(),
+        Credential::ApiKey(_) | Credential::KeyPair { .. } => Err(ProtoError::Unsupported(
+            "an API key is not a sign-in credential".into(),
         )),
     }
 }
 
 fn access_token(cred: &Credential) -> Result<&str, ProtoError> {
     match cred {
-        Credential::OAuth { access, .. } => Ok(access.as_str()),
+        Credential::OAuth { access, .. } => Ok(access.expose()),
         Credential::Password(_) => Err(ProtoError::Unsupported(
             "XOAUTH2 with a password credential".into(),
         )),
-        Credential::OpenPgp(_) | Credential::SmimeKey(_) => Err(ProtoError::Unsupported(
-            "a private key is not a sign-in credential".into(),
+        Credential::ApiKey(_) | Credential::KeyPair { .. } => Err(ProtoError::Unsupported(
+            "an API key is not a sign-in credential".into(),
         )),
     }
 }
@@ -1454,10 +1455,12 @@ fn validate(sub: &Submission) -> Result<(), ProtoError> {
         return Err(invalid("username is empty or contains a line break"));
     }
     match &sub.credential {
-        Credential::Password(pass) if pass.as_bytes().contains(&0) => {
+        Credential::Password(pass) if pass.expose().as_bytes().contains(&0) => {
             Err(invalid("password contains NUL"))
         }
-        Credential::OAuth { access, .. } if access.is_empty() || access.as_bytes().contains(&0) => {
+        Credential::OAuth { access, .. }
+            if access.expose().is_empty() || access.expose().as_bytes().contains(&0) =>
+        {
             Err(invalid("access token is empty or contains NUL"))
         }
         _ => Ok(()),
@@ -1543,6 +1546,7 @@ fn secret_strings(sub: &Submission) -> Vec<String> {
     let mut out = Vec::new();
     match &sub.credential {
         Credential::Password(pass) => {
+            let pass = pass.expose();
             push_secret(&mut out, pass);
             if !pass.is_empty() {
                 out.push(b64(&plain_raw(&sub.username, pass)));
@@ -1552,6 +1556,7 @@ fn secret_strings(sub: &Submission) -> Vec<String> {
         Credential::OAuth {
             access, refresh, ..
         } => {
+            let (access, refresh) = (access.expose(), refresh.expose());
             push_secret(&mut out, access);
             push_secret(&mut out, refresh);
             if !access.is_empty() {
@@ -1562,7 +1567,8 @@ fn secret_strings(sub: &Submission) -> Vec<String> {
                 out.push(b64(refresh.as_bytes()));
             }
         }
-        Credential::OpenPgp(key) | Credential::SmimeKey(key) => push_secret(&mut out, key),
+        Credential::ApiKey(key) => push_secret(&mut out, key.expose()),
+        Credential::KeyPair { secret, .. } => push_secret(&mut out, secret.expose()),
     }
     out
 }
@@ -1578,7 +1584,8 @@ fn push_secret(out: &mut Vec<String>, secret: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mail_domain::Credential;
+    use porter_core::Credential;
+    use porter_core::{SecretText, UnixSeconds};
 
     const PASSWORD: &str = "s3cr3t-password";
 
@@ -1589,7 +1596,7 @@ mod tests {
             port: 465,
             tls: Tls::Implicit,
             username: "ada@example.com".into(),
-            credential: Credential::Password(PASSWORD.into()),
+            credential: Credential::Password(SecretText::new(PASSWORD)),
             sasl: vec![SaslMech::Plain, SaslMech::Login],
             mail_from: "ada@example.com".into(),
             recipients: vec!["bob@example.com".into()],
@@ -2020,16 +2027,16 @@ mod tests {
 
     #[test]
     fn mechanism_choice_follows_preference_and_the_credential() {
-        let password = Credential::Password(PASSWORD.into());
+        let password = Credential::Password(SecretText::new(PASSWORD));
         let offered = [SaslMech::Plain, SaslMech::XOauth2, SaslMech::Login];
         assert_eq!(
             choose_mech(&offered, &[SaslMech::XOauth2, SaslMech::Plain], &password).unwrap(),
             SaslMech::Plain
         );
         let token = Credential::OAuth {
-            access: "tok".into(),
-            refresh: "ref".into(),
-            expires_at: chrono_expiry(),
+            access: SecretText::new("tok"),
+            refresh: SecretText::new("ref"),
+            expires_at: UnixSeconds((chrono_expiry()).timestamp()),
         };
         assert_eq!(
             choose_mech(&offered, &[SaslMech::Plain, SaslMech::XOauth2], &token).unwrap(),
@@ -2101,9 +2108,9 @@ mod tests {
     fn xoauth2_challenge_is_answered_with_an_empty_line() {
         let mut sub = submission("hi\r\n");
         sub.credential = Credential::OAuth {
-            access: "tok".into(),
-            refresh: "ref".into(),
-            expires_at: chrono_expiry(),
+            access: SecretText::new("tok"),
+            refresh: SecretText::new("ref"),
+            expires_at: UnixSeconds((chrono_expiry()).timestamp()),
         };
         sub.sasl = vec![SaslMech::XOauth2];
         let reply = ServerReply {

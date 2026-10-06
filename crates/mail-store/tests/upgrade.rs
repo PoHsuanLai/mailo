@@ -14,6 +14,7 @@
 //! Rather than check in a binary fixture, each version is built by applying the migrations up to
 //! it: the SQL is the fixture, and it cannot drift from the migration it describes.
 
+use mail_domain::id::account_id_from_uuid;
 use mail_store::{SqliteStore, migrate};
 use rusqlite::Connection;
 
@@ -547,17 +548,19 @@ fn an_account_from_before_folders_upgrades_with_an_empty_listing() {
     };
 
     let store = SqliteStore::open(&path, dir.path()).unwrap();
-    let account = mail_domain::AccountId::from_uuid(account.parse().unwrap());
-    assert_eq!(store.folders(account).unwrap(), vec![]);
+    let account = mail_domain::id::account_id_from_uuid(account.parse().unwrap());
+    assert_eq!(store.folders(account.clone()).unwrap(), vec![]);
     let inbox = mail_domain::Folder {
-        account,
+        account: account.clone(),
         path: "INBOX".to_owned(),
         delimiter: Some('/'),
         special: Some(mail_domain::SpecialUse::Inbox),
         subscription: mail_domain::Subscription::Subscribed,
         holds: mail_domain::Holds::Mail,
     };
-    store.put_folders(account, vec![inbox.clone()]).unwrap();
+    store
+        .put_folders(account.clone(), vec![inbox.clone()])
+        .unwrap();
     assert_eq!(store.folders(account).unwrap(), vec![inbox]);
     let kept: i64 = store
         .connection()
@@ -796,8 +799,8 @@ fn a_database_from_before_templates_upgrades_with_none_and_keeps_its_drafts() {
     };
 
     let store = SqliteStore::open(&path, dir.path()).unwrap();
-    let account = mail_domain::AccountId::from_uuid(account.parse().unwrap());
-    assert_eq!(store.templates(account).unwrap(), vec![]);
+    let account = mail_domain::id::account_id_from_uuid(account.parse().unwrap());
+    assert_eq!(store.templates(account.clone()).unwrap(), vec![]);
     let old = store
         .draft(mail_domain::DraftId::from_uuid(draft.parse().unwrap()))
         .unwrap();
@@ -1019,9 +1022,9 @@ fn a_database_from_before_rules_upgrades_with_none_and_keeps_its_mail() {
     };
 
     let store = SqliteStore::open(&path, dir.path()).unwrap();
-    let account = mail_domain::AccountId::from_uuid(account.parse().unwrap());
-    assert_eq!(store.rules(account).unwrap(), vec![]);
-    assert_eq!(store.vacation(account).unwrap(), None);
+    let account = mail_domain::id::account_id_from_uuid(account.parse().unwrap());
+    assert_eq!(store.rules(account.clone()).unwrap(), vec![]);
+    assert_eq!(store.vacation(account.clone()).unwrap(), None);
     let kept: i64 = store
         .connection()
         .query_row(
@@ -1034,7 +1037,7 @@ fn a_database_from_before_rules_upgrades_with_none_and_keeps_its_mail() {
 
     let rule = mail_domain::Rule {
         id: mail_domain::RuleId::generate(),
-        account,
+        account: account.clone(),
         name: "Bills".to_owned(),
         position: 1,
         state: mail_domain::RuleState::Enabled,
@@ -1203,9 +1206,7 @@ fn a_database_from_before_smime_upgrades_with_plain_drafts_and_no_certificates()
 
 #[test]
 fn operations_queued_before_the_outbox_kept_their_messages_are_addressed_when_sent() {
-    use mail_domain::{
-        AccountId, ChangeId, Keyword, MailboxRole, OutboxId, Patch, ProtoOp, RemoteRef,
-    };
+    use mail_domain::{ChangeId, Keyword, MailboxRole, OutboxId, Patch, ProtoOp, RemoteRef};
     use mail_store::{Dispatch, Store};
 
     let imap = |mailbox: &str, uid| RemoteRef::Imap {
@@ -1264,7 +1265,7 @@ fn operations_queued_before_the_outbox_kept_their_messages_are_addressed_when_se
             remotes: vec![imap("INBOX", 10)],
             keyword: Keyword::MdnSent,
         });
-        AccountId::from_uuid(account.parse().unwrap())
+        account_id_from_uuid(account.parse().unwrap())
     };
 
     let store = SqliteStore::open(&path, dir.path()).unwrap();
@@ -1292,7 +1293,7 @@ fn operations_queued_before_the_outbox_kept_their_messages_are_addressed_when_se
 
 #[test]
 fn a_message_waiting_to_be_found_before_its_wait_was_counted_is_given_up_after_enough_passes() {
-    use mail_domain::{AccountId, ChangeId, MailboxRole, OutboxId, Patch, ProtoOp, RemoteRef};
+    use mail_domain::{ChangeId, MailboxRole, OutboxId, Patch, ProtoOp, RemoteRef};
     use mail_store::{Dispatch, PASSES_TO_FIND, SYNCS_TO_FIND, Store};
 
     let dir = tempfile::tempdir().unwrap();
@@ -1340,7 +1341,7 @@ fn a_message_waiting_to_be_found_before_its_wait_was_counted_is_given_up_after_e
             ],
         )
         .unwrap();
-        (AccountId::from_uuid(account.parse().unwrap()), message)
+        (account_id_from_uuid(account.parse().unwrap()), message)
     };
 
     let store = SqliteStore::open(&path, dir.path()).unwrap();
@@ -1359,7 +1360,7 @@ fn a_message_waiting_to_be_found_before_its_wait_was_counted_is_given_up_after_e
     // No folder's syncs can be the ones that should find it, so only passes end the wait.
     let synced = vec!["INBOX".to_owned(), "Archive".to_owned()];
     for _ in 0..SYNCS_TO_FIND.max(PASSES_TO_FIND - 1) {
-        store.unplaced_pass(account, &synced).unwrap();
+        store.unplaced_pass(account.clone(), &synced).unwrap();
     }
     assert_eq!(store.outbox_dispatch(entry).unwrap(), Dispatch::Wait);
     store.unplaced_pass(account, &synced).unwrap();
@@ -1427,7 +1428,7 @@ fn a_conversation_from_before_mute_opens_unmuted_and_keeps_a_mute_across_a_reope
         )
         .unwrap();
         (
-            mail_domain::AccountId::from_uuid(account.parse().unwrap()),
+            mail_domain::id::account_id_from_uuid(account.parse().unwrap()),
             ThreadId::from_uuid(thread.parse().unwrap()),
         )
     };
@@ -1521,7 +1522,7 @@ fn a_conversation_from_before_follow_ups_opens_with_no_reminder_and_keeps_one_ac
         )
         .unwrap();
         (
-            mail_domain::AccountId::from_uuid(account.parse().unwrap()),
+            mail_domain::id::account_id_from_uuid(account.parse().unwrap()),
             ThreadId::from_uuid(thread.parse().unwrap()),
         )
     };

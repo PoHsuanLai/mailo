@@ -25,13 +25,13 @@ pub fn fetch_body(
 ) -> Result<(), (Retry, String)> {
     let registry =
         OAuthRegistry::load_default().map_err(|e| (Retry::Fatal(e.to_string()), e.to_string()))?;
-    fetch_body_with(store, Arc::new(KeyringSecrets), &registry, message, now)
+    fetch_body_with(store, platform_secrets(), &registry, message, now)
 }
 
 /// The same, with the secret store named, so a test can run it.
 pub fn fetch_body_with(
     store: Arc<SqliteStore>,
-    secrets: Arc<dyn Secrets>,
+    secrets: Arc<dyn AccountSecrets>,
     registry: &OAuthRegistry,
     message: mail_domain::MessageId,
     now: chrono::DateTime<chrono::Utc>,
@@ -77,9 +77,10 @@ pub fn fetch_body_with(
         let (_tx, mut cancel) = watch::channel(false);
         let stored = secrets
             .get(&SecretKey {
-                account: account.id,
+                account: account.id.clone(),
                 purpose: SecretPurpose::IncomingPassword,
             })
+            .await
             // A credential that is not there is one to be asked for again.
             .map_err(|_| {
                 (

@@ -29,7 +29,7 @@ fn recall_of(shell: &Shell) -> Recall {
             .map(|place| place.name.clone())
             .unwrap_or_default(),
         open: shell.open,
-        account: shell.account,
+        account: shell.account.clone(),
     }
 }
 
@@ -40,7 +40,10 @@ fn recall_of(shell: &Shell) -> Recall {
 /// elsewhere, and coming back must not show a list that cannot exist.
 pub(super) fn restore(shell: &mut Shell, space: &Space, recall: &Recall) {
     shell.scope = space.scope.clone();
-    shell.account = recall.account.filter(|id| shell.scope.shows(*id));
+    shell.account = recall
+        .account
+        .clone()
+        .filter(|id| shell.scope.shows(id.clone()));
     shell.selected = shell
         .places
         .iter()

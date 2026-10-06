@@ -2,16 +2,17 @@
 //!
 //! The window wakes at the shortest interval any account asks for, [`super::poll_interval`]. A
 //! wake syncs only the accounts whose own interval has passed: one Graph account polls every
-//! minute, and the IMAP accounts beside it want a pass every five. A pass the user asks for is
+//! minute, and the acct_imap() accounts beside it want a pass every five. A pass the user asks for is
 //! not a wake and still syncs them all, through [`super::run`].
 
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use mail_domain::{AccountId, Incoming, WatchMode};
-use mail_runtime::{KeyringSecrets, OAuthRegistry};
+use mail_domain::{Incoming, WatchMode};
+use mail_runtime::{OAuthRegistry, platform_secrets};
 use mail_store::SqliteStore;
+use porter_core::AccountId;
 
 /// What an account that offers IDLE is polled at, since no connection is held open for it.
 pub const IDLE: Duration = Duration::from_secs(300);
@@ -53,7 +54,7 @@ pub fn due(
             last.get(account)
                 .is_none_or(|at| now.saturating_duration_since(*at) >= *every)
         })
-        .map(|(account, _)| *account)
+        .map(|(account, _)| account.clone())
         .collect()
 }
 
@@ -67,7 +68,7 @@ pub fn run_due(
     let registry = OAuthRegistry::load_default().map_err(|e| e.to_string())?;
     super::run_all(
         store,
-        Arc::new(KeyringSecrets),
+        platform_secrets(),
         &registry,
         now,
         super::Mode::Once,
@@ -83,37 +84,42 @@ pub fn run_due(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mail_domain::id::account_id_from_uuid;
 
-    const GRAPH: AccountId =
-        AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000e1"));
-    const IMAP: AccountId =
-        AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000e2"));
-    const PUSHED: AccountId =
-        AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000e3"));
-    const NEW: AccountId =
-        AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000e4"));
+    fn acct_graph() -> AccountId {
+        account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000e1"))
+    }
+    fn acct_imap() -> AccountId {
+        account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000e2"))
+    }
+    fn acct_pushed() -> AccountId {
+        account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000e3"))
+    }
+    fn acct_new() -> AccountId {
+        account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000e4"))
+    }
 
     #[test]
     fn each_account_is_due_at_its_own_interval() {
         let intervals = [
-            (GRAPH, every(&WatchMode::Poll { every: secs(60) })),
-            (IMAP, every(&WatchMode::Poll { every: secs(300) })),
-            (PUSHED, every(&WatchMode::Idle)),
-            (NEW, secs(300)),
+            (acct_graph(), every(&WatchMode::Poll { every: secs(60) })),
+            (acct_imap(), every(&WatchMode::Poll { every: secs(300) })),
+            (acct_pushed(), every(&WatchMode::Idle)),
+            (acct_new(), secs(300)),
         ];
         let start = Instant::now();
-        // Every account but `NEW` last synced at `start`; `NEW` never has.
-        let last: HashMap<AccountId, Instant> = [GRAPH, IMAP, PUSHED]
+        // Every account but `acct_new()` last synced at `start`; `acct_new()` never has.
+        let last: HashMap<AccountId, Instant> = [acct_graph(), acct_imap(), acct_pushed()]
             .into_iter()
             .map(|account| (account, start))
             .collect();
         let table: [(u64, &[AccountId]); 6] = [
-            (0, &[NEW]),
-            (59, &[NEW]),
-            (60, &[GRAPH, NEW]),
-            (120, &[GRAPH, NEW]),
-            (299, &[GRAPH, NEW]),
-            (300, &[GRAPH, IMAP, PUSHED, NEW]),
+            (0, &[acct_new()]),
+            (59, &[acct_new()]),
+            (60, &[acct_graph(), acct_new()]),
+            (120, &[acct_graph(), acct_new()]),
+            (299, &[acct_graph(), acct_new()]),
+            (300, &[acct_graph(), acct_imap(), acct_pushed(), acct_new()]),
         ];
         for (elapsed, expected) in table {
             assert_eq!(
@@ -126,10 +132,10 @@ mod tests {
 
     #[test]
     fn a_window_just_opened_syncs_every_account() {
-        let intervals = [(GRAPH, secs(60)), (IMAP, secs(300))];
+        let intervals = [(acct_graph(), secs(60)), (acct_imap(), secs(300))];
         assert_eq!(
             due(&intervals, &HashMap::new(), Instant::now()),
-            [GRAPH, IMAP]
+            [acct_graph(), acct_imap()]
         );
     }
 

@@ -5,14 +5,20 @@
 //! predicate, not about the derivation, and they must not fail for someone else's reason.
 
 use chrono::{DateTime, Utc};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::{
-    AccountId, Address, Attachments, DateRange, Filter, FollowUp, LabelId, MailboxRole, MailboxSet,
-    MatchCtx, Mute, Pin, ReadState, Snooze, Star, TextMatch, ThreadId, ThreadSummary,
+    Address, Attachments, DateRange, Filter, FollowUp, LabelId, MailboxRole, MailboxSet, MatchCtx,
+    Mute, Pin, ReadState, Snooze, Star, TextMatch, ThreadId, ThreadSummary,
 };
+use porter_core::AccountId;
 use uuid::Uuid;
 
-const ACCOUNT_A: AccountId = AccountId::from_uuid(Uuid::from_u128(0xA));
-const ACCOUNT_B: AccountId = AccountId::from_uuid(Uuid::from_u128(0xB));
+fn acct_account_a() -> AccountId {
+    account_id_from_uuid(Uuid::from_u128(0xA))
+}
+fn acct_account_b() -> AccountId {
+    account_id_from_uuid(Uuid::from_u128(0xB))
+}
 const LABEL_WORK: LabelId = LabelId::from_uuid(Uuid::from_u128(0x10));
 const LABEL_HOME: LabelId = LabelId::from_uuid(Uuid::from_u128(0x11));
 
@@ -40,7 +46,7 @@ fn addr(name: Option<&str>, email: &str) -> Address {
 fn summary(tweak: impl FnOnce(&mut ThreadSummary)) -> ThreadSummary {
     let mut s = ThreadSummary {
         id: ThreadId::from_uuid(Uuid::from_u128(0x100)),
-        account: ACCOUNT_A,
+        account: acct_account_a(),
         subject: "Lunch on Friday".to_owned(),
         snippet: "Sounds good, see you at the cafe".to_owned(),
         from: addr(Some("Ada Lovelace"), "ada@example.com"),
@@ -152,7 +158,7 @@ fn cases() -> Vec<Case> {
         Case::new("Not inverts a match", not(Filter::All), false),
         Case::new(
             "Not inverts a non-match",
-            not(Filter::Account(ACCOUNT_B)),
+            not(Filter::Account(acct_account_b())),
             true,
         ),
         Case::new("Not(Not(All)) is All", not(not(Filter::All)), true),
@@ -172,10 +178,10 @@ fn cases() -> Vec<Case> {
             true,
         ),
         // ---------------------------------------------------------------- account
-        Case::new("Account matches", Filter::Account(ACCOUNT_A), true),
+        Case::new("Account matches", Filter::Account(acct_account_a()), true),
         Case::new(
             "Account of another account",
-            Filter::Account(ACCOUNT_B),
+            Filter::Account(acct_account_b()),
             false,
         ),
         // ---------------------------------------------------------------- mailbox
@@ -887,8 +893,8 @@ fn in_folder_matches_a_message_held_there_and_filed_as_held() {
         path: path.to_owned(),
     };
     let roles = FolderRoles(vec![("Trash".to_owned(), MailboxRole::Trash)]);
-    let projects = at(ACCOUNT_A, "Projects/2026");
-    let inbox = at(ACCOUNT_A, "INBOX");
+    let projects = at(acct_account_a(), "Projects/2026");
+    let inbox = at(acct_account_a(), "INBOX");
     // One message: its role here, its addresses, and the folders queued moves take it into.
     struct M(MailboxRole, Vec<MailboxRef>, Vec<&'static str>);
     use MailboxRole::{Archive, Inbox, Spam, Trash};
@@ -913,26 +919,34 @@ fn in_folder_matches_a_message_held_there_and_filed_as_held() {
         ),
         (
             "the same path on another account is another mailbox",
-            vec![M(Archive, vec![at(ACCOUNT_B, "Projects/2026")], vec![])],
+            vec![M(
+                Archive,
+                vec![at(acct_account_b(), "Projects/2026")],
+                vec![],
+            )],
             Filter::InFolder(projects.clone()),
             false,
         ),
         (
             "a path is spelled exactly: a parent is not its children",
             vec![M(Archive, vec![projects.clone()], vec![])],
-            Filter::InFolder(at(ACCOUNT_A, "Projects")),
+            Filter::InFolder(at(acct_account_a(), "Projects")),
             false,
         ),
         (
             "a path is spelled exactly: case is the server's",
             vec![M(Archive, vec![projects.clone()], vec![])],
-            Filter::InFolder(at(ACCOUNT_A, "projects/2026")),
+            Filter::InFolder(at(acct_account_a(), "projects/2026")),
             false,
         ),
         (
             "non-ASCII paths are compared decoded",
-            vec![M(Archive, vec![at(ACCOUNT_A, "收件匣/報告")], vec![])],
-            Filter::InFolder(at(ACCOUNT_A, "收件匣/報告")),
+            vec![M(
+                Archive,
+                vec![at(acct_account_a(), "收件匣/報告")],
+                vec![],
+            )],
+            Filter::InFolder(at(acct_account_a(), "收件匣/報告")),
             true,
         ),
         (
@@ -979,8 +993,8 @@ fn in_folder_matches_a_message_held_there_and_filed_as_held() {
         ),
         (
             "a role folder's own role: held in Trash and filed as Trash",
-            vec![M(Trash, vec![at(ACCOUNT_A, "Trash")], vec![])],
-            Filter::InFolder(at(ACCOUNT_A, "Trash")),
+            vec![M(Trash, vec![at(acct_account_a(), "Trash")], vec![])],
+            Filter::InFolder(at(acct_account_a(), "Trash")),
             true,
         ),
         (
@@ -1026,7 +1040,7 @@ fn in_folder_matches_a_message_held_there_and_filed_as_held() {
 fn in_folder_is_an_additive_clause_in_a_saved_view() {
     use mail_domain::MailboxRef;
     let filter = Filter::InFolder(MailboxRef {
-        account: ACCOUNT_A,
+        account: acct_account_a(),
         path: "Projects/2026".to_owned(),
     });
     let json = serde_json::to_string(&filter).unwrap();

@@ -7,8 +7,10 @@ use ds::prelude::*;
 use ds_blitz::NetPolicy;
 use ds_harness::{Clock, Driver, Harness, HarnessConfig, Query, Viewport};
 use mail_app::ui::space::{Scope, Space, Spaces};
-use mail_domain::{AccountId, presets};
+use mail_domain::id::account_id_from_uuid;
+use mail_domain::presets;
 use mail_store::SqliteStore;
+use porter_core::AccountId;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -20,8 +22,12 @@ use settle::settle_until;
 mod drive;
 use drive::Drive;
 
-const WORK: AccountId = AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000e1"));
-const HOME: AccountId = AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000e2"));
+fn acct_work() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000e1"))
+}
+fn acct_home() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000e2"))
+}
 
 const VIEW: Viewport = Viewport {
     width: 1200,
@@ -34,7 +40,10 @@ const PLUS: &str = r#"[aria-label="Add account"]"#;
 fn store(dir: &std::path::Path) -> Arc<SqliteStore> {
     std::fs::create_dir_all(dir.join("blobs")).unwrap();
     let store = SqliteStore::open(dir.join("mail.db"), dir.join("blobs")).unwrap();
-    for (id, address) in [(WORK, "me@work.example"), (HOME, "me@home.example")] {
+    for (id, address) in [
+        (acct_work(), "me@work.example"),
+        (acct_home(), "me@home.example"),
+    ] {
         let manual = presets::Manual {
             imap_host: "imap.example".to_owned(),
             imap_port: 993,
@@ -65,7 +74,7 @@ fn open() -> (Harness, tempfile::TempDir) {
     let spaces = Spaces {
         spaces: vec![Space {
             name: "Work".to_owned(),
-            scope: Scope::Accounts(vec![WORK]),
+            scope: Scope::Accounts(vec![acct_work()]),
             ..Space::default()
         }],
         ..Spaces::default()

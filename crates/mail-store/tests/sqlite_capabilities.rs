@@ -4,6 +4,8 @@
 //! compiled. That is a fact to verify, not to assume: the schema's `messages_fts` table is
 //! load-bearing for search, and an assumption here fails at first run instead of at build.
 
+use mail_domain::id::new_account_id;
+
 #[test]
 fn bundled_sqlite_has_fts5_and_wal() {
     let db = rusqlite::Connection::open_in_memory().expect("open");
@@ -102,7 +104,7 @@ fn fts5vocab_row_accepts_the_external_content_index() {
 
     let dir = tempfile::tempdir().unwrap();
     let store = SqliteStore::in_memory(dir.path()).unwrap();
-    let account = AccountId::generate();
+    let account = new_account_id();
     store
         .connection()
         .execute(
@@ -126,7 +128,7 @@ fn fts5vocab_row_accepts_the_external_content_index() {
     let message = Message {
         id: MessageId::generate(),
         thread: ThreadId::generate(),
-        account,
+        account: account.clone(),
         key: MessageKey::Rfc("vocab@example.test".into()),
         date: Utc.timestamp_opt(1_700_000_000, 0).unwrap(),
         from: Address {
@@ -197,7 +199,7 @@ fn nested_connection_access_does_not_deadlock() {
 
     let dir = tempfile::tempdir().unwrap();
     let store = SqliteStore::in_memory(dir.path()).unwrap();
-    let account = AccountId::generate();
+    let account = new_account_id();
     store
         .connection()
         .execute(
@@ -212,7 +214,7 @@ fn nested_connection_access_does_not_deadlock() {
     let message = Message {
         id: MessageId::generate(),
         thread,
-        account,
+        account: account.clone(),
         key: MessageKey::Rfc("deadlock@example.test".into()),
         date: chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
         from: Address {

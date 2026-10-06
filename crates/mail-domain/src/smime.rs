@@ -3,7 +3,7 @@
 //!
 //! No cryptography here. Certificates are parsed, checked and used in `mail-mime`, where the CMS
 //! implementation lives; the store keeps [`SmimeCert`] rows, the OS keyring keeps the private
-//! keys ([`crate::SecretPurpose::Smime`]), and these types are what passes between them.
+//! keys ([`crate::signing::SigningKeyRef`]), and these types are what passes between them.
 //!
 //! The shapes follow OpenPGP's ([`crate::pgp`]) so one badge can show either kind of
 //! protection: [`Coverage`], [`KeyTrust`] and [`SecretHeld`] are shared, and where the two

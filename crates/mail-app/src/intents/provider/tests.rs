@@ -4,12 +4,15 @@
 use super::*;
 use crate::intents::wire::{Integrity, Invocation, Label, Output, Target};
 use chrono::{TimeZone, Utc};
+use mail_domain::id::{account_id_from_uuid, new_account_id};
 use mail_domain::*;
-use mail_runtime::MapSecrets;
+use mail_runtime::MapSigningStore;
 use mail_store::Store;
+use porter_core::AccountId;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 
 fn thread_of(n: u128) -> ThreadId {
     ThreadId::from_uuid(uuid::Uuid::from_u128(0x7000 + n))
@@ -23,7 +26,7 @@ fn message(store: &SqliteStore, n: u128, subject: &str, body: &str) -> Message {
     Message {
         id: MessageId::from_uuid(uuid::Uuid::from_u128(0x9000 + n)),
         thread: thread_of(n),
-        account: ACCOUNT,
+        account: acct_account(),
         key: MessageKey::Rfc(format!("m{n}@b.c")),
         date: Utc
             .timestamp_opt(1_700_000_000 + n as i64 * 60, 0)
@@ -72,6 +75,11 @@ fn caps() -> AccountCaps {
 
 /// A store with one account that can send, and three conversations in its inbox.
 pub(crate) fn world() -> (Provider, Arc<SqliteStore>, tempfile::TempDir) {
+    world_opening(Opener::new(|_, _| Ok(())))
+}
+
+/// The same, opening conversations with `opener`.
+fn world_opening(opener: Opener) -> (Provider, Arc<SqliteStore>, tempfile::TempDir) {
     let dir = tempfile::tempdir().expect("tempdir");
     let store = Arc::new(SqliteStore::in_memory(dir.path()).expect("sqlite"));
     let manual = presets::Manual {
@@ -87,7 +95,7 @@ pub(crate) fn world() -> (Provider, Arc<SqliteStore>, tempfile::TempDir) {
         db.execute(
             "INSERT INTO accounts (id, address, plan, created_at) VALUES (?1, ?2, ?3, datetime('now'))",
             [
-                ACCOUNT.to_string(),
+                acct_account().to_string(),
                 preset.plan.address.clone(),
                 serde_json::to_string(&preset.plan).expect("plan"),
             ],
@@ -96,12 +104,15 @@ pub(crate) fn world() -> (Provider, Arc<SqliteStore>, tempfile::TempDir) {
         db.execute(
             "INSERT INTO identities (id, account, from_name, from_email, is_default)
              VALUES (?1, ?2, NULL, 'me@example.test', '\"default\"')",
-            [IdentityId::generate().to_string(), ACCOUNT.to_string()],
+            [
+                IdentityId::generate().to_string(),
+                acct_account().to_string(),
+            ],
         )
         .expect("identity");
         db.execute(
             "INSERT INTO account_caps (account, caps, observed_at) VALUES (?1, ?2, datetime('now'))",
-            rusqlite::params![ACCOUNT.to_string(), serde_json::to_string(&caps()).expect("caps")],
+            rusqlite::params![acct_account().to_string(), serde_json::to_string(&caps()).expect("caps")],
         )
         .expect("caps");
     }
@@ -113,7 +124,7 @@ pub(crate) fn world() -> (Provider, Arc<SqliteStore>, tempfile::TempDir) {
         let upsert = Change::MessageUpsert(Box::new(message(&store, n, subject, body)));
         store
             .apply(
-                ACCOUNT,
+                acct_account(),
                 &Patch {
                     id: ChangeId::generate(),
                     changes: vec![upsert],
@@ -127,14 +138,14 @@ pub(crate) fn world() -> (Provider, Arc<SqliteStore>, tempfile::TempDir) {
                 "INSERT INTO remote_map (account, mailbox, uidvalidity, uid, message)
                  VALUES (?1, 'INBOX', 1, ?2, ?3)",
                 rusqlite::params![
-                    ACCOUNT.to_string(),
+                    acct_account().to_string(),
                     n as u32,
                     MessageId::from_uuid(uuid::Uuid::from_u128(0x9000 + n)).to_string()
                 ],
             )
             .expect("remote");
     }
-    let provider = Provider::new(store.clone(), Arc::new(MapSecrets::default()));
+    let provider = Provider::new(store.clone(), Arc::new(MapSigningStore::default()), opener);
     (provider, store, dir)
 }
 
@@ -235,7 +246,7 @@ fn archiving_takes_the_conversation_out_of_the_inbox_and_the_token_puts_it_back(
     );
     // The server is told too, as a click tells it.
     let queued = store
-        .outbox_due(ACCOUNT, Utc::now() + chrono::TimeDelta::days(1))
+        .outbox_due(acct_account(), Utc::now() + chrono::TimeDelta::days(1))
         .expect("outbox");
     assert!(
         queued.iter().any(|entry| matches!(
@@ -321,14 +332,14 @@ fn a_label_is_put_on_and_taken_off_by_name_and_only_when_it_exists() {
     let (provider, store, _dir) = world();
     let label = mail_domain::Label {
         id: LabelId::generate(),
-        account: ACCOUNT,
+        account: acct_account(),
         name: "Work".to_owned(),
         color: None,
         origin: LabelOrigin::User,
     };
     store
         .apply(
-            ACCOUNT,
+            acct_account(),
             &Patch {
                 id: ChangeId::generate(),
                 changes: vec![Change::LabelUpsert(label.clone())],
@@ -460,6 +471,59 @@ fn reading_gives_the_words_as_untrusted_mail_private_to_the_space() {
     assert_eq!(outcome.undo, Undoable::No);
 }
 
+/// The launcher's Enter on a mail hit: the conversation goes to the window, and the answer is
+/// nothing to show.
+#[test]
+fn opening_hands_the_conversation_to_the_window_and_answers_nothing() {
+    // Each conversation opened, with the token it came with.
+    type Opened = Vec<(ThreadId, Option<String>)>;
+    let opened: Arc<Mutex<Opened>> = Arc::default();
+    let seen = opened.clone();
+    let (provider, _store, _dir) = world_opening(Opener::new(move |thread, token| {
+        seen.lock()
+            .expect("opened")
+            .push((thread, token.map(str::to_owned)));
+        Ok(())
+    }));
+    let outcome = provider
+        .perform(&call("mail.thread.open", threads(&[2]), &[]))
+        .expect("opened");
+    assert_eq!(*opened.lock().expect("opened"), [(thread_of(2), None)]);
+    assert_eq!(outcome.undo, Undoable::No);
+    assert!(
+        outcome.value.is_none() && outcome.said.is_none(),
+        "{outcome:?}"
+    );
+    assert_eq!(outcome.follow, crate::intents::wire::Follow::Nothing);
+
+    let gone = provider.perform(&call("mail.thread.open", threads(&[99]), &[]));
+    assert!(matches!(gone, Err(AppRefusal::NotFound(_))), "{gone:?}");
+    let two = provider.perform(&call("mail.thread.open", threads(&[1, 2]), &[]));
+    assert!(matches!(two, Err(AppRefusal::Unsupported)), "{two:?}");
+    assert_eq!(
+        opened.lock().expect("opened").len(),
+        1,
+        "a refusal opened something"
+    );
+
+    // The launcher's token goes to the window with the conversation.
+    let mut launched = call("mail.thread.open", threads(&[3]), &[]);
+    launched.activation = Some("launcher-token-1".to_owned());
+    provider.perform(&launched).expect("opened");
+    assert_eq!(
+        opened.lock().expect("opened").last(),
+        Some(&(thread_of(3), Some("launcher-token-1".to_owned())))
+    );
+
+    let (failing, _store, _dir) =
+        world_opening(Opener::new(|_, _| Err("no window here".to_owned())));
+    let failed = failing.perform(&call("mail.thread.open", threads(&[1]), &[]));
+    assert!(
+        matches!(failed, Err(AppRefusal::Failed(ref why)) if why == "no window here"),
+        "{failed:?}"
+    );
+}
+
 #[test]
 fn a_preview_is_the_subject_and_the_newest_messages() {
     let (provider, _store, _dir) = world();
@@ -550,7 +614,7 @@ fn a_send_is_queued_and_can_be_taken_back_to_a_draft_until_it_is_delivered() {
     assert_eq!(store.draft(draft).expect("kept").state, SendState::Queued);
     assert!(
         store
-            .outbox_due(ACCOUNT, Utc::now() + chrono::TimeDelta::days(1))
+            .outbox_due(acct_account(), Utc::now() + chrono::TimeDelta::days(1))
             .expect("outbox")
             .iter()
             .any(|entry| matches!(entry.op, ProtoOp::Submit { .. })),
@@ -801,7 +865,7 @@ fn a_send_without_a_recipient_or_a_body_asks_for_them_and_leaves_nothing() {
 #[test]
 fn the_sending_account_is_asked_for_when_there_is_a_choice() {
     let (provider, store, _dir) = world();
-    let other = AccountId::generate();
+    let other = new_account_id();
     {
         let db = store.connection();
         db.execute(
@@ -862,4 +926,15 @@ fn a_window_less_provider_is_looking_at_nothing() {
     assert_eq!(json["app"], APP);
     assert_eq!(json["here"], serde_json::json!({ "kind": "nowhere" }));
     assert_eq!(json["privacy"], "private");
+}
+
+/// The window's opener hands the conversation over from inside the provider's executor, which is
+/// a tokio runtime under zbus's `tokio` feature: the blocking handoff must not panic there. No
+/// window is running in a test, so whether it was taken does not matter: that it answers does.
+/// zbus is a dependency only where the session bus is (not macOS or Windows), as is the handoff.
+#[cfg(not(any(target_os = "macos", windows)))]
+#[test]
+fn the_window_handoff_answers_from_inside_zbus_executor() {
+    let _taken: bool =
+        zbus::block_on(async { super::handed_to_window(thread_of(1), Some("token")) });
 }

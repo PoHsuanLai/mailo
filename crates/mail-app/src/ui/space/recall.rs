@@ -1,6 +1,7 @@
 //! Where a Space was left.
 
-use mail_domain::{AccountId, ThreadId};
+use mail_domain::ThreadId;
+use porter_core::AccountId;
 use serde::de::Deserializer;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;

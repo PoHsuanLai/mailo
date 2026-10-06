@@ -1,5 +1,7 @@
 use super::*;
-use crate::ui::fixtures::{ACCOUNT, click, dispatching, held_and_remote, rebuild_into, seeded};
+use crate::ui::fixtures::{
+    acct_account, click, dispatching, held_and_remote, rebuild_into, seeded,
+};
 use crate::ui::view::Shell;
 use dioxus_core::VirtualDom;
 use mail_domain::*;
@@ -145,7 +147,7 @@ fn headers_only() -> (Arc<SqliteStore>, ThreadId, tempfile::TempDir) {
     let message = Message {
         id: MessageId::generate(),
         thread,
-        account: ACCOUNT,
+        account: acct_account(),
         key: MessageKey::Rfc("headers@example.test".to_owned()),
         date: chrono::Utc::now(),
         from: Address {
@@ -169,10 +171,10 @@ fn headers_only() -> (Arc<SqliteStore>, ThreadId, tempfile::TempDir) {
     };
     store
         .ingest(
-            ACCOUNT,
+            acct_account(),
             Ingest {
                 mailbox: MailboxRef {
-                    account: ACCOUNT,
+                    account: acct_account(),
                     path: "INBOX".to_owned(),
                 },
                 validity: UidValidity::Same,

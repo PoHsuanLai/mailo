@@ -12,10 +12,11 @@ use crate::{Store, StoreError};
 use chrono::{DateTime, Utc};
 use mail_domain::rule::{self, one_message};
 use mail_domain::{
-    AccountCaps, AccountId, AfterMatch, Body, Change, ChangeId, Filter, Label, LabelId,
-    LabelOrigin, MailboxRole, MatchCtx, Membership, Message, MessageId, Mute, Op, PageReq, Patch,
-    Property, Query, ReadState, Rule, RuleAction, RuleState, Sort, SortDir, Star, Target,
+    AccountCaps, AfterMatch, Body, Change, ChangeId, Filter, Label, LabelId, LabelOrigin,
+    MailboxRole, MatchCtx, Membership, Message, MessageId, Mute, Op, PageReq, Patch, Property,
+    Query, ReadState, Rule, RuleAction, RuleState, Sort, SortDir, Star, Target,
 };
+use porter_core::AccountId;
 
 /// What running rules did.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -60,7 +61,7 @@ pub fn at_arrival<S: Store + ?Sized>(
     arrived: &[MessageId],
     now: DateTime<Utc>,
 ) -> Result<Ran, StoreError> {
-    let rules = store.rules(account)?;
+    let rules = store.rules(account.clone())?;
     let ordered = rule::ordered(&rules);
     let mut ran = Ran::default();
     for id in arrived {
@@ -142,7 +143,7 @@ pub fn run_now<S: Store + ?Sized>(
     loop {
         let page = store.threads(
             &Query {
-                filter: Filter::Account(chosen.account),
+                filter: Filter::Account(chosen.account.clone()),
                 sort: Sort {
                     property: Property::Date,
                     dir: SortDir::Desc,
@@ -216,7 +217,7 @@ fn act<S: Store + ?Sized>(
         }
         fired.push(rule.name.clone());
         for action in &rule.actions {
-            let op = op_for(store, message.account, action)?;
+            let op = op_for(store, message.account.clone(), action)?;
             ran.queued += perform(store, caps, &op, &message, now)?;
             message = store.message(message.id)?;
         }
@@ -263,7 +264,7 @@ fn label_named<S: Store + ?Sized>(
     name: &str,
     origin: LabelOrigin,
 ) -> Result<LabelId, StoreError> {
-    let labels = store.labels(account)?;
+    let labels = store.labels(account.clone())?;
     let found = labels
         .iter()
         .find(|l| l.name == name)
@@ -273,7 +274,7 @@ fn label_named<S: Store + ?Sized>(
     }
     let label = Label {
         id: LabelId::generate(),
-        account,
+        account: account.clone(),
         name: name.to_owned(),
         color: None,
         origin,
@@ -313,10 +314,10 @@ fn perform<S: Store + ?Sized>(
     if applied.forward.changes.is_empty() {
         return Ok(0);
     }
-    store.apply(message.account, &applied.forward)?;
+    store.apply(message.account.clone(), &applied.forward)?;
     match applied.remote {
         Some(intent) => Ok(store
-            .enqueue(message.account, intent, &applied.inverse, now)?
+            .enqueue(message.account.clone(), intent, &applied.inverse, now)?
             .map_or(0, |_| 1)),
         None => Ok(0),
     }

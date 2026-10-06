@@ -2,13 +2,15 @@ use super::*;
 use mail_core::fetch::Pause;
 use mail_core::sync::report::{AccountReport, Counts};
 use mail_domain::Retry;
+use mail_domain::id::account_id_from_uuid;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000d1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000d1"))
+}
 
 fn finished() -> PassEnd {
     PassEnd::Finished(AccountReport {
-        account: ACCOUNT,
+        account: acct_account(),
         address: "me@nowhere.example".to_owned(),
         counts: Counts::default(),
         trouble: vec![],
@@ -17,7 +19,7 @@ fn finished() -> PassEnd {
 
 fn failed() -> PassEnd {
     PassEnd::Failed {
-        account: ACCOUNT,
+        account: acct_account(),
         address: "me@nowhere.example".to_owned(),
         retry: Retry::After(Duration::from_secs(5)),
         why: "cannot connect".to_owned(),
@@ -27,7 +29,7 @@ fn failed() -> PassEnd {
 
 fn cancelled() -> PassEnd {
     PassEnd::Cancelled {
-        account: ACCOUNT,
+        account: acct_account(),
         address: "me@nowhere.example".to_owned(),
     }
 }

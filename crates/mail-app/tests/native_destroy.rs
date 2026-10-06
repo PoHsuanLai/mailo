@@ -17,14 +17,17 @@ use settle::settle_until;
 mod drive;
 use drive::Drive;
 use ds_blitz::{NetPolicy, PrintOutcome};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_runtime::{Arrival, absorb};
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 use std::sync::Arc;
 use std::time::Duration;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 
 const VIEW: Viewport = Viewport {
     width: 1200,
@@ -61,13 +64,16 @@ fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
         db.execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [ACCOUNT.to_string()],
+            [acct_account().to_string()],
         )
         .unwrap();
         db.execute(
             "INSERT INTO identities (id, account, from_name, from_email, is_default)
              VALUES (?1, ?2, NULL, 'me@example.test', '\"default\"')",
-            [IdentityId::generate().to_string(), ACCOUNT.to_string()],
+            [
+                IdentityId::generate().to_string(),
+                acct_account().to_string(),
+            ],
         )
         .unwrap();
     }
@@ -80,9 +86,9 @@ fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
         );
         absorb(
             &store,
-            ACCOUNT,
+            acct_account(),
             MailboxRef {
-                account: ACCOUNT,
+                account: acct_account(),
                 path: "INBOX".to_owned(),
             },
             Some(SyncCursor::Pop),
@@ -107,7 +113,7 @@ fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
         .collect();
     store
         .apply(
-            ACCOUNT,
+            acct_account(),
             &Patch {
                 id: ChangeId::generate(),
                 changes,
@@ -119,7 +125,7 @@ fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
 
 fn all_messages(store: &SqliteStore) -> Vec<Message> {
     let query = Query {
-        filter: Filter::Account(ACCOUNT),
+        filter: Filter::Account(acct_account()),
         sort: Sort {
             property: Property::Date,
             dir: SortDir::Desc,
@@ -152,7 +158,7 @@ fn held_in(store: &SqliteStore, role: MailboxRole) -> Vec<String> {
 fn queued_deletions(store: &SqliteStore) -> (usize, usize) {
     let horizon = chrono::DateTime::from_timestamp(253_402_300_799, 0).unwrap();
     store
-        .outbox_due(ACCOUNT, horizon)
+        .outbox_due(acct_account(), horizon)
         .unwrap()
         .iter()
         .filter_map(|entry| match &entry.op {

@@ -8,11 +8,14 @@ use chrono::{DateTime, FixedOffset, TimeZone, Utc};
 use mail_app::cli;
 use mail_core::compose;
 use mail_core::template;
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 const IDENTITY: IdentityId =
     IdentityId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b1"));
 
@@ -47,13 +50,13 @@ fn seeded() -> (SqliteStore, tempfile::TempDir) {
         db.execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [ACCOUNT.to_string()],
+            [acct_account().to_string()],
         )
         .unwrap();
         db.execute(
             "INSERT INTO identities (id, account, from_name, from_email, is_default)
              VALUES (?1, ?2, NULL, 'me@example.test', '\"default\"')",
-            [IDENTITY.to_string(), ACCOUNT.to_string()],
+            [IDENTITY.to_string(), acct_account().to_string()],
         )
         .unwrap();
     }
@@ -70,7 +73,7 @@ fn someone() -> Vec<Address> {
 fn a_draft(store: &SqliteStore) -> Draft {
     compose::draft_new(
         store,
-        ACCOUNT,
+        acct_account(),
         &someone(),
         "the plan",
         "see you there",
@@ -81,7 +84,7 @@ fn a_draft(store: &SqliteStore) -> Draft {
 
 fn submissions(store: &SqliteStore) -> Vec<mail_store::OutboxEntry> {
     let far = now() + chrono::TimeDelta::try_days(3650).unwrap();
-    store.outbox_due(ACCOUNT, far).unwrap()
+    store.outbox_due(acct_account(), far).unwrap()
 }
 
 mod parsing {
@@ -215,12 +218,12 @@ mod sending_later {
         );
         assert!(
             store
-                .outbox_due(ACCOUNT, leaves - chrono::TimeDelta::seconds(1))
+                .outbox_due(acct_account(), leaves - chrono::TimeDelta::seconds(1))
                 .unwrap()
                 .is_empty(),
             "it would leave early"
         );
-        assert_eq!(store.outbox_due(ACCOUNT, leaves).unwrap().len(), 1);
+        assert_eq!(store.outbox_due(acct_account(), leaves).unwrap().len(), 1);
     }
 
     #[test]
@@ -375,7 +378,7 @@ mod templates {
         }
         assert_eq!(store.template(kept.id).unwrap(), kept, "the template moved");
         // Templates are not drafts, and do not show up among them.
-        assert_eq!(store.drafts(ACCOUNT).unwrap().len(), 3);
+        assert_eq!(store.drafts(acct_account()).unwrap().len(), 3);
     }
 
     #[test]
@@ -412,7 +415,7 @@ mod templates {
             },
         )
         .unwrap();
-        let kept = store.templates(ACCOUNT).unwrap();
+        let kept = store.templates(acct_account()).unwrap();
         assert_eq!(kept.len(), 1);
         assert!(saved.contains(&kept[0].id.to_string()), "{saved}");
 

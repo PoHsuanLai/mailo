@@ -1,6 +1,6 @@
 //! S/MIME from the user's side (`plan.md` 10.16): identities imported and forgotten, drafts sent
 //! signed and encrypted, protected mail opened when it is read — against a real store, with the
-//! keyring a [`MapSecrets`] so the user's own is never touched, and every certificate and key
+//! keyring a [`MapSigningStore`] so the user's own is never touched, and every certificate and key
 //! made by the throwaway authority in `mail-mime/tests/smime_support`.
 
 #[path = "../../mail-mime/tests/smime_support/mod.rs"]
@@ -10,14 +10,18 @@ use mail_app::cli;
 use mail_core::compose;
 use mail_core::pgp::WithSecret;
 use mail_core::smime;
+use mail_domain::id::account_id_from_uuid;
+use mail_domain::signing::{SigningKeyId, SigningKeyRef, SigningSecret};
 use mail_domain::*;
 use mail_mime::smime::{self as cms_smime, Cert, Sealing};
-use mail_runtime::{Arrival, MapSecrets, Secrets};
+use mail_runtime::{Arrival, MapSigningStore, SigningStore};
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 use smime_support::*;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a2"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a2"))
+}
 const IDENTITY: IdentityId =
     IdentityId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b2"));
 const ME: &str = "me@example.test";
@@ -37,13 +41,17 @@ fn seed(store: &SqliteStore) {
     db.execute(
         "INSERT INTO accounts (id, address, plan, created_at)
          VALUES (?1, ?2, '{}', datetime('now'))",
-        [ACCOUNT.to_string(), ME.to_owned()],
+        [acct_account().to_string(), ME.to_owned()],
     )
     .unwrap();
     db.execute(
         "INSERT INTO identities (id, account, from_name, from_email, is_default)
          VALUES (?1, ?2, 'Me', ?3, '\"default\"')",
-        [IDENTITY.to_string(), ACCOUNT.to_string(), ME.to_owned()],
+        [
+            IDENTITY.to_string(),
+            acct_account().to_string(),
+            ME.to_owned(),
+        ],
     )
     .unwrap();
 }
@@ -67,7 +75,7 @@ fn bea() -> cms_smime::Identity {
 fn my_identity() -> Identity {
     Identity {
         id: IDENTITY,
-        account: ACCOUNT,
+        account: acct_account(),
         from: Address {
             name: Some("Me".to_owned()),
             email: ME.to_owned(),
@@ -84,16 +92,16 @@ fn password() -> Option<String> {
 
 /// The user's identity imported from a PKCS#12 file, and the test root trusted, as a user of
 /// this authority would have it.
-fn with_identity() -> (SqliteStore, tempfile::TempDir, MapSecrets) {
+fn with_identity() -> (SqliteStore, tempfile::TempDir, MapSigningStore) {
     let (store, dir) = seeded();
-    let secrets = MapSecrets::default();
+    let secrets = MapSigningStore::default();
     let file = cms_smime::write_pkcs12(&me(), PASSWORD, &mut rng(1)).unwrap();
     smime::certs::import(&store, &secrets, &file, &password, now()).unwrap();
     trust_root(&store, &secrets);
     (store, dir, secrets)
 }
 
-fn trust_root(store: &SqliteStore, secrets: &MapSecrets) {
+fn trust_root(store: &SqliteStore, secrets: &MapSigningStore) {
     smime::certs::import(
         store,
         secrets,
@@ -106,7 +114,7 @@ fn trust_root(store: &SqliteStore, secrets: &MapSecrets) {
 }
 
 /// Bea's certificate, as `mailo smime import` of a certificate file keeps it.
-fn import_bea(store: &SqliteStore, secrets: &MapSecrets) {
+fn import_bea(store: &SqliteStore, secrets: &MapSigningStore) {
     smime::certs::import(store, secrets, bea().cert.pem().as_bytes(), &|| None, now()).unwrap();
 }
 
@@ -123,7 +131,7 @@ fn to(addresses: &[&str]) -> Vec<Address> {
 fn draft(store: &SqliteStore, mode: Smime, recipients: &[&str], bcc: &[&str]) -> Draft {
     let mut draft = compose::draft_new(
         store,
-        ACCOUNT,
+        acct_account(),
         &to(recipients),
         "Secret plans",
         "meet at the usual place",
@@ -138,7 +146,10 @@ fn draft(store: &SqliteStore, mode: Smime, recipients: &[&str], bcc: &[&str]) ->
 
 fn submissions(store: &SqliteStore) -> Vec<mail_store::OutboxEntry> {
     store
-        .outbox_due(ACCOUNT, now() + chrono::TimeDelta::try_days(365).unwrap())
+        .outbox_due(
+            acct_account(),
+            now() + chrono::TimeDelta::try_days(365).unwrap(),
+        )
         .unwrap()
 }
 
@@ -151,7 +162,7 @@ fn frozen(store: &SqliteStore) -> Vec<u8> {
     store.blobs().get(&store.connection(), *raw).unwrap()
 }
 
-fn send(store: &SqliteStore, secrets: &MapSecrets, draft: DraftId) -> Result<String, String> {
+fn send(store: &SqliteStore, secrets: &MapSigningStore, draft: DraftId) -> Result<String, String> {
     compose::send_with(store, secrets, &mail_core::pgp::no_passphrase, draft, now())
         .map_err(|e| e.to_string())
 }
@@ -160,9 +171,9 @@ fn send(store: &SqliteStore, secrets: &MapSecrets, draft: DraftId) -> Result<Str
 fn arrive(store: &SqliteStore, raw: Vec<u8>) -> Message {
     let ingest = mail_runtime::assemble(
         store,
-        ACCOUNT,
+        acct_account(),
         MailboxRef {
-            account: ACCOUNT,
+            account: acct_account(),
             path: "INBOX".to_owned(),
         },
         MailboxRole::Inbox,
@@ -177,7 +188,7 @@ fn arrive(store: &SqliteStore, raw: Vec<u8>) -> Message {
     )
     .unwrap();
     let id = ingest.messages[0].message.id;
-    store.ingest(ACCOUNT, ingest).unwrap();
+    store.ingest(acct_account(), ingest).unwrap();
     store.message(id).unwrap()
 }
 
@@ -203,7 +214,7 @@ mod identities {
     fn an_imported_identity_keeps_its_key_in_the_keyring_and_its_certificate_in_the_store() {
         let _serial = serial();
         let (store, _dir) = seeded();
-        let secrets = MapSecrets::default();
+        let secrets = MapSigningStore::default();
         assert!(store.smime_certs().unwrap().is_empty());
         let file = cms_smime::write_pkcs12(&me(), PASSWORD, &mut rng(1)).unwrap();
         let imported = smime::certs::import(&store, &secrets, &file, &password, now()).unwrap();
@@ -226,12 +237,12 @@ mod identities {
             Some(mine.fingerprint)
         );
         let held = secrets
-            .get(&SecretKey {
-                account: ACCOUNT,
-                purpose: SecretPurpose::Smime(mine.fingerprint),
+            .get(&SigningKeyRef {
+                account: acct_account(),
+                key: SigningKeyId::Smime(mine.fingerprint),
             })
             .unwrap();
-        let Credential::SmimeKey(pem) = held else {
+        let SigningSecret::SmimeKey(pem) = held else {
             panic!("{held:?}");
         };
         assert_eq!(
@@ -248,7 +259,7 @@ mod identities {
         std::fs::create_dir_all(&blobs).unwrap();
         let store = SqliteStore::open(dir.path().join("mail.db"), &blobs).unwrap();
         seed(&store);
-        let secrets = MapSecrets::default();
+        let secrets = MapSigningStore::default();
         let file = cms_smime::write_pkcs12(&me(), PASSWORD, &mut rng(1)).unwrap();
         smime::certs::import(&store, &secrets, &file, &password, now()).unwrap();
         drop(store);
@@ -275,7 +286,7 @@ mod identities {
     fn a_wrong_or_missing_password_and_a_stranger_identity_are_refused() {
         let _serial = serial();
         let (store, _dir) = seeded();
-        let secrets = MapSecrets::default();
+        let secrets = MapSigningStore::default();
         let file = cms_smime::write_pkcs12(&me(), PASSWORD, &mut rng(1)).unwrap();
         let wrong = smime::certs::import(&store, &secrets, &file, &|| Some("no".to_owned()), now())
             .unwrap_err();
@@ -297,9 +308,9 @@ mod identities {
         let _serial = serial();
         let (store, _dir, secrets) = with_identity();
         let mine = smime::certs::find(&store, ME).unwrap();
-        let entry = SecretKey {
-            account: ACCOUNT,
-            purpose: SecretPurpose::Smime(mine.fingerprint),
+        let entry = SigningKeyRef {
+            account: acct_account(),
+            key: SigningKeyId::Smime(mine.fingerprint),
         };
         let refused =
             smime::certs::delete(&store, &secrets, &mine, WithSecret::Refuse).unwrap_err();

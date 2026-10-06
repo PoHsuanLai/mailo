@@ -11,19 +11,24 @@
 //! `AUTHENTICATE XOAUTH2` at eleven call sites of its own.
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_proto::backend::{Authenticate, ImapBackend};
 use mail_proto::{ImapAuth, ImapCommand, ImapSession};
-use mail_runtime::{AccountEngine, MapSecrets, Secrets};
+use mail_runtime::{AccountEngine, AccountSecrets};
 use mail_store::{SqliteStore, Store};
+use porter_core::SecretText;
+use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
+use porter_secrets::MemorySecrets;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::watch;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 const PASSWORD: &str = "s3cr3t";
 
 fn now() -> DateTime<Utc> {
@@ -517,28 +522,27 @@ fn engine_with(port: u16, dir: tempfile::TempDir, caps: AccountCaps) -> Fixture 
         .execute(
             "INSERT OR IGNORE INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [ACCOUNT.to_string()],
+            [acct_account().to_string()],
         )
         .unwrap();
 
-    let secrets = MapSecrets::default();
-    secrets
-        .put(
-            &SecretKey {
-                account: ACCOUNT,
-                purpose: SecretPurpose::IncomingPassword,
-            },
-            &Credential::Password(PASSWORD.to_owned()),
-        )
-        .unwrap();
+    let secrets = MemorySecrets::default();
+    mail_runtime::block_on(secrets.put(
+        &SecretKey {
+            account: acct_account(),
+            purpose: SecretPurpose::IncomingPassword,
+        },
+        &Credential::Password(SecretText::new(PASSWORD.to_owned())),
+    ))
+    .unwrap();
 
     let auth = ImapAuth {
         username: "me@example.test".to_owned(),
-        credential: Credential::Password(PASSWORD.to_owned()),
+        credential: Credential::Password(SecretText::new(PASSWORD.to_owned())),
         sasl: vec![SaslMech::Plain],
     };
     let backend = ImapBackend::new(
-        ACCOUNT,
+        acct_account(),
         caps,
         Box::new(move |authenticate, commands: Vec<ImapCommand>| {
             let mut all = Vec::new();
@@ -551,7 +555,7 @@ fn engine_with(port: u16, dir: tempfile::TempDir, caps: AccountCaps) -> Fixture 
         }),
     );
     let engine = AccountEngine::new(
-        ACCOUNT,
+        acct_account(),
         plan(port),
         backend,
         store.clone(),
@@ -566,7 +570,7 @@ fn engine_with(port: u16, dir: tempfile::TempDir, caps: AccountCaps) -> Fixture 
 
 fn inbox() -> MailboxRef {
     MailboxRef {
-        account: ACCOUNT,
+        account: acct_account(),
         path: "INBOX".to_owned(),
     }
 }
@@ -1113,10 +1117,10 @@ mod round_trip {
             caps,
             now(),
         );
-        store.apply(ACCOUNT, &applied.forward).unwrap();
+        store.apply(acct_account(), &applied.forward).unwrap();
         if let Some(intent) = applied.remote {
             store
-                .enqueue(ACCOUNT, intent, &applied.inverse, now())
+                .enqueue(acct_account(), intent, &applied.inverse, now())
                 .unwrap();
         }
         id
@@ -1223,7 +1227,7 @@ mod round_trip {
             .unwrap();
         assert_eq!(pending, 0, "a confirmed change is still pending");
 
-        let queued = it.store.outbox_due(ACCOUNT, now()).unwrap();
+        let queued = it.store.outbox_due(acct_account(), now()).unwrap();
         assert!(queued.is_empty(), "a settled operation is still queued");
     }
 }
@@ -1272,10 +1276,10 @@ mod archiving {
             .collect();
         let applied =
             Op::Archive.apply(&Target::Threads(vec![id]), &loaded, &messages, caps, now());
-        it.store.apply(ACCOUNT, &applied.forward).unwrap();
+        it.store.apply(acct_account(), &applied.forward).unwrap();
         if let Some(intent) = applied.remote {
             it.store
-                .enqueue(ACCOUNT, intent, &applied.inverse, now())
+                .enqueue(acct_account(), intent, &applied.inverse, now())
                 .unwrap();
         }
         it.engine.drain_outbox(cancel, now()).await.unwrap();
@@ -1393,7 +1397,7 @@ mod discovery {
             .connection()
             .query_row(
                 "SELECT caps FROM account_caps WHERE account = ?1",
-                [ACCOUNT.to_string()],
+                [acct_account().to_string()],
                 |r| r.get(0),
             )
             .expect("capabilities were written");
@@ -1406,7 +1410,7 @@ mod discovery {
         let it = engine_with(port, dir, caps());
         it.store
             .put_caps(
-                ACCOUNT,
+                acct_account(),
                 &caps(),
                 now() - chrono::TimeDelta::try_days(7).unwrap(),
             )
@@ -1626,7 +1630,7 @@ mod appending {
     fn draft() -> Draft {
         Draft {
             id: DraftId::generate(),
-            account: ACCOUNT,
+            account: acct_account(),
             identity: IdentityId::generate(),
             to: vec![Address {
                 name: None,
@@ -1756,12 +1760,12 @@ kept for years\r\n";
             .put(&it.store.connection(), IMPORTED)
             .unwrap();
         let mailbox = MailboxRef {
-            account: ACCOUNT,
+            account: acct_account(),
             path: "Archive".to_owned(),
         };
         it.store
             .enqueue(
-                ACCOUNT,
+                acct_account(),
                 RemoteIntent::Append {
                     mailbox: mailbox.clone(),
                     flags: vec![SystemFlag::Seen],
@@ -1792,7 +1796,7 @@ kept for years\r\n";
         assert!(line.contains("\"13-Sep-2020 12:26:40 +0000\""), "{line}");
 
         let key = MessageKey::Rfc("imported-1@example.test".to_owned());
-        assert!(it.store.holds(ACCOUNT, &key).unwrap());
+        assert!(it.store.holds(acct_account(), &key).unwrap());
         assert_eq!(
             it.store.remote_refs(&mailbox).unwrap(),
             vec![RemoteRef::Imap {
@@ -1801,7 +1805,12 @@ kept for years\r\n";
                 uid: 103,
             }]
         );
-        assert!(it.store.outbox_due(ACCOUNT, now()).unwrap().is_empty());
+        assert!(
+            it.store
+                .outbox_due(acct_account(), now())
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

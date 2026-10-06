@@ -4,9 +4,11 @@
 use super::{RemoveError, remove};
 use crate::account::{Credentials, add_with_password};
 use crate::password::Password;
-use mail_domain::{AccountId, Credential, SecretKey, SecretPurpose};
-use mail_runtime::{MapSecrets, OAuthRegistry, RuntimeError, Secrets};
+use mail_domain::id::{account_id_from_uuid, new_account_id};
+use mail_runtime::{OAuthRegistry, block_on};
 use mail_store::SqliteStore;
+use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
+use porter_secrets::{MemorySecrets, Secrets, SecretsError};
 
 const KEPT: &str = "kept@example.edu";
 const GONE: &str = "gone@example.edu";
@@ -27,7 +29,7 @@ fn pop3() -> crate::account::Setup {
 
 /// A store with two password accounts, each with a label of its own, and the keyring holding
 /// both passwords.
-fn two_accounts(secrets: &MapSecrets) -> (SqliteStore, tempfile::TempDir) {
+fn two_accounts(secrets: &MemorySecrets) -> (SqliteStore, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let store = SqliteStore::in_memory(dir.path()).unwrap();
     for address in [KEPT, GONE] {
@@ -70,7 +72,7 @@ fn account_of(store: &SqliteStore, address: &str) -> AccountId {
             |r| r.get(0),
         )
         .unwrap();
-    AccountId::from_uuid(id.parse().unwrap())
+    account_id_from_uuid(id.parse().unwrap())
 }
 
 /// How many rows name `account`, in every table with an `account` column and in `accounts`.
@@ -113,45 +115,47 @@ fn rows_naming(store: &SqliteStore, account: AccountId) -> i64 {
     count
 }
 
-fn password_of(secrets: &MapSecrets, account: AccountId) -> Option<Credential> {
-    secrets
-        .get(&SecretKey {
+fn password_of(secrets: &MemorySecrets, account: AccountId) -> Option<Credential> {
+    block_on(Secrets::get(
+        secrets,
+        &SecretKey {
             account,
             purpose: SecretPurpose::IncomingPassword,
-        })
-        .ok()
+        },
+    ))
+    .ok()
 }
 
 #[test]
 fn removing_an_account_forgets_its_sign_in_and_every_row_naming_it_and_nothing_else() {
-    let secrets = MapSecrets::default();
+    let secrets = MemorySecrets::default();
     let (store, _dir) = two_accounts(&secrets);
     let gone = account_of(&store, GONE);
     let kept = account_of(&store, KEPT);
     assert!(
-        rows_naming(&store, gone) >= 3,
+        rows_naming(&store, gone.clone()) >= 3,
         "the fixture has nothing to remove"
     );
-    let before = rows_naming(&store, kept);
+    let before = rows_naming(&store, kept.clone());
 
-    let removed = remove(&store, &secrets, gone).unwrap();
+    let removed = block_on(remove(&store, &secrets, gone.clone())).unwrap();
 
     assert_eq!(removed.address, GONE);
-    assert_eq!(rows_naming(&store, gone), 0);
+    assert_eq!(rows_naming(&store, gone.clone()), 0);
     assert_eq!(password_of(&secrets, gone), None);
-    assert_eq!(rows_naming(&store, kept), before);
+    assert_eq!(rows_naming(&store, kept.clone()), before);
     assert!(password_of(&secrets, kept).is_some());
 }
 
 #[test]
 fn an_account_already_removed_is_unknown() {
-    let secrets = MapSecrets::default();
+    let secrets = MemorySecrets::default();
     let (store, _dir) = two_accounts(&secrets);
     let gone = account_of(&store, GONE);
-    remove(&store, &secrets, gone).unwrap();
-    for account in [gone, AccountId::generate()] {
+    block_on(remove(&store, &secrets, gone.clone())).unwrap();
+    for account in [gone, new_account_id()] {
         assert!(matches!(
-            remove(&store, &secrets, account),
+            block_on(remove(&store, &secrets, account)),
             Err(RemoveError::Unknown)
         ));
     }
@@ -159,46 +163,90 @@ fn an_account_already_removed_is_unknown() {
 
 #[test]
 fn the_account_that_keeps_mail_here_is_refused_and_kept() {
-    let secrets = MapSecrets::default();
+    let secrets = MemorySecrets::default();
     let (store, _dir) = two_accounts(&secrets);
     let local = crate::account::local(&store, now()).unwrap();
     assert!(matches!(
-        remove(&store, &secrets, local),
+        block_on(remove(&store, &secrets, local.clone())),
         Err(RemoveError::Local)
     ));
     assert!(rows_naming(&store, local) > 0);
 }
 
 /// A keyring that is locked: it reads, and refuses to forget anything.
-struct Locked<'a>(&'a MapSecrets);
+struct Locked<'a>(&'a MemorySecrets);
 
 impl Secrets for Locked<'_> {
-    fn get(&self, key: &SecretKey) -> Result<Credential, RuntimeError> {
-        self.0.get(key)
+    async fn get(&self, key: &SecretKey) -> Result<Credential, SecretsError> {
+        self.0.get(key).await
     }
 
-    fn put(&self, key: &SecretKey, value: &Credential) -> Result<(), RuntimeError> {
-        self.0.put(key, value)
+    async fn put(&self, key: &SecretKey, value: &Credential) -> Result<(), SecretsError> {
+        self.0.put(key, value).await
     }
 
-    fn forget(&self, _: &SecretKey) -> Result<(), RuntimeError> {
-        Err(RuntimeError::Secrets("the keyring is locked".to_owned()))
+    async fn delete(&self, _: &SecretKey) -> Result<(), SecretsError> {
+        Err(SecretsError::Locked)
+    }
+
+    async fn delete_account(&self, _: &AccountId) -> Result<(), SecretsError> {
+        Err(SecretsError::Locked)
     }
 }
 
 #[test]
 fn a_keyring_that_will_not_forget_stops_the_removal_with_nothing_deleted() {
-    let secrets = MapSecrets::default();
+    let secrets = MemorySecrets::default();
     let (store, _dir) = two_accounts(&secrets);
     let gone = account_of(&store, GONE);
-    let before = rows_naming(&store, gone);
+    let before = rows_naming(&store, gone.clone());
 
-    let refused = remove(&store, &Locked(&secrets), gone);
+    let refused = block_on(remove(&store, &Locked(&secrets), gone.clone()));
 
     assert!(
         matches!(&refused, Err(RemoveError::Keyring(said)) if said.contains("locked")),
         "{refused:?}"
     );
-    assert_eq!(rows_naming(&store, gone), before);
+    assert_eq!(rows_naming(&store, gone.clone()), before);
     assert!(password_of(&secrets, gone).is_some());
+}
+
+#[test]
+fn removing_an_account_forgets_every_purpose_of_it_through_delete_account() {
+    use porter_core::{CapabilityKind, SecretText};
+    let secrets = MemorySecrets::default();
+    let (store, _dir) = two_accounts(&secrets);
+    let gone = account_of(&store, GONE);
+    let kept = account_of(&store, KEPT);
+    let purposes = [
+        SecretPurpose::OutgoingPassword,
+        SecretPurpose::OAuthRefresh,
+        SecretPurpose::ServicePassword(CapabilityKind::Contacts),
+    ];
+    for account in [&gone, &kept] {
+        for purpose in &purposes {
+            block_on(secrets.put(
+                &SecretKey {
+                    account: account.clone(),
+                    purpose: *purpose,
+                },
+                &Credential::Password(SecretText::new("x")),
+            ))
+            .unwrap();
+        }
+    }
+
+    block_on(remove(&store, &secrets, gone.clone())).unwrap();
+
+    for purpose in [SecretPurpose::IncomingPassword]
+        .into_iter()
+        .chain(purposes.iter().copied())
+    {
+        let key = |account: &AccountId| SecretKey {
+            account: account.clone(),
+            purpose,
+        };
+        assert!(block_on(secrets.get(&key(&gone))).is_err(), "{purpose:?}");
+        assert!(block_on(secrets.get(&key(&kept))).is_ok(), "{purpose:?}");
+    }
 }

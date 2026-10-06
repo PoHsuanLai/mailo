@@ -6,6 +6,7 @@
 //! here are placeholders — the store keeps them and never reads them.
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_domain::id::new_account_id;
 use mail_domain::*;
 use mail_store::{MemoryStore, SqliteStore, Store, StoreError};
 
@@ -208,7 +209,7 @@ fn autocrypt_peer_state_round_trips_by_address_in_any_case() {
 fn a_draft_keeps_what_it_asks_openpgp_to_do() {
     let dir = tempfile::tempdir().unwrap();
     let store = SqliteStore::in_memory(dir.path()).unwrap();
-    let account = AccountId::generate();
+    let account = new_account_id();
     let identity = IdentityId::generate();
     {
         let db = store.connection();
@@ -227,7 +228,7 @@ fn a_draft_keeps_what_it_asks_openpgp_to_do() {
     }
     let draft = Draft {
         id: DraftId::generate(),
-        account,
+        account: account.clone(),
         identity,
         to: vec![Address {
             name: None,
@@ -250,7 +251,7 @@ fn a_draft_keeps_what_it_asks_openpgp_to_do() {
     let memory = MemoryStore::new();
     for s in [&store as &dyn Store, &memory] {
         s.apply(
-            account,
+            account.clone(),
             &Patch {
                 id: ChangeId::generate(),
                 changes: vec![Change::DraftUpsert(Box::new(draft.clone()))],

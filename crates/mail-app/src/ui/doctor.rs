@@ -29,8 +29,8 @@ use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::tokens::control_size::ControlSize;
 use mail_core::fetch::{Event, Link, Trigger};
-use mail_domain::AccountId;
 use mail_store::SqliteStore;
+use porter_core::AccountId;
 use std::sync::Arc;
 
 /// What the sheet and its command are called.
@@ -84,7 +84,7 @@ fn listed(fetching: Fetching, store: &SqliteStore) -> Vec<Listed> {
         .into_iter()
         .filter_map(|row| {
             let (_, link) = links.iter().find(|(id, _)| *id == row.id)?;
-            Some((row.id, row.shown(), link.clone()))
+            Some((row.id.clone(), row.shown(), link.clone()))
         })
         .collect()
 }
@@ -99,7 +99,7 @@ pub(in crate::ui) fn DoctorView(shell: Signal<Shell>, revision: Signal<u64>) -> 
         if shell.read().adding.is_some() {
             return;
         }
-        let Some((account, at, after)) = *pending.peek() else {
+        let Some((account, at, after)) = pending.peek().clone() else {
             return;
         };
         pending.set(None);
@@ -153,8 +153,14 @@ pub(in crate::ui) fn DoctorView(shell: Signal<Shell>, revision: Signal<u64>) -> 
                         key: "{account}",
                         name: name.clone(),
                         line: account_line(&link, now, &chrono::Local),
-                        act: move |remedy| act.call((account, name.clone(), remedy)),
-                        open: move |()| crate::ui::account_settings::open(shell, account),
+                        act: {
+                            let account = account.clone();
+                            move |remedy| act.call((account.clone(), name.clone(), remedy))
+                        },
+                        open: {
+                            let account = account.clone();
+                            move |()| crate::ui::account_settings::open(shell, account.clone())
+                        },
                     }
                 }
                 div { class: "doctor-foot",

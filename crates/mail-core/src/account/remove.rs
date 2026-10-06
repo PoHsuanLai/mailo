@@ -1,29 +1,21 @@
 //! Removing an account from this computer: its saved sign-in, then everything the database keeps
 //! of it.
 //!
-//! The keyring goes first. A sign-in that cannot be forgotten stops the removal before the
-//! database is touched, so the account and its mail are still there to try again; the other
-//! order would leave a password in the keyring that no account names any more, which nothing
-//! would ever find to clean up. A keyring cannot forget several entries at once, so the ones
-//! forgotten before a refusal stay forgotten: the account then asks to sign in again, which is
-//! what [`RemoveError::Keyring`] says.
+//! The secrets go first, every one of the account's in one `Secrets::delete_account`. A sign-in
+//! that cannot be forgotten stops the removal before the database is touched, so the account and
+//! its mail are still there to try again; the other order would leave a password in the keyring
+//! that no account names any more, which nothing would ever find to clean up. A store that
+//! refuses part-way may have forgotten some already, and those stay forgotten: the account then
+//! asks to sign in again, which is what [`RemoveError::Keyring`] says.
 //! The database goes last ([`SqliteStore::remove_account`]): every row that names the account,
 //! and the stored messages and attachment parts nothing else uses. Nothing on the server is
 //! touched, and keys and certificates stay: they are the user's, not the account's.
 
-use mail_domain::{AccountId, AccountPlan, Incoming, SecretKey, SecretPurpose};
-use mail_runtime::Secrets;
+use mail_domain::{AccountPlan, Incoming};
+use mail_runtime::AccountSecrets;
 use mail_store::{Freed, SqliteStore};
+use porter_core::AccountId;
 use rusqlite::OptionalExtension as _;
-
-/// Every secret kept under an account's id. Keys and certificates are kept under their
-/// fingerprint, not the account, and are not among them.
-const PURPOSES: [SecretPurpose; 4] = [
-    SecretPurpose::IncomingPassword,
-    SecretPurpose::OutgoingPassword,
-    SecretPurpose::OAuthRefresh,
-    SecretPurpose::AddressBook,
-];
 
 /// An account that was removed.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -62,9 +54,9 @@ pub enum RemoveError {
 }
 
 /// Remove `account` and everything kept of it here. See the module's words for the order.
-pub fn remove(
+pub async fn remove(
     store: &SqliteStore,
-    secrets: &dyn Secrets,
+    secrets: &dyn AccountSecrets,
     account: AccountId,
 ) -> Result<Removed, RemoveError> {
     let id = account.to_string();
@@ -86,11 +78,10 @@ pub fn remove(
     {
         return Err(RemoveError::Local);
     }
-    for purpose in PURPOSES {
-        secrets
-            .forget(&SecretKey { account, purpose })
-            .map_err(|e| RemoveError::Keyring(e.to_string()))?;
-    }
+    secrets
+        .forget_account(&account)
+        .await
+        .map_err(|e| RemoveError::Keyring(e.to_string()))?;
     match store
         .remove_account(account)
         .map_err(|e| RemoveError::Store(e.to_string()))?

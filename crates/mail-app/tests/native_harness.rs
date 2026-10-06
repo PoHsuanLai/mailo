@@ -12,9 +12,11 @@ use ds_harness::{Clock, Driver, Harness, HarnessConfig, Query, Viewport};
 
 #[path = "support/settle.rs"]
 mod settle;
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_runtime::{Arrival, absorb};
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 use settle::settle_until;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -23,8 +25,9 @@ use std::time::Duration;
 mod drive;
 use drive::{Drive, Key};
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 
 const VIEW: Viewport = Viewport {
     width: 1200,
@@ -61,13 +64,16 @@ fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
         db.execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [ACCOUNT.to_string()],
+            [acct_account().to_string()],
         )
         .unwrap();
         db.execute(
             "INSERT INTO identities (id, account, from_name, from_email, is_default)
              VALUES (?1, ?2, NULL, 'me@example.test', '\"default\"')",
-            [IdentityId::generate().to_string(), ACCOUNT.to_string()],
+            [
+                IdentityId::generate().to_string(),
+                acct_account().to_string(),
+            ],
         )
         .unwrap();
         let caps = AccountCaps {
@@ -87,7 +93,10 @@ fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
         db.execute(
             "INSERT INTO account_caps (account, caps, observed_at)
              VALUES (?1, ?2, datetime('now'))",
-            rusqlite::params![ACCOUNT.to_string(), serde_json::to_string(&caps).unwrap()],
+            rusqlite::params![
+                acct_account().to_string(),
+                serde_json::to_string(&caps).unwrap()
+            ],
         )
         .unwrap();
     }
@@ -101,9 +110,9 @@ fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
         );
         absorb(
             &store,
-            ACCOUNT,
+            acct_account(),
             MailboxRef {
-                account: ACCOUNT,
+                account: acct_account(),
                 path: "INBOX".to_owned(),
             },
             Some(SyncCursor::Pop),
@@ -311,11 +320,16 @@ fn a_window_started_from_a_mailto_link_opens_on_the_composer() {
     );
 
     // A draft, held and not queued: a link can open a composer, never send.
-    let drafts = store.drafts(ACCOUNT).unwrap();
+    let drafts = store.drafts(acct_account()).unwrap();
     assert_eq!(drafts.len(), 1, "{drafts:?}");
     assert_eq!(drafts[0].state, SendState::Editing);
     let a_year_on = chrono::Utc::now() + chrono::Duration::days(365);
-    assert!(store.outbox_due(ACCOUNT, a_year_on).unwrap().is_empty());
+    assert!(
+        store
+            .outbox_due(acct_account(), a_year_on)
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[test]
@@ -537,15 +551,15 @@ fn with_folders(store: &SqliteStore) {
             "UPDATE accounts SET plan = ?1 WHERE id = ?2",
             [
                 serde_json::to_string(&preset.plan).unwrap(),
-                ACCOUNT.to_string(),
+                acct_account().to_string(),
             ],
         )
         .unwrap();
     store
-        .put_caps(ACCOUNT, &preset.expected_caps, chrono::Utc::now())
+        .put_caps(acct_account(), &preset.expected_caps, chrono::Utc::now())
         .unwrap();
     let folder = |path: &str| Folder {
-        account: ACCOUNT,
+        account: acct_account(),
         path: path.to_owned(),
         delimiter: Some('/'),
         special: None,
@@ -554,7 +568,7 @@ fn with_folders(store: &SqliteStore) {
     };
     store
         .put_folders(
-            ACCOUNT,
+            acct_account(),
             vec![folder("INBOX"), folder(PROJECTS), folder("Receipts")],
         )
         .unwrap();
@@ -619,7 +633,7 @@ fn a_folder_is_renamed_in_its_name_s_place() {
     harness.advance(ms(600));
     assert_eq!(harness.count(RENAMING), 0, "Enter left the field");
     let paths: Vec<String> = store
-        .folders(ACCOUNT)
+        .folders(acct_account())
         .unwrap()
         .into_iter()
         .map(|folder| folder.path)
@@ -642,7 +656,7 @@ fn escape_the_rename_then_press_e(fallback: FocusFallback) -> (Harness, tempfile
     harness.advance(ms(300));
     assert_eq!(harness.count(RENAMING), 0, "Escape left the field");
     let paths: Vec<String> = store
-        .folders(ACCOUNT)
+        .folders(acct_account())
         .unwrap()
         .into_iter()
         .map(|folder| folder.path)
@@ -1090,7 +1104,7 @@ fn send_queues_the_typed_body_as_text_and_html() {
     press(&mut harness, &[Key::Ctrl], Key::Enter, 1);
     harness.advance(ms(1500));
     let later = chrono::Utc::now() + chrono::Duration::days(1);
-    let due = store.outbox_due(ACCOUNT, later).unwrap();
+    let due = store.outbox_due(acct_account(), later).unwrap();
     assert_eq!(due.len(), 1, "nothing was queued");
     let ProtoOp::Submit {
         draft,
@@ -1227,7 +1241,7 @@ fn going_to_another_folder_ends_a_rename() {
         "going to another folder left the rename open"
     );
     let paths: Vec<String> = store
-        .folders(ACCOUNT)
+        .folders(acct_account())
         .unwrap()
         .into_iter()
         .map(|folder| folder.path)

@@ -8,8 +8,10 @@ use chrono::Utc;
 use dioxus::html::input_data::keyboard_types::Modifiers;
 use dioxus::prelude::*;
 use dioxus_core::{NoOpMutations, VirtualDom};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 
 use super::{destinations, folder_label, items};
 use crate::ui::fixtures::{
@@ -18,13 +20,15 @@ use crate::ui::fixtures::{
 use crate::ui::folder_open::Fetcher;
 use crate::ui::view::folder_filter;
 
-const IMAP: AccountId = AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000d1"));
+fn acct_imap() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000d1"))
+}
 const FROM: &str = "Projects/2026";
 const TO: &str = "Projects";
 
 fn folder(path: &str, special: Option<SpecialUse>, holds: Holds) -> Folder {
     Folder {
-        account: IMAP,
+        account: acct_imap(),
         path: path.to_owned(),
         delimiter: Some('/'),
         special,
@@ -33,7 +37,7 @@ fn folder(path: &str, special: Option<SpecialUse>, holds: Holds) -> Folder {
     }
 }
 
-/// A non-Gmail IMAP account with folders of its own, special-use ones, a level that holds only
+/// A non-Gmail acct_imap() account with folders of its own, special-use ones, a level that holds only
 /// folders, a label of the user's, and two conversations in `FROM`.
 fn store() -> (Arc<SqliteStore>, tempfile::TempDir, Vec<ThreadId>) {
     let (store, dir) = empty();
@@ -56,17 +60,17 @@ fn store() -> (Arc<SqliteStore>, tempfile::TempDir, Vec<ThreadId>) {
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at) VALUES (?1, ?2, ?3, ?4)",
             [
-                IMAP.to_string(),
+                acct_imap().to_string(),
                 preset.plan.address.clone(),
                 serde_json::to_string(&preset.plan).unwrap(),
                 Utc::now().to_rfc3339(),
             ],
         )
         .unwrap();
-    store.put_caps(IMAP, &caps, Utc::now()).unwrap();
+    store.put_caps(acct_imap(), &caps, Utc::now()).unwrap();
     store
         .put_folders(
-            IMAP,
+            acct_imap(),
             vec![
                 folder("INBOX", None, Holds::Mail),
                 folder("Sent", Some(SpecialUse::Sent), Holds::Mail),
@@ -80,12 +84,12 @@ fn store() -> (Arc<SqliteStore>, tempfile::TempDir, Vec<ThreadId>) {
         .unwrap();
     store
         .apply(
-            IMAP,
+            acct_imap(),
             &Patch {
                 id: ChangeId::generate(),
                 changes: vec![Change::LabelUpsert(Label {
                     id: LabelId::generate(),
-                    account: IMAP,
+                    account: acct_imap(),
                     name: "travel".to_owned(),
                     color: None,
                     origin: LabelOrigin::User,
@@ -107,7 +111,7 @@ fn deliver(store: &SqliteStore, uid: u32, subject: &str) -> ThreadId {
     let message = Message {
         id: MessageId::generate(),
         thread,
-        account: IMAP,
+        account: acct_imap(),
         key: MessageKey::Rfc(format!("m{uid}@example.test")),
         date: Utc::now() - chrono::TimeDelta::hours(i64::from(uid)),
         from: Address {
@@ -131,7 +135,7 @@ fn deliver(store: &SqliteStore, uid: u32, subject: &str) -> ThreadId {
     };
     let ingest = Ingest {
         mailbox: MailboxRef {
-            account: IMAP,
+            account: acct_imap(),
             path: FROM.to_owned(),
         },
         validity: UidValidity::Same,
@@ -151,14 +155,14 @@ fn deliver(store: &SqliteStore, uid: u32, subject: &str) -> ThreadId {
         label_names: vec![],
         gone: vec![],
     };
-    store.ingest(IMAP, ingest).unwrap();
+    store.ingest(acct_imap(), ingest).unwrap();
     thread
 }
 
 /// How many conversations the folder at `path` lists: its own place's filter, asked of the store.
 fn in_folder(store: &SqliteStore, path: &str) -> u64 {
     let place = folder_filter(&MailboxRef {
-        account: IMAP,
+        account: acct_imap(),
         path: path.to_owned(),
     });
     store.count(&place, Utc::now()).unwrap()
@@ -166,7 +170,7 @@ fn in_folder(store: &SqliteStore, path: &str) -> u64 {
 
 /// How many conversations carry the label a move into `path` files under.
 fn filed_in(store: &SqliteStore, path: &str) -> u64 {
-    let label = folder_label(store, IMAP, path).unwrap();
+    let label = folder_label(store, acct_imap(), path).unwrap();
     store.count(&Filter::HasLabel(label), Utc::now()).unwrap()
 }
 
@@ -174,7 +178,7 @@ fn filed_in(store: &SqliteStore, path: &str) -> u64 {
 fn queued_moves(store: &SqliteStore) -> usize {
     let later = Utc::now() + chrono::TimeDelta::days(1);
     store
-        .outbox_due(IMAP, later)
+        .outbox_due(acct_imap(), later)
         .unwrap()
         .iter()
         .filter(|entry| matches!(entry.op, ProtoOp::File { .. }))
@@ -184,19 +188,19 @@ fn queued_moves(store: &SqliteStore) -> usize {
 #[test]
 fn the_menu_offers_the_accounts_own_folders_and_nothing_else() {
     let (store, _dir, _) = store();
-    let offered: Vec<String> = destinations(&store, IMAP)
+    let offered: Vec<String> = destinations(&store, acct_imap())
         .into_iter()
         .map(|d| d.path)
         .collect();
     assert_eq!(offered, [TO, FROM, "收據"]);
-    let keys: Vec<String> = items(&destinations(&store, IMAP))
+    let keys: Vec<String> = items(&destinations(&store, acct_imap()))
         .into_iter()
         .map(|item| item.key)
         .collect();
     assert_eq!(keys, offered);
     // A POP3-like account, with no listing at all, has nothing to offer.
     let (bare, _dir) = crate::ui::fixtures::seeded();
-    assert!(destinations(&bare, crate::ui::fixtures::ACCOUNT).is_empty());
+    assert!(destinations(&bare, crate::ui::fixtures::acct_account()).is_empty());
 }
 
 fn window(store: Arc<SqliteStore>) -> (VirtualDom, Seen) {
@@ -349,7 +353,7 @@ async fn floated(dom: &mut VirtualDom, mut drawn: Seen) -> Seen {
 fn queued_folders(store: &SqliteStore) -> Vec<String> {
     let later = Utc::now() + chrono::TimeDelta::days(1);
     store
-        .outbox_due(IMAP, later)
+        .outbox_due(acct_imap(), later)
         .unwrap()
         .into_iter()
         .filter_map(|entry| match entry.op {
@@ -361,7 +365,7 @@ fn queued_folders(store: &SqliteStore) -> Vec<String> {
 
 /// Filed into `path`, as a pick in the menu does it, with the undo it hands the toast.
 fn file(store: &SqliteStore, thread: ThreadId, path: &str) -> mail_core::undo::Undo {
-    let label = folder_label(store, IMAP, path).unwrap();
+    let label = folder_label(store, acct_imap(), path).unwrap();
     crate::ui::ops::perform(store, thread, Op::File(label)).expect("the move was not made")
 }
 

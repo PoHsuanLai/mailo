@@ -95,6 +95,26 @@ ratchet scripts/core-prose-allowlist.txt 'mailo [a-z]' \
 ratchet scripts/core-result-string-allowlist.txt 'Result<String, String>' \
   "mail-core returns Result<String, String>" || fail=1
 
+# Names that moved to porter, or went with the types they named, must not creep back in. mailo
+# names accounts, secrets and OAuth issuers with `porter_core` and `porter_provider`'s types
+# (`AccountId`, `SecretKey`, `SecretPurpose`, `Credential`, `Issuer`), and keeps its own signing
+# keys in `mail_domain::signing`. So there is no `OAuthIssuer`; no `mail_domain::AccountId` (or
+# `Credential`, `SecretKey`, `SecretPurpose`) to import; no `AccountId` minted from a UUID by a
+# method (`mail_domain::id::new_account_id` and `account_id_from_uuid` do it); and no key held
+# as a `SecretPurpose` or a `Credential`.
+#
+# E2 adds what went with account secrets: mailo's own `Secrets` trait, `KeyringSecrets` and
+# `MapSecrets` (an account's secrets are `porter_secrets::Secrets`, held as
+# `mail_runtime::AccountSecrets`; signing keys are `SigningStore`), the `secrets` module they
+# lived in, and the signing methods the one trait carried (`get_signing`, `put_signing`,
+# `forget_signing`). `mail_runtime::KeyringSecrets` is porter's `KeyringSecrets` under another
+# crate's name, so it is forbidden by that path and `porter_secrets::KeyringSecrets` is not.
+FORBIDDEN_SYMBOLS='\bOAuthIssuer\b|\bAccountId::(from_uuid|generate)\b|\bSecretPurpose::(AddressBook|OpenPgp|Smime)\b|\bCredential::(OpenPgp|SmimeKey)\b|\bmail_domain::(AccountId|Credential|SecretKey|SecretPurpose)\b|\bMapSecrets\b|\bmail_runtime::(KeyringSecrets|Secrets|MapSecrets|secrets)\b|\bmail_runtime::\{[^}]*\b(KeyringSecrets|Secrets|MapSecrets)\b|\bdyn Secrets\b|\b(get|put|forget)_signing\b|\bcrate::secrets\b'
+if grep -rnE "$FORBIDDEN_SYMBOLS" crates --include='*.rs' | grep -vE '^[^:]+:[0-9]+:[[:space:]]*//'; then
+  echo "a symbol that moved to porter (or was deleted with its type) is back: see FORBIDDEN_SYMBOLS in scripts/check-boundary.sh"
+  fail=1
+fi
+
 # The reader draws blocks. A raw HTML sink in the UI would put a sender's markup
 # in our document, which is what the block types exist to prevent.
 if grep -rn "dangerous_inner_html" crates/mail-app/src/ui/; then

@@ -1,9 +1,12 @@
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 use std::sync::Arc;
 
-pub(in crate::ui) const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+pub(in crate::ui) fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 
 /// A store with one account, one message and one draft, so the panes have something to draw.
 /// What was actually observed against the user's Gmail account.
@@ -33,13 +36,13 @@ pub(in crate::ui) fn seeded() -> (Arc<SqliteStore>, tempfile::TempDir) {
         db.execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [ACCOUNT.to_string()],
+            [acct_account().to_string()],
         )
         .unwrap();
         db.execute(
             "INSERT INTO identities (id, account, from_name, from_email, is_default)
              VALUES (?1, ?2, NULL, 'me@example.test', '\"default\"')",
-            [identity.to_string(), ACCOUNT.to_string()],
+            [identity.to_string(), acct_account().to_string()],
         )
         .unwrap();
         // Capabilities, because `account add` always writes them and a fixture without them
@@ -51,7 +54,7 @@ pub(in crate::ui) fn seeded() -> (Arc<SqliteStore>, tempfile::TempDir) {
             "INSERT INTO account_caps (account, caps, observed_at)
              VALUES (?1, ?2, datetime('now'))",
             rusqlite::params![
-                ACCOUNT.to_string(),
+                acct_account().to_string(),
                 serde_json::to_string(&gmail_caps()).unwrap()
             ],
         )
@@ -68,7 +71,7 @@ pub(in crate::ui) fn seeded() -> (Arc<SqliteStore>, tempfile::TempDir) {
     let message = Message {
         id: MessageId::generate(),
         thread: ThreadId::generate(),
-        account: ACCOUNT,
+        account: acct_account(),
         key: MessageKey::Rfc("m1@example.test".to_owned()),
         date: chrono::Utc::now(),
         from: Address {
@@ -95,10 +98,10 @@ pub(in crate::ui) fn seeded() -> (Arc<SqliteStore>, tempfile::TempDir) {
     };
     store
         .ingest(
-            ACCOUNT,
+            acct_account(),
             Ingest {
                 mailbox: MailboxRef {
-                    account: ACCOUNT,
+                    account: acct_account(),
                     path: "INBOX".to_owned(),
                 },
                 validity: UidValidity::Same,
@@ -121,12 +124,12 @@ pub(in crate::ui) fn seeded() -> (Arc<SqliteStore>, tempfile::TempDir) {
 
     store
         .apply(
-            ACCOUNT,
+            acct_account(),
             &Patch {
                 id: ChangeId::generate(),
                 changes: vec![Change::DraftUpsert(Box::new(Draft {
                     id: DraftId::generate(),
-                    account: ACCOUNT,
+                    account: acct_account(),
                     identity,
                     to: vec![Address {
                         name: None,
@@ -223,7 +226,7 @@ pub(in crate::ui) fn realistic() -> (Arc<SqliteStore>, tempfile::TempDir) {
         let message = Message {
             id: MessageId::generate(),
             thread: ThreadId::generate(),
-            account: ACCOUNT,
+            account: acct_account(),
             key: MessageKey::Rfc(format!("real{n}@example.test")),
             // Spread over days, so the date column has more than one shape in it.
             date: chrono::Utc::now() - chrono::TimeDelta::try_hours(n as i64 * 19).unwrap(),
@@ -255,10 +258,10 @@ pub(in crate::ui) fn realistic() -> (Arc<SqliteStore>, tempfile::TempDir) {
         };
         store
             .ingest(
-                ACCOUNT,
+                acct_account(),
                 Ingest {
                     mailbox: MailboxRef {
-                        account: ACCOUNT,
+                        account: acct_account(),
                         path: "INBOX".to_owned(),
                     },
                     validity: UidValidity::Same,
@@ -318,7 +321,7 @@ pub(in crate::ui) fn held_and_remote() -> (Arc<SqliteStore>, tempfile::TempDir) 
     let message = Message {
         id: MessageId::generate(),
         thread: ThreadId::generate(),
-        account: ACCOUNT,
+        account: acct_account(),
         key: MessageKey::Rfc("quarterly@example.test".to_owned()),
         date: chrono::Utc::now(),
         from: Address {
@@ -362,10 +365,10 @@ pub(in crate::ui) fn held_and_remote() -> (Arc<SqliteStore>, tempfile::TempDir) 
     };
     store
         .ingest(
-            ACCOUNT,
+            acct_account(),
             Ingest {
                 mailbox: MailboxRef {
-                    account: ACCOUNT,
+                    account: acct_account(),
                     path: "INBOX".to_owned(),
                 },
                 validity: UidValidity::Same,

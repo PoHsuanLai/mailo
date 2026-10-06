@@ -4,51 +4,51 @@
 //! do: read and write the keyring, and write what arriving mail taught to the store. Nothing
 //! here decrypts anything — mail is decrypted when the reader opens it, never as it arrives.
 
-use crate::{RuntimeError, Secrets};
+use crate::{RuntimeError, SigningStore};
 use chrono::{DateTime, Utc};
 use mail_domain::autocrypt::{self, Sighting, effective_date};
-use mail_domain::{AccountId, Credential, Fingerprint, KeySource, SecretKey, SecretPurpose};
+use mail_domain::signing::{SigningKeyId, SigningKeyRef, SigningSecret};
+use mail_domain::{Fingerprint, KeySource};
 use mail_mime::openpgp::{AutocryptHeader, SecretCert, autocrypt_of};
 use mail_store::Store;
+use porter_core::AccountId;
 
-fn entry(account: AccountId, fingerprint: Fingerprint) -> SecretKey {
-    SecretKey {
+fn entry(account: AccountId, fingerprint: Fingerprint) -> SigningKeyRef {
+    SigningKeyRef {
         account,
-        purpose: SecretPurpose::OpenPgp(fingerprint),
+        key: SigningKeyId::OpenPgp(fingerprint),
     }
 }
 
 /// The secret key with `fingerprint`, from the keyring.
 pub fn secret_key(
-    secrets: &dyn Secrets,
+    secrets: &dyn SigningStore,
     account: AccountId,
     fingerprint: Fingerprint,
 ) -> Result<SecretCert, RuntimeError> {
     match secrets.get(&entry(account, fingerprint))? {
-        Credential::OpenPgp(armored) => Ok(SecretCert::from_armored(&armored)?),
-        Credential::Password(_) | Credential::OAuth { .. } | Credential::SmimeKey(_) => {
-            Err(RuntimeError::Secrets(format!(
-                "the keyring entry for OpenPGP key {fingerprint} holds something else"
-            )))
-        }
+        SigningSecret::OpenPgp(armored) => Ok(SecretCert::from_armored(&armored)?),
+        SigningSecret::SmimeKey(_) => Err(RuntimeError::Secrets(format!(
+            "the keyring entry for OpenPGP key {fingerprint} holds something else"
+        ))),
     }
 }
 
 /// Keep `key`'s secret half in the keyring, as it is — passphrase-protected if it was.
 pub fn keep_secret_key(
-    secrets: &dyn Secrets,
+    secrets: &dyn SigningStore,
     account: AccountId,
     key: &SecretCert,
 ) -> Result<(), RuntimeError> {
     secrets.put(
         &entry(account, key.fingerprint()),
-        &Credential::OpenPgp(key.armored()?),
+        &SigningSecret::OpenPgp(key.armored()?),
     )
 }
 
 /// Remove the secret half of `fingerprint` from the keyring. Already gone is success.
 pub fn forget_secret_key(
-    secrets: &dyn Secrets,
+    secrets: &dyn SigningStore,
     account: AccountId,
     fingerprint: Fingerprint,
 ) -> Result<(), RuntimeError> {

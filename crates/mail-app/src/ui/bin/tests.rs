@@ -1,11 +1,12 @@
 use super::*;
 use crate::ui::view::Shell;
+use mail_domain::id::new_account_id;
 use mail_domain::*;
 
 fn summary_in(roles: &[MailboxRole]) -> ThreadSummary {
     ThreadSummary {
         id: ThreadId::generate(),
-        account: AccountId::generate(),
+        account: new_account_id(),
         subject: "s".to_owned(),
         snippet: String::new(),
         from: Address {

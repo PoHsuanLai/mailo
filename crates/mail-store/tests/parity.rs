@@ -10,13 +10,16 @@
 //! marks that end one — exercised end to end through both implementations.
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_store::{MemoryStore, SqliteStore, Store};
+use porter_core::AccountId;
 use proptest::prelude::*;
 use std::collections::BTreeSet;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 const LABEL_A: LabelId = LabelId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b1"));
 const LABEL_B: LabelId = LabelId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b2"));
 
@@ -124,7 +127,9 @@ fn caps() -> AccountCaps {
 const FOLDERS: &[&str] = &["INBOX", "Projects/2026", "收件匣/報告"];
 
 /// Another account, so `InFolder` is seen to scope by account as well as by path.
-const OTHER: AccountId = AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a2"));
+fn acct_other() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a2"))
+}
 
 fn spec() -> impl Strategy<Value = Spec> {
     (
@@ -197,7 +202,7 @@ fn filter() -> impl Strategy<Value = Filter> {
         Just(Filter::Snoozed),
         Just(Filter::SnoozeDue),
         Just(Filter::Pinned),
-        Just(Filter::Account(ACCOUNT)),
+        Just(Filter::Account(acct_account())),
         (0u8..6).prop_map(|n| Filter::InMailbox(role(n))),
         any::<bool>().prop_map(|b| Filter::Read(if b {
             ReadState::Read
@@ -211,7 +216,7 @@ fn filter() -> impl Strategy<Value = Filter> {
         })),
         any::<bool>().prop_map(|b| Filter::HasLabel(if b { LABEL_A } else { LABEL_B })),
         (0..FOLDERS.len(), any::<bool>()).prop_map(|(i, mine)| Filter::InFolder(MailboxRef {
-            account: if mine { ACCOUNT } else { OTHER },
+            account: if mine { acct_account() } else { acct_other() },
             path: FOLDERS[i].to_owned(),
         })),
         text.clone().prop_map(Filter::From),
@@ -246,12 +251,12 @@ fn build(specs: &[Spec]) -> Both {
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [ACCOUNT.to_string()],
+            [acct_account().to_string()],
         )
         .unwrap();
     let memory = MemoryStore::new();
-    sqlite.put_caps(ACCOUNT, &caps(), at(0)).unwrap();
-    memory.put_caps(ACCOUNT, &caps(), at(0)).unwrap();
+    sqlite.put_caps(acct_account(), &caps(), at(0)).unwrap();
+    memory.put_caps(acct_account(), &caps(), at(0)).unwrap();
 
     let named = [(LABEL_A, "work"), (LABEL_B, "personal")]
         .into_iter()
@@ -259,7 +264,7 @@ fn build(specs: &[Spec]) -> Both {
     for (id, name) in named {
         let label = Label {
             id,
-            account: ACCOUNT,
+            account: acct_account(),
             name: name.to_owned(),
             color: None,
             origin: LabelOrigin::User,
@@ -268,8 +273,8 @@ fn build(specs: &[Spec]) -> Both {
             id: ChangeId::generate(),
             changes: vec![Change::LabelUpsert(label)],
         };
-        sqlite.apply(ACCOUNT, &patch).unwrap();
-        memory.apply(ACCOUNT, &patch).unwrap();
+        sqlite.apply(acct_account(), &patch).unwrap();
+        memory.apply(acct_account(), &patch).unwrap();
     }
 
     let mut held: Vec<(Message, &Spec)> = Vec::new();
@@ -290,7 +295,7 @@ fn build(specs: &[Spec]) -> Both {
         let message = Message {
             id: MessageId::from_uuid(uuid::Uuid::from_u128(0x9000 + i as u128)),
             thread,
-            account: ACCOUNT,
+            account: acct_account(),
             key: MessageKey::Rfc(format!("m{i}@example.test")),
             date: at(s.date),
             from: Address {
@@ -333,8 +338,8 @@ fn build(specs: &[Spec]) -> Both {
             id: ChangeId::generate(),
             changes: vec![Change::MessageUpsert(Box::new(message.clone()))],
         };
-        sqlite.apply(ACCOUNT, &patch).unwrap();
-        memory.apply(ACCOUNT, &patch).unwrap();
+        sqlite.apply(acct_account(), &patch).unwrap();
+        memory.apply(acct_account(), &patch).unwrap();
         held.push((message, s));
     }
 
@@ -361,7 +366,7 @@ fn build(specs: &[Spec]) -> Both {
             .collect();
         let ingest = Ingest {
             mailbox: MailboxRef {
-                account: ACCOUNT,
+                account: acct_account(),
                 path: (*path).to_owned(),
             },
             validity: UidValidity::Same,
@@ -372,8 +377,8 @@ fn build(specs: &[Spec]) -> Both {
             label_names: Vec::new(),
             gone: Vec::new(),
         };
-        sqlite.ingest(ACCOUNT, ingest.clone()).unwrap();
-        memory.ingest(ACCOUNT, ingest).unwrap();
+        sqlite.ingest(acct_account(), ingest.clone()).unwrap();
+        memory.ingest(acct_account(), ingest).unwrap();
     }
 
     // Moves queued and not yet confirmed, as the window or a rule queues them: the op applied
@@ -394,10 +399,10 @@ fn build(specs: &[Spec]) -> Both {
                 &caps(),
                 now(),
             );
-            store.apply(ACCOUNT, &applied.forward).unwrap();
+            store.apply(acct_account(), &applied.forward).unwrap();
             if let Some(intent) = applied.remote {
                 store
-                    .enqueue(ACCOUNT, intent, &applied.inverse, now())
+                    .enqueue(acct_account(), intent, &applied.inverse, now())
                     .unwrap();
             }
         }

@@ -9,6 +9,7 @@ use mail_core::account::{Receive, Setup};
 use mail_core::when::Stamp;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 use std::fmt::Write as _;
 
 mod account;
@@ -1472,7 +1473,7 @@ pub fn run_with_clients(
                 // never before. The decrypted text is printed and kept nowhere.
                 let protected = mail_core::pgp::open_message(
                     store,
-                    &mail_runtime::KeyringSecrets,
+                    &mail_runtime::KeyringSigningStore::default(),
                     &message,
                     &mail_core::pgp::terminal_passphrase,
                     now,
@@ -1493,7 +1494,7 @@ pub fn run_with_clients(
                     Some(text) => Some(text),
                     None => match mail_core::smime::open_message(
                         store,
-                        &mail_runtime::KeyringSecrets,
+                        &mail_runtime::KeyringSigningStore::default(),
                         &message,
                         now,
                     ) {
@@ -1564,7 +1565,7 @@ pub fn run_with_clients(
         // protected key.
         Command::Send { draft, at: None } => mail_core::compose::send_with(
             store,
-            &mail_runtime::KeyringSecrets,
+            &mail_runtime::KeyringSigningStore::default(),
             &mail_core::pgp::terminal_passphrase,
             *draft,
             now,
@@ -1575,7 +1576,7 @@ pub fn run_with_clients(
             at: Some(when),
         } => mail_core::compose::send_later_with(
             store,
-            &mail_runtime::KeyringSecrets,
+            &mail_runtime::KeyringSigningStore::default(),
             &mail_core::pgp::terminal_passphrase,
             *draft,
             when,
@@ -1667,7 +1668,7 @@ pub fn run_with_clients(
         ),
         Command::Smime(smime) => mail_core::smime::run(
             store,
-            &mail_runtime::KeyringSecrets,
+            &mail_runtime::KeyringSigningStore::default(),
             &mail_core::smime::terminal_password,
             smime,
             now,
@@ -1675,7 +1676,12 @@ pub fn run_with_clients(
         Command::Pgp(mail_core::pgp::PgpCommand::Lookup { .. }) => {
             Err("pgp lookup is dispatched before this point".to_owned())
         }
-        Command::Pgp(pgp) => mail_core::pgp::run(store, &mail_runtime::KeyringSecrets, pgp, now),
+        Command::Pgp(pgp) => mail_core::pgp::run(
+            store,
+            &mail_runtime::KeyringSigningStore::default(),
+            pgp,
+            now,
+        ),
         Command::Receipt { message, answer } => {
             mail_core::receipt::answer(store, *message, *answer, now)
         }
@@ -1737,7 +1743,7 @@ pub fn run_with_clients(
         Command::AccountList => mail_core::account::list(store),
         Command::AccountRemove { address, consent } => account::remove(
             store,
-            &mail_runtime::KeyringSecrets,
+            mail_runtime::platform_secrets().as_ref(),
             mail_core::config::config_dir().as_deref(),
             address,
             *consent,
@@ -1867,7 +1873,7 @@ fn account_named(store: &SqliteStore, address: &str) -> Result<AccountId, String
         format!("no account for {address:?}. `mailo account list` says which there are.")
     })?;
     id.parse()
-        .map(AccountId::from_uuid)
+        .map(mail_domain::id::account_id_from_uuid)
         .map_err(|_| "that account's id is unreadable".to_owned())
 }
 
