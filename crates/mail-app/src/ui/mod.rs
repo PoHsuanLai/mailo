@@ -71,7 +71,7 @@ mod rules;
 mod server_search;
 mod settings_window;
 mod sidebar;
-mod space_editor;
+mod space_menu;
 mod start;
 mod style;
 mod switch;

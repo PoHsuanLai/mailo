@@ -1,6 +1,6 @@
-//! The small mark at the end of an account's heading or a folder's row: a spinner while mail is
-//! being fetched for it, a warning button, with the reason as its hover text, when it could not
-//! be. The button opens the Connection Doctor.
+//! The small mark at the end of an account's heading or a folder's row: a warning button, with
+//! the reason as its hover text, when its mail could not be fetched. The button opens the
+//! Connection Doctor. A fetch in progress draws nothing here: the toolbar's Sync icon turns.
 //!
 //! One component per mark, each reading the fetching state itself, so a pass moving along
 //! draws that mark and not the whole sidebar.
@@ -40,8 +40,7 @@ pub(super) fn FolderMark(shell: Signal<Shell>, account: AccountId, path: String)
 /// person fixes what the glyph is about. Its words are its hover text and its name.
 fn drawn(shell: Signal<Shell>, mark: Mark) -> Element {
     match mark {
-        Mark::Quiet => rsx! {},
-        Mark::Busy => rsx! { Working {} },
+        Mark::Quiet | Mark::Busy => rsx! {},
         Mark::Warn(why) => glyph(shell, why, Icon::TriangleAlert),
         Mark::Offline(why) => glyph(shell, why, Icon::WifiOff),
     }
@@ -61,21 +60,6 @@ fn glyph(shell: Signal<Shell>, why: String, icon: Icon) -> Element {
                     propagation: Propagation::Stop,
                     onclick: on_primary(move || crate::ui::doctor::open(shell)),
                 }
-            }
-        }
-    }
-}
-
-/// The small spinner, turning from the moment it is drawn.
-#[component]
-fn Working() -> Element {
-    let operation = use_hook(|| Operation::Running(PendingToken::start()));
-    rsx! {
-        span { class: "fetch-mark", "aria-busy": "true",
-            ProgressIndicator {
-                style: ProgressStyle::Spinner,
-                progress: Progress::Unknown(operation),
-                size: ControlSize::Mini,
             }
         }
     }

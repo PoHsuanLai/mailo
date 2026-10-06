@@ -1,6 +1,6 @@
-//! Deleting a Space from the editor, against the real window on Blitz: the footer's gear opens
-//! the editor, Delete Space asks, and only the sheet's button removes the Space. With one Space
-//! there is nothing to delete, and pressing the button changes nothing.
+//! Deleting a Space from its menu, against the real window on Blitz: the Space's name opens the
+//! menu at the pointer, Delete Space… asks in a popover where the menu stood, and only the
+//! popover's button removes the Space. With one Space the menu has no Delete row.
 //!
 //! Every case opens the real window over a store seeded in a `TempDir`. The window is handed no
 //! directories, so it writes no file anywhere.
@@ -163,11 +163,12 @@ fn open(width: u32, spaces: Spaces) -> (Harness, tempfile::TempDir) {
 }
 
 const DOTS: &str = ".space-dots > *";
-const GEAR: &str = ".space-name";
-const EDITOR: &str = "[*|aria-label=\"Edit this Space\"]";
-const DELETE: &str = ".ed-foot [*|aria-label=\"Delete Space\u{2026}\"]";
-const SHEET: &str = ".destroy-sheet";
-const CONFIRM: &str = ".destroy-sheet [*|aria-label=\"Delete Space\"]";
+const NAME: &str = ".space-name";
+const MENU: &str = ".ds-menu-item";
+/// The menu's last row: Delete Space… while another Space remains, New Space otherwise.
+const LAST_ROW: &str = ".ds-menu-item:last-child";
+const ASKING: &str = ".space-delete";
+const CONFIRM: &str = ".space-delete [*|aria-label=\"Delete Space\"]";
 
 fn press(harness: &mut Harness, selector: &str) {
     let at = harness
@@ -178,17 +179,21 @@ fn press(harness: &mut Harness, selector: &str) {
 }
 
 #[test]
-fn deleting_a_space_asks_first_and_then_removes_it_and_closes_the_editor() {
+fn deleting_a_space_asks_first_and_then_removes_it() {
     let (mut harness, _dir) = open(1200, spaces(2));
     assert_eq!(harness.count(DOTS), 2, "the fixture is not two Spaces");
-    press(&mut harness, GEAR);
-    assert_eq!(
-        harness.count(EDITOR),
-        1,
-        "the Space's name did not open the editor"
+    press(&mut harness, NAME);
+    assert!(
+        harness.count(MENU) > 0,
+        "the Space's name did not open its menu"
     );
-    press(&mut harness, DELETE);
-    assert_eq!(harness.count(SHEET), 1, "Delete Space did not ask");
+    assert_eq!(
+        harness.text_of(LAST_ROW).as_deref().map(str::trim),
+        Some("Delete Space\u{2026}")
+    );
+    press(&mut harness, LAST_ROW);
+    assert_eq!(harness.count(ASKING), 1, "Delete Space did not ask");
+    assert_eq!(harness.count(MENU), 0, "the menu stayed under the question");
     assert_eq!(
         harness.count(DOTS),
         2,
@@ -200,46 +205,41 @@ fn deleting_a_space_asks_first_and_then_removes_it_and_closes_the_editor() {
         1,
         "confirming did not remove the Space"
     );
-    assert_eq!(harness.count(SHEET), 0, "the sheet stayed after confirming");
-    assert_eq!(harness.count(EDITOR), 0, "the editor stayed open");
+    assert_eq!(
+        harness.count(ASKING),
+        0,
+        "the question stayed after confirming"
+    );
 }
 
 #[test]
-fn closing_the_sheet_keeps_the_space() {
+fn escape_keeps_the_space() {
     let (mut harness, _dir) = open(1200, spaces(2));
-    press(&mut harness, GEAR);
-    press(&mut harness, DELETE);
-    assert_eq!(harness.count(SHEET), 1, "Delete Space did not ask");
+    press(&mut harness, NAME);
+    press(&mut harness, LAST_ROW);
+    assert_eq!(harness.count(ASKING), 1, "Delete Space did not ask");
     harness.key(Key::Escape);
     harness.advance(ms(400));
-    assert_eq!(harness.count(SHEET), 0, "Esc did not close the sheet");
-    assert_eq!(harness.count(DOTS), 2, "closing the sheet removed a Space");
+    assert_eq!(harness.count(ASKING), 0, "Esc did not close the question");
     assert_eq!(
-        harness.count(EDITOR),
-        1,
-        "Esc closed the editor under the sheet too"
+        harness.count(DOTS),
+        2,
+        "closing the question removed a Space"
     );
 }
 
 #[test]
-fn the_only_space_cannot_be_deleted() {
+fn the_only_space_has_no_delete_row() {
     let (mut harness, _dir) = open(1200, spaces(1));
-    press(&mut harness, GEAR);
-    assert_eq!(
-        harness.count(EDITOR),
-        1,
-        "the Space's name did not open the editor"
+    press(&mut harness, NAME);
+    assert!(
+        harness.count(MENU) > 0,
+        "the Space's name did not open its menu"
     );
     assert_eq!(
-        harness.count(SHEET),
-        0,
-        "the sheet was open before the press"
-    );
-    press(&mut harness, DELETE);
-    assert_eq!(
-        harness.count(SHEET),
-        0,
-        "Delete Space asked about the last Space"
+        harness.text_of(LAST_ROW).as_deref().map(str::trim),
+        Some("New Space"),
+        "the last Space's menu offers Delete"
     );
     assert_eq!(harness.count(DOTS), 1, "the last Space was removed");
 }

@@ -8,7 +8,7 @@ use super::list_query::{ListView, use_list};
 use super::ops::{Composes, apply_op, start_composing, start_new};
 use super::reading::Reader;
 use super::sidebar::Places;
-use super::space_editor::SpaceEditor;
+use super::space_menu::SpaceMenuView;
 use super::style::STYLE;
 use crate::ui::selection::Toward;
 use crate::ui::space::Spaces;
@@ -76,7 +76,7 @@ pub(super) fn App() -> Element {
     let mut today_list = use_signal(|| boot.today.clone());
     let dirs = boot.dirs.clone();
     let mut side_hidden = use_signal(|| false);
-    // The Space editor's draft, while the sheet is open.
+    // The Space a part of its menu (its name, its colour) holds, while that part is open.
     let editing = use_signal(|| None::<crate::ui::space::edit::Draft>);
     let prefs = super::prefs::use_prefs(dirs.as_ref());
     let desk = compose::use_desk(today_list, spaces, dirs.clone(), side_hidden);
@@ -222,7 +222,7 @@ pub(super) fn App() -> Element {
         }
     });
 
-    // The Space's account list, whenever the Spaces change: the Space editor's Accounts row and
+    // The Space's account list, whenever the Spaces change: the Space's menu (Accounts) and
     // the tiles' menus edit it. Read through `peek`, so a tile press (a shell change) does not
     // run this, and a pressed tile whose account left the Space goes back to every account.
     use_effect(move || {
@@ -254,9 +254,8 @@ pub(super) fn App() -> Element {
     super::frame::use_followed_configuration(shell, spaces, Some(editing));
 
     // An account removed, here or from a terminal, leaves every Space, and the tile pressed. Not
-    // while the Space editor holds a draft: the Spaces are the draft then, and Escape must still
-    // put them back. Run again when the editor closes, which also takes the account out of a
-    // draft that Save kept.
+    // while a part of the Space's menu holds a draft: the Spaces are the draft then. Run again
+    // when the part closes, which also takes the account out of the Space it kept.
     use_effect(move || {
         let _ = revision();
         if editing.read().is_some() {
@@ -375,8 +374,8 @@ pub(super) fn App() -> Element {
             super::reading::viewer_key(shell, &key);
             return;
         }
-        // The Contacts sheet owns it while it is open, over the Space editor when it was opened
-        // from there: its filter takes letters, and Esc closes it and nothing else.
+        // The Contacts sheet owns it while it is open: its filter takes letters, and Esc closes
+        // it and nothing else.
         if shell.read().contacts.is_some() {
             if key == "Escape" {
                 super::contacts::close(shell);
@@ -455,18 +454,14 @@ pub(super) fn App() -> Element {
             }
             return;
         }
-        // The Delete Space sheet is over the editor: Esc closes it, and only it, first.
-        if shell.read().removing_space.is_some() {
-            if key == "Escape" {
-                super::space_editor::close_remove(shell);
-            }
-            return;
-        }
-        // The Space editor owns the keyboard while it is open. Its name field takes letters,
-        // its handles take the arrows, and Esc puts the Space back as the sheet found it.
-        if editing.read().is_some() {
-            if key == "Escape" {
-                super::space_editor::cancel(editing, spaces);
+        // A Space's menu, or the part it opened, owns the keyboard while it shows: the name
+        // field takes letters, the colour field's handles the arrows, and quire's layer stack
+        // closes it on Escape. A part that holds no focus (the colour, the Delete question)
+        // never sees the key, so an Escape that reaches the window closes it here.
+        let menu = shell.read().space_menu;
+        if let Some(open) = menu {
+            if key == "Escape" && open.showing != crate::ui::view::SpaceShowing::Menu {
+                super::space_menu::close(shell, editing, spaces);
             }
             return;
         }
@@ -775,7 +770,7 @@ pub(super) fn App() -> Element {
                     }
                 }
             }
-            SpaceEditor { spaces, editing, shell, pages, today: today_list }
+            SpaceMenuView { spaces, editing, shell, pages, today: today_list }
             if shell.read().command.is_some() {
                 CommandMenu { shell, pages, revision, side_hidden, spaces }
             }
@@ -1146,7 +1141,7 @@ mod tests {
     async fn the_sidebar_offers_a_way_to_write() {
         // The button, for anyone who does not know the key.
         let (store, _dir) = realistic();
-        assert!(markup(store).contains(">Compose<"));
+        assert!(markup(store).contains(r#"aria-label="Compose""#));
     }
 
     #[tokio::test]

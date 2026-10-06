@@ -1,8 +1,8 @@
-//! The Space editor, as data: a draft beside the Space it started from.
+//! A Space while a part of its menu is open, as data: a draft beside the Space it started from.
 //!
-//! Every change the sheet offers is a method here, so the rules (three dots at most, one at
-//! least, where an arrow key moves a dot) are tested without a window. The window paints the
-//! draft live and keeps [`Draft::saved`] for Esc.
+//! The rules a change follows (three dots at most, one at least, where an arrow key moves a dot)
+//! are methods here, tested without a window. The window paints the draft live and keeps it when
+//! the part closes.
 
 use super::{PRESETS, Space};
 use ds::style::space::palette::Dot;

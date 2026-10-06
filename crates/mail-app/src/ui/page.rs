@@ -10,7 +10,7 @@ use super::press::on_primary;
 use crate::ui::view::{PageGroup, PageMenu, PageParts, Shell};
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
-use ds::components::controls::button_model::Bezel;
+use ds::components::controls::button_model::{Bezel, ImagePosition};
 use ds::host::measure::MountedRef;
 use ds::root::common::Common;
 use ds::style::tokens::control_size::ControlSize;
@@ -231,7 +231,9 @@ pub(super) fn PageMenus(shell: Signal<Shell>) -> Element {
         Button {
             bezel: Bezel::Toolbar,
             size: ControlSize::Small,
+            image: ImagePosition::Only,
             label: "Group",
+            title: Some("Group the list".to_owned()),
             icon: Some(IconSource::Glyph(Icon::Group)),
             shown: shown(PageMenu::Group),
             common: Common {
@@ -253,7 +255,9 @@ pub(super) fn PageMenus(shell: Signal<Shell>) -> Element {
         Button {
             bezel: Bezel::Toolbar,
             size: ControlSize::Small,
+            image: ImagePosition::Only,
             label: "Properties",
+            title: Some("What each row shows".to_owned()),
             icon: Some(IconSource::Glyph(Icon::Columns)),
             shown: shown(PageMenu::Properties),
             common: Common {

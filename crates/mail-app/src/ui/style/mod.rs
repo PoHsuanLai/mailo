@@ -69,8 +69,8 @@ pub(in crate::ui) mod tests {
     }
 
     /// The window's first frame with a conversation open in the reader, the command menu's
-    /// open menus, and the Space editor, which the first frame never shows: opened here
-    /// through the Space's name as a person would.
+    /// open menus, and each of the Space's parts, which the first frame never shows: opened
+    /// here from the Space's menu as a person would.
     async fn frame_markup() -> String {
         use crate::ui::app::App;
         use crate::ui::fixtures::work;
@@ -86,10 +86,10 @@ pub(in crate::ui) mod tests {
         menus.rebuild_in_place();
         // The palette floats in the root's overlay, drawn the render after it asks.
         crate::ui::fixtures::drain(&mut menus);
-        let editor = crate::ui::space_editor::tests::editor_open_markup();
+        let editor = crate::ui::space_menu::tests::parts_open_markup().await;
         assert!(
-            editor.contains("aria-label=\"Space editor\""),
-            "the editor did not open: {editor}"
+            editor.contains("data-part=\"colour\""),
+            "the Space's colour did not open: {editor}"
         );
         dioxus_ssr::render(&dom) + &dioxus_ssr::render(&menus) + &editor
     }

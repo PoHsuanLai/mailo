@@ -207,7 +207,7 @@ async fn ctrl_2_repaints_the_frame_and_scopes_the_list() {
         "the list did not narrow to Solo's account: {before} rows before, {after} after"
     );
     assert!(
-        page.contains("aria-label=\"Solo Space\"") && page.contains("Edit the Solo Space"),
+        page.contains("aria-label=\"Solo Space\"") && page.contains("The Solo Space"),
         "the foot does not show Solo: {page}"
     );
     assert_eq!(

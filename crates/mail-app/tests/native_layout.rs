@@ -326,3 +326,20 @@ fn every_footer_control_stays_inside_the_sidebar_at_its_least_width() {
         "the sidebar toggle is clipped: {toggle:?} in {side:?}"
     );
 }
+
+#[test]
+fn the_list_s_title_gives_way_to_its_tools_in_a_narrow_list() {
+    // The narrowest window the list keeps its least width in: its header is at its tightest.
+    let (harness, _dir) = open(760, spaces(1));
+    let column = rect(&harness, ".list-col");
+    let title = rect(&harness, ".list-title");
+    let tools = rect(&harness, ".bar-tools");
+    assert!(
+        right(&title) <= left(&tools) + 0.5,
+        "the title {title:?} runs under the tools {tools:?}"
+    );
+    assert!(
+        within(&tools, &column),
+        "the tools {tools:?} are clipped by the list {column:?}"
+    );
+}
