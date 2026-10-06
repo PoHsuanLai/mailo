@@ -7,7 +7,7 @@
 
 use crate::ui::appearance::WindowDirs;
 use crate::ui::data::{AccountRow, account_rows};
-use crate::ui::space_editor::Seg;
+use crate::ui::space_menu::Seg;
 use dioxus::prelude::*;
 use mail_core::offline::{self, Keep, Kept};
 use mail_domain::Incoming;

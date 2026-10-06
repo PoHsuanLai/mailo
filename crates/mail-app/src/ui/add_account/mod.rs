@@ -1,5 +1,5 @@
 //! Adding an account from the window: "Add account…" from ⌘K, the "+" after the account
-//! tiles, and the Space editor.
+//! tiles, and Settings.
 //!
 //! An address, then Look up — which sends only its domain — then what was found, where it came
 //! from and how the account signs in, then Use these settings. Nothing is added and no

@@ -1,4 +1,4 @@
-//! An account put in a Space, or taken out of it: the Space editor's Accounts row, and the menu
+//! An account put in a Space, or taken out of it: the Space's menu (Accounts), and the menu
 //! on an account's tile.
 //!
 //! A Space over every account that loses one becomes a Space of all the others, so taking an

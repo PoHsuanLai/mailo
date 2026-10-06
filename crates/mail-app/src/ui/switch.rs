@@ -5,7 +5,6 @@
 //! quire's root cross-fades the Space's colour.
 
 use super::frame::keep;
-use crate::ui::space::edit::Draft;
 use crate::ui::space::{self, Recall, Space, Spaces};
 use crate::ui::view::{PageMenu, Shell};
 use dioxus::prelude::*;
@@ -105,31 +104,18 @@ pub(super) fn go(
     keep(&spaces.read());
 }
 
-/// "+": a new Space from the next preset, switched to, with the editor open on it.
-///
-/// It is written before the editor opens, so Esc in the editor returns to this Space as it
-/// was made rather than removing it.
-pub(super) fn add(
-    mut spaces: Signal<Spaces>,
-    shell: Signal<Shell>,
-    pages: Signal<u32>,
-    mut editing: Signal<Option<Draft>>,
-) {
+/// "+" and New Space: a new Space from the next preset, switched to and written. Its index is
+/// returned for the caller to open its name.
+pub(super) fn add(mut spaces: Signal<Spaces>, shell: Signal<Shell>, pages: Signal<u32>) -> usize {
     let made = space::new_space(&spaces.read());
     let index = {
         let mut all = spaces.write();
-        all.spaces.push(made.clone());
+        all.spaces.push(made);
         all.spaces.len() - 1
     };
     go(spaces, shell, pages, index);
-    editing.set(Some(Draft::open(index, made)));
-}
-
-/// Open the editor on the current Space.
-pub(super) fn edit(spaces: Signal<Spaces>, mut editing: Signal<Option<Draft>>) {
-    let index = spaces.read().current;
-    let space = spaces.read().current_space();
-    editing.set(Some(Draft::open(index, space)));
+    keep(&spaces.read());
+    index
 }
 
 #[cfg(test)]

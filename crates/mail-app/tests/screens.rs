@@ -296,10 +296,10 @@ fn screens() {
         h.advance(ms(200));
         h.key(Key::Enter);
         shot(&mut h, &out, "add-account-sheet", dark);
-        // The Space editor, through the Space's name.
+        // The Space's menu, through the Space's name.
         h.key(Key::Escape);
         h.advance(ms(400));
         click(&mut h, ".space-name");
-        shot(&mut h, &out, "space-editor-sheet", dark);
+        shot(&mut h, &out, "space-menu", dark);
     }
 }

@@ -5,7 +5,9 @@ use super::super::app::App;
 use super::folder_act::{load, perform, refused};
 use super::folder_tests::{acct_imap, acct_pop, folder, shape};
 use super::folder_tree::{Show, arrange};
-use crate::ui::fixtures::{chord, click, dispatching, empty, rebuild_into, right_click, type_into};
+use crate::ui::fixtures::{
+    chord, click, dispatching, empty, later, rebuild_into, right_click, type_into,
+};
 use crate::ui::ops::take_back;
 use chrono::Utc;
 use dioxus::prelude::*;
@@ -97,33 +99,6 @@ fn add_pop(store: &SqliteStore) {
         acct_pop(),
         presets::manual_pop3("you@nowhere.example", &manual, Utc::now()),
     );
-}
-
-/// What the window draws over the next moments: a picked menu item blinks, then closes, then
-/// acts, on quire's clock.
-///
-/// The blink is about 140 ms and then the field is drawn. Counting out a fixed number of
-/// renders stops before that when every wait returns at once: ten of them are over in a few
-/// milliseconds and the field was never there. Wait the blink out on the wall clock, and yield
-/// between renders so a document that always has work cannot spin the timer out of the slice.
-async fn later(dom: &mut VirtualDom) -> crate::ui::fixtures::Seen {
-    let mut seen = crate::ui::fixtures::Seen::default();
-    let until = tokio::time::Instant::now() + std::time::Duration::from_millis(1000);
-    let frame = std::time::Duration::from_millis(16);
-    while tokio::time::Instant::now() < until {
-        let left = until.saturating_duration_since(tokio::time::Instant::now());
-        let slice = left.min(std::time::Duration::from_millis(50));
-        let started = tokio::time::Instant::now();
-        let _ = tokio::time::timeout(slice, dom.wait_for_work()).await;
-        let mut more = crate::ui::fixtures::Seen::default();
-        dom.render_immediate(&mut more);
-        seen = seen.merge(more);
-        let spent = started.elapsed();
-        if spent < frame {
-            tokio::time::sleep(frame - spent).await;
-        }
-    }
-    seen
 }
 
 fn drawn(store: &SqliteStore) -> String {
