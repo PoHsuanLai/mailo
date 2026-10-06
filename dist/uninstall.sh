@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Remove what dist/install.sh put in place: the unit (disabled first), the desktop entry, the icon,
-# the intents manifest and its D-Bus service, and the binary. Your mail, settings and keyring are
-# not touched. Run as yourself; sudo asks once. Safe to run again.
+# the intents manifest and its D-Bus service, the mail skill, and the binary. Your mail, settings
+# and keyring are not touched. Run as yourself; sudo asks once. Safe to run again.
 #
 #   dist/uninstall.sh --dry-run    print every step, change nothing
 #   dist/uninstall.sh              remove the system files
@@ -25,10 +25,13 @@ if manager_present; then
 fi
 gone "$UNIT_DEST"
 
-step "3/3 the entry, the icon, the intents and the binary"
+step "3/3 the entry, the icon, the intents, the skill and the binary"
 gone "$DESKTOP_DEST"
 gone "$ICON_DEST"
 gone "$INTENTS_DEST"
+gone "$SKILL_DIR/SKILL.md"
+gone "$SKILL_DIR/skill.toml"
+[ ! -d "$SKILL_DIR" ] || asroot rmdir "$SKILL_DIR" || true
 gone "$SERVICE_DEST"
 gone "$BIN_DEST"
 if command -v update-desktop-database >/dev/null && [ -d "$(dirname "$DESKTOP_DEST")" ]; then
