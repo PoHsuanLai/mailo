@@ -11,7 +11,7 @@ mod bimi_support;
 
 use bimi_support::{LOGO, Mark, authority, now, pem};
 use mail_runtime::bimi::{Cached, Lookup, NoLogo, Txt, cached, find, logo};
-use mail_runtime::discover::Miss;
+use mail_runtime::lookup::Miss;
 use rustls_pki_types::pem::PemObject;
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use std::collections::HashMap;

@@ -25,7 +25,7 @@ mod draw;
 pub use cache::{Cached, cached, remember};
 pub use draw::{SIZE, draw};
 
-use crate::discover::{Miss, SystemDns};
+use crate::lookup::{Miss, SystemDns};
 use chrono::{DateTime, Utc};
 use mail_mime::bimi::{self, BimiRecord, MarkProblem, vmc};
 use mail_mime::smime::Cert;
@@ -222,8 +222,7 @@ fn answered(result: Result<Vec<String>, Miss>) -> Result<Vec<String>, NoLogo> {
     match result {
         Ok(txts) => Ok(txts),
         Err(Miss::Absent) => Ok(Vec::new()),
-        Err(Miss::Unreachable(why)) | Err(Miss::Malformed(why)) => Err(NoLogo::Unreachable(why)),
-        Err(Miss::Unusable(why)) => Err(NoLogo::Unreachable(format!("{why:?}"))),
+        Err(Miss::Unreachable(why)) => Err(NoLogo::Unreachable(why)),
     }
 }
 

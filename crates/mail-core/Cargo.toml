@@ -16,6 +16,9 @@ authors = ["Po Hsuan Lai <pohsuanlai0208@gmail.com>"]
 [dependencies]
 porter-core.workspace = true
 porter-provider.workspace = true
+porter-discover.workspace = true
+# The HTTP seam porter-discover asks through (`discover.rs` names it); no client, no I/O.
+porter-http.workspace = true
 latchkey.workspace = true
 mail-domain.workspace = true
 mail-store.workspace = true
