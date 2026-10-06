@@ -20,7 +20,7 @@ use crate::ui::view::{Nothing, Shell};
 use dioxus::prelude::*;
 use ds::components::chrome::toolbar::view::Toolbar;
 use ds::components::content::label::{Label, LabelRole, LabelStyle};
-use ds::components::controls::button_model::{Bezel, ImagePosition};
+use ds::components::controls::button_model::{Bezel, BusyLook, ImagePosition};
 use ds::components::lists::virtual_list::{RowHeight, VirtualList};
 use ds::components::overlays::empty_state::EmptyForm;
 use ds::prelude::*;
@@ -444,6 +444,8 @@ pub(super) fn ThreadList(
                                         label: "Sync now",
                                         icon: Some(IconSource::Glyph(Icon::Refresh)),
                                         availability: sync_state,
+                                        // Busy turns the arrows themselves, as Get Mail does, in place of a spinner.
+                                        busy: BusyLook::TurnIcon,
                                         onclick: on_primary(move || super::fetching::sync_now(&shell.read())),
                                     }
                                 }
