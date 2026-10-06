@@ -43,6 +43,12 @@ pub fn dir(place: Place) -> Option<PathBuf> {
     base(place).map(|base| base.join(APP))
 }
 
+/// Where porter keeps the person's own files (`clients.toml`): `porter` in the config place.
+/// mailo only reads there; the file's one writer is porter's Settings (`clients`).
+pub fn porter_config() -> Option<PathBuf> {
+    base(Place::Config).map(|base| base.join("porter"))
+}
+
 /// The user's home directory.
 pub fn home() -> Option<PathBuf> {
     #[cfg(not(any(target_os = "macos", windows)))]

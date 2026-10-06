@@ -5,7 +5,7 @@ use super::{RemoveError, remove};
 use crate::account::{Credentials, add_with_password};
 use crate::password::Password;
 use mail_domain::id::{account_id_from_uuid, new_account_id};
-use mail_runtime::{OAuthRegistry, block_on};
+use mail_runtime::{ClientRegistry, block_on};
 use mail_store::SqliteStore;
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
 use porter_secrets::{MemorySecrets, Secrets, SecretsError};
@@ -43,7 +43,7 @@ fn two_accounts(secrets: &MemorySecrets) -> (SqliteStore, tempfile::TempDir) {
             now(),
             Credentials {
                 password: Some(&password),
-                saved: &OAuthRegistry::default(),
+                saved: &ClientRegistry::default(),
                 secrets,
                 on_url: &|url| panic!("a password account asked for a browser: {url}"),
             },

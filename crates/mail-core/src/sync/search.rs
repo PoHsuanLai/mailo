@@ -2,7 +2,7 @@
 //! credential kept fresh, a Graph engine with a Graph token valid now, or a JMAP engine.
 
 use super::{
-    AccountSecrets, OAuthRegistry, configured, graph_engine, platform_secrets, sending_token,
+    AccountSecrets, ClientRegistry, configured, graph_engine, platform_secrets, sending_token,
     signed_in_imap,
 };
 use mail_domain::{Filter, Incoming, LabelId};
@@ -23,7 +23,7 @@ pub fn search_server(
     labels: &[(LabelId, String)],
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<Searched, String> {
-    let registry = OAuthRegistry::load_default().map_err(|e| e.to_string())?;
+    let registry = mail_runtime::clients::load_default().map_err(|e| e.to_string())?;
     search_server_with(
         store,
         platform_secrets(),
@@ -39,7 +39,7 @@ pub fn search_server(
 pub fn search_server_with(
     store: &Arc<SqliteStore>,
     secrets: Arc<dyn AccountSecrets>,
-    registry: &OAuthRegistry,
+    registry: &ClientRegistry,
     account: AccountId,
     filter: &Filter,
     labels: &[(LabelId, String)],

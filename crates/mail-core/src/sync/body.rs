@@ -23,8 +23,8 @@ pub fn fetch_body(
     message: mail_domain::MessageId,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<(), (Retry, String)> {
-    let registry =
-        OAuthRegistry::load_default().map_err(|e| (Retry::Fatal(e.to_string()), e.to_string()))?;
+    let registry = mail_runtime::clients::load_default()
+        .map_err(|e| (Retry::Fatal(e.to_string()), e.to_string()))?;
     fetch_body_with(store, platform_secrets(), &registry, message, now)
 }
 
@@ -32,7 +32,7 @@ pub fn fetch_body(
 pub fn fetch_body_with(
     store: Arc<SqliteStore>,
     secrets: Arc<dyn AccountSecrets>,
-    registry: &OAuthRegistry,
+    registry: &ClientRegistry,
     message: mail_domain::MessageId,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<(), (Retry, String)> {
@@ -108,7 +108,7 @@ pub fn fetch_body_with(
                 .map_err(|f| (f.retry, f.why))?;
             let mut engine = graph_engine(&store, &account, secrets).map_err(fatal)?;
             if let Some(renewal) = renewal {
-                engine = engine.with_renewal(renewal);
+                engine = engine.with_tokens(renewal);
             }
             engine
                 .fetch_body(message, &mut cancel, now)
@@ -117,7 +117,7 @@ pub fn fetch_body_with(
         } else {
             let mut engine = imap_engine(&store, &account, held, secrets);
             if let Some(renewal) = renewal {
-                engine = engine.with_renewal(renewal);
+                engine = engine.with_tokens(renewal);
             }
             engine
                 .fetch_body(message, &mut cancel, now)

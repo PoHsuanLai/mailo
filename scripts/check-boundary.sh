@@ -117,7 +117,13 @@ ratchet scripts/core-result-string-allowlist.txt 'Result<String, String>' \
 # hands over the document's issuer as data, the mapping to a preset is mailo's), and the two modules
 # that held discovery: `mail_proto::discover` (what each answer meant) and `mail_runtime::discover` (the search, over reqwest and hickory), which are
 # `porter_discover`'s now, over `mail_runtime::lookup`'s two seams.
-FORBIDDEN_SYMBOLS='\bOAuthIssuer\b|\bAccountId::(from_uuid|generate)\b|\bSecretPurpose::(AddressBook|OpenPgp|Smime)\b|\bCredential::(OpenPgp|SmimeKey)\b|\bmail_domain::(AccountId|Credential|SecretKey|SecretPurpose)\b|\bMapSecrets\b|\bmail_runtime::(KeyringSecrets|Secrets|MapSecrets|secrets)\b|\bmail_runtime::\{[^}]*\b(KeyringSecrets|Secrets|MapSecrets)\b|\bdyn Secrets\b|\b(get|put|forget)_signing\b|\bcrate::secrets\b|\bpresets::preset_for\b|\bpresets::\{[^}]*\bpreset_for\b|\bpreset_for\(|\bpreset_for_mail_exchanger\b|\bis_personal_microsoft\b|\bmail_proto::discover\b|\bmail_runtime::discover\b|\bmail_(proto|runtime)::\{[^}]*\bdiscover\b'
+#
+# E4 adds what went with OAuth: the four modules (`mail_runtime::oauth`, `signin`, `renewal`,
+# `loopback`, and inside the crate `crate::oauth` and the like) and the types they held
+# (`OAuthRegistry`, `Registration`, `Renewal`, `Loopback`, `Pending`, `Freshness`, the
+# `oauth2` crate). PKCE, the loopback listener, the exchanges and the client registry are
+# `porter_oauth`'s; keeping a token fresh is `mail_runtime::tokens`, behind `TokenSource`.
+FORBIDDEN_SYMBOLS='\bOAuthRegistry\b|\bmail_runtime::(oauth|signin|renewal|loopback)\b|\bmail_runtime::\{[^}]*\b(oauth|signin|renewal|loopback|Renewal|Registration|Loopback)\b|\bmail_runtime::(Renewal|Registration|Loopback)\b|\bcrate::(oauth|signin|renewal|loopback)\b|\bsignin::(http_client|renew|graph_token|default_path)\b|\boauth2::|\bwith_renewal\b|\bOAuthIssuer\b|\bAccountId::(from_uuid|generate)\b|\bSecretPurpose::(AddressBook|OpenPgp|Smime)\b|\bCredential::(OpenPgp|SmimeKey)\b|\bmail_domain::(AccountId|Credential|SecretKey|SecretPurpose)\b|\bMapSecrets\b|\bmail_runtime::(KeyringSecrets|Secrets|MapSecrets|secrets)\b|\bmail_runtime::\{[^}]*\b(KeyringSecrets|Secrets|MapSecrets)\b|\bdyn Secrets\b|\b(get|put|forget)_signing\b|\bcrate::secrets\b|\bpresets::preset_for\b|\bpresets::\{[^}]*\bpreset_for\b|\bpreset_for\(|\bpreset_for_mail_exchanger\b|\bis_personal_microsoft\b|\bmail_proto::discover\b|\bmail_runtime::discover\b|\bmail_(proto|runtime)::\{[^}]*\bdiscover\b'
 if grep -rnE "$FORBIDDEN_SYMBOLS" crates --include='*.rs' | grep -vE '^[^:]+:[0-9]+:[[:space:]]*//'; then
   echo "a symbol that moved to porter (or was deleted with its type) is back: see FORBIDDEN_SYMBOLS in scripts/check-boundary.sh"
   fail=1

@@ -10,7 +10,7 @@ use mail_core::sync;
 use mail_core::sync::report::{AccountReport, Hooks, PassEnd};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
-use mail_runtime::{AccountSecrets, OAuthRegistry};
+use mail_runtime::{AccountSecrets, ClientRegistry};
 use mail_store::{SqliteStore, Store};
 use porter_core::SecretText;
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
@@ -317,7 +317,7 @@ fn pass(store: &Arc<SqliteStore>, secrets: &Arc<MemorySecrets>) -> AccountReport
     let ends = sync::run_with(
         store.clone(),
         secrets.clone(),
-        &OAuthRegistry::default(),
+        &ClientRegistry::default(),
         now(),
         Hooks::default(),
     )
@@ -579,7 +579,7 @@ fn a_folder_nobody_follows_is_fetched_when_asked_for() {
     let end = sync::folder_now_with(
         store.clone(),
         secrets.clone(),
-        &OAuthRegistry::default(),
+        &ClientRegistry::default(),
         acct_account(),
         OLD,
         now(),
@@ -616,7 +616,7 @@ fn a_folder_the_server_does_not_have_is_said_not_thrown() {
     let end = sync::folder_now_with(
         store,
         secrets,
-        &OAuthRegistry::default(),
+        &ClientRegistry::default(),
         acct_account(),
         "Nowhere",
         now(),
@@ -633,7 +633,7 @@ fn an_account_whose_folders_are_labels_is_not_fetched_by_folder() {
     let refused = sync::folder_now_with(
         store.clone(),
         secrets,
-        &OAuthRegistry::default(),
+        &ClientRegistry::default(),
         acct_account(),
         PROJECTS,
         now(),

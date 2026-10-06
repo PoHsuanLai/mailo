@@ -4,7 +4,7 @@
 use super::Password;
 use crate::account::{Credentials, add_with_password};
 use mail_domain::id::account_id_from_uuid;
-use mail_runtime::{AccountSecrets, OAuthRegistry};
+use mail_runtime::{AccountSecrets, ClientRegistry};
 use mail_store::SqliteStore;
 use porter_core::SecretText;
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
@@ -103,7 +103,7 @@ fn add_with_password_keeps_the_password_in_the_store_it_is_handed_and_nowhere_el
         now(),
         Credentials {
             password: Some(&password),
-            saved: &OAuthRegistry::default(),
+            saved: &ClientRegistry::default(),
             secrets: &secrets,
             on_url: &|url| panic!("a password account asked for a browser: {url}"),
         },
@@ -150,7 +150,7 @@ fn no_password_stores_nothing_and_says_so() {
             now(),
             Credentials {
                 password,
-                saved: &OAuthRegistry::default(),
+                saved: &ClientRegistry::default(),
                 secrets: &secrets,
                 on_url: &|url| panic!("a password account asked for a browser: {url}"),
             },
@@ -189,7 +189,7 @@ fn a_jmap_bearer_token_goes_where_a_password_would_and_the_plan_says_bearer() {
         now(),
         Credentials {
             password: Some(&token),
-            saved: &OAuthRegistry::default(),
+            saved: &ClientRegistry::default(),
             secrets: &secrets,
             on_url: &|url| panic!("a JMAP account asked for a browser: {url}"),
         },

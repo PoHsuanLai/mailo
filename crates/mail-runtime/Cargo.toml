@@ -10,6 +10,7 @@ porter-core.workspace = true
 porter-provider.workspace = true
 porter-discover.workspace = true
 porter-http.workspace = true
+porter-oauth = { workspace = true, features = ["io"] }
 mail-domain.workspace = true
 mail-proto.workspace = true
 mail-store.workspace = true
@@ -24,9 +25,8 @@ webpki-roots = "1"
 rustls-pki-types = "1"
 blake3 = "1"
 rusqlite = { version = "0.40", features = ["bundled"] }
-# default-features off: oauth2 would otherwise pull its own reqwest and make the HTTP call
-# itself. We want the call here, where the runtime already owns TLS and timeouts.
-oauth2 = { version = "5", default-features = false }
+# The PKCE verifier and state of a sign-in (porter-oauth takes its randomness as arguments).
+rand = "0.8"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "charset", "http2"] }
 url = "2"
 base64 = "0.22"
@@ -96,9 +96,7 @@ dirs = "6"
 porter-secrets = { workspace = true, features = ["testing", "keyring"] }
 tokio = { version = "1", features = ["full"] }
 tempfile = "3"
-# Seeded key generation for the OpenPGP tests, and the WKD hash they check a request path by.
-# Both already in the tree through rPGP.
-rand = "0.8"
+# The WKD hash the OpenPGP tests check a request path by, already in the tree through rPGP.
 sha1 = "0.10"
 # The throwaway mark verifying authority `tests/bimi.rs` builds its certificates with
 # (`mail-mime/tests/bimi_support`). All already in the tree through `mail-mime`.

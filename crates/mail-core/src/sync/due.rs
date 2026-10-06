@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use mail_domain::{Incoming, WatchMode};
-use mail_runtime::{OAuthRegistry, platform_secrets};
+use mail_runtime::platform_secrets;
 use mail_store::SqliteStore;
 use porter_core::AccountId;
 
@@ -65,7 +65,7 @@ pub fn run_due(
     due: &[AccountId],
     hooks: super::report::Hooks<'_>,
 ) -> Result<Vec<super::report::PassEnd>, String> {
-    let registry = OAuthRegistry::load_default().map_err(|e| e.to_string())?;
+    let registry = mail_runtime::clients::load_default().map_err(|e| e.to_string())?;
     super::run_all(
         store,
         platform_secrets(),
