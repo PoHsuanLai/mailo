@@ -45,6 +45,24 @@ pub enum BrandLogos {
     Off,
 }
 
+/// `reading.remote_images`: when a message's remote images load without asking.
+///
+/// A remote image is fetched from the sender's server as the message is read, which tells the
+/// sender when it was read and from which network address. `Ask` is the default: nothing loads
+/// until "Show images" is pressed for the conversation. `Trusted` loads a sender's images when
+/// their address is in `reading.trusted_image_senders` and the message proves it came from them;
+/// `Always` loads every message's. Junk is asked about whatever this says.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, Word)]
+#[serde(rename_all = "snake_case")]
+#[word(case = snake)]
+pub enum LoadRemoteImages {
+    #[default]
+    Ask,
+    #[word(label = "From senders I trust")]
+    Trusted,
+    Always,
+}
+
 /// `search.server_automatically`: whether a search is asked of the server without the button.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, Word)]
 #[serde(rename_all = "snake_case")]

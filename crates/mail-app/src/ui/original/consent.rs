@@ -1,7 +1,9 @@
 //! The reader's consent to remote images, as the network sees it.
 //!
-//! The reader decides (`Shell::show_remote_images`: per thread, never persisted, revoked by
-//! opening, selecting or closing). This is where that decision is held for whoever answers the
+//! The reader decides, message by message: "Show images" (`Shell::show_remote_images`: per
+//! thread, never persisted, revoked by opening, selecting or closing), or the person's standing
+//! consent in the settings (`reading.remote_images` and its trusted senders, `reading::images`).
+//! This is where that decision is held for whoever answers the
 //! Original frame's requests, which run outside any component: on Blitz, `net.rs`'s `AppNet`.
 //!
 //! What a grant admits is narrow on purpose:
