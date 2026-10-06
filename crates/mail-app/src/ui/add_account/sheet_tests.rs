@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use dioxus::prelude::*;
 use dioxus_core::VirtualDom;
 use ds::prelude::{Ds, Material};
-use mail_proto::discover::Found;
+use mail_core::discover::Found;
 use mail_store::SqliteStore;
 
 use super::AddAccountSheet;
@@ -180,7 +180,7 @@ async fn look_up_shows_what_was_found_and_adds_nothing_until_it_is_used() {
     let shown = page(&open);
     assert!(shown.contains("IMAP imap.example.test:993"), "{shown}");
     assert!(shown.contains("SMTP smtp.example.test:465"), "{shown}");
-    assert!(shown.contains("from the Thunderbird ISPDB"), "{shown}");
+    assert!(shown.contains("from autoconfig"), "{shown}");
     assert!(shown.contains("type=\"password\""), "{shown}");
     assert_eq!(
         (fake.looked(), fake.added()),

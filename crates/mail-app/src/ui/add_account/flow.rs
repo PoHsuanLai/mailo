@@ -14,14 +14,13 @@ use std::sync::Arc;
 
 use mail_domain::presets::{self, Manual, ManualPop3, Preset};
 use mail_domain::{AuthPlan, HttpAuth, Incoming, Retry};
-use mail_proto::discover::Found;
 use mail_store::SqliteStore;
 use porter_core::AccountId;
 use porter_provider::Issuer;
 
 use crate::ui::space::{Scope, Space};
 use mail_core::account::Setup;
-use mail_core::discover::{Failed, Gap};
+use mail_core::discover::{Failed, Found, Gap};
 use mail_core::password::Password;
 
 /// Where the sheet stands.
@@ -630,7 +629,7 @@ pub(in crate::ui) fn domain_of(typed: &str) -> Option<String> {
 pub(in crate::ui) fn before_looking(typed: &str, now: chrono::DateTime<chrono::Utc>) -> String {
     let address = typed.trim().to_lowercase();
     match domain_of(&address) {
-        Some(domain) if mail_domain::presets::preset_for(&address, now).is_some() => {
+        Some(domain) if mail_core::discover::known(&address, now).is_some() => {
             format!("{domain} is known. Nothing is looked up.")
         }
         Some(domain) => format!("Only {domain} is looked up."),
@@ -649,7 +648,7 @@ pub(in crate::ui) fn look(typed: &str, seams: &Seams, now: chrono::DateTime<chro
     ) else {
         return Stage::Missed(Miss::NotAnAddress);
     };
-    if let Some(preset) = mail_domain::presets::preset_for(&address, now) {
+    if let Some(preset) = mail_core::discover::known(&address, now) {
         let known = "from the built-in table".to_owned();
         return Stage::Found(Offer::discovered(&address, known, preset, seams));
     }
@@ -691,7 +690,7 @@ pub(in crate::ui) fn both(offer: &Offer) -> Option<String> {
 }
 
 /// "JMAP at https://jmap.example.com/session, found at https://example.com/.well-known/jmap";
-/// "IMAP and SMTP, found from the Thunderbird ISPDB".
+/// "IMAP and SMTP, found from autoconfig".
 fn said_short(offer: &Offer) -> String {
     match &offer.setup {
         Setup::Jmap {

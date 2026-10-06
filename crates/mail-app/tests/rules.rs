@@ -308,7 +308,9 @@ fn rules_run_reaches_the_mail_already_here_and_queues_what_the_user_would() {
 fn server_side_rules_and_vacation_are_refused_where_the_provider_has_no_managesieve() {
     let dir = tempfile::tempdir().unwrap();
     let store = SqliteStore::in_memory(dir.path()).unwrap();
-    let gmail = presets::preset_for("someone@gmail.com", now()).expect("gmail preset");
+    let gmail =
+        presets::preset_for_issuer(porter_provider::Issuer::Google, "someone@gmail.com", now())
+            .expect("gmail preset");
     configure(&store, acct_account(), &gmail.plan, &gmail.expected_caps);
 
     let body = dir.path().join("away.txt");

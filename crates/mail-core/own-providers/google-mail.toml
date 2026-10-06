@@ -1,0 +1,37 @@
+# Gmail, as mailo reads it: mail over IMAP and SMTP with XOAUTH2 (the sign-in's
+# `mail.google.com` scope), signed in with Google's OAuth issuer.
+#
+# This file is mailo's, not porter's. porter's `google.toml` has no mail row and no `matching`
+# (owner decision D1: Google is a TODO in porter, and a `google-mail` row is to exist only when
+# the registry has a client allowed for `mail.google.com`), so nothing in porter's files claims
+# a Gmail address, and mailo would stop recognising its own Gmail accounts. It is laid over
+# porter's files the way a user's file is (`ProviderSet::layered`), claims what mailo's preset
+# table claimed before it moved (`gmail.com` and `googlemail.com` by domain, and a domain whose
+# MX host is under `google.com`, `googlemail.com` or `gmail.com` by MX), and goes when porter
+# ships Google mail.
+id = "google-mail"
+label = "Google"
+mark = "google"
+
+[auth]
+kind = "oauth_pkce"
+issuer = "google"
+
+[discovery]
+kind = "fixed"
+
+[matching]
+domains = ["gmail.com", "googlemail.com"]
+mx_suffixes = ["google.com", "googlemail.com", "gmail.com"]
+
+[[capability]]
+family = "imap"
+endpoint = "imaps://imap.gmail.com:993"
+kind = "mail"
+v = { access = "read_write", send = "present", delta = "push", transport = "imap", labels = "labels" }
+
+[[capability]]
+family = "smtp"
+endpoint = "smtps://smtp.gmail.com:465"
+kind = "mail"
+v = { access = "read_write", send = "present", delta = "push", transport = "imap", labels = "labels" }
