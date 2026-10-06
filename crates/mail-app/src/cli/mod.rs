@@ -1416,7 +1416,7 @@ pub fn run_with_clients(
     store: &SqliteStore,
     command: &Command,
     now: DateTime<Utc>,
-    saved: &mail_runtime::OAuthRegistry,
+    saved: &mail_runtime::ClientRegistry,
 ) -> Result<String, String> {
     match command {
         Command::List { mailbox, limit } => {

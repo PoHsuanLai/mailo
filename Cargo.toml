@@ -48,6 +48,10 @@ porter-secrets = { git = "https://github.com/PoHsuanLai/porter", rev = "6571a0c0
 # tokio, no hickory); mail-runtime implements `porter_discover::Dns` and `porter_http::Http` over
 # the resolver and the HTTP client mailo already has, so neither dependency is added for them.
 porter-discover = { git = "https://github.com/PoHsuanLai/porter", rev = "6571a0c08336b9b59120bc8a19a168f57cda483c", default-features = false }
+# Step E4: OAuth. Without its `io` feature porter-oauth is the rules, the registry and the exchanges
+# over `porter_http::Http` (no tokio); only mail-runtime, the I/O crate, turns `io` on, for the
+# loopback listener.
+porter-oauth = { git = "https://github.com/PoHsuanLai/porter", rev = "6571a0c08336b9b59120bc8a19a168f57cda483c", default-features = false }
 porter-http = { git = "https://github.com/PoHsuanLai/porter", rev = "6571a0c08336b9b59120bc8a19a168f57cda483c", default-features = false }
 serde       = { version = "1", features = ["derive"] }
 chrono      = { version = "0.4", features = ["serde"] }

@@ -749,7 +749,7 @@ mod reading {
                 thread: message.thread,
             },
             now(),
-            &mail_runtime::OAuthRegistry::default(),
+            &mail_runtime::ClientRegistry::default(),
         )
         .unwrap();
         assert!(

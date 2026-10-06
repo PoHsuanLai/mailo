@@ -9,7 +9,7 @@ use chrono::{DateTime, TimeZone, Utc};
 use mail_core::sync::live::{self, Heard};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
-use mail_runtime::{AccountSecrets, OAuthRegistry};
+use mail_runtime::{AccountSecrets, ClientRegistry};
 use mail_store::SqliteStore;
 use porter_core::SecretText;
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
@@ -190,7 +190,7 @@ fn listening(store: Arc<SqliteStore>, cancel: watch::Receiver<bool>) -> Listenin
         live::listen_with(
             store,
             secrets(),
-            &OAuthRegistry::default(),
+            &ClientRegistry::default(),
             acct_account(),
             cancel,
             None,

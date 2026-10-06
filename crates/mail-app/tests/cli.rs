@@ -18,7 +18,12 @@ fn exercise(
     command: &cli::Command,
     now: DateTime<Utc>,
 ) -> Result<String, String> {
-    cli::run_with_clients(store, command, now, &mail_runtime::OAuthRegistry::default())
+    cli::run_with_clients(
+        store,
+        command,
+        now,
+        &mail_runtime::ClientRegistry::default(),
+    )
 }
 
 fn acct_account() -> AccountId {

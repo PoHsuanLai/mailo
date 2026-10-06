@@ -6,10 +6,11 @@
 
 use mail_domain::id::{account_id_from_uuid, new_account_id};
 use mail_domain::*;
-use mail_runtime::{AccountSecrets, Loopback, OAuthRegistry, Registration, signin};
+use mail_runtime::{AccountSecrets, ClientRegistry, clients, tokens};
 use mail_store::SqliteStore;
 use porter_core::SecretText;
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
+use porter_provider::ClientEntry;
 use porter_provider::Issuer;
 use std::fmt::Write as _;
 
@@ -64,7 +65,7 @@ pub fn add(
     microsoft: bool,
     graph: bool,
     receive: crate::account::Receive,
-    saved: &OAuthRegistry,
+    saved: &ClientRegistry,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<String, String> {
     // A JMAP account given `MAILO_JMAP_TOKEN` signs in with that token as a bearer; the token
@@ -118,7 +119,7 @@ pub struct Credentials<'a> {
     /// The password for a password account. `None`, or an empty one, is no password.
     pub password: Option<&'a crate::password::Password>,
     /// The OAuth clients earlier sign-ins recorded.
-    pub saved: &'a OAuthRegistry,
+    pub saved: &'a ClientRegistry,
     /// Where the password or the sign-in's token is put.
     pub secrets: &'a dyn AccountSecrets,
     /// Handed the address to open when the account signs in in a browser, before the sign-in
@@ -418,15 +419,8 @@ pub fn add_receiving(
             }
         }
         AuthPlan::OAuth { issuer, scopes } => match client_for(*issuer, saved) {
-            Some((client_id, client_secret)) => {
-                let credential = authorize(
-                    *issuer,
-                    &client_id,
-                    client_secret.as_deref(),
-                    scopes,
-                    on_url,
-                    now,
-                )?;
+            Some((client, typed)) => {
+                let credential = authorize(&client, scopes, on_url, now)?;
                 mail_runtime::block_on(secrets.put(
                     &SecretKey {
                         account: account.clone(),
@@ -449,11 +443,9 @@ pub fn add_receiving(
                 // is reported while the user is still at the setup command — not hours later as
                 // a draft that will not leave.
                 if plan.outgoing == Outgoing::Graph {
-                    let registration = Registration::new(*issuer, &client_id)
-                        .with_secret(client_secret.as_deref());
-                    let reach = signin::GraphReach::of(&plan);
-                    match graph_token(account, &registration, reach, now) {
-                        Ok(()) if reach == signin::GraphReach::ReadAndSend => {
+                    let reach = tokens::GraphReach::of(&plan);
+                    match graph_token(account, &client, reach, now) {
+                        Ok(()) if reach == tokens::GraphReach::ReadAndSend => {
                             let _ = writeln!(out, "reading and sending go through Microsoft Graph");
                         }
                         Ok(()) => {
@@ -469,11 +461,15 @@ pub fn add_receiving(
                         }
                     }
                 }
-                // Remembered, because renewing an access token an hour from now needs the
-                // same client id and nothing else will have it. Without this the account
-                // signs in, works, expires, and cannot be renewed — the environment variable
-                // that configured it is long gone by then.
-                match remember(*issuer, &client_id, client_secret.as_deref()) {
+                // A client the registry already has is not recorded again. One typed in the
+                // environment is remembered, because renewing an access token an hour from now
+                // needs the same client id and nothing else will have it. Without this the
+                // account signs in, works, expires, and cannot be renewed — the environment
+                // variable that configured it is long gone by then.
+                match remember(typed.then_some(&client)) {
+                    Ok(None) if !typed => {
+                        let _ = writeln!(out, "signed in; token stored in the keyring");
+                    }
                     Ok(Some(path)) => {
                         let _ = writeln!(
                             out,
@@ -582,19 +578,22 @@ pub fn local(store: &SqliteStore, now: chrono::DateTime<chrono::Utc>) -> Result<
 ///
 /// The recorded one is what makes re-running this command work as its own advice says — to
 /// change how an account sends, say — without digging the client id back out of a portal.
-fn client_for(issuer: Issuer, saved: &OAuthRegistry) -> Option<(String, Option<String>)> {
+///
+/// The client, and whether it came from the environment (and so is to be remembered).
+fn client_for(issuer: Issuer, saved: &ClientRegistry) -> Option<(ClientEntry, bool)> {
     let from_env = |name| std::env::var(name).ok().filter(|s: &String| !s.is_empty());
     if let Some(client_id) = from_env("MAILO_OAUTH_CLIENT_ID") {
         // Google issues one with every "Desktop app" client and refuses the exchange without
         // it; Microsoft's public clients want none. Read here rather than demanded, so the
         // issuer that does not need one is not asked for it.
-        return Some((client_id, from_env("MAILO_OAUTH_CLIENT_SECRET")));
+        let typed = clients::entry(
+            issuer,
+            &client_id,
+            from_env("MAILO_OAUTH_CLIENT_SECRET").as_deref(),
+        );
+        return Some((typed, true));
     }
-    let registration = saved.get(issuer)?;
-    Some((
-        registration.client_id.clone(),
-        registration.client_secret.clone(),
-    ))
+    clients::client(saved, issuer).map(|client| (client.clone(), false))
 }
 
 /// The OAuth clients earlier sign-ins recorded, for [`add`] to fall back on.
@@ -602,18 +601,18 @@ fn client_for(issuer: Issuer, saved: &OAuthRegistry) -> Option<(String, Option<S
 /// Empty in this crate's unit tests. Integration tests link the ordinary library, so this
 /// guard does not apply to them; they pass an empty registry to [`crate::cli::run_with_clients`].
 /// A test that found a real client id here would open a sign-in and wait on it.
-pub fn saved_clients() -> OAuthRegistry {
+pub fn saved_clients() -> ClientRegistry {
     if cfg!(test) {
-        return OAuthRegistry::default();
+        return ClientRegistry::default();
     }
-    OAuthRegistry::load_default().unwrap_or_default()
+    mail_runtime::clients::load_default().unwrap_or_default()
 }
 
 /// Exchange the sign-in's refresh token for a Graph token and keep it as the outgoing credential.
 fn graph_token(
     account: AccountId,
-    registration: &Registration,
-    reach: signin::GraphReach,
+    client: &ClientEntry,
+    reach: tokens::GraphReach,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<(), String> {
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -621,13 +620,11 @@ fn graph_token(
         .build()
         .map_err(|e| format!("cannot start the async runtime: {e}"))?;
     runtime.block_on(async {
-        let http = signin::http_client().map_err(|e| e.to_string())?;
-        signin::graph_token(
+        tokens::graph_token(
             account,
-            registration,
+            client,
             reach,
             mail_runtime::platform_secrets().as_ref(),
-            &http,
             now,
         )
         .await
@@ -636,24 +633,22 @@ fn graph_token(
     })
 }
 
-/// Record the client id this account signed in with, so it can be renewed later.
-///
-/// Returns where it was written, or `None` when this machine has no config directory to write
-/// to — which is not a failure, just an installation that will need the variable again.
-fn remember(
-    issuer: Issuer,
-    client_id: &str,
-    client_secret: Option<&str>,
-) -> Result<Option<std::path::PathBuf>, String> {
-    let Some(path) = signin::default_path() else {
+/// Record a client typed in the environment in mailo's own `oauth.json` (never porter's
+/// `clients.toml`: [`mail_runtime::clients`]), so the account can be renewed later. `None` in,
+/// nothing recorded. Returns where it was written, or `None` when this machine has no config
+/// directory to write to, which is not a failure, just an installation that will need the
+/// variable again.
+fn remember(typed: Option<&ClientEntry>) -> Result<Option<std::path::PathBuf>, String> {
+    let Some(client) = typed else {
         return Ok(None);
     };
-    // Loaded and re-saved rather than overwritten, because a second account with a different
-    // issuer must not erase the first one's registration.
-    let mut registry = OAuthRegistry::load(&path).map_err(|e| e.to_string())?;
-    registry.set(Registration::new(issuer, client_id).with_secret(client_secret));
-    registry.save(&path).map_err(|e| e.to_string())?;
-    Ok(Some(path))
+    clients::remember(
+        clients::legacy_path().as_deref(),
+        client.issuer,
+        &client.client_id.0,
+        client.client_secret.as_ref().map(|s| s.expose()),
+    )
+    .map_err(|e| e.to_string())
 }
 
 /// Run the browser sign-in and return the resulting credential.
@@ -661,9 +656,7 @@ fn remember(
 /// Blocking, and deliberately so: this is a one-shot setup command, the user is watching, and
 /// there is nothing else for the process to do while they sign in.
 fn authorize(
-    issuer: Issuer,
-    client_id: &str,
-    client_secret: Option<&str>,
+    client: &ClientEntry,
     scopes: &[String],
     on_url: &dyn Fn(&str),
     now: chrono::DateTime<chrono::Utc>,
@@ -672,35 +665,14 @@ fn authorize(
         .enable_all()
         .build()
         .map_err(|e| format!("cannot start the async runtime: {e}"))?;
-
-    runtime.block_on(async {
-        // Bind first: the redirect URI has to name the port we actually got, and an installed
-        // application has no fixed one.
-        let listener = Loopback::bind().await.map_err(|e| e.to_string())?;
-        let authorization = mail_runtime::oauth::begin(
-            issuer,
-            client_id,
-            client_secret,
+    runtime
+        .block_on(mail_runtime::authorize::sign_in(
+            client,
             scopes,
-            listener.redirect_uri(),
-        )
-        .map_err(|e| e.to_string())?;
-
-        on_url(&authorization.url);
-
-        let code = listener
-            .wait_for_code(&authorization.pending)
-            .await
-            .map_err(|e| e.to_string())?;
-        // The shared client, which has a timeout: a token endpoint that accepts the connection
-        // and then says nothing would otherwise leave the command waiting forever.
-        let http = signin::http_client().map_err(|e| e.to_string())?;
-        authorization
-            .pending
-            .exchange(&code, &http, now)
-            .await
-            .map_err(|e| e.to_string())
-    })
+            on_url,
+            porter_core::UnixSeconds(now.timestamp()),
+        ))
+        .map_err(|e| e.to_string())
 }
 
 /// Accounts, with what each one still needs.
@@ -968,7 +940,7 @@ mod tests {
                 false,
                 false,
                 crate::account::Receive::Imap,
-                &OAuthRegistry::default(),
+                &ClientRegistry::default(),
                 now(),
             )
             .unwrap();
@@ -979,7 +951,7 @@ mod tests {
                 false,
                 false,
                 crate::account::Receive::Imap,
-                &OAuthRegistry::default(),
+                &ClientRegistry::default(),
                 now(),
             )
             .expect("re-running is what every message tells the user to do");
@@ -1002,7 +974,7 @@ mod tests {
                 false,
                 false,
                 crate::account::Receive::Imap,
-                &OAuthRegistry::default(),
+                &ClientRegistry::default(),
                 now(),
             )
             .unwrap();
@@ -1014,7 +986,7 @@ mod tests {
                 false,
                 false,
                 crate::account::Receive::Imap,
-                &OAuthRegistry::default(),
+                &ClientRegistry::default(),
                 now(),
             )
             .unwrap();
@@ -1033,7 +1005,7 @@ mod tests {
                     false,
                     false,
                     crate::account::Receive::Imap,
-                    &OAuthRegistry::default(),
+                    &ClientRegistry::default(),
                     now(),
                 )
                 .unwrap();
@@ -1063,7 +1035,7 @@ mod tests {
                 false,
                 false,
                 crate::account::Receive::Imap,
-                &OAuthRegistry::default(),
+                &ClientRegistry::default(),
                 now(),
             )
             .unwrap();
@@ -1082,7 +1054,7 @@ mod tests {
                 false,
                 false,
                 crate::account::Receive::Imap,
-                &OAuthRegistry::default(),
+                &ClientRegistry::default(),
                 now(),
             )
             .unwrap();
@@ -1102,16 +1074,18 @@ mod tests {
     fn a_client_id_recorded_by_an_earlier_sign_in_is_used_again() {
         // Re-running `account add` to change how an account sends must not need the client id
         // dug back out of a portal: the first sign-in recorded it.
-        let mut saved = OAuthRegistry::default();
-        saved.set(Registration::new(Issuer::Microsoft, "recorded-client"));
+        let saved = clients::registry_of(vec![clients::entry(
+            Issuer::Microsoft,
+            "recorded-client",
+            None,
+        )]);
         if std::env::var_os("MAILO_OAUTH_CLIENT_ID").is_none() {
-            assert_eq!(
-                client_for(Issuer::Microsoft, &saved),
-                Some(("recorded-client".to_owned(), None))
-            );
+            let (client, typed) = client_for(Issuer::Microsoft, &saved).unwrap();
+            assert_eq!(client.client_id.0, "recorded-client");
+            assert!(!typed, "a recorded client is not recorded again");
         }
         assert_eq!(
-            client_for(Issuer::Google, &OAuthRegistry::default()).is_some(),
+            client_for(Issuer::Google, &ClientRegistry::default()).is_some(),
             std::env::var_os("MAILO_OAUTH_CLIENT_ID").is_some(),
             "nothing recorded and nothing in the environment is no client"
         );
@@ -1127,7 +1101,7 @@ mod tests {
             false,
             false,
             crate::account::Receive::Imap,
-            &OAuthRegistry::default(),
+            &ClientRegistry::default(),
             now(),
         )
         .unwrap_err();
@@ -1153,7 +1127,7 @@ mod tests {
             false,
             false,
             crate::account::Receive::Imap,
-            &OAuthRegistry::default(),
+            &ClientRegistry::default(),
             now(),
         )
         .unwrap();
@@ -1191,7 +1165,7 @@ mod tests {
             false,
             false,
             crate::account::Receive::Imap,
-            &OAuthRegistry::default(),
+            &ClientRegistry::default(),
             now(),
         )
         .unwrap();
@@ -1212,7 +1186,7 @@ mod tests {
             false,
             false,
             crate::account::Receive::Imap,
-            &OAuthRegistry::default(),
+            &ClientRegistry::default(),
             now(),
         )
         .unwrap();

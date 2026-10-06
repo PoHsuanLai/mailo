@@ -7,7 +7,7 @@
 use chrono::{DateTime, Utc};
 use mail_pim::vcard::{self, Card, Email};
 use mail_runtime::carddav::{self, Dav, DavAuth, How};
-use mail_runtime::{AccountSecrets, OAuthRegistry, platform_secrets};
+use mail_runtime::{AccountSecrets, ClientRegistry, platform_secrets};
 use mail_store::{AddressBook, Edit, Group, GroupHome, GroupId, Kind, Origin, SqliteStore, Store};
 use porter_core::{CapabilityKind, Credential, SecretKey, SecretPurpose, SecretText};
 use std::collections::BTreeSet;
@@ -107,7 +107,7 @@ pub fn parse(args: &[String]) -> Result<Contacts, String> {
 pub fn run(
     store: &SqliteStore,
     command: &Contacts,
-    saved: &OAuthRegistry,
+    saved: &ClientRegistry,
     now: DateTime<Utc>,
 ) -> Result<String, String> {
     match command {
@@ -313,7 +313,7 @@ async fn sync(
     url: Option<&str>,
     account: Option<&str>,
     user: Option<&str>,
-    saved: &OAuthRegistry,
+    saved: &ClientRegistry,
     now: DateTime<Utc>,
 ) -> Result<String, String> {
     let accounts = crate::sync::configured(store)?;
@@ -424,7 +424,7 @@ async fn auth_for(
     account: &crate::sync::Configured,
     login: Option<&str>,
     secrets: &dyn AccountSecrets,
-    saved: &OAuthRegistry,
+    saved: &ClientRegistry,
     now: DateTime<Utc>,
 ) -> Result<DavAuth, String> {
     if let Some(login) = login {

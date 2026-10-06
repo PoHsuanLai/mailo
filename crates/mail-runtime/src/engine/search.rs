@@ -6,8 +6,8 @@
 //! found on the server.
 
 use super::{AccountEngine, first_stored};
-use crate::renewal::{AfterRefusal, Token};
 use crate::search::{SERVER_HITS, Searched, ServerHits};
+use crate::tokens::{AfterRefusal, Token};
 use crate::{Cancel, RuntimeError, drive};
 use chrono::{DateTime, Utc};
 use mail_domain::{
@@ -93,15 +93,15 @@ impl AccountEngine<ImapBackend> {
         plan: ImapPlan,
         cancel: &mut Cancel,
     ) -> Result<Vec<Found>, RuntimeError> {
-        if let Some(renewal) = &self.renewal {
-            renewal.ahead(Token::Incoming).await?;
+        if let Some(tokens) = &self.tokens {
+            tokens.ahead(Token::Incoming).await?;
         }
         let first = self.imap_search_once(plan.clone(), cancel).await;
         let refused = matches!(&first, Err(e) if matches!(e.retry(), Retry::NeedsReauth));
-        let Some(renewal) = self.renewal.as_ref().filter(|_| refused) else {
+        let Some(tokens) = self.tokens.as_ref().filter(|_| refused) else {
             return first;
         };
-        match renewal.after_refusal(Token::Incoming).await? {
+        match tokens.after_refusal(Token::Incoming).await? {
             AfterRefusal::TryAgain => self.imap_search_once(plan, cancel).await,
             AfterRefusal::StillRefused => first,
         }
@@ -134,13 +134,10 @@ impl<B: Backend> AccountEngine<B> {
             Ok(Asked::Nothing) => return Ok(Searched::Found(ServerHits::default())),
             Ok(Asked::Ask(plan)) => plan,
         };
-        if let Some(renewal) = &self.renewal {
-            renewal.ahead(Token::Incoming).await?;
+        if let Some(tokens) = &self.tokens {
+            tokens.ahead(Token::Incoming).await?;
         }
-        let token = match self
-            .secret(porter_core::SecretPurpose::OutgoingPassword)
-            .await
-        {
+        let token = match self.presented(Token::Sending).await {
             Ok(porter_core::Credential::OAuth { access, .. }) => access,
             _ => {
                 return Err(RuntimeError::Secrets(format!(

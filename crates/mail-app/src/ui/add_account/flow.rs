@@ -607,7 +607,8 @@ impl Seams {
             }),
             client: Arc::new(|issuer| {
                 std::env::var("MAILO_OAUTH_CLIENT_ID").is_ok_and(|id| !id.is_empty())
-                    || mail_core::account::saved_clients().get(issuer).is_some()
+                    || mail_runtime::clients::client(&mail_core::account::saved_clients(), issuer)
+                        .is_some()
             }),
             browse: Arc::new(|url| webbrowser::open(url).map_err(|e| e.to_string())),
         }

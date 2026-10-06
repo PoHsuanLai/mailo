@@ -19,7 +19,7 @@ fn run(store: &SqliteStore, words: &str) -> Result<String, String> {
         store,
         &command,
         now(),
-        &mail_runtime::OAuthRegistry::default(),
+        &mail_runtime::ClientRegistry::default(),
     )
 }
 

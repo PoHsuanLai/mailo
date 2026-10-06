@@ -3,7 +3,7 @@ use crate::sync::run_with;
 use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
-use mail_runtime::{AccountSecrets, OAuthRegistry};
+use mail_runtime::{AccountSecrets, ClientRegistry};
 use mail_store::SqliteStore;
 use porter_core::SecretText;
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
@@ -97,7 +97,7 @@ fn a_missing_credential_fails_the_account_as_needing_a_sign_in() {
     let ends = run_with(
         store,
         Arc::new(MemorySecrets::default()),
-        &OAuthRegistry::default(),
+        &ClientRegistry::default(),
         now(),
         Hooks::default(),
     )
@@ -117,7 +117,7 @@ fn an_unreachable_server_fails_the_account_with_a_wait() {
     let ends = run_with(
         store,
         Arc::new(secrets),
-        &OAuthRegistry::default(),
+        &ClientRegistry::default(),
         now(),
         Hooks::default(),
     )
@@ -158,7 +158,7 @@ fn a_mailbox_that_fails_lands_in_trouble_with_its_decision() {
     let ends = run_with(
         store,
         Arc::new(secrets),
-        &OAuthRegistry::default(),
+        &ClientRegistry::default(),
         now(),
         Hooks::default(),
     )
