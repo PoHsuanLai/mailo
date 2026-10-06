@@ -268,8 +268,8 @@ fn status_of(account: AccountId) -> PinStatus {
         .link(account.clone())
         .map(|link| account_mark_local(&link))
     {
-        None | Some(Mark::Quiet) => PinStatus::Quiet,
-        Some(Mark::Busy) => PinStatus::Busy(fetching.op(account)),
+        // A sync shows as the toolbar's turning Sync icon, as Mail's does: no spinner on the tile.
+        None | Some(Mark::Quiet | Mark::Busy) => PinStatus::Quiet,
         Some(Mark::Warn(why) | Mark::Offline(why)) => PinStatus::Attention { why },
     }
 }
