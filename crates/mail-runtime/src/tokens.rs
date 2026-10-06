@@ -15,12 +15,12 @@
 
 use crate::AccountSecrets;
 use crate::RuntimeError;
-use crate::authorize::exchange_fault;
+use crate::authorize::exchange_failure;
 use crate::clients;
 use chrono::{DateTime, Utc};
 use mail_domain::{AccountPlan, AuthPlan, Incoming, Outgoing, Retry, Retryable};
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose, SecretText, UnixSeconds};
-use porter_oauth::{Renewal as Due, redeem_scope, refresh_scoped, renewal};
+use porter_oauth::{Renewal as Due, redeem_scope, refresh_scoped_detailed, renewal};
 use porter_provider::ClientEntry;
 use std::future::Future;
 use std::pin::Pin;
@@ -158,13 +158,13 @@ async fn refresh(
     let http = crate::http::oauth_http()?;
     let presented = SecretText::new(refresh_token);
     let scope = (!scopes.is_empty()).then(|| scopes.join(" "));
-    let tokens = refresh_scoped(&http, &endpoints, client, &presented, scope.as_deref())
+    let tokens = refresh_scoped_detailed(&http, &endpoints, client, &presented, scope.as_deref())
         .await
         .map_err(|fault| {
             // Only the issuer's refusal (`invalid_grant`, a 401) is a revoked grant that no
             // amount of retrying brings back. An endpoint that could not be reached, or that
             // answered with something that is not OAuth, has refused nothing.
-            exchange_fault("the issuer could not renew the sign-in", fault)
+            exchange_failure("the issuer could not renew the sign-in", fault)
         })?;
     Ok(Credential::OAuth {
         expires_at: tokens.expires_at(unix(now)),

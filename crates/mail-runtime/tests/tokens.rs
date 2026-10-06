@@ -580,6 +580,10 @@ async fn a_refused_renewal_asks_the_user_to_sign_in_and_is_not_repeated() {
             said.contains("the issuer refused it"),
             "that the issuer refused was lost: {said}"
         );
+        assert!(
+            said.contains("The refresh token has been revoked."),
+            "the issuer's own words were lost: {said}"
+        );
         assert!(said.contains("mailo account add me@example.test"), "{said}");
     }
 
