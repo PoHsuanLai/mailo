@@ -1233,7 +1233,8 @@ fn persisted_types_tolerate_unknown_fields() {
 #[test]
 fn presets_round_trip_and_carry_the_given_instant() {
     // A preset's output is persisted verbatim, so it is part of this suite.
-    let gmail = mail_domain::presets::preset_for("someone@gmail.com", at(3)).expect("gmail preset");
+    let gmail = mail_domain::presets::preset_for_issuer(Issuer::Google, "someone@gmail.com", at(3))
+        .expect("gmail preset");
     round_trip("preset/gmail/plan", gmail.plan);
     round_trip("preset/gmail/caps", gmail.expected_caps.clone());
     assert_eq!(gmail.expected_caps.observed_at, at(3));
@@ -1365,7 +1366,7 @@ fixtures! {
         account_id_from_uuid(uuid(1)),
         account_id_from_uuid(uuid(0xac)),
     ],
-    "account_plan_gmail.json" => AccountPlan = presets::preset_for("someone@gmail.com", at(3))
+    "account_plan_gmail.json" => AccountPlan = presets::preset_for_issuer(Issuer::Google, "someone@gmail.com", at(3))
         .expect("gmail preset").plan,
     // A Microsoft 365 account that sends through Graph rather than SMTP.
     "account_plan_graph.json" => AccountPlan = presets::send_through_graph(

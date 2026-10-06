@@ -8,6 +8,8 @@ rust-version.workspace = true
 [dependencies]
 porter-core.workspace = true
 porter-provider.workspace = true
+porter-discover.workspace = true
+porter-http.workspace = true
 mail-domain.workspace = true
 mail-proto.workspace = true
 mail-store.workspace = true
@@ -36,10 +38,11 @@ uuid = { workspace = true }
 # in its own store (`signing_store.rs`), and reading the entries earlier builds filed under the
 # service `mailo`, to adopt them (`adopt.rs`). Account secrets go through porter-secrets.
 keyring-core = "1"
-# Account discovery's SRV and MX lookups (RFC 6186). MIT OR Apache-2.0; the system resolver's
-# configuration, over tokio. Its DNS-over-TLS/HTTPS features stay off.
+# The system resolver, for `porter_discover::Dns` (SRV and MX, RFC 6186) and BIMI's TXT lookups
+# (`lookup.rs`). MIT OR Apache-2.0; the system resolver's configuration, over tokio. Its
+# DNS-over-TLS/HTTPS features stay off.
 hickory-resolver = "0.26"
-# The registered domain of an MX host, for account discovery. Already here through mail-app.
+# The registered domain of a host, for BIMI's organisational domain.
 psl = "2"
 # Brand logos (`bimi/`): an SVG drawn to pixels off the thread that draws the window. resvg
 # (Apache-2.0 OR MIT) over the usvg and tiny-skia already in the tree through Blitz. Default

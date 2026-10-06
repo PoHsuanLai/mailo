@@ -1,6 +1,6 @@
 use super::*;
 use mail_mime::{Check, Verdict};
-use mail_runtime::discover::Miss;
+use mail_runtime::lookup::Miss;
 use std::sync::Mutex;
 
 /// DNS that has nothing, and remembers every name it was asked.

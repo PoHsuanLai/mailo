@@ -12,8 +12,8 @@
 
 use super::{Command, Consent};
 use mail_core::account::Setup;
+use mail_core::discover::Found;
 use mail_core::discover::describe;
-use mail_proto::discover::Found;
 
 /// Whether anyone can be asked.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -75,7 +75,7 @@ pub fn needed(command: &Command) -> Option<String> {
     };
     // Lowercased the way `account::add` stores it, so what is shown is what is saved.
     let address = address.to_lowercase();
-    mail_domain::presets::preset_for(&address, chrono::Utc::now())
+    mail_core::discover::known(&address, chrono::Utc::now())
         .is_none()
         .then_some(address)
 }
@@ -142,7 +142,7 @@ pub fn show(
     lookup: impl FnOnce(&str) -> Result<Found, String>,
 ) -> Result<String, String> {
     let address = address.to_lowercase();
-    if let Some(preset) = mail_domain::presets::preset_for(&address, chrono::Utc::now()) {
+    if let Some(preset) = mail_core::discover::known(&address, chrono::Utc::now()) {
         return Ok(describe(&address, "from the built-in table", &preset));
     }
     let found = lookup(&address)?;
@@ -231,7 +231,7 @@ pub fn before_add_jmap(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mail_proto::discover::Source;
+    use mail_core::discover::Source;
 
     fn now() -> chrono::DateTime<chrono::Utc> {
         chrono::DateTime::parse_from_rfc3339("2026-09-24T12:00:00Z")
@@ -252,7 +252,7 @@ mod tests {
 
     fn found(address: &str) -> Found {
         Found {
-            source: Source::Ispdb,
+            source: Source::Autoconfig,
             preset: mail_domain::presets::manual(
                 address,
                 &mail_domain::presets::Manual {
@@ -354,7 +354,7 @@ mod tests {
         let err = result.unwrap_err();
         assert!(!asked);
         assert!(err.contains("imap.example.test:993"), "{err}");
-        assert!(err.contains("from the Thunderbird ISPDB"), "{err}");
+        assert!(err.contains("from autoconfig"), "{err}");
         assert!(err.contains("--yes"), "{err}");
     }
 

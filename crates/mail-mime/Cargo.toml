@@ -15,6 +15,8 @@ thiserror.workspace = true
 mail-parser = { version = "0.11", features = ["full_encoding"] }
 mail-builder = "1"
 ammonia = "4"
+# The tokenizer ammonia and the renderer already use: the reader frame's kept CSS is read with it.
+cssparser = "0.38"
 base64 = "0.22"
 # Already here through ammonia. Parses the URLs in `List-Unsubscribe`, which are untrusted.
 url = "2"

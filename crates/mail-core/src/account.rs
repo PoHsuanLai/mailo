@@ -186,7 +186,7 @@ pub fn add_receiving(
         on_url,
     } = credentials;
     // Normalised once, here, and used for the preset, the stored plan and the stored column
-    // alike. `preset_for` deliberately keeps the address exactly as typed, and the accounts
+    // alike. `known` deliberately keeps the address exactly as typed, and the accounts
     // table deliberately lowercases it — so without this the plan and the column disagree in
     // case, and anything deriving a login name from one gets a different answer than anything
     // deriving it from the other. A mail server that is case-sensitive about the local part
@@ -240,7 +240,7 @@ pub fn add_receiving(
             preset.plan.address = address.clone();
             preset
         }
-        None => match mail_domain::presets::preset_for(&address, now) {
+        None => match crate::discover::known(&address, now) {
             Some(preset) => preset,
             None => {
                 return Err(format!(
@@ -278,7 +278,7 @@ pub fn add_receiving(
         .unwrap_or_else(mail_domain::id::new_account_id);
 
     // The preset leaves `identities` empty on purpose: minting one needs an `IdentityId` and
-    // an `AccountId`, which would make `preset_for` impure and invent an account id no row
+    // an `AccountId`, which would make a preset impure and invent an account id no row
     // matches. Creating the account is where both exist, so this is where the default identity
     // is built — and without it nothing can be sent, because a draft names the identity it is
     // from and `mail_mime::build` reads the `From` header out of it.

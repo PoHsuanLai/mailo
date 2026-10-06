@@ -40,7 +40,7 @@ pub use mdn::{OriginalHeaders, ReceiptAsk, Reporting, ReturnPath, receipt, recei
 pub use parse::{Parsed, ParsedPart, RemotePart, parse, parse_reconstructed};
 pub use print::{Options, Pages, Remote, Sheet, print, print_with, remote_images};
 pub use reconstruct::{decode_part, left_on_server, reconstruct, sections_for};
-pub use sanitize::{RemoteImages, SafeHtml, SanitizePolicy, sanitize};
+pub use sanitize::{RemoteImages, SafeHtml, SanitizePolicy, Styles, sanitize};
 pub use script::{Script, script_of};
 pub use stamp::restamp;
 pub use unsubscribe::{

@@ -110,7 +110,7 @@ async fn ask(
     from: &str,
     dir: &std::path::Path,
 ) -> Option<Vec<u8>> {
-    let dns = mail_runtime::discover::SystemDns::new().ok()?;
+    let dns = mail_runtime::lookup::SystemDns::new().ok()?;
     let http = mail_runtime::bimi::client_builder().build().ok()?;
     let lookup = Lookup {
         dns: &dns,
