@@ -11,6 +11,7 @@ use dioxus::prelude::*;
 use dioxus_core::{NoOpMutations, VirtualDom};
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 
 use super::RulesSheet;
 use super::away_tests::{answering, own_server};
@@ -19,7 +20,9 @@ use super::server::{Pusher, reach};
 use super::work::{self, Draft};
 use crate::ui::data::account_rows;
 use crate::ui::files::Phase;
-use crate::ui::fixtures::{ACCOUNT, Seen, click, dispatching, drain_seen, rebuild_into, type_into};
+use crate::ui::fixtures::{
+    Seen, acct_account, click, dispatching, drain_seen, rebuild_into, type_into,
+};
 use crate::ui::view::Shell;
 
 /// The first render, then the ones after it, keeping every attribute they set: a quire sheet is
@@ -119,9 +122,13 @@ fn two_rules(store: &SqliteStore) {
             actions,
             ..Draft::blank()
         };
-        work::save(store, ACCOUNT, &draft, &Utc).unwrap();
+        work::save(store, acct_account(), &draft, &Utc).unwrap();
     }
-    let off = work::listed(store, ACCOUNT).unwrap().pop().unwrap().rule;
+    let off = work::listed(store, acct_account())
+        .unwrap()
+        .pop()
+        .unwrap()
+        .rule;
     work::switch(store, &off, RuleState::Disabled).unwrap();
 }
 
@@ -130,7 +137,7 @@ async fn a_condition_the_rules_cannot_read_says_why_and_save_is_refused() {
     dispatching();
     let (store, _dir) = crate::ui::fixtures::seeded();
     let (push, _) = counting();
-    let mut dom = sheet(&store, ACCOUNT, push);
+    let mut dom = sheet(&store, acct_account(), push);
     let seen = landed(&mut dom).await;
     let opened = click(&mut dom, seen.one("aria-label", "New rule"));
     let query = opened.one("aria-placeholder", "from:bank.example subject:statement");
@@ -156,7 +163,7 @@ async fn a_condition_the_rules_cannot_read_says_why_and_save_is_refused() {
         "{page}"
     );
     assert!(
-        store.rules(ACCOUNT).unwrap().is_empty(),
+        store.rules(acct_account()).unwrap().is_empty(),
         "typing kept a rule"
     );
 }
@@ -167,7 +174,7 @@ async fn the_list_says_each_rule_its_condition_and_what_it_does() {
     let (store, _dir) = crate::ui::fixtures::seeded();
     two_rules(&store);
     let (push, _) = counting();
-    let mut dom = sheet(&store, ACCOUNT, push);
+    let mut dom = sheet(&store, acct_account(), push);
     let seen = landed(&mut dom).await;
     let page = dioxus_ssr::render(&dom);
     let bills = page
@@ -187,7 +194,7 @@ async fn the_list_says_each_rule_its_condition_and_what_it_does() {
     let bills = page.find("from:bank.example subject:statement").unwrap();
     let news = page.find("from:news@example.com -is:starred").unwrap();
     assert!(news < bills, "the move is not drawn");
-    let names: Vec<String> = work::listed(&store, ACCOUNT)
+    let names: Vec<String> = work::listed(&store, acct_account())
         .unwrap()
         .into_iter()
         .map(|l| l.rule.name)
@@ -268,10 +275,12 @@ async fn every_state(store: &Arc<SqliteStore>) -> String {
             to: Some(Utc::now() + chrono::TimeDelta::days(14)),
         },
     );
-    store.put_vacation(row.id, Some(&kept), Utc::now()).unwrap();
+    store
+        .put_vacation(row.id.clone(), Some(&kept), Utc::now())
+        .unwrap();
 
     let (push, _) = counting();
-    let mut rules = sheet(store, ACCOUNT, push.clone());
+    let mut rules = sheet(store, acct_account(), push.clone());
     let seen = landed(&mut rules).await;
     let editing = click(&mut rules, seen.one("aria-label", "Edit Bills"));
     type_into(
@@ -361,9 +370,9 @@ async fn render_the_rules_sheet_to_files() {
             actions,
             ..Draft::blank()
         };
-        work::save(&built.store, own.id, &draft, &Utc).unwrap();
+        work::save(&built.store, own.id.clone(), &draft, &Utc).unwrap();
     }
-    let last = work::listed(&built.store, own.id)
+    let last = work::listed(&built.store, own.id.clone())
         .unwrap()
         .pop()
         .unwrap()
@@ -381,12 +390,12 @@ async fn render_the_rules_sheet_to_files() {
     );
     built
         .store
-        .put_vacation(own.id, Some(&kept), Utc::now())
+        .put_vacation(own.id.clone(), Some(&kept), Utc::now())
         .unwrap();
 
     // The list, the vacation reply and what the server said.
     let (push, _) = counting();
-    let mut dom = sheet(&built.store, own.id, push.clone());
+    let mut dom = sheet(&built.store, own.id.clone(), push.clone());
     let seen = landed(&mut dom).await;
     click(
         &mut dom,
@@ -412,7 +421,7 @@ async fn render_the_rules_sheet_to_files() {
 
     // A provider with no ManageSieve: the reasons, no button.
     let google = rows.iter().find(|row| reach(&row.plan).is_err()).unwrap();
-    let mut dom = sheet(&built.store, google.id, push);
+    let mut dom = sheet(&built.store, google.id.clone(), push);
     landed(&mut dom).await;
     crate::ui::fixtures::dump(
         "rules-provider",

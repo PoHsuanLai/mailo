@@ -4,7 +4,8 @@
 use super::Inner;
 use crate::offline::is_remote;
 use crate::{Offline, RemotePart};
-use mail_domain::{AccountId, MailboxRef, PartContent};
+use mail_domain::{MailboxRef, PartContent};
+use porter_core::AccountId;
 use std::cmp::Reverse;
 
 impl Inner {

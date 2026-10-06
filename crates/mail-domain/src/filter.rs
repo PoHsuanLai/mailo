@@ -2,11 +2,12 @@
 //! else queries the store.
 
 use crate::content::Address;
-use crate::id::{AccountId, LabelId};
+use crate::id::LabelId;
 use crate::message::ThreadSummary;
 use crate::remote::MailboxRef;
 use crate::state::{Attachments, MailboxRole, Pin, ReadState, Snooze, Star};
 use chrono::{DateTime, Utc};
+use porter_core::AccountId;
 use serde::{Deserialize, Serialize};
 
 mod fold;

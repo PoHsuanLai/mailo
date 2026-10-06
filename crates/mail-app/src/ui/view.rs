@@ -11,6 +11,7 @@ use mail_core::compose::addresses::{join_addresses, parse_addresses};
 use mail_core::place::{pending_snooze, place_filter};
 use mail_domain::*;
 use mail_mime::{RemoteImages, SanitizePolicy};
+use porter_core::AccountId;
 use serde::de::Deserializer;
 use serde::{Deserialize, Serialize};
 
@@ -135,7 +136,7 @@ pub fn is_label_place(place: &Place) -> bool {
 /// role, and where folders are labels (Gmail) a folder is listed through its label.
 pub fn folder_filter(mailbox: &MailboxRef) -> Filter {
     Filter::And(vec![
-        Filter::Account(mailbox.account),
+        Filter::Account(mailbox.account.clone()),
         Filter::InFolder(mailbox.clone()),
     ])
 }
@@ -670,7 +671,7 @@ impl Composing {
     pub fn of(draft: &Draft) -> Self {
         Self {
             draft: draft.id,
-            from: draft.account,
+            from: draft.account.clone(),
             to: join_addresses(&draft.to),
             cc: join_addresses(&draft.cc),
             subject: draft.subject.clone(),
@@ -848,7 +849,7 @@ impl Shell {
     /// The search pipeline narrows its candidates with this, so a search inside a Space finds
     /// what [`Self::query`] would, and nothing from an account the Space leaves out.
     pub fn account_filter(&self) -> Option<Filter> {
-        self.scope.narrowed(self.account).filter()
+        self.scope.narrowed(self.account.clone()).filter()
     }
 
     /// Select a place, and drop any open thread that no longer belongs to the new list.
@@ -1360,11 +1361,12 @@ pub enum Listing {
 mod tests {
     use super::*;
     use chrono::{DateTime, TimeZone, Utc};
+    use mail_domain::id::new_account_id;
 
     fn summary(tweak: impl FnOnce(&mut ThreadSummary)) -> ThreadSummary {
         let mut s = ThreadSummary {
             id: ThreadId::generate(),
-            account: AccountId::generate(),
+            account: new_account_id(),
             subject: "s".into(),
             snippet: String::new(),
             from: Address {
@@ -1596,6 +1598,7 @@ mod tests {
 #[cfg(test)]
 mod composer_tests {
     use super::*;
+    use mail_domain::id::new_account_id;
 
     fn addr(name: Option<&str>, email: &str) -> Address {
         Address {
@@ -1607,7 +1610,7 @@ mod composer_tests {
     fn draft_of(to: Vec<Address>) -> Draft {
         Draft {
             id: DraftId::generate(),
-            account: AccountId::generate(),
+            account: new_account_id(),
             identity: IdentityId::generate(),
             to,
             cc: Vec::new(),
@@ -1694,12 +1697,13 @@ mod composer_tests {
 mod reply_target_tests {
     use super::*;
     use chrono::{TimeZone, Utc};
+    use mail_domain::id::new_account_id;
 
     fn message(n: i64) -> Message {
         Message {
             id: MessageId::generate(),
             thread: ThreadId::generate(),
-            account: AccountId::generate(),
+            account: new_account_id(),
             key: MessageKey::Rfc(format!("m{n}@example.test")),
             date: Utc.timestamp_opt(1_700_000_000 + n, 0).unwrap(),
             from: Address {
@@ -1965,11 +1969,12 @@ mod keyboard {
     use super::*;
     use chrono::{TimeZone, Utc};
     use mail_core::place::pin_op;
+    use mail_domain::id::new_account_id;
 
     fn summary(read: ReadState, star: Star, mailbox: MailboxRole) -> ThreadSummary {
         ThreadSummary {
             id: ThreadId::generate(),
-            account: AccountId::generate(),
+            account: new_account_id(),
             subject: "lunch".to_owned(),
             snippet: String::new(),
             from: Address {
@@ -2358,11 +2363,12 @@ mod nothing_tests {
 mod discarding {
     use super::*;
     use chrono::{TimeZone, Utc};
+    use mail_domain::id::new_account_id;
 
     fn composing() -> Composing {
         Composing {
             draft: DraftId::generate(),
-            from: AccountId::generate(),
+            from: new_account_id(),
             to: "ada@example.test".to_owned(),
             cc: String::new(),
             subject: "Re: lunch".to_owned(),
@@ -2397,7 +2403,7 @@ mod discarding {
         // that survives the pane being closed is a trap set for the next draft.
         let draft = Draft {
             id: DraftId::generate(),
-            account: AccountId::generate(),
+            account: new_account_id(),
             identity: IdentityId::generate(),
             to: vec![],
             cc: vec![],

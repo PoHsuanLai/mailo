@@ -27,7 +27,8 @@ use crate::mutf7;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use imap_proto::Response;
-use mail_domain::{Credential, SaslMech};
+use mail_domain::SaslMech;
+use porter_core::Credential;
 use std::fmt;
 
 /// One command to run, in order.
@@ -499,7 +500,11 @@ impl ImapSession {
                         "LOGIN needs a password credential".to_owned(),
                     ));
                 };
-                format!("LOGIN {} {}", quoted(&self.auth.username), quoted(password))
+                format!(
+                    "LOGIN {} {}",
+                    quoted(&self.auth.username),
+                    quoted(password.expose())
+                )
             }
             ImapCommand::AuthenticateXoauth2 => {
                 let Credential::OAuth { access, .. } = &self.auth.credential else {
@@ -515,8 +520,9 @@ impl ImapSession {
                 // Identical to Gmail's and to Exchange Online's, which is why adding Microsoft
                 // is a preset row rather than a second code path.
                 let initial = STANDARD.encode(format!(
-                    "user={}\x01auth=Bearer {access}\x01\x01",
-                    self.auth.username
+                    "user={}\x01auth=Bearer {}\x01\x01",
+                    self.auth.username,
+                    access.expose()
                 ));
                 format!("AUTHENTICATE XOAUTH2 {initial}")
             }
@@ -1083,10 +1089,12 @@ fn forbidden(value: &str) -> bool {
 
 fn credential_forbidden(credential: &Credential) -> bool {
     match credential {
-        Credential::Password(p) => forbidden(p),
+        Credential::Password(p) => forbidden(p.expose()),
         Credential::OAuth {
             access, refresh, ..
-        } => forbidden(access) || forbidden(refresh),
+        } => forbidden(access.expose()) || forbidden(refresh.expose()),
+        // Not a sign-in credential at all: refused the same way as one that would break a line.
+        Credential::ApiKey(_) | Credential::KeyPair { .. } => true,
     }
 }
 

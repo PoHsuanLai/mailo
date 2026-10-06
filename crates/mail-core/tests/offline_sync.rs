@@ -10,14 +10,17 @@ use chrono::{DateTime, TimeZone, Utc};
 use mail_core::offline::Keep;
 use mail_core::sync::report::{AccountReport, PassEnd};
 use mail_core::sync::{self, Configured};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_proto::{Backend, IoReady, Progress, ProtoOutcome};
 use mail_runtime::{AccountEngine, MapSecrets};
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 use std::sync::{Arc, Mutex};
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 
 fn now() -> DateTime<Utc> {
     Utc.timestamp_opt(1_700_000_000, 0).unwrap()
@@ -25,7 +28,7 @@ fn now() -> DateTime<Utc> {
 
 fn inbox() -> MailboxRef {
     MailboxRef {
-        account: ACCOUNT,
+        account: acct_account(),
         path: "INBOX".to_owned(),
     }
 }
@@ -246,7 +249,7 @@ async fn one_pass(keep: Keep) -> Passed {
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [ACCOUNT.to_string()],
+            [acct_account().to_string()],
         )
         .unwrap();
     let port = somewhere_to_connect();
@@ -270,7 +273,7 @@ async fn one_pass(keep: Keep) -> Passed {
     };
     let parts: Asked = Arc::default();
     let mut engine = AccountEngine::new(
-        ACCOUNT,
+        acct_account(),
         plan.clone(),
         Scripted {
             caps: caps(),
@@ -280,7 +283,7 @@ async fn one_pass(keep: Keep) -> Passed {
         Arc::new(MapSecrets::default()),
     );
     let account = Configured {
-        id: ACCOUNT,
+        id: acct_account(),
         address: "me@example.test".to_owned(),
         plan,
         caps: caps(),
@@ -344,7 +347,7 @@ async fn kept_offline_every_part_is_fetched_largest_last() {
         "every attachment, the 2 MB one first and the 9 MB one last"
     );
     assert_eq!(passed.report.counts.parts_fetched, 3);
-    let offline = passed.store.offline(ACCOUNT).unwrap();
+    let offline = passed.store.offline(acct_account()).unwrap();
     assert_eq!(
         (offline.messages, offline.held, offline.parts_remote),
         (2, 2, 0),
@@ -379,7 +382,7 @@ async fn not_kept_offline_no_large_part_is_fetched() {
     );
     assert_eq!(passed.parts, Vec::<String>::new());
     assert_eq!(passed.report.counts.parts_fetched, 0);
-    let offline = passed.store.offline(ACCOUNT).unwrap();
+    let offline = passed.store.offline(acct_account()).unwrap();
     assert_eq!(
         (offline.messages, offline.held, offline.parts_remote),
         (2, 0, 3),
@@ -393,9 +396,9 @@ fn the_offline_command_sets_one_account_and_says_where_each_stands() {
     let config = tempfile::tempdir().unwrap();
     let data = tempfile::tempdir().unwrap();
     let store = SqliteStore::in_memory(data.path()).unwrap();
-    let accounts = [(ACCOUNT, "me@example.test".to_owned())];
+    let accounts = [(acct_account(), "me@example.test".to_owned())];
     assert_eq!(
-        mail_core::offline::load(config.path()).of(ACCOUNT),
+        mail_core::offline::load(config.path()).of(acct_account()),
         Keep::Bodies
     );
     let said = mail_core::offline::command(
@@ -411,7 +414,7 @@ fn the_offline_command_sets_one_account_and_says_where_each_stands() {
         "me@example.test: all mail kept offline; 0 of 0 messages offline\n"
     );
     assert_eq!(
-        mail_core::offline::load(config.path()).of(ACCOUNT),
+        mail_core::offline::load(config.path()).of(acct_account()),
         Keep::Everything
     );
     let nobody = mail_core::offline::command(

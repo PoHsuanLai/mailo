@@ -11,12 +11,16 @@
 mod common;
 
 use common::replay;
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_proto::backend::{Authenticate, Pop3Backend};
 use mail_proto::{Backend, IoNeed, IoReady, Machine, Pop3Command, Progress, ProtoOutcome};
+use porter_core::SecretText;
+use porter_core::{AccountId, Credential};
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 
 fn caps() -> AccountCaps {
     AccountCaps {
@@ -39,7 +43,7 @@ fn caps() -> AccountCaps {
 
 fn backend() -> Pop3Backend {
     Pop3Backend::new(
-        ACCOUNT,
+        acct_account(),
         caps(),
         // The factory authenticates, exactly as the runtime's will: it is the only thing that
         // knows both the mechanism and the credential.
@@ -58,7 +62,7 @@ fn backend() -> Pop3Backend {
 
 fn mailbox() -> MailboxRef {
     MailboxRef {
-        account: ACCOUNT,
+        account: acct_account(),
         path: "INBOX".to_owned(),
     }
 }
@@ -347,7 +351,7 @@ fn smtp_backend_submits_and_reports_no_remote_copy() {
     use mail_proto::backend::SmtpBackend;
 
     let mut backend = SmtpBackend::new(
-        ACCOUNT,
+        acct_account(),
         caps(),
         // The envelope comes from the Posting, not from the closure: the closure knows the
         // host and the credential, and nothing about who this particular message is for.
@@ -358,7 +362,7 @@ fn smtp_backend_submits_and_reports_no_remote_copy() {
                 port: 465,
                 tls: Tls::Implicit,
                 username: "ada@example.com".to_owned(),
-                credential: Credential::Password("s3cr3t-password".to_owned()),
+                credential: Credential::Password(SecretText::new("s3cr3t-password".to_owned())),
                 sasl: vec![SaslMech::Plain],
                 mail_from: posting.mail_from,
                 recipients: posting.rcpt_to,

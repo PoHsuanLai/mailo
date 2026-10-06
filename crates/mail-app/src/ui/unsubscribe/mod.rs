@@ -143,7 +143,8 @@ pub(in crate::ui) fn look(store: &SqliteStore, thread: ThreadId) -> Option<Offer
     let found = mail_core::unsubscribe::find(store, *thread.as_uuid()).ok()?;
     let sender = store.message(found.message).ok()?.from;
     let from =
-        mail_core::compose::address_addressed(store, found.account, &found.addressed).ok()?;
+        mail_core::compose::address_addressed(store, found.account.clone(), &found.addressed)
+            .ok()?;
     offer_of(found, sender, from)
 }
 

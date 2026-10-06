@@ -4,11 +4,14 @@
 //! again, so the migration runs over rows exactly as an upgrade would find them.
 
 use chrono::{TimeZone, Utc};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 
 /// A message whose subject and sender's name are raw GBK, as an old server stores them.
 const GBK_RAW: &[u8] = b"From: \xcd\xf5\xd0\xa1\xc3\xf7 <wang@example.test>\r\n\
@@ -23,7 +26,7 @@ fn message(n: u128, subject: &str, body: Body) -> Message {
     Message {
         id: MessageId::from_uuid(uuid::Uuid::from_u128(0x9000 + n)),
         thread: ThreadId::from_uuid(uuid::Uuid::from_u128(0x7000 + n)),
-        account: ACCOUNT,
+        account: acct_account(),
         key: MessageKey::Rfc(format!("m{n}@example.test")),
         date: Utc.timestamp_opt(1_700_000_000 + n as i64, 0).unwrap(),
         from: Address {
@@ -60,7 +63,7 @@ fn garbled_messages_held_whole_are_re_read_and_the_rest_are_left_alone() {
             .execute(
                 "INSERT INTO accounts (id, address, plan, created_at)
                  VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-                [ACCOUNT.to_string()],
+                [acct_account().to_string()],
             )
             .unwrap();
         let raw = store.blobs().put(&store.connection(), GBK_RAW).unwrap();
@@ -79,7 +82,7 @@ fn garbled_messages_held_whole_are_re_read_and_the_rest_are_left_alone() {
         let headers_only = message(3, "\u{FFFD}\u{FFFD}", Body::Absent);
         store
             .apply(
-                ACCOUNT,
+                acct_account(),
                 &Patch {
                     id: ChangeId::generate(),
                     changes: [&garbled, &clean, &headers_only]

@@ -358,7 +358,7 @@ fn configured_accounts_contribute_their_provider_once() {
             .execute(
                 "INSERT INTO accounts (id, address, plan, created_at) VALUES (?1, ?2, ?3, ?4)",
                 rusqlite::params![
-                    mail_domain::AccountId::generate().to_string(),
+                    mail_domain::id::new_account_id().to_string(),
                     address,
                     serde_json::to_string(&plan).unwrap_or_else(|err| panic!("{err}")),
                     format!("2026-01-0{}T00:00:00Z", n + 1),

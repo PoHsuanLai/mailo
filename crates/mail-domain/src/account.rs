@@ -7,11 +7,12 @@
 //! saved configuration on every connect.
 
 use crate::content::Address;
-use crate::id::{AccountId, IdentityId};
+use crate::id::IdentityId;
 use crate::state::{IsDefault, MailboxRole};
 use chrono::{DateTime, Utc};
+use porter_core::AccountId;
+use porter_provider::Issuer;
 use serde::{Deserialize, Serialize};
-use std::fmt;
 use std::time::Duration;
 
 /// Everything the user configured about an account. Persisted as JSON in `accounts`.
@@ -168,33 +169,16 @@ pub enum LeaveOnServer {
 pub enum AuthPlan {
     /// The OAuth client id is deliberately absent. It is deployment configuration — it differs
     /// per build channel and is not a property of the user's account — so it lives in runtime
-    /// config, keyed by [`OAuthIssuer`], and never in a persisted `AccountPlan`. That config is
+    /// config, keyed by [`Issuer`], and never in a persisted `AccountPlan`. That config is
     /// `mail_runtime::signin::OAuthRegistry`; without it an expired token cannot be renewed,
     /// which is what an OAuth account needs about once an hour.
-    OAuth {
-        issuer: OAuthIssuer,
-        scopes: Vec<String>,
-    },
+    OAuth { issuer: Issuer, scopes: Vec<String> },
     Password {
         username: Username,
         /// Acceptable SASL mechanisms, most preferred first. A list because some servers
         /// offer only `LOGIN`.
         sasl: Vec<SaslMech>,
     },
-}
-
-/// An OAuth authorization server. Names an issuer, not a mail provider.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum OAuthIssuer {
-    Google,
-    /// The Microsoft identity platform, for managed Microsoft 365 tenants.
-    ///
-    /// Not personal Outlook.com. Basic authentication was retired there on 2024-09-16, and
-    /// recently-created personal mailboxes are reported to have SMTP client authentication
-    /// permanently off — failing even under OAuth, which is a different and worse problem than
-    /// the one this variant solves.
-    Microsoft,
 }
 
 /// How to derive the login name from the account address.
@@ -445,52 +429,4 @@ impl Condstore {
 pub enum MoveExt {
     Supported,
     Absent,
-}
-
-/// Which secret is being asked for. Incoming and outgoing may need different ones.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct SecretKey {
-    pub account: AccountId,
-    pub purpose: SecretPurpose,
-}
-
-/// What a secret is for.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SecretPurpose {
-    IncomingPassword,
-    OutgoingPassword,
-    OAuthRefresh,
-    /// The password of a CardDAV address book added under this account, where it has its own.
-    AddressBook,
-}
-
-/// A secret. Lives in the platform keyring and never in SQLite.
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", content = "v", rename_all = "snake_case")]
-pub enum Credential {
-    Password(String),
-    #[serde(rename = "oauth")]
-    OAuth {
-        access: String,
-        refresh: String,
-        /// When `access` stops working. The runtime refreshes ahead of this.
-        expires_at: DateTime<Utc>,
-    },
-}
-
-// Written by hand, not derived: a derived Debug puts the password in every log line, panic
-// message and error chain that ever touches this value.
-impl fmt::Debug for Credential {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Credential::Password(_) => f.write_str("Credential::Password(<redacted>)"),
-            Credential::OAuth { expires_at, .. } => f
-                .debug_struct("Credential::OAuth")
-                .field("access", &"<redacted>")
-                .field("refresh", &"<redacted>")
-                .field("expires_at", expires_at)
-                .finish(),
-        }
-    }
 }

@@ -6,7 +6,7 @@
 
 use crate::ui::menu::{MenuItem, Right, Tile};
 use crate::ui::space::{Scope, Space};
-use mail_domain::AccountId;
+use porter_core::AccountId;
 
 /// The menu's key for Add New Account….
 pub(super) const NEW: &str = "new";
@@ -26,7 +26,7 @@ pub(super) fn plus(space: &Space, accounts: &[(AccountId, String)]) -> Plus {
         Scope::All => Vec::new(),
         Scope::Accounts(_) => accounts
             .iter()
-            .filter(|(id, _)| !space.scope.shows(*id))
+            .filter(|(id, _)| !space.scope.shows(id.clone()))
             .cloned()
             .collect(),
     };
@@ -60,7 +60,7 @@ pub(super) fn items(
                 id.to_string(),
                 Tile::Avatar {
                     letter: super::today::initial(name),
-                    color: color(*id),
+                    color: color(id.clone()),
                 },
                 name.clone(),
                 "Show in this Space",
@@ -81,7 +81,7 @@ pub(super) fn items(
 pub(super) fn picked(key: &str, outside: &[(AccountId, String)]) -> Option<AccountId> {
     outside
         .iter()
-        .map(|(id, _)| *id)
+        .map(|(id, _)| id.clone())
         .find(|id| id.to_string() == key)
 }
 
@@ -89,12 +89,12 @@ pub(super) fn picked(key: &str, outside: &[(AccountId, String)]) -> Option<Accou
 mod tests {
     use super::{NEW, Plus, items, picked, plus};
     use crate::ui::space::{Scope, Space};
-    use mail_domain::AccountId;
+    use porter_core::AccountId;
     use uuid::Uuid;
 
     fn account(n: u128) -> (AccountId, String) {
         (
-            AccountId::from_uuid(Uuid::from_u128(n)),
+            mail_domain::id::account_id_from_uuid(Uuid::from_u128(n)),
             format!("a{n}@example.test"),
         )
     }

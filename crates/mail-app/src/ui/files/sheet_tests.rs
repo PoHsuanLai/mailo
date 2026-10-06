@@ -9,6 +9,7 @@ use dioxus::prelude::*;
 use dioxus_core::{NoOpMutations, VirtualDom};
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 
 use super::work::{Dest, Looked, import_now, look};
 use super::{FilesSheet, Phase, Report};
@@ -266,7 +267,7 @@ fn local_folders_send_nothing_and_tell_no_server() {
     let thread = store
         .threads(
             &Query {
-                filter: Filter::Account(local),
+                filter: Filter::Account(local.clone()),
                 sort: Sort {
                     property: Property::Date,
                     dir: SortDir::Desc,

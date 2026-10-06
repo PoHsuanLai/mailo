@@ -9,9 +9,10 @@
 use crate::{RuntimeError, Secrets};
 use chrono::{DateTime, Utc};
 use mail_domain::signing::{SigningKeyId, SigningKeyRef, SigningSecret};
-use mail_domain::{AccountId, CertFingerprint, CertProblem, CertSource, SmimeVerification};
+use mail_domain::{CertFingerprint, CertProblem, CertSource, SmimeVerification};
 use mail_mime::smime::{self, Cert, Keys, PrivateKey};
 use mail_store::Store;
+use porter_core::AccountId;
 use std::sync::OnceLock;
 
 fn entry(account: AccountId, fingerprint: CertFingerprint) -> SigningKeyRef {

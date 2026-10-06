@@ -22,7 +22,8 @@ pub mod imap;
 pub mod jmap;
 
 use chrono::{DateTime, Datelike, NaiveDate, Utc};
-use mail_domain::{AccountId, DateRange, Filter, MailboxRole, ReadState, Star, TextMatch};
+use mail_domain::{DateRange, Filter, MailboxRole, ReadState, Star, TextMatch};
+use porter_core::AccountId;
 
 /// What of a query cannot be asked of a server faithfully, each as the words a person typed or
 /// would have.
@@ -76,7 +77,7 @@ pub fn on_account(filter: &Filter, account: AccountId) -> Filter {
         Filter::Account(_) => Filter::Nothing,
         Filter::And(parts) => {
             let mut kept = Vec::new();
-            for part in parts.iter().map(|p| on_account(p, account)) {
+            for part in parts.iter().map(|p| on_account(p, account.clone())) {
                 match part {
                     Filter::All => {}
                     Filter::Nothing => return Filter::Nothing,
@@ -92,7 +93,7 @@ pub fn on_account(filter: &Filter, account: AccountId) -> Filter {
         }
         Filter::Or(parts) => {
             let mut kept = Vec::new();
-            for part in parts.iter().map(|p| on_account(p, account)) {
+            for part in parts.iter().map(|p| on_account(p, account.clone())) {
                 match part {
                     Filter::Nothing => {}
                     Filter::All => return Filter::All,

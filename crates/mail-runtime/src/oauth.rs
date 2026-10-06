@@ -13,12 +13,15 @@ use crate::RuntimeError;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use chrono::{DateTime, TimeDelta, Utc};
-use mail_domain::{Credential, OAuthIssuer};
 use oauth2::basic::BasicClient;
 use oauth2::{
     AuthUrl, AuthorizationCode, ClientId, ClientSecret, CsrfToken, PkceCodeChallenge,
     PkceCodeVerifier, RedirectUrl, RefreshToken, Scope, TokenResponse, TokenUrl,
 };
+use porter_core::Credential;
+use porter_core::SecretText;
+use porter_core::UnixSeconds;
+use porter_provider::Issuer;
 use std::time::Duration;
 
 /// Refresh this long before a token actually expires.
@@ -43,12 +46,15 @@ pub struct Endpoints {
 }
 
 /// The published endpoints for an issuer.
-pub fn endpoints_for(issuer: OAuthIssuer) -> Endpoints {
-    let e = endpoints(issuer);
-    Endpoints {
+///
+/// An error for an issuer mailo has no mail sign-in for: porter's list of issuers is longer than
+/// mailo's, and Dropbox's authorization server is not one it can read mail from.
+pub fn endpoints_for(issuer: Issuer) -> Result<Endpoints, RuntimeError> {
+    let e = endpoints(issuer)?;
+    Ok(Endpoints {
         auth: e.auth.to_owned(),
         token: e.token.to_owned(),
-    }
+    })
 }
 
 struct Wellknown {
@@ -56,9 +62,9 @@ struct Wellknown {
     token: &'static str,
 }
 
-fn endpoints(issuer: OAuthIssuer) -> Wellknown {
-    match issuer {
-        OAuthIssuer::Google => Wellknown {
+fn endpoints(issuer: Issuer) -> Result<Wellknown, RuntimeError> {
+    Ok(match issuer {
+        Issuer::Google => Wellknown {
             auth: "https://accounts.google.com/o/oauth2/v2/auth",
             token: "https://oauth2.googleapis.com/token",
         },
@@ -68,11 +74,16 @@ fn endpoints(issuer: OAuthIssuer) -> Wellknown {
         // have SMTP client authentication permanently off, so a `common` endpoint would hand
         // back a perfectly good token that then fails at submission with nothing to explain it.
         // Refusing at sign-in, where the user can read the reason, is the better failure.
-        OAuthIssuer::Microsoft => Wellknown {
+        Issuer::Microsoft => Wellknown {
             auth: "https://login.microsoftonline.com/organizations/oauth2/v2.0/authorize",
             token: "https://login.microsoftonline.com/organizations/oauth2/v2.0/token",
         },
-    }
+        Issuer::Dropbox | Issuer::Box | Issuer::Fastmail | Issuer::OpenRouter | Issuer::OpenAi => {
+            return Err(RuntimeError::Secrets(format!(
+                "mailo has no mail sign-in through {issuer:?}"
+            )));
+        }
+    })
 }
 
 /// Perform an `oauth2` HTTP request with our own client.
@@ -134,7 +145,7 @@ pub struct Pending {
     /// actually protects the exchange is PKCE plus the loopback redirect. Treated with care
     /// anyway — never logged, never in a URL.
     client_secret: Option<String>,
-    issuer: OAuthIssuer,
+    issuer: Issuer,
     redirect: String,
     /// Resolved when the request was made, not looked up again when it completes: a second
     /// lookup is a second answer, and the code came back from whichever host was asked.
@@ -185,13 +196,13 @@ pub struct Authorization {
 /// missing`). This code asserted the opposite for a long time, and the assertion held right up
 /// until a real Google client was used. Microsoft's public clients want none, so it is optional.
 pub fn begin(
-    issuer: OAuthIssuer,
+    issuer: Issuer,
     client_id: &str,
     client_secret: Option<&str>,
     scopes: &[String],
     redirect: &str,
 ) -> Result<Authorization, RuntimeError> {
-    let ends = endpoints(issuer);
+    let ends = endpoints(issuer)?;
     let (challenge, verifier) = PkceCodeChallenge::new_random_sha256();
     let client = BasicClient::new(ClientId::new(client_id.to_owned()))
         .set_auth_uri(AuthUrl::new(ends.auth.to_owned()).map_err(bad_url)?)
@@ -219,7 +230,7 @@ pub fn begin(
             client_secret: client_secret.map(str::to_owned),
             issuer,
             redirect: redirect.to_owned(),
-            endpoints: endpoints_for(issuer),
+            endpoints: endpoints_for(issuer)?,
             redeem: first_resource(scopes),
         },
     })
@@ -311,9 +322,9 @@ impl Pending {
             })?;
 
         Ok(Credential::OAuth {
-            access: token.access_token().secret().to_owned(),
-            refresh,
-            expires_at: expiry(token.expires_in(), now),
+            access: SecretText::new(token.access_token().secret().to_owned()),
+            refresh: SecretText::new(refresh),
+            expires_at: UnixSeconds(expiry(token.expires_in(), now).timestamp()),
         })
     }
 }
@@ -323,7 +334,7 @@ impl Pending {
 /// The refresh token is carried through: issuers usually do not return a new one, and dropping
 /// it would log the user out at the next expiry.
 pub async fn refresh(
-    issuer: OAuthIssuer,
+    issuer: Issuer,
     client_id: &str,
     client_secret: Option<&str>,
     refresh_token: &str,
@@ -331,7 +342,7 @@ pub async fn refresh(
     now: DateTime<Utc>,
 ) -> Result<Credential, RuntimeError> {
     refresh_at(
-        &endpoints_for(issuer),
+        &endpoints_for(issuer)?,
         client_id,
         client_secret,
         refresh_token,
@@ -394,12 +405,14 @@ pub async fn refresh_for(
         .map_err(refresh_failed)?;
 
     Ok(Credential::OAuth {
-        access: token.access_token().secret().to_owned(),
-        refresh: token
-            .refresh_token()
-            .map(|r| r.secret().to_owned())
-            .unwrap_or_else(|| refresh_token.to_owned()),
-        expires_at: expiry(token.expires_in(), now),
+        access: SecretText::new(token.access_token().secret().to_owned()),
+        refresh: SecretText::new(
+            token
+                .refresh_token()
+                .map(|r| r.secret().to_owned())
+                .unwrap_or_else(|| refresh_token.to_owned()),
+        ),
+        expires_at: UnixSeconds((expiry(token.expires_in(), now)).timestamp()),
     })
 }
 
@@ -458,14 +471,17 @@ pub enum Freshness<'a> {
 /// Whether a credential can be used as it stands.
 pub fn assess(credential: &Credential, now: DateTime<Utc>) -> Freshness<'_> {
     match credential {
-        // A password does not expire on a schedule.
-        Credential::Password(_) => Freshness::Ready,
+        // A password does not expire on a schedule, and an API key or key pair, which mailo
+        // never keeps, has no refresh token to expire into.
+        Credential::Password(_) | Credential::ApiKey(_) | Credential::KeyPair { .. } => {
+            Freshness::Ready
+        }
         Credential::OAuth {
             refresh,
             expires_at,
             ..
-        } if *expires_at - REFRESH_MARGIN <= now => Freshness::Expired {
-            refresh_token: refresh,
+        } if expires_at.0 - REFRESH_MARGIN.num_seconds() <= now.timestamp() => Freshness::Expired {
+            refresh_token: refresh.expose(),
         },
         Credential::OAuth { .. } => Freshness::Ready,
     }
@@ -498,7 +514,7 @@ mod tests {
 
     #[test]
     fn the_authorize_url_carries_pkce_state_and_offline_access() {
-        let auth = begin(OAuthIssuer::Google, CLIENT, None, &scopes(), REDIRECT).unwrap();
+        let auth = begin(Issuer::Google, CLIENT, None, &scopes(), REDIRECT).unwrap();
         for required in [
             "code_challenge=",
             "code_challenge_method=S256",
@@ -524,7 +540,7 @@ mod tests {
     fn a_redirect_with_the_wrong_state_is_refused() {
         // Anything can reach a loopback listener. A mismatched state is someone else's
         // authorization code being offered to us, which is the whole reason for the parameter.
-        let auth = begin(OAuthIssuer::Google, CLIENT, None, &scopes(), REDIRECT).unwrap();
+        let auth = begin(Issuer::Google, CLIENT, None, &scopes(), REDIRECT).unwrap();
         for wrong in ["", "nonsense", "0000000000000000000000"] {
             assert!(!auth.pending.accepts(wrong), "accepted {wrong:?}");
         }
@@ -532,15 +548,15 @@ mod tests {
 
     #[test]
     fn a_redirect_with_the_matching_state_is_accepted() {
-        let auth = begin(OAuthIssuer::Google, CLIENT, None, &scopes(), REDIRECT).unwrap();
+        let auth = begin(Issuer::Google, CLIENT, None, &scopes(), REDIRECT).unwrap();
         let ours = auth.pending.state.secret().clone();
         assert!(auth.pending.accepts(&ours));
     }
 
     #[test]
     fn two_authorizations_never_share_a_verifier_or_state() {
-        let a = begin(OAuthIssuer::Google, CLIENT, None, &scopes(), REDIRECT).unwrap();
-        let b = begin(OAuthIssuer::Google, CLIENT, None, &scopes(), REDIRECT).unwrap();
+        let a = begin(Issuer::Google, CLIENT, None, &scopes(), REDIRECT).unwrap();
+        let b = begin(Issuer::Google, CLIENT, None, &scopes(), REDIRECT).unwrap();
         assert_ne!(a.pending.state.secret(), b.pending.state.secret());
         assert_ne!(a.pending.verifier.secret(), b.pending.verifier.secret());
     }
@@ -588,9 +604,9 @@ mod tests {
     fn refresh_is_due_before_expiry_not_after() {
         let now = DateTime::from_timestamp(1_700_000_000, 0).unwrap();
         let oauth = |minutes: i64| Credential::OAuth {
-            access: "a".into(),
-            refresh: "the-refresh-token".into(),
-            expires_at: now + TimeDelta::try_minutes(minutes).unwrap(),
+            access: SecretText::new("a"),
+            refresh: SecretText::new("the-refresh-token"),
+            expires_at: UnixSeconds((now + TimeDelta::try_minutes(minutes).unwrap()).timestamp()),
         };
         assert_eq!(assess(&oauth(30), now), Freshness::Ready);
         // Inside the margin: a token expiring mid-FETCH fails the whole operation.
@@ -608,7 +624,7 @@ mod tests {
             }
         );
         assert_eq!(
-            assess(&Credential::Password("p".into()), now),
+            assess(&Credential::Password(SecretText::new("p")), now),
             Freshness::Ready
         );
     }
@@ -625,7 +641,7 @@ mod debug_tests {
     #[test]
     fn debug_never_prints_the_verifier_or_the_state() {
         let auth = begin(
-            OAuthIssuer::Google,
+            Issuer::Google,
             "client.apps.googleusercontent.com",
             None,
             &["https://mail.google.com/".to_owned()],

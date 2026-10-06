@@ -18,7 +18,8 @@ use super::wire::{self, Token};
 use crate::machine::{IoNeed, IoReady, Machine, Progress, ProtoError, Refusal};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
-use mail_domain::{Credential, Tls};
+use mail_domain::Tls;
+use porter_core::Credential;
 
 /// Where to connect and who to be.
 ///
@@ -393,8 +394,17 @@ impl SieveSession {
 
     fn authenticate(&mut self) -> Step {
         let (mechanism, raw) = match &self.login.credential {
-            Credential::Password(password) => ("PLAIN", plain(&self.login.username, password)),
-            Credential::OAuth { access, .. } => ("XOAUTH2", xoauth2(&self.login.username, access)),
+            Credential::Password(password) => {
+                ("PLAIN", plain(&self.login.username, password.expose()))
+            }
+            Credential::OAuth { access, .. } => {
+                ("XOAUTH2", xoauth2(&self.login.username, access.expose()))
+            }
+            Credential::ApiKey(_) | Credential::KeyPair { .. } => {
+                return Step::Fail(ProtoError::Unsupported(
+                    "an API key is not a sign-in credential".to_owned(),
+                ));
+            }
         };
         if !self.caps.sasl.iter().any(|m| m == mechanism) {
             return Step::Fail(ProtoError::Unsupported(format!(

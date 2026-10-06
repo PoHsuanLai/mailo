@@ -3,7 +3,7 @@
 //! Finding it is [`latchkey`]'s; this is what is said once the door opens.
 
 use super::wire::{self, Mismatch, Request, Response};
-use mail_domain::AccountId;
+use porter_core::AccountId;
 use std::io::{BufRead, BufReader, Write};
 use std::time::Duration;
 

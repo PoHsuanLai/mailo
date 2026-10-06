@@ -7,17 +7,20 @@
 //! thing only a socket can — that a server without it never hears a credential.
 
 use chrono::{TimeZone, Utc};
-use mail_domain::{
-    AccountId, AfterMatch, Credential, Filter, Rule, RuleAction, RuleId, RuleState, TextMatch, Tls,
-};
+use mail_domain::id::account_id_from_uuid;
+use mail_domain::{AfterMatch, Filter, Rule, RuleAction, RuleId, RuleState, TextMatch, Tls};
 use mail_proto::sieve::{Deleted, Endpoint, Places, SieveOutcome, Takeover, Unmappable};
 use mail_runtime::RuntimeError;
 use mail_runtime::sieve::{SieveAuth, push};
+use porter_core::SecretText;
+use porter_core::{AccountId, Credential};
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 
-const ACCOUNT: AccountId = AccountId::from_uuid(uuid::Uuid::from_u128(1));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::Uuid::from_u128(1))
+}
 
 /// What the fake server holds and has heard.
 #[derive(Debug, Default)]
@@ -140,14 +143,14 @@ async fn server(held: Server) -> (Endpoint, Arc<Mutex<Server>>) {
 fn auth() -> SieveAuth {
     SieveAuth {
         username: "me@example.test".to_owned(),
-        credential: Credential::Password("s3cret".to_owned()),
+        credential: Credential::Password(SecretText::new("s3cret".to_owned())),
     }
 }
 
 fn rule(position: u32, name: &str, filter: Filter, actions: Vec<RuleAction>) -> Rule {
     Rule {
         id: RuleId::generate(),
-        account: ACCOUNT,
+        account: acct_account(),
         name: name.to_owned(),
         position,
         state: RuleState::Enabled,

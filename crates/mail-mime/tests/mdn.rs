@@ -1,7 +1,8 @@
 //! Read receipts: seeing a request, and the RFC 8098 report that answers one.
 
 use chrono::{DateTime, Utc};
-use mail_domain::{AccountId, Address, DraftId, Identity, IdentityId, IsDefault};
+use mail_domain::id::new_account_id;
+use mail_domain::{Address, DraftId, Identity, IdentityId, IsDefault};
 use mail_mime::{OriginalHeaders, ReceiptAsk, Reporting, ReturnPath, receipt, receipt_asked};
 use mail_parser::{MessageParser, MimeHeaders};
 use uuid::Uuid;
@@ -31,7 +32,7 @@ fn at() -> DateTime<Utc> {
 fn reader() -> Identity {
     Identity {
         id: IdentityId::generate(),
-        account: AccountId::generate(),
+        account: new_account_id(),
         from: Address {
             name: Some("Me".to_owned()),
             email: "me@reader.test".to_owned(),

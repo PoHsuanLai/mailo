@@ -17,7 +17,9 @@ use mail_store::{SqliteStore, Store};
 use rand::SeedableRng;
 
 use super::{Said, Seams, Tone, looked_at, said};
-use crate::ui::fixtures::{ACCOUNT, Seen, click, dispatching, rebuild_into, seeded, type_into};
+use crate::ui::fixtures::{
+    Seen, acct_account, click, dispatching, rebuild_into, seeded, type_into,
+};
 use crate::ui::reading::Reader;
 use crate::ui::view::Shell;
 use mail_core::pgp::Protected;
@@ -94,9 +96,9 @@ fn letter(word: &str, text: &str) -> String {
 pub(super) fn arrive(store: &SqliteStore, raw: Vec<u8>) -> Message {
     let ingest = mail_runtime::assemble(
         store,
-        ACCOUNT,
+        acct_account(),
         MailboxRef {
-            account: ACCOUNT,
+            account: acct_account(),
             path: "INBOX".to_owned(),
         },
         MailboxRole::Inbox,
@@ -111,13 +113,13 @@ pub(super) fn arrive(store: &SqliteStore, raw: Vec<u8>) -> Message {
     )
     .unwrap();
     let id = ingest.messages[0].message.id;
-    store.ingest(ACCOUNT, ingest).unwrap();
+    store.ingest(acct_account(), ingest).unwrap();
     store.message(id).unwrap()
 }
 
 /// My own secret key, as the keyring holds it.
 pub(super) fn mine(secrets: &MapSecrets, key: &PgpKey) -> SecretCert {
-    mail_runtime::pgp::secret_key(secrets, ACCOUNT, key.fingerprint).unwrap()
+    mail_runtime::pgp::secret_key(secrets, acct_account(), key.fingerprint).unwrap()
 }
 
 thread_local! {

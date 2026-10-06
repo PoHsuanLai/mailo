@@ -95,6 +95,19 @@ ratchet scripts/core-prose-allowlist.txt 'mailo [a-z]' \
 ratchet scripts/core-result-string-allowlist.txt 'Result<String, String>' \
   "mail-core returns Result<String, String>" || fail=1
 
+# Names that moved to porter, or went with the types they named, must not creep back in. mailo
+# names accounts, secrets and OAuth issuers with `porter_core` and `porter_provider`'s types
+# (`AccountId`, `SecretKey`, `SecretPurpose`, `Credential`, `Issuer`), and keeps its own signing
+# keys in `mail_domain::signing`. So there is no `OAuthIssuer`; no `mail_domain::AccountId` (or
+# `Credential`, `SecretKey`, `SecretPurpose`) to import; no `AccountId` minted from a UUID by a
+# method (`mail_domain::id::new_account_id` and `account_id_from_uuid` do it); and no key held
+# as a `SecretPurpose` or a `Credential`.
+FORBIDDEN_SYMBOLS='\bOAuthIssuer\b|\bAccountId::(from_uuid|generate)\b|\bSecretPurpose::(AddressBook|OpenPgp|Smime)\b|\bCredential::(OpenPgp|SmimeKey)\b|\bmail_domain::(AccountId|Credential|SecretKey|SecretPurpose)\b'
+if grep -rnE "$FORBIDDEN_SYMBOLS" crates --include='*.rs' | grep -vE '^[^:]+:[0-9]+:[[:space:]]*//'; then
+  echo "a symbol that moved to porter (or was deleted with its type) is back: see FORBIDDEN_SYMBOLS in scripts/check-boundary.sh"
+  fail=1
+fi
+
 # The reader draws blocks. A raw HTML sink in the UI would put a sender's markup
 # in our document, which is what the block types exist to prevent.
 if grep -rn "dangerous_inner_html" crates/mail-app/src/ui/; then

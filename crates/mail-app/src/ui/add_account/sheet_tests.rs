@@ -50,7 +50,7 @@ impl Snapshot {
 
 /// The sheet open, alone, in a Space scoped to `scope` (empty: every account).
 #[component]
-fn Sheet(snapshot: Snapshot, scope: Vec<mail_domain::AccountId>) -> Element {
+fn Sheet(snapshot: Snapshot, scope: Vec<porter_core::AccountId>) -> Element {
     let shell = use_signal(|| Shell {
         adding: Some(String::new()),
         ..Shell::default()
@@ -93,7 +93,7 @@ struct Open {
     host: Recorder,
 }
 
-fn open(store: &Arc<SqliteStore>, seams: Seams, scope: Vec<mail_domain::AccountId>) -> Open {
+fn open(store: &Arc<SqliteStore>, seams: Seams, scope: Vec<porter_core::AccountId>) -> Open {
     let snapshot = Snapshot::default();
     let host = Recorder::default();
     let mut dom = VirtualDom::new_with_props(
@@ -207,7 +207,7 @@ async fn look_up_shows_what_was_found_and_adds_nothing_until_it_is_used() {
 
     // The password reached the add, and the keyring fake, and nothing else the window holds.
     assert_eq!(*fake.handed.lock().unwrap(), [PASSWORD]);
-    assert_eq!(fake.kept(rows[0].id).as_deref(), Some(PASSWORD));
+    assert_eq!(fake.kept(rows[0].id.clone()).as_deref(), Some(PASSWORD));
     assert!(!shown.contains(PASSWORD), "the page holds the password");
     assert!(
         !open.snapshot.get().contains(PASSWORD),
@@ -326,7 +326,7 @@ async fn a_lookup_that_finds_no_servers_offers_to_enter_them() {
     );
     let rows = crate::ui::data::account_rows(&store);
     assert_eq!(rows.len(), 1);
-    assert_eq!(fake.kept(rows[0].id).as_deref(), Some(PASSWORD));
+    assert_eq!(fake.kept(rows[0].id.clone()).as_deref(), Some(PASSWORD));
     let shown = page(&open);
     assert!(shown.contains("Added ada@nowhere.test."), "{shown}");
     assert!(!shown.contains(PASSWORD), "{shown}");
@@ -571,7 +571,7 @@ async fn a_session_typed_by_hand_with_a_token_adds_with_bearer_and_keeps_the_tok
     let rows = crate::ui::data::account_rows(&store);
     assert_eq!(rows.len(), 1);
     assert_eq!(
-        fake.kept(rows[0].id).as_deref(),
+        fake.kept(rows[0].id.clone()).as_deref(),
         Some(TOKEN),
         "the keyring fake"
     );
@@ -611,11 +611,11 @@ async fn a_new_account_joins_a_scoped_space() {
     dispatching();
     let (store, _dir) = store();
     let fake = Arc::new(Fake::default());
-    let other = mail_domain::AccountId::generate();
+    let other = mail_domain::id::new_account_id();
     let mut open = open(
         &store,
         seams(&fake, ok("ada@example.test"), false),
-        vec![other],
+        vec![other.clone()],
     );
     let seen = look_up(&mut open, "ada@example.test").await;
     type_into(
@@ -625,7 +625,7 @@ async fn a_new_account_joins_a_scoped_space() {
     );
     click(&mut open.dom, seen.one("aria-label", "Use these settings"));
     settle(&mut open.dom).await;
-    let added = crate::ui::data::account_rows(&store)[0].id;
+    let added = crate::ui::data::account_rows(&store)[0].id.clone();
     let state = open.snapshot.get();
     assert!(
         state.contains(&format!("Accounts([{other:?}, {added:?}])")),

@@ -1,8 +1,10 @@
 //! A composer's reminder, held in `follow_up_held` (migration 0027) until its message has left.
 
 use chrono::{DateTime, Utc};
-use mail_domain::{AccountId, Draft, DraftId, SendState, ThreadId};
+use mail_domain::id::account_id_from_uuid;
+use mail_domain::{Draft, DraftId, SendState, ThreadId};
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 
 /// A composer's reminder, waiting for its message to leave.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -43,7 +45,7 @@ pub fn after_queue(
         store,
         &Held {
             draft: draft.id,
-            account: draft.account,
+            account: draft.account.clone(),
             message_id,
             thread,
             at,
@@ -116,7 +118,7 @@ pub fn held(store: &SqliteStore) -> Vec<Held> {
         .filter_map(|(draft, account, message_id, thread, at, set)| {
             Some(Held {
                 draft: DraftId::from_uuid(draft.parse().ok()?),
-                account: AccountId::from_uuid(account.parse().ok()?),
+                account: account_id_from_uuid(account.parse().ok()?),
                 message_id,
                 thread: match thread {
                     Some(thread) => Some(ThreadId::from_uuid(thread.parse().ok()?)),

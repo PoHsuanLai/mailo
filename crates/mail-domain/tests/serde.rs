@@ -27,7 +27,10 @@
 //! Every time is a fixed instant. Nothing here calls `Utc::now()` — a test that moves with
 //! the clock cannot be re-run against a failure.
 
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
+use porter_core::AccountId;
+use porter_provider::Issuer;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std::fmt::Debug;
@@ -50,7 +53,7 @@ fn at(day: u32) -> chrono::DateTime<chrono::Utc> {
 }
 
 fn account() -> AccountId {
-    AccountId::from_uuid(uuid(1))
+    account_id_from_uuid(uuid(1))
 }
 
 fn address(email: &str) -> Address {
@@ -760,12 +763,12 @@ fn account_types_round_trip() {
         "SaslMech",
         vec![SaslMech::Plain, SaslMech::Login, SaslMech::XOauth2],
     );
-    round_trip("OAuthIssuer", OAuthIssuer::Google);
+    round_trip("Issuer", Issuer::Google);
     round_trip_each(
         "AuthPlan",
         vec![
             AuthPlan::OAuth {
-                issuer: OAuthIssuer::Google,
+                issuer: Issuer::Google,
                 scopes: vec!["https://mail.google.com/".to_owned()],
             },
             AuthPlan::Password {
@@ -833,33 +836,6 @@ fn account_types_round_trip() {
     );
     round_trip_each("MoveExt", vec![MoveExt::Supported, MoveExt::Absent]);
     round_trip("AccountCaps", caps());
-
-    round_trip_each(
-        "SecretPurpose",
-        vec![
-            SecretPurpose::IncomingPassword,
-            SecretPurpose::OutgoingPassword,
-            SecretPurpose::OAuthRefresh,
-        ],
-    );
-    round_trip(
-        "SecretKey",
-        SecretKey {
-            account: account(),
-            purpose: SecretPurpose::OAuthRefresh,
-        },
-    );
-    round_trip_each(
-        "Credential",
-        vec![
-            Credential::Password("hunter2".to_owned()),
-            Credential::OAuth {
-                access: "ya29.access".to_owned(),
-                refresh: "1//refresh".to_owned(),
-                expires_at: at(6),
-            },
-        ],
-    );
 }
 
 #[test]
@@ -1255,41 +1231,6 @@ fn persisted_types_tolerate_unknown_fields() {
 }
 
 #[test]
-fn credential_debug_redacts_every_secret() {
-    // A security property, not a formatting preference: a derived `Debug` puts the password
-    // into every log line, panic message and error chain that ever formats this value.
-    let password = Credential::Password("hunter2".to_owned());
-    let shown = format!("{password:?}");
-    assert!(
-        !shown.contains("hunter2"),
-        "Credential::Password Debug leaked the password: {shown}"
-    );
-    assert!(shown.contains("redacted"), "{shown}");
-
-    let oauth = Credential::OAuth {
-        access: "ya29.access-token".to_owned(),
-        refresh: "1//refresh-token".to_owned(),
-        expires_at: at(6),
-    };
-    let shown = format!("{oauth:?}");
-    for secret in ["ya29.access-token", "1//refresh-token"] {
-        assert!(
-            !shown.contains(secret),
-            "Credential::OAuth Debug leaked {secret}: {shown}"
-        );
-    }
-    // The non-secret field survives, so the value is still worth logging.
-    assert!(shown.contains("2026-01-06"), "{shown}");
-
-    // Nesting must not reopen the hole: a `Debug` on a container that holds a `Credential`
-    // formats it through the same hand-written impl.
-    let nested = format!("{:?}", vec![password]);
-    assert!(!nested.contains("hunter2"), "{nested}");
-    let nested = format!("{:?}", Some(&oauth));
-    assert!(!nested.contains("ya29.access-token"), "{nested}");
-}
-
-#[test]
 fn presets_round_trip_and_carry_the_given_instant() {
     // A preset's output is persisted verbatim, so it is part of this suite.
     let gmail = mail_domain::presets::preset_for("someone@gmail.com", at(3)).expect("gmail preset");
@@ -1381,7 +1322,49 @@ fn fixture_dir() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
 }
 
+/// Porter's types are persisted through mailo's now, so their spellings are mailo's data: a
+/// rename on porter's side must fail here, where the stored rows are, not at a user's first sync.
+#[test]
+fn porter_types_persist_as_mailo_always_wrote_them() {
+    use porter_provider::Issuer;
+    assert_eq!(
+        serde_json::to_value(Issuer::Google).unwrap(),
+        serde_json::json!("google")
+    );
+    assert_eq!(
+        serde_json::to_value(Issuer::Microsoft).unwrap(),
+        serde_json::json!("microsoft")
+    );
+    // An account id is the UUID's hyphenated lowercase text, as the `accounts` table, the rows
+    // that name an account and every saved Space have always held it.
+    let id = account_id_from_uuid(uuid(0xab));
+    assert_eq!(id.to_string(), uuid(0xab).to_string());
+    assert_eq!(
+        serde_json::to_value(&id).unwrap(),
+        serde_json::json!(uuid(0xab).to_string())
+    );
+    let from_old: AccountId =
+        serde_json::from_str("\"67e55044-10b1-426f-9247-bb680e5fe0c8\"").unwrap();
+    assert_eq!(from_old.as_str(), "67e55044-10b1-426f-9247-bb680e5fe0c8");
+}
+
 fixtures! {
+    // The two OAuth issuers an `AccountPlan` can name, as stored: the issuer is porter's type
+    // and its spelling here is what every saved OAuth account already holds.
+    "auth_plans_oauth.json" => Vec<AuthPlan> = vec![
+        AuthPlan::OAuth {
+            issuer: porter_provider::Issuer::Google,
+            scopes: vec!["https://mail.google.com/".to_owned()],
+        },
+        AuthPlan::OAuth {
+            issuer: porter_provider::Issuer::Microsoft,
+            scopes: vec!["https://outlook.office.com/IMAP.AccessAsUser.All".to_owned()],
+        },
+    ],
+    "account_ids.json" => Vec<AccountId> = vec![
+        account_id_from_uuid(uuid(1)),
+        account_id_from_uuid(uuid(0xac)),
+    ],
     "account_plan_gmail.json" => AccountPlan = presets::preset_for("someone@gmail.com", at(3))
         .expect("gmail preset").plan,
     // A Microsoft 365 account that sends through Graph rather than SMTP.
@@ -1443,18 +1426,6 @@ fixtures! {
         observed_at: at(3),
     },
     "identity.json" => Identity = identity(),
-    "secret_key.json" => SecretKey = SecretKey {
-        account: account(),
-        purpose: SecretPurpose::OAuthRefresh,
-    },
-    "credentials.json" => Vec<Credential> = vec![
-        Credential::Password("hunter2".to_owned()),
-        Credential::OAuth {
-            access: "ya29.access".to_owned(),
-            refresh: "1//refresh".to_owned(),
-            expires_at: at(6),
-        },
-    ],
     "remote_refs.json" => Vec<RemoteRef> = vec![
         imap_ref(),
         RemoteRef::Pop { uidl: "UID-1".to_owned() },

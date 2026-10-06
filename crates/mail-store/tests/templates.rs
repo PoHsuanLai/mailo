@@ -4,16 +4,21 @@
 //! what a filter can ask, and a template is not something a filter can ask about.
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_store::{MemoryStore, SqliteStore, Store, StoreError};
+use porter_core::AccountId;
 
 fn at(n: i64) -> DateTime<Utc> {
     Utc.timestamp_opt(1_700_000_000 + n, 0).unwrap()
 }
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
-const OTHER: AccountId = AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a2"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
+fn acct_other() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a2"))
+}
 const IDENTITY: IdentityId =
     IdentityId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b1"));
 const OTHER_IDENTITY: IdentityId =
@@ -32,8 +37,8 @@ fn both() -> Both {
     {
         let db = sqlite.connection();
         for (account, identity, address) in [
-            (ACCOUNT, IDENTITY, "me@example.test"),
-            (OTHER, OTHER_IDENTITY, "also-me@example.test"),
+            (acct_account(), IDENTITY, "me@example.test"),
+            (acct_other(), OTHER_IDENTITY, "also-me@example.test"),
         ] {
             db.execute(
                 "INSERT INTO accounts (id, address, plan, created_at)
@@ -71,7 +76,7 @@ fn addr(email: &str) -> Address {
 fn template(name: &str) -> Template {
     Template {
         id: TemplateId::generate(),
-        account: ACCOUNT,
+        account: acct_account(),
         identity: IDENTITY,
         name: name.to_owned(),
         to: vec![addr("team@example.test"), addr("lead@example.test")],
@@ -114,12 +119,12 @@ fn templates_list_by_name_whatever_the_case_in_both_stores() {
         put(&b, &template(name));
     }
     let mut elsewhere = template("on another account");
-    elsewhere.account = OTHER;
+    elsewhere.account = acct_other();
     elsewhere.identity = OTHER_IDENTITY;
     put(&b, &elsewhere);
 
-    let sqlite = b.sqlite.templates(ACCOUNT).unwrap();
-    let memory = b.memory.templates(ACCOUNT).unwrap();
+    let sqlite = b.sqlite.templates(acct_account()).unwrap();
+    let memory = b.memory.templates(acct_account()).unwrap();
     assert_eq!(sqlite, memory, "the two stores list templates differently");
     let listed: Vec<String> = sqlite.iter().map(|t| t.name.to_lowercase()).collect();
     assert_eq!(
@@ -138,7 +143,7 @@ fn keeping_a_template_again_replaces_it() {
     kept.updated = at(20);
     put(&b, &kept);
     for store in [&b.sqlite as &dyn Store, &b.memory] {
-        assert_eq!(store.templates(ACCOUNT).unwrap(), vec![kept.clone()]);
+        assert_eq!(store.templates(acct_account()).unwrap(), vec![kept.clone()]);
     }
 }
 
@@ -159,7 +164,10 @@ fn a_deleted_template_is_gone_and_a_second_delete_says_so() {
             store.delete_template(kept.id),
             Err(StoreError::NoTemplate(_))
         ));
-        assert_eq!(store.templates(ACCOUNT).unwrap(), vec![stays.clone()]);
+        assert_eq!(
+            store.templates(acct_account()).unwrap(),
+            vec![stays.clone()]
+        );
     }
 }
 
@@ -169,8 +177,8 @@ fn a_template_is_not_a_draft() {
     // meet a template by accident.
     let b = both();
     put(&b, &template("weekly"));
-    assert_eq!(b.sqlite.drafts(ACCOUNT).unwrap(), vec![]);
-    assert_eq!(b.memory.drafts(ACCOUNT).unwrap(), vec![]);
+    assert_eq!(b.sqlite.drafts(acct_account()).unwrap(), vec![]);
+    assert_eq!(b.memory.drafts(acct_account()).unwrap(), vec![]);
 }
 
 #[test]
@@ -184,7 +192,7 @@ fn a_draft_started_from_a_template_is_saved_beside_it_and_leaves_it_alone() {
         changes: vec![Change::DraftUpsert(Box::new(started.clone()))],
     };
     for store in [&b.sqlite as &dyn Store, &b.memory] {
-        store.apply(ACCOUNT, &patch).unwrap();
+        store.apply(acct_account(), &patch).unwrap();
         assert_eq!(store.draft(started.id).unwrap(), started);
         assert_eq!(store.template(kept.id).unwrap(), kept);
     }

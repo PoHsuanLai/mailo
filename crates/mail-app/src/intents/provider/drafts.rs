@@ -15,8 +15,9 @@ use crate::intents::wire::{
 };
 use chrono::{Local, Utc};
 use mail_core::compose;
-use mail_domain::{AccountId, Address, Draft, DraftId, MessageId, SendState};
+use mail_domain::{Address, Draft, DraftId, MessageId, SendState};
 use mail_store::Store;
+use porter_core::AccountId;
 
 /// The addresses in `text` (a comma-separated list, as a person types it), or why not.
 fn addresses(text: Option<&str>) -> Result<Vec<Address>, AppRefusal> {

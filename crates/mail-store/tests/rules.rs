@@ -6,22 +6,30 @@
 //! up as a rule that files mail on one and not the other.
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_store::rules::{self, Ran};
 use mail_store::{MemoryStore, SqliteStore, Store, StoreError};
+use porter_core::AccountId;
 
 fn at(n: i64) -> DateTime<Utc> {
     Utc.timestamp_opt(1_700_000_000 + n, 0).unwrap()
 }
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
-const OTHER: AccountId = AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a2"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
+fn acct_other() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a2"))
+}
 
 fn sqlite() -> (SqliteStore, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let store = SqliteStore::in_memory(dir.path()).unwrap();
-    for (account, address) in [(ACCOUNT, "me@example.test"), (OTHER, "also@example.test")] {
+    for (account, address) in [
+        (acct_account(), "me@example.test"),
+        (acct_other(), "also@example.test"),
+    ] {
         store
             .connection()
             .execute(
@@ -65,7 +73,7 @@ fn folders() -> AccountCaps {
 fn rule(position: u32, name: &str, filter: Filter, actions: Vec<RuleAction>) -> Rule {
     Rule {
         id: RuleId::generate(),
-        account: ACCOUNT,
+        account: acct_account(),
         name: name.to_owned(),
         position,
         state: RuleState::Enabled,
@@ -85,7 +93,7 @@ fn arriving(n: u32, sender: &str, mailbox: MailboxRole, raw: BlobId) -> Fetched 
     let message = Message {
         id: MessageId::generate(),
         thread: ThreadId::generate(),
-        account: ACCOUNT,
+        account: acct_account(),
         key: MessageKey::Rfc(key.clone()),
         date: at(i64::from(n)),
         from: Address {
@@ -128,7 +136,7 @@ fn arriving(n: u32, sender: &str, mailbox: MailboxRole, raw: BlobId) -> Fetched 
 fn ingest(messages: Vec<Fetched>) -> Ingest {
     Ingest {
         mailbox: MailboxRef {
-            account: ACCOUNT,
+            account: acct_account(),
             path: "INBOX".to_owned(),
         },
         validity: UidValidity::Same,
@@ -155,7 +163,7 @@ fn arrived(patch: &Patch) -> Vec<MessageId> {
 
 fn outbox<S: Store>(store: &S) -> Vec<ProtoOp> {
     store
-        .outbox_due(ACCOUNT, at(1_000_000))
+        .outbox_due(acct_account(), at(1_000_000))
         .unwrap()
         .into_iter()
         .map(|e| e.op)
@@ -172,7 +180,7 @@ type State = (MailboxRole, ReadState, Star, Vec<String>);
 /// The state a rule leaves a message in, with labels by name so two stores' ids need not agree.
 fn state<S: Store>(store: &S, id: MessageId) -> State {
     let m = store.message(id).unwrap();
-    let labels = store.labels(ACCOUNT).unwrap();
+    let labels = store.labels(acct_account()).unwrap();
     let mut named: Vec<String> = m
         .labels
         .iter()
@@ -195,7 +203,7 @@ fn rules_are_kept_in_order_with_one_name_each_per_account() {
             store.put_rule(r).unwrap();
         }
         let listed: Vec<String> = store
-            .rules(ACCOUNT)
+            .rules(acct_account())
             .unwrap()
             .into_iter()
             .map(|r| r.name)
@@ -213,22 +221,25 @@ fn rules_are_kept_in_order_with_one_name_each_per_account() {
             ..a.clone()
         };
         store.put_rule(&edited).unwrap();
-        assert_eq!(store.rules(ACCOUNT).unwrap()[1].state, RuleState::Disabled);
+        assert_eq!(
+            store.rules(acct_account()).unwrap()[1].state,
+            RuleState::Disabled
+        );
         // Another account may use the name.
         store
             .put_rule(&Rule {
-                account: OTHER,
+                account: acct_other(),
                 ..clash
             })
             .unwrap();
-        assert_eq!(store.rules(OTHER).unwrap().len(), 1);
+        assert_eq!(store.rules(acct_other()).unwrap().len(), 1);
 
         store.delete_rule(b.id).unwrap();
         assert!(matches!(
             store.delete_rule(b.id),
             Err(StoreError::NoRule(_))
         ));
-        assert_eq!(store.rules(ACCOUNT).unwrap().len(), 2);
+        assert_eq!(store.rules(acct_account()).unwrap().len(), 2);
     }
 }
 
@@ -238,9 +249,9 @@ fn a_vacation_reply_is_kept_replaced_and_cleared() {
     let memory = MemoryStore::new();
     let stores: [&dyn Store; 2] = [&sqlite, &memory];
     for store in stores {
-        assert_eq!(store.vacation(ACCOUNT).unwrap(), None);
+        assert_eq!(store.vacation(acct_account()).unwrap(), None);
         let away = Vacation {
-            account: ACCOUNT,
+            account: acct_account(),
             subject: "Away".to_owned(),
             body: "Back on Monday.".to_owned(),
             days: Vacation::DEFAULT_DAYS,
@@ -251,14 +262,18 @@ fn a_vacation_reply_is_kept_replaced_and_cleared() {
                 to: Some(at(86_400)),
             },
         };
-        store.put_vacation(ACCOUNT, Some(&away), at(0)).unwrap();
-        assert_eq!(store.vacation(ACCOUNT).unwrap(), Some(away.clone()));
+        store
+            .put_vacation(acct_account(), Some(&away), at(0))
+            .unwrap();
+        assert_eq!(store.vacation(acct_account()).unwrap(), Some(away.clone()));
         let longer = Vacation { days: 14, ..away };
-        store.put_vacation(ACCOUNT, Some(&longer), at(1)).unwrap();
-        assert_eq!(store.vacation(ACCOUNT).unwrap(), Some(longer));
-        assert_eq!(store.vacation(OTHER).unwrap(), None);
-        store.put_vacation(ACCOUNT, None, at(2)).unwrap();
-        assert_eq!(store.vacation(ACCOUNT).unwrap(), None);
+        store
+            .put_vacation(acct_account(), Some(&longer), at(1))
+            .unwrap();
+        assert_eq!(store.vacation(acct_account()).unwrap(), Some(longer));
+        assert_eq!(store.vacation(acct_other()).unwrap(), None);
+        store.put_vacation(acct_account(), None, at(2)).unwrap();
+        assert_eq!(store.vacation(acct_account()).unwrap(), None);
     }
 }
 
@@ -294,17 +309,20 @@ fn arrival<S: Store>(store: &S, raw: BlobId) -> Seen {
     let friend = arriving(2, "ada@example.test", MailboxRole::Inbox, raw);
     let (bank_id, friend_id) = (bank.message.id, friend.message.id);
     let patch = store
-        .ingest(ACCOUNT, ingest(vec![bank.clone(), friend.clone()]))
+        .ingest(acct_account(), ingest(vec![bank.clone(), friend.clone()]))
         .unwrap();
     let new = arrived(&patch);
     assert_eq!(new.len(), 2, "both are new");
 
-    let ran = rules::at_arrival(store, ACCOUNT, &gmail(), &new, at(10)).unwrap();
+    let ran = rules::at_arrival(store, acct_account(), &gmail(), &new, at(10)).unwrap();
     let ops = outbox(store);
 
     // The same messages again: stored already, so they did not arrive.
-    let patch = store.ingest(ACCOUNT, ingest(vec![bank, friend])).unwrap();
-    let again = rules::at_arrival(store, ACCOUNT, &gmail(), &arrived(&patch), at(20)).unwrap();
+    let patch = store
+        .ingest(acct_account(), ingest(vec![bank, friend]))
+        .unwrap();
+    let again =
+        rules::at_arrival(store, acct_account(), &gmail(), &arrived(&patch), at(20)).unwrap();
 
     Seen {
         first: names(&ran),
@@ -386,7 +404,7 @@ fn backlog<S: Store>(store: &S, raw: BlobId) -> (Vec<Vec<String>>, Vec<usize>, R
         // Sent by the user: a rule is about mail received.
         .chain([arriving(5, "news@lists.example", MailboxRole::Sent, raw)])
         .collect();
-    store.ingest(ACCOUNT, ingest(old)).unwrap();
+    store.ingest(acct_account(), ingest(old)).unwrap();
 
     let news = rule(
         1,
@@ -397,9 +415,9 @@ fn backlog<S: Store>(store: &S, raw: BlobId) -> (Vec<Vec<String>>, Vec<usize>, R
     store.put_rule(&news).unwrap();
 
     let fresh = arriving(6, "news@lists.example", MailboxRole::Inbox, raw);
-    let patch = store.ingest(ACCOUNT, ingest(vec![fresh])).unwrap();
+    let patch = store.ingest(acct_account(), ingest(vec![fresh])).unwrap();
     let at_arrival =
-        rules::at_arrival(store, ACCOUNT, &folders(), &arrived(&patch), at(10)).unwrap();
+        rules::at_arrival(store, acct_account(), &folders(), &arrived(&patch), at(10)).unwrap();
 
     let mut batches = Vec::new();
     let ran = rules::run_now(store, &folders(), &news, 2, at(20), &mut |batch| {
@@ -461,8 +479,9 @@ fn chain<S: Store>(store: &S, raw: BlobId) -> (Vec<Vec<String>>, State) {
     }
     let m = arriving(1, "ada@example.test", MailboxRole::Inbox, raw);
     let id = m.message.id;
-    let patch = store.ingest(ACCOUNT, ingest(vec![m])).unwrap();
-    let ran = rules::at_arrival(store, ACCOUNT, &folders(), &arrived(&patch), at(10)).unwrap();
+    let patch = store.ingest(acct_account(), ingest(vec![m])).unwrap();
+    let ran =
+        rules::at_arrival(store, acct_account(), &folders(), &arrived(&patch), at(10)).unwrap();
     (names(&ran), state(store, id))
 }
 
@@ -500,8 +519,8 @@ fn filing_on_a_server_with_folders_queues_one_move_into_the_folder() {
         .unwrap();
     let m = arriving(3, "ada@example.test", MailboxRole::Inbox, raw);
     let id = m.message.id;
-    let patch = store.ingest(ACCOUNT, ingest(vec![m])).unwrap();
-    rules::at_arrival(&store, ACCOUNT, &folders(), &arrived(&patch), at(10)).unwrap();
+    let patch = store.ingest(acct_account(), ingest(vec![m])).unwrap();
+    rules::at_arrival(&store, acct_account(), &folders(), &arrived(&patch), at(10)).unwrap();
     assert_eq!(
         outbox(&store),
         vec![ProtoOp::File {
@@ -523,7 +542,7 @@ fn filing_on_a_server_with_folders_queues_one_move_into_the_folder() {
         )
     );
     let label = store
-        .labels(ACCOUNT)
+        .labels(acct_account())
         .unwrap()
         .into_iter()
         .find(|l| l.name == "Projects/2026")
@@ -534,7 +553,7 @@ fn filing_on_a_server_with_folders_queues_one_move_into_the_folder() {
 /// A rule may name a server folder: the message's own addresses answer it, on both stores.
 fn by_folder<S: Store>(store: &S, raw: BlobId) -> Vec<Vec<String>> {
     let at = |path: &str| MailboxRef {
-        account: ACCOUNT,
+        account: acct_account(),
         path: path.to_owned(),
     };
     store
@@ -554,8 +573,15 @@ fn by_folder<S: Store>(store: &S, raw: BlobId) -> Vec<Vec<String>> {
         ))
         .unwrap();
     let m = arriving(1, "ada@example.test", MailboxRole::Inbox, raw);
-    let patch = store.ingest(ACCOUNT, ingest(vec![m])).unwrap();
-    let ran = rules::at_arrival(store, ACCOUNT, &folders(), &arrived(&patch), at_now()).unwrap();
+    let patch = store.ingest(acct_account(), ingest(vec![m])).unwrap();
+    let ran = rules::at_arrival(
+        store,
+        acct_account(),
+        &folders(),
+        &arrived(&patch),
+        at_now(),
+    )
+    .unwrap();
     names(&ran)
 }
 
@@ -612,7 +638,7 @@ fn set_mute<S: Store>(store: &S, thread: ThreadId, mute: Mute) -> Patch {
         at(5),
     );
     assert_eq!(applied.remote, None, "mute is this client's own state");
-    store.apply(ACCOUNT, &applied.forward).unwrap();
+    store.apply(acct_account(), &applied.forward).unwrap();
     applied.inverse
 }
 
@@ -631,7 +657,7 @@ fn muting<S: Store>(store: &S, raw: BlobId) -> Muting {
     let first = arriving(1, "ada@example.test", MailboxRole::Inbox, raw);
     let other = arriving(2, "bob@example.test", MailboxRole::Inbox, raw);
     store
-        .ingest(ACCOUNT, ingest(vec![first.clone(), other.clone()]))
+        .ingest(acct_account(), ingest(vec![first.clone(), other.clone()]))
         .unwrap();
     let thread = first.message.thread;
     let undo = set_mute(store, thread, Mute::Muted);
@@ -640,7 +666,7 @@ fn muting<S: Store>(store: &S, raw: BlobId) -> Muting {
     let listed = store
         .threads(
             &Query {
-                filter: Filter::Account(ACCOUNT),
+                filter: Filter::Account(acct_account()),
                 sort: Sort {
                     property: Property::Date,
                     dir: SortDir::Desc,
@@ -663,18 +689,20 @@ fn muting<S: Store>(store: &S, raw: BlobId) -> Muting {
     let junk = reply_in(&first, 5, "news@junk.example", raw);
     let patch = store
         .ingest(
-            ACCOUNT,
+            acct_account(),
             ingest(vec![reply.clone(), elsewhere.clone(), junk.clone()]),
         )
         .unwrap();
-    let ran = rules::at_arrival(store, ACCOUNT, &gmail(), &arrived(&patch), at(10)).unwrap();
+    let ran = rules::at_arrival(store, acct_account(), &gmail(), &arrived(&patch), at(10)).unwrap();
     let ops = outbox(store);
 
-    store.apply(ACCOUNT, &undo).unwrap();
+    store.apply(acct_account(), &undo).unwrap();
     let unmuted = store.thread(thread).unwrap().summary.mute;
     let late = reply_in(&first, 6, "ada@example.test", raw);
-    let patch = store.ingest(ACCOUNT, ingest(vec![late.clone()])).unwrap();
-    rules::at_arrival(store, ACCOUNT, &gmail(), &arrived(&patch), at(20)).unwrap();
+    let patch = store
+        .ingest(acct_account(), ingest(vec![late.clone()]))
+        .unwrap();
+    rules::at_arrival(store, acct_account(), &gmail(), &arrived(&patch), at(20)).unwrap();
 
     Muting {
         muted,

@@ -31,7 +31,7 @@ fn lines(store: &SqliteStore) -> Vec<Line> {
         .filter(|row| !matches!(row.plan.incoming, Incoming::Local))
         .map(|row| Line {
             said: store
-                .offline(row.id)
+                .offline(row.id.clone())
                 .map(|counted| offline::said(&counted))
                 .map_err(|e| e.to_string()),
             row,
@@ -72,12 +72,12 @@ pub(super) fn OfflineCopy() -> Element {
                         let id = line.row.id;
                         move |keep: Keep| {
                             let saved = match &dirs {
-                                Some(dirs) => offline::save(&dirs.config, id, keep),
+                                Some(dirs) => offline::save(&dirs.config, id.clone(), keep),
                                 None => Err("There is no config directory to keep this in.".to_owned()),
                             };
                             match saved {
                                 Ok(()) => {
-                                    let now = kept.peek().clone().with(id, keep);
+                                    let now = kept.peek().clone().with(id.clone(), keep);
                                     kept.set(now);
                                     failed.set(None);
                                 }

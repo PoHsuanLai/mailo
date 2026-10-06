@@ -16,7 +16,8 @@ pub use session::{
     SieveSession, Takeover,
 };
 
-use mail_domain::{AccountPlan, AuthPlan, Incoming, OAuthIssuer, Tls};
+use mail_domain::{AccountPlan, AuthPlan, Incoming, Tls};
+use porter_provider::Issuer;
 
 /// Where an account's ManageSieve server is expected.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -34,7 +35,7 @@ pub enum NoSieve {
     /// Its provider runs its own filters and offers no ManageSieve: Google and Microsoft. Their
     /// own filter and vacation settings are reached through their own APIs, which this client
     /// does not use; rules on these accounts run here.
-    Provider(OAuthIssuer),
+    Provider(Issuer),
 }
 
 impl std::fmt::Display for NoSieve {
@@ -66,7 +67,7 @@ pub fn endpoint(plan: &AccountPlan) -> Result<Endpoint, NoSieve> {
     let host = match &plan.incoming {
         Incoming::Imap { host, .. } | Incoming::Pop3 { host, .. } => host.clone(),
         Incoming::Local => return Err(NoSieve::Local),
-        Incoming::Graph => return Err(NoSieve::Provider(OAuthIssuer::Microsoft)),
+        Incoming::Graph => return Err(NoSieve::Provider(Issuer::Microsoft)),
         // The host the session is served from, as for IMAP: JMAP servers that keep Sieve
         // scripts commonly offer ManageSieve beside it, and one that does not refuses the
         // connection, which says so.
@@ -100,13 +101,13 @@ fn url_host(url: &str) -> Option<String> {
 
 /// The provider a mail host belongs to, compared by whole domain labels so that a host merely
 /// ending in the same letters is not taken for it.
-fn provider_of(host: &str) -> Option<OAuthIssuer> {
+fn provider_of(host: &str) -> Option<Issuer> {
     let host = host.trim_end_matches('.').to_ascii_lowercase();
     let under = |domain: &str| host == domain || host.ends_with(&format!(".{domain}"));
     if under("gmail.com") || under("googlemail.com") {
-        Some(OAuthIssuer::Google)
+        Some(Issuer::Google)
     } else if under("office365.com") || under("outlook.com") {
-        Some(OAuthIssuer::Microsoft)
+        Some(Issuer::Microsoft)
     } else {
         None
     }

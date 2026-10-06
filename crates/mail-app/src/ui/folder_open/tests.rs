@@ -4,10 +4,16 @@
 use super::title_address;
 use crate::ui::view::{Shell, folder_of, places_with};
 use chrono::{DateTime, TimeZone, Utc};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
+use porter_core::AccountId;
 
-const ONE: AccountId = AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000c1"));
-const TWO: AccountId = AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000c2"));
+fn acct_one() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000c1"))
+}
+fn acct_two() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000c2"))
+}
 
 fn at(seconds: i64) -> DateTime<Utc> {
     Utc.timestamp_opt(1_750_000_000 + seconds, 0).unwrap()
@@ -66,12 +72,15 @@ fn a_folder_place_lists_its_account_and_exactly_its_path() {
     // The filter is asked of the shell, as the list asks for it, not rebuilt here.
     const PATHS: &[&str] = &["Projects/2026", "收據", "旅行/京都", "Old news"];
     for path in PATHS {
-        let here = mailbox(ONE, path);
+        let here = mailbox(acct_one(), path);
         let shell = in_folder(&[((*path).to_owned(), here.clone())]);
         let filter = shell.query(10).filter;
         assert_eq!(
             filter,
-            Filter::And(vec![Filter::Account(ONE), Filter::InFolder(here.clone())]),
+            Filter::And(vec![
+                Filter::Account(acct_one()),
+                Filter::InFolder(here.clone())
+            ]),
             "{path}"
         );
         let fits = |account: AccountId, folders: &[MailboxRef]| {
@@ -89,24 +98,24 @@ fn a_folder_place_lists_its_account_and_exactly_its_path() {
                 now: at(0),
             })
         };
-        assert!(fits(ONE, std::slice::from_ref(&here)), "{path}");
+        assert!(fits(acct_one(), std::slice::from_ref(&here)), "{path}");
         // A parent, a near spelling and the same path on another account are other folders.
         for other in [
-            mailbox(ONE, "Projects"),
-            mailbox(ONE, &format!("{path} ")),
-            mailbox(ONE, &path.to_lowercase()),
+            mailbox(acct_one(), "Projects"),
+            mailbox(acct_one(), &format!("{path} ")),
+            mailbox(acct_one(), &path.to_lowercase()),
         ]
         .into_iter()
         .filter(|other| other.path != *path)
         {
             assert!(
-                !fits(ONE, std::slice::from_ref(&other)),
+                !fits(acct_one(), std::slice::from_ref(&other)),
                 "{path} took {}",
                 other.path
             );
         }
         assert!(
-            !fits(TWO, &[mailbox(TWO, path)]),
+            !fits(acct_two(), &[mailbox(acct_two(), path)]),
             "{path} took another account's folder of the same name"
         );
     }
@@ -117,7 +126,7 @@ fn folder_places_come_after_the_labels_so_the_badges_line_up() {
     let label = LabelId::from_uuid(uuid::Uuid::from_u128(9));
     let places = places_with(
         &[("travel".to_owned(), label)],
-        &[("2026".to_owned(), mailbox(ONE, "Projects/2026"))],
+        &[("2026".to_owned(), mailbox(acct_one(), "Projects/2026"))],
         &[],
     );
     let defaults = crate::ui::view::default_places().len();
@@ -126,7 +135,7 @@ fn folder_places_come_after_the_labels_so_the_badges_line_up() {
     assert_eq!(places[defaults + 1].name, "2026");
     assert_eq!(
         folder_of(&places[defaults + 1]),
-        Some(&mailbox(ONE, "Projects/2026"))
+        Some(&mailbox(acct_one(), "Projects/2026"))
     );
     assert!(places[..=defaults].iter().all(|p| folder_of(p).is_none()));
 }
@@ -134,22 +143,22 @@ fn folder_places_come_after_the_labels_so_the_badges_line_up() {
 #[test]
 fn the_title_names_the_account_only_when_several_are_in_view() {
     let accounts = vec![
-        (ONE, "me@one.example".to_owned()),
-        (TWO, "me@two.example".to_owned()),
+        (acct_one(), "me@one.example".to_owned()),
+        (acct_two(), "me@two.example".to_owned()),
     ];
-    let shell = in_folder(&[("收據".to_owned(), mailbox(TWO, "收據"))]);
+    let shell = in_folder(&[("收據".to_owned(), mailbox(acct_two(), "收據"))]);
     assert_eq!(
         title_address(&shell, &accounts).as_deref(),
         Some("me@two.example")
     );
     assert_eq!(title_address(&shell, &accounts[1..]), None, "only one");
     let single = Shell {
-        scope: crate::ui::space::Scope::Accounts(vec![TWO]),
+        scope: crate::ui::space::Scope::Accounts(vec![acct_two()]),
         ..shell.clone()
     };
     assert_eq!(title_address(&single, &accounts), None, "a Space of one");
     let pair = Shell {
-        scope: crate::ui::space::Scope::Accounts(vec![ONE, TWO]),
+        scope: crate::ui::space::Scope::Accounts(vec![acct_one(), acct_two()]),
         ..shell.clone()
     };
     assert_eq!(
@@ -157,7 +166,7 @@ fn the_title_names_the_account_only_when_several_are_in_view() {
         Some("me@two.example")
     );
     let tile = Shell {
-        account: Some(TWO),
+        account: Some(acct_two()),
         ..shell.clone()
     };
     assert_eq!(

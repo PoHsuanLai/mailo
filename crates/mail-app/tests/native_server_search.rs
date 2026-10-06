@@ -20,15 +20,18 @@ mod drive;
 use drive::Drive;
 use ds_blitz::{NetPolicy, PrintOutcome};
 use mail_app::ui::native::ServerSearcher;
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_runtime::{Arrival, Searched, ServerHits, absorb};
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 
 const VIEW: Viewport = Viewport {
     width: 1200,
@@ -74,7 +77,10 @@ fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', ?2, datetime('now'))",
-            [ACCOUNT.to_string(), serde_json::to_string(&plan()).unwrap()],
+            [
+                acct_account().to_string(),
+                serde_json::to_string(&plan()).unwrap(),
+            ],
         )
         .unwrap();
     let now = chrono::Utc::now();
@@ -85,7 +91,7 @@ fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
     );
     absorb(
         &store,
-        ACCOUNT,
+        acct_account(),
         inbox(),
         None,
         vec![Arrival {
@@ -105,7 +111,7 @@ fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
 
 fn inbox() -> MailboxRef {
     MailboxRef {
-        account: ACCOUNT,
+        account: acct_account(),
         path: "INBOX".to_owned(),
     }
 }
@@ -127,9 +133,9 @@ fn server(asked: Arc<Mutex<Vec<String>>>, calls: Arc<AtomicUsize>) -> ServerSear
         };
         let patch = absorb(
             &store,
-            account,
+            account.clone(),
             MailboxRef {
-                account,
+                account: account.clone(),
                 path: "[Gmail]/All Mail".to_owned(),
             },
             None,
@@ -150,7 +156,7 @@ fn server(asked: Arc<Mutex<Vec<String>>>, calls: Arc<AtomicUsize>) -> ServerSear
             })
             .collect();
         store
-            .mark_found(account, &new, now)
+            .mark_found(account.clone(), &new, now)
             .map_err(|e| e.to_string())?;
         let messages = store
             .held_at(account, &[remote])

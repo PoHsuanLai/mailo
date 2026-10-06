@@ -120,7 +120,7 @@ fn kind_of(name: &str) -> String {
 #[component]
 fn FromRow(page: Signal<Page>, shell: Signal<Shell>) -> Element {
     let store = consume_context::<Arc<SqliteStore>>();
-    let from = page.read().from;
+    let from = page.read().from.clone();
     let open = page.read().float == Float::From;
     let rows = account_rows(&store);
     let marks = shell.read().appearance.marks;

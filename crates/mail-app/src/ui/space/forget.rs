@@ -6,7 +6,7 @@
 //! everyone else's mail. The other accounts' colours stay as they were stored.
 
 use super::{Scope, Spaces};
-use mail_domain::AccountId;
+use porter_core::AccountId;
 
 /// Whether forgetting an account changed the Spaces, and so whether they need writing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,7 +32,7 @@ pub fn forget_account(spaces: &mut Spaces, account: AccountId) -> Forgot {
         }
     }
     for recall in spaces.recall.values_mut() {
-        if recall.account == Some(account) {
+        if recall.account == Some(account.clone()) {
             recall.account = None;
             forgot = Forgot::Changed;
         }
@@ -46,11 +46,16 @@ pub fn forget_unknown(spaces: &mut Spaces, known: &[AccountId]) -> Forgot {
     let mut named: Vec<AccountId> = Vec::new();
     for space in &spaces.spaces {
         if let Scope::Accounts(ids) = &space.scope {
-            named.extend(ids);
+            named.extend(ids.iter().cloned());
         }
-        named.extend(space.colors.keys());
+        named.extend(space.colors.keys().cloned());
     }
-    named.extend(spaces.recall.values().filter_map(|recall| recall.account));
+    named.extend(
+        spaces
+            .recall
+            .values()
+            .filter_map(|recall| recall.account.clone()),
+    );
     named.sort();
     named.dedup();
     named
@@ -68,12 +73,12 @@ pub fn forget_unknown(spaces: &mut Spaces, known: &[AccountId]) -> Forgot {
 mod tests {
     use super::{Forgot, forget_account, forget_unknown};
     use crate::ui::space::{Recall, Scope, Space, Spaces};
-    use mail_domain::AccountId;
+    use porter_core::AccountId;
     use std::collections::BTreeMap;
     use uuid::Uuid;
 
     fn account(n: u128) -> AccountId {
-        AccountId::from_uuid(Uuid::from_u128(n))
+        mail_domain::id::account_id_from_uuid(Uuid::from_u128(n))
     }
 
     fn scoped(ids: &[u128], colors: &[u128]) -> Space {

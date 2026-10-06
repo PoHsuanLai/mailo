@@ -39,13 +39,13 @@ pub use client::{Auth, Client, find_session, safe_url};
 use crate::{RuntimeError, Secrets, SyncReport};
 use chrono::{DateTime, Utc};
 use mail_domain::{
-    AccountCaps, AccountId, AccountPlan, ArchiveMeans, Condstore, ConnectionBudget, Credential,
-    ExpungeMeans, HttpAuth, Incoming, JMAP_ALL, MailboxRef, MailboxRole, MoveExt, RemoteRef, Retry,
-    Retryable, SecretKey, SecretPurpose, ServerLabels, ServerThreads, Supported, SyncCursor,
-    WatchMode,
+    AccountCaps, AccountPlan, ArchiveMeans, Condstore, ConnectionBudget, ExpungeMeans, HttpAuth,
+    Incoming, JMAP_ALL, MailboxRef, MailboxRole, MoveExt, RemoteRef, Retry, Retryable,
+    ServerLabels, ServerThreads, Supported, SyncCursor, WatchMode,
 };
 use mail_proto::jmap::{Identity, Mailboxes};
 use mail_store::{SqliteStore, Store};
+use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -112,7 +112,7 @@ impl JmapEngine {
     /// The one mailbox every address of this account is held under.
     pub fn mailbox(&self) -> MailboxRef {
         MailboxRef {
-            account: self.account,
+            account: self.account.clone(),
             path: JMAP_ALL.to_owned(),
         }
     }
@@ -129,16 +129,24 @@ impl JmapEngine {
     fn auth(&self) -> Result<Auth, RuntimeError> {
         let (_, how) = self.session_url()?;
         let credential = self.secrets.get(&SecretKey {
-            account: self.account,
+            account: self.account.clone(),
             purpose: SecretPurpose::IncomingPassword,
         })?;
         Ok(match (credential, how) {
             (Credential::Password(password), HttpAuth::Basic) => Auth::Basic {
                 username: self.plan.username(),
-                password,
+                password: password.expose().to_owned(),
             },
-            (Credential::Password(token), HttpAuth::Bearer) => Auth::Bearer(token),
-            (Credential::OAuth { access, .. }, _) => Auth::Bearer(access),
+            (Credential::Password(token), HttpAuth::Bearer) => {
+                Auth::Bearer(token.expose().to_owned())
+            }
+            (Credential::OAuth { access, .. }, _) => Auth::Bearer(access.expose().to_owned()),
+            // Not a sign-in: an API key or key pair is never kept under this purpose.
+            (Credential::ApiKey(_) | Credential::KeyPair { .. }, _) => {
+                return Err(RuntimeError::Secrets(
+                    "the credential kept for this account is not a password or token".to_owned(),
+                ));
+            }
         })
     }
 

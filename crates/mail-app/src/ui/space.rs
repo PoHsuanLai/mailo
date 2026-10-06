@@ -11,7 +11,8 @@ use ds::style::space::palette::{Dot, NEUTRAL_DOT};
 use ds::style::space::presets::default_look;
 use ds::style::tokens::person::PersonSwatch;
 use mail_core::config::write_json;
-use mail_domain::{AccountId, Filter};
+use mail_domain::Filter;
+use porter_core::AccountId;
 use serde::de::Deserializer;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -67,8 +68,8 @@ impl Scope {
             Scope::All => None,
             Scope::Accounts(ids) => Some(match ids.as_slice() {
                 [] => Filter::Nothing,
-                [one] => Filter::Account(*one),
-                many => Filter::Or(many.iter().copied().map(Filter::Account).collect()),
+                [one] => Filter::Account(one.clone()),
+                many => Filter::Or(many.iter().cloned().map(Filter::Account).collect()),
             }),
         }
     }
@@ -134,7 +135,7 @@ pub fn ensure_colors(space: &mut Space, accounts: &[AccountId]) -> bool {
         if space.colors.contains_key(id) {
             continue;
         }
-        space.colors.insert(*id, swatch(index));
+        space.colors.insert(id.clone(), swatch(index));
         changed = true;
     }
     changed
@@ -422,7 +423,7 @@ pub fn first_run(accounts: &[AccountId]) -> Spaces {
         .map(|(index, id)| Space {
             name: format!("Space {}", index + 1),
             look: preset_look(index),
-            scope: Scope::Accounts(vec![*id]),
+            scope: Scope::Accounts(vec![id.clone()]),
             ..Space::default()
         })
         .collect();

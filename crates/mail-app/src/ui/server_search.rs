@@ -17,9 +17,10 @@ use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
 use ds::prelude::*;
 use ds::style::tokens::control_size::ControlSize;
-use mail_domain::{AccountId, ThreadId};
+use mail_domain::ThreadId;
 use mail_runtime::Searched;
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 use std::sync::Arc;
 
 /// Search one account's server for a typed line: the signature of [`mail_core::server_search::search`].
@@ -148,7 +149,7 @@ pub(super) fn start(
     account: AccountId,
 ) {
     if matches!(
-        answer_for(&asked.peek(), &input, account),
+        answer_for(&asked.peek(), &input, account.clone()),
         Some(Answer::Running)
     ) {
         return;
@@ -158,17 +159,18 @@ pub(super) fn start(
         write.retain(|a| !(a.input == input && a.account == account));
         write.push(Asked {
             input: input.clone(),
-            account,
+            account: account.clone(),
             answer: Answer::Running,
         });
     }
     let search = try_consume_context::<ServerSearcher>().unwrap_or_else(ServerSearcher::server);
     let store = consume_context::<Arc<SqliteStore>>();
+    let searched_for = account.clone();
     spawn(async move {
         let line = input.clone();
         // `spawn_blocking`: the search opens a socket on a runtime of its own.
         let done = tokio::task::spawn_blocking(move || {
-            let searched = (search.0)(store.clone(), account, &line, Utc::now());
+            let searched = (search.0)(store.clone(), searched_for, &line, Utc::now());
             searched.map(|searched| match searched {
                 Searched::Unsaid(unsaid) => Answer::Unsaid(unsaid.to_string()),
                 Searched::Found(hits) => {
@@ -229,8 +231,8 @@ pub(super) fn ServerSearch(
                 return;
             }
             for (account, _) in &everyone {
-                if answer_for(&asked.peek(), &wanted, *account).is_none() {
-                    start(asked, revision, wanted.clone(), *account);
+                if answer_for(&asked.peek(), &wanted, account.clone()).is_none() {
+                    start(asked, revision, wanted.clone(), account.clone());
                 }
             }
         },
@@ -239,7 +241,7 @@ pub(super) fn ServerSearch(
         div { class: "server-search",
             for (account, address) in accounts {
                 {
-                    let answer = answer_for(&asked.read(), &input, account).cloned();
+                    let answer = answer_for(&asked.read(), &input, account.clone()).cloned();
                     let line = input.clone();
                     let bad = matches!(answer, Some(Answer::Failed(_)));
                     let ask = !matches!(answer, Some(Answer::Running));
@@ -257,7 +259,7 @@ pub(super) fn ServerSearch(
                                         format!("Search {address} on the server")
                                     },
                                     icon: Icon::Search,
-                                    onclick: on_primary(move || start(asked, revision, line.clone(), account)),
+                                    onclick: on_primary(move || start(asked, revision, line.clone(), account.clone())),
                                 }
                             }
                         }
@@ -271,13 +273,15 @@ pub(super) fn ServerSearch(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mail_domain::id::account_id_from_uuid;
 
     fn id(n: u128) -> ThreadId {
         ThreadId::from_uuid(uuid::Uuid::from_u128(n))
     }
 
-    const ACCOUNT: AccountId =
-        AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+    fn acct_account() -> AccountId {
+        account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+    }
 
     #[test]
     fn what_each_answer_says() {
@@ -315,7 +319,7 @@ mod tests {
         let asked = vec![
             Asked {
                 input: "lunch".to_owned(),
-                account: ACCOUNT,
+                account: acct_account(),
                 answer: Answer::Found {
                     threads: vec![id(1), id(2), id(3)],
                     fetched: 2,
@@ -324,7 +328,7 @@ mod tests {
             },
             Asked {
                 input: "budget".to_owned(),
-                account: ACCOUNT,
+                account: acct_account(),
                 answer: Answer::Found {
                     threads: vec![id(9)],
                     fetched: 1,

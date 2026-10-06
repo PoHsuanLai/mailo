@@ -8,7 +8,9 @@ use mail_store::Store;
 
 use super::super::CommandMenu;
 use super::*;
-use crate::ui::fixtures::{ACCOUNT, chord, click, dispatching, drain_seen, rebuild_into, seeded};
+use crate::ui::fixtures::{
+    acct_account, chord, click, dispatching, drain_seen, rebuild_into, seeded,
+};
 
 thread_local! {
     static SHELL: Cell<Option<Signal<Shell>>> = const { Cell::new(None) };
@@ -38,8 +40,9 @@ fn Open(typed: String) -> Element {
 }
 
 fn kept(store: &SqliteStore, name: &str, subject: &str, body: &str) -> mail_domain::Template {
-    let draft = mail_core::compose::draft_new(store, ACCOUNT, &[], subject, body, Utc::now())
-        .unwrap_or_else(|why| panic!("a draft: {why}"));
+    let draft =
+        mail_core::compose::draft_new(store, acct_account(), &[], subject, body, Utc::now())
+            .unwrap_or_else(|why| panic!("a draft: {why}"));
     mail_core::template::save(store, draft.id, name, Utc::now())
         .unwrap_or_else(|why| panic!("a template: {why}"))
 }
@@ -79,10 +82,16 @@ async fn new_from_template_lists_starts_and_deletes() {
     assert!(markup.contains("Here is what moved this week."), "{markup}");
     let field = listed.one("aria-placeholder", "New from template · type to narrow");
 
-    let drafts_before = store.drafts(ACCOUNT).map(|all| all.len()).unwrap_or(0);
+    let drafts_before = store
+        .drafts(acct_account())
+        .map(|all| all.len())
+        .unwrap_or(0);
     chord(&mut dom, "Enter", Default::default(), field);
     assert_eq!(
-        store.drafts(ACCOUNT).map(|all| all.len()).unwrap_or(0),
+        store
+            .drafts(acct_account())
+            .map(|all| all.len())
+            .unwrap_or(0),
         drafts_before + 1,
         "no draft was started"
     );
@@ -135,7 +144,7 @@ async fn render_new_from_template_to_a_file() {
     let built = crate::ui::fixtures::work();
     let account = mail_core::compose::sending_accounts(&built.store)
         .first()
-        .map(|(_, id)| *id)
+        .map(|(_, id)| id.clone())
         .unwrap_or_else(|| panic!("the Work Space has an account"));
     built
         .store
@@ -166,9 +175,15 @@ async fn render_new_from_template_to_a_file() {
             "I am away until Monday and will reply then.",
         ),
     ] {
-        let draft =
-            mail_core::compose::draft_new(&built.store, account, &[], subject, body, Utc::now())
-                .unwrap_or_else(|why| panic!("{why}"));
+        let draft = mail_core::compose::draft_new(
+            &built.store,
+            account.clone(),
+            &[],
+            subject,
+            body,
+            Utc::now(),
+        )
+        .unwrap_or_else(|why| panic!("{why}"));
         mail_core::template::save(&built.store, draft.id, name, Utc::now())
             .unwrap_or_else(|why| panic!("{why}"));
     }

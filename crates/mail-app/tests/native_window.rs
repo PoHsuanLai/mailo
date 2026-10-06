@@ -24,14 +24,17 @@ use settle::settle_until;
 mod drive;
 use drive::Drive;
 use mail_app::ui::native::{Ask, MessageOpen, OpenWindow, Revisions, Windows};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_runtime::{Arrival, absorb};
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 
 const VIEW: Viewport = Viewport {
     width: 1200,
@@ -82,13 +85,16 @@ fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
         db.execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [ACCOUNT.to_string()],
+            [acct_account().to_string()],
         )
         .unwrap();
         db.execute(
             "INSERT INTO identities (id, account, from_name, from_email, is_default)
              VALUES (?1, ?2, NULL, 'me@example.test', '\"default\"')",
-            [IdentityId::generate().to_string(), ACCOUNT.to_string()],
+            [
+                IdentityId::generate().to_string(),
+                acct_account().to_string(),
+            ],
         )
         .unwrap();
         let caps = AccountCaps {
@@ -108,7 +114,10 @@ fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
         db.execute(
             "INSERT INTO account_caps (account, caps, observed_at)
              VALUES (?1, ?2, datetime('now'))",
-            rusqlite::params![ACCOUNT.to_string(), serde_json::to_string(&caps).unwrap()],
+            rusqlite::params![
+                acct_account().to_string(),
+                serde_json::to_string(&caps).unwrap()
+            ],
         )
         .unwrap();
     }
@@ -121,9 +130,9 @@ fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
         );
         absorb(
             &store,
-            ACCOUNT,
+            acct_account(),
             MailboxRef {
-                account: ACCOUNT,
+                account: acct_account(),
                 path: "INBOX".to_owned(),
             },
             Some(SyncCursor::Pop),
@@ -144,7 +153,7 @@ fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
 /// The conversation whose subject is `subject`, as the store has it.
 fn thread(store: &SqliteStore, subject: &str) -> ThreadSummary {
     let query = Query {
-        filter: Filter::Account(ACCOUNT),
+        filter: Filter::Account(acct_account()),
         sort: Sort {
             property: Property::Date,
             dir: SortDir::Desc,

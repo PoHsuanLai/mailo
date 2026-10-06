@@ -9,14 +9,17 @@ use ds_harness::{Clock, Driver, Harness, HarnessConfig, Query, Viewport};
 
 #[path = "support/settle.rs"]
 mod settle;
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 use settle::settle_until;
 use std::sync::Arc;
 use std::time::Duration;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b7"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b7"))
+}
 
 const VIEW: Viewport = Viewport {
     width: 1200,
@@ -41,7 +44,7 @@ fn bare(dir: &std::path::Path) -> Arc<SqliteStore> {
         db.execute(
             "INSERT INTO accounts (id, address, plan, created_at) VALUES (?1, ?2, ?3, ?4)",
             [
-                ACCOUNT.to_string(),
+                acct_account().to_string(),
                 preset.plan.address.clone(),
                 serde_json::to_string(&preset.plan).unwrap(),
                 chrono::Utc::now().to_rfc3339(),
@@ -51,12 +54,15 @@ fn bare(dir: &std::path::Path) -> Arc<SqliteStore> {
         db.execute(
             "INSERT INTO identities (id, account, from_name, from_email, is_default)
              VALUES (?1, ?2, NULL, 'me@example.test', '\"default\"')",
-            [IdentityId::generate().to_string(), ACCOUNT.to_string()],
+            [
+                IdentityId::generate().to_string(),
+                acct_account().to_string(),
+            ],
         )
         .unwrap();
     }
     store
-        .put_caps(ACCOUNT, &preset.expected_caps, chrono::Utc::now())
+        .put_caps(acct_account(), &preset.expected_caps, chrono::Utc::now())
         .unwrap();
     Arc::new(store)
 }

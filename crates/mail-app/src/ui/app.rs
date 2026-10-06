@@ -227,7 +227,11 @@ pub(super) fn App() -> Element {
         let scope = spaces.read().current_space().scope;
         if shell.peek().scope != scope {
             let mut write = shell.write();
-            if write.account.is_some_and(|id| !scope.shows(id)) {
+            if write
+                .account
+                .as_ref()
+                .is_some_and(|id| !scope.shows(id.clone()))
+            {
                 write.account = None;
             }
             write.scope = scope;
@@ -256,7 +260,7 @@ pub(super) fn App() -> Element {
             spaces.set(next);
             shell.write().scope = scope;
         }
-        let pressed = shell.peek().account;
+        let pressed = shell.peek().account.clone();
         if pressed.is_some_and(|id| !known.contains(&id)) {
             shell.write().account = None;
         }
@@ -870,7 +874,7 @@ pub(super) fn window_appearance(environment: &Environment) -> ds::prelude::Appea
 mod tests {
     use super::App;
     use crate::ui::fixtures::{
-        ACCOUNT, FakeKey, INSIDE_THE_SHELL, dispatching, empty, inbox_query, markup, press,
+        FakeKey, INSIDE_THE_SHELL, acct_account, dispatching, empty, inbox_query, markup, press,
         realistic, seeded,
     };
     use dioxus::prelude::*;
@@ -1043,12 +1047,12 @@ mod tests {
         let (store, _dir) = realistic();
         let mut dom = VirtualDom::new(App).with_root_context(store.clone());
         dom.rebuild_in_place();
-        let before = store.drafts(ACCOUNT).unwrap().len();
+        let before = store.drafts(acct_account()).unwrap().len();
 
         press(&mut dom, "j", INSIDE_THE_SHELL);
         press(&mut dom, "f", INSIDE_THE_SHELL);
 
-        let drafts = store.drafts(ACCOUNT).unwrap();
+        let drafts = store.drafts(acct_account()).unwrap();
         assert_eq!(drafts.len(), before + 1, "`f` opened nothing");
         let made = drafts
             .iter()
@@ -1076,12 +1080,12 @@ mod tests {
         let (store, _dir) = realistic();
         let mut dom = VirtualDom::new(App).with_root_context(store.clone());
         dom.rebuild_in_place();
-        let before = store.drafts(ACCOUNT).unwrap().len();
+        let before = store.drafts(acct_account()).unwrap().len();
 
         // No `j` first, deliberately: nothing is open and nothing needs to be.
         press(&mut dom, "c", INSIDE_THE_SHELL);
 
-        let drafts = store.drafts(ACCOUNT).unwrap();
+        let drafts = store.drafts(acct_account()).unwrap();
         assert_eq!(drafts.len(), before + 1, "`c` opened nothing");
         let made = drafts
             .iter()
@@ -1143,13 +1147,13 @@ mod tests {
         let mut dom = VirtualDom::new(App).with_root_context(store.clone());
         dom.rebuild_in_place();
 
-        let drafts_before = store.drafts(ACCOUNT).unwrap().len();
+        let drafts_before = store.drafts(acct_account()).unwrap().len();
         press(&mut dom, "j", INSIDE_THE_SHELL);
         press(&mut dom, "r", INSIDE_THE_SHELL);
         // Counted across the keystroke, not merely "more than none": `realistic()` seeds a
         // draft of its own, so `drafts > 0` would have been true whatever `r` did.
         assert_eq!(
-            store.drafts(ACCOUNT).unwrap().len(),
+            store.drafts(acct_account()).unwrap().len(),
             drafts_before + 1,
             "`r` did not open a reply, so the rest of this proves nothing"
         );

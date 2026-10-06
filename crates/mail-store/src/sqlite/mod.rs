@@ -348,10 +348,11 @@ use crate::contact::{AddressBook, Contact, Origin};
 use crate::{OutboxEntry, Settle, Store, Term, sql};
 use chrono::{DateTime, Utc};
 use mail_domain::{
-    AccountCaps, AccountId, Cursor, Draft, DraftId, Filter, Ingest, MailboxRef, Message, MessageId,
-    OutboxId, Page, Patch, Property, Query, RemoteIntent, RemoteRef, SendState, SortDir,
-    SyncCursor, Template, TemplateId, Thread, ThreadId, ThreadSummary,
+    AccountCaps, Cursor, Draft, DraftId, Filter, Ingest, MailboxRef, Message, MessageId, OutboxId,
+    Page, Patch, Property, Query, RemoteIntent, RemoteRef, SendState, SortDir, SyncCursor,
+    Template, TemplateId, Thread, ThreadId, ThreadSummary,
 };
+use porter_core::AccountId;
 
 /// The `thread_summary` column a [`Property`] sorts on.
 ///

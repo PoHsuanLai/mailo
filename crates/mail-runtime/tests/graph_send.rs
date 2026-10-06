@@ -11,6 +11,7 @@
 
 use base64::Engine as _;
 use chrono::{DateTime, TimeZone, Utc};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_mime::posting;
 use mail_proto::backend::{Authenticate, Pop3Backend};
@@ -18,14 +19,18 @@ use mail_proto::{Pop3Command, Pop3Session};
 use mail_runtime::graph::{Limits, send_mime_within};
 use mail_runtime::{AccountEngine, MapSecrets, Secrets};
 use mail_store::{SqliteStore, Store};
+use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
+use porter_core::{SecretText, UnixSeconds};
+use porter_provider::Issuer;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 use tokio::sync::watch;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 const IDENTITY: IdentityId =
     IdentityId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b1"));
 
@@ -127,7 +132,7 @@ async fn serve_script(seen: Seen, script: Script) -> u16 {
 fn identity() -> Identity {
     Identity {
         id: IDENTITY,
-        account: ACCOUNT,
+        account: acct_account(),
         from: Address {
             name: Some("Me".to_owned()),
             email: "me@example.test".to_owned(),
@@ -161,7 +166,7 @@ fn caps() -> AccountCaps {
 fn draft() -> Draft {
     Draft {
         id: DraftId::generate(),
-        account: ACCOUNT,
+        account: acct_account(),
         identity: IDENTITY,
         to: vec![Address {
             name: Some("Bea".to_owned()),
@@ -201,7 +206,7 @@ fn plan() -> AccountPlan {
         },
         outgoing: Outgoing::Graph,
         auth: AuthPlan::OAuth {
-            issuer: OAuthIssuer::Microsoft,
+            issuer: Issuer::Microsoft,
             scopes: Vec::new(),
         },
         identities: vec![identity()],
@@ -210,9 +215,9 @@ fn plan() -> AccountPlan {
 
 fn token(access: &str) -> Credential {
     Credential::OAuth {
-        access: access.to_owned(),
-        refresh: "refresh".to_owned(),
-        expires_at: now() + chrono::TimeDelta::try_hours(1).unwrap(),
+        access: SecretText::new(access.to_owned()),
+        refresh: SecretText::new("refresh".to_owned()),
+        expires_at: UnixSeconds((now() + chrono::TimeDelta::try_hours(1).unwrap()).timestamp()),
     }
 }
 
@@ -237,13 +242,13 @@ fn compose_as(port: u16, message: Option<Vec<u8>>) -> Sending {
         db.execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [ACCOUNT.to_string()],
+            [acct_account().to_string()],
         )
         .unwrap();
         db.execute(
             "INSERT INTO identities (id, account, from_name, from_email, is_default)
              VALUES (?1, ?2, 'Me', 'me@example.test', '\"default\"')",
-            [IDENTITY.to_string(), ACCOUNT.to_string()],
+            [IDENTITY.to_string(), acct_account().to_string()],
         )
         .unwrap();
     }
@@ -255,7 +260,7 @@ fn compose_as(port: u16, message: Option<Vec<u8>>) -> Sending {
         secrets
             .put(
                 &SecretKey {
-                    account: ACCOUNT,
+                    account: acct_account(),
                     purpose,
                 },
                 &token(access),
@@ -266,7 +271,7 @@ fn compose_as(port: u16, message: Option<Vec<u8>>) -> Sending {
     let draft = draft();
     store
         .apply(
-            ACCOUNT,
+            acct_account(),
             &Patch {
                 id: ChangeId::generate(),
                 changes: vec![Change::DraftUpsert(Box::new(draft.clone()))],
@@ -283,7 +288,7 @@ fn compose_as(port: u16, message: Option<Vec<u8>>) -> Sending {
         .unwrap();
     store
         .enqueue(
-            ACCOUNT,
+            acct_account(),
             RemoteIntent::Send {
                 draft: draft.id,
                 raw,
@@ -303,7 +308,7 @@ fn compose_as(port: u16, message: Option<Vec<u8>>) -> Sending {
         .unwrap();
 
     let backend = Pop3Backend::new(
-        ACCOUNT,
+        acct_account(),
         caps(),
         Box::new(|auth, commands| {
             let mut all = Vec::new();
@@ -314,8 +319,14 @@ fn compose_as(port: u16, message: Option<Vec<u8>>) -> Sending {
             Pop3Session::new("me@example.test", "unused", all)
         }),
     );
-    let engine = AccountEngine::new(ACCOUNT, plan(), backend, store.clone(), Arc::new(secrets))
-        .with_graph_url(format!("http://127.0.0.1:{port}/v1.0/me/sendMail"));
+    let engine = AccountEngine::new(
+        acct_account(),
+        plan(),
+        backend,
+        store.clone(),
+        Arc::new(secrets),
+    )
+    .with_graph_url(format!("http://127.0.0.1:{port}/v1.0/me/sendMail"));
     Sending {
         store,
         engine,

@@ -9,9 +9,10 @@
 
 use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::{
-    AccountId, Change, FolderWork, FollowUp, LabelId, MailboxRole, Membership, MessageId, Mute,
-    NonEmpty, Op, Patch, Pin, ReadState, RemoteIntent, Snooze, Star, Subscription, ThreadId,
+    Change, FolderWork, FollowUp, LabelId, MailboxRole, Membership, MessageId, Mute, NonEmpty, Op,
+    Patch, Pin, ReadState, RemoteIntent, Snooze, Star, Subscription, ThreadId,
 };
+use porter_core::AccountId;
 use std::collections::BTreeMap;
 
 /// How many operations the window remembers.

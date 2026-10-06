@@ -9,9 +9,10 @@ use super::read::Recipients;
 use super::row::{from_time, json, to_json, uuid};
 use crate::StoreError;
 use mail_domain::{
-    AccountCaps, AccountId, Body, Change, FolderRoles, Import, Ingest, LabelOrigin, MailboxRole,
-    Membership, Message, MessageId, Patch, RemoteRef, ThreadId, ThreadSummary, UidValidity,
+    AccountCaps, Body, Change, FolderRoles, Import, Ingest, LabelOrigin, MailboxRole, Membership,
+    Message, MessageId, Patch, RemoteRef, ThreadId, ThreadSummary, UidValidity,
 };
+use porter_core::AccountId;
 use rusqlite::{OptionalExtension, params};
 use std::collections::BTreeSet;
 
@@ -369,7 +370,7 @@ impl SqliteStore {
                 "DELETE FROM remote_map WHERE account = ?1 AND mailbox = ?2",
                 params![account.to_string(), ingest.mailbox.path],
             )?;
-            self.forget_destroyed_in(account, &ingest.mailbox.path)?;
+            self.forget_destroyed_in(account.clone(), &ingest.mailbox.path)?;
         }
 
         for label in &ingest.labels {
@@ -380,7 +381,7 @@ impl SqliteStore {
         // 2. Messages. Identity is MessageKey, never RemoteRef: the same message appears in
         //    INBOX and All Mail under different uids, so keying on the ref would store it twice.
         for fetched in &ingest.messages {
-            let existing = self.message_by_key(account, &fetched.key)?;
+            let existing = self.message_by_key(account.clone(), &fetched.key)?;
             let id = match existing {
                 Some(id) => {
                     // A message we already hold, arriving again. That is normal and usually a
@@ -419,8 +420,8 @@ impl SqliteStore {
                     fetched.message.id
                 }
             };
-            self.map_remote(account, &fetched.remote, id)?;
-            self.learn_fetched(account, id, &fetched.message, Some(fetched.raw))?;
+            self.map_remote(account.clone(), &fetched.remote, id)?;
+            self.learn_fetched(account.clone(), id, &fetched.message, Some(fetched.raw))?;
             if let Some(t) = self.thread_of(id)? {
                 touched.insert(t);
             }
@@ -428,7 +429,7 @@ impl SqliteStore {
 
         // 3. Flag-only updates, far cheaper than refetching a message.
         for (remote, read, star) in &ingest.flags {
-            if let Some(id) = self.message_by_remote(account, remote)? {
+            if let Some(id) = self.message_by_remote(account.clone(), remote)? {
                 self.write_change(&Change::MessageRead(id, *read))?;
                 self.write_change(&Change::MessageStar(id, *star))?;
                 changes.push(Change::MessageRead(id, *read));
@@ -447,12 +448,12 @@ impl SqliteStore {
         //     directions, and only the difference — writing every membership every pass would
         //     fill the change log with nothing.
         for (remote, names) in &ingest.label_names {
-            let Some(id) = self.message_by_remote(account, remote)? else {
+            let Some(id) = self.message_by_remote(account.clone(), remote)? else {
                 continue;
             };
             let mut wanted = Vec::new();
             for name in names {
-                wanted.push(self.label_by_name(account, name)?);
+                wanted.push(self.label_by_name(account.clone(), name)?);
             }
             let held = self.labels_of(&self.connection(), id)?;
             for label in wanted.iter().filter(|l| !held.contains(l)) {
@@ -474,9 +475,9 @@ impl SqliteStore {
         //    holds it, because vanishing from INBOX is what archiving looks like on Gmail.
         for remote in &ingest.gone {
             // Deleted forever here, and now there too.
-            self.forget_destroyed(account, remote)?;
-            if let Some(id) = self.message_by_remote(account, remote)? {
-                let (acct, mailbox, uidvalidity, uid, uidl) = remote_key(account, remote);
+            self.forget_destroyed(account.clone(), remote)?;
+            if let Some(id) = self.message_by_remote(account.clone(), remote)? {
+                let (acct, mailbox, uidvalidity, uid, uidl) = remote_key(account.clone(), remote);
                 self.connection().execute(
                     "DELETE FROM remote_map WHERE account=?1 AND mailbox=?2
                      AND uidvalidity IS ?3 AND uid IS ?4 AND uidl IS ?5",
@@ -498,7 +499,7 @@ impl SqliteStore {
                         held,
                         &mailbox,
                         &self.mailboxes_of(id)?,
-                        &self.folder_roles(account)?,
+                        &self.folder_roles(account.clone())?,
                     )
                 {
                     // Moved out of the inbox by another client, and still held elsewhere.
@@ -563,7 +564,7 @@ impl SqliteStore {
         let mut changes: Vec<Change> = Vec::new();
         let mut touched: BTreeSet<ThreadId> = BTreeSet::new();
         for (remote, role) in filed {
-            let Some(id) = self.message_by_remote(account, remote)? else {
+            let Some(id) = self.message_by_remote(account.clone(), remote)? else {
                 continue;
             };
             if self.role_of(id)? == Some(*role) {
@@ -606,7 +607,7 @@ impl SqliteStore {
         let mut touched: BTreeSet<ThreadId> = BTreeSet::new();
 
         for kept in &import.messages {
-            let id = match self.message_by_key(account, &kept.key)? {
+            let id = match self.message_by_key(account.clone(), &kept.key)? {
                 Some(id) => id,
                 None => {
                     self.upsert_message(&kept.message)?;
@@ -616,13 +617,13 @@ impl SqliteStore {
                 }
             };
             // The address book learns from imported mail as from synced mail, once per message.
-            self.learn_fetched(account, id, &kept.message, Some(kept.raw))?;
+            self.learn_fetched(account.clone(), id, &kept.message, Some(kept.raw))?;
             if kept.labels.is_empty() {
                 continue;
             }
             let held = self.labels_of(&self.connection(), id)?;
             for name in &kept.labels {
-                let label = self.label_named(account, name, LabelOrigin::User)?;
+                let label = self.label_named(account.clone(), name, LabelOrigin::User)?;
                 if held.contains(&label) {
                     continue;
                 }
@@ -805,13 +806,13 @@ impl SqliteStore {
         from: &RemoteRef,
         to: &RemoteRef,
     ) -> Result<(), StoreError> {
-        self.remap_destroyed(account, from, to)?;
-        let Some(message) = self.message_by_remote(account, from)? else {
+        self.remap_destroyed(account.clone(), from, to)?;
+        let Some(message) = self.message_by_remote(account.clone(), from)? else {
             return Ok(());
         };
         let db = self.connection();
         let tx = db.unchecked_transaction()?;
-        let (acct, mailbox, uidvalidity, uid, uidl) = remote_key(account, from);
+        let (acct, mailbox, uidvalidity, uid, uidl) = remote_key(account.clone(), from);
         self.connection().execute(
             "DELETE FROM remote_map WHERE account=?1 AND mailbox=?2
              AND uidvalidity IS ?3 AND uid IS ?4 AND uidl IS ?5",
@@ -833,8 +834,8 @@ impl SqliteStore {
     ) -> Result<(), StoreError> {
         // Moved before its deletion was sent, to where nobody said: the deletion has nowhere to
         // go, and the sync that finds the message shows it again.
-        self.forget_destroyed(account, remote)?;
-        let Some(message) = self.message_by_remote(account, remote)? else {
+        self.forget_destroyed(account.clone(), remote)?;
+        let Some(message) = self.message_by_remote(account.clone(), remote)? else {
             return Ok(());
         };
         let db = self.connection();

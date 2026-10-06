@@ -9,9 +9,10 @@
 use super::AccountEngine;
 use crate::{Cancel, RuntimeError};
 use chrono::{DateTime, Utc};
-use mail_domain::{AccountId, Incoming, MailboxRef, WatchMode};
+use mail_domain::{Incoming, MailboxRef, WatchMode};
 use mail_proto::Backend;
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::watch;
@@ -44,8 +45,12 @@ impl<B: Backend> AccountEngine<B> {
         poll: Duration,
     ) -> Result<Woke, RuntimeError> {
         let started = Utc::now();
-        let (store, account, every) = (self.store.clone(), self.account, self.schedule.outbox);
-        let alarm = || due_alarm(store.clone(), account, started, every);
+        let (store, account, every) = (
+            self.store.clone(),
+            self.account.clone(),
+            self.schedule.outbox,
+        );
+        let alarm = || due_alarm(store.clone(), account.clone(), started, every);
 
         // An account that keeps its mail here has no server to park in IDLE on, whatever its
         // stored capabilities say: it only ever sleeps.
@@ -110,7 +115,7 @@ pub(crate) async fn due_alarm(
 ) {
     loop {
         let now = Utc::now();
-        let next = store.outbox_next(account, after).ok().flatten();
+        let next = store.outbox_next(account.clone(), after).ok().flatten();
         if next.is_some_and(|at| at <= now) {
             return;
         }

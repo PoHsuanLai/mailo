@@ -10,12 +10,13 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use chrono::{DateTime, SecondsFormat, TimeDelta, Utc};
 use mail_domain::{
-    AccountCaps, AccountId, Change, ChangeId, Cursor, Draft, DraftId, Filter, FollowUp, Ingest,
-    Label, LabelId, MailboxRef, MatchCtx, Membership, Message, MessageId, MessageKey, Mute,
-    OutboxId, Page, Patch, Pin, Property, ProtoOp, Query, ReceiptAnswer, RemoteIntent, RemoteRef,
-    Retry, SendState, Snooze, SortDir, SyncCursor, Template, TemplateId, Thread, ThreadId,
-    ThreadSummary, UidValidity,
+    AccountCaps, Change, ChangeId, Cursor, Draft, DraftId, Filter, FollowUp, Ingest, Label,
+    LabelId, MailboxRef, MatchCtx, Membership, Message, MessageId, MessageKey, Mute, OutboxId,
+    Page, Patch, Pin, Property, ProtoOp, Query, ReceiptAnswer, RemoteIntent, RemoteRef, Retry,
+    SendState, Snooze, SortDir, SyncCursor, Template, TemplateId, Thread, ThreadId, ThreadSummary,
+    UidValidity,
 };
+use porter_core::AccountId;
 use serde::Serialize;
 
 use crate::{Dispatch, OutboxEntry, Settle, Store, StoreError, Term};
@@ -276,7 +277,7 @@ impl Store for MemoryStore {
             .inner
             .borrow()
             .sync
-            .get(&(mailbox.account, mailbox.path.clone()))
+            .get(&(mailbox.account.clone(), mailbox.path.clone()))
             .cloned())
     }
 
@@ -308,11 +309,11 @@ impl Store for MemoryStore {
         to: &RemoteRef,
     ) -> Result<(), StoreError> {
         let mut inner = self.inner.borrow_mut();
-        inner.remap_destroyed(account, from, to);
-        let Some(message) = inner.message_by_remote(account, from) else {
+        inner.remap_destroyed(account.clone(), from, to);
+        let Some(message) = inner.message_by_remote(account.clone(), from) else {
             return Ok(());
         };
-        inner.remove_remote(account, from);
+        inner.remove_remote(account.clone(), from);
         inner.map_remote(account, to, message);
         Ok(())
     }
@@ -324,11 +325,11 @@ impl Store for MemoryStore {
         into: Option<&str>,
     ) -> Result<(), StoreError> {
         let mut inner = self.inner.borrow_mut();
-        inner.forget_destroyed(account, remote);
-        let Some(message) = inner.message_by_remote(account, remote) else {
+        inner.forget_destroyed(account.clone(), remote);
+        let Some(message) = inner.message_by_remote(account.clone(), remote) else {
             return Ok(());
         };
-        inner.remove_remote(account, remote);
+        inner.remove_remote(account.clone(), remote);
         // As `SqliteStore`: still on the server, only not known where until a sync finds it.
         if !inner
             .remotes
@@ -989,7 +990,7 @@ impl Inner {
         let addresses = paths
             .into_iter()
             .map(|path| MailboxRef {
-                account: held.account,
+                account: held.account.clone(),
                 path: path.to_owned(),
             })
             .collect();
@@ -1070,11 +1071,11 @@ impl Inner {
                 self.delete_message(*id);
             }
             Change::LabelUpsert(label) => {
-                self.accounts.insert(label.account);
+                self.accounts.insert(label.account.clone());
                 self.labels.insert(label.id, label.clone());
             }
             Change::DraftUpsert(draft) => {
-                self.accounts.insert(draft.account);
+                self.accounts.insert(draft.account.clone());
                 self.drafts.insert(draft.id, (**draft).clone());
             }
             Change::DraftDelete(id) => {
@@ -1120,10 +1121,10 @@ impl Inner {
             follow_up: FollowUp::Inactive,
         });
         self.by_key
-            .entry(message.account)
+            .entry(message.account.clone())
             .or_default()
             .insert(message.key.clone(), message.id);
-        self.accounts.insert(message.account);
+        self.accounts.insert(message.account.clone());
         let old_thread = previous.map(|prev| prev.thread);
         self.messages.insert(message.id, message.clone());
         if let Some(old) = old_thread
@@ -1162,14 +1163,14 @@ impl Inner {
 
     /// Server truth, then still-pending local changes on the threads that moved.
     fn ingest(&mut self, account: AccountId, ingest: &Ingest) -> Result<Patch, StoreError> {
-        self.accounts.insert(account);
+        self.accounts.insert(account.clone());
         let mut changes = Vec::new();
         let mut touched = BTreeSet::new();
 
         if ingest.validity == UidValidity::Reset {
             self.remotes
                 .retain(|row| !(row.account == account && row.mailbox == ingest.mailbox.path));
-            self.forget_destroyed_in(account, &ingest.mailbox.path);
+            self.forget_destroyed_in(account.clone(), &ingest.mailbox.path);
         }
 
         for label in &ingest.labels {
@@ -1179,7 +1180,7 @@ impl Inner {
         }
 
         for fetched in &ingest.messages {
-            let id = if let Some(id) = self.message_by_key(account, &fetched.key) {
+            let id = if let Some(id) = self.message_by_key(account.clone(), &fetched.key) {
                 // A copy in the inbox, of a message first found in a folder.
                 if let Some(role) = self.messages.get(&id).and_then(|held| {
                     crate::filing::after_arrival(held.mailbox, fetched.message.mailbox)
@@ -1195,15 +1196,15 @@ impl Inner {
                 touched.insert(fetched.message.thread);
                 fetched.message.id
             };
-            self.map_remote(account, &fetched.remote, id);
-            self.learn_fetched(account, id, &fetched.message);
+            self.map_remote(account.clone(), &fetched.remote, id);
+            self.learn_fetched(account.clone(), id, &fetched.message);
             if let Some(thread) = self.thread_of(id) {
                 touched.insert(thread);
             }
         }
 
         for (remote, read, star) in &ingest.flags {
-            if let Some(id) = self.message_by_remote(account, remote) {
+            if let Some(id) = self.message_by_remote(account.clone(), remote) {
                 let read_change = Change::MessageRead(id, *read);
                 let star_change = Change::MessageStar(id, *star);
                 self.write_change(&read_change)?;
@@ -1217,9 +1218,9 @@ impl Inner {
         }
 
         for remote in &ingest.gone {
-            self.forget_destroyed(account, remote);
-            if let Some(id) = self.message_by_remote(account, remote) {
-                self.remove_remote(account, remote);
+            self.forget_destroyed(account.clone(), remote);
+            if let Some(id) = self.message_by_remote(account.clone(), remote) {
+                self.remove_remote(account.clone(), remote);
                 if !self.remotes.iter().any(|row| row.message == id) {
                     if let Some(thread) = self.thread_of(id) {
                         touched.insert(thread);
@@ -1227,7 +1228,7 @@ impl Inner {
                     let change = Change::MessageDelete(id);
                     self.write_change(&change)?;
                     changes.push(change);
-                } else if let Some(role) = self.after_leaving(account, id, remote) {
+                } else if let Some(role) = self.after_leaving(account.clone(), id, remote) {
                     // Moved out of the inbox by another client, and still held elsewhere.
                     if let Some(thread) = self.thread_of(id) {
                         touched.insert(thread);
@@ -1271,7 +1272,7 @@ impl Inner {
         let mut changes = Vec::new();
         let mut touched = BTreeSet::new();
         for (remote, role) in filed {
-            let Some(id) = self.message_by_remote(account, remote) else {
+            let Some(id) = self.message_by_remote(account.clone(), remote) else {
                 continue;
             };
             if self.messages.get(&id).is_none_or(|m| m.mailbox == *role) {
@@ -1300,19 +1301,19 @@ impl Inner {
         account: AccountId,
         import: &mail_domain::Import,
     ) -> Result<Patch, StoreError> {
-        self.accounts.insert(account);
+        self.accounts.insert(account.clone());
         let mut changes = Vec::new();
         for kept in &import.messages {
-            let id = if let Some(id) = self.message_by_key(account, &kept.key) {
+            let id = if let Some(id) = self.message_by_key(account.clone(), &kept.key) {
                 id
             } else {
                 self.upsert_message(&kept.message)?;
                 changes.push(Change::MessageUpsert(Box::new(kept.message.clone())));
                 kept.message.id
             };
-            self.learn_fetched(account, id, &kept.message);
+            self.learn_fetched(account.clone(), id, &kept.message);
             for name in &kept.labels {
-                let label = self.label_named(account, name);
+                let label = self.label_named(account.clone(), name);
                 let held = self
                     .messages
                     .get(&id)
@@ -1385,17 +1386,17 @@ impl Inner {
     fn message_by_remote(&self, account: AccountId, remote: &RemoteRef) -> Option<MessageId> {
         self.remotes
             .iter()
-            .find(|row| same_remote(row, account, remote))
+            .find(|row| same_remote(row, account.clone(), remote))
             .map(|row| row.message)
     }
 
     fn map_remote(&mut self, account: AccountId, remote: &RemoteRef, message: MessageId) {
         // Found again: as the `unplaced_found_*` triggers.
-        self.unplaced.remove(&(account, message));
+        self.unplaced.remove(&(account.clone(), message));
         if let Some(row) = self
             .remotes
             .iter_mut()
-            .find(|row| same_remote(row, account, remote))
+            .find(|row| same_remote(row, account.clone(), remote))
         {
             row.message = message;
             return;
@@ -1413,7 +1414,7 @@ impl Inner {
 
     fn remove_remote(&mut self, account: AccountId, remote: &RemoteRef) {
         self.remotes
-            .retain(|row| !same_remote(row, account, remote));
+            .retain(|row| !same_remote(row, account.clone(), remote));
     }
 
     fn pending_for_threads(&self, threads: &BTreeSet<ThreadId>) -> Vec<Change> {
@@ -1439,23 +1440,23 @@ impl Inner {
         undo: &Patch,
         now: DateTime<Utc>,
     ) -> Result<Option<OutboxId>, StoreError> {
-        let Some(op) = self.resolve_intent(account, intent)? else {
+        let Some(op) = self.resolve_intent(account.clone(), intent)? else {
             return Ok(None);
         };
         if !self.accounts.contains(&account) {
             return Err(StoreError::Db(format!("no such account: {account}")));
         }
         let messages = crate::dispatch::addressed(intent, &|m: MessageId| {
-            Ok(!self.refs_for(account, &[m])?.is_empty()
-                || self.unplaced.contains_key(&(account, m)))
+            Ok(!self.refs_for(account.clone(), &[m])?.is_empty()
+                || self.unplaced.contains_key(&(account.clone(), m)))
         })?;
         let id = OutboxId::from_i64(self.next_outbox);
         self.next_outbox += 1;
         // As `SqliteStore::queue`: kept before the caller removes the messages.
         if let RemoteIntent::Destroy { messages } = intent {
             for message in messages {
-                for remote in self.refs_for(account, &[*message])? {
-                    self.keep_destroyed(account, *message, &remote, id);
+                for remote in self.refs_for(account.clone(), &[*message])? {
+                    self.keep_destroyed(account.clone(), *message, &remote, id);
                 }
             }
         }
@@ -1531,11 +1532,11 @@ impl Inner {
                 unreachable!("handled above")
             }
         };
-        let remotes = self.refs_for(account, messages)?;
+        let remotes = self.refs_for(account.clone(), messages)?;
         if remotes.is_empty()
             && !messages
                 .iter()
-                .any(|m| self.unplaced.contains_key(&(account, *m)))
+                .any(|m| self.unplaced.contains_key(&(account.clone(), *m)))
         {
             return Ok(None);
         }
@@ -1612,7 +1613,7 @@ impl Inner {
                 Place::At(kept)
             });
         }
-        let found = self.refs_for(account, &[message])?;
+        let found = self.refs_for(account.clone(), &[message])?;
         if found.is_empty()
             && let Some(unplaced) = self.unplaced.get(&(account, message))
         {
@@ -1626,7 +1627,7 @@ impl Inner {
         account: AccountId,
         now: DateTime<Utc>,
     ) -> Result<Vec<OutboxEntry>, StoreError> {
-        let lookup = |m: MessageId| self.addresses_now(account, m);
+        let lookup = |m: MessageId| self.addresses_now(account.clone(), m);
         let mut out = Vec::new();
         for (id, row) in &self.outbox {
             if row.account != account || row.next_attempt > now {
@@ -1639,7 +1640,7 @@ impl Inner {
             };
             out.push(OutboxEntry {
                 id: *id,
-                account: row.account,
+                account: row.account.clone(),
                 op,
                 undo: row.undo.clone(),
                 attempts: row.attempts,
@@ -1659,8 +1660,8 @@ impl Inner {
             .filter(|(_, before)| before.account == row.account && !before.messages.is_empty())
             .map(|(_, before)| before.messages.clone())
             .collect();
-        let account = row.account;
-        let lookup = |m: MessageId| self.addresses_now(account, m);
+        let account = row.account.clone();
+        let lookup = |m: MessageId| self.addresses_now(account.clone(), m);
         crate::dispatch::in_queue(&earlier, row.op.clone(), &row.messages, &lookup)
     }
 
@@ -1677,7 +1678,7 @@ impl Inner {
             Settle::Ok => {
                 self.settle_destroyed(id, crate::dispatch::Answered::Done);
                 // As the SQLite store does: a deleted mailbox is let go of once confirmed.
-                let account = self.outbox[&id].account;
+                let account = self.outbox[&id].account.clone();
                 match self.outbox[&id].op.clone() {
                     ProtoOp::Folder(mail_domain::FolderWork::Delete { path, .. }) => {
                         self.forget_mailbox(account, &path);
