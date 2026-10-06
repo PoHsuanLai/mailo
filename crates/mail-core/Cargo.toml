@@ -17,6 +17,8 @@ authors = ["Po Hsuan Lai <pohsuanlai0208@gmail.com>"]
 porter-core.workspace = true
 porter-provider.workspace = true
 porter-discover.workspace = true
+# The HTTP seam porter-discover asks through (`discover.rs` names it); no client, no I/O.
+porter-http.workspace = true
 latchkey.workspace = true
 mail-domain.workspace = true
 mail-store.workspace = true
@@ -84,8 +86,6 @@ rpassword = "7"
 
 [dev-dependencies]
 porter-secrets = { workspace = true, features = ["testing"] }
-# The fakes of discovery's two seams (`discover/tests.rs`): no test asks a real resolver or server.
-porter-http.workspace = true
 tempfile = "3"
 # The throwaway certificate authority `tests/smime.rs` builds its fixtures with
 # (`mail-mime/tests/smime_support`). All already in the tree through `mail-mime`.
