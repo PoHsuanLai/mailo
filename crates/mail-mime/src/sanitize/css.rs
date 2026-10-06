@@ -1,145 +1,219 @@
 //! The sender's CSS, kept for the reader's frame with everything that could reach the network
-//! taken out.
+//! or run taken out.
 //!
 //! The frame's own network refuses what the reader did not consent to, so this is the second
 //! wall, not the first: a renderer that fetched whatever CSS named would still be handed nothing
-//! to fetch. What is removed:
-//! - every backslash, so no escape (`u\72l(`, `\40import`) can spell a removed word, and every
-//!   `<`, which CSS has no use for and which is the only way a sheet's text reads as markup to
-//!   whatever parses it next;
+//! to fetch. The CSS is tokenized with `cssparser` (the tokenizer the renderer's own engine
+//! uses, so an escape such as `u\72l(` is decoded here exactly as it would be there) and written
+//! back token by token, leaving out:
+//! - every function that takes a URL or a string that is one (`url()`, `src()`, `image()`,
+//!   `image-set()`, `cross-fade()`, `element()`) and an unquoted `url(...)` token, each written
+//!   as `none`, and `expression()`, which an old engine ran as code;
 //! - `@import` rules, which load another sheet;
-//! - the functions that take a URL or a string that is one (`url()`, `image()`, `image-set()`,
-//!   `-webkit-image-set()`, `cross-fade()`, `element()`), and `expression()` and `-moz-binding`,
-//!   which an old engine ran as code, each replaced by `none`.
+//! - declarations of `behavior` and `-moz-binding`, matched as a declaration's property name,
+//!   never inside a selector or a longer name;
+//! - comments, bad tokens, `<!--`/`-->` and a bare `<`: CSS has no use for them, and a `<` is
+//!   the only way a sheet's text could read as markup. A `<` inside a string is written escaped.
+//!
+//! Strings and identifiers are written back with `cssparser`'s serializer, so `content: "\2022"`
+//! survives as the bullet it names.
 //!
 //! Background images a sender laid out in CSS are therefore never shown, even after the reader
 //! allows remote images: only an `<img>`'s address is on the consented list.
 
-/// Functions whose arguments name something to fetch or run. Matched case-insensitively, at a
-/// name boundary, before an opening parenthesis; each becomes `none`.
+use cssparser::{ParseError, Parser, ToCss, Token, serialize_identifier, serialize_string};
+use std::borrow::Cow;
+
+/// Functions whose arguments name something to fetch or run. Each call becomes `none`.
 const FETCHING: &[&str] = &[
     "url",
+    "src",
     "image",
     "image-set",
     "-webkit-image-set",
     "cross-fade",
+    "-webkit-cross-fade",
     "element",
+    "-moz-element",
     "expression",
 ];
 
-/// Properties that are code in some engine: the whole value goes.
-const RUNNING: &[&str] = &["-moz-binding", "behavior"];
+/// Properties that are code in some engine: the whole declaration goes.
+const RUNNING: &[&str] = &["behavior", "-moz-binding"];
 
-/// `css` with nothing in it that fetches or runs.
-pub(super) fn scrub(css: &str) -> String {
-    let plain: String = css.chars().filter(|c| !matches!(c, '\\' | '<')).collect();
-    let without_imports = drop_at_imports(&plain);
-    let without_calls = drop_calls(&without_imports);
-    drop_running(&without_calls)
+/// At-rules whose block holds rules rather than declarations.
+const GROUPING: &[&str] = &[
+    "media",
+    "supports",
+    "document",
+    "-moz-document",
+    "layer",
+    "container",
+    "scope",
+    "starting-style",
+    "keyframes",
+    "-webkit-keyframes",
+];
+
+/// What a run of CSS is: a sheet's rules, a block's declarations (a `style` attribute is one),
+/// or the inside of a function or a bracket.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Context {
+    Rules,
+    Declarations,
+    Value,
 }
 
-/// Remove every `@import ... ;` (or to the end, when there is no semicolon).
-fn drop_at_imports(css: &str) -> String {
+/// Whether `css` has nothing the walk would change: no escape, no `<`, no at-rule, no comment, no
+/// function or url token, and neither code-running property. Most inline styles are like this.
+fn plainly_safe(css: &str) -> bool {
+    !css.bytes()
+        .any(|b| matches!(b, b'\\' | b'<' | b'@' | b'(' | b'/'))
+        && !RUNNING.iter().any(|name| contains_ci(css, name))
+}
+
+fn contains_ci(hay: &str, needle: &str) -> bool {
+    hay.as_bytes()
+        .windows(needle.len())
+        .any(|w| w.eq_ignore_ascii_case(needle.as_bytes()))
+}
+
+/// `css`, read as `context`, with nothing in it that fetches or runs.
+pub(super) fn scrub(css: &str, context: Context) -> Cow<'_, str> {
+    if plainly_safe(css) {
+        return Cow::Borrowed(css);
+    }
+    let mut parser = Parser::new(css);
     let mut out = String::with_capacity(css.len());
-    let mut rest = css;
-    while let Some(at) = find_ci(rest, "@import") {
-        out.push_str(&rest[..at]);
-        rest = match rest[at..].find(';') {
-            Some(end) => &rest[at + end + 1..],
-            None => "",
-        };
-    }
-    out.push_str(rest);
-    out
+    walk(&mut parser, context, &mut out);
+    Cow::Owned(out)
 }
 
-/// Replace each fetching function call, arguments and all, with `none`.
-fn drop_calls(css: &str) -> String {
-    let mut out = String::with_capacity(css.len());
-    let bytes = css.as_bytes();
-    let mut i = 0;
-    while i < css.len() {
-        if let Some(len) = call_at(css, i) {
-            out.push_str("none");
-            i = close_of(bytes, i + len);
-            continue;
+/// Write `parser`'s tokens, read as `context`, into `out`.
+fn walk(parser: &mut Parser<'_>, context: Context, out: &mut String) {
+    // A declaration starts at the head of a block and after each `;`.
+    let mut declaration_start = true;
+    // The at-keyword the rule being read began with, until its block or `;`.
+    let mut at_rule: Option<String> = None;
+    while let Ok(token) = parser.next_including_whitespace_and_comments().cloned() {
+        match &token {
+            Token::WhiteSpace(space) => {
+                out.push_str(space);
+                continue;
+            }
+            Token::Comment(_)
+            | Token::CDO
+            | Token::CDC
+            | Token::BadString(_)
+            | Token::Delim('<') => {
+                continue;
+            }
+            _ => {}
         }
-        let Some(c) = css[i..].chars().next() else {
-            break;
-        };
-        out.push(c);
-        i += c.len_utf8();
-    }
-    out
-}
-
-/// The length of a fetching function's name and its `(` when one starts at `i`.
-fn call_at(css: &str, i: usize) -> Option<usize> {
-    let boundary = css[..i]
-        .chars()
-        .next_back()
-        .is_none_or(|c| !(c.is_ascii_alphanumeric() || c == '-' || c == '_'));
-    if !boundary {
-        return None;
-    }
-    let rest = &css[i..];
-    FETCHING.iter().find_map(|name| {
-        let head = rest.get(..name.len())?;
-        if !head.eq_ignore_ascii_case(name) {
-            return None;
-        }
-        let after = rest[name.len()..].trim_start();
-        after.starts_with('(').then(|| rest.len() - after.len() + 1)
-    })
-}
-
-/// The index just past the `)` closing the call whose arguments start at `from`, nesting and
-/// quotes respected; the end of the text when it never closes.
-fn close_of(bytes: &[u8], from: usize) -> usize {
-    let mut depth = 1usize;
-    let mut quote = None::<u8>;
-    let mut i = from;
-    while i < bytes.len() {
-        let b = bytes[i];
-        match quote {
-            Some(q) if b == q => quote = None,
-            Some(_) => {}
-            None => match b {
-                b'"' | b'\'' => quote = Some(b),
-                b'(' => depth += 1,
-                b')' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        return i + 1;
-                    }
+        match context {
+            Context::Rules => match &token {
+                Token::AtKeyword(name) if name.eq_ignore_ascii_case("import") => {
+                    skip_declaration(parser);
+                    continue;
+                }
+                Token::AtKeyword(name) => at_rule = Some(name.to_ascii_lowercase()),
+                Token::Semicolon => at_rule = None,
+                Token::CurlyBracketBlock => {
+                    let inner = match at_rule.take() {
+                        Some(name) if GROUPING.contains(&name.as_str()) => Context::Rules,
+                        _ => Context::Declarations,
+                    };
+                    block(parser, '{', '}', inner, out);
+                    continue;
                 }
                 _ => {}
             },
+            Context::Declarations => {
+                if declaration_start
+                    && let Token::Ident(name) = &token
+                    && RUNNING
+                        .iter()
+                        .any(|running| name.eq_ignore_ascii_case(running))
+                {
+                    skip_declaration(parser);
+                    continue;
+                }
+                declaration_start = matches!(token, Token::Semicolon);
+                if matches!(token, Token::CurlyBracketBlock) {
+                    // A nested rule's block (`&:hover { ... }`).
+                    block(parser, '{', '}', Context::Declarations, out);
+                    declaration_start = true;
+                    continue;
+                }
+            }
+            Context::Value => {}
         }
-        i += 1;
+        write(parser, &token, out);
     }
-    bytes.len()
 }
 
-/// Replace the value of each property that runs code with `none`.
-fn drop_running(css: &str) -> String {
-    let mut out = css.to_owned();
-    for name in RUNNING {
-        let mut from = 0;
-        while let Some(at) = find_ci(&out[from..], name).map(|at| at + from) {
-            let value_start = at + name.len();
-            let end = out[value_start..]
-                .find([';', '}', '"'])
-                .map_or(out.len(), |end| value_start + end);
-            match out[value_start..end].find(':') {
-                Some(colon) => {
-                    out.replace_range(value_start + colon + 1..end, "none");
-                    from = value_start + colon + 1 + "none".len();
-                }
-                None => from = value_start,
-            }
+/// Write one token that is not structure the walk itself reads.
+fn write(parser: &mut Parser<'_>, token: &Token<'_>, out: &mut String) {
+    match token {
+        Token::Function(name) if FETCHING.iter().any(|f| name.eq_ignore_ascii_case(f)) => {
+            out.push_str("none");
+            let _ = parser.parse_nested_block(|_| Ok::<(), ParseError<()>>(()));
+        }
+        Token::UnquotedUrl(_) | Token::BadUrl(_) => out.push_str("none"),
+        Token::QuotedString(text) => {
+            let mut quoted = String::with_capacity(text.len() + 2);
+            let _ = serialize_string(text, &mut quoted);
+            out.push_str(&quoted.replace('<', "\\3c "));
+        }
+        Token::Function(name) => {
+            let _ = serialize_identifier(name, out);
+            block(parser, '(', ')', Context::Value, out);
+        }
+        Token::ParenthesisBlock => block(parser, '(', ')', Context::Value, out),
+        Token::SquareBracketBlock => block(parser, '[', ']', Context::Value, out),
+        Token::CurlyBracketBlock => block(parser, '{', '}', Context::Value, out),
+        other => out.push_str(&other.to_css_string()),
+    }
+}
+
+/// The block just opened, between `open` and `close`, its inside read as `context`.
+fn block(parser: &mut Parser<'_>, open: char, close: char, context: Context, out: &mut String) {
+    out.push(open);
+    let _ = parser.parse_nested_block(|inner| {
+        walk(inner, context, out);
+        Ok::<(), ParseError<()>>(())
+    });
+    out.push(close);
+}
+
+/// Pass over the rest of a declaration or an at-rule's prelude, through its `;` or to the end of
+/// the block it is in (the parser steps over nested blocks whole).
+fn skip_declaration(parser: &mut Parser<'_>) {
+    while let Ok(token) = parser.next() {
+        if matches!(token, Token::Semicolon) {
+            break;
         }
     }
+}
+
+/// Every `<style>` element's text in markup the sanitizer serialized, scrubbed as a sheet. The
+/// serializer writes a style element's text raw and escapes `<` in attribute values, and the
+/// parser ended the element at the first `</style`, so the text between an opening tag and the
+/// next `</style>` is the whole sheet.
+pub(super) fn scrub_style_elements(html: &str) -> String {
+    let mut out = String::with_capacity(html.len());
+    let mut rest = html;
+    while let Some(open) = find_ci(rest, "<style") {
+        let Some(tag_end) = rest[open..].find('>').map(|end| open + end + 1) else {
+            break;
+        };
+        out.push_str(&rest[..tag_end]);
+        let body = &rest[tag_end..];
+        let close = find_ci(body, "</style").unwrap_or(body.len());
+        out.push_str(&scrub(&body[..close], Context::Rules));
+        rest = &body[close..];
+    }
+    out.push_str(rest);
     out
 }
 
@@ -152,76 +226,6 @@ fn find_ci(hay: &str, needle: &str) -> Option<usize> {
     })
 }
 
-/// Every `<style>` element's text in markup the sanitizer serialized, scrubbed. The serializer
-/// writes a style element's text raw, and the parser ended it at the first `</style`, so the text
-/// between an opening tag and the next `</style>` is the whole sheet.
-pub(super) fn scrub_style_elements(html: &str) -> String {
-    let mut out = String::with_capacity(html.len());
-    let mut rest = html;
-    while let Some(open) = find_ci(rest, "<style") {
-        let Some(tag_end) = rest[open..].find('>').map(|end| open + end + 1) else {
-            break;
-        };
-        out.push_str(&rest[..tag_end]);
-        let body = &rest[tag_end..];
-        let close = find_ci(body, "</style").unwrap_or(body.len());
-        out.push_str(&scrub(&body[..close]));
-        rest = &body[close..];
-    }
-    out.push_str(rest);
-    out
-}
-
 #[cfg(test)]
-mod tests {
-    use super::{scrub, scrub_style_elements};
-
-    #[test]
-    fn what_fetches_or_runs_is_removed_and_the_rest_kept() {
-        const CASES: &[(&str, &str)] = &[
-            ("p{color:red}", "p{color:red}"),
-            (
-                "body{background:url(https://t.test/x)}",
-                "body{background:none}",
-            ),
-            ("a{background:URL( 'x' )}", "a{background:none}"),
-            (
-                "a{background:u\\72l(https://t.test/x)}",
-                "a{background:u72l(https://t.test/x)}",
-            ),
-            (
-                "@import url(https://t.test/s.css);p{margin:0}",
-                "p{margin:0}",
-            ),
-            ("@IMPORT 'https://t.test/s.css';p{margin:0}", "p{margin:0}"),
-            ("a{background:image-set('x.png' 1x)}", "a{background:none}"),
-            (
-                "a{background:-webkit-image-set(url(x) 1x)}",
-                "a{background:none}",
-            ),
-            ("a{width:expression(alert(1))}", "a{width:none}"),
-            ("a{-moz-binding:url(x.xml#b)}", "a{-moz-binding:none}"),
-            ("a{background:curl(x)}", "a{background:curl(x)}"),
-            ("a{background:url(\"a)b\")}", "a{background:none}"),
-            ("a{background:url(x", "a{background:none"),
-            (".x{font-family:'Ünï'}", ".x{font-family:'Ünï'}"),
-            (
-                "<img src=x onerror=alert(1)>",
-                "img src=x onerror=alert(1)>",
-            ),
-            ("ul>li{margin:0}", "ul>li{margin:0}"),
-        ];
-        for (css, want) in CASES {
-            assert_eq!(scrub(css), *want, "{css}");
-        }
-    }
-
-    #[test]
-    fn only_the_text_inside_style_elements_is_scrubbed() {
-        let html = "<style>p{background:url(x)}</style><p>url(y)</p><STYLE media=\"all\">@import 'z';</STYLE>";
-        assert_eq!(
-            scrub_style_elements(html),
-            "<style>p{background:none}</style><p>url(y)</p><STYLE media=\"all\"></STYLE>"
-        );
-    }
-}
+#[path = "css_tests.rs"]
+mod tests;

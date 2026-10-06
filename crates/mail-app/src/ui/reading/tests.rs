@@ -500,3 +500,23 @@ async fn blocked_remote_images_trigger_consent_banner() {
         "remote image was not blocked in srcdoc:\n{srcdoc}"
     );
 }
+
+/// The sender's `<body>` colours reach the frame's own body, after the base sheet, so they win
+/// over its white; and the base sheet leaves an image's size to its attributes.
+#[test]
+fn the_sender_s_body_style_is_the_frame_s_body() {
+    let safe = mail_mime::sanitize(
+        "<body bgcolor=\"#f3f1ec\" style=\"padding:0\"><p>Hi</p></body>",
+        mail_mime::SanitizePolicy::FRAME,
+    );
+    let page = super::frame_document(&super::html_sheet(), safe.body_style(), safe.as_str());
+    assert!(
+        page.contains("<body style=\"background-color:#f3f1ec;padding:0\"><p>Hi</p>"),
+        "{page}"
+    );
+    assert!(
+        !super::html_sheet().contains("height: auto"),
+        "{}",
+        super::html_sheet()
+    );
+}

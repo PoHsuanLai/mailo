@@ -1,5 +1,6 @@
 //! Untrusted HTML to something safe to put in a WebView.
 
+mod body;
 mod css;
 
 use std::borrow::Cow;
@@ -66,6 +67,7 @@ pub struct SafeHtml {
     html: String,
     blocked_remote: u32,
     remote: Vec<String>,
+    body_style: Option<String>,
 }
 
 impl SafeHtml {
@@ -94,12 +96,20 @@ impl SafeHtml {
         &self.remote
     }
 
+    /// The sender's `<body>` colours and style as one scrubbed declaration list, for the
+    /// document the markup is shown in: the fragment itself has no `<body>`. Only under
+    /// [`Styles::Kept`].
+    pub fn body_style(&self) -> Option<&str> {
+        self.body_style.as_deref()
+    }
+
     /// Wrap already-sanitized markup. Only [`sanitize`] should call this.
     pub(crate) fn new(html: String, blocked_remote: u32, remote: Vec<String>) -> Self {
         Self {
             html,
             blocked_remote,
             remote,
+            body_style: None,
         }
     }
 }
@@ -145,7 +155,7 @@ pub fn sanitize(html: &str, policy: SanitizePolicy) -> SafeHtml {
         .rm_tag_attributes("q", &["cite"])
         .attribute_filter(move |element, attribute, value| {
             if attribute == "style" {
-                return Some(Cow::Owned(css::scrub(value)));
+                return Some(css::scrub(value, css::Context::Declarations));
             }
             if fetches_on_render(element, attribute) {
                 let kept = keep_fetched_url(value, remote);
@@ -168,20 +178,22 @@ pub fn sanitize(html: &str, policy: SanitizePolicy) -> SafeHtml {
         })
         .clean(html)
         .to_string();
-    let cleaned = match policy.styles {
-        Styles::Kept => css::scrub_style_elements(&cleaned),
-        Styles::Dropped => cleaned,
+    let (cleaned, body_style) = match policy.styles {
+        Styles::Kept => (css::scrub_style_elements(&cleaned), body::body_style(html)),
+        Styles::Dropped => (cleaned, None),
     };
     let remote_urls = std::mem::take(
         &mut *kept_remote
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner),
     );
-    SafeHtml::new(
+    let mut safe = SafeHtml::new(
         cleaned,
         blocked.load(std::sync::atomic::Ordering::Relaxed),
         remote_urls,
-    )
+    );
+    safe.body_style = body_style;
+    safe
 }
 
 /// The attributes a sender's layout is written in, kept with [`Styles::Kept`]. `background`

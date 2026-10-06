@@ -47,9 +47,10 @@ fn at(n: i64) -> DateTime<Utc> {
 }
 
 fn policy() -> SanitizePolicy {
+    // The policy the reader renders, caches and warms under, the sender's CSS kept and scrubbed.
     SanitizePolicy {
         remote_images: RemoteImages::Blocked,
-        ..SanitizePolicy::CURRENT
+        ..SanitizePolicy::FRAME
     }
 }
 
