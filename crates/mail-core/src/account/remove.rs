@@ -11,9 +11,10 @@
 //! and the stored messages and attachment parts nothing else uses. Nothing on the server is
 //! touched, and keys and certificates stay: they are the user's, not the account's.
 
-use mail_domain::{AccountId, AccountPlan, Incoming, SecretKey, SecretPurpose};
+use mail_domain::{AccountPlan, Incoming};
 use mail_runtime::Secrets;
 use mail_store::{Freed, SqliteStore};
+use porter_core::{AccountId, CapabilityKind, SecretKey, SecretPurpose};
 use rusqlite::OptionalExtension as _;
 
 /// Every secret kept under an account's id. Keys and certificates are kept under their
@@ -22,7 +23,7 @@ const PURPOSES: [SecretPurpose; 4] = [
     SecretPurpose::IncomingPassword,
     SecretPurpose::OutgoingPassword,
     SecretPurpose::OAuthRefresh,
-    SecretPurpose::AddressBook,
+    SecretPurpose::ServicePassword(CapabilityKind::Contacts),
 ];
 
 /// An account that was removed.
@@ -88,7 +89,10 @@ pub fn remove(
     }
     for purpose in PURPOSES {
         secrets
-            .forget(&SecretKey { account, purpose })
+            .forget(&SecretKey {
+                account: account.clone(),
+                purpose,
+            })
             .map_err(|e| RemoveError::Keyring(e.to_string()))?;
     }
     match store

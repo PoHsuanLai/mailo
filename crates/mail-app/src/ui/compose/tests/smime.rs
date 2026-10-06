@@ -10,7 +10,7 @@ use super::super::protection::{Mode, Protection, items, label, pick};
 use super::super::seal::SealBar;
 use super::*;
 use crate::ui::fixtures::smime_support::{Person, identity, pki, rng};
-use crate::ui::fixtures::{ACCOUNT, Seen, click, rebuild_into, seeded};
+use crate::ui::fixtures::{Seen, acct_account, click, rebuild_into, seeded};
 
 const PASSWORD: &str = "p12 password";
 
@@ -28,9 +28,15 @@ fn asking(store: &SqliteStore, openpgp: OpenPgp, smime: Smime) -> Draft {
         name: Some("Dana Whitfield".to_owned()),
         email: "dana@example.test".to_owned(),
     }];
-    let mut draft =
-        mail_core::compose::draft_new(store, ACCOUNT, &to, "Plans", "see you there", Utc::now())
-            .unwrap();
+    let mut draft = mail_core::compose::draft_new(
+        store,
+        acct_account(),
+        &to,
+        "Plans",
+        "see you there",
+        Utc::now(),
+    )
+    .unwrap();
     draft.openpgp = openpgp;
     draft.smime = smime;
     mail_core::compose::save(store, &draft).unwrap();
@@ -264,7 +270,7 @@ fn a_locked_openpgp_key_is_known_by_the_sends_typed_error() {
 
 fn queued_nothing(store: &SqliteStore) -> bool {
     store
-        .outbox_due(ACCOUNT, Utc::now() + chrono::TimeDelta::days(365))
+        .outbox_due(acct_account(), Utc::now() + chrono::TimeDelta::days(365))
         .unwrap()
         .is_empty()
 }

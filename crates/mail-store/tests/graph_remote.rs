@@ -5,11 +5,14 @@
 //! answers, the parity the rest of the store is held to.
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_store::{MemoryStore, SqliteStore, Store};
+use porter_core::AccountId;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 
 fn at(n: i64) -> DateTime<Utc> {
     Utc.timestamp_opt(1_700_000_000 + n, 0).unwrap()
@@ -24,7 +27,7 @@ fn both<T>(scenario: impl Fn(&dyn Store) -> T) -> (T, T) {
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [ACCOUNT.to_string()],
+            [acct_account().to_string()],
         )
         .unwrap();
     let memory = MemoryStore::new();
@@ -33,7 +36,7 @@ fn both<T>(scenario: impl Fn(&dyn Store) -> T) -> (T, T) {
 
 fn mailbox(path: &str) -> MailboxRef {
     MailboxRef {
-        account: ACCOUNT,
+        account: acct_account(),
         path: path.to_owned(),
     }
 }
@@ -49,7 +52,7 @@ fn message(n: u128) -> Message {
     Message {
         id: MessageId::from_uuid(uuid::Uuid::from_u128(n)),
         thread: ThreadId::from_uuid(uuid::Uuid::from_u128(n + 1000)),
-        account: ACCOUNT,
+        account: acct_account(),
         key: MessageKey::Rfc(format!("m{n}@example.test")),
         date: at(n as i64),
         from: Address {
@@ -94,7 +97,7 @@ fn deliver(store: &dyn Store, m: &Message, remote: RemoteRef) {
         raw: BlobId::generate(),
         message: m.clone(),
     });
-    store.ingest(ACCOUNT, batch).unwrap();
+    store.ingest(acct_account(), batch).unwrap();
 }
 
 #[test]
@@ -121,18 +124,22 @@ fn a_move_remaps_the_message_to_its_new_id_and_folder() {
         let m = message(1);
         deliver(store, &m, graph("INBOX", "old"));
         store
-            .remap(ACCOUNT, &graph("INBOX", "old"), &graph("Archive", "new"))
+            .remap(
+                acct_account(),
+                &graph("INBOX", "old"),
+                &graph("Archive", "new"),
+            )
             .unwrap();
         // The folder it left says it has gone: that is not a deletion any more.
         let mut left = ingest("INBOX");
         left.gone.push(graph("INBOX", "old"));
-        store.ingest(ACCOUNT, left).unwrap();
+        store.ingest(acct_account(), left).unwrap();
         // And the folder it arrived in reports it read, under the new id.
         let mut arrived = ingest("Archive");
         arrived
             .flags
             .push((graph("Archive", "new"), ReadState::Read, Star::Unstarred));
-        store.ingest(ACCOUNT, arrived).unwrap();
+        store.ingest(acct_account(), arrived).unwrap();
         let held = store.message(m.id).unwrap();
         (
             store.remote_refs(&mailbox("INBOX")).unwrap(),
@@ -158,9 +165,13 @@ fn a_remap_onto_an_address_a_sync_already_mapped_leaves_one_row() {
             raw: BlobId::generate(),
             message: m.clone(),
         });
-        store.ingest(ACCOUNT, there).unwrap();
+        store.ingest(acct_account(), there).unwrap();
         store
-            .remap(ACCOUNT, &graph("INBOX", "old"), &graph("Archive", "new"))
+            .remap(
+                acct_account(),
+                &graph("INBOX", "old"),
+                &graph("Archive", "new"),
+            )
             .unwrap();
         store.remotes_of(m.id).unwrap()
     });
@@ -172,7 +183,11 @@ fn a_remap_onto_an_address_a_sync_already_mapped_leaves_one_row() {
 fn remapping_an_address_nobody_holds_does_nothing() {
     let (sqlite, memory) = both(|store| {
         store
-            .remap(ACCOUNT, &graph("INBOX", "never"), &graph("Archive", "x"))
+            .remap(
+                acct_account(),
+                &graph("INBOX", "never"),
+                &graph("Archive", "x"),
+            )
             .unwrap();
         store.remote_refs(&mailbox("Archive")).unwrap()
     });

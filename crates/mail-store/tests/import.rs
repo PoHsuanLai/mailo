@@ -2,15 +2,18 @@
 //! `remote_map` row — on both stores, with the same answers.
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_store::{MemoryStore, SqliteStore, Store};
+use porter_core::AccountId;
 
 fn at(n: i64) -> DateTime<Utc> {
     Utc.timestamp_opt(1_700_000_000 + n, 0).unwrap()
 }
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b1"))
+}
 
 /// Stored bytes for message `n`, so the body's foreign key holds.
 fn raw(store: &SqliteStore, n: i64) -> BlobId {
@@ -28,7 +31,7 @@ fn sqlite() -> (SqliteStore, tempfile::TempDir) {
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'local folders', '{}', datetime('now'))",
-            [ACCOUNT.to_string()],
+            [acct_account().to_string()],
         )
         .unwrap();
     (store, dir)
@@ -41,7 +44,7 @@ fn kept(key: &str, n: i64, raw: BlobId, labels: &[&str]) -> Kept {
         message: Message {
             id: MessageId::generate(),
             thread: ThreadId::generate(),
-            account: ACCOUNT,
+            account: acct_account(),
             key: MessageKey::Rfc(key.to_owned()),
             date: at(n),
             from: Address {
@@ -84,7 +87,7 @@ fn held(store: &dyn Store) -> Vec<(String, usize, usize)> {
     let page = store
         .threads(
             &Query {
-                filter: Filter::Account(ACCOUNT),
+                filter: Filter::Account(acct_account()),
                 sort: Sort {
                     property: Property::Date,
                     dir: SortDir::Asc,
@@ -113,7 +116,7 @@ fn run(store: &dyn Store, raws: [BlobId; 2]) -> Vec<(String, usize, usize)> {
     let [ra, rb] = raws;
     let first = store
         .import(
-            ACCOUNT,
+            acct_account(),
             Import {
                 messages: vec![kept("a@x", 1, ra, &["Receipts"]), kept("b@x", 2, rb, &[])],
             },
@@ -124,7 +127,7 @@ fn run(store: &dyn Store, raws: [BlobId; 2]) -> Vec<(String, usize, usize)> {
     // The same file again, where one copy of `a` now also sits in another folder.
     let second = store
         .import(
-            ACCOUNT,
+            acct_account(),
             Import {
                 messages: vec![
                     kept("a@x", 1, ra, &["Receipts"]),
@@ -137,12 +140,12 @@ fn run(store: &dyn Store, raws: [BlobId; 2]) -> Vec<(String, usize, usize)> {
     assert_eq!(added(&second), 0, "nothing is kept twice");
     assert!(
         store
-            .holds(ACCOUNT, &MessageKey::Rfc("a@x".into()))
+            .holds(acct_account(), &MessageKey::Rfc("a@x".into()))
             .unwrap()
     );
     assert!(
         !store
-            .holds(ACCOUNT, &MessageKey::Rfc("c@x".into()))
+            .holds(acct_account(), &MessageKey::Rfc("c@x".into()))
             .unwrap()
     );
     held(store)
@@ -176,13 +179,13 @@ fn an_imported_label_is_the_users_own() {
     let (sqlite, _dir) = sqlite();
     sqlite
         .import(
-            ACCOUNT,
+            acct_account(),
             Import {
                 messages: vec![kept("a@x", 1, raw(&sqlite, 1), &["Receipts"])],
             },
         )
         .unwrap();
-    let labels = sqlite.labels(ACCOUNT).unwrap();
+    let labels = sqlite.labels(acct_account()).unwrap();
     assert_eq!(labels.len(), 1);
     assert_eq!(labels[0].name, "Receipts");
     assert_eq!(labels[0].origin, LabelOrigin::User);
@@ -193,7 +196,7 @@ fn nothing_done_to_imported_mail_is_queued_for_a_server() {
     let (sqlite, _dir) = sqlite();
     let patch = sqlite
         .import(
-            ACCOUNT,
+            acct_account(),
             Import {
                 messages: vec![kept("a@x", 1, raw(&sqlite, 1), &[])],
             },
@@ -204,7 +207,7 @@ fn nothing_done_to_imported_mail_is_queued_for_a_server() {
     };
     let queued = sqlite
         .enqueue(
-            ACCOUNT,
+            acct_account(),
             RemoteIntent::SetFlags {
                 messages: vec![message.id],
                 read: Some(ReadState::Unread),
@@ -224,10 +227,12 @@ fn nothing_done_to_imported_mail_is_queued_for_a_server() {
 fn an_upload_resolves_to_the_same_append_on_both_stores() {
     let (sqlite, _dir) = sqlite();
     let memory = MemoryStore::new();
-    memory.import(ACCOUNT, Import { messages: vec![] }).unwrap();
+    memory
+        .import(acct_account(), Import { messages: vec![] })
+        .unwrap();
     let intent = RemoteIntent::Append {
         mailbox: MailboxRef {
-            account: ACCOUNT,
+            account: acct_account(),
             path: "Archive".into(),
         },
         flags: vec![SystemFlag::Seen],
@@ -240,10 +245,10 @@ fn an_upload_resolves_to_the_same_append_on_both_stores() {
     };
     for store in [&sqlite as &dyn Store, &memory] {
         store
-            .enqueue(ACCOUNT, intent.clone(), &undo, at(4))
+            .enqueue(acct_account(), intent.clone(), &undo, at(4))
             .unwrap()
             .expect("an upload addresses no existing message and is always queued");
-        let due = store.outbox_due(ACCOUNT, at(4)).unwrap();
+        let due = store.outbox_due(acct_account(), at(4)).unwrap();
         let RemoteIntent::Append {
             mailbox,
             flags,

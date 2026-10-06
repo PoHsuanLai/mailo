@@ -8,10 +8,10 @@
 use chrono::{DateTime, Utc};
 use mail_domain::folder::{FolderContents, FolderCtx, plan};
 use mail_domain::{
-    AccountId, Applied, Folder, FolderError, FolderWork, Holds, Incoming, MailboxRef, NonEmpty,
-    Subscription,
+    Applied, Folder, FolderError, FolderWork, Holds, Incoming, MailboxRef, NonEmpty, Subscription,
 };
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 use std::fmt::Write as _;
 
 /// Why a folder change did not happen.
@@ -44,13 +44,13 @@ pub fn change(
         .find(|c| c.id == account)
         .ok_or(Refusal::NoAccount)?;
     let failed = |e: mail_store::StoreError| Refusal::Store(e.to_string());
-    let folders = store.folders(account).map_err(failed)?;
-    let labels = store.labels(account).map_err(failed)?;
+    let folders = store.folders(account.clone()).map_err(failed)?;
+    let labels = store.labels(account.clone()).map_err(failed)?;
     let contents = match &work {
         // Only a delete reads it, and only a delete needs the cost of asking.
         FolderWork::Delete { path, .. } => store
             .folder_contents(&MailboxRef {
-                account,
+                account: account.clone(),
                 path: path.clone(),
             })
             .map_err(failed)?,
@@ -59,7 +59,7 @@ pub fn change(
     let applied = plan(
         &work,
         &FolderCtx {
-            account,
+            account: account.clone(),
             incoming: &configured.plan.incoming,
             caps: &configured.caps,
             folders: &folders,
@@ -67,11 +67,13 @@ pub fn change(
             contents: &contents,
         },
     )?;
-    store.apply(account, &applied.forward).map_err(failed)?;
+    store
+        .apply(account.clone(), &applied.forward)
+        .map_err(failed)?;
     if let Some(intent) = applied.remote.clone() {
         // Unlike a flag change, a folder that exists only here is a folder the server will
         // contradict at the next listing. If it cannot be queued, it is not made at all.
-        if let Err(e) = store.enqueue(account, intent, &applied.inverse, now) {
+        if let Err(e) = store.enqueue(account.clone(), intent, &applied.inverse, now) {
             let _ = store.apply(account, &applied.inverse);
             return Err(failed(e));
         }
@@ -88,7 +90,7 @@ pub fn list(store: &SqliteStore, account: Option<AccountId>) -> Result<String, S
     let mut out = String::new();
     for configured in accounts
         .iter()
-        .filter(|c| account.is_none_or(|a| a == c.id))
+        .filter(|c| account.clone().is_none_or(|a| a == c.id))
     {
         let _ = writeln!(out, "{}", configured.address);
         match configured.plan.incoming {
@@ -105,7 +107,9 @@ pub fn list(store: &SqliteStore, account: Option<AccountId>) -> Result<String, S
             }
             Incoming::Imap { .. } | Incoming::Graph | Incoming::Jmap { .. } => {}
         }
-        let folders = store.folders(configured.id).map_err(|e| e.to_string())?;
+        let folders = store
+            .folders(configured.id.clone())
+            .map_err(|e| e.to_string())?;
         if folders.is_empty() {
             let _ = writeln!(
                 out,

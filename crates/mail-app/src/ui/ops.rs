@@ -1,6 +1,7 @@
 use crate::ui::view::op_for;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 
 /// The composer pane.
 ///
@@ -44,7 +45,7 @@ pub(super) fn start_new(
     known: &[(String, AccountId)],
 ) -> Result<Draft, String> {
     let account = match known.first() {
-        Some((_, id)) => *id,
+        Some((_, id)) => id.clone(),
         None => mail_core::compose::account_for(store, None)?,
     };
     // No recipients and no subject: there is no original to take either from, and a guess is
@@ -154,7 +155,7 @@ pub(super) use mail_core::act::{caps_here, destroy, perform, take_back};
 #[cfg(test)]
 mod tests {
     use super::apply_op;
-    use crate::ui::fixtures::{ACCOUNT, gmail_caps, inbox_query, realistic};
+    use crate::ui::fixtures::{acct_account, gmail_caps, inbox_query, realistic};
     use mail_domain::*;
     use mail_store::{SqliteStore, Store};
 
@@ -187,7 +188,9 @@ mod tests {
 
             assert!(apply_op(&store, thread, OpKind::Archive));
 
-            let queued = store.outbox_due(ACCOUNT, chrono::Utc::now()).unwrap();
+            let queued = store
+                .outbox_due(acct_account(), chrono::Utc::now())
+                .unwrap();
             let intents: Vec<&ProtoOp> = queued.iter().map(|entry| &entry.op).collect();
             assert!(
                 intents.iter().any(|op| matches!(
@@ -210,7 +213,9 @@ mod tests {
 
             assert!(apply_op(&store, thread, OpKind::MarkRead));
 
-            let queued = store.outbox_due(ACCOUNT, chrono::Utc::now()).unwrap();
+            let queued = store
+                .outbox_due(acct_account(), chrono::Utc::now())
+                .unwrap();
             assert!(
                 queued
                     .iter()
@@ -236,7 +241,7 @@ mod tests {
                 .execute(
                     "UPDATE account_caps SET caps = ?2 WHERE account = ?1",
                     rusqlite::params![
-                        ACCOUNT.to_string(),
+                        acct_account().to_string(),
                         serde_json::to_string(&local_only).unwrap()
                     ],
                 )
@@ -244,7 +249,9 @@ mod tests {
             let thread = first_thread(&store);
 
             assert!(apply_op(&store, thread, OpKind::Archive));
-            let queued = store.outbox_due(ACCOUNT, chrono::Utc::now()).unwrap();
+            let queued = store
+                .outbox_due(acct_account(), chrono::Utc::now())
+                .unwrap();
             assert!(
                 !queued
                     .iter()
@@ -261,7 +268,9 @@ mod tests {
             let thread = first_thread(&store);
 
             assert!(apply_op(&store, thread, OpKind::Pin));
-            let queued = store.outbox_due(ACCOUNT, chrono::Utc::now()).unwrap();
+            let queued = store
+                .outbox_due(acct_account(), chrono::Utc::now())
+                .unwrap();
             assert!(
                 queued.is_empty(),
                 "{:?}",

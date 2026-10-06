@@ -7,7 +7,7 @@
 //! account changes nothing: it is already there.
 
 use super::Scope;
-use mail_domain::AccountId;
+use porter_core::AccountId;
 
 /// Whether an account is to be in a Space.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -22,11 +22,11 @@ pub fn with_member(scope: &Scope, account: AccountId, member: Member, all: &[Acc
     match (scope, member) {
         (Scope::All, Member::In) => Scope::All,
         (Scope::All, Member::Out) => {
-            Scope::Accounts(all.iter().copied().filter(|id| *id != account).collect())
+            Scope::Accounts(all.iter().filter(|&id| *id != account).cloned().collect())
         }
         (Scope::Accounts(ids), Member::In) if ids.contains(&account) => scope.clone(),
         (Scope::Accounts(ids), Member::In) => {
-            let ids: Vec<AccountId> = ids.iter().copied().chain([account]).collect();
+            let ids: Vec<AccountId> = ids.iter().cloned().chain([account]).collect();
             // Every account again is a Space over every account, so one added later shows too.
             if all.iter().all(|id| ids.contains(id)) {
                 Scope::All
@@ -35,7 +35,7 @@ pub fn with_member(scope: &Scope, account: AccountId, member: Member, all: &[Acc
             }
         }
         (Scope::Accounts(ids), Member::Out) => {
-            Scope::Accounts(ids.iter().copied().filter(|id| *id != account).collect())
+            Scope::Accounts(ids.iter().filter(|&id| *id != account).cloned().collect())
         }
     }
 }
@@ -44,11 +44,11 @@ pub fn with_member(scope: &Scope, account: AccountId, member: Member, all: &[Acc
 mod tests {
     use super::{Member, with_member};
     use crate::ui::space::Scope;
-    use mail_domain::AccountId;
+    use porter_core::AccountId;
     use uuid::Uuid;
 
     fn account(n: u128) -> AccountId {
-        AccountId::from_uuid(Uuid::from_u128(n))
+        mail_domain::id::account_id_from_uuid(Uuid::from_u128(n))
     }
 
     fn of(ns: &[u128]) -> Scope {

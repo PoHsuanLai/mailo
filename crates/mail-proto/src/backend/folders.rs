@@ -6,7 +6,8 @@
 use crate::imap::ImapCommand;
 use crate::machine::ProtoError;
 use crate::mutf7;
-use mail_domain::{AccountId, Folder, FolderWork, Holds, NonEmpty, SpecialUse, Subscription};
+use mail_domain::{Folder, FolderWork, Holds, NonEmpty, SpecialUse, Subscription};
+use porter_core::AccountId;
 
 /// The commands one piece of folder work is, in order, on one connection.
 pub(crate) fn folder_commands(work: &FolderWork) -> Vec<ImapCommand> {
@@ -95,7 +96,7 @@ pub(crate) fn listing(untagged: &[crate::Untagged], account: AccountId) -> Vec<F
             Holds::Mail
         };
         listed.push(Folder {
-            account,
+            account: account.clone(),
             path,
             delimiter: delimiter.and_then(|d| d.chars().next()),
             special,

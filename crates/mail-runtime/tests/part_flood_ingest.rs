@@ -7,13 +7,16 @@
 //! only worth anything if it keeps being checked, so the measurements are assertions now.
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_runtime::{Arrival, absorb};
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 use std::time::Instant;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 
 fn now() -> DateTime<Utc> {
     Utc.timestamp_opt(1_700_000_000, 0).unwrap()
@@ -50,7 +53,7 @@ fn seeded() -> (SqliteStore, tempfile::TempDir) {
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [ACCOUNT.to_string()],
+            [acct_account().to_string()],
         )
         .unwrap();
     (store, dir)
@@ -59,9 +62,9 @@ fn seeded() -> (SqliteStore, tempfile::TempDir) {
 fn ingest(store: &SqliteStore, raw: Vec<u8>) {
     absorb(
         store,
-        ACCOUNT,
+        acct_account(),
         MailboxRef {
-            account: ACCOUNT,
+            account: acct_account(),
             path: "INBOX".to_owned(),
         },
         Some(SyncCursor::Pop),

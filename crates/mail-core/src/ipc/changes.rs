@@ -15,7 +15,7 @@
 //! gone is found the next time its thread writes and fails, and its channel is dropped with it.
 
 use super::wire::{self, Mismatch, Request, Response};
-use mail_domain::AccountId;
+use porter_core::AccountId;
 use std::io::{BufRead, BufReader, Write};
 use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -54,7 +54,7 @@ impl Subscribers {
 
     /// A pass on `account` has ended and may have stored something. Never blocks.
     pub fn tell(&self, account: AccountId) {
-        self.held().retain(|tx| tx.send(account).is_ok());
+        self.held().retain(|tx| tx.send(account.clone()).is_ok());
     }
 
     /// How many are listening, as far as the last [`Subscribers::tell`] could tell: one that

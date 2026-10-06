@@ -4,7 +4,9 @@ use super::SqliteStore;
 use super::row::{from_time, json, to_json, uuid};
 use crate::StoreError;
 use chrono::{DateTime, Utc};
-use mail_domain::{AccountId, Rule, RuleId, Vacation};
+use mail_domain::id::account_id_from_uuid;
+use mail_domain::{Rule, RuleId, Vacation};
+use porter_core::AccountId;
 use rusqlite::{OptionalExtension, params};
 
 const RULE_COLUMNS: &str = "id, account, name, position, state, filter, actions, after";
@@ -21,7 +23,7 @@ impl SqliteStore {
         while let Some(row) = rows.next()? {
             out.push(Rule {
                 id: RuleId::from_uuid(uuid("RuleId", &row.get::<_, String>(0)?)?),
-                account: AccountId::from_uuid(uuid("AccountId", &row.get::<_, String>(1)?)?),
+                account: account_id_from_uuid(uuid("AccountId", &row.get::<_, String>(1)?)?),
                 name: row.get(2)?,
                 position: row.get(3)?,
                 state: json("RuleState", &row.get::<_, String>(4)?)?,

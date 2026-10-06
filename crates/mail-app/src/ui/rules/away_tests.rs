@@ -5,18 +5,21 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use chrono::{TimeZone, Utc};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_proto::sieve::{Compiled, SieveCaps, SieveOutcome, Unmappable, VacationPlaced};
 use mail_runtime::sieve::Pushed;
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 
 use super::away::{self, Away, Reply};
 use super::server::{Push, put, reach};
 use crate::ui::data::{AccountRow, account_rows};
 
 /// A mail server of the user's own, reached with a password: one that offers ManageSieve.
-pub(super) const OWN: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000c1"));
+pub(super) fn acct_own() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000c1"))
+}
 
 /// Add an account on `imap.nowhere.example`, as `account add` would with its hosts typed.
 pub(super) fn own_server(store: &SqliteStore) -> AccountRow {
@@ -33,7 +36,7 @@ pub(super) fn own_server(store: &SqliteStore) -> AccountRow {
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at) VALUES (?1, ?2, ?3, ?4)",
             [
-                OWN.to_string(),
+                acct_own().to_string(),
                 preset.plan.address.clone(),
                 serde_json::to_string(&preset.plan).unwrap(),
                 Utc::now().to_rfc3339(),
@@ -41,11 +44,11 @@ pub(super) fn own_server(store: &SqliteStore) -> AccountRow {
         )
         .unwrap();
     store
-        .put_caps(OWN, &preset.expected_caps, Utc::now())
+        .put_caps(acct_own(), &preset.expected_caps, Utc::now())
         .unwrap();
     account_rows(store)
         .into_iter()
-        .find(|row| row.id == OWN)
+        .find(|row| row.id == acct_own())
         .unwrap()
 }
 
@@ -76,14 +79,17 @@ fn a_reply_kept_from_the_sheet_reads_back_as_it_was_typed() {
         fresh.addresses, "me@nowhere.example",
         "the account's own address is not offered"
     );
-    assert_eq!(store.vacation(OWN).unwrap(), None);
+    assert_eq!(store.vacation(acct_own()).unwrap(), None);
 
     let said = away::save(&store, &row, &filled("2026-10-12 09:00"), now(), &Utc).unwrap();
     assert!(
         said.starts_with("Saved: “Away until October”, from "),
         "{said}"
     );
-    let kept = store.vacation(OWN).unwrap().expect("nothing was kept");
+    let kept = store
+        .vacation(acct_own())
+        .unwrap()
+        .expect("nothing was kept");
     assert_eq!(kept.subject, "Away until October");
     assert_eq!(
         kept.addresses,
@@ -113,7 +119,7 @@ fn a_reply_kept_from_the_sheet_reads_back_as_it_was_typed() {
         ..back
     };
     away::save(&store, &row, &off, now(), &Utc).unwrap();
-    assert_eq!(store.vacation(OWN).unwrap(), None);
+    assert_eq!(store.vacation(acct_own()).unwrap(), None);
 }
 
 #[test]
@@ -125,7 +131,7 @@ fn a_reply_that_has_already_ended_is_refused_in_words() {
     assert!(why.starts_with("“Until” is already past: "), "{why}");
     assert!(why.contains("answers nobody"), "{why}");
     assert_eq!(
-        store.vacation(OWN).unwrap(),
+        store.vacation(acct_own()).unwrap(),
         None,
         "a refused reply was kept"
     );
@@ -159,7 +165,7 @@ fn a_reply_that_has_already_ended_is_refused_in_words() {
 pub(super) fn answering(calls: Arc<AtomicUsize>) -> Push {
     Arc::new(move |store: &SqliteStore, account, _now| {
         calls.fetch_add(1, Ordering::SeqCst);
-        assert!(store.vacation(account.id).is_ok());
+        assert!(store.vacation(account.id.clone()).is_ok());
         Ok(Pushed {
             compiled: Compiled {
                 script: String::new(),

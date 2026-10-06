@@ -4,11 +4,14 @@
 //! one. WAL lets a reader run beside a writer and does nothing for two writers: SQLite serialises
 //! them, and the second either waits or is told "database is locked".
 
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_store::SqliteStore;
+use porter_core::AccountId;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 
 fn opened(dir: &std::path::Path) -> SqliteStore {
     let store = SqliteStore::open(dir.join("mail.db"), dir).unwrap();
@@ -17,7 +20,7 @@ fn opened(dir: &std::path::Path) -> SqliteStore {
         .execute(
             "INSERT OR IGNORE INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [ACCOUNT.to_string()],
+            [acct_account().to_string()],
         )
         .unwrap();
     store
@@ -77,7 +80,7 @@ fn a_write_held_open_makes_the_other_wait_the_timeout_and_then_say_so() {
     held.execute(
         "INSERT INTO labels (id, account, name, color, origin)
          VALUES (?1, ?2, 'held', NULL, '\"provider\"')",
-        rusqlite::params![LabelId::generate().to_string(), ACCOUNT.to_string()],
+        rusqlite::params![LabelId::generate().to_string(), acct_account().to_string()],
     )
     .unwrap();
 
@@ -85,7 +88,7 @@ fn a_write_held_open_makes_the_other_wait_the_timeout_and_then_say_so() {
     let outcome = b.connection().execute(
         "INSERT INTO labels (id, account, name, color, origin)
          VALUES (?1, ?2, 'other', NULL, '\"provider\"')",
-        rusqlite::params![LabelId::generate().to_string(), ACCOUNT.to_string()],
+        rusqlite::params![LabelId::generate().to_string(), acct_account().to_string()],
     );
     let waited = started.elapsed();
     held.execute_batch("COMMIT").unwrap();

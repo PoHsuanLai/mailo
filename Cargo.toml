@@ -31,6 +31,13 @@ mail-pim    = { path = "crates/mail-pim" }
 mail-proto  = { path = "crates/mail-proto" }
 mail-runtime = { path = "crates/mail-runtime" }
 mail-store  = { path = "crates/mail-store" }
+# The accounts system's vocabulary, pinned by git rev like quire (porter is public). mailo names its
+# accounts, their secrets and their OAuth issuers with porter's types instead of its own, so the
+# desktop's accounts daemon and mailo agree on what an account is (PLAN section 4, step E1).
+# porter-core and porter-provider are pure (serde, serde_json, thiserror, toml): no zbus and no
+# tokio, so the macOS and Windows builds are unaffected.
+porter-core = { git = "https://github.com/PoHsuanLai/porter", rev = "74f0b2370001a33d006cb59d43f5f3b994fcf5ba" }
+porter-provider = { git = "https://github.com/PoHsuanLai/porter", rev = "74f0b2370001a33d006cb59d43f5f3b994fcf5ba" }
 serde       = { version = "1", features = ["derive"] }
 chrono      = { version = "0.4", features = ["serde"] }
 uuid        = { version = "1", features = ["v4", "serde"] }

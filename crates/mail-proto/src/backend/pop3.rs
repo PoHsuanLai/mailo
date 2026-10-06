@@ -3,9 +3,9 @@
 use crate::machine::{Backend, IoReady, Machine, Progress, ProtoError, ProtoOutcome};
 use crate::pop3::{Pop3Command, Pop3Reply, Pop3Session};
 use mail_domain::{
-    AccountCaps, AccountId, FetchSince, Ingest, MailboxRef, ProtoOp, RemoteRef, SyncCursor,
-    UidValidity,
+    AccountCaps, FetchSince, Ingest, MailboxRef, ProtoOp, RemoteRef, SyncCursor, UidValidity,
 };
+use porter_core::AccountId;
 
 /// What the backend is in the middle of.
 ///
@@ -399,7 +399,7 @@ fn supported(lines: &[String], name: &str) -> mail_domain::Supported {
 /// The account this backend serves.
 impl Pop3Backend {
     pub fn account(&self) -> AccountId {
-        self.account
+        self.account.clone()
     }
 }
 

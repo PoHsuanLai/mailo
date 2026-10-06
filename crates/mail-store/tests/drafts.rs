@@ -9,15 +9,18 @@
 //! So these tests ask the question directly, of both, and compare.
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_store::{MemoryStore, SqliteStore, Store, StoreError};
+use porter_core::AccountId;
 
 fn at(n: i64) -> DateTime<Utc> {
     Utc.timestamp_opt(1_700_000_000 + n, 0).unwrap()
 }
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 const IDENTITY: IdentityId =
     IdentityId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b1"));
 
@@ -36,13 +39,13 @@ fn both() -> Both {
         db.execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [ACCOUNT.to_string()],
+            [acct_account().to_string()],
         )
         .unwrap();
         db.execute(
             "INSERT INTO identities (id, account, from_name, from_email, is_default)
              VALUES (?1, ?2, 'Me', 'me@example.test', '\"default\"')",
-            [IDENTITY.to_string(), ACCOUNT.to_string()],
+            [IDENTITY.to_string(), acct_account().to_string()],
         )
         .unwrap();
     }
@@ -64,7 +67,7 @@ fn addr(email: &str) -> Address {
 fn full_draft(in_reply_to: Option<MessageId>) -> Draft {
     Draft {
         id: DraftId::generate(),
-        account: ACCOUNT,
+        account: acct_account(),
         identity: IDENTITY,
         to: vec![addr("one@example.test"), addr("two@example.test")],
         cc: vec![addr("carbon@example.test")],
@@ -88,8 +91,8 @@ fn upsert(b: &Both, draft: &Draft) {
         id: ChangeId::generate(),
         changes: vec![Change::DraftUpsert(Box::new(draft.clone()))],
     };
-    b.sqlite.apply(ACCOUNT, &patch).unwrap();
-    b.memory.apply(ACCOUNT, &patch).unwrap();
+    b.sqlite.apply(acct_account(), &patch).unwrap();
+    b.memory.apply(acct_account(), &patch).unwrap();
 }
 
 #[test]
@@ -151,14 +154,14 @@ fn drafts_list_newest_first_in_both_stores() {
 
     let sqlite: Vec<DraftId> = b
         .sqlite
-        .drafts(ACCOUNT)
+        .drafts(acct_account())
         .unwrap()
         .iter()
         .map(|d| d.id)
         .collect();
     let memory: Vec<DraftId> = b
         .memory
-        .drafts(ACCOUNT)
+        .drafts(acct_account())
         .unwrap()
         .iter()
         .map(|d| d.id)
@@ -178,8 +181,8 @@ fn saving_the_same_draft_again_updates_rather_than_duplicates() {
     draft.updated = at(20);
     upsert(&b, &draft);
 
-    assert_eq!(b.sqlite.drafts(ACCOUNT).unwrap().len(), 1);
-    assert_eq!(b.memory.drafts(ACCOUNT).unwrap().len(), 1);
+    assert_eq!(b.sqlite.drafts(acct_account()).unwrap().len(), 1);
+    assert_eq!(b.memory.drafts(acct_account()).unwrap().len(), 1);
     assert_eq!(b.sqlite.draft(draft.id).unwrap().subject, "edited");
     assert_eq!(b.memory.draft(draft.id).unwrap().subject, "edited");
 }
@@ -193,8 +196,8 @@ fn deleting_a_draft_removes_it_from_both() {
         id: ChangeId::generate(),
         changes: vec![Change::DraftDelete(draft.id)],
     };
-    b.sqlite.apply(ACCOUNT, &patch).unwrap();
-    b.memory.apply(ACCOUNT, &patch).unwrap();
+    b.sqlite.apply(acct_account(), &patch).unwrap();
+    b.memory.apply(acct_account(), &patch).unwrap();
 
     assert!(matches!(
         b.sqlite.draft(draft.id),
@@ -258,7 +261,7 @@ fn ingest_one(b: &Both) -> MessageId {
     let message = Message {
         id: MessageId::generate(),
         thread,
-        account: ACCOUNT,
+        account: acct_account(),
         key: MessageKey::Rfc("original@example.test".to_owned()),
         date: at(0),
         from: addr("sender@example.test"),
@@ -283,7 +286,7 @@ fn ingest_one(b: &Both) -> MessageId {
     let id = message.id;
     let ingest = Ingest {
         mailbox: MailboxRef {
-            account: ACCOUNT,
+            account: acct_account(),
             path: "INBOX".to_owned(),
         },
         validity: UidValidity::Same,
@@ -301,8 +304,8 @@ fn ingest_one(b: &Both) -> MessageId {
         label_names: Vec::new(),
         gone: vec![],
     };
-    b.sqlite.ingest(ACCOUNT, ingest.clone()).unwrap();
-    b.memory.ingest(ACCOUNT, ingest).unwrap();
+    b.sqlite.ingest(acct_account(), ingest.clone()).unwrap();
+    b.memory.ingest(acct_account(), ingest).unwrap();
     id
 }
 
@@ -427,11 +430,11 @@ fn a_keyword_intent_resolves_to_the_same_operation_in_both_stores() {
     for store in [&b.sqlite as &dyn Store, &b.memory] {
         assert!(
             store
-                .enqueue(ACCOUNT, intent.clone(), &nothing, at(1))
+                .enqueue(acct_account(), intent.clone(), &nothing, at(1))
                 .unwrap()
                 .is_some()
         );
-        let due = store.outbox_due(ACCOUNT, at(1_000)).unwrap();
+        let due = store.outbox_due(acct_account(), at(1_000)).unwrap();
         assert_eq!(due.len(), 1);
         ops.push(due[0].op.clone());
     }

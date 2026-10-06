@@ -1,6 +1,8 @@
 use crate::ui::view::Listing;
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 
 /// How many rows the list pane asks for at a time.
 pub(super) const PAGE: u32 = 100;
@@ -74,7 +76,7 @@ pub(super) fn account_rows(store: &SqliteStore) -> Vec<AccountRow> {
     };
     rows.filter_map(|row| row.ok())
         .filter_map(|(id, address, plan)| {
-            let id = AccountId::from_uuid(id.parse().ok()?);
+            let id = account_id_from_uuid(id.parse().ok()?);
             let plan = serde_json::from_str(&plan).unwrap_or_else(|_| fallback_plan(&address));
             Some(AccountRow { id, address, plan })
         })
@@ -108,7 +110,7 @@ pub(super) fn syncs_nothing(
 ) -> bool {
     let in_view: Vec<&AccountRow> = rows
         .iter()
-        .filter(|row| scope.narrowed(pressed).shows(row.id))
+        .filter(|row| scope.narrowed(pressed.clone()).shows(row.id.clone()))
         .collect();
     !in_view.is_empty() && in_view.iter().all(|row| row.is_local())
 }
@@ -148,7 +150,7 @@ pub(super) fn known_accounts(store: &SqliteStore) -> Result<Vec<AccountId>, rusq
     Ok(ids
         .into_iter()
         .filter_map(|id| id.parse().ok())
-        .map(AccountId::from_uuid)
+        .map(mail_domain::id::account_id_from_uuid)
         .collect())
 }
 
@@ -163,6 +165,6 @@ pub(super) fn accounts(store: &SqliteStore) -> Vec<AccountId> {
     };
     rows.filter_map(|row| row.ok())
         .filter_map(|id| id.parse().ok())
-        .map(AccountId::from_uuid)
+        .map(mail_domain::id::account_id_from_uuid)
         .collect()
 }

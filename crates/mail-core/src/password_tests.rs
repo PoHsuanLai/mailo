@@ -3,9 +3,11 @@
 
 use super::Password;
 use crate::account::{Credentials, add_with_password};
-use mail_domain::{AccountId, Credential, SecretKey, SecretPurpose};
+use mail_domain::id::account_id_from_uuid;
 use mail_runtime::{MapSecrets, OAuthRegistry, Secrets};
 use mail_store::SqliteStore;
+use porter_core::SecretText;
+use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
 
 const SECRET: &str = "hunter2-correct-horse";
 
@@ -52,7 +54,7 @@ fn account_of(store: &SqliteStore, address: &str) -> AccountId {
             |r| r.get(0),
         )
         .unwrap();
-    AccountId::from_uuid(id.parse().unwrap())
+    account_id_from_uuid(id.parse().unwrap())
 }
 
 /// Every text column of every table, joined: where a password written to SQLite would be.
@@ -114,8 +116,17 @@ fn add_with_password_keeps_the_password_in_the_store_it_is_handed_and_nowhere_el
         SecretPurpose::IncomingPassword,
         SecretPurpose::OutgoingPassword,
     ] {
-        let kept = secrets.get(&SecretKey { account, purpose }).unwrap();
-        assert_eq!(kept, Credential::Password(SECRET.to_owned()), "{purpose:?}");
+        let kept = secrets
+            .get(&SecretKey {
+                account: account.clone(),
+                purpose,
+            })
+            .unwrap();
+        assert_eq!(
+            kept,
+            Credential::Password(SecretText::new(SECRET.to_owned())),
+            "{purpose:?}"
+        );
     }
     assert!(
         !everything_in(&store).contains(SECRET),
@@ -190,11 +201,14 @@ fn a_jmap_bearer_token_goes_where_a_password_would_and_the_plan_says_bearer() {
     let account = account_of(&store, "me@example.test");
     let kept = secrets
         .get(&SecretKey {
-            account,
+            account: account.clone(),
             purpose: SecretPurpose::IncomingPassword,
         })
         .unwrap();
-    assert_eq!(kept, Credential::Password(SECRET.to_owned()));
+    assert_eq!(
+        kept,
+        Credential::Password(SecretText::new(SECRET.to_owned()))
+    );
     let plan: String = store
         .connection()
         .query_row(

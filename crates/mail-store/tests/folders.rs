@@ -5,11 +5,14 @@
 //! answers — the parity the rest of the store is held to, for the three new methods.
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_store::{MemoryStore, Settle, SqliteStore, Store};
+use porter_core::AccountId;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 
 fn at(n: i64) -> DateTime<Utc> {
     Utc.timestamp_opt(1_700_000_000 + n, 0).unwrap()
@@ -23,7 +26,7 @@ fn sqlite() -> (SqliteStore, tempfile::TempDir) {
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [ACCOUNT.to_string()],
+            [acct_account().to_string()],
         )
         .unwrap();
     (store, dir)
@@ -38,7 +41,7 @@ fn both<T>(scenario: impl Fn(&dyn Store) -> T) -> (T, T) {
 
 fn folder(path: &str) -> Folder {
     Folder {
-        account: ACCOUNT,
+        account: acct_account(),
         path: path.to_owned(),
         delimiter: Some('/'),
         special: None,
@@ -49,7 +52,7 @@ fn folder(path: &str) -> Folder {
 
 fn mailbox(path: &str) -> MailboxRef {
     MailboxRef {
-        account: ACCOUNT,
+        account: acct_account(),
         path: path.to_owned(),
     }
 }
@@ -66,7 +69,7 @@ fn message(n: u128) -> Message {
     Message {
         id: MessageId::from_uuid(uuid::Uuid::from_u128(n)),
         thread: ThreadId::from_uuid(uuid::Uuid::from_u128(n + 1000)),
-        account: ACCOUNT,
+        account: acct_account(),
         key: MessageKey::Rfc(format!("m{n}@example.test")),
         date: at(n as i64),
         from: Address {
@@ -99,7 +102,7 @@ fn deliver(store: &dyn Store, m: &Message, remotes: &[RemoteRef], labels: &[&str
         };
         store
             .ingest(
-                ACCOUNT,
+                acct_account(),
                 Ingest {
                     mailbox: mailbox(path),
                     validity: UidValidity::Same,
@@ -128,7 +131,7 @@ fn deliver(store: &dyn Store, m: &Message, remotes: &[RemoteRef], labels: &[&str
         let label = provider_label(name);
         store
             .apply(
-                ACCOUNT,
+                acct_account(),
                 &patch(vec![
                     Change::LabelUpsert(label.clone()),
                     Change::MessageLabel(m.id, label.id, Membership::In),
@@ -145,7 +148,7 @@ fn provider_label(name: &str) -> Label {
         .fold(0u128, |h, b| h.wrapping_mul(31).wrapping_add(u128::from(b)));
     Label {
         id: LabelId::from_uuid(uuid::Uuid::from_u128(n)),
-        account: ACCOUNT,
+        account: acct_account(),
         name: name.to_owned(),
         color: None,
         origin: LabelOrigin::Provider,
@@ -154,7 +157,7 @@ fn provider_label(name: &str) -> Label {
 
 fn paths(store: &dyn Store) -> Vec<String> {
     store
-        .folders(ACCOUNT)
+        .folders(acct_account())
         .unwrap()
         .into_iter()
         .map(|f| f.path)
@@ -171,11 +174,11 @@ fn a_listing_is_stored_and_read_back_in_path_order() {
     let (sql, mem) = both(|store| {
         store
             .put_folders(
-                ACCOUNT,
+                acct_account(),
                 vec![folder("Work"), folder("INBOX"), folder("日本語")],
             )
             .unwrap();
-        store.folders(ACCOUNT).unwrap()
+        store.folders(acct_account()).unwrap()
     });
     assert_eq!(sql, mem);
     let paths: Vec<&str> = sql.iter().map(|f| f.path.as_str()).collect();
@@ -187,21 +190,32 @@ fn a_listing_is_stored_and_read_back_in_path_order() {
 fn a_listing_that_predates_queued_work_does_not_undo_it() {
     let (sql, mem) = both(|store| {
         store
-            .put_folders(ACCOUNT, vec![folder("INBOX"), folder("Old")])
+            .put_folders(acct_account(), vec![folder("INBOX"), folder("Old")])
             .unwrap();
         let create = FolderWork::Create {
             path: "New".to_owned(),
         };
         store
-            .apply(ACCOUNT, &patch(vec![Change::FolderUpsert(folder("New"))]))
+            .apply(
+                acct_account(),
+                &patch(vec![Change::FolderUpsert(folder("New"))]),
+            )
             .unwrap();
         store
-            .enqueue(ACCOUNT, RemoteIntent::Folder(create), &patch(vec![]), at(0))
+            .enqueue(
+                acct_account(),
+                RemoteIntent::Folder(create),
+                &patch(vec![]),
+                at(0),
+            )
             .unwrap()
             .expect("folder work is always queued");
         // The server has not heard yet, and lists what it had — plus something made elsewhere.
         store
-            .put_folders(ACCOUNT, vec![folder("INBOX"), folder("Old"), folder("Web")])
+            .put_folders(
+                acct_account(),
+                vec![folder("INBOX"), folder("Old"), folder("Web")],
+            )
             .unwrap();
         paths(store)
     });
@@ -231,7 +245,7 @@ fn a_rename_moves_everything_keyed_by_the_old_name() {
         );
         store
             .put_folders(
-                ACCOUNT,
+                acct_account(),
                 vec![
                     folder("INBOX"),
                     folder("Work"),
@@ -243,7 +257,7 @@ fn a_rename_moves_everything_keyed_by_the_old_name() {
 
         store
             .apply(
-                ACCOUNT,
+                acct_account(),
                 &patch(vec![Change::FolderRename {
                     from: mailbox("Work"),
                     to: "Jobs".to_owned(),
@@ -308,18 +322,21 @@ fn a_confirmed_delete_lets_go_of_the_mailbox_and_what_was_only_there() {
         deliver(store, &only, &[imap("Old", 1)], &[]);
         deliver(store, &also, &[imap("Old", 2), imap("INBOX", 2)], &[]);
         store
-            .put_folders(ACCOUNT, vec![folder("INBOX"), folder("Old")])
+            .put_folders(acct_account(), vec![folder("INBOX"), folder("Old")])
             .unwrap();
         let work = FolderWork::Delete {
             path: "Old".to_owned(),
             non_empty: NonEmpty::Allow,
         };
         store
-            .apply(ACCOUNT, &patch(vec![Change::FolderRemove(mailbox("Old"))]))
+            .apply(
+                acct_account(),
+                &patch(vec![Change::FolderRemove(mailbox("Old"))]),
+            )
             .unwrap();
         let queued = store
             .enqueue(
-                ACCOUNT,
+                acct_account(),
                 RemoteIntent::Folder(work),
                 &patch(vec![Change::FolderUpsert(folder("Old"))]),
                 at(0),
@@ -347,13 +364,18 @@ fn a_confirmed_delete_lets_go_of_the_mailbox_and_what_was_only_there() {
 #[test]
 fn a_refused_create_is_taken_back() {
     let (sql, mem) = both(|store| {
-        store.put_folders(ACCOUNT, vec![folder("INBOX")]).unwrap();
         store
-            .apply(ACCOUNT, &patch(vec![Change::FolderUpsert(folder("New"))]))
+            .put_folders(acct_account(), vec![folder("INBOX")])
+            .unwrap();
+        store
+            .apply(
+                acct_account(),
+                &patch(vec![Change::FolderUpsert(folder("New"))]),
+            )
             .unwrap();
         let queued = store
             .enqueue(
-                ACCOUNT,
+                acct_account(),
                 RemoteIntent::Folder(FolderWork::Create {
                     path: "New".to_owned(),
                 }),
@@ -376,7 +398,7 @@ fn a_refused_create_is_taken_back() {
         (
             before,
             paths(store),
-            store.outbox_due(ACCOUNT, at(2)).unwrap().len(),
+            store.outbox_due(acct_account(), at(2)).unwrap().len(),
         )
     });
     assert_eq!(sql, mem);
@@ -395,7 +417,7 @@ fn a_removed_label_leaves_no_trace_on_the_list() {
         deliver(store, &m, &[imap("INBOX", 1)], &["Receipts"]);
         let label = store.message(m.id).unwrap().labels[0];
         store
-            .apply(ACCOUNT, &patch(vec![Change::LabelRemove(label)]))
+            .apply(acct_account(), &patch(vec![Change::LabelRemove(label)]))
             .unwrap();
         (
             store.message(m.id).unwrap().labels,

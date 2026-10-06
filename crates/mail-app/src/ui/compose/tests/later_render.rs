@@ -51,7 +51,7 @@ fn window(dress: impl FnOnce(&mut Page), before: Before) -> (String, Work) {
         kept.unwrap_or_else(|why| panic!("a template: {why}"));
         let other = mail_core::compose::draft_new(
             &built.store,
-            dom.in_runtime(|| page.peek().from),
+            dom.in_runtime(|| page.peek().from.clone()),
             &[],
             "Thanks for the interview",
             "Thank you for your time today.",

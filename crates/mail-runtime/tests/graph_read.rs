@@ -6,19 +6,24 @@
 //! was asked, with which token, and what the store holds afterwards.
 
 use chrono::{DateTime, TimeDelta, TimeZone, Utc};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_runtime::graph::read::{OverHttp, Reader};
 use mail_runtime::oauth::Endpoints;
 use mail_runtime::{AccountEngine, Held, MapSecrets, Registration, Renewal, Searched, Secrets};
 use mail_store::{SqliteStore, Store};
+use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
+use porter_core::{SecretText, UnixSeconds};
+use porter_provider::Issuer;
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 use tokio::sync::watch;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 
 fn now() -> DateTime<Utc> {
     Utc.timestamp_opt(1_700_000_000, 0).unwrap()
@@ -241,15 +246,15 @@ fn plan() -> AccountPlan {
 
 fn token(access: &str) -> Credential {
     Credential::OAuth {
-        access: access.to_owned(),
-        refresh: "r1".to_owned(),
-        expires_at: now() + TimeDelta::try_hours(1).unwrap(),
+        access: SecretText::new(access.to_owned()),
+        refresh: SecretText::new("r1".to_owned()),
+        expires_at: UnixSeconds((now() + TimeDelta::try_hours(1).unwrap()).timestamp()),
     }
 }
 
 fn key(purpose: SecretPurpose) -> SecretKey {
     SecretKey {
-        account: ACCOUNT,
+        account: acct_account(),
         purpose,
     }
 }
@@ -269,7 +274,7 @@ fn account(port: u16) -> Account {
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [ACCOUNT.to_string()],
+            [acct_account().to_string()],
         )
         .unwrap();
     let secrets: Arc<dyn Secrets> = Arc::new(MapSecrets::default());
@@ -279,9 +284,9 @@ fn account(port: u16) -> Account {
     secrets
         .put(&key(SecretPurpose::OutgoingPassword), &token("graph-token"))
         .unwrap();
-    let reader = Reader::new(ACCOUNT, caps()).unwrap().at(me(port));
+    let reader = Reader::new(acct_account(), caps()).unwrap().at(me(port));
     let engine = AccountEngine::new(
-        ACCOUNT,
+        acct_account(),
         plan(),
         OverHttp::new(caps()),
         store.clone(),
@@ -298,7 +303,7 @@ fn account(port: u16) -> Account {
 
 fn inbox() -> MailboxRef {
     MailboxRef {
-        account: ACCOUNT,
+        account: acct_account(),
         path: "INBOX".to_owned(),
     }
 }
@@ -408,7 +413,7 @@ async fn folders_are_listed_with_their_children_and_the_well_known_ones_get_role
             .connection()
             .query_row(
                 "SELECT caps FROM account_caps WHERE account = ?1",
-                [ACCOUNT.to_string()],
+                [acct_account().to_string()],
                 |r| r.get::<_, String>(0),
             )
             .unwrap(),
@@ -562,7 +567,7 @@ async fn bodies_arrive_as_the_messages_own_mime_smallest_first() {
 fn queue(store: &SqliteStore, intent: RemoteIntent) {
     store
         .enqueue(
-            ACCOUNT,
+            acct_account(),
             intent,
             &Patch {
                 id: ChangeId::generate(),
@@ -794,13 +799,13 @@ async fn a_refused_token_is_renewed_once_with_both_graph_permissions() {
         ok(json!({ "access_token": "renewed", "token_type": "Bearer", "expires_in": 3600 }))
     }))
     .await;
-    let registration = Registration::new(OAuthIssuer::Microsoft, "client-id").at(Endpoints {
+    let registration = Registration::new(Issuer::Microsoft, "client-id").at(Endpoints {
         auth: format!("http://127.0.0.1:{issuer}/authorize"),
         token: format!("http://127.0.0.1:{issuer}/token"),
     });
     let it = account(port);
     let renewal = Renewal::new(
-        ACCOUNT,
+        acct_account(),
         &plan(),
         registration,
         it.secrets.clone(),
@@ -834,7 +839,7 @@ async fn a_refused_token_is_renewed_once_with_both_graph_permissions() {
         .secrets
         .get(&key(SecretPurpose::OutgoingPassword))
         .unwrap();
-    assert!(matches!(stored, Credential::OAuth { ref access, .. } if access == "renewed"));
+    assert!(matches!(stored, Credential::OAuth { ref access, .. } if access.expose() == "renewed"));
     let first = seen.lock().unwrap()[0].clone();
     assert_eq!(first.header("authorization"), Some("Bearer graph-token"));
 }
@@ -850,7 +855,7 @@ async fn expunging_in_general_is_refused() {
         .unwrap();
     let message = held(&it.store, 1).unwrap();
     // No intent produces an expunge for an account that forbids it; ask the reader directly.
-    let mut reader = Reader::new(ACCOUNT, caps()).unwrap().at(me(port));
+    let mut reader = Reader::new(acct_account(), caps()).unwrap().at(me(port));
     let e = reader
         .run(
             ProtoOp::Expunge {
@@ -903,7 +908,9 @@ async fn deleting_forever_from_deleted_items_or_junk_is_a_permanent_delete_of_ea
         _ => status("400 Bad Request", "{}"),
     }))
     .await;
-    let mut reader = Reader::new(ACCOUNT, listed_caps()).unwrap().at(me(port));
+    let mut reader = Reader::new(acct_account(), listed_caps())
+        .unwrap()
+        .at(me(port));
     let outcome = reader
         .run(
             ProtoOp::Destroy {
@@ -951,7 +958,9 @@ async fn deleting_forever_from_deleted_items_or_junk_is_a_permanent_delete_of_ea
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn nothing_outside_deleted_items_and_junk_is_deleted_forever() {
     let (port, seen) = serve(Arc::new(|_, _| status("204 No Content", ""))).await;
-    let mut reader = Reader::new(ACCOUNT, listed_caps()).unwrap().at(me(port));
+    let mut reader = Reader::new(acct_account(), listed_caps())
+        .unwrap()
+        .at(me(port));
     let e = reader
         .run(
             ProtoOp::Destroy {

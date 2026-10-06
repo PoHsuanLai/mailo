@@ -1,10 +1,14 @@
 //! `folder::plan`: what a folder change is refused for, what it changes here, and its undo.
 
 use mail_domain::folder::{FolderContents, FolderCtx, layered, plan};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
+use porter_core::AccountId;
 use uuid::Uuid;
 
-const ACCOUNT: AccountId = AccountId::from_uuid(Uuid::from_u128(0xacc0));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(Uuid::from_u128(0xacc0))
+}
 
 fn caps(labels: ServerLabels) -> AccountCaps {
     AccountCaps {
@@ -33,7 +37,7 @@ fn imap() -> Incoming {
 
 fn folder(path: &str, special: Option<SpecialUse>) -> Folder {
     Folder {
-        account: ACCOUNT,
+        account: acct_account(),
         path: path.to_owned(),
         delimiter: Some('/'),
         special,
@@ -66,7 +70,7 @@ fn listing() -> Vec<Folder> {
 fn label(name: &str) -> Label {
     Label {
         id: LabelId::from_uuid(Uuid::from_u128(0x1abe1)),
-        account: ACCOUNT,
+        account: acct_account(),
         name: name.to_owned(),
         color: None,
         origin: LabelOrigin::Provider,
@@ -108,7 +112,7 @@ impl World {
         plan(
             &work,
             &FolderCtx {
-                account: ACCOUNT,
+                account: acct_account(),
                 incoming: &self.incoming,
                 caps: &self.caps,
                 folders: &self.folders,
@@ -255,7 +259,7 @@ fn an_empty_folder_is_deleted_and_the_server_is_asked_to_check() {
         .plan(delete("Receipts", NonEmpty::Refuse))
         .unwrap();
     let receipts = MailboxRef {
-        account: ACCOUNT,
+        account: acct_account(),
         path: "Receipts".to_owned(),
     };
     assert_eq!(
@@ -301,7 +305,7 @@ fn deleting_a_gmail_label_removes_the_label_and_keeps_the_mail() {
             Change::MessageLabel(message(2), id, Membership::Out),
             Change::LabelRemove(id),
             Change::FolderRemove(MailboxRef {
-                account: ACCOUNT,
+                account: acct_account(),
                 path: "Receipts".to_owned(),
             }),
         ]
@@ -361,7 +365,7 @@ fn creating_where_labels_are_local_makes_only_the_folder() {
     assert_eq!(
         applied.inverse.changes,
         vec![Change::FolderRemove(MailboxRef {
-            account: ACCOUNT,
+            account: acct_account(),
             path: "Travel/2026".to_owned(),
         })]
     );
@@ -422,7 +426,7 @@ fn a_folder_cannot_be_moved_inside_itself() {
 fn a_rename_is_undone_by_the_rename_back() {
     let applied = World::imap().plan(rename("Work", "Jobs")).unwrap();
     let at = |path: &str| MailboxRef {
-        account: ACCOUNT,
+        account: acct_account(),
         path: path.to_owned(),
     };
     assert_eq!(
@@ -483,7 +487,7 @@ fn queued_work_is_laid_over_a_fresh_listing() {
             subscription: Subscription::Unsubscribed,
         },
     ];
-    let folders = layered(ACCOUNT, listed, &pending);
+    let folders = layered(acct_account(), listed, &pending);
     let paths: Vec<(&str, Subscription)> = folders
         .iter()
         .map(|f| (f.path.as_str(), f.subscription))

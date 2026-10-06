@@ -4,12 +4,15 @@
 use super::*;
 use crate::intents::wire::{Integrity, Invocation, Label, Output, Target};
 use chrono::{TimeZone, Utc};
+use mail_domain::id::{account_id_from_uuid, new_account_id};
 use mail_domain::*;
 use mail_runtime::MapSecrets;
 use mail_store::Store;
+use porter_core::AccountId;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 
 fn thread_of(n: u128) -> ThreadId {
     ThreadId::from_uuid(uuid::Uuid::from_u128(0x7000 + n))
@@ -23,7 +26,7 @@ fn message(store: &SqliteStore, n: u128, subject: &str, body: &str) -> Message {
     Message {
         id: MessageId::from_uuid(uuid::Uuid::from_u128(0x9000 + n)),
         thread: thread_of(n),
-        account: ACCOUNT,
+        account: acct_account(),
         key: MessageKey::Rfc(format!("m{n}@b.c")),
         date: Utc
             .timestamp_opt(1_700_000_000 + n as i64 * 60, 0)
@@ -92,7 +95,7 @@ fn world_opening(opener: Opener) -> (Provider, Arc<SqliteStore>, tempfile::TempD
         db.execute(
             "INSERT INTO accounts (id, address, plan, created_at) VALUES (?1, ?2, ?3, datetime('now'))",
             [
-                ACCOUNT.to_string(),
+                acct_account().to_string(),
                 preset.plan.address.clone(),
                 serde_json::to_string(&preset.plan).expect("plan"),
             ],
@@ -101,12 +104,15 @@ fn world_opening(opener: Opener) -> (Provider, Arc<SqliteStore>, tempfile::TempD
         db.execute(
             "INSERT INTO identities (id, account, from_name, from_email, is_default)
              VALUES (?1, ?2, NULL, 'me@example.test', '\"default\"')",
-            [IdentityId::generate().to_string(), ACCOUNT.to_string()],
+            [
+                IdentityId::generate().to_string(),
+                acct_account().to_string(),
+            ],
         )
         .expect("identity");
         db.execute(
             "INSERT INTO account_caps (account, caps, observed_at) VALUES (?1, ?2, datetime('now'))",
-            rusqlite::params![ACCOUNT.to_string(), serde_json::to_string(&caps()).expect("caps")],
+            rusqlite::params![acct_account().to_string(), serde_json::to_string(&caps()).expect("caps")],
         )
         .expect("caps");
     }
@@ -118,7 +124,7 @@ fn world_opening(opener: Opener) -> (Provider, Arc<SqliteStore>, tempfile::TempD
         let upsert = Change::MessageUpsert(Box::new(message(&store, n, subject, body)));
         store
             .apply(
-                ACCOUNT,
+                acct_account(),
                 &Patch {
                     id: ChangeId::generate(),
                     changes: vec![upsert],
@@ -132,7 +138,7 @@ fn world_opening(opener: Opener) -> (Provider, Arc<SqliteStore>, tempfile::TempD
                 "INSERT INTO remote_map (account, mailbox, uidvalidity, uid, message)
                  VALUES (?1, 'INBOX', 1, ?2, ?3)",
                 rusqlite::params![
-                    ACCOUNT.to_string(),
+                    acct_account().to_string(),
                     n as u32,
                     MessageId::from_uuid(uuid::Uuid::from_u128(0x9000 + n)).to_string()
                 ],
@@ -240,7 +246,7 @@ fn archiving_takes_the_conversation_out_of_the_inbox_and_the_token_puts_it_back(
     );
     // The server is told too, as a click tells it.
     let queued = store
-        .outbox_due(ACCOUNT, Utc::now() + chrono::TimeDelta::days(1))
+        .outbox_due(acct_account(), Utc::now() + chrono::TimeDelta::days(1))
         .expect("outbox");
     assert!(
         queued.iter().any(|entry| matches!(
@@ -326,14 +332,14 @@ fn a_label_is_put_on_and_taken_off_by_name_and_only_when_it_exists() {
     let (provider, store, _dir) = world();
     let label = mail_domain::Label {
         id: LabelId::generate(),
-        account: ACCOUNT,
+        account: acct_account(),
         name: "Work".to_owned(),
         color: None,
         origin: LabelOrigin::User,
     };
     store
         .apply(
-            ACCOUNT,
+            acct_account(),
             &Patch {
                 id: ChangeId::generate(),
                 changes: vec![Change::LabelUpsert(label.clone())],
@@ -608,7 +614,7 @@ fn a_send_is_queued_and_can_be_taken_back_to_a_draft_until_it_is_delivered() {
     assert_eq!(store.draft(draft).expect("kept").state, SendState::Queued);
     assert!(
         store
-            .outbox_due(ACCOUNT, Utc::now() + chrono::TimeDelta::days(1))
+            .outbox_due(acct_account(), Utc::now() + chrono::TimeDelta::days(1))
             .expect("outbox")
             .iter()
             .any(|entry| matches!(entry.op, ProtoOp::Submit { .. })),
@@ -859,7 +865,7 @@ fn a_send_without_a_recipient_or_a_body_asks_for_them_and_leaves_nothing() {
 #[test]
 fn the_sending_account_is_asked_for_when_there_is_a_choice() {
     let (provider, store, _dir) = world();
-    let other = AccountId::generate();
+    let other = new_account_id();
     {
         let db = store.connection();
         db.execute(

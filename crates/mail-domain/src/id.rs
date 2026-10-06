@@ -1,9 +1,25 @@
 //! Locally-assigned identifiers. Every id in this crate is local; the mapping to a remote
 //! server's notion of identity is [`crate::RemoteRef`], and it is many-to-one.
 
+use porter_core::AccountId;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use uuid::Uuid;
+
+/// A fresh account id: a random UUID, which is a valid [`AccountId`] in its hyphenated lowercase
+/// form.
+///
+/// A function here rather than a method because [`AccountId`] is porter's, and what porter's
+/// type holds is text: how mailo mints one is mailo's.
+pub fn new_account_id() -> AccountId {
+    account_id_from_uuid(Uuid::new_v4())
+}
+
+/// The account id that is this UUID's hyphenated lowercase text.
+pub fn account_id_from_uuid(uuid: Uuid) -> AccountId {
+    // Hyphenated lowercase is a slug of 36 bytes, which every `AccountId` grammar accepts.
+    AccountId::parse(&uuid.to_string()).expect("a UUID's text is a valid account id")
+}
 
 macro_rules! uuid_id {
     ($(#[$doc:meta])* $name:ident) => {
@@ -41,10 +57,6 @@ macro_rules! uuid_id {
     };
 }
 
-uuid_id!(
-    /// One configured account.
-    AccountId
-);
 uuid_id!(
     /// One conversation, scoped to an account. Threads are not merged across accounts in v1.
     ThreadId

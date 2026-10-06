@@ -1,7 +1,7 @@
 //! The list pane, driven through the real `App`.
 
 use super::super::app::App;
-use crate::ui::fixtures::{ACCOUNT, Typed, dispatching, seeded};
+use crate::ui::fixtures::{Typed, acct_account, dispatching, seeded};
 use dioxus::prelude::*;
 use dioxus_core::{NoOpMutations, VirtualDom};
 use mail_domain::*;
@@ -111,10 +111,10 @@ mod searching_in_the_window {
         // the ingest path rewrites, so the rows were there and no search could see them.
         store
             .ingest(
-                ACCOUNT,
+                acct_account(),
                 Ingest {
                     mailbox: MailboxRef {
-                        account: ACCOUNT,
+                        account: acct_account(),
                         path: "INBOX".to_owned(),
                     },
                     validity: UidValidity::Same,

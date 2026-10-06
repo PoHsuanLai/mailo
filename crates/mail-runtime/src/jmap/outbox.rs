@@ -27,7 +27,7 @@ impl JmapEngine {
         now: DateTime<Utc>,
         report: &mut SyncReport,
     ) -> Result<(), RuntimeError> {
-        for entry in self.store.outbox_due(self.account, now)? {
+        for entry in self.store.outbox_due(self.account.clone(), now)? {
             let id = entry.id;
             // Addressed as it is reached, as `AccountEngine::drain_outbox` does. A JMAP id does
             // not change when an email moves, so this finds the same one; it matters only for a
@@ -125,7 +125,7 @@ impl JmapEngine {
         report.still_queued = self
             .store
             .outbox_due(
-                self.account,
+                self.account.clone(),
                 now + chrono::TimeDelta::try_days(365).unwrap_or_default(),
             )
             .map(|due| due.len())
@@ -152,7 +152,7 @@ impl JmapEngine {
             .map_or(MailboxRole::Archive, |m| m.roles().filed_as(&mailbox.path));
         crate::assemble::appended(
             &self.store,
-            self.account,
+            self.account.clone(),
             crate::assemble::Destination {
                 mailbox: self.mailbox(),
                 role,

@@ -10,14 +10,18 @@ use mail_app::cli;
 use mail_core::compose;
 use mail_core::pgp::WithSecret;
 use mail_core::smime;
+use mail_domain::id::account_id_from_uuid;
+use mail_domain::signing::{SigningKeyId, SigningKeyRef, SigningSecret};
 use mail_domain::*;
 use mail_mime::smime::{self as cms_smime, Cert, Sealing};
 use mail_runtime::{Arrival, MapSecrets, Secrets};
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 use smime_support::*;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a2"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a2"))
+}
 const IDENTITY: IdentityId =
     IdentityId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b2"));
 const ME: &str = "me@example.test";
@@ -37,13 +41,17 @@ fn seed(store: &SqliteStore) {
     db.execute(
         "INSERT INTO accounts (id, address, plan, created_at)
          VALUES (?1, ?2, '{}', datetime('now'))",
-        [ACCOUNT.to_string(), ME.to_owned()],
+        [acct_account().to_string(), ME.to_owned()],
     )
     .unwrap();
     db.execute(
         "INSERT INTO identities (id, account, from_name, from_email, is_default)
          VALUES (?1, ?2, 'Me', ?3, '\"default\"')",
-        [IDENTITY.to_string(), ACCOUNT.to_string(), ME.to_owned()],
+        [
+            IDENTITY.to_string(),
+            acct_account().to_string(),
+            ME.to_owned(),
+        ],
     )
     .unwrap();
 }
@@ -67,7 +75,7 @@ fn bea() -> cms_smime::Identity {
 fn my_identity() -> Identity {
     Identity {
         id: IDENTITY,
-        account: ACCOUNT,
+        account: acct_account(),
         from: Address {
             name: Some("Me".to_owned()),
             email: ME.to_owned(),
@@ -123,7 +131,7 @@ fn to(addresses: &[&str]) -> Vec<Address> {
 fn draft(store: &SqliteStore, mode: Smime, recipients: &[&str], bcc: &[&str]) -> Draft {
     let mut draft = compose::draft_new(
         store,
-        ACCOUNT,
+        acct_account(),
         &to(recipients),
         "Secret plans",
         "meet at the usual place",
@@ -138,7 +146,10 @@ fn draft(store: &SqliteStore, mode: Smime, recipients: &[&str], bcc: &[&str]) ->
 
 fn submissions(store: &SqliteStore) -> Vec<mail_store::OutboxEntry> {
     store
-        .outbox_due(ACCOUNT, now() + chrono::TimeDelta::try_days(365).unwrap())
+        .outbox_due(
+            acct_account(),
+            now() + chrono::TimeDelta::try_days(365).unwrap(),
+        )
         .unwrap()
 }
 
@@ -160,9 +171,9 @@ fn send(store: &SqliteStore, secrets: &MapSecrets, draft: DraftId) -> Result<Str
 fn arrive(store: &SqliteStore, raw: Vec<u8>) -> Message {
     let ingest = mail_runtime::assemble(
         store,
-        ACCOUNT,
+        acct_account(),
         MailboxRef {
-            account: ACCOUNT,
+            account: acct_account(),
             path: "INBOX".to_owned(),
         },
         MailboxRole::Inbox,
@@ -177,7 +188,7 @@ fn arrive(store: &SqliteStore, raw: Vec<u8>) -> Message {
     )
     .unwrap();
     let id = ingest.messages[0].message.id;
-    store.ingest(ACCOUNT, ingest).unwrap();
+    store.ingest(acct_account(), ingest).unwrap();
     store.message(id).unwrap()
 }
 
@@ -226,12 +237,12 @@ mod identities {
             Some(mine.fingerprint)
         );
         let held = secrets
-            .get(&SecretKey {
-                account: ACCOUNT,
-                purpose: SecretPurpose::Smime(mine.fingerprint),
+            .get_signing(&SigningKeyRef {
+                account: acct_account(),
+                key: SigningKeyId::Smime(mine.fingerprint),
             })
             .unwrap();
-        let Credential::SmimeKey(pem) = held else {
+        let SigningSecret::SmimeKey(pem) = held else {
             panic!("{held:?}");
         };
         assert_eq!(
@@ -297,17 +308,17 @@ mod identities {
         let _serial = serial();
         let (store, _dir, secrets) = with_identity();
         let mine = smime::certs::find(&store, ME).unwrap();
-        let entry = SecretKey {
-            account: ACCOUNT,
-            purpose: SecretPurpose::Smime(mine.fingerprint),
+        let entry = SigningKeyRef {
+            account: acct_account(),
+            key: SigningKeyId::Smime(mine.fingerprint),
         };
         let refused =
             smime::certs::delete(&store, &secrets, &mine, WithSecret::Refuse).unwrap_err();
         assert!(matches!(refused, smime::SmimeError::SecretWouldBeLost(_)));
-        assert!(secrets.get(&entry).is_ok());
+        assert!(secrets.get_signing(&entry).is_ok());
         smime::certs::delete(&store, &secrets, &mine, WithSecret::Confirmed).unwrap();
         assert!(
-            secrets.get(&entry).is_err(),
+            secrets.get_signing(&entry).is_err(),
             "the key is gone from the keyring"
         );
         assert_eq!(store.smime_cert(mine.fingerprint).unwrap(), None);

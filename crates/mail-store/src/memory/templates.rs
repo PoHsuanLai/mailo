@@ -3,7 +3,8 @@
 
 use super::Inner;
 use crate::StoreError;
-use mail_domain::{AccountId, Template, TemplateId};
+use mail_domain::{Template, TemplateId};
+use porter_core::AccountId;
 
 impl Inner {
     pub(super) fn template(&self, id: TemplateId) -> Result<Template, StoreError> {
@@ -32,7 +33,7 @@ impl Inner {
     }
 
     pub(super) fn put_template(&mut self, template: &Template) {
-        self.accounts.insert(template.account);
+        self.accounts.insert(template.account.clone());
         self.templates.insert(template.id, template.clone());
     }
 

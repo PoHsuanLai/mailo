@@ -8,11 +8,14 @@
 
 use chrono::{DateTime, TimeZone, Utc};
 use mail_app::cli::{self, Command, UnsubscribeStep};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 const DEFAULT_IDENTITY: IdentityId =
     IdentityId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b1"));
 const ALIAS_IDENTITY: IdentityId =
@@ -53,7 +56,10 @@ fn seeded() -> (SqliteStore, tempfile::TempDir) {
         db.execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', ?2, datetime('now'))",
-            rusqlite::params![ACCOUNT.to_string(), serde_json::to_string(&plan).unwrap()],
+            rusqlite::params![
+                acct_account().to_string(),
+                serde_json::to_string(&plan).unwrap()
+            ],
         )
         .unwrap();
         for (id, email, default) in [
@@ -63,7 +69,7 @@ fn seeded() -> (SqliteStore, tempfile::TempDir) {
             db.execute(
                 "INSERT INTO identities (id, account, from_name, from_email, is_default)
                  VALUES (?1, ?2, NULL, ?3, ?4)",
-                rusqlite::params![id.to_string(), ACCOUNT.to_string(), email, default],
+                rusqlite::params![id.to_string(), acct_account().to_string(), email, default],
             )
             .unwrap();
         }
@@ -93,7 +99,7 @@ fn list_message(
     let message = Message {
         id,
         thread: thread.unwrap_or_else(ThreadId::generate),
-        account: ACCOUNT,
+        account: acct_account(),
         key: MessageKey::Rfc(rfc_id.clone()),
         date: at(n),
         from: Address {
@@ -126,10 +132,10 @@ fn list_message(
     };
     store
         .ingest(
-            ACCOUNT,
+            acct_account(),
             Ingest {
                 mailbox: MailboxRef {
-                    account: ACCOUNT,
+                    account: acct_account(),
                     path: "INBOX".to_owned(),
                 },
                 validity: UidValidity::Same,
@@ -187,8 +193,13 @@ fn show_lists_every_way_out_and_marks_the_one_it_would_take() {
         "{out}"
     );
     // Showing does nothing.
-    assert!(store.drafts(ACCOUNT).unwrap().is_empty());
-    assert!(store.outbox_due(ACCOUNT, at(1_000)).unwrap().is_empty());
+    assert!(store.drafts(acct_account()).unwrap().is_empty());
+    assert!(
+        store
+            .outbox_due(acct_account(), at(1_000))
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[test]
@@ -203,7 +214,7 @@ fn a_mailto_becomes_a_queued_message_from_the_address_the_list_writes_to() {
     .unwrap();
     assert!(out.contains("queued an unsubscribe message"), "{out}");
 
-    let drafts = store.drafts(ACCOUNT).unwrap();
+    let drafts = store.drafts(acct_account()).unwrap();
     assert_eq!(drafts.len(), 1, "{drafts:?}");
     let draft = &drafts[0];
     // The alias the list mail came to, not the account's default.
@@ -221,7 +232,7 @@ fn a_mailto_becomes_a_queued_message_from_the_address_the_list_writes_to() {
     assert_eq!(draft.text, "unsubscribe lists");
     assert_eq!(draft.state, SendState::Queued);
 
-    let due = store.outbox_due(ACCOUNT, at(1_000)).unwrap();
+    let due = store.outbox_due(acct_account(), at(1_000)).unwrap();
     assert_eq!(due.len(), 1, "nothing was queued");
     let ProtoOp::Submit {
         mail_from,
@@ -254,7 +265,7 @@ fn a_mailto_with_no_subject_says_unsubscribe() {
         &unsubscribe(*message.as_uuid(), UnsubscribeStep::Act),
     )
     .unwrap();
-    let drafts = store.drafts(ACCOUNT).unwrap();
+    let drafts = store.drafts(acct_account()).unwrap();
     assert_eq!(drafts[0].subject, "unsubscribe");
     assert_eq!(drafts[0].text, "");
 }
@@ -308,8 +319,13 @@ fn a_web_page_is_printed_and_nothing_is_sent() {
     .unwrap();
     assert!(out.contains("does not open"), "{out}");
     assert!(out.contains("http://example.test/leave?u=1"), "{out}");
-    assert!(store.drafts(ACCOUNT).unwrap().is_empty());
-    assert!(store.outbox_due(ACCOUNT, at(1_000)).unwrap().is_empty());
+    assert!(store.drafts(acct_account()).unwrap().is_empty());
+    assert!(
+        store
+            .outbox_due(acct_account(), at(1_000))
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[test]

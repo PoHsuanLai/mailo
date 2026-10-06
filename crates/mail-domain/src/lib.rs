@@ -25,6 +25,7 @@ pub mod receipt;
 pub mod remote;
 pub mod retry;
 pub mod rule;
+pub mod signing;
 pub mod smime;
 pub mod state;
 pub mod template;
@@ -32,10 +33,9 @@ pub mod threading;
 pub mod view;
 
 pub use account::{
-    AccountCaps, AccountPlan, ArchiveMeans, AuthPlan, Condstore, ConnectionBudget, Credential,
-    ExpungeMeans, FolderRoles, HttpAuth, Identity, Incoming, LeaveOnServer, MoveExt, OAuthIssuer,
-    Outgoing, SaslMech, SecretKey, SecretPurpose, ServerLabels, ServerThreads, Supported, Tls,
-    Username, WatchMode,
+    AccountCaps, AccountPlan, ArchiveMeans, AuthPlan, Condstore, ConnectionBudget, ExpungeMeans,
+    FolderRoles, HttpAuth, Identity, Incoming, LeaveOnServer, MoveExt, Outgoing, SaslMech,
+    ServerLabels, ServerThreads, Supported, Tls, Username, WatchMode,
 };
 pub use autocrypt::{AutocryptPeer, PreferEncrypt, Sighting};
 pub use content::{Address, Attachment, Body, Inline, Label, PartContent};
@@ -46,8 +46,8 @@ pub use folder::{
     Subscription,
 };
 pub use id::{
-    AccountId, BlobId, ChangeId, DraftId, IdentityId, LabelId, MessageId, OutboxId, RuleId,
-    TemplateId, ThreadId, ViewId,
+    BlobId, ChangeId, DraftId, IdentityId, LabelId, MessageId, OutboxId, RuleId, TemplateId,
+    ThreadId, ViewId,
 };
 pub use ingest::{Fetched, Import, Ingest, Kept};
 pub use invite::{Attendance, InviteAnswer};

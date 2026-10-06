@@ -44,7 +44,7 @@ impl SqliteStore {
         Ok(Message {
             id,
             thread: ThreadId::from_uuid(uuid("ThreadId", &row.get::<_, String>(1)?)?),
-            account: mail_domain::AccountId::from_uuid(uuid(
+            account: mail_domain::id::account_id_from_uuid(uuid(
                 "AccountId",
                 &row.get::<_, String>(2)?,
             )?),
@@ -82,7 +82,7 @@ impl SqliteStore {
     pub(super) fn read_summary(&self, row: &Row<'_>) -> Result<ThreadSummary, StoreError> {
         Ok(ThreadSummary {
             id: ThreadId::from_uuid(uuid("ThreadId", &row.get::<_, String>(0)?)?),
-            account: mail_domain::AccountId::from_uuid(uuid(
+            account: mail_domain::id::account_id_from_uuid(uuid(
                 "AccountId",
                 &row.get::<_, String>(1)?,
             )?),
@@ -114,7 +114,7 @@ impl SqliteStore {
     /// wants to show the user what there is. Ordered by name so two calls agree.
     pub fn labels(
         &self,
-        account: mail_domain::AccountId,
+        account: porter_core::AccountId,
     ) -> Result<Vec<mail_domain::Label>, StoreError> {
         let db = self.reader();
         let mut stmt = db.prepare_cached(
@@ -133,7 +133,7 @@ impl SqliteStore {
             let (id, name, color, origin) = row?;
             out.push(mail_domain::Label {
                 id: uuid("LabelId", &id).map(LabelId::from_uuid)?,
-                account,
+                account: account.clone(),
                 name,
                 color,
                 origin: json("LabelOrigin", &origin)?,

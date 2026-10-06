@@ -42,7 +42,7 @@ impl Fetching {
         let Ok(stored) = store.draft(draft) else {
             return;
         };
-        let link = self.link(stored.account);
+        let link = self.link(stored.account.clone());
         if wants_a_pass(draft, due, now, Some(&stored.state), link.as_ref(), *asked) {
             self.send(stored.account, Event::Start(Trigger::Manual));
             *asked = Some(draft);

@@ -5,16 +5,20 @@ use super::folder_act::{child_path, refused, renamed_path, told};
 use super::folder_parts::actions;
 use super::folder_tree::{Kind, Mailboxes, Node, Section, Show, arrange, tree};
 use mail_core::folder::Refusal;
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
+use porter_core::AccountId;
 
-pub(super) const IMAP: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000f1"));
-pub(super) const POP: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000f2"));
+pub(super) fn acct_imap() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000f1"))
+}
+pub(super) fn acct_pop() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000f2"))
+}
 
 pub(super) fn folder(path: &str, delimiter: Option<char>) -> Folder {
     Folder {
-        account: IMAP,
+        account: acct_imap(),
         path: path.to_owned(),
         delimiter,
         special: None,
@@ -89,7 +93,7 @@ fn an_implied_level_keeps_the_full_path_so_it_can_be_acted_on() {
 
 fn gmail(folders: Vec<Folder>, labels: Vec<Label>) -> Vec<super::folder_tree::AccountFolders> {
     vec![super::folder_tree::AccountFolders {
-        account: IMAP,
+        account: acct_imap(),
         address: "me@example.test".to_owned(),
         mailboxes: Mailboxes::Many {
             folders,
@@ -102,7 +106,7 @@ fn gmail(folders: Vec<Folder>, labels: Vec<Label>) -> Vec<super::folder_tree::Ac
 fn label(name: &str, origin: LabelOrigin) -> Label {
     Label {
         id: LabelId::generate(),
-        account: IMAP,
+        account: acct_imap(),
         name: name.to_owned(),
         color: None,
         origin,
@@ -166,7 +170,7 @@ fn a_label_that_is_a_mailbox_is_drawn_once_as_a_folder() {
 #[test]
 fn pop3_and_never_listed_accounts_have_no_section() {
     let pop = super::folder_tree::AccountFolders {
-        account: POP,
+        account: acct_pop(),
         address: "you@example.test".to_owned(),
         mailboxes: Mailboxes::One,
     };
@@ -174,7 +178,11 @@ fn pop3_and_never_listed_accounts_have_no_section() {
     assert_eq!(arrange(&gmail(vec![], vec![]), Show::All), None);
     let mixed = [pop, gmail(vec![folder("INBOX", None)], vec![]).remove(0)];
     let section: Section = arrange(&mixed, Show::All).unwrap();
-    assert_eq!(section.trees.len(), 1, "only the IMAP account has a tree");
+    assert_eq!(
+        section.trees.len(),
+        1,
+        "only the acct_imap() account has a tree"
+    );
 }
 
 /// A parent, a typed name, the delimiter, and the path it makes or the words of the refusal.

@@ -9,7 +9,7 @@ use mail_domain::*;
 use mail_store::Store;
 
 use super::work::{self, Draft, Step};
-use crate::ui::fixtures::{ACCOUNT, realistic, seeded};
+use crate::ui::fixtures::{acct_account, realistic, seeded};
 
 fn draft(name: &str, query: &str, actions: Vec<RuleAction>) -> Draft {
     Draft {
@@ -21,7 +21,7 @@ fn draft(name: &str, query: &str, actions: Vec<RuleAction>) -> Draft {
 }
 
 fn names(store: &mail_store::SqliteStore) -> Vec<String> {
-    work::listed(store, ACCOUNT)
+    work::listed(store, acct_account())
         .unwrap()
         .into_iter()
         .map(|l| l.rule.name)
@@ -31,12 +31,12 @@ fn names(store: &mail_store::SqliteStore) -> Vec<String> {
 #[test]
 fn a_rule_made_in_the_sheet_is_listed_moved_switched_and_deleted() {
     let (store, _dir) = seeded();
-    assert!(store.rules(ACCOUNT).unwrap().is_empty());
+    assert!(store.rules(acct_account()).unwrap().is_empty());
 
     // Typed with stray spaces: it comes back as the search language writes it.
     let bills = work::save(
         &store,
-        ACCOUNT,
+        acct_account(),
         &draft(
             " Bills ",
             "  from:bank.example   subject:statement ",
@@ -45,7 +45,7 @@ fn a_rule_made_in_the_sheet_is_listed_moved_switched_and_deleted() {
         &Utc,
     )
     .unwrap();
-    let listed = work::listed(&store, ACCOUNT).unwrap();
+    let listed = work::listed(&store, acct_account()).unwrap();
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0].rule, bills);
     assert_eq!(listed[0].rule.name, "Bills");
@@ -60,7 +60,7 @@ fn a_rule_made_in_the_sheet_is_listed_moved_switched_and_deleted() {
 
     let news = work::save(
         &store,
-        ACCOUNT,
+        acct_account(),
         &draft("News", "from:news@example.com", vec![RuleAction::Archive]),
         &Utc,
     )
@@ -69,10 +69,10 @@ fn a_rule_made_in_the_sheet_is_listed_moved_switched_and_deleted() {
     let (bills_at, news_at) = (bills.position, news.position);
     assert!(bills_at < news_at, "a new rule does not go last");
 
-    work::reorder(&store, ACCOUNT, news.id, Step::Up).unwrap();
+    work::reorder(&store, acct_account(), news.id, Step::Up).unwrap();
     assert_eq!(names(&store), ["News", "Bills"]);
     let now: Vec<(String, u32)> = store
-        .rules(ACCOUNT)
+        .rules(acct_account())
         .unwrap()
         .into_iter()
         .map(|r| (r.name, r.position))
@@ -80,22 +80,22 @@ fn a_rule_made_in_the_sheet_is_listed_moved_switched_and_deleted() {
     assert!(now.contains(&("News".to_owned(), 1)), "{now:?}");
     assert!(now.contains(&("Bills".to_owned(), 2)), "{now:?}");
     // At the top already: nothing moves.
-    work::reorder(&store, ACCOUNT, news.id, Step::Up).unwrap();
+    work::reorder(&store, acct_account(), news.id, Step::Up).unwrap();
     assert_eq!(names(&store), ["News", "Bills"]);
 
     // Edited, it keeps its place and its id.
-    let listed = work::listed(&store, ACCOUNT).unwrap();
+    let listed = work::listed(&store, acct_account()).unwrap();
     let mut edit = Draft::of(&listed[1]);
     assert_eq!(edit.query, "from:bank.example subject:statement");
     edit.query = "from:bank.example".to_owned();
-    let edited = work::save(&store, ACCOUNT, &edit, &Utc).unwrap();
+    let edited = work::save(&store, acct_account(), &edit, &Utc).unwrap();
     assert_eq!(edited.id, bills.id);
     assert_eq!(edited.position, 2);
-    assert_eq!(store.rules(ACCOUNT).unwrap().len(), 2);
+    assert_eq!(store.rules(acct_account()).unwrap().len(), 2);
 
     work::switch(&store, &edited, RuleState::Disabled).unwrap();
     let off = store
-        .rules(ACCOUNT)
+        .rules(acct_account())
         .unwrap()
         .into_iter()
         .find(|r| r.id == bills.id)
@@ -123,21 +123,21 @@ fn a_condition_the_rules_cannot_read_is_refused_in_words_and_not_kept() {
         ("   ", "Add a condition"),
     ];
     for (typed, said) in CASES {
-        let refused = work::read_condition(typed, &work::labels(&store, ACCOUNT), &Utc);
+        let refused = work::read_condition(typed, &work::labels(&store, acct_account()), &Utc);
         match refused {
             Err(why) => assert!(why.contains(said), "{typed:?}: {why}"),
             Ok(filter) => panic!("{typed:?} was read as {filter:?}"),
         }
         let saved = work::save(
             &store,
-            ACCOUNT,
+            acct_account(),
             &draft("Bad", typed, vec![RuleAction::Archive]),
             &Utc,
         );
         assert!(saved.is_err(), "{typed:?} was kept");
     }
     assert!(
-        store.rules(ACCOUNT).unwrap().is_empty(),
+        store.rules(acct_account()).unwrap().is_empty(),
         "a refused rule was kept"
     );
 
@@ -159,23 +159,28 @@ fn a_rule_needs_a_name_one_of_its_own_and_something_to_do() {
     let (store, _dir) = seeded();
     let blank = work::save(
         &store,
-        ACCOUNT,
+        acct_account(),
         &draft(" ", "from:a", vec![RuleAction::Star]),
         &Utc,
     );
     assert_eq!(blank.unwrap_err(), "A rule needs a name.");
-    let idle = work::save(&store, ACCOUNT, &draft("Idle", "from:a", Vec::new()), &Utc);
+    let idle = work::save(
+        &store,
+        acct_account(),
+        &draft("Idle", "from:a", Vec::new()),
+        &Utc,
+    );
     assert!(idle.unwrap_err().contains("Add an action"));
     work::save(
         &store,
-        ACCOUNT,
+        acct_account(),
         &draft("Twice", "from:a", vec![RuleAction::Star]),
         &Utc,
     )
     .unwrap();
     let again = work::save(
         &store,
-        ACCOUNT,
+        acct_account(),
         &draft("Twice", "from:b", vec![RuleAction::Star]),
         &Utc,
     );
@@ -184,7 +189,7 @@ fn a_rule_needs_a_name_one_of_its_own_and_something_to_do() {
             .unwrap_err()
             .contains("A rule called “Twice” already exists")
     );
-    assert_eq!(store.rules(ACCOUNT).unwrap().len(), 1);
+    assert_eq!(store.rules(acct_account()).unwrap().len(), 1);
 }
 
 #[test]
@@ -205,7 +210,7 @@ fn running_a_rule_acts_on_what_matches_and_counts_to_the_end() {
 
     let rule = work::save(
         &store,
-        ACCOUNT,
+        acct_account(),
         &draft(
             "Receipts",
             "from:receipts@stripe.test",
@@ -214,7 +219,7 @@ fn running_a_rule_acts_on_what_matches_and_counts_to_the_end() {
         &Utc,
     )
     .unwrap();
-    let total = work::conversations(&store, ACCOUNT, Utc::now());
+    let total = work::conversations(&store, acct_account(), Utc::now());
     assert_eq!(total, others.len() + 1);
     let seen = Mutex::new(Vec::new());
     let said = work::run(&store, &rule, Utc::now(), &|done| {

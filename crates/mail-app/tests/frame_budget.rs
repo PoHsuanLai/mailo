@@ -24,13 +24,16 @@
 use chrono::{DateTime, TimeZone, Utc};
 use mail_app::ui::view;
 use mail_core::query;
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_mime::{RemoteImages, SanitizePolicy};
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 use std::time::{Duration, Instant};
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 
 /// Messages in the generated store. Larger than the mailbox this was designed around, because
 /// the interesting question is what happens to someone who has used it for a year.
@@ -75,7 +78,7 @@ fn generated() -> (SqliteStore, tempfile::TempDir) {
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [ACCOUNT.to_string()],
+            [acct_account().to_string()],
         )
         .unwrap();
 
@@ -98,7 +101,7 @@ fn generated() -> (SqliteStore, tempfile::TempDir) {
                 } else {
                     ThreadId::generate()
                 },
-                account: ACCOUNT,
+                account: acct_account(),
                 key: MessageKey::Rfc(key.clone()),
                 date: at(n),
                 from: Address {
@@ -136,10 +139,10 @@ fn generated() -> (SqliteStore, tempfile::TempDir) {
         }
         store
             .ingest(
-                ACCOUNT,
+                acct_account(),
                 Ingest {
                     mailbox: MailboxRef {
-                        account: ACCOUNT,
+                        account: acct_account(),
                         path: "INBOX".to_owned(),
                     },
                     validity: UidValidity::Same,
@@ -191,7 +194,7 @@ fn accounts(store: &SqliteStore) -> Vec<AccountId> {
     let rows = stmt.query_map([], |r| r.get::<_, String>(0)).unwrap();
     rows.filter_map(Result::ok)
         .filter_map(|id| id.parse().ok())
-        .map(AccountId::from_uuid)
+        .map(mail_domain::id::account_id_from_uuid)
         .collect()
 }
 

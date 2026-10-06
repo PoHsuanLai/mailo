@@ -16,7 +16,8 @@ use ds::components::lists::row::row::Outline;
 use ds::components::lists::section_header::HeaderAction;
 use ds::host::measure::MountedRef;
 use ds::prelude::*;
-use mail_domain::AccountId;
+use mail_domain::id::account_id_from_uuid;
+use porter_core::AccountId;
 
 /// One folder, by account and path.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -104,9 +105,9 @@ pub(super) fn FolderList(
     let empty = trees.iter().all(|tree| tree.nodes.is_empty());
     let accounts: Vec<(AccountId, String, Option<char>)> = trees
         .iter()
-        .map(|tree| (tree.account, tree.address.clone(), tree.delimiter))
+        .map(|tree| (tree.account.clone(), tree.address.clone(), tree.delimiter))
         .collect();
-    let first = accounts.first().map(|(id, _, _)| *id);
+    let first = accounts.first().map(|(id, _, _)| id.clone());
     let delimiter_of = move |account: AccountId| {
         accounts
             .iter()
@@ -147,19 +148,19 @@ pub(super) fn FolderList(
     for tree in trees {
         if several {
             items.push(ListItem::heading(
-                FolderKey::Account(tree.account),
+                FolderKey::Account(tree.account.clone()),
                 rsx! {
                     div { class: "account-head",
                         SectionHeader { title: tree.address.clone() }
-                        super::marks::LinkMark { shell, account: tree.account }
+                        super::marks::LinkMark { shell, account: tree.account.clone() }
                     }
                 },
             ));
         }
         for node in tree.nodes {
-            let key = FolderKey::Folder(tree.account, node.path.clone());
+            let key = FolderKey::Folder(tree.account.clone(), node.path.clone());
             let label = node.name.clone();
-            let account = tree.account;
+            let account = tree.account.clone();
             let delimiter = tree.delimiter;
             items.push(ListItem::row(
                 key,
@@ -203,7 +204,7 @@ pub(super) fn FolderList(
                 ..HeaderAction::new("New", EventHandler::new(move |()| {
                     if several {
                         open.set(Open::Accounts);
-                    } else if let Some(account) = first {
+                    } else if let Some(account) = first.clone() {
                         open.set(Open::Naming { account, parent: None, text: String::new() });
                     }
                 }))
@@ -216,7 +217,7 @@ pub(super) fn FolderList(
                 items: pick_items,
                 on_pick: move |key: String| {
                     if let Ok(uuid) = key.parse() {
-                        let account = AccountId::from_uuid(uuid);
+                        let account = account_id_from_uuid(uuid);
                         open.set(Open::Naming { account, parent: None, text: String::new() });
                     }
                 },

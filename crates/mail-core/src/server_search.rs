@@ -16,9 +16,10 @@
 
 use crate::config::{read_json, write_json};
 use chrono::{DateTime, Utc};
-use mail_domain::{AccountId, AccountPlan, Filter, Incoming, LabelId};
+use mail_domain::{AccountPlan, Filter, Incoming, LabelId};
 use mail_runtime::{Searched, Unsaid};
 use mail_store::SqliteStore;
+use porter_core::AccountId;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -88,7 +89,7 @@ pub fn search(
     now: DateTime<Utc>,
 ) -> Result<Searched, String> {
     let named: Vec<(String, LabelId)> = store
-        .labels(account)
+        .labels(account.clone())
         .map_err(|e| e.to_string())?
         .into_iter()
         .map(|l| (l.name, l.id))

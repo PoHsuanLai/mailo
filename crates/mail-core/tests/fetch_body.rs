@@ -6,16 +6,20 @@
 
 use chrono::{DateTime, TimeZone, Utc};
 use mail_core::sync;
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_runtime::{MapSecrets, OAuthRegistry, Secrets};
 use mail_store::SqliteStore;
+use porter_core::SecretText;
+use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
 use std::io::{BufRead as _, BufReader, Write as _};
 use std::net::TcpListener;
 use std::sync::Arc;
 use std::time::Duration;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b1"))
+}
 
 const RAW: &[u8] = b"From: a@example.test\r\nSubject: hello\r\nMessage-ID: <b1@example.test>\r\n\r\nthe body text\r\n";
 
@@ -69,13 +73,16 @@ fn account_with_header_only_message(port: u16) -> (Arc<SqliteStore>, MessageId, 
         db.execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'ada@example.test', ?2, datetime('now'))",
-            rusqlite::params![ACCOUNT.to_string(), serde_json::to_string(&plan).unwrap()],
+            rusqlite::params![
+                acct_account().to_string(),
+                serde_json::to_string(&plan).unwrap()
+            ],
         )
         .unwrap();
         db.execute(
             "INSERT INTO account_caps (account, caps, observed_at) VALUES (?1, ?2, ?3)",
             rusqlite::params![
-                ACCOUNT.to_string(),
+                acct_account().to_string(),
                 serde_json::to_string(&caps()).unwrap(),
                 now().to_rfc3339()
             ],
@@ -84,9 +91,9 @@ fn account_with_header_only_message(port: u16) -> (Arc<SqliteStore>, MessageId, 
     }
     mail_runtime::absorb(
         &store,
-        ACCOUNT,
+        acct_account(),
         MailboxRef {
-            account: ACCOUNT,
+            account: acct_account(),
             path: "INBOX".to_owned(),
         },
         None,
@@ -163,10 +170,10 @@ fn with_password(secrets: &MapSecrets) {
     secrets
         .put(
             &SecretKey {
-                account: ACCOUNT,
+                account: acct_account(),
                 purpose: SecretPurpose::IncomingPassword,
             },
-            &Credential::Password("s3cr3t-pass".to_owned()),
+            &Credential::Password(SecretText::new("s3cr3t-pass".to_owned())),
         )
         .unwrap();
 }

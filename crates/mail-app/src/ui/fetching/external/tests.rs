@@ -151,7 +151,7 @@ async fn told_while_the_writer_is_busy_it_looks_again_soon_and_not_at_the_next_t
         })
     };
     took.recv().unwrap();
-    watching.changed(mail_domain::AccountId::generate());
+    watching.changed(mail_domain::id::new_account_id());
     step(&mut dom).await;
     assert_eq!(
         revision(&dom),
@@ -197,11 +197,11 @@ async fn a_watch_that_says_it_stored_something_moves_the_revision_within_one_loo
     settle(&mut dom).await;
     assert_eq!(revision(&dom), 0, "subscribed, it still looked every LOOK");
 
-    watching.changed(mail_domain::AccountId::generate());
+    watching.changed(mail_domain::id::new_account_id());
     step(&mut dom).await;
     assert_eq!(revision(&dom), 1, "told, it did not look");
     // Told of a pass that stored nothing new: the data version decides, so nothing moves.
-    watching.changed(mail_domain::AccountId::generate());
+    watching.changed(mail_domain::id::new_account_id());
     settle(&mut dom).await;
     assert_eq!(revision(&dom), 1, "one commit counted twice");
 }

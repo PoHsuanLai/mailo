@@ -85,10 +85,12 @@ impl JmapEngine {
             .call(&[CORE, MAIL], &[jmap::mailbox_get(&account, "m")])
             .await?;
         let mailboxes = Mailboxes::parse(responses.answer("m", "Mailbox/get")?)?;
+        self.store.put_folders(
+            self.account.clone(),
+            mailboxes.folders(self.account.clone()),
+        )?;
         self.store
-            .put_folders(self.account, mailboxes.folders(self.account))?;
-        self.store
-            .put_caps(self.account, &self.caps(&mailboxes, now), now)?;
+            .put_caps(self.account.clone(), &self.caps(&mailboxes, now), now)?;
         self.mailboxes = Some(mailboxes.clone());
         Ok(mailboxes)
     }
@@ -153,7 +155,7 @@ impl JmapEngine {
 
         if let Some(email_state) = state {
             self.store.ingest(
-                self.account,
+                self.account.clone(),
                 Ingest {
                     mailbox: self.mailbox(),
                     validity: UidValidity::Same,
@@ -341,7 +343,7 @@ impl JmapEngine {
                 report.headers_fetched += arrivals.len();
                 let stored = absorb_into(
                     &self.store,
-                    self.account,
+                    self.account.clone(),
                     Destination {
                         mailbox: self.mailbox(),
                         role,
@@ -394,7 +396,7 @@ impl JmapEngine {
             report.bodies_fetched += arrivals.len();
             absorb_into(
                 &self.store,
-                self.account,
+                self.account.clone(),
                 // Every one of these is already held and keeps its role: a body arriving says
                 // nothing about where a message is filed. `Archive` is the one role the store
                 // never refiles an arrival for (`filing::after_arrival` moves only into the
@@ -424,7 +426,7 @@ impl JmapEngine {
             return Ok(());
         }
         self.store.ingest(
-            self.account,
+            self.account.clone(),
             Ingest {
                 mailbox: self.mailbox(),
                 validity: UidValidity::Same,
@@ -436,7 +438,7 @@ impl JmapEngine {
                 gone,
             },
         )?;
-        self.store.refile(self.account, &filed)?;
+        self.store.refile(self.account.clone(), &filed)?;
         Ok(())
     }
 }

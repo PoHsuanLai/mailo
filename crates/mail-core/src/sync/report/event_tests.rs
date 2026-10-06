@@ -1,11 +1,16 @@
 use super::{AccountReport, Counts, PassEnd, Progress, Trouble as Found, outcome};
 use crate::fetch::{Count, Effect, Event, First, Link, Pause, Step, Trouble, step};
-use mail_domain::{AccountId, Retry};
+use mail_domain::Retry;
+use mail_domain::id::account_id_from_uuid;
+use porter_core::AccountId;
 use std::time::Duration;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000f2"));
-const OTHER: AccountId = AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000f3"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000f2"))
+}
+fn acct_other() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000f3"))
+}
 
 fn secs(n: u64) -> Duration {
     Duration::from_secs(n)
@@ -13,7 +18,7 @@ fn secs(n: u64) -> Duration {
 
 fn finished(trouble: Vec<Found>) -> PassEnd {
     PassEnd::Finished(AccountReport {
-        account: ACCOUNT,
+        account: acct_account(),
         address: "ada@example.test".to_owned(),
         counts: Counts::default(),
         trouble,
@@ -161,7 +166,7 @@ fn how_a_pass_ended_is_what_the_link_hears() {
         (
             "a failure to run keeps its decision and its kind of wait",
             PassEnd::Failed {
-                account: ACCOUNT,
+                account: acct_account(),
                 address: "a".into(),
                 retry: Retry::After(secs(5)),
                 why: "cannot connect".into(),
@@ -176,7 +181,7 @@ fn how_a_pass_ended_is_what_the_link_hears() {
         (
             "cancelled",
             PassEnd::Cancelled {
-                account: ACCOUNT,
+                account: acct_account(),
                 address: "a".into(),
             },
             Event::Cancel,
@@ -190,19 +195,19 @@ fn how_a_pass_ended_is_what_the_link_hears() {
 #[test]
 fn a_whole_run_is_read_for_the_account_that_asked() {
     let other = PassEnd::Failed {
-        account: OTHER,
+        account: acct_other(),
         address: "b".into(),
         retry: Retry::NeedsReauth,
         why: "not yours".into(),
         pause: Pause::ServerBusy,
     };
     assert_eq!(
-        outcome(Ok(vec![other.clone(), finished(vec![])]), ACCOUNT),
+        outcome(Ok(vec![other.clone(), finished(vec![])]), acct_account()),
         Event::Finished { trouble: vec![] },
         "another account's end is not this one's"
     );
     assert_eq!(
-        outcome(Ok(vec![other]), ACCOUNT),
+        outcome(Ok(vec![other]), acct_account()),
         Event::Finished { trouble: vec![] },
         "a run that left the account out had nothing to do for it"
     );
@@ -210,7 +215,7 @@ fn a_whole_run_is_read_for_the_account_that_asked() {
 
 #[test]
 fn a_run_that_could_not_happen_waits_and_backs_off_like_any_failure() {
-    let event = outcome(Err("cannot start the async runtime".into()), ACCOUNT);
+    let event = outcome(Err("cannot start the async runtime".into()), acct_account());
     assert_eq!(
         event,
         Event::Failed {

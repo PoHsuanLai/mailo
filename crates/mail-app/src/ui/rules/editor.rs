@@ -14,8 +14,9 @@ use ds::motion::detail::stamp::EventStamp;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::icon::render::Glyph;
-use mail_domain::{AccountId, AfterMatch, RuleAction};
+use mail_domain::{AfterMatch, RuleAction};
 use mail_store::SqliteStore;
+use porter_core::AccountId;
 use std::sync::Arc;
 
 use super::super::menu::{Floating, MenuItem, Right, Tile, anchor_at, narrowed, palette_groups};
@@ -133,9 +134,9 @@ pub(super) fn RuleEditor(
         return rsx! {};
     };
     let store = consume_context::<Arc<SqliteStore>>();
-    let index = work::labels(&store, account);
+    let index = work::labels(&store, account.clone());
     let names: Vec<String> = index.iter().map(|(name, _)| name.clone()).collect();
-    let folders: Vec<String> = destinations(&store, account)
+    let folders: Vec<String> = destinations(&store, account.clone())
         .into_iter()
         .map(|d| d.path)
         .collect();
@@ -143,7 +144,7 @@ pub(super) fn RuleEditor(
     let (validity, look, readable) =
         match work::read_condition(&draft.query, &index, &chrono::Local) {
             Err(why) => (refusal(&why), String::new(), false),
-            Ok(filter) => match work::matching(&store, account, filter, Utc::now()) {
+            Ok(filter) => match work::matching(&store, account.clone(), filter, Utc::now()) {
                 Ok(count) => (Validity::Valid, work::matching_words(count), true),
                 Err(why) => (refusal(&why), String::new(), true),
             },
@@ -309,7 +310,7 @@ pub(super) fn RuleEditor(
                     onclick: on_primary(move || {
                         let Some(draft) = editing.peek().clone() else { return };
                         let store = consume_context::<Arc<SqliteStore>>();
-                        match work::save(&store, account, &draft, &chrono::Local) {
+                        match work::save(&store, account.clone(), &draft, &chrono::Local) {
                             Ok(rule) => {
                                 said.set(Some(Ok(format!("Kept the rule “{}”.", rule.name))));
                                 refused.set(None);

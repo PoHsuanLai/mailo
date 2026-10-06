@@ -8,11 +8,14 @@
 use chrono::{DateTime, TimeZone, Utc};
 use mail_app::ui::view;
 use mail_core::compose;
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 const IDENTITY: IdentityId =
     IdentityId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b1"));
 const ORIGINAL: MessageId =
@@ -25,7 +28,7 @@ fn at(n: i64) -> DateTime<Utc> {
 fn identity() -> Identity {
     Identity {
         id: IDENTITY,
-        account: ACCOUNT,
+        account: acct_account(),
         from: Address {
             name: None,
             email: "me@example.test".to_owned(),
@@ -61,13 +64,16 @@ fn seeded() -> (SqliteStore, tempfile::TempDir) {
         db.execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', ?2, datetime('now'))",
-            rusqlite::params![ACCOUNT.to_string(), serde_json::to_string(&plan).unwrap()],
+            rusqlite::params![
+                acct_account().to_string(),
+                serde_json::to_string(&plan).unwrap()
+            ],
         )
         .unwrap();
         db.execute(
             "INSERT INTO identities (id, account, from_name, from_email, is_default)
              VALUES (?1, ?2, NULL, 'me@example.test', '\"default\"')",
-            rusqlite::params![IDENTITY.to_string(), ACCOUNT.to_string()],
+            rusqlite::params![IDENTITY.to_string(), acct_account().to_string()],
         )
         .unwrap();
     }
@@ -80,7 +86,7 @@ fn seeded() -> (SqliteStore, tempfile::TempDir) {
     let message = Message {
         id: ORIGINAL,
         thread,
-        account: ACCOUNT,
+        account: acct_account(),
         key: MessageKey::Rfc("original@example.test".to_owned()),
         date: at(0),
         from: Address {
@@ -119,10 +125,10 @@ fn seeded() -> (SqliteStore, tempfile::TempDir) {
     };
     store
         .ingest(
-            ACCOUNT,
+            acct_account(),
             Ingest {
                 mailbox: MailboxRef {
-                    account: ACCOUNT,
+                    account: acct_account(),
                     path: "INBOX".to_owned(),
                 },
                 validity: UidValidity::Same,
@@ -147,7 +153,7 @@ fn seeded() -> (SqliteStore, tempfile::TempDir) {
 
 /// The draft a reply produced, read back from the store.
 fn only_draft(store: &SqliteStore) -> Draft {
-    let drafts = store.drafts(ACCOUNT).unwrap();
+    let drafts = store.drafts(acct_account()).unwrap();
     assert_eq!(drafts.len(), 1, "expected exactly one draft");
     drafts.into_iter().next().unwrap()
 }
@@ -311,7 +317,7 @@ fn follow_up(store: &SqliteStore) -> MessageId {
     let message = Message {
         id,
         thread,
-        account: ACCOUNT,
+        account: acct_account(),
         key: MessageKey::Rfc("reply@example.test".to_owned()),
         // Later than the original, which is what makes it the reply target.
         date: at(3600),
@@ -342,10 +348,10 @@ fn follow_up(store: &SqliteStore) -> MessageId {
     };
     store
         .ingest(
-            ACCOUNT,
+            acct_account(),
             Ingest {
                 mailbox: MailboxRef {
-                    account: ACCOUNT,
+                    account: acct_account(),
                     path: "INBOX".to_owned(),
                 },
                 validity: UidValidity::Same,
@@ -381,7 +387,7 @@ fn own_message(store: &SqliteStore) -> MessageId {
     let message = Message {
         id,
         thread: ThreadId::generate(),
-        account: ACCOUNT,
+        account: acct_account(),
         key: MessageKey::Rfc("mine@example.test".to_owned()),
         date: at(7),
         from: Address {
@@ -411,10 +417,10 @@ fn own_message(store: &SqliteStore) -> MessageId {
     };
     store
         .ingest(
-            ACCOUNT,
+            acct_account(),
             Ingest {
                 mailbox: MailboxRef {
-                    account: ACCOUNT,
+                    account: acct_account(),
                     path: "INBOX".to_owned(),
                 },
                 validity: UidValidity::Same,
@@ -444,7 +450,7 @@ fn headers_only(store: &SqliteStore) -> MessageId {
     let message = Message {
         id,
         thread: ThreadId::generate(),
-        account: ACCOUNT,
+        account: acct_account(),
         key: MessageKey::Rfc("second@example.test".to_owned()),
         date: at(5),
         from: Address {
@@ -468,10 +474,10 @@ fn headers_only(store: &SqliteStore) -> MessageId {
     };
     store
         .ingest(
-            ACCOUNT,
+            acct_account(),
             Ingest {
                 mailbox: MailboxRef {
-                    account: ACCOUNT,
+                    account: acct_account(),
                     path: "INBOX".to_owned(),
                 },
                 validity: UidValidity::Same,
@@ -529,7 +535,7 @@ fn sending_queues_the_draft_without_touching_the_network() {
     assert!(out.contains("mailo sync"), "{out}");
 
     // The submission is in the outbox, with its envelope frozen beside the bytes.
-    let due = store.outbox_due(ACCOUNT, at(30)).unwrap();
+    let due = store.outbox_due(acct_account(), at(30)).unwrap();
     assert_eq!(due.len(), 1, "nothing was queued");
     match &due[0].op {
         ProtoOp::Submit {
@@ -567,7 +573,7 @@ fn the_queued_bytes_are_frozen_against_a_later_edit() {
     draft.updated = at(25);
     store
         .apply(
-            ACCOUNT,
+            acct_account(),
             &Patch {
                 id: ChangeId::generate(),
                 changes: vec![Change::DraftUpsert(Box::new(draft.clone()))],
@@ -575,7 +581,7 @@ fn the_queued_bytes_are_frozen_against_a_later_edit() {
         )
         .unwrap();
 
-    let due = store.outbox_due(ACCOUNT, at(30)).unwrap();
+    let due = store.outbox_due(acct_account(), at(30)).unwrap();
     let ProtoOp::Submit { raw, .. } = &due[0].op else {
         panic!("expected a submission");
     };
@@ -633,7 +639,10 @@ fn an_account_with_no_identity_says_so_instead_of_inventing_a_sender() {
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', ?2, datetime('now'))",
-            rusqlite::params![ACCOUNT.to_string(), serde_json::to_string(&plan).unwrap()],
+            rusqlite::params![
+                acct_account().to_string(),
+                serde_json::to_string(&plan).unwrap()
+            ],
         )
         .unwrap();
 
@@ -654,7 +663,7 @@ fn the_identity_comes_from_the_table_the_foreign_key_enforces() {
         .connection()
         .execute(
             "UPDATE accounts SET plan = json_set(plan, '$.identities', json('[]')) WHERE id = ?1",
-            [ACCOUNT.to_string()],
+            [acct_account().to_string()],
         )
         .unwrap();
 
@@ -712,7 +721,7 @@ mod composer {
         assert_eq!(reloaded.identity, draft.identity);
         assert_eq!(reloaded.in_reply_to, Some(ORIGINAL));
         assert_eq!(
-            store.drafts(ACCOUNT).unwrap().len(),
+            store.drafts(acct_account()).unwrap().len(),
             1,
             "a second draft was made"
         );
@@ -732,7 +741,7 @@ mod composer {
         compose::save(&store, &edited).unwrap();
         compose::send(&store, edited.id, at(12)).unwrap();
 
-        let due = store.outbox_due(ACCOUNT, at(20)).unwrap();
+        let due = store.outbox_due(acct_account(), at(20)).unwrap();
         assert_eq!(due.len(), 1);
         let ProtoOp::Submit { rcpt_to, .. } = &due[0].op else {
             panic!("expected a submission");
@@ -858,13 +867,17 @@ mod discarding {
     fn a_discarded_draft_is_gone_from_the_store() {
         let (store, _dir) = seeded();
         let id = a_draft(&store);
-        assert_eq!(store.drafts(ACCOUNT).unwrap().len(), 1, "it was saved");
+        assert_eq!(
+            store.drafts(acct_account()).unwrap().len(),
+            1,
+            "it was saved"
+        );
 
         let subject = compose::discard(&store, id).unwrap();
 
         assert_eq!(subject, "Re: lunch on friday", "it names what went");
         assert!(
-            store.drafts(ACCOUNT).unwrap().is_empty(),
+            store.drafts(acct_account()).unwrap().is_empty(),
             "the draft outlived being discarded"
         );
         assert!(store.draft(id).is_err(), "and cannot be fetched by id");
@@ -884,7 +897,7 @@ mod discarding {
             let why = compose::discard(&store, id).unwrap_err();
             assert!(why.contains("queued for delivery"), "{why}");
             assert_eq!(
-                store.drafts(ACCOUNT).unwrap().len(),
+                store.drafts(acct_account()).unwrap().len(),
                 1,
                 "it was deleted anyway from {state:?}"
             );
@@ -907,7 +920,7 @@ mod discarding {
         compose::save(&store, &draft).unwrap();
         let far = at(20) + chrono::TimeDelta::try_days(365).unwrap();
         assert_eq!(
-            store.outbox_due(ACCOUNT, far).unwrap().len(),
+            store.outbox_due(acct_account(), far).unwrap().len(),
             1,
             "precondition"
         );
@@ -915,7 +928,7 @@ mod discarding {
         compose::discard(&store, id).unwrap();
 
         assert!(
-            store.outbox_due(ACCOUNT, far).unwrap().is_empty(),
+            store.outbox_due(acct_account(), far).unwrap().is_empty(),
             "the discarded message would still have been sent"
         );
     }
@@ -935,7 +948,7 @@ mod discarding {
         compose::save(&store, &draft).unwrap();
 
         compose::discard(&store, id).unwrap();
-        assert!(store.drafts(ACCOUNT).unwrap().is_empty());
+        assert!(store.drafts(acct_account()).unwrap().is_empty());
     }
 
     #[test]
@@ -1124,7 +1137,7 @@ mod forwarding_as_an_attachment {
         let message = Message {
             id,
             thread: ThreadId::generate(),
-            account: ACCOUNT,
+            account: acct_account(),
             key: key.clone(),
             date: at(5),
             from: Address {
@@ -1151,10 +1164,10 @@ mod forwarding_as_an_attachment {
         };
         store
             .ingest(
-                ACCOUNT,
+                acct_account(),
                 Ingest {
                     mailbox: MailboxRef {
-                        account: ACCOUNT,
+                        account: acct_account(),
                         path: "INBOX".to_owned(),
                     },
                     validity: UidValidity::Same,
@@ -1178,7 +1191,7 @@ mod forwarding_as_an_attachment {
     }
 
     fn queued(store: &SqliteStore) -> Vec<u8> {
-        let due = store.outbox_due(ACCOUNT, at(40)).unwrap();
+        let due = store.outbox_due(acct_account(), at(40)).unwrap();
         let ProtoOp::Submit { raw, .. } = &due[0].op else {
             panic!("expected a submission");
         };
@@ -1248,7 +1261,7 @@ mod forwarding_as_an_attachment {
         let why = compose::draft_forward_attached(&store, id, &bea(), "", at(10)).unwrap_err();
         assert!(why.contains("not been downloaded"), "{why}");
         assert!(
-            store.drafts(ACCOUNT).unwrap().is_empty(),
+            store.drafts(acct_account()).unwrap().is_empty(),
             "a refused forward left a draft"
         );
     }
@@ -1288,7 +1301,7 @@ mod forwarding_as_an_attachment {
                 compose::draft_forward_attached(&store, id, &bea(), "", at(10)).expect_err(name);
             assert!(why.contains("rebuilt"), "{name}: {why}");
             assert!(why.contains("inline"), "{name}: says what to do: {why}");
-            assert!(store.drafts(ACCOUNT).unwrap().is_empty(), "{name}");
+            assert!(store.drafts(acct_account()).unwrap().is_empty(), "{name}");
         }
     }
 }
@@ -1302,7 +1315,7 @@ mod signatures {
     use super::*;
 
     fn set(store: &SqliteStore, text: Option<&str>) {
-        compose::set_signature(store, ACCOUNT, text).unwrap();
+        compose::set_signature(store, acct_account(), text).unwrap();
     }
 
     #[test]
@@ -1401,7 +1414,7 @@ mod signatures {
     fn clearing_it_takes_it_off_the_next_reply() {
         let (store, _dir) = seeded();
         set(&store, Some("Ada"));
-        let out = compose::set_signature(&store, ACCOUNT, None).unwrap();
+        let out = compose::set_signature(&store, acct_account(), None).unwrap();
         assert!(out.contains("cleared"), "{out}");
 
         compose::reply(&store, ORIGINAL, ReplyScope::Sender, "hi", at(10)).unwrap();
@@ -1433,7 +1446,7 @@ mod writing_to_someone_new {
         let (store, _dir) = seeded();
         let draft = compose::draft_new(
             &store,
-            ACCOUNT,
+            acct_account(),
             &stranger(),
             "dinner on saturday",
             "are you free?",
@@ -1442,7 +1455,7 @@ mod writing_to_someone_new {
         .expect("a new message needs no original");
 
         compose::send(&store, draft.id, at(20)).expect("send queues");
-        let due = store.outbox_due(ACCOUNT, at(30)).unwrap();
+        let due = store.outbox_due(acct_account(), at(30)).unwrap();
         assert_eq!(due.len(), 1, "nothing was queued");
         match &due[0].op {
             ProtoOp::Submit {
@@ -1461,12 +1474,13 @@ mod writing_to_someone_new {
         // `In-Reply-To` would be filed by the recipient's client under a conversation they have
         // never seen, which is the one way this can go wrong invisibly to the sender.
         let (store, _dir) = seeded();
-        let draft = compose::draft_new(&store, ACCOUNT, &stranger(), "hello", "", at(10)).unwrap();
+        let draft =
+            compose::draft_new(&store, acct_account(), &stranger(), "hello", "", at(10)).unwrap();
         assert_eq!(draft.in_reply_to, None);
         assert_eq!(draft.forward_of, None);
 
         compose::send(&store, draft.id, at(20)).unwrap();
-        let due = store.outbox_due(ACCOUNT, at(30)).unwrap();
+        let due = store.outbox_due(acct_account(), at(30)).unwrap();
         let ProtoOp::Submit { raw, .. } = &due[0].op else {
             panic!("expected a submission");
         };
@@ -1576,7 +1590,8 @@ mod writing_to_someone_new {
         // been the obvious shortcut and the wrong message.
         let (store, _dir) = seeded();
         let draft =
-            compose::draft_new(&store, ACCOUNT, &stranger(), "Re: lunch", "", at(10)).unwrap();
+            compose::draft_new(&store, acct_account(), &stranger(), "Re: lunch", "", at(10))
+                .unwrap();
         assert_eq!(draft.subject, "Re: lunch", "the subject was rewritten");
     }
 
@@ -1590,8 +1605,15 @@ mod writing_to_someone_new {
                 rusqlite::params![IDENTITY.to_string()],
             )
             .unwrap();
-        let draft =
-            compose::draft_new(&store, ACCOUNT, &stranger(), "hello", "hi there", at(10)).unwrap();
+        let draft = compose::draft_new(
+            &store,
+            acct_account(),
+            &stranger(),
+            "hello",
+            "hi there",
+            at(10),
+        )
+        .unwrap();
         assert!(draft.text.contains("hi there"), "{:?}", draft.text);
         assert!(draft.text.contains("\r\n-- \r\nAda"), "{:?}", draft.text);
         // There is no original, so there is nothing to quote and no attribution line to write.
@@ -1604,8 +1626,9 @@ mod writing_to_someone_new {
 mod choosing_the_sender {
     use super::*;
 
-    const SECOND: AccountId =
-        AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a2"));
+    fn acct_second() -> AccountId {
+        account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a2"))
+    }
     const SECOND_IDENTITY: IdentityId =
         IdentityId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b2"));
 
@@ -1628,13 +1651,16 @@ mod choosing_the_sender {
         db.execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'work@example.test', ?2, datetime('now', '+1 second'))",
-            rusqlite::params![SECOND.to_string(), serde_json::to_string(&plan).unwrap()],
+            rusqlite::params![
+                acct_second().to_string(),
+                serde_json::to_string(&plan).unwrap()
+            ],
         )
         .unwrap();
         db.execute(
             "INSERT INTO identities (id, account, from_name, from_email, is_default)
              VALUES (?1, ?2, NULL, 'work@example.test', '\"default\"')",
-            rusqlite::params![SECOND_IDENTITY.to_string(), SECOND.to_string()],
+            rusqlite::params![SECOND_IDENTITY.to_string(), acct_second().to_string()],
         )
         .unwrap();
     }
@@ -1642,7 +1668,7 @@ mod choosing_the_sender {
     #[test]
     fn one_account_needs_no_question() {
         let (store, _dir) = seeded();
-        assert_eq!(compose::account_for(&store, None), Ok(ACCOUNT));
+        assert_eq!(compose::account_for(&store, None), Ok(acct_account()));
     }
 
     #[test]
@@ -1663,12 +1689,12 @@ mod choosing_the_sender {
         also(&store);
         assert_eq!(
             compose::account_for(&store, Some("work@example.test")),
-            Ok(SECOND)
+            Ok(acct_second())
         );
         // Addresses are not case sensitive, and nobody types their own the same way twice.
         assert_eq!(
             compose::account_for(&store, Some("WORK@example.test")),
-            Ok(SECOND)
+            Ok(acct_second())
         );
     }
 
@@ -1688,11 +1714,12 @@ mod choosing_the_sender {
         // the failure would arrive at Send, long after the choice was made.
         let (store, _dir) = seeded();
         also(&store);
-        let draft = compose::draft_new(&store, ACCOUNT, &[], "", "", at(10)).unwrap();
+        let draft = compose::draft_new(&store, acct_account(), &[], "", "", at(10)).unwrap();
         assert_eq!(draft.identity, IDENTITY);
 
-        let moved = compose::move_draft_to(&store, draft.id, SECOND, at(11)).expect("it moves");
-        assert_eq!(moved.account, SECOND);
+        let moved =
+            compose::move_draft_to(&store, draft.id, acct_second(), at(11)).expect("it moves");
+        assert_eq!(moved.account, acct_second());
         assert_eq!(
             moved.identity, SECOND_IDENTITY,
             "the draft kept an identity belonging to the account it left"
@@ -1700,7 +1727,7 @@ mod choosing_the_sender {
 
         // And it is the stored row that moved, not just the value returned.
         let reread = store.draft(draft.id).unwrap();
-        assert_eq!(reread.account, SECOND);
+        assert_eq!(reread.account, acct_second());
         assert_eq!(reread.identity, SECOND_IDENTITY);
     }
 
@@ -1712,15 +1739,15 @@ mod choosing_the_sender {
             .connection()
             .execute(
                 "DELETE FROM identities WHERE account = ?1",
-                rusqlite::params![SECOND.to_string()],
+                rusqlite::params![acct_second().to_string()],
             )
             .unwrap();
-        let draft = compose::draft_new(&store, ACCOUNT, &[], "", "", at(10)).unwrap();
+        let draft = compose::draft_new(&store, acct_account(), &[], "", "", at(10)).unwrap();
 
-        compose::move_draft_to(&store, draft.id, SECOND, at(11))
+        compose::move_draft_to(&store, draft.id, acct_second(), at(11))
             .expect_err("an account with no identity cannot send");
         let reread = store.draft(draft.id).unwrap();
-        assert_eq!(reread.account, ACCOUNT, "the draft was moved anyway");
+        assert_eq!(reread.account, acct_account(), "the draft was moved anyway");
         assert_eq!(reread.identity, IDENTITY);
     }
 }
@@ -1738,7 +1765,7 @@ mod carrying_a_file {
     fn a_draft(store: &SqliteStore) -> DraftId {
         compose::draft_new(
             store,
-            ACCOUNT,
+            acct_account(),
             &[Address {
                 name: None,
                 email: "kim@elsewhere.test".to_owned(),
@@ -1752,7 +1779,7 @@ mod carrying_a_file {
     }
 
     fn queued_bytes(store: &SqliteStore) -> String {
-        let due = store.outbox_due(ACCOUNT, at(40)).unwrap();
+        let due = store.outbox_due(acct_account(), at(40)).unwrap();
         let ProtoOp::Submit { raw, .. } = &due[0].op else {
             panic!("expected a submission");
         };

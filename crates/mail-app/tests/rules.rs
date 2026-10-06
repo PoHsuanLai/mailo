@@ -9,11 +9,14 @@ use chrono::{DateTime, TimeZone, Utc};
 use mail_app::cli;
 use mail_core::sync;
 use mail_core::sync::report::{AccountReport, PassEnd};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_proto::backend::{Authenticate, ImapBackend};
 use mail_proto::{ImapAuth, ImapCommand, ImapSession};
 use mail_runtime::{AccountEngine, MapSecrets};
 use mail_store::{SqliteStore, Store};
+use porter_core::SecretText;
+use porter_core::{AccountId, Credential};
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -33,8 +36,9 @@ fn run(store: &SqliteStore, words: &[&str]) -> Result<String, String> {
     )
 }
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 const ME: &str = "me@example.test";
 
 /// Write an account as `account add` would, without going near a credential.
@@ -99,7 +103,7 @@ fn caps() -> AccountCaps {
 fn store() -> (SqliteStore, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let store = SqliteStore::in_memory(dir.path()).unwrap();
-    configure(&store, ACCOUNT, &plan(1), &caps());
+    configure(&store, acct_account(), &plan(1), &caps());
     (store, dir)
 }
 
@@ -160,7 +164,7 @@ fn a_rule_is_added_listed_switched_off_and_on_and_removed() {
 
     run(&store, &["rules", "remove", "Bills"]).unwrap();
     let left: Vec<String> = store
-        .rules(ACCOUNT)
+        .rules(acct_account())
         .unwrap()
         .into_iter()
         .map(|r| r.name)
@@ -183,7 +187,7 @@ fn held(store: &SqliteStore, uid: u32, from: &str) -> MessageId {
     let message = Message {
         id: MessageId::generate(),
         thread: ThreadId::generate(),
-        account: ACCOUNT,
+        account: acct_account(),
         key: MessageKey::Rfc(key.clone()),
         date: now() - chrono::Duration::days(i64::from(uid)),
         from: Address {
@@ -211,10 +215,10 @@ fn held(store: &SqliteStore, uid: u32, from: &str) -> MessageId {
     let id = message.id;
     store
         .ingest(
-            ACCOUNT,
+            acct_account(),
             Ingest {
                 mailbox: MailboxRef {
-                    account: ACCOUNT,
+                    account: acct_account(),
                     path: "INBOX".to_owned(),
                 },
                 validity: UidValidity::Same,
@@ -273,7 +277,7 @@ fn rules_run_reaches_the_mail_already_here_and_queues_what_the_user_would() {
         (MailboxRole::Inbox, ReadState::Unread)
     );
     let ops: Vec<ProtoOp> = store
-        .outbox_due(ACCOUNT, now() + chrono::Duration::days(1))
+        .outbox_due(acct_account(), now() + chrono::Duration::days(1))
         .unwrap()
         .into_iter()
         .map(|e| e.op)
@@ -304,7 +308,7 @@ fn server_side_rules_and_vacation_are_refused_where_the_provider_has_no_managesi
     let dir = tempfile::tempdir().unwrap();
     let store = SqliteStore::in_memory(dir.path()).unwrap();
     let gmail = presets::preset_for("someone@gmail.com", now()).expect("gmail preset");
-    configure(&store, ACCOUNT, &gmail.plan, &gmail.expected_caps);
+    configure(&store, acct_account(), &gmail.plan, &gmail.expected_caps);
 
     let body = dir.path().join("away.txt");
     std::fs::write(&body, "Back on Monday.").unwrap();
@@ -325,7 +329,7 @@ fn server_side_rules_and_vacation_are_refused_where_the_provider_has_no_managesi
         "{refused}"
     );
     // Refused before anything was kept: a reply nobody will send is not recorded as on.
-    assert_eq!(store.vacation(ACCOUNT).unwrap(), None);
+    assert_eq!(store.vacation(acct_account()).unwrap(), None);
 
     for words in [&["sieve", "push"][..], &["sieve", "status"][..]] {
         let refused = run(&store, words).unwrap_err();
@@ -451,11 +455,11 @@ async fn session(mut sock: tokio::net::TcpStream, drop: Maildrop, heard: Heard) 
 fn engine(port: u16, store: Arc<SqliteStore>) -> AccountEngine<ImapBackend> {
     let auth = ImapAuth {
         username: ME.to_owned(),
-        credential: Credential::Password("s3cr3t".to_owned()),
+        credential: Credential::Password(SecretText::new("s3cr3t".to_owned())),
         sasl: vec![SaslMech::Plain],
     };
     let backend = ImapBackend::new(
-        ACCOUNT,
+        acct_account(),
         caps(),
         Box::new(move |authenticate, commands: Vec<ImapCommand>| {
             let mut all = Vec::new();
@@ -467,7 +471,7 @@ fn engine(port: u16, store: Arc<SqliteStore>) -> AccountEngine<ImapBackend> {
         }),
     );
     AccountEngine::new(
-        ACCOUNT,
+        acct_account(),
         plan(port),
         backend,
         store,
@@ -478,14 +482,14 @@ fn engine(port: u16, store: Arc<SqliteStore>) -> AccountEngine<ImapBackend> {
 async fn one_pass(port: u16, store: &Arc<SqliteStore>) -> AccountReport {
     let mut engine = engine(port, store.clone());
     let account = sync::Configured {
-        id: ACCOUNT,
+        id: acct_account(),
         address: ME.to_owned(),
         plan: plan(port),
         caps: caps(),
         keep: mail_core::offline::Keep::Bodies,
     };
     let inbox = vec![MailboxRef {
-        account: ACCOUNT,
+        account: acct_account(),
         path: "INBOX".to_owned(),
     }];
     let (_tx, mut cancel) = tokio::sync::watch::channel(false);
@@ -526,7 +530,7 @@ async fn a_rule_acts_on_mail_the_pass_it_arrives_and_the_server_hears_it_once() 
     let port = serve(drop.clone(), heard.clone()).await;
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(SqliteStore::open(dir.path().join("mail.db"), dir.path()).unwrap());
-    configure(&store, ACCOUNT, &plan(port), &caps());
+    configure(&store, acct_account(), &plan(port), &caps());
 
     // A pass before any rule: the old newsletter is simply fetched.
     one_pass(port, &store).await;

@@ -14,6 +14,8 @@ authors = ["Po Hsuan Lai <pohsuanlai0208@gmail.com>"]
 # else that draws. `scripts/check-boundary.sh` enforces that.
 
 [dependencies]
+porter-core.workspace = true
+porter-provider.workspace = true
 latchkey.workspace = true
 mail-domain.workspace = true
 mail-store.workspace = true

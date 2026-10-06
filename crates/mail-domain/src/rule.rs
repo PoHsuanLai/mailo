@@ -15,10 +15,11 @@
 //! script is per account too; a rule for two accounts is two rules.
 
 use crate::filter::{DateRange, Filter, MatchCtx};
-use crate::id::{AccountId, RuleId};
+use crate::id::RuleId;
 use crate::message::{Message, ThreadSummary};
 use crate::state::{FollowUp, Mute, Pin, Snooze};
 use chrono::{DateTime, Utc};
+use porter_core::AccountId;
 use serde::{Deserialize, Serialize};
 
 /// A filter and what to do with the mail it matches.

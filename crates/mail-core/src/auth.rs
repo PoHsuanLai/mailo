@@ -10,9 +10,10 @@
 //! the raw blob already holds the field, and a column would need a migration and a change to
 //! the frozen `Message` to cache something shown for one message at a time.
 
-use mail_domain::{AccountId, AccountPlan, Incoming, Message};
+use mail_domain::{AccountPlan, Incoming, Message};
 use mail_mime::{AuthResults, Check, Receiver, Verdict};
 use mail_store::SqliteStore;
+use porter_core::AccountId;
 
 /// Providers whose receiving servers sign as a domain other than the one their mail is read
 /// from, keyed by the registered domain of the account's server. Google's help pages show its
@@ -60,7 +61,7 @@ fn plan_of(store: &SqliteStore, account: AccountId) -> Option<AccountPlan> {
 pub fn results_of(store: &SqliteStore, message: &Message) -> Option<AuthResults> {
     let raw = message.body.raw()?;
     let bytes = store.blobs().get(&store.connection(), raw).ok()?;
-    let receiver = plan_of(store, message.account)
+    let receiver = plan_of(store, message.account.clone())
         .as_ref()
         .map_or(Receiver::Topmost, receiver);
     mail_mime::authentication_results(&bytes, &receiver)

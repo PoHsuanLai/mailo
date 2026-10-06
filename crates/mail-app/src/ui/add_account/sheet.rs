@@ -93,7 +93,7 @@ fn use_offer(
         });
         if let Stage::Added { account, .. } = &next {
             revision += 1;
-            if let Some(account) = *account {
+            if let Some(account) = account.clone() {
                 into_scope(shell, &mut spaces, account);
             }
         }
@@ -105,7 +105,7 @@ fn use_offer(
 fn into_scope(
     mut shell: Signal<Shell>,
     spaces: &mut Signal<Spaces>,
-    account: mail_domain::AccountId,
+    account: porter_core::AccountId,
 ) {
     let widened = {
         let mut all = spaces.write();

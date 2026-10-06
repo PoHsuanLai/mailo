@@ -27,8 +27,8 @@ pub(super) fn remove(
             Err(asking(address, held, incoming.as_ref()))
         }
         Consent::Given => {
-            let removed =
-                mail_core::account::remove(store, secrets, id).map_err(|e| e.to_string())?;
+            let removed = mail_core::account::remove(store, secrets, id.clone())
+                .map_err(|e| e.to_string())?;
             if let Some(config) = config {
                 let _ = mail_core::offline::save(config, id, mail_core::offline::Keep::Bodies);
             }
@@ -111,7 +111,7 @@ mod tests {
                 "INSERT INTO accounts (id, address, plan, created_at)
                  VALUES (?1, ?2, ?3, datetime('now'))",
                 [
-                    mail_domain::AccountId::generate().to_string(),
+                    mail_domain::id::new_account_id().to_string(),
                     ADDRESS.to_owned(),
                     serde_json::to_string(&preset.plan).unwrap(),
                 ],

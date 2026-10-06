@@ -5,11 +5,14 @@
 //! list per message, by name, which the store resolves to ids and applies as a difference.
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 
 fn now() -> DateTime<Utc> {
     Utc.timestamp_opt(1_700_000_000, 0).unwrap()
@@ -31,7 +34,7 @@ fn store() -> (SqliteStore, tempfile::TempDir) {
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [ACCOUNT.to_string()],
+            [acct_account().to_string()],
         )
         .unwrap();
     (store, dir)
@@ -44,7 +47,7 @@ fn message(store: &SqliteStore, uid: u32) -> MessageId {
     let message = Message {
         id,
         thread: ThreadId::generate(),
-        account: ACCOUNT,
+        account: acct_account(),
         key: MessageKey::Rfc(format!("m{uid}@example.test")),
         date: now(),
         from: Address {
@@ -68,10 +71,10 @@ fn message(store: &SqliteStore, uid: u32) -> MessageId {
     };
     store
         .ingest(
-            ACCOUNT,
+            acct_account(),
             Ingest {
                 mailbox: MailboxRef {
-                    account: ACCOUNT,
+                    account: acct_account(),
                     path: "INBOX".to_owned(),
                 },
                 validity: UidValidity::Same,
@@ -95,10 +98,10 @@ fn message(store: &SqliteStore, uid: u32) -> MessageId {
 fn label_sweep(store: &SqliteStore, rows: Vec<(RemoteRef, Vec<String>)>) {
     store
         .ingest(
-            ACCOUNT,
+            acct_account(),
             Ingest {
                 mailbox: MailboxRef {
-                    account: ACCOUNT,
+                    account: acct_account(),
                     path: "INBOX".to_owned(),
                 },
                 validity: UidValidity::Same,
@@ -116,7 +119,7 @@ fn label_sweep(store: &SqliteStore, rows: Vec<(RemoteRef, Vec<String>)>) {
 fn names_on(store: &SqliteStore, message: MessageId) -> Vec<String> {
     let held = store.message(message).unwrap().labels;
     let mut names: Vec<String> = store
-        .labels(ACCOUNT)
+        .labels(acct_account())
         .unwrap()
         .into_iter()
         .filter(|l| held.contains(&l.id))
@@ -143,7 +146,7 @@ fn a_label_the_server_reports_is_created_and_attached() {
     // Created by the server, so the user may not rename or delete it here — which is what the
     // origin is for.
     let travel = store
-        .labels(ACCOUNT)
+        .labels(acct_account())
         .unwrap()
         .into_iter()
         .find(|l| l.name == "travel")
@@ -167,7 +170,7 @@ fn the_same_name_twice_is_the_same_label() {
         ],
     );
 
-    assert_eq!(store.labels(ACCOUNT).unwrap().len(), 1);
+    assert_eq!(store.labels(acct_account()).unwrap().len(), 1);
     assert_eq!(names_on(&store, first), vec!["travel".to_owned()]);
     assert_eq!(names_on(&store, second), vec!["travel".to_owned()]);
 }
@@ -191,7 +194,7 @@ fn a_label_the_server_no_longer_lists_is_removed() {
     // want to search for it.
     assert!(
         store
-            .labels(ACCOUNT)
+            .labels(acct_account())
             .unwrap()
             .iter()
             .any(|l| l.name == "travel")
@@ -232,7 +235,7 @@ fn a_message_the_survey_does_not_know_is_skipped_rather_than_failing() {
     let (store, _dir) = store();
     label_sweep(&store, vec![(gmail_ref(999), vec!["travel".to_owned()])]);
     assert!(
-        store.labels(ACCOUNT).unwrap().is_empty(),
+        store.labels(acct_account()).unwrap().is_empty(),
         "no label invented"
     );
 }
@@ -245,7 +248,7 @@ fn a_labelled_message_is_findable_by_that_label() {
     label_sweep(&store, vec![(gmail_ref(42), vec!["travel".to_owned()])]);
 
     let travel = store
-        .labels(ACCOUNT)
+        .labels(acct_account())
         .unwrap()
         .into_iter()
         .find(|l| l.name == "travel")
@@ -273,10 +276,10 @@ fn a_labelled_message_is_findable_by_that_label() {
 fn label_patch(store: &SqliteStore, rows: Vec<(RemoteRef, Vec<String>)>) -> Patch {
     store
         .ingest(
-            ACCOUNT,
+            acct_account(),
             Ingest {
                 mailbox: MailboxRef {
-                    account: ACCOUNT,
+                    account: acct_account(),
                     path: "INBOX".to_owned(),
                 },
                 validity: UidValidity::Same,

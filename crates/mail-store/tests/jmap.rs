@@ -5,11 +5,14 @@
 //! answers, the parity the rest of the store is held to.
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_store::{MemoryStore, SqliteStore, Store};
+use porter_core::AccountId;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 
 fn at(n: i64) -> DateTime<Utc> {
     Utc.timestamp_opt(1_700_000_000 + n, 0).unwrap()
@@ -23,7 +26,7 @@ fn both<T>(scenario: impl Fn(&dyn Store) -> T) -> (T, T) {
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [ACCOUNT.to_string()],
+            [acct_account().to_string()],
         )
         .unwrap();
     let memory = MemoryStore::new();
@@ -32,7 +35,7 @@ fn both<T>(scenario: impl Fn(&dyn Store) -> T) -> (T, T) {
 
 fn all() -> MailboxRef {
     MailboxRef {
-        account: ACCOUNT,
+        account: acct_account(),
         path: JMAP_ALL.to_owned(),
     }
 }
@@ -47,7 +50,7 @@ fn message(n: u128, role: MailboxRole) -> Message {
     Message {
         id: MessageId::from_uuid(uuid::Uuid::from_u128(n)),
         thread: ThreadId::from_uuid(uuid::Uuid::from_u128(n + 1000)),
-        account: ACCOUNT,
+        account: acct_account(),
         key: MessageKey::Rfc(format!("m{n}@example.test")),
         date: at(n as i64),
         from: Address {
@@ -74,7 +77,7 @@ fn message(n: u128, role: MailboxRole) -> Message {
 fn deliver(store: &dyn Store, m: &Message, remote: RemoteRef) {
     store
         .ingest(
-            ACCOUNT,
+            acct_account(),
             Ingest {
                 mailbox: all(),
                 validity: UidValidity::Same,
@@ -137,13 +140,13 @@ fn the_server_refiles_a_message_moved_elsewhere() {
         deliver(store, &message(1, MailboxRole::Inbox), jmap("M1"));
         let before = role(store, 1);
         let moved = store
-            .refile(ACCOUNT, &[(jmap("M1"), MailboxRole::Archive)])
+            .refile(acct_account(), &[(jmap("M1"), MailboxRole::Archive)])
             .unwrap();
         let after = role(store, 1);
         // Already filed so, and an address nobody holds: nothing to change.
         let again = store
             .refile(
-                ACCOUNT,
+                acct_account(),
                 &[
                     (jmap("M1"), MailboxRole::Archive),
                     (jmap("unknown"), MailboxRole::Trash),
@@ -178,10 +181,10 @@ fn a_local_move_the_server_has_not_seen_survives_refiling() {
             id: ChangeId::generate(),
             changes: vec![Change::MessageMailbox(id, MailboxRole::Inbox)],
         };
-        store.apply(ACCOUNT, &forward).unwrap();
+        store.apply(acct_account(), &forward).unwrap();
         store
             .enqueue(
-                ACCOUNT,
+                acct_account(),
                 RemoteIntent::SetMailbox {
                     messages: vec![id],
                     role: MailboxRole::Trash,
@@ -191,10 +194,10 @@ fn a_local_move_the_server_has_not_seen_survives_refiling() {
             )
             .unwrap();
         store
-            .refile(ACCOUNT, &[(jmap("M1"), MailboxRole::Archive)])
+            .refile(acct_account(), &[(jmap("M1"), MailboxRole::Archive)])
             .unwrap();
         let queued: Vec<ProtoOp> = store
-            .outbox_due(ACCOUNT, at(10))
+            .outbox_due(acct_account(), at(10))
             .unwrap()
             .into_iter()
             .map(|e| e.op)
@@ -220,7 +223,7 @@ fn an_email_gone_from_the_account_is_gone_from_here() {
         deliver(store, &message(1, MailboxRole::Inbox), jmap("M1"));
         store
             .ingest(
-                ACCOUNT,
+                acct_account(),
                 Ingest {
                     mailbox: all(),
                     validity: UidValidity::Same,

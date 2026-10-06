@@ -4,9 +4,10 @@
 use super::{
     KeyringSecrets, OAuthRegistry, Secrets, configured, graph_engine, sending_token, signed_in_imap,
 };
-use mail_domain::{AccountId, Filter, Incoming, LabelId};
+use mail_domain::{Filter, Incoming, LabelId};
 use mail_runtime::Searched;
 use mail_store::SqliteStore;
+use porter_core::AccountId;
 use std::sync::Arc;
 use tokio::sync::watch;
 

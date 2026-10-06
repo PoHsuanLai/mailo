@@ -74,9 +74,11 @@ mod tests {
     use mail_core::search::Affinity;
     use mail_domain::*;
     use mail_store::{SqliteStore, Store};
+    use porter_core::AccountId;
 
-    const ACCOUNT: AccountId =
-        AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+    fn acct_account() -> AccountId {
+        mail_domain::id::account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+    }
 
     fn at(secs: i64) -> DateTime<Utc> {
         Utc.timestamp_opt(1_700_000_000 + secs, 0)
@@ -92,7 +94,7 @@ mod tests {
         Message {
             id: MessageId::from_uuid(uuid::Uuid::from_u128(0x9000 + n)),
             thread: thread_of(n),
-            account: ACCOUNT,
+            account: acct_account(),
             key: MessageKey::Rfc(format!("m{n}@b.c")),
             date: at(secs),
             from: Address {
@@ -128,7 +130,7 @@ mod tests {
             .execute(
                 "INSERT INTO accounts (id, address, plan, created_at)
                  VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-                [ACCOUNT.to_string()],
+                [acct_account().to_string()],
             )
             .expect("account");
         for (i, (subject, body, secs)) in rows.iter().enumerate() {
@@ -142,7 +144,7 @@ mod tests {
             }
             store
                 .apply(
-                    ACCOUNT,
+                    acct_account(),
                     &Patch {
                         id: ChangeId::generate(),
                         changes: vec![Change::MessageUpsert(Box::new(message))],

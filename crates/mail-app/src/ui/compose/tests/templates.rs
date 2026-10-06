@@ -7,10 +7,10 @@ use super::super::templates::{
     SAVE_KEY, START_KEY, every, forget, page_slash_items, pick, save_named, template_rows,
 };
 use super::*;
-use crate::ui::fixtures::{ACCOUNT, seeded};
+use crate::ui::fixtures::{acct_account, seeded};
 
 fn fresh(store: &SqliteStore) -> Draft {
-    mail_core::compose::draft_new(store, ACCOUNT, &[], "", "", Utc::now())
+    mail_core::compose::draft_new(store, acct_account(), &[], "", "", Utc::now())
         .unwrap_or_else(|why| panic!("a new draft: {why}"))
 }
 
@@ -112,7 +112,10 @@ async fn saved_listed_started_from_and_deleted() {
         markup.contains(">Weekly<"),
         "the template is not listed:\n{markup}"
     );
-    let drafts_before = store.drafts(ACCOUNT).map(|all| all.len()).unwrap_or(0);
+    let drafts_before = store
+        .drafts(acct_account())
+        .map(|all| all.len())
+        .unwrap_or(0);
 
     // Enter on the list, as the body hands it the key: the one template is the active row.
     let shell = window.shell;
@@ -146,7 +149,10 @@ async fn saved_listed_started_from_and_deleted() {
         "the empty draft was left behind"
     );
     assert_eq!(
-        store.drafts(ACCOUNT).map(|all| all.len()).unwrap_or(0),
+        store
+            .drafts(acct_account())
+            .map(|all| all.len())
+            .unwrap_or(0),
         drafts_before,
         "one draft in place of the other"
     );

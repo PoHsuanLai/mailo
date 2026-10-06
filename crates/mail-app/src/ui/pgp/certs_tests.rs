@@ -8,6 +8,7 @@ use std::sync::Arc;
 use chrono::{TimeDelta, Utc};
 use dioxus::prelude::*;
 use dioxus_core::VirtualDom;
+use mail_domain::signing::{SigningKeyId, SigningKeyRef};
 use mail_domain::*;
 use mail_runtime::{MapSecrets, Secrets};
 use mail_store::{SqliteStore, Store};
@@ -20,7 +21,9 @@ use super::smime_tests::{PASSWORD, identity_file, trust_root, with_identity};
 use super::tests::{own_key, seams_with};
 use super::{Seams, cert_short, short};
 use crate::ui::fixtures::smime_support::pki;
-use crate::ui::fixtures::{ACCOUNT, Seen, click, dispatching, rebuild_into, seeded, type_into};
+use crate::ui::fixtures::{
+    Seen, acct_account, click, dispatching, rebuild_into, seeded, type_into,
+};
 use crate::ui::view::Shell;
 
 thread_local! {
@@ -74,9 +77,9 @@ fn cert(fingerprint: u8, secret: SecretHeld) -> SmimeCert {
 
 fn holds(secrets: &MapSecrets, cert: &SmimeCert) -> bool {
     secrets
-        .get(&SecretKey {
-            account: ACCOUNT,
-            purpose: SecretPurpose::Smime(cert.fingerprint),
+        .get_signing(&SigningKeyRef {
+            account: acct_account(),
+            key: SigningKeyId::Smime(cert.fingerprint),
         })
         .is_ok()
 }

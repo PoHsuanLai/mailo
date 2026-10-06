@@ -5,7 +5,7 @@
 use super::head::{Confirm, Phase};
 use super::{Ask, Offer, archive_from, ask, leave, looked_at, offer_of};
 use crate::ui::app::App;
-use crate::ui::fixtures::{ACCOUNT, dispatching, rebuild_into, seeded};
+use crate::ui::fixtures::{acct_account, dispatching, rebuild_into, seeded};
 use crate::ui::reading::Reader;
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
@@ -49,7 +49,7 @@ fn put(store: &SqliteStore, sender: &str, headers: &str, held: Held) -> ThreadId
     let message = Message {
         id,
         thread: ThreadId::generate(),
-        account: ACCOUNT,
+        account: acct_account(),
         key: MessageKey::Rfc(rfc.clone()),
         date: chrono::Utc::now(),
         from: Address {
@@ -82,10 +82,10 @@ fn put(store: &SqliteStore, sender: &str, headers: &str, held: Held) -> ThreadId
     };
     store
         .ingest(
-            ACCOUNT,
+            acct_account(),
             Ingest {
                 mailbox: MailboxRef {
-                    account: ACCOUNT,
+                    account: acct_account(),
                     path: "INBOX".to_owned(),
                 },
                 validity: UidValidity::Same,
@@ -118,7 +118,7 @@ fn offer_from(raw_headers: &str) -> Option<Offer> {
     let bytes = format!("From: news@example.test\r\n{raw_headers}\r\nbody\r\n");
     let found = Found {
         message: MessageId::generate(),
-        account: ACCOUNT,
+        account: acct_account(),
         addressed: vec![address("me@example.test")],
         list: mail_mime::list_headers(bytes.as_bytes()),
     };
@@ -175,7 +175,7 @@ fn the_list_is_named_by_its_description_then_its_id_then_its_sender() {
     let named = |id: Option<ListId>| {
         let found = Found {
             message: MessageId::generate(),
-            account: ACCOUNT,
+            account: acct_account(),
             addressed: vec![],
             list: ListHeaders {
                 id,

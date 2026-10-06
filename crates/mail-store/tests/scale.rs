@@ -12,12 +12,15 @@
 //! machine.
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 use std::time::Instant;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 
 fn at(n: i64) -> DateTime<Utc> {
     Utc.timestamp_opt(1_700_000_000 + n * 60, 0).unwrap()
@@ -31,7 +34,7 @@ fn store() -> (SqliteStore, tempfile::TempDir) {
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [ACCOUNT.to_string()],
+            [acct_account().to_string()],
         )
         .unwrap();
     (store, dir)
@@ -51,7 +54,7 @@ fn fill(store: &SqliteStore, count: i64) {
             let message = Message {
                 id: MessageId::generate(),
                 thread: ThreadId::generate(),
-                account: ACCOUNT,
+                account: acct_account(),
                 key: MessageKey::Rfc(key.clone()),
                 date: at(n),
                 from: Address {
@@ -89,10 +92,10 @@ fn fill(store: &SqliteStore, count: i64) {
         }
         store
             .ingest(
-                ACCOUNT,
+                acct_account(),
                 Ingest {
                     mailbox: MailboxRef {
-                        account: ACCOUNT,
+                        account: acct_account(),
                         path: "INBOX".to_owned(),
                     },
                     validity: UidValidity::Same,
@@ -290,7 +293,7 @@ mod ingest_throughput {
             let message = Message {
                 id: MessageId::generate(),
                 thread: thread.unwrap_or_else(ThreadId::generate),
-                account: ACCOUNT,
+                account: acct_account(),
                 key: MessageKey::Rfc(key.clone()),
                 date: at(n),
                 from: Address {
@@ -324,7 +327,7 @@ mod ingest_throughput {
         }
         Ingest {
             mailbox: MailboxRef {
-                account: ACCOUNT,
+                account: acct_account(),
                 path: "INBOX".to_owned(),
             },
             validity: UidValidity::Same,
@@ -345,7 +348,7 @@ mod ingest_throughput {
         let start = Instant::now();
         for b in 0..5 {
             store
-                .ingest(ACCOUNT, batch(&store, b * 500, 500, None))
+                .ingest(acct_account(), batch(&store, b * 500, 500, None))
                 .unwrap();
         }
         let elapsed = start.elapsed();
@@ -370,20 +373,20 @@ mod ingest_throughput {
         let first = {
             let start = Instant::now();
             store
-                .ingest(ACCOUNT, batch(&store, 0, 200, Some(thread)))
+                .ingest(acct_account(), batch(&store, 0, 200, Some(thread)))
                 .unwrap();
             start.elapsed()
         };
         // Nine more batches into the same thread, so it ends at 2000 messages.
         for b in 1..9 {
             store
-                .ingest(ACCOUNT, batch(&store, b * 200, 200, Some(thread)))
+                .ingest(acct_account(), batch(&store, b * 200, 200, Some(thread)))
                 .unwrap();
         }
         let last = {
             let start = Instant::now();
             store
-                .ingest(ACCOUNT, batch(&store, 9 * 200, 200, Some(thread)))
+                .ingest(acct_account(), batch(&store, 9 * 200, 200, Some(thread)))
                 .unwrap();
             start.elapsed()
         };

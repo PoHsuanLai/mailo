@@ -2,11 +2,17 @@
 //! A blob another account still names, even only from inside its JSON, stays.
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_store::{Freed, SqliteStore, Store};
+use porter_core::AccountId;
 
-const GONE: AccountId = AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000c1"));
-const KEPT: AccountId = AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000c2"));
+fn acct_gone() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000c1"))
+}
+fn acct_kept() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000c2"))
+}
 
 /// Large enough to be a file rather than a row.
 const LARGE: usize = 40 * 1024;
@@ -19,7 +25,10 @@ fn at(n: i64) -> DateTime<Utc> {
 fn store() -> (SqliteStore, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let store = SqliteStore::in_memory(dir.path()).unwrap();
-    for (account, address) in [(GONE, "gone@example.test"), (KEPT, "kept@example.test")] {
+    for (account, address) in [
+        (acct_gone(), "gone@example.test"),
+        (acct_kept(), "kept@example.test"),
+    ] {
         store
             .connection()
             .execute(
@@ -108,11 +117,11 @@ fn the_account_s_rows_and_the_blobs_only_it_used_go_and_shared_ones_stay() {
     let own = put(&store, b"the kept account's own message");
     store
         .import(
-            GONE,
+            acct_gone(),
             Import {
                 messages: vec![
-                    kept(GONE, "g1@x", large, &[small]),
-                    kept(GONE, "g2@x", shared, &[]),
+                    kept(acct_gone(), "g1@x", large, &[small]),
+                    kept(acct_gone(), "g2@x", shared, &[]),
                 ],
             },
         )
@@ -120,15 +129,15 @@ fn the_account_s_rows_and_the_blobs_only_it_used_go_and_shared_ones_stay() {
     // The kept account names the shared blob only from inside its attachments' JSON.
     store
         .import(
-            KEPT,
+            acct_kept(),
             Import {
-                messages: vec![kept(KEPT, "k1@x", own, &[shared])],
+                messages: vec![kept(acct_kept(), "k1@x", own, &[shared])],
             },
         )
         .unwrap();
     assert_eq!(files(dir.path()), 1, "the large blob is not a file");
 
-    let freed = store.remove_account(GONE).unwrap();
+    let freed = store.remove_account(acct_gone()).unwrap();
 
     assert_eq!(
         freed,
@@ -153,12 +162,12 @@ fn the_account_s_rows_and_the_blobs_only_it_used_go_and_shared_ones_stay() {
         .connection()
         .query_row(
             "SELECT count(*) FROM messages WHERE account = ?1",
-            [GONE.to_string()],
+            [acct_gone().to_string()],
             |r| r.get(0),
         )
         .unwrap();
     assert_eq!(left, 0);
-    assert_eq!(store.offline(KEPT).unwrap().messages, 1);
+    assert_eq!(store.offline(acct_kept()).unwrap().messages, 1);
 }
 
 #[test]
@@ -167,18 +176,18 @@ fn an_account_that_is_not_there_changes_nothing() {
     let own = put(&store, b"kept");
     store
         .import(
-            KEPT,
+            acct_kept(),
             Import {
-                messages: vec![kept(KEPT, "k1@x", own, &[])],
+                messages: vec![kept(acct_kept(), "k1@x", own, &[])],
             },
         )
         .unwrap();
-    store.remove_account(GONE).unwrap();
+    store.remove_account(acct_gone()).unwrap();
     for _ in 0..2 {
-        assert_eq!(store.remove_account(GONE).unwrap(), None);
+        assert_eq!(store.remove_account(acct_gone()).unwrap(), None);
     }
     assert!(is_blob(&store, own));
-    assert_eq!(store.offline(KEPT).unwrap().messages, 1);
+    assert_eq!(store.offline(acct_kept()).unwrap().messages, 1);
 }
 
 /// A blob two rows of the removed account shared, and nothing else did, goes once.
@@ -190,16 +199,16 @@ fn a_blob_the_account_named_twice_goes_once() {
     let second = put(&store, b"second");
     store
         .import(
-            GONE,
+            acct_gone(),
             Import {
                 messages: vec![
-                    kept(GONE, "a@x", first, &[twice]),
-                    kept(GONE, "b@x", second, &[twice]),
+                    kept(acct_gone(), "a@x", first, &[twice]),
+                    kept(acct_gone(), "b@x", second, &[twice]),
                 ],
             },
         )
         .unwrap();
-    let freed = store.remove_account(GONE).unwrap().unwrap();
+    let freed = store.remove_account(acct_gone()).unwrap().unwrap();
     assert_eq!(freed.blobs, 3);
     assert!(!is_blob(&store, twice));
 }
@@ -216,21 +225,21 @@ fn a_blob_a_kept_draft_attaches_stays() {
         .execute(
             "INSERT INTO identities (id, account, from_name, from_email, is_default)
              VALUES (?1, ?2, NULL, 'kept@example.test', '\"default\"')",
-            [identity.to_string(), KEPT.to_string()],
+            [identity.to_string(), acct_kept().to_string()],
         )
         .unwrap();
     let shared = put(&store, &vec![9u8; LARGE]);
     store
         .import(
-            GONE,
+            acct_gone(),
             Import {
-                messages: vec![kept(GONE, "g1@x", shared, &[])],
+                messages: vec![kept(acct_gone(), "g1@x", shared, &[])],
             },
         )
         .unwrap();
     let draft = Draft {
         id: DraftId::generate(),
-        account: KEPT,
+        account: acct_kept(),
         identity,
         to: vec![],
         cc: vec![],
@@ -253,7 +262,7 @@ fn a_blob_a_kept_draft_attaches_stays() {
     };
     store
         .apply(
-            KEPT,
+            acct_kept(),
             &Patch {
                 id: ChangeId::generate(),
                 changes: vec![Change::DraftUpsert(Box::new(draft))],
@@ -261,7 +270,7 @@ fn a_blob_a_kept_draft_attaches_stays() {
         )
         .unwrap();
 
-    let freed = store.remove_account(GONE).unwrap().unwrap();
+    let freed = store.remove_account(acct_gone()).unwrap().unwrap();
 
     assert_eq!(freed.blobs, 0, "{freed:?}");
     assert!(

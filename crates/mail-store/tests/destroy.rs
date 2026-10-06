@@ -6,11 +6,14 @@
 //! runs against the SQLite store and the in-memory one and compares what each answers.
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_store::{Dispatch, MemoryStore, Settle, SqliteStore, Store};
+use porter_core::AccountId;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 
 fn at(n: i64) -> DateTime<Utc> {
     Utc.timestamp_opt(1_700_000_000 + n, 0).unwrap()
@@ -25,7 +28,7 @@ fn both<T>(scenario: impl Fn(&dyn Store) -> T) -> (T, T) {
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [ACCOUNT.to_string()],
+            [acct_account().to_string()],
         )
         .unwrap();
     let memory = MemoryStore::new();
@@ -42,7 +45,7 @@ fn imap(mailbox: &str, uid: u32) -> RemoteRef {
 
 fn mailbox(path: &str) -> MailboxRef {
     MailboxRef {
-        account: ACCOUNT,
+        account: acct_account(),
         path: path.to_owned(),
     }
 }
@@ -68,7 +71,7 @@ fn message(n: u128, role: MailboxRole) -> Message {
     Message {
         id: MessageId::from_uuid(uuid::Uuid::from_u128(n)),
         thread: ThreadId::from_uuid(uuid::Uuid::from_u128(n + 1000)),
-        account: ACCOUNT,
+        account: acct_account(),
         key: MessageKey::Rfc(format!("m{n}@example.test")),
         date: at(n as i64),
         from: Address {
@@ -117,7 +120,7 @@ fn deliver(store: &dyn Store, m: &Message, remote: RemoteRef) {
         raw: BlobId::generate(),
         message: m.clone(),
     });
-    store.ingest(ACCOUNT, batch).unwrap();
+    store.ingest(acct_account(), batch).unwrap();
 }
 
 /// What the window does for "Delete forever": the op applied to the thread, the deletion queued
@@ -139,10 +142,10 @@ fn delete_forever(store: &dyn Store, m: &Message) -> Option<OutboxId> {
     assert!(applied.inverse.changes.is_empty(), "nothing to undo");
     let queued = applied.remote.and_then(|intent| {
         store
-            .enqueue(ACCOUNT, intent, &applied.inverse, at(1))
+            .enqueue(acct_account(), intent, &applied.inverse, at(1))
             .unwrap()
     });
-    store.apply(ACCOUNT, &applied.forward).unwrap();
+    store.apply(acct_account(), &applied.forward).unwrap();
     queued
 }
 
@@ -163,7 +166,9 @@ fn a_destroyed_message_goes_here_and_its_address_stays_counted_as_held() {
             held(store, &m),
             store.remote_refs(&mailbox("Trash")).unwrap(),
             store.outbox_dispatch(entry).unwrap(),
-            store.outbox_due(ACCOUNT, at(2)).unwrap()[0].op.clone(),
+            store.outbox_due(acct_account(), at(2)).unwrap()[0]
+                .op
+                .clone(),
         )
     });
     assert_eq!(sqlite, memory);
@@ -191,11 +196,11 @@ fn a_confirmed_deletion_keeps_the_address_until_a_sync_no_longer_finds_it() {
         let settled = store.remote_refs(&mailbox("Trash")).unwrap();
         let mut sweep = ingest("Trash");
         sweep.gone = vec![imap("Trash", 10)];
-        store.ingest(ACCOUNT, sweep).unwrap();
+        store.ingest(acct_account(), sweep).unwrap();
         (
             settled,
             store.remote_refs(&mailbox("Trash")).unwrap(),
-            store.outbox_due(ACCOUNT, at(3)).unwrap().len(),
+            store.outbox_due(acct_account(), at(3)).unwrap().len(),
         )
     });
     assert_eq!(sqlite, memory);
@@ -281,19 +286,19 @@ fn a_move_to_trash_still_queued_takes_the_deletion_with_it() {
         );
         let first = store
             .enqueue(
-                ACCOUNT,
+                acct_account(),
                 trashed.remote.clone().expect("a move"),
                 &trashed.inverse,
                 at(1),
             )
             .unwrap()
             .expect("queued");
-        store.apply(ACCOUNT, &trashed.forward).unwrap();
+        store.apply(acct_account(), &trashed.forward).unwrap();
         let second = delete_forever(store, &m).expect("queued");
 
         let move_sent = store.outbox_dispatch(first).unwrap();
         store
-            .remap(ACCOUNT, &imap("INBOX", 10), &imap("Trash", 55))
+            .remap(acct_account(), &imap("INBOX", 10), &imap("Trash", 55))
             .unwrap();
         store.outbox_settle(first, Settle::Ok, at(2)).unwrap();
         (
@@ -328,7 +333,7 @@ fn outside_trash_and_spam_nothing_is_removed_or_queued() {
         (
             delete_forever(store, &m),
             held(store, &m),
-            store.outbox_due(ACCOUNT, at(2)).unwrap().len(),
+            store.outbox_due(acct_account(), at(2)).unwrap().len(),
         )
     });
     assert_eq!(sqlite, memory);
@@ -346,7 +351,7 @@ fn a_renumbered_or_deleted_trash_forgets_what_it_kept() {
         delete_forever(store, &n).expect("queued");
         let mut reset = ingest("Trash");
         reset.validity = UidValidity::Reset;
-        store.ingest(ACCOUNT, reset).unwrap();
+        store.ingest(acct_account(), reset).unwrap();
         (
             store.remote_refs(&mailbox("Trash")).unwrap(),
             store.remote_refs(&mailbox("Junk")).unwrap(),

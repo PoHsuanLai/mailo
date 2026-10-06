@@ -13,9 +13,11 @@
 use std::sync::Arc;
 
 use mail_domain::presets::{self, Manual, ManualPop3, Preset};
-use mail_domain::{AccountId, AuthPlan, HttpAuth, Incoming, OAuthIssuer, Retry};
+use mail_domain::{AuthPlan, HttpAuth, Incoming, Retry};
 use mail_proto::discover::Found;
 use mail_store::SqliteStore;
+use porter_core::AccountId;
+use porter_provider::Issuer;
 
 use crate::ui::space::{Scope, Space};
 use mail_core::account::Setup;
@@ -99,7 +101,7 @@ pub(in crate::ui) enum Refusal {
     /// The password or token was not typed yet.
     Blank(What),
     /// An OAuth sign-in with no client id to make it with.
-    NeedsClientId(OAuthIssuer),
+    NeedsClientId(Issuer),
     /// The add said no, in its own words. Those are written for a terminal; see
     /// [`super::copy::refused`] for what the sheet makes of them.
     Other(String),
@@ -525,7 +527,7 @@ pub(in crate::ui) enum SignIn {
     /// A password, typed into the sheet.
     Password,
     /// In a browser, with `issuer`.
-    OAuth { issuer: OAuthIssuer, client: Client },
+    OAuth { issuer: Issuer, client: Client },
 }
 
 /// Whether an OAuth client id is at hand: from the environment or an earlier sign-in.
@@ -555,7 +557,7 @@ pub(in crate::ui) type Add =
 /// Open an address in the system browser.
 pub(in crate::ui) type Browse = dyn Fn(&str) -> Result<(), String> + Send + Sync;
 /// Whether an OAuth client id is at hand for an issuer.
-pub(in crate::ui) type HasClient = dyn Fn(OAuthIssuer) -> bool + Send + Sync;
+pub(in crate::ui) type HasClient = dyn Fn(Issuer) -> bool + Send + Sync;
 
 /// The sheet's reach into the world, handed in so tests reach nothing.
 #[derive(Clone)]
@@ -951,10 +953,11 @@ pub(in crate::ui) fn rows(shown: &str) -> Vec<(String, String)> {
 }
 
 /// The provider an issuer is, as a button says it.
-pub(in crate::ui) fn provider(issuer: OAuthIssuer) -> &'static str {
+pub(in crate::ui) fn provider(issuer: Issuer) -> &'static str {
     match issuer {
-        OAuthIssuer::Google => "Google",
-        OAuthIssuer::Microsoft => "Microsoft",
+        Issuer::Google => "Google",
+        Issuer::Microsoft => "Microsoft",
+        _ => "another issuer",
     }
 }
 

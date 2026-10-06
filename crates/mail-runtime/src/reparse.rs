@@ -22,7 +22,7 @@ pub fn reparse_queued(store: &SqliteStore) -> Result<usize, RuntimeError> {
     for id in store.reparse_queue()? {
         if let Some(message) = reparsed(store, id) {
             store.apply(
-                message.account,
+                message.account.clone(),
                 &Patch {
                     id: ChangeId::generate(),
                     changes: vec![Change::MessageUpsert(Box::new(message))],

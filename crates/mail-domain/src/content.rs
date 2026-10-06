@@ -1,7 +1,8 @@
 //! Message content: who, what, and the bytes behind it.
 
-use crate::id::{AccountId, BlobId, LabelId};
+use crate::id::{BlobId, LabelId};
 use crate::state::LabelOrigin;
+use porter_core::AccountId;
 use serde::{Deserialize, Serialize};
 
 /// A mailbox address with its optional display name.

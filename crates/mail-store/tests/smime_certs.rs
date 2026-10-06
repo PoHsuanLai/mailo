@@ -3,6 +3,7 @@
 //! here are placeholders: the store keeps them and never reads them.
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_domain::id::new_account_id;
 use mail_domain::*;
 use mail_store::{MemoryStore, SqliteStore, Store, StoreError};
 
@@ -156,7 +157,7 @@ fn trust_on_a_missing_certificate_is_an_error_and_delete_says_whether_there_was_
 fn a_draft_and_a_template_keep_what_they_ask_smime_to_do() {
     let dir = tempfile::tempdir().unwrap();
     let store = SqliteStore::in_memory(dir.path()).unwrap();
-    let account = AccountId::generate();
+    let account = new_account_id();
     let identity = IdentityId::generate();
     {
         let db = store.connection();
@@ -176,7 +177,7 @@ fn a_draft_and_a_template_keep_what_they_ask_smime_to_do() {
     let mut draft = Draft::blank(
         &Identity {
             id: identity,
-            account,
+            account: account.clone(),
             from: Address {
                 name: None,
                 email: "me@example.test".to_owned(),
@@ -195,7 +196,7 @@ fn a_draft_and_a_template_keep_what_they_ask_smime_to_do() {
     let memory = MemoryStore::new();
     for s in [&store as &dyn Store, &memory] {
         s.apply(
-            account,
+            account.clone(),
             &Patch {
                 id: ChangeId::generate(),
                 changes: vec![Change::DraftUpsert(Box::new(draft.clone()))],
