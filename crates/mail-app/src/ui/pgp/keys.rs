@@ -21,7 +21,7 @@ use ds::components::overlays::sheet_width::SheetWidth;
 use ds::prelude::*;
 use ds::root::common::Common;
 use mail_domain::{Fingerprint, PgpKey, SecretHeld};
-use mail_runtime::Secrets;
+use mail_runtime::SigningStore;
 use mail_store::{SqliteStore, Store};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -141,7 +141,11 @@ pub(in crate::ui) fn work(store: &SqliteStore, seams: &Seams, job: Job) -> Resul
     Ok(Done::Said(said))
 }
 
-fn generate(store: &SqliteStore, secrets: &dyn Secrets, address: &str) -> Result<String, String> {
+fn generate(
+    store: &SqliteStore,
+    secrets: &dyn SigningStore,
+    address: &str,
+) -> Result<String, String> {
     let key = mail_core::pgp::keys::generate(store, secrets, address, Utc::now())
         .map_err(|e| e.to_string())?;
     Ok(format!(
@@ -150,7 +154,7 @@ fn generate(store: &SqliteStore, secrets: &dyn Secrets, address: &str) -> Result
     ))
 }
 
-fn import(store: &SqliteStore, secrets: &dyn Secrets, path: &Path) -> Result<String, String> {
+fn import(store: &SqliteStore, secrets: &dyn SigningStore, path: &Path) -> Result<String, String> {
     let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let imported = mail_core::pgp::keys::import(store, secrets, &bytes, Utc::now())
         .map_err(|e| e.to_string())?;

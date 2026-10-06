@@ -10,7 +10,8 @@ use ds::components::content::label::LabelRole;
 use ds::components::lists::row::row::Outline;
 use ds::focus::request::use_focus_request;
 use ds::prelude::*;
-use mail_domain::{AccountId, FolderWork, Subscription};
+use mail_domain::{FolderWork, Subscription};
+use porter_core::AccountId;
 
 /// The row for a new folder's name, under the folder it goes in (or at the top of the list):
 /// quire's `Row`, its words the name field.
@@ -27,7 +28,7 @@ pub(super) fn Naming(
             account,
             parent,
             text,
-        } => (*account, parent.clone(), text.clone()),
+        } => (account.clone(), parent.clone(), text.clone()),
         _ => return rsx! {},
     };
     let here = match &at {

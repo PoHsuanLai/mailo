@@ -11,19 +11,24 @@
 //! envelope, and that the blind ones were named *nowhere else*.
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_mime::posting;
 use mail_proto::backend::{Authenticate, Pop3Backend};
 use mail_proto::{Pop3Command, Pop3Session};
-use mail_runtime::{AccountEngine, MapSecrets, Secrets};
+use mail_runtime::{AccountEngine, AccountSecrets};
 use mail_store::{SqliteStore, Store};
+use porter_core::SecretText;
+use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
+use porter_secrets::MemorySecrets;
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 use tokio::sync::watch;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 const IDENTITY: IdentityId =
     IdentityId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b1"));
 const PASSWORD: &str = "s3cr3t";
@@ -148,7 +153,7 @@ async fn session(sock: tokio::net::TcpStream, seen: Shared) {
 fn identity() -> Identity {
     Identity {
         id: IDENTITY,
-        account: ACCOUNT,
+        account: acct_account(),
         from: Address {
             name: Some("Me".to_owned()),
             email: "me@example.test".to_owned(),
@@ -206,7 +211,7 @@ fn caps() -> AccountCaps {
 fn draft() -> Draft {
     Draft {
         id: DraftId::generate(),
-        account: ACCOUNT,
+        account: acct_account(),
         identity: IDENTITY,
         to: vec![Address {
             name: Some("Bea".to_owned()),
@@ -250,32 +255,31 @@ fn compose(smtp_port: u16) -> Sending {
         db.execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [ACCOUNT.to_string()],
+            [acct_account().to_string()],
         )
         .unwrap();
         db.execute(
             "INSERT INTO identities (id, account, from_name, from_email, is_default)
              VALUES (?1, ?2, 'Me', 'me@example.test', '\"default\"')",
-            [IDENTITY.to_string(), ACCOUNT.to_string()],
+            [IDENTITY.to_string(), acct_account().to_string()],
         )
         .unwrap();
     }
 
-    let secrets = MapSecrets::default();
-    secrets
-        .put(
-            &SecretKey {
-                account: ACCOUNT,
-                purpose: SecretPurpose::IncomingPassword,
-            },
-            &Credential::Password(PASSWORD.to_owned()),
-        )
-        .unwrap();
+    let secrets = MemorySecrets::default();
+    mail_runtime::block_on(secrets.put(
+        &SecretKey {
+            account: acct_account(),
+            purpose: SecretPurpose::IncomingPassword,
+        },
+        &Credential::Password(SecretText::new(PASSWORD.to_owned())),
+    ))
+    .unwrap();
 
     let draft = draft();
     store
         .apply(
-            ACCOUNT,
+            acct_account(),
             &Patch {
                 id: ChangeId::generate(),
                 changes: vec![Change::DraftUpsert(Box::new(draft.clone()))],
@@ -293,7 +297,7 @@ fn compose(smtp_port: u16) -> Sending {
         .unwrap();
     store
         .enqueue(
-            ACCOUNT,
+            acct_account(),
             RemoteIntent::Send {
                 draft: draft.id,
                 raw,
@@ -316,7 +320,7 @@ fn compose(smtp_port: u16) -> Sending {
     // engine routes a Submit here, the test fails by connection refused rather than by
     // accident.
     let backend = Pop3Backend::new(
-        ACCOUNT,
+        acct_account(),
         caps(),
         Box::new(|auth, commands| {
             let mut all = Vec::new();
@@ -328,7 +332,7 @@ fn compose(smtp_port: u16) -> Sending {
         }),
     );
     let engine = AccountEngine::new(
-        ACCOUNT,
+        acct_account(),
         plan(smtp_port, 1),
         backend,
         store.clone(),
@@ -496,7 +500,10 @@ async fn a_submission_that_cannot_connect_is_retried_not_lost() {
 
     let still_queued = it
         .store
-        .outbox_due(ACCOUNT, now() + chrono::TimeDelta::try_hours(1).unwrap())
+        .outbox_due(
+            acct_account(),
+            now() + chrono::TimeDelta::try_hours(1).unwrap(),
+        )
         .unwrap();
     assert_eq!(still_queued.len(), 1, "the submission was dropped");
 

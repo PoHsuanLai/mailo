@@ -14,8 +14,8 @@ use chrono::{DateTime, TimeDelta, Utc};
 use dioxus::prelude::*;
 use ds::motion::detail::operation::{Operation, PendingToken};
 use mail_core::fetch::{self, Effect, Event, FolderFetch, Link, Live, Trigger};
-use mail_domain::AccountId;
 use mail_store::SqliteStore;
+use porter_core::AccountId;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -91,7 +91,7 @@ impl Runner {
     pub(super) async fn run(mut self, mut rx: tokio::sync::mpsc::UnboundedReceiver<Note>) {
         let mut held =
             Held::new(try_consume_context::<Listener>().unwrap_or_else(Listener::server));
-        let known: Vec<AccountId> = self.links.peek().keys().copied().collect();
+        let known: Vec<AccountId> = self.links.peek().keys().cloned().collect();
         let tx = self.tx.clone();
         spawn(async move {
             tokio::time::sleep(BEAT).await;
@@ -120,7 +120,7 @@ impl Runner {
         match verdict(self.delegate.schedule(), &link, &event) {
             Verdict::Run => {}
             Verdict::Defer => {
-                self.defer(held, account);
+                self.defer(held, account.clone());
                 self.watch(held, account, &link);
                 return;
             }
@@ -132,23 +132,23 @@ impl Runner {
         // What the live watch says about being connected is remembered whatever the link is
         // doing, because a link that is not current has nothing to apply it to yet.
         if let Event::Live(live) = &event
-            && held.lives.watching(account)
+            && held.lives.watching(account.clone())
         {
-            held.lives.remember(account, *live);
+            held.lives.remember(account.clone(), *live);
         }
-        held.lives.dirty.heard(account, &link, &event);
+        held.lives.dirty.heard(account.clone(), &link, &event);
         let now = crate::ui::clock::now();
-        let (next, effects) = fetch::step(&link, event.clone(), now, self.every(account));
+        let (next, effects) = fetch::step(&link, event.clone(), now, self.every(account.clone()));
         let before = self.ops.peek().get(&account).copied().unwrap_or_default();
         let op = settled(before, &next);
         if next != link {
-            self.links.write().insert(account, next.clone());
+            self.links.write().insert(account.clone(), next.clone());
         }
         if op != before {
-            self.ops.write().insert(account, op);
+            self.ops.write().insert(account.clone(), op);
         }
         for effect in effects {
-            self.effect(held, account, effect, now);
+            self.effect(held, account.clone(), effect, now);
         }
         self.after(held, account, &link, &next, &event);
     }
@@ -156,13 +156,13 @@ impl Runner {
     /// A poll or wake that was left to a watch is asked again in an interval, when the watch may
     /// be gone. One ask at a time: a later one replaces it.
     fn defer(&mut self, held: &mut Held, account: AccountId) {
-        let generation = held.wakes.next(account);
+        let generation = held.wakes.next(account.clone());
         let wakes = held.wakes.clone();
         let tx = self.tx.clone();
-        let wait = self.every(account);
+        let wait = self.every(account.clone());
         spawn(async move {
             tokio::time::sleep(wait).await;
-            if wakes.current(account, generation) {
+            if wakes.current(account.clone(), generation) {
                 let _ = tx.send(Note::Event(account, Event::Start(Trigger::Poll)));
             }
         });
@@ -178,20 +178,20 @@ impl Runner {
         event: &Event,
     ) {
         if was.is_busy() && !next.is_busy() {
-            held.lives.passed(account);
+            held.lives.passed(account.clone());
         }
         if std::mem::discriminant(was.resting()) != std::mem::discriminant(next.resting()) {
-            self.watch(held, account, next);
+            self.watch(held, account.clone(), next);
         }
         // A start that found the pass running is made now that it has finished.
-        if held.lives.dirty.settled(account, was, next, event) == Rerun::Yes {
+        if held.lives.dirty.settled(account.clone(), was, next, event) == Rerun::Yes {
             self.handle(held, account, Event::Start(Trigger::Push));
             return;
         }
         // A link that has just become current takes the watch's word for how it is kept up to
         // date, which a link that was fresh, waiting or syncing could not hold.
         if let Link::Current { live, .. } = next {
-            let said = held.lives.said(account);
+            let said = held.lives.said(account.clone());
             if *live != said {
                 self.handle(held, account, Event::Live(said));
             }
@@ -204,7 +204,7 @@ impl Runner {
             store: &self.store,
             tx: &self.tx,
         };
-        if held.lives.reconcile(account, link, &wiring) == Action::Stop {
+        if held.lives.reconcile(account.clone(), link, &wiring) == Action::Stop {
             // Its last word no longer holds: back on the timer.
             self.handle(held, account, Event::Live(Live::Polling));
         }
@@ -215,12 +215,12 @@ impl Runner {
             Effect::RunPass => {
                 self.ops
                     .write()
-                    .insert(account, Operation::Running(PendingToken::start()));
+                    .insert(account.clone(), Operation::Running(PendingToken::start()));
                 let (cancel, _) = watch::channel(false);
                 let cancel = Arc::new(cancel);
-                held.cancels.insert(account, cancel.clone());
+                held.cancels.insert(account.clone(), cancel.clone());
                 spawn(run_pass(Running {
-                    account,
+                    account: account.clone(),
                     generation: held.passes.next(account),
                     generations: held.passes.clone(),
                     tx: self.tx.clone(),
@@ -233,19 +233,19 @@ impl Runner {
             }
             Effect::CancelPass => {
                 // What the pass says from here on is about a pass that no longer counts.
-                held.passes.next(account);
+                held.passes.next(account.clone());
                 if let Some(cancel) = held.cancels.remove(&account) {
                     let _ = cancel.send(true);
                 }
             }
             Effect::WakeAt(at) => {
-                let generation = held.wakes.next(account);
+                let generation = held.wakes.next(account.clone());
                 let wakes = held.wakes.clone();
                 let tx = self.tx.clone();
                 let wait = delay(at, now);
                 spawn(async move {
                     tokio::time::sleep(wait).await;
-                    if wakes.current(account, generation) {
+                    if wakes.current(account.clone(), generation) {
                         let _ = tx.send(Note::Event(account, Event::Tick));
                     }
                 });
@@ -256,34 +256,35 @@ impl Runner {
     /// The accounts changed: give new ones a link, drop gone ones with their pass, and keep each
     /// one's interval. Then see which can be pushed to, which a pass may have just learned.
     fn follow(&mut self, held: &mut Held, wanted: Vec<(AccountId, Duration)>) {
-        self.every = wanted.iter().copied().collect();
-        let known = self.links.peek().keys().copied().collect();
+        self.every = wanted.iter().cloned().collect();
+        let known = self.links.peek().keys().cloned().collect();
         let changes = start::reconcile(&known, &wanted);
         let now = crate::ui::clock::now();
         for account in changes.removed {
             if let Some(cancel) = held.cancels.remove(&account) {
                 let _ = cancel.send(true);
             }
-            held.passes.forget(account);
-            held.wakes.forget(account);
-            held.lives.forget(account);
+            held.passes.forget(account.clone());
+            held.wakes.forget(account.clone());
+            held.lives.forget(account.clone());
             self.links.write().remove(&account);
             self.ops.write().remove(&account);
             self.folders.write().retain(|(one, _), _| *one != account);
         }
         held.lives.refresh(&self.store);
         for account in changes.added {
-            self.links
-                .write()
-                .insert(account, start::probe(&self.store, account, now));
-            self.ops.write().insert(account, Operation::Idle);
+            self.links.write().insert(
+                account.clone(),
+                start::probe(&self.store, account.clone(), now),
+            );
+            self.ops.write().insert(account.clone(), Operation::Idle);
             self.handle(held, account, Event::Start(Trigger::Poll));
         }
         let all: Vec<(AccountId, Link)> = self
             .links
             .peek()
             .iter()
-            .map(|(id, link)| (*id, link.clone()))
+            .map(|(id, link)| (id.clone(), link.clone()))
             .collect();
         for (account, link) in all {
             self.watch(held, account, &link);

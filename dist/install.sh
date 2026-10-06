@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Install mailo into the desktop from this checkout: build it in release, then put the binary, the
 # desktop entry, the icon, the intents manifest with the D-Bus service that starts its provider,
-# and the user unit that starts the sync daemon at login where the session reads them. Run as
-# yourself; sudo asks once. Safe to run again.
+# the companion's mail skill, and the user unit that starts the sync daemon at login where the
+# session reads them. Run as yourself; sudo asks once. Safe to run again.
 #
 #   dist/install.sh --dry-run    print every step, change nothing (not even a build)
 #   dist/install.sh              do it
@@ -49,6 +49,8 @@ put 644 "$DIST/mailo.desktop" "$DESKTOP_DEST"
 put 644 "$ICON_SRC" "$ICON_DEST"
 # What the desktop's intent router reads, and the activation that starts `mailo intents` for it.
 put 644 "$DIST/intents/org.quire.Mail.toml" "$INTENTS_DEST"
+put 644 "$DIST/skills/mail/SKILL.md" "$SKILL_DIR/SKILL.md"
+put 644 "$DIST/skills/mail/skill.toml" "$SKILL_DIR/skill.toml"
 SERVICE_TMP="$(mktemp)"
 service_text >"$SERVICE_TMP"
 put 644 "$SERVICE_TMP" "$SERVICE_DEST"
@@ -67,7 +69,7 @@ else
   note "no icon cache to refresh under $PREFIX/share/icons/hicolor"
 fi
 if command -v restorecon >/dev/null && [ -n "$SUDO" ]; then
-  run sudo restorecon -F "$BIN_DEST" "$DESKTOP_DEST" "$ICON_DEST" "$UNIT_DEST" "$INTENTS_DEST" "$SERVICE_DEST"
+  run sudo restorecon -F "$BIN_DEST" "$DESKTOP_DEST" "$ICON_DEST" "$UNIT_DEST" "$INTENTS_DEST" "$SERVICE_DEST" "$SKILL_DIR/SKILL.md" "$SKILL_DIR/skill.toml"
 fi
 if manager_present; then
   # --global: every user's graphical-session.target wants the unit, whichever session starts it.

@@ -18,9 +18,11 @@
 //! If nothing is listening the test says so and returns, because a test that fails when a
 //! developer has not started a daemon is a test people learn to ignore.
 
-use mail_domain::{Credential, SaslMech, Tls};
+use mail_domain::{SaslMech, Tls};
 use mail_proto::{SmtpSession, Submission};
 use mail_runtime::{Transport, drive};
+use porter_core::Credential;
+use porter_core::SecretText;
 use tokio::sync::watch;
 
 const PORT: u16 = 12525;
@@ -56,7 +58,7 @@ async fn a_real_server_accepts_what_this_client_sends() {
         port: PORT,
         tls: Tls::Plaintext,
         username: USER.to_owned(),
-        credential: Credential::Password(PASS.to_owned()),
+        credential: Credential::Password(SecretText::new(PASS.to_owned())),
         sasl: vec![SaslMech::Plain],
         mail_from: USER.to_owned(),
         // Two recipients, so a client that sends one RCPT TO for a list is caught.
@@ -138,7 +140,7 @@ async fn a_real_server_rejecting_a_password_is_an_auth_error_not_a_crash() {
         port: PORT,
         tls: Tls::Plaintext,
         username: USER.to_owned(),
-        credential: Credential::Password("definitely-not-the-password".to_owned()),
+        credential: Credential::Password(SecretText::new("definitely-not-the-password".to_owned())),
         sasl: vec![SaslMech::Plain],
         mail_from: USER.to_owned(),
         recipients: vec!["bob@example.test".to_owned()],

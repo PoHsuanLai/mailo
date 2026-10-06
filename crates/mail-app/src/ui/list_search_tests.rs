@@ -14,6 +14,7 @@ use chrono::Utc;
 use dioxus::prelude::*;
 use dioxus_core::{ElementId, NoOpMutations, VirtualDom};
 use mail_core::search::list_highlight;
+use mail_domain::id::new_account_id;
 use mail_domain::*;
 
 /// The window over the Work Space, and its search box.
@@ -250,7 +251,7 @@ async fn a_broken_pattern_is_the_regex_message_in_the_bar_and_no_rows() {
 fn summary(subject: &str, snippet: &str) -> ThreadSummary {
     ThreadSummary {
         id: ThreadId::generate(),
-        account: AccountId::generate(),
+        account: new_account_id(),
         subject: subject.to_owned(),
         snippet: snippet.to_owned(),
         from: Address {

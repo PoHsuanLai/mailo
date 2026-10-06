@@ -7,11 +7,12 @@
 
 use crate::account::{
     AccountCaps, AccountPlan, ArchiveMeans, AuthPlan, Condstore, ConnectionBudget, ExpungeMeans,
-    FolderRoles, Incoming, LeaveOnServer, MoveExt, OAuthIssuer, Outgoing, SaslMech, ServerLabels,
-    ServerThreads, Supported, Tls, Username, WatchMode,
+    FolderRoles, Incoming, LeaveOnServer, MoveExt, Outgoing, SaslMech, ServerLabels, ServerThreads,
+    Supported, Tls, Username, WatchMode,
 };
 use crate::state::MailboxRole;
 use chrono::{DateTime, Utc};
+use porter_provider::Issuer;
 use std::time::Duration;
 
 mod jmap;
@@ -38,7 +39,7 @@ pub struct Preset {
 //
 // This module is also the ONLY place in the workspace that may name a provider. Domain types
 // stay vendor-neutral (`ArchiveMeans::DropInbox`, not `GmailStyle`); the single exception is
-// `OAuthIssuer::Google`, which names an authorization server rather than a mail provider.
+// `Issuer::Google`, which names an authorization server rather than a mail provider.
 //
 // `identities` is always empty here. An `Identity` needs an `IdentityId` and an `AccountId`,
 // and a preset has neither: minting one would make `preset_for` impure (a fresh UUID per
@@ -120,8 +121,8 @@ pub fn preset_for(address: &str, now: DateTime<Utc>) -> Option<Preset> {
         // password to a host the user never named; this table, which needs no confirmation,
         // stays limited to what the address itself proves.
         //
-        // Personal outlook.com and hotmail.com are deliberately absent: see `OAuthIssuer::
-        // Microsoft`.
+        // Personal outlook.com and hotmail.com are deliberately absent: `Issuer::Microsoft` is
+        // here for managed tenants only (see `is_personal_microsoft`).
         "onmicrosoft.com" => Some(microsoft(address, now)),
         _ => None,
     }
@@ -142,7 +143,7 @@ fn gmail(address: &str, now: DateTime<Utc>) -> Preset {
                 tls: Tls::Implicit,
             },
             auth: AuthPlan::OAuth {
-                issuer: OAuthIssuer::Google,
+                issuer: Issuer::Google,
                 scopes: GMAIL_SCOPES.iter().map(|s| (*s).to_owned()).collect(),
             },
             identities: Vec::new(),
@@ -185,62 +186,64 @@ pub fn preset_for_mail_exchanger(
     address: &str,
     now: DateTime<Utc>,
 ) -> Option<Preset> {
-    Some(preset_for_issuer(
-        issuer_of_exchanger(registered)?,
-        address,
-        now,
-    ))
+    preset_for_issuer(issuer_of_exchanger(registered)?, address, now)
 }
 
 /// The OAuth issuer that hosts mail whose exchanger is in `registered`.
-fn issuer_of_exchanger(registered: &str) -> Option<OAuthIssuer> {
+fn issuer_of_exchanger(registered: &str) -> Option<Issuer> {
     match registered.to_ascii_lowercase().as_str() {
-        "google.com" | "googlemail.com" | "gmail.com" => Some(OAuthIssuer::Google),
+        "google.com" | "googlemail.com" | "gmail.com" => Some(Issuer::Google),
         // Microsoft 365's inbound hosts are `<tenant>.mail.protection.outlook.com`.
-        "outlook.com" => Some(OAuthIssuer::Microsoft),
+        "outlook.com" => Some(Issuer::Microsoft),
         _ => None,
     }
 }
 
 /// The preset that signs in with `issuer`.
 ///
-/// Each issuer this workspace knows serves exactly one mail provider, so naming the issuer names
-/// the servers too.
-pub fn preset_for_issuer(issuer: OAuthIssuer, address: &str, now: DateTime<Utc>) -> Preset {
+/// Each issuer mailo has a mail provider for serves exactly one, so naming the issuer names the
+/// servers too. `None` for an issuer that hosts no mail mailo reads (porter's list is longer
+/// than mailo's: Dropbox is not a mail provider).
+pub fn preset_for_issuer(issuer: Issuer, address: &str, now: DateTime<Utc>) -> Option<Preset> {
     match issuer {
-        OAuthIssuer::Google => gmail(address, now),
-        OAuthIssuer::Microsoft => microsoft(address, now),
+        Issuer::Google => Some(gmail(address, now)),
+        Issuer::Microsoft => Some(microsoft(address, now)),
+        Issuer::Dropbox | Issuer::Box | Issuer::Fastmail | Issuer::OpenRouter | Issuer::OpenAi => {
+            None
+        }
     }
 }
 
 /// The issuer an autoconfig document's `<oAuth2><issuer>` names, when it is one we have a
 /// registration for. Any other issuer is somebody else's authorization server, and a client id
 /// for it cannot be guessed.
-pub fn issuer_named(issuer_host: &str) -> Option<OAuthIssuer> {
+pub fn issuer_named(issuer_host: &str) -> Option<Issuer> {
     match issuer_host.trim().to_ascii_lowercase().as_str() {
-        "accounts.google.com" => Some(OAuthIssuer::Google),
-        "login.microsoftonline.com" => Some(OAuthIssuer::Microsoft),
+        "accounts.google.com" => Some(Issuer::Google),
+        "login.microsoftonline.com" => Some(Issuer::Microsoft),
         _ => None,
     }
 }
 
 /// The issuer whose tokens a mail server at `host` takes, for a document that offers OAuth2 on a
 /// server without naming the issuer.
-pub fn issuer_for_server(host: &str) -> Option<OAuthIssuer> {
+pub fn issuer_for_server(host: &str) -> Option<Issuer> {
     let host = host.trim().to_ascii_lowercase();
     if under(&host, "gmail.com") || under(&host, "googlemail.com") {
-        return Some(OAuthIssuer::Google);
+        return Some(Issuer::Google);
     }
     if under(&host, "office365.com") || under(&host, "outlook.office.com") {
-        return Some(OAuthIssuer::Microsoft);
+        return Some(Issuer::Microsoft);
     }
     None
 }
 
 /// Whether an address's domain is one of Microsoft's personal (consumer) mail domains.
 ///
-/// [`OAuthIssuer::Microsoft`] is for managed tenants only, and [`preset_for`] leaves these out
-/// on purpose. Discovery finds them anyway — their MX is Microsoft's and databases list them —
+/// mailo signs in with [`Issuer::Microsoft`] for managed Microsoft 365 tenants only, and
+/// [`preset_for`] leaves these out on purpose. Basic authentication was retired on personal
+/// Outlook.com on 2024-09-16, and recently created personal mailboxes are reported to have SMTP
+/// client authentication permanently off, failing even under OAuth. Discovery finds them anyway — their MX is Microsoft's and databases list them —
 /// so it asks this before handing out the tenant preset, and says why it will not rather than
 /// configuring an account that cannot send.
 pub fn is_personal_microsoft(domain: &str) -> bool {
@@ -565,7 +568,7 @@ pub fn local_folders(now: DateTime<Utc>) -> Preset {
 /// A managed Microsoft 365 mailbox, work or school.
 ///
 /// The plan's first outside test of "a provider is a value, not a type": adding this required an
-/// `OAuthIssuer` variant, an endpoints row and this function. `Incoming::Imap`, `Outgoing::Smtp`
+/// `Issuer` variant, an endpoints row and this function. `Incoming::Imap`, `Outgoing::Smtp`
 /// and `ImapBackend` are untouched, and the compiler found the single site that had to change.
 ///
 /// Capabilities are at their cautious end rather than guessed from documentation. Exchange
@@ -591,7 +594,7 @@ fn microsoft(address: &str, now: DateTime<Utc>) -> Preset {
                 tls: Tls::StartTlsRequired,
             },
             auth: AuthPlan::OAuth {
-                issuer: OAuthIssuer::Microsoft,
+                issuer: Issuer::Microsoft,
                 scopes: MICROSOFT_SCOPES.iter().map(|s| (*s).to_owned()).collect(),
             },
             identities: Vec::new(),
@@ -780,7 +783,7 @@ mod tests {
         assert!(matches!(
             google.plan.auth,
             AuthPlan::OAuth {
-                issuer: OAuthIssuer::Google,
+                issuer: Issuer::Google,
                 ..
             }
         ));
@@ -790,7 +793,7 @@ mod tests {
         assert!(matches!(
             microsoft.plan.auth,
             AuthPlan::OAuth {
-                issuer: OAuthIssuer::Microsoft,
+                issuer: Issuer::Microsoft,
                 ..
             }
         ));
@@ -810,22 +813,16 @@ mod tests {
 
     #[test]
     fn only_the_two_known_issuers_are_recognised() {
-        assert_eq!(
-            issuer_named("accounts.google.com"),
-            Some(OAuthIssuer::Google)
-        );
+        assert_eq!(issuer_named("accounts.google.com"), Some(Issuer::Google));
         assert_eq!(
             issuer_named("login.microsoftonline.com"),
-            Some(OAuthIssuer::Microsoft)
+            Some(Issuer::Microsoft)
         );
         assert_eq!(issuer_named("auth.example.net"), None);
-        assert_eq!(
-            issuer_for_server("imap.gmail.com"),
-            Some(OAuthIssuer::Google)
-        );
+        assert_eq!(issuer_for_server("imap.gmail.com"), Some(Issuer::Google));
         assert_eq!(
             issuer_for_server("outlook.office365.com"),
-            Some(OAuthIssuer::Microsoft)
+            Some(Issuer::Microsoft)
         );
         assert_eq!(issuer_for_server("imap.evil-gmail.com"), None);
         assert!(is_personal_microsoft("Hotmail.com"));

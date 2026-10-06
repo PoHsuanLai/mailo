@@ -3,12 +3,17 @@
 //! Both stores, compared, with the numbers each must produce.
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_store::{MemoryStore, SqliteStore, Store, StoreError};
+use porter_core::AccountId;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
-const OTHER: AccountId = AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a2"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
+fn acct_other() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a2"))
+}
 
 fn at(n: i64) -> DateTime<Utc> {
     Utc.timestamp_opt(1_700_000_000 + n, 0).unwrap()
@@ -18,7 +23,10 @@ fn at(n: i64) -> DateTime<Utc> {
 fn both<T>(scenario: impl Fn(&dyn Store, BlobId) -> T) -> (T, T) {
     let dir = tempfile::tempdir().unwrap();
     let sqlite = SqliteStore::in_memory(dir.path()).unwrap();
-    for (account, address) in [(ACCOUNT, "me@example.test"), (OTHER, "also@example.test")] {
+    for (account, address) in [
+        (acct_account(), "me@example.test"),
+        (acct_other(), "also@example.test"),
+    ] {
         sqlite
             .connection()
             .execute(
@@ -58,7 +66,7 @@ fn headers(n: u128) -> Message {
     Message {
         id: MessageId::generate(),
         thread: ThreadId::from_uuid(uuid::Uuid::from_u128(n + 1000)),
-        account: ACCOUNT,
+        account: acct_account(),
         key: MessageKey::Rfc(format!("m{n}@example.test")),
         date: at(n as i64),
         from: Address {
@@ -92,10 +100,10 @@ fn absorb(store: &dyn Store, n: u128, remote: RemoteRef, raw: BlobId) -> Vec<Mes
     let message = headers(n);
     let patch = store
         .ingest(
-            ACCOUNT,
+            acct_account(),
             Ingest {
                 mailbox: MailboxRef {
-                    account: ACCOUNT,
+                    account: acct_account(),
                     path,
                 },
                 validity: UidValidity::Same,
@@ -127,7 +135,7 @@ fn listed(store: &dyn Store) -> Vec<(String, ThreadId)> {
     let page = store
         .threads(
             &Query {
-                filter: Filter::Account(ACCOUNT),
+                filter: Filter::Account(acct_account()),
                 sort: Sort {
                     property: Property::Date,
                     dir: SortDir::Desc,
@@ -152,21 +160,21 @@ fn a_hit_searched_for_twice_is_absorbed_and_marked_once() {
 
         // The search finds both in All Mail: nothing of either is held at those addresses.
         let hits = [all_mail(501), all_mail(502)];
-        assert_eq!(store.held_at(ACCOUNT, &hits).unwrap(), vec![]);
+        assert_eq!(store.held_at(acct_account(), &hits).unwrap(), vec![]);
         let mut new = absorb(store, 1, all_mail(501), raw);
         new.extend(absorb(store, 2, all_mail(502), raw));
-        store.mark_found(ACCOUNT, &new, at(10)).unwrap();
+        store.mark_found(acct_account(), &new, at(10)).unwrap();
         assert_eq!(new.len(), 1, "message 1 was already held: only 2 is new");
         assert_eq!(listed(store).len(), before + 1, "one conversation more");
 
         // Searched again: both are held at the addresses found, so nothing is fetched, and
         // absorbing them again (a race, or a caller that did not ask) adds nothing either.
-        let held = store.held_at(ACCOUNT, &hits).unwrap();
+        let held = store.held_at(acct_account(), &hits).unwrap();
         assert_eq!(held.len(), 2, "{held:?}");
         let mut again = absorb(store, 1, all_mail(501), raw);
         again.extend(absorb(store, 2, all_mail(502), raw));
         assert_eq!(again, vec![], "nothing is new the second time");
-        store.mark_found(ACCOUNT, &new, at(20)).unwrap();
+        store.mark_found(acct_account(), &new, at(20)).unwrap();
         assert_eq!(listed(store).len(), before + 1, "no duplicate conversation");
 
         let threads: Vec<ThreadId> = listed(store).into_iter().map(|(_, t)| t).collect();
@@ -186,8 +194,10 @@ fn a_hit_searched_for_twice_is_absorbed_and_marked_once() {
 fn held_at_names_only_this_accounts_addresses() {
     let (sqlite, memory) = both(|store, raw| {
         absorb(store, 3, inbox(9), raw);
-        let mine = store.held_at(ACCOUNT, &[inbox(9), inbox(10)]).unwrap();
-        let theirs = store.held_at(OTHER, &[inbox(9)]).unwrap();
+        let mine = store
+            .held_at(acct_account(), &[inbox(9), inbox(10)])
+            .unwrap();
+        let theirs = store.held_at(acct_other(), &[inbox(9)]).unwrap();
         (
             mine.into_iter().map(|(r, _)| r).collect::<Vec<_>>(),
             theirs.len(),
@@ -203,10 +213,10 @@ fn marking_a_message_not_held_marks_nothing() {
         let new = absorb(store, 4, all_mail(7), raw);
         let stranger = MessageId::from_uuid(uuid::Uuid::from_u128(99));
         let refused = matches!(
-            store.mark_found(ACCOUNT, &[new[0], stranger], at(1)),
+            store.mark_found(acct_account(), &[new[0], stranger], at(1)),
             Err(StoreError::NoMessage(id)) if id == stranger
         );
-        let wrong_account = store.mark_found(OTHER, &new, at(1)).is_err();
+        let wrong_account = store.mark_found(acct_other(), &new, at(1)).is_err();
         let thread = store.message(new[0]).unwrap().thread;
         (refused, wrong_account, store.found_in(&[thread]).unwrap())
     });
@@ -218,16 +228,16 @@ fn marking_a_message_not_held_marks_nothing() {
 fn the_mark_goes_with_the_message() {
     let (sqlite, memory) = both(|store, raw| {
         let new = absorb(store, 5, all_mail(8), raw);
-        store.mark_found(ACCOUNT, &new, at(1)).unwrap();
+        store.mark_found(acct_account(), &new, at(1)).unwrap();
         let thread = store.message(new[0]).unwrap().thread;
         let marked = store.found_in(&[thread]).unwrap().len();
         // The server says it is gone.
         store
             .ingest(
-                ACCOUNT,
+                acct_account(),
                 Ingest {
                     mailbox: MailboxRef {
-                        account: ACCOUNT,
+                        account: acct_account(),
                         path: "[Gmail]/All Mail".to_owned(),
                     },
                     validity: UidValidity::Same,

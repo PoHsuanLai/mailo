@@ -6,8 +6,9 @@ use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
 use mail_core::fetch::{Event, FolderEffect, FolderEvent, FolderFetch};
 use mail_core::sync::report::PassEnd;
-use mail_domain::{AccountId, MailboxRef, Retry};
+use mail_domain::{MailboxRef, Retry};
 use mail_store::SqliteStore;
+use porter_core::AccountId;
 use std::sync::Arc;
 
 /// What a finished on-demand fetch says to its folder.
@@ -42,10 +43,10 @@ impl Fetching {
     pub(in crate::ui) fn open_folder(&self, mailbox: MailboxRef, mut revision: Signal<u64>) {
         let MailboxRef { account, path } = mailbox;
         // Two writers on one account's rows: the pass has them, and opening goes without.
-        if self.link(account).is_none_or(|link| link.is_busy()) {
+        if self.link(account.clone()).is_none_or(|link| link.is_busy()) {
             return;
         }
-        let key = (account, path.clone());
+        let key = (account.clone(), path.clone());
         let now = Utc::now();
         let mut folders = self.folders;
         let (next, effect) = self.folder_state(&key).step(FolderEvent::Open, now);
@@ -57,8 +58,9 @@ impl Fetching {
         let store = consume_context::<Arc<SqliteStore>>();
         spawn(async move {
             let named = path.clone();
+            let fetching = account.clone();
             // `spawn_blocking`: the fetch opens a socket on a runtime of its own.
-            let done = tokio::task::spawn_blocking(move || (fetch.0)(store, account, &path, now))
+            let done = tokio::task::spawn_blocking(move || (fetch.0)(store, fetching, &path, now))
                 .await
                 .unwrap_or_else(|e| Err(format!("fetching stopped: {e}")));
             settle(&mut folders, (account, named.clone()), ended(done, &named));
@@ -113,14 +115,16 @@ mod tests {
     use super::*;
     use mail_core::fetch::Pause;
     use mail_core::sync::report::{AccountReport, Counts, Trouble};
+    use mail_domain::id::account_id_from_uuid;
     use std::time::Duration;
 
-    const ACCOUNT: AccountId =
-        AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000c9"));
+    fn acct_account() -> AccountId {
+        account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000c9"))
+    }
 
     fn finished(trouble: Vec<Trouble>) -> Result<PassEnd, String> {
         Ok(PassEnd::Finished(AccountReport {
-            account: ACCOUNT,
+            account: acct_account(),
             address: "me@nowhere.example".to_owned(),
             counts: Counts::default(),
             trouble,
@@ -158,7 +162,7 @@ mod tests {
     #[test]
     fn a_fetch_that_never_ran_says_which_folder_was_not_fetched() {
         let failed = Ok(PassEnd::Failed {
-            account: ACCOUNT,
+            account: acct_account(),
             address: "me@nowhere.example".to_owned(),
             retry: Retry::Now,
             why: "cannot connect".to_owned(),

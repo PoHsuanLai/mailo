@@ -1,7 +1,7 @@
 //! OpenPGP in the reader: every verdict said in words over the body it belongs to, the passphrase
 //! asked for inline, and the passphrase itself nowhere it could be read back.
 //!
-//! Against a real store, with the keyring a [`MapSecrets`] handed in as the window's [`Seams`],
+//! Against a real store, with the keyring a [`MapSigningStore`] handed in as the window's [`Seams`],
 //! so the user's own is never touched.
 
 use std::cell::Cell;
@@ -12,12 +12,14 @@ use dioxus::prelude::*;
 use dioxus_core::VirtualDom;
 use mail_domain::*;
 use mail_mime::openpgp::{self, Cert, SecretCert, Unlocking};
-use mail_runtime::{Arrival, MapSecrets};
+use mail_runtime::{Arrival, MapSigningStore};
 use mail_store::{SqliteStore, Store};
 use rand::SeedableRng;
 
 use super::{Said, Seams, Tone, looked_at, said};
-use crate::ui::fixtures::{ACCOUNT, Seen, click, dispatching, rebuild_into, seeded, type_into};
+use crate::ui::fixtures::{
+    Seen, acct_account, click, dispatching, rebuild_into, seeded, type_into,
+};
 use crate::ui::reading::Reader;
 use crate::ui::view::Shell;
 use mail_core::pgp::Protected;
@@ -30,7 +32,7 @@ fn now() -> DateTime<Utc> {
 }
 
 /// The window's seams, with `secrets` as the keyring and nothing else reachable.
-pub(in crate::ui) fn seams_with(secrets: Arc<MapSecrets>) -> Seams {
+pub(in crate::ui) fn seams_with(secrets: Arc<MapSigningStore>) -> Seams {
     Seams {
         secrets,
         lookup: Arc::new(|_, _| Err("no lookups in tests".to_owned())),
@@ -40,7 +42,7 @@ pub(in crate::ui) fn seams_with(secrets: Arc<MapSecrets>) -> Seams {
 }
 
 /// A key of the user's own, made the way the sheet makes one.
-pub(super) fn own_key(store: &SqliteStore, secrets: &MapSecrets) -> PgpKey {
+pub(super) fn own_key(store: &SqliteStore, secrets: &MapSigningStore) -> PgpKey {
     mail_core::pgp::keys::generate(store, secrets, ME, now()).unwrap()
 }
 
@@ -94,9 +96,9 @@ fn letter(word: &str, text: &str) -> String {
 pub(super) fn arrive(store: &SqliteStore, raw: Vec<u8>) -> Message {
     let ingest = mail_runtime::assemble(
         store,
-        ACCOUNT,
+        acct_account(),
         MailboxRef {
-            account: ACCOUNT,
+            account: acct_account(),
             path: "INBOX".to_owned(),
         },
         MailboxRole::Inbox,
@@ -111,13 +113,13 @@ pub(super) fn arrive(store: &SqliteStore, raw: Vec<u8>) -> Message {
     )
     .unwrap();
     let id = ingest.messages[0].message.id;
-    store.ingest(ACCOUNT, ingest).unwrap();
+    store.ingest(acct_account(), ingest).unwrap();
     store.message(id).unwrap()
 }
 
 /// My own secret key, as the keyring holds it.
-pub(super) fn mine(secrets: &MapSecrets, key: &PgpKey) -> SecretCert {
-    mail_runtime::pgp::secret_key(secrets, ACCOUNT, key.fingerprint).unwrap()
+pub(super) fn mine(secrets: &MapSigningStore, key: &PgpKey) -> SecretCert {
+    mail_runtime::pgp::secret_key(secrets, acct_account(), key.fingerprint).unwrap()
 }
 
 thread_local! {
@@ -134,7 +136,7 @@ fn Open(thread: ThreadId) -> Element {
 /// The reader on `thread`, with `secrets` as the keyring.
 pub(super) fn reader(
     store: Arc<SqliteStore>,
-    secrets: Arc<MapSecrets>,
+    secrets: Arc<MapSigningStore>,
     thread: ThreadId,
 ) -> (VirtualDom, Seen) {
     dispatching();
@@ -480,7 +482,7 @@ fn every_tone_draws_its_own_look() {
 #[tokio::test]
 async fn a_signed_message_says_who_signed_it_over_its_body() {
     let (store, _dir) = seeded();
-    let secrets = Arc::new(MapSecrets::default());
+    let secrets = Arc::new(MapSigningStore::default());
     let key = own_key(&store, &secrets);
     let raw = letter("owl", "the owl note is signed");
     let message = arrive(
@@ -510,7 +512,7 @@ async fn a_signed_message_says_who_signed_it_over_its_body() {
 #[tokio::test]
 async fn a_bad_signature_is_said_on_the_danger_ground() {
     let (store, _dir) = seeded();
-    let secrets = Arc::new(MapSecrets::default());
+    let secrets = Arc::new(MapSigningStore::default());
     let key = own_key(&store, &secrets);
     let raw = letter("heron", "pay the heron invoice");
     let signed = sealed(&raw, OpenPgp::Sign, Some(&mine(&secrets, &key)), &[], 22);
@@ -530,7 +532,7 @@ async fn a_bad_signature_is_said_on_the_danger_ground() {
 #[tokio::test]
 async fn a_signature_by_a_key_not_held_cannot_be_checked_and_does_not_look_good() {
     let (store, _dir) = seeded();
-    let secrets = Arc::new(MapSecrets::default());
+    let secrets = Arc::new(MapSigningStore::default());
     let bea = someone_elses(BEA, 23);
     let raw = letter("lynx", "the lynx is signed by bea");
     let message = arrive(&store, sealed(&raw, OpenPgp::Sign, Some(&bea), &[], 24));
@@ -552,7 +554,7 @@ async fn a_signature_by_a_key_not_held_cannot_be_checked_and_does_not_look_good(
 #[tokio::test]
 async fn an_encrypted_message_shows_what_it_was_encrypted_to_say() {
     let (store, _dir) = seeded();
-    let secrets = Arc::new(MapSecrets::default());
+    let secrets = Arc::new(MapSigningStore::default());
     let key = own_key(&store, &secrets);
     let bea = someone_elses(BEA, 25);
     let raw = letter("zebra", "the zebra is under the mat");
@@ -593,7 +595,7 @@ async fn an_encrypted_message_shows_what_it_was_encrypted_to_say() {
 /// A message to a key of mine that has a passphrase, and that key.
 fn locked(
     store: &SqliteStore,
-    secrets: &MapSecrets,
+    secrets: &MapSigningStore,
     word: &str,
     seed: u64,
 ) -> (Message, String, Fingerprint) {
@@ -626,7 +628,7 @@ fn field(seen: &Seen, key: Fingerprint) -> dioxus_core::ElementId {
 #[tokio::test]
 async fn a_locked_key_is_asked_for_inline_and_opens_with_its_passphrase() {
     let (store, _dir) = seeded();
-    let secrets = Arc::new(MapSecrets::default());
+    let secrets = Arc::new(MapSigningStore::default());
     let (message, passphrase, key) = locked(&store, &secrets, "otter", 31);
     let (mut dom, mut seen) = reader(store, secrets, message.thread);
     let page = until(&mut dom, &mut seen, |page| page.contains(ASKED)).await;
@@ -675,7 +677,7 @@ async fn a_locked_key_is_asked_for_inline_and_opens_with_its_passphrase() {
 #[tokio::test]
 async fn a_wrong_passphrase_says_so_and_can_be_tried_again() {
     let (store, _dir) = seeded();
-    let secrets = Arc::new(MapSecrets::default());
+    let secrets = Arc::new(MapSigningStore::default());
     let (message, passphrase, key) = locked(&store, &secrets, "badger", 41);
     let (mut dom, mut seen) = reader(store, secrets, message.thread);
     until(&mut dom, &mut seen, |page| page.contains(ASKED)).await;
@@ -704,7 +706,7 @@ async fn a_wrong_passphrase_says_so_and_can_be_tried_again() {
 #[tokio::test]
 async fn a_signature_on_only_part_of_a_message_says_so() {
     let (store, _dir) = seeded();
-    let secrets = Arc::new(MapSecrets::default());
+    let secrets = Arc::new(MapSigningStore::default());
     let key = own_key(&store, &secrets);
     let signed = sealed(
         &letter("crane", "the crane part is signed"),
@@ -751,7 +753,7 @@ async fn a_signature_on_only_part_of_a_message_says_so() {
 #[tokio::test]
 async fn a_plain_message_says_nothing_and_every_seal_class_is_styled() {
     let (store, _dir) = seeded();
-    let secrets = Arc::new(MapSecrets::default());
+    let secrets = Arc::new(MapSigningStore::default());
     let plain = arrive(&store, letter("finch", "no openpgp here").into_bytes());
     let (mut dom, mut seen) = reader(store.clone(), secrets.clone(), plain.thread);
     let page = until(&mut dom, &mut seen, |_| looked_at(plain.id)).await;
@@ -814,7 +816,7 @@ pub(super) fn seals(page: &str) -> String {
 #[ignore = "writes target/shots/openpgp.html for a person or a headless browser to look at"]
 async fn render_the_reader_badges_and_the_keys_sheet_to_a_file() {
     let (store, _dir) = seeded();
-    let secrets = Arc::new(MapSecrets::default());
+    let secrets = Arc::new(MapSigningStore::default());
     let key = own_key(&store, &secrets);
     let bea = someone_elses(BEA, 101);
     let good = arrive(

@@ -31,6 +31,19 @@ mail-pim    = { path = "crates/mail-pim" }
 mail-proto  = { path = "crates/mail-proto" }
 mail-runtime = { path = "crates/mail-runtime" }
 mail-store  = { path = "crates/mail-store" }
+# The accounts system's vocabulary, pinned by git rev like quire (porter is public). mailo names its
+# accounts, their secrets and their OAuth issuers with porter's types instead of its own, so the
+# desktop's accounts daemon and mailo agree on what an account is (PLAN section 4, step E1).
+# porter-core and porter-provider are pure (serde, serde_json, thiserror, toml): no zbus and no
+# tokio, so the macOS and Windows builds are unaffected.
+#
+# porter-secrets is where account secrets live (step E2). Its stores are features, chosen per
+# target in mail-runtime's own Cargo.toml: `oo7` on Linux, `keyring` on macOS and Windows. It
+# enters mail-runtime, the I/O crate, and no pure crate: mail-domain, -mime, -proto and -pim
+# stay free of zbus and tokio (`scripts/check-boundary.sh`).
+porter-core = { git = "https://github.com/PoHsuanLai/porter", rev = "286d55ee92d413612bf4ebb382fcbd3926611eb3" }
+porter-provider = { git = "https://github.com/PoHsuanLai/porter", rev = "286d55ee92d413612bf4ebb382fcbd3926611eb3" }
+porter-secrets = { git = "https://github.com/PoHsuanLai/porter", rev = "286d55ee92d413612bf4ebb382fcbd3926611eb3", default-features = false }
 serde       = { version = "1", features = ["derive"] }
 chrono      = { version = "0.4", features = ["serde"] }
 uuid        = { version = "1", features = ["v4", "serde"] }
@@ -39,8 +52,8 @@ thiserror   = "2"
 # copied verbatim: only the lines mailo names itself. The window reaches the Blitz
 # document through these to focus, select or scroll an element found by selector
 # (`ui/host/native.rs`).
-blitz-dom = { git = "https://github.com/PoHsuanLai/blitz", rev = "1b23fbd9d6465b7ee8acfe8e7deb36a2d5be6fad", default-features = false, features = ["svg", "system-fonts", "custom-widget", "accessibility"] }
-dioxus-native-dom = { git = "https://github.com/PoHsuanLai/blitz", rev = "1b23fbd9d6465b7ee8acfe8e7deb36a2d5be6fad", default-features = false, features = ["svg", "system-fonts", "accessibility"] }
+blitz-dom = { git = "https://github.com/PoHsuanLai/blitz", rev = "5fbd299d30d648496b2095cd2591aa30db8e761b", default-features = false, features = ["svg", "system-fonts", "custom-widget", "accessibility"] }
+dioxus-native-dom = { git = "https://github.com/PoHsuanLai/blitz", rev = "5fbd299d30d648496b2095cd2591aa30db8e761b", default-features = false, features = ["svg", "system-fonts", "accessibility"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

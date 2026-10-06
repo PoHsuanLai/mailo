@@ -7,17 +7,22 @@
 
 use chrono::{DateTime, TimeZone, Utc};
 use mail_core::sync::live::{self, Heard};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
-use mail_runtime::{MapSecrets, OAuthRegistry, Secrets};
+use mail_runtime::{AccountSecrets, OAuthRegistry};
 use mail_store::SqliteStore;
+use porter_core::SecretText;
+use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
+use porter_secrets::MemorySecrets;
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::watch;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b1"))
+}
 
 fn now() -> DateTime<Utc> {
     Utc.timestamp_opt(1_700_000_000, 0).unwrap()
@@ -139,13 +144,16 @@ fn account(port: u16, watch: WatchMode) -> (Arc<SqliteStore>, tempfile::TempDir)
     db.execute(
         "INSERT INTO accounts (id, address, plan, created_at)
          VALUES (?1, 'ada@example.test', ?2, datetime('now'))",
-        rusqlite::params![ACCOUNT.to_string(), serde_json::to_string(&plan).unwrap()],
+        rusqlite::params![
+            acct_account().to_string(),
+            serde_json::to_string(&plan).unwrap()
+        ],
     )
     .unwrap();
     db.execute(
         "INSERT INTO account_caps (account, caps, observed_at) VALUES (?1, ?2, ?3)",
         rusqlite::params![
-            ACCOUNT.to_string(),
+            acct_account().to_string(),
             serde_json::to_string(&caps(watch)).unwrap(),
             now().to_rfc3339()
         ],
@@ -155,17 +163,16 @@ fn account(port: u16, watch: WatchMode) -> (Arc<SqliteStore>, tempfile::TempDir)
     (store, dir)
 }
 
-fn secrets() -> Arc<MapSecrets> {
-    let secrets = MapSecrets::default();
-    secrets
-        .put(
-            &SecretKey {
-                account: ACCOUNT,
-                purpose: SecretPurpose::IncomingPassword,
-            },
-            &Credential::Password("s3cr3t-pass".to_owned()),
-        )
-        .unwrap();
+fn secrets() -> Arc<MemorySecrets> {
+    let secrets = MemorySecrets::default();
+    mail_runtime::block_on(secrets.put(
+        &SecretKey {
+            account: acct_account(),
+            purpose: SecretPurpose::IncomingPassword,
+        },
+        &Credential::Password(SecretText::new("s3cr3t-pass".to_owned())),
+    ))
+    .unwrap();
     Arc::new(secrets)
 }
 
@@ -184,7 +191,7 @@ fn listening(store: Arc<SqliteStore>, cancel: watch::Receiver<bool>) -> Listenin
             store,
             secrets(),
             &OAuthRegistry::default(),
-            ACCOUNT,
+            acct_account(),
             cancel,
             None,
             Duration::from_millis(100),
@@ -269,5 +276,5 @@ fn an_account_the_server_cannot_push_to_is_not_watched() {
 #[test]
 fn an_idle_account_is_one_that_pushes() {
     let (store, _dir) = account(1, WatchMode::Idle);
-    assert_eq!(live::pushing(&store), [ACCOUNT]);
+    assert_eq!(live::pushing(&store), [acct_account()]);
 }

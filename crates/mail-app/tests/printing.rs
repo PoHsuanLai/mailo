@@ -5,12 +5,15 @@
 
 use chrono::{DateTime, TimeZone, Utc};
 use mail_app::cli::{self, Command, PrintTo};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_mime::Pages;
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 
 fn at(n: i64) -> DateTime<Utc> {
     Utc.timestamp_opt(1_700_000_000 + n, 0).unwrap()
@@ -49,7 +52,10 @@ fn seeded() -> (SqliteStore, tempfile::TempDir) {
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', ?2, datetime('now'))",
-            rusqlite::params![ACCOUNT.to_string(), serde_json::to_string(&plan).unwrap()],
+            rusqlite::params![
+                acct_account().to_string(),
+                serde_json::to_string(&plan).unwrap()
+            ],
         )
         .unwrap();
     (store, dir)
@@ -76,7 +82,7 @@ fn stored(
     let message = Message {
         id,
         thread: thread.unwrap_or_else(ThreadId::generate),
-        account: ACCOUNT,
+        account: acct_account(),
         key: MessageKey::Rfc(rfc_id.clone()),
         date: at(n),
         from: Address {
@@ -106,10 +112,10 @@ fn stored(
     };
     store
         .ingest(
-            ACCOUNT,
+            acct_account(),
             Ingest {
                 mailbox: MailboxRef {
-                    account: ACCOUNT,
+                    account: acct_account(),
                     path: "INBOX".to_owned(),
                 },
                 validity: UidValidity::Same,

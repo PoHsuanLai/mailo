@@ -151,6 +151,27 @@ pub fn pieces(value: &str, limit: Limit) -> Vec<&str> {
     out
 }
 
+/// Old entries that hold nothing, for the tests of the platform store.
+#[cfg(test)]
+pub(crate) mod testing {
+    use super::Slots;
+    use crate::RuntimeError;
+
+    pub(crate) struct Empty;
+
+    impl Slots for Empty {
+        fn read(&self, _: &str) -> Result<Option<String>, RuntimeError> {
+            Ok(None)
+        }
+        fn write(&self, _: &str, _: &str) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+        fn delete(&self, _: &str) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

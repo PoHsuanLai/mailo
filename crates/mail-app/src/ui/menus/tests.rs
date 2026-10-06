@@ -1,10 +1,11 @@
 use super::super::app::App;
 use super::super::menu::Right;
 use super::super::ops::apply_label;
-use crate::ui::fixtures::{ACCOUNT, dispatching, inbox_query, markup, realistic};
+use crate::ui::fixtures::{acct_account, dispatching, inbox_query, markup, realistic};
 use chrono::TimeZone;
 use dioxus::prelude::*;
 use dioxus_core::{NoOpMutations, VirtualDom};
+use mail_domain::id::new_account_id;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 
@@ -85,7 +86,7 @@ mod naming_a_conversation {
             .execute(
                 "INSERT INTO labels (id, account, name, origin)
                  VALUES (?1, ?2, ?3, '\"provider\"')",
-                rusqlite::params![id.to_string(), ACCOUNT.to_string(), name],
+                rusqlite::params![id.to_string(), acct_account().to_string(), name],
             )
             .unwrap();
         id
@@ -138,7 +139,9 @@ mod naming_a_conversation {
 
         apply_label(&store, thread, travel, Membership::In);
 
-        let queued = store.outbox_due(ACCOUNT, chrono::Utc::now()).unwrap();
+        let queued = store
+            .outbox_due(acct_account(), chrono::Utc::now())
+            .unwrap();
         assert!(
             queued.iter().any(|entry| matches!(
                 &entry.op,
@@ -201,7 +204,7 @@ fn create_appears_only_for_a_new_name_and_checks_follow_the_thread() {
     let known = vec![("travel".to_owned(), travel), ("home".to_owned(), home)];
     let mut summary = mail_domain::ThreadSummary {
         id: ThreadId::generate(),
-        account: AccountId::generate(),
+        account: new_account_id(),
         subject: "hi".to_owned(),
         snippet: String::new(),
         from: Address {

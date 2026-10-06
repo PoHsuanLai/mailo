@@ -26,7 +26,7 @@ pub use group::{Edit, Group, GroupHome, GroupId};
 pub use learn::normalise;
 
 use chrono::{DateTime, Utc};
-use mail_domain::AccountId;
+use porter_core::AccountId;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 

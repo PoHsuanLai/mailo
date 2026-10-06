@@ -23,7 +23,7 @@ use super::{Ask, PgpError};
 use chrono::{DateTime, Utc};
 use mail_domain::*;
 use mail_mime::openpgp::{self, Cert, Sealing};
-use mail_runtime::Secrets;
+use mail_runtime::SigningStore;
 use mail_store::SqliteStore;
 
 /// What stands between `draft` and sending it as it asks, without touching the keyring: the
@@ -65,7 +65,7 @@ pub fn check(
 /// identity has a key, then signed and encrypted as the draft asks.
 pub fn outgoing(
     store: &SqliteStore,
-    secrets: &dyn Secrets,
+    secrets: &dyn SigningStore,
     ask: Ask<'_>,
     draft: &Draft,
     identity: &Identity,

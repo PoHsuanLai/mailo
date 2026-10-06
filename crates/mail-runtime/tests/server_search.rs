@@ -6,18 +6,23 @@
 //! fetch of a body, so a search that fetched one would fail here.
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_proto::backend::{Authenticate, ImapBackend};
 use mail_proto::{ImapAuth, ImapCommand, ImapSession};
-use mail_runtime::{AccountEngine, Arrival, MapSecrets, Searched, Secrets};
+use mail_runtime::{AccountEngine, AccountSecrets, Arrival, Searched};
 use mail_store::{SqliteStore, Store};
+use porter_core::SecretText;
+use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
+use porter_secrets::MemorySecrets;
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::watch;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 const PASSWORD: &str = "s3cr3t";
 const ALL_MAIL: &str = "[Gmail]/All Mail";
 
@@ -226,15 +231,15 @@ fn fixture(port: u16) -> Fixture {
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [ACCOUNT.to_string()],
+            [acct_account().to_string()],
         )
         .unwrap();
     store
         .put_folders(
-            ACCOUNT,
+            acct_account(),
             vec![
                 Folder {
-                    account: ACCOUNT,
+                    account: acct_account(),
                     path: "INBOX".to_owned(),
                     delimiter: Some('/'),
                     special: Some(SpecialUse::Inbox),
@@ -242,7 +247,7 @@ fn fixture(port: u16) -> Fixture {
                     holds: Holds::Mail,
                 },
                 Folder {
-                    account: ACCOUNT,
+                    account: acct_account(),
                     path: ALL_MAIL.to_owned(),
                     delimiter: Some('/'),
                     special: Some(SpecialUse::All),
@@ -257,9 +262,9 @@ fn fixture(port: u16) -> Fixture {
     let head = raw.split("\r\n\r\n").next().unwrap().to_owned() + "\r\n\r\n";
     mail_runtime::absorb(
         &store,
-        ACCOUNT,
+        acct_account(),
         MailboxRef {
-            account: ACCOUNT,
+            account: acct_account(),
             path: "INBOX".to_owned(),
         },
         None,
@@ -276,23 +281,22 @@ fn fixture(port: u16) -> Fixture {
     )
     .unwrap();
 
-    let secrets = MapSecrets::default();
-    secrets
-        .put(
-            &SecretKey {
-                account: ACCOUNT,
-                purpose: SecretPurpose::IncomingPassword,
-            },
-            &Credential::Password(PASSWORD.to_owned()),
-        )
-        .unwrap();
+    let secrets = MemorySecrets::default();
+    mail_runtime::block_on(secrets.put(
+        &SecretKey {
+            account: acct_account(),
+            purpose: SecretPurpose::IncomingPassword,
+        },
+        &Credential::Password(SecretText::new(PASSWORD.to_owned())),
+    ))
+    .unwrap();
     let auth = ImapAuth {
         username: "me@example.test".to_owned(),
-        credential: Credential::Password(PASSWORD.to_owned()),
+        credential: Credential::Password(SecretText::new(PASSWORD.to_owned())),
         sasl: vec![SaslMech::Plain],
     };
     let backend = ImapBackend::new(
-        ACCOUNT,
+        acct_account(),
         caps(),
         Box::new(move |authenticate, commands: Vec<ImapCommand>| {
             let mut all = Vec::new();
@@ -304,7 +308,7 @@ fn fixture(port: u16) -> Fixture {
         }),
     );
     let engine = AccountEngine::new(
-        ACCOUNT,
+        acct_account(),
         plan(port),
         backend,
         store.clone(),
@@ -319,7 +323,7 @@ fn fixture(port: u16) -> Fixture {
 
 fn subjects(store: &SqliteStore) -> Vec<String> {
     let query = Query {
-        filter: Filter::Account(ACCOUNT),
+        filter: Filter::Account(acct_account()),
         sort: Sort {
             property: Property::Date,
             dir: SortDir::Desc,

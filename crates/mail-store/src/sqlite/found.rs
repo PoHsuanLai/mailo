@@ -5,7 +5,8 @@ use super::SqliteStore;
 use super::row::uuid;
 use crate::StoreError;
 use chrono::{DateTime, Utc};
-use mail_domain::{AccountId, MessageId, RemoteRef, ThreadId};
+use mail_domain::{MessageId, RemoteRef, ThreadId};
+use porter_core::AccountId;
 use rusqlite::{OptionalExtension, params};
 
 impl SqliteStore {

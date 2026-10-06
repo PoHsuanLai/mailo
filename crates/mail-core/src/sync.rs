@@ -14,15 +14,18 @@ pub use body::{fetch_body, fetch_body_with};
 mod jmap;
 mod search;
 
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_proto::backend::{Authenticate, ImapBackend, Pop3Backend};
 use mail_proto::{ImapAuth, ImapCommand, ImapSession, Pop3Command, Pop3Session};
 use mail_runtime::graph::read::{OverHttp, Reader};
 use mail_runtime::renewal::Now;
 use mail_runtime::{
-    AccountEngine, Held, KeyringSecrets, OAuthRegistry, Renewal, Secrets, SyncReport, signin,
+    AccountEngine, AccountSecrets, Held, OAuthRegistry, Renewal, SyncReport, platform_secrets,
+    signin,
 };
 use mail_store::SqliteStore;
+use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
 use report::{Done, Emit, Failure, Hooks, PassEnd, Progress, Told, Watched};
 pub use search::{search_server, search_server_with};
 use std::sync::Arc;
@@ -98,7 +101,7 @@ pub(crate) fn configured(store: &SqliteStore) -> Result<Vec<Configured>, String>
             }
         };
         out.push(Configured {
-            id: AccountId::from_uuid(uuid),
+            id: account_id_from_uuid(uuid),
             address,
             plan,
             caps,
@@ -191,7 +194,7 @@ pub fn watch(
     };
     run_all(
         store.clone(),
-        Arc::new(KeyringSecrets),
+        platform_secrets(),
         &registry,
         now,
         Mode::Watch,
@@ -224,7 +227,7 @@ pub fn run(
     let registry = OAuthRegistry::load_default().map_err(|e| e.to_string())?;
     run_all(
         store,
-        Arc::new(KeyringSecrets),
+        platform_secrets(),
         &registry,
         now,
         Mode::Once,
@@ -249,7 +252,7 @@ pub fn run(
 /// none, and that a failure in one account does not stop the next.
 pub fn run_with(
     store: Arc<SqliteStore>,
-    secrets: Arc<dyn Secrets>,
+    secrets: Arc<dyn AccountSecrets>,
     registry: &OAuthRegistry,
     now: chrono::DateTime<chrono::Utc>,
     hooks: Hooks<'_>,
@@ -281,7 +284,7 @@ struct Scope<'a> {
 #[allow(clippy::too_many_arguments)]
 fn run_all(
     store: Arc<SqliteStore>,
-    secrets: Arc<dyn Secrets>,
+    secrets: Arc<dyn AccountSecrets>,
     registry: &OAuthRegistry,
     now: chrono::DateTime<chrono::Utc>,
     mode: Mode,
@@ -303,9 +306,9 @@ fn pick(store: &SqliteStore, scope: &Scope<'_>) -> Result<Vec<Configured>, Strin
     Ok(configured(store)?
         .into_iter()
         .filter(|account| !matches!(account.plan.incoming, Incoming::Local))
-        .filter(|a| (scope.due)(a.id))
+        .filter(|a| (scope.due)(a.id.clone()))
         .map(|a| Configured {
-            keep: scope.kept.of(a.id),
+            keep: scope.kept.of(a.id.clone()),
             ..a
         })
         .collect())
@@ -315,7 +318,7 @@ fn pick(store: &SqliteStore, scope: &Scope<'_>) -> Result<Vec<Configured>, Strin
 #[allow(clippy::too_many_arguments)]
 fn pass_over(
     store: &Arc<SqliteStore>,
-    secrets: Arc<dyn Secrets>,
+    secrets: Arc<dyn AccountSecrets>,
     registry: &OAuthRegistry,
     now: chrono::DateTime<chrono::Utc>,
     mode: Mode,
@@ -354,7 +357,7 @@ fn pass_over(
                 let cancel = hooks.cancel.get(&account.id).cloned();
                 let emit = |progress| {
                     if let Some(sink) = hooks.progress {
-                        sink(account.id, progress);
+                        sink(account.id.clone(), progress);
                     }
                 };
                 let cancelled = cancel.clone();
@@ -389,11 +392,11 @@ fn ended(
             retry: Retry::Fatal(_),
             ..
         }) if cancel.is_some_and(|signal| *signal.borrow()) => PassEnd::Cancelled {
-            account: account.id,
+            account: account.id.clone(),
             address: account.address.clone(),
         },
         Err(Failure { retry, why, pause }) => PassEnd::Failed {
-            account: account.id,
+            account: account.id.clone(),
             address: account.address.clone(),
             retry,
             why,
@@ -411,7 +414,7 @@ fn ended(
 pub(crate) async fn signed_in(
     account: &Configured,
     credential: Credential,
-    secrets: &dyn Secrets,
+    secrets: &dyn AccountSecrets,
     registry: &OAuthRegistry,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<Credential, String> {
@@ -424,7 +427,7 @@ pub(crate) async fn signed_in(
 async fn signed_in_typed(
     account: &Configured,
     credential: Credential,
-    secrets: &dyn Secrets,
+    secrets: &dyn AccountSecrets,
     registry: &OAuthRegistry,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<Credential, Failure> {
@@ -453,7 +456,7 @@ async fn signed_in_typed(
     let http = signin::http_client().map_err(|e| Failure::of("", &e))?;
     let scopes = mail_runtime::oauth::incoming_scopes(scopes);
     signin::renew(
-        account.id,
+        account.id.clone(),
         registration,
         &scopes,
         credential,
@@ -476,7 +479,7 @@ async fn signed_in_typed(
 fn renewal_for(
     account: &Configured,
     held: &Held,
-    secrets: Arc<dyn Secrets>,
+    secrets: Arc<dyn AccountSecrets>,
     registry: &OAuthRegistry,
     clock: Now,
 ) -> Option<Renewal> {
@@ -485,7 +488,7 @@ fn renewal_for(
     };
     let registration = registry.get(*issuer)?.clone();
     Renewal::new(
-        account.id,
+        account.id.clone(),
         &account.plan,
         registration,
         secrets,
@@ -507,7 +510,7 @@ fn clock_for(mode: Mode, now: chrono::DateTime<chrono::Utc>) -> Now {
 async fn one(
     store: &Arc<SqliteStore>,
     account: &Configured,
-    secrets: Arc<dyn Secrets>,
+    secrets: Arc<dyn AccountSecrets>,
     registry: &OAuthRegistry,
     now: chrono::DateTime<chrono::Utc>,
     mode: Mode,
@@ -519,9 +522,10 @@ async fn one(
     say(emit, Progress::Connecting);
     let stored = secrets
         .get(&SecretKey {
-            account: account.id,
+            account: account.id.clone(),
             purpose: SecretPurpose::IncomingPassword,
         })
+        .await
         // A credential that is not there is one to be asked for again.
         .map_err(|_| {
             Failure::reauth(crate::account::no_credential(
@@ -547,7 +551,9 @@ async fn one(
 
     let folders = {
         use mail_store::Store as _;
-        store.folders(account.id).map_err(|e| Failure::of("", &e))?
+        store
+            .folders(account.id.clone())
+            .map_err(|e| Failure::of("", &e))?
     };
     let mailboxes = to_sync(account, &folders);
     // Nothing cancels a one-shot CLI sync, but the loop requires a receiver. The window hands in
@@ -566,7 +572,7 @@ async fn one(
             };
             let sasl = sasl_for(&account.plan);
             let backend = Pop3Backend::new(
-                account.id,
+                account.id.clone(),
                 account.caps.clone(),
                 Box::new(move |auth, commands| {
                     // The factory owns authentication, because it is the only thing holding the
@@ -576,11 +582,11 @@ async fn one(
                         all.extend(auth_prelude(&sasl));
                     }
                     all.extend(commands);
-                    Pop3Session::new(username.clone(), password.clone(), all)
+                    Pop3Session::new(username.clone(), password.expose().to_owned(), all)
                 }),
             );
             let mut engine = AccountEngine::new(
-                account.id,
+                account.id.clone(),
                 account.plan.clone(),
                 backend,
                 store.clone(),
@@ -641,7 +647,7 @@ async fn one(
         // HTTPS rather than a socket, so an engine of its own; the same pass, the same wait.
         Incoming::Jmap { .. } => {
             let mut engine = mail_runtime::JmapEngine::new(
-                account.id,
+                account.id.clone(),
                 account.plan.clone(),
                 store.clone(),
                 secrets,
@@ -681,7 +687,7 @@ fn say(emit: Emit<'_>, progress: Progress) {
 /// account that reads through Graph has no IMAP one, and reads with this.
 async fn sending_token(
     account: &Configured,
-    secrets: &dyn Secrets,
+    secrets: &dyn AccountSecrets,
     registry: &OAuthRegistry,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<(), String> {
@@ -693,7 +699,7 @@ async fn sending_token(
 /// [`sending_token`], with what to do about a failure kept beside what to say about it.
 async fn sending_token_typed(
     account: &Configured,
-    secrets: &dyn Secrets,
+    secrets: &dyn AccountSecrets,
     registry: &OAuthRegistry,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<(), Failure> {
@@ -708,7 +714,7 @@ async fn sending_token_typed(
     })?;
     let http = signin::http_client().map_err(|e| Failure::of("", &e))?;
     let reach = signin::GraphReach::of(&account.plan);
-    signin::graph_token(account.id, registration, reach, secrets, &http, now)
+    signin::graph_token(account.id.clone(), registration, reach, secrets, &http, now)
         .await
         .map(|_| ())
         .map_err(|e| Failure::of("cannot sign in to Microsoft Graph for sending: ", &e))
@@ -719,22 +725,20 @@ fn imap_engine(
     store: &Arc<SqliteStore>,
     account: &Configured,
     held: Held,
-    secrets: Arc<dyn Secrets>,
+    secrets: Arc<dyn AccountSecrets>,
 ) -> AccountEngine<ImapBackend> {
     // Password *and* bearer token. Only Gmail needs OAuth; every other IMAP server this client
     // will meet authenticates with `LOGIN`, and refusing one meant the IMAP path could not be
     // used at all without registering an OAuth client.
     let mechanism = match held.current() {
         Credential::OAuth { .. } => ImapCommand::AuthenticateXoauth2,
-        // An OpenPGP key is never stored under a sign-in purpose; if one were, the session
-        // refuses it before a byte of it is sent (`mail_proto::imap`'s credential check).
-        Credential::Password(_) | Credential::OpenPgp(_) | Credential::SmimeKey(_) => {
+        Credential::Password(_) | Credential::ApiKey(_) | Credential::KeyPair { .. } => {
             ImapCommand::Login
         }
     };
     let (username, sasl) = (username_for(&account.plan), sasl_for(&account.plan));
     let backend = ImapBackend::new(
-        account.id,
+        account.id.clone(),
         account.caps.clone(),
         // The factory owns authentication, so the backend never names a mechanism and never
         // holds the credential that would decide one. It reads the credential per session, not
@@ -755,7 +759,7 @@ fn imap_engine(
         }),
     );
     AccountEngine::new(
-        account.id,
+        account.id.clone(),
         account.plan.clone(),
         backend,
         store.clone(),
@@ -770,11 +774,12 @@ fn imap_engine(
 fn graph_engine(
     store: &Arc<SqliteStore>,
     account: &Configured,
-    secrets: Arc<dyn Secrets>,
+    secrets: Arc<dyn AccountSecrets>,
 ) -> Result<AccountEngine<OverHttp>, String> {
-    let reader = Reader::new(account.id, account.caps.clone()).map_err(|e| e.to_string())?;
+    let reader =
+        Reader::new(account.id.clone(), account.caps.clone()).map_err(|e| e.to_string())?;
     Ok(AccountEngine::new(
-        account.id,
+        account.id.clone(),
         account.plan.clone(),
         OverHttp::new(account.caps.clone()),
         store.clone(),
@@ -794,20 +799,13 @@ pub fn fetch_part(
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<(), String> {
     let registry = OAuthRegistry::load_default().map_err(|e| e.to_string())?;
-    fetch_part_with(
-        store,
-        Arc::new(KeyringSecrets),
-        &registry,
-        message,
-        section,
-        now,
-    )
+    fetch_part_with(store, platform_secrets(), &registry, message, section, now)
 }
 
 /// The same, with the secret store named, so a test can run it.
 pub fn fetch_part_with(
     store: &Arc<SqliteStore>,
-    secrets: Arc<dyn Secrets>,
+    secrets: Arc<dyn AccountSecrets>,
     registry: &OAuthRegistry,
     message: mail_domain::MessageId,
     section: &str,
@@ -841,15 +839,16 @@ pub fn fetch_part_with(
 async fn signed_in_imap(
     store: &Arc<SqliteStore>,
     account: &Configured,
-    secrets: Arc<dyn Secrets>,
+    secrets: Arc<dyn AccountSecrets>,
     registry: &OAuthRegistry,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<AccountEngine<ImapBackend>, String> {
     let stored = secrets
         .get(&SecretKey {
-            account: account.id,
+            account: account.id.clone(),
             purpose: SecretPurpose::IncomingPassword,
         })
+        .await
         .map_err(|_| crate::account::no_credential(&account.address, &account.plan.auth))?;
     let credential = signed_in(account, stored, secrets.as_ref(), registry, now).await?;
     let held = Held::new(credential);
@@ -877,13 +876,13 @@ pub fn drain(
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<SyncReport, String> {
     let registry = OAuthRegistry::load_default().map_err(|e| e.to_string())?;
-    drain_with(store, Arc::new(KeyringSecrets), &registry, account, now)
+    drain_with(store, platform_secrets(), &registry, account, now)
 }
 
 /// The same, with the secret store named, so a test can run it.
 pub fn drain_with(
     store: &Arc<SqliteStore>,
-    secrets: Arc<dyn Secrets>,
+    secrets: Arc<dyn AccountSecrets>,
     registry: &OAuthRegistry,
     account: AccountId,
     now: chrono::DateTime<chrono::Utc>,
@@ -1050,8 +1049,13 @@ fn after_pass(
     // heard was fetched. A failure here is told and does not stop the watch: mail that cannot be
     // announced is still mail worth fetching.
     if let Announce::To { store, notifier } = announce
-        && let Err(why) =
-            crate::notify::announce(store, account.id, &done.counts.arrived, notifier, at)
+        && let Err(why) = crate::notify::announce(
+            store,
+            account.id.clone(),
+            &done.counts.arrived,
+            notifier,
+            at,
+        )
     {
         relay(
             told,
@@ -1338,20 +1342,13 @@ pub fn folder_now(
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<PassEnd, String> {
     let registry = OAuthRegistry::load_default().map_err(|e| e.to_string())?;
-    folder_now_with(
-        store,
-        Arc::new(KeyringSecrets),
-        &registry,
-        account,
-        path,
-        now,
-    )
+    folder_now_with(store, platform_secrets(), &registry, account, path, now)
 }
 
 /// The same, with the secret store named, so a test can run it.
 pub fn folder_now_with(
     store: Arc<SqliteStore>,
-    secrets: Arc<dyn Secrets>,
+    secrets: Arc<dyn AccountSecrets>,
     registry: &OAuthRegistry,
     account: AccountId,
     path: &str,
@@ -1387,7 +1384,7 @@ pub fn folder_now_with(
         ));
     }
     let mailbox = MailboxRef {
-        account: account.id,
+        account: account.id.clone(),
         path: path.to_owned(),
     };
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -1397,9 +1394,10 @@ pub fn folder_now_with(
     let done = runtime.block_on(async {
         let stored = secrets
             .get(&SecretKey {
-                account: account.id,
+                account: account.id.clone(),
                 purpose: SecretPurpose::IncomingPassword,
             })
+            .await
             .map_err(|_| {
                 Failure::reauth(crate::account::no_credential(
                     &account.address,
@@ -1467,7 +1465,9 @@ pub fn mailboxes_by_account(store: &SqliteStore) -> Result<Vec<(String, Vec<Stri
     configured(store)?
         .into_iter()
         .map(|account| {
-            let folders = store.folders(account.id).map_err(|e| e.to_string())?;
+            let folders = store
+                .folders(account.id.clone())
+                .map_err(|e| e.to_string())?;
             let paths = to_sync(&account, &folders)
                 .into_iter()
                 .map(|m| m.path)
@@ -1501,14 +1501,14 @@ fn to_sync(account: &Configured, folders: &[Folder]) -> Vec<MailboxRef> {
         // One mailbox, the whole account: JMAP reports changes across every mailbox at once.
         Incoming::Jmap { .. } => {
             return vec![MailboxRef {
-                account: account.id,
+                account: account.id.clone(),
                 path: JMAP_ALL.to_owned(),
             }];
         }
         Incoming::Imap { .. } | Incoming::Pop3 { .. } | Incoming::Graph => {}
     }
     let mut out = vec![MailboxRef {
-        account: account.id,
+        account: account.id.clone(),
         path: "INBOX".to_owned(),
     }];
     // `Sent` and not `Archive`, which is not safe yet. On Gmail the same message is in INBOX
@@ -1520,7 +1520,7 @@ fn to_sync(account: &Configured, folders: &[Folder]) -> Vec<MailboxRef> {
         && !path.eq_ignore_ascii_case("INBOX")
     {
         out.push(MailboxRef {
-            account: account.id,
+            account: account.id.clone(),
             path: path.to_owned(),
         });
     }
@@ -1535,7 +1535,7 @@ fn to_sync(account: &Configured, folders: &[Folder]) -> Vec<MailboxRef> {
         {
             if !out.iter().any(|m| m.path == folder.path) {
                 out.push(MailboxRef {
-                    account: account.id,
+                    account: account.id.clone(),
                     path: folder.path.clone(),
                 });
             }

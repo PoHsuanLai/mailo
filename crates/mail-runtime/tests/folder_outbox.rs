@@ -6,18 +6,23 @@
 
 use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::folder::{FolderContents, FolderCtx, plan};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_proto::backend::{Authenticate, ImapBackend};
 use mail_proto::{ImapAuth, ImapCommand, ImapSession};
-use mail_runtime::{AccountEngine, MapSecrets, Secrets};
+use mail_runtime::{AccountEngine, AccountSecrets};
 use mail_store::{SqliteStore, Store};
+use porter_core::SecretText;
+use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
+use porter_secrets::MemorySecrets;
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::watch;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 
 fn now() -> DateTime<Utc> {
     Utc.timestamp_opt(1_700_000_000, 0).unwrap()
@@ -129,31 +134,30 @@ fn open(dir: &tempfile::TempDir) -> Arc<SqliteStore> {
         .execute(
             "INSERT OR IGNORE INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [ACCOUNT.to_string()],
+            [acct_account().to_string()],
         )
         .unwrap();
     store
 }
 
 fn engine(port: u16, store: Arc<SqliteStore>) -> AccountEngine<ImapBackend> {
-    let secrets = MapSecrets::default();
-    let password = Credential::Password("s3cr3t".to_owned());
-    secrets
-        .put(
-            &SecretKey {
-                account: ACCOUNT,
-                purpose: SecretPurpose::IncomingPassword,
-            },
-            &password,
-        )
-        .unwrap();
+    let secrets = MemorySecrets::default();
+    let password = Credential::Password(SecretText::new("s3cr3t".to_owned()));
+    mail_runtime::block_on(secrets.put(
+        &SecretKey {
+            account: acct_account(),
+            purpose: SecretPurpose::IncomingPassword,
+        },
+        &password,
+    ))
+    .unwrap();
     let auth = ImapAuth {
         username: "me@example.test".to_owned(),
         credential: password,
         sasl: vec![SaslMech::Plain],
     };
     let backend = ImapBackend::new(
-        ACCOUNT,
+        acct_account(),
         caps(),
         Box::new(move |authenticate, commands: Vec<ImapCommand>| {
             let mut all = Vec::new();
@@ -165,7 +169,7 @@ fn engine(port: u16, store: Arc<SqliteStore>) -> AccountEngine<ImapBackend> {
         }),
     );
     AccountEngine::new(
-        ACCOUNT,
+        acct_account(),
         account_plan(port),
         backend,
         store,
@@ -175,11 +179,11 @@ fn engine(port: u16, store: Arc<SqliteStore>) -> AccountEngine<ImapBackend> {
 
 /// What `mail_app::folder::change` does: plan, apply here, queue for the server.
 fn request(store: &SqliteStore, port: u16, work: FolderWork) {
-    let folders = store.folders(ACCOUNT).unwrap();
+    let folders = store.folders(acct_account()).unwrap();
     let applied = plan(
         &work,
         &FolderCtx {
-            account: ACCOUNT,
+            account: acct_account(),
             incoming: &account_plan(port).incoming,
             caps: &caps(),
             folders: &folders,
@@ -188,16 +192,21 @@ fn request(store: &SqliteStore, port: u16, work: FolderWork) {
         },
     )
     .unwrap();
-    store.apply(ACCOUNT, &applied.forward).unwrap();
+    store.apply(acct_account(), &applied.forward).unwrap();
     store
-        .enqueue(ACCOUNT, applied.remote.unwrap(), &applied.inverse, now())
+        .enqueue(
+            acct_account(),
+            applied.remote.unwrap(),
+            &applied.inverse,
+            now(),
+        )
         .unwrap()
         .expect("folder work is always queued");
 }
 
 fn paths(store: &SqliteStore) -> Vec<String> {
     store
-        .folders(ACCOUNT)
+        .folders(acct_account())
         .unwrap()
         .into_iter()
         .map(|f| f.path)
@@ -236,7 +245,7 @@ async fn a_folder_made_offline_reaches_the_server_after_a_restart() {
         heard.lock().unwrap().as_slice(),
         ["CREATE \"&ZeVnLIqe-\"", "SUBSCRIBE \"&ZeVnLIqe-\""]
     );
-    assert!(store.outbox_due(ACCOUNT, now()).unwrap().is_empty());
+    assert!(store.outbox_due(acct_account(), now()).unwrap().is_empty());
 
     let listed = engine.refresh_folders(&mut cancel, now()).await.unwrap();
     let names: Vec<(&str, Subscription)> = listed
@@ -272,7 +281,7 @@ async fn a_folder_the_server_refuses_is_taken_back() {
     let report = engine.drain_outbox(&mut cancel, now()).await.unwrap();
 
     assert_eq!(paths(&store), Vec::<String>::new(), "the undo ran");
-    assert!(store.outbox_due(ACCOUNT, now()).unwrap().is_empty());
+    assert!(store.outbox_due(acct_account(), now()).unwrap().is_empty());
     assert!(
         report
             .needs_attention

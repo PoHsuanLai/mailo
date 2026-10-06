@@ -18,6 +18,7 @@ pub(super) enum Thread {
 pub(super) enum Act {
     Search,
     Read,
+    Open,
     Contacts,
     Thread(Thread),
     CreateDraft,
@@ -26,9 +27,10 @@ pub(super) enum Act {
 }
 
 /// Every action, with the name the manifest gives it.
-pub(super) const ALL: [(&str, Act); 12] = [
+pub(super) const ALL: [(&str, Act); 13] = [
     ("mail.thread.search", Act::Search),
     ("mail.thread.read", Act::Read),
+    ("mail.thread.open", Act::Open),
     ("mail.thread.archive", Act::Thread(Thread::Archive)),
     ("mail.thread.star", Act::Thread(Thread::Star)),
     ("mail.thread.unstar", Act::Thread(Thread::Unstar)),

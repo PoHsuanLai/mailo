@@ -14,11 +14,12 @@
 //! The client id is not a secret. An installed application cannot keep one, which is the entire
 //! reason for PKCE, so this is an ordinary config file and not a keyring entry.
 
+use crate::AccountSecrets;
 use crate::RuntimeError;
 use crate::oauth::{self, Endpoints, Freshness};
-use crate::secrets::Secrets;
 use chrono::{DateTime, Utc};
-use mail_domain::{AccountId, Credential, OAuthIssuer, SecretKey, SecretPurpose};
+use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
+use porter_provider::Issuer;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -29,7 +30,7 @@ const HTTP_TIMEOUT: Duration = Duration::from_secs(30);
 /// The OAuth client this build presents to one issuer.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Registration {
-    pub issuer: OAuthIssuer,
+    pub issuer: Issuer,
     pub client_id: String,
     /// Google issues one with every "Desktop app" client and requires it in both the code
     /// exchange and every later refresh. Absent for Microsoft's public clients.
@@ -49,7 +50,7 @@ pub struct Registration {
 }
 
 impl Registration {
-    pub fn new(issuer: OAuthIssuer, client_id: impl Into<String>) -> Self {
+    pub fn new(issuer: Issuer, client_id: impl Into<String>) -> Self {
         Self {
             issuer,
             client_id: client_id.into(),
@@ -71,10 +72,11 @@ impl Registration {
     }
 
     /// Where to ask, which is the override when there is one and the published host otherwise.
-    pub fn endpoints(&self) -> Endpoints {
-        self.elsewhere
-            .clone()
-            .unwrap_or_else(|| oauth::endpoints_for(self.issuer))
+    pub fn endpoints(&self) -> Result<Endpoints, RuntimeError> {
+        match &self.elsewhere {
+            Some(elsewhere) => Ok(elsewhere.clone()),
+            None => oauth::endpoints_for(self.issuer),
+        }
     }
 }
 
@@ -89,7 +91,7 @@ pub struct OAuthRegistry {
 
 impl OAuthRegistry {
     /// The registration for an issuer, if this installation has one.
-    pub fn get(&self, issuer: OAuthIssuer) -> Option<&Registration> {
+    pub fn get(&self, issuer: Issuer) -> Option<&Registration> {
         self.registrations.iter().find(|r| r.issuer == issuer)
     }
 
@@ -192,7 +194,7 @@ pub async fn renew(
     registration: &Registration,
     scopes: &[String],
     credential: Credential,
-    secrets: &dyn Secrets,
+    secrets: &dyn AccountSecrets,
     http: &reqwest::Client,
     now: DateTime<Utc>,
 ) -> Result<Credential, RuntimeError> {
@@ -222,12 +224,12 @@ pub(crate) async fn renew_incoming(
     registration: &Registration,
     scopes: &[String],
     refresh_token: &str,
-    secrets: &dyn Secrets,
+    secrets: &dyn AccountSecrets,
     http: &reqwest::Client,
     now: DateTime<Utc>,
 ) -> Result<Credential, RuntimeError> {
     let renewed = oauth::refresh_for(
-        &registration.endpoints(),
+        &registration.endpoints()?,
         &registration.client_id,
         registration.client_secret.as_deref(),
         refresh_token,
@@ -242,7 +244,15 @@ pub(crate) async fn renew_incoming(
     // account failing an hour later, just via a different key. A refresh token the issuer
     // rotated is in `renewed`, so it is saved here too.
     for purpose in [SecretPurpose::IncomingPassword, SecretPurpose::OAuthRefresh] {
-        secrets.put(&SecretKey { account, purpose }, &renewed)?;
+        secrets
+            .put(
+                &SecretKey {
+                    account: account.clone(),
+                    purpose,
+                },
+                &renewed,
+            )
+            .await?;
     }
     Ok(renewed)
 }
@@ -290,22 +300,28 @@ pub async fn graph_token(
     account: AccountId,
     registration: &Registration,
     reach: GraphReach,
-    secrets: &dyn Secrets,
+    secrets: &dyn AccountSecrets,
     http: &reqwest::Client,
     now: DateTime<Utc>,
 ) -> Result<Credential, RuntimeError> {
-    let key = |purpose| SecretKey { account, purpose };
-    let held = secrets.get(&key(SecretPurpose::OutgoingPassword)).ok();
+    let key = |purpose| SecretKey {
+        account: account.clone(),
+        purpose,
+    };
+    let held = secrets
+        .get(&key(SecretPurpose::OutgoingPassword))
+        .await
+        .ok();
     let refresh_token = match held.as_ref().map(|c| oauth::assess(c, now)) {
         Some(Freshness::Ready) => {
             if let Some(held @ Credential::OAuth { .. }) = held {
                 return Ok(held);
             }
             // A password here is left over from an SMTP setup; the sign-in's token replaces it.
-            sign_in_refresh(secrets, account)?
+            sign_in_refresh(secrets, account.clone()).await?
         }
         Some(Freshness::Expired { refresh_token }) => refresh_token.to_owned(),
-        None => sign_in_refresh(secrets, account)?,
+        None => sign_in_refresh(secrets, account.clone()).await?,
     };
     mint_graph(
         account,
@@ -320,16 +336,19 @@ pub async fn graph_token(
 }
 
 /// The refresh token a new Graph token is minted from: the Graph token's own, or the sign-in's.
-pub(crate) fn graph_refresh(
-    secrets: &dyn Secrets,
+pub(crate) async fn graph_refresh(
+    secrets: &dyn AccountSecrets,
     account: AccountId,
 ) -> Result<String, RuntimeError> {
-    match secrets.get(&SecretKey {
-        account,
-        purpose: SecretPurpose::OutgoingPassword,
-    }) {
-        Ok(Credential::OAuth { refresh, .. }) => Ok(refresh),
-        _ => sign_in_refresh(secrets, account),
+    match secrets
+        .get(&SecretKey {
+            account: account.clone(),
+            purpose: SecretPurpose::OutgoingPassword,
+        })
+        .await
+    {
+        Ok(Credential::OAuth { refresh, .. }) => Ok(refresh.expose().to_owned()),
+        _ => sign_in_refresh(secrets, account).await,
     }
 }
 
@@ -347,12 +366,12 @@ pub(crate) async fn mint_graph(
     registration: &Registration,
     reach: GraphReach,
     refresh_token: &str,
-    secrets: &dyn Secrets,
+    secrets: &dyn AccountSecrets,
     http: &reqwest::Client,
     now: DateTime<Utc>,
 ) -> Result<Credential, RuntimeError> {
     let minted = oauth::refresh_for(
-        &registration.endpoints(),
+        &registration.endpoints()?,
         &registration.client_id,
         registration.client_secret.as_deref(),
         refresh_token,
@@ -361,24 +380,32 @@ pub(crate) async fn mint_graph(
         now,
     )
     .await?;
-    secrets.put(
-        &SecretKey {
-            account,
-            purpose: SecretPurpose::OutgoingPassword,
-        },
-        &minted,
-    )?;
+    secrets
+        .put(
+            &SecretKey {
+                account,
+                purpose: SecretPurpose::OutgoingPassword,
+            },
+            &minted,
+        )
+        .await?;
     Ok(minted)
 }
 
 /// The refresh token the browser sign-in stored.
-fn sign_in_refresh(secrets: &dyn Secrets, account: AccountId) -> Result<String, RuntimeError> {
-    match secrets.get(&SecretKey {
-        account,
-        purpose: SecretPurpose::OAuthRefresh,
-    })? {
-        Credential::OAuth { refresh, .. } => Ok(refresh),
-        Credential::Password(_) | Credential::OpenPgp(_) | Credential::SmimeKey(_) => Err(
+async fn sign_in_refresh(
+    secrets: &dyn AccountSecrets,
+    account: AccountId,
+) -> Result<String, RuntimeError> {
+    match secrets
+        .get(&SecretKey {
+            account,
+            purpose: SecretPurpose::OAuthRefresh,
+        })
+        .await?
+    {
+        Credential::OAuth { refresh, .. } => Ok(refresh.expose().to_owned()),
+        Credential::Password(_) | Credential::ApiKey(_) | Credential::KeyPair { .. } => Err(
             RuntimeError::Secrets("sending through Graph needs a Microsoft sign-in".to_owned()),
         ),
     }
@@ -389,14 +416,14 @@ mod tests {
     use super::*;
 
     fn google() -> Registration {
-        Registration::new(OAuthIssuer::Google, "client.apps.googleusercontent.com")
+        Registration::new(Issuer::Google, "client.apps.googleusercontent.com")
     }
 
     #[test]
     fn a_registration_without_an_override_asks_the_published_host() {
         assert_eq!(
-            google().endpoints(),
-            oauth::endpoints_for(OAuthIssuer::Google)
+            google().endpoints().unwrap(),
+            oauth::endpoints_for(Issuer::Google).unwrap()
         );
     }
 
@@ -406,7 +433,7 @@ mod tests {
             auth: "http://127.0.0.1:1/authorize".to_owned(),
             token: "http://127.0.0.1:1/token".to_owned(),
         };
-        assert_eq!(google().at(ends.clone()).endpoints(), ends);
+        assert_eq!(google().at(ends.clone()).endpoints().unwrap(), ends);
     }
 
     #[test]
@@ -414,18 +441,12 @@ mod tests {
         // Two rows for one issuer is a file where which client id is used depends on the order
         // they happen to be written in.
         let mut registry = OAuthRegistry::default();
-        registry.set(Registration::new(OAuthIssuer::Google, "first"));
-        registry.set(Registration::new(OAuthIssuer::Google, "second"));
-        registry.set(Registration::new(OAuthIssuer::Microsoft, "ms"));
+        registry.set(Registration::new(Issuer::Google, "first"));
+        registry.set(Registration::new(Issuer::Google, "second"));
+        registry.set(Registration::new(Issuer::Microsoft, "ms"));
         assert_eq!(registry.registrations.len(), 2);
-        assert_eq!(
-            registry.get(OAuthIssuer::Google).unwrap().client_id,
-            "second"
-        );
-        assert_eq!(
-            registry.get(OAuthIssuer::Microsoft).unwrap().client_id,
-            "ms"
-        );
+        assert_eq!(registry.get(Issuer::Google).unwrap().client_id, "second");
+        assert_eq!(registry.get(Issuer::Microsoft).unwrap().client_id, "ms");
     }
 
     #[test]
@@ -454,7 +475,7 @@ mod tests {
         let mut registry = OAuthRegistry::default();
         registry.set(google());
         registry.set(
-            Registration::new(OAuthIssuer::Microsoft, "ms-client").at(Endpoints {
+            Registration::new(Issuer::Microsoft, "ms-client").at(Endpoints {
                 auth: "https://login.microsoftonline.us/organizations/oauth2/v2.0/authorize"
                     .to_owned(),
                 token: "https://login.microsoftonline.us/organizations/oauth2/v2.0/token"
@@ -479,22 +500,16 @@ mod tests {
         let mut registry = OAuthRegistry::default();
         registry.set(google().with_secret(Some("GOCSPX-example")));
         // Microsoft's public clients have none, and must not grow an empty one.
-        registry.set(Registration::new(OAuthIssuer::Microsoft, "ms-client"));
+        registry.set(Registration::new(Issuer::Microsoft, "ms-client"));
         registry.save(&path).unwrap();
 
         let back = OAuthRegistry::load(&path).unwrap();
         assert_eq!(back, registry);
         assert_eq!(
-            back.get(OAuthIssuer::Google)
-                .unwrap()
-                .client_secret
-                .as_deref(),
+            back.get(Issuer::Google).unwrap().client_secret.as_deref(),
             Some("GOCSPX-example")
         );
-        assert_eq!(
-            back.get(OAuthIssuer::Microsoft).unwrap().client_secret,
-            None
-        );
+        assert_eq!(back.get(Issuer::Microsoft).unwrap().client_secret, None);
 
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(

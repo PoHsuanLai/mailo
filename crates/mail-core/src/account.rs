@@ -4,9 +4,13 @@
 //! a password is read from the environment rather than invented, and an OAuth account says what
 //! it still needs rather than pretending to be configured.
 
+use mail_domain::id::{account_id_from_uuid, new_account_id};
 use mail_domain::*;
-use mail_runtime::{KeyringSecrets, Loopback, OAuthRegistry, Registration, Secrets, signin};
+use mail_runtime::{AccountSecrets, Loopback, OAuthRegistry, Registration, signin};
 use mail_store::SqliteStore;
+use porter_core::SecretText;
+use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
+use porter_provider::Issuer;
 use std::fmt::Write as _;
 
 mod remove;
@@ -93,7 +97,7 @@ pub fn add(
         Credentials {
             password: password.as_ref(),
             saved,
-            secrets: &KeyringSecrets,
+            secrets: mail_runtime::platform_secrets().as_ref(),
             on_url: &|url| {
                 // As `println!` would, but a closed stdout is not worth a panic mid-sign-in.
                 let _ = print_signin(url, &mut std::io::stdout().lock());
@@ -116,7 +120,7 @@ pub struct Credentials<'a> {
     /// The OAuth clients earlier sign-ins recorded.
     pub saved: &'a OAuthRegistry,
     /// Where the password or the sign-in's token is put.
-    pub secrets: &'a dyn Secrets,
+    pub secrets: &'a dyn AccountSecrets,
     /// Handed the address to open when the account signs in in a browser, before the sign-in
     /// waits for it. The command line prints it; the window shows it and opens a browser.
     /// Called on the thread the add runs on.
@@ -268,8 +272,10 @@ pub fn add_receiving(
         )
         .ok()
         .and_then(|id| id.parse().ok())
-        .map(AccountId::from_uuid);
-    let account = existing.unwrap_or_else(AccountId::generate);
+        .map(mail_domain::id::account_id_from_uuid);
+    let account = existing
+        .clone()
+        .unwrap_or_else(mail_domain::id::new_account_id);
 
     // The preset leaves `identities` empty on purpose: minting one needs an `IdentityId` and
     // an `AccountId`, which would make `preset_for` impure and invent an account id no row
@@ -280,11 +286,12 @@ pub fn add_receiving(
     // Reuse the identity too, where there is one. `mailo signature` writes to that row, and
     // replacing it on a re-run would silently delete a signature the user had set — the sort of
     // loss nobody notices until it has gone out on a week of mail.
-    let established: Option<Identity> =
-        existing.and_then(|account| default_identity(store, account));
+    let established: Option<Identity> = existing
+        .clone()
+        .and_then(|account| default_identity(store, account));
     let identity = established.unwrap_or_else(|| Identity {
         id: IdentityId::generate(),
-        account,
+        account: account.clone(),
         from: Address {
             // No display name. Inventing one from the local part produces "S1234567", and a
             // name the user did not choose is worse than no name: it goes out on every message.
@@ -365,24 +372,19 @@ pub fn add_receiving(
             let login = username.resolve(&address);
             match password {
                 Some(password) if !password.is_empty() => {
-                    secrets
-                        .put(
-                            &SecretKey {
-                                account,
-                                purpose: SecretPurpose::IncomingPassword,
-                            },
-                            &Credential::Password(password.expose().to_owned()),
-                        )
-                        .map_err(|e| format!("cannot save the password: {e}"))?;
-                    secrets
-                        .put(
-                            &SecretKey {
-                                account,
-                                purpose: SecretPurpose::OutgoingPassword,
-                            },
-                            &Credential::Password(password.expose().to_owned()),
-                        )
-                        .map_err(|e| format!("cannot save the password: {e}"))?;
+                    for purpose in [
+                        SecretPurpose::IncomingPassword,
+                        SecretPurpose::OutgoingPassword,
+                    ] {
+                        let key = SecretKey {
+                            account: account.clone(),
+                            purpose,
+                        };
+                        let value =
+                            Credential::Password(SecretText::new(password.expose().to_owned()));
+                        mail_runtime::block_on(secrets.put(&key, &value))
+                            .map_err(|e| format!("cannot save the password: {e}"))?;
+                    }
                     if bearer {
                         let _ = writeln!(out, "token stored in the keyring");
                     } else {
@@ -425,26 +427,24 @@ pub fn add_receiving(
                     on_url,
                     now,
                 )?;
-                secrets
-                    .put(
-                        &SecretKey {
-                            account,
-                            purpose: SecretPurpose::OAuthRefresh,
-                        },
-                        &credential,
-                    )
-                    .map_err(|e| format!("cannot save the token: {e}"))?;
+                mail_runtime::block_on(secrets.put(
+                    &SecretKey {
+                        account: account.clone(),
+                        purpose: SecretPurpose::OAuthRefresh,
+                    },
+                    &credential,
+                ))
+                .map_err(|e| format!("cannot save the token: {e}"))?;
                 // Incoming and outgoing share one OAuth credential: the scopes cover IMAP and
                 // SMTP together, and storing it twice would mean refreshing it twice.
-                secrets
-                    .put(
-                        &SecretKey {
-                            account,
-                            purpose: SecretPurpose::IncomingPassword,
-                        },
-                        &credential,
-                    )
-                    .map_err(|e| format!("cannot save the token: {e}"))?;
+                mail_runtime::block_on(secrets.put(
+                    &SecretKey {
+                        account: account.clone(),
+                        purpose: SecretPurpose::IncomingPassword,
+                    },
+                    &credential,
+                ))
+                .map_err(|e| format!("cannot save the token: {e}"))?;
                 // Minted now rather than at the first send, so a permission the tenant withheld
                 // is reported while the user is still at the setup command — not hours later as
                 // a draft that will not leave.
@@ -522,7 +522,7 @@ pub fn add_receiving(
                     // Named, because two bare `{}` fill in source order and these two read
                     // perfectly plausibly the wrong way round.
                     where = where_to_get_one(*issuer),
-                    secret = if matches!(issuer, OAuthIssuer::Google) {
+                    secret = if matches!(issuer, Issuer::Google) {
                         "MAILO_OAUTH_CLIENT_SECRET=… "
                     } else {
                         ""
@@ -550,11 +550,11 @@ pub fn local(store: &SqliteStore, now: chrono::DateTime<chrono::Utc>) -> Result<
         )
         .ok()
         .and_then(|id| id.parse().ok())
-        .map(AccountId::from_uuid);
+        .map(mail_domain::id::account_id_from_uuid);
     if let Some(account) = existing {
         return Ok(account);
     }
-    let account = AccountId::generate();
+    let account = new_account_id();
     let preset = mail_domain::presets::local_folders(now);
     let plan_json = serde_json::to_string(&preset.plan)
         .map_err(|e| format!("cannot encode the account plan: {e}"))?;
@@ -582,7 +582,7 @@ pub fn local(store: &SqliteStore, now: chrono::DateTime<chrono::Utc>) -> Result<
 ///
 /// The recorded one is what makes re-running this command work as its own advice says — to
 /// change how an account sends, say — without digging the client id back out of a portal.
-fn client_for(issuer: OAuthIssuer, saved: &OAuthRegistry) -> Option<(String, Option<String>)> {
+fn client_for(issuer: Issuer, saved: &OAuthRegistry) -> Option<(String, Option<String>)> {
     let from_env = |name| std::env::var(name).ok().filter(|s: &String| !s.is_empty());
     if let Some(client_id) = from_env("MAILO_OAUTH_CLIENT_ID") {
         // Google issues one with every "Desktop app" client and refuses the exchange without
@@ -622,10 +622,17 @@ fn graph_token(
         .map_err(|e| format!("cannot start the async runtime: {e}"))?;
     runtime.block_on(async {
         let http = signin::http_client().map_err(|e| e.to_string())?;
-        signin::graph_token(account, registration, reach, &KeyringSecrets, &http, now)
-            .await
-            .map(|_| ())
-            .map_err(|e| e.to_string())
+        signin::graph_token(
+            account,
+            registration,
+            reach,
+            mail_runtime::platform_secrets().as_ref(),
+            &http,
+            now,
+        )
+        .await
+        .map(|_| ())
+        .map_err(|e| e.to_string())
     })
 }
 
@@ -634,7 +641,7 @@ fn graph_token(
 /// Returns where it was written, or `None` when this machine has no config directory to write
 /// to — which is not a failure, just an installation that will need the variable again.
 fn remember(
-    issuer: OAuthIssuer,
+    issuer: Issuer,
     client_id: &str,
     client_secret: Option<&str>,
 ) -> Result<Option<std::path::PathBuf>, String> {
@@ -654,7 +661,7 @@ fn remember(
 /// Blocking, and deliberately so: this is a one-shot setup command, the user is watching, and
 /// there is nothing else for the process to do while they sign in.
 fn authorize(
-    issuer: OAuthIssuer,
+    issuer: Issuer,
     client_id: &str,
     client_secret: Option<&str>,
     scopes: &[String],
@@ -713,22 +720,22 @@ pub fn list(store: &SqliteStore) -> Result<String, String> {
     let plans = crate::sync::auth_by_account(store).unwrap_or_default();
     let local = crate::sync::local_accounts(store);
 
+    let secrets = mail_runtime::platform_secrets();
     let mut out = String::new();
     for row in rows {
         let (id, address) = row.map_err(|e| e.to_string())?;
         let Ok(uuid) = id.parse() else { continue };
-        let account = AccountId::from_uuid(uuid);
+        let account = account_id_from_uuid(uuid);
         // Asked of the keyring for no reason otherwise: there is no credential to have.
         if local.contains(&account) {
             let _ = writeln!(out, "{address:<28} kept on this computer; nothing to sync");
             continue;
         }
-        let has_password = KeyringSecrets
-            .get(&SecretKey {
-                account,
-                purpose: SecretPurpose::IncomingPassword,
-            })
-            .is_ok();
+        let has_password = mail_runtime::block_on(secrets.get(&SecretKey {
+            account,
+            purpose: SecretPurpose::IncomingPassword,
+        }))
+        .is_ok();
         // What is missing depends on how the account signs in, and `sync` says so at length.
         // Saying "no credential stored" for an OAuth account reads as "find a password", which
         // is the one thing that will not work — the same contradiction, one line shorter.
@@ -763,9 +770,9 @@ pub fn list(store: &SqliteStore) -> Result<String, String> {
 /// Deliberately names the durable things — the product, the credential type, the consent
 /// requirement — and not a path through a menu, because console navigation is rewritten far more
 /// often than any of those.
-fn where_to_get_one(issuer: OAuthIssuer) -> &'static str {
+fn where_to_get_one(issuer: Issuer) -> &'static str {
     match issuer {
-        OAuthIssuer::Google => concat!(
+        Issuer::Google => concat!(
             "Create one in the Google Cloud console (console.cloud.google.com) as an OAuth ",
             "client ID of application type \"Desktop app\", and download its JSON. While the ",
             "consent screen is still in Testing, the address above has to be listed as a test ",
@@ -774,12 +781,15 @@ fn where_to_get_one(issuer: OAuthIssuer) -> &'static str {
             "without it, PKCE or no PKCE, so set MAILO_OAUTH_CLIENT_SECRET as well. Both are ",
             "in the downloaded JSON, as client_id and client_secret."
         ),
-        OAuthIssuer::Microsoft => concat!(
+        Issuer::Microsoft => concat!(
             "Register an application in the Microsoft Entra admin centre (entra.microsoft.com) ",
             "under App registrations, with a redirect URI of type \"Public client/native\". A ",
             "managed tenant may also require an administrator to consent to the scopes below ",
             "before any sign-in succeeds."
         ),
+        // porter names more issuers than mailo reads mail from, and nothing here creates an
+        // account that signs in with one.
+        _ => "mailo has no mail sign-in through this issuer.",
     }
 }
 
@@ -849,8 +859,8 @@ pub fn no_credential(address: &str, auth: &AuthPlan) -> String {
     match auth {
         AuthPlan::OAuth { issuer, .. } => {
             let flag = match issuer {
-                OAuthIssuer::Microsoft => " --microsoft",
-                OAuthIssuer::Google => "",
+                Issuer::Microsoft => " --microsoft",
+                _ => "",
             };
             format!(
                 concat!(
@@ -863,8 +873,8 @@ pub fn no_credential(address: &str, auth: &AuthPlan) -> String {
                 flag = flag,
                 // Google will not exchange a code without the application secret it issued.
                 secret = match issuer {
-                    OAuthIssuer::Google => "MAILO_OAUTH_CLIENT_SECRET=… ",
-                    OAuthIssuer::Microsoft => "",
+                    Issuer::Google => "MAILO_OAUTH_CLIENT_SECRET=… ",
+                    _ => "",
                 },
             )
         }
@@ -879,7 +889,7 @@ pub fn no_credential(address: &str, auth: &AuthPlan) -> String {
 ///
 /// Beside [`no_credential`], which says the same kind of thing about an account that never
 /// signed in: the remedy is the same, and so is who needs to read it.
-pub fn no_client_id(issuer: OAuthIssuer, address: &str) -> String {
+pub fn no_client_id(issuer: Issuer, address: &str) -> String {
     format!(
         concat!(
             "the sign-in has expired and no OAuth client id is configured ",
@@ -1093,15 +1103,15 @@ mod tests {
         // Re-running `account add` to change how an account sends must not need the client id
         // dug back out of a portal: the first sign-in recorded it.
         let mut saved = OAuthRegistry::default();
-        saved.set(Registration::new(OAuthIssuer::Microsoft, "recorded-client"));
+        saved.set(Registration::new(Issuer::Microsoft, "recorded-client"));
         if std::env::var_os("MAILO_OAUTH_CLIENT_ID").is_none() {
             assert_eq!(
-                client_for(OAuthIssuer::Microsoft, &saved),
+                client_for(Issuer::Microsoft, &saved),
                 Some(("recorded-client".to_owned(), None))
             );
         }
         assert_eq!(
-            client_for(OAuthIssuer::Google, &OAuthRegistry::default()).is_some(),
+            client_for(Issuer::Google, &OAuthRegistry::default()).is_some(),
             std::env::var_os("MAILO_OAUTH_CLIENT_ID").is_some(),
             "nothing recorded and nothing in the environment is no client"
         );

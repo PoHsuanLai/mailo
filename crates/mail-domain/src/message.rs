@@ -1,11 +1,12 @@
 //! Messages, threads, and the derivation between them.
 
 use crate::content::{Address, Attachment, Body};
-use crate::id::{AccountId, LabelId, MessageId, ThreadId};
+use crate::id::{LabelId, MessageId, ThreadId};
 use crate::state::{
     Attachments, FollowUp, MailboxRole, MailboxSet, Mute, Pin, ReadState, Snooze, Star,
 };
 use chrono::{DateTime, Utc};
+use porter_core::AccountId;
 use serde::{Deserialize, Serialize};
 
 /// How we recognise the *same* message arriving again under a different [`crate::RemoteRef`].
@@ -235,7 +236,7 @@ impl ThreadSummary {
             id,
             // Every message of a thread belongs to one account; threads are not merged across
             // accounts in v1.
-            account: newest.account,
+            account: newest.account.clone(),
             subject: oldest.subject.clone(),
             snippet: snippet_of(newest.body.text()),
             from: newest.from.clone(),

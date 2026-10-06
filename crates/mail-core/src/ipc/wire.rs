@@ -11,7 +11,7 @@
 //! it to install a new binary — so the first thing a new client meets is an old daemon. It has
 //! to be told, not left to misparse a field.
 
-use mail_domain::AccountId;
+use porter_core::AccountId;
 use serde::{Deserialize, Serialize};
 
 /// The version of everything below. Bump it when a variant changes meaning; adding a variant

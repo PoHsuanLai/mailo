@@ -2,11 +2,13 @@
 //! credential kept fresh, a Graph engine with a Graph token valid now, or a JMAP engine.
 
 use super::{
-    KeyringSecrets, OAuthRegistry, Secrets, configured, graph_engine, sending_token, signed_in_imap,
+    AccountSecrets, OAuthRegistry, configured, graph_engine, platform_secrets, sending_token,
+    signed_in_imap,
 };
-use mail_domain::{AccountId, Filter, Incoming, LabelId};
+use mail_domain::{Filter, Incoming, LabelId};
 use mail_runtime::Searched;
 use mail_store::SqliteStore;
+use porter_core::AccountId;
 use std::sync::Arc;
 use tokio::sync::watch;
 
@@ -24,7 +26,7 @@ pub fn search_server(
     let registry = OAuthRegistry::load_default().map_err(|e| e.to_string())?;
     search_server_with(
         store,
-        Arc::new(KeyringSecrets),
+        platform_secrets(),
         &registry,
         account,
         filter,
@@ -36,7 +38,7 @@ pub fn search_server(
 /// The same, with the secret store named, so a test can run it.
 pub fn search_server_with(
     store: &Arc<SqliteStore>,
-    secrets: Arc<dyn Secrets>,
+    secrets: Arc<dyn AccountSecrets>,
     registry: &OAuthRegistry,
     account: AccountId,
     filter: &Filter,

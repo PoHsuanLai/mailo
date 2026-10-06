@@ -8,9 +8,10 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use mail_domain::{AccountId, MessageId, Retry, Retryable};
+use mail_domain::{MessageId, Retry, Retryable};
 use mail_proto::ProtoError;
 use mail_runtime::{RuntimeError, SyncReport};
+use porter_core::AccountId;
 use tokio::sync::watch;
 
 use crate::fetch::Pause;
@@ -276,7 +277,7 @@ impl Done {
 
     pub fn of(self, account: &super::Configured) -> AccountReport {
         AccountReport {
-            account: account.id,
+            account: account.id.clone(),
             address: account.address.clone(),
             counts: self.counts,
             trouble: self.trouble,
@@ -305,8 +306,8 @@ pub(crate) fn hold(trouble: &[Trouble]) -> Option<Duration> {
 impl PassEnd {
     pub fn account(&self) -> AccountId {
         match self {
-            PassEnd::Finished(report) => report.account,
-            PassEnd::Failed { account, .. } | PassEnd::Cancelled { account, .. } => *account,
+            PassEnd::Finished(report) => report.account.clone(),
+            PassEnd::Failed { account, .. } | PassEnd::Cancelled { account, .. } => account.clone(),
         }
     }
 

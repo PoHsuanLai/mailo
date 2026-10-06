@@ -11,8 +11,9 @@ use ds::components::controls::progress::view::ProgressIndicator;
 use ds::components::lists::list::model::{ListItem, ListStyle};
 use ds::prelude::*;
 use ds::root::common::Common;
-use mail_domain::{AccountId, RuleId, RuleState};
+use mail_domain::{RuleId, RuleState};
 use mail_store::SqliteStore;
+use porter_core::AccountId;
 use std::sync::Arc;
 
 use super::super::files::work::grouped;
@@ -33,7 +34,7 @@ pub(super) fn RulesPart(account: AccountId, revision: Signal<u64>) -> Element {
     let running = use_signal(String::new);
     let _ = changed();
     let store = consume_context::<Arc<SqliteStore>>();
-    let (rules, failed) = match work::listed(&store, account) {
+    let (rules, failed) = match work::listed(&store, account.clone()) {
         Ok(rules) => (rules, None),
         Err(why) => (Vec::new(), Some(why)),
     };
@@ -130,6 +131,7 @@ fn RuleRow(
         changed += 1;
     };
     let toggled = rule.clone();
+    let (for_up, for_down) = (rule.account.clone(), rule.account.clone());
     let up = rule.id;
     let down = rule.id;
     let run_rule = rule.clone();
@@ -153,7 +155,7 @@ fn RuleRow(
             availability: available(!first),
             onclick: on_primary(move || {
                 let store = consume_context::<Arc<SqliteStore>>();
-                write(work::reorder(&store, rule.account, up, Step::Up));
+                write(work::reorder(&store, for_up.clone(), up, Step::Up));
             }),
         }
         Button {
@@ -164,7 +166,7 @@ fn RuleRow(
             availability: available(!last),
             onclick: on_primary(move || {
                 let store = consume_context::<Arc<SqliteStore>>();
-                write(work::reorder(&store, rule.account, down, Step::Down));
+                write(work::reorder(&store, for_down.clone(), down, Step::Down));
             }),
         }
         Button {
@@ -186,7 +188,7 @@ fn RuleRow(
             availability: available(!busy),
             onclick: on_primary(move || {
                 let store = consume_context::<Arc<SqliteStore>>();
-                let of = work::conversations(&store, run_rule.account, Utc::now());
+                let of = work::conversations(&store, run_rule.account.clone(), Utc::now());
                 let rule = run_rule.clone();
                 let mut running = running;
                 running.set(rule.name.clone());

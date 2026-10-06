@@ -107,6 +107,10 @@ pub struct Invocation {
     pub args: BTreeMap<String, Arg>,
     /// The Space it acts in: what labels on the answer are private to.
     pub space: String,
+    /// The activation token the launcher minted for what it opens, when it did: what lets the
+    /// window that shows it take the keyboard. Only a launcher's call carries one.
+    #[serde(default)]
+    pub activation: Option<String>,
 }
 
 impl Invocation {

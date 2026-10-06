@@ -311,7 +311,7 @@ pub(super) fn add_to(store: &SqliteStore, thread: ThreadId, tag: &str, parts: &[
         let message = Message {
             id: MessageId::generate(),
             thread,
-            account: crate::ui::fixtures::ACCOUNT,
+            account: crate::ui::fixtures::acct_account(),
             key: MessageKey::Rfc(format!("{tag}{index}@example.test")),
             date: chrono::Utc::now() - chrono::TimeDelta::try_hours(index as i64).unwrap(),
             from: Address {
@@ -347,10 +347,10 @@ pub(super) fn add_to(store: &SqliteStore, thread: ThreadId, tag: &str, parts: &[
     }
     store
         .ingest(
-            crate::ui::fixtures::ACCOUNT,
+            crate::ui::fixtures::acct_account(),
             Ingest {
                 mailbox: MailboxRef {
-                    account: crate::ui::fixtures::ACCOUNT,
+                    account: crate::ui::fixtures::acct_account(),
                     path: "INBOX".to_owned(),
                 },
                 validity: UidValidity::Same,

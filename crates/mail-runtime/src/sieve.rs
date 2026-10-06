@@ -7,10 +7,11 @@
 
 use crate::{Cancel, RuntimeError, Transport, drive};
 use chrono::{DateTime, Utc};
-use mail_domain::{Credential, Rule, Vacation};
+use mail_domain::{Rule, Vacation};
 use mail_proto::sieve::{
     Compiled, Endpoint, Places, SieveJob, SieveLogin, SieveOutcome, SieveSession, Takeover, compile,
 };
+use porter_core::Credential;
 
 /// Who to sign in as.
 ///

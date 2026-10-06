@@ -9,15 +9,19 @@
 //! every wire format involved is tested where it is parsed.
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_proto::{Backend, IoReady, Progress, ProtoError, ProtoOutcome};
-use mail_runtime::{AccountEngine, Arrival, MapSecrets};
+use mail_runtime::{AccountEngine, Arrival};
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
+use porter_secrets::MemorySecrets;
 use std::sync::{Arc, Mutex};
 use tokio::sync::watch;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 
 fn now() -> DateTime<Utc> {
     Utc.timestamp_opt(1_700_000_000, 0).unwrap()
@@ -40,7 +44,7 @@ fn remote() -> RemoteRef {
 
 fn inbox() -> MailboxRef {
     MailboxRef {
-        account: ACCOUNT,
+        account: acct_account(),
         path: "INBOX".to_owned(),
     }
 }
@@ -167,13 +171,13 @@ fn fixture(structure_fails: bool) -> Fixture {
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [ACCOUNT.to_string()],
+            [acct_account().to_string()],
         )
         .unwrap();
     // What the header pass left: the message listed, with no body yet.
     mail_runtime::absorb(
         &store,
-        ACCOUNT,
+        acct_account(),
         inbox(),
         None,
         vec![Arrival {
@@ -224,11 +228,11 @@ fn fixture(structure_fails: bool) -> Fixture {
         structure_fails,
     };
     let engine = AccountEngine::new(
-        ACCOUNT,
+        acct_account(),
         plan,
         backend,
         store.clone(),
-        Arc::new(MapSecrets::default()),
+        Arc::new(MemorySecrets::default()),
     );
     Fixture {
         engine,

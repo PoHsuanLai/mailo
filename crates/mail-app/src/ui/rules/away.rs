@@ -62,7 +62,7 @@ pub(in crate::ui) fn load<Tz: TimeZone>(
 where
     Tz::Offset: std::fmt::Display,
 {
-    match store.vacation(row.id).ok().flatten() {
+    match store.vacation(row.id.clone()).ok().flatten() {
         Some(kept) => Away {
             reply: Reply::On,
             subject: kept.subject,
@@ -131,7 +131,7 @@ where
     reach(&row.plan)?;
     if away.reply == Reply::Off {
         store
-            .put_vacation(row.id, None, now)
+            .put_vacation(row.id.clone(), None, now)
             .map_err(|e| e.to_string())?;
         return Ok("Vacation reply off.".to_owned());
     }
@@ -168,7 +168,7 @@ where
         )
     };
     store
-        .put_vacation(row.id, Some(&reply), now)
+        .put_vacation(row.id.clone(), Some(&reply), now)
         .map_err(|e| e.to_string())?;
     Ok(format!(
         "Saved: “{}”, {}.",

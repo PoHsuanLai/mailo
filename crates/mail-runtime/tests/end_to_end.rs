@@ -11,18 +11,23 @@
 //! nothing exercised together.
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_proto::backend::{Authenticate, Pop3Backend};
 use mail_proto::{Pop3Command, Pop3Session};
-use mail_runtime::{AccountEngine, MapSecrets, Secrets};
+use mail_runtime::{AccountEngine, AccountSecrets};
 use mail_store::{SqliteStore, Store};
+use porter_core::SecretText;
+use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
+use porter_secrets::MemorySecrets;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 use tokio::sync::watch;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 const PASSWORD: &str = "s3cr3t";
 
 fn now() -> DateTime<Utc> {
@@ -246,23 +251,22 @@ async fn a_whole_sync_over_a_real_socket_lands_mail_in_the_store() {
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [ACCOUNT.to_string()],
+            [acct_account().to_string()],
         )
         .unwrap();
 
-    let secrets = MapSecrets::default();
-    secrets
-        .put(
-            &SecretKey {
-                account: ACCOUNT,
-                purpose: SecretPurpose::IncomingPassword,
-            },
-            &Credential::Password(PASSWORD.to_owned()),
-        )
-        .unwrap();
+    let secrets = MemorySecrets::default();
+    mail_runtime::block_on(secrets.put(
+        &SecretKey {
+            account: acct_account(),
+            purpose: SecretPurpose::IncomingPassword,
+        },
+        &Credential::Password(SecretText::new(PASSWORD.to_owned())),
+    ))
+    .unwrap();
 
     let backend = Pop3Backend::new(
-        ACCOUNT,
+        acct_account(),
         caps(),
         Box::new(|auth, commands| {
             let mut all = Vec::new();
@@ -275,14 +279,14 @@ async fn a_whole_sync_over_a_real_socket_lands_mail_in_the_store() {
     );
 
     let mut engine = AccountEngine::new(
-        ACCOUNT,
+        acct_account(),
         plan(port),
         backend,
         store.clone(),
         Arc::new(secrets),
     );
     let mailbox = MailboxRef {
-        account: ACCOUNT,
+        account: acct_account(),
         path: "INBOX".to_owned(),
     };
     let (_tx, mut cancel) = watch::channel(false);
@@ -316,7 +320,7 @@ async fn a_whole_sync_over_a_real_socket_lands_mail_in_the_store() {
 
     // Listable from headers alone, with no body — the reason Body::Absent exists.
     assert_eq!(
-        store.unfetched(ACCOUNT, 10).unwrap().len(),
+        store.unfetched(acct_account(), 10).unwrap().len(),
         3,
         "all three still need bodies"
     );
@@ -328,7 +332,7 @@ async fn a_whole_sync_over_a_real_socket_lands_mail_in_the_store() {
         .expect("fetching bodies should succeed");
     assert_eq!(bodies.bodies_fetched, 3, "{:?}", bodies.needs_attention);
     assert_eq!(
-        store.unfetched(ACCOUNT, 10).unwrap().len(),
+        store.unfetched(acct_account(), 10).unwrap().len(),
         0,
         "nothing should still be missing a body"
     );
@@ -412,23 +416,22 @@ mod repeated_passes {
             .execute(
                 "INSERT INTO accounts (id, address, plan, created_at)
                  VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-                [ACCOUNT.to_string()],
+                [acct_account().to_string()],
             )
             .unwrap();
 
-        let secrets = MapSecrets::default();
-        secrets
-            .put(
-                &SecretKey {
-                    account: ACCOUNT,
-                    purpose: SecretPurpose::IncomingPassword,
-                },
-                &Credential::Password(PASSWORD.to_owned()),
-            )
-            .unwrap();
+        let secrets = MemorySecrets::default();
+        mail_runtime::block_on(secrets.put(
+            &SecretKey {
+                account: acct_account(),
+                purpose: SecretPurpose::IncomingPassword,
+            },
+            &Credential::Password(SecretText::new(PASSWORD.to_owned())),
+        ))
+        .unwrap();
 
         let backend = Pop3Backend::new(
-            ACCOUNT,
+            acct_account(),
             caps(),
             Box::new(|auth, commands| {
                 let mut all = Vec::new();
@@ -440,7 +443,7 @@ mod repeated_passes {
             }),
         );
         let engine = AccountEngine::new(
-            ACCOUNT,
+            acct_account(),
             plan(port),
             backend,
             store.clone(),
@@ -455,7 +458,7 @@ mod repeated_passes {
 
     fn inbox() -> MailboxRef {
         MailboxRef {
-            account: ACCOUNT,
+            account: acct_account(),
             path: "INBOX".to_owned(),
         }
     }
@@ -640,21 +643,20 @@ async fn the_first_sync_fetches_the_newest_mail_first_within_each_band() {
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [ACCOUNT.to_string()],
+            [acct_account().to_string()],
         )
         .unwrap();
-    let secrets = MapSecrets::default();
-    secrets
-        .put(
-            &SecretKey {
-                account: ACCOUNT,
-                purpose: SecretPurpose::IncomingPassword,
-            },
-            &Credential::Password(PASSWORD.to_owned()),
-        )
-        .unwrap();
+    let secrets = MemorySecrets::default();
+    mail_runtime::block_on(secrets.put(
+        &SecretKey {
+            account: acct_account(),
+            purpose: SecretPurpose::IncomingPassword,
+        },
+        &Credential::Password(SecretText::new(PASSWORD.to_owned())),
+    ))
+    .unwrap();
     let backend = Pop3Backend::new(
-        ACCOUNT,
+        acct_account(),
         caps(),
         Box::new(|auth, commands| {
             let mut all = Vec::new();
@@ -666,14 +668,14 @@ async fn the_first_sync_fetches_the_newest_mail_first_within_each_band() {
         }),
     );
     let mut engine = AccountEngine::new(
-        ACCOUNT,
+        acct_account(),
         plan(port),
         backend,
         store.clone(),
         Arc::new(secrets),
     );
     let mailbox = MailboxRef {
-        account: ACCOUNT,
+        account: acct_account(),
         path: "INBOX".to_owned(),
     };
     let (_tx, mut cancel) = watch::channel(false);
@@ -717,21 +719,20 @@ async fn the_body_pass_fetches_what_the_window_is_showing_first() {
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [ACCOUNT.to_string()],
+            [acct_account().to_string()],
         )
         .unwrap();
-    let secrets = MapSecrets::default();
-    secrets
-        .put(
-            &SecretKey {
-                account: ACCOUNT,
-                purpose: SecretPurpose::IncomingPassword,
-            },
-            &Credential::Password(PASSWORD.to_owned()),
-        )
-        .unwrap();
+    let secrets = MemorySecrets::default();
+    mail_runtime::block_on(secrets.put(
+        &SecretKey {
+            account: acct_account(),
+            purpose: SecretPurpose::IncomingPassword,
+        },
+        &Credential::Password(SecretText::new(PASSWORD.to_owned())),
+    ))
+    .unwrap();
     let backend = Pop3Backend::new(
-        ACCOUNT,
+        acct_account(),
         caps(),
         Box::new(|auth, commands| {
             let mut all = Vec::new();
@@ -743,14 +744,14 @@ async fn the_body_pass_fetches_what_the_window_is_showing_first() {
         }),
     );
     let mut engine = AccountEngine::new(
-        ACCOUNT,
+        acct_account(),
         plan(port),
         backend,
         store.clone(),
         Arc::new(secrets),
     );
     let mailbox = MailboxRef {
-        account: ACCOUNT,
+        account: acct_account(),
         path: "INBOX".to_owned(),
     };
     let (_tx, mut cancel) = watch::channel(false);

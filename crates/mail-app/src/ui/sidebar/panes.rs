@@ -25,6 +25,7 @@ use mail_core::provider::{Provider, provider};
 use mail_core::query::{self};
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 
 #[derive(Clone, PartialEq, Eq)]
 pub(super) struct Counts {
@@ -39,7 +40,7 @@ pub(super) fn counts(store: &SqliteStore, space: &Space) -> Counts {
     let rows = account_rows(store);
     let shown: Vec<_> = rows
         .into_iter()
-        .filter(|row| space.scope.shows(row.id))
+        .filter(|row| space.scope.shows(row.id.clone()))
         .collect();
     let labels = query::known_labels(store);
     let scope = scope_filter(space);
@@ -69,13 +70,13 @@ pub(super) fn counts(store: &SqliteStore, space: &Space) -> Counts {
                 .count(
                     &Filter::And(vec![
                         Filter::Read(ReadState::Unread),
-                        Filter::Account(row.id),
+                        Filter::Account(row.id.clone()),
                     ]),
                     now,
                 )
                 .unwrap_or(0);
             let via = (!row.is_local()).then(|| provider(&row.plan));
-            (row.id, row.shown(), n, via)
+            (row.id.clone(), row.shown(), n, via)
         })
         .collect();
     let pins = space
@@ -144,7 +145,11 @@ pub(super) fn AccountTiles(
     let mut items: Vec<PinItem<Option<AccountId>>> = Vec::new();
     // Each tile carries its account's mark, as Mail's sidebar carries it beside the account:
     // the spinner while it syncs, the warning when it needs the person.
-    let statuses: Vec<PinStatus> = counted.rows.iter().map(|row| status_of(row.0)).collect();
+    let statuses: Vec<PinStatus> = counted
+        .rows
+        .iter()
+        .map(|row| status_of(row.0.clone()))
+        .collect();
     if several {
         items.push(
             PinItem::new(None, PinFace::All)
@@ -154,7 +159,7 @@ pub(super) fn AccountTiles(
         );
     }
     for (index, row) in counted.rows.iter().enumerate() {
-        let (id, address, unread, via) = (row.0, row.1.clone(), row.2, row.3);
+        let (id, address, unread, via) = (row.0.clone(), row.1.clone(), row.2, row.3);
         // Local folders are on no provider: quire's neutral folder mark.
         let (provider, mark) = match via {
             Some(via) => (mark_of(via), mark_style(via, marks)),
@@ -162,7 +167,7 @@ pub(super) fn AccountTiles(
         };
         let face = PinFace::Account {
             initial: initial(&address),
-            colour: hex_colour(&space::avatar_color(&space, id, index)),
+            colour: hex_colour(&space::avatar_color(&space, id.clone(), index)),
             provider,
             address: Some(address),
         };
@@ -174,9 +179,9 @@ pub(super) fn AccountTiles(
         );
     }
     let selected = if several {
-        shell.read().account
+        shell.read().account.clone()
     } else {
-        counted.rows.first().map(|row| row.0)
+        counted.rows.first().map(|row| row.0.clone())
     };
     rsx! {
         PinTiles::<Option<AccountId>> {
@@ -190,7 +195,7 @@ pub(super) fn AccountTiles(
                     let store = consume_context::<std::sync::Arc<SqliteStore>>();
                     let all: Vec<(AccountId, String)> = account_rows(&store)
                         .into_iter()
-                        .map(|row| (row.id, row.shown()))
+                        .map(|row| (row.id.clone(), row.shown()))
                         .collect();
                     match join::plus(&spaces.peek().current_space(), &all) {
                         Plus::AddNew => super::super::add_account::open(shell),
@@ -259,7 +264,10 @@ fn status_of(account: AccountId) -> PinStatus {
     let Some(fetching) = try_consume_context::<Fetching>() else {
         return PinStatus::Quiet;
     };
-    match fetching.link(account).map(|link| account_mark_local(&link)) {
+    match fetching
+        .link(account.clone())
+        .map(|link| account_mark_local(&link))
+    {
         None | Some(Mark::Quiet) => PinStatus::Quiet,
         Some(Mark::Busy) => PinStatus::Busy(fetching.op(account)),
         Some(Mark::Warn(why) | Mark::Offline(why)) => PinStatus::Attention { why },

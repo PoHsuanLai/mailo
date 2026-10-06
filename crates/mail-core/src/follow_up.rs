@@ -254,7 +254,7 @@ pub fn notifications(returned: &[ThreadSummary]) -> Vec<Notification> {
     returned
         .iter()
         .map(|summary| Notification {
-            account: summary.account,
+            account: summary.account.clone(),
             summary: "No reply yet".to_owned(),
             body: if summary.subject.trim().is_empty() {
                 "(no subject)".to_owned()

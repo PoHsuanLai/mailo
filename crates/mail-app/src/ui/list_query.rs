@@ -121,12 +121,13 @@ fn drops_rows(was: &Listed, next: &Listed) -> bool {
 mod tests {
     use super::*;
     use chrono::TimeZone;
+    use mail_domain::id::new_account_id;
     use mail_domain::*;
 
     fn row() -> ThreadSummary {
         ThreadSummary {
             id: ThreadId::generate(),
-            account: AccountId::generate(),
+            account: new_account_id(),
             subject: "s".into(),
             snippet: String::new(),
             from: Address {

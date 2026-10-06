@@ -13,6 +13,7 @@ use mail_domain::*;
 use mail_pim::ical::{self, Answering, PartStat};
 use mail_pim::{Invite, Kind, Me, Revision, show_when};
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 use std::fmt::Write as _;
 use std::path::PathBuf;
 
@@ -46,7 +47,7 @@ pub fn state(store: &SqliteStore, message: &Message) -> Result<InviteState, Stri
     let Some(bytes) = raw_of(store, message)? else {
         return Ok(InviteState::Unknown);
     };
-    let me = addresses(store, message.account);
+    let me = addresses(store, message.account.clone());
     let me: Vec<&str> = me.iter().map(|(_, address)| address.as_str()).collect();
     let Some(invite) = invite_of(&bytes, &me) else {
         return Ok(InviteState::NotInvite);
@@ -78,7 +79,7 @@ pub fn answer(
     let part = mail_mime::calendar_part(&bytes)
         .ok_or_else(|| "that message carries no calendar invitation".to_owned())?;
     let calendar = ical::parse(&part.text).map_err(|e| format!("the invitation: {e}"))?;
-    let mine = addresses(store, original.account);
+    let mine = addresses(store, original.account.clone());
     let me: Vec<&str> = mine.iter().map(|(_, address)| address.as_str()).collect();
     let invite = mail_pim::summarise(&calendar, &me)
         .ok_or_else(|| "that message carries no invitation to answer".to_owned())?;
@@ -120,7 +121,7 @@ pub fn answer(
         .iter()
         .find(|(_, mail)| mail.eq_ignore_ascii_case(&address))
         .map(|(id, _)| *id);
-    let identity = crate::compose::identity_of(store, original.account, identity_id)?;
+    let identity = crate::compose::identity_of(store, original.account.clone(), identity_id)?;
     let comment = comment.map(str::trim).filter(|c| !c.is_empty());
     let calendar_text = ical::reply(
         &calendar,

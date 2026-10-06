@@ -13,7 +13,7 @@ use ds::components::controls::button_model::{Bezel, ImagePosition};
 use ds::components::controls::press::Propagation;
 use ds::prelude::*;
 use ds::style::tokens::control_size::ControlSize;
-use mail_domain::AccountId;
+use porter_core::AccountId;
 
 /// An account's mark.
 #[component]

@@ -1,7 +1,7 @@
 //! Read receipts in the window. Opening never answers; only the bar's buttons do.
 
 use super::{Line, Standing, line, looked_at};
-use crate::ui::fixtures::{ACCOUNT, Seen, click, dispatching, rebuild_into, seeded};
+use crate::ui::fixtures::{Seen, acct_account, click, dispatching, rebuild_into, seeded};
 use crate::ui::reading::Reader;
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
@@ -38,7 +38,7 @@ fn put(store: &SqliteStore, headers: &str, held: Held) -> (ThreadId, MessageId) 
     let message = Message {
         id,
         thread: ThreadId::generate(),
-        account: ACCOUNT,
+        account: acct_account(),
         key: MessageKey::Rfc(rfc.clone()),
         date: chrono::Utc::now(),
         from: Address {
@@ -71,10 +71,10 @@ fn put(store: &SqliteStore, headers: &str, held: Held) -> (ThreadId, MessageId) 
     };
     store
         .ingest(
-            ACCOUNT,
+            acct_account(),
             Ingest {
                 mailbox: MailboxRef {
-                    account: ACCOUNT,
+                    account: acct_account(),
                     path: "INBOX".to_owned(),
                 },
                 validity: UidValidity::Same,
@@ -102,7 +102,7 @@ fn far() -> chrono::DateTime<chrono::Utc> {
 /// Every submission waiting in the outbox.
 fn submissions(store: &SqliteStore) -> usize {
     store
-        .outbox_due(ACCOUNT, far())
+        .outbox_due(acct_account(), far())
         .unwrap()
         .into_iter()
         .filter(|entry| matches!(entry.op, ProtoOp::Submit { .. }))
@@ -110,7 +110,7 @@ fn submissions(store: &SqliteStore) -> usize {
 }
 
 fn outbox(store: &SqliteStore) -> usize {
-    store.outbox_due(ACCOUNT, far()).unwrap().len()
+    store.outbox_due(acct_account(), far()).unwrap().len()
 }
 
 #[component]

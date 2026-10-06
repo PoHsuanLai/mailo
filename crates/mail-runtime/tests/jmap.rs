@@ -9,15 +9,20 @@ mod jmap_fake;
 
 use chrono::{DateTime, TimeZone, Utc};
 use jmap_fake::{Fake, PASSWORD, USER};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
-use mail_runtime::{JmapEngine, MapSecrets, Searched, Secrets, SyncReport, Woke};
+use mail_runtime::{AccountSecrets, JmapEngine, Searched, SyncReport, Woke};
 use mail_store::{SqliteStore, Store};
+use porter_core::SecretText;
+use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
+use porter_secrets::MemorySecrets;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::watch;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000c1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000c1"))
+}
 
 fn now() -> DateTime<Utc> {
     Utc.timestamp_opt(1_790_000_000, 0).unwrap()
@@ -49,29 +54,28 @@ async fn setup() -> Setup {
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at) VALUES (?1, ?2, ?3, ?4)",
             [
-                ACCOUNT.to_string(),
+                acct_account().to_string(),
                 USER.to_owned(),
                 serde_json::to_string(&preset.plan).unwrap(),
                 now().to_rfc3339(),
             ],
         )
         .unwrap();
-    let secrets: Arc<dyn Secrets> = Arc::new(MapSecrets::default());
+    let secrets: Arc<dyn AccountSecrets> = Arc::new(MemorySecrets::default());
     for purpose in [
         SecretPurpose::IncomingPassword,
         SecretPurpose::OutgoingPassword,
     ] {
-        secrets
-            .put(
-                &SecretKey {
-                    account: ACCOUNT,
-                    purpose,
-                },
-                &Credential::Password(PASSWORD.to_owned()),
-            )
-            .unwrap();
+        mail_runtime::block_on(secrets.put(
+            &SecretKey {
+                account: acct_account(),
+                purpose,
+            },
+            &Credential::Password(SecretText::new(PASSWORD.to_owned())),
+        ))
+        .unwrap();
     }
-    let engine = JmapEngine::new(ACCOUNT, preset.plan, store.clone(), secrets).unwrap();
+    let engine = JmapEngine::new(acct_account(), preset.plan, store.clone(), secrets).unwrap();
     Setup {
         fake,
         store,
@@ -182,7 +186,7 @@ async fn a_first_sync_fetches_headers_then_bodies_and_files_by_mailbox() {
     assert_eq!(label_names(&s.store, &report_), vec!["Work".to_owned()]);
 
     // The mailboxes became folders, the roles capabilities, and push was noticed.
-    let folders = s.store.folders(ACCOUNT).unwrap();
+    let folders = s.store.folders(acct_account()).unwrap();
     assert!(folders.iter().any(|f| f.path == "Work"));
     assert!(s.engine.pushes());
     // Paged listing (the fake pages by two) and chunked gets (two per get) both happened.
@@ -249,7 +253,7 @@ async fn a_flag_changed_here_reaches_the_server_as_a_patch() {
     let hello = held(&s.store, 1).unwrap();
     s.store
         .apply(
-            ACCOUNT,
+            acct_account(),
             &Patch {
                 id: ChangeId::generate(),
                 changes: vec![Change::MessageStar(hello.id, Star::Starred)],
@@ -258,7 +262,7 @@ async fn a_flag_changed_here_reaches_the_server_as_a_patch() {
         .unwrap();
     s.store
         .enqueue(
-            ACCOUNT,
+            acct_account(),
             RemoteIntent::SetFlags {
                 messages: vec![hello.id],
                 read: None,
@@ -314,7 +318,7 @@ async fn a_send_is_imported_submitted_with_every_recipient_and_filed_in_sent() {
         .unwrap();
     s.store
         .enqueue(
-            ACCOUNT,
+            acct_account(),
             RemoteIntent::Send {
                 draft: DraftId::generate(),
                 raw: blob,
@@ -411,18 +415,17 @@ async fn a_push_with_a_new_state_wakes_the_watch() {
 #[tokio::test]
 async fn a_refused_password_stops_the_pass_and_says_so() {
     let mut s = setup().await;
-    let secrets: Arc<dyn Secrets> = Arc::new(MapSecrets::default());
-    secrets
-        .put(
-            &SecretKey {
-                account: ACCOUNT,
-                purpose: SecretPurpose::IncomingPassword,
-            },
-            &Credential::Password("wrong".to_owned()),
-        )
-        .unwrap();
+    let secrets: Arc<dyn AccountSecrets> = Arc::new(MemorySecrets::default());
+    mail_runtime::block_on(secrets.put(
+        &SecretKey {
+            account: acct_account(),
+            purpose: SecretPurpose::IncomingPassword,
+        },
+        &Credential::Password(SecretText::new("wrong".to_owned())),
+    ))
+    .unwrap();
     let plan = presets::jmap(USER, &s.fake.session_url(), HttpAuth::Basic).plan;
-    s.engine = JmapEngine::new(ACCOUNT, plan, s.store.clone(), secrets).unwrap();
+    s.engine = JmapEngine::new(acct_account(), plan, s.store.clone(), secrets).unwrap();
     let (_tx, mut cancel) = watch::channel(false);
     let report = s.engine.pass(&mut cancel, now()).await.unwrap();
     assert!(report.needs_reauth, "{report:?}");
@@ -448,19 +451,19 @@ fn delete_forever(store: &SqliteStore, message: &Message) {
     );
     store
         .enqueue(
-            ACCOUNT,
+            acct_account(),
             applied.remote.expect("in Trash"),
             &applied.inverse,
             now(),
         )
         .unwrap()
         .expect("queued");
-    store.apply(ACCOUNT, &applied.forward).unwrap();
+    store.apply(acct_account(), &applied.forward).unwrap();
 }
 
 fn all() -> MailboxRef {
     MailboxRef {
-        account: ACCOUNT,
+        account: acct_account(),
         path: JMAP_ALL.to_owned(),
     }
 }

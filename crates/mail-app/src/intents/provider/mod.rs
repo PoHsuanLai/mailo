@@ -18,7 +18,8 @@ use super::wire::{
 };
 use act::Act;
 use mail_core::undo::UndoStack;
-use mail_runtime::Secrets;
+use mail_domain::ThreadId;
+use mail_runtime::SigningStore;
 use mail_store::SqliteStore;
 use std::sync::{Arc, Mutex};
 use token::Token;
@@ -28,11 +29,69 @@ pub struct Provider {
     store: Arc<SqliteStore>,
     /// For a message that is signed or encrypted when it is sent: the keys' passphrases and
     /// the credentials the keyring holds.
-    secrets: Arc<dyn Secrets>,
+    secrets: Arc<dyn SigningStore>,
     /// What conversation actions did, newest last: the undo tokens name entries of it. In
     /// memory, so a token outlives neither this process nor the window's own Cmd+Z stack, which
     /// is another process's.
     stack: Mutex<UndoStack>,
+    /// Shows a conversation in mailo's window: [`Opener::window`], or a test's stand-in.
+    opener: Opener,
+}
+
+/// What `mail.thread.open` does with the conversation it is given and the activation token that
+/// came with the call: show it in a window, or say why it could not.
+#[derive(Clone)]
+pub struct Opener(Arc<Open>);
+
+/// Showing `thread`, with the activation token the call carried.
+type Open = dyn Fn(ThreadId, Option<&str>) -> Result<(), String> + Send + Sync;
+
+impl std::fmt::Debug for Opener {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Opener(..)")
+    }
+}
+
+impl Opener {
+    /// An opener that does `open`.
+    pub fn new(
+        open: impl Fn(ThreadId, Option<&str>) -> Result<(), String> + Send + Sync + 'static,
+    ) -> Opener {
+        Opener(Arc::new(open))
+    }
+
+    /// The window's: hand the conversation to the window that is running, as `mailo open` does,
+    /// with the token so it may take the keyboard, or start one on it when none is.
+    pub fn window() -> Opener {
+        Opener::new(|thread, token| {
+            if handed_to_window(thread, token) {
+                return Ok(());
+            }
+            let me = std::env::current_exe().map_err(|why| why.to_string())?;
+            let mut started = std::process::Command::new(me);
+            if let Some(token) = token {
+                started.env("XDG_ACTIVATION_TOKEN", token);
+            }
+            let mut child = started
+                .args(["open", &thread.to_string()])
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .map_err(|why| format!("could not start a window: {why}"))?;
+            // Waited for off this thread, so the window is not left a zombie when it closes.
+            std::thread::spawn(move || child.wait());
+            Ok(())
+        })
+    }
+}
+
+/// Whether the running window took the conversation. The handoff is zbus's blocking API, and
+/// the provider is called on zbus's executor, which is a tokio runtime once zbus's `tokio`
+/// feature is on (porter-secrets' oo7 turns it on): blocking there panics "Cannot start a runtime
+/// from within a runtime". So the call is made off the runtime.
+fn handed_to_window(thread: ThreadId, token: Option<&str>) -> bool {
+    mail_runtime::off_runtime(|| crate::ui::handoff::deliver(thread, token))
 }
 
 impl std::fmt::Debug for Provider {
@@ -53,12 +112,17 @@ fn outcome(said: Option<String>, undo: Option<Token>, value: Option<Labelled<Out
 }
 
 impl Provider {
-    /// A provider over `store`, sending with `secrets`.
-    pub fn new(store: Arc<SqliteStore>, secrets: Arc<dyn Secrets>) -> Provider {
+    /// A provider over `store`, sending with `secrets`, opening conversations with `opener`.
+    pub fn new(
+        store: Arc<SqliteStore>,
+        secrets: Arc<dyn SigningStore>,
+        opener: Opener,
+    ) -> Provider {
         Provider {
             store,
             secrets,
             stack: Mutex::new(UndoStack::default()),
+            opener,
         }
     }
 
@@ -72,6 +136,7 @@ impl Provider {
         match Act::named(&invocation.action).ok_or(AppRefusal::Unsupported)? {
             Act::Search => self.search_action(invocation),
             Act::Read => self.read(invocation),
+            Act::Open => self.open(invocation),
             Act::Contacts => self.contacts(invocation),
             Act::Thread(kind) => self.on_threads(kind, invocation),
             Act::CreateDraft => self.create_draft(invocation),

@@ -2,7 +2,7 @@
 //! amber, a changed or forged signature on the danger ground, and an encrypted message shown
 //! decrypted with what it has attached.
 //!
-//! Against a real store, the keyring a [`MapSecrets`], and every certificate made by the
+//! Against a real store, the keyring a [`MapSigningStore`], and every certificate made by the
 //! throwaway authority the data side's tests use.
 
 use std::sync::Arc;
@@ -10,7 +10,7 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 use mail_domain::*;
 use mail_mime::smime::{Cert, Identity, Sealing};
-use mail_runtime::MapSecrets;
+use mail_runtime::MapSigningStore;
 use mail_store::SqliteStore;
 
 use super::tests::{ME, arrive, lines, reader, seals, shows, until};
@@ -36,7 +36,7 @@ pub(super) fn identity_file() -> Vec<u8> {
 }
 
 /// The user's identity imported, its private key in `secrets`.
-pub(super) fn with_identity(store: &SqliteStore, secrets: &MapSecrets) -> SmimeCert {
+pub(super) fn with_identity(store: &SqliteStore, secrets: &MapSigningStore) -> SmimeCert {
     let given = || Some(PASSWORD.to_owned());
     mail_core::smime::certs::import(store, secrets, &identity_file(), &given, Utc::now())
         .unwrap()
@@ -45,7 +45,7 @@ pub(super) fn with_identity(store: &SqliteStore, secrets: &MapSecrets) -> SmimeC
 }
 
 /// The test authority's root, imported and trusted, as a user of it would have it.
-pub(super) fn trust_root(store: &SqliteStore, secrets: &MapSecrets) {
+pub(super) fn trust_root(store: &SqliteStore, secrets: &MapSigningStore) {
     mail_core::smime::certs::import(
         store,
         secrets,
@@ -365,7 +365,7 @@ fn each_certificate_problem_is_named_in_amber_and_says_what_it_means() {
 #[tokio::test]
 async fn a_good_smime_signature_says_who_signed_and_their_certificate() {
     let (store, _dir) = seeded();
-    let secrets = Arc::new(MapSecrets::default());
+    let secrets = Arc::new(MapSigningStore::default());
     trust_root(&store, &secrets);
     let raw = letter("owl", "the owl note is signed");
     let message = arrive(&store, sealed(&raw, Smime::Sign, &bea(), &[]));
@@ -405,7 +405,7 @@ async fn a_good_smime_signature_says_who_signed_and_their_certificate() {
 #[tokio::test]
 async fn a_changed_smime_message_is_said_on_the_danger_ground() {
     let (store, _dir) = seeded();
-    let secrets = Arc::new(MapSecrets::default());
+    let secrets = Arc::new(MapSigningStore::default());
     trust_root(&store, &secrets);
     let raw = letter("heron", "pay the heron invoice");
     let signed = String::from_utf8(sealed(&raw, Smime::Sign, &bea(), &[])).unwrap();
@@ -459,7 +459,7 @@ fn forged(signed: &str) -> String {
 #[tokio::test]
 async fn a_forged_smime_signature_is_said_on_the_danger_ground() {
     let (store, _dir) = seeded();
-    let secrets = Arc::new(MapSecrets::default());
+    let secrets = Arc::new(MapSigningStore::default());
     trust_root(&store, &secrets);
     let raw = letter("lynx", "the lynx is signed by bea");
     let signed = String::from_utf8(sealed(&raw, Smime::Sign, &bea(), &[])).unwrap();
@@ -480,7 +480,7 @@ async fn a_forged_smime_signature_is_said_on_the_danger_ground() {
 #[tokio::test]
 async fn a_signature_from_an_authority_nobody_trusts_is_amber_and_says_why() {
     let (store, _dir) = seeded();
-    let secrets = Arc::new(MapSecrets::default());
+    let secrets = Arc::new(MapSigningStore::default());
     trust_root(&store, &secrets);
     let stranger = identity(stranger_pki(), &Person::new("Carol", &[BEA], 13, 1003));
     let raw = letter("crane", "the crane is signed by a stranger");
@@ -507,7 +507,7 @@ async fn a_signature_from_an_authority_nobody_trusts_is_amber_and_says_why() {
 #[tokio::test]
 async fn an_encrypted_smime_message_shows_its_body_and_lists_what_is_attached_inside() {
     let (store, dir) = seeded();
-    let secrets = Arc::new(MapSecrets::default());
+    let secrets = Arc::new(MapSigningStore::default());
     trust_root(&store, &secrets);
     with_identity(&store, &secrets);
     let raw = letter("zebra", "the zebra is under the mat");

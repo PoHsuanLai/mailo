@@ -7,8 +7,9 @@
 //!
 //! It runs where rules run: on mail as it arrives. Mail already here stays where it is.
 
-use mail_domain::{AccountId, AfterMatch, Filter, Rule, RuleAction, RuleId, RuleState, TextMatch};
+use mail_domain::{AfterMatch, Filter, Rule, RuleAction, RuleId, RuleState, TextMatch};
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 
 /// What blocking did.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41,7 +42,7 @@ pub fn block(store: &SqliteStore, account: AccountId, email: &str) -> Result<Blo
     if email.is_empty() || !email.contains('@') {
         return Err(format!("{email:?} is not an address to block"));
     }
-    let existing = store.rules(account).map_err(|e| e.to_string())?;
+    let existing = store.rules(account.clone()).map_err(|e| e.to_string())?;
     if let Some(rule) = existing.iter().find(|rule| blocks(rule, email)) {
         return Ok(Blocked::Already(rule.clone()));
     }

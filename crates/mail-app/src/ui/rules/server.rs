@@ -71,10 +71,10 @@ pub(in crate::ui) fn configured(
     now: DateTime<Utc>,
 ) -> Configured {
     Configured {
-        id: row.id,
+        id: row.id.clone(),
         address: row.address.clone(),
         plan: row.plan.clone(),
-        caps: super::super::ops::caps_here(store, row.id, now),
+        caps: super::super::ops::caps_here(store, row.id.clone(), now),
         keep: mail_core::offline::Keep::default(),
     }
 }

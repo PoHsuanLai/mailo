@@ -27,6 +27,8 @@ assets = [
     ["target/release/mailo", "usr/bin/", "755"],
     ["../../packaging/mailo.desktop", "usr/share/applications/", "644"],
     ["../../dist/intents/org.quire.Mail.toml", "usr/share/quire/intents/", "644"],
+    ["../../dist/skills/mail/SKILL.md", "usr/share/quire/skills/mail/", "644"],
+    ["../../dist/skills/mail/skill.toml", "usr/share/quire/skills/mail/", "644"],
     ["../../packaging/org.quire.Mail.service", "usr/share/dbus-1/services/", "644"],
     ["../../packaging/icons/hicolor/scalable/apps/mailo.svg", "usr/share/icons/hicolor/scalable/apps/", "644"],
     ["../../README.md", "usr/share/doc/mailo/", "644"],
@@ -39,6 +41,8 @@ assets = [
     { source = "target/release/mailo", dest = "/usr/bin/mailo", mode = "755" },
     { source = "../../packaging/mailo.desktop", dest = "/usr/share/applications/mailo.desktop", mode = "644" },
     { source = "../../dist/intents/org.quire.Mail.toml", dest = "/usr/share/quire/intents/org.quire.Mail.toml", mode = "644" },
+    { source = "../../dist/skills/mail/SKILL.md", dest = "/usr/share/quire/skills/mail/SKILL.md", mode = "644" },
+    { source = "../../dist/skills/mail/skill.toml", dest = "/usr/share/quire/skills/mail/skill.toml", mode = "644" },
     { source = "../../packaging/org.quire.Mail.service", dest = "/usr/share/dbus-1/services/org.quire.Mail.service", mode = "644" },
     { source = "../../packaging/icons/hicolor/scalable/apps/mailo.svg", dest = "/usr/share/icons/hicolor/scalable/apps/mailo.svg", mode = "644" },
     { source = "../../README.md", dest = "/usr/share/doc/mailo/README.md", mode = "644", doc = true },
@@ -56,6 +60,8 @@ name = "mailo"
 path = "src/main.rs"
 
 [dependencies]
+porter-core.workspace = true
+porter-provider.workspace = true
 mail-core.workspace = true
 mail-domain.workspace = true
 mail-store.workspace = true
@@ -79,16 +85,16 @@ dioxus = { version = "0.7" }
 # quire, the shared design system (github.com/PoHsuanLai/quire), pinned to a release tag.
 # To try an unreleased quire, point every quire line at a checkout with a `[patch]` in a local,
 # uncommitted `.cargo/config.toml`, never here.
-ds = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.2.8" }
+ds = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.2.11" }
 # Settings I/O: `appearance.toml` (imported once from `appearance.json`), the settings portal.
-ds-settings = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.2.8", features = ["dioxus"] }
+ds-settings = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.2.11", features = ["dioxus"] }
 # `mailo.toml`, and the `appearance.toml` written once on the first run after the move.
 toml = "1"
 # The window: quire's Blitz host (the window, its fonts, focus, clipboard, PDF output), and
 # `print`: the system's print dialog for a PDF (the desktop portal on Linux, else the PDF opened
 # in the viewer); `spell`: the composer's spelling, against the system's Hunspell dictionaries
 # (none is bundled); `pdf` also rasterises a PDF attachment's first page (`PdfFileThumb`).
-ds-blitz = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.2.8", features = ["pdf", "print", "spell"] }
+ds-blitz = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.2.11", features = ["pdf", "print", "spell"] }
 blitz-dom = { workspace = true }
 dioxus-native-dom = { workspace = true }
 base64 = "0.22"
@@ -127,6 +133,7 @@ objc2-app-kit = { version = "0.3", default-features = false, features = ["std", 
 rfd = { version = "=0.17.2", default-features = false }
 
 [dev-dependencies]
+porter-secrets = { workspace = true, features = ["testing"] }
 # Read back by the window's own tests (reader blocks, print, PGP/S-MIME composer); not used by the
 # window itself, which gets them from `mail-core` and quire.
 # Provider icons, and the reader's attachment previews (`preview.rs`): PNG, JPEG, GIF and WebP,
@@ -163,8 +170,8 @@ proptest = "1"
 # The linter (`lint::assert_clean`, the markup lint) and the test driver (`Harness`, `Driver`,
 # `Query`, `snapshot`; `pdf` is `Harness::pdf` for the print tests): quire's own crates, at the
 # same tag.
-ds-lint = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.2.8" }
-ds-harness = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.2.8", features = ["pdf"] }
+ds-lint = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.2.11" }
+ds-harness = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.2.11", features = ["pdf"] }
 
 [lints]
 workspace = true

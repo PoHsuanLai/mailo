@@ -3,7 +3,7 @@
 
 use super::super::app::App;
 use super::folder_act::{load, perform, refused};
-use super::folder_tests::{IMAP, POP, folder, shape};
+use super::folder_tests::{acct_imap, acct_pop, folder, shape};
 use super::folder_tree::{Show, arrange};
 use crate::ui::fixtures::{chord, click, dispatching, empty, rebuild_into, right_click, type_into};
 use crate::ui::ops::take_back;
@@ -12,8 +12,10 @@ use dioxus::prelude::*;
 use dioxus_core::ElementId;
 use ds::prelude::*;
 use mail_core::folder::Refusal;
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 use std::sync::Arc;
 
 fn configure(store: &SqliteStore, id: AccountId, preset: presets::Preset) {
@@ -34,7 +36,7 @@ fn configure(store: &SqliteStore, id: AccountId, preset: presets::Preset) {
         .unwrap();
 }
 
-/// One IMAP account whose folders have been listed, nested and with a special use among them.
+/// One acct_imap() account whose folders have been listed, nested and with a special use among them.
 fn imap_store() -> (Arc<SqliteStore>, tempfile::TempDir) {
     let (store, dir) = empty();
     let manual = presets::Manual {
@@ -46,7 +48,7 @@ fn imap_store() -> (Arc<SqliteStore>, tempfile::TempDir) {
     };
     configure(
         &store,
-        IMAP,
+        acct_imap(),
         presets::manual("me@nowhere.example", &manual, Utc::now()),
     );
     let mut sent = folder("Sent", Some('/'));
@@ -55,7 +57,7 @@ fn imap_store() -> (Arc<SqliteStore>, tempfile::TempDir) {
     old.subscription = Subscription::Unsubscribed;
     store
         .put_folders(
-            IMAP,
+            acct_imap(),
             vec![
                 folder("INBOX", Some('/')),
                 sent,
@@ -74,7 +76,7 @@ fn imap_store() -> (Arc<SqliteStore>, tempfile::TempDir) {
             "INSERT INTO sync_state (account, mailbox, cursor, synced_at)
              VALUES (?1, 'INBOX', ?2, datetime('now'))",
             rusqlite::params![
-                IMAP.to_string(),
+                acct_imap().to_string(),
                 serde_json::to_string(&SyncCursor::Pop).unwrap()
             ],
         )
@@ -92,7 +94,7 @@ fn add_pop(store: &SqliteStore) {
     };
     configure(
         store,
-        POP,
+        acct_pop(),
         presets::manual_pop3("you@nowhere.example", &manual, Utc::now()),
     );
 }
@@ -126,7 +128,7 @@ async fn later(dom: &mut VirtualDom) -> crate::ui::fixtures::Seen {
 
 fn drawn(store: &SqliteStore) -> String {
     arrange(
-        &load(store, &crate::ui::space::Scope::Accounts(vec![IMAP])),
+        &load(store, &crate::ui::space::Scope::Accounts(vec![acct_imap()])),
         Show::Followed,
     )
     .map(|section| shape(&section.trees[0].nodes))
@@ -138,12 +140,12 @@ fn made_renamed_and_deleted_through_the_window_and_each_undone() {
     let (store, _dir) = imap_store();
     let before = drawn(&store);
     assert_eq!(before, "Projects (2026), 收據");
-    let queued = |store: &SqliteStore| store.outbox_due(IMAP, Utc::now()).unwrap().len();
+    let queued = |store: &SqliteStore| store.outbox_due(acct_imap(), Utc::now()).unwrap().len();
 
     let create = FolderWork::Create {
         path: "Projects/Receipts".to_owned(),
     };
-    let made = perform(&store, IMAP, create, Some('/')).unwrap();
+    let made = perform(&store, acct_imap(), create, Some('/')).unwrap();
     assert_eq!(made.said, "Folder “Receipts” made");
     assert_eq!(drawn(&store), "Projects (2026, Receipts), 收據");
 
@@ -151,7 +153,7 @@ fn made_renamed_and_deleted_through_the_window_and_each_undone() {
         from: "Projects/Receipts".to_owned(),
         to: "Projects/Bills".to_owned(),
     };
-    let moved = perform(&store, IMAP, rename, Some('/')).unwrap();
+    let moved = perform(&store, acct_imap(), rename, Some('/')).unwrap();
     assert_eq!(moved.said, "“Receipts” renamed to “Bills”");
     assert_eq!(drawn(&store), "Projects (2026, Bills), 收據");
 
@@ -159,7 +161,7 @@ fn made_renamed_and_deleted_through_the_window_and_each_undone() {
         path: "Projects/Bills".to_owned(),
         non_empty: NonEmpty::Refuse,
     };
-    let gone = perform(&store, IMAP, delete, Some('/')).unwrap();
+    let gone = perform(&store, acct_imap(), delete, Some('/')).unwrap();
     assert_eq!(gone.said, "Folder “Bills” deleted");
     assert_eq!(drawn(&store), "Projects (2026), 收據");
     assert_eq!(queued(&store), 3, "each was queued for the server");
@@ -172,7 +174,7 @@ fn made_renamed_and_deleted_through_the_window_and_each_undone() {
     assert!(take_back(&store, made.undo.as_ref().unwrap()));
     assert_eq!(drawn(&store), before);
     let sent: Vec<ProtoOp> = store
-        .outbox_due(IMAP, Utc::now())
+        .outbox_due(acct_imap(), Utc::now())
         .unwrap()
         .into_iter()
         .map(|entry| entry.op)
@@ -202,17 +204,17 @@ fn following_is_undone_too_and_a_refusal_changes_nothing() {
         path: "收據".to_owned(),
         subscription: Subscription::Unsubscribed,
     };
-    let done = perform(&store, IMAP, stop, Some('/')).unwrap();
+    let done = perform(&store, acct_imap(), stop, Some('/')).unwrap();
     assert_eq!(done.said, "Stopped following “收據”");
     assert_eq!(drawn(&store), "Projects (2026)");
     assert!(take_back(&store, done.undo.as_ref().unwrap()));
     assert_eq!(drawn(&store), "Projects (2026), 收據");
 
-    let before = store.outbox_due(IMAP, Utc::now()).unwrap().len();
+    let before = store.outbox_due(acct_imap(), Utc::now()).unwrap().len();
     let taken = FolderWork::Create {
         path: "Projects".to_owned(),
     };
-    let refusal = perform(&store, IMAP, taken, Some('/')).unwrap_err();
+    let refusal = perform(&store, acct_imap(), taken, Some('/')).unwrap_err();
     assert_eq!(
         refused(&refusal),
         "There is already a folder called “Projects”."
@@ -221,23 +223,26 @@ fn following_is_undone_too_and_a_refusal_changes_nothing() {
         from: "Sent".to_owned(),
         to: "Posted".to_owned(),
     };
-    let refusal = perform(&store, IMAP, sent, Some('/')).unwrap_err();
+    let refusal = perform(&store, acct_imap(), sent, Some('/')).unwrap_err();
     assert!(refused(&refusal).contains("Sent folder"), "{refusal}");
-    assert_eq!(store.outbox_due(IMAP, Utc::now()).unwrap().len(), before);
+    assert_eq!(
+        store.outbox_due(acct_imap(), Utc::now()).unwrap().len(),
+        before
+    );
 }
 
 #[test]
 fn a_delete_that_takes_mail_is_asked_first_and_offers_no_undo() {
     let (store, _dir) = imap_store();
     let mailbox = MailboxRef {
-        account: IMAP,
+        account: acct_imap(),
         path: "收據".to_owned(),
     };
     let raw = store.blobs().put(&store.connection(), b"x").unwrap();
     let message = Message {
         id: MessageId::generate(),
         thread: ThreadId::generate(),
-        account: IMAP,
+        account: acct_imap(),
         key: MessageKey::Rfc("r1@example.test".to_owned()),
         date: Utc::now(),
         from: Address {
@@ -261,7 +266,7 @@ fn a_delete_that_takes_mail_is_asked_first_and_offers_no_undo() {
     };
     store
         .ingest(
-            IMAP,
+            acct_imap(),
             Ingest {
                 mailbox: mailbox.clone(),
                 validity: UidValidity::Same,
@@ -285,7 +290,7 @@ fn a_delete_that_takes_mail_is_asked_first_and_offers_no_undo() {
         .unwrap();
     let asked = perform(
         &store,
-        IMAP,
+        acct_imap(),
         FolderWork::Delete {
             path: "收據".to_owned(),
             non_empty: NonEmpty::Refuse,
@@ -299,7 +304,7 @@ fn a_delete_that_takes_mail_is_asked_first_and_offers_no_undo() {
     ));
     let done = perform(
         &store,
-        IMAP,
+        acct_imap(),
         FolderWork::Delete {
             path: "收據".to_owned(),
             non_empty: NonEmpty::Allow,
@@ -442,7 +447,7 @@ async fn a_rename_is_written_in_the_name_s_place_and_enter_makes_it() {
     let page = dioxus_ssr::render(&dom);
     assert!(editing_markup(&page).is_none(), "Enter left the field");
     let paths: Vec<String> = store
-        .folders(IMAP)
+        .folders(acct_imap())
         .unwrap()
         .into_iter()
         .map(|folder| folder.path)
@@ -460,7 +465,7 @@ async fn escape_takes_the_rename_away_and_keeps_the_name() {
     assert!(editing_markup(&page).is_none(), "Escape left the field");
     assert!(page.contains(">Projects</b>"), "{page}");
     let paths: Vec<String> = store
-        .folders(IMAP)
+        .folders(acct_imap())
         .unwrap()
         .into_iter()
         .map(|folder| folder.path)
@@ -471,7 +476,7 @@ async fn escape_takes_the_rename_away_and_keeps_the_name() {
 #[tokio::test]
 async fn several_accounts_are_each_named_over_their_folders() {
     let (store, _dir) = imap_store();
-    let other = AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000f3"));
+    let other = account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000f3"));
     let manual = presets::Manual {
         imap_host: "imap.elsewhere.example".to_owned(),
         imap_port: 993,
@@ -481,13 +486,13 @@ async fn several_accounts_are_each_named_over_their_folders() {
     };
     configure(
         &store,
-        other,
+        other.clone(),
         presets::manual("me@elsewhere.example", &manual, Utc::now()),
     );
     let mut lists = folder("Lists", Some('.'));
-    lists.account = other;
+    lists.account = other.clone();
     let mut inbox = folder("INBOX", Some('.'));
-    inbox.account = other;
+    inbox.account = other.clone();
     store.put_folders(other, vec![inbox, lists]).unwrap();
     let page = frame(store);
     assert!(page.contains("me@elsewhere.example"), "{page}");
@@ -502,9 +507,9 @@ async fn several_accounts_are_each_named_over_their_folders() {
 async fn render_the_folders_to_a_file() {
     dispatching();
     let built = crate::ui::fixtures::work();
-    let account = crate::ui::data::account_rows(&built.store)[0].id;
+    let account = crate::ui::data::account_rows(&built.store)[0].id.clone();
     let listed = |path: &str| Folder {
-        account,
+        account: account.clone(),
         path: path.to_owned(),
         delimiter: Some('/'),
         special: None,

@@ -17,8 +17,9 @@ pub mod floor;
 
 use chrono::{DateTime, Utc};
 use mail_domain::ThreadId;
-use mail_domain::{AccountId, AccountPlan, MailboxRole, Message, MessageId, ReadState, Snooze};
+use mail_domain::{AccountPlan, MailboxRole, Message, MessageId, ReadState, Snooze};
 use mail_store::{SqliteStore, Store as _};
+use porter_core::AccountId;
 use std::path::Path;
 
 /// Whether `mailo watch` raises notifications. On unless someone turned it off.
@@ -155,7 +156,7 @@ pub fn batch(account: AccountId, announced: &[&Message]) -> Vec<Notification> {
         return announced
             .iter()
             .map(|message| Notification {
-                account,
+                account: account.clone(),
                 summary: sender(message),
                 body: if message.subject.trim().is_empty() {
                     "(no subject)".to_owned()
@@ -243,7 +244,7 @@ pub fn announce(
     notifier: &dyn Notifier,
     now: DateTime<Utc>,
 ) -> Result<usize, String> {
-    let floor = floor::armed(store, account, now)?;
+    let floor = floor::armed(store, account.clone(), now)?;
     if arrived.is_empty() {
         return Ok(0);
     }
@@ -308,9 +309,12 @@ pub fn own_addresses(store: &SqliteStore) -> Result<Own, String> {
 mod tests {
     use super::*;
     use chrono::TimeZone;
+    use mail_domain::id::account_id_from_uuid;
     use mail_domain::{Address, Body, MessageKey, Star};
 
-    const ACCOUNT: AccountId = AccountId::from_uuid(uuid::Uuid::from_u128(0xa1));
+    fn acct_account() -> AccountId {
+        account_id_from_uuid(uuid::Uuid::from_u128(0xa1))
+    }
 
     fn at(hour: u32) -> DateTime<Utc> {
         Utc.with_ymd_and_hms(2026, 9, 24, hour, 0, 0).unwrap()
@@ -320,7 +324,7 @@ mod tests {
         Message {
             id: MessageId::from_uuid(uuid::Uuid::from_u128(0x9000 + n)),
             thread: ThreadId::from_uuid(uuid::Uuid::from_u128(0x7000 + n)),
-            account: ACCOUNT,
+            account: acct_account(),
             key: MessageKey::Rfc(format!("m{n}@example.test")),
             date: at(12),
             from: Address {
@@ -439,16 +443,16 @@ mod tests {
         let a = message(1, ("Ada Lovelace", "ada@example.test"), "lunch on friday");
         let b = message(2, ("", "bob@example.test"), "  ");
         assert_eq!(
-            batch(ACCOUNT, &[&a, &b]),
+            batch(acct_account(), &[&a, &b]),
             [
                 Notification {
-                    account: ACCOUNT,
+                    account: acct_account(),
                     summary: "Ada Lovelace".to_owned(),
                     body: "lunch on friday".to_owned(),
                     opens: Opens::Thread(a.thread),
                 },
                 Notification {
-                    account: ACCOUNT,
+                    account: acct_account(),
                     summary: "bob@example.test".to_owned(),
                     body: "(no subject)".to_owned(),
                     opens: Opens::Thread(b.thread),
@@ -456,9 +460,9 @@ mod tests {
             ]
         );
         let c = message(3, ("Cy", "cy@example.test"), "hi");
-        assert_eq!(batch(ACCOUNT, &[&a, &b, &c]).len(), 3);
+        assert_eq!(batch(acct_account(), &[&a, &b, &c]).len(), 3);
         assert!(
-            batch(ACCOUNT, &[]).is_empty(),
+            batch(acct_account(), &[]).is_empty(),
             "nothing arrived, nothing said"
         );
     }
@@ -481,9 +485,9 @@ mod tests {
             .collect();
         let refs: Vec<&Message> = all.iter().collect();
         assert_eq!(
-            batch(ACCOUNT, &refs),
+            batch(acct_account(), &refs),
             [Notification {
-                account: ACCOUNT,
+                account: acct_account(),
                 summary: "7 new messages".to_owned(),
                 // Ada sent three; the rest one each, in the order they came.
                 body: "From Ada, Newsletter, Bob and 2 others".to_owned(),
@@ -491,12 +495,12 @@ mod tests {
             }]
         );
         assert_eq!(
-            batch(ACCOUNT, &refs[..4])[0].body,
+            batch(acct_account(), &refs[..4])[0].body,
             "From Ada, Newsletter, Bob",
             "four from three people names all three"
         );
         assert_eq!(
-            batch(ACCOUNT, &refs[..5])[0].body,
+            batch(acct_account(), &refs[..5])[0].body,
             "From Ada, Newsletter, Bob and 1 other"
         );
     }

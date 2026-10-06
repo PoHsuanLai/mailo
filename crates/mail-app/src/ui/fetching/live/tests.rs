@@ -9,14 +9,17 @@ use dioxus::prelude::*;
 use dioxus_core::{NoOpMutations, VirtualDom};
 use mail_core::fetch::{First, Pause, Step};
 use mail_core::sync::report::{AccountReport, Counts, PassEnd};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_store::Store as _;
+use porter_core::AccountId;
 use std::collections::VecDeque;
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Mutex, mpsc};
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000e9"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000e9"))
+}
 
 fn at(second: i64) -> chrono::DateTime<Utc> {
     use chrono::TimeZone;
@@ -207,26 +210,41 @@ fn a_push_that_finds_a_pass_running_is_owed_a_pass_when_it_finishes() {
     let mut dirty = Dirty::default();
 
     // Heard while idle: the link starts a pass for it, nothing is owed.
-    dirty.heard(ACCOUNT, &current(Live::Pushed), &push);
+    dirty.heard(acct_account(), &current(Live::Pushed), &push);
     assert_eq!(
-        dirty.settled(ACCOUNT, &syncing(), &current(Live::Pushed), &finished()),
+        dirty.settled(
+            acct_account(),
+            &syncing(),
+            &current(Live::Pushed),
+            &finished()
+        ),
         Rerun::No
     );
 
     // Heard while syncing: owed once, and only to a pass that finished.
-    dirty.heard(ACCOUNT, &syncing(), &Event::Start(Trigger::Poll));
-    dirty.heard(ACCOUNT, &syncing(), &push);
+    dirty.heard(acct_account(), &syncing(), &Event::Start(Trigger::Poll));
+    dirty.heard(acct_account(), &syncing(), &push);
     assert_eq!(
-        dirty.settled(ACCOUNT, &syncing(), &syncing(), &Event::Tick),
+        dirty.settled(acct_account(), &syncing(), &syncing(), &Event::Tick),
         Rerun::No,
         "still running"
     );
     assert_eq!(
-        dirty.settled(ACCOUNT, &syncing(), &current(Live::Pushed), &finished()),
+        dirty.settled(
+            acct_account(),
+            &syncing(),
+            &current(Live::Pushed),
+            &finished()
+        ),
         Rerun::Yes
     );
     assert_eq!(
-        dirty.settled(ACCOUNT, &syncing(), &current(Live::Pushed), &finished()),
+        dirty.settled(
+            acct_account(),
+            &syncing(),
+            &current(Live::Pushed),
+            &finished()
+        ),
         Rerun::No,
         "owed once"
     );
@@ -248,13 +266,18 @@ fn a_push_that_finds_a_pass_running_is_owed_a_pass_when_it_finishes() {
         ),
         (current(Live::Pushed), Event::Cancel),
     ] {
-        dirty.heard(ACCOUNT, &syncing(), &push);
+        dirty.heard(acct_account(), &syncing(), &push);
         assert_eq!(
-            dirty.settled(ACCOUNT, &syncing(), &after, &event),
+            dirty.settled(acct_account(), &syncing(), &after, &event),
             Rerun::No
         );
         assert_eq!(
-            dirty.settled(ACCOUNT, &syncing(), &current(Live::Pushed), &finished()),
+            dirty.settled(
+                acct_account(),
+                &syncing(),
+                &current(Live::Pushed),
+                &finished()
+            ),
             Rerun::No,
             "the debt was cleared with the pass that ended"
         );
@@ -278,7 +301,7 @@ fn account() -> (Arc<SqliteStore>, tempfile::TempDir) {
     db.execute(
         "INSERT INTO accounts (id, address, plan, created_at) VALUES (?1, ?2, ?3, ?4)",
         [
-            ACCOUNT.to_string(),
+            acct_account().to_string(),
             preset.plan.address.clone(),
             serde_json::to_string(&preset.plan).unwrap(),
             Utc::now().to_rfc3339(),
@@ -289,14 +312,14 @@ fn account() -> (Arc<SqliteStore>, tempfile::TempDir) {
         "INSERT INTO sync_state (account, mailbox, cursor, synced_at)
          VALUES (?1, 'INBOX', ?2, datetime('now'))",
         rusqlite::params![
-            ACCOUNT.to_string(),
+            acct_account().to_string(),
             serde_json::to_string(&SyncCursor::Pop).unwrap()
         ],
     )
     .unwrap();
     drop(db);
     store
-        .put_caps(ACCOUNT, &preset.expected_caps, Utc::now())
+        .put_caps(acct_account(), &preset.expected_caps, Utc::now())
         .unwrap();
     (store, dir)
 }
@@ -305,7 +328,7 @@ type Ending = fn() -> PassEnd;
 
 fn ended() -> PassEnd {
     PassEnd::Finished(AccountReport {
-        account: ACCOUNT,
+        account: acct_account(),
         address: "me@nowhere.example".to_owned(),
         counts: Counts::default(),
         trouble: vec![],
@@ -314,7 +337,7 @@ fn ended() -> PassEnd {
 
 fn refused() -> PassEnd {
     PassEnd::Failed {
-        account: ACCOUNT,
+        account: acct_account(),
         address: "me@nowhere.example".to_owned(),
         retry: Retry::NeedsReauth,
         why: "the server refused the password".to_owned(),
@@ -324,7 +347,7 @@ fn refused() -> PassEnd {
 
 fn unreachable() -> PassEnd {
     PassEnd::Failed {
-        account: ACCOUNT,
+        account: acct_account(),
         address: "me@nowhere.example".to_owned(),
         retry: Retry::After(Duration::from_secs(5)),
         why: "cannot connect".to_owned(),
@@ -393,7 +416,7 @@ impl Script {
                     std::thread::sleep(Duration::from_millis(5));
                 }
             }),
-            pushers: Arc::new(|_| vec![ACCOUNT]),
+            pushers: Arc::new(|_| vec![acct_account()]),
             daemon: Arc::new(move || {
                 if daemon.load(Ordering::SeqCst) {
                     Daemon::Holding
@@ -483,7 +506,7 @@ fn fetching(dom: &VirtualDom) -> Fetching {
 }
 
 fn link(dom: &VirtualDom) -> Link {
-    dom.in_scope(ScopeId::APP, || fetching(dom).link(ACCOUNT))
+    dom.in_scope(ScopeId::APP, || fetching(dom).link(acct_account()))
         .expect("the account has a link")
 }
 
@@ -573,7 +596,7 @@ async fn the_watch_stops_when_the_sign_in_is_refused_and_resumes_when_it_is_repl
     eventually(&mut dom, "the watch stopped", |_| script.alive() == 0).await;
     let begun = script.starts();
 
-    fetching(&dom).signed_in(ACCOUNT);
+    fetching(&dom).signed_in(acct_account());
     eventually(&mut dom, "a pass", |_| script.runs() == 2).await;
     script.let_go(ended);
     eventually(&mut dom, "the watch resumed", |_| {

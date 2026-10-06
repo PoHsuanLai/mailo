@@ -6,8 +6,9 @@
 
 use crate::machine::{Backend, IoReady, Machine, Progress, ProtoError, ProtoOutcome};
 use crate::smtp::{SmtpSession, Submission};
-use mail_domain::{AccountCaps, AccountId, DraftId, ProtoOp};
+use mail_domain::{AccountCaps, DraftId, ProtoOp};
 use mail_mime::Posting;
+use porter_core::AccountId;
 
 /// Builds a session for one submission.
 ///
@@ -47,7 +48,7 @@ impl SmtpBackend {
 
     /// The account this backend submits for.
     pub fn account(&self) -> AccountId {
-        self.account
+        self.account.clone()
     }
 
     /// Hand over the envelope and bytes for the next [`ProtoOp::Submit`].

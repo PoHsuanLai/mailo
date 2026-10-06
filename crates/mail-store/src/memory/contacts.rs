@@ -9,7 +9,8 @@ use crate::StoreError;
 use crate::contact::learn::{self, Event, Needle, Row, Seen};
 use crate::contact::{AddressBook, Contact, Kind, Origin};
 use chrono::{DateTime, Utc};
-use mail_domain::{AccountId, Address, DraftId, MailboxRole, Message, MessageId};
+use mail_domain::{Address, DraftId, MailboxRole, Message, MessageId};
+use porter_core::AccountId;
 
 impl Inner {
     pub(super) fn learn_fetched(&mut self, account: AccountId, id: MessageId, message: &Message) {
@@ -76,7 +77,7 @@ impl Inner {
                 .remove(address)
                 .unwrap_or_else(|| Row::new(address));
             self.contacts
-                .insert(address.clone(), learn::apply(row, account, event));
+                .insert(address.clone(), learn::apply(row, account.clone(), event));
         }
     }
 

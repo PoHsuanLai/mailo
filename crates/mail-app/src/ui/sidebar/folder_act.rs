@@ -9,9 +9,10 @@ use dioxus::prelude::*;
 use mail_core::folder::{Refusal, change};
 use mail_core::undo::{Undo, reverse_folder};
 use mail_domain::{
-    AccountId, FolderError, FolderWork, Incoming, MailboxRef, NonEmpty, ServerLabels, Subscription,
+    FolderError, FolderWork, Incoming, MailboxRef, NonEmpty, ServerLabels, Subscription,
 };
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 
 /// Every account in `scope` (empty meaning all), with what the section needs of each.
 ///
@@ -23,17 +24,17 @@ pub(in crate::ui) fn load(
 ) -> Vec<AccountFolders> {
     account_rows(store)
         .into_iter()
-        .filter(|row| scope.shows(row.id))
+        .filter(|row| scope.shows(row.id.clone()))
         .map(|row| {
             let mailboxes = match row.plan.incoming {
                 // Local mail has no server folders to make either; its places are labels.
                 Incoming::Pop3 { .. } | Incoming::Local => Mailboxes::One,
                 Incoming::Imap { .. } | Incoming::Graph | Incoming::Jmap { .. } => {
                     Mailboxes::Many {
-                        folders: store.folders(row.id).unwrap_or_default(),
-                        labels: store.labels(row.id).unwrap_or_default(),
+                        folders: store.folders(row.id.clone()).unwrap_or_default(),
+                        labels: store.labels(row.id.clone()).unwrap_or_default(),
                         // Before the first connection nothing is known, and nothing is assumed.
-                        server_labels: mail_core::sync::caps_of(store, row.id)
+                        server_labels: mail_core::sync::caps_of(store, row.id.clone())
                             .map_or(ServerLabels::LocalOnly, |caps| caps.labels),
                     }
                 }
@@ -71,7 +72,7 @@ pub(in crate::ui) fn perform(
     work: FolderWork,
     delimiter: Option<char>,
 ) -> Result<Done, Refusal> {
-    let applied = change(store, account, work.clone(), chrono::Utc::now())?;
+    let applied = change(store, account.clone(), work.clone(), chrono::Utc::now())?;
     let said = told(&work, delimiter);
     let undo = reverse_folder(&work).map(|_| Undo {
         said: said.clone(),

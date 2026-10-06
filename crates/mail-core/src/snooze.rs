@@ -84,7 +84,7 @@ pub(crate) fn apply(
         .collect();
     let account = messages
         .first()
-        .map(|m| m.account)
+        .map(|m| m.account.clone())
         .ok_or_else(|| "that conversation has no messages".to_owned())?;
 
     let applied = op.apply(

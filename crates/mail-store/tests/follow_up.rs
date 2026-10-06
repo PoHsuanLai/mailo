@@ -3,11 +3,14 @@
 //! reminder surviving a reopen.
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_store::{MemoryStore, SqliteStore, Store};
+use porter_core::AccountId;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 
 fn at(secs: i64) -> DateTime<Utc> {
     Utc.timestamp_opt(1_700_000_000 + secs, 0).unwrap()
@@ -21,7 +24,7 @@ fn message(n: u128, thread: ThreadId, date: i64) -> Message {
     Message {
         id: MessageId::from_uuid(uuid::Uuid::from_u128(0x9000 + n)),
         thread,
-        account: ACCOUNT,
+        account: acct_account(),
         key: MessageKey::Rfc(format!("m{n}@example.test")),
         date: at(date),
         from: Address {
@@ -63,7 +66,7 @@ fn both(dir: &std::path::Path) -> (SqliteStore, MemoryStore) {
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [ACCOUNT.to_string()],
+            [acct_account().to_string()],
         )
         .unwrap();
     let memory = MemoryStore::new();
@@ -73,8 +76,8 @@ fn both(dir: &std::path::Path) -> (SqliteStore, MemoryStore) {
             thread(n),
             i64::try_from(n).unwrap() * 10,
         )))]);
-        sqlite.apply(ACCOUNT, &upsert).unwrap();
-        memory.apply(ACCOUNT, &upsert).unwrap();
+        sqlite.apply(acct_account(), &upsert).unwrap();
+        memory.apply(acct_account(), &upsert).unwrap();
     }
     (sqlite, memory)
 }
@@ -141,7 +144,7 @@ fn both_stores_keep_the_reminder_and_list_the_waiting_in_due_order() {
     for (name, changes, expected) in steps {
         let step = patch(changes);
         for (store_name, store) in stores {
-            store.apply(ACCOUNT, &step).unwrap();
+            store.apply(acct_account(), &step).unwrap();
             let listed: Vec<ThreadId> = store
                 .follow_ups()
                 .unwrap()
@@ -220,13 +223,13 @@ fn an_undone_reminder_is_what_it_was_in_both_stores() {
             &caps,
             at(60),
         );
-        store.apply(ACCOUNT, &applied.forward).unwrap();
+        store.apply(acct_account(), &applied.forward).unwrap();
         assert_eq!(
             store.thread(thread(2)).unwrap().summary.follow_up,
             waiting(900)
         );
         assert_eq!(store.follow_ups().unwrap().len(), 1);
-        store.apply(ACCOUNT, &applied.inverse).unwrap();
+        store.apply(acct_account(), &applied.inverse).unwrap();
         assert_eq!(
             store.thread(thread(2)).unwrap().summary.follow_up,
             FollowUp::Inactive

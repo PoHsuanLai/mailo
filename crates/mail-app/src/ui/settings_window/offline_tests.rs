@@ -8,6 +8,7 @@ use dioxus::dioxus_core::VirtualDom;
 use mail_core::offline::{self, Keep};
 use mail_domain::*;
 use mail_store::Store as _;
+use porter_core::AccountId;
 
 const ADDRESS: &str = "poh@acme.example";
 
@@ -56,7 +57,7 @@ fn with_a_part_on_the_server(built: &Work, id: AccountId) {
     let message = Message {
         id: MessageId::generate(),
         thread: ThreadId::generate(),
-        account: id,
+        account: id.clone(),
         key: MessageKey::Rfc("large@example.com".to_owned()),
         date: chrono::Utc::now() - chrono::TimeDelta::days(3),
         from: Address {
@@ -92,7 +93,7 @@ fn with_a_part_on_the_server(built: &Work, id: AccountId) {
     built
         .store
         .ingest(
-            id,
+            id.clone(),
             Ingest {
                 mailbox: MailboxRef {
                     account: id,
@@ -123,9 +124,9 @@ fn with_a_part_on_the_server(built: &Work, id: AccountId) {
 async fn each_account_says_how_much_is_here_and_the_switch_keeps_the_setting() {
     let built = work();
     let id = account(&built);
-    let before = built.store.offline(id).unwrap();
-    with_a_part_on_the_server(&built, id);
-    let counted = built.store.offline(id).unwrap();
+    let before = built.store.offline(id.clone()).unwrap();
+    with_a_part_on_the_server(&built, id.clone());
+    let counted = built.store.offline(id.clone()).unwrap();
     assert_eq!(
         (counted.messages, counted.held, counted.parts_remote),
         (before.messages + 1, before.held, before.parts_remote + 1),
@@ -133,7 +134,11 @@ async fn each_account_says_how_much_is_here_and_the_switch_keeps_the_setting() {
     );
 
     let config = &built.dirs.config;
-    assert_eq!(offline::load(config).of(id), Keep::Bodies, "off by default");
+    assert_eq!(
+        offline::load(config).of(id.clone()),
+        Keep::Bodies,
+        "off by default"
+    );
     let (mut dom, seen) = opened(&built);
     let page = dioxus_ssr::render(&dom);
     assert_eq!(shown(&page), ["Off"]);
@@ -152,14 +157,14 @@ async fn each_account_says_how_much_is_here_and_the_switch_keeps_the_setting() {
     let segments = seen.after("aria-label", &label(), "aria-checked");
     click(&mut dom, segments[0]);
     assert_eq!(
-        offline::load(config).of(id),
+        offline::load(config).of(id.clone()),
         Keep::Everything,
         "On was not kept"
     );
     assert_eq!(shown(&dioxus_ssr::render(&dom)), ["On"]);
     for other in account_rows(&built.store).iter().filter(|row| row.id != id) {
         assert_eq!(
-            offline::load(config).of(other.id),
+            offline::load(config).of(other.id.clone()),
             Keep::Bodies,
             "{} was turned on with it",
             other.address

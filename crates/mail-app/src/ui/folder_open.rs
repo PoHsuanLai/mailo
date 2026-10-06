@@ -8,8 +8,8 @@
 use crate::ui::view::{Shell, folder_of};
 use chrono::{DateTime, Utc};
 use mail_core::sync::report::PassEnd;
-use mail_domain::AccountId;
 use mail_store::SqliteStore;
+use porter_core::AccountId;
 use std::sync::Arc;
 
 /// Fetch one folder now: the signature of [`mail_core::sync::folder_now`].

@@ -6,11 +6,14 @@
 //! Everything here goes through the public `Store` surface a UI would use.
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 const WORK: LabelId = LabelId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b1"));
 
 fn at(n: i64) -> DateTime<Utc> {
@@ -37,18 +40,18 @@ fn ingest_twenty() -> Fixture {
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [ACCOUNT.to_string()],
+            [acct_account().to_string()],
         )
         .unwrap();
 
     store
         .apply(
-            ACCOUNT,
+            acct_account(),
             &Patch {
                 id: ChangeId::generate(),
                 changes: vec![Change::LabelUpsert(Label {
                     id: WORK,
-                    account: ACCOUNT,
+                    account: acct_account(),
                     name: "work".to_owned(),
                     color: None,
                     origin: LabelOrigin::User,
@@ -92,7 +95,7 @@ fn ingest_twenty() -> Fixture {
         let message = Message {
             id,
             thread,
-            account: ACCOUNT,
+            account: acct_account(),
             key: MessageKey::Rfc(format!("m{i}@example.test")),
             date: at(i as i64),
             from: Address {
@@ -126,7 +129,7 @@ fn ingest_twenty() -> Fixture {
         };
         store
             .apply(
-                ACCOUNT,
+                acct_account(),
                 &Patch {
                     id: ChangeId::generate(),
                     changes: vec![Change::MessageUpsert(Box::new(message))],
@@ -208,7 +211,7 @@ fn ingest_twenty_archive_one_label_one_and_search() {
         &caps(),
         now(),
     );
-    f.store.apply(ACCOUNT, &applied.forward).unwrap();
+    f.store.apply(acct_account(), &applied.forward).unwrap();
 
     assert_eq!(
         f.store
@@ -226,7 +229,7 @@ fn ingest_twenty_archive_one_label_one_and_search() {
 
     // The undo the op computed must actually undo it — the property the proptest checks
     // abstractly, here against real storage.
-    f.store.apply(ACCOUNT, &applied.inverse).unwrap();
+    f.store.apply(acct_account(), &applied.inverse).unwrap();
     assert_eq!(
         f.store
             .count(&Filter::InMailbox(MailboxRole::Inbox), now())
@@ -234,7 +237,7 @@ fn ingest_twenty_archive_one_label_one_and_search() {
         20,
         "applying the inverse must restore the inbox exactly"
     );
-    f.store.apply(ACCOUNT, &applied.forward).unwrap();
+    f.store.apply(acct_account(), &applied.forward).unwrap();
 
     // --- label one --------------------------------------------------------------------
     let labelled = f.threads[7];
@@ -251,7 +254,7 @@ fn ingest_twenty_archive_one_label_one_and_search() {
         &caps(),
         now(),
     );
-    f.store.apply(ACCOUNT, &applied.forward).unwrap();
+    f.store.apply(acct_account(), &applied.forward).unwrap();
 
     let tagged = f
         .store

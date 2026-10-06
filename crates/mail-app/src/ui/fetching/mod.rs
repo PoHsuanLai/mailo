@@ -26,8 +26,8 @@ use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
 use ds::motion::detail::operation::Operation;
 use mail_core::fetch::{Event, FolderFetch, Link, Trigger};
-use mail_domain::AccountId;
 use mail_store::SqliteStore;
+use porter_core::AccountId;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
@@ -71,13 +71,13 @@ impl Fetching {
     /// Ask each of `accounts` for a pass. A link already running one ignores it.
     pub(in crate::ui) fn sync(&self, accounts: &[AccountId], trigger: Trigger) {
         for account in accounts {
-            self.send(*account, Event::Start(trigger));
+            self.send(account.clone(), Event::Start(trigger));
         }
     }
 
     /// Ask every account for a pass.
     pub(in crate::ui) fn sync_all(&self, trigger: Trigger) {
-        let all: Vec<AccountId> = self.links.peek().keys().copied().collect();
+        let all: Vec<AccountId> = self.links.peek().keys().cloned().collect();
         self.sync(&all, trigger);
     }
 
@@ -95,7 +95,7 @@ impl Fetching {
     /// What `account`'s pass is doing, for a spinner: running from the moment it starts.
     /// The accounts `shell` is showing that have something to fetch.
     pub(in crate::ui) fn in_view(&self, shell: &Shell) -> Vec<AccountId> {
-        let with_links: BTreeSet<AccountId> = self.links.read().keys().copied().collect();
+        let with_links: BTreeSet<AccountId> = self.links.read().keys().cloned().collect();
         scope::in_view(&with_links, shell)
     }
 
@@ -119,7 +119,7 @@ impl Fetching {
         self.links
             .read()
             .iter()
-            .map(|(id, link)| (*id, link.clone()))
+            .map(|(id, link)| (id.clone(), link.clone()))
             .collect()
     }
 
@@ -214,7 +214,7 @@ pub(in crate::ui) fn use_fetching(revision: Signal<u64>) -> Fetching {
             store: store.clone(),
             passer: try_consume_context::<Passer>().unwrap_or_else(Passer::server),
             delegate: delegate.clone(),
-            every: accounts.peek().iter().copied().collect(),
+            every: accounts.peek().iter().cloned().collect(),
         };
         async move {
             if let Some(received) = received {

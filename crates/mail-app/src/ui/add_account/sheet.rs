@@ -93,7 +93,7 @@ fn use_offer(
         });
         if let Stage::Added { account, .. } = &next {
             revision += 1;
-            if let Some(account) = *account {
+            if let Some(account) = account.clone() {
                 into_scope(shell, &mut spaces, account);
             }
         }
@@ -105,7 +105,7 @@ fn use_offer(
 fn into_scope(
     mut shell: Signal<Shell>,
     spaces: &mut Signal<Spaces>,
-    account: mail_domain::AccountId,
+    account: porter_core::AccountId,
 ) {
     // The Spaces as they are on disk: this window's copy may be older than a Space another
     // window added or switched to meanwhile, and keeping it would undo that.

@@ -8,16 +8,21 @@
 use chrono::{DateTime, TimeZone, Utc};
 use mail_core::sync;
 use mail_core::sync::report::{AccountReport, Hooks, PassEnd};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
-use mail_runtime::{MapSecrets, OAuthRegistry, Secrets};
+use mail_runtime::{AccountSecrets, OAuthRegistry};
 use mail_store::{SqliteStore, Store};
+use porter_core::SecretText;
+use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
+use porter_secrets::MemorySecrets;
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 
 const PROJECTS: &str = "Projects/2026";
 const REPORTS: &str = "收件匣/報告";
@@ -241,7 +246,7 @@ fn configured(
     port: u16,
     caps: AccountCaps,
     folders: Vec<Folder>,
-) -> (Arc<SqliteStore>, Arc<MapSecrets>, tempfile::TempDir) {
+) -> (Arc<SqliteStore>, Arc<MemorySecrets>, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(SqliteStore::in_memory(dir.path()).unwrap());
     let plan = AccountPlan {
@@ -267,27 +272,29 @@ fn configured(
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'ada@example.test', ?2, datetime('now'))",
-            rusqlite::params![ACCOUNT.to_string(), serde_json::to_string(&plan).unwrap()],
+            rusqlite::params![
+                acct_account().to_string(),
+                serde_json::to_string(&plan).unwrap()
+            ],
         )
         .unwrap();
-    store.put_caps(ACCOUNT, &caps, now()).unwrap();
-    store.put_folders(ACCOUNT, folders).unwrap();
-    let secrets = Arc::new(MapSecrets::default());
-    secrets
-        .put(
-            &SecretKey {
-                account: ACCOUNT,
-                purpose: SecretPurpose::IncomingPassword,
-            },
-            &Credential::Password("s3cr3t".to_owned()),
-        )
-        .unwrap();
+    store.put_caps(acct_account(), &caps, now()).unwrap();
+    store.put_folders(acct_account(), folders).unwrap();
+    let secrets = Arc::new(MemorySecrets::default());
+    mail_runtime::block_on(secrets.put(
+        &SecretKey {
+            account: acct_account(),
+            purpose: SecretPurpose::IncomingPassword,
+        },
+        &Credential::Password(SecretText::new("s3cr3t".to_owned())),
+    ))
+    .unwrap();
     (store, secrets, dir)
 }
 
 fn folder(path: &str, subscription: Subscription) -> Folder {
     Folder {
-        account: ACCOUNT,
+        account: acct_account(),
         path: path.to_owned(),
         delimiter: Some('/'),
         special: None,
@@ -306,7 +313,7 @@ fn listing() -> Vec<Folder> {
     ]
 }
 
-fn pass(store: &Arc<SqliteStore>, secrets: &Arc<MapSecrets>) -> AccountReport {
+fn pass(store: &Arc<SqliteStore>, secrets: &Arc<MemorySecrets>) -> AccountReport {
     let ends = sync::run_with(
         store.clone(),
         secrets.clone(),
@@ -328,7 +335,7 @@ fn finished(ends: Vec<PassEnd>) -> AccountReport {
 
 fn at(path: &str) -> MailboxRef {
     MailboxRef {
-        account: ACCOUNT,
+        account: acct_account(),
         path: path.to_owned(),
     }
 }
@@ -573,7 +580,7 @@ fn a_folder_nobody_follows_is_fetched_when_asked_for() {
         store.clone(),
         secrets.clone(),
         &OAuthRegistry::default(),
-        ACCOUNT,
+        acct_account(),
         OLD,
         now(),
     )
@@ -610,7 +617,7 @@ fn a_folder_the_server_does_not_have_is_said_not_thrown() {
         store,
         secrets,
         &OAuthRegistry::default(),
-        ACCOUNT,
+        acct_account(),
         "Nowhere",
         now(),
     )
@@ -627,7 +634,7 @@ fn an_account_whose_folders_are_labels_is_not_fetched_by_folder() {
         store.clone(),
         secrets,
         &OAuthRegistry::default(),
-        ACCOUNT,
+        acct_account(),
         PROJECTS,
         now(),
     )

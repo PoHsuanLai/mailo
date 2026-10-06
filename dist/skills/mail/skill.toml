@@ -1,0 +1,26 @@
+# How the desktop's companion should use mailo's actions (dist/intents/org.quire.Mail.toml).
+# Installed as `$XDG_DATA_DIRS/quire/skills/mail/` beside SKILL.md. A skill teaches; it grants
+# nothing, so every action named here still goes through the router's policy and confirmations.
+# `mail.thread.open` is not here: it is hidden from agents, and a skill that used it would not be
+# offered.
+vocab = 1
+id = "mail"
+owner = "org.quire.Mail"
+version = "0.1.0"
+uses = [
+  "org.quire.Mail:mail.thread.search",
+  "org.quire.Mail:mail.thread.read",
+  "org.quire.Mail:mail.contact.search",
+  "org.quire.Mail:mail.thread.archive",
+  "org.quire.Mail:mail.thread.star",
+  "org.quire.Mail:mail.thread.unstar",
+  "org.quire.Mail:mail.thread.label",
+  "org.quire.Mail:mail.thread.unlabel",
+  "org.quire.Mail:mail.thread.snooze",
+  "org.quire.Mail:mail.draft.create",
+  "org.quire.Mail:mail.message.send",
+  "org.quire.Mail:mail.message.forward",
+]
+
+[when]
+kinds = ["mail.thread"]

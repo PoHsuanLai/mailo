@@ -1,10 +1,11 @@
 //! A reply's In-Reply-To and References are what the recipient threads on.
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_domain::id::new_account_id;
 use mail_domain::{
-    AccountId, Address, BlobId, Body, Draft, DraftId, Identity, IdentityId, Inline, IsDefault,
-    MailboxRole, Message, MessageId, MessageKey, PendingAttachment, ReadState, ReceiptRequest,
-    SendState, Star, ThreadId,
+    Address, BlobId, Body, Draft, DraftId, Identity, IdentityId, Inline, IsDefault, MailboxRole,
+    Message, MessageId, MessageKey, PendingAttachment, ReadState, ReceiptRequest, SendState, Star,
+    ThreadId,
 };
 use mail_mime::{Disclosure, MimeError, ReturnPath, build, parse, posting, receipt_asked};
 
@@ -81,7 +82,7 @@ fn addr(name: Option<&str>, email: &str) -> Address {
 fn identity() -> Identity {
     Identity {
         id: IdentityId::generate(),
-        account: AccountId::generate(),
+        account: new_account_id(),
         from: addr(Some("Me"), "me@example.test"),
         reply_to: Some(addr(None, "alias@example.test")),
         signature: None,
@@ -93,7 +94,7 @@ fn parent(references: &[&str], rfc_message_id: Option<&str>) -> Message {
     Message {
         id: MessageId::generate(),
         thread: ThreadId::generate(),
-        account: AccountId::generate(),
+        account: new_account_id(),
         key: MessageKey::Rfc("parent@example.test".to_owned()),
         date: at(),
         from: addr(Some("Ada"), "ada@example.test"),
@@ -120,7 +121,7 @@ fn parent(references: &[&str], rfc_message_id: Option<&str>) -> Message {
 fn draft(replying_to: Option<MessageId>, blob: Option<BlobId>) -> Draft {
     Draft {
         id: DraftId::generate(),
-        account: AccountId::generate(),
+        account: new_account_id(),
         identity: IdentityId::generate(),
         to: vec![addr(Some("Bea"), "bea@example.test")],
         cc: vec![addr(None, "cara@example.test")],

@@ -6,7 +6,7 @@
 
 use super::{Consent, account_named};
 use mail_domain::{AccountPlan, Incoming, LeaveOnServer};
-use mail_runtime::Secrets;
+use mail_runtime::AccountSecrets;
 use mail_store::{SqliteStore, Store};
 use std::path::Path;
 
@@ -14,7 +14,7 @@ use std::path::Path;
 /// offline setting is kept, when there is a config directory.
 pub(super) fn remove(
     store: &SqliteStore,
-    secrets: &dyn Secrets,
+    secrets: &dyn AccountSecrets,
     config: Option<&Path>,
     address: &str,
     consent: Consent,
@@ -27,8 +27,10 @@ pub(super) fn remove(
             Err(asking(address, held, incoming.as_ref()))
         }
         Consent::Given => {
+            // The command line has no runtime; the store does its work on its own.
             let removed =
-                mail_core::account::remove(store, secrets, id).map_err(|e| e.to_string())?;
+                mail_runtime::block_on(mail_core::account::remove(store, secrets, id.clone()))
+                    .map_err(|e| e.to_string())?;
             if let Some(config) = config {
                 let _ = mail_core::offline::save(config, id, mail_core::offline::Keep::Bodies);
             }
@@ -81,8 +83,8 @@ mod tests {
     use super::{asking, remove};
     use crate::cli::Consent;
     use mail_domain::{Incoming, LeaveOnServer, Tls, presets};
-    use mail_runtime::MapSecrets;
     use mail_store::SqliteStore;
+    use porter_secrets::MemorySecrets;
 
     const ADDRESS: &str = "me@nowhere.example";
 
@@ -111,13 +113,13 @@ mod tests {
                 "INSERT INTO accounts (id, address, plan, created_at)
                  VALUES (?1, ?2, ?3, datetime('now'))",
                 [
-                    mail_domain::AccountId::generate().to_string(),
+                    mail_domain::id::new_account_id().to_string(),
                     ADDRESS.to_owned(),
                     serde_json::to_string(&preset.plan).unwrap(),
                 ],
             )
             .unwrap();
-        let secrets = MapSecrets::default();
+        let secrets = MemorySecrets::default();
 
         let asked = remove(&store, &secrets, None, ADDRESS, Consent::Ask).unwrap_err();
         assert!(asked.contains("Nothing was removed"), "{asked}");

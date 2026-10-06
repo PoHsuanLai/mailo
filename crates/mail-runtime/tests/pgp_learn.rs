@@ -1,17 +1,20 @@
 //! Keys learnt from arriving mail, and secret keys in and out of the keyring.
 //!
 //! Autocrypt headers are read as mail is assembled, from the header alone: a sync never
-//! decrypts. The keyring here is [`MapSecrets`], never the user's.
+//! decrypts. The keyring here is [`MapSigningStore`], never the user's.
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_domain::id::{account_id_from_uuid, new_account_id};
 use mail_domain::*;
 use mail_mime::openpgp::{self, SecretCert};
-use mail_runtime::{Arrival, MapSecrets, assemble, pgp};
+use mail_runtime::{Arrival, MapSigningStore, assemble, pgp};
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 use rand::SeedableRng;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 
 fn day(n: u32) -> DateTime<Utc> {
     Utc.with_ymd_and_hms(2026, 9, n, 12, 0, 0).unwrap()
@@ -25,7 +28,7 @@ fn store() -> (SqliteStore, tempfile::TempDir) {
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [ACCOUNT.to_string()],
+            [acct_account().to_string()],
         )
         .unwrap();
     (store, dir)
@@ -60,9 +63,9 @@ fn message(from: &str, date: DateTime<Utc>, key: Option<&SecretCert>, id: &str) 
 fn arrive(store: &SqliteStore, role: MailboxRole, raw: Vec<u8>, uidl: &str, now: DateTime<Utc>) {
     let ingest = assemble(
         store,
-        ACCOUNT,
+        acct_account(),
         MailboxRef {
-            account: ACCOUNT,
+            account: acct_account(),
             path: "INBOX".to_owned(),
         },
         role,
@@ -233,21 +236,21 @@ fn gossip_is_kept_only_for_the_messages_own_recipients() {
 
 #[test]
 fn a_secret_key_goes_into_the_keyring_whole_and_comes_back_out() {
-    let secrets = MapSecrets::default();
+    let secrets = MapSigningStore::default();
     let mine = key_for("me@example.test", 8);
-    pgp::keep_secret_key(&secrets, ACCOUNT, &mine).unwrap();
+    pgp::keep_secret_key(&secrets, acct_account(), &mine).unwrap();
     assert_eq!(
-        pgp::secret_key(&secrets, ACCOUNT, mine.fingerprint()).unwrap(),
+        pgp::secret_key(&secrets, acct_account(), mine.fingerprint()).unwrap(),
         mine
     );
     // Named by the key, not the account: another account's identity with the same key finds it.
-    let other = AccountId::generate();
+    let other = new_account_id();
     assert_eq!(
         pgp::secret_key(&secrets, other, mine.fingerprint()).unwrap(),
         mine
     );
-    pgp::forget_secret_key(&secrets, ACCOUNT, mine.fingerprint()).unwrap();
-    assert!(pgp::secret_key(&secrets, ACCOUNT, mine.fingerprint()).is_err());
+    pgp::forget_secret_key(&secrets, acct_account(), mine.fingerprint()).unwrap();
+    assert!(pgp::secret_key(&secrets, acct_account(), mine.fingerprint()).is_err());
 }
 
 #[test]

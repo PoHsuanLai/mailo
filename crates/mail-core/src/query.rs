@@ -40,7 +40,7 @@ use mail_domain::{DateRange, Filter, LabelId, MailboxRole, ReadState, Star, Text
 /// A name can appear more than once: `UNIQUE (account, name)` is per account, so the same word
 /// on two accounts is two labels, and someone typing it means both.
 pub fn known_labels(store: &mail_store::SqliteStore) -> Vec<(String, LabelId)> {
-    let accounts: Vec<mail_domain::AccountId> = {
+    let accounts: Vec<porter_core::AccountId> = {
         let db = store.connection();
         let Ok(mut stmt) = db.prepare("SELECT id FROM accounts ORDER BY created_at") else {
             return Vec::new();
@@ -50,7 +50,7 @@ pub fn known_labels(store: &mail_store::SqliteStore) -> Vec<(String, LabelId)> {
         };
         rows.filter_map(Result::ok)
             .filter_map(|id| id.parse().ok())
-            .map(mail_domain::AccountId::from_uuid)
+            .map(mail_domain::id::account_id_from_uuid)
             .collect()
     };
     accounts

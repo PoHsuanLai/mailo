@@ -13,11 +13,12 @@
 
 use super::{Asked, Unsaid, describe, each, kept_here, on_account, words};
 use crate::jmap::{Call, Mailboxes};
-use mail_domain::{AccountId, Filter, LabelId, ReadState, Star, TextMatch};
+use mail_domain::{Filter, LabelId, ReadState, Star, TextMatch};
+use porter_core::AccountId;
 use serde_json::{Value, json};
 
 /// What the translation needs to know about the account.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct JmapCtx<'a> {
     pub account: AccountId,
     pub mailboxes: &'a Mailboxes,
@@ -27,7 +28,7 @@ pub struct JmapCtx<'a> {
 
 /// `filter` as an `Email/query` filter for this account, or what of it cannot be asked.
 pub fn translate(filter: &Filter, ctx: &JmapCtx<'_>) -> Result<Asked<Value>, Unsaid> {
-    match on_account(filter, ctx.account) {
+    match on_account(filter, ctx.account.clone()) {
         Filter::Nothing => Ok(Asked::Nothing),
         filter => condition(&filter, ctx).map(Asked::Ask),
     }

@@ -4,9 +4,9 @@
 use super::Inner;
 use mail_domain::folder::{layered, renamed};
 use mail_domain::{
-    AccountId, Folder, FolderContents, FolderWork, LabelId, LabelOrigin, MailboxRef, MessageId,
-    ProtoOp,
+    Folder, FolderContents, FolderWork, LabelId, LabelOrigin, MailboxRef, MessageId, ProtoOp,
 };
+use porter_core::AccountId;
 
 impl Inner {
     pub(super) fn folders_of(&self, account: AccountId) -> Vec<Folder> {
@@ -28,29 +28,31 @@ impl Inner {
                 _ => None,
             })
             .collect();
-        self.accounts.insert(account);
+        self.accounts.insert(account.clone());
         self.folders.retain(|(a, _), _| *a != account);
         for folder in layered(account, listed, &pending) {
             self.folders
-                .insert((folder.account, folder.path.clone()), folder);
+                .insert((folder.account.clone(), folder.path.clone()), folder);
         }
     }
 
     pub(super) fn upsert_folder(&mut self, folder: &Folder) {
-        self.accounts.insert(folder.account);
-        self.folders
-            .insert((folder.account, folder.path.clone()), folder.clone());
+        self.accounts.insert(folder.account.clone());
+        self.folders.insert(
+            (folder.account.clone(), folder.path.clone()),
+            folder.clone(),
+        );
     }
 
     pub(super) fn remove_folder(&mut self, mailbox: &MailboxRef) {
         self.folders
-            .remove(&(mailbox.account, mailbox.path.clone()));
+            .remove(&(mailbox.account.clone(), mailbox.path.clone()));
     }
 
     /// As `SqliteStore::rename_folder`: the folders, the server addresses, the cursors and the
     /// server's labels.
     pub(super) fn rename_folder(&mut self, from: &MailboxRef, to: &str, delimiter: Option<char>) {
-        let account = from.account;
+        let account = from.account.clone();
         let rename = |path: &str| renamed(path, &from.path, to, delimiter);
 
         let moved: Vec<((AccountId, String), Folder)> = self
@@ -67,7 +69,7 @@ impl Inner {
         for (old, folder) in moved {
             self.folders.remove(&old);
             self.folders
-                .insert((folder.account, folder.path.clone()), folder);
+                .insert((folder.account.clone(), folder.path.clone()), folder);
         }
 
         for row in self.remotes.iter_mut().filter(|r| r.account == account) {
@@ -75,7 +77,7 @@ impl Inner {
                 row.mailbox = path;
             }
         }
-        self.rename_destroyed(account, &rename);
+        self.rename_destroyed(account.clone(), &rename);
 
         let cursors: Vec<(AccountId, String)> = self
             .sync
@@ -85,7 +87,7 @@ impl Inner {
             .collect();
         for key in cursors {
             if let (Some(cursor), Some(path)) = (self.sync.remove(&key), rename(&key.1)) {
-                self.sync.insert((account, path), cursor);
+                self.sync.insert((account.clone(), path), cursor);
             }
         }
 
@@ -140,12 +142,12 @@ impl Inner {
     /// As `SqliteStore::forget_mailbox`.
     pub(super) fn forget_mailbox(&mut self, account: AccountId, path: &str) {
         let held = self.contents(&MailboxRef {
-            account,
+            account: account.clone(),
             path: path.to_owned(),
         });
         self.remotes
             .retain(|r| !(r.account == account && r.mailbox == path));
-        self.sync.remove(&(account, path.to_owned()));
+        self.sync.remove(&(account.clone(), path.to_owned()));
         self.forget_destroyed_in(account, path);
         for message in held.mapped {
             if !self.remotes.iter().any(|r| r.message == message) {

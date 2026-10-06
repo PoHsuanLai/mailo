@@ -106,14 +106,17 @@ mod tests {
     use super::*;
     use mail_core::fetch::Pause;
     use mail_core::sync::report::{Counts, Trouble};
-    use mail_domain::{AccountId, Retry};
+    use mail_domain::Retry;
+    use mail_domain::id::account_id_from_uuid;
+    use porter_core::AccountId;
 
-    const ACCOUNT: AccountId =
-        AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000f1"));
+    fn acct_account() -> AccountId {
+        account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000f1"))
+    }
 
     fn finished(counts: Counts, trouble: Vec<Trouble>) -> PassEnd {
         PassEnd::Finished(AccountReport {
-            account: ACCOUNT,
+            account: acct_account(),
             address: "ada@example.test".to_owned(),
             counts,
             trouble,
@@ -156,7 +159,7 @@ mod tests {
     #[test]
     fn a_failed_account_reads_as_address_and_reason() {
         let end = PassEnd::Failed {
-            account: ACCOUNT,
+            account: acct_account(),
             address: "ada@example.test".to_owned(),
             retry: Retry::NeedsReauth,
             why: "not signed in".to_owned(),
@@ -168,7 +171,7 @@ mod tests {
     #[test]
     fn a_run_reads_as_each_account_in_turn() {
         let failed = PassEnd::Failed {
-            account: ACCOUNT,
+            account: acct_account(),
             address: "bob@example.test".to_owned(),
             retry: Retry::Now,
             why: "cannot connect".to_owned(),
@@ -194,7 +197,7 @@ mod tests {
     #[test]
     fn a_watch_says_what_it_did_in_the_words_of_a_sync() {
         let failed = Watched::Pass(PassEnd::Failed {
-            account: ACCOUNT,
+            account: acct_account(),
             address: "ada@example.test".to_owned(),
             retry: Retry::Now,
             why: "cannot connect".to_owned(),
@@ -224,7 +227,7 @@ mod tests {
              0 sent\n"
         );
         let failed = PassEnd::Failed {
-            account: ACCOUNT,
+            account: acct_account(),
             address: "ada@example.test".to_owned(),
             retry: Retry::NeedsReauth,
             why: "not signed in".to_owned(),

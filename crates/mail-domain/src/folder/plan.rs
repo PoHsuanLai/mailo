@@ -5,10 +5,11 @@ use super::{
 };
 use crate::account::{AccountCaps, Incoming, ServerLabels};
 use crate::content::Label;
-use crate::id::{AccountId, ChangeId, LabelId, MessageId};
+use crate::id::{ChangeId, LabelId, MessageId};
 use crate::op::{Applied, Change, Patch, RemoteIntent};
 use crate::remote::MailboxRef;
 use crate::state::{LabelOrigin, Membership};
+use porter_core::AccountId;
 
 /// What this client holds in one folder, for deciding whether deleting it loses mail.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -30,7 +31,7 @@ impl FolderContents {
 }
 
 /// Everything [`plan`] reads. Gathered by the caller, which is the one holding a store.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct FolderCtx<'a> {
     pub account: AccountId,
     pub incoming: &'a Incoming,
@@ -87,7 +88,7 @@ fn create(path: &str, ctx: &FolderCtx<'_>) -> Result<Changes, FolderError> {
     if ctx.folders.iter().any(|f| same(&f.path, path)) || is_inbox(path) {
         return Err(FolderError::Exists(path.to_owned()));
     }
-    let folder = created(ctx.account, path, ctx.folders);
+    let folder = created(ctx.account.clone(), path, ctx.folders);
     let mut forward = vec![Change::FolderUpsert(folder)];
     let mut inverse = vec![Change::FolderRemove(mailbox(ctx, path))];
     // A label to file mail under straight away, where mailboxes are labels. Not when one of
@@ -95,7 +96,7 @@ fn create(path: &str, ctx: &FolderCtx<'_>) -> Result<Changes, FolderError> {
     if labels_are_mailboxes(ctx) && label_named(ctx, path).is_none() {
         let label = Label {
             id: LabelId::generate(),
-            account: ctx.account,
+            account: ctx.account.clone(),
             name: path.to_owned(),
             color: None,
             origin: LabelOrigin::Provider,
@@ -228,7 +229,7 @@ fn label_named<'a>(ctx: &FolderCtx<'a>, name: &str) -> Option<&'a Label> {
 
 fn mailbox(ctx: &FolderCtx<'_>, path: &str) -> MailboxRef {
     MailboxRef {
-        account: ctx.account,
+        account: ctx.account.clone(),
         path: path.to_owned(),
     }
 }

@@ -23,6 +23,7 @@ use ds::root::common::Common;
 use mail_domain::Label;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 use std::sync::Arc;
 
 /// One folder a conversation can be moved to.
@@ -55,7 +56,7 @@ pub(in crate::ui) fn folder_label(
     account: AccountId,
     path: &str,
 ) -> Result<LabelId, String> {
-    let labels = store.labels(account).map_err(|e| e.to_string())?;
+    let labels = store.labels(account.clone()).map_err(|e| e.to_string())?;
     if let Some(label) = labels
         .iter()
         .find(|l| l.origin == LabelOrigin::Provider && l.name == path)
@@ -64,7 +65,7 @@ pub(in crate::ui) fn folder_label(
     }
     let label = Label {
         id: LabelId::generate(),
-        account,
+        account: account.clone(),
         name: path.to_owned(),
         color: None,
         origin: LabelOrigin::Provider,
@@ -101,12 +102,12 @@ pub(in crate::ui) fn file_all_into(
     let ours: Vec<ThreadId> = threads
         .iter()
         .copied()
-        .filter(|thread| account_of(store, *thread) == Some(folder.account))
+        .filter(|thread| account_of(store, *thread) == Some(folder.account.clone()))
         .collect();
     if ours.is_empty() {
         return 0;
     }
-    match folder_label(store, folder.account, &folder.path) {
+    match folder_label(store, folder.account.clone(), &folder.path) {
         Ok(label) => {
             let ops = ours
                 .into_iter()
@@ -184,7 +185,9 @@ pub(in crate::ui) fn MoveMenu(
 ) -> Element {
     let store = consume_context::<Arc<SqliteStore>>();
     let account = account_of(&store, thread);
-    let found = account.map_or_else(Vec::new, |a| destinations(&store, a));
+    let found = account
+        .clone()
+        .map_or_else(Vec::new, |a| destinations(&store, a));
     let mut query = use_signal(String::new);
     let shown = narrowed(&items(&found), &query());
     rsx! {
@@ -201,7 +204,7 @@ pub(in crate::ui) fn MoveMenu(
             },
             oninput: move |text: String| query.set(text),
             onpick: move |path: String| {
-                let Some(account) = account else { return };
+                let Some(account) = account.clone() else { return };
                 let store = consume_context::<Arc<SqliteStore>>();
                 let folder = MailboxRef { account, path };
                 on_close.call(());

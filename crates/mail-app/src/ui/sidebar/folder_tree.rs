@@ -7,8 +7,9 @@
 use crate::ui::view::Shell;
 use mail_domain::folder::delimiter_of;
 use mail_domain::{
-    AccountId, Folder, Holds, Label, LabelId, LabelOrigin, MailboxRef, ServerLabels, Subscription,
+    Folder, Holds, Label, LabelId, LabelOrigin, MailboxRef, ServerLabels, Subscription,
 };
+use porter_core::AccountId;
 
 /// Whether folders the user does not follow are drawn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -86,7 +87,7 @@ pub(in crate::ui) struct Tree {
 
 /// The accounts the section is for: the pressed tile, or the Space's.
 pub(in crate::ui) fn scope(shell: &Shell) -> crate::ui::space::Scope {
-    shell.scope.narrowed(shell.account)
+    shell.scope.narrowed(shell.account.clone())
 }
 
 /// Lay out the section, or `None` when nothing in scope has folders to show.
@@ -128,7 +129,7 @@ pub(in crate::ui) fn arrange(accounts: &[AccountFolders], show: Show) -> Option<
             .collect();
         hidden += own.len() - shown.len();
         trees.push(Tree {
-            account: one.account,
+            account: one.account.clone(),
             address: one.address.clone(),
             delimiter: delimiter_of(folders),
             nodes: prune(tree(&shown, &label_of)),
@@ -166,7 +167,7 @@ pub(in crate::ui) fn placed(accounts: &[AccountFolders]) -> Vec<(String, Mailbox
                         (
                             leaf_of(f),
                             MailboxRef {
-                                account: one.account,
+                                account: one.account.clone(),
                                 path: f.path.clone(),
                             },
                         )

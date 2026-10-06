@@ -8,15 +8,19 @@
 mod common;
 
 use common::replay;
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_proto::backend::{Authenticate, ImapBackend};
 use mail_proto::{
     Backend, ImapAuth, ImapCommand, ImapSession, IoReady, Machine, Progress, ProtoError,
     ProtoOutcome, Refusal,
 };
+use porter_core::SecretText;
+use porter_core::{AccountId, Credential};
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 
 fn caps(labels: ServerLabels) -> AccountCaps {
     AccountCaps {
@@ -38,7 +42,7 @@ fn caps(labels: ServerLabels) -> AccountCaps {
 /// A password account, which is what every server but Gmail gets.
 fn backend(labels: ServerLabels) -> ImapBackend {
     ImapBackend::new(
-        ACCOUNT,
+        acct_account(),
         caps(labels),
         Box::new(|auth: Authenticate, commands: Vec<ImapCommand>| {
             let mut all = Vec::new();
@@ -49,7 +53,7 @@ fn backend(labels: ServerLabels) -> ImapBackend {
             ImapSession::new(
                 ImapAuth {
                     username: "ada@example.test".to_owned(),
-                    credential: Credential::Password("hunter2".to_owned()),
+                    credential: Credential::Password(SecretText::new("hunter2".to_owned())),
                     sasl: vec![SaslMech::Plain],
                 },
                 all,

@@ -5,8 +5,8 @@ use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
 use mail_core::fetch::{Event, FolderFetch};
 use mail_core::sync::report::{Hooks, PassEnd, Progress, outcome};
-use mail_domain::AccountId;
 use mail_store::SqliteStore;
+use porter_core::AccountId;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
@@ -104,7 +104,7 @@ const POLITE: Duration = Duration::from_millis(200);
 /// Waits for a folder of the same account that is being fetched, because the two write the same
 /// rows.
 pub(super) async fn run(mut running: Running) {
-    while folder_in_flight(&running.folders.peek(), running.account) {
+    while folder_in_flight(&running.folders.peek(), running.account.clone()) {
         tokio::time::sleep(POLITE).await;
     }
     let (ptx, mut prx) = tokio::sync::mpsc::unbounded_channel::<Progress>();
@@ -114,6 +114,7 @@ pub(super) async fn run(mut running: Running) {
         running.passer.clone(),
         running.cancel.subscribe(),
     );
+    let this_account = account.clone();
     let blocking = async move {
         // `spawn_blocking`, not this task: a pass opens sockets and builds a runtime of its own,
         // and `Runtime::block_on` inside an async context panics.
@@ -123,10 +124,10 @@ pub(super) async fn run(mut running: Running) {
             };
             let hooks = Hooks {
                 progress: Some(&progress),
-                cancel: BTreeMap::from([(account, cancel)]),
+                cancel: BTreeMap::from([(this_account.clone(), cancel)]),
                 ..Hooks::default()
             };
-            (passer.0)(store, started, account, hooks)
+            (passer.0)(store, started, this_account, hooks)
         })
         .await;
         done.unwrap_or_else(|e| Err(format!("the sync pass stopped: {e}")))
@@ -135,15 +136,15 @@ pub(super) async fn run(mut running: Running) {
     let forward = async {
         // Ends when the pass drops its sender, which is when it has said everything.
         while let Some(progress) = prx.recv().await {
-            if generations.current(account, generation) {
-                let _ = tx.send(Note::Event(account, progress.event()));
+            if generations.current(account.clone(), generation) {
+                let _ = tx.send(Note::Event(account.clone(), progress.event()));
             }
         }
     };
     let (done, ()) = futures_util::future::join(blocking, forward).await;
     let stored = may_have_stored(&done);
-    let event: Event = outcome(done, account);
-    if generations.current(account, generation) {
+    let event: Event = outcome(done, account.clone());
+    if generations.current(account.clone(), generation) {
         let _ = tx.send(Note::Event(account, event));
     }
     // What a pass stored is what the list reads, cancelled or not. A pass that stored nothing

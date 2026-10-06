@@ -64,7 +64,7 @@ fn rubbish_is_an_error_rather_than_a_panic() {
 fn a_subscription_and_what_it_hears_survive_the_round_trip() {
     let text = wire::line(Request::Subscribe).unwrap();
     assert_eq!(wire::parse::<Request>(&text).unwrap(), Request::Subscribe);
-    let account = mail_domain::AccountId::generate();
+    let account = mail_domain::id::new_account_id();
     for said in [Response::Subscribed, Response::Changed { account }] {
         let text = wire::line(said.clone()).unwrap();
         assert_eq!(wire::parse::<Response>(&text).unwrap(), said);
@@ -132,11 +132,11 @@ fn a_watch_tells_whoever_subscribed_of_each_pass_in_order() {
     assert_eq!(watching.listeners(), 2);
 
     let (a, b) = (
-        mail_domain::AccountId::generate(),
-        mail_domain::AccountId::generate(),
+        mail_domain::id::new_account_id(),
+        mail_domain::id::new_account_id(),
     );
-    watching.changed(a);
-    watching.changed(b);
+    watching.changed(a.clone());
+    watching.changed(b.clone());
     for changes in [&mut first, &mut second] {
         assert_eq!(changes.wait().unwrap(), a);
         assert_eq!(changes.wait().unwrap(), b);
@@ -146,13 +146,13 @@ fn a_watch_tells_whoever_subscribed_of_each_pass_in_order() {
     drop(first);
     assert!(
         until(|| {
-            watching.changed(a);
+            watching.changed(a.clone());
             watching.listeners() == 1
         }),
         "a listener that left was kept"
     );
     // The one that stayed heard all of those, and goes on hearing.
-    watching.changed(b);
+    watching.changed(b.clone());
     assert!(
         std::iter::from_fn(|| second.wait().ok())
             .take(10_000)

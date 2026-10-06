@@ -36,16 +36,16 @@ mod sync;
 
 pub use client::{Auth, Client, find_session, safe_url};
 
-use crate::{RuntimeError, Secrets, SyncReport};
+use crate::{AccountSecrets, RuntimeError, SyncReport};
 use chrono::{DateTime, Utc};
 use mail_domain::{
-    AccountCaps, AccountId, AccountPlan, ArchiveMeans, Condstore, ConnectionBudget, Credential,
-    ExpungeMeans, HttpAuth, Incoming, JMAP_ALL, MailboxRef, MailboxRole, MoveExt, RemoteRef, Retry,
-    Retryable, SecretKey, SecretPurpose, ServerLabels, ServerThreads, Supported, SyncCursor,
-    WatchMode,
+    AccountCaps, AccountPlan, ArchiveMeans, Condstore, ConnectionBudget, ExpungeMeans, HttpAuth,
+    Incoming, JMAP_ALL, MailboxRef, MailboxRole, MoveExt, RemoteRef, Retry, Retryable,
+    ServerLabels, ServerThreads, Supported, SyncCursor, WatchMode,
 };
 use mail_proto::jmap::{Identity, Mailboxes};
 use mail_store::{SqliteStore, Store};
+use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -68,7 +68,7 @@ pub struct JmapEngine {
     account: AccountId,
     plan: AccountPlan,
     store: Arc<SqliteStore>,
-    secrets: Arc<dyn Secrets>,
+    secrets: Arc<dyn AccountSecrets>,
     http: reqwest::Client,
     /// The session, once fetched. Dropped when the server refuses the credential or says the
     /// session changed, so the next use fetches it again.
@@ -94,7 +94,7 @@ impl JmapEngine {
         account: AccountId,
         plan: AccountPlan,
         store: Arc<SqliteStore>,
-        secrets: Arc<dyn Secrets>,
+        secrets: Arc<dyn AccountSecrets>,
     ) -> Result<Self, RuntimeError> {
         Ok(Self {
             account,
@@ -112,7 +112,7 @@ impl JmapEngine {
     /// The one mailbox every address of this account is held under.
     pub fn mailbox(&self) -> MailboxRef {
         MailboxRef {
-            account: self.account,
+            account: self.account.clone(),
             path: JMAP_ALL.to_owned(),
         }
     }
@@ -126,24 +126,28 @@ impl JmapEngine {
     }
 
     /// The credential, as the header the plan says it travels in.
-    fn auth(&self) -> Result<Auth, RuntimeError> {
+    async fn auth(&self) -> Result<Auth, RuntimeError> {
         let (_, how) = self.session_url()?;
-        let credential = self.secrets.get(&SecretKey {
-            account: self.account,
-            purpose: SecretPurpose::IncomingPassword,
-        })?;
+        let credential = self
+            .secrets
+            .get(&SecretKey {
+                account: self.account.clone(),
+                purpose: SecretPurpose::IncomingPassword,
+            })
+            .await?;
         Ok(match (credential, how) {
             (Credential::Password(password), HttpAuth::Basic) => Auth::Basic {
                 username: self.plan.username(),
-                password,
+                password: password.expose().to_owned(),
             },
-            (Credential::Password(token), HttpAuth::Bearer) => Auth::Bearer(token),
-            (Credential::OAuth { access, .. }, _) => Auth::Bearer(access),
-            // A key kept for signing or decrypting is not a sign-in, and is never sent.
-            (Credential::OpenPgp(_) | Credential::SmimeKey(_), _) => {
+            (Credential::Password(token), HttpAuth::Bearer) => {
+                Auth::Bearer(token.expose().to_owned())
+            }
+            (Credential::OAuth { access, .. }, _) => Auth::Bearer(access.expose().to_owned()),
+            // Not a sign-in: an API key or key pair is never kept under this purpose.
+            (Credential::ApiKey(_) | Credential::KeyPair { .. }, _) => {
                 return Err(RuntimeError::Secrets(
-                    "the credential kept for this account is a key, not a password or token"
-                        .to_owned(),
+                    "the credential kept for this account is not a password or token".to_owned(),
                 ));
             }
         })
@@ -154,7 +158,7 @@ impl JmapEngine {
         if self.client.is_none() {
             let (url, _) = self.session_url()?;
             let url = url.to_owned();
-            let client = Client::connect(&self.http, &url, self.auth()?).await?;
+            let client = Client::connect(&self.http, &url, self.auth().await?).await?;
             self.client = Some(client);
         }
         self.client

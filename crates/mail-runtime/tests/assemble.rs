@@ -6,12 +6,15 @@
 //! bytes.
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_runtime::{Arrival, absorb};
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 
 fn now() -> DateTime<Utc> {
     Utc.timestamp_opt(1_700_000_000, 0).unwrap()
@@ -25,7 +28,7 @@ fn store() -> (SqliteStore, tempfile::TempDir) {
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [ACCOUNT.to_string()],
+            [acct_account().to_string()],
         )
         .unwrap();
     (store, dir)
@@ -33,7 +36,7 @@ fn store() -> (SqliteStore, tempfile::TempDir) {
 
 fn mailbox() -> MailboxRef {
     MailboxRef {
-        account: ACCOUNT,
+        account: acct_account(),
         path: "INBOX".to_owned(),
     }
 }
@@ -73,7 +76,7 @@ fn a_whole_message_becomes_something_listable_and_searchable() {
                Shall we say one o'clock?\n";
     absorb(
         &store,
-        ACCOUNT,
+        acct_account(),
         mailbox(),
         Some(SyncCursor::Pop),
         vec![pop("0000000166aaf64b", raw)],
@@ -107,7 +110,7 @@ fn a_message_fetched_twice_is_stored_once() {
     for _ in 0..2 {
         absorb(
             &store,
-            ACCOUNT,
+            acct_account(),
             mailbox(),
             Some(SyncCursor::Pop),
             vec![pop("uidl-1", raw)],
@@ -136,7 +139,7 @@ fn a_reply_joins_the_thread_it_answers_even_across_syncs() {
     // them is what `existing` in the threading call is for.
     absorb(
         &store,
-        ACCOUNT,
+        acct_account(),
         mailbox(),
         Some(SyncCursor::Pop),
         vec![pop("u1", first)],
@@ -146,7 +149,7 @@ fn a_reply_joins_the_thread_it_answers_even_across_syncs() {
     .unwrap();
     absorb(
         &store,
-        ACCOUNT,
+        acct_account(),
         mailbox(),
         Some(SyncCursor::Pop),
         vec![pop("u2", reply)],
@@ -176,7 +179,7 @@ fn malformed_headers_are_recorded_rather_than_rejected() {
 
     absorb(
         &store,
-        ACCOUNT,
+        acct_account(),
         mailbox(),
         Some(SyncCursor::Pop),
         vec![
@@ -217,7 +220,7 @@ fn messages_with_no_message_id_stay_distinct() {
     let raw = "From: a@example.test\nSubject: identical\n\nbody\n";
     absorb(
         &store,
-        ACCOUNT,
+        acct_account(),
         mailbox(),
         Some(SyncCursor::Pop),
         vec![pop("uidl-a", raw), pop("uidl-b", raw)],
@@ -241,7 +244,7 @@ fn a_headers_only_pass_is_listable_without_a_body() {
         "From: a@example.test\nSubject: headers first\nMessage-ID: <h@example.test>\n\nbody\n";
     absorb(
         &store,
-        ACCOUNT,
+        acct_account(),
         mailbox(),
         Some(SyncCursor::Pop),
         vec![pop("u1", raw)],
@@ -262,7 +265,7 @@ fn a_headers_only_pass_is_listable_without_a_body() {
     );
 
     // And it is exactly the work `Store::unfetched` will find on the next pass.
-    assert_eq!(store.unfetched(ACCOUNT, 10).unwrap().len(), 1);
+    assert_eq!(store.unfetched(acct_account(), 10).unwrap().len(), 1);
 }
 
 /// One unparseable message must not stop the rest of a maildrop arriving.
@@ -272,7 +275,7 @@ fn bytes_that_are_not_a_message_are_skipped_not_fatal() {
     let good = "From: a@example.test\nSubject: fine\nMessage-ID: <g@example.test>\n\nbody\n";
     absorb(
         &store,
-        ACCOUNT,
+        acct_account(),
         mailbox(),
         Some(SyncCursor::Pop),
         vec![

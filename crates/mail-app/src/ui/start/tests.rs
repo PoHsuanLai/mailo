@@ -110,10 +110,15 @@ fn a_lone_mailto_link_is_the_windows_and_anything_else_is_not() {
 fn a_window_started_from_a_mailto_link_opens_the_composer_on_its_draft() {
     let (store, _dir) = realistic();
     let accounts = mail_core::compose::sending_accounts(&store);
-    let Some(account) = accounts.first().map(|(_, id)| *id) else {
+    let Some(account) = accounts.first().map(|(_, id)| id.clone()) else {
         panic!("the fixture has no sending account");
     };
-    let drafts = || store.drafts(account).map(|d| d.len()).unwrap_or_default();
+    let drafts = || {
+        store
+            .drafts(account.clone())
+            .map(|d| d.len())
+            .unwrap_or_default()
+    };
     let drafts_before = drafts();
 
     let Some(link) = mailto_of(&args(&[

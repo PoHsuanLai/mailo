@@ -20,7 +20,7 @@
 
 use super::changes::{self, Answer, Subscribers};
 use super::wire::{Request, Response};
-use mail_domain::AccountId;
+use porter_core::AccountId;
 
 /// The name the watch's lock and door live under, beside the daemon's.
 const NAME: &str = "mailo-watch";
