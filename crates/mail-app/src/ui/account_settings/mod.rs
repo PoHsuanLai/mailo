@@ -23,7 +23,7 @@ use ds::components::fields::field_row::{FieldGroup, FieldRow};
 use ds::components::overlays::sheet_attach::Attach;
 use ds::prelude::*;
 use ds::root::common::Common;
-use mail_runtime::Secrets;
+use mail_runtime::AccountSecrets;
 use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
 use std::sync::Arc;
@@ -38,19 +38,22 @@ const ASK: &str = "Remove Account\u{2026}";
 /// own and never the user's.
 #[derive(Clone)]
 pub(in crate::ui) struct Seams {
-    pub secrets: Arc<dyn Secrets>,
+    pub secrets: Arc<dyn AccountSecrets>,
 }
 
 impl Seams {
     /// The system keyring. In this crate's tests, an empty keyring of its own.
+    #[cfg(test)]
     fn real() -> Seams {
-        if cfg!(test) {
-            return Seams {
-                secrets: Arc::new(mail_runtime::MapSecrets::default()),
-            };
-        }
         Seams {
-            secrets: Arc::new(mail_runtime::KeyringSecrets),
+            secrets: Arc::new(porter_secrets::MemorySecrets::default()),
+        }
+    }
+
+    #[cfg(not(test))]
+    fn real() -> Seams {
+        Seams {
+            secrets: mail_runtime::platform_secrets(),
         }
     }
 }
@@ -109,22 +112,17 @@ fn confirm(shell: Signal<Shell>, mut revision: Signal<u64>) {
     let seams = seams();
     let dirs = try_consume_context::<WindowDirs>();
     let removing = account.clone();
+    // The secrets are forgotten through porter's async trait, which does its work on a runtime
+    // of its own (`mail_runtime::account_secrets`), so this task awaits it as it is; the
+    // database half is quick and the store's own.
     spawn(async move {
-        let done = tokio::task::spawn_blocking(move || {
-            mail_core::account::remove(&store, seams.secrets.as_ref(), removing)
-        })
-        .await;
-        match done {
-            Ok(Ok(_)) => {
+        match mail_core::account::remove(&store, seams.secrets.as_ref(), removing).await {
+            Ok(_) => {
                 forgotten(dirs.as_ref(), account);
                 revision += 1;
                 close(shell);
             }
-            Ok(Err(error)) => to(shell, AccountStep::Refused(words::refused(&error))),
-            Err(error) => to(
-                shell,
-                AccountStep::Refused(format!("It stopped before it finished: {error}")),
-            ),
+            Err(error) => to(shell, AccountStep::Refused(words::refused(&error))),
         }
     });
 }

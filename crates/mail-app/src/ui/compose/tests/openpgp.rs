@@ -1,7 +1,7 @@
 //! OpenPGP from the composer: the row writes the draft, what stands in the way is said in the
 //! warning bar before anything is queued, and a locked key is asked for there.
 
-use mail_runtime::MapSecrets;
+use mail_runtime::MapSigningStore;
 use mail_store::Store;
 use rand::SeedableRng;
 
@@ -48,7 +48,7 @@ fn asking(store: &SqliteStore, openpgp: OpenPgp) -> Draft {
 }
 
 /// The page for `draft`, with `secrets` as the window's keyring.
-fn window(store: Arc<SqliteStore>, draft: Draft, secrets: Arc<MapSecrets>) -> (Window, Seen) {
+fn window(store: Arc<SqliteStore>, draft: Draft, secrets: Arc<MapSigningStore>) -> (Window, Seen) {
     window_with(store, draft, crate::ui::pgp::tests::seams_with(secrets))
 }
 
@@ -155,7 +155,7 @@ async fn the_row_is_drawn_and_its_choice_saved() {
 #[tokio::test]
 async fn no_key_for_a_recipient_names_them_and_holds_the_send_until_a_choice() {
     let (store, _dir) = seeded();
-    let secrets = Arc::new(MapSecrets::default());
+    let secrets = Arc::new(MapSigningStore::default());
     mail_core::pgp::keys::generate(&store, secrets.as_ref(), "me@example.test", Utc::now())
         .unwrap();
     let draft = asking(&store, OpenPgp::Encrypt);
@@ -213,7 +213,7 @@ async fn no_key_for_a_recipient_names_them_and_holds_the_send_until_a_choice() {
 #[tokio::test]
 async fn a_key_found_by_looking_up_clears_the_bar_and_the_send_goes_encrypted() {
     let (store, _dir) = seeded();
-    let secrets = Arc::new(MapSecrets::default());
+    let secrets = Arc::new(MapSigningStore::default());
     mail_core::pgp::keys::generate(&store, secrets.as_ref(), "me@example.test", Utc::now())
         .unwrap();
     let dana = crate::ui::pgp::tests::someone_elses("dana@example.test", 91);
@@ -227,7 +227,7 @@ async fn a_key_found_by_looking_up_clears_the_bar_and_the_send_goes_encrypted() 
             asked.lock().unwrap().push(address.to_owned());
             let found = mail_core::pgp::keys::import(
                 store,
-                &MapSecrets::default(),
+                &MapSigningStore::default(),
                 armored.as_bytes(),
                 Utc::now(),
             )
@@ -282,7 +282,7 @@ async fn no_key_of_ones_own_offers_to_make_one() {
 #[tokio::test]
 async fn a_locked_key_is_asked_for_in_the_bar_and_a_wrong_passphrase_said() {
     let (store, _dir) = seeded();
-    let secrets = Arc::new(MapSecrets::default());
+    let secrets = Arc::new(MapSigningStore::default());
     let passphrase = "kestrel over the hill";
     let key = mail_mime::openpgp::generate(
         "Me <me@example.test>",
@@ -364,7 +364,7 @@ async fn a_locked_key_is_asked_for_in_the_bar_and_a_wrong_passphrase_said() {
 async fn every_class_of_the_bar_and_row_is_styled() {
     let (store, _dir) = seeded();
     let draft = asking(&store, OpenPgp::Encrypt);
-    let secrets = Arc::new(MapSecrets::default());
+    let secrets = Arc::new(MapSigningStore::default());
     mail_core::pgp::keys::generate(&store, secrets.as_ref(), "me@example.test", Utc::now())
         .unwrap();
     let (mut window, seen) = window(store, draft, secrets);
@@ -388,7 +388,7 @@ async fn every_class_of_the_bar_and_row_is_styled() {
 #[ignore = "writes target/shots/openpgp-composer.html for a person or a headless browser to look at"]
 async fn render_the_composer_bar_to_a_file() {
     let (store, _dir) = seeded();
-    let secrets = Arc::new(MapSecrets::default());
+    let secrets = Arc::new(MapSigningStore::default());
     mail_core::pgp::keys::generate(&store, secrets.as_ref(), "me@example.test", Utc::now())
         .unwrap();
     let mut body = String::new();

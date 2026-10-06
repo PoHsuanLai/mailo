@@ -10,10 +10,11 @@ use mail_domain::*;
 use mail_mime::posting;
 use mail_proto::{Backend, IoNeed, IoReady, Progress, ProtoOutcome};
 use mail_runtime::engine::Schedule;
-use mail_runtime::{AccountEngine, MapSecrets, Secrets, Woke};
+use mail_runtime::{AccountEngine, AccountSecrets, Woke};
 use mail_store::{SqliteStore, Store};
 use porter_core::SecretText;
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
+use porter_secrets::MemorySecrets;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -189,16 +190,15 @@ async fn fixture(watch: WatchMode) -> Fixture {
         )
         .unwrap();
     }
-    let secrets = MapSecrets::default();
-    secrets
-        .put(
-            &SecretKey {
-                account: acct_account(),
-                purpose: SecretPurpose::IncomingPassword,
-            },
-            &Credential::Password(SecretText::new("s3cr3t".to_owned())),
-        )
-        .unwrap();
+    let secrets = MemorySecrets::default();
+    mail_runtime::block_on(secrets.put(
+        &SecretKey {
+            account: acct_account(),
+            purpose: SecretPurpose::IncomingPassword,
+        },
+        &Credential::Password(SecretText::new("s3cr3t".to_owned())),
+    ))
+    .unwrap();
     let (smtp_port, delivered) = smtp().await;
     let plan = AccountPlan {
         address: "me@example.test".to_owned(),

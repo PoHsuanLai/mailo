@@ -12,7 +12,7 @@ use chrono::{DateTime, Utc};
 use mail_domain::*;
 use mail_mime::Parsed;
 use mail_mime::smime::{self, Cert, Identity, Keys};
-use mail_runtime::Secrets;
+use mail_runtime::SigningStore;
 use mail_store::{SqliteStore, Store};
 use std::sync::Mutex;
 
@@ -78,7 +78,7 @@ fn keep(raw: BlobId, protected: &Protected) {
 /// The signer's certificate is kept for the sender's address when the signature proves it.
 pub fn open_message(
     store: &SqliteStore,
-    secrets: &dyn Secrets,
+    secrets: &dyn SigningStore,
     message: &Message,
     now: DateTime<Utc>,
 ) -> Result<Option<Protected>, SmimeError> {
@@ -107,7 +107,7 @@ pub fn open_message(
 /// The same, on bytes the caller already holds. Nothing is cached and nothing is learnt.
 pub fn open_bytes(
     store: &SqliteStore,
-    secrets: &dyn Secrets,
+    secrets: &dyn SigningStore,
     raw: &[u8],
     now: DateTime<Utc>,
 ) -> Result<Option<Protected>, SmimeError> {
@@ -116,7 +116,7 @@ pub fn open_bytes(
 
 fn opened(
     store: &SqliteStore,
-    secrets: &dyn Secrets,
+    secrets: &dyn SigningStore,
     raw: &[u8],
     now: DateTime<Utc>,
 ) -> Result<Option<(Protected, smime::Opened)>, SmimeError> {
@@ -181,7 +181,7 @@ fn opened(
 /// for a message not encrypted, or not to the user; the keyring is not touched then.
 fn identities_for(
     store: &SqliteStore,
-    secrets: &dyn Secrets,
+    secrets: &dyn SigningStore,
     raw: &[u8],
 ) -> Result<Vec<Identity>, SmimeError> {
     let Some(to) = smime::recipients(raw) else {

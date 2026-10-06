@@ -2,7 +2,7 @@
 //! both protections, what `smime::check` says stands in the way is said in the warning bar, and
 //! a locked OpenPGP key is known by the send's typed error.
 
-use mail_runtime::MapSecrets;
+use mail_runtime::MapSigningStore;
 use mail_store::Store;
 use rand::SeedableRng;
 
@@ -43,7 +43,7 @@ fn asking(store: &SqliteStore, openpgp: OpenPgp, smime: Smime) -> Draft {
     draft
 }
 
-fn window(store: Arc<SqliteStore>, draft: Draft, secrets: Arc<MapSecrets>) -> (Window, Seen) {
+fn window(store: Arc<SqliteStore>, draft: Draft, secrets: Arc<MapSigningStore>) -> (Window, Seen) {
     crate::ui::fixtures::dispatching();
     let mut dom = VirtualDom::new_with_props(PageHarness, PageHarnessProps { draft })
         .with_root_context(store)
@@ -165,7 +165,7 @@ async fn the_row_offers_both_schemes_in_one_menu_and_saves_the_choice() {
 #[tokio::test]
 async fn what_smime_check_says_stands_in_the_way_is_said_in_the_bar() {
     let (store, _dir) = seeded();
-    let secrets = Arc::new(MapSecrets::default());
+    let secrets = Arc::new(MapSigningStore::default());
     let draft = asking(&store, OpenPgp::None, Smime::Encrypt);
     let (mut window, seen) = window(store.clone(), draft.clone(), secrets.clone());
 
@@ -223,7 +223,7 @@ async fn what_smime_check_says_stands_in_the_way_is_said_in_the_bar() {
 #[test]
 fn a_locked_openpgp_key_is_known_by_the_sends_typed_error() {
     let (store, _dir) = seeded();
-    let secrets = Arc::new(MapSecrets::default());
+    let secrets = Arc::new(MapSigningStore::default());
     let key = mail_mime::openpgp::generate(
         "Me <me@example.test>",
         Utc::now(),

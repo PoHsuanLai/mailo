@@ -1,6 +1,6 @@
 //! S/MIME from the user's side (`plan.md` 10.16): identities imported and forgotten, drafts sent
 //! signed and encrypted, protected mail opened when it is read — against a real store, with the
-//! keyring a [`MapSecrets`] so the user's own is never touched, and every certificate and key
+//! keyring a [`MapSigningStore`] so the user's own is never touched, and every certificate and key
 //! made by the throwaway authority in `mail-mime/tests/smime_support`.
 
 #[path = "../../mail-mime/tests/smime_support/mod.rs"]
@@ -14,7 +14,7 @@ use mail_domain::id::account_id_from_uuid;
 use mail_domain::signing::{SigningKeyId, SigningKeyRef, SigningSecret};
 use mail_domain::*;
 use mail_mime::smime::{self as cms_smime, Cert, Sealing};
-use mail_runtime::{Arrival, MapSecrets, Secrets};
+use mail_runtime::{Arrival, MapSigningStore, SigningStore};
 use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
 use smime_support::*;
@@ -92,16 +92,16 @@ fn password() -> Option<String> {
 
 /// The user's identity imported from a PKCS#12 file, and the test root trusted, as a user of
 /// this authority would have it.
-fn with_identity() -> (SqliteStore, tempfile::TempDir, MapSecrets) {
+fn with_identity() -> (SqliteStore, tempfile::TempDir, MapSigningStore) {
     let (store, dir) = seeded();
-    let secrets = MapSecrets::default();
+    let secrets = MapSigningStore::default();
     let file = cms_smime::write_pkcs12(&me(), PASSWORD, &mut rng(1)).unwrap();
     smime::certs::import(&store, &secrets, &file, &password, now()).unwrap();
     trust_root(&store, &secrets);
     (store, dir, secrets)
 }
 
-fn trust_root(store: &SqliteStore, secrets: &MapSecrets) {
+fn trust_root(store: &SqliteStore, secrets: &MapSigningStore) {
     smime::certs::import(
         store,
         secrets,
@@ -114,7 +114,7 @@ fn trust_root(store: &SqliteStore, secrets: &MapSecrets) {
 }
 
 /// Bea's certificate, as `mailo smime import` of a certificate file keeps it.
-fn import_bea(store: &SqliteStore, secrets: &MapSecrets) {
+fn import_bea(store: &SqliteStore, secrets: &MapSigningStore) {
     smime::certs::import(store, secrets, bea().cert.pem().as_bytes(), &|| None, now()).unwrap();
 }
 
@@ -162,7 +162,7 @@ fn frozen(store: &SqliteStore) -> Vec<u8> {
     store.blobs().get(&store.connection(), *raw).unwrap()
 }
 
-fn send(store: &SqliteStore, secrets: &MapSecrets, draft: DraftId) -> Result<String, String> {
+fn send(store: &SqliteStore, secrets: &MapSigningStore, draft: DraftId) -> Result<String, String> {
     compose::send_with(store, secrets, &mail_core::pgp::no_passphrase, draft, now())
         .map_err(|e| e.to_string())
 }
@@ -214,7 +214,7 @@ mod identities {
     fn an_imported_identity_keeps_its_key_in_the_keyring_and_its_certificate_in_the_store() {
         let _serial = serial();
         let (store, _dir) = seeded();
-        let secrets = MapSecrets::default();
+        let secrets = MapSigningStore::default();
         assert!(store.smime_certs().unwrap().is_empty());
         let file = cms_smime::write_pkcs12(&me(), PASSWORD, &mut rng(1)).unwrap();
         let imported = smime::certs::import(&store, &secrets, &file, &password, now()).unwrap();
@@ -237,7 +237,7 @@ mod identities {
             Some(mine.fingerprint)
         );
         let held = secrets
-            .get_signing(&SigningKeyRef {
+            .get(&SigningKeyRef {
                 account: acct_account(),
                 key: SigningKeyId::Smime(mine.fingerprint),
             })
@@ -259,7 +259,7 @@ mod identities {
         std::fs::create_dir_all(&blobs).unwrap();
         let store = SqliteStore::open(dir.path().join("mail.db"), &blobs).unwrap();
         seed(&store);
-        let secrets = MapSecrets::default();
+        let secrets = MapSigningStore::default();
         let file = cms_smime::write_pkcs12(&me(), PASSWORD, &mut rng(1)).unwrap();
         smime::certs::import(&store, &secrets, &file, &password, now()).unwrap();
         drop(store);
@@ -286,7 +286,7 @@ mod identities {
     fn a_wrong_or_missing_password_and_a_stranger_identity_are_refused() {
         let _serial = serial();
         let (store, _dir) = seeded();
-        let secrets = MapSecrets::default();
+        let secrets = MapSigningStore::default();
         let file = cms_smime::write_pkcs12(&me(), PASSWORD, &mut rng(1)).unwrap();
         let wrong = smime::certs::import(&store, &secrets, &file, &|| Some("no".to_owned()), now())
             .unwrap_err();
@@ -315,10 +315,10 @@ mod identities {
         let refused =
             smime::certs::delete(&store, &secrets, &mine, WithSecret::Refuse).unwrap_err();
         assert!(matches!(refused, smime::SmimeError::SecretWouldBeLost(_)));
-        assert!(secrets.get_signing(&entry).is_ok());
+        assert!(secrets.get(&entry).is_ok());
         smime::certs::delete(&store, &secrets, &mine, WithSecret::Confirmed).unwrap();
         assert!(
-            secrets.get_signing(&entry).is_err(),
+            secrets.get(&entry).is_err(),
             "the key is gone from the keyring"
         );
         assert_eq!(store.smime_cert(mine.fingerprint).unwrap(), None);

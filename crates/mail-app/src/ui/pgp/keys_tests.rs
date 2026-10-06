@@ -10,7 +10,7 @@ use dioxus::prelude::*;
 use dioxus_core::{NoOpMutations, VirtualDom};
 use mail_domain::signing::{SigningKeyId, SigningKeyRef};
 use mail_domain::*;
-use mail_runtime::{MapSecrets, Secrets};
+use mail_runtime::{MapSigningStore, SigningStore};
 use mail_store::{SqliteStore, Store};
 
 use super::keys::{KeysSheet, ordered};
@@ -98,12 +98,12 @@ fn key(fingerprint: u8, secret: SecretHeld) -> PgpKey {
 fn two_keys() -> (
     Arc<SqliteStore>,
     tempfile::TempDir,
-    Arc<MapSecrets>,
+    Arc<MapSigningStore>,
     PgpKey,
     PgpKey,
 ) {
     let (store, dir) = seeded();
-    let secrets = Arc::new(MapSecrets::default());
+    let secrets = Arc::new(MapSigningStore::default());
     let bea = someone_elses("bea@example.test", 71);
     let armored = bea.public().armored().unwrap();
     let theirs = mail_core::pgp::keys::import(
@@ -119,9 +119,9 @@ fn two_keys() -> (
     (store, dir, secrets, mine, theirs)
 }
 
-fn held(secrets: &MapSecrets, key: &PgpKey) -> bool {
+fn held(secrets: &MapSigningStore, key: &PgpKey) -> bool {
     secrets
-        .get_signing(&SigningKeyRef {
+        .get(&SigningKeyRef {
             account: crate::ui::fixtures::acct_account(),
             key: SigningKeyId::OpenPgp(key.fingerprint),
         })
@@ -261,7 +261,7 @@ async fn exporting_the_secret_key_is_asked_again_and_only_then_written() {
 #[tokio::test]
 async fn generate_verify_and_import_go_through_the_keyring_handed_in() {
     let (store, dir) = seeded();
-    let secrets = Arc::new(MapSecrets::default());
+    let secrets = Arc::new(MapSigningStore::default());
     let bea = someone_elses("bea@example.test", 72);
     let file = dir.path().join("bea.asc");
     std::fs::write(&file, bea.public().armored().unwrap()).unwrap();

@@ -6,7 +6,7 @@
 //! rather than a `Clock` trait, per `CONVENTIONS.md` §6.
 
 use crate::renewal::{AfterRefusal, Renewal, Token};
-use crate::{Cancel, RuntimeError, Secrets, Transport, drive};
+use crate::{AccountSecrets, Cancel, RuntimeError, Transport, drive};
 use chrono::{DateTime, Utc};
 use mail_domain::{
     AccountCaps, AccountPlan, BlobId, Condstore, FetchSince, Incoming, MailboxRef, MailboxRole,
@@ -246,7 +246,7 @@ pub struct AccountEngine<B: Backend> {
     account: AccountId,
     backend: B,
     store: Arc<SqliteStore>,
-    secrets: Arc<dyn Secrets>,
+    secrets: Arc<dyn AccountSecrets>,
     schedule: Schedule,
     last: LastRun,
     /// Where [`Outgoing::Graph`] posts. Graph's own address, except under test.
@@ -270,7 +270,7 @@ impl<B: Backend> AccountEngine<B> {
         plan: AccountPlan,
         backend: B,
         store: Arc<SqliteStore>,
-        secrets: Arc<dyn Secrets>,
+        secrets: Arc<dyn AccountSecrets>,
     ) -> Self {
         Self {
             plan,
@@ -500,7 +500,7 @@ impl<B: Backend> AccountEngine<B> {
         op: ProtoOp,
         cancel: &mut Cancel,
     ) -> Result<ProtoOutcome, RuntimeError> {
-        let access = match self.secret(SecretPurpose::OutgoingPassword) {
+        let access = match self.secret(SecretPurpose::OutgoingPassword).await {
             Ok(Credential::OAuth { access, .. }) => access,
             _ => {
                 return Err(RuntimeError::Secrets(format!(
@@ -544,7 +544,7 @@ impl<B: Backend> AccountEngine<B> {
     /// Built per submission rather than held, because it closes over the credential and a
     /// long-lived copy of a password is a copy waiting to be logged. The closure is the only
     /// thing that holds it; `SmtpBackend` itself never sees it.
-    fn submitter(&self) -> Result<SmtpBackend, RuntimeError> {
+    async fn submitter(&self) -> Result<SmtpBackend, RuntimeError> {
         let (host, port, tls) = self.outgoing().ok_or_else(|| {
             RuntimeError::UnsupportedIo("this account does not submit over SMTP".to_owned())
         })?;
@@ -553,9 +553,10 @@ impl<B: Backend> AccountEngine<B> {
         // Most providers authenticate submission with the same secret as retrieval, which is
         // what `AuthPlan` means by covering both directions. A separate outgoing secret is
         // preferred where one was stored, because a few hosts really do differ.
-        let credential = self
-            .secret(SecretPurpose::OutgoingPassword)
-            .or_else(|_| self.secret(SecretPurpose::IncomingPassword))?;
+        let credential = match self.secret(SecretPurpose::OutgoingPassword).await {
+            Ok(credential) => credential,
+            Err(_) => self.secret(SecretPurpose::IncomingPassword).await?,
+        };
         // The incoming backend's capabilities. They describe the *account*, not the socket:
         // `SmtpBackend` reads none of the IMAP-shaped fields, and giving it a second, emptier
         // set would mean two answers to one question.
@@ -583,11 +584,13 @@ impl<B: Backend> AccountEngine<B> {
         ))
     }
 
-    fn secret(&self, purpose: SecretPurpose) -> Result<Credential, RuntimeError> {
-        self.secrets.get(&SecretKey {
-            account: self.account.clone(),
-            purpose,
-        })
+    async fn secret(&self, purpose: SecretPurpose) -> Result<Credential, RuntimeError> {
+        self.secrets
+            .get(&SecretKey {
+                account: self.account.clone(),
+                purpose,
+            })
+            .await
     }
 
     /// Submit one composed message, over a connection to the outgoing server.
@@ -640,7 +643,7 @@ impl<B: Backend> AccountEngine<B> {
             message,
         };
 
-        let mut backend = self.submitter()?;
+        let mut backend = self.submitter().await?;
         backend.stage(posting)?;
         let mut transport = Transport::connect(&host, port, tls).await?;
         let mut step = BackendMachine {
@@ -661,7 +664,9 @@ impl<B: Backend> AccountEngine<B> {
         message: &[u8],
         rcpt_to: &[String],
     ) -> Result<ProtoOutcome, RuntimeError> {
-        let credential = self.secret(porter_core::SecretPurpose::OutgoingPassword)?;
+        let credential = self
+            .secret(porter_core::SecretPurpose::OutgoingPassword)
+            .await?;
         let porter_core::Credential::OAuth { access, .. } = credential else {
             return Err(RuntimeError::Secrets(
                 "sending through Graph needs a Microsoft sign-in, not a password".to_owned(),
@@ -1971,14 +1976,16 @@ impl<B: Backend> AccountEngine<B> {
     }
 
     /// The account's stored credential, refreshed if it is close to expiring.
-    pub fn credential(
+    pub async fn credential(
         &self,
         purpose: porter_core::SecretPurpose,
     ) -> Result<porter_core::Credential, RuntimeError> {
-        self.secrets.get(&porter_core::SecretKey {
-            account: self.account.clone(),
-            purpose,
-        })
+        self.secrets
+            .get(&porter_core::SecretKey {
+                account: self.account.clone(),
+                purpose,
+            })
+            .await
     }
 }
 

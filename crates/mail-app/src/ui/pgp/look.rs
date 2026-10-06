@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use chrono::Utc;
 use mail_domain::*;
 use mail_mime::Parsed;
-use mail_runtime::Secrets;
+use mail_runtime::SigningStore;
 use mail_store::{SqliteStore, Store};
 
 use super::super::text::{AttachmentRow, Kept as Where};
@@ -70,7 +70,7 @@ pub(in crate::ui) fn looked_at(message: MessageId) -> bool {
 /// has open, and nowhere else.
 fn look(
     store: &SqliteStore,
-    secrets: &dyn Secrets,
+    secrets: &dyn SigningStore,
     message: MessageId,
     ask: Ask<'_>,
     tried: Tried,
@@ -173,7 +173,7 @@ fn keep(message: MessageId, body: Option<BlobId>, look: &Look) {
 /// [`cached`], else [`look`] with no passphrase, remembered. Runs on a blocking thread.
 pub(in crate::ui) fn lookup(
     store: &SqliteStore,
-    secrets: &dyn Secrets,
+    secrets: &dyn SigningStore,
     message: MessageId,
     body: Option<BlobId>,
 ) -> Look {
@@ -195,7 +195,7 @@ pub(in crate::ui) fn lookup(
 /// passphrase is dropped when this returns. Runs on a blocking thread, and only from Unlock.
 pub(in crate::ui) fn unlock(
     store: &SqliteStore,
-    secrets: &dyn Secrets,
+    secrets: &dyn SigningStore,
     message: MessageId,
     body: Option<BlobId>,
     passphrase: Password,

@@ -24,8 +24,8 @@ use super::report::Failure;
 use super::{Configured, Mode, clock_for, configured, imap_engine, poll_floor, renewal_for};
 use super::{signed_in_typed, to_sync};
 use mail_domain::*;
-use mail_runtime::{AccountEngine, Cancel, Held, JmapEngine, OAuthRegistry, Secrets, Woke};
-use mail_runtime::{KeyringSecrets, RuntimeError};
+use mail_runtime::{AccountEngine, AccountSecrets, Cancel, Held, JmapEngine, OAuthRegistry, Woke};
+use mail_runtime::{RuntimeError, platform_secrets};
 use mail_store::SqliteStore;
 use porter_core::{AccountId, SecretKey, SecretPurpose};
 use std::sync::Arc;
@@ -127,7 +127,7 @@ pub fn listen(
     let registry = OAuthRegistry::load_default().map_err(|e| Lost::unsupported(&e.to_string()))?;
     listen_with(
         store,
-        Arc::new(KeyringSecrets),
+        platform_secrets(),
         &registry,
         account,
         cancel,
@@ -141,7 +141,7 @@ pub fn listen(
 #[allow(clippy::too_many_arguments)]
 pub fn listen_with(
     store: Arc<SqliteStore>,
-    secrets: Arc<dyn Secrets>,
+    secrets: Arc<dyn AccountSecrets>,
     registry: &OAuthRegistry,
     account: AccountId,
     cancel: watch::Receiver<bool>,
@@ -183,7 +183,7 @@ impl Waiter {
     async fn open(
         store: &Arc<SqliteStore>,
         account: &Configured,
-        secrets: Arc<dyn Secrets>,
+        secrets: Arc<dyn AccountSecrets>,
         registry: &OAuthRegistry,
     ) -> Result<Self, Lost> {
         if !pushes(account) {
@@ -194,6 +194,7 @@ impl Waiter {
                 account: account.id.clone(),
                 purpose: SecretPurpose::IncomingPassword,
             })
+            .await
             .map_err(|_| {
                 Failure::reauth(crate::account::no_credential(
                     &account.address,

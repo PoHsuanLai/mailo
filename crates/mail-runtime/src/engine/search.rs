@@ -137,7 +137,10 @@ impl<B: Backend> AccountEngine<B> {
         if let Some(renewal) = &self.renewal {
             renewal.ahead(Token::Incoming).await?;
         }
-        let token = match self.secret(porter_core::SecretPurpose::OutgoingPassword) {
+        let token = match self
+            .secret(porter_core::SecretPurpose::OutgoingPassword)
+            .await
+        {
             Ok(porter_core::Credential::OAuth { access, .. }) => access,
             _ => {
                 return Err(RuntimeError::Secrets(format!(

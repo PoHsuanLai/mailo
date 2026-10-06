@@ -10,10 +10,11 @@ use mail_core::sync;
 use mail_core::sync::report::{AccountReport, Hooks, PassEnd};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
-use mail_runtime::{MapSecrets, OAuthRegistry, Secrets};
+use mail_runtime::{AccountSecrets, OAuthRegistry};
 use mail_store::{SqliteStore, Store};
 use porter_core::SecretText;
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
+use porter_secrets::MemorySecrets;
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
@@ -245,7 +246,7 @@ fn configured(
     port: u16,
     caps: AccountCaps,
     folders: Vec<Folder>,
-) -> (Arc<SqliteStore>, Arc<MapSecrets>, tempfile::TempDir) {
+) -> (Arc<SqliteStore>, Arc<MemorySecrets>, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(SqliteStore::in_memory(dir.path()).unwrap());
     let plan = AccountPlan {
@@ -279,16 +280,15 @@ fn configured(
         .unwrap();
     store.put_caps(acct_account(), &caps, now()).unwrap();
     store.put_folders(acct_account(), folders).unwrap();
-    let secrets = Arc::new(MapSecrets::default());
-    secrets
-        .put(
-            &SecretKey {
-                account: acct_account(),
-                purpose: SecretPurpose::IncomingPassword,
-            },
-            &Credential::Password(SecretText::new("s3cr3t".to_owned())),
-        )
-        .unwrap();
+    let secrets = Arc::new(MemorySecrets::default());
+    mail_runtime::block_on(secrets.put(
+        &SecretKey {
+            account: acct_account(),
+            purpose: SecretPurpose::IncomingPassword,
+        },
+        &Credential::Password(SecretText::new("s3cr3t".to_owned())),
+    ))
+    .unwrap();
     (store, secrets, dir)
 }
 
@@ -313,7 +313,7 @@ fn listing() -> Vec<Folder> {
     ]
 }
 
-fn pass(store: &Arc<SqliteStore>, secrets: &Arc<MapSecrets>) -> AccountReport {
+fn pass(store: &Arc<SqliteStore>, secrets: &Arc<MemorySecrets>) -> AccountReport {
     let ends = sync::run_with(
         store.clone(),
         secrets.clone(),

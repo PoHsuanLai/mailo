@@ -11,7 +11,7 @@
 
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
-use mail_runtime::{KeyringSecrets, Secrets};
+use mail_runtime::platform_secrets;
 use mail_store::SqliteStore;
 use porter_core::SecretText;
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
@@ -99,13 +99,12 @@ fn seed() {
         )
         .unwrap();
     }
-    KeyringSecrets
-        .put(
-            &SecretKey {
-                account: acct_account(),
-                purpose: SecretPurpose::IncomingPassword,
-            },
-            &Credential::Password(SecretText::new("s3cr3t-pass".to_owned())),
-        )
-        .unwrap();
+    mail_runtime::block_on(platform_secrets().put(
+        &SecretKey {
+            account: acct_account(),
+            purpose: SecretPurpose::IncomingPassword,
+        },
+        &Credential::Password(SecretText::new("s3cr3t-pass".to_owned())),
+    ))
+    .unwrap();
 }

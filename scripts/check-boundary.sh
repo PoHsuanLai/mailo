@@ -102,7 +102,14 @@ ratchet scripts/core-result-string-allowlist.txt 'Result<String, String>' \
 # `Credential`, `SecretKey`, `SecretPurpose`) to import; no `AccountId` minted from a UUID by a
 # method (`mail_domain::id::new_account_id` and `account_id_from_uuid` do it); and no key held
 # as a `SecretPurpose` or a `Credential`.
-FORBIDDEN_SYMBOLS='\bOAuthIssuer\b|\bAccountId::(from_uuid|generate)\b|\bSecretPurpose::(AddressBook|OpenPgp|Smime)\b|\bCredential::(OpenPgp|SmimeKey)\b|\bmail_domain::(AccountId|Credential|SecretKey|SecretPurpose)\b'
+#
+# E2 adds what went with account secrets: mailo's own `Secrets` trait, `KeyringSecrets` and
+# `MapSecrets` (an account's secrets are `porter_secrets::Secrets`, held as
+# `mail_runtime::AccountSecrets`; signing keys are `SigningStore`), the `secrets` module they
+# lived in, and the signing methods the one trait carried (`get_signing`, `put_signing`,
+# `forget_signing`). `mail_runtime::KeyringSecrets` is porter's `KeyringSecrets` under another
+# crate's name, so it is forbidden by that path and `porter_secrets::KeyringSecrets` is not.
+FORBIDDEN_SYMBOLS='\bOAuthIssuer\b|\bAccountId::(from_uuid|generate)\b|\bSecretPurpose::(AddressBook|OpenPgp|Smime)\b|\bCredential::(OpenPgp|SmimeKey)\b|\bmail_domain::(AccountId|Credential|SecretKey|SecretPurpose)\b|\bMapSecrets\b|\bmail_runtime::(KeyringSecrets|Secrets|MapSecrets|secrets)\b|\bmail_runtime::\{[^}]*\b(KeyringSecrets|Secrets|MapSecrets)\b|\bdyn Secrets\b|\b(get|put|forget)_signing\b|\bcrate::secrets\b'
 if grep -rnE "$FORBIDDEN_SYMBOLS" crates --include='*.rs' | grep -vE '^[^:]+:[0-9]+:[[:space:]]*//'; then
   echo "a symbol that moved to porter (or was deleted with its type) is back: see FORBIDDEN_SYMBOLS in scripts/check-boundary.sh"
   fail=1

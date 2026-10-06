@@ -11,10 +11,11 @@ use chrono::{DateTime, TimeZone, Utc};
 use jmap_fake::{Fake, PASSWORD, USER};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
-use mail_runtime::{JmapEngine, MapSecrets, Searched, Secrets, SyncReport, Woke};
+use mail_runtime::{AccountSecrets, JmapEngine, Searched, SyncReport, Woke};
 use mail_store::{SqliteStore, Store};
 use porter_core::SecretText;
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
+use porter_secrets::MemorySecrets;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::watch;
@@ -60,20 +61,19 @@ async fn setup() -> Setup {
             ],
         )
         .unwrap();
-    let secrets: Arc<dyn Secrets> = Arc::new(MapSecrets::default());
+    let secrets: Arc<dyn AccountSecrets> = Arc::new(MemorySecrets::default());
     for purpose in [
         SecretPurpose::IncomingPassword,
         SecretPurpose::OutgoingPassword,
     ] {
-        secrets
-            .put(
-                &SecretKey {
-                    account: acct_account(),
-                    purpose,
-                },
-                &Credential::Password(SecretText::new(PASSWORD.to_owned())),
-            )
-            .unwrap();
+        mail_runtime::block_on(secrets.put(
+            &SecretKey {
+                account: acct_account(),
+                purpose,
+            },
+            &Credential::Password(SecretText::new(PASSWORD.to_owned())),
+        ))
+        .unwrap();
     }
     let engine = JmapEngine::new(acct_account(), preset.plan, store.clone(), secrets).unwrap();
     Setup {
@@ -415,16 +415,15 @@ async fn a_push_with_a_new_state_wakes_the_watch() {
 #[tokio::test]
 async fn a_refused_password_stops_the_pass_and_says_so() {
     let mut s = setup().await;
-    let secrets: Arc<dyn Secrets> = Arc::new(MapSecrets::default());
-    secrets
-        .put(
-            &SecretKey {
-                account: acct_account(),
-                purpose: SecretPurpose::IncomingPassword,
-            },
-            &Credential::Password(SecretText::new("wrong".to_owned())),
-        )
-        .unwrap();
+    let secrets: Arc<dyn AccountSecrets> = Arc::new(MemorySecrets::default());
+    mail_runtime::block_on(secrets.put(
+        &SecretKey {
+            account: acct_account(),
+            purpose: SecretPurpose::IncomingPassword,
+        },
+        &Credential::Password(SecretText::new("wrong".to_owned())),
+    ))
+    .unwrap();
     let plan = presets::jmap(USER, &s.fake.session_url(), HttpAuth::Basic).plan;
     s.engine = JmapEngine::new(acct_account(), plan, s.store.clone(), secrets).unwrap();
     let (_tx, mut cancel) = watch::channel(false);

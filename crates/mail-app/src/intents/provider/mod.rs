@@ -19,7 +19,7 @@ use super::wire::{
 use act::Act;
 use mail_core::undo::UndoStack;
 use mail_domain::ThreadId;
-use mail_runtime::Secrets;
+use mail_runtime::SigningStore;
 use mail_store::SqliteStore;
 use std::sync::{Arc, Mutex};
 use token::Token;
@@ -29,7 +29,7 @@ pub struct Provider {
     store: Arc<SqliteStore>,
     /// For a message that is signed or encrypted when it is sent: the keys' passphrases and
     /// the credentials the keyring holds.
-    secrets: Arc<dyn Secrets>,
+    secrets: Arc<dyn SigningStore>,
     /// What conversation actions did, newest last: the undo tokens name entries of it. In
     /// memory, so a token outlives neither this process nor the window's own Cmd+Z stack, which
     /// is another process's.
@@ -105,7 +105,11 @@ fn outcome(said: Option<String>, undo: Option<Token>, value: Option<Labelled<Out
 
 impl Provider {
     /// A provider over `store`, sending with `secrets`, opening conversations with `opener`.
-    pub fn new(store: Arc<SqliteStore>, secrets: Arc<dyn Secrets>, opener: Opener) -> Provider {
+    pub fn new(
+        store: Arc<SqliteStore>,
+        secrets: Arc<dyn SigningStore>,
+        opener: Opener,
+    ) -> Provider {
         Provider {
             store,
             secrets,

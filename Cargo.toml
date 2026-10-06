@@ -36,8 +36,14 @@ mail-store  = { path = "crates/mail-store" }
 # desktop's accounts daemon and mailo agree on what an account is (PLAN section 4, step E1).
 # porter-core and porter-provider are pure (serde, serde_json, thiserror, toml): no zbus and no
 # tokio, so the macOS and Windows builds are unaffected.
-porter-core = { git = "https://github.com/PoHsuanLai/porter", rev = "74f0b2370001a33d006cb59d43f5f3b994fcf5ba" }
-porter-provider = { git = "https://github.com/PoHsuanLai/porter", rev = "74f0b2370001a33d006cb59d43f5f3b994fcf5ba" }
+#
+# porter-secrets is where account secrets live (step E2). Its stores are features, chosen per
+# target in mail-runtime's own Cargo.toml: `oo7` on Linux, `keyring` on macOS and Windows. It
+# enters mail-runtime, the I/O crate, and no pure crate: mail-domain, -mime, -proto and -pim
+# stay free of zbus and tokio (`scripts/check-boundary.sh`).
+porter-core = { git = "https://github.com/PoHsuanLai/porter", rev = "ea2790855960d859bd1981c017bef8f947ea464a" }
+porter-provider = { git = "https://github.com/PoHsuanLai/porter", rev = "ea2790855960d859bd1981c017bef8f947ea464a" }
+porter-secrets = { git = "https://github.com/PoHsuanLai/porter", rev = "ea2790855960d859bd1981c017bef8f947ea464a", default-features = false }
 serde       = { version = "1", features = ["derive"] }
 chrono      = { version = "0.4", features = ["serde"] }
 uuid        = { version = "1", features = ["v4", "serde"] }

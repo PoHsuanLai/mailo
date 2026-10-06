@@ -7,7 +7,7 @@
 use chrono::{DateTime, Utc};
 use mail_pim::vcard::{self, Card, Email};
 use mail_runtime::carddav::{self, Dav, DavAuth, How};
-use mail_runtime::{KeyringSecrets, OAuthRegistry, Secrets};
+use mail_runtime::{AccountSecrets, OAuthRegistry, platform_secrets};
 use mail_store::{AddressBook, Edit, Group, GroupHome, GroupId, Kind, Origin, SqliteStore, Store};
 use porter_core::{CapabilityKind, Credential, SecretKey, SecretPurpose, SecretText};
 use std::collections::BTreeSet;
@@ -317,7 +317,7 @@ async fn sync(
     now: DateTime<Utc>,
 ) -> Result<String, String> {
     let accounts = crate::sync::configured(store)?;
-    let secrets = KeyringSecrets;
+    let secrets = platform_secrets();
     let http = carddav::client().map_err(|e| e.to_string())?;
     let mut out = String::new();
 
@@ -331,7 +331,7 @@ async fn sync(
                 .iter()
                 .find(|a| Some(a.id.clone()) == book.account)
                 .ok_or_else(|| format!("{}: its account is no longer configured", book.url))?;
-            let auth = auth_for(owner, book.login.as_deref(), &secrets, saved, now).await?;
+            let auth = auth_for(owner, book.login.as_deref(), secrets.as_ref(), saved, now).await?;
             let base = parse_url(&book.url)?;
             let dav = Dav::new(http.clone(), &base, auth).map_err(|e| e.to_string())?;
             out.push_str(&sync_one(&dav, store, book, None).await?);
@@ -350,7 +350,7 @@ async fn sync(
             _ => return Err("name the account it belongs to: --account you@example.com".into()),
         },
     };
-    let auth = auth_for(owner, user, &secrets, saved, now).await?;
+    let auth = auth_for(owner, user, secrets.as_ref(), saved, now).await?;
     let start = parse_url(url)?;
     let dav = Dav::new(http, &start, auth).map_err(|e| e.to_string())?;
     let found = carddav::discover(&dav, &start)
@@ -423,7 +423,7 @@ fn parse_url(text: &str) -> Result<url::Url, String> {
 async fn auth_for(
     account: &crate::sync::Configured,
     login: Option<&str>,
-    secrets: &dyn Secrets,
+    secrets: &dyn AccountSecrets,
     saved: &OAuthRegistry,
     now: DateTime<Utc>,
 ) -> Result<DavAuth, String> {
@@ -439,10 +439,11 @@ async fn auth_for(
                         &key,
                         &Credential::Password(SecretText::new(password.clone())),
                     )
+                    .await
                     .map_err(|e| format!("cannot save the password: {e}"))?;
                 password
             }
-            _ => match secrets.get(&key) {
+            _ => match secrets.get(&key).await {
                 Ok(Credential::Password(password)) => password.expose().to_owned(),
                 _ => {
                     return Err(format!(
@@ -461,6 +462,7 @@ async fn auth_for(
             account: account.id.clone(),
             purpose: SecretPurpose::IncomingPassword,
         })
+        .await
         .map_err(|_| crate::account::no_credential(&account.address, &account.plan.auth))?;
     match crate::sync::signed_in(account, stored, secrets, saved, now).await? {
         Credential::OAuth { access, .. } => Ok(DavAuth::Bearer(access.expose().to_owned())),

@@ -601,7 +601,7 @@ impl Seams {
                     mail_core::account::Credentials {
                         password: password.as_ref(),
                         saved: &mail_core::account::saved_clients(),
-                        secrets: &mail_runtime::KeyringSecrets,
+                        secrets: mail_runtime::platform_secrets().as_ref(),
                         on_url,
                     },
                 )

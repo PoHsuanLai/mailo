@@ -12,7 +12,7 @@ use chrono::{DateTime, Utc};
 use mail_domain::*;
 use mail_mime::Parsed;
 use mail_mime::openpgp::{self, Cert, Keys, KnownCert};
-use mail_runtime::Secrets;
+use mail_runtime::SigningStore;
 use mail_store::{SqliteStore, Store};
 use std::sync::Mutex;
 
@@ -77,7 +77,7 @@ fn keep(raw: BlobId, protected: &Protected) {
 /// store holds for its issuer. Gossip found inside is recorded for the message's recipients.
 pub fn open_message(
     store: &SqliteStore,
-    secrets: &dyn Secrets,
+    secrets: &dyn SigningStore,
     message: &Message,
     ask: Ask<'_>,
     now: DateTime<Utc>,
@@ -116,7 +116,7 @@ pub fn open_message(
 /// The same, on bytes the caller already holds. Nothing is cached and no gossip is recorded.
 pub fn open_bytes(
     store: &SqliteStore,
-    secrets: &dyn Secrets,
+    secrets: &dyn SigningStore,
     raw: &[u8],
     ask: Ask<'_>,
 ) -> Result<Option<Protected>, PgpError> {
@@ -126,7 +126,7 @@ pub fn open_bytes(
 /// The message opened, and the gossip found inside it.
 fn opened(
     store: &SqliteStore,
-    secrets: &dyn Secrets,
+    secrets: &dyn SigningStore,
     raw: &[u8],
     ask: Ask<'_>,
 ) -> Result<Option<(Protected, Vec<openpgp::AutocryptHeader>)>, PgpError> {
@@ -177,7 +177,7 @@ fn opened(
 /// The user's secret keys that `raw` is encrypted to, unlocked as far as `ask` allows.
 fn secrets_for(
     store: &SqliteStore,
-    secrets: &dyn Secrets,
+    secrets: &dyn SigningStore,
     raw: &[u8],
     ask: Ask<'_>,
 ) -> Result<Vec<openpgp::Unlocking>, PgpError> {

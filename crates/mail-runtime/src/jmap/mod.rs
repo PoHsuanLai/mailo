@@ -36,7 +36,7 @@ mod sync;
 
 pub use client::{Auth, Client, find_session, safe_url};
 
-use crate::{RuntimeError, Secrets, SyncReport};
+use crate::{AccountSecrets, RuntimeError, SyncReport};
 use chrono::{DateTime, Utc};
 use mail_domain::{
     AccountCaps, AccountPlan, ArchiveMeans, Condstore, ConnectionBudget, ExpungeMeans, HttpAuth,
@@ -68,7 +68,7 @@ pub struct JmapEngine {
     account: AccountId,
     plan: AccountPlan,
     store: Arc<SqliteStore>,
-    secrets: Arc<dyn Secrets>,
+    secrets: Arc<dyn AccountSecrets>,
     http: reqwest::Client,
     /// The session, once fetched. Dropped when the server refuses the credential or says the
     /// session changed, so the next use fetches it again.
@@ -94,7 +94,7 @@ impl JmapEngine {
         account: AccountId,
         plan: AccountPlan,
         store: Arc<SqliteStore>,
-        secrets: Arc<dyn Secrets>,
+        secrets: Arc<dyn AccountSecrets>,
     ) -> Result<Self, RuntimeError> {
         Ok(Self {
             account,
@@ -126,12 +126,15 @@ impl JmapEngine {
     }
 
     /// The credential, as the header the plan says it travels in.
-    fn auth(&self) -> Result<Auth, RuntimeError> {
+    async fn auth(&self) -> Result<Auth, RuntimeError> {
         let (_, how) = self.session_url()?;
-        let credential = self.secrets.get(&SecretKey {
-            account: self.account.clone(),
-            purpose: SecretPurpose::IncomingPassword,
-        })?;
+        let credential = self
+            .secrets
+            .get(&SecretKey {
+                account: self.account.clone(),
+                purpose: SecretPurpose::IncomingPassword,
+            })
+            .await?;
         Ok(match (credential, how) {
             (Credential::Password(password), HttpAuth::Basic) => Auth::Basic {
                 username: self.plan.username(),
@@ -155,7 +158,7 @@ impl JmapEngine {
         if self.client.is_none() {
             let (url, _) = self.session_url()?;
             let url = url.to_owned();
-            let client = Client::connect(&self.http, &url, self.auth()?).await?;
+            let client = Client::connect(&self.http, &url, self.auth().await?).await?;
             self.client = Some(client);
         }
         self.client

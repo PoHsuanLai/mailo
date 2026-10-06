@@ -11,9 +11,9 @@
 //! factory reads each time it connects, and — for an account that sends through Graph — the
 //! separate Graph token, which lives in the keyring where submission already reads it.
 
+use crate::AccountSecrets;
 use crate::RuntimeError;
 use crate::oauth::{self, Freshness};
-use crate::secrets::Secrets;
 use crate::signin::{self, Registration};
 use chrono::{DateTime, Utc};
 use mail_domain::{AccountPlan, AuthPlan, Incoming, Outgoing, Retry, Retryable};
@@ -101,7 +101,7 @@ pub struct Renewal {
     incoming_scopes: Vec<String>,
     outgoing: Outgoing,
     incoming: Incoming,
-    secrets: Arc<dyn Secrets>,
+    secrets: Arc<dyn AccountSecrets>,
     http: reqwest::Client,
     held: Held,
     now: Now,
@@ -126,7 +126,7 @@ impl Renewal {
         account: AccountId,
         plan: &AccountPlan,
         registration: Registration,
-        secrets: Arc<dyn Secrets>,
+        secrets: Arc<dyn AccountSecrets>,
         held: Held,
     ) -> Result<Self, RuntimeError> {
         let incoming_scopes = match &plan.auth {
@@ -210,14 +210,14 @@ impl Renewal {
                 self.spent().incoming = access_of(&renewed);
             }
             Token::Sending => {
-                let held = self.secrets.get(&self.sending_key()).ok();
+                let held = self.secrets.get(&self.sending_key()).await.ok();
                 if let Some(Credential::OAuth { access, .. }) = &held
                     && self.spent().sending.as_deref() == Some(access.expose())
                 {
                     return Ok(AfterRefusal::StillRefused);
                 }
                 let refresh_token =
-                    signin::graph_refresh(self.secrets.as_ref(), self.account.clone())?;
+                    signin::graph_refresh(self.secrets.as_ref(), self.account.clone()).await?;
                 let minted = signin::mint_graph(
                     self.account.clone(),
                     &self.registration,
