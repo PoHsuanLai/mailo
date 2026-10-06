@@ -126,7 +126,7 @@ mod tests {
         Message {
             id: MessageId::generate(),
             thread: ThreadId::generate(),
-            account: AccountId::generate(),
+            account: mail_domain::id::new_account_id(),
             key: MessageKey::Rfc("rows@example.test".to_owned()),
             date: Utc.timestamp_opt(1_700_000_000, 0).unwrap(),
             from: Address {

@@ -11,8 +11,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
-use mail_domain::{AccountId, Filter, Incoming};
+use mail_domain::{Filter, Incoming};
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 
 use crate::ui::view::{Shell, Source as Listed};
 use mail_core::export::{self, Exported, Target};
@@ -207,14 +208,14 @@ pub(in crate::ui) fn destinations(store: &SqliteStore) -> Vec<Dest> {
             continue;
         }
         let mut folders: Vec<String> = store
-            .folders(row.id)
+            .folders(row.id.clone())
             .unwrap_or_default()
             .into_iter()
             .map(|folder| folder.path)
             .collect();
         folders.sort();
         out.extend(folders.into_iter().map(|folder| Dest::Folder {
-            account: row.id,
+            account: row.id.clone(),
             address: row.address.clone(),
             folder,
         }));

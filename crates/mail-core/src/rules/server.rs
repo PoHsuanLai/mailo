@@ -7,13 +7,14 @@
 //! sent itself would stop whenever the laptop closed, so there is none of that either.
 
 use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone, Utc};
-use mail_domain::{Credential, DateRange, IsDefault, SecretKey, SecretPurpose, Vacation};
+use mail_domain::{DateRange, IsDefault, Vacation};
 use mail_proto::sieve::{
     Active, Deleted, Places, SieveJob, SieveOutcome, Takeover, VacationPlaced, compile, endpoint,
 };
 use mail_runtime::sieve::{Pushed, SieveAuth};
 use mail_runtime::{KeyringSecrets, OAuthRegistry, Secrets};
 use mail_store::{SqliteStore, Store};
+use porter_core::{Credential, SecretKey, SecretPurpose};
 use std::fmt::Write as _;
 use std::path::PathBuf;
 
@@ -88,7 +89,7 @@ pub fn vacation_for(
         .find(|i| i.default == IsDefault::Default)
         .map(|i| i.from.email.clone());
     Vacation {
-        account: account.id,
+        account: account.id.clone(),
         subject: subject.to_owned(),
         body: body.to_owned(),
         days,
@@ -144,7 +145,7 @@ pub fn run_vacation(
             }
             let vacation = vacation_for(&account, subject, &body, *days, during);
             store
-                .put_vacation(account.id, Some(&vacation), now)
+                .put_vacation(account.id.clone(), Some(&vacation), now)
                 .map_err(failed)?;
             let mut out = shown(&account.address, &vacation, now);
             out.push_str(&push_now(store, &account, Takeover::Refuse, saved, now));
@@ -152,7 +153,9 @@ pub fn run_vacation(
         }
         VacationCmd::Off { account } => {
             let account = super::pick(store, account.as_deref())?;
-            store.put_vacation(account.id, None, now).map_err(failed)?;
+            store
+                .put_vacation(account.id.clone(), None, now)
+                .map_err(failed)?;
             let mut out = format!("{}: vacation reply off\n", account.address);
             if endpoint(&account.plan).is_ok() {
                 out.push_str(&push_now(store, &account, Takeover::Refuse, saved, now));
@@ -233,7 +236,7 @@ async fn auth(
     let secrets = KeyringSecrets;
     let stored: Credential = secrets
         .get(&SecretKey {
-            account: account.id,
+            account: account.id.clone(),
             purpose: SecretPurpose::IncomingPassword,
         })
         .map_err(|_| crate::account::no_credential(&account.address, &account.plan.auth))?;
@@ -265,8 +268,10 @@ pub fn pushed(
     now: DateTime<Utc>,
 ) -> Result<Pushed, String> {
     let at = endpoint(&account.plan).map_err(|why| format!("{}: {why}", account.address))?;
-    let rules = store.rules(account.id).map_err(|e| e.to_string())?;
-    let vacation = store.vacation(account.id).map_err(|e| e.to_string())?;
+    let rules = store.rules(account.id.clone()).map_err(|e| e.to_string())?;
+    let vacation = store
+        .vacation(account.id.clone())
+        .map_err(|e| e.to_string())?;
     let places = Places::from_caps(&account.caps);
     runtime()?.block_on(async {
         let auth = auth(account, saved, now).await?;
@@ -394,8 +399,10 @@ fn status(
             }
         );
     }
-    let rules = store.rules(account.id).map_err(|e| e.to_string())?;
-    let vacation = store.vacation(account.id).map_err(|e| e.to_string())?;
+    let rules = store.rules(account.id.clone()).map_err(|e| e.to_string())?;
+    let vacation = store
+        .vacation(account.id.clone())
+        .map_err(|e| e.to_string())?;
     let compiled = compile(
         &rules,
         vacation.as_ref(),

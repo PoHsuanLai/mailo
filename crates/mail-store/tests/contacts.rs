@@ -6,14 +6,17 @@
 //! which needs the raw bytes the in-memory store does not keep.
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_store::{
     AddressBook, BookCard, Contact, Kind, MemoryStore, Origin, Settle, SqliteStore, Store,
 };
+use porter_core::AccountId;
 use proptest::prelude::*;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 const IDENTITY: IdentityId =
     IdentityId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b1"));
 const ME: &str = "me@example.test";
@@ -30,13 +33,17 @@ fn sqlite() -> (SqliteStore, tempfile::TempDir) {
         db.execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, ?2, '{}', datetime('now'))",
-            [ACCOUNT.to_string(), ME.to_owned()],
+            [acct_account().to_string(), ME.to_owned()],
         )
         .unwrap();
         db.execute(
             "INSERT INTO identities (id, account, from_name, from_email, is_default)
              VALUES (?1, ?2, 'Me', ?3, '\"default\"')",
-            [IDENTITY.to_string(), ACCOUNT.to_string(), ME.to_owned()],
+            [
+                IDENTITY.to_string(),
+                acct_account().to_string(),
+                ME.to_owned(),
+            ],
         )
         .unwrap();
     }
@@ -62,7 +69,7 @@ fn message(n: u128, day: i64, mailbox: MailboxRole, from: Address, to: Vec<Addre
     Message {
         id: MessageId::from_uuid(uuid::Uuid::from_u128(n)),
         thread: ThreadId::from_uuid(uuid::Uuid::from_u128(n + 1_000_000)),
-        account: ACCOUNT,
+        account: acct_account(),
         key: MessageKey::Rfc(format!("m{n}@example.test")),
         date: at(day),
         from,
@@ -94,10 +101,10 @@ fn sent(n: u128, day: i64, to: Vec<Address>) -> Message {
 fn deliver_at(store: &dyn Store, m: &Message, path: &str, uid: u32, raw: BlobId) {
     store
         .ingest(
-            ACCOUNT,
+            acct_account(),
             Ingest {
                 mailbox: MailboxRef {
-                    account: ACCOUNT,
+                    account: acct_account(),
                     path: path.to_owned(),
                 },
                 validity: UidValidity::Same,
@@ -163,7 +170,7 @@ fn received_and_sent_mail_teach_both_stores_the_same_book() {
     assert_eq!(ada.received.count, 2);
     assert_eq!(ada.received.last, Some(at(3)));
     assert_eq!(ada.written.count, 0);
-    assert_eq!(ada.account, Some(ACCOUNT));
+    assert_eq!(ada.account, Some(acct_account()));
     let bob = a.iter().find(|c| c.address == "bob@example.test").unwrap();
     assert_eq!(bob.written.count, 1);
     let me = a.iter().find(|c| c.address == ME).unwrap();
@@ -398,7 +405,7 @@ fn something_that_is_not_an_address_is_refused() {
 fn send(store: &dyn Store, draft: &Draft, now: DateTime<Utc>) {
     store
         .apply(
-            ACCOUNT,
+            acct_account(),
             &Patch {
                 id: ChangeId::generate(),
                 changes: vec![Change::DraftUpsert(Box::new(draft.clone()))],
@@ -414,7 +421,7 @@ fn send(store: &dyn Store, draft: &Draft, now: DateTime<Utc>) {
         .collect();
     let id = store
         .enqueue(
-            ACCOUNT,
+            acct_account(),
             RemoteIntent::Send {
                 draft: draft.id,
                 raw: BlobId::generate(),
@@ -435,7 +442,7 @@ fn send(store: &dyn Store, draft: &Draft, now: DateTime<Utc>) {
 fn draft(to: Vec<Address>, subject: &str) -> Draft {
     Draft {
         id: DraftId::from_uuid(uuid::Uuid::from_u128(77)),
-        account: ACCOUNT,
+        account: acct_account(),
         identity: IDENTITY,
         to,
         cc: vec![],
@@ -503,7 +510,7 @@ fn an_address_books_sync_state_round_trips() {
             },
         )]
         .into(),
-        account: Some(ACCOUNT),
+        account: Some(acct_account()),
         login: Some("me".to_owned()),
     };
     let (a, b) = both(|store| {

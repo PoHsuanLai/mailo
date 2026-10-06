@@ -1,7 +1,7 @@
 use super::{Job, PrintTool, SAVED_AS, Sources, build, job_for, save_into, started};
 use crate::ui::app::App;
 use crate::ui::fixtures::{
-    ACCOUNT, INSIDE_THE_SHELL, Scripts, chord, click, dispatching, rebuild_into, seeded, work,
+    INSIDE_THE_SHELL, Scripts, acct_account, chord, click, dispatching, rebuild_into, seeded, work,
 };
 use chrono::TimeZone;
 use dioxus::html::input_data::keyboard_types::Modifiers;
@@ -40,7 +40,7 @@ fn conversation() -> (Arc<SqliteStore>, ThreadId, tempfile::TempDir) {
             let message = Message {
                 id: MessageId::generate(),
                 thread,
-                account: ACCOUNT,
+                account: acct_account(),
                 key: MessageKey::Rfc(format!("print{index}@example.test")),
                 date: chrono::Utc
                     .with_ymd_and_hms(2026, 9, 1 + index as u32, 9, 0, 0)
@@ -76,10 +76,10 @@ fn conversation() -> (Arc<SqliteStore>, ThreadId, tempfile::TempDir) {
         .collect();
     store
         .ingest(
-            ACCOUNT,
+            acct_account(),
             Ingest {
                 mailbox: MailboxRef {
-                    account: ACCOUNT,
+                    account: acct_account(),
                     path: "INBOX".to_owned(),
                 },
                 validity: UidValidity::Same,

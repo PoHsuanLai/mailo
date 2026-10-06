@@ -5,7 +5,7 @@
 use super::native_print::{BUSY, Printer, Sources, made, print_through, said};
 use super::paper::{self, Cjk, Families, PICTURES_NOTE, Paper};
 use super::{Job, build};
-use crate::ui::fixtures::{ACCOUNT, seeded};
+use crate::ui::fixtures::{acct_account, seeded};
 use crate::ui::original::{Consent, FetchImage, Got, ReaderNet};
 use chrono::TimeZone;
 use ds_blitz::{PageSize, PrintError, PrintOutcome};
@@ -60,7 +60,7 @@ fn thread_of(store: &SqliteStore, seeds: Vec<Seed>) -> ThreadId {
             let message = Message {
                 id: MessageId::generate(),
                 thread,
-                account: ACCOUNT,
+                account: acct_account(),
                 key: MessageKey::Rfc(key.clone()),
                 date: chrono::Utc
                     .with_ymd_and_hms(2026, 9, 1 + index as u32, 9, 0, 0)
@@ -113,10 +113,10 @@ fn thread_of(store: &SqliteStore, seeds: Vec<Seed>) -> ThreadId {
         .collect();
     store
         .ingest(
-            ACCOUNT,
+            acct_account(),
             Ingest {
                 mailbox: MailboxRef {
-                    account: ACCOUNT,
+                    account: acct_account(),
                     path: "INBOX".to_owned(),
                 },
                 validity: UidValidity::Same,

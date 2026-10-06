@@ -25,13 +25,16 @@
 
 use chrono::{DateTime, TimeZone, Utc};
 use mail_core::search::{Affinity, Source, Term, first, search_list};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 use std::cell::Cell;
 use std::time::{Duration, Instant};
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 
 /// The mailbox. Fifty thousand is a long-lived account, and twenty times the measured maildrop
 /// this project was designed around.
@@ -195,7 +198,7 @@ fn store(dir: &std::path::Path) -> SqliteStore {
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [ACCOUNT.to_string()],
+            [acct_account().to_string()],
         )
         .unwrap();
     store
@@ -223,7 +226,7 @@ fn fill(store: &SqliteStore) {
                 let message = Message {
                     id: MessageId::generate(),
                     thread: ThreadId::generate(),
-                    account: ACCOUNT,
+                    account: acct_account(),
                     key: MessageKey::Rfc(key.clone()),
                     date: at(n),
                     from: Address {
@@ -262,10 +265,10 @@ fn fill(store: &SqliteStore) {
             .collect();
         store
             .ingest(
-                ACCOUNT,
+                acct_account(),
                 Ingest {
                     mailbox: MailboxRef {
-                        account: ACCOUNT,
+                        account: acct_account(),
                         path: "INBOX".to_owned(),
                     },
                     validity: UidValidity::Same,

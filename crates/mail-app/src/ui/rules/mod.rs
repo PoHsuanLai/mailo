@@ -18,8 +18,8 @@ use ds::components::content::label::LabelRole;
 use ds::components::controls::segmented::Tracking;
 use ds::components::overlays::sheet_width::SheetWidth;
 use ds::prelude::*;
-use mail_domain::AccountId;
 use mail_store::SqliteStore;
+use porter_core::AccountId;
 use std::sync::Arc;
 
 use super::data::account_rows;
@@ -45,14 +45,18 @@ pub(in crate::ui) fn close(mut shell: Signal<Shell>) {
 pub(in crate::ui) fn RulesSheet(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
     let store = consume_context::<Arc<SqliteStore>>();
     let rows = account_rows(&store);
-    let chosen = shell.read().rules.as_ref().and_then(|sheet| sheet.account);
+    let chosen = shell
+        .read()
+        .rules
+        .as_ref()
+        .and_then(|sheet| sheet.account.clone());
     let account = chosen
         .and_then(|id| rows.iter().find(|row| row.id == id))
         .or_else(|| rows.first())
         .cloned();
     let choices: Vec<Choice<AccountId>> = rows
         .iter()
-        .map(|row| Choice::new(row.id, row.shown()))
+        .map(|row| Choice::new(row.id.clone(), row.shown()))
         .collect();
     let several = choices.len() > 1;
     rsx! {
@@ -66,7 +70,7 @@ pub(in crate::ui) fn RulesSheet(shell: Signal<Shell>, revision: Signal<u64>) -> 
                     SegmentedControl::<AccountId> {
                         label: "Account".to_owned(),
                         choices,
-                        tracking: Tracking::SelectOne(current.id),
+                        tracking: Tracking::SelectOne(current.id.clone()),
                         onchange: move |id: AccountId| {
                             shell.write().rules = Some(Showing { account: Some(id) });
                         },
@@ -81,7 +85,7 @@ pub(in crate::ui) fn RulesSheet(shell: Signal<Shell>, revision: Signal<u64>) -> 
                     },
                     Some(row) => rsx! {
                         div { class: "rules-main",
-                            RulesPart { key: "r-{row.id}", account: row.id, revision }
+                            RulesPart { key: "r-{row.id}", account: row.id.clone(), revision }
                             AwayPart { key: "v-{row.id}", row: row.clone() }
                             ServerPart { key: "s-{row.id}", row }
                         }

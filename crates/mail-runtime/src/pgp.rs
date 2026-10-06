@@ -8,9 +8,10 @@ use crate::{RuntimeError, Secrets};
 use chrono::{DateTime, Utc};
 use mail_domain::autocrypt::{self, Sighting, effective_date};
 use mail_domain::signing::{SigningKeyId, SigningKeyRef, SigningSecret};
-use mail_domain::{AccountId, Fingerprint, KeySource};
+use mail_domain::{Fingerprint, KeySource};
 use mail_mime::openpgp::{AutocryptHeader, SecretCert, autocrypt_of};
 use mail_store::Store;
+use porter_core::AccountId;
 
 fn entry(account: AccountId, fingerprint: Fingerprint) -> SigningKeyRef {
     SigningKeyRef {

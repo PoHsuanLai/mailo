@@ -7,7 +7,8 @@
 
 use super::{PassEnd, Progress, Trouble as Found, hold, needs_reauth};
 use crate::fetch::{Count, Event, Pause, Step, Trouble};
-use mail_domain::{AccountId, Retry};
+use mail_domain::Retry;
+use porter_core::AccountId;
 use std::time::Duration;
 
 impl Progress {

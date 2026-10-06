@@ -56,7 +56,7 @@ pub fn draft_forward_attached(
 ) -> Result<Draft, String> {
     let original = store.message(message).map_err(|e| e.to_string())?;
     let raw = sent_bytes(store, &original)?;
-    let identity = identity_of(store, original.account, None)?;
+    let identity = identity_of(store, original.account.clone(), None)?;
 
     let mut draft = Draft::forward_of(&original, &identity, now);
     draft.to = to.to_vec();

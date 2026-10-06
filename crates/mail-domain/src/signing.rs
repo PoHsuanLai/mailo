@@ -7,9 +7,9 @@
 //! [`SigningKeyRef`] names one key; [`SigningSecret`] is its secret half. Neither is an account
 //! secret and neither can be mistaken for one.
 
-use crate::id::AccountId;
 use crate::pgp::Fingerprint;
 use crate::smime::CertFingerprint;
+use porter_core::AccountId;
 use std::fmt;
 
 /// Which key, by the name its kind is known by everywhere else.

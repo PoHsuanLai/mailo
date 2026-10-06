@@ -8,12 +8,14 @@ use mail_core::compose;
 use mail_core::export;
 use mail_core::import;
 use mail_core::sync;
+use mail_domain::id::new_account_id;
 use mail_domain::signing::{SigningKeyRef, SigningSecret};
 use mail_domain::*;
 use mail_mime::archive::maildir::INFO;
 use mail_mime::archive::mbox;
 use mail_runtime::{OAuthRegistry, RuntimeError, Secrets};
 use mail_store::{SqliteStore, Store};
+use porter_core::{AccountId, Credential, SecretKey};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -115,7 +117,7 @@ fn a_takeout_mbox_lands_in_local_folders_threaded_labelled_and_only_once() {
     );
 
     let account = local_account(&store);
-    let messages = every_message(&store, account);
+    let messages = every_message(&store, account.clone());
     assert_eq!(messages.len(), 2);
     let (lunch, reply) = (&messages[0], &messages[1]);
     assert_eq!(
@@ -200,7 +202,7 @@ fn a_maildir_keeps_its_flags_and_its_folders() {
 
     let account = local_account(&store);
     let by_subject = |subject: &str| {
-        every_message(&store, account)
+        every_message(&store, account.clone())
             .into_iter()
             .find(|m| m.subject == subject)
             .unwrap()
@@ -328,7 +330,7 @@ fn everything_exports_to_a_maildir_that_imports_back_as_the_same_mail() {
 #[test]
 fn a_message_with_no_body_yet_is_skipped_and_counted() {
     let (store, _dir) = fresh_store();
-    let account = AccountId::generate();
+    let account = new_account_id();
     store
         .connection()
         .execute(
@@ -340,7 +342,7 @@ fn a_message_with_no_body_yet_is_skipped_and_counted() {
     let message = Message {
         id: MessageId::generate(),
         thread: ThreadId::generate(),
-        account,
+        account: account.clone(),
         key: MessageKey::Rfc("headers-only@example.test".into()),
         date: now(),
         from: Address {
@@ -390,7 +392,7 @@ fn a_message_with_no_body_yet_is_skipped_and_counted() {
 #[test]
 fn a_message_rebuilt_from_its_parts_is_not_exported_as_the_message_even_once_its_parts_are_here() {
     let (store, _dir) = fresh_store();
-    let account = AccountId::generate();
+    let account = new_account_id();
     store
         .connection()
         .execute(
@@ -411,7 +413,7 @@ fn a_message_rebuilt_from_its_parts_is_not_exported_as_the_message_even_once_its
     let message = Message {
         id: MessageId::generate(),
         thread: ThreadId::generate(),
-        account,
+        account: account.clone(),
         key: MessageKey::Rfc("r@example.test".into()),
         date: now(),
         from: Address {
@@ -558,7 +560,7 @@ fn sync_never_touches_the_local_account() {
     };
     store
         .apply(
-            draft.account,
+            draft.account.clone(),
             &Patch {
                 id: ChangeId::generate(),
                 changes: vec![Change::DraftUpsert(Box::new(draft.clone()))],

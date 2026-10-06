@@ -5,20 +5,24 @@
 //! IDLE with no new mail looks like from here: the only way out of the wait is the outbox.
 
 use chrono::{DateTime, TimeDelta, TimeZone, Utc};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_mime::posting;
 use mail_proto::{Backend, IoNeed, IoReady, Progress, ProtoOutcome};
 use mail_runtime::engine::Schedule;
 use mail_runtime::{AccountEngine, MapSecrets, Secrets, Woke};
 use mail_store::{SqliteStore, Store};
+use porter_core::SecretText;
+use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 use tokio::sync::watch;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 const IDENTITY: IdentityId =
     IdentityId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b1"));
 
@@ -148,7 +152,7 @@ fn caps(watch: WatchMode) -> AccountCaps {
 fn identity() -> Identity {
     Identity {
         id: IDENTITY,
-        account: ACCOUNT,
+        account: acct_account(),
         from: Address {
             name: None,
             email: "me@example.test".to_owned(),
@@ -175,13 +179,13 @@ async fn fixture(watch: WatchMode) -> Fixture {
         db.execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [ACCOUNT.to_string()],
+            [acct_account().to_string()],
         )
         .unwrap();
         db.execute(
             "INSERT INTO identities (id, account, from_name, from_email, is_default)
              VALUES (?1, ?2, NULL, 'me@example.test', '\"default\"')",
-            [IDENTITY.to_string(), ACCOUNT.to_string()],
+            [IDENTITY.to_string(), acct_account().to_string()],
         )
         .unwrap();
     }
@@ -189,10 +193,10 @@ async fn fixture(watch: WatchMode) -> Fixture {
     secrets
         .put(
             &SecretKey {
-                account: ACCOUNT,
+                account: acct_account(),
                 purpose: SecretPurpose::IncomingPassword,
             },
-            &Credential::Password("s3cr3t".to_owned()),
+            &Credential::Password(SecretText::new("s3cr3t".to_owned())),
         )
         .unwrap();
     let (smtp_port, delivered) = smtp().await;
@@ -216,7 +220,7 @@ async fn fixture(watch: WatchMode) -> Fixture {
     };
     let interrupted = Arc::new(Mutex::new(false));
     let engine = AccountEngine::new(
-        ACCOUNT,
+        acct_account(),
         plan,
         Parked {
             caps: caps(watch),
@@ -243,7 +247,7 @@ async fn fixture(watch: WatchMode) -> Fixture {
 fn schedule(store: &SqliteStore, at: DateTime<Utc>) -> Draft {
     let draft = Draft {
         id: DraftId::generate(),
-        account: ACCOUNT,
+        account: acct_account(),
         identity: IDENTITY,
         to: vec![Address {
             name: None,
@@ -265,7 +269,7 @@ fn schedule(store: &SqliteStore, at: DateTime<Utc>) -> Draft {
     };
     store
         .apply(
-            ACCOUNT,
+            acct_account(),
             &Patch {
                 id: ChangeId::generate(),
                 changes: vec![Change::DraftUpsert(Box::new(draft.clone()))],
@@ -279,7 +283,7 @@ fn schedule(store: &SqliteStore, at: DateTime<Utc>) -> Draft {
         .unwrap();
     store
         .enqueue(
-            ACCOUNT,
+            acct_account(),
             RemoteIntent::Send {
                 draft: draft.id,
                 raw,
@@ -371,7 +375,7 @@ async fn woken_for(mode: WatchMode) -> (Result<Woke, mail_runtime::RuntimeError>
     schedule(&it.store, soon);
     let (_tx, mut cancel) = watch::channel(false);
     let inbox = MailboxRef {
-        account: ACCOUNT,
+        account: acct_account(),
         path: "INBOX".to_owned(),
     };
     let started = Instant::now();
@@ -420,7 +424,7 @@ async fn a_send_scheduled_while_the_watch_waits_is_noticed() {
     let store = it.store.clone();
     let (_tx, mut cancel) = watch::channel(false);
     let inbox = MailboxRef {
-        account: ACCOUNT,
+        account: acct_account(),
         path: "INBOX".to_owned(),
     };
     let later = tokio::spawn(async move {
@@ -448,7 +452,7 @@ async fn nothing_due_means_the_watch_waits_out_its_interval() {
     schedule(&it.store, Utc::now() + TimeDelta::hours(1));
     let (_tx, mut cancel) = watch::channel(false);
     let inbox = MailboxRef {
-        account: ACCOUNT,
+        account: acct_account(),
         path: "INBOX".to_owned(),
     };
     let woke = it

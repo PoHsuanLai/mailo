@@ -61,7 +61,7 @@ pub fn start_mailto(
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<Start, String> {
     let account = match mail_core::compose::sending_accounts(store).first() {
-        Some((_, id)) => *id,
+        Some((_, id)) => id.clone(),
         None => mail_core::compose::account_for(store, None)?,
     };
     mail_core::compose::draft_mailto(store, account, link, now)

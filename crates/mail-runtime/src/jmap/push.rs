@@ -39,8 +39,8 @@ impl JmapEngine {
         poll: Duration,
     ) -> Result<Woke, RuntimeError> {
         let started = Utc::now();
-        let (store, account, every) = (self.store.clone(), self.account, self.outbox_every);
-        let alarm = || due_alarm(store.clone(), account, started, every);
+        let (store, account, every) = (self.store.clone(), self.account.clone(), self.outbox_every);
+        let alarm = || due_alarm(store.clone(), account.clone(), started, every);
 
         if self.pushes() {
             let pushed = self.pushed();

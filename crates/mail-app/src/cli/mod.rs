@@ -9,6 +9,7 @@ use mail_core::account::{Receive, Setup};
 use mail_core::when::Stamp;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 use std::fmt::Write as _;
 
 mod account;
@@ -1853,7 +1854,7 @@ fn account_named(store: &SqliteStore, address: &str) -> Result<AccountId, String
         format!("no account for {address:?}. `mailo account list` says which there are.")
     })?;
     id.parse()
-        .map(AccountId::from_uuid)
+        .map(mail_domain::id::account_id_from_uuid)
         .map_err(|_| "that account's id is unreadable".to_owned())
 }
 

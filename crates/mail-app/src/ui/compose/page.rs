@@ -4,7 +4,8 @@
 use std::collections::BTreeMap;
 
 use chrono::{DateTime, Datelike, Duration, TimeZone, Utc};
-use mail_domain::{AccountId, Address, Draft, DraftId, ReceiptRequest};
+use mail_domain::{Address, Draft, DraftId, ReceiptRequest};
+use porter_core::AccountId;
 
 use super::opening::doc_of;
 use crate::ui::editor::{Person, Pos, Range, Session};
@@ -271,7 +272,7 @@ impl Page {
         Self {
             draft: draft.id,
             kind,
-            from: draft.account,
+            from: draft.account.clone(),
             subject: draft.subject.clone(),
             to: draft.to.iter().map(person).collect(),
             cc_row: if cc.is_empty() {

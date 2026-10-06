@@ -12,8 +12,10 @@ use chrono::Datelike;
 use ds::prelude::{SpaceLook, Theme};
 use ds::style::space::look::CardAccent;
 use ds::style::space::palette::Dot;
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -25,11 +27,15 @@ pub(in crate::ui) struct Work {
     pub sam: ThreadId,
 }
 
-const GOOGLE: AccountId = AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b1"));
-const MICROSOFT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b2"));
-const FASTMAIL: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b3"));
+fn acct_google() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b1"))
+}
+fn acct_microsoft() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b2"))
+}
+fn acct_fastmail() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b3"))
+}
 
 struct Mail {
     account: AccountId,
@@ -58,7 +64,7 @@ pub(in crate::ui) fn work() -> Work {
     };
     let mail = [
         Mail {
-            account: GOOGLE,
+            account: acct_google(),
             name: "Dana Okafor",
             email: "dana@example.com",
             subject: "Re: UIDL stability across a UIDVALIDITY change",
@@ -72,7 +78,7 @@ pub(in crate::ui) fn work() -> Work {
             file: false,
         },
         Mail {
-            account: GOOGLE,
+            account: acct_google(),
             name: "Release list",
             email: "release@example.com",
             subject: "0.9 cut on Thursday: what is still open",
@@ -86,7 +92,7 @@ pub(in crate::ui) fn work() -> Work {
             file: false,
         },
         Mail {
-            account: MICROSOFT,
+            account: acct_microsoft(),
             name: "Google Workspace",
             email: "no-reply@g00gle-security.xyz",
             subject: "Unusual sign-in attempt blocked",
@@ -100,7 +106,7 @@ pub(in crate::ui) fn work() -> Work {
             file: false,
         },
         Mail {
-            account: MICROSOFT,
+            account: acct_microsoft(),
             name: "Build bot",
             email: "ci@example.com",
             subject: "main is green again",
@@ -114,7 +120,7 @@ pub(in crate::ui) fn work() -> Work {
             file: false,
         },
         Mail {
-            account: GOOGLE,
+            account: acct_google(),
             name: "Sam Lindqvist",
             email: "sam@example.com",
             subject: "Notes from the sync review",
@@ -128,7 +134,7 @@ pub(in crate::ui) fn work() -> Work {
             file: false,
         },
         Mail {
-            account: FASTMAIL,
+            account: acct_fastmail(),
             name: "This Week in Rust",
             email: "newsletter@thisweekinrust.example",
             subject: "This Week in Rust 566",
@@ -142,7 +148,7 @@ pub(in crate::ui) fn work() -> Work {
             file: false,
         },
         Mail {
-            account: FASTMAIL,
+            account: acct_fastmail(),
             name: "Priya Raman",
             email: "priya@rust-users.example",
             subject: "[rust-users] Re: matching FETCH responses to UIDs",
@@ -156,7 +162,7 @@ pub(in crate::ui) fn work() -> Work {
             file: false,
         },
         Mail {
-            account: GOOGLE,
+            account: acct_google(),
             name: "Sam Lindqvist",
             email: "sam@example.com",
             subject: "Re: Re: Keyset cursors, not offsets",
@@ -170,7 +176,7 @@ pub(in crate::ui) fn work() -> Work {
             file: false,
         },
         Mail {
-            account: GOOGLE,
+            account: acct_google(),
             name: "Dana Okafor",
             email: "dana@example.com",
             subject: "Invitation: Design review, Thursday 14:00",
@@ -184,7 +190,7 @@ pub(in crate::ui) fn work() -> Work {
             file: true,
         },
         Mail {
-            account: GOOGLE,
+            account: acct_google(),
             name: "Calendar",
             email: "calendar@example.com",
             subject: "Accepted: Design review, Thursday 14:00",
@@ -199,15 +205,15 @@ pub(in crate::ui) fn work() -> Work {
         },
     ];
     for (id, address, host, graph) in [
-        (GOOGLE, "poh@acme.example", "imap.gmail.com", false),
+        (acct_google(), "poh@acme.example", "imap.gmail.com", false),
         (
-            MICROSOFT,
+            acct_microsoft(),
             "p.lai@corp.example",
             "outlook.office365.com",
             true,
         ),
         (
-            FASTMAIL,
+            acct_fastmail(),
             "lists@fastmail.example",
             "imap.fastmail.com",
             false,
@@ -217,7 +223,7 @@ pub(in crate::ui) fn work() -> Work {
     }
     let mut dana = None;
     let mut sam = None;
-    for account in [GOOGLE, MICROSOFT, FASTMAIL] {
+    for account in [acct_google(), acct_microsoft(), acct_fastmail()] {
         let batch: Vec<&Mail> = mail.iter().filter(|item| item.account == account).collect();
         let built = build(&store, &batch);
         dana = dana.or(built.dana);
@@ -225,9 +231,9 @@ pub(in crate::ui) fn work() -> Work {
         ingest(&store, account, built.messages, built.names);
     }
     let mut colors = BTreeMap::new();
-    colors.insert(GOOGLE, "#5B4FC4".to_owned());
-    colors.insert(MICROSOFT, "#2F7F6E".to_owned());
-    colors.insert(FASTMAIL, "#B0662E".to_owned());
+    colors.insert(acct_google(), "#5B4FC4".to_owned());
+    colors.insert(acct_microsoft(), "#2F7F6E".to_owned());
+    colors.insert(acct_fastmail(), "#B0662E".to_owned());
     let spaces = Spaces {
         current: 0,
         recall: BTreeMap::new(),
@@ -342,7 +348,7 @@ fn at(days: i64, hour: u32, min: u32) -> chrono::DateTime<chrono::Utc> {
 }
 
 fn ensure_label(store: &SqliteStore, account: AccountId, name: &str) -> LabelId {
-    if let Ok(labels) = store.labels(account)
+    if let Ok(labels) = store.labels(account.clone())
         && let Some(found) = labels.into_iter().find(|label| label.name == name)
     {
         return found.id;
@@ -350,7 +356,7 @@ fn ensure_label(store: &SqliteStore, account: AccountId, name: &str) -> LabelId 
     let id = LabelId::generate();
     store
         .apply(
-            account,
+            account.clone(),
             &Patch {
                 id: ChangeId::generate(),
                 changes: vec![Change::LabelUpsert(Label {
@@ -400,7 +406,7 @@ fn build(store: &SqliteStore, batch: &[&Mail]) -> BuiltMail {
         let message = Message {
             id: MessageId::generate(),
             thread,
-            account: item.account,
+            account: item.account.clone(),
             key: MessageKey::Rfc(format!("w-{n}-{}@example.test", item.account)),
             date: at(item.days, item.hour, item.min),
             from: Address {
@@ -429,7 +435,7 @@ fn build(store: &SqliteStore, batch: &[&Mail]) -> BuiltMail {
             labels: item
                 .labels
                 .iter()
-                .map(|name| ensure_label(store, item.account, name))
+                .map(|name| ensure_label(store, item.account.clone(), name))
                 .collect(),
             body: Body::Present {
                 text: Some(item.body.to_owned()),
@@ -479,7 +485,7 @@ fn ingest(
 ) {
     store
         .ingest(
-            account,
+            account.clone(),
             Ingest {
                 mailbox: MailboxRef {
                     account,

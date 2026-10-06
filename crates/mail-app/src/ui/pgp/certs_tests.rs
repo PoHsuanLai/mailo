@@ -21,7 +21,9 @@ use super::smime_tests::{PASSWORD, identity_file, trust_root, with_identity};
 use super::tests::{own_key, seams_with};
 use super::{Seams, cert_short, short};
 use crate::ui::fixtures::smime_support::pki;
-use crate::ui::fixtures::{ACCOUNT, Seen, click, dispatching, rebuild_into, seeded, type_into};
+use crate::ui::fixtures::{
+    Seen, acct_account, click, dispatching, rebuild_into, seeded, type_into,
+};
 use crate::ui::view::Shell;
 
 thread_local! {
@@ -76,7 +78,7 @@ fn cert(fingerprint: u8, secret: SecretHeld) -> SmimeCert {
 fn holds(secrets: &MapSecrets, cert: &SmimeCert) -> bool {
     secrets
         .get_signing(&SigningKeyRef {
-            account: ACCOUNT,
+            account: acct_account(),
             key: SigningKeyId::Smime(cert.fingerprint),
         })
         .is_ok()

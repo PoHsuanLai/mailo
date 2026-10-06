@@ -15,7 +15,8 @@
 //! built.
 
 use super::{Asked, Unsaid, describe, each, kept_here, on_account, place_of, whole_days, words};
-use mail_domain::{AccountId, DateRange, Filter, MailboxRole, ReadState, Star, TextMatch};
+use mail_domain::{DateRange, Filter, MailboxRole, ReadState, Star, TextMatch};
+use porter_core::AccountId;
 
 /// Where Graph is asked: a folder, or the whole mailbox.
 #[derive(Debug, Clone, PartialEq, Eq)]

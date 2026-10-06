@@ -7,7 +7,9 @@ use super::SqliteStore;
 use super::read::Recipients;
 use super::row::{from_time, json, time, to_json, uuid};
 use crate::StoreError;
-use mail_domain::{AccountId, IdentityId, PendingAttachment, Template, TemplateId};
+use mail_domain::id::account_id_from_uuid;
+use mail_domain::{IdentityId, PendingAttachment, Template, TemplateId};
+use porter_core::AccountId;
 use rusqlite::params;
 
 /// The columns a [`Template`] is read back from, in the order [`SqliteStore::read_template`]
@@ -91,7 +93,7 @@ impl SqliteStore {
             json("Template.attachments", &row.get::<_, String>(8)?)?;
         Ok(Template {
             id: TemplateId::from_uuid(uuid("TemplateId", &row.get::<_, String>(0)?)?),
-            account: AccountId::from_uuid(uuid("AccountId", &row.get::<_, String>(1)?)?),
+            account: account_id_from_uuid(uuid("AccountId", &row.get::<_, String>(1)?)?),
             identity: IdentityId::from_uuid(uuid("IdentityId", &row.get::<_, String>(2)?)?),
             name: row.get(3)?,
             to: recipients.to,

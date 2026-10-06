@@ -9,10 +9,12 @@ use super::{SmimeError, epoch_changed};
 use crate::pgp::WithSecret;
 use crate::pgp::keys::identity_for;
 use chrono::{DateTime, Utc};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_mime::smime::{self, Cert, Identity};
 use mail_runtime::Secrets;
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 
 /// The user's own current certificate for `address`: one whose private key the keyring holds and
 /// that is valid at `now`, best first.
@@ -169,7 +171,7 @@ fn account_of(store: &SqliteStore, cert: &SmimeCert) -> AccountId {
     cert.emails
         .iter()
         .find_map(|email| identity_for(store, email))
-        .map_or(AccountId::from_uuid(uuid::Uuid::nil()), |i| i.account)
+        .map_or(account_id_from_uuid(uuid::Uuid::nil()), |i| i.account)
 }
 
 /// The user's identity for `record`: its private key from the keyring, its certificate and its

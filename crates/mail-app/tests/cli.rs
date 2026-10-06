@@ -6,8 +6,11 @@
 
 use chrono::{DateTime, TimeZone, Utc};
 use mail_app::cli;
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
+use porter_provider::Issuer;
 
 /// `cli::run`, with no saved OAuth clients.
 fn exercise(
@@ -18,8 +21,9 @@ fn exercise(
     cli::run_with_clients(store, command, now, &mail_runtime::OAuthRegistry::default())
 }
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 
 fn seeded() -> (SqliteStore, tempfile::TempDir, ThreadId) {
     let dir = tempfile::tempdir().unwrap();
@@ -29,7 +33,7 @@ fn seeded() -> (SqliteStore, tempfile::TempDir, ThreadId) {
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [ACCOUNT.to_string()],
+            [acct_account().to_string()],
         )
         .unwrap();
 
@@ -49,7 +53,7 @@ fn seeded() -> (SqliteStore, tempfile::TempDir, ThreadId) {
         let message = Message {
             id: MessageId::from_uuid(uuid::Uuid::from_u128(0x9000 + i as u128)),
             thread,
-            account: ACCOUNT,
+            account: acct_account(),
             key: MessageKey::Rfc(format!("m{i}@example.test")),
             date: Utc
                 .timestamp_opt(1_700_000_000 + i as i64 * 3600, 0)
@@ -88,7 +92,7 @@ fn seeded() -> (SqliteStore, tempfile::TempDir, ThreadId) {
         };
         store
             .apply(
-                ACCOUNT,
+                acct_account(),
                 &Patch {
                     id: ChangeId::generate(),
                     changes: vec![Change::MessageUpsert(Box::new(message))],
@@ -486,7 +490,7 @@ mod microsoft {
         assert!(matches!(
             preset.plan.auth,
             AuthPlan::OAuth {
-                issuer: OAuthIssuer::Microsoft,
+                issuer: Issuer::Microsoft,
                 ..
             }
         ));

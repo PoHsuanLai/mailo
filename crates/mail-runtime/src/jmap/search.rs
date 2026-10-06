@@ -40,7 +40,7 @@ impl JmapEngine {
     ) -> Result<Searched, RuntimeError> {
         let mailboxes = self.refresh_mailboxes(now).await?;
         let ctx = JmapCtx {
-            account: self.account,
+            account: self.account.clone(),
             mailboxes: &mailboxes,
             labels_named: labels,
         };
@@ -67,7 +67,7 @@ impl JmapEngine {
                 email_id: id.clone(),
             })
             .collect();
-        let held = self.store.held_at(self.account, &found)?;
+        let held = self.store.held_at(self.account.clone(), &found)?;
         let wanted: Vec<RemoteRef> = found
             .iter()
             .filter(|r| !held.iter().any(|(h, _)| h == *r))
@@ -83,7 +83,8 @@ impl JmapEngine {
             Whole::Never,
         )
         .await?;
-        self.store.mark_found(self.account, &report.arrived, now)?;
+        self.store
+            .mark_found(self.account.clone(), &report.arrived, now)?;
         let mut hits = ServerHits {
             fetched: report.arrived.len(),
             more: page
@@ -93,7 +94,7 @@ impl JmapEngine {
         };
         hits.hold(
             self.store
-                .held_at(self.account, &found)?
+                .held_at(self.account.clone(), &found)?
                 .into_iter()
                 .map(|(_, id)| id),
         );

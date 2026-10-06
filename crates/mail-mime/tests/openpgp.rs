@@ -5,9 +5,10 @@
 //! are the same on every run and nothing secret sits in the repository pretending to be test data.
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_domain::id::new_account_id;
 use mail_domain::{
-    AccountId, Address, Coverage, Draft, DraftId, Encryption, Identity, IdentityId, IsDefault,
-    KeySource, KeyTrust, OpenPgp, PreferEncrypt, ReceiptRequest, SendState, Verification,
+    Address, Coverage, Draft, DraftId, Encryption, Identity, IdentityId, IsDefault, KeySource,
+    KeyTrust, OpenPgp, PreferEncrypt, ReceiptRequest, SendState, Verification,
 };
 use mail_mime::openpgp::{
     self, Cert, Keys, KnownCert, Protection, ReadKey, Sealing, SecretCert, Unlocking, wkd,
@@ -34,7 +35,7 @@ fn addr(email: &str) -> Address {
 fn identity() -> Identity {
     Identity {
         id: IdentityId::generate(),
-        account: AccountId::generate(),
+        account: new_account_id(),
         from: Address {
             name: Some("Me".to_owned()),
             email: "me@example.test".to_owned(),
@@ -48,7 +49,7 @@ fn identity() -> Identity {
 fn draft(subject: &str, text: &str) -> Draft {
     Draft {
         id: DraftId::generate(),
-        account: AccountId::generate(),
+        account: new_account_id(),
         identity: IdentityId::generate(),
         to: vec![addr("bea@example.test")],
         cc: Vec::new(),

@@ -1,6 +1,7 @@
 use super::*;
 use crate::ui::view::{Grouping, PageGroup, Source, hover_actions, hover_in, places_with};
 use chrono::Utc;
+use mail_domain::id::new_account_id;
 use mail_domain::*;
 
 fn labels() -> Vec<(String, LabelId)> {
@@ -13,7 +14,7 @@ fn labels() -> Vec<(String, LabelId)> {
 fn summary(read: ReadState, star: Star, role: MailboxRole) -> ThreadSummary {
     ThreadSummary {
         id: ThreadId::generate(),
-        account: AccountId::generate(),
+        account: new_account_id(),
         subject: "s".to_owned(),
         snippet: String::new(),
         from: Address {

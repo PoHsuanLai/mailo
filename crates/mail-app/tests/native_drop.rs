@@ -18,15 +18,18 @@ use settle::settle_until;
 #[path = "support/drive.rs"]
 mod drive;
 use drive::Drive;
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_runtime::{Arrival, absorb};
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 
 const VIEW: Viewport = Viewport {
     width: 1200,
@@ -47,13 +50,16 @@ fn seeded(dir: &Path) -> Arc<SqliteStore> {
         db.execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [ACCOUNT.to_string()],
+            [acct_account().to_string()],
         )
         .unwrap();
         db.execute(
             "INSERT INTO identities (id, account, from_name, from_email, is_default)
              VALUES (?1, ?2, NULL, 'me@example.test', '\"default\"')",
-            [IdentityId::generate().to_string(), ACCOUNT.to_string()],
+            [
+                IdentityId::generate().to_string(),
+                acct_account().to_string(),
+            ],
         )
         .unwrap();
     }
@@ -65,9 +71,9 @@ fn seeded(dir: &Path) -> Arc<SqliteStore> {
     );
     absorb(
         &store,
-        ACCOUNT,
+        acct_account(),
         MailboxRef {
-            account: ACCOUNT,
+            account: acct_account(),
             path: "INBOX".to_owned(),
         },
         Some(SyncCursor::Pop),
@@ -137,7 +143,7 @@ fn drop_at(harness: &mut Harness, at: Point, paths: Vec<PathBuf>) -> DropAccepta
 
 /// The draft `c` opened, as stored.
 fn the_draft(store: &SqliteStore) -> Draft {
-    let drafts = store.drafts(ACCOUNT).unwrap();
+    let drafts = store.drafts(acct_account()).unwrap();
     assert_eq!(drafts.len(), 1, "{drafts:?}");
     drafts.into_iter().next().unwrap()
 }

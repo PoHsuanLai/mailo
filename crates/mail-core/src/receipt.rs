@@ -10,6 +10,7 @@ use chrono::{DateTime, Utc};
 use mail_domain::*;
 use mail_mime::{OriginalHeaders, ReceiptAsk, Reporting, ReturnPath};
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 
 /// Where a message stands on read receipts, for the reader to show.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -101,7 +102,7 @@ pub fn answer(
             .map_err(|e| e.to_string())?;
         let identity = crate::compose::identity_of(
             store,
-            original.account,
+            original.account.clone(),
             addressed_identity(store, &original),
         )?;
         // Named like a draft because the outbox's submission is keyed by one; no draft row
@@ -124,7 +125,7 @@ pub fn answer(
             .map_err(|e| e.to_string())?;
         let queued = store
             .enqueue(
-                original.account,
+                original.account.clone(),
                 RemoteIntent::Send {
                     draft: id,
                     raw: frozen,
@@ -202,7 +203,7 @@ fn nothing_to_undo() -> Patch {
 
 /// Whether `message` was written by this account: its sender is one of the account's identities.
 fn is_ours(store: &SqliteStore, message: &Message) -> bool {
-    identities(store, message.account)
+    identities(store, message.account.clone())
         .iter()
         .any(|(_, email)| email.eq_ignore_ascii_case(&message.from.email))
 }
@@ -210,7 +211,7 @@ fn is_ours(store: &SqliteStore, message: &Message) -> bool {
 /// The identity the original was addressed to, when one of the account's is among its
 /// recipients. `None` sends from the account's default.
 fn addressed_identity(store: &SqliteStore, message: &Message) -> Option<IdentityId> {
-    identities(store, message.account)
+    identities(store, message.account.clone())
         .into_iter()
         .find(|(_, email)| {
             message

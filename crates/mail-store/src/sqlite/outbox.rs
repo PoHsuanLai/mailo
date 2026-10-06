@@ -10,10 +10,12 @@ use super::row::{from_time, json, to_json};
 use crate::dispatch::{Answered, Place};
 use crate::{Dispatch, OutboxEntry, Settle, StoreError};
 use chrono::{DateTime, TimeDelta, Utc};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::{
-    AccountId, Change, FolderWork, Membership, MessageId, OutboxId, Patch, ProtoOp, RemoteIntent,
-    RemoteRef, Retry,
+    Change, FolderWork, Membership, MessageId, OutboxId, Patch, ProtoOp, RemoteIntent, RemoteRef,
+    Retry,
 };
+use porter_core::AccountId;
 use rusqlite::{OptionalExtension, params};
 
 /// Backoff for a retryable failure: 1s, 2s, 4s … capped at an hour.
@@ -85,7 +87,7 @@ impl SqliteStore {
                 Place::At(kept)
             });
         }
-        let found = self.refs_for(account, &[message])?;
+        let found = self.refs_for(account.clone(), &[message])?;
         if found.is_empty()
             && let Some(unplaced) = self.unplaced_of(account, message)?
         {
@@ -97,7 +99,7 @@ impl SqliteStore {
     /// Whether any of `messages` is waiting for a sync to find where a move put it.
     fn any_unplaced(&self, account: AccountId, messages: &[MessageId]) -> Result<bool, StoreError> {
         for message in messages {
-            if self.is_unplaced(account, *message)? {
+            if self.is_unplaced(account.clone(), *message)? {
                 return Ok(true);
             }
         }
@@ -156,7 +158,7 @@ impl SqliteStore {
                 unreachable!("handled above")
             }
         };
-        let remotes = self.refs_for(account, messages)?;
+        let remotes = self.refs_for(account.clone(), messages)?;
         // Normal, not exceptional: a message composed locally and not yet sent has no server
         // address at all. One the server moved to where it did not say has none either, but is
         // there: queued with no address, it waits to be addressed when the sync finds it.
@@ -277,11 +279,12 @@ impl SqliteStore {
         undo: &Patch,
         now: DateTime<Utc>,
     ) -> Result<Option<OutboxId>, StoreError> {
-        let Some(op) = self.resolve_intent(account, &intent)? else {
+        let Some(op) = self.resolve_intent(account.clone(), &intent)? else {
             return Ok(None);
         };
         let messages = crate::dispatch::addressed(&intent, &|m: MessageId| {
-            Ok(!self.refs_for(account, &[m])?.is_empty() || self.is_unplaced(account, m)?)
+            Ok(!self.refs_for(account.clone(), &[m])?.is_empty()
+                || self.is_unplaced(account.clone(), m)?)
         })?;
         let messages = if messages.is_empty() {
             None
@@ -305,8 +308,8 @@ impl SqliteStore {
         // Kept before the caller removes the messages, which takes their `remote_map` rows.
         if let RemoteIntent::Destroy { messages } = &intent {
             for message in messages {
-                for remote in self.refs_for(account, &[*message])? {
-                    self.keep_destroyed(account, *message, &remote, id)?;
+                for remote in self.refs_for(account.clone(), &[*message])? {
+                    self.keep_destroyed(account.clone(), *message, &remote, id)?;
                 }
             }
         }
@@ -353,7 +356,7 @@ impl SqliteStore {
             })?
             .collect::<Result<Vec<_>, _>>()?;
         drop(stmt);
-        let lookup = |m: MessageId| self.addresses_now(account, m);
+        let lookup = |m: MessageId| self.addresses_now(account.clone(), m);
         let mut out = Vec::new();
         for (id, op, undo, attempts, next, messages) in rows {
             let queued: ProtoOp = json("ProtoOp", &op)?;
@@ -365,7 +368,7 @@ impl SqliteStore {
             };
             out.push(OutboxEntry {
                 id: OutboxId::from_i64(id),
-                account,
+                account: account.clone(),
                 op,
                 undo: json("Patch", &undo)?,
                 attempts: attempts as u32,
@@ -388,7 +391,7 @@ impl SqliteStore {
         let Some((account, op, messages)) = row else {
             return Ok(Dispatch::Wait);
         };
-        let account = AccountId::from_uuid(super::row::uuid("AccountId", &account)?);
+        let account = account_id_from_uuid(super::row::uuid("AccountId", &account)?);
         let earlier = {
             let db = self.connection();
             let mut stmt = db.prepare_cached(
@@ -404,7 +407,7 @@ impl SqliteStore {
             }
             earlier
         };
-        let lookup = |m: MessageId| self.addresses_now(account, m);
+        let lookup = |m: MessageId| self.addresses_now(account.clone(), m);
         crate::dispatch::in_queue(
             &earlier,
             json("ProtoOp", &op)?,
@@ -446,7 +449,7 @@ impl SqliteStore {
                     params![id.as_i64()],
                     |r| Ok((r.get(0)?, r.get(1)?)),
                 )?;
-                let account = AccountId::from_uuid(super::row::uuid("AccountId", &account)?);
+                let account = account_id_from_uuid(super::row::uuid("AccountId", &account)?);
                 match json("ProtoOp", &op)? {
                     ProtoOp::Folder(FolderWork::Delete { path, .. }) => {
                         self.forget_mailbox(account, &path)?;

@@ -5,7 +5,8 @@
 use super::{Inner, RemoteRow, remote_parts, row_to_remote, same_remote};
 use crate::StoreError;
 use crate::dispatch::Answered;
-use mail_domain::{AccountId, MailboxRef, MessageId, OutboxId, RemoteRef};
+use mail_domain::{MailboxRef, MessageId, OutboxId, RemoteRef};
+use porter_core::AccountId;
 
 /// One kept address: where the destroyed message was, and the entry deleting it there.
 #[derive(Debug, Clone)]
@@ -24,7 +25,7 @@ impl Inner {
         outbox: OutboxId,
     ) {
         self.destroyed
-            .retain(|row| !same_remote(&row.at, account, remote));
+            .retain(|row| !same_remote(&row.at, account.clone(), remote));
         let (mailbox, uidvalidity, uid, uidl) = remote_parts(remote);
         self.destroyed.push(DestroyedRow {
             at: RemoteRow {
@@ -61,7 +62,7 @@ impl Inner {
 
     pub(super) fn forget_destroyed(&mut self, account: AccountId, remote: &RemoteRef) {
         self.destroyed
-            .retain(|row| !same_remote(&row.at, account, remote));
+            .retain(|row| !same_remote(&row.at, account.clone(), remote));
     }
 
     pub(super) fn forget_destroyed_in(&mut self, account: AccountId, path: &str) {
@@ -74,17 +75,17 @@ impl Inner {
             || !self
                 .destroyed
                 .iter()
-                .any(|row| same_remote(&row.at, account, from))
+                .any(|row| same_remote(&row.at, account.clone(), from))
         {
             return;
         }
         // As `UPDATE OR REPLACE`: a row already kept at `to` gives way.
         self.destroyed
-            .retain(|row| !same_remote(&row.at, account, to));
+            .retain(|row| !same_remote(&row.at, account.clone(), to));
         let Some(at) = self
             .destroyed
             .iter()
-            .position(|row| same_remote(&row.at, account, from))
+            .position(|row| same_remote(&row.at, account.clone(), from))
         else {
             return;
         };

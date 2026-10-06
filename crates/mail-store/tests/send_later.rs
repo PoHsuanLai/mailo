@@ -6,15 +6,18 @@
 //! question.
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_store::{MemoryStore, Settle, SqliteStore, Store};
+use porter_core::AccountId;
 
 fn at(n: i64) -> DateTime<Utc> {
     Utc.timestamp_opt(1_700_000_000 + n, 0).unwrap()
 }
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 const IDENTITY: IdentityId =
     IdentityId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b1"));
 
@@ -26,13 +29,13 @@ fn seed(sqlite: &SqliteStore) {
     db.execute(
         "INSERT INTO accounts (id, address, plan, created_at)
          VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-        [ACCOUNT.to_string()],
+        [acct_account().to_string()],
     )
     .unwrap();
     db.execute(
         "INSERT INTO identities (id, account, from_name, from_email, is_default)
          VALUES (?1, ?2, 'Me', 'me@example.test', '\"default\"')",
-        [IDENTITY.to_string(), ACCOUNT.to_string()],
+        [IDENTITY.to_string(), acct_account().to_string()],
     )
     .unwrap();
 }
@@ -40,7 +43,7 @@ fn seed(sqlite: &SqliteStore) {
 fn draft() -> Draft {
     Draft {
         id: DraftId::generate(),
-        account: ACCOUNT,
+        account: acct_account(),
         identity: IDENTITY,
         to: vec![Address {
             name: None,
@@ -70,7 +73,7 @@ fn schedule(store: &dyn Store, draft: &Draft, leaves: DateTime<Utc>) -> OutboxId
     };
     store
         .apply(
-            ACCOUNT,
+            acct_account(),
             &Patch {
                 id: ChangeId::generate(),
                 changes: vec![Change::DraftUpsert(Box::new(draft.clone()))],
@@ -79,7 +82,7 @@ fn schedule(store: &dyn Store, draft: &Draft, leaves: DateTime<Utc>) -> OutboxId
         .unwrap();
     let id = store
         .enqueue(
-            ACCOUNT,
+            acct_account(),
             RemoteIntent::Send {
                 draft: draft.id,
                 raw: BlobId::generate(),
@@ -128,7 +131,7 @@ fn a_scheduled_send_is_not_handed_out_before_its_time() {
         schedule(store, &draft, at(LEAVES));
         for early in [0, 1, LEAVES - 1] {
             assert_eq!(
-                store.outbox_due(ACCOUNT, at(early)).unwrap(),
+                store.outbox_due(acct_account(), at(early)).unwrap(),
                 vec![],
                 "{name}: handed out {} seconds early",
                 LEAVES - early
@@ -144,7 +147,7 @@ fn and_is_handed_out_from_its_time_on() {
     for (name, store) in b.each() {
         let id = schedule(store, &draft, at(LEAVES));
         for late in [LEAVES, LEAVES + 1, LEAVES + 86_400] {
-            let due = store.outbox_due(ACCOUNT, at(late)).unwrap();
+            let due = store.outbox_due(acct_account(), at(late)).unwrap();
             assert_eq!(
                 due.iter().map(|e| e.id).collect::<Vec<_>>(),
                 vec![id],
@@ -174,22 +177,26 @@ fn a_watch_learns_when_to_wake_from_the_outbox() {
     let b = both();
     let (soon, later) = (draft(), draft());
     for (name, store) in b.each() {
-        assert_eq!(store.outbox_next(ACCOUNT, at(0)).unwrap(), None, "{name}");
+        assert_eq!(
+            store.outbox_next(acct_account(), at(0)).unwrap(),
+            None,
+            "{name}"
+        );
         schedule(store, &later, at(LEAVES * 2));
         schedule(store, &soon, at(LEAVES));
         assert_eq!(
-            store.outbox_next(ACCOUNT, at(0)).unwrap(),
+            store.outbox_next(acct_account(), at(0)).unwrap(),
             Some(at(LEAVES)),
             "{name}: the earliest, not the first queued"
         );
         // Strictly after: an entry already due is the pass's business, not the alarm's.
         assert_eq!(
-            store.outbox_next(ACCOUNT, at(LEAVES)).unwrap(),
+            store.outbox_next(acct_account(), at(LEAVES)).unwrap(),
             Some(at(LEAVES * 2)),
             "{name}"
         );
         assert_eq!(
-            store.outbox_next(ACCOUNT, at(LEAVES * 2)).unwrap(),
+            store.outbox_next(acct_account(), at(LEAVES * 2)).unwrap(),
             None,
             "{name}"
         );
@@ -215,7 +222,7 @@ fn a_send_being_retried_does_not_wake_a_watch() {
             )
             .unwrap();
         assert_eq!(
-            store.outbox_next(ACCOUNT, at(LEAVES)).unwrap(),
+            store.outbox_next(acct_account(), at(LEAVES)).unwrap(),
             None,
             "{name}"
         );
@@ -235,7 +242,7 @@ fn taking_the_draft_back_takes_the_send_with_it() {
         };
         store
             .apply(
-                ACCOUNT,
+                acct_account(),
                 &Patch {
                     id: ChangeId::generate(),
                     changes: vec![
@@ -246,11 +253,15 @@ fn taking_the_draft_back_takes_the_send_with_it() {
             )
             .unwrap();
         assert_eq!(
-            store.outbox_due(ACCOUNT, at(LEAVES * 10)).unwrap(),
+            store.outbox_due(acct_account(), at(LEAVES * 10)).unwrap(),
             vec![],
             "{name}"
         );
-        assert_eq!(store.outbox_next(ACCOUNT, at(0)).unwrap(), None, "{name}");
+        assert_eq!(
+            store.outbox_next(acct_account(), at(0)).unwrap(),
+            None,
+            "{name}"
+        );
         assert_eq!(store.draft(draft.id).unwrap(), back, "{name}");
     }
 }
@@ -271,11 +282,17 @@ fn a_scheduled_send_survives_a_restart() {
         store.draft(draft.id).unwrap().state,
         SendState::Scheduled { at: at(LEAVES) }
     );
-    assert_eq!(store.outbox_due(ACCOUNT, at(LEAVES - 1)).unwrap(), vec![]);
-    assert_eq!(store.outbox_next(ACCOUNT, at(0)).unwrap(), Some(at(LEAVES)));
+    assert_eq!(
+        store.outbox_due(acct_account(), at(LEAVES - 1)).unwrap(),
+        vec![]
+    );
+    assert_eq!(
+        store.outbox_next(acct_account(), at(0)).unwrap(),
+        Some(at(LEAVES))
+    );
     assert_eq!(
         store
-            .outbox_due(ACCOUNT, at(LEAVES))
+            .outbox_due(acct_account(), at(LEAVES))
             .unwrap()
             .iter()
             .map(|e| e.id)

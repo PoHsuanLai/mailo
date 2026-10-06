@@ -8,7 +8,7 @@ use super::super::page::{Float, Phase, When};
 use super::super::props::pick_sends;
 use super::*;
 use crate::ui::editor::{to_flowed, to_html};
-use crate::ui::fixtures::{ACCOUNT, click, seeded};
+use crate::ui::fixtures::{acct_account, click, seeded};
 use mail_core::compose::Leaves;
 
 /// 2026-09-23 10:00 UTC, a Wednesday, read in UTC.
@@ -124,7 +124,7 @@ fn a_day_from_now() -> DateTime<Utc> {
 
 fn outbox(store: &SqliteStore, by: DateTime<Utc>) -> usize {
     store
-        .outbox_due(ACCOUNT, by)
+        .outbox_due(acct_account(), by)
         .unwrap_or_else(|why| panic!("the outbox: {why}"))
         .len()
 }
@@ -144,7 +144,7 @@ fn scheduled_page(window: &mut Window, at: DateTime<Utc>) -> String {
 }
 
 fn fresh(store: &SqliteStore) -> Draft {
-    mail_core::compose::draft_new(store, ACCOUNT, &[], "", "", Utc::now())
+    mail_core::compose::draft_new(store, acct_account(), &[], "", "", Utc::now())
         .unwrap_or_else(|why| panic!("a new draft: {why}"))
 }
 

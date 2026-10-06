@@ -3,9 +3,8 @@
 
 use crate::ui::files::work::messages;
 use mail_core::account::RemoveError;
-use mail_domain::{
-    AccountPlan, AuthPlan, HttpAuth, Incoming, LeaveOnServer, OAuthIssuer, Outgoing, Tls,
-};
+use mail_domain::{AccountPlan, AuthPlan, HttpAuth, Incoming, LeaveOnServer, Outgoing, Tls};
+use porter_provider::Issuer;
 
 /// One row of the sheet's settings: what it is, and how the account has it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,10 +32,12 @@ fn server(protocol: &str, host: &str, port: u16, tls: Tls) -> String {
     format!("{protocol}, {host}:{port}, {}", security(tls))
 }
 
-fn issuer(issuer: OAuthIssuer) -> &'static str {
+fn issuer(issuer: Issuer) -> &'static str {
     match issuer {
-        OAuthIssuer::Google => "Google",
-        OAuthIssuer::Microsoft => "Microsoft",
+        Issuer::Google => "Google",
+        Issuer::Microsoft => "Microsoft",
+        // porter names more issuers than mailo signs in to; no account here holds one.
+        _ => "another issuer",
     }
 }
 

@@ -3,7 +3,7 @@
 use super::looked_at;
 use crate::ui::files::SaveDir;
 use crate::ui::fixtures::{
-    ACCOUNT, Seen, chord, click, dispatching, rebuild_into, seeded, type_into,
+    Seen, acct_account, chord, click, dispatching, rebuild_into, seeded, type_into,
 };
 use crate::ui::reading::Reader;
 use crate::ui::view::Shell;
@@ -91,7 +91,7 @@ fn put(store: &SqliteStore, calendar: &str, method: &str) -> (ThreadId, MessageI
     let message = Message {
         id,
         thread: ThreadId::generate(),
-        account: ACCOUNT,
+        account: acct_account(),
         key: MessageKey::Rfc(rfc.clone()),
         date: chrono::Utc::now(),
         from: Address {
@@ -121,10 +121,10 @@ fn put(store: &SqliteStore, calendar: &str, method: &str) -> (ThreadId, MessageI
     };
     store
         .ingest(
-            ACCOUNT,
+            acct_account(),
             Ingest {
                 mailbox: MailboxRef {
-                    account: ACCOUNT,
+                    account: acct_account(),
                     path: "INBOX".to_owned(),
                 },
                 validity: UidValidity::Same,
@@ -152,7 +152,7 @@ fn far() -> chrono::DateTime<chrono::Utc> {
 /// Every submission waiting in the outbox, as its frozen bytes.
 fn submissions(store: &SqliteStore) -> Vec<String> {
     store
-        .outbox_due(ACCOUNT, far())
+        .outbox_due(acct_account(), far())
         .unwrap()
         .into_iter()
         .filter_map(|entry| match entry.op {
@@ -165,7 +165,7 @@ fn submissions(store: &SqliteStore) -> Vec<String> {
 }
 
 fn outbox(store: &SqliteStore) -> usize {
-    store.outbox_due(ACCOUNT, far()).unwrap().len()
+    store.outbox_due(acct_account(), far()).unwrap().len()
 }
 
 #[derive(Clone)]

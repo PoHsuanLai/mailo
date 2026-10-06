@@ -7,8 +7,8 @@
 
 use super::changes::{self, Answer, Subscribers};
 use super::wire::{Request, Response};
-use mail_domain::AccountId;
 use mail_store::SqliteStore;
+use porter_core::AccountId;
 use std::sync::Arc;
 
 /// What to do when a client asks for a pass, returning the accounts whose pass may have stored

@@ -11,14 +11,17 @@ use dioxus_core::{NoOpMutations, VirtualDom};
 use ds::motion::detail::operation::Operation;
 use mail_core::fetch::{Count, Event, First, Link, Step, Trigger};
 use mail_core::sync::report::{AccountReport, Counts, PassEnd, Progress};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::Duration;
 
-pub(super) const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000c9"));
+pub(super) fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000c9"))
+}
 
 /// A store with one IMAP account. With `fetched`, an earlier pass is on record for it.
 pub(super) fn account(fetched: bool) -> (Arc<SqliteStore>, tempfile::TempDir) {
@@ -35,7 +38,7 @@ pub(super) fn account(fetched: bool) -> (Arc<SqliteStore>, tempfile::TempDir) {
     db.execute(
         "INSERT INTO accounts (id, address, plan, created_at) VALUES (?1, ?2, ?3, ?4)",
         [
-            ACCOUNT.to_string(),
+            acct_account().to_string(),
             preset.plan.address.clone(),
             serde_json::to_string(&preset.plan).unwrap(),
             Utc::now().to_rfc3339(),
@@ -47,7 +50,7 @@ pub(super) fn account(fetched: bool) -> (Arc<SqliteStore>, tempfile::TempDir) {
             "INSERT INTO sync_state (account, mailbox, cursor, synced_at)
              VALUES (?1, 'INBOX', ?2, datetime('now'))",
             rusqlite::params![
-                ACCOUNT.to_string(),
+                acct_account().to_string(),
                 serde_json::to_string(&SyncCursor::Pop).unwrap()
             ],
         )
@@ -55,7 +58,7 @@ pub(super) fn account(fetched: bool) -> (Arc<SqliteStore>, tempfile::TempDir) {
     }
     drop(db);
     store
-        .put_caps(ACCOUNT, &preset.expected_caps, Utc::now())
+        .put_caps(acct_account(), &preset.expected_caps, Utc::now())
         .unwrap();
     (store, dir)
 }
@@ -73,7 +76,7 @@ pub(super) struct Script {
 
 pub(super) fn finished() -> PassEnd {
     PassEnd::Finished(AccountReport {
-        account: ACCOUNT,
+        account: acct_account(),
         address: "me@nowhere.example".to_owned(),
         counts: Counts::default(),
         trouble: vec![],
@@ -82,7 +85,7 @@ pub(super) fn finished() -> PassEnd {
 
 pub(super) fn refused() -> PassEnd {
     PassEnd::Failed {
-        account: ACCOUNT,
+        account: acct_account(),
         address: "me@nowhere.example".to_owned(),
         retry: Retry::NeedsReauth,
         why: "the server refused the password".to_owned(),
@@ -92,7 +95,7 @@ pub(super) fn refused() -> PassEnd {
 
 pub(super) fn unreachable() -> PassEnd {
     PassEnd::Failed {
-        account: ACCOUNT,
+        account: acct_account(),
         address: "me@nowhere.example".to_owned(),
         retry: Retry::After(Duration::from_secs(5)),
         why: "cannot connect".to_owned(),
@@ -159,13 +162,13 @@ pub(super) fn fetching(dom: &VirtualDom) -> Fetching {
 }
 
 pub(super) fn link(dom: &VirtualDom) -> Link {
-    dom.in_scope(ScopeId::APP, || fetching(dom).link(ACCOUNT))
+    dom.in_scope(ScopeId::APP, || fetching(dom).link(acct_account()))
         .expect("the account has a link")
 }
 
 fn is_running(dom: &VirtualDom) -> bool {
     dom.in_scope(ScopeId::APP, || {
-        matches!(fetching(dom).op(ACCOUNT), Operation::Running(_))
+        matches!(fetching(dom).op(acct_account()), Operation::Running(_))
     })
 }
 
@@ -250,7 +253,7 @@ async fn a_refused_sign_in_stops_that_account_until_it_is_signed_in_again() {
     ] {
         fetching.sync_all(trigger);
     }
-    fetching.send(ACCOUNT, Event::Tick);
+    fetching.send(acct_account(), Event::Tick);
     settle(&mut dom).await;
     assert_eq!(
         script.runs.load(Ordering::SeqCst),
@@ -258,7 +261,7 @@ async fn a_refused_sign_in_stops_that_account_until_it_is_signed_in_again() {
         "it tried a refused credential again"
     );
 
-    fetching.signed_in(ACCOUNT);
+    fetching.signed_in(acct_account());
     settle(&mut dom).await;
     assert_eq!(
         script.runs.load(Ordering::SeqCst),
@@ -331,8 +334,9 @@ fn Probe() -> Element {
 
 #[tokio::test]
 async fn the_accounts_that_come_and_go_get_and_lose_their_link() {
-    const LATER: AccountId =
-        AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000ca"));
+    fn acct_later() -> AccountId {
+        account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000ca"))
+    }
     let (store, _dir) = account(true);
     let (passer, script) = passer();
     dispatching();
@@ -363,7 +367,7 @@ async fn the_accounts_that_come_and_go_get_and_lose_their_link() {
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at) VALUES (?1, ?2, ?3, ?4)",
             [
-                LATER.to_string(),
+                acct_later().to_string(),
                 preset.plan.address.clone(),
                 serde_json::to_string(&preset.plan).unwrap(),
                 Utc::now().to_rfc3339(),
@@ -371,11 +375,11 @@ async fn the_accounts_that_come_and_go_get_and_lose_their_link() {
         )
         .unwrap();
     store
-        .put_caps(LATER, &preset.expected_caps, Utc::now())
+        .put_caps(acct_later(), &preset.expected_caps, Utc::now())
         .unwrap();
     changed(&dom);
     settle(&mut dom).await;
-    let added = dom.in_scope(ScopeId::APP, || fetching(&dom).link(LATER));
+    let added = dom.in_scope(ScopeId::APP, || fetching(&dom).link(acct_later()));
     assert!(
         matches!(
             added,
@@ -395,12 +399,15 @@ async fn the_accounts_that_come_and_go_get_and_lose_their_link() {
     // Gone: its link goes, and the pass it was running is cancelled and forgotten.
     store
         .connection()
-        .execute("DELETE FROM accounts WHERE id = ?1", [LATER.to_string()])
+        .execute(
+            "DELETE FROM accounts WHERE id = ?1",
+            [acct_later().to_string()],
+        )
         .unwrap();
     changed(&dom);
     settle(&mut dom).await;
     assert_eq!(
-        dom.in_scope(ScopeId::APP, || fetching(&dom).link(LATER)),
+        dom.in_scope(ScopeId::APP, || fetching(&dom).link(acct_later())),
         None
     );
     assert!(

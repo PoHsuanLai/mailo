@@ -9,6 +9,7 @@ use html5ever::tendril::StrTendril;
 use html5ever::tokenizer::{
     Tag, TagKind, Token, TokenSink, TokenSinkResult, Tokenizer, TokenizerOpts,
 };
+use mail_domain::id::new_account_id;
 use mail_domain::*;
 use mail_mime::{Options, Pages, Remote, Script, Sheet, parse, print, print_with, remote_images};
 use std::cell::RefCell;
@@ -34,7 +35,7 @@ fn message(subject: &str, date: DateTime<Utc>, body: Body) -> Message {
     Message {
         id: MessageId::generate(),
         thread: ThreadId::generate(),
-        account: AccountId::generate(),
+        account: new_account_id(),
         key: MessageKey::Rfc(format!("{}@example.test", date.timestamp())),
         date,
         from: addr(Some("Ada Lovelace"), "ada@example.test"),

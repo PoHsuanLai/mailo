@@ -7,12 +7,15 @@
 //! when a second one is.
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_runtime::{Arrival, Destination, absorb_into};
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 
 fn now() -> DateTime<Utc> {
     Utc.timestamp_opt(1_700_000_000, 0).unwrap()
@@ -26,7 +29,7 @@ fn store() -> (SqliteStore, tempfile::TempDir) {
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [ACCOUNT.to_string()],
+            [acct_account().to_string()],
         )
         .unwrap();
     (store, dir)
@@ -35,10 +38,10 @@ fn store() -> (SqliteStore, tempfile::TempDir) {
 fn deliver(store: &SqliteStore, path: &str, role: MailboxRole, uidl: &str, subject: &str) {
     absorb_into(
         store,
-        ACCOUNT,
+        acct_account(),
         Destination {
             mailbox: MailboxRef {
-                account: ACCOUNT,
+                account: acct_account(),
                 path: path.to_owned(),
             },
             role,
@@ -136,10 +139,10 @@ fn a_message_in_two_folders_is_stored_once_and_keeps_the_first_role() {
     ] {
         absorb_into(
             &store,
-            ACCOUNT,
+            acct_account(),
             Destination {
                 mailbox: MailboxRef {
-                    account: ACCOUNT,
+                    account: acct_account(),
                     path: path.to_owned(),
                 },
                 role,

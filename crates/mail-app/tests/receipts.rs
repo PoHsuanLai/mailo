@@ -5,11 +5,14 @@
 
 use chrono::{DateTime, TimeZone, Utc};
 use mail_app::cli;
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 const IDENTITY: IdentityId =
     IdentityId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b1"));
 const ASKING: MessageId = MessageId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000c1"));
@@ -51,13 +54,13 @@ fn seeded(raw: Option<Vec<u8>>) -> (SqliteStore, tempfile::TempDir, ThreadId) {
         db.execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [ACCOUNT.to_string()],
+            [acct_account().to_string()],
         )
         .unwrap();
         db.execute(
             "INSERT INTO identities (id, account, from_name, from_email, is_default)
              VALUES (?1, ?2, 'Me', 'me@example.test', '\"default\"')",
-            rusqlite::params![IDENTITY.to_string(), ACCOUNT.to_string()],
+            rusqlite::params![IDENTITY.to_string(), acct_account().to_string()],
         )
         .unwrap();
     }
@@ -69,7 +72,7 @@ fn seeded(raw: Option<Vec<u8>>) -> (SqliteStore, tempfile::TempDir, ThreadId) {
     let message = Message {
         id: ASKING,
         thread,
-        account: ACCOUNT,
+        account: acct_account(),
         key: MessageKey::Rfc("figures@example.test".to_owned()),
         date: at(0),
         from: Address {
@@ -102,10 +105,10 @@ fn seeded(raw: Option<Vec<u8>>) -> (SqliteStore, tempfile::TempDir, ThreadId) {
     };
     store
         .ingest(
-            ACCOUNT,
+            acct_account(),
             Ingest {
                 mailbox: MailboxRef {
-                    account: ACCOUNT,
+                    account: acct_account(),
                     path: "INBOX".to_owned(),
                 },
                 validity: UidValidity::Same,
@@ -132,7 +135,7 @@ fn seeded(raw: Option<Vec<u8>>) -> (SqliteStore, tempfile::TempDir, ThreadId) {
 
 fn queued(store: &SqliteStore) -> Vec<ProtoOp> {
     store
-        .outbox_due(ACCOUNT, at(1_000_000))
+        .outbox_due(acct_account(), at(1_000_000))
         .unwrap()
         .into_iter()
         .map(|entry| entry.op)

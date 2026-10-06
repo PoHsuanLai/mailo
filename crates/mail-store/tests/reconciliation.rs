@@ -5,15 +5,18 @@
 //! or a message that silently duplicates itself the first time Gmail is synced.
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_store::{Settle, SqliteStore, Store};
+use porter_core::AccountId;
 
 fn at(n: i64) -> DateTime<Utc> {
     Utc.timestamp_opt(1_700_000_000 + n, 0).unwrap()
 }
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 
 struct Fixture {
     store: SqliteStore,
@@ -28,7 +31,7 @@ fn fixture() -> Fixture {
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [ACCOUNT.to_string()],
+            [acct_account().to_string()],
         )
         .unwrap();
     Fixture { store, _dir: dir }
@@ -42,7 +45,7 @@ fn message(f: &Fixture, thread: ThreadId, key: &str, n: i64) -> Message {
     Message {
         id: MessageId::generate(),
         thread,
-        account: ACCOUNT,
+        account: acct_account(),
         key: MessageKey::Rfc(key.to_owned()),
         date: at(n),
         from: Address {
@@ -83,7 +86,7 @@ fn imap(mailbox: &str, uid: u32) -> RemoteRef {
 fn ingest_of(mailbox: &str, messages: Vec<Fetched>) -> Ingest {
     Ingest {
         mailbox: MailboxRef {
-            account: ACCOUNT,
+            account: acct_account(),
             path: mailbox.into(),
         },
         validity: UidValidity::Same,
@@ -119,14 +122,14 @@ fn one_message_in_two_mailboxes_is_not_duplicated() {
 
     f.store
         .ingest(
-            ACCOUNT,
+            acct_account(),
             ingest_of("INBOX", vec![fetched(&m, imap("INBOX", 11))]),
         )
         .unwrap();
     // Same message, different mailbox, different uid — as Gmail really reports it.
     f.store
         .ingest(
-            ACCOUNT,
+            acct_account(),
             ingest_of(
                 "[Gmail]/All Mail",
                 vec![fetched(&m, imap("[Gmail]/All Mail", 907))],
@@ -157,7 +160,7 @@ fn server_truth_does_not_overwrite_a_pending_local_change() {
     let m = message(&f, thread, "a@example.test", 1);
     f.store
         .ingest(
-            ACCOUNT,
+            acct_account(),
             ingest_of("INBOX", vec![fetched(&m, imap("INBOX", 5))]),
         )
         .unwrap();
@@ -171,11 +174,11 @@ fn server_truth_does_not_overwrite_a_pending_local_change() {
         id: ChangeId::generate(),
         changes: vec![Change::MessageStar(m.id, Star::Unstarred)],
     };
-    f.store.apply(ACCOUNT, &patch).unwrap();
+    f.store.apply(acct_account(), &patch).unwrap();
     let queued = f
         .store
         .enqueue(
-            ACCOUNT,
+            acct_account(),
             RemoteIntent::SetFlags {
                 messages: vec![m.id],
                 read: None,
@@ -193,7 +196,7 @@ fn server_truth_does_not_overwrite_a_pending_local_change() {
     // A poll lands before the server heard about it, still reporting unstarred.
     let mut stale = ingest_of("INBOX", vec![]);
     stale.flags = vec![(imap("INBOX", 5), ReadState::Unread, Star::Unstarred)];
-    f.store.ingest(ACCOUNT, stale).unwrap();
+    f.store.ingest(acct_account(), stale).unwrap();
 
     assert_eq!(
         f.store.message(m.id).unwrap().star,
@@ -212,7 +215,7 @@ fn a_confirmed_change_stops_being_re_layered() {
     let m = message(&f, thread, "b@example.test", 1);
     f.store
         .ingest(
-            ACCOUNT,
+            acct_account(),
             ingest_of("INBOX", vec![fetched(&m, imap("INBOX", 5))]),
         )
         .unwrap();
@@ -223,7 +226,7 @@ fn a_confirmed_change_stops_being_re_layered() {
     };
     f.store
         .apply(
-            ACCOUNT,
+            acct_account(),
             &Patch {
                 id: ChangeId::generate(),
                 changes: vec![Change::MessageStar(m.id, Star::Starred)],
@@ -233,7 +236,7 @@ fn a_confirmed_change_stops_being_re_layered() {
     let id = f
         .store
         .enqueue(
-            ACCOUNT,
+            acct_account(),
             RemoteIntent::SetFlags {
                 messages: vec![m.id],
                 read: None,
@@ -250,7 +253,7 @@ fn a_confirmed_change_stops_being_re_layered() {
     // Someone un-stars it elsewhere. That must now win.
     let mut later = ingest_of("INBOX", vec![]);
     later.flags = vec![(imap("INBOX", 5), ReadState::Unread, Star::Unstarred)];
-    f.store.ingest(ACCOUNT, later).unwrap();
+    f.store.ingest(acct_account(), later).unwrap();
 
     assert_eq!(f.store.message(m.id).unwrap().star, Star::Unstarred);
 }
@@ -264,14 +267,14 @@ fn a_fatal_failure_undoes_the_optimistic_change() {
     let m = message(&f, thread, "c@example.test", 1);
     f.store
         .ingest(
-            ACCOUNT,
+            acct_account(),
             ingest_of("INBOX", vec![fetched(&m, imap("INBOX", 5))]),
         )
         .unwrap();
 
     f.store
         .apply(
-            ACCOUNT,
+            acct_account(),
             &Patch {
                 id: ChangeId::generate(),
                 changes: vec![Change::MessageMailbox(m.id, MailboxRole::Archive)],
@@ -285,7 +288,7 @@ fn a_fatal_failure_undoes_the_optimistic_change() {
     let id = f
         .store
         .enqueue(
-            ACCOUNT,
+            acct_account(),
             RemoteIntent::SetMailbox {
                 messages: vec![m.id],
                 role: MailboxRole::Archive,
@@ -334,13 +337,13 @@ fn expunge_drops_the_mapping_and_only_then_the_message() {
     let m = message(&f, thread, "d@example.test", 1);
     f.store
         .ingest(
-            ACCOUNT,
+            acct_account(),
             ingest_of("INBOX", vec![fetched(&m, imap("INBOX", 5))]),
         )
         .unwrap();
     f.store
         .ingest(
-            ACCOUNT,
+            acct_account(),
             ingest_of(
                 "[Gmail]/All Mail",
                 vec![fetched(&m, imap("[Gmail]/All Mail", 99))],
@@ -350,7 +353,7 @@ fn expunge_drops_the_mapping_and_only_then_the_message() {
 
     let mut gone = ingest_of("INBOX", vec![]);
     gone.gone = vec![imap("INBOX", 5)];
-    f.store.ingest(ACCOUNT, gone).unwrap();
+    f.store.ingest(acct_account(), gone).unwrap();
     assert!(
         f.store.message(m.id).is_ok(),
         "still in All Mail, so still a message"
@@ -358,7 +361,7 @@ fn expunge_drops_the_mapping_and_only_then_the_message() {
 
     let mut gone_too = ingest_of("[Gmail]/All Mail", vec![]);
     gone_too.gone = vec![imap("[Gmail]/All Mail", 99)];
-    f.store.ingest(ACCOUNT, gone_too).unwrap();
+    f.store.ingest(acct_account(), gone_too).unwrap();
     assert!(f.store.message(m.id).is_err(), "no mailbox holds it now");
 }
 
@@ -370,14 +373,14 @@ fn a_uidvalidity_reset_invalidates_the_mailbox_mapping() {
     let m = message(&f, thread, "e@example.test", 1);
     f.store
         .ingest(
-            ACCOUNT,
+            acct_account(),
             ingest_of("INBOX", vec![fetched(&m, imap("INBOX", 5))]),
         )
         .unwrap();
 
     let mut reset = ingest_of("INBOX", vec![]);
     reset.validity = UidValidity::Reset;
-    f.store.ingest(ACCOUNT, reset).unwrap();
+    f.store.ingest(acct_account(), reset).unwrap();
 
     let maps: i64 = f
         .store
@@ -404,7 +407,7 @@ fn enqueue_returns_none_when_nothing_is_addressable() {
     let m = message(&f, thread, "local@example.test", 1);
     f.store
         .apply(
-            ACCOUNT,
+            acct_account(),
             &Patch {
                 id: ChangeId::generate(),
                 changes: vec![Change::MessageUpsert(Box::new(m.clone()))],
@@ -419,7 +422,7 @@ fn enqueue_returns_none_when_nothing_is_addressable() {
     let queued = f
         .store
         .enqueue(
-            ACCOUNT,
+            acct_account(),
             RemoteIntent::SetFlags {
                 messages: vec![m.id],
                 read: Some(ReadState::Read),
@@ -441,13 +444,13 @@ fn an_intent_resolves_to_every_address_of_its_messages() {
     let m = message(&f, thread, "f@example.test", 1);
     f.store
         .ingest(
-            ACCOUNT,
+            acct_account(),
             ingest_of("INBOX", vec![fetched(&m, imap("INBOX", 5))]),
         )
         .unwrap();
     f.store
         .ingest(
-            ACCOUNT,
+            acct_account(),
             ingest_of(
                 "[Gmail]/All Mail",
                 vec![fetched(&m, imap("[Gmail]/All Mail", 99))],
@@ -462,7 +465,7 @@ fn an_intent_resolves_to_every_address_of_its_messages() {
     let id = f
         .store
         .enqueue(
-            ACCOUNT,
+            acct_account(),
             RemoteIntent::SetFlags {
                 messages: vec![m.id],
                 read: Some(ReadState::Read),
@@ -474,7 +477,7 @@ fn an_intent_resolves_to_every_address_of_its_messages() {
         .unwrap()
         .unwrap();
 
-    let due = f.store.outbox_due(ACCOUNT, at(11)).unwrap();
+    let due = f.store.outbox_due(acct_account(), at(11)).unwrap();
     let entry = due.iter().find(|e| e.id == id).unwrap();
     match &entry.op {
         ProtoOp::SetFlags { remotes, .. } => {
@@ -492,7 +495,7 @@ fn the_outbox_drains_in_insertion_order() {
     let m = message(&f, thread, "g@example.test", 1);
     f.store
         .ingest(
-            ACCOUNT,
+            acct_account(),
             ingest_of("INBOX", vec![fetched(&m, imap("INBOX", 5))]),
         )
         .unwrap();
@@ -504,7 +507,7 @@ fn the_outbox_drains_in_insertion_order() {
     let first = f
         .store
         .enqueue(
-            ACCOUNT,
+            acct_account(),
             RemoteIntent::SetFlags {
                 messages: vec![m.id],
                 read: Some(ReadState::Read),
@@ -518,7 +521,7 @@ fn the_outbox_drains_in_insertion_order() {
     let second = f
         .store
         .enqueue(
-            ACCOUNT,
+            acct_account(),
             RemoteIntent::SetMailbox {
                 messages: vec![m.id],
                 role: MailboxRole::Archive,
@@ -530,7 +533,7 @@ fn the_outbox_drains_in_insertion_order() {
         .unwrap();
 
     // Note `second` has an EARLIER next_attempt. Insertion order must still win.
-    let due = f.store.outbox_due(ACCOUNT, at(20)).unwrap();
+    let due = f.store.outbox_due(acct_account(), at(20)).unwrap();
     assert_eq!(
         due.iter().map(|e| e.id).collect::<Vec<_>>(),
         vec![first, second]
@@ -545,7 +548,7 @@ fn a_retryable_failure_backs_off_and_stays_queued() {
     let m = message(&f, thread, "h@example.test", 1);
     f.store
         .ingest(
-            ACCOUNT,
+            acct_account(),
             ingest_of("INBOX", vec![fetched(&m, imap("INBOX", 5))]),
         )
         .unwrap();
@@ -556,7 +559,7 @@ fn a_retryable_failure_backs_off_and_stays_queued() {
     let id = f
         .store
         .enqueue(
-            ACCOUNT,
+            acct_account(),
             RemoteIntent::SetFlags {
                 messages: vec![m.id],
                 read: Some(ReadState::Read),
@@ -580,10 +583,13 @@ fn a_retryable_failure_backs_off_and_stays_queued() {
         .unwrap();
 
     assert!(
-        f.store.outbox_due(ACCOUNT, at(20)).unwrap().is_empty(),
+        f.store
+            .outbox_due(acct_account(), at(20))
+            .unwrap()
+            .is_empty(),
         "must not be due immediately"
     );
-    let later = f.store.outbox_due(ACCOUNT, at(10_000)).unwrap();
+    let later = f.store.outbox_due(acct_account(), at(10_000)).unwrap();
     assert_eq!(later.len(), 1);
     assert_eq!(later[0].attempts, 1);
 }
@@ -604,7 +610,7 @@ mod remote_map_identity {
         for _ in 0..3 {
             f.store
                 .ingest(
-                    ACCOUNT,
+                    acct_account(),
                     ingest_of("INBOX", vec![fetched(&message, imap("INBOX", 7))]),
                 )
                 .unwrap();
@@ -629,7 +635,7 @@ mod remote_map_identity {
         for _ in 0..3 {
             f.store
                 .ingest(
-                    ACCOUNT,
+                    acct_account(),
                     ingest_of(
                         "INBOX",
                         vec![fetched(
@@ -661,13 +667,13 @@ mod remote_map_identity {
 
         f.store
             .ingest(
-                ACCOUNT,
+                acct_account(),
                 ingest_of("INBOX", vec![fetched(&message, imap("INBOX", 7))]),
             )
             .unwrap();
         f.store
             .ingest(
-                ACCOUNT,
+                acct_account(),
                 ingest_of("All Mail", vec![fetched(&message, imap("All Mail", 91))]),
             )
             .unwrap();
@@ -696,12 +702,12 @@ mod labels {
     fn with_label(f: &Fixture) {
         f.store
             .apply(
-                ACCOUNT,
+                acct_account(),
                 &Patch {
                     id: ChangeId::generate(),
                     changes: vec![Change::LabelUpsert(Label {
                         id: LABEL,
-                        account: ACCOUNT,
+                        account: acct_account(),
                         name: "travel".to_owned(),
                         color: None,
                         origin: LabelOrigin::Provider,
@@ -723,7 +729,7 @@ mod labels {
         };
         f.store
             .apply(
-                ACCOUNT,
+                acct_account(),
                 &Patch {
                     id: ChangeId::generate(),
                     changes: vec![Change::MessageLabel(m, LABEL, membership)],
@@ -733,7 +739,7 @@ mod labels {
         let queued = f
             .store
             .enqueue(
-                ACCOUNT,
+                acct_account(),
                 RemoteIntent::SetLabels {
                     messages: vec![m],
                     add: if membership == Membership::In {
@@ -764,7 +770,7 @@ mod labels {
         let m = message(&f, thread, "a@example.test", 1);
         f.store
             .ingest(
-                ACCOUNT,
+                acct_account(),
                 ingest_of("INBOX", vec![fetched(&m, imap("INBOX", 5))]),
             )
             .unwrap();
@@ -775,7 +781,7 @@ mod labels {
         // A survey lands before the server heard about it, reporting no labels at all.
         let mut stale = ingest_of("INBOX", vec![]);
         stale.label_names = vec![(imap("INBOX", 5), vec![])];
-        f.store.ingest(ACCOUNT, stale).unwrap();
+        f.store.ingest(acct_account(), stale).unwrap();
 
         assert!(
             labelled(&f, m.id),
@@ -792,7 +798,7 @@ mod labels {
         let m = message(&f, thread, "a@example.test", 1);
         f.store
             .ingest(
-                ACCOUNT,
+                acct_account(),
                 ingest_of("INBOX", vec![fetched(&m, imap("INBOX", 5))]),
             )
             .unwrap();
@@ -801,7 +807,7 @@ mod labels {
         // The server has it labelled, and the user takes the label off.
         let mut sweep = ingest_of("INBOX", vec![]);
         sweep.label_names = vec![(imap("INBOX", 5), vec!["travel".to_owned()])];
-        f.store.ingest(ACCOUNT, sweep).unwrap();
+        f.store.ingest(acct_account(), sweep).unwrap();
         assert!(labelled(&f, m.id));
         queue(&f, m.id, Membership::Out);
         assert!(!labelled(&f, m.id), "applied optimistically");
@@ -809,7 +815,7 @@ mod labels {
         // Another survey, still reporting the label the server has not yet been told about.
         let mut stale = ingest_of("INBOX", vec![]);
         stale.label_names = vec![(imap("INBOX", 5), vec!["travel".to_owned()])];
-        f.store.ingest(ACCOUNT, stale).unwrap();
+        f.store.ingest(acct_account(), stale).unwrap();
 
         assert!(
             !labelled(&f, m.id),
@@ -826,7 +832,7 @@ mod labels {
         let m = message(&f, thread, "a@example.test", 1);
         f.store
             .ingest(
-                ACCOUNT,
+                acct_account(),
                 ingest_of("INBOX", vec![fetched(&m, imap("INBOX", 5))]),
             )
             .unwrap();
@@ -834,14 +840,14 @@ mod labels {
         queue(&f, m.id, Membership::In);
 
         // The send settles, so nothing is pending any more.
-        for entry in f.store.outbox_due(ACCOUNT, at(20)).unwrap() {
+        for entry in f.store.outbox_due(acct_account(), at(20)).unwrap() {
             f.store.outbox_settle(entry.id, Settle::Ok, at(20)).unwrap();
         }
 
         // Now another client takes the label off, and this one must follow.
         let mut elsewhere = ingest_of("INBOX", vec![]);
         elsewhere.label_names = vec![(imap("INBOX", 5), vec![])];
-        f.store.ingest(ACCOUNT, elsewhere).unwrap();
+        f.store.ingest(acct_account(), elsewhere).unwrap();
 
         assert!(
             !labelled(&f, m.id),
@@ -867,7 +873,7 @@ mod remote_parts {
         }];
         f.store
             .ingest(
-                ACCOUNT,
+                acct_account(),
                 ingest_of("INBOX", vec![fetched(&m, imap("INBOX", 7))]),
             )
             .unwrap();

@@ -12,6 +12,7 @@
 
 use base64::Engine as _;
 use chrono::{DateTime, TimeDelta, TimeZone, Utc};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_mime::posting;
 use mail_proto::backend::{Authenticate, ImapBackend, Pop3Backend};
@@ -22,6 +23,8 @@ use mail_runtime::{
     AccountEngine, Held, MapSecrets, Registration, Renewal, RuntimeError, Secrets, Token,
 };
 use mail_store::{SqliteStore, Store};
+use porter_core::{AccountId, Credential, SecretKey, SecretPurpose, SecretText, UnixSeconds};
+use porter_provider::Issuer;
 use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -29,8 +32,9 @@ use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 use tokio::sync::watch;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 const IDENTITY: IdentityId =
     IdentityId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b1"));
 const ADDRESS: &str = "me@example.test";
@@ -183,7 +187,7 @@ fn revoked() -> (&'static str, String) {
 
 async fn token_endpoint(script: Vec<(&'static str, String)>) -> (Registration, Seen) {
     let (port, seen) = http(script).await;
-    let registration = Registration::new(OAuthIssuer::Microsoft, "client-id").at(Endpoints {
+    let registration = Registration::new(Issuer::Microsoft, "client-id").at(Endpoints {
         auth: format!("http://127.0.0.1:{port}/authorize"),
         token: format!("http://127.0.0.1:{port}/token"),
     });
@@ -273,7 +277,7 @@ fn plan(imap_port: u16) -> AccountPlan {
         outgoing: Outgoing::Graph,
         // What `send_through_graph` makes of a Microsoft sign-in: two resources, one consent.
         auth: AuthPlan::OAuth {
-            issuer: OAuthIssuer::Microsoft,
+            issuer: Issuer::Microsoft,
             scopes: vec![
                 IMAP_SCOPE.to_owned(),
                 "offline_access".to_owned(),
@@ -288,7 +292,7 @@ fn plan(imap_port: u16) -> AccountPlan {
 fn identity() -> Identity {
     Identity {
         id: IDENTITY,
-        account: ACCOUNT,
+        account: acct_account(),
         from: Address {
             name: Some("Me".to_owned()),
             email: ADDRESS.to_owned(),
@@ -321,22 +325,22 @@ fn caps() -> AccountCaps {
 /// An OAuth credential expiring at `expires_at`.
 fn token(access: &str, refresh: &str, expires_at: DateTime<Utc>) -> Credential {
     Credential::OAuth {
-        access: access.to_owned(),
-        refresh: refresh.to_owned(),
-        expires_at,
+        access: SecretText::new(access),
+        refresh: SecretText::new(refresh),
+        expires_at: UnixSeconds(expires_at.timestamp()),
     }
 }
 
 fn key(purpose: SecretPurpose) -> SecretKey {
     SecretKey {
-        account: ACCOUNT,
+        account: acct_account(),
         purpose,
     }
 }
 
 fn access(secrets: &dyn Secrets, purpose: SecretPurpose) -> String {
     match secrets.get(&key(purpose)).unwrap() {
-        Credential::OAuth { access, .. } => access,
+        Credential::OAuth { access, .. } => access.expose().to_owned(),
         other => panic!("{other:?}"),
     }
 }
@@ -349,13 +353,13 @@ fn store() -> (Arc<SqliteStore>, tempfile::TempDir) {
         db.execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [ACCOUNT.to_string()],
+            [acct_account().to_string()],
         )
         .unwrap();
         db.execute(
             "INSERT INTO identities (id, account, from_name, from_email, is_default)
              VALUES (?1, ?2, 'Me', 'me@example.test', '\"default\"')",
-            [IDENTITY.to_string(), ACCOUNT.to_string()],
+            [IDENTITY.to_string(), acct_account().to_string()],
         )
         .unwrap();
     }
@@ -388,7 +392,7 @@ fn reading(imap_port: u16, registration: Registration, incoming: Credential) -> 
     let clock = Clock::at(t0());
     let held = Held::new(incoming);
     let renewal = Renewal::new(
-        ACCOUNT,
+        acct_account(),
         &plan(imap_port),
         registration,
         secrets.clone(),
@@ -397,7 +401,7 @@ fn reading(imap_port: u16, registration: Registration, incoming: Credential) -> 
     .unwrap()
     .with_clock(clock.now());
     let backend = ImapBackend::new(
-        ACCOUNT,
+        acct_account(),
         caps(),
         Box::new(move |authenticate, commands: Vec<ImapCommand>| {
             let mut all = Vec::new();
@@ -415,8 +419,14 @@ fn reading(imap_port: u16, registration: Registration, incoming: Credential) -> 
             )
         }),
     );
-    let engine = AccountEngine::new(ACCOUNT, plan(imap_port), backend, store, secrets.clone())
-        .with_renewal(renewal);
+    let engine = AccountEngine::new(
+        acct_account(),
+        plan(imap_port),
+        backend,
+        store,
+        secrets.clone(),
+    )
+    .with_renewal(renewal);
     Reading {
         engine,
         secrets,
@@ -588,7 +598,7 @@ async fn an_unreachable_issuer_is_waited_out_rather_than_called_a_refusal() {
         .local_addr()
         .unwrap()
         .port();
-    let registration = Registration::new(OAuthIssuer::Microsoft, "client-id").at(Endpoints {
+    let registration = Registration::new(Issuer::Microsoft, "client-id").at(Endpoints {
         auth: format!("http://127.0.0.1:{closed}/authorize"),
         token: format!("http://127.0.0.1:{closed}/token"),
     });
@@ -616,7 +626,7 @@ async fn microsoft_renews_each_resource_with_its_own_scopes() {
         .unwrap();
     let held = Held::new(token("imap-old", "r1", t0() - minutes(1)));
     let renewal = Renewal::new(
-        ACCOUNT,
+        acct_account(),
         &plan(1),
         registration,
         secrets.clone(),
@@ -655,7 +665,7 @@ async fn microsoft_renews_each_resource_with_its_own_scopes() {
         "graph-new"
     );
     match held.current() {
-        Credential::OAuth { access, .. } => assert_eq!(access, "imap-new"),
+        Credential::OAuth { access, .. } => assert_eq!(access.expose(), "imap-new"),
         other => panic!("{other:?}"),
     }
 }
@@ -671,7 +681,7 @@ async fn a_rotated_refresh_token_is_saved_and_spent_next_time() {
     let secrets = secrets(&token("first", "r1", t0() - minutes(1)));
     let clock = Clock::at(t0());
     let renewal = Renewal::new(
-        ACCOUNT,
+        acct_account(),
         &plan(1),
         registration,
         secrets.clone(),
@@ -683,7 +693,7 @@ async fn a_rotated_refresh_token_is_saved_and_spent_next_time() {
     renewal.ahead(Token::Incoming).await.unwrap();
     for purpose in [SecretPurpose::IncomingPassword, SecretPurpose::OAuthRefresh] {
         match secrets.get(&key(purpose)).unwrap() {
-            Credential::OAuth { refresh, .. } => assert_eq!(refresh, "r2", "{purpose:?}"),
+            Credential::OAuth { refresh, .. } => assert_eq!(refresh.expose(), "r2", "{purpose:?}"),
             other => panic!("{other:?}"),
         }
     }
@@ -720,7 +730,7 @@ fn queued(graph_port: u16, registration: Registration, graph: Credential) -> Sen
 
     let draft = Draft {
         id: DraftId::generate(),
-        account: ACCOUNT,
+        account: acct_account(),
         identity: IDENTITY,
         to: vec![Address {
             name: None,
@@ -742,7 +752,7 @@ fn queued(graph_port: u16, registration: Registration, graph: Credential) -> Sen
     };
     store
         .apply(
-            ACCOUNT,
+            acct_account(),
             &Patch {
                 id: ChangeId::generate(),
                 changes: vec![Change::DraftUpsert(Box::new(draft.clone()))],
@@ -756,7 +766,7 @@ fn queued(graph_port: u16, registration: Registration, graph: Credential) -> Sen
         .unwrap();
     store
         .enqueue(
-            ACCOUNT,
+            acct_account(),
             RemoteIntent::Send {
                 draft: draft.id,
                 raw,
@@ -774,7 +784,7 @@ fn queued(graph_port: u16, registration: Registration, graph: Credential) -> Sen
 
     // Never reached: submission goes to Graph, and nothing here reads mail.
     let backend = Pop3Backend::new(
-        ACCOUNT,
+        acct_account(),
         caps(),
         Box::new(|auth, commands| {
             let mut all = Vec::new();
@@ -786,7 +796,7 @@ fn queued(graph_port: u16, registration: Registration, graph: Credential) -> Sen
         }),
     );
     let renewal = Renewal::new(
-        ACCOUNT,
+        acct_account(),
         &plan(1),
         registration,
         secrets.clone(),
@@ -794,9 +804,15 @@ fn queued(graph_port: u16, registration: Registration, graph: Credential) -> Sen
     )
     .unwrap()
     .with_clock(Clock::at(t0()).now());
-    let engine = AccountEngine::new(ACCOUNT, plan(1), backend, store.clone(), secrets.clone())
-        .with_graph_url(format!("http://127.0.0.1:{graph_port}/v1.0/me/sendMail"))
-        .with_renewal(renewal);
+    let engine = AccountEngine::new(
+        acct_account(),
+        plan(1),
+        backend,
+        store.clone(),
+        secrets.clone(),
+    )
+    .with_graph_url(format!("http://127.0.0.1:{graph_port}/v1.0/me/sendMail"))
+    .with_renewal(renewal);
     Sending {
         engine,
         secrets,

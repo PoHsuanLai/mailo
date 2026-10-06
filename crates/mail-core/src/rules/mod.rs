@@ -11,10 +11,11 @@ pub mod server;
 
 use chrono::{DateTime, Utc};
 use mail_domain::{
-    AccountCaps, AccountId, AfterMatch, DateRange, Filter, LabelId, MailboxRole, ReadState, Rule,
-    RuleAction, RuleId, RuleState, Star, TextMatch,
+    AccountCaps, AfterMatch, DateRange, Filter, LabelId, MailboxRole, ReadState, Rule, RuleAction,
+    RuleId, RuleState, Star, TextMatch,
 };
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 use std::fmt::Write as _;
 
 /// What `mailo rules …` asked for.
@@ -80,7 +81,7 @@ pub fn run(store: &SqliteStore, command: &RulesCmd, now: DateTime<Utc>) -> Resul
             };
             let mut out = String::new();
             for account in accounts {
-                let rules = store.rules(account.id).map_err(failed)?;
+                let rules = store.rules(account.id.clone()).map_err(failed)?;
                 if rules.is_empty() {
                     continue;
                 }
@@ -111,7 +112,7 @@ pub fn run(store: &SqliteStore, command: &RulesCmd, now: DateTime<Utc>) -> Resul
         } => {
             let account = pick(store, account.as_deref())?;
             let index: Vec<(String, LabelId)> = store
-                .labels(account.id)
+                .labels(account.id.clone())
                 .map_err(failed)?
                 .into_iter()
                 .map(|l| (l.name, l.id))
@@ -119,7 +120,7 @@ pub fn run(store: &SqliteStore, command: &RulesCmd, now: DateTime<Utc>) -> Resul
             let filter =
                 crate::query::parse_with(query, &chrono::Local, &crate::query::named(&index));
             let position = store
-                .rules(account.id)
+                .rules(account.id.clone())
                 .map_err(failed)?
                 .iter()
                 .map(|r| r.position + 1)
@@ -201,7 +202,7 @@ fn named_rule(
 ) -> Result<(crate::sync::Configured, Rule), String> {
     let account = pick(store, account)?;
     let rule = store
-        .rules(account.id)
+        .rules(account.id.clone())
         .map_err(|e| e.to_string())?
         .into_iter()
         .find(|r| r.name == name)

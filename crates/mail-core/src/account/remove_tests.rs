@@ -4,10 +4,11 @@
 use super::{RemoveError, remove};
 use crate::account::{Credentials, add_with_password};
 use crate::password::Password;
+use mail_domain::id::{account_id_from_uuid, new_account_id};
 use mail_domain::signing::{SigningKeyRef, SigningSecret};
-use mail_domain::{AccountId, Credential, SecretKey, SecretPurpose};
 use mail_runtime::{MapSecrets, OAuthRegistry, RuntimeError, Secrets};
 use mail_store::SqliteStore;
+use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
 
 const KEPT: &str = "kept@example.edu";
 const GONE: &str = "gone@example.edu";
@@ -71,7 +72,7 @@ fn account_of(store: &SqliteStore, address: &str) -> AccountId {
             |r| r.get(0),
         )
         .unwrap();
-    AccountId::from_uuid(id.parse().unwrap())
+    account_id_from_uuid(id.parse().unwrap())
 }
 
 /// How many rows name `account`, in every table with an `account` column and in `accounts`.
@@ -130,17 +131,17 @@ fn removing_an_account_forgets_its_sign_in_and_every_row_naming_it_and_nothing_e
     let gone = account_of(&store, GONE);
     let kept = account_of(&store, KEPT);
     assert!(
-        rows_naming(&store, gone) >= 3,
+        rows_naming(&store, gone.clone()) >= 3,
         "the fixture has nothing to remove"
     );
-    let before = rows_naming(&store, kept);
+    let before = rows_naming(&store, kept.clone());
 
-    let removed = remove(&store, &secrets, gone).unwrap();
+    let removed = remove(&store, &secrets, gone.clone()).unwrap();
 
     assert_eq!(removed.address, GONE);
-    assert_eq!(rows_naming(&store, gone), 0);
+    assert_eq!(rows_naming(&store, gone.clone()), 0);
     assert_eq!(password_of(&secrets, gone), None);
-    assert_eq!(rows_naming(&store, kept), before);
+    assert_eq!(rows_naming(&store, kept.clone()), before);
     assert!(password_of(&secrets, kept).is_some());
 }
 
@@ -149,8 +150,8 @@ fn an_account_already_removed_is_unknown() {
     let secrets = MapSecrets::default();
     let (store, _dir) = two_accounts(&secrets);
     let gone = account_of(&store, GONE);
-    remove(&store, &secrets, gone).unwrap();
-    for account in [gone, AccountId::generate()] {
+    remove(&store, &secrets, gone.clone()).unwrap();
+    for account in [gone, new_account_id()] {
         assert!(matches!(
             remove(&store, &secrets, account),
             Err(RemoveError::Unknown)
@@ -164,7 +165,7 @@ fn the_account_that_keeps_mail_here_is_refused_and_kept() {
     let (store, _dir) = two_accounts(&secrets);
     let local = crate::account::local(&store, now()).unwrap();
     assert!(matches!(
-        remove(&store, &secrets, local),
+        remove(&store, &secrets, local.clone()),
         Err(RemoveError::Local)
     ));
     assert!(rows_naming(&store, local) > 0);
@@ -204,14 +205,14 @@ fn a_keyring_that_will_not_forget_stops_the_removal_with_nothing_deleted() {
     let secrets = MapSecrets::default();
     let (store, _dir) = two_accounts(&secrets);
     let gone = account_of(&store, GONE);
-    let before = rows_naming(&store, gone);
+    let before = rows_naming(&store, gone.clone());
 
-    let refused = remove(&store, &Locked(&secrets), gone);
+    let refused = remove(&store, &Locked(&secrets), gone.clone());
 
     assert!(
         matches!(&refused, Err(RemoveError::Keyring(said)) if said.contains("locked")),
         "{refused:?}"
     );
-    assert_eq!(rows_naming(&store, gone), before);
+    assert_eq!(rows_naming(&store, gone.clone()), before);
     assert!(password_of(&secrets, gone).is_some());
 }

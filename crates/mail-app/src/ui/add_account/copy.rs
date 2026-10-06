@@ -4,7 +4,8 @@
 //! Every wording lives here, as functions of the typed reason, so that none of it can lean on
 //! text written for a terminal and so that one test can read all of it.
 
-use mail_domain::{OAuthIssuer, Retry};
+use mail_domain::Retry;
+use porter_provider::Issuer;
 
 use super::flow::{self, Miss, Refusal, What};
 use mail_core::discover::Gap;
@@ -110,10 +111,10 @@ pub(in crate::ui) fn refused(refusal: &Refusal) -> Notice {
 }
 
 /// Signing in with `issuer`, when this build has no client id to do it with.
-pub(in crate::ui) fn needs_client_id(issuer: OAuthIssuer) -> Notice {
+pub(in crate::ui) fn needs_client_id(issuer: Issuer) -> Notice {
     let set = match issuer {
-        OAuthIssuer::Google => "MAILO_OAUTH_CLIENT_ID and MAILO_OAUTH_CLIENT_SECRET",
-        OAuthIssuer::Microsoft => "MAILO_OAUTH_CLIENT_ID",
+        Issuer::Google => "MAILO_OAUTH_CLIENT_ID and MAILO_OAUTH_CLIENT_SECRET",
+        _ => "MAILO_OAUTH_CLIENT_ID",
     };
     Notice {
         headline: format!(

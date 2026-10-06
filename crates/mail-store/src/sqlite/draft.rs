@@ -8,7 +8,9 @@ use super::SqliteStore;
 use super::read::Recipients;
 use super::row::{from_time, json, time, to_json, uuid};
 use crate::StoreError;
-use mail_domain::{AccountId, Draft, DraftId, MessageId, PendingAttachment, SendState};
+use mail_domain::id::account_id_from_uuid;
+use mail_domain::{Draft, DraftId, MessageId, PendingAttachment, SendState};
+use porter_core::AccountId;
 use rusqlite::params;
 
 /// The columns a [`Draft`] is read back from, in the order [`SqliteStore::read_draft`] expects.
@@ -114,7 +116,7 @@ impl SqliteStore {
         };
         Ok(Draft {
             id: DraftId::from_uuid(uuid("DraftId", &row.get::<_, String>(0)?)?),
-            account: AccountId::from_uuid(uuid("AccountId", &row.get::<_, String>(1)?)?),
+            account: account_id_from_uuid(uuid("AccountId", &row.get::<_, String>(1)?)?),
             identity: mail_domain::IdentityId::from_uuid(uuid(
                 "IdentityId",
                 &row.get::<_, String>(2)?,

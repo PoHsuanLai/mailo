@@ -9,7 +9,8 @@
 use super::SqliteStore;
 use crate::StoreError;
 use crate::dispatch::Answered;
-use mail_domain::{AccountId, MailboxRef, MessageId, OutboxId, RemoteRef};
+use mail_domain::{MailboxRef, MessageId, OutboxId, RemoteRef};
+use porter_core::AccountId;
 use rusqlite::params;
 
 impl SqliteStore {

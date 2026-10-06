@@ -29,5 +29,5 @@ pub(in crate::ui) use dom::{
 pub(in crate::ui) use events::{FakePointer, Scripts, chord, pointer, type_into};
 pub(in crate::ui) use reference::{Work, work};
 pub(in crate::ui) use store::{
-    ACCOUNT, empty, gmail_caps, held_and_remote, inbox_query, realistic, seeded,
+    acct_account, empty, gmail_caps, held_and_remote, inbox_query, realistic, seeded,
 };

@@ -6,19 +6,23 @@
 //! OK, because a UID set naming nothing is not an error, and the second move was lost.
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_proto::backend::{Authenticate, ImapBackend};
 use mail_proto::{ImapAuth, ImapCommand, ImapSession};
 use mail_runtime::{AccountEngine, MapSecrets, Secrets};
 use mail_store::{PASSES_TO_FIND, SYNCS_TO_FIND, SqliteStore, Store};
+use porter_core::SecretText;
+use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::watch;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a2"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a2"))
+}
 const PASSWORD: &str = "s3cr3t";
 
 fn now() -> DateTime<Utc> {
@@ -308,26 +312,26 @@ fn engine(port: u16) -> Fixture {
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [ACCOUNT.to_string()],
+            [acct_account().to_string()],
         )
         .unwrap();
     let secrets = MapSecrets::default();
     secrets
         .put(
             &SecretKey {
-                account: ACCOUNT,
+                account: acct_account(),
                 purpose: SecretPurpose::IncomingPassword,
             },
-            &Credential::Password(PASSWORD.to_owned()),
+            &Credential::Password(SecretText::new(PASSWORD.to_owned())),
         )
         .unwrap();
     let auth = ImapAuth {
         username: "me@example.test".to_owned(),
-        credential: Credential::Password(PASSWORD.to_owned()),
+        credential: Credential::Password(SecretText::new(PASSWORD.to_owned())),
         sasl: vec![SaslMech::Plain],
     };
     let backend = ImapBackend::new(
-        ACCOUNT,
+        acct_account(),
         caps(),
         Box::new(move |authenticate, commands: Vec<ImapCommand>| {
             let mut all = Vec::new();
@@ -356,7 +360,13 @@ fn engine(port: u16) -> Fixture {
         },
         identities: Vec::new(),
     };
-    let engine = AccountEngine::new(ACCOUNT, plan, backend, store.clone(), Arc::new(secrets));
+    let engine = AccountEngine::new(
+        acct_account(),
+        plan,
+        backend,
+        store.clone(),
+        Arc::new(secrets),
+    );
     Fixture {
         store,
         engine,
@@ -366,7 +376,7 @@ fn engine(port: u16) -> Fixture {
 
 fn mailbox(path: &str) -> MailboxRef {
     MailboxRef {
-        account: ACCOUNT,
+        account: acct_account(),
         path: path.to_owned(),
     }
 }
@@ -397,7 +407,7 @@ fn the_message(store: &SqliteStore) -> MessageId {
 fn queue(store: &SqliteStore, intent: RemoteIntent) {
     store
         .enqueue(
-            ACCOUNT,
+            acct_account(),
             intent,
             &Patch {
                 id: ChangeId::generate(),
@@ -553,7 +563,7 @@ async fn without_copyuid_the_second_move_waits_for_the_sync_that_finds_the_messa
     // Waiting cost it nothing: no attempt counted, no backoff.
     let waiting = it
         .store
-        .outbox_due(ACCOUNT, now())
+        .outbox_due(acct_account(), now())
         .unwrap()
         .into_iter()
         .next()
@@ -737,7 +747,7 @@ async fn archived_then_trashed(
     queue(&it.store, file_into(message, MailboxRole::Archive));
     it.store
         .apply(
-            ACCOUNT,
+            acct_account(),
             &Patch {
                 id: ChangeId::generate(),
                 changes: vec![Change::MessageMailbox(message, MailboxRole::Trash)],
@@ -746,7 +756,7 @@ async fn archived_then_trashed(
         .unwrap();
     it.store
         .enqueue(
-            ACCOUNT,
+            acct_account(),
             file_into(message, MailboxRole::Trash),
             &Patch {
                 id: ChangeId::generate(),
@@ -1132,7 +1142,7 @@ fn queue_applied(
 ) {
     store
         .apply(
-            ACCOUNT,
+            acct_account(),
             &Patch {
                 id: ChangeId::generate(),
                 changes: forward,
@@ -1141,7 +1151,7 @@ fn queue_applied(
         .unwrap();
     store
         .enqueue(
-            ACCOUNT,
+            acct_account(),
             intent,
             &Patch {
                 id: ChangeId::generate(),

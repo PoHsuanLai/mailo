@@ -122,7 +122,7 @@ fn two_keys() -> (
 fn held(secrets: &MapSecrets, key: &PgpKey) -> bool {
     secrets
         .get_signing(&SigningKeyRef {
-            account: crate::ui::fixtures::ACCOUNT,
+            account: crate::ui::fixtures::acct_account(),
             key: SigningKeyId::OpenPgp(key.fingerprint),
         })
         .is_ok()

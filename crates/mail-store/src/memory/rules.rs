@@ -3,7 +3,8 @@
 
 use super::Inner;
 use crate::StoreError;
-use mail_domain::{AccountId, Label, Rule, RuleId, Vacation};
+use mail_domain::{Label, Rule, RuleId, Vacation};
+use porter_core::AccountId;
 
 impl Inner {
     pub(super) fn rules_of(&self, account: AccountId) -> Vec<Rule> {
@@ -30,7 +31,7 @@ impl Inner {
         if taken {
             return Err(StoreError::RuleNameTaken(rule.name.clone()));
         }
-        self.accounts.insert(rule.account);
+        self.accounts.insert(rule.account.clone());
         self.rules.insert(rule.id, rule.clone());
         Ok(())
     }
@@ -48,7 +49,7 @@ impl Inner {
                 self.vacations.remove(&account);
             }
             Some(v) => {
-                self.accounts.insert(account);
+                self.accounts.insert(account.clone());
                 self.vacations.insert(account, v.clone());
             }
         }

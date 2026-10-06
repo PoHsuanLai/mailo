@@ -17,6 +17,7 @@ use chrono::{DateTime, Utc};
 use mail_domain::*;
 use mail_mime::{ListHeaders, Mailto, Unsubscribe};
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 use std::fmt::Write as _;
 
 /// A message's way out of its list, with what is needed to take it.
@@ -94,7 +95,7 @@ pub fn find(store: &SqliteStore, id: uuid::Uuid) -> Result<Found, String> {
 fn found(store: &SqliteStore, message: &Message) -> Result<Found, String> {
     Ok(Found {
         message: message.id,
-        account: message.account,
+        account: message.account.clone(),
         addressed: message.to.iter().chain(&message.cc).cloned().collect(),
         list: list_of(store, message)?,
     })
@@ -111,7 +112,8 @@ pub fn queue_mailto(
     mailto: &Mailto,
     now: DateTime<Utc>,
 ) -> Result<Draft, String> {
-    let identity = crate::compose::identity_addressed(store, found.account, &found.addressed);
+    let identity =
+        crate::compose::identity_addressed(store, found.account.clone(), &found.addressed);
     let subject = if mailto.subject.trim().is_empty() {
         "unsubscribe"
     } else {
@@ -119,7 +121,7 @@ pub fn queue_mailto(
     };
     let draft = crate::compose::draft_exact(
         store,
-        found.account,
+        found.account.clone(),
         identity,
         &mailto.to,
         subject,

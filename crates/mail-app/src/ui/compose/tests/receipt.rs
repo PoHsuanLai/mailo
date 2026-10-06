@@ -6,10 +6,10 @@ use super::super::page::{Float, Saved};
 use super::super::props::pick_sends;
 use super::super::receipt::{ASK, KEY};
 use super::*;
-use crate::ui::fixtures::{ACCOUNT, click, seeded};
+use crate::ui::fixtures::{acct_account, click, seeded};
 
 fn fresh_draft(store: &SqliteStore) -> Draft {
-    mail_core::compose::draft_new(store, ACCOUNT, &[], "", "", Utc::now())
+    mail_core::compose::draft_new(store, acct_account(), &[], "", "", Utc::now())
         .unwrap_or_else(|why| panic!("a new draft: {why}"))
 }
 

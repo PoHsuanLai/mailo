@@ -8,6 +8,7 @@
 //! with tokens, `addressbook-multiget` and an etag `PROPFIND` — from that book, so a test can
 //! change a card between syncs and watch the change arrive.
 
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::{Retry, Retryable};
 use mail_runtime::RuntimeError;
 use mail_runtime::carddav::{self, CardDavFailure, Dav, DavAuth, How};
@@ -546,6 +547,7 @@ async fn a_server_without_sync_collection_is_synced_by_etags() {
 #[tokio::test]
 async fn a_card_leaving_the_book_hands_an_address_back_to_mail_and_spares_a_hand_edit() {
     use mail_domain::*;
+
     let server: Shared = Arc::default();
     {
         let mut s = server.lock().unwrap();
@@ -558,11 +560,11 @@ async fn a_card_leaving_the_book_hands_an_address_back_to_mail_and_spares_a_hand
     store
         .put_contact("zed@example.test", Some("Zed"), &Origin::Manual)
         .unwrap();
-    let account = AccountId::from_uuid(uuid::Uuid::from_u128(1));
+    let account = account_id_from_uuid(uuid::Uuid::from_u128(1));
     let message = Message {
         id: MessageId::from_uuid(uuid::Uuid::from_u128(2)),
         thread: ThreadId::from_uuid(uuid::Uuid::from_u128(3)),
-        account,
+        account: account.clone(),
         key: MessageKey::Rfc("m@example.test".to_owned()),
         date: chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
         from: Address {
@@ -586,7 +588,7 @@ async fn a_card_leaving_the_book_hands_an_address_back_to_mail_and_spares_a_hand
     };
     store
         .ingest(
-            account,
+            account.clone(),
             Ingest {
                 mailbox: MailboxRef {
                     account,

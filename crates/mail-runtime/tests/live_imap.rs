@@ -13,9 +13,11 @@
 //! cargo test -p mail-runtime --test live_imap -- --ignored --nocapture
 //! ```
 
-use mail_domain::{Credential, SaslMech, Tls};
+use mail_domain::{SaslMech, Tls};
 use mail_proto::{ImapAuth, ImapCommand, ImapSession};
 use mail_runtime::{Transport, drive};
+use porter_core::Credential;
+use porter_core::SecretText;
 use tokio::sync::watch;
 
 const PORT: u16 = 11143;
@@ -23,7 +25,7 @@ const PORT: u16 = 11143;
 fn auth() -> ImapAuth {
     ImapAuth {
         username: "ada@example.test".to_owned(),
-        credential: Credential::Password("s3cr3t-pass".to_owned()),
+        credential: Credential::Password(SecretText::new("s3cr3t-pass".to_owned())),
         sasl: vec![SaslMech::Plain],
     }
 }

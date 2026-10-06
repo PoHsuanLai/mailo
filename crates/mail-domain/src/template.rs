@@ -14,11 +14,12 @@
 
 use crate::content::Address;
 use crate::draft::{Draft, PendingAttachment, SendState};
-use crate::id::{AccountId, DraftId, IdentityId, TemplateId};
+use crate::id::{DraftId, IdentityId, TemplateId};
 use crate::pgp::OpenPgp;
 use crate::receipt::ReceiptRequest;
 use crate::smime::Smime;
 use chrono::{DateTime, Utc};
+use porter_core::AccountId;
 use serde::{Deserialize, Serialize};
 
 /// What a template is called when neither its maker nor its subject says.
@@ -73,7 +74,7 @@ impl Template {
             .to_owned();
         Template {
             id: TemplateId::generate(),
-            account: draft.account,
+            account: draft.account.clone(),
             identity: draft.identity,
             name,
             to: draft.to.clone(),
@@ -94,7 +95,7 @@ impl Template {
     pub fn draft(&self, now: DateTime<Utc>) -> Draft {
         Draft {
             id: DraftId::generate(),
-            account: self.account,
+            account: self.account.clone(),
             identity: self.identity,
             to: self.to.clone(),
             cc: self.cc.clone(),
@@ -117,6 +118,7 @@ impl Template {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::id::new_account_id;
     use crate::id::{BlobId, MessageId};
 
     fn at(hour: u32) -> DateTime<Utc> {
@@ -135,7 +137,7 @@ mod tests {
     fn draft(subject: &str) -> Draft {
         Draft {
             id: DraftId::generate(),
-            account: AccountId::generate(),
+            account: new_account_id(),
             identity: IdentityId::generate(),
             to: vec![addr("team@example.test")],
             cc: vec![addr("lead@example.test")],

@@ -31,10 +31,10 @@ impl AccountEngine<ImapBackend> {
         cancel: &mut Cancel,
         now: DateTime<Utc>,
     ) -> Result<Searched, RuntimeError> {
-        let folders = self.store.folders(self.account)?;
+        let folders = self.store.folders(self.account.clone())?;
         let caps = self.caps().clone();
         let ctx = ImapCtx {
-            account: self.account,
+            account: self.account.clone(),
             folders: &folders,
             roles: &caps.folders,
             labels: caps.labels,
@@ -69,7 +69,7 @@ impl AccountEngine<ImapBackend> {
             room -= remotes.len();
             hits.more += count.saturating_sub(remotes.len() as u64);
             let mailbox = MailboxRef {
-                account: self.account,
+                account: self.account.clone(),
                 path: mailbox,
             };
             let wanted = self.not_held(&remotes)?;
@@ -129,7 +129,7 @@ impl<B: Backend> AccountEngine<B> {
         filter: &Filter,
         now: DateTime<Utc>,
     ) -> Result<Searched, RuntimeError> {
-        let plan = match graph::translate(filter, self.account) {
+        let plan = match graph::translate(filter, self.account.clone()) {
             Err(unsaid) => return Ok(Searched::Unsaid(unsaid)),
             Ok(Asked::Nothing) => return Ok(Searched::Found(ServerHits::default())),
             Ok(Asked::Ask(plan)) => plan,
@@ -137,8 +137,8 @@ impl<B: Backend> AccountEngine<B> {
         if let Some(renewal) = &self.renewal {
             renewal.ahead(Token::Incoming).await?;
         }
-        let token = match self.secret(mail_domain::SecretPurpose::OutgoingPassword) {
-            Ok(mail_domain::Credential::OAuth { access, .. }) => access,
+        let token = match self.secret(porter_core::SecretPurpose::OutgoingPassword) {
+            Ok(porter_core::Credential::OAuth { access, .. }) => access,
             _ => {
                 return Err(RuntimeError::Secrets(format!(
                     "no Microsoft Graph sign-in is stored for {}",
@@ -151,7 +151,7 @@ impl<B: Backend> AccountEngine<B> {
                 "this account does not read through Microsoft Graph".to_owned(),
             ));
         };
-        let found = reader.search(&plan, &token, SERVER_HITS).await?;
+        let found = reader.search(&plan, token.expose(), SERVER_HITS).await?;
         let mut hits = ServerHits {
             more: u64::from(found.more),
             ..ServerHits::default()
@@ -167,7 +167,7 @@ impl<B: Backend> AccountEngine<B> {
         }
         for path in folders {
             let mailbox = MailboxRef {
-                account: self.account,
+                account: self.account.clone(),
                 path: path.clone(),
             };
             let here: Vec<_> = found
@@ -200,7 +200,7 @@ impl<B: Backend> AccountEngine<B> {
 
     /// Of `remotes`, those that name nothing held here.
     fn not_held(&self, remotes: &[RemoteRef]) -> Result<Vec<RemoteRef>, RuntimeError> {
-        let held = self.store.held_at(self.account, remotes)?;
+        let held = self.store.held_at(self.account.clone(), remotes)?;
         Ok(remotes
             .iter()
             .filter(|r| !held.iter().any(|(h, _)| h == *r))
@@ -212,7 +212,7 @@ impl<B: Backend> AccountEngine<B> {
     fn held(&self, remotes: &[RemoteRef]) -> Result<Vec<mail_domain::MessageId>, RuntimeError> {
         Ok(self
             .store
-            .held_at(self.account, remotes)?
+            .held_at(self.account.clone(), remotes)?
             .into_iter()
             .map(|(_, id)| id)
             .collect())
@@ -229,7 +229,7 @@ impl<B: Backend> AccountEngine<B> {
     ) -> Result<(), RuntimeError> {
         let stored = self.absorb_headers(mailbox, items, flags, now)?;
         let new: Vec<_> = first_stored(&stored).collect();
-        self.store.mark_found(self.account, &new, now)?;
+        self.store.mark_found(self.account.clone(), &new, now)?;
         hits.fetched += new.len();
         Ok(())
     }

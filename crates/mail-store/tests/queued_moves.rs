@@ -6,13 +6,16 @@
 //! answers, the parity the rest of the store is held to.
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_store::{
     Dispatch, MemoryStore, PASSES_TO_FIND, SYNCS_TO_FIND, Settle, SqliteStore, Store,
 };
+use porter_core::AccountId;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 
 fn at(n: i64) -> DateTime<Utc> {
     Utc.timestamp_opt(1_700_000_000 + n, 0).unwrap()
@@ -27,7 +30,7 @@ fn both<T>(scenario: impl Fn(&dyn Store) -> T) -> (T, T) {
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [ACCOUNT.to_string()],
+            [acct_account().to_string()],
         )
         .unwrap();
     let memory = MemoryStore::new();
@@ -53,7 +56,7 @@ fn message(n: u128) -> Message {
     Message {
         id: MessageId::from_uuid(uuid::Uuid::from_u128(n)),
         thread: ThreadId::from_uuid(uuid::Uuid::from_u128(n + 1000)),
-        account: ACCOUNT,
+        account: acct_account(),
         key: MessageKey::Rfc(format!("m{n}@example.test")),
         date: at(n as i64),
         from: Address {
@@ -80,7 +83,7 @@ fn message(n: u128) -> Message {
 fn ingest(path: &str) -> Ingest {
     Ingest {
         mailbox: MailboxRef {
-            account: ACCOUNT,
+            account: acct_account(),
             path: path.to_owned(),
         },
         validity: UidValidity::Same,
@@ -106,13 +109,13 @@ fn deliver(store: &dyn Store, m: &Message, remote: RemoteRef) {
         raw: BlobId::generate(),
         message: m.clone(),
     });
-    store.ingest(ACCOUNT, batch).unwrap();
+    store.ingest(acct_account(), batch).unwrap();
 }
 
 fn queue(store: &dyn Store, intent: RemoteIntent) -> OutboxId {
     store
         .enqueue(
-            ACCOUNT,
+            acct_account(),
             intent,
             &Patch {
                 id: ChangeId::generate(),
@@ -150,9 +153,11 @@ fn first_move_lands(store: &dyn Store, first: OutboxId, to: Option<RemoteRef>) {
     let sent = store.outbox_dispatch(first).unwrap();
     assert_eq!(remotes(&sent), vec![imap("INBOX", 10)]);
     match to {
-        Some(to) => store.remap(ACCOUNT, &imap("INBOX", 10), &to).unwrap(),
+        Some(to) => store
+            .remap(acct_account(), &imap("INBOX", 10), &to)
+            .unwrap(),
         None => store
-            .unmap(ACCOUNT, &imap("INBOX", 10), Some("Archive"))
+            .unmap(acct_account(), &imap("INBOX", 10), Some("Archive"))
             .unwrap(),
     }
     store.outbox_settle(first, Settle::Ok, at(1)).unwrap();
@@ -166,13 +171,15 @@ fn a_second_queued_move_is_sent_where_the_first_put_the_message() {
         let first = queue(store, file_into(&m, MailboxRole::Archive));
         let second = queue(store, file_into(&m, MailboxRole::Trash));
         // Both were queued with the one address the message had.
-        let queued = store.outbox_due(ACCOUNT, at(0)).unwrap();
+        let queued = store.outbox_due(acct_account(), at(0)).unwrap();
         assert_eq!(queued.len(), 2);
 
         first_move_lands(store, first, Some(imap("Archive", 77)));
         (
             store.outbox_dispatch(second).unwrap(),
-            store.outbox_due(ACCOUNT, at(1)).unwrap()[0].op.clone(),
+            store.outbox_due(acct_account(), at(1)).unwrap()[0]
+                .op
+                .clone(),
         )
     });
     assert_eq!(sqlite, memory);
@@ -197,12 +204,12 @@ fn a_move_the_server_did_not_place_holds_the_next_one_until_a_sync_finds_it() {
 
         first_move_lands(store, first, None);
         let waiting = store.outbox_dispatch(second).unwrap();
-        let listed = store.outbox_due(ACCOUNT, at(1)).unwrap();
+        let listed = store.outbox_due(acct_account(), at(1)).unwrap();
 
         // The sync of Archive finds it, by its identity, under the UID the server gave it.
         deliver(store, &m, imap("Archive", 77));
         let found = store.outbox_dispatch(second).unwrap();
-        let entry = store.outbox_due(ACCOUNT, at(1)).unwrap().remove(0);
+        let entry = store.outbox_due(acct_account(), at(1)).unwrap().remove(0);
         (
             waiting,
             listed.len(),
@@ -244,7 +251,7 @@ fn an_operation_made_while_the_server_has_not_said_where_a_message_went_waits_fo
         // is not mail the server never held, so it is queued rather than kept to this client.
         let later = queue(store, file_into(&m, MailboxRole::Trash));
         let waiting = store.outbox_dispatch(later).unwrap();
-        let listed = store.outbox_due(ACCOUNT, at(1)).unwrap().len();
+        let listed = store.outbox_due(acct_account(), at(1)).unwrap().len();
 
         deliver(store, &m, imap("Archive", 77));
         (waiting, listed, store.outbox_dispatch(later).unwrap())
@@ -303,7 +310,7 @@ fn a_queued_graph_move_uses_the_id_the_move_before_it_returned() {
         );
         store
             .remap(
-                ACCOUNT,
+                acct_account(),
                 &graph("INBOX", "AAMk-old"),
                 &graph("Archive", "AAMk-new"),
             )
@@ -347,7 +354,7 @@ fn a_later_operation_on_a_waiting_message_waits_behind_it_and_others_do_not() {
         );
         // An earlier move of `m` that no server said anything about.
         store
-            .unmap(ACCOUNT, &imap("INBOX", 10), Some("Archive"))
+            .unmap(acct_account(), &imap("INBOX", 10), Some("Archive"))
             .unwrap();
         (
             store.outbox_dispatch(both_moved).unwrap(),
@@ -376,10 +383,13 @@ fn an_operation_whose_messages_are_all_gone_has_nothing_to_send() {
         // Deleted on another device: gone from the only mailbox that held it, so gone here.
         let mut batch = ingest("INBOX");
         batch.gone.push(imap("INBOX", 10));
-        store.ingest(ACCOUNT, batch).unwrap();
+        store.ingest(acct_account(), batch).unwrap();
         let dispatch = store.outbox_dispatch(moved).unwrap();
         store.outbox_settle(moved, Settle::Ok, at(1)).unwrap();
-        (dispatch, store.outbox_due(ACCOUNT, at(1)).unwrap().len())
+        (
+            dispatch,
+            store.outbox_due(acct_account(), at(1)).unwrap().len(),
+        )
     });
     assert_eq!(sqlite, memory);
     assert_eq!(sqlite, (Dispatch::Moot, 0));
@@ -409,7 +419,11 @@ fn a_send_is_dispatched_exactly_as_it_was_queued() {
             rcpt_to: vec!["ada@example.test".to_owned()],
         };
         let id = queue(store, intent);
-        let queued = store.outbox_due(ACCOUNT, at(0)).unwrap().remove(0).op;
+        let queued = store
+            .outbox_due(acct_account(), at(0))
+            .unwrap()
+            .remove(0)
+            .op;
         (store.outbox_dispatch(id).unwrap(), queued)
     });
     // Each store queued a send of its own, with ids of its own.
@@ -429,7 +443,7 @@ fn queue_undoable(
 ) -> OutboxId {
     store
         .apply(
-            ACCOUNT,
+            acct_account(),
             &Patch {
                 id: ChangeId::generate(),
                 changes: vec![forward],
@@ -438,7 +452,7 @@ fn queue_undoable(
         .unwrap();
     store
         .enqueue(
-            ACCOUNT,
+            acct_account(),
             intent,
             &Patch {
                 id: ChangeId::generate(),
@@ -454,7 +468,7 @@ fn queue_undoable(
 fn passes(store: &dyn Store, n: u32, synced: &[&str]) {
     let synced: Vec<String> = synced.iter().map(|s| s.to_string()).collect();
     for _ in 0..n {
-        store.unplaced_pass(ACCOUNT, &synced).unwrap();
+        store.unplaced_pass(acct_account(), &synced).unwrap();
     }
 }
 
@@ -613,7 +627,7 @@ fn a_message_moved_again_while_it_waited_is_looked_for_afresh() {
         // Found, then moved on to Trash, and again the server did not say where.
         deliver(store, &m, imap("Archive", 77));
         store
-            .unmap(ACCOUNT, &imap("Archive", 77), Some("Trash"))
+            .unmap(acct_account(), &imap("Archive", 77), Some("Trash"))
             .unwrap();
         store.outbox_settle(second, Settle::Ok, at(2)).unwrap();
         let third = queue(store, file_into(&m, MailboxRole::Inbox));
@@ -637,7 +651,7 @@ fn how_long_a_message_has_been_looked_for_survives_a_restart() {
             .execute(
                 "INSERT INTO accounts (id, address, plan, created_at)
                  VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-                [ACCOUNT.to_string()],
+                [acct_account().to_string()],
             )
             .unwrap();
         let m = message(1);
@@ -675,10 +689,10 @@ fn an_operation_on_a_message_given_up_is_refused_even_behind_one_still_waiting()
         );
         // Both moved where the server did not say; only Archive is synced, and misses `m`.
         store
-            .unmap(ACCOUNT, &imap("INBOX", 10), Some("Archive"))
+            .unmap(acct_account(), &imap("INBOX", 10), Some("Archive"))
             .unwrap();
         store
-            .unmap(ACCOUNT, &imap("INBOX", 11), Some("Projects"))
+            .unmap(acct_account(), &imap("INBOX", 11), Some("Projects"))
             .unwrap();
         passes(store, SYNCS_TO_FIND, &["Archive"]);
         (
@@ -707,10 +721,10 @@ fn a_refusal_after_part_was_done_puts_back_only_the_rest() {
                 Change::MessageMailbox(n.id, MailboxRole::Trash),
             ],
         };
-        store.apply(ACCOUNT, &forward).unwrap();
+        store.apply(acct_account(), &forward).unwrap();
         let id = store
             .enqueue(
-                ACCOUNT,
+                acct_account(),
                 RemoteIntent::SetMailbox {
                     messages: vec![m.id, n.id],
                     role: MailboxRole::Trash,
@@ -734,7 +748,7 @@ fn a_refusal_after_part_was_done_puts_back_only_the_rest() {
         (
             (m.mailbox, m.star),
             n.mailbox,
-            store.outbox_due(ACCOUNT, at(100)).unwrap().len(),
+            store.outbox_due(acct_account(), at(100)).unwrap().len(),
         )
     });
     assert_eq!(sqlite, memory);
@@ -750,10 +764,10 @@ fn where_a_move_filed_a_message_it_did_not_place_is_told() {
     let (sqlite, memory) = both(|store| {
         let m = message(1);
         deliver(store, &m, imap("INBOX", 10));
-        let before = store.unplaced_into(ACCOUNT, m.id).unwrap();
+        let before = store.unplaced_into(acct_account(), m.id).unwrap();
         let first = queue(store, file_into(&m, MailboxRole::Archive));
         first_move_lands(store, first, None);
-        (before, store.unplaced_into(ACCOUNT, m.id).unwrap())
+        (before, store.unplaced_into(acct_account(), m.id).unwrap())
     });
     assert_eq!(sqlite, memory);
     assert_eq!(sqlite, (None, Some("Archive".to_owned())));

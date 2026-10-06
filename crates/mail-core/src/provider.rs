@@ -7,7 +7,8 @@
 
 use chrono::{DateTime, Utc};
 use mail_domain::presets::preset_for;
-use mail_domain::{AccountPlan, AuthPlan, Incoming, OAuthIssuer, Outgoing};
+use mail_domain::{AccountPlan, AuthPlan, Incoming, Outgoing};
+use porter_provider::Issuer;
 
 /// A mail host the window knows by name.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -67,11 +68,11 @@ pub fn provider(plan: &AccountPlan) -> Provider {
     if let Some(preset) = preset_for(&plan.address, now) {
         return match preset.plan.auth {
             AuthPlan::OAuth {
-                issuer: OAuthIssuer::Google,
+                issuer: Issuer::Google,
                 ..
             } => Provider::Google,
             AuthPlan::OAuth {
-                issuer: OAuthIssuer::Microsoft,
+                issuer: Issuer::Microsoft,
                 ..
             } => Provider::Microsoft,
             _ => from_host(plan),

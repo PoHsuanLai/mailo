@@ -1,9 +1,11 @@
 use super::{asking, refused, settings};
 use mail_core::account::RemoveError;
+use mail_domain::id::new_account_id;
 use mail_domain::{
-    AccountId, AccountPlan, Address, AuthPlan, HttpAuth, Identity, IdentityId, Incoming, IsDefault,
-    LeaveOnServer, OAuthIssuer, Outgoing, SaslMech, Tls, Username,
+    AccountPlan, Address, AuthPlan, HttpAuth, Identity, IdentityId, Incoming, IsDefault,
+    LeaveOnServer, Outgoing, SaslMech, Tls, Username,
 };
+use porter_provider::Issuer;
 
 const ADDRESS: &str = "ada@example.com";
 
@@ -86,7 +88,7 @@ fn each_kind_of_account_lists_its_servers_and_how_it_signs_in() {
                 Incoming::Graph,
                 Outgoing::Graph,
                 AuthPlan::OAuth {
-                    issuer: OAuthIssuer::Microsoft,
+                    issuer: Issuer::Microsoft,
                     scopes: Vec::new(),
                 },
             ),
@@ -121,7 +123,7 @@ fn each_kind_of_account_lists_its_servers_and_how_it_signs_in() {
 fn the_addresses_it_sends_as_follow_with_their_names() {
     let identity = |name: Option<&str>, email: &str| Identity {
         id: IdentityId::generate(),
-        account: AccountId::generate(),
+        account: new_account_id(),
         from: Address {
             name: name.map(str::to_owned),
             email: email.to_owned(),
@@ -134,7 +136,7 @@ fn the_addresses_it_sends_as_follow_with_their_names() {
         Incoming::Graph,
         Outgoing::Graph,
         AuthPlan::OAuth {
-            issuer: OAuthIssuer::Google,
+            issuer: Issuer::Google,
             scopes: Vec::new(),
         },
     );

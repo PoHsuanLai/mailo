@@ -77,7 +77,7 @@ pub fn fetch_body_with(
         let (_tx, mut cancel) = watch::channel(false);
         let stored = secrets
             .get(&SecretKey {
-                account: account.id,
+                account: account.id.clone(),
                 purpose: SecretPurpose::IncomingPassword,
             })
             // A credential that is not there is one to be asked for again.

@@ -2,13 +2,14 @@
 //! documents, SRV records and MX records say. Every document here is synthetic.
 
 use chrono::{DateTime, Utc};
-use mail_domain::{AuthPlan, Incoming, OAuthIssuer, Outgoing, Tls, Username};
+use mail_domain::{AuthPlan, Incoming, Outgoing, Tls, Username};
 use mail_proto::discover::autoconfig::{
     self, AuthMethod, AutoconfigError, ServerProtocol, SocketType,
 };
 use mail_proto::discover::{
     self, MxLead, MxRecord, Side, Source, SrvRecord, Unusable, from_autoconfig, from_mx, from_srv,
 };
+use porter_provider::Issuer;
 
 fn now() -> DateTime<Utc> {
     DateTime::parse_from_rfc3339("2026-09-24T12:00:00Z")
@@ -378,7 +379,7 @@ mod selection {
         assert!(matches!(
             choose(&named).unwrap().plan.auth,
             AuthPlan::OAuth {
-                issuer: OAuthIssuer::Microsoft,
+                issuer: Issuer::Microsoft,
                 ..
             }
         ));
@@ -406,7 +407,7 @@ mod selection {
         assert!(matches!(
             preset.plan.auth,
             AuthPlan::OAuth {
-                issuer: OAuthIssuer::Google,
+                issuer: Issuer::Google,
                 ..
             }
         ));
@@ -610,7 +611,7 @@ mod mx_records {
         assert!(matches!(
             found.preset.plan.auth,
             AuthPlan::OAuth {
-                issuer: OAuthIssuer::Google,
+                issuer: Issuer::Google,
                 ..
             }
         ));
@@ -627,7 +628,7 @@ mod mx_records {
         assert!(matches!(
             found.preset.plan.auth,
             AuthPlan::OAuth {
-                issuer: OAuthIssuer::Microsoft,
+                issuer: Issuer::Microsoft,
                 ..
             }
         ));

@@ -308,13 +308,14 @@ pub(super) fn PageMenus(shell: Signal<Shell>) -> Element {
 mod tests {
     use super::*;
     use chrono::TimeZone;
+    use mail_domain::id::new_account_id;
     use mail_domain::*;
 
     fn thread(name: &str, email: &str, days_ago: i64, unread: bool) -> ThreadSummary {
         let now = Utc.with_ymd_and_hms(2026, 9, 23, 15, 0, 0).unwrap();
         ThreadSummary {
             id: ThreadId::generate(),
-            account: AccountId::generate(),
+            account: new_account_id(),
             subject: name.to_owned(),
             snippet: String::new(),
             from: Address {

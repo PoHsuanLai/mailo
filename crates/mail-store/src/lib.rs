@@ -36,12 +36,13 @@ pub use error::StoreError;
 
 use chrono::{DateTime, Utc};
 use mail_domain::{
-    AccountCaps, AccountId, AutocryptPeer, BlobId, Change, Draft, DraftId, Filter, Fingerprint,
-    Folder, FolderContents, Import, Ingest, InviteAnswer, KeyId, KeyTrust, Label, MailboxRef,
-    MailboxRole, Message, MessageId, MessageKey, OutboxId, Page, Patch, PgpKey, ProtoOp, Query,
-    ReceiptAnswer, RemoteIntent, RemoteRef, Retry, Rule, RuleId, SendState, SmimeCert, SyncCursor,
-    Template, TemplateId, Thread, ThreadId, ThreadSummary, Vacation, View, ViewId,
+    AccountCaps, AutocryptPeer, BlobId, Change, Draft, DraftId, Filter, Fingerprint, Folder,
+    FolderContents, Import, Ingest, InviteAnswer, KeyId, KeyTrust, Label, MailboxRef, MailboxRole,
+    Message, MessageId, MessageKey, OutboxId, Page, Patch, PgpKey, ProtoOp, Query, ReceiptAnswer,
+    RemoteIntent, RemoteRef, Retry, Rule, RuleId, SendState, SmimeCert, SyncCursor, Template,
+    TemplateId, Thread, ThreadId, ThreadSummary, Vacation, View, ViewId,
 };
+use porter_core::AccountId;
 
 /// One queued unit of remote work, with everything needed to retry or abandon it.
 #[derive(Debug, Clone, PartialEq, Eq)]

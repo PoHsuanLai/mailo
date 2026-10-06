@@ -10,14 +10,17 @@
 //! arrives, with nothing logged and nothing to see.
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 
 fn at(n: i64) -> DateTime<Utc> {
     Utc.timestamp_opt(1_700_000_000 + n, 0).unwrap()
@@ -31,7 +34,7 @@ fn store() -> (Arc<SqliteStore>, tempfile::TempDir) {
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [ACCOUNT.to_string()],
+            [acct_account().to_string()],
         )
         .unwrap();
     (store, dir)
@@ -46,7 +49,7 @@ fn ingest_of(store: &SqliteStore, from: i64, count: i64) -> Ingest {
             let message = Message {
                 id: MessageId::generate(),
                 thread: ThreadId::generate(),
-                account: ACCOUNT,
+                account: acct_account(),
                 key: MessageKey::Rfc(key.clone()),
                 date: at(n),
                 from: Address {
@@ -81,7 +84,7 @@ fn ingest_of(store: &SqliteStore, from: i64, count: i64) -> Ingest {
         .collect();
     Ingest {
         mailbox: MailboxRef {
-            account: ACCOUNT,
+            account: acct_account(),
             path: "INBOX".to_owned(),
         },
         validity: UidValidity::Same,
@@ -130,7 +133,7 @@ fn a_sync_writing_while_the_window_reads_does_not_deadlock() {
         std::thread::spawn(move || {
             for b in 0..20 {
                 store
-                    .ingest(ACCOUNT, ingest_of(&store, b * 50, 50))
+                    .ingest(acct_account(), ingest_of(&store, b * 50, 50))
                     .unwrap();
             }
         })
@@ -161,7 +164,9 @@ fn a_reader_is_not_starved_by_a_writer() {
     // One connection means reads and writes take turns. Turns are fine; never getting one is a
     // window that stops repainting for the length of a sync.
     let (store, _dir) = store();
-    store.ingest(ACCOUNT, ingest_of(&store, 0, 200)).unwrap();
+    store
+        .ingest(acct_account(), ingest_of(&store, 0, 200))
+        .unwrap();
 
     let stop = Arc::new(AtomicBool::new(false));
     let reads = Arc::new(AtomicUsize::new(0));
@@ -180,7 +185,7 @@ fn a_reader_is_not_starved_by_a_writer() {
         std::thread::spawn(move || {
             for b in 1..10 {
                 store
-                    .ingest(ACCOUNT, ingest_of(&store, b * 200, 200))
+                    .ingest(acct_account(), ingest_of(&store, b * 200, 200))
                     .unwrap();
             }
         })
@@ -204,7 +209,7 @@ fn two_writers_do_not_corrupt_the_mailbox() {
         std::thread::spawn(move || {
             for b in 0..10 {
                 store
-                    .ingest(ACCOUNT, ingest_of(&store, b * 20, 20))
+                    .ingest(acct_account(), ingest_of(&store, b * 20, 20))
                     .unwrap();
             }
         })
@@ -214,7 +219,7 @@ fn two_writers_do_not_corrupt_the_mailbox() {
         std::thread::spawn(move || {
             for b in 0..10 {
                 store
-                    .ingest(ACCOUNT, ingest_of(&store, 1_000 + b * 20, 20))
+                    .ingest(acct_account(), ingest_of(&store, 1_000 + b * 20, 20))
                     .unwrap();
             }
         })
@@ -250,7 +255,7 @@ mod a_reader_that_is_not_the_writer {
             .execute(
                 "INSERT INTO accounts (id, address, plan, created_at)
                  VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-                [ACCOUNT.to_string()],
+                [acct_account().to_string()],
             )
             .unwrap();
         (store, dir)
@@ -314,7 +319,7 @@ mod a_reader_that_is_not_the_writer {
         let message = Message {
             id: MessageId::generate(),
             thread,
-            account: ACCOUNT,
+            account: acct_account(),
             key: MessageKey::Rfc("m@example.test".to_owned()),
             date: Utc::now(),
             from: Address {
@@ -341,10 +346,10 @@ mod a_reader_that_is_not_the_writer {
         };
         store
             .ingest(
-                ACCOUNT,
+                acct_account(),
                 Ingest {
                     mailbox: MailboxRef {
-                        account: ACCOUNT,
+                        account: acct_account(),
                         path: "INBOX".to_owned(),
                     },
                     validity: UidValidity::Same,
@@ -395,7 +400,7 @@ mod a_reader_that_is_not_the_writer {
         // second empty database — so `reader()` has to fall back to the writer rather than
         // opening one.
         let (store, _dir) = store();
-        assert!(store.labels(ACCOUNT).is_ok());
+        assert!(store.labels(acct_account()).is_ok());
         assert!(
             store
                 .threads(
