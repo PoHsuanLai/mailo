@@ -37,7 +37,7 @@ use chrono::{DateTime, Utc};
 use mail_store::SqliteStore;
 use porter_core::UnixSeconds;
 use porter_core::{AccountId, CapabilityKind, Credential, SecretKey, SecretPurpose, SecretText};
-use porter_secrets::{Secrets, SecretsError};
+use porter_secrets::{PutOutcome, Secrets, SecretsError};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 
@@ -209,25 +209,30 @@ pub async fn adopt_item(
         Some(Err(why)) => Err(why),
         None => Err(RuntimeError::Secrets("the keyring thread died".to_owned())),
     };
-    match secrets.get(key).await {
+    let unreadable = match secrets.get(key).await {
         // Filed already: porter's wins. The old entry goes whether or not it can be read, which
         // is how an entry whose parts were half deleted by a cut is finished.
-        Ok(_) => {
-            return match forget(legacy, name).await {
-                true => Item::AlreadyFiled,
-                false => Item::Left(Left::DeleteFailed),
-            };
-        }
-        Err(SecretsError::Missing | SecretsError::Unreadable) => {}
+        Ok(_) => return already_filed(legacy, name).await,
+        Err(SecretsError::Missing) => false,
+        Err(SecretsError::Unreadable) => true,
         Err(SecretsError::Locked | SecretsError::Unavailable) => {
             return Item::Left(Left::StoreUnavailable);
         }
-    }
+    };
     let Ok(held) = held else {
         return Item::Left(Left::Unreadable);
     };
-    if secrets.put(key, &held).await.is_err() {
-        return Item::Left(Left::PutFailed);
+    // An item porter cannot read is replaced by the one that can be. Otherwise the put loses to
+    // anyone who filed under the key since the look above (accountd adopting the same account),
+    // and theirs wins as if it had been there all along.
+    let put = match unreadable {
+        true => secrets.put(key, &held).await.map(|()| PutOutcome::Stored),
+        false => secrets.put_if_absent(key, &held).await,
+    };
+    match put {
+        Ok(PutOutcome::Stored) => {}
+        Ok(PutOutcome::AlreadyThere) => return already_filed(legacy, name).await,
+        Err(_) => return Item::Left(Left::PutFailed),
     }
     match secrets.get(key).await {
         Ok(back) if back == held => {}
@@ -235,6 +240,13 @@ pub async fn adopt_item(
     }
     match forget(legacy, name).await {
         true => Item::Moved,
+        false => Item::Left(Left::DeleteFailed),
+    }
+}
+
+async fn already_filed(legacy: &Legacy, name: &str) -> Item {
+    match forget(legacy, name).await {
+        true => Item::AlreadyFiled,
         false => Item::Left(Left::DeleteFailed),
     }
 }
@@ -631,6 +643,8 @@ mod tests {
         inner: MemorySecrets,
         refuse_put: bool,
         garble: bool,
+        /// Someone else files under the key between the look and the put.
+        raced: Option<Credential>,
     }
 
     impl Secrets for Flaky {
@@ -644,6 +658,22 @@ mod tests {
                 value.clone()
             };
             self.inner.put(key, &stored).await
+        }
+        async fn put_if_absent(
+            &self,
+            key: &SecretKey,
+            value: &Credential,
+        ) -> Result<PutOutcome, SecretsError> {
+            if let Some(theirs) = &self.raced {
+                self.inner.put(key, theirs).await?;
+            }
+            match self.inner.get(key).await {
+                Err(SecretsError::Missing) => {
+                    self.put(key, value).await.map(|()| PutOutcome::Stored)
+                }
+                Ok(_) | Err(SecretsError::Unreadable) => Ok(PutOutcome::AlreadyThere),
+                Err(other) => Err(other),
+            }
         }
         async fn get(&self, key: &SecretKey) -> Result<Credential, SecretsError> {
             self.inner.get(key).await
@@ -758,6 +788,71 @@ mod tests {
         .unwrap();
         assert_eq!(secrets.get(&key_of("carddav")).await.unwrap(), newer);
         assert!(mem.entries.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn what_is_filed_between_the_look_and_the_put_wins_too() {
+        let (mem, _) = legacy_entries();
+        let (store, _dir) = store_with_account();
+        let theirs = Credential::Password(SecretText::new("filed by accountd"));
+        let flaky = Flaky {
+            raced: Some(theirs.clone()),
+            ..Flaky::default()
+        };
+        let report = run_over(&store, &legacy_of(&mem), &Drained::default(), &flaky, now())
+            .await
+            .unwrap();
+        assert_eq!(report.finished, [account()]);
+        assert_eq!(flaky.get(&key_of("carddav")).await.unwrap(), theirs);
+        assert!(mem.entries.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn an_unreadable_filed_item_is_replaced_by_the_old_entry() {
+        let (mem, want) = legacy_entries();
+        let (store, _dir) = store_with_account();
+        let secrets = Unreadable {
+            inner: MemorySecrets::default(),
+            key: key_of("carddav"),
+        };
+        let report = run_over(
+            &store,
+            &legacy_of(&mem),
+            &Drained::default(),
+            &secrets,
+            now(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(report.finished, [account()]);
+        assert_eq!(
+            secrets.inner.get(&key_of("carddav")).await.unwrap(),
+            want.iter().find(|(w, _)| *w == "carddav").unwrap().1
+        );
+    }
+
+    /// Reads one key as unreadable until something is put there.
+    struct Unreadable {
+        inner: MemorySecrets,
+        key: SecretKey,
+    }
+
+    impl Secrets for Unreadable {
+        async fn put(&self, key: &SecretKey, value: &Credential) -> Result<(), SecretsError> {
+            self.inner.put(key, value).await
+        }
+        async fn get(&self, key: &SecretKey) -> Result<Credential, SecretsError> {
+            match self.inner.get(key).await {
+                Err(SecretsError::Missing) if *key == self.key => Err(SecretsError::Unreadable),
+                other => other,
+            }
+        }
+        async fn delete(&self, key: &SecretKey) -> Result<(), SecretsError> {
+            self.inner.delete(key).await
+        }
+        async fn delete_account(&self, a: &AccountId) -> Result<(), SecretsError> {
+            self.inner.delete_account(a).await
+        }
     }
 
     #[tokio::test]
