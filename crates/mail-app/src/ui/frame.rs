@@ -86,7 +86,8 @@ pub(super) fn keep(spaces: &Spaces) {
 }
 
 /// Follow the configuration files the other windows write (`revisions::Configured`): when one
-/// writes `keyboard.json` or `spaces.json`, read them again into `shell` and `spaces`. The
+/// writes `settings.toml`, `keyboard.json` or `spaces.json`, read them again into the window's
+/// settings, `shell` and `spaces`. The
 /// Spaces are left alone while `editing` holds a draft of one, which closing keeps.
 pub(super) fn use_followed_configuration(
     mut shell: Signal<crate::ui::view::Shell>,
@@ -97,6 +98,7 @@ pub(super) fn use_followed_configuration(
     crate::ui::revisions::use_shared_configuration(configured);
     use_effect(move || {
         let _ = configured();
+        crate::ui::prefs::reread();
         let Some(dirs) = try_consume_dirs() else {
             return;
         };

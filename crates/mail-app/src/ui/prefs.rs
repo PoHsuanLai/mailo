@@ -101,6 +101,22 @@ pub(in crate::ui) fn current() -> MailSettings {
         .unwrap_or_default()
 }
 
+/// Read `settings.toml` again into the window's settings, when another window said it wrote it
+/// (`revisions::Configured`). Unchanged settings are left alone, so nothing that reads them runs
+/// again.
+pub(in crate::ui) fn reread() {
+    let (Some(mut values), Some(PrefsRoot(Some(root)))) = (
+        try_consume_context::<Signal<MailSettings>>(),
+        try_consume_context::<PrefsRoot>(),
+    ) else {
+        return;
+    };
+    let loaded = settings::load(&root);
+    if *values.peek() != loaded {
+        values.set(loaded);
+    }
+}
+
 /// Change the settings with `edit`: written to `settings.toml` where the window has somewhere
 /// to write it, and shown at once either way. A write that fails changes nothing on screen.
 pub(in crate::ui) fn change(edit: impl FnOnce(&mut MailSettings)) -> Result<(), String> {
@@ -108,7 +124,14 @@ pub(in crate::ui) fn change(edit: impl FnOnce(&mut MailSettings)) -> Result<(), 
         return Err("The window has no settings to change.".to_owned());
     };
     let next = match try_consume_context::<PrefsRoot>().and_then(|root| root.0) {
-        Some(root) => settings::change(&root, edit)?,
+        Some(root) => {
+            let next = settings::change(&root, edit)?;
+            // The other windows read it again now, rather than when their watch next settles
+            // (and where a watch cannot run at all): the configuration counter, not the store's,
+            // so no window's mail queries run again for a setting.
+            crate::ui::revisions::told_configuration();
+            next
+        }
         None => {
             let mut next = values.peek().clone();
             edit(&mut next);

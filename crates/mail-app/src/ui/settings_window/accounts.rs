@@ -40,8 +40,10 @@ pub(super) fn Accounts(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
                                 ..Common::default()
                             },
                             onclick: {
-                                let id = row.id;
-                                on_primary(move || crate::ui::account_settings::open(shell, id))
+                                let id = row.id.clone();
+                                on_primary(move || {
+                                    crate::ui::account_settings::open(shell, id.clone())
+                                })
                             },
                         }
                     }
