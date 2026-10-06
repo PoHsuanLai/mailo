@@ -1,20 +1,24 @@
 //! Keep all mail offline: the window's half of `mailo offline <account> on|off`, per account,
 //! with how much of each account is here.
 //!
-//! Every Space's, so it is on Settings' Accounts page, and a choice is kept at once — in
-//! `offline.json`, where every sync reads it (a key per account, so not a schema key). The sync does the fetching; this only says whether
-//! it should. The counts are read once, when the sheet opens.
+//! Every Space's, so it is on Settings' Accounts page, a group of quire's rows with a switch per
+//! account, and a choice is kept at once — in `offline.json`, where every sync reads it (a key per
+//! account, so not a schema key). The sync does the fetching; this only says whether it should.
+//! The counts are read once, when the page opens.
 
 use crate::ui::appearance::WindowDirs;
 use crate::ui::data::{AccountRow, account_rows};
-use crate::ui::space_menu::Seg;
 use dioxus::prelude::*;
+use ds::components::fields::field_row::{FieldGroup, FieldRow};
+use ds::prelude::*;
 use mail_core::offline::{self, Keep, Kept};
 use mail_domain::Incoming;
 use mail_store::{SqliteStore, Store as _};
 use std::sync::Arc;
 
-const CHOICES: [(Keep, &str); 2] = [(Keep::Everything, "On"), (Keep::Bodies, "Off")];
+/// What turning the switch on adds, said under each account.
+const ON_MEANS: &str = "On, every sync also fetches the attachments it leaves on the server until \
+    opened, a few at a time and the largest last.";
 
 /// One account's line: who, and how much of it is here.
 #[derive(Clone, PartialEq)]
@@ -60,8 +64,7 @@ pub(super) fn OfflineCopy() -> Element {
         return rsx! {};
     }
     rsx! {
-        div {
-            div { class: "ed-label", "Keep all mail offline" }
+        FieldGroup { title: "Keep all mail offline",
             for line in accounts {
                 OneAccount {
                     key: "{line.row.id}",
@@ -87,11 +90,8 @@ pub(super) fn OfflineCopy() -> Element {
                     },
                 }
             }
-            p { class: "capnote",
-                "On, every sync also fetches the attachments it leaves on the server until opened, a few at a time and the largest last."
-            }
             if let Some(why) = failed() {
-                p { class: "capnote", "{why}" }
+                FieldRow { label: "Not kept", help: Some(TextLine::from(why)) }
             }
         }
     }
@@ -106,17 +106,16 @@ fn OneAccount(line: Line, kept: Kept, on_keep: EventHandler<Keep>) -> Element {
         Err(why) => format!("Could not count: {why}"),
     };
     rsx! {
-        div {
-            p { class: "capnote", "{address}" }
-            Seg {
+        FieldRow {
+            label: address.clone(),
+            help: Some(TextLine::from(format!("{said}. {ON_MEANS}"))),
+            Toggle {
                 label: format!("Keep all mail offline for {address}"),
-                options: CHOICES
-                    .iter()
-                    .map(|(keep, name)| ((*name).to_owned(), *keep == current))
-                    .collect::<Vec<_>>(),
-                on_pick: move |index: usize| on_keep.call(CHOICES[index % CHOICES.len()].0),
+                value: if current == Keep::Everything { Check::On } else { Check::Off },
+                onchange: move |now: Check| {
+                    on_keep.call(if now == Check::On { Keep::Everything } else { Keep::Bodies })
+                },
             }
-            p { class: "capnote", "{said}" }
         }
     }
 }
