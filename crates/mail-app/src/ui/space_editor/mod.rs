@@ -5,10 +5,10 @@
 //! it (cross-fading, as a switch does), Save writes `spaces.json`, and Esc puts the Space back
 //! exactly as the sheet found it. The Space's own look is quire's `SpaceEditor`: its name, the
 //! colour field and its stops, theme, the card's accent, the presets and the measured contrast.
-//! What quire's editor does not draw stays mailo's, in form rows under it: which accounts the
-//! Space shows (`members`), provider marks,
-//! notifications, which accounts are kept offline, spelling, brand logos, searching the server,
-//! the accounts, contacts, rules, keys and the keyboard, and Cancel and Save.
+//! What quire's editor does not draw stays mailo's, under it: which accounts the Space shows
+//! (`members`), and Cancel and Save. Everything that applies to every Space (notifications,
+//! spelling, the accounts themselves, contacts, rules, keys, the keyboard) is in Settings
+//! (`settings_window`).
 //!
 //! The drag preview, decided (quire's migration brief §5.1, which left it open): a drag in the
 //! colour field repaints the frame through `Ds`'s own cross-fade, each step like any other
@@ -17,24 +17,13 @@
 //! behaviour, and the frame a drag shows is the frame Save keeps. Nothing here depends on the
 //! renderer, so the decision stands on Blitz as it does on the webview.
 
-mod brand;
 mod members;
-mod notify;
-mod offline;
 mod parts;
 mod remove;
-mod server;
-mod spelling;
 
 pub(in crate::ui) use parts::Seg;
 
-use self::brand::BrandLogos;
 use self::members::Members;
-use self::notify::Notifications;
-use self::offline::OfflineCopy;
-use self::parts::Marks as MarksChoice;
-use self::server::ServerSearch;
-use self::spelling::Spelling;
 use super::common::{classed, in_card};
 use super::frame::keep;
 use super::press::{available, on_primary};
@@ -45,10 +34,8 @@ use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::components::app::space_editor::{DotIndex, SpaceEditor as LookEditor, rows::MeasuredIn};
 use ds::components::controls::button_model::Answers;
-use ds::components::fields::field_row::{FieldGroup, FieldRow};
 use ds::components::overlays::sheet_attach::Attach;
 use ds::prelude::*;
-use ds::root::common::Common;
 
 /// Apply `edit` to the draft and put the result in the window's Spaces, which the frame's
 /// root reads.
@@ -142,49 +129,8 @@ pub(super) fn SpaceEditor(
                     measured: MeasuredIn::EachScheme,
                 }
                 Members { editing, spaces }
-                FieldGroup { title: "Mail",
-                    MarksChoice { shell }
-                    Notifications {}
-                    FieldRow {
-                        label: "Accounts",
-                        Button {
-                            label: "Add Account\u{2026}",
-                            onclick: on_primary(move || super::add_account::open(shell)),
-                        }
-                    }
-                    FieldRow {
-                        label: "Contacts",
-                        Button {
-                            label: "Contacts\u{2026}",
-                            onclick: on_primary(move || super::contacts::open(shell)),
-                        }
-                    }
-                    FieldRow {
-                        label: "Rules",
-                        Button {
-                            label: "Rules\u{2026}",
-                            onclick: on_primary(move || super::rules::open(shell)),
-                        }
-                    }
-                    FieldRow {
-                        label: "Keys and certificates",
-                        Button {
-                            label: "Keys and Certificates\u{2026}",
-                            onclick: on_primary(move || super::pgp::keys::open(shell)),
-                        }
-                    }
-                    OfflineCopy {}
-                    Spelling {}
-                    BrandLogos {}
-                    ServerSearch {}
-                    FieldRow {
-                        label: "Keyboard",
-                        Button {
-                            label: "Keyboard Shortcuts\u{2026}",
-                            common: Common { aria_label: Some("Keyboard shortcuts".to_owned()), ..Common::default() },
-                            onclick: on_primary(move || super::keyboard::open(shell)),
-                        }
-                    }
+                p { class: "capnote",
+                    "Notifications, spelling, accounts and the rest apply to every Space: they are in Settings (\u{2318},)."
                 }
             }
             // The sheet's own foot, outside the scroller, so Save stays in reach wherever the
@@ -229,15 +175,5 @@ pub(super) fn SpaceEditor(
 
 pub(in crate::ui) use remove::close as close_remove;
 
-#[cfg(test)]
-mod brand_tests;
-#[cfg(test)]
-mod notify_tests;
-#[cfg(test)]
-mod offline_tests;
-#[cfg(test)]
-mod server_tests;
-#[cfg(test)]
-mod spelling_tests;
 #[cfg(test)]
 pub(in crate::ui) mod tests;

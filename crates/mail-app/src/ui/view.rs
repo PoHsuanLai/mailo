@@ -242,6 +242,24 @@ pub enum Marks {
     Letters,
 }
 
+impl From<crate::settings::ProviderMarks> for Marks {
+    fn from(marks: crate::settings::ProviderMarks) -> Self {
+        match marks {
+            crate::settings::ProviderMarks::Icons => Marks::Icons,
+            crate::settings::ProviderMarks::Letters => Marks::Letters,
+        }
+    }
+}
+
+impl From<Marks> for crate::settings::ProviderMarks {
+    fn from(marks: Marks) -> Self {
+        match marks {
+            Marks::Icons => crate::settings::ProviderMarks::Icons,
+            Marks::Letters => crate::settings::ProviderMarks::Letters,
+        }
+    }
+}
+
 impl Marks {
     /// The order a picker offers them: their icons, then letters.
     pub const ALL: [Marks; 2] = [Marks::Icons, Marks::Letters];
@@ -460,6 +478,14 @@ pub struct AccountSheet {
     pub step: AccountStep,
 }
 
+/// A page of Settings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum SettingsPage {
+    #[default]
+    General,
+    Accounts,
+}
+
 /// Where the account sheet is.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AccountStep {
@@ -604,8 +630,11 @@ pub struct Shell {
     pub keys: Option<KeysSheet>,
     /// The Connection Doctor sheet while it is open. `None` is closed.
     pub doctor: Option<DoctorSheet>,
-    /// The account sheet, opened from the Connection Doctor, while it is open. `None` is closed.
+    /// The account sheet, opened from the Connection Doctor or Settings, while it is open. `None`
+    /// is closed.
     pub account_sheet: Option<AccountSheet>,
+    /// Settings while it is open, on the page shown. `None` is closed.
+    pub settings: Option<SettingsPage>,
     /// The saved-view editor while it is open, with what its fields hold. `None` is closed.
     pub view_editor: Option<crate::ui::saved::ViewDraft>,
     /// Which key does what: the shipped keys with the user's own over them, read from
@@ -739,6 +768,7 @@ impl Default for Shell {
             keyboard: None,
             doctor: None,
             account_sheet: None,
+            settings: None,
             destroying: None,
             removing_space: None,
             undo: mail_core::undo::UndoStack::default(),

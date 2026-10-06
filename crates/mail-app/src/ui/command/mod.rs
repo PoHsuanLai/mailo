@@ -320,6 +320,10 @@ fn run_action(
             close(shell);
             super::keyboard::open(shell);
         }
+        "Settings…" => {
+            close(shell);
+            super::settings_window::open();
+        }
         "Theme light" | "Theme dark" | "Theme system" => {
             let theme: ds::prelude::Theme = match label {
                 "Theme light" => ds::prelude::Theme::Light,

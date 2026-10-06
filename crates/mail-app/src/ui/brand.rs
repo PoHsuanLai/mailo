@@ -37,13 +37,14 @@ enum Local {
 /// The switch, the checks and the cache, read from disk. Blocking.
 fn local(
     store: &SqliteStore,
+    logos: crate::settings::BrandLogos,
     config: &std::path::Path,
     cache: &std::path::Path,
     message: MessageId,
     raw: BlobId,
     from: &str,
 ) -> Local {
-    if mail_core::bimi::load(config) == Setting::Off {
+    if Setting::from(logos) == Setting::Off {
         return Local::Nothing;
     }
     let Some(domain) = domain_of(from) else {
@@ -69,7 +70,10 @@ fn use_brand_logo(
     from: String,
 ) -> Signal<Option<String>> {
     let mut logo = use_signal(|| None::<String>);
+    let settings = crate::ui::prefs::use_settings();
     let _find = use_resource(move || {
+        // Read here, so turning brand logos on or off looks again.
+        let logos = settings.read().reading.brand_logos;
         let store = consume_context::<Arc<SqliteStore>>();
         let dirs = try_consume_context::<WindowDirs>();
         let place = try_consume_context::<BrandCache>();
@@ -80,7 +84,7 @@ fn use_brand_logo(
             };
             let (asked, at) = (from.clone(), dir.clone());
             let found = tokio::task::spawn_blocking(move || {
-                local(&store, &dirs.config, &at, message, raw, &asked)
+                local(&store, logos, &dirs.config, &at, message, raw, &asked)
             })
             .await;
             let png = match found {

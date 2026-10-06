@@ -5,8 +5,8 @@
 //! in view on its server (`ui::server_search`), which finds what the store never held. It is
 //! asked, not automatic, unless the user turned "Search the server automatically" on: a server
 //! search is a connection and a query against someone else's machine, and a keystroke should
-//! not make one. The switch is the window's, kept like the other switches in the config
-//! directory (`server-search.json`), and off unless turned on.
+//! not make one. The switch is the window's (`search.server_automatically` in mail-app's
+//! `mailo/settings.toml`; `server-search.json` before it), and off unless turned on.
 //!
 //! What a server is asked is the line exactly as the store is asked it, parsed by the same
 //! [`crate::query::parse_with`], except that `label:` resolves against the one account being
@@ -14,7 +14,7 @@
 //! matches, is said rather than dropped. Each protocol's translation is `mail_proto::search`'s;
 //! the engines are `mail_runtime`'s ([`crate::sync::search_server`]).
 
-use crate::config::{read_json, write_json};
+use crate::config::read_json;
 use chrono::{DateTime, Utc};
 use mail_domain::{AccountPlan, Filter, Incoming, LabelId};
 use mail_runtime::{Searched, Unsaid};
@@ -41,14 +41,10 @@ struct Stored {
     automatic: Automatic,
 }
 
-/// The stored setting, or off when there is none or it cannot be read.
+/// What `server-search.json` said, or off when there is none or it cannot be read. Never
+/// written: mail-app keeps the switch (`search.server_automatically`) and read this once.
 pub fn load(dir: &Path) -> Automatic {
     read_json::<Stored>(dir, FILE_NAME).automatic
-}
-
-/// Remember `automatic` in `dir`.
-pub fn save(dir: &Path, automatic: Automatic) -> Result<(), String> {
-    write_json(dir, FILE_NAME, &Stored { automatic })
 }
 
 /// Whether an account has a server to search: IMAP, JMAP, or Microsoft Graph. POP3 has one
@@ -111,7 +107,7 @@ mod tests {
     fn off_until_turned_on() {
         let dir = tempfile::tempdir().unwrap();
         assert_eq!(load(dir.path()), Automatic::Off);
-        save(dir.path(), Automatic::On).unwrap();
+        std::fs::write(dir.path().join(FILE_NAME), r#"{"automatic":"on"}"#).unwrap();
         assert_eq!(load(dir.path()), Automatic::On);
     }
 

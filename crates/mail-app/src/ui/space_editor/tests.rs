@@ -92,8 +92,8 @@ async fn the_editor_opens_on_the_spaces_own_choices() {
     let page = dioxus_ssr::render(&dom);
     assert!(page.contains("aria-label=\"Space editor\""), "{page}");
 
-    // Appearance and Accent are quire's `SpaceEditor`'s own rows and names; Provider marks is
-    // mailo's row under it. There is no Motion row (a Space sets no motion); Grain is back, quire's own row.
+    // Appearance and Accent are quire's `SpaceEditor`'s own rows and names; provider marks are
+    // in Settings now, as they are every Space's. There is no Motion row (a Space sets no motion); Grain is back, quire's own row.
     let groups = [
         (
             "Appearance",
@@ -104,11 +104,6 @@ async fn the_editor_opens_on_the_spaces_own_choices() {
             "Accent",
             ["Space colour", "Your accent"].as_slice(),
             "Space colour",
-        ),
-        (
-            "Provider marks",
-            ["Their icons", "Letters"].as_slice(),
-            "Their icons",
         ),
     ];
     let segs = segments(&page);
@@ -135,7 +130,10 @@ async fn the_editor_opens_on_the_spaces_own_choices() {
         .collect();
     assert_eq!(names, PRESET_NAMES, "{page}");
     assert_eq!(presets.len(), PRESETS.len());
-    assert!(page.contains("Refresh icons"), "{page}");
+    assert!(
+        !page.contains("Refresh Icons"),
+        "provider icons are Settings' now: {page}"
+    );
     assert!(
         page.contains("Sidebar text on the colour"),
         "no readout: {page}"
