@@ -485,7 +485,7 @@ mod microsoft {
     #[test]
     fn a_tenant_fallback_domain_is_recognised_on_its_own() {
         // `you@contoso.onmicrosoft.com` is the one Microsoft 365 address that names itself.
-        let preset = mail_domain::presets::preset_for("me@contoso.onmicrosoft.com", now())
+        let preset = mail_core::discover::known("me@contoso.onmicrosoft.com", now())
             .expect("a tenant domain is known");
         assert!(matches!(
             preset.plan.auth,
@@ -498,7 +498,7 @@ mod microsoft {
 
     #[test]
     fn a_lookalike_tenant_domain_is_not() {
-        assert!(mail_domain::presets::preset_for("me@notonmicrosoft.com", now()).is_none());
+        assert!(mail_core::discover::known("me@notonmicrosoft.com", now()).is_none());
     }
 
     #[test]
@@ -506,7 +506,7 @@ mod microsoft {
         // The common case, and the one nothing can infer: a work mailbox on the company's own
         // domain. Guessing would mean autodiscover, and guessing wrong points the client at a
         // host the user never named.
-        assert!(mail_domain::presets::preset_for("me@yourcompany.example", now()).is_none());
+        assert!(mail_core::discover::known("me@yourcompany.example", now()).is_none());
 
         let parsed = cli::parse(&args("account add me@yourcompany.example --microsoft")).unwrap();
         match parsed {

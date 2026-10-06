@@ -9,7 +9,7 @@ pub fn find(url: &str) -> Result<String, String> {
         .build()
         .map_err(|e| format!("cannot start the async runtime: {e}"))?;
     runtime.block_on(async {
-        let http = mail_runtime::discover::client_builder()
+        let http = mail_runtime::lookup::client_builder()
             .build()
             .map_err(|e| format!("cannot build an HTTP client: {e}"))?;
         mail_runtime::jmap::find_session(&http, url)
