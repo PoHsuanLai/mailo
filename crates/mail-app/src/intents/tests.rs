@@ -370,3 +370,51 @@ fn the_packaged_service_file_is_the_installed_one_with_the_packages_path() {
     assert_eq!(body(&installed), body(packaged));
     assert!(body(packaged).contains(&format!("Name={APP}")));
 }
+
+/// The companion's mail skill names only actions this manifest declares and offers, and keeps
+/// docket's skill rules (`docket-eval --check-skills` is the authority; this holds the files to
+/// the manifest in a build that has no docket). A renamed or hidden action would hide the skill.
+#[test]
+fn the_mail_skill_teaches_only_offered_actions_and_keeps_the_skill_rules() {
+    let skill: toml::Table = include_str!("../../../../dist/skills/mail/skill.toml")
+        .parse()
+        .expect("skill.toml is TOML");
+    let text = include_str!("../../../../dist/skills/mail/SKILL.md");
+    assert_eq!(skill["vocab"].as_integer(), Some(1));
+    assert_eq!(skill["id"].as_str(), Some("mail"));
+    assert_eq!(skill["owner"].as_str(), Some(APP));
+
+    let manifest: toml::Table = MANIFEST.parse().expect("the manifest is TOML");
+    let offered: Vec<&str> = manifest["actions"]
+        .as_array()
+        .expect("actions")
+        .iter()
+        .filter(|a| a["reach"].as_str() != Some("hidden"))
+        .map(|a| a["name"].as_str().expect("a name"))
+        .collect();
+    let uses = skill["uses"].as_array().expect("uses");
+    assert!(!uses.is_empty());
+    for used in uses {
+        let used = used.as_str().expect("a use");
+        let action = used
+            .strip_prefix(&format!("{APP}:"))
+            .unwrap_or_else(|| panic!("{used} is not one of {APP}'s"));
+        assert!(
+            offered.contains(&action),
+            "{used} is not an action the manifest offers"
+        );
+    }
+
+    let (front, body) = text
+        .strip_prefix("---\n")
+        .and_then(|rest| rest.split_once("\n---\n"))
+        .expect("SKILL.md opens with a --- block");
+    assert!(front.lines().any(|line| line == "name: mail"), "{front}");
+    let description = front
+        .lines()
+        .find_map(|line| line.strip_prefix("description: "))
+        .expect("a description");
+    assert!(description.chars().count() <= 160, "{description}");
+    assert!(!body.trim().is_empty());
+    assert!(body.len() <= 3 * 1024, "the body is {} bytes", body.len());
+}
