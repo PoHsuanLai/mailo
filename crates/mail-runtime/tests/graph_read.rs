@@ -10,11 +10,12 @@ use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_runtime::graph::read::{OverHttp, Reader};
 use mail_runtime::oauth::Endpoints;
-use mail_runtime::{AccountEngine, Held, MapSecrets, Registration, Renewal, Searched, Secrets};
+use mail_runtime::{AccountEngine, AccountSecrets, Held, Registration, Renewal, Searched};
 use mail_store::{SqliteStore, Store};
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
 use porter_core::{SecretText, UnixSeconds};
 use porter_provider::Issuer;
+use porter_secrets::MemorySecrets;
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
@@ -262,7 +263,7 @@ fn key(purpose: SecretPurpose) -> SecretKey {
 struct Account {
     engine: AccountEngine<OverHttp>,
     store: Arc<SqliteStore>,
-    secrets: Arc<dyn Secrets>,
+    secrets: Arc<dyn AccountSecrets>,
     _dir: tempfile::TempDir,
 }
 
@@ -277,13 +278,14 @@ fn account(port: u16) -> Account {
             [acct_account().to_string()],
         )
         .unwrap();
-    let secrets: Arc<dyn Secrets> = Arc::new(MapSecrets::default());
+    let secrets: Arc<dyn AccountSecrets> = Arc::new(MemorySecrets::default());
     for purpose in [SecretPurpose::IncomingPassword, SecretPurpose::OAuthRefresh] {
-        secrets.put(&key(purpose), &token("sign-in")).unwrap();
+        mail_runtime::block_on(secrets.put(&key(purpose), &token("sign-in"))).unwrap();
     }
-    secrets
-        .put(&key(SecretPurpose::OutgoingPassword), &token("graph-token"))
-        .unwrap();
+    mail_runtime::block_on(
+        secrets.put(&key(SecretPurpose::OutgoingPassword), &token("graph-token")),
+    )
+    .unwrap();
     let reader = Reader::new(acct_account(), caps()).unwrap().at(me(port));
     let engine = AccountEngine::new(
         acct_account(),
@@ -835,10 +837,8 @@ async fn a_refused_token_is_renewed_once_with_both_graph_permissions() {
         scope.contains(presets::GRAPH_WRITE_SCOPE) && scope.contains(presets::GRAPH_SEND_SCOPE),
         "one token for reading and sending: {scope}"
     );
-    let stored = it
-        .secrets
-        .get(&key(SecretPurpose::OutgoingPassword))
-        .unwrap();
+    let stored =
+        mail_runtime::block_on(it.secrets.get(&key(SecretPurpose::OutgoingPassword))).unwrap();
     assert!(matches!(stored, Credential::OAuth { ref access, .. } if access.expose() == "renewed"));
     let first = seen.lock().unwrap()[0].clone();
     assert_eq!(first.header("authorization"), Some("Bearer graph-token"));

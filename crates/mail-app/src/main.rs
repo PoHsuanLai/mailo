@@ -253,6 +253,10 @@ fn main() {
     }
 
     let store = std::sync::Arc::new(store);
+    // The window and `watch` live long enough to move what an earlier build kept in the keyring
+    // into porter's store: once, on a thread of its own, and nothing waits on it (until it has
+    // run the old entries are read behind the new store). A failure is logged, not fatal.
+    mail_app::adoption::for_command(command.as_ref(), &store, mail_app::adoption::platform);
     let start = match &mailto {
         Some(link) => match mail_app::ui::start_mailto(&store, link, chrono::Utc::now()) {
             Ok(compose) => Some(compose),
@@ -473,7 +477,7 @@ fn main() {
         {
             let provider = mail_app::intents::Provider::new(
                 store.clone(),
-                std::sync::Arc::new(mail_runtime::KeyringSecrets),
+                std::sync::Arc::new(mail_runtime::KeyringSigningStore::default()),
                 mail_app::intents::Opener::window(),
             );
             match mail_app::intents::serve(provider) {

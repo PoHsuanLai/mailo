@@ -3,10 +3,11 @@ use crate::sync::run_with;
 use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
-use mail_runtime::{MapSecrets, OAuthRegistry, Secrets};
+use mail_runtime::{AccountSecrets, OAuthRegistry};
 use mail_store::SqliteStore;
 use porter_core::SecretText;
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
+use porter_secrets::MemorySecrets;
 use std::sync::Arc;
 
 fn acct_account() -> AccountId {
@@ -79,16 +80,15 @@ fn store_at(port: u16) -> (Arc<SqliteStore>, tempfile::TempDir) {
     (store, dir)
 }
 
-fn with_password(secrets: &MapSecrets) {
-    secrets
-        .put(
-            &SecretKey {
-                account: acct_account(),
-                purpose: SecretPurpose::IncomingPassword,
-            },
-            &Credential::Password(SecretText::new("s3cr3t-pass".to_owned())),
-        )
-        .unwrap();
+fn with_password(secrets: &MemorySecrets) {
+    mail_runtime::block_on(secrets.put(
+        &SecretKey {
+            account: acct_account(),
+            purpose: SecretPurpose::IncomingPassword,
+        },
+        &Credential::Password(SecretText::new("s3cr3t-pass".to_owned())),
+    ))
+    .unwrap();
 }
 
 #[test]
@@ -96,7 +96,7 @@ fn a_missing_credential_fails_the_account_as_needing_a_sign_in() {
     let (store, _dir) = store_at(1);
     let ends = run_with(
         store,
-        Arc::new(MapSecrets::default()),
+        Arc::new(MemorySecrets::default()),
         &OAuthRegistry::default(),
         now(),
         Hooks::default(),
@@ -112,7 +112,7 @@ fn a_missing_credential_fails_the_account_as_needing_a_sign_in() {
 #[test]
 fn an_unreachable_server_fails_the_account_with_a_wait() {
     let (store, _dir) = store_at(1);
-    let secrets = MapSecrets::default();
+    let secrets = MemorySecrets::default();
     with_password(&secrets);
     let ends = run_with(
         store,
@@ -153,7 +153,7 @@ fn a_mailbox_that_fails_lands_in_trouble_with_its_decision() {
         )
         .ok();
     }
-    let secrets = MapSecrets::default();
+    let secrets = MemorySecrets::default();
     with_password(&secrets);
     let ends = run_with(
         store,

@@ -17,11 +17,12 @@ use mail_mime::posting;
 use mail_proto::backend::{Authenticate, Pop3Backend};
 use mail_proto::{Pop3Command, Pop3Session};
 use mail_runtime::graph::{Limits, send_mime_within};
-use mail_runtime::{AccountEngine, MapSecrets, Secrets};
+use mail_runtime::{AccountEngine, AccountSecrets};
 use mail_store::{SqliteStore, Store};
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
 use porter_core::{SecretText, UnixSeconds};
 use porter_provider::Issuer;
+use porter_secrets::MemorySecrets;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
@@ -252,20 +253,19 @@ fn compose_as(port: u16, message: Option<Vec<u8>>) -> Sending {
         )
         .unwrap();
     }
-    let secrets = MapSecrets::default();
+    let secrets = MemorySecrets::default();
     for (purpose, access) in [
         (SecretPurpose::IncomingPassword, "imap-token"),
         (SecretPurpose::OutgoingPassword, "graph-token"),
     ] {
-        secrets
-            .put(
-                &SecretKey {
-                    account: acct_account(),
-                    purpose,
-                },
-                &token(access),
-            )
-            .unwrap();
+        mail_runtime::block_on(secrets.put(
+            &SecretKey {
+                account: acct_account(),
+                purpose,
+            },
+            &token(access),
+        ))
+        .unwrap();
     }
 
     let draft = draft();

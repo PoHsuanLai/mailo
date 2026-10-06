@@ -8,10 +8,11 @@ use mail_domain::Retry;
 use mail_domain::id::new_account_id;
 use mail_domain::presets::{Manual, ManualPop3, manual};
 use mail_proto::discover::{Found, Source};
-use mail_runtime::{MapSecrets, OAuthRegistry, Secrets};
+use mail_runtime::{AccountSecrets, OAuthRegistry};
 use mail_store::SqliteStore;
 use porter_core::{AccountId, SecretKey, SecretPurpose};
 use porter_provider::Issuer;
+use porter_secrets::MemorySecrets;
 
 use super::flow::{
     self, Client, Endpoint, Field, Hand, Hint, JmapHand, Kind, Miss, Offer, Refusal, Role, Seams,
@@ -54,7 +55,7 @@ pub(super) struct Fake {
     /// Copied out by the fake add, the one place a test may hold the password.
     pub handed: Mutex<Vec<String>>,
     /// Where the fake add keeps credentials: `add_with_password` into a map, never the keyring.
-    pub secrets: MapSecrets,
+    pub secrets: MemorySecrets,
     /// Every address the browser fake was asked to open. No browser is.
     pub browsed: Mutex<Vec<String>>,
     /// Every URL the JMAP search was handed.
@@ -74,10 +75,10 @@ impl Fake {
 
     /// The password the keyring fake holds for `account`, if any.
     pub(super) fn kept(&self, account: AccountId) -> Option<String> {
-        match self.secrets.get(&SecretKey {
+        match mail_runtime::block_on(self.secrets.get(&SecretKey {
             account,
             purpose: SecretPurpose::IncomingPassword,
-        }) {
+        })) {
             Ok(porter_core::Credential::Password(password)) => Some(password.expose().to_owned()),
             _ => None,
         }

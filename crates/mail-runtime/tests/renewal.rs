@@ -20,11 +20,12 @@ use mail_proto::{ImapAuth, ImapCommand, ImapSession, Pop3Command, Pop3Session};
 use mail_runtime::oauth::Endpoints;
 use mail_runtime::renewal::Now;
 use mail_runtime::{
-    AccountEngine, Held, MapSecrets, Registration, Renewal, RuntimeError, Secrets, Token,
+    AccountEngine, AccountSecrets, Held, Registration, Renewal, RuntimeError, Token,
 };
 use mail_store::{SqliteStore, Store};
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose, SecretText, UnixSeconds};
 use porter_provider::Issuer;
+use porter_secrets::MemorySecrets;
 use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -338,8 +339,8 @@ fn key(purpose: SecretPurpose) -> SecretKey {
     }
 }
 
-fn access(secrets: &dyn Secrets, purpose: SecretPurpose) -> String {
-    match secrets.get(&key(purpose)).unwrap() {
+fn access(secrets: &dyn AccountSecrets, purpose: SecretPurpose) -> String {
+    match mail_runtime::block_on(secrets.get(&key(purpose))).unwrap() {
         Credential::OAuth { access, .. } => access.expose().to_owned(),
         other => panic!("{other:?}"),
     }
@@ -367,17 +368,17 @@ fn store() -> (Arc<SqliteStore>, tempfile::TempDir) {
 }
 
 /// The keyring as `account add` leaves it, with `incoming` as the sign-in's token.
-fn secrets(incoming: &Credential) -> Arc<dyn Secrets> {
-    let secrets: Arc<dyn Secrets> = Arc::new(MapSecrets::default());
+fn secrets(incoming: &Credential) -> Arc<dyn AccountSecrets> {
+    let secrets: Arc<dyn AccountSecrets> = Arc::new(MemorySecrets::default());
     for purpose in [SecretPurpose::IncomingPassword, SecretPurpose::OAuthRefresh] {
-        secrets.put(&key(purpose), incoming).unwrap();
+        mail_runtime::block_on(secrets.put(&key(purpose), incoming)).unwrap();
     }
     secrets
 }
 
 struct Reading {
     engine: AccountEngine<ImapBackend>,
-    secrets: Arc<dyn Secrets>,
+    secrets: Arc<dyn AccountSecrets>,
     clock: Clock,
     _dir: tempfile::TempDir,
 }
@@ -618,12 +619,11 @@ async fn microsoft_renews_each_resource_with_its_own_scopes() {
     let (registration, asked) =
         token_endpoint(vec![issued("imap-new", None), issued("graph-new", None)]).await;
     let secrets = secrets(&token("imap-old", "r1", t0() - minutes(1)));
-    secrets
-        .put(
-            &key(SecretPurpose::OutgoingPassword),
-            &token("graph-old", "r1", t0() - minutes(1)),
-        )
-        .unwrap();
+    mail_runtime::block_on(secrets.put(
+        &key(SecretPurpose::OutgoingPassword),
+        &token("graph-old", "r1", t0() - minutes(1)),
+    ))
+    .unwrap();
     let held = Held::new(token("imap-old", "r1", t0() - minutes(1)));
     let renewal = Renewal::new(
         acct_account(),
@@ -692,7 +692,7 @@ async fn a_rotated_refresh_token_is_saved_and_spent_next_time() {
 
     renewal.ahead(Token::Incoming).await.unwrap();
     for purpose in [SecretPurpose::IncomingPassword, SecretPurpose::OAuthRefresh] {
-        match secrets.get(&key(purpose)).unwrap() {
+        match mail_runtime::block_on(secrets.get(&key(purpose))).unwrap() {
             Credential::OAuth { refresh, .. } => assert_eq!(refresh.expose(), "r2", "{purpose:?}"),
             other => panic!("{other:?}"),
         }
@@ -714,7 +714,7 @@ async fn a_rotated_refresh_token_is_saved_and_spent_next_time() {
 
 struct Sending {
     engine: AccountEngine<Pop3Backend>,
-    secrets: Arc<dyn Secrets>,
+    secrets: Arc<dyn AccountSecrets>,
     _store: Arc<SqliteStore>,
     _dir: tempfile::TempDir,
 }
@@ -724,9 +724,7 @@ struct Sending {
 fn queued(graph_port: u16, registration: Registration, graph: Credential) -> Sending {
     let (store, dir) = store();
     let secrets = secrets(&token("imap-token", "r1", t0() + minutes(60)));
-    secrets
-        .put(&key(SecretPurpose::OutgoingPassword), &graph)
-        .unwrap();
+    mail_runtime::block_on(secrets.put(&key(SecretPurpose::OutgoingPassword), &graph)).unwrap();
 
     let draft = Draft {
         id: DraftId::generate(),

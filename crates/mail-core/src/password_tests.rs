@@ -4,10 +4,11 @@
 use super::Password;
 use crate::account::{Credentials, add_with_password};
 use mail_domain::id::account_id_from_uuid;
-use mail_runtime::{MapSecrets, OAuthRegistry, Secrets};
+use mail_runtime::{AccountSecrets, OAuthRegistry};
 use mail_store::SqliteStore;
 use porter_core::SecretText;
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
+use porter_secrets::MemorySecrets;
 
 const SECRET: &str = "hunter2-correct-horse";
 
@@ -91,7 +92,7 @@ fn everything_in(store: &SqliteStore) -> String {
 fn add_with_password_keeps_the_password_in_the_store_it_is_handed_and_nowhere_else() {
     let dir = tempfile::tempdir().unwrap();
     let store = SqliteStore::in_memory(dir.path()).unwrap();
-    let secrets = MapSecrets::default();
+    let secrets = MemorySecrets::default();
     let password = Password::new(SECRET.to_owned());
     let said = add_with_password(
         &store,
@@ -116,12 +117,11 @@ fn add_with_password_keeps_the_password_in_the_store_it_is_handed_and_nowhere_el
         SecretPurpose::IncomingPassword,
         SecretPurpose::OutgoingPassword,
     ] {
-        let kept = secrets
-            .get(&SecretKey {
-                account: account.clone(),
-                purpose,
-            })
-            .unwrap();
+        let kept = mail_runtime::block_on(secrets.get(&SecretKey {
+            account: account.clone(),
+            purpose,
+        }))
+        .unwrap();
         assert_eq!(
             kept,
             Credential::Password(SecretText::new(SECRET.to_owned())),
@@ -138,7 +138,7 @@ fn add_with_password_keeps_the_password_in_the_store_it_is_handed_and_nowhere_el
 fn no_password_stores_nothing_and_says_so() {
     let dir = tempfile::tempdir().unwrap();
     let store = SqliteStore::in_memory(dir.path()).unwrap();
-    let secrets = MapSecrets::default();
+    let secrets = MemorySecrets::default();
     let empty = Password::default();
     for password in [None, Some(&empty)] {
         let said = add_with_password(
@@ -160,12 +160,11 @@ fn no_password_stores_nothing_and_says_so() {
     }
     let account = account_of(&store, "s1234567@example.edu");
     assert!(
-        secrets
-            .get(&SecretKey {
-                account,
-                purpose: SecretPurpose::IncomingPassword,
-            })
-            .is_err()
+        mail_runtime::block_on(secrets.get(&SecretKey {
+            account,
+            purpose: SecretPurpose::IncomingPassword,
+        }))
+        .is_err()
     );
 }
 
@@ -175,7 +174,7 @@ fn a_jmap_bearer_token_goes_where_a_password_would_and_the_plan_says_bearer() {
     // the setup, and no environment variable read.
     let dir = tempfile::tempdir().unwrap();
     let store = SqliteStore::in_memory(dir.path()).unwrap();
-    let secrets = MapSecrets::default();
+    let secrets = MemorySecrets::default();
     let token = Password::new(SECRET.to_owned());
     let said = add_with_password(
         &store,
@@ -199,12 +198,11 @@ fn a_jmap_bearer_token_goes_where_a_password_would_and_the_plan_says_bearer() {
     assert!(said.contains("token stored"), "{said}");
     assert!(!said.contains(SECRET));
     let account = account_of(&store, "me@example.test");
-    let kept = secrets
-        .get(&SecretKey {
-            account: account.clone(),
-            purpose: SecretPurpose::IncomingPassword,
-        })
-        .unwrap();
+    let kept = mail_runtime::block_on(secrets.get(&SecretKey {
+        account: account.clone(),
+        purpose: SecretPurpose::IncomingPassword,
+    }))
+    .unwrap();
     assert_eq!(
         kept,
         Credential::Password(SecretText::new(SECRET.to_owned()))

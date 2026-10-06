@@ -1,6 +1,6 @@
 //! OpenPGP from the user's side (`plan.md` 10.15): keys made and moved, drafts sent signed and
 //! encrypted, protected mail opened when it is read — against a real store, with the keyring a
-//! [`MapSecrets`] so the user's own is never touched.
+//! [`MapSigningStore`] so the user's own is never touched.
 
 use chrono::{DateTime, TimeZone, Utc};
 use mail_app::cli;
@@ -10,7 +10,7 @@ use mail_domain::id::account_id_from_uuid;
 use mail_domain::signing::{SigningKeyId, SigningKeyRef, SigningSecret};
 use mail_domain::*;
 use mail_mime::openpgp::{self, Keys, SecretCert, Unlocking};
-use mail_runtime::{Arrival, MapSecrets, Secrets};
+use mail_runtime::{Arrival, MapSigningStore, SigningStore};
 use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
 use rand::SeedableRng;
@@ -56,9 +56,9 @@ fn seeded() -> (SqliteStore, tempfile::TempDir) {
 }
 
 /// The same, with a key of the user's own already made.
-fn with_key() -> (SqliteStore, tempfile::TempDir, MapSecrets, PgpKey) {
+fn with_key() -> (SqliteStore, tempfile::TempDir, MapSigningStore, PgpKey) {
     let (store, dir) = seeded();
-    let secrets = MapSecrets::default();
+    let secrets = MapSigningStore::default();
     let key = pgp::keys::generate(&store, &secrets, ME, now()).unwrap();
     (store, dir, secrets, key)
 }
@@ -74,7 +74,7 @@ fn someone_elses(address: &str, seed: u64) -> SecretCert {
 }
 
 /// Import `key`'s public half, as `mailo pgp import` would.
-fn import_public(store: &SqliteStore, secrets: &MapSecrets, key: &SecretCert) {
+fn import_public(store: &SqliteStore, secrets: &MapSigningStore, key: &SecretCert) {
     let armored = key.public().armored().unwrap();
     pgp::keys::import(store, secrets, armored.as_bytes(), now()).unwrap();
 }
@@ -124,7 +124,7 @@ fn frozen(store: &SqliteStore) -> Vec<u8> {
     store.blobs().get(&store.connection(), *raw).unwrap()
 }
 
-fn send(store: &SqliteStore, secrets: &MapSecrets, draft: DraftId) -> Result<String, String> {
+fn send(store: &SqliteStore, secrets: &MapSigningStore, draft: DraftId) -> Result<String, String> {
     compose::send_with(store, secrets, &pgp::no_passphrase, draft, now()).map_err(|e| e.to_string())
 }
 
@@ -159,7 +159,7 @@ mod keys {
     #[test]
     fn a_generated_key_keeps_its_secret_in_the_keyring_and_its_public_half_in_the_store() {
         let (store, _dir) = seeded();
-        let secrets = MapSecrets::default();
+        let secrets = MapSigningStore::default();
         assert!(store.pgp_keys().unwrap().is_empty());
         let key = pgp::keys::generate(&store, &secrets, ME, now()).unwrap();
         assert_eq!(key.source, KeySource::Generated);
@@ -168,7 +168,7 @@ mod keys {
         assert_eq!(key.user_ids, vec!["Me <me@example.test>"]);
         assert_eq!(store.pgp_keys().unwrap(), vec![key.clone()]);
         let held = secrets
-            .get_signing(&SigningKeyRef {
+            .get(&SigningKeyRef {
                 account: acct_account(),
                 key: SigningKeyId::OpenPgp(key.fingerprint),
             })
@@ -222,7 +222,7 @@ mod keys {
 
         // A second client, the same person: the public key alone, then the secret too.
         let (other, _dir2) = seeded();
-        let other_secrets = MapSecrets::default();
+        let other_secrets = MapSigningStore::default();
         let imported = pgp::keys::import(&other, &other_secrets, public.as_bytes(), now()).unwrap();
         assert_eq!(imported.len(), 1);
         assert_eq!(imported[0].key.fingerprint, key.fingerprint);
@@ -239,7 +239,7 @@ mod keys {
     #[test]
     fn a_secret_key_for_none_of_the_users_addresses_is_refused() {
         let (store, _dir) = seeded();
-        let secrets = MapSecrets::default();
+        let secrets = MapSigningStore::default();
         let theirs = someone_elses(BEA, 1).armored().unwrap();
         assert!(matches!(
             pgp::keys::import(&store, &secrets, theirs.as_bytes(), now()),
@@ -302,7 +302,7 @@ mod keys {
         std::fs::create_dir_all(&blobs).unwrap();
         let store = SqliteStore::open(dir.path().join("mail.db"), &blobs).unwrap();
         seed(&store);
-        let secrets = MapSecrets::default();
+        let secrets = MapSigningStore::default();
         let generated = pgp::keys::generate(&store, &secrets, ME, now()).unwrap();
         // And a secret imported with a passphrase, for the address of a second identity.
         store
@@ -403,7 +403,7 @@ mod sending {
     #[test]
     fn plain_mail_from_an_identity_with_a_key_carries_its_autocrypt_header() {
         let (store, _dir) = seeded();
-        let secrets = MapSecrets::default();
+        let secrets = MapSigningStore::default();
         let before = draft(&store, OpenPgp::None, &[BEA], &[]);
         send(&store, &secrets, before.id).unwrap();
         assert!(!String::from_utf8_lossy(&frozen(&store)).contains("Autocrypt:"));
@@ -537,7 +537,7 @@ mod sending {
     #[test]
     fn a_passphrase_protected_key_is_asked_for_it_and_the_send_waits_without_it() {
         let (store, _dir) = seeded();
-        let secrets = MapSecrets::default();
+        let secrets = MapSigningStore::default();
         let locked = someone_elses(ME, 11)
             .with_passphrase("pw", &mut rand::rngs::StdRng::seed_from_u64(12))
             .unwrap();

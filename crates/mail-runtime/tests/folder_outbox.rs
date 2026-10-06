@@ -10,10 +10,11 @@ use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_proto::backend::{Authenticate, ImapBackend};
 use mail_proto::{ImapAuth, ImapCommand, ImapSession};
-use mail_runtime::{AccountEngine, MapSecrets, Secrets};
+use mail_runtime::{AccountEngine, AccountSecrets};
 use mail_store::{SqliteStore, Store};
 use porter_core::SecretText;
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
+use porter_secrets::MemorySecrets;
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -140,17 +141,16 @@ fn open(dir: &tempfile::TempDir) -> Arc<SqliteStore> {
 }
 
 fn engine(port: u16, store: Arc<SqliteStore>) -> AccountEngine<ImapBackend> {
-    let secrets = MapSecrets::default();
+    let secrets = MemorySecrets::default();
     let password = Credential::Password(SecretText::new("s3cr3t".to_owned()));
-    secrets
-        .put(
-            &SecretKey {
-                account: acct_account(),
-                purpose: SecretPurpose::IncomingPassword,
-            },
-            &password,
-        )
-        .unwrap();
+    mail_runtime::block_on(secrets.put(
+        &SecretKey {
+            account: acct_account(),
+            purpose: SecretPurpose::IncomingPassword,
+        },
+        &password,
+    ))
+    .unwrap();
     let auth = ImapAuth {
         username: "me@example.test".to_owned(),
         credential: password,

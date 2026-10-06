@@ -989,7 +989,7 @@ pub enum Leaves {
 pub fn send(store: &SqliteStore, draft: DraftId, now: DateTime<Utc>) -> Result<String, String> {
     send_with(
         store,
-        &mail_runtime::KeyringSecrets,
+        &mail_runtime::KeyringSigningStore::default(),
         &crate::pgp::no_passphrase,
         draft,
         now,
@@ -1038,7 +1038,7 @@ impl SendError {
 /// for its passphrase named.
 pub fn send_with(
     store: &SqliteStore,
-    secrets: &dyn mail_runtime::Secrets,
+    secrets: &dyn mail_runtime::SigningStore,
     ask: crate::pgp::Ask<'_>,
     draft: DraftId,
     now: DateTime<Utc>,
@@ -1066,7 +1066,7 @@ pub fn send_later(
 /// [`send_later`], with the keyring and the passphrase prompt named, as [`send_with`] has them.
 pub fn send_later_with(
     store: &SqliteStore,
-    secrets: &dyn mail_runtime::Secrets,
+    secrets: &dyn mail_runtime::SigningStore,
     ask: crate::pgp::Ask<'_>,
     draft: DraftId,
     phrase: &str,
@@ -1131,7 +1131,7 @@ pub fn queue(
 ) -> Result<(Draft, mail_mime::Posting), String> {
     queue_with(
         store,
-        &mail_runtime::KeyringSecrets,
+        &mail_runtime::KeyringSigningStore::default(),
         &crate::pgp::no_passphrase,
         draft,
         leaves,
@@ -1147,7 +1147,7 @@ pub fn queue(
 /// frozen, so what the outbox holds is already signed and encrypted — see `pgp::send`.
 pub fn queue_with(
     store: &SqliteStore,
-    secrets: &dyn mail_runtime::Secrets,
+    secrets: &dyn mail_runtime::SigningStore,
     ask: crate::pgp::Ask<'_>,
     draft: DraftId,
     leaves: Leaves,

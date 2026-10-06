@@ -32,9 +32,9 @@ serde = { workspace = true }
 serde_json = "1"
 uuid = { workspace = true }
 # The keyring's common API, with no store of its own; each platform's store is named below, under
-# its target. `keyring` itself bundles the same three behind one `Entry` and a store chosen in a
-# static, which is what it tells applications not to link to (its crate docs): here the choice is
-# in this file, where a reader can see it, and in `secrets.rs`.
+# its target. It now serves two things that are not account secrets: the signing keys mailo keeps
+# in its own store (`signing_store.rs`), and reading the entries earlier builds filed under the
+# service `mailo`, to adopt them (`adopt.rs`). Account secrets go through porter-secrets.
 keyring-core = "1"
 # Account discovery's SRV and MX lookups (RFC 6186). MIT OR Apache-2.0; the system resolver's
 # configuration, over tokio. Its DNS-over-TLS/HTTPS features stay off.
@@ -57,8 +57,20 @@ rustls-native-certs = "0.8"
 # An S/MIME private key on its way to and from the keyring is wiped after. Already in the tree.
 zeroize = "1"
 
-# Where passwords and tokens are kept, per platform (`secrets.rs`). All MIT OR Apache-2.0, all
-# already what `keyring` 4 chose on each, at the features it chose them with.
+# Where secrets are kept, per platform. All MIT OR Apache-2.0.
+#
+# Account secrets (porter-secrets, `account_secrets.rs`): on Linux `Oo7Secrets`, the Secret Service
+# through oo7 and no daemon of ours; on macOS and Windows `KeyringSecrets`, the login keychain and
+# the Credential Manager, which chunks what the Credential Manager cannot hold. One store per
+# platform, chosen by these two lines and nowhere else.
+[target.'cfg(target_os = "linux")'.dependencies]
+porter-secrets = { workspace = true, features = ["oo7"] }
+
+[target.'cfg(any(target_os = "macos", windows))'.dependencies]
+porter-secrets = { workspace = true, features = ["keyring"] }
+
+# The signing keys and the legacy `service=mailo` entries (`signing_store.rs`, `adopt.rs`), over
+# keyring-core, at the features `keyring` 4 chose on each.
 #
 # Linux and the BSDs: the Secret Service (GNOME Keyring, KWallet, KeePassXC) over zbus.
 [target.'cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))'.dependencies]
@@ -72,12 +84,13 @@ apple-native-keyring-store = { version = "1", features = ["keychain"] }
 dirs = "6"
 
 # Windows: the Credential Manager. Its entries hold at most 2560 bytes, which a Microsoft token
-# outgrows; `secrets/chunks.rs` is why that does not matter.
+# or a signing key outgrows; `signing_store/chunks.rs` is why that does not matter there.
 [target.'cfg(windows)'.dependencies]
 windows-native-keyring-store = "1"
 dirs = "6"
 
 [dev-dependencies]
+porter-secrets = { workspace = true, features = ["testing", "keyring"] }
 tokio = { version = "1", features = ["full"] }
 tempfile = "3"
 # Seeded key generation for the OpenPGP tests, and the WKD hash they check a request path by.

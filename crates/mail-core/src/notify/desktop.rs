@@ -88,10 +88,10 @@ fn hearing(_: Reach) -> Hearing {
 }
 
 /// On Linux, whether a notification server answers on the session bus. Asked once, off any
-/// runtime the caller is driving, like every blocking zbus call (`mail_runtime::secrets::off_runtime`).
+/// runtime the caller is driving, like every blocking zbus call (`mail_runtime::off_runtime`).
 #[cfg(all(unix, not(target_os = "macos")))]
 fn reach() -> Reach {
-    match mail_runtime::secrets::off_runtime(notify_rust::get_server_information) {
+    match mail_runtime::off_runtime(notify_rust::get_server_information) {
         Ok(_) => Reach::Service,
         Err(_) => Reach::Nowhere,
     }
