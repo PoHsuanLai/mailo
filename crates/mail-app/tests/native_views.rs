@@ -16,6 +16,8 @@ use settle::settle_until;
 
 #[path = "support/drive.rs"]
 mod drive;
+#[path = "support/row_menu.rs"]
+mod row_menu;
 use drive::Drive;
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
@@ -212,18 +214,18 @@ fn click_subject(harness: &mut Harness, subject: &str, held: &[Key]) {
     harness.advance(ms(300));
 }
 
-/// The ops a row's hover strip offers, in order, by their `data-op`.
-fn strip_of(harness: &Harness, subject: &str) -> Vec<String> {
+/// What a row's menu offers, in order, by name: opened with a right click, then let go with
+/// Escape.
+fn menu_of(harness: &mut Harness, subject: &str) -> Vec<String> {
     let n = row_of(harness, subject);
-    let strip = format!(".list .ds-list-item[*|aria-posinset=\"{n}\"] .ds-strip [*|data-op]");
-    (1..=harness.count(&strip))
-        .filter_map(|k| {
-            harness.attr(
-                &format!(".list .ds-list-item[*|aria-posinset=\"{n}\"] .ds-strip [*|data-op]:nth-of-type({k})"),
-                "data-op",
-            )
-        })
-        .collect()
+    row_menu::open_row_menu(
+        harness,
+        &format!(".list .ds-list-item[*|aria-posinset=\"{n}\"]"),
+    );
+    let names = row_menu::menu_names(harness);
+    harness.key(Key::Escape);
+    settle_until(harness, |h| h.count(".ds-menu") == 0);
+    names
 }
 
 fn place(name: &str) -> String {
@@ -316,11 +318,19 @@ fn a_search_saved_as_a_view_is_a_place_grouped_and_offered_as_it_was_saved() {
         ]
     );
 
-    // The strip is the view's, not the usual one.
-    assert_eq!(
-        strip_of(&harness, INBOX[2].1),
-        ["snooze", "archive", "move-to"]
+    // The row's actions are the view's (Archive and Snooze), not the usual ones, beside what
+    // every row's menu has.
+    let mine = menu_of(&mut harness, INBOX[2].1);
+    assert!(
+        mine.contains(&"Snooze…".to_owned()) && mine.contains(&"Archive".to_owned()),
+        "{mine:?}"
     );
+    for usual in ["Trash", "Pin", "Label…", "Forward"] {
+        assert!(
+            !mine.contains(&usual.to_owned()),
+            "{usual} in the view: {mine:?}"
+        );
+    }
 
     // Somewhere else, the usual strip and no bands.
     press(&mut harness, &place("Inbox"));
@@ -329,7 +339,13 @@ fn a_search_saved_as_a_view_is_a_place_grouped_and_offered_as_it_was_saved() {
         "{:?}",
         lines(&harness)
     );
-    assert!(strip_of(&harness, INBOX[2].1).len() > 3);
+    let usual = menu_of(&mut harness, INBOX[2].1);
+    for kind in ["Trash", "Pin", "Label…", "Forward"] {
+        assert!(
+            usual.contains(&kind.to_owned()),
+            "no {kind} in the inbox: {usual:?}"
+        );
+    }
 }
 
 #[test]

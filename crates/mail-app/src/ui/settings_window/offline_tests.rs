@@ -3,8 +3,8 @@
 
 use crate::ui::data::account_rows;
 use crate::ui::fixtures::{Seen, Work, click, work};
-use crate::ui::sidebar::tests::buttons_in;
 use dioxus::dioxus_core::VirtualDom;
+use ds::prelude::Check;
 use mail_core::offline::{self, Keep};
 use mail_domain::*;
 use mail_store::Store as _;
@@ -20,23 +20,23 @@ fn label() -> String {
     format!("Keep all mail offline for {ADDRESS}")
 }
 
-/// The account's switch's selected segment, as the page draws it.
-fn shown(page: &str) -> Vec<String> {
-    let open = format!(
-        "class=\"ds-segmented\" role=\"radiogroup\" aria-label=\"{}\"",
-        label()
-    );
+/// Whether the account's switch is drawn on, as the page draws it.
+fn shown(page: &str) -> Check {
+    let label = format!("aria-label=\"{}\"", label());
     let at = page
-        .find(&open)
+        .find(&label)
         .unwrap_or_else(|| panic!("no switch for {ADDRESS} in:\n{page}"));
-    let tail = &page[at + open.len()..];
-    let body = &tail[..tail.find("</div>").unwrap_or(tail.len())];
-    let buttons = buttons_in(&format!("<div class=\"seg\"{body}</div>"), "seg");
-    buttons
-        .iter()
-        .filter(|button| button.attr("aria-checked") == "true")
-        .map(|button| button.text.clone())
-        .collect()
+    let open = page[..at].rfind("<button").unwrap_or(0);
+    let tag = &page[open..at];
+    assert!(
+        tag.contains("role=\"switch\""),
+        "the setting is not a switch: {tag}"
+    );
+    if tag.contains("aria-checked=\"true\"") {
+        Check::On
+    } else {
+        Check::Off
+    }
 }
 
 fn account(built: &Work) -> AccountId {
@@ -141,7 +141,7 @@ async fn each_account_says_how_much_is_here_and_the_switch_keeps_the_setting() {
     );
     let (mut dom, seen) = opened(&built);
     let page = dioxus_ssr::render(&dom);
-    assert_eq!(shown(&page), ["Off"]);
+    assert_eq!(shown(&page), Check::Off);
     // The fixture's own mail has a file left on the server too, so the numbers are the store's.
     let said = format!(
         "{} of {} messages offline; {} attachments ({}) on the server",
@@ -153,15 +153,14 @@ async fn each_account_says_how_much_is_here_and_the_switch_keeps_the_setting() {
     assert_eq!(said, offline::said(&counted));
     assert!(page.contains(&said), "no {said:?} in:\n{page}");
 
-    // The switch's segments, On then Off, found after its group.
-    let segments = seen.after("aria-label", &label(), "aria-checked");
-    click(&mut dom, segments[0]);
+    let switch = seen.one("aria-label", &label());
+    click(&mut dom, switch);
     assert_eq!(
         offline::load(config).of(id.clone()),
         Keep::Everything,
         "On was not kept"
     );
-    assert_eq!(shown(&dioxus_ssr::render(&dom)), ["On"]);
+    assert_eq!(shown(&dioxus_ssr::render(&dom)), Check::On);
     for other in account_rows(&built.store).iter().filter(|row| row.id != id) {
         assert_eq!(
             offline::load(config).of(other.id.clone()),
@@ -171,7 +170,7 @@ async fn each_account_says_how_much_is_here_and_the_switch_keeps_the_setting() {
         );
     }
 
-    click(&mut dom, segments[1]);
+    click(&mut dom, switch);
     assert_eq!(
         offline::load(config).of(id),
         Keep::Bodies,
@@ -185,5 +184,5 @@ async fn the_switch_opens_on_what_was_kept() {
     let id = account(&built);
     offline::save(&built.dirs.config, id, Keep::Everything).unwrap_or_else(|why| panic!("{why}"));
     let (dom, _) = opened(&built);
-    assert_eq!(shown(&dioxus_ssr::render(&dom)), ["On"]);
+    assert_eq!(shown(&dioxus_ssr::render(&dom)), Check::On);
 }

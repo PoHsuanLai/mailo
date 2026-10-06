@@ -1146,9 +1146,18 @@ mod tests {
 
     #[tokio::test]
     async fn the_rows_offer_a_way_to_forward() {
-        // The button, for anyone who does not know the key.
+        // In the row's menu, for anyone who does not know the key.
+        dispatching();
         let (store, _dir) = realistic();
-        assert!(markup(store).contains("Forward"));
+        let mut dom = VirtualDom::new(App).with_root_context(store);
+        let seen = crate::ui::fixtures::rebuild_into(&mut dom);
+        let first = crate::ui::fixtures::listed_subjects(&dioxus_ssr::render(&dom))
+            .into_iter()
+            .next()
+            .expect("a row");
+        crate::ui::fixtures::open_row_menu(&mut dom, &seen, &first);
+        let names = crate::ui::fixtures::menu_names(&dioxus_ssr::render(&dom));
+        assert!(names.contains(&"Forward".to_owned()), "{names:?}");
     }
 
     #[tokio::test]

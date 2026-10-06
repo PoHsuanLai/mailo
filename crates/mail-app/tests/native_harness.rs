@@ -23,6 +23,8 @@ use std::time::Duration;
 
 #[path = "support/drive.rs"]
 mod drive;
+#[path = "support/row_menu.rs"]
+mod row_menu;
 use drive::{Drive, Key};
 
 fn acct_account() -> AccountId {
@@ -692,29 +694,24 @@ fn without_quire_s_fallback_a_removal_leaves_the_keyboard_nowhere() {
     );
 }
 
-/// The third row's own Archive button pressed: quire's `HoverStrip` would give the pressed
-/// button the keyboard (quire v0.1.11), but the row is leaving, so the window takes it back.
-/// Then `e` still archives the open conversation. Every wait is for a state, not a time: this
-/// is the test that failed on a loaded machine (F172).
+/// The third row archived from its menu: the menu hands the keyboard back as it closes, but
+/// the row is leaving, so the window takes it. Then `e` still archives the open conversation.
+/// Every wait is for a state, not a time: this is the test that failed on a loaded machine
+/// (F172), when the row's own strip button was pressed.
 #[test]
-fn a_press_on_a_row_s_strip_leaves_the_keyboard_working() {
+fn archiving_a_row_from_its_menu_leaves_the_keyboard_working() {
     let (mut harness, _dir) = open();
     open_row(&mut harness, 1);
-    let third = format!("{} .ds-thread-sub", row(3));
-    harness.pointer_move(centre(&harness, &third));
-    harness.advance(ms(300));
-    let archive = format!("{} .ds-strip [*|data-op=archive]", row(3));
-    harness.click(centre(&harness, &archive));
-    // The keyboard must land on the window, never on the pressed button in the leaving row: from
-    // there it is lost whenever the button's focus and the row's removal share a frame, which a
-    // loaded machine makes likely (F172). The old code landed on the button, or, under load,
-    // nowhere at all, and this waited out its bound.
+    row_menu::row_action(&mut harness, &row(3), "Archive");
+    // The keyboard must land on the window, never in the leaving row: from there it is lost
+    // whenever the focus and the row's removal share a frame, which a loaded machine makes
+    // likely (F172).
     settle_until(&mut harness, |harness| {
         harness.count(":focus") > 0 && !harness.is_focused("html")
     });
     assert!(
         harness.is_focused(".app"),
-        "the strip's Archive left the keyboard in its own row, not on the window:\n{}",
+        "the menu's Archive left the keyboard in its own row, not on the window:\n{}",
         harness.html()
     );
     settle_until(&mut harness, |harness| {

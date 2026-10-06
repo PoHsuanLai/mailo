@@ -5,7 +5,7 @@
 //! the message a count becomes is a table in `launcher/unity.rs`. It is handed no directories, so
 //! it writes no file anywhere.
 
-use ds::prelude::{Point, ShortcutKey as Key};
+use ds::prelude::ShortcutKey as Key;
 use ds_harness::{Clock, Driver, Harness, HarnessConfig, Query, Viewport};
 
 #[path = "support/settle.rs"]
@@ -14,6 +14,8 @@ use settle::settle_until;
 
 #[path = "support/drive.rs"]
 mod drive;
+#[path = "support/row_menu.rs"]
+mod row_menu;
 use drive::Drive;
 use ds_blitz::{NetPolicy, PrintOutcome};
 use mail_app::ui::launcher::{Badge, Launcher, Unread};
@@ -163,22 +165,13 @@ fn row(n: usize) -> String {
     format!(".list .ds-list-item[*|aria-posinset=\"{n}\"]")
 }
 
-fn centre(harness: &Harness, selector: &str) -> Point {
-    harness
-        .centre(selector)
-        .unwrap_or_else(|| panic!("{selector} is not drawn:\n{}", harness.html()))
-}
-
 #[test]
 fn the_window_counts_its_inbox_and_counts_again_when_one_is_read_and_unread() {
     let (mut harness, _dir, recorder) = open();
     settle_until(&mut harness, |_| recorder.seen() == [3]);
 
-    // Read the second conversation from its hover strip.
-    harness.pointer_move(centre(&harness, &format!("{} .ds-thread-sub", row(2))));
-    harness.advance(ms(300));
-    let read = format!("{} .ds-strip [*|data-op=mark-read]", row(2));
-    harness.click(centre(&harness, &read));
+    // Read the second conversation from its menu.
+    row_menu::row_action(&mut harness, &row(2), "Mark as read");
     settle_until(&mut harness, |_| recorder.seen() == [3, 2]);
 
     // Ctrl Z makes it unread again, and the count follows.
@@ -186,10 +179,7 @@ fn the_window_counts_its_inbox_and_counts_again_when_one_is_read_and_unread() {
     settle_until(&mut harness, |_| recorder.seen() == [3, 2, 3]);
 
     // A write that leaves the count where it is (a pin) sends the launcher nothing.
-    harness.pointer_move(centre(&harness, &format!("{} .ds-thread-sub", row(1))));
-    harness.advance(ms(300));
-    let pin = format!("{} .ds-strip [*|data-op=pin]", row(1));
-    harness.click(centre(&harness, &pin));
+    row_menu::row_action(&mut harness, &row(1), "Pin");
     harness.advance(ms(600));
     let toast = harness.text_of(".ds-toast").unwrap_or_default();
     assert!(toast.contains("Pinned"), "the pin was not written: {toast}");

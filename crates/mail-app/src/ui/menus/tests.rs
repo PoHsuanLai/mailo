@@ -1,7 +1,7 @@
 use super::super::app::App;
 use super::super::menu::Right;
 use super::super::ops::apply_label;
-use crate::ui::fixtures::{acct_account, dispatching, inbox_query, markup, realistic};
+use crate::ui::fixtures::{acct_account, dispatching, inbox_query, realistic};
 use chrono::TimeZone;
 use dioxus::prelude::*;
 use dioxus_core::{NoOpMutations, VirtualDom};
@@ -18,9 +18,17 @@ mod putting_it_off {
 
     #[tokio::test]
     async fn the_rows_offer_a_way_to_snooze() {
-        let (store, _dir) = realistic();
-        // The strip is an icon. The name is the accessible label; the fly says when.
-        assert!(markup(store).contains("aria-label=\"Snooze\""));
+        dispatching();
+        let built = crate::ui::fixtures::work();
+        let mut dom = VirtualDom::new(App)
+            .with_root_context(built.store.clone())
+            .with_root_context(built.dirs.clone());
+        let seen = crate::ui::fixtures::rebuild_into(&mut dom);
+        let subject = built.store.thread(built.dana).unwrap().summary.subject;
+        // A row's actions are in its menu; Snooze… there opens the snooze menu.
+        crate::ui::fixtures::open_row_menu(&mut dom, &seen, &subject);
+        let names = crate::ui::fixtures::menu_names(&dioxus_ssr::render(&dom));
+        assert!(names.contains(&"Snooze…".to_owned()), "{names:?}");
     }
 
     #[test]
@@ -158,14 +166,20 @@ mod naming_a_conversation {
         let (store, _dir) = realistic();
         a_label(&store, "travel");
         let mut dom = VirtualDom::new(App).with_root_context(store.clone());
-        dom.rebuild_in_place();
+        let seen = crate::ui::fixtures::rebuild_into(&mut dom);
         // The effect that fills `Shell::labels` runs on a revision; one render settles it.
         dom.render_immediate(&mut NoOpMutations);
 
+        // A row's Label… is in its menu, and opens the labels menu where that stood.
+        let first = crate::ui::fixtures::listed_subjects(&dioxus_ssr::render(&dom))
+            .into_iter()
+            .next()
+            .expect("a row");
+        crate::ui::fixtures::row_action(&mut dom, &seen, &first, "Label…").await;
         let page = dioxus_ssr::render(&dom);
         assert!(
-            page.contains(">Label<"),
-            "the rows offer no way to label anything:\n{page}"
+            page.contains("aria-label=\"Labels\"") && page.contains("travel"),
+            "the row's Label… opened no labels menu listing travel:\n{page}"
         );
     }
 }
@@ -289,9 +303,8 @@ async fn render_the_labels_menu_to_a_file() {
         .with_root_context(built.store.clone())
         .with_root_context(built.dirs.clone());
     let seen = crate::ui::fixtures::rebuild_into(&mut dom);
-    let label = seen.all("aria-label", "Label")[0];
-    crate::ui::fixtures::click(&mut dom, label);
-    crate::ui::fixtures::drain(&mut dom);
+    let subject = built.store.thread(built.dana).unwrap().summary.subject;
+    crate::ui::fixtures::row_action(&mut dom, &seen, &subject, "Label…").await;
     let body = dioxus_ssr::render(&dom);
     assert!(body.contains("Labels"), "the Labels menu did not open");
     crate::ui::fixtures::dump("labels-menu", &body);

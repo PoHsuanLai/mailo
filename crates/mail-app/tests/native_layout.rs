@@ -213,8 +213,11 @@ fn drag_sidebar(harness: &mut Harness, dx: f32) {
     harness.advance(ms(300));
 }
 
+/// A click anywhere on a row only opens it. The row's middle-right is where the old strip of
+/// actions was laid out, and a pointer that had just arrived there clicked Archive or Trash
+/// instead of opening the thread; now nothing there acts, however soon the click comes.
 #[test]
-fn a_pointer_resting_on_the_strip_opens_the_thread_instead_of_pressing_it() {
+fn a_click_on_a_row_opens_the_thread_and_never_acts_on_it() {
     let (mut harness, _dir) = open(1200, spaces(1));
     let rows = harness.count(".list .ds-thread");
     let readers = harness.count(".reader .ds-empty-state");
@@ -223,16 +226,18 @@ fn a_pointer_resting_on_the_strip_opens_the_thread_instead_of_pressing_it() {
         (4, 1),
         "the fixture is not what the test assumes"
     );
-    // The row's middle-right, where the strip is laid out.
-    let at = centre(&harness, &format!("{ROW} .ds-strip"));
+    let row = rect(&harness, ROW);
+    let at = Point {
+        x: Px(row.origin.x.0 + row.size.width.0 * 0.7),
+        y: Px(row.origin.y.0 + row.size.height.0 / 2.0),
+    };
     harness.pointer_move(at);
-    harness.advance(ms(100));
     harness.click(at);
     harness.advance(ms(300));
     assert_eq!(
         harness.count(".list .ds-thread"),
         rows,
-        "a click before the strip armed acted on the thread"
+        "a click on the row acted on the thread"
     );
     assert_eq!(
         harness.count(".reader .ds-empty-state"),
@@ -241,27 +246,40 @@ fn a_pointer_resting_on_the_strip_opens_the_thread_instead_of_pressing_it() {
     );
 }
 
+/// The hover strip is one button, the ⋯ at the row's trailing edge, and a click on it opens
+/// the row's menu and nothing else: the thread neither leaves nor opens.
 #[test]
-fn the_strip_arms_once_the_pointer_has_dwelled() {
+fn the_strip_is_the_more_button_alone_and_it_only_opens_the_menu() {
     let (mut harness, _dir) = open(1200, spaces(1));
+    let rows = harness.count(".list .ds-thread");
+    let readers = harness.count(".reader .ds-empty-state");
     let strip = format!("{ROW} .ds-strip");
-    let at = centre(&harness, &strip);
-    let shown = format!("{strip}[*|data-shown=visible]");
-    assert_eq!(harness.count(&shown), 0, "a strip at rest is not held down");
-    harness.pointer_move(at);
-    harness.advance(ms(100));
-    assert_eq!(harness.count(&shown), 0, "armed before the dwell");
-    harness.advance(ms(300));
-    assert_eq!(harness.count(&shown), 1, "never armed");
-    harness.pointer_move(Point {
-        x: Px(2.0),
-        y: Px(2.0),
-    });
-    harness.advance(ms(100));
+    assert_eq!(harness.count(&format!("{strip} .ds-strip-action")), 1);
+    let more = format!("{strip} [*|data-op=more]");
     assert_eq!(
-        harness.count(&shown),
-        0,
-        "still armed after the pointer left"
+        harness.attr(&more, "aria-label").as_deref(),
+        Some("More actions")
+    );
+    // At the row's trailing edge, inside the row.
+    let (button, row) = (rect(&harness, &more), rect(&harness, ROW));
+    assert!(within(&button, &row), "the ⋯ is not inside its row");
+    assert!(
+        left(&button) > left(&row) + row.size.width.0 * 0.75,
+        "the ⋯ is not at the row's trailing edge"
+    );
+    harness.pointer_move(centre(&harness, &format!("{ROW} .ds-thread-sub")));
+    harness.advance(ms(100));
+    harness.click(centre(&harness, &more));
+    settle_until(&mut harness, |h| h.count(".ds-menu .ds-menu-item") > 0);
+    assert_eq!(
+        harness.count(".list .ds-thread"),
+        rows,
+        "the ⋯ acted on the thread"
+    );
+    assert_eq!(
+        harness.count(".reader .ds-empty-state"),
+        readers,
+        "the ⋯ opened the thread"
     );
 }
 
@@ -341,5 +359,23 @@ fn the_list_s_title_gives_way_to_its_tools_in_a_narrow_list() {
     assert!(
         within(&tools, &column),
         "the tools {tools:?} are clipped by the list {column:?}"
+    );
+}
+
+#[test]
+fn a_row_s_lines_fit_inside_its_slot() {
+    // The list places rows a fixed pitch apart (`ROW_PITCH`) and holds each to its slot, so a
+    // row whose lines run taller than the slot draws its last line under its own selection ring.
+    let (harness, _dir) = open(1200, spaces(1));
+    let slot = rect(&harness, ROW);
+    let row = rect(&harness, &format!("{ROW} .ds-thread"));
+    let lines = rect(&harness, &format!("{ROW} .ds-thread-main"));
+    assert!(
+        within(&row, &slot),
+        "the row {row:?} runs out of its slot {slot:?}"
+    );
+    assert!(
+        bottom(&lines) <= bottom(&row) + 0.5,
+        "the row's lines {lines:?} run past the row {row:?} (slot {slot:?})"
     );
 }

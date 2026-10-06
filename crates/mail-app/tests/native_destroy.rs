@@ -15,6 +15,8 @@ use settle::settle_until;
 
 #[path = "support/drive.rs"]
 mod drive;
+#[path = "support/row_menu.rs"]
+mod row_menu;
 use drive::Drive;
 use ds_blitz::{NetPolicy, PrintOutcome};
 use mail_domain::id::account_id_from_uuid;
@@ -225,19 +227,10 @@ fn sheet_text(harness: &Harness) -> String {
     harness.text_of(SHEET).unwrap_or_default()
 }
 
-/// The strip's buttons on row `n`, by name, with the pointer over the row.
-fn strip(harness: &mut Harness, n: usize) -> Vec<String> {
-    harness.pointer_move(centre(harness, &format!("{} .ds-thread-sub", row(n))));
-    harness.advance(ms(300));
-    let buttons = format!("{} .ds-strip [*|data-op]", row(n));
-    (1..=harness.count(&buttons))
-        .filter_map(|k| {
-            harness.attr(
-                &format!("{} .ds-strip [*|data-op]:nth-of-type({k})", row(n)),
-                "data-op",
-            )
-        })
-        .collect()
+/// What row `n`'s menu offers, by name, the menu left open.
+fn offered(harness: &mut Harness, n: usize) -> Vec<String> {
+    row_menu::open_row_menu(harness, &row(n));
+    row_menu::menu_names(harness)
 }
 
 #[test]
@@ -245,13 +238,13 @@ fn outside_trash_and_spam_nothing_offers_to_delete_forever() {
     let (mut harness, _dir, _store) = open();
     assert_eq!(rows(&harness), 1, "the inbox holds one conversation");
     assert_eq!(harness.count(&labelled("Empty Trash")), 0);
-    let offered = strip(&mut harness, 1);
+    let offered = offered(&mut harness, 1);
     assert!(
-        offered.iter().any(|op| op == "trash"),
+        offered.iter().any(|op| op == "Trash"),
         "the inbox's delete is a move to Trash: {offered:?}"
     );
     assert!(
-        !offered.iter().any(|op| op == "delete-forever"),
+        !offered.iter().any(|op| op.starts_with("Delete forever")),
         "{offered:?}"
     );
 }
@@ -316,18 +309,16 @@ fn empty_trash_asks_naming_the_count_and_then_the_list_empties_with_no_undo() {
 }
 
 #[test]
-fn a_row_in_trash_is_deleted_forever_from_its_strip_once_asked() {
+fn a_row_in_trash_is_deleted_forever_from_its_menu_once_asked() {
     let (mut harness, _dir, store) = open();
     press(&mut harness, &place("Trash"));
-    let offered = strip(&mut harness, 2);
+    let offered = offered(&mut harness, 2);
     assert!(
-        offered.iter().any(|op| op == "delete-forever"),
+        offered.iter().any(|op| op == "Delete forever…"),
         "{offered:?}"
     );
-    press(
-        &mut harness,
-        &format!("{} .ds-strip [*|data-op=delete-forever]", row(2)),
-    );
+    row_menu::press_menu_item(&mut harness, "Delete forever…");
+    harness.advance(ms(600));
     let said = sheet_text(&harness);
     assert!(said.contains("Delete this conversation forever?"), "{said}");
     assert!(said.contains("1 message in Trash"), "{said}");

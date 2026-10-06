@@ -25,7 +25,7 @@ pub(super) fn Accounts(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
     rsx! {
         FieldGroup { title: "Accounts",
             if rows.is_empty() {
-                p { class: "capnote", "No accounts yet." }
+                FieldRow { label: "No accounts yet" }
             }
             for row in rows {
                 FieldRow {
