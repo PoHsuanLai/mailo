@@ -64,7 +64,7 @@ impl Opener {
     /// with the token so it may take the keyboard, or start one on it when none is.
     pub fn window() -> Opener {
         Opener::new(|thread, token| {
-            if crate::ui::handoff::deliver(thread, token) {
+            if handed_to_window(thread, token) {
                 return Ok(());
             }
             let me = std::env::current_exe().map_err(|why| why.to_string())?;
@@ -84,6 +84,14 @@ impl Opener {
             Ok(())
         })
     }
+}
+
+/// Whether the running window took the conversation. The handoff is zbus's blocking API, and
+/// the provider is called on zbus's executor, which is a tokio runtime once zbus's `tokio`
+/// feature is on (porter-secrets' oo7 turns it on): blocking there panics "Cannot start a runtime
+/// from within a runtime". So the call is made off the runtime.
+fn handed_to_window(thread: ThreadId, token: Option<&str>) -> bool {
+    mail_runtime::off_runtime(|| crate::ui::handoff::deliver(thread, token))
 }
 
 impl std::fmt::Debug for Provider {

@@ -927,3 +927,12 @@ fn a_window_less_provider_is_looking_at_nothing() {
     assert_eq!(json["here"], serde_json::json!({ "kind": "nowhere" }));
     assert_eq!(json["privacy"], "private");
 }
+
+/// The window's opener hands the conversation over from inside the provider's executor, which is
+/// a tokio runtime under zbus's `tokio` feature: the blocking handoff must not panic there. No
+/// window is running in a test, so whether it was taken does not matter: that it answers does.
+#[test]
+fn the_window_handoff_answers_from_inside_zbus_executor() {
+    let _taken: bool =
+        zbus::block_on(async { super::handed_to_window(thread_of(1), Some("token")) });
+}
