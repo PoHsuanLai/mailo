@@ -4,7 +4,8 @@
 use super::drag::{drop_op, view_kind};
 use crate::ui::app::App;
 use crate::ui::fixtures::{
-    FakePointer, INSIDE_THE_SHELL, Seen, chord, click, dispatching, pointer, rebuild_into, work,
+    FakePointer, INSIDE_THE_SHELL, Seen, chord, click, dispatching, open_row_menu, pick_until,
+    pointer, rebuild_into, work,
 };
 use dioxus::html::input_data::keyboard_types::Modifiers;
 use dioxus::prelude::*;
@@ -139,10 +140,14 @@ fn row_markup(page: &str, subject: &str) -> Option<String> {
     Some(page[start..end].to_owned())
 }
 
-/// Dana's row's Archive button. The strip draws one per row in list order, and Dana's is the
-/// newest row in the Inbox.
-fn dana_archive(seen: &Seen) -> ElementId {
-    seen.all("aria-label", "Archive")[0]
+/// Archive Dana's row from its menu, drawing only until the store has it: what the archive
+/// started, the row's exit, is still under way.
+async fn archive_dana(dom: &mut VirtualDom, seen: &Seen, store: &SqliteStore, dana: ThreadId) {
+    let opened = open_row_menu(dom, seen, DANA);
+    pick_until(dom, &opened, "Archive", || {
+        !mailboxes(store, dana).contains(MailboxRole::Inbox)
+    })
+    .await;
 }
 
 fn at(x: f64, y: f64) -> FakePointer {
@@ -164,7 +169,7 @@ async fn archiving_moves_the_store_at_once_and_the_row_leaves_once_its_exit_sett
     } = mounted();
     assert!(mailboxes(&store, dana).contains(MailboxRole::Inbox));
 
-    click(&mut dom, dana_archive(&seen));
+    archive_dana(&mut dom, &seen, &store, dana).await;
     settle(&mut dom).await;
 
     assert!(
@@ -208,7 +213,7 @@ async fn undo_restores_the_mailboxes_exactly() {
     } = mounted();
     let before = mailboxes(&store, dana);
 
-    click(&mut dom, dana_archive(&seen));
+    archive_dana(&mut dom, &seen, &store, dana).await;
     assert_ne!(mailboxes(&store, dana), before, "the archive did nothing");
     // The toast is quire's, and its host lays it out a frame after the push: draw until it has,
     // and it names the op and offers the undo.
@@ -249,7 +254,7 @@ async fn ctrl_z_undoes_the_same_way() {
     } = mounted();
     let before = mailboxes(&store, dana);
 
-    click(&mut dom, dana_archive(&seen));
+    archive_dana(&mut dom, &seen, &store, dana).await;
     assert_ne!(mailboxes(&store, dana), before, "the archive did nothing");
     chord(
         &mut dom,
@@ -512,8 +517,14 @@ async fn each_press_on_the_star_flips_the_row_and_only_that() {
 
 #[tokio::test]
 async fn an_undo_mid_exit_brings_the_row_back_for_good() {
-    let Mounted { mut dom, seen, .. } = mounted();
-    click(&mut dom, dana_archive(&seen));
+    let Mounted {
+        mut dom,
+        seen,
+        store,
+        dana,
+        ..
+    } = mounted();
+    archive_dana(&mut dom, &seen, &store, dana).await;
     settle(&mut dom).await;
     chord(
         &mut dom,
@@ -541,8 +552,14 @@ async fn an_undo_mid_exit_brings_the_row_back_for_good() {
 /// leaving unseen and the rows under it healed for nothing.
 #[tokio::test]
 async fn an_undo_mid_exit_heals_nothing_below() {
-    let Mounted { mut dom, seen, .. } = mounted();
-    click(&mut dom, dana_archive(&seen));
+    let Mounted {
+        mut dom,
+        seen,
+        store,
+        dana,
+        ..
+    } = mounted();
+    archive_dana(&mut dom, &seen, &store, dana).await;
     settle(&mut dom).await;
     chord(
         &mut dom,

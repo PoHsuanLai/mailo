@@ -841,7 +841,7 @@ impl Shell {
     /// The saved view the list is showing, if it is showing one.
     ///
     /// Not while a search is typed: a search replaces the place (see [`Self::query`]), so the
-    /// rows are the search's and the view's grouping and hover strip are not theirs.
+    /// rows are the search's and the view's grouping and row actions are not theirs.
     pub fn saved_view(&self) -> Option<&View> {
         if !self.search.trim().is_empty() {
             return None;
@@ -1046,10 +1046,10 @@ impl Shell {
     }
 }
 
-/// What the hover strip offers for a thread.
+/// What a row offers for a thread, in its menu (once the hover strip's buttons; the name stays).
 ///
 /// Derived from where the thread is, so Archive does not offer "archive" and Trash offers
-/// "restore". Returns [`OpKind`] rather than [`Op`] because a button cannot carry a payload
+/// "restore". Returns [`OpKind`] rather than [`Op`] because a menu item cannot carry a payload
 /// that does not exist yet.
 pub fn hover_actions(summary: &ThreadSummary) -> Vec<OpKind> {
     let mut out = Vec::new();
@@ -1084,8 +1084,8 @@ pub fn hover_actions(summary: &ThreadSummary) -> Vec<OpKind> {
     out
 }
 
-/// What the hover strip offers for a thread in `view`: the view's own buttons where it names
-/// any, else [`hover_actions`].
+/// What a row's menu offers for a thread in `view`: the view's own actions where it names any,
+/// else [`hover_actions`].
 ///
 /// A view names kinds, not directions, so its Star or Mark read is drawn as whichever of the
 /// pair the conversation needs, and a button the conversation cannot take (Archive on one not in
