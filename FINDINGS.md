@@ -4815,10 +4815,10 @@ feature, the loopback listener, is enabled in `mail-runtime` only, and `check-bo
 the pure crates to none of tokio).
 
 - **What moved.** `mail_runtime::authorize::sign_in` runs the browser flow (bind, PKCE from
-  `rand`, `authorize_url`, wait, `exchange_code_scoped`). `mail_runtime::tokens` is the rest of
+  `rand`, `authorize_url`, `wait_until`, `exchange_code_scoped_detailed`). `mail_runtime::tokens` is the rest of
   `signin.rs` and `renewal.rs`: `renew` (a due credential at the start of a pass), `graph_token`
   and `GraphReach`, `incoming_scopes`, `Held`, and `OAuthTokens`, the account's tokens renewed in
-  process through `porter_oauth::refresh_scoped` over `porter_secrets`. `mail_runtime::http` keeps
+  process through `porter_oauth::refresh_scoped_detailed` over `porter_secrets`. `mail_runtime::http` keeps
   the 30 s client the token endpoint, Graph and JMAP are reached with; `lookup::ReqwestHttp` is
   porter's `Http` over it. `Registration`, `OAuthRegistry`, `Renewal` and `Loopback` are gone
   (FORBIDDEN_SYMBOLS names them and the module paths).
@@ -4843,27 +4843,29 @@ the pure crates to none of tokio).
   clients once; mailo then drops the fallback.** One write remains, to mailo's own `oauth.json`: a
   client typed in `MAILO_OAUTH_CLIENT_ID` is recorded there as before, since without it the account
   cannot be renewed an hour later. It goes when the window can ask porter to record a client.
-- **Behaviour that is not what it was.**
-  1. The redirect URI is `http://127.0.0.1:<port>/` (a trailing slash); it was without.
-  2. A redirect with the wrong `state` (or any other request) now ends the wait with an error,
-     where mailo answered it and kept waiting for the real one. A stray request to the port during a
-     sign-in therefore fails it; the user runs the command again. (An ask: a `LoopbackServer::wait`
-     that keeps waiting.)
+- **Behaviour that was not what it was, and is again** (porter 63add38 gave the calls). The
+  redirect URI is `http://127.0.0.1:<port>` with no trailing slash (`LoopbackServer::bind_with(
+  RedirectPath::Bare)`; the one `redirect_uri()` goes to the authorize and the token request). A
+  redirect with the wrong `state`, or any other stray request, is answered and the wait goes on
+  (`wait_until` with mailo's 300 s; dropping the sign-in future cancels it). A token answer without
+  `expires_in` lasts an hour (porter's `DEFAULT_EXPIRES_IN_SECONDS`). A refused exchange or renewal
+  carries the issuer's own `error_description` (`*_detailed` calls; its `error` code when it gave
+  none), as before.
+- **Behaviour that is not what it was.** (Numbered as in the first report.)
   3. The authorize URL carries `access_type=offline&prompt=consent` for Google only; it carried it
      for every issuer, so Microsoft is no longer asked to consent again at each sign-in.
   4. A token is renewed 60 seconds before it expires (porter's margin), not five minutes.
   5. Only an issuer's `invalid_grant` or a 401 is a refusal that needs a new sign-in. Any other OAuth
      error (`invalid_client`, `unauthorized_client`) was one; it is now an unreadable answer, tried
      again at the next operation.
-  6. A token answer without `expires_in` is unreadable; it was an hour.
   7. An OAuth account that submits over SMTP presents the incoming token (the source's), where
      it preferred a leftover `OutgoingPassword` secret when one existed.
-  8. A refused renewal says that the issuer refused it, not the issuer's own `error_description`
-     (porter-oauth's `ExchangeFault::Refused` carries none). The user is still told to sign in
-     again, as before.
 - **Tests.** `oauth_exchange.rs` is deleted: its cases are `porter-oauth`'s (the form with and
   without the client secret, the refresh's rotation and fault mapping in `exchange.rs`; the PKCE,
   state and Google parameters in `authorize.rs` and `pkce.rs`; the redirect rules in `loopback.rs`;
-  the whole sign-in against a fake issuer in `tests/fake_issuer.rs`). `renewal.rs` (the engine
+  the whole sign-in against a fake issuer in `tests/fake_issuer.rs`). `tests/sign_in.rs` holds the
+  restored behaviours (no trailing slash and the same URI in both requests, a wrong `state` not
+  ending the wait, the deadline, no `expires_in`, the issuer's description); `tokens.rs`'s refused
+  renewal also checks the issuer's description. `renewal.rs` (the engine
   renewing, retrying once and not looping, Graph's token) is `tests/tokens.rs`, over
   `OAuthTokens`; `signin.rs`'s registry tests are `clients.rs`'s, rewritten for the three files.
