@@ -68,7 +68,7 @@
   display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center;
   gap: var(--s-8); flex: 1 1 0; min-width: 0;
 }
-.bar-tools { display: flex; gap: var(--s-6); align-items: center; margin-left: auto; position: relative; }
+.bar-tools { display: flex; gap: var(--s-6); align-items: center; margin-left: auto; position: relative; flex: none; }
 
 /* A sheet hangs from the card's top edge, not the window's: the frame insets the card by
    `--s-8`. */

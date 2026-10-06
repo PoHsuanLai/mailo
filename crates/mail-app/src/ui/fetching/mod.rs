@@ -107,12 +107,6 @@ impl Fetching {
             .any(|id| links.get(id).is_some_and(Link::is_busy))
     }
 
-    /// What to say about the accounts `shell` is showing, at `now`.
-    /// One account's operation: running while its pass is.
-    pub(in crate::ui) fn op(&self, account: AccountId) -> Operation {
-        self.ops.read().get(&account).copied().unwrap_or_default()
-    }
-
     /// Every account's link, in no order a person would know. Read in a component, it redraws
     /// when any of them moves.
     pub(in crate::ui) fn all_links(&self) -> Vec<(AccountId, Link)> {

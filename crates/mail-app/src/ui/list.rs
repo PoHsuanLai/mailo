@@ -391,9 +391,14 @@ pub(super) fn ThreadList(
                             PickBar { shell, revision, threads }
                         } else {
                             div { class: "list-title",
-                                Label { text: place.clone(), style: LabelStyle::Title }
+                                Label { text: place.clone(), style: LabelStyle::Title, common: classed("ds-truncate") }
                                 if let Some(address) = address {
-                                    Label { text: address, role: LabelRole::Tertiary, style: LabelStyle::Caption }
+                                    Label {
+                                        text: address,
+                                        role: LabelRole::Tertiary,
+                                        style: LabelStyle::Caption,
+                                        common: classed("ds-truncate"),
+                                    }
                                 }
                             }
                             ListStatus { shell }
@@ -444,6 +449,7 @@ pub(super) fn ThreadList(
                                 }
                                 Button {
                                     bezel: Bezel::Toolbar,
+                                    image: ImagePosition::Only,
                                     label: "Compose",
                                     icon: Some(IconSource::Glyph(Icon::Pen)),
                                     title: Some("New message (\u{2318}N)".to_owned()),
