@@ -77,10 +77,15 @@ pub(in crate::ui) fn pressed(shell: Signal<Shell>, key: &str, chord: bool) {
     if keymap::is_not_a_key(key) {
         return;
     }
+    // Bound on the keymap as it is on disk, not this window's copy, so a binding made in another
+    // window meanwhile is kept.
+    let current = try_consume_context::<WindowDirs>()
+        .map(|dirs| keymap::load(&dirs.config))
+        .unwrap_or_else(|| shell.peek().keymap.clone());
     let bound = if chord {
         Err(Refused::Chord)
     } else {
-        keymap::bind(&shell.peek().keymap, action, key)
+        keymap::bind(&current, action, key)
     };
     settle(shell, bound);
 }
@@ -95,6 +100,9 @@ fn settle(mut shell: Signal<Shell>, changed: Result<Keymap, Refused>) {
                 // A window with no home directory keeps the keys for the session.
                 None => Ok(()),
             };
+            if kept.is_ok() {
+                crate::ui::revisions::told_configuration();
+            }
             shell.write().keymap = map;
             kept.err()
                 .map(|why| format!("Changed for now, but not kept: {why}"))

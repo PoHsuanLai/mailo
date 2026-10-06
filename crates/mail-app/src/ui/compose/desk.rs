@@ -60,10 +60,7 @@ pub(in crate::ui) fn use_desk(
     dirs: Option<WindowDirs>,
     side_hidden: Signal<bool>,
 ) -> Desk {
-    let settings = use_hook(|| {
-        try_consume_context::<Signal<crate::settings::MailSettings>>()
-            .unwrap_or_else(|| Signal::new(crate::settings::MailSettings::default()))
-    });
+    let settings = crate::ui::prefs::use_settings();
     let spelling = use_memo(move || settings.read().compose.spelling);
     use_context_provider(|| Desk {
         spelling,

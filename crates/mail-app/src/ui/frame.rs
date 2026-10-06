@@ -5,6 +5,7 @@
 use crate::ui::appearance::WindowDirs;
 use crate::ui::space::{self, Spaces};
 use crate::ui::today::{self, Today};
+use dioxus::prelude::*;
 use mail_store::SqliteStore;
 use std::sync::Arc;
 
@@ -76,7 +77,39 @@ fn try_consume_dirs() -> Option<WindowDirs> {
 /// Atomic, through `space::save`. A window launched with nowhere to write keeps its Spaces
 /// for the session, and a file that cannot be written changes nothing on screen.
 pub(super) fn keep(spaces: &Spaces) {
-    if let Some(dirs) = try_consume_dirs() {
-        let _ = space::save(&dirs.config, spaces);
+    if let Some(dirs) = try_consume_dirs()
+        && space::save(&dirs.config, spaces).is_ok()
+    {
+        // The other windows wear the Space too, and read the file again.
+        crate::ui::revisions::told_configuration();
     }
+}
+
+/// Follow the configuration files the other windows write (`revisions::Configured`): when one
+/// writes `keyboard.json` or `spaces.json`, read them again into `shell` and `spaces`. The
+/// Spaces are left alone while `editing` holds a draft of one, which closing keeps.
+pub(super) fn use_followed_configuration(
+    mut shell: Signal<crate::ui::view::Shell>,
+    mut spaces: Signal<Spaces>,
+    editing: Option<Signal<Option<crate::ui::space::edit::Draft>>>,
+) {
+    let configured = use_signal(|| 0u64);
+    crate::ui::revisions::use_shared_configuration(configured);
+    use_effect(move || {
+        let _ = configured();
+        let Some(dirs) = try_consume_dirs() else {
+            return;
+        };
+        let keymap = crate::ui::keymap::load(&dirs.config);
+        if shell.peek().keymap != keymap {
+            shell.write().keymap = keymap;
+        }
+        if editing.is_some_and(|draft| draft.peek().is_some()) {
+            return;
+        }
+        let stored = space::load(&dirs.config);
+        if !stored.spaces.is_empty() && *spaces.peek() != stored {
+            spaces.set(stored);
+        }
+    });
 }

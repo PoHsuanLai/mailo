@@ -2,7 +2,7 @@
 //! that describes it (quire design/22 section 9).
 //!
 //! Each table is a struct deriving `SettingsSchema`, so the desktop's Settings app (detent) draws
-//! a Mail page from the schema `mailo settings write-schema <dir>` writes, and writes the same
+//! a Mail page from the schema `mailo --write-schema <dir>` writes, and writes the same
 //! file mailo reads; mailo's own Settings sheet draws the same keys. `ds_settings::Store` reads
 //! the file leniently (a bad value costs only its key), writes it atomically and watches it, so a
 //! change made in detent reaches an open window.
@@ -147,6 +147,14 @@ pub fn root_for(config_dir: &Path) -> ConfigRoot {
     }
 }
 
+/// The person's own config root: the one `mail_core::config::config_dir()` is mailo's
+/// directory in, as the window's is (`~/.config` on Linux, Application Support on macOS, the
+/// roaming folder on Windows), so the command line, `watch` and every window read and write
+/// one `settings.toml`. `None` where the machine has no config directory.
+pub fn person_root() -> Option<ConfigRoot> {
+    mail_core::config::config_dir().map(|dir| root_for(&dir))
+}
+
 /// The store `settings.toml` lives in, under `root`.
 pub fn store(root: ConfigRoot) -> Store {
     Store::new(root, APP)
@@ -186,7 +194,7 @@ pub fn change(
     Ok(settings)
 }
 
-/// `mailo settings write-schema <dir>`: write `mailo.settings.toml` into `dir`.
+/// `mailo --write-schema <dir>`: write `mailo.settings.toml` into `dir`.
 pub fn write_schema(dir: &Path) -> Result<String, String> {
     let path = schema().write_to(dir).map_err(|e| e.to_string())?;
     Ok(format!("wrote {}\n", path.display()))

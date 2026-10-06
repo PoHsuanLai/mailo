@@ -38,21 +38,37 @@ pub(in crate::ui) fn use_prefs(dirs: Option<&WindowDirs>) -> Signal<MailSettings
     use_context_provider(|| loaded)
 }
 
-/// Load the settings under `root`, provide them, and follow `settings.toml` as it changes: what
-/// a launched window's root does, so a change made in the desktop's Settings app reaches it.
-pub(in crate::ui) fn use_watched_settings(root: ConfigRoot) {
+/// The config root a window keeps its settings under: its config directory's
+/// (`settings::root_for`), else the person's (`settings::person_root`), so every window, the
+/// command line and `watch` read one `settings.toml`. `None` where there is neither.
+fn window_root() -> Option<ConfigRoot> {
+    try_consume_context::<WindowDirs>()
+        .as_ref()
+        .and_then(root_of)
+        .or_else(settings::person_root)
+}
+
+/// What every window's root does first: load the settings, provide them, and follow
+/// `settings.toml` as it changes, so a change made in another window, the desktop's Settings app
+/// or `mailo notify` reaches it. A window with nowhere to keep them holds the defaults.
+pub(in crate::ui) fn use_window_settings() {
+    let root = use_hook(window_root);
     let mut values = use_signal({
         let root = root.clone();
-        move || settings::load(&root)
+        move || root.as_ref().map(settings::load).unwrap_or_default()
     });
-    use_context_provider(|| PrefsRoot(Some(root.clone())));
+    use_context_provider({
+        let root = root.clone();
+        move || PrefsRoot(root)
+    });
     use_context_provider(|| values);
     use_future(move || {
-        let store = settings::store(root.clone());
+        let root = root.clone();
         let spawner: std::sync::Arc<dyn ds::base::spawner::Spawner> =
             std::sync::Arc::new(ds_blitz::TokioSpawner::current());
         async move {
-            let mut watch = store.watch::<MailSettings>(&*spawner);
+            let Some(root) = root else { return };
+            let mut watch = settings::store(root).watch::<MailSettings>(&*spawner);
             while let Some(loaded) = watch.changed().await {
                 if *values.peek() != loaded.value {
                     values.set(loaded.value);
@@ -62,19 +78,20 @@ pub(in crate::ui) fn use_watched_settings(root: ConfigRoot) {
     });
 }
 
-/// Read `settings.toml` again where the window has one: when another window of the app moved the
-/// shared revision, it may have changed a setting.
-pub(in crate::ui) fn reload() {
-    let (Some(mut values), Some(PrefsRoot(Some(root)))) = (
-        try_consume_context::<Signal<MailSettings>>(),
-        try_consume_context::<PrefsRoot>(),
-    ) else {
-        return;
-    };
-    let now = settings::load(&root);
-    if *values.peek() != now {
-        values.set(now);
-    }
+/// The settings in force, as a signal to read in a render or a resource: the window root's.
+/// A component drawn under no window root (a unit test's lone component) reads them from its
+/// config directory once, so it never shows defaults over what the file says.
+pub(in crate::ui) fn use_settings() -> Signal<MailSettings> {
+    use_hook(|| {
+        try_consume_context::<Signal<MailSettings>>().unwrap_or_else(|| {
+            Signal::new(
+                window_root()
+                    .as_ref()
+                    .map(settings::load)
+                    .unwrap_or_default(),
+            )
+        })
+    })
 }
 
 /// The settings in force, or the defaults where nothing provided them.
@@ -104,10 +121,93 @@ pub(in crate::ui) fn change(edit: impl FnOnce(&mut MailSettings)) -> Result<(), 
 
 /// Change one key by its schema path (`compose.spelling`) to `value`, as the Settings sheet's
 /// rows hand it back. A value the settings cannot hold changes nothing.
+///
+/// The key is set on the settings as `change` loads them from `settings.toml`, not on the
+/// window's copy, so an edit made meanwhile elsewhere (detent, `mailo notify`) is kept.
 pub(in crate::ui) fn change_key(path: &str, value: toml::Value) -> Result<(), String> {
-    let values = toml::Value::try_from(current()).map_err(|e| e.to_string())?;
-    let next: MailSettings = crate::ui::settings_window::with_value(values, path, value)
+    let mut refused = None;
+    change(|settings| match with_key(settings, path, value) {
+        Ok(next) => *settings = next,
+        Err(why) => refused = Some(why),
+    })?;
+    refused.map_or(Ok(()), Err)
+}
+
+/// `settings` with the key at `path` set to `value`, or why it cannot hold it.
+fn with_key(
+    settings: &MailSettings,
+    path: &str,
+    value: toml::Value,
+) -> Result<MailSettings, String> {
+    let values = toml::Value::try_from(settings).map_err(|e| e.to_string())?;
+    crate::ui::settings_window::with_value(values, path, value)
         .try_into()
-        .map_err(|e: toml::de::Error| e.to_string())?;
-    change(|settings| *settings = next)
+        .map_err(|e: toml::de::Error| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::settings::{self, BrandLogos, MailSettings, NewMail, Spelling};
+    use crate::ui::appearance::WindowDirs;
+    use dioxus::prelude::*;
+
+    /// A config directory whose `settings.toml` has brand logos on.
+    fn dirs_with_logos_on() -> (tempfile::TempDir, WindowDirs) {
+        let dir = tempfile::tempdir().unwrap();
+        let dirs = WindowDirs {
+            config: dir.path().join("config"),
+            state: dir.path().join("state"),
+        };
+        settings::change(&settings::root_for(&dirs.config), |s| {
+            s.reading.brand_logos = BrandLogos::On;
+        })
+        .unwrap();
+        (dir, dirs)
+    }
+
+    #[component]
+    fn ReadsLogos() -> Element {
+        let settings = super::use_settings();
+        let on = settings.read().reading.brand_logos == BrandLogos::On;
+        rsx! { p { "{on}" } }
+    }
+
+    /// A component drawn under no window root (as a conversation's own window drew brand logos
+    /// before it had one) reads the file, not the defaults.
+    #[test]
+    fn use_settings_reads_the_file_where_no_root_provided_them() {
+        let (_dir, dirs) = dirs_with_logos_on();
+        let mut dom = VirtualDom::new(ReadsLogos).with_root_context(dirs);
+        dom.rebuild_in_place();
+        assert_eq!(dioxus_ssr::render(&dom), "<p>true</p>");
+    }
+
+    #[component]
+    fn ChangesSpelling() -> Element {
+        let _ = super::use_prefs(try_consume_context::<WindowDirs>().as_ref());
+        use_hook(|| {
+            // Another program turns notifications off after this window loaded its copy.
+            let dirs = consume_context::<WindowDirs>();
+            settings::change(&settings::root_for(&dirs.config), |s| {
+                s.notifications.new_mail = NewMail::Off;
+            })
+            .unwrap();
+            super::change_key("compose.spelling", toml::Value::String("off".to_owned())).unwrap();
+        });
+        rsx! {}
+    }
+
+    /// A key set from the Settings window lands on what `settings.toml` says now, so an edit made
+    /// meanwhile by another program is kept.
+    #[test]
+    fn change_key_keeps_an_edit_made_elsewhere_meanwhile() {
+        let (_dir, dirs) = dirs_with_logos_on();
+        let root = settings::root_for(&dirs.config);
+        let mut dom = VirtualDom::new(ChangesSpelling).with_root_context(dirs);
+        dom.rebuild_in_place();
+        let stored: MailSettings = settings::load(&root);
+        assert_eq!(stored.compose.spelling, Spelling::Off);
+        assert_eq!(stored.notifications.new_mail, NewMail::Off);
+        assert_eq!(stored.reading.brand_logos, BrandLogos::On);
+    }
 }

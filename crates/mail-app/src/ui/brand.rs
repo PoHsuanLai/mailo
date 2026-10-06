@@ -70,10 +70,7 @@ fn use_brand_logo(
     from: String,
 ) -> Signal<Option<String>> {
     let mut logo = use_signal(|| None::<String>);
-    let settings = use_hook(|| {
-        try_consume_context::<Signal<crate::settings::MailSettings>>()
-            .unwrap_or_else(|| Signal::new(crate::settings::MailSettings::default()))
-    });
+    let settings = crate::ui::prefs::use_settings();
     let _find = use_resource(move || {
         // Read here, so turning brand logos on or off looks again.
         let logos = settings.read().reading.brand_logos;

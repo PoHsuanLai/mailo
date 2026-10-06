@@ -245,27 +245,9 @@ pub(super) fn App() -> Element {
         }
     });
 
-    // Another window (Settings) may have changed a setting, a key binding or the Spaces' file when
-    // the revision moves: read them again. The Spaces are left alone while the editor holds a draft.
-    let reload_dirs = dirs.clone();
-    use_effect(move || {
-        let _ = revision();
-        super::prefs::reload();
-        let Some(dirs) = reload_dirs.clone() else {
-            return;
-        };
-        let keymap = super::keymap::load(&dirs.config);
-        if shell.peek().keymap != keymap {
-            shell.write().keymap = keymap;
-        }
-        if editing.peek().is_none() {
-            let stored = super::space::load(&dirs.config);
-            if !stored.spaces.is_empty() && *spaces.peek() != stored {
-                let mut spaces = spaces;
-                spaces.set(stored);
-            }
-        }
-    });
+    // Another window (Settings) may have written a key binding or the Spaces: read them again.
+    // `settings.toml` needs nothing here: the window's root watches it.
+    super::frame::use_followed_configuration(shell, spaces, Some(editing));
 
     // An account removed, here or from a terminal, leaves every Space, and the tile pressed. Not
     // while the Space editor holds a draft: the Spaces are the draft then, and Escape must still

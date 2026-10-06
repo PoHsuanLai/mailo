@@ -18,7 +18,10 @@ use settle::settle_until;
 mod drive;
 use drive::Drive;
 use mail_app::ui::appearance::WindowDirs;
-use mail_app::ui::native::Revisions;
+use mail_app::ui::native::{Configured, Revisions};
+
+/// The two counters every window of the app shares: the store's, and the configuration files'.
+type Shared = (Revisions, Configured);
 use mail_app::ui::view::Shortcut;
 use mail_domain::*;
 use mail_runtime::{Arrival, absorb};
@@ -127,7 +130,7 @@ fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
 fn contexts(
     store: &Arc<SqliteStore>,
     dirs: &WindowDirs,
-    revisions: &Revisions,
+    revisions: &Shared,
 ) -> ds_blitz::RootContexts {
     let printer = mail_app::ui::native::Printer::with_dialog(|_, _| Ok(PrintOutcome::Cancelled));
     mail_app::ui::native::contexts(
@@ -138,11 +141,12 @@ fn contexts(
         mail_app::ui::Start::Inbox,
     )
     .with(printer)
-    .with(revisions.clone())
+    .with(revisions.0.clone())
+    .with(revisions.1.clone())
 }
 
 /// The main window, first frame drawn.
-fn main_window(store: &Arc<SqliteStore>, dirs: &WindowDirs, revisions: &Revisions) -> Harness {
+fn main_window(store: &Arc<SqliteStore>, dirs: &WindowDirs, revisions: &Shared) -> Harness {
     let config = HarnessConfig::new(VIEW)
         .with_net(NetPolicy::Local)
         .with_clock(Clock::Virtual)
@@ -155,7 +159,7 @@ fn main_window(store: &Arc<SqliteStore>, dirs: &WindowDirs, revisions: &Revision
 }
 
 /// The Settings window, at the size it opens at, first frame drawn.
-fn settings_window(store: &Arc<SqliteStore>, dirs: &WindowDirs, revisions: &Revisions) -> Harness {
+fn settings_window(store: &Arc<SqliteStore>, dirs: &WindowDirs, revisions: &Shared) -> Harness {
     let config = HarnessConfig::new(SETTINGS_VIEW)
         .with_net(NetPolicy::Local)
         .with_clock(Clock::Virtual)
@@ -180,7 +184,7 @@ fn open() -> (
         config: dir.path().join("config"),
         state: dir.path().join("state"),
     };
-    let revisions = Revisions::new();
+    let revisions = (Revisions::new(), Configured::default());
     let main = main_window(&store, &dirs, &revisions);
     let settings = settings_window(&store, &dirs, &revisions);
     (main, settings, dir, store, dirs)
@@ -291,7 +295,7 @@ fn archive_rebound_in_settings_archives_on_its_new_key_in_the_main_window() {
         config: dir.path().join("config"),
         state: dir.path().join("state"),
     };
-    let revisions = Revisions::new();
+    let revisions = (Revisions::new(), Configured::default());
     let mut main = main_window(&store, &dirs, &revisions);
 
     // The Settings window, on a thread of its own as quire gives each window its own: a window's
@@ -370,7 +374,7 @@ fn a_keymap_kept_earlier_is_the_one_settings_shows_and_reset_puts_it_back() {
     };
     let moved = mail_app::ui::keymap::bind(&Default::default(), Shortcut::Archive, "x").unwrap();
     mail_app::ui::keymap::save(&dirs.config, &moved).unwrap();
-    let mut settings = settings_window(&store, &dirs, &Revisions::new());
+    let mut settings = settings_window(&store, &dirs, &(Revisions::new(), Configured::default()));
 
     open_sheet(&mut settings);
     let row = "[*|data-action=Archive]";

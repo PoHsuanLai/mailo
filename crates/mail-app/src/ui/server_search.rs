@@ -215,10 +215,7 @@ pub(super) fn ServerSearch(
     revision: Signal<u64>,
 ) -> Element {
     // Automatically, where the user turned it on: once per line and account.
-    let settings = use_hook(|| {
-        try_consume_context::<Signal<crate::settings::MailSettings>>()
-            .unwrap_or_else(|| Signal::new(crate::settings::MailSettings::default()))
-    });
+    let settings = crate::ui::prefs::use_settings();
     let automatic = use_memo(move || {
         mail_core::server_search::Automatic::from(settings.read().search.server_automatically)
     });

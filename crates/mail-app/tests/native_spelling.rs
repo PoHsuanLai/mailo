@@ -24,7 +24,10 @@ use settle::settle_until;
 #[path = "support/drive.rs"]
 mod drive;
 use drive::Drive;
-use mail_app::ui::native::{Dictionaries, Revisions};
+use mail_app::ui::native::{Configured, Dictionaries, Revisions};
+
+/// The two counters every window of the app shares: the store's, and the configuration files'.
+type Shared = (Revisions, Configured);
 use mail_domain::*;
 use mail_store::SqliteStore;
 use std::path::Path;
@@ -137,11 +140,7 @@ fn composing() -> (Harness, tempfile::TempDir) {
 /// [`composing`], in a window of `view`.
 /// What a window here is given: the store, scratch directories, the test's dictionaries, and
 /// the revision every window of the app shares.
-fn contexts(
-    dir: &std::path::Path,
-    store: &Arc<SqliteStore>,
-    revisions: &Revisions,
-) -> RootContexts {
+fn contexts(dir: &std::path::Path, store: &Arc<SqliteStore>, revisions: &Shared) -> RootContexts {
     // Every window here has a print dialog of its own: none may open the system's.
     let printer = mail_app::ui::native::Printer::with_dialog(|_, _| Ok(PrintOutcome::Cancelled));
     mail_app::ui::native::contexts(
@@ -156,7 +155,8 @@ fn contexts(
     )
     .with(printer)
     .with(dictionaries(dir))
-    .with(revisions.clone())
+    .with(revisions.0.clone())
+    .with(revisions.1.clone())
 }
 
 /// The main window with a new message open and its body focused.
@@ -164,7 +164,7 @@ struct Composing {
     harness: Harness,
     dir: tempfile::TempDir,
     store: Arc<SqliteStore>,
-    revisions: Revisions,
+    revisions: Shared,
 }
 
 fn composing_in(view: Viewport) -> (Harness, tempfile::TempDir) {
@@ -175,7 +175,7 @@ fn composing_in(view: Viewport) -> (Harness, tempfile::TempDir) {
 fn composing_beside(view: Viewport) -> Composing {
     let dir = tempfile::tempdir().unwrap();
     let store = seeded(dir.path());
-    let revisions = Revisions::new();
+    let revisions = (Revisions::new(), Configured::default());
     let config = HarnessConfig::new(view)
         .with_net(NetPolicy::Local)
         .with_focus_fallback(FocusFallback::Ancestor)
