@@ -40,6 +40,8 @@
 }
 .side-foot > :not(.space-name) { flex: none; }
 .space-dots { display: flex; gap: var(--s-5); align-items: center; flex: none; }
+/* The hold a dot's right click is caught on: it lays out as the dot. */
+.space-dot-hold { display: flex; }
 .card {
   height: 100%; box-sizing: border-box;
   min-width: 0; min-height: 0; background: var(--surface); color: var(--ink);

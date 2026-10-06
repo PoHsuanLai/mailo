@@ -1,15 +1,9 @@
-/* The Space editor: quire's `Sheet` holds a scroller (quire's SpaceEditor, then form rows for
-   what is mailo's) and, under it, the foot with Cancel and Save, which stays in reach however
-   far the scroller is. */
-.ed-scroll {
-  max-height: 70vh; overflow-y: auto; scrollbar-width: none;
-  display: grid; gap: var(--s-14); padding: var(--s-14);
-}
-/* quire's editor draws its own card; inside a sheet that is a card in a card, so the sheet's is the
-   only frame. */
-.ed-look { border: 0; border-radius: 0; background: transparent; box-shadow: none; padding: 0; }
+/* A Space's parts, each a popover where the Space's menu stood (`space_menu`): its name, its
+   colour (quire's SpaceColour, frameless) and the question before it is deleted. */
+.space-part { display: grid; gap: var(--s-10); padding: var(--s-12); }
+.space-rename { width: 240px; }
+.space-colour { width: 340px; }
+.space-delete { width: 300px; }
+.space-delete h3 { margin: 0; }
+.space-part-acts { display: flex; justify-content: flex-end; gap: var(--s-6); }
 .ed-label { margin: 0; color: var(--ink-soft); }
-.ed-foot {
-  display: flex; justify-content: flex-end; gap: var(--s-8);
-  padding: var(--s-10) var(--s-14);
-}

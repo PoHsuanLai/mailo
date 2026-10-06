@@ -19,8 +19,9 @@ use crate::ui::appearance::WindowDirs;
 use crate::ui::space::Spaces;
 use crate::ui::space::edit::Draft;
 use crate::ui::today::Today;
-use crate::ui::view::Shell;
+use crate::ui::view::{Shell, SpaceShowing};
 use dioxus::prelude::*;
+use ds::base::press::Press;
 use ds::components::app::command_pill::CommandPill;
 use ds::components::app::edge_peek::EdgePeek;
 use ds::components::controls::button_model::ImagePosition;
@@ -86,10 +87,11 @@ pub(super) fn Places(
     let scheme = use_scope().scheme;
     let tiles = counted.read().clone();
     let name = space.name.clone();
-    let open_editor = move |_| {
-        if editing.read().is_none() {
-            switch::edit(spaces, editing);
-        }
+    // The Space's menu at the pointer, from a right click anywhere on the foot.
+    let open_menu = move |event: MouseEvent| {
+        event.prevent_default();
+        let at = event.client_coordinates();
+        crate::ui::space_menu::open(shell, space_index, (at.x, at.y));
     };
     let pinned = if side_hidden() {
         Shown::Hidden
@@ -121,16 +123,20 @@ pub(super) fn Places(
                 TodayList { shell, today, space_index, dirs: dirs.clone() }
             }
             div { class: "side-foot",
+                oncontextmenu: open_menu,
                 Button {
                     bezel: ds::components::controls::button_model::Bezel::Inline,
                     label: name.clone(),
-                    title: "Edit this Space".to_owned(),
+                    title: "This Space's menu".to_owned(),
                     common: Common {
-                        aria_label: Some(format!("Edit the {name} Space")),
+                        aria_label: Some(format!("The {name} Space")),
                         extra_class: ExtraClass::parse("space-name").ok(),
                         ..Common::default()
                     },
-                    onclick: open_editor,
+                    onclick: move |press: Press| {
+                        let at = (f64::from(press.at.x.0), f64::from(press.at.y.0));
+                        crate::ui::space_menu::open(shell, space_index, at);
+                    },
                 }
                 div { class: "space-dots", role: "group", aria_label: "Spaces",
                     for (index, one) in spaces.read().spaces.iter().enumerate() {
@@ -140,8 +146,15 @@ pub(super) fn Places(
                             let keys = char::from_digit(u32::try_from(index + 1).unwrap_or(0), 10)
                                 .map_or_else(Vec::new, |digit| vec![ShortcutKey::Super, ShortcutKey::Char(digit)]);
                             rsx! {
+                                // A right click on a dot is that Space's menu, not the current one's.
+                                span { key: "{index}", class: "space-dot-hold",
+                                    oncontextmenu: move |event: MouseEvent| {
+                                        event.prevent_default();
+                                        event.stop_propagation();
+                                        let at = event.client_coordinates();
+                                        crate::ui::space_menu::open(shell, index, (at.x, at.y));
+                                    },
                                 SpaceDot {
-                                    key: "{index}",
                                     name: one.name.clone(),
                                     frame: FrameVars::of(&one.look, scheme),
                                     selection,
@@ -151,6 +164,7 @@ pub(super) fn Places(
                                             switch::go(spaces, shell, pages, index);
                                         }
                                     },
+                                }
                                 }
                             }
                         }
@@ -163,9 +177,13 @@ pub(super) fn Places(
                     icon: Icon::Plus,
                     label: "New Space",
                     title: "New Space".to_owned(),
-                    onclick: move |_| {
+                    onclick: move |press: Press| {
                         if editing.read().is_none() {
-                            switch::add(spaces, shell, pages, editing);
+                            let made = switch::add(spaces, shell, pages);
+                            let at = (f64::from(press.at.x.0), f64::from(press.at.y.0));
+                            crate::ui::space_menu::open_part(
+                                shell, spaces, editing, made, at, SpaceShowing::Rename,
+                            );
                         }
                     },
                 }

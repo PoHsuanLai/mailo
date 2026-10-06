@@ -1,7 +1,7 @@
 //! The keys and certificates sheet: OpenPGP keys, then S/MIME certificates, the user's own first
 //! in each, and what can be done to each.
 //!
-//! ⌘K "Keys and certificates…" and the Space editor open it. Every change goes through
+//! ⌘K "Keys and certificates…" opens it. Every change goes through
 //! [`mail_core::pgp::keys`] or [`mail_core::smime::certs`], the functions `mailo pgp` and `mailo smime`
 //! use, and runs on a blocking thread: a key is made, imported, exported or forgotten in the
 //! keyring, and a file is read or written, none of which the thread that draws may wait on. The
