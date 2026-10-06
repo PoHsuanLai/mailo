@@ -21,8 +21,6 @@ idna = "1"
 # ships parser/gmail.rs. nom::streaming Err::Incomplete maps onto Progress::Need(Read).
 imap-proto = "0.16"
 nom = "7"
-# Mail client configuration documents (`discover::autoconfig`). Already here through mail-pim.
-roxmltree = "0.21"
 # JMAP's requests and responses (`jmap`). Already in the lock through mail-runtime.
 serde_json = "1"
 
@@ -33,6 +31,4 @@ workspace = true
 proptest = "1"
 chrono.workspace = true
 nom = "7"
-# Mail client configuration documents (`discover::autoconfig`). Already here through mail-pim.
-roxmltree = "0.21"
 uuid = { workspace = true }

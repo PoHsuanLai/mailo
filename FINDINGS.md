@@ -4724,3 +4724,84 @@ through `porter_secrets::Secrets` (pinned at the same porter rev as `porter-core
   awaited a proxy inside `zbus::block_on` through a second one; `intents::serve` calls it once on
   the main thread and is unaffected), and every blocking zbus call (the signing store, adoption's
   reads of the old entries, the notification probe) must stay on `off_runtime`'s plain thread.
+
+### F201 — Discovery and the provider table are porter's (accounts step E3)
+
+mailo pins porter at `aca6210f42cb404569e4c659f5cf15875e2889ee` and adds `porter-discover` and
+`porter-http` (both without their I/O features: parsers and two seams, no tokio and no hickory).
+Deleted with their tests: `mail-proto/src/discover/` (what each answer meant),
+`mail-runtime/src/discover.rs` (the search, over reqwest and hickory) and, from
+`mail-domain/src/presets.rs`, `preset_for`, `preset_for_mail_exchanger` and `is_personal_microsoft`.
+`scripts/check-boundary.sh` forbids all of them, and the two module paths; `issuer_named` is back
+in mailo (see below).
+
+- **Where the search runs.** `mail_core::discover::search` calls `run`, which calls `porter_discover::discover_mail_with`
+  over `mail_runtime::lookup`'s two seams, which are mailo's own resolver and HTTP client:
+  `SystemDns` implements `porter_discover::Dns` (it still answers BIMI's TXT lookups, which is why
+  it is a module of its own and not a part of discovery) and `ReqwestHttp` implements
+  `porter_http::Http` over `lookup::client_builder` (https only, 4 s a request, redirects only to
+  `https:`, a body past 256 KiB is `TooLarge`). No resolver or HTTP client was added. The 25 s bound
+  on a whole search is mailo's, around the future. The tests that were about the client (an
+  untrusted certificate, a redirect to plain `http`, the size cap, a closed port) moved to
+  `mail-runtime/tests/lookup.rs`; the ones about what an answer means are porter's.
+- **Provider files.** porter's `providers/*.toml` are compiled into `porter-provider` at the pin
+  (`porter_provider::shipped_specs`), and `discover/providers.rs` builds the `ProviderSet` from them:
+  mailo keeps no copy, so the pin is their one source. A Fastmail, iCloud,
+  Yahoo or GMX address resolves to its file with no request at all, and its plan is a password at
+  the hosts the file names, built with `presets::manual` (the same expected capabilities the
+  ISPDB route gave them, so nothing changes on first connect).
+- **Gmail is mailo's file.** Porter's Google has no mail row and no `matching` (D1), so nothing of
+  porter's claims a Gmail address. `crates/mail-core/own-providers/google-mail.toml` is laid over
+  porter's files as a user's file is, claims what the preset table claimed (`gmail.com` and
+  `googlemail.com`, and a domain whose MX is under `google.com`, `googlemail.com` or `gmail.com`),
+  and goes when porter ships Google mail.
+- **What stayed in mailo, and why.** `expected_caps`, the Graph send and receive policy, the manual
+  IMAP and POP3 plans, local folders and `password_warning`'s host text (a provider file has no
+  place for any of them). `preset_for_issuer` and `issuer_for_server`: the OAuth preset an issuer's
+  servers take, chosen from the host a search names (a document that names `imap.gmail.com` gets
+  the Gmail preset whole, as before) and `issuer_named`, which maps the document's
+  `<oAuth2><issuer>` (porter-discover aca6210 hands it over as `Found.oauth.issuer`, data only; which
+  provider it means is mailo's). The refusal of a personal Microsoft
+  mailbox (`Gap::PersonalMicrosoft`): porter's `microsoft.toml` claims `outlook.com`, `hotmail.com`,
+  `live.com` and `msn.com` through one client, mailo's preset signs in with the work and school
+  scopes, so `from_provider` still says why and does not configure it; a tenant is told apart by
+  the file's own `domain_suffixes`, not by a list of mailo's.
+- **The built-in table is `mail_core::discover::known`.** What an address alone proves, with no
+  lookup and no confirmation: a provider file that lists the domain and signs in with OAuth, which
+  is Gmail's two domains and a Microsoft 365 tenant's `onmicrosoft.com`, as before. A password
+  provider (Fastmail, iCloud, Yahoo, GMX) is not in it: it goes through discovery, which shows its
+  hosts and asks.
+- **Behaviour that is not what it was.** The first version of E3 changed five things; the pin
+  at porter `aca6210` (`discover_mail_with`, `SearchOptions`, `Found.oauth`, `Found.pop3`) restores
+  the first three, and `mail_core::discover::run` is the search that does (`TryNext`, `Report`,
+  `Offer`).
+  1. Restored: POP3-only domains. A document's POP3 server (`Found.pop3`, implicit TLS first)
+     builds the account when the document names no IMAP server, with its own login; an IMAP
+     server that will do still wins. Not restored: the `_pop3s._tcp` SRV name, which
+     `porter_discover::found_from_srv` does not ask (an interface ask: POP3 SRV answers on
+     `SrvAnswers`). `--pop3` by hand is unchanged.
+  2. Restored: OAuth. The document's `<oAuth2><issuer>` goes through `issuer_named` and each of
+     its OAuth2 servers' hosts through `issuer_for_server`; if one maps, the plan is that issuer's
+     preset whole, ahead of a password plan, and for a personal Microsoft address it is refused
+     (`Gap::PersonalMicrosoft`). A finding that is OAuth2 only (`OAuthOnly::Offer` made its servers
+     endpoints) and maps to no issuer is dropped: `find` asks again with `OAuthOnly::Miss`, which is
+     the document skipped and the later sources tried, never a password plan at its servers. A
+     document that lists a password too and an issuer nobody maps is a password plan, as before.
+  3. Restored: STARTTLS. `StartTlsOnly::TryNext` makes a STARTTLS-only document (or SRV
+     submission on STARTTLS) a miss and the next source is tried. When the whole search then finds
+     nothing and was not offline, `run` asks once more with the rule off, only to say why
+     (`Gap::StartTlsOnly`, the offered servers and the manual-setup advice, as before) or to take the
+     OAuth preset a STARTTLS document of Microsoft's leads to. That is a second search on the way to
+     a failure, not on the way to a success.
+  4. Stands: a source is named "from autoconfig" (the domain's own document and the ISPDB are one
+     source in porter), and a search that runs out of its 25 s is reported as unreachable.
+  5. Stands: a domain with an MX at Google needs the ISPDB no longer (the file claims it); a custom
+     domain at an unknown host reaches the ISPDB through porter's candidates (each parent of the MX
+     host) instead of the public-suffix registered domain.
+  Interface asks to porter are in the E3 report.
+- **Not checked against the servers.** Fastmail's, iCloud's, Yahoo's and GMX's domains, MX
+  suffixes, hosts and ports are from the providers' public documentation, and mailo's old table
+  never had them (it branded an account by its incoming host). `crates/mail-core/tests/live_presets.rs`
+  (`#[ignore = "live: ..."]`, run with `--ignored`) resolves one address of each through the real
+  resolver to its file, reads each IMAP server's `CAPABILITY` and each SMTP server's greeting, and skips a server
+  it cannot reach. It has not been run: the owner's live smoke is what closes this.

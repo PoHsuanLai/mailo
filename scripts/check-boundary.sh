@@ -109,7 +109,15 @@ ratchet scripts/core-result-string-allowlist.txt 'Result<String, String>' \
 # lived in, and the signing methods the one trait carried (`get_signing`, `put_signing`,
 # `forget_signing`). `mail_runtime::KeyringSecrets` is porter's `KeyringSecrets` under another
 # crate's name, so it is forbidden by that path and `porter_secrets::KeyringSecrets` is not.
-FORBIDDEN_SYMBOLS='\bOAuthIssuer\b|\bAccountId::(from_uuid|generate)\b|\bSecretPurpose::(AddressBook|OpenPgp|Smime)\b|\bCredential::(OpenPgp|SmimeKey)\b|\bmail_domain::(AccountId|Credential|SecretKey|SecretPurpose)\b|\bMapSecrets\b|\bmail_runtime::(KeyringSecrets|Secrets|MapSecrets|secrets)\b|\bmail_runtime::\{[^}]*\b(KeyringSecrets|Secrets|MapSecrets)\b|\bdyn Secrets\b|\b(get|put|forget)_signing\b|\bcrate::secrets\b'
+#
+# E3 adds what went with account discovery: the preset table's lookup by address
+# (`presets::preset_for`, `preset_for_mail_exchanger`, which provider an address belongs to is
+# porter's provider files' `matching` now, and what is built-in is `mail_core::discover::known`),
+# the personal-Microsoft test (`is_personal_microsoft`; `issuer_named` stays in mailo: porter-discover
+# hands over the document's issuer as data, the mapping to a preset is mailo's), and the two modules
+# that held discovery: `mail_proto::discover` (what each answer meant) and `mail_runtime::discover` (the search, over reqwest and hickory), which are
+# `porter_discover`'s now, over `mail_runtime::lookup`'s two seams.
+FORBIDDEN_SYMBOLS='\bOAuthIssuer\b|\bAccountId::(from_uuid|generate)\b|\bSecretPurpose::(AddressBook|OpenPgp|Smime)\b|\bCredential::(OpenPgp|SmimeKey)\b|\bmail_domain::(AccountId|Credential|SecretKey|SecretPurpose)\b|\bMapSecrets\b|\bmail_runtime::(KeyringSecrets|Secrets|MapSecrets|secrets)\b|\bmail_runtime::\{[^}]*\b(KeyringSecrets|Secrets|MapSecrets)\b|\bdyn Secrets\b|\b(get|put|forget)_signing\b|\bcrate::secrets\b|\bpresets::preset_for\b|\bpresets::\{[^}]*\bpreset_for\b|\bpreset_for\(|\bpreset_for_mail_exchanger\b|\bis_personal_microsoft\b|\bmail_proto::discover\b|\bmail_runtime::discover\b|\bmail_(proto|runtime)::\{[^}]*\bdiscover\b'
 if grep -rnE "$FORBIDDEN_SYMBOLS" crates --include='*.rs' | grep -vE '^[^:]+:[0-9]+:[[:space:]]*//'; then
   echo "a symbol that moved to porter (or was deleted with its type) is back: see FORBIDDEN_SYMBOLS in scripts/check-boundary.sh"
   fail=1

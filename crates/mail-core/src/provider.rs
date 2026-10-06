@@ -1,12 +1,12 @@
 //! Which provider an account is on.
 //!
 //! The chip draws a letter until that provider's own icon has been fetched once and
-//! cached. The preset decides first, because an address on `gmail.com` is Google even
+//! cached. The built-in table decides first, because an address on `gmail.com` is Google even
 //! when the host was typed by hand. Otherwise the incoming host's suffix, and Graph,
 //! which has no host. A lookalike (`imap.gmail.com.evil.test`) is not Google.
 
+use crate::discover::known;
 use chrono::{DateTime, Utc};
-use mail_domain::presets::preset_for;
 use mail_domain::{AccountPlan, AuthPlan, Incoming, Outgoing};
 use porter_provider::Issuer;
 
@@ -63,9 +63,9 @@ impl Provider {
 /// Pure: the preset's clock is fixed, because the match does not read it and a
 /// call must not depend on when it runs.
 pub fn provider(plan: &AccountPlan) -> Provider {
-    // `preset_for` stores `now` on the expected capabilities and does not branch on it.
+    // `known` stores `now` on the expected capabilities and does not branch on it.
     let now = DateTime::<Utc>::UNIX_EPOCH;
-    if let Some(preset) = preset_for(&plan.address, now) {
+    if let Some(preset) = known(&plan.address, now) {
         return match preset.plan.auth {
             AuthPlan::OAuth {
                 issuer: Issuer::Google,

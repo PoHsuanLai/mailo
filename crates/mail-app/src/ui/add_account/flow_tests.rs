@@ -4,10 +4,10 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
+use mail_core::discover::{Found, Source};
 use mail_domain::Retry;
 use mail_domain::id::new_account_id;
 use mail_domain::presets::{Manual, ManualPop3, manual};
-use mail_proto::discover::{Found, Source};
 use mail_runtime::{AccountSecrets, OAuthRegistry};
 use mail_store::SqliteStore;
 use porter_core::{AccountId, SecretKey, SecretPurpose};
@@ -32,7 +32,7 @@ pub(super) fn now() -> chrono::DateTime<chrono::Utc> {
 /// What an ISPDB answer for `address` would be: IMAP and SMTP with implicit TLS.
 pub(super) fn found(address: &str) -> Found {
     Found {
-        source: Source::Ispdb,
+        source: Source::Autoconfig,
         preset: manual(
             address,
             &Manual {
@@ -181,7 +181,7 @@ fn an_unknown_domain_is_looked_up_once_and_shown_row_by_row() {
     let offer = offered(flow::look("  Ada@Example.test ", &seams, now()));
     assert_eq!(fake.looked(), 1);
     assert_eq!(offer.address, "ada@example.test");
-    assert_eq!(offer.source, "from the Thunderbird ISPDB");
+    assert_eq!(offer.source, "from autoconfig");
     assert_eq!(offer.sign_in, SignIn::Password);
     let what: Vec<&str> = offer.rows.iter().map(|(what, _)| what.as_str()).collect();
     assert_eq!(what, ["incoming", "outgoing", "sign-in"]);
@@ -329,7 +329,7 @@ fn a_domain_with_both_offers_what_its_autoconfig_named_and_jmap_beside_it() {
         "{said}"
     );
     assert!(
-        said.contains("IMAP and SMTP, found from the Thunderbird ISPDB"),
+        said.contains("IMAP and SMTP, found from autoconfig"),
         "{said}"
     );
 
