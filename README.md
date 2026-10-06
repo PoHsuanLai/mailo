@@ -16,10 +16,10 @@ mail-domain   → serde, uuid, chrono, thiserror           the vocabulary
 latchkey      → interprocess                             find this user's agent, or start one
 ```
 
-[`crates/latchkey`](crates/latchkey) is not about mail and is written to be taken away: it is
+[latchkey](https://github.com/PoHsuanLai/latchkey) is not about mail and now lives in its own repository: it is
 the per-user daemon lifecycle — where the socket goes on each platform, who is allowed to be
-behind it, and how a client starts one — with no mail in it at all. It is here because this
-project needed it and nothing on crates.io does it.
+behind it, and how a client starts one — with no mail in it at all. It was written here because
+this project needed it and nothing on crates.io does it; mailo pins it by git rev.
 
 ## How it is put together
 

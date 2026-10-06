@@ -4805,3 +4805,67 @@ in mailo (see below).
   (`#[ignore = "live: ..."]`, run with `--ignored`) resolves one address of each through the real
   resolver to its file, reads each IMAP server's `CAPABILITY` and each SMTP server's greeting, and skips a server
   it cannot reach. It has not been run: the owner's live smoke is what closes this.
+
+### F202 — OAuth is porter-oauth's; keeping a token fresh is behind `TokenSource` (accounts step E4)
+
+mailo's `oauth.rs`, `signin.rs`, `renewal.rs` and `loopback.rs` (and the `oauth2` crate) are
+deleted. PKCE, the authorize URL, the loopback listener, the code exchange, the refresh and the
+client registry are `porter-oauth`'s (pinned at the same porter rev as the rest; the `io`
+feature, the loopback listener, is enabled in `mail-runtime` only, and `check-boundary.sh` holds
+the pure crates to none of tokio).
+
+- **What moved.** `mail_runtime::authorize::sign_in` runs the browser flow (bind, PKCE from
+  `rand`, `authorize_url`, `wait_until`, `exchange_code_scoped_detailed`). `mail_runtime::tokens` is the rest of
+  `signin.rs` and `renewal.rs`: `renew` (a due credential at the start of a pass), `graph_token`
+  and `GraphReach`, `incoming_scopes`, `Held`, and `OAuthTokens`, the account's tokens renewed in
+  process through `porter_oauth::refresh_scoped_detailed` over `porter_secrets`. `mail_runtime::http` keeps
+  the 30 s client the token endpoint, Graph and JMAP are reached with; `lookup::ReqwestHttp` is
+  porter's `Http` over it. `Registration`, `OAuthRegistry`, `Renewal` and `Loopback` are gone
+  (FORBIDDEN_SYMBOLS names them and the module paths).
+- **The seam.** `mail_runtime::TokenSource` is "the credential to present": `ahead(token)` renews
+  one near expiry, `current(token)` is what to present, `after_refusal(token)` renews it once
+  because a server refused it. Engines take OAuth credentials from it and from nowhere else (IMAP
+  `XOAUTH2` reads the source's `Held` cell on every connection; SMTP submission and Graph read
+  `current`). The rule is the one the engine already had: renew ahead; run; on a refusal that reads
+  as `NeedsReauth` ask `after_refusal` once and run once more; a token the source minted after a
+  refusal already is `StillRefused` and the account is reported as needing sign-in. `OAuthTokens`
+  is the in-process source; at E6 an implementation over `Accounts::token` replaces it and no
+  engine changes. `AccountEngine::with_renewal(Renewal)` is `with_tokens(Arc<dyn TokenSource>)`.
+- **`AuthPlan` is unchanged.** It already held the issuer and the scopes and never a client id
+  (F9), so no stored plan JSON changes and there is no migration; the frozen fixtures still read.
+- **Clients.** `ClientRegistry` is porter's: its shipped file, then the person's own
+  `$XDG_CONFIG_HOME/porter/clients.toml`. mailo never writes either; porter's Settings is the
+  second one's only writer. For an issuer neither covers, mailo's `oauth.json` is read as a
+  fallback (`clients::load`; porter wins where it has a client, the file fills the gaps, nothing is
+  written). Microsoft's endpoints stay the `organizations` tenant (`clients::endpoints`): porter's
+  published ones are `common`, which accepts personal accounts mailo refuses at sign-in (F64).
+  **Ask of detent (or accountd at E6): import the entries of `oauth.json` into the person's
+  clients once; mailo then drops the fallback.** One write remains, to mailo's own `oauth.json`: a
+  client typed in `MAILO_OAUTH_CLIENT_ID` is recorded there as before, since without it the account
+  cannot be renewed an hour later. It goes when the window can ask porter to record a client.
+- **Behaviour that was not what it was, and is again** (porter 63add38 gave the calls). The
+  redirect URI is `http://127.0.0.1:<port>` with no trailing slash (`LoopbackServer::bind_with(
+  RedirectPath::Bare)`; the one `redirect_uri()` goes to the authorize and the token request). A
+  redirect with the wrong `state`, or any other stray request, is answered and the wait goes on
+  (`wait_until` with mailo's 300 s; dropping the sign-in future cancels it). A token answer without
+  `expires_in` lasts an hour (porter's `DEFAULT_EXPIRES_IN_SECONDS`). A refused exchange or renewal
+  carries the issuer's own `error_description` (`*_detailed` calls; its `error` code when it gave
+  none), as before.
+- **Behaviour that is not what it was.** (Numbered as in the first report.)
+  3. The authorize URL carries `access_type=offline&prompt=consent` for Google only; it carried it
+     for every issuer, so Microsoft is no longer asked to consent again at each sign-in.
+  4. A token is renewed 60 seconds before it expires (porter's margin), not five minutes.
+  5. Only an issuer's `invalid_grant` or a 401 is a refusal that needs a new sign-in. Any other OAuth
+     error (`invalid_client`, `unauthorized_client`) was one; it is now an unreadable answer, tried
+     again at the next operation.
+  7. An OAuth account that submits over SMTP presents the incoming token (the source's), where
+     it preferred a leftover `OutgoingPassword` secret when one existed.
+- **Tests.** `oauth_exchange.rs` is deleted: its cases are `porter-oauth`'s (the form with and
+  without the client secret, the refresh's rotation and fault mapping in `exchange.rs`; the PKCE,
+  state and Google parameters in `authorize.rs` and `pkce.rs`; the redirect rules in `loopback.rs`;
+  the whole sign-in against a fake issuer in `tests/fake_issuer.rs`). `tests/sign_in.rs` holds the
+  restored behaviours (no trailing slash and the same URI in both requests, a wrong `state` not
+  ending the wait, the deadline, no `expires_in`, the issuer's description); `tokens.rs`'s refused
+  renewal also checks the issuer's description. `renewal.rs` (the engine
+  renewing, retrying once and not looping, Graph's token) is `tests/tokens.rs`, over
+  `OAuthTokens`; `signin.rs`'s registry tests are `clients.rs`'s, rewritten for the three files.

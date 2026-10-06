@@ -19,10 +19,10 @@ use mail_domain::*;
 use mail_proto::backend::{Authenticate, ImapBackend, Pop3Backend};
 use mail_proto::{ImapAuth, ImapCommand, ImapSession, Pop3Command, Pop3Session};
 use mail_runtime::graph::read::{OverHttp, Reader};
-use mail_runtime::renewal::Now;
+use mail_runtime::tokens::{self, Now};
 use mail_runtime::{
-    AccountEngine, AccountSecrets, Held, OAuthRegistry, Renewal, SyncReport, platform_secrets,
-    signin,
+    AccountEngine, AccountSecrets, ClientRegistry, Held, OAuthTokens, SyncReport, TokenSource,
+    clients, platform_secrets,
 };
 use mail_store::SqliteStore;
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
@@ -180,7 +180,7 @@ pub fn watch(
     notifications: crate::notify::Setting,
     tell: &dyn Fn(Watched),
 ) -> Result<Vec<PassEnd>, String> {
-    let registry = OAuthRegistry::load_default().map_err(|e| e.to_string())?;
+    let registry = clients::load_default().map_err(|e| e.to_string())?;
     let desktop;
     let announce = match notifications {
         crate::notify::Setting::On => {
@@ -224,7 +224,7 @@ pub fn run(
     // The registry is read once per run rather than once per account: it is deployment
     // configuration, and an edit halfway through a run producing two different client ids is
     // not a behaviour worth having.
-    let registry = OAuthRegistry::load_default().map_err(|e| e.to_string())?;
+    let registry = clients::load_default().map_err(|e| e.to_string())?;
     run_all(
         store,
         platform_secrets(),
@@ -253,7 +253,7 @@ pub fn run(
 pub fn run_with(
     store: Arc<SqliteStore>,
     secrets: Arc<dyn AccountSecrets>,
-    registry: &OAuthRegistry,
+    registry: &ClientRegistry,
     now: chrono::DateTime<chrono::Utc>,
     hooks: Hooks<'_>,
 ) -> Result<Vec<PassEnd>, String> {
@@ -285,7 +285,7 @@ struct Scope<'a> {
 fn run_all(
     store: Arc<SqliteStore>,
     secrets: Arc<dyn AccountSecrets>,
-    registry: &OAuthRegistry,
+    registry: &ClientRegistry,
     now: chrono::DateTime<chrono::Utc>,
     mode: Mode,
     announce: Announce<'_>,
@@ -319,7 +319,7 @@ fn pick(store: &SqliteStore, scope: &Scope<'_>) -> Result<Vec<Configured>, Strin
 fn pass_over(
     store: &Arc<SqliteStore>,
     secrets: Arc<dyn AccountSecrets>,
-    registry: &OAuthRegistry,
+    registry: &ClientRegistry,
     now: chrono::DateTime<chrono::Utc>,
     mode: Mode,
     announce: Announce<'_>,
@@ -415,7 +415,7 @@ pub(crate) async fn signed_in(
     account: &Configured,
     credential: Credential,
     secrets: &dyn AccountSecrets,
-    registry: &OAuthRegistry,
+    registry: &ClientRegistry,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<Credential, String> {
     signed_in_typed(account, credential, secrets, registry, now)
@@ -428,7 +428,7 @@ async fn signed_in_typed(
     account: &Configured,
     credential: Credential,
     secrets: &dyn AccountSecrets,
-    registry: &OAuthRegistry,
+    registry: &ClientRegistry,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<Credential, Failure> {
     let AuthPlan::OAuth { issuer, scopes } = &account.plan.auth else {
@@ -436,13 +436,10 @@ async fn signed_in_typed(
     };
     // Checked before the client is built and before anything is sent: a password account and a
     // still-valid token both leave here without touching the network.
-    if matches!(
-        mail_runtime::oauth::assess(&credential, now),
-        mail_runtime::oauth::Freshness::Ready
-    ) {
+    if tokens::is_fresh(&credential, now) {
         return Ok(credential);
     }
-    let Some(registration) = registry.get(*issuer) else {
+    let Some(client) = clients::client(registry, *issuer) else {
         // The account was added with a client id that this installation no longer has, so the
         // token cannot be renewed and saying "authentication failed" would point at the wrong
         // thing entirely.
@@ -453,19 +450,9 @@ async fn signed_in_typed(
             &account.address,
         )));
     };
-    let http = signin::http_client().map_err(|e| Failure::of("", &e))?;
-    let scopes = mail_runtime::oauth::incoming_scopes(scopes);
-    signin::renew(
-        account.id.clone(),
-        registration,
-        &scopes,
-        credential,
-        secrets,
-        &http,
-        now,
-    )
-    .await
-    .map_err(|e| Failure::of("cannot renew the sign-in: ", &e))
+    tokens::renew(account.id.clone(), client, scopes, credential, secrets, now)
+        .await
+        .map_err(|e| Failure::of("cannot renew the sign-in: ", &e))
 }
 
 /// What keeps an OAuth account's tokens fresh for as long as its engine runs.
@@ -480,22 +467,22 @@ fn renewal_for(
     account: &Configured,
     held: &Held,
     secrets: Arc<dyn AccountSecrets>,
-    registry: &OAuthRegistry,
+    registry: &ClientRegistry,
     clock: Now,
-) -> Option<Renewal> {
+) -> Option<Arc<dyn TokenSource>> {
     let AuthPlan::OAuth { issuer, .. } = &account.plan.auth else {
         return None;
     };
-    let registration = registry.get(*issuer)?.clone();
-    Renewal::new(
+    let client = clients::client(registry, *issuer)?.clone();
+    let source = OAuthTokens::new(
         account.id.clone(),
         &account.plan,
-        registration,
+        client,
         secrets,
         held.clone(),
     )
-    .ok()
-    .map(|renewal| renewal.with_clock(clock))
+    .with_clock(clock);
+    Some(Arc::new(source))
 }
 
 /// The clock a renewal reads in `mode`. See [`renewal_for`].
@@ -511,7 +498,7 @@ async fn one(
     store: &Arc<SqliteStore>,
     account: &Configured,
     secrets: Arc<dyn AccountSecrets>,
-    registry: &OAuthRegistry,
+    registry: &ClientRegistry,
     now: chrono::DateTime<chrono::Utc>,
     mode: Mode,
     announce: Announce<'_>,
@@ -592,8 +579,8 @@ async fn one(
                 store.clone(),
                 secrets,
             );
-            if let Some(renewal) = renewal {
-                engine = engine.with_renewal(renewal);
+            if let Some(source) = renewal {
+                engine = engine.with_tokens(source);
             }
             follow(
                 &mut engine,
@@ -610,8 +597,8 @@ async fn one(
         }
         Incoming::Imap { .. } => {
             let mut engine = imap_engine(store, account, held, secrets);
-            if let Some(renewal) = renewal {
-                engine = engine.with_renewal(renewal);
+            if let Some(source) = renewal {
+                engine = engine.with_tokens(source);
             }
             follow(
                 &mut engine,
@@ -628,8 +615,8 @@ async fn one(
         }
         Incoming::Graph => {
             let mut engine = graph_engine(store, account, secrets).map_err(Failure::fatal)?;
-            if let Some(renewal) = renewal {
-                engine = engine.with_renewal(renewal);
+            if let Some(source) = renewal {
+                engine = engine.with_tokens(source);
             }
             follow(
                 &mut engine,
@@ -688,7 +675,7 @@ fn say(emit: Emit<'_>, progress: Progress) {
 async fn sending_token(
     account: &Configured,
     secrets: &dyn AccountSecrets,
-    registry: &OAuthRegistry,
+    registry: &ClientRegistry,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<(), String> {
     sending_token_typed(account, secrets, registry, now)
@@ -700,7 +687,7 @@ async fn sending_token(
 async fn sending_token_typed(
     account: &Configured,
     secrets: &dyn AccountSecrets,
-    registry: &OAuthRegistry,
+    registry: &ClientRegistry,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<(), Failure> {
     let AuthPlan::OAuth { issuer, .. } = &account.plan.auth else {
@@ -709,12 +696,11 @@ async fn sending_token_typed(
     if account.plan.outgoing != Outgoing::Graph && account.plan.incoming != Incoming::Graph {
         return Ok(());
     }
-    let registration = registry.get(*issuer).ok_or_else(|| {
+    let client = clients::client(registry, *issuer).ok_or_else(|| {
         Failure::fatal("no OAuth client id is configured, so nothing can be sent")
     })?;
-    let http = signin::http_client().map_err(|e| Failure::of("", &e))?;
-    let reach = signin::GraphReach::of(&account.plan);
-    signin::graph_token(account.id.clone(), registration, reach, secrets, &http, now)
+    let reach = tokens::GraphReach::of(&account.plan);
+    tokens::graph_token(account.id.clone(), client, reach, secrets, now)
         .await
         .map(|_| ())
         .map_err(|e| Failure::of("cannot sign in to Microsoft Graph for sending: ", &e))
@@ -798,7 +784,7 @@ pub fn fetch_part(
     section: &str,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<(), String> {
-    let registry = OAuthRegistry::load_default().map_err(|e| e.to_string())?;
+    let registry = clients::load_default().map_err(|e| e.to_string())?;
     fetch_part_with(store, platform_secrets(), &registry, message, section, now)
 }
 
@@ -806,7 +792,7 @@ pub fn fetch_part(
 pub fn fetch_part_with(
     store: &Arc<SqliteStore>,
     secrets: Arc<dyn AccountSecrets>,
-    registry: &OAuthRegistry,
+    registry: &ClientRegistry,
     message: mail_domain::MessageId,
     section: &str,
     now: chrono::DateTime<chrono::Utc>,
@@ -840,7 +826,7 @@ async fn signed_in_imap(
     store: &Arc<SqliteStore>,
     account: &Configured,
     secrets: Arc<dyn AccountSecrets>,
-    registry: &OAuthRegistry,
+    registry: &ClientRegistry,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<AccountEngine<ImapBackend>, String> {
     let stored = secrets
@@ -860,8 +846,8 @@ async fn signed_in_imap(
         clock_for(Mode::Once, now),
     );
     let mut engine = imap_engine(store, account, held, secrets);
-    if let Some(renewal) = renewal {
-        engine = engine.with_renewal(renewal);
+    if let Some(source) = renewal {
+        engine = engine.with_tokens(source);
     }
     Ok(engine)
 }
@@ -875,7 +861,7 @@ pub fn drain(
     account: AccountId,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<SyncReport, String> {
-    let registry = OAuthRegistry::load_default().map_err(|e| e.to_string())?;
+    let registry = clients::load_default().map_err(|e| e.to_string())?;
     drain_with(store, platform_secrets(), &registry, account, now)
 }
 
@@ -883,7 +869,7 @@ pub fn drain(
 pub fn drain_with(
     store: &Arc<SqliteStore>,
     secrets: Arc<dyn AccountSecrets>,
-    registry: &OAuthRegistry,
+    registry: &ClientRegistry,
     account: AccountId,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<SyncReport, String> {
@@ -1341,7 +1327,7 @@ pub fn folder_now(
     path: &str,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<PassEnd, String> {
-    let registry = OAuthRegistry::load_default().map_err(|e| e.to_string())?;
+    let registry = clients::load_default().map_err(|e| e.to_string())?;
     folder_now_with(store, platform_secrets(), &registry, account, path, now)
 }
 
@@ -1349,7 +1335,7 @@ pub fn folder_now(
 pub fn folder_now_with(
     store: Arc<SqliteStore>,
     secrets: Arc<dyn AccountSecrets>,
-    registry: &OAuthRegistry,
+    registry: &ClientRegistry,
     account: AccountId,
     path: &str,
     now: chrono::DateTime<chrono::Utc>,
@@ -1419,8 +1405,8 @@ pub fn folder_now_with(
             sending_token_typed(&account, secrets.as_ref(), registry, now).await?;
             let mut engine =
                 graph_engine(&store, &account, secrets.clone()).map_err(Failure::fatal)?;
-            if let Some(renewal) = renewal {
-                engine = engine.with_renewal(renewal);
+            if let Some(source) = renewal {
+                engine = engine.with_tokens(source);
             }
             one_mailbox(
                 &mut engine,
@@ -1435,8 +1421,8 @@ pub fn folder_now_with(
             return Ok(done);
         }
         let mut engine = imap_engine(&store, &account, held, secrets.clone());
-        if let Some(renewal) = renewal {
-            engine = engine.with_renewal(renewal);
+        if let Some(source) = renewal {
+            engine = engine.with_tokens(source);
         }
         engine.reachable().await.map_err(|e| Failure::of("", &e))?;
         one_mailbox(

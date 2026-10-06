@@ -5,7 +5,7 @@
 //! misrepresent ownership, and `Box<dyn Store>` per account would be worse. Time is an argument
 //! rather than a `Clock` trait, per `CONVENTIONS.md` §6.
 
-use crate::renewal::{AfterRefusal, Renewal, Token};
+use crate::tokens::{AfterRefusal, Token, TokenSource};
 use crate::{AccountSecrets, Cancel, RuntimeError, Transport, drive};
 use chrono::{DateTime, Utc};
 use mail_domain::{
@@ -254,7 +254,7 @@ pub struct AccountEngine<B: Backend> {
     /// Keeps an OAuth account's tokens fresh between and within passes. `None` for a password
     /// account, and for an engine nobody gave one — which then signs in with what it was built
     /// with, as every engine did before a watch had to outlive an access token.
-    renewal: Option<Renewal>,
+    tokens: Option<Arc<dyn TokenSource>>,
     /// Where an account that reads through Microsoft Graph sends its operations, in place of
     /// `backend` and a connection. `None` for every other account.
     graph: Option<crate::graph::read::Reader>,
@@ -281,7 +281,7 @@ impl<B: Backend> AccountEngine<B> {
             schedule: Schedule::default(),
             last: LastRun::default(),
             graph_url: crate::graph::SEND_MAIL.to_owned(),
-            renewal: None,
+            tokens: None,
             graph: None,
             synced: Vec::new(),
         }
@@ -324,10 +324,10 @@ impl<B: Backend> AccountEngine<B> {
 
     /// Renew the account's access tokens as they near expiry, and once after a refusal.
     ///
-    /// The backend's session factory must read its credential from `renewal.held()`, or the
-    /// renewed token never reaches a connection.
-    pub fn with_renewal(mut self, renewal: Renewal) -> Self {
-        self.renewal = Some(renewal);
+    /// The backend's session factory must read its credential from the source's `Held` cell, or
+    /// the renewed token never reaches a connection.
+    pub fn with_tokens(mut self, tokens: Arc<dyn TokenSource>) -> Self {
+        self.tokens = Some(tokens);
         self
     }
 
@@ -373,7 +373,7 @@ impl<B: Backend> AccountEngine<B> {
     /// Here rather than in each operation, because every one of them presents a token and a watch
     /// reaches all of them an hour in. A token can be refused before its expiry says it should
     /// be: revoked sessions, a clock that is wrong, an issuer that shortened a lifetime. One
-    /// renewal answers that; a second would not, which is why [`Renewal::after_refusal`] will not
+    /// renewal answers that; a second would not, which is why [`TokenSource::after_refusal`] will not
     /// renew a token it minted for this reason already.
     async fn run(
         &mut self,
@@ -432,20 +432,20 @@ impl<B: Backend> AccountEngine<B> {
         cancel: &mut Cancel,
         leaving: Option<DateTime<Utc>>,
     ) -> Result<ProtoOutcome, RuntimeError> {
-        let Some(renewal) = &self.renewal else {
+        let Some(tokens) = &self.tokens else {
             return self.run_once(op, cancel, leaving).await;
         };
         let token = match op {
             ProtoOp::Submit { .. } => Token::Sending,
             _ => Token::Incoming,
         };
-        renewal.ahead(token).await?;
+        tokens.ahead(token).await?;
         let first = self.run_once(op.clone(), cancel, leaving).await;
         let refused = matches!(&first, Err(e) if matches!(e.retry(), Retry::NeedsReauth));
-        let Some(renewal) = self.renewal.as_ref().filter(|_| refused) else {
+        let Some(tokens) = self.tokens.as_ref().filter(|_| refused) else {
             return first;
         };
-        match renewal.after_refusal(token).await? {
+        match tokens.after_refusal(token).await? {
             AfterRefusal::TryAgain => self.run_once(op, cancel, leaving).await,
             AfterRefusal::StillRefused => first,
         }
@@ -500,7 +500,7 @@ impl<B: Backend> AccountEngine<B> {
         op: ProtoOp,
         cancel: &mut Cancel,
     ) -> Result<ProtoOutcome, RuntimeError> {
-        let access = match self.secret(SecretPurpose::OutgoingPassword).await {
+        let access = match self.presented(Token::Sending).await {
             Ok(Credential::OAuth { access, .. }) => access,
             _ => {
                 return Err(RuntimeError::Secrets(format!(
@@ -553,9 +553,12 @@ impl<B: Backend> AccountEngine<B> {
         // Most providers authenticate submission with the same secret as retrieval, which is
         // what `AuthPlan` means by covering both directions. A separate outgoing secret is
         // preferred where one was stored, because a few hosts really do differ.
-        let credential = match self.secret(SecretPurpose::OutgoingPassword).await {
-            Ok(credential) => credential,
-            Err(_) => self.secret(SecretPurpose::IncomingPassword).await?,
+        let credential = match &self.tokens {
+            Some(tokens) => tokens.current(Token::Sending).await?,
+            None => match self.secret(SecretPurpose::OutgoingPassword).await {
+                Ok(credential) => credential,
+                Err(_) => self.secret(SecretPurpose::IncomingPassword).await?,
+            },
         };
         // The incoming backend's capabilities. They describe the *account*, not the socket:
         // `SmtpBackend` reads none of the IMAP-shaped fields, and giving it a second, emptier
@@ -582,6 +585,21 @@ impl<B: Backend> AccountEngine<B> {
                 })
             }),
         ))
+    }
+
+    /// The credential to present for `token`: the token source's when the account has one, which
+    /// is the only place an OAuth token comes from, else what the account's secrets hold.
+    async fn presented(&self, token: Token) -> Result<Credential, RuntimeError> {
+        match &self.tokens {
+            Some(tokens) => tokens.current(token).await,
+            None => {
+                self.secret(match token {
+                    Token::Sending => SecretPurpose::OutgoingPassword,
+                    Token::Incoming => SecretPurpose::IncomingPassword,
+                })
+                .await
+            }
+        }
     }
 
     async fn secret(&self, purpose: SecretPurpose) -> Result<Credential, RuntimeError> {
@@ -656,7 +674,7 @@ impl<B: Backend> AccountEngine<B> {
     /// Submit through Microsoft Graph, for an account whose plan says [`Outgoing::Graph`].
     ///
     /// The token is the account's *outgoing* credential: a Graph access token, which the caller
-    /// minted from the sign-in's refresh token before the pass (`signin::graph_token`). The
+    /// minted from the sign-in's refresh token before the pass (`tokens::graph_token`). The
     /// incoming one is for Exchange's IMAP and Graph refuses it. Graph files the sent copy
     /// itself, and does not say where.
     async fn submit_to_graph(
@@ -664,15 +682,13 @@ impl<B: Backend> AccountEngine<B> {
         message: &[u8],
         rcpt_to: &[String],
     ) -> Result<ProtoOutcome, RuntimeError> {
-        let credential = self
-            .secret(porter_core::SecretPurpose::OutgoingPassword)
-            .await?;
+        let credential = self.presented(Token::Sending).await?;
         let porter_core::Credential::OAuth { access, .. } = credential else {
             return Err(RuntimeError::Secrets(
                 "sending through Graph needs a Microsoft sign-in, not a password".to_owned(),
             ));
         };
-        let http = crate::signin::http_client()?;
+        let http = crate::http::http_client()?;
         crate::graph::send_mime(&http, &self.graph_url, access.expose(), message, rcpt_to).await?;
         Ok(ProtoOutcome::Submitted { remote: None })
     }

@@ -37,7 +37,7 @@ fn exercise(store: &SqliteStore, command: &cli::Command) -> Result<String, Strin
         store,
         command,
         now(),
-        &mail_runtime::OAuthRegistry::default(),
+        &mail_runtime::ClientRegistry::default(),
     )
 }
 

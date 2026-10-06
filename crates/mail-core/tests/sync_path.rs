@@ -15,7 +15,7 @@ use mail_core::sync::report::PassEnd;
 use mail_core::{account, sync};
 use mail_domain::id::{account_id_from_uuid, new_account_id};
 use mail_domain::*;
-use mail_runtime::{AccountSecrets, OAuthRegistry};
+use mail_runtime::{AccountSecrets, ClientRegistry};
 use mail_store::SqliteStore;
 use porter_core::SecretText;
 use porter_core::UnixSeconds;
@@ -183,7 +183,7 @@ fn an_account_with_no_credential_is_skipped_with_a_reason() {
     let out = sync::run_with(
         store,
         Arc::new(MemorySecrets::default()),
-        &OAuthRegistry::default(),
+        &ClientRegistry::default(),
         now(),
         sync::report::Hooks::default(),
     )
@@ -208,7 +208,7 @@ fn an_unreachable_server_is_reported_per_account_not_thrown() {
     let out = sync::run_with(
         store,
         Arc::new(secrets),
-        &OAuthRegistry::default(),
+        &ClientRegistry::default(),
         now(),
         sync::report::Hooks::default(),
     )
@@ -229,7 +229,7 @@ fn no_accounts_is_a_run_with_no_account_in_it() {
     let ends = sync::run_with(
         store,
         Arc::new(MemorySecrets::default()),
-        &OAuthRegistry::default(),
+        &ClientRegistry::default(),
         now(),
         sync::report::Hooks::default(),
     )
@@ -251,7 +251,7 @@ async fn a_whole_pass_against_a_real_server_lands_mail_and_reports_what_it_fetch
         sync::run_with(
             store_for_pass,
             Arc::new(secrets),
-            &OAuthRegistry::default(),
+            &ClientRegistry::default(),
             now(),
             sync::report::Hooks::default(),
         )
@@ -313,13 +313,21 @@ async fn a_whole_pass_against_a_real_server_lands_mail_and_reports_what_it_fetch
 /// it was not persisted anywhere either, so even a caller would have had nothing to call with.
 ///
 /// No network: the token endpoint is a socket in this process, which is what substitutable
-/// `Endpoints` are for.
+/// a client's own endpoints are for.
 mod renewing_an_expired_sign_in {
     use super::*;
-    use mail_runtime::Registration;
-    use mail_runtime::oauth::Endpoints;
+    use mail_runtime::clients;
+    use porter_core::EndpointUrl;
+    use porter_provider::{ClientEntry, IssuerEndpoints};
     use std::io::{Read as _, Write as _};
     use std::sync::Mutex;
+
+    /// Where a test's own listener serves the issuer's two pages.
+    #[derive(Debug, Clone)]
+    struct Endpoints {
+        auth: String,
+        token: String,
+    }
 
     /// What the token endpoint was asked, so the request shape can be asserted.
     type Seen = Arc<Mutex<Vec<String>>>;
@@ -417,10 +425,22 @@ mod renewing_an_expired_sign_in {
         }
     }
 
-    fn registry(ends: Endpoints) -> OAuthRegistry {
-        let mut registry = OAuthRegistry::default();
-        registry.set(Registration::new(Issuer::Google, "client-id").at(ends));
-        registry
+    /// A registry whose one client signs in at the endpoints a test's own listener serves.
+    fn registry_at(issuer: Issuer, ends: Endpoints) -> ClientRegistry {
+        let client = ClientEntry {
+            endpoints: Some(IssuerEndpoints {
+                authorize: EndpointUrl::parse(&ends.auth).unwrap(),
+                token: EndpointUrl::parse(&ends.token).unwrap(),
+                revoke: None,
+                device: None,
+            }),
+            ..clients::entry(issuer, "client-id", None)
+        };
+        clients::registry_of(vec![client])
+    }
+
+    fn registry(ends: Endpoints) -> ClientRegistry {
+        registry_at(Issuer::Google, ends)
     }
 
     #[test]
@@ -565,8 +585,7 @@ mod renewing_an_expired_sign_in {
         ))
         .unwrap();
         let (ends, seen) = token_endpoint(RENEWED);
-        let mut registry = OAuthRegistry::default();
-        registry.set(Registration::new(Issuer::Microsoft, "client-id").at(ends));
+        let registry = registry_at(Issuer::Microsoft, ends);
 
         let _ = sync::run_with(
             store,
@@ -628,7 +647,7 @@ mod renewing_an_expired_sign_in {
         let out = sync::run_with(
             store,
             secrets,
-            &OAuthRegistry::default(),
+            &ClientRegistry::default(),
             now(),
             sync::report::Hooks::default(),
         )
@@ -835,7 +854,7 @@ mod a_refused_sign_in {
         let ends = sync::run_with(
             store,
             Arc::new(secrets),
-            &OAuthRegistry::default(),
+            &ClientRegistry::default(),
             now(),
             sync::report::Hooks::default(),
         )
@@ -872,7 +891,7 @@ mod a_refused_sign_in {
         let ends = sync::run_with(
             store,
             Arc::new(secrets),
-            &OAuthRegistry::default(),
+            &ClientRegistry::default(),
             now(),
             sync::report::Hooks::default(),
         )
@@ -920,7 +939,7 @@ mod a_refused_sign_in {
         let ends = sync::run_with(
             store,
             Arc::new(secrets),
-            &OAuthRegistry::default(),
+            &ClientRegistry::default(),
             now(),
             sync::report::Hooks::default(),
         )
@@ -988,7 +1007,7 @@ mod a_server_asking_to_be_left_alone {
         let ends = sync::run_with(
             store,
             Arc::new(secrets),
-            &OAuthRegistry::default(),
+            &ClientRegistry::default(),
             now(),
             sync::report::Hooks::default(),
         )
@@ -1017,7 +1036,7 @@ mod a_server_asking_to_be_left_alone {
         let ends = sync::run_with(
             store,
             Arc::new(secrets),
-            &OAuthRegistry::default(),
+            &ClientRegistry::default(),
             now(),
             sync::report::Hooks::default(),
         )
@@ -1058,7 +1077,7 @@ mod an_account_with_nothing_stored {
         sync::run_with(
             store,
             Arc::new(MemorySecrets::default()),
-            &OAuthRegistry::default(),
+            &ClientRegistry::default(),
             now(),
             sync::report::Hooks::default(),
         )
@@ -1293,7 +1312,7 @@ mod both_accounts_at_once {
         let _ = sync::run_with(
             store,
             Arc::new(secrets),
-            &OAuthRegistry::default(),
+            &ClientRegistry::default(),
             now(),
             sync::report::Hooks::default(),
         );
@@ -1568,7 +1587,7 @@ fn fetching_a_part_of_a_pop3_message_is_refused_before_anything_is_sent() {
     let err = sync::fetch_part_with(
         &store,
         Arc::new(MemorySecrets::default()),
-        &OAuthRegistry::default(),
+        &ClientRegistry::default(),
         MessageId::from_uuid(id.parse().unwrap()),
         "2",
         now(),

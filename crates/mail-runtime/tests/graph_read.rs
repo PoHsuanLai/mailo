@@ -9,12 +9,12 @@ use chrono::{DateTime, TimeDelta, TimeZone, Utc};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_runtime::graph::read::{OverHttp, Reader};
-use mail_runtime::oauth::Endpoints;
-use mail_runtime::{AccountEngine, AccountSecrets, Held, Registration, Renewal, Searched};
+use mail_runtime::{AccountEngine, AccountSecrets, Held, OAuthTokens, Searched};
 use mail_store::{SqliteStore, Store};
+use porter_core::EndpointUrl;
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
 use porter_core::{SecretText, UnixSeconds};
-use porter_provider::Issuer;
+use porter_provider::{ClientEntry, Issuer, IssuerEndpoints};
 use porter_secrets::MemorySecrets;
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
@@ -801,21 +801,25 @@ async fn a_refused_token_is_renewed_once_with_both_graph_permissions() {
         ok(json!({ "access_token": "renewed", "token_type": "Bearer", "expires_in": 3600 }))
     }))
     .await;
-    let registration = Registration::new(Issuer::Microsoft, "client-id").at(Endpoints {
-        auth: format!("http://127.0.0.1:{issuer}/authorize"),
-        token: format!("http://127.0.0.1:{issuer}/token"),
-    });
+    let registration = ClientEntry {
+        endpoints: Some(IssuerEndpoints {
+            authorize: EndpointUrl::parse(&format!("http://127.0.0.1:{issuer}/authorize")).unwrap(),
+            token: EndpointUrl::parse(&format!("http://127.0.0.1:{issuer}/token")).unwrap(),
+            revoke: None,
+            device: None,
+        }),
+        ..mail_runtime::clients::entry(Issuer::Microsoft, "client-id", None)
+    };
     let it = account(port);
-    let renewal = Renewal::new(
+    let renewal = OAuthTokens::new(
         acct_account(),
         &plan(),
         registration,
         it.secrets.clone(),
         Held::new(token("sign-in")),
     )
-    .unwrap()
     .with_clock(Arc::new(now));
-    let mut engine = it.engine.with_renewal(renewal);
+    let mut engine = it.engine.with_tokens(Arc::new(renewal));
     let (_tx, mut cancel) = cancel();
     let report = engine
         .sync(&inbox(), &mut cancel, now(), 200)
