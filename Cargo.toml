@@ -41,18 +41,18 @@ mail-store  = { path = "crates/mail-store" }
 # target in mail-runtime's own Cargo.toml: `oo7` on Linux, `keyring` on macOS and Windows. It
 # enters mail-runtime, the I/O crate, and no pure crate: mail-domain, -mime, -proto and -pim
 # stay free of zbus and tokio (`scripts/check-boundary.sh`).
-porter-core = { git = "https://github.com/PoHsuanLai/porter", rev = "63add389bfcb12ded87ce2b92ef7022e3f8f5655" }
-porter-provider = { git = "https://github.com/PoHsuanLai/porter", rev = "63add389bfcb12ded87ce2b92ef7022e3f8f5655" }
-porter-secrets = { git = "https://github.com/PoHsuanLai/porter", rev = "63add389bfcb12ded87ce2b92ef7022e3f8f5655", default-features = false }
+porter-core = { git = "https://github.com/PoHsuanLai/porter", rev = "8cfcf2d2e82ff3ba570ab7d1b76e59260cdec34b" }
+porter-provider = { git = "https://github.com/PoHsuanLai/porter", rev = "8cfcf2d2e82ff3ba570ab7d1b76e59260cdec34b" }
+porter-secrets = { git = "https://github.com/PoHsuanLai/porter", rev = "8cfcf2d2e82ff3ba570ab7d1b76e59260cdec34b", default-features = false }
 # Step E3: discovery. porter-discover without its `io` feature is pure parsers and two seams (no
 # tokio, no hickory); mail-runtime implements `porter_discover::Dns` and `porter_http::Http` over
 # the resolver and the HTTP client mailo already has, so neither dependency is added for them.
-porter-discover = { git = "https://github.com/PoHsuanLai/porter", rev = "63add389bfcb12ded87ce2b92ef7022e3f8f5655", default-features = false }
+porter-discover = { git = "https://github.com/PoHsuanLai/porter", rev = "8cfcf2d2e82ff3ba570ab7d1b76e59260cdec34b", default-features = false }
 # Step E4: OAuth. Without its `io` feature porter-oauth is the rules, the registry and the exchanges
 # over `porter_http::Http` (no tokio); only mail-runtime, the I/O crate, turns `io` on, for the
 # loopback listener.
-porter-oauth = { git = "https://github.com/PoHsuanLai/porter", rev = "63add389bfcb12ded87ce2b92ef7022e3f8f5655", default-features = false }
-porter-http = { git = "https://github.com/PoHsuanLai/porter", rev = "63add389bfcb12ded87ce2b92ef7022e3f8f5655", default-features = false }
+porter-oauth = { git = "https://github.com/PoHsuanLai/porter", rev = "8cfcf2d2e82ff3ba570ab7d1b76e59260cdec34b", default-features = false }
+porter-http = { git = "https://github.com/PoHsuanLai/porter", rev = "8cfcf2d2e82ff3ba570ab7d1b76e59260cdec34b", default-features = false }
 serde       = { version = "1", features = ["derive"] }
 chrono      = { version = "0.4", features = ["serde"] }
 uuid        = { version = "1", features = ["v4", "serde"] }
@@ -149,7 +149,7 @@ opt-level = 2
 opt-level = 2
 
 # vello and anyrender come from quire's forks (github.com/PoHsuanLai/vello and /anyrender, branch
-# quire-filters), copied verbatim from quire's root manifest: a `[patch]` applies only at a
+# quire-filters), and dioxus-core from its dioxus fork, copied verbatim from quire's root manifest: a `[patch]` applies only at a
 # workspace root, and mailo builds the renderer (`ds-blitz`). See quire's CONSUMING.md section 1.
 [patch.crates-io]
 vello_common = { git = "https://github.com/PoHsuanLai/vello", rev = "1722f6234e10b95d574d2252698a6cc7cdcadb82" }
@@ -162,3 +162,13 @@ anyrender_vello_cpu = { git = "https://github.com/PoHsuanLai/anyrender", rev = "
 anyrender_vello_hybrid = { git = "https://github.com/PoHsuanLai/anyrender", rev = "a0825ebfc0443f3ef0830c0e09f2d85df3da632b" }
 wgpu_context = { git = "https://github.com/PoHsuanLai/anyrender", rev = "a0825ebfc0443f3ef0830c0e09f2d85df3da632b" }
 pixels_window_renderer = { git = "https://github.com/PoHsuanLai/anyrender", rev = "a0825ebfc0443f3ef0830c0e09f2d85df3da632b" }
+# dioxus-core 0.7.10 can spin forever in VirtualDom::wait_for_work: a task woken and then cancelled
+# before it is polled (a use_resource restart) leaves an empty entry in the dirty-task queue that
+# pop_task never removes. Fixed upstream in DioxusLabs/dioxus#5554 (0.8-alpha only); this fork
+# (github.com/PoHsuanLai/dioxus, branch quire-0.7) backports it onto 0.7.10. Remove when quire
+# moves to dioxus 0.8.
+dioxus-core = { git = "https://github.com/PoHsuanLai/dioxus", rev = "a615fd9f09e272c688a45e366161c576cecf0439" }
+dioxus-core-types = { git = "https://github.com/PoHsuanLai/dioxus", rev = "a615fd9f09e272c688a45e366161c576cecf0439" }
+generational-box = { git = "https://github.com/PoHsuanLai/dioxus", rev = "a615fd9f09e272c688a45e366161c576cecf0439" }
+subsecond = { git = "https://github.com/PoHsuanLai/dioxus", rev = "a615fd9f09e272c688a45e366161c576cecf0439" }
+subsecond-types = { git = "https://github.com/PoHsuanLai/dioxus", rev = "a615fd9f09e272c688a45e366161c576cecf0439" }
