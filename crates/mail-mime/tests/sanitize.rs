@@ -224,7 +224,7 @@ fn policy_strips_active_content_and_gates_remote_images() {
     for case in CASES {
         let policy = SanitizePolicy {
             remote_images: case.images,
-            version: SanitizePolicy::CURRENT.version,
+            ..SanitizePolicy::CURRENT
         };
         let out = sanitize(case.html, policy);
         let markup = out.as_str();
@@ -261,7 +261,7 @@ mod what_was_blocked {
             html,
             SanitizePolicy {
                 remote_images: images,
-                version: SanitizePolicy::CURRENT.version,
+                ..SanitizePolicy::CURRENT
             },
         )
         .blocked_remote()
@@ -348,7 +348,7 @@ mod what_will_be_fetched {
             html,
             SanitizePolicy {
                 remote_images: images,
-                version: SanitizePolicy::CURRENT.version,
+                ..SanitizePolicy::CURRENT
             },
         )
         .remote_fetches()
@@ -380,7 +380,7 @@ mod what_will_be_fetched {
     fn the_list_changes_nothing_in_the_markup() {
         let policy = SanitizePolicy {
             remote_images: RemoteImages::Allowed,
-            version: SanitizePolicy::CURRENT.version,
+            ..SanitizePolicy::CURRENT
         };
         let safe = sanitize(BODY, policy);
         for url in safe.remote_fetches() {
@@ -393,5 +393,113 @@ mod what_will_be_fetched {
         }
         assert!(!safe.as_str().contains("javascript:"));
         assert!(!safe.as_str().contains("file:"));
+    }
+}
+
+/// The reader's frame keeps the sender's layout: sheets, classes, presentational attributes.
+/// Whatever could fetch or run is gone from it all the same.
+mod kept_styles {
+    use mail_mime::{RemoteImages, SanitizePolicy, Styles, sanitize};
+
+    fn kept(html: &str) -> String {
+        let policy = SanitizePolicy {
+            styles: Styles::Kept,
+            ..SanitizePolicy::CURRENT
+        };
+        sanitize(html, policy).as_str().to_owned()
+    }
+
+    #[test]
+    fn the_layout_survives_and_nothing_that_fetches_or_runs_does() {
+        const CASES: &[(&str, &str, &[&str], &[&str])] = &[
+            (
+                "a sheet and the classes it styles",
+                "<style>.wrap{max-width:600px;margin:0 auto}</style><div class=\"wrap\" id=\"top\">Hi</div>",
+                &[
+                    "<style>.wrap{max-width:600px;margin:0 auto}</style>",
+                    "class=\"wrap\"",
+                    "id=\"top\"",
+                ],
+                &[],
+            ),
+            (
+                "a newsletter's table attributes",
+                "<table width=\"600\" cellpadding=\"24\" bgcolor=\"#1d3557\" align=\"center\"><tr><td valign=\"top\" style=\"color:#fff\">x</td></tr></table>",
+                &[
+                    "width=\"600\"",
+                    "cellpadding=\"24\"",
+                    "bgcolor=\"#1d3557\"",
+                    "align=\"center\"",
+                    "valign=\"top\"",
+                    "style=\"color:#fff\"",
+                ],
+                &[],
+            ),
+            (
+                "a tracker in a sheet",
+                "<style>body{background:url(https://tracker.test/x)}@import 'https://tracker.test/s.css';</style><p>Hi</p>",
+                &["body{background:none}"],
+                &["tracker.test", "url(", "@import"],
+            ),
+            (
+                "a tracker in a style attribute",
+                "<div style=\"background:url(https://tracker.test/x)\">Hi</div>",
+                &["style=\"background:none\""],
+                &["tracker.test"],
+            ),
+            (
+                "an escaped url in a sheet",
+                "<style>p{background:u\\72l(https://tracker.test/x)}</style>",
+                &["<style>"],
+                &["\\", "url("],
+            ),
+            (
+                "a background attribute",
+                "<table background=\"https://tracker.test/bg.png\"><tr><td>x</td></tr></table>",
+                &["<table"],
+                &["tracker.test", "background"],
+            ),
+            (
+                "markup inside a sheet",
+                "<style><img src=x onerror=alert(1)></style><p>ok</p>",
+                &["<p>ok</p>"],
+                &["<img"],
+            ),
+            (
+                "script and handlers still go",
+                "<p onclick=\"alert(1)\">ok</p><script>alert(2)</script><link rel=\"stylesheet\" href=\"https://tracker.test/a.css\">",
+                &["ok"],
+                &["onclick", "script", "alert", "tracker.test"],
+            ),
+        ];
+        for (name, html, keep, drop) in CASES {
+            let out = kept(html);
+            let folded = out.to_ascii_lowercase();
+            for token in *keep {
+                assert!(out.contains(token), "{name}: {out:?} lost {token:?}");
+            }
+            for token in *drop {
+                assert!(
+                    !folded.contains(&token.to_ascii_lowercase()),
+                    "{name}: {out:?} still has {token:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_default_still_drops_the_sender_s_css() {
+        let out = sanitize(
+            "<style>p{color:red}</style><p class=\"x\" style=\"color:red\" bgcolor=\"red\">Hi</p>",
+            SanitizePolicy::CURRENT,
+        );
+        for token in ["<style", "class=", "style=", "bgcolor"] {
+            assert!(
+                !out.as_str().contains(token),
+                "{:?} has {token}",
+                out.as_str()
+            );
+        }
+        assert_eq!(SanitizePolicy::CURRENT.remote_images, RemoteImages::Blocked);
     }
 }
