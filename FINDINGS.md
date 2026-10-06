@@ -4869,3 +4869,73 @@ the pure crates to none of tokio).
   renewal also checks the issuer's description. `renewal.rs` (the engine
   renewing, retrying once and not looping, Graph's token) is `tests/tokens.rs`, over
   `OAuthTokens`; `signin.rs`'s registry tests are `clients.rs`'s, rewritten for the three files.
+
+### F203 — The add-account sheet is porter's, in a window of its own (accounts step E5)
+
+`ui/add_account/{flow,sheet,copy}.rs` and their tests are deleted, with `Shell::adding` and the
+`AddAccountSheet` the window and the Settings window mounted. "Add Account…" (⌘K, the "+" after the
+tiles, the empty list's button, Settings, and the Connection Doctor's sign-in again) opens a window
+of its own, as Settings is (`OpenAddAccount`/`AddAccountWindows`, raised when open). It draws
+porter's sheet with quire's `ds-shell::accounts` parts and `StepTitle::Own`.
+`scripts/check-boundary.sh` forbids the deleted paths. porter at 5fdeafa, quire v0.2.16 (`ds-shell`
+added to `mail-app`; `porter-service` and `porter-secrets` (no store feature) too: no zbus, no
+Linux-only dependency, and no `cfg(target_os)` in the new code).
+
+- **Who does what.** porter's account service runs in this process (`host.rs`: `AccountService`
+  over a `Sheets` made of two channels). The sheet's machine (`porter_core::sheet`) says what to
+  draw and asks a provider's sign-in what to do next; mailo's provider (`provider.rs`) answers with
+  what mailo already has: `discover::search` and `find_jmap`, `mail_runtime::authorize::sign_in`
+  and `account::add_with_password`. The window (`window.rs`) draws each view through `map.rs`, the
+  one mapping (view to props, events to `SheetInput`, a controlled draft for what is typed), the
+  one sill makes too. porter's registry in this process holds nothing of mailo's: the provider
+  files nothing with it and the service is made afresh for each window.
+- **The seam for E6.** `add_account::route()` says who draws; `Route::OwnWindow` is the only
+  case. With accountd reachable (`Accounts::connect`, Linux) a second case calls
+  `Accounts::add_account` and sill draws, and no window is opened; the window, the mapping and the
+  providers stay for macOS, Windows and Linux without accountd. At E6 the provider is
+  `porter-families`' and `provider.rs` goes.
+- **Rules kept.** Look only when asked (the lookup is the form's submit; before it nothing is
+  sent), add only on the review's last button (`Confirm`), the password goes to the add and
+  nowhere else: it is porter's `SecretText` in the draft, quire's `Hidden` in the props, the one
+  `SheetInput::Submit` to the service, emptied from the draft as it is sent and never in the
+  markup or a `Debug`. A browser sign-in now comes before the review (porter's machine drops a
+  page shown after `Confirm`), so `Credentials` gained `signed`: the credential an earlier
+  sign-in made, which `add_with_password` files without a second browser; `account::oauth_client`
+  is the client lookup the sign-in asks first. Cancelling a browser sign-in drops its future, and
+  with it the listener (the sign-in runs on a thread of its own because
+  `authorize::sign_in` borrows a callback that is not `Sync`).
+- **Opening the browser.** The window opens a browser page whenever it is shown a `BrowserWait`
+  view, the machine's answer to "Open Again" being the same view again. "Copy link" and "Copy
+  code" are `hover::copy`, mailo's clipboard path, in one place.
+- **Behaviour that is not what it was.**
+  1. The steps are porter's: the list of providers first (Google, Microsoft, Fastmail, iCloud,
+     Yahoo, GMX, Email (IMAP) as "Other…"), then the form, the review, then added. The address-first
+     sheet with "Look up" and a found-settings summary (the hosts and ports, and where they came
+     from) is gone; the review lists what the account brings (Mail) with its switch.
+  2. Typing servers by hand is one host, IMAP and SMTP on 993 and 465 over implicit TLS, asked for
+     when the search finds none. POP3 and JMAP by hand, other ports, another login name and a JMAP
+     API token are `mailo account add` only; JMAP found by discovery is still added. When a
+     domain offers both IMAP and JMAP the IMAP offer is the one added (the old sheet offered both).
+     An interface ask for porter: richer form fields for a server (port, protocol, login).
+  3. What `add_with_password` printed ("Password saved for…", a provider's app-password warning)
+     is no longer shown, and a refusal is one of porter's eight sentences (`SignInFault`), not the
+     old sheet's words for each miss; a missing OAuth client id is "no client registered", with
+     no instructions for where to get one.
+  4. The review draws no switch. mailo adds an account's mail and has no path for any other
+     service of a provider, so a switch for one would do nothing: `map::step_of` draws only what
+     a provider lacks (with its reason), which for mail is nothing, and the review is the
+     address and the last button. `Confirm` sends the services as offered.
+  5. A new account joins the current Space as before; the other windows draw it when the shared
+     revision moves. The Doctor no longer hides while the window is open and resumes after its
+     sign-in when the revision moves, not when the sheet closes.
+- **Tests.** `map_tests.rs` is the table (every view, every event); `provider_tests.rs` drives the
+  sign-in as the machine would; `host_tests.rs` runs a whole password add and a whole browser add
+  over `AccountService` (no network, fakes for lookup, browser and add, no keyring); `tests/native_add_account.rs`
+  drives the window on Blitz (an integration test: quire's harness and the VirtualDom tests of
+  the crate cannot share a process) (a password add, a browser add with Copy link and Open Again, Escape,
+  a failed add and Try Again, the markup lint, and the pictures: `MAILO_SHOTS=dir cargo test -p
+  mail-app --test native_add_account -- --ignored`); `native_join.rs` sees the request for the window.
+  The old machine's tests are porter's `sheet::stage::{tests, machine_tests}` and `add_flow`'s:
+  "look only when asked", "add only when told to", a form checked field by field, a second press
+  while working, dismissal at every step. mailo-only behaviour keeps a test here: the lookup's
+  faults, JMAP beside IMAP, the typed server, `Space::widen`, the pre-signed credential.

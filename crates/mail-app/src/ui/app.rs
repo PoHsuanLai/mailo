@@ -381,13 +381,6 @@ pub(super) fn App() -> Element {
             }
             return;
         }
-        // And the Add account sheet: its address and password take letters, Esc closes it.
-        if shell.read().adding.is_some() {
-            if key == "Escape" {
-                super::add_account::close(shell);
-            }
-            return;
-        }
         // The account sheet, over the Doctor it was opened from: Esc goes back from its
         // question, or closes it, and no other key reaches what is behind it.
         if shell.read().account_sheet.is_some() {
@@ -742,9 +735,6 @@ pub(super) fn App() -> Element {
             if shell.read().files.is_some() {
                 super::files::FilesSheet { shell, revision }
             }
-            if shell.read().adding.is_some() {
-                super::add_account::AddAccountSheet { shell, revision, spaces }
-            }
             if shell.read().doctor.is_some() {
                 super::doctor::DoctorView { shell, revision }
             }
@@ -808,9 +798,14 @@ fn user_style() -> ReadSignal<UserStyle> {
 /// sidebar sits on its colour, the card on paper); its motion is the root's motion level, since
 /// quire's `SpaceLook` has none (reported to quire); the rest of the appearance, the typeface
 /// included, is `appearance.toml`'s. A switch or an edit only writes the Spaces, and `Ds`
-/// cross-fades the frame's layers itself.
+/// cross-fades the frame's layers itself. `sheet` is the design system's stylesheet when a window
+/// needs more than `ds::stylesheet()`: the add-account window's parts are `ds-shell`'s.
 #[component]
-pub(super) fn Frame(spaces: Signal<Spaces>, children: Element) -> Element {
+pub(super) fn Frame(
+    spaces: Signal<Spaces>,
+    #[props(default)] sheet: Option<&'static str>,
+    children: Element,
+) -> Element {
     let environment = environment();
     let space = spaces.read().current_space();
     let appearance = window_appearance(&environment);
@@ -826,6 +821,7 @@ pub(super) fn Frame(spaces: Signal<Spaces>, children: Element) -> Element {
             typeface: Some(Typeface::System),
             user_style: user_style(),
             surface: Some("window"),
+            sheet,
             {children}
         }
     }

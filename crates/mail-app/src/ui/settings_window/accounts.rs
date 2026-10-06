@@ -52,7 +52,7 @@ pub(super) fn Accounts(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
             FieldRow { label: "New account",
                 Button {
                     label: "Add Account\u{2026}",
-                    onclick: on_primary(move || crate::ui::add_account::open(shell)),
+                    onclick: on_primary(crate::ui::add_account::open),
                 }
             }
         }

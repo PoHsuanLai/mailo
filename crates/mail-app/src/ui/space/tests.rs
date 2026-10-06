@@ -436,3 +436,18 @@ fn a_space_without_a_grain_key_takes_its_presets_grain() {
     // and the default's for a value that is not a number.
     assert_eq!(grains, [0, 7, 0]);
 }
+
+#[test]
+fn a_new_account_joins_a_scoped_space_and_not_an_open_one() {
+    let mut open = Space::default();
+    assert!(!open.widen(account(1)));
+    assert_eq!(open.scope, Scope::All);
+
+    let mut scoped = Space {
+        scope: Scope::Accounts(vec![account(2)]),
+        ..Space::default()
+    };
+    assert!(scoped.widen(account(1)));
+    assert!(!scoped.widen(account(1)), "added twice");
+    assert_eq!(scoped.scope, Scope::Accounts(vec![account(2), account(1)]));
+}
