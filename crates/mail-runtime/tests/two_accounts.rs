@@ -7,12 +7,18 @@
 //! label name meaning two different labels, a count that adds up the wrong mailboxes.
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_runtime::{Arrival, absorb};
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 
-const A: AccountId = AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
-const B: AccountId = AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a2"));
+fn acct_a() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
+fn acct_b() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a2"))
+}
 
 fn now() -> DateTime<Utc> {
     Utc.timestamp_opt(1_700_000_000, 0).unwrap()
@@ -21,7 +27,7 @@ fn now() -> DateTime<Utc> {
 fn store() -> (SqliteStore, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let store = SqliteStore::in_memory(dir.path()).unwrap();
-    for (id, address) in [(A, "me@example.edu"), (B, "me@gmail.test")] {
+    for (id, address) in [(acct_a(), "me@example.edu"), (acct_b(), "me@gmail.test")] {
         store
             .connection()
             .execute(
@@ -38,7 +44,7 @@ fn store() -> (SqliteStore, tempfile::TempDir) {
 fn deliver(store: &SqliteStore, account: AccountId, uidl: &str, raw: &str) {
     absorb(
         store,
-        account,
+        account.clone(),
         MailboxRef {
             account,
             path: "INBOX".to_owned(),
@@ -89,13 +95,13 @@ fn the_inbox_with_no_account_clause_holds_both() {
     let (store, _dir) = store();
     deliver(
         &store,
-        A,
+        acct_a(),
         "u1",
         "From: a@example.edu\nSubject: from campus\nMessage-ID: <n1@x.test>\n\nhi\n",
     );
     deliver(
         &store,
-        B,
+        acct_b(),
         "u2",
         "From: b@gmail.test\nSubject: from Gmail\nMessage-ID: <g1@x.test>\n\nhi\n",
     );
@@ -114,50 +120,54 @@ fn an_account_clause_narrows_to_that_account() {
     let (store, _dir) = store();
     deliver(
         &store,
-        A,
+        acct_a(),
         "u1",
         "From: a@example.edu\nSubject: from campus\nMessage-ID: <n1@x.test>\n\nhi\n",
     );
     deliver(
         &store,
-        B,
+        acct_b(),
         "u2",
         "From: b@gmail.test\nSubject: from Gmail\nMessage-ID: <g1@x.test>\n\nhi\n",
     );
 
-    let only_a = listed(&store, Filter::Account(A));
+    let only_a = listed(&store, Filter::Account(acct_a()));
     assert_eq!(only_a.len(), 1);
     assert_eq!(only_a[0].subject, "from campus");
-    assert_eq!(only_a[0].account, A);
+    assert_eq!(only_a[0].account, acct_a());
 }
 
 #[test]
 fn the_same_message_on_two_accounts_is_two_threads() {
-    // A mailing list both addresses are on, or an address that forwards to the other. Merging
+    // acct_a() mailing list both addresses are on, or an address that forwards to the other. Merging
     // them would make one thread whose messages live on two accounts — and then archiving it
     // would have to act on two servers with two credentials, which no operation here can do.
     let (store, _dir) = store();
-    deliver(&store, A, "u1", LIST_MAIL);
-    deliver(&store, B, "u2", LIST_MAIL);
+    deliver(&store, acct_a(), "u1", LIST_MAIL);
+    deliver(&store, acct_b(), "u2", LIST_MAIL);
 
     let both = listed(&store, Filter::All);
     assert_eq!(both.len(), 2, "the copies merged into one thread");
     assert_ne!(both[0].id, both[1].id);
-    let mut accounts: Vec<AccountId> = both.iter().map(|t| t.account).collect();
+    let mut accounts: Vec<AccountId> = both.iter().map(|t| t.account.clone()).collect();
     accounts.sort();
-    assert_eq!(accounts, vec![A.min(B), A.max(B)], "one thread each");
+    assert_eq!(
+        accounts,
+        vec![acct_a().min(acct_b()), acct_a().max(acct_b())],
+        "one thread each"
+    );
 }
 
 #[test]
 fn a_reply_on_one_account_does_not_join_the_other_accounts_thread() {
     // The same test one step further on: threading looks up `In-Reply-To` scoped by account, so
-    // a reply arriving on B must attach to B's copy and not to A's.
+    // a reply arriving on acct_b() must attach to acct_b()'s copy and not to acct_a()'s.
     let (store, _dir) = store();
-    deliver(&store, A, "u1", LIST_MAIL);
-    deliver(&store, B, "u2", LIST_MAIL);
+    deliver(&store, acct_a(), "u1", LIST_MAIL);
+    deliver(&store, acct_b(), "u2", LIST_MAIL);
     deliver(
         &store,
-        B,
+        acct_b(),
         "u3",
         "From: someone@example.test\n\
          Subject: Re: the announcement\n\
@@ -168,8 +178,8 @@ fn a_reply_on_one_account_does_not_join_the_other_accounts_thread() {
          replying\n",
     );
 
-    let a_side = listed(&store, Filter::Account(A));
-    let b_side = listed(&store, Filter::Account(B));
+    let a_side = listed(&store, Filter::Account(acct_a()));
+    let b_side = listed(&store, Filter::Account(acct_b()));
     assert_eq!(a_side.len(), 1);
     assert_eq!(
         a_side[0].message_count, 1,
@@ -182,9 +192,9 @@ fn a_reply_on_one_account_does_not_join_the_other_accounts_thread() {
 #[test]
 fn archiving_one_accounts_copy_leaves_the_others_alone() {
     let (store, _dir) = store();
-    deliver(&store, A, "u1", LIST_MAIL);
-    deliver(&store, B, "u2", LIST_MAIL);
-    let a_thread = listed(&store, Filter::Account(A))[0].id;
+    deliver(&store, acct_a(), "u1", LIST_MAIL);
+    deliver(&store, acct_b(), "u2", LIST_MAIL);
+    let a_thread = listed(&store, Filter::Account(acct_a()))[0].id;
 
     let loaded = store.thread(a_thread).unwrap();
     let messages: Vec<Message> = loaded
@@ -199,30 +209,30 @@ fn archiving_one_accounts_copy_leaves_the_others_alone() {
         &caps(),
         now(),
     );
-    store.apply(A, &applied.forward).unwrap();
+    store.apply(acct_a(), &applied.forward).unwrap();
 
     assert!(
         listed(
             &store,
             Filter::And(vec![
-                Filter::Account(A),
+                Filter::Account(acct_a()),
                 Filter::InMailbox(MailboxRole::Inbox)
             ])
         )
         .is_empty(),
-        "A's copy was not archived"
+        "acct_a()'s copy was not archived"
     );
     assert_eq!(
         listed(
             &store,
             Filter::And(vec![
-                Filter::Account(B),
+                Filter::Account(acct_b()),
                 Filter::InMailbox(MailboxRole::Inbox)
             ])
         )
         .len(),
         1,
-        "B's copy was archived too"
+        "acct_b()'s copy was archived too"
     );
 }
 
@@ -231,10 +241,10 @@ fn one_label_name_on_two_accounts_is_two_labels() {
     // `UNIQUE (account, name)`, so "travel" on the Gmail account and "travel" on the campus one are
     // different labels — and a message on one must not acquire the other's.
     let (store, _dir) = store();
-    for account in [A, B] {
+    for account in [acct_a(), acct_b()] {
         store
             .apply(
-                account,
+                account.clone(),
                 &Patch {
                     id: ChangeId::generate(),
                     changes: vec![Change::LabelUpsert(Label {
@@ -248,8 +258,8 @@ fn one_label_name_on_two_accounts_is_two_labels() {
             )
             .unwrap();
     }
-    let a_labels = store.labels(A).unwrap();
-    let b_labels = store.labels(B).unwrap();
+    let a_labels = store.labels(acct_a()).unwrap();
+    let b_labels = store.labels(acct_b()).unwrap();
     assert_eq!(a_labels.len(), 1);
     assert_eq!(b_labels.len(), 1);
     assert_ne!(
@@ -263,19 +273,19 @@ fn an_unread_count_counts_one_account_or_both_as_asked() {
     let (store, _dir) = store();
     deliver(
         &store,
-        A,
+        acct_a(),
         "u1",
         "From: a@example.edu\nSubject: one\nMessage-ID: <n1@x.test>\n\nhi\n",
     );
     deliver(
         &store,
-        B,
+        acct_b(),
         "u2",
         "From: b@gmail.test\nSubject: two\nMessage-ID: <g1@x.test>\n\nhi\n",
     );
     deliver(
         &store,
-        B,
+        acct_b(),
         "u3",
         "From: b@gmail.test\nSubject: three\nMessage-ID: <g2@x.test>\n\nhi\n",
     );
@@ -284,7 +294,7 @@ fn an_unread_count_counts_one_account_or_both_as_asked() {
     assert_eq!(unread(Filter::Read(ReadState::Unread)), 3, "both accounts");
     assert_eq!(
         unread(Filter::And(vec![
-            Filter::Account(B),
+            Filter::Account(acct_b()),
             Filter::Read(ReadState::Unread)
         ])),
         2

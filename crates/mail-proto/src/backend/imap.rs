@@ -12,10 +12,11 @@ use crate::imap::{ImapCommand, ImapSession};
 use crate::machine::{Backend, IoReady, Machine, Moved, Progress, ProtoError, ProtoOutcome};
 use crate::mutf7;
 use mail_domain::{
-    AccountCaps, AccountId, ArchiveMeans, Condstore, ExpungeMeans, FetchSince, FolderRoles,
-    FolderWork, Ingest, MailboxRef, MailboxRole, MoveExt, PartTree, ProtoOp, RemoteRef, Resync,
-    ServerLabels, SyncCursor, SystemFlag, UidValidity,
+    AccountCaps, ArchiveMeans, Condstore, ExpungeMeans, FetchSince, FolderRoles, FolderWork,
+    Ingest, MailboxRef, MailboxRole, MoveExt, PartTree, ProtoOp, RemoteRef, Resync, ServerLabels,
+    SyncCursor, SystemFlag, UidValidity,
 };
+use porter_core::AccountId;
 
 /// Builds a session for one command walk, owning the credential so the backend never sees it.
 ///
@@ -107,7 +108,7 @@ impl ImapBackend {
     }
 
     pub fn account(&self) -> AccountId {
-        self.account
+        self.account.clone()
     }
 
     fn queue(&mut self, commands: Vec<ImapCommand>) -> Progress<ProtoOutcome> {
@@ -255,7 +256,7 @@ impl ImapBackend {
             .collect::<Vec<_>>()
             .join(",");
         let mailbox = MailboxRef {
-            account: self.account,
+            account: self.account.clone(),
             path: path.to_owned(),
         };
         self.job = Job::Applied;
@@ -282,7 +283,7 @@ impl ImapBackend {
                 "a POP reference cannot be fetched over IMAP".to_owned(),
             ));
         };
-        let mailbox = mailbox_of(&remotes, self.account);
+        let mailbox = mailbox_of(&remotes, self.account.clone());
         self.job = Job::Fetch { remotes };
         self.queue(vec![
             Self::select(&mailbox, true),
@@ -416,7 +417,7 @@ impl Backend for ImapBackend {
                     Some(mail_domain::Star::Unstarred) => remove.push("\\Flagged"),
                     None => {}
                 }
-                let mailbox = mailbox_of(&remotes, self.account);
+                let mailbox = mailbox_of(&remotes, self.account.clone());
                 let mut commands = vec![Self::select(&mailbox, false)];
                 if !add.is_empty() {
                     commands.push(ImapCommand::UidStore {
@@ -437,7 +438,7 @@ impl Backend for ImapBackend {
                 let Some(set) = uid_set(&remotes) else {
                     return Progress::Done(ProtoOutcome::Applied);
                 };
-                let mailbox = mailbox_of(&remotes, self.account);
+                let mailbox = mailbox_of(&remotes, self.account.clone());
                 self.job = Job::Applied;
                 // A server whose `PERMANENTFLAGS` has no `\*` may keep the keyword only for
                 // the session, or not at all, and still answer OK (RFC 9051 §6.4.6). That is
@@ -462,7 +463,7 @@ impl Backend for ImapBackend {
                 let Some(set) = uid_set(&remotes) else {
                     return Progress::Done(ProtoOutcome::Applied);
                 };
-                let mailbox = mailbox_of(&remotes, self.account);
+                let mailbox = mailbox_of(&remotes, self.account.clone());
                 let mut commands = vec![Self::select(&mailbox, false)];
                 if !add.is_empty() {
                     commands.push(ImapCommand::UidStore {
@@ -483,7 +484,7 @@ impl Backend for ImapBackend {
                 let Some(set) = uid_set(&remotes) else {
                     return Progress::Done(ProtoOutcome::Applied);
                 };
-                let source = mailbox_of(&remotes, self.account);
+                let source = mailbox_of(&remotes, self.account.clone());
                 match &self.caps.archive {
                     ArchiveMeans::LocalOnly => Progress::Done(ProtoOutcome::Applied),
                     ArchiveMeans::DropInbox => {
@@ -525,7 +526,7 @@ impl Backend for ImapBackend {
                 let Some(set) = uid_set(&remotes) else {
                     return Progress::Done(ProtoOutcome::Applied);
                 };
-                let source = mailbox_of(&remotes, self.account);
+                let source = mailbox_of(&remotes, self.account.clone());
                 match &self.caps.archive {
                     ArchiveMeans::LocalOnly => Progress::Done(ProtoOutcome::Applied),
                     // Gmail: the folder is a label. Added, and the inbox's taken away — which
@@ -726,7 +727,10 @@ impl Backend for ImapBackend {
                 self.caps = caps.clone();
                 Progress::Done(ProtoOutcome::Folders {
                     caps: Box::new(caps),
-                    listed: crate::backend::folders::listing(&transcript.untagged, self.account),
+                    listed: crate::backend::folders::listing(
+                        &transcript.untagged,
+                        self.account.clone(),
+                    ),
                 })
             }
             Job::Listing { mailbox } => {
@@ -867,7 +871,7 @@ impl Backend for ImapBackend {
                 // unread until a later sweep happened to revisit it.
                 let flags = parse_fetches(
                     &transcript.untagged,
-                    &mailbox_of(&remotes, self.account).path,
+                    &mailbox_of(&remotes, self.account.clone()).path,
                     uidvalidity_of(&remotes),
                 )
                 .into_iter()

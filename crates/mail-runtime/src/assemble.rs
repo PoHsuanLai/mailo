@@ -10,6 +10,7 @@ use crate::RuntimeError;
 use chrono::{DateTime, Utc};
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 
 /// What arrived, and where from.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -160,7 +161,7 @@ fn build(
             subject: &b.fields.subject,
         })
         .collect();
-    let known = |id: &str| thread_of_rfc_id(store, account, id);
+    let known = |id: &str| thread_of_rfc_id(store, account.clone(), id);
     let threads = threading::thread(&inputs, &known);
 
     let mut messages = Vec::new();
@@ -212,7 +213,7 @@ fn build(
         messages.push(Message {
             id: MessageId::generate(),
             thread,
-            account,
+            account: account.clone(),
             key,
             date: fields.date.unwrap_or(fallback_date),
             from,
@@ -289,7 +290,7 @@ pub fn keep(
         placements.push(item.placement);
     }
     let blobs: Vec<BlobId> = built.iter().map(|b| b.blob).collect();
-    let kept: Vec<mail_domain::Kept> = build(store, account, built, fallback_date)?
+    let kept: Vec<mail_domain::Kept> = build(store, account.clone(), built, fallback_date)?
         .into_iter()
         .zip(placements.into_iter().zip(blobs))
         .map(|(mut message, (placement, raw))| {
@@ -332,7 +333,7 @@ pub fn appended(
 ) -> Result<Patch, RuntimeError> {
     let mut ingest = assemble_as(
         store,
-        account,
+        account.clone(),
         into,
         None,
         vec![Arrival { remote, raw }],
@@ -498,7 +499,7 @@ pub fn absorb_into(
     let ingest = if headers_only {
         assemble_headers(
             store,
-            account,
+            account.clone(),
             mailbox,
             role,
             cursor,
@@ -508,7 +509,7 @@ pub fn absorb_into(
     } else {
         assemble(
             store,
-            account,
+            account.clone(),
             mailbox,
             role,
             cursor,
@@ -532,7 +533,7 @@ pub fn absorb_rebuilt_into(
 ) -> Result<Patch, RuntimeError> {
     let ingest = assemble_as(
         store,
-        account,
+        account.clone(),
         into,
         None,
         arrivals,

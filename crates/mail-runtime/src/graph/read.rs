@@ -46,11 +46,11 @@ use crate::graph::{detail, retry_after, segment};
 use base64::Engine as _;
 use chrono::{DateTime, Utc};
 use mail_domain::{
-    AccountCaps, AccountId, FetchSince, Folder, FolderRoles, FolderWork, Holds, Ingest,
-    MailboxRole, ProtoOp, ReadState, RemoteRef, Retry, SpecialUse, Star, Subscription, SyncCursor,
-    UidValidity,
+    AccountCaps, FetchSince, Folder, FolderRoles, FolderWork, Holds, Ingest, MailboxRole, ProtoOp,
+    ReadState, RemoteRef, Retry, SpecialUse, Star, Subscription, SyncCursor, UidValidity,
 };
 use mail_proto::ProtoOutcome;
+use porter_core::AccountId;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::time::Duration;
@@ -718,7 +718,7 @@ impl Reader {
                     folder_roles.push((path.clone(), role));
                 }
                 Folder {
-                    account: self.account,
+                    account: self.account.clone(),
                     path,
                     delimiter: Some('/'),
                     special: role.map(special),

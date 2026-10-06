@@ -14,8 +14,8 @@ mod plan;
 
 pub use plan::{FolderContents, FolderCtx, plan};
 
-use crate::id::AccountId;
 use crate::retry::{Retry, Retryable};
+use porter_core::AccountId;
 use serde::{Deserialize, Serialize};
 
 /// One mailbox on a server, as the last listing (and anything since queued) describes it.
@@ -236,7 +236,7 @@ pub fn layered(account: AccountId, listed: Vec<Folder>, pending: &[FolderWork]) 
         match work {
             FolderWork::Create { path } => {
                 if !folders.iter().any(|f| same(&f.path, path)) {
-                    let fresh = created(account, path, &folders);
+                    let fresh = created(account.clone(), path, &folders);
                     folders.push(fresh);
                 }
             }
@@ -278,6 +278,7 @@ fn created(account: AccountId, path: &str, folders: &[Folder]) -> Folder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::id::account_id_from_uuid;
 
     #[test]
     fn a_rename_moves_what_is_beneath_and_nothing_that_merely_shares_a_prefix() {
@@ -310,7 +311,7 @@ mod tests {
     #[test]
     fn the_inbox_is_protected_by_name_even_when_the_server_does_not_mark_it() {
         let folder = Folder {
-            account: AccountId::from_uuid(uuid::Uuid::nil()),
+            account: account_id_from_uuid(uuid::Uuid::nil()),
             path: "inbox".to_owned(),
             delimiter: Some('/'),
             special: None,

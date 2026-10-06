@@ -23,9 +23,9 @@ use ds::components::fields::field_row::{FieldGroup, FieldRow};
 use ds::components::overlays::sheet_attach::Attach;
 use ds::prelude::*;
 use ds::root::common::Common;
-use mail_domain::AccountId;
 use mail_runtime::Secrets;
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 use std::sync::Arc;
 
 /// What the sheet is called.
@@ -108,9 +108,10 @@ fn confirm(shell: Signal<Shell>, mut revision: Signal<u64>) {
     let store = consume_context::<Arc<SqliteStore>>();
     let seams = seams();
     let dirs = try_consume_context::<WindowDirs>();
+    let removing = account.clone();
     spawn(async move {
         let done = tokio::task::spawn_blocking(move || {
-            mail_core::account::remove(&store, seams.secrets.as_ref(), account)
+            mail_core::account::remove(&store, seams.secrets.as_ref(), removing)
         })
         .await;
         match done {

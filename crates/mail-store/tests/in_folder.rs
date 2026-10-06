@@ -5,12 +5,15 @@
 //! answers, the parity the rest of the store is held to.
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_store::{MemoryStore, SqlValue, SqliteStore, Store, compile};
+use porter_core::AccountId;
 use std::collections::BTreeSet;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 
 const PROJECTS: &str = "Projects/2026";
 
@@ -26,7 +29,7 @@ fn sqlite() -> (SqliteStore, tempfile::TempDir) {
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [ACCOUNT.to_string()],
+            [acct_account().to_string()],
         )
         .unwrap();
     (store, dir)
@@ -41,7 +44,7 @@ fn both<T>(scenario: impl Fn(&dyn Store) -> T) -> (T, T) {
 
 fn mailbox(path: &str) -> MailboxRef {
     MailboxRef {
-        account: ACCOUNT,
+        account: acct_account(),
         path: path.to_owned(),
     }
 }
@@ -59,7 +62,7 @@ fn message(n: u128, role: MailboxRole) -> Message {
     Message {
         id: MessageId::from_uuid(uuid::Uuid::from_u128(n)),
         thread: ThreadId::from_uuid(uuid::Uuid::from_u128(n + 1000)),
-        account: ACCOUNT,
+        account: acct_account(),
         key: MessageKey::Rfc(format!("m{n}@example.test")),
         date: at(n as i64),
         from: Address {
@@ -108,7 +111,7 @@ fn deliver(store: &dyn Store, m: &Message, remote: RemoteRef) {
         raw: BlobId::generate(),
         message: m.clone(),
     });
-    store.ingest(ACCOUNT, batch).unwrap();
+    store.ingest(acct_account(), batch).unwrap();
 }
 
 /// The server says `remote` has gone from its mailbox.
@@ -118,7 +121,7 @@ fn gone(store: &dyn Store, remote: RemoteRef) {
     };
     let mut batch = ingest(path);
     batch.gone.push(remote);
-    store.ingest(ACCOUNT, batch).unwrap();
+    store.ingest(acct_account(), batch).unwrap();
 }
 
 fn listed(store: &dyn Store, filter: Filter) -> BTreeSet<ThreadId> {
@@ -187,7 +190,7 @@ fn a_folder_lists_the_threads_with_a_message_addressed_there() {
             listed(
                 store,
                 Filter::InFolder(MailboxRef {
-                    account: AccountId::from_uuid(uuid::Uuid::from_u128(9)),
+                    account: account_id_from_uuid(uuid::Uuid::from_u128(9)),
                     path: PROJECTS.to_owned(),
                 }),
             ),
@@ -344,7 +347,11 @@ fn a_copy_in_the_inbox_brings_a_message_first_found_in_a_folder_into_the_inbox()
 fn a_message_moved_out_of_the_inbox_elsewhere_is_filed_where_it_went() {
     let (sqlite, memory) = both(|store| {
         store
-            .put_caps(ACCOUNT, &caps(vec![("Trash", MailboxRole::Trash)]), at(0))
+            .put_caps(
+                acct_account(),
+                &caps(vec![("Trash", MailboxRole::Trash)]),
+                at(0),
+            )
             .unwrap();
         let id = |n: u128| MessageId::from_uuid(uuid::Uuid::from_u128(n));
         // Moved to the trash by another client: the trash copy arrived first.
@@ -393,10 +400,10 @@ fn a_move_made_here_and_not_yet_sent_is_not_undone_by_the_server() {
             id: ChangeId::generate(),
             changes: vec![Change::MessageMailbox(id, MailboxRole::Archive)],
         };
-        store.apply(ACCOUNT, &patch).unwrap();
+        store.apply(acct_account(), &patch).unwrap();
         store
             .enqueue(
-                ACCOUNT,
+                acct_account(),
                 RemoteIntent::SetMailbox {
                     messages: vec![id],
                     role: MailboxRole::Archive,
@@ -441,10 +448,10 @@ fn act(store: &dyn Store, op: Op, n: u128) {
         &caps,
         at(1),
     );
-    store.apply(ACCOUNT, &applied.forward).unwrap();
+    store.apply(acct_account(), &applied.forward).unwrap();
     let intent = applied.remote.expect("a server with folders is told");
     store
-        .enqueue(ACCOUNT, intent, &applied.inverse, at(1))
+        .enqueue(acct_account(), intent, &applied.inverse, at(1))
         .unwrap()
         .expect("the message has an address, so the move is queued");
 }
@@ -460,15 +467,17 @@ fn moving_caps() -> AccountCaps {
 type Views = Vec<(BTreeSet<ThreadId>, BTreeSet<ThreadId>)>;
 
 fn moved_out_and_back(store: &dyn Store) -> Views {
-    store.put_caps(ACCOUNT, &moving_caps(), at(0)).unwrap();
+    store
+        .put_caps(acct_account(), &moving_caps(), at(0))
+        .unwrap();
     store
         .apply(
-            ACCOUNT,
+            acct_account(),
             &Patch {
                 id: ChangeId::generate(),
                 changes: vec![Change::LabelUpsert(Label {
                     id: ELSEWHERE,
-                    account: ACCOUNT,
+                    account: acct_account(),
                     name: "Elsewhere".to_owned(),
                     color: None,
                     origin: LabelOrigin::Provider,
@@ -511,7 +520,7 @@ fn moved_out_and_back(store: &dyn Store) -> Views {
     seen.push(view(store));
 
     // The server refuses every move for good: each undo is applied, and each comes back.
-    for entry in store.outbox_due(ACCOUNT, at(10_000)).unwrap() {
+    for entry in store.outbox_due(acct_account(), at(10_000)).unwrap() {
         store
             .outbox_settle(
                 entry.id,
@@ -530,7 +539,7 @@ fn moved_out_and_back(store: &dyn Store) -> Views {
 /// The label a folder path is, made where new: what `Op::File` names.
 fn label_named(store: &dyn Store, path: &str) -> LabelId {
     if let Some(label) = store
-        .labels(ACCOUNT)
+        .labels(acct_account())
         .unwrap()
         .into_iter()
         .find(|l| l.name == path)
@@ -540,12 +549,12 @@ fn label_named(store: &dyn Store, path: &str) -> LabelId {
     let id = LabelId::generate();
     store
         .apply(
-            ACCOUNT,
+            acct_account(),
             &Patch {
                 id: ChangeId::generate(),
                 changes: vec![Change::LabelUpsert(Label {
                     id,
-                    account: ACCOUNT,
+                    account: acct_account(),
                     name: path.to_owned(),
                     color: None,
                     origin: LabelOrigin::Provider,
@@ -590,14 +599,16 @@ fn a_move_from_a_folder_view_leaves_it_at_once_and_a_refused_one_comes_back() {
 #[test]
 fn a_move_made_here_leaves_the_server_address_alone() {
     let (sqlite, memory) = both(|store| {
-        store.put_caps(ACCOUNT, &moving_caps(), at(0)).unwrap();
+        store
+            .put_caps(acct_account(), &moving_caps(), at(0))
+            .unwrap();
         deliver(store, &message(1, MailboxRole::Inbox), imap("INBOX", 1));
         act(store, Op::Archive, 1);
         let id = MessageId::from_uuid(uuid::Uuid::from_u128(1));
         (
             store.remotes_of(id).unwrap(),
             store
-                .outbox_due(ACCOUNT, at(10_000))
+                .outbox_due(acct_account(), at(10_000))
                 .unwrap()
                 .into_iter()
                 .map(|e| e.op)

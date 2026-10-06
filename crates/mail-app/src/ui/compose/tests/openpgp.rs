@@ -9,7 +9,7 @@ use super::super::page::Float;
 use super::super::protection::{Mode, Protection, items, pick};
 use super::super::seal::SealBar;
 use super::*;
-use crate::ui::fixtures::{ACCOUNT, Seen, click, rebuild_into, seeded, type_into};
+use crate::ui::fixtures::{Seen, acct_account, click, rebuild_into, seeded, type_into};
 
 fn far() -> DateTime<Utc> {
     Utc::now() + chrono::TimeDelta::days(365)
@@ -17,7 +17,7 @@ fn far() -> DateTime<Utc> {
 
 fn queued(store: &SqliteStore) -> Vec<Vec<u8>> {
     store
-        .outbox_due(ACCOUNT, far())
+        .outbox_due(acct_account(), far())
         .unwrap()
         .into_iter()
         .filter_map(|entry| match entry.op {
@@ -33,9 +33,15 @@ fn asking(store: &SqliteStore, openpgp: OpenPgp) -> Draft {
         name: Some("Dana Whitfield".to_owned()),
         email: "dana@example.test".to_owned(),
     }];
-    let mut draft =
-        mail_core::compose::draft_new(store, ACCOUNT, &to, "Plans", "see you there", Utc::now())
-            .unwrap();
+    let mut draft = mail_core::compose::draft_new(
+        store,
+        acct_account(),
+        &to,
+        "Plans",
+        "see you there",
+        Utc::now(),
+    )
+    .unwrap();
     draft.openpgp = openpgp;
     mail_core::compose::save(store, &draft).unwrap();
     draft

@@ -10,12 +10,15 @@
 //! has gone wrong with setup" for what looked like the ordinary first-run state. The guard was
 //! right and the fixture was lying. See `CONVENTIONS.md`, "An assertion that was already true".
 
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_runtime::{Arrival, absorb};
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 
 #[test]
 #[ignore = "fixture generator: set MAILO_SEED_DIR and run with --ignored"]
@@ -31,7 +34,7 @@ fn seed() {
         .execute(
             "INSERT OR IGNORE INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [ACCOUNT.to_string()],
+            [acct_account().to_string()],
         )
         .unwrap();
 
@@ -44,9 +47,9 @@ fn seed() {
         );
         absorb(
             &store,
-            ACCOUNT,
+            acct_account(),
             MailboxRef {
-                account: ACCOUNT,
+                account: acct_account(),
                 path: "INBOX".to_owned(),
             },
             Some(SyncCursor::Pop),
@@ -64,10 +67,10 @@ fn seed() {
     // One of them labelled, the way a Gmail sync reports it.
     store
         .ingest(
-            ACCOUNT,
+            acct_account(),
             Ingest {
                 mailbox: MailboxRef {
-                    account: ACCOUNT,
+                    account: acct_account(),
                     path: "INBOX".to_owned(),
                 },
                 validity: UidValidity::Same,

@@ -6,14 +6,15 @@
 //! general statement.
 
 use chrono::{DateTime, Utc};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::{
-    AccountCaps, AccountId, ArchiveMeans, Attachments, BlobId, Body, Change, Condstore,
-    ConnectionBudget, ExpungeMeans, FolderRoles, LabelId, MailboxRole, MailboxSet, Membership,
-    Message, MessageId, MessageKey, MoveExt, Op, OpKind, Patch, Pin, ReadState, RemoteIntent,
-    ServerLabels, ServerThreads, Snooze, Star, Supported, Target, Thread, ThreadId, ThreadSummary,
-    WatchMode,
+    AccountCaps, ArchiveMeans, Attachments, BlobId, Body, Change, Condstore, ConnectionBudget,
+    ExpungeMeans, FolderRoles, LabelId, MailboxRole, MailboxSet, Membership, Message, MessageId,
+    MessageKey, MoveExt, Op, OpKind, Patch, Pin, ReadState, RemoteIntent, ServerLabels,
+    ServerThreads, Snooze, Star, Supported, Target, Thread, ThreadId, ThreadSummary, WatchMode,
 };
 use mail_domain::{Address, Attachment, FollowUp, Inline, Mute, PartContent};
+use porter_core::AccountId;
 use proptest::prelude::*;
 use std::time::Duration;
 use uuid::Uuid;
@@ -35,7 +36,9 @@ const fn lid(n: u128) -> LabelId {
 
 const THREAD: ThreadId = tid(0x7001);
 const OTHER_THREAD: ThreadId = tid(0x7002);
-const ACCOUNT: AccountId = AccountId::from_uuid(Uuid::from_u128(0xacc0));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(Uuid::from_u128(0xacc0))
+}
 const LABEL_A: LabelId = lid(0xa1);
 const LABEL_B: LabelId = lid(0xb2);
 const LABEL_C: LabelId = lid(0xc3);
@@ -62,7 +65,7 @@ fn message(n: u128, date: i64) -> Message {
     Message {
         id: mid(n),
         thread: THREAD,
-        account: ACCOUNT,
+        account: acct_account(),
         key: MessageKey::Rfc(format!("m{n}@example.test")),
         date: at(date),
         from: addr(None, "ada@example.test"),
@@ -252,7 +255,7 @@ fn derive_rolls_up_the_thread() {
     );
 
     assert_eq!(s.id, THREAD);
-    assert_eq!(s.account, ACCOUNT);
+    assert_eq!(s.account, acct_account());
     // Oldest is m2 (date 100); its reply prefix stays exactly as it arrived.
     assert_eq!(s.subject, "Re: Original subject");
     // Newest is m3 (date 500).

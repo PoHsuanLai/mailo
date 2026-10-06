@@ -5,13 +5,17 @@
 //! what a store is. This is the only crate that may hold both.
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_proto::backend::{Authenticate, ImapBackend};
 use mail_proto::{Backend, ImapAuth, ImapCommand, ImapSession, IoReady, Progress, ProtoOutcome};
 use mail_store::{SqliteStore, Store};
+use porter_core::{AccountId, Credential};
+use porter_core::{SecretText, UnixSeconds};
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 
 fn now() -> DateTime<Utc> {
     Utc.timestamp_opt(1_700_000_000, 0).unwrap()
@@ -36,7 +40,7 @@ fn gmail_caps() -> AccountCaps {
 
 fn backend() -> ImapBackend {
     ImapBackend::new(
-        ACCOUNT,
+        acct_account(),
         gmail_caps(),
         Box::new(|auth: Authenticate, commands: Vec<ImapCommand>| {
             let mut all = Vec::new();
@@ -48,9 +52,11 @@ fn backend() -> ImapBackend {
                 ImapAuth {
                     username: "ada@example.test".to_owned(),
                     credential: Credential::OAuth {
-                        access: "ya29.token".to_owned(),
-                        refresh: "1//refresh".to_owned(),
-                        expires_at: Utc.timestamp_opt(2_000_000_000, 0).unwrap(),
+                        access: SecretText::new("ya29.token".to_owned()),
+                        refresh: SecretText::new("1//refresh".to_owned()),
+                        expires_at: UnixSeconds(
+                            (Utc.timestamp_opt(2_000_000_000, 0).unwrap()).timestamp(),
+                        ),
                     },
                     sasl: vec![SaslMech::XOauth2],
                 },
@@ -69,7 +75,7 @@ fn survey(responses: &[&str]) -> Ingest {
     let mut replies = responses.iter();
     let mut progress = backend.begin(ProtoOp::FetchEnvelopes {
         mailbox: MailboxRef {
-            account: ACCOUNT,
+            account: acct_account(),
             path: "INBOX".to_owned(),
         },
         since: FetchSince::Beginning,
@@ -96,7 +102,7 @@ fn store() -> (SqliteStore, tempfile::TempDir) {
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [ACCOUNT.to_string()],
+            [acct_account().to_string()],
         )
         .unwrap();
     (store, dir)
@@ -111,7 +117,7 @@ fn a_label_on_the_wire_becomes_a_label_you_can_search_for() {
     let message = Message {
         id: MessageId::generate(),
         thread: ThreadId::generate(),
-        account: ACCOUNT,
+        account: acct_account(),
         key: MessageKey::Rfc("m1@example.test".to_owned()),
         date: now(),
         from: Address {
@@ -136,10 +142,10 @@ fn a_label_on_the_wire_becomes_a_label_you_can_search_for() {
     let thread = message.thread;
     store
         .ingest(
-            ACCOUNT,
+            acct_account(),
             Ingest {
                 mailbox: MailboxRef {
-                    account: ACCOUNT,
+                    account: acct_account(),
                     path: "INBOX".to_owned(),
                 },
                 validity: UidValidity::Same,
@@ -176,11 +182,11 @@ fn a_label_on_the_wire_becomes_a_label_you_can_search_for() {
         "the survey carried no labels: {ingest:?}"
     );
 
-    store.ingest(ACCOUNT, ingest).unwrap();
+    store.ingest(acct_account(), ingest).unwrap();
 
     // And it is findable by the thing the user typed.
     let travel = store
-        .labels(ACCOUNT)
+        .labels(acct_account())
         .unwrap()
         .into_iter()
         .find(|l| l.name == "travel")
@@ -206,9 +212,9 @@ fn a_label_on_the_wire_becomes_a_label_you_can_search_for() {
 
     // And `\Inbox` did not become one.
     assert_eq!(
-        store.labels(ACCOUNT).unwrap().len(),
+        store.labels(acct_account()).unwrap().len(),
         1,
         "a system name became a label: {:?}",
-        store.labels(ACCOUNT).unwrap()
+        store.labels(acct_account()).unwrap()
     );
 }

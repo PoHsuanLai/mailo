@@ -14,6 +14,7 @@ pub use body::{fetch_body, fetch_body_with};
 mod jmap;
 mod search;
 
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_proto::backend::{Authenticate, ImapBackend, Pop3Backend};
 use mail_proto::{ImapAuth, ImapCommand, ImapSession, Pop3Command, Pop3Session};
@@ -23,6 +24,7 @@ use mail_runtime::{
     AccountEngine, Held, KeyringSecrets, OAuthRegistry, Renewal, Secrets, SyncReport, signin,
 };
 use mail_store::SqliteStore;
+use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
 use report::{Done, Emit, Failure, Hooks, PassEnd, Progress, Told, Watched};
 pub use search::{search_server, search_server_with};
 use std::sync::Arc;
@@ -98,7 +100,7 @@ pub(crate) fn configured(store: &SqliteStore) -> Result<Vec<Configured>, String>
             }
         };
         out.push(Configured {
-            id: AccountId::from_uuid(uuid),
+            id: account_id_from_uuid(uuid),
             address,
             plan,
             caps,
@@ -303,9 +305,9 @@ fn pick(store: &SqliteStore, scope: &Scope<'_>) -> Result<Vec<Configured>, Strin
     Ok(configured(store)?
         .into_iter()
         .filter(|account| !matches!(account.plan.incoming, Incoming::Local))
-        .filter(|a| (scope.due)(a.id))
+        .filter(|a| (scope.due)(a.id.clone()))
         .map(|a| Configured {
-            keep: scope.kept.of(a.id),
+            keep: scope.kept.of(a.id.clone()),
             ..a
         })
         .collect())
@@ -354,7 +356,7 @@ fn pass_over(
                 let cancel = hooks.cancel.get(&account.id).cloned();
                 let emit = |progress| {
                     if let Some(sink) = hooks.progress {
-                        sink(account.id, progress);
+                        sink(account.id.clone(), progress);
                     }
                 };
                 let cancelled = cancel.clone();
@@ -389,11 +391,11 @@ fn ended(
             retry: Retry::Fatal(_),
             ..
         }) if cancel.is_some_and(|signal| *signal.borrow()) => PassEnd::Cancelled {
-            account: account.id,
+            account: account.id.clone(),
             address: account.address.clone(),
         },
         Err(Failure { retry, why, pause }) => PassEnd::Failed {
-            account: account.id,
+            account: account.id.clone(),
             address: account.address.clone(),
             retry,
             why,
@@ -453,7 +455,7 @@ async fn signed_in_typed(
     let http = signin::http_client().map_err(|e| Failure::of("", &e))?;
     let scopes = mail_runtime::oauth::incoming_scopes(scopes);
     signin::renew(
-        account.id,
+        account.id.clone(),
         registration,
         &scopes,
         credential,
@@ -485,7 +487,7 @@ fn renewal_for(
     };
     let registration = registry.get(*issuer)?.clone();
     Renewal::new(
-        account.id,
+        account.id.clone(),
         &account.plan,
         registration,
         secrets,
@@ -519,7 +521,7 @@ async fn one(
     say(emit, Progress::Connecting);
     let stored = secrets
         .get(&SecretKey {
-            account: account.id,
+            account: account.id.clone(),
             purpose: SecretPurpose::IncomingPassword,
         })
         // A credential that is not there is one to be asked for again.
@@ -547,7 +549,9 @@ async fn one(
 
     let folders = {
         use mail_store::Store as _;
-        store.folders(account.id).map_err(|e| Failure::of("", &e))?
+        store
+            .folders(account.id.clone())
+            .map_err(|e| Failure::of("", &e))?
     };
     let mailboxes = to_sync(account, &folders);
     // Nothing cancels a one-shot CLI sync, but the loop requires a receiver. The window hands in
@@ -566,7 +570,7 @@ async fn one(
             };
             let sasl = sasl_for(&account.plan);
             let backend = Pop3Backend::new(
-                account.id,
+                account.id.clone(),
                 account.caps.clone(),
                 Box::new(move |auth, commands| {
                     // The factory owns authentication, because it is the only thing holding the
@@ -576,11 +580,11 @@ async fn one(
                         all.extend(auth_prelude(&sasl));
                     }
                     all.extend(commands);
-                    Pop3Session::new(username.clone(), password.clone(), all)
+                    Pop3Session::new(username.clone(), password.expose().to_owned(), all)
                 }),
             );
             let mut engine = AccountEngine::new(
-                account.id,
+                account.id.clone(),
                 account.plan.clone(),
                 backend,
                 store.clone(),
@@ -641,7 +645,7 @@ async fn one(
         // HTTPS rather than a socket, so an engine of its own; the same pass, the same wait.
         Incoming::Jmap { .. } => {
             let mut engine = mail_runtime::JmapEngine::new(
-                account.id,
+                account.id.clone(),
                 account.plan.clone(),
                 store.clone(),
                 secrets,
@@ -708,7 +712,7 @@ async fn sending_token_typed(
     })?;
     let http = signin::http_client().map_err(|e| Failure::of("", &e))?;
     let reach = signin::GraphReach::of(&account.plan);
-    signin::graph_token(account.id, registration, reach, secrets, &http, now)
+    signin::graph_token(account.id.clone(), registration, reach, secrets, &http, now)
         .await
         .map(|_| ())
         .map_err(|e| Failure::of("cannot sign in to Microsoft Graph for sending: ", &e))
@@ -726,15 +730,13 @@ fn imap_engine(
     // used at all without registering an OAuth client.
     let mechanism = match held.current() {
         Credential::OAuth { .. } => ImapCommand::AuthenticateXoauth2,
-        // An OpenPGP key is never stored under a sign-in purpose; if one were, the session
-        // refuses it before a byte of it is sent (`mail_proto::imap`'s credential check).
-        Credential::Password(_) | Credential::OpenPgp(_) | Credential::SmimeKey(_) => {
+        Credential::Password(_) | Credential::ApiKey(_) | Credential::KeyPair { .. } => {
             ImapCommand::Login
         }
     };
     let (username, sasl) = (username_for(&account.plan), sasl_for(&account.plan));
     let backend = ImapBackend::new(
-        account.id,
+        account.id.clone(),
         account.caps.clone(),
         // The factory owns authentication, so the backend never names a mechanism and never
         // holds the credential that would decide one. It reads the credential per session, not
@@ -755,7 +757,7 @@ fn imap_engine(
         }),
     );
     AccountEngine::new(
-        account.id,
+        account.id.clone(),
         account.plan.clone(),
         backend,
         store.clone(),
@@ -772,9 +774,10 @@ fn graph_engine(
     account: &Configured,
     secrets: Arc<dyn Secrets>,
 ) -> Result<AccountEngine<OverHttp>, String> {
-    let reader = Reader::new(account.id, account.caps.clone()).map_err(|e| e.to_string())?;
+    let reader =
+        Reader::new(account.id.clone(), account.caps.clone()).map_err(|e| e.to_string())?;
     Ok(AccountEngine::new(
-        account.id,
+        account.id.clone(),
         account.plan.clone(),
         OverHttp::new(account.caps.clone()),
         store.clone(),
@@ -847,7 +850,7 @@ async fn signed_in_imap(
 ) -> Result<AccountEngine<ImapBackend>, String> {
     let stored = secrets
         .get(&SecretKey {
-            account: account.id,
+            account: account.id.clone(),
             purpose: SecretPurpose::IncomingPassword,
         })
         .map_err(|_| crate::account::no_credential(&account.address, &account.plan.auth))?;
@@ -1050,8 +1053,13 @@ fn after_pass(
     // heard was fetched. A failure here is told and does not stop the watch: mail that cannot be
     // announced is still mail worth fetching.
     if let Announce::To { store, notifier } = announce
-        && let Err(why) =
-            crate::notify::announce(store, account.id, &done.counts.arrived, notifier, at)
+        && let Err(why) = crate::notify::announce(
+            store,
+            account.id.clone(),
+            &done.counts.arrived,
+            notifier,
+            at,
+        )
     {
         relay(
             told,
@@ -1387,7 +1395,7 @@ pub fn folder_now_with(
         ));
     }
     let mailbox = MailboxRef {
-        account: account.id,
+        account: account.id.clone(),
         path: path.to_owned(),
     };
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -1397,7 +1405,7 @@ pub fn folder_now_with(
     let done = runtime.block_on(async {
         let stored = secrets
             .get(&SecretKey {
-                account: account.id,
+                account: account.id.clone(),
                 purpose: SecretPurpose::IncomingPassword,
             })
             .map_err(|_| {
@@ -1467,7 +1475,9 @@ pub fn mailboxes_by_account(store: &SqliteStore) -> Result<Vec<(String, Vec<Stri
     configured(store)?
         .into_iter()
         .map(|account| {
-            let folders = store.folders(account.id).map_err(|e| e.to_string())?;
+            let folders = store
+                .folders(account.id.clone())
+                .map_err(|e| e.to_string())?;
             let paths = to_sync(&account, &folders)
                 .into_iter()
                 .map(|m| m.path)
@@ -1501,14 +1511,14 @@ fn to_sync(account: &Configured, folders: &[Folder]) -> Vec<MailboxRef> {
         // One mailbox, the whole account: JMAP reports changes across every mailbox at once.
         Incoming::Jmap { .. } => {
             return vec![MailboxRef {
-                account: account.id,
+                account: account.id.clone(),
                 path: JMAP_ALL.to_owned(),
             }];
         }
         Incoming::Imap { .. } | Incoming::Pop3 { .. } | Incoming::Graph => {}
     }
     let mut out = vec![MailboxRef {
-        account: account.id,
+        account: account.id.clone(),
         path: "INBOX".to_owned(),
     }];
     // `Sent` and not `Archive`, which is not safe yet. On Gmail the same message is in INBOX
@@ -1520,7 +1530,7 @@ fn to_sync(account: &Configured, folders: &[Folder]) -> Vec<MailboxRef> {
         && !path.eq_ignore_ascii_case("INBOX")
     {
         out.push(MailboxRef {
-            account: account.id,
+            account: account.id.clone(),
             path: path.to_owned(),
         });
     }
@@ -1535,7 +1545,7 @@ fn to_sync(account: &Configured, folders: &[Folder]) -> Vec<MailboxRef> {
         {
             if !out.iter().any(|m| m.path == folder.path) {
                 out.push(MailboxRef {
-                    account: account.id,
+                    account: account.id.clone(),
                     path: folder.path.clone(),
                 });
             }

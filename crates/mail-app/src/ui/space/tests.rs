@@ -2,13 +2,15 @@ use super::{PRESETS, Pinned, Recall, Scope, Space, Spaces, load, new_space, pres
 use ds::prelude::{Grain, SpaceLook, Theme};
 use ds::style::space::look::CardAccent;
 use ds::style::space::palette::Dot;
-use mail_domain::{AccountId, ThreadId};
+use mail_domain::ThreadId;
+use mail_domain::id::account_id_from_uuid;
+use porter_core::AccountId;
 use std::collections::BTreeMap;
 use std::path::Path;
 use uuid::Uuid;
 
 fn account(n: u128) -> AccountId {
-    AccountId::from_uuid(Uuid::from_u128(n))
+    account_id_from_uuid(Uuid::from_u128(n))
 }
 
 fn entries(dir: &Path) -> Vec<String> {
@@ -62,7 +64,7 @@ fn spaces_round_trip() {
                     Recall {
                         place: "Archive".to_owned(),
                         open: Some(ThreadId::from_uuid(Uuid::from_u128(9))),
-                        account: Some(work),
+                        account: Some(work.clone()),
                     },
                 )]),
                 spaces: vec![
@@ -298,7 +300,7 @@ fn first_run_follows_the_accounts() {
     );
 
     let one_id = account(7);
-    let one = first_run_case(&[one_id]);
+    let one = first_run_case(std::slice::from_ref(&one_id));
     assert_eq!(one.spaces.len(), 1, "one account");
     assert_eq!(one.spaces[0].name, "Space 1", "one account");
     assert_eq!(one.spaces[0].look.dots, PRESETS[0], "one account");
@@ -318,7 +320,7 @@ fn first_run_follows_the_accounts() {
         let name = format!("Space {}", index + 1);
         assert_eq!(space.name, name, "{name}");
         assert_eq!(space.look.dots, PRESETS[index], "{name}");
-        assert_eq!(space.scope, Scope::Accounts(vec![*id]), "{name}");
+        assert_eq!(space.scope, Scope::Accounts(vec![id.clone()]), "{name}");
         assert!(space.pins.is_empty(), "{name}");
         assert_eq!(space.look.card_accent, CardAccent::Chosen, "{name}");
     }

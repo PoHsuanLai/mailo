@@ -59,7 +59,8 @@ pub(in crate::ui) fn sealable(
     draft: &Draft,
     now: DateTime<Utc>,
 ) -> Result<SealBar, String> {
-    let identity = mail_core::compose::identity_of(store, draft.account, Some(draft.identity))?;
+    let identity =
+        mail_core::compose::identity_of(store, draft.account.clone(), Some(draft.identity))?;
     match mail_core::pgp::check(store, draft, &identity, now) {
         Ok(()) => {}
         Err(PgpError::NoKeyFor(addresses)) => return Ok(SealBar::NoKeyFor(addresses)),

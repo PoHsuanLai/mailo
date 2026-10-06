@@ -18,16 +18,19 @@ use settle::settle_until;
 #[path = "support/drive.rs"]
 mod drive;
 use drive::Drive;
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_runtime::assemble::absorb_rebuilt_into;
 use mail_runtime::{Arrival, Destination, absorb};
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 use std::io::Cursor;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000c7"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000c7"))
+}
 
 const VIEW: Viewport = Viewport {
     width: 1280,
@@ -134,20 +137,23 @@ fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
         db.execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [ACCOUNT.to_string()],
+            [acct_account().to_string()],
         )
         .unwrap();
         db.execute(
             "INSERT INTO identities (id, account, from_name, from_email, is_default)
              VALUES (?1, ?2, NULL, 'me@example.test', '\"default\"')",
-            [IdentityId::generate().to_string(), ACCOUNT.to_string()],
+            [
+                IdentityId::generate().to_string(),
+                acct_account().to_string(),
+            ],
         )
         .unwrap();
     }
     let now = chrono::Utc::now();
     let date = |hours: i64| (now - chrono::Duration::hours(hours)).to_rfc2822();
     let inbox = MailboxRef {
-        account: ACCOUNT,
+        account: acct_account(),
         path: "INBOX".to_owned(),
     };
     let arrival = |uidl: &str, raw: String| Arrival {
@@ -160,7 +166,7 @@ fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
     let svg = b"<svg xmlns=\"http://www.w3.org/2000/svg\"><image href=\"https://tracker.example.test/p.png\"/></svg>";
     absorb(
         &store,
-        ACCOUNT,
+        acct_account(),
         inbox.clone(),
         Some(SyncCursor::Pop),
         vec![
@@ -195,7 +201,7 @@ fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
     .unwrap();
     absorb_rebuilt_into(
         &store,
-        ACCOUNT,
+        acct_account(),
         Destination {
             mailbox: inbox,
             role: MailboxRole::Inbox,
@@ -407,7 +413,7 @@ fn a_stored_pdf_shows_its_first_page_and_the_viewer_turns_its_pages() {
 #[test]
 fn a_part_still_on_the_server_shows_no_preview_and_fetches_nothing() {
     let mut window = open();
-    let remote = window.store.offline(ACCOUNT).unwrap().parts_remote;
+    let remote = window.store.offline(acct_account()).unwrap().parts_remote;
     assert_eq!(remote, 1, "the fixture's photo is not on the server");
     let harness = &mut window.harness;
     open_row(harness, 3);
@@ -421,7 +427,7 @@ fn a_part_still_on_the_server_shows_no_preview_and_fetches_nothing() {
         harness.text_of(&item(1)).unwrap()
     );
     assert_eq!(
-        window.store.offline(ACCOUNT).unwrap().parts_remote,
+        window.store.offline(acct_account()).unwrap().parts_remote,
         remote,
         "drawing the row fetched the part"
     );

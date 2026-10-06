@@ -14,8 +14,9 @@
 //! says what the server holds either way.
 
 use crate::RuntimeError;
-use mail_domain::{AccountId, MessageId, Patch, ProtoOp, RemoteRef};
+use mail_domain::{MessageId, Patch, ProtoOp, RemoteRef};
 use mail_store::{Store, StoreError};
+use porter_core::AccountId;
 
 /// How far a split operation got: the parts the server answered, in order, and the parts it did
 /// not, the first of them the one that failed.
@@ -119,7 +120,7 @@ pub(crate) fn already_there(
         let there = all_in(&at, target)
             || (at.is_empty()
                 && store
-                    .unplaced_into(account, message)?
+                    .unplaced_into(account.clone(), message)?
                     .is_some_and(|folder| same_folder(&folder, target)));
         if there {
             out.push(message);

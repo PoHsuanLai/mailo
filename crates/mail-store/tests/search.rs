@@ -5,11 +5,17 @@
 //! parity test owns the set, and one case below is where the two orders diverge.
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_store::{MemoryStore, SqliteStore, Store, Term};
+use porter_core::AccountId;
 
-const A: AccountId = AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
-const B: AccountId = AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a2"));
+fn acct_a() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
+fn acct_b() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a2"))
+}
 
 fn at(secs: i64) -> DateTime<Utc> {
     Utc.timestamp_opt(1_700_000_000 + secs, 0).unwrap()
@@ -37,7 +43,7 @@ fn load(mails: &[Mail<'_>]) -> Held {
     let mut seen = Vec::new();
     for mail in mails {
         if !seen.contains(&mail.account) {
-            seen.push(mail.account);
+            seen.push(mail.account.clone());
             sqlite
                 .connection()
                 .execute(
@@ -58,7 +64,7 @@ fn load(mails: &[Mail<'_>]) -> Held {
         let message = Message {
             id: MessageId::generate(),
             thread,
-            account: mail.account,
+            account: mail.account.clone(),
             key: MessageKey::Rfc(format!("m{i}@example.test")),
             date: at(mail.secs),
             from: Address {
@@ -87,8 +93,8 @@ fn load(mails: &[Mail<'_>]) -> Held {
             id: ChangeId::generate(),
             changes: vec![Change::MessageUpsert(Box::new(message))],
         };
-        sqlite.apply(mail.account, &patch).unwrap();
-        memory.apply(mail.account, &patch).unwrap();
+        sqlite.apply(mail.account.clone(), &patch).unwrap();
+        memory.apply(mail.account.clone(), &patch).unwrap();
     }
     Held {
         _dir: dir,
@@ -148,7 +154,7 @@ fn folded_prefixes_match_indexed_terms() {
         ("", &[]),
     ];
     let held = load(&[Mail {
-        account: A,
+        account: acct_a(),
         subject: "Résumé planned",
         body: None,
         secs: 1,
@@ -173,37 +179,37 @@ fn range_prefix_keeps_percent_and_underscore_literal() {
     ];
     let held = load(&[
         Mail {
-            account: A,
+            account: acct_a(),
             subject: "zz",
             body: None,
             secs: 1,
         },
         Mail {
-            account: A,
+            account: acct_a(),
             subject: "zza",
             body: None,
             secs: 2,
         },
         Mail {
-            account: A,
+            account: acct_a(),
             subject: "zz{",
             body: None,
             secs: 3,
         },
         Mail {
-            account: A,
+            account: acct_a(),
             subject: "z{",
             body: None,
             secs: 4,
         },
         Mail {
-            account: A,
+            account: acct_a(),
             subject: "alpha",
             body: None,
             secs: 5,
         },
         Mail {
-            account: A,
+            account: acct_a(),
             subject: "100%",
             body: None,
             secs: 6,
@@ -239,7 +245,7 @@ fn range_prefix_keeps_percent_and_underscore_literal() {
 fn one_ideograph_returns_flagged_bigrams() {
     const CASES: &[(&str, &str)] = &[("電", "電子"), ("子", "子郵"), ("郵", "郵件")];
     let held = load(&[Mail {
-        account: A,
+        account: acct_a(),
         subject: "電子郵件",
         body: None,
         secs: 1,
@@ -259,9 +265,9 @@ fn one_ideograph_returns_flagged_bigrams() {
         }
     }
 
-    // A run of one ideograph is stored as that character, and it is not a bigram.
+    // acct_a() run of one ideograph is stored as that character, and it is not a bigram.
     let lone = load(&[Mail {
-        account: A,
+        account: acct_a(),
         subject: "電",
         body: None,
         secs: 1,
@@ -279,25 +285,25 @@ fn one_ideograph_returns_flagged_bigrams() {
 fn terms_sort_by_frequency_then_text() {
     let held = load(&[
         Mail {
-            account: A,
+            account: acct_a(),
             subject: "ac",
             body: None,
             secs: 1,
         },
         Mail {
-            account: A,
+            account: acct_a(),
             subject: "ac",
             body: None,
             secs: 2,
         },
         Mail {
-            account: A,
+            account: acct_a(),
             subject: "aa",
             body: None,
             secs: 3,
         },
         Mail {
-            account: A,
+            account: acct_a(),
             subject: "ab",
             body: None,
             secs: 4,
@@ -321,19 +327,19 @@ fn limits_of_zero_one_and_more_than_the_matches() {
     const LIMITS: &[(usize, usize)] = &[(0, 0), (1, 1), (10, 3)];
     let held = load(&[
         Mail {
-            account: A,
+            account: acct_a(),
             subject: "kite",
             body: None,
             secs: 1,
         },
         Mail {
-            account: A,
+            account: acct_a(),
             subject: "kite",
             body: None,
             secs: 2,
         },
         Mail {
-            account: A,
+            account: acct_a(),
             subject: "kite",
             body: None,
             secs: 3,
@@ -365,7 +371,7 @@ fn a_repeated_subject_term_outranks_one_hit_in_a_long_body() {
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'a@example.test', '{}', datetime('now'))",
-            [A.to_string()],
+            [acct_a().to_string()],
         )
         .unwrap();
     let raw = sqlite.blobs().put(&sqlite.connection(), b"raw").unwrap();
@@ -379,7 +385,7 @@ fn a_repeated_subject_term_outranks_one_hit_in_a_long_body() {
         let message = Message {
             id: MessageId::generate(),
             thread,
-            account: A,
+            account: acct_a(),
             key: MessageKey::Rfc(format!("rank{i}@example.test")),
             date: at(secs),
             from: Address {
@@ -406,7 +412,7 @@ fn a_repeated_subject_term_outranks_one_hit_in_a_long_body() {
         };
         sqlite
             .apply(
-                A,
+                acct_a(),
                 &Patch {
                     id: ChangeId::generate(),
                     changes: vec![Change::MessageUpsert(Box::new(message))],
@@ -434,13 +440,13 @@ fn order_is_not_compared_across_the_two_stores() {
     let long = format!("{}kite", "padding ".repeat(400));
     let held = load(&[
         Mail {
-            account: A,
+            account: acct_a(),
             subject: "kite kite",
             body: Some("ok"),
             secs: 1,
         },
         Mail {
-            account: A,
+            account: acct_a(),
             subject: "hello",
             body: Some(&long),
             secs: 2,
@@ -464,30 +470,30 @@ fn order_is_not_compared_across_the_two_stores() {
     assert_ne!(sql_ids, mem_ids);
 }
 
-/// A term that exists only on account B is still suggested. Filtering to account A then
-/// drops B's thread, which is why suggesting it costs nothing.
+/// acct_a() term that exists only on account acct_b() is still suggested. Filtering to account acct_a() then
+/// drops acct_b()'s thread, which is why suggesting it costs nothing.
 #[test]
 fn suggestions_come_from_every_account() {
     let held = load(&[
         Mail {
-            account: A,
+            account: acct_a(),
             subject: "apple harvest",
             body: None,
             secs: 1,
         },
         Mail {
-            account: B,
+            account: acct_b(),
             subject: "xylophone solo",
             body: None,
             secs: 2,
         },
     ]);
     let filter_a = Filter::And(vec![
-        Filter::Account(A),
+        Filter::Account(acct_a()),
         Filter::Text(TextMatch::Contains("xylophone".into())),
     ]);
     let filter_b = Filter::And(vec![
-        Filter::Account(B),
+        Filter::Account(acct_b()),
         Filter::Text(TextMatch::Contains("xylophone".into())),
     ]);
     for store in stores(&held) {
@@ -496,7 +502,7 @@ fn suggestions_come_from_every_account() {
         assert!(ranked(store, &filter_a, 10).is_empty());
         let found = ranked(store, &filter_b, 10);
         assert_eq!(found.len(), 1);
-        assert_eq!(found[0].0.account, B);
+        assert_eq!(found[0].0.account, acct_b());
     }
 }
 
@@ -510,19 +516,19 @@ fn terms_are_visible_from_a_read_connection() {
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'a@example.test', '{}', datetime('now'))",
-            [A.to_string()],
+            [acct_a().to_string()],
         )
         .unwrap();
     let raw = sqlite.blobs().put(&sqlite.connection(), b"raw").unwrap();
     sqlite
         .apply(
-            A,
+            acct_a(),
             &Patch {
                 id: ChangeId::generate(),
                 changes: vec![Change::MessageUpsert(Box::new(Message {
                     id: MessageId::generate(),
                     thread: ThreadId::generate(),
-                    account: A,
+                    account: acct_a(),
                     key: MessageKey::Rfc("reader@example.test".into()),
                     date: at(1),
                     from: Address {
@@ -567,13 +573,13 @@ mod top_hits {
         // The strong match is the older thread; newest-first would put it second.
         let held = load(&[
             Mail {
-                account: A,
+                account: acct_a(),
                 subject: "kite kite kite",
                 body: Some("ok"),
                 secs: 1,
             },
             Mail {
-                account: A,
+                account: acct_a(),
                 subject: "hello",
                 body: Some("a kite, among many other words in a longer body"),
                 secs: 2,
@@ -590,19 +596,19 @@ mod top_hits {
         // bounding the work by the window is the point, and the date-ordered list finds it.
         let held = load(&[
             Mail {
-                account: A,
+                account: acct_a(),
                 subject: "kite kite kite kite",
                 body: None,
                 secs: 1,
             },
             Mail {
-                account: A,
+                account: acct_a(),
                 subject: "a kite",
                 body: None,
                 secs: 2,
             },
             Mail {
-                account: A,
+                account: acct_a(),
                 subject: "another kite",
                 body: None,
                 secs: 3,
@@ -623,19 +629,19 @@ mod top_hits {
     fn at_most_k_and_nothing_to_rank_without_words() {
         let held = load(&[
             Mail {
-                account: A,
+                account: acct_a(),
                 subject: "kite one",
                 body: None,
                 secs: 1,
             },
             Mail {
-                account: A,
+                account: acct_a(),
                 subject: "kite two",
                 body: None,
                 secs: 2,
             },
             Mail {
-                account: A,
+                account: acct_a(),
                 subject: "kite three",
                 body: None,
                 secs: 3,
@@ -645,7 +651,7 @@ mod top_hits {
             assert_eq!(ranked(store, &kite(), 2).len(), 2);
             assert!(ranked(store, &kite(), 0).is_empty());
             assert!(
-                ranked(store, &Filter::Account(A), 5).is_empty(),
+                ranked(store, &Filter::Account(acct_a()), 5).is_empty(),
                 "a filter with no words has nothing to rank by"
             );
             assert!(

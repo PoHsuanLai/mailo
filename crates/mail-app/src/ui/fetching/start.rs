@@ -2,8 +2,9 @@
 
 use chrono::{DateTime, NaiveDateTime, Utc};
 use mail_core::fetch::{Link, Live};
-use mail_domain::{AccountId, Filter, JMAP_ALL, MailboxRef};
+use mail_domain::{Filter, JMAP_ALL, MailboxRef};
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
 
@@ -33,7 +34,7 @@ fn has_mail(store: &SqliteStore, account: AccountId, now: DateTime<Utc>) -> bool
     let cursor = |path: &str| {
         store
             .cursor(&MailboxRef {
-                account,
+                account: account.clone(),
                 path: path.to_owned(),
             })
             .ok()
@@ -67,7 +68,7 @@ pub(super) fn link_for(last: Option<DateTime<Utc>>, mail: bool, now: DateTime<Ut
 /// [`link_for`], asking the store.
 pub(super) fn probe(store: &SqliteStore, account: AccountId, now: DateTime<Utc>) -> Link {
     link_for(
-        last_synced(store, account),
+        last_synced(store, account.clone()),
         has_mail(store, account, now),
         now,
     )
@@ -81,7 +82,7 @@ pub(super) fn initial(
 ) -> BTreeMap<AccountId, Link> {
     accounts
         .iter()
-        .map(|(id, _)| (*id, probe(store, *id, now)))
+        .map(|(id, _)| (id.clone(), probe(store, id.clone(), now)))
         .collect()
 }
 
@@ -96,10 +97,10 @@ pub(super) struct Changes {
 
 /// The links to add and drop so that `known` matches `wanted`.
 pub(super) fn reconcile(known: &BTreeSet<AccountId>, wanted: &[(AccountId, Duration)]) -> Changes {
-    let wanted_ids: BTreeSet<AccountId> = wanted.iter().map(|(id, _)| *id).collect();
+    let wanted_ids: BTreeSet<AccountId> = wanted.iter().map(|(id, _)| id.clone()).collect();
     Changes {
-        added: wanted_ids.difference(known).copied().collect(),
-        removed: known.difference(&wanted_ids).copied().collect(),
+        added: wanted_ids.difference(known).cloned().collect(),
+        removed: known.difference(&wanted_ids).cloned().collect(),
     }
 }
 

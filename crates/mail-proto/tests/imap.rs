@@ -3,16 +3,21 @@
 mod common;
 
 use common::replay;
-use mail_domain::{Credential, SaslMech};
+use mail_domain::SaslMech;
 use mail_proto::{ImapAuth, ImapCommand, ImapSession, ProtoError, Refusal};
+use porter_core::Credential;
+use porter_core::SecretText;
+use porter_core::UnixSeconds;
 
 fn oauth() -> ImapAuth {
     ImapAuth {
         username: "ada@example.test".to_owned(),
         credential: Credential::OAuth {
-            access: "ya29.token".to_owned(),
-            refresh: "1//refresh".to_owned(),
-            expires_at: chrono::DateTime::from_timestamp(2_000_000_000, 0).unwrap(),
+            access: SecretText::new("ya29.token".to_owned()),
+            refresh: SecretText::new("1//refresh".to_owned()),
+            expires_at: UnixSeconds(
+                (chrono::DateTime::from_timestamp(2_000_000_000, 0).unwrap()).timestamp(),
+            ),
         },
         sasl: vec![SaslMech::XOauth2],
     }
@@ -236,7 +241,7 @@ fn a_fetch_split_one_byte_at_a_time_is_reassembled() {
 fn a_credential_with_a_newline_is_refused_at_construction() {
     let auth = ImapAuth {
         username: "ada@example.test".to_owned(),
-        credential: Credential::Password("pass\r\na001 DELETE INBOX".to_owned()),
+        credential: Credential::Password(SecretText::new("pass\r\na001 DELETE INBOX".to_owned())),
         sasl: vec![SaslMech::Plain],
     };
     assert!(ImapSession::new(auth, vec![ImapCommand::Login]).is_err());
@@ -265,7 +270,7 @@ fn a_uid_set_that_is_not_a_uid_set_is_refused() {
 fn xoauth2_without_an_oauth_credential_is_unsupported() {
     let auth = ImapAuth {
         username: "ada@example.test".to_owned(),
-        credential: Credential::Password("hunter2".to_owned()),
+        credential: Credential::Password(SecretText::new("hunter2".to_owned())),
         sasl: vec![SaslMech::XOauth2],
     };
     let mut s = ImapSession::new(auth, vec![ImapCommand::AuthenticateXoauth2]).unwrap();
@@ -356,7 +361,7 @@ mod a_refused_login {
     fn refusing_with(text: &str) -> ProtoError {
         let auth = ImapAuth {
             username: "ada@example.test".to_owned(),
-            credential: Credential::Password("wrong".to_owned()),
+            credential: Credential::Password(SecretText::new("wrong".to_owned())),
             sasl: vec![SaslMech::Plain],
         };
         let mut s = ImapSession::new(auth, vec![ImapCommand::Login]).unwrap();
@@ -403,7 +408,7 @@ mod a_refused_login {
     fn a_refusal_that_is_not_about_the_credential_is_not_one() {
         let auth = ImapAuth {
             username: "ada@example.test".to_owned(),
-            credential: Credential::Password("right".to_owned()),
+            credential: Credential::Password(SecretText::new("right".to_owned())),
             sasl: vec![SaslMech::Plain],
         };
         let mut s = ImapSession::new(

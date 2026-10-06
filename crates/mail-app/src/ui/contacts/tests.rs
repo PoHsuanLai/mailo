@@ -8,7 +8,7 @@ use mail_domain::*;
 use mail_store::{Origin, SqliteStore, Store};
 
 use super::book;
-use crate::ui::fixtures::ACCOUNT;
+use crate::ui::fixtures::acct_account;
 
 /// The user's own address. It is on every message they sent, so the book learns it as theirs.
 pub(in crate::ui) const ME: &str = "dave.me@example.test";
@@ -39,7 +39,7 @@ fn message(n: u128, day: i64, mailbox: MailboxRole, from: Address, to: Vec<Addre
     Message {
         id: MessageId::from_uuid(uuid::Uuid::from_u128(n)),
         thread: ThreadId::from_uuid(uuid::Uuid::from_u128(n + 1_000_000)),
-        account: ACCOUNT,
+        account: acct_account(),
         key: MessageKey::Rfc(format!("m{n}@example.test")),
         date: at(day),
         from,
@@ -69,10 +69,10 @@ fn deliver(store: &SqliteStore, m: &Message) {
     let uid = (m.id.as_uuid().as_u128() % 1_000_000) as u32;
     store
         .ingest(
-            ACCOUNT,
+            acct_account(),
             Ingest {
                 mailbox: MailboxRef {
-                    account: ACCOUNT,
+                    account: acct_account(),
                     path: path.to_owned(),
                 },
                 validity: UidValidity::Same,
@@ -106,7 +106,7 @@ pub(in crate::ui) fn the_book() -> (Arc<SqliteStore>, tempfile::TempDir) {
         db.execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, ?2, '{}', datetime('now'))",
-            [ACCOUNT.to_string(), ME.to_owned()],
+            [acct_account().to_string(), ME.to_owned()],
         )
         .unwrap_or_else(|why| panic!("an account: {why}"));
         db.execute(
@@ -114,7 +114,7 @@ pub(in crate::ui) fn the_book() -> (Arc<SqliteStore>, tempfile::TempDir) {
              VALUES (?1, ?2, 'Dave', ?3, '\"default\"')",
             [
                 IdentityId::generate().to_string(),
-                ACCOUNT.to_string(),
+                acct_account().to_string(),
                 ME.to_owned(),
             ],
         )

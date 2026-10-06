@@ -6,9 +6,10 @@ use super::row::{json, to_json, uuid};
 use crate::StoreError;
 use mail_domain::folder::{layered, renamed};
 use mail_domain::{
-    AccountId, Change, Folder, FolderContents, FolderWork, LabelId, LabelOrigin, MailboxRef,
-    MessageId, ProtoOp, ThreadId,
+    Change, Folder, FolderContents, FolderWork, LabelId, LabelOrigin, MailboxRef, MessageId,
+    ProtoOp, ThreadId,
 };
+use porter_core::AccountId;
 use rusqlite::params;
 use std::collections::BTreeSet;
 
@@ -33,7 +34,7 @@ impl SqliteStore {
         for row in rows {
             let (path, delimiter, special, subscription, holds) = row?;
             out.push(Folder {
-                account,
+                account: account.clone(),
                 path,
                 delimiter: delimiter.and_then(|d| d.chars().next()),
                 special: special.map(|s| json("SpecialUse", &s)).transpose()?,
@@ -52,7 +53,11 @@ impl SqliteStore {
     ) -> Result<(), StoreError> {
         let db = self.connection();
         let tx = db.unchecked_transaction()?;
-        let folders = layered(account, listed, &self.queued_folder_work(account)?);
+        let folders = layered(
+            account.clone(),
+            listed,
+            &self.queued_folder_work(account.clone())?,
+        );
         self.connection().execute(
             "DELETE FROM folders WHERE account = ?1",
             params![account.to_string()],
@@ -235,7 +240,7 @@ impl SqliteStore {
     /// here is deleted: the addresses in the label's mailbox go, and the messages stay.
     pub(super) fn forget_mailbox(&self, account: AccountId, path: &str) -> Result<(), StoreError> {
         let held = self.contents(&MailboxRef {
-            account,
+            account: account.clone(),
             path: path.to_owned(),
         })?;
         self.connection().execute(

@@ -9,12 +9,16 @@
 //! would sign; the capabilities are the ones a pass records for a server that offers IDLE, so the
 //! watch holds a connection open and hears new mail pushed rather than polling every five minutes.
 
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_runtime::{KeyringSecrets, Secrets};
 use mail_store::SqliteStore;
+use porter_core::SecretText;
+use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000c1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000c1"))
+}
 
 #[test]
 #[ignore = "fixture generator: set MAILO_SEED_DIR, MAILO_SCENARIO_IMAP_PORT and MAILO_TEST_SECRETS_DIR"]
@@ -70,29 +74,38 @@ fn seed() {
         db.execute(
             "INSERT OR REPLACE INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'ada@example.test', ?2, datetime('now'))",
-            rusqlite::params![ACCOUNT.to_string(), serde_json::to_string(&plan).unwrap()],
+            rusqlite::params![
+                acct_account().to_string(),
+                serde_json::to_string(&plan).unwrap()
+            ],
         )
         .unwrap();
         db.execute(
             "INSERT OR REPLACE INTO identities (id, account, from_name, from_email, is_default)
              VALUES (?1, ?2, NULL, 'ada@example.test', '\"default\"')",
-            [IdentityId::generate().to_string(), ACCOUNT.to_string()],
+            [
+                IdentityId::generate().to_string(),
+                acct_account().to_string(),
+            ],
         )
         .unwrap();
         db.execute(
             "INSERT OR REPLACE INTO account_caps (account, caps, observed_at)
              VALUES (?1, ?2, datetime('now'))",
-            rusqlite::params![ACCOUNT.to_string(), serde_json::to_string(&caps).unwrap()],
+            rusqlite::params![
+                acct_account().to_string(),
+                serde_json::to_string(&caps).unwrap()
+            ],
         )
         .unwrap();
     }
     KeyringSecrets
         .put(
             &SecretKey {
-                account: ACCOUNT,
+                account: acct_account(),
                 purpose: SecretPurpose::IncomingPassword,
             },
-            &Credential::Password("s3cr3t-pass".to_owned()),
+            &Credential::Password(SecretText::new("s3cr3t-pass".to_owned())),
         )
         .unwrap();
 }

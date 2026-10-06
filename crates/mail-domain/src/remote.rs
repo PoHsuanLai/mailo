@@ -4,9 +4,10 @@
 //! persists them — `remote_map`, `sync_state` and `outbox` — and `mail-store` does not depend
 //! on `mail-proto`. They are protocol-neutral vocabulary; wire *syntax* stays in `mail-proto`.
 
-use crate::id::{AccountId, BlobId, DraftId};
+use crate::id::{BlobId, DraftId};
 use crate::state::MailboxRole;
 use chrono::{DateTime, Utc};
+use porter_core::AccountId;
 use serde::{Deserialize, Serialize};
 
 /// An IMAP system flag a message can be uploaded with (RFC 3501 §2.3.2).

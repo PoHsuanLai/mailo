@@ -10,21 +10,27 @@
 use crate::undo::Undo;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 
 /// Take back one operation: its inverse, written like any other patch, and the reverse queued
 /// for the server when the operation had told it anything.
 pub fn take_back(store: &SqliteStore, entry: &Undo) -> bool {
-    if store.apply(entry.account, &entry.inverse).is_err() {
+    if store.apply(entry.account.clone(), &entry.inverse).is_err() {
         return false;
     }
     withdraw_filing(store, entry);
     if let Some(reverse) = entry
         .remote
         .as_ref()
-        .filter(|_| has_server(store, entry.account))
+        .filter(|_| has_server(store, entry.account.clone()))
         .and_then(|remote| crate::undo::reverse_intent(remote, &entry.inverse))
     {
-        let _ = store.enqueue(entry.account, reverse, &entry.forward, chrono::Utc::now());
+        let _ = store.enqueue(
+            entry.account.clone(),
+            reverse,
+            &entry.forward,
+            chrono::Utc::now(),
+        );
     }
     true
 }
@@ -54,7 +60,7 @@ fn withdraw_filing(store: &SqliteStore, entry: &Undo) {
     };
     // The whole queue, not only what is due: a later operation waiting out a retry or a
     // credential is later all the same.
-    let Ok(queued) = store.outbox_due(entry.account, queue_horizon()) else {
+    let Ok(queued) = store.outbox_due(entry.account.clone(), queue_horizon()) else {
         return;
     };
     let Some(filing) = queued.iter().find(|waiting| {
@@ -177,13 +183,13 @@ pub fn perform(store: &SqliteStore, thread: ThreadId, op: Op) -> Option<Undo> {
         .iter()
         .filter_map(|id| store.message(*id).ok())
         .collect();
-    let account = messages.first().map(|m| m.account)?;
+    let account = messages.first().map(|m| m.account.clone())?;
     // What the server actually supports, which is the only thing that decides whether an
     // operation gets a `RemoteIntent` at all — `Op::remote_intent` is the sole consumer of
     // `caps`, and under `ArchiveMeans::LocalOnly` it returns `None` for Archive and Trash.
     // This used to be a hardcoded struct of safe defaults, so archiving in the window changed
     // nothing on the server and the conversation came back on the next full sync. See F139.
-    let caps = caps_here(store, account, chrono::Utc::now());
+    let caps = caps_here(store, account.clone(), chrono::Utc::now());
     let applied = op.apply(
         &Target::Threads(vec![thread]),
         &loaded,
@@ -191,7 +197,7 @@ pub fn perform(store: &SqliteStore, thread: ThreadId, op: Op) -> Option<Undo> {
         &caps,
         chrono::Utc::now(),
     );
-    store.apply(account, &applied.forward).ok()?;
+    store.apply(account.clone(), &applied.forward).ok()?;
     // And the server's half. `Applied.remote` was computed and dropped on the floor, so every
     // operation the window performed was local and stayed local: a conversation archived here
     // was still in the inbox on the phone, and mail read here was still bold everywhere else.
@@ -204,9 +210,14 @@ pub fn perform(store: &SqliteStore, thread: ThreadId, op: Op) -> Option<Undo> {
     if let Some(intent) = applied
         .remote
         .clone()
-        .filter(|_| has_server(store, account))
+        .filter(|_| has_server(store, account.clone()))
     {
-        let _ = store.enqueue(account, intent, &applied.inverse, chrono::Utc::now());
+        let _ = store.enqueue(
+            account.clone(),
+            intent,
+            &applied.inverse,
+            chrono::Utc::now(),
+        );
     }
     Some(Undo {
         said: crate::undo::said(&op, &chrono::Local),
@@ -231,13 +242,13 @@ pub fn destroy(store: &SqliteStore, thread: ThreadId) -> Option<Vec<MessageId>> 
         .iter()
         .filter_map(|id| store.message(*id).ok())
         .collect();
-    let account = messages.first().map(|m| m.account)?;
+    let account = messages.first().map(|m| m.account.clone())?;
     let now = chrono::Utc::now();
     let applied = Op::Destroy.apply(
         &Target::Threads(vec![thread]),
         &loaded,
         &messages,
-        &caps_here(store, account, now),
+        &caps_here(store, account.clone(), now),
         now,
     );
     let gone: Vec<MessageId> = applied
@@ -252,9 +263,11 @@ pub fn destroy(store: &SqliteStore, thread: ThreadId) -> Option<Vec<MessageId>> 
     if gone.is_empty() {
         return None;
     }
-    if let Some(intent) = applied.remote.filter(|_| has_server(store, account))
+    if let Some(intent) = applied
+        .remote
+        .filter(|_| has_server(store, account.clone()))
         && store
-            .enqueue(account, intent, &applied.inverse, now)
+            .enqueue(account.clone(), intent, &applied.inverse, now)
             .is_err()
     {
         // Not removed here either: a message gone here and left there comes back with the next

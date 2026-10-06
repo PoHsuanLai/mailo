@@ -5,12 +5,17 @@
 //! scenario runs against SQLite and memory, compares, and names the numbers it must produce.
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_store::{MemoryStore, Offline, RemotePart, SqliteStore, Store};
+use porter_core::AccountId;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
-const OTHER: AccountId = AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a2"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
+fn acct_other() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a2"))
+}
 
 const MB: u64 = 1024 * 1024;
 
@@ -28,7 +33,10 @@ struct Blobs {
 fn both<T>(scenario: impl Fn(&dyn Store, &Blobs) -> T) -> (T, T) {
     let dir = tempfile::tempdir().unwrap();
     let sqlite = SqliteStore::in_memory(dir.path()).unwrap();
-    for (account, address) in [(ACCOUNT, "me@example.test"), (OTHER, "also@example.test")] {
+    for (account, address) in [
+        (acct_account(), "me@example.test"),
+        (acct_other(), "also@example.test"),
+    ] {
         sqlite
             .connection()
             .execute(
@@ -127,10 +135,10 @@ fn deliver(store: &dyn Store, m: &Message, at: RemoteRef, raw: BlobId) {
     };
     store
         .ingest(
-            m.account,
+            m.account.clone(),
             Ingest {
                 mailbox: MailboxRef {
-                    account: m.account,
+                    account: m.account.clone(),
                     path: path.clone(),
                 },
                 validity: UidValidity::Same,
@@ -152,7 +160,7 @@ fn deliver(store: &dyn Store, m: &Message, at: RemoteRef, raw: BlobId) {
 
 fn inbox() -> MailboxRef {
     MailboxRef {
-        account: ACCOUNT,
+        account: acct_account(),
         path: "INBOX".to_owned(),
     }
 }
@@ -173,20 +181,25 @@ fn seed(store: &dyn Store, blobs: &Blobs) {
     let raw = &blobs.raw;
     deliver(
         store,
-        &message(ACCOUNT, 1, None, vec![]),
+        &message(acct_account(), 1, None, vec![]),
         imap("INBOX", 1),
         raw[0],
     );
     deliver(
         store,
-        &message(ACCOUNT, 2, Some(raw[1]), vec![held("a.png", raw[6], 900)]),
+        &message(
+            acct_account(),
+            2,
+            Some(raw[1]),
+            vec![held("a.png", raw[6], 900)],
+        ),
         imap("INBOX", 2),
         raw[1],
     );
     deliver(
         store,
         &message(
-            ACCOUNT,
+            acct_account(),
             3,
             Some(raw[2]),
             vec![
@@ -200,7 +213,7 @@ fn seed(store: &dyn Store, blobs: &Blobs) {
     deliver(
         store,
         &message(
-            ACCOUNT,
+            acct_account(),
             4,
             Some(raw[3]),
             vec![remote("old.zip", "2", 3 * MB)],
@@ -211,7 +224,7 @@ fn seed(store: &dyn Store, blobs: &Blobs) {
     deliver(
         store,
         &message(
-            ACCOUNT,
+            acct_account(),
             5,
             Some(raw[4]),
             vec![remote("new.pdf", "2", 2 * MB)],
@@ -221,7 +234,12 @@ fn seed(store: &dyn Store, blobs: &Blobs) {
     );
     deliver(
         store,
-        &message(OTHER, 6, Some(raw[5]), vec![remote("theirs.pdf", "2", MB)]),
+        &message(
+            acct_other(),
+            6,
+            Some(raw[5]),
+            vec![remote("theirs.pdf", "2", MB)],
+        ),
         imap("INBOX", 6),
         raw[5],
     );
@@ -240,8 +258,8 @@ fn the_counts_say_what_is_held_and_what_waits() {
     let (sql, mem) = both(|store, blobs| {
         seed(store, blobs);
         (
-            store.offline(ACCOUNT).unwrap(),
-            store.offline(OTHER).unwrap(),
+            store.offline(acct_account()).unwrap(),
+            store.offline(acct_other()).unwrap(),
         )
     });
     assert_eq!(sql, mem);
@@ -296,7 +314,7 @@ fn a_mailboxs_parts_come_smallest_first_and_newest_first_within_a_size() {
 fn holding_every_part_takes_it_off_the_list_and_counts_the_message_held() {
     let (sql, mem) = both(|store, blobs| {
         seed(store, blobs);
-        let before = store.offline(ACCOUNT).unwrap();
+        let before = store.offline(acct_account()).unwrap();
         for p in store.remote_parts_in(&inbox(), 10).unwrap() {
             store
                 .hold_part(p.message, &p.section, blobs.raw[7], 100)
@@ -304,7 +322,7 @@ fn holding_every_part_takes_it_off_the_list_and_counts_the_message_held() {
         }
         (
             before,
-            store.offline(ACCOUNT).unwrap(),
+            store.offline(acct_account()).unwrap(),
             store.remote_parts_in(&inbox(), 10).unwrap(),
         )
     });

@@ -22,8 +22,9 @@
 use super::Note;
 use mail_core::fetch::{self, BACKOFF_CEILING, Event, Link, Live, RETRY_NOW, Trigger};
 use mail_core::sync::live::{self as core, Heard, Lost};
-use mail_domain::{AccountId, Retry};
+use mail_domain::Retry;
 use mail_store::SqliteStore;
+use porter_core::AccountId;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -328,10 +329,10 @@ impl Lives {
         let (stop, stopped) = watch::channel(false);
         let passes = self
             .passes
-            .entry(account)
+            .entry(account.clone())
             .or_insert_with(|| watch::channel(0).0)
             .subscribe();
-        self.running.insert(account, Watch { stop });
+        self.running.insert(account.clone(), Watch { stop });
         dioxus::prelude::spawn(keep(Keeping {
             account,
             store: wiring.store.clone(),
@@ -350,7 +351,7 @@ impl Lives {
 
     /// The account is gone.
     pub fn forget(&mut self, account: AccountId) {
-        self.stop(account);
+        self.stop(account.clone());
         self.passes.remove(&account);
         self.dirty.forget(account);
     }
@@ -384,7 +385,7 @@ async fn rest(wait: Duration, stop: &mut Stop) -> bool {
 async fn keep(mut k: Keeping) {
     let account = k.account;
     let send = |event: Event| {
-        let _ = k.tx.send(Note::Event(account, event));
+        let _ = k.tx.send(Note::Event(account.clone(), event));
     };
     if !rest(k.listener.first, &mut k.stop).await {
         return;
@@ -395,15 +396,16 @@ async fn keep(mut k: Keeping) {
         let ended = {
             let (store, stop, hold) = (k.store.clone(), k.stop.clone(), k.passes.clone());
             let (tx, listen, up) = (k.tx.clone(), k.listener.listen.clone(), up.clone());
+            let account = account.clone();
             // A thread of its own: the watch builds a runtime, and parks in a socket.
             tokio::task::spawn_blocking(move || {
                 let heard = |heard: Heard| {
                     if heard == Heard::Established {
                         up.store(true, Ordering::SeqCst);
                     }
-                    let _ = tx.send(Note::Event(account, event_for(heard)));
+                    let _ = tx.send(Note::Event(account.clone(), event_for(heard)));
                 };
-                listen(store, account, stop, hold, &heard)
+                listen(store, account.clone(), stop, hold, &heard)
             })
             .await
         };

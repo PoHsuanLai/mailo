@@ -3,9 +3,12 @@
 mod common;
 
 use common::replay;
-use mail_domain::{Credential, SaslMech, Tls};
+use mail_domain::{SaslMech, Tls};
 use mail_proto::smtp::{Notify, Receipt, Return};
 use mail_proto::{Advertised, EhloExtensions, ProtoError, Refusal, SmtpSession, Submission};
+use porter_core::Credential;
+use porter_core::SecretText;
+use porter_core::UnixSeconds;
 
 const USER: &str = "ada@example.com";
 const PASSWORD: &str = "s3cr3t-password";
@@ -53,7 +56,7 @@ fn build(
 }
 
 fn password() -> Credential {
-    Credential::Password(PASSWORD.into())
+    Credential::Password(SecretText::new(PASSWORD))
 }
 
 fn b64(bytes: &[u8]) -> String {
@@ -63,9 +66,9 @@ fn b64(bytes: &[u8]) -> String {
 
 fn oauth() -> Credential {
     Credential::OAuth {
-        access: TOKEN.into(),
-        refresh: REFRESH.into(),
-        expires_at: expires(),
+        access: SecretText::new(TOKEN),
+        refresh: SecretText::new(REFRESH),
+        expires_at: UnixSeconds((expires()).timestamp()),
     }
 }
 

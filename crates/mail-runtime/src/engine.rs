@@ -9,15 +9,15 @@ use crate::renewal::{AfterRefusal, Renewal, Token};
 use crate::{Cancel, RuntimeError, Secrets, Transport, drive};
 use chrono::{DateTime, Utc};
 use mail_domain::{
-    AccountCaps, AccountId, AccountPlan, BlobId, Condstore, Credential, FetchSince, Incoming,
-    MailboxRef, MailboxRole, MessageId, Outgoing, PartTree, ProtoOp, RemoteRef, Resync, Retry,
-    Retryable, SecretKey, SecretPurpose, SendState, SyncCursor, SystemFlag, Tls, UidValidity,
-    WatchMode,
+    AccountCaps, AccountPlan, BlobId, Condstore, FetchSince, Incoming, MailboxRef, MailboxRole,
+    MessageId, Outgoing, PartTree, ProtoOp, RemoteRef, Resync, Retry, Retryable, SendState,
+    SyncCursor, SystemFlag, Tls, UidValidity, WatchMode,
 };
 use mail_mime::Posting;
 use mail_proto::backend::SmtpBackend;
 use mail_proto::{Backend, Moved, ProtoOutcome, Submission};
 use mail_store::{Dispatch, OutboxEntry, Settle, SqliteStore, Store};
+use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -521,12 +521,12 @@ impl<B: Backend> AccountEngine<B> {
             ));
         };
         let outcome = tokio::select! {
-            outcome = reader.run(op, &access, staged) => outcome,
+            outcome = reader.run(op, access.expose(), staged) => outcome,
             () = cancelled(cancel) => Err(RuntimeError::Cancelled),
         };
         let moves = reader.take_moves();
         for (from, to) in moves {
-            self.store.remap(self.account, &from, &to)?;
+            self.store.remap(self.account.clone(), &from, &to)?;
         }
         outcome
     }
@@ -561,7 +561,7 @@ impl<B: Backend> AccountEngine<B> {
         // set would mean two answers to one question.
         let caps = self.caps().clone();
         Ok(SmtpBackend::new(
-            self.account,
+            self.account.clone(),
             caps,
             Box::new(move |posting: Posting| {
                 Ok(Submission {
@@ -585,7 +585,7 @@ impl<B: Backend> AccountEngine<B> {
 
     fn secret(&self, purpose: SecretPurpose) -> Result<Credential, RuntimeError> {
         self.secrets.get(&SecretKey {
-            account: self.account,
+            account: self.account.clone(),
             purpose,
         })
     }
@@ -661,14 +661,14 @@ impl<B: Backend> AccountEngine<B> {
         message: &[u8],
         rcpt_to: &[String],
     ) -> Result<ProtoOutcome, RuntimeError> {
-        let credential = self.secret(mail_domain::SecretPurpose::OutgoingPassword)?;
-        let mail_domain::Credential::OAuth { access, .. } = credential else {
+        let credential = self.secret(porter_core::SecretPurpose::OutgoingPassword)?;
+        let porter_core::Credential::OAuth { access, .. } = credential else {
             return Err(RuntimeError::Secrets(
                 "sending through Graph needs a Microsoft sign-in, not a password".to_owned(),
             ));
         };
         let http = crate::signin::http_client()?;
-        crate::graph::send_mime(&http, &self.graph_url, &access, message, rcpt_to).await?;
+        crate::graph::send_mime(&http, &self.graph_url, access.expose(), message, rcpt_to).await?;
         Ok(ProtoOutcome::Submitted { remote: None })
     }
 
@@ -694,9 +694,9 @@ impl<B: Backend> AccountEngine<B> {
         let mut report = SyncReport::default();
         let synced = std::mem::take(&mut self.synced);
         if !synced.is_empty() {
-            self.store.unplaced_pass(self.account, &synced)?;
+            self.store.unplaced_pass(self.account.clone(), &synced)?;
         }
-        for entry in self.store.outbox_due(self.account, now)? {
+        for entry in self.store.outbox_due(self.account.clone(), now)? {
             let id = entry.id;
             let Some(entry) = self.addressed(entry, now, &mut report)? else {
                 continue;
@@ -821,7 +821,7 @@ impl<B: Backend> AccountEngine<B> {
         report.still_queued = self
             .store
             .outbox_due(
-                self.account,
+                self.account.clone(),
                 now + chrono::TimeDelta::try_days(365).unwrap_or_default(),
             )
             .map(|due| due.len())
@@ -850,9 +850,12 @@ impl<B: Backend> AccountEngine<B> {
                 // A move leaves alone what is already where it was taking it (FINDINGS F159).
                 let target = mail_proto::backend::imap::move_target(self.caps(), &entry.op);
                 let done = match &target {
-                    Some(folder) => {
-                        partial::already_there(&*self.store, self.account, &entry.undo, folder)?
-                    }
+                    Some(folder) => partial::already_there(
+                        &*self.store,
+                        self.account.clone(),
+                        &entry.undo,
+                        folder,
+                    )?,
                     None => Vec::new(),
                 };
                 match target.filter(|_| !done.is_empty()) {
@@ -879,8 +882,8 @@ impl<B: Backend> AccountEngine<B> {
     fn moved(&self, moved: &[Moved], into: Option<&str>) -> Result<(), RuntimeError> {
         for one in moved {
             match &one.to {
-                Some(to) => self.store.remap(self.account, &one.from, to)?,
-                None => self.store.unmap(self.account, &one.from, into)?,
+                Some(to) => self.store.remap(self.account.clone(), &one.from, to)?,
+                None => self.store.unmap(self.account.clone(), &one.from, into)?,
             }
         }
         Ok(())
@@ -905,7 +908,7 @@ impl<B: Backend> AccountEngine<B> {
             Some(remote) => {
                 crate::assemble::appended(
                     &self.store,
-                    self.account,
+                    self.account.clone(),
                     crate::assemble::Destination { mailbox, role },
                     remote,
                     bytes,
@@ -917,7 +920,7 @@ impl<B: Backend> AccountEngine<B> {
                 let placement = mail_mime::archive::Placement::new(role, flags, Vec::new());
                 crate::assemble::keep(
                     &self.store,
-                    self.account,
+                    self.account.clone(),
                     vec![crate::assemble::Keep {
                         raw: bytes,
                         placement,
@@ -957,7 +960,7 @@ impl<B: Backend> AccountEngine<B> {
         now: DateTime<Utc>,
     ) -> Result<AccountCaps, RuntimeError> {
         if let ProtoOutcome::Caps(caps) = self.run(ProtoOp::FetchCaps, cancel).await? {
-            self.store.put_caps(self.account, &caps, now)?;
+            self.store.put_caps(self.account.clone(), &caps, now)?;
         }
         // Folder roles, where the protocol has folders at all. A backend without them answers
         // something other than `Caps`, and this falls back to what the backend already believes
@@ -965,7 +968,7 @@ impl<B: Backend> AccountEngine<B> {
         let outcome = self.run(ProtoOp::ListFolders, cancel).await?;
         let caps = match outcome {
             ProtoOutcome::Folders { caps, listed } => {
-                self.store.put_folders(self.account, listed)?;
+                self.store.put_folders(self.account.clone(), listed)?;
                 *caps
             }
             ProtoOutcome::Caps(caps) => *caps,
@@ -975,7 +978,7 @@ impl<B: Backend> AccountEngine<B> {
             Some(reader) => reader.observed(now),
             None => caps,
         };
-        self.store.put_caps(self.account, &caps, now)?;
+        self.store.put_caps(self.account.clone(), &caps, now)?;
         Ok(caps)
     }
 
@@ -992,14 +995,14 @@ impl<B: Backend> AccountEngine<B> {
         if let ProtoOutcome::Folders { caps, listed } =
             self.run(ProtoOp::ListFolders, cancel).await?
         {
-            self.store.put_folders(self.account, listed)?;
+            self.store.put_folders(self.account.clone(), listed)?;
             let caps = match self.graph.as_mut() {
                 Some(reader) => reader.observed(now),
                 None => *caps,
             };
-            self.store.put_caps(self.account, &caps, now)?;
+            self.store.put_caps(self.account.clone(), &caps, now)?;
         }
-        Ok(self.store.folders(self.account)?)
+        Ok(self.store.folders(self.account.clone())?)
     }
 
     /// Whether this account has folders and none have been listed yet.
@@ -1011,7 +1014,7 @@ impl<B: Backend> AccountEngine<B> {
         matches!(self.plan.incoming, Incoming::Imap { .. } | Incoming::Graph)
             && self
                 .store
-                .folders(self.account)
+                .folders(self.account.clone())
                 .map(|f| f.is_empty())
                 .unwrap_or(false)
     }
@@ -1040,7 +1043,7 @@ impl<B: Backend> AccountEngine<B> {
         let raw = self.store.blobs().put(&self.store.connection(), &raw)?;
         let op = ProtoOp::Append {
             mailbox: MailboxRef {
-                account: self.account,
+                account: self.account.clone(),
                 path,
             },
             flags: vec![SystemFlag::Draft, SystemFlag::Seen],
@@ -1130,7 +1133,7 @@ impl<B: Backend> AccountEngine<B> {
     ) -> Result<mail_store::rules::Ran, RuntimeError> {
         Ok(mail_store::rules::at_arrival(
             self.store.as_ref(),
-            self.account,
+            self.account.clone(),
             self.caps(),
             arrived,
             now,
@@ -1171,7 +1174,7 @@ impl<B: Backend> AccountEngine<B> {
             if let Some(fresh) = &ingest.cursor {
                 ingest.validity = UidValidity::between(self.store.cursor(mailbox)?.as_ref(), fresh);
             }
-            self.store.ingest(self.account, *ingest)?;
+            self.store.ingest(self.account.clone(), *ingest)?;
         }
 
         // What to fetch comes from the SERVER'S listing, not from the store. On a first sync
@@ -1269,7 +1272,7 @@ impl<B: Backend> AccountEngine<B> {
         // message that looks complete.
         let stored = crate::assemble::absorb_into(
             &self.store,
-            self.account,
+            self.account.clone(),
             crate::assemble::Destination {
                 mailbox: mailbox.clone(),
                 role: self.role_of(mailbox),
@@ -1288,7 +1291,7 @@ impl<B: Backend> AccountEngine<B> {
         // revisits old mail, so anything found by backfill stayed unread for ever.
         if !flags.is_empty() {
             self.store.ingest(
-                self.account,
+                self.account.clone(),
                 mail_domain::Ingest {
                     mailbox: mailbox.clone(),
                     validity: mail_domain::UidValidity::Same,
@@ -1347,7 +1350,7 @@ impl<B: Backend> AccountEngine<B> {
 
         if ingest.validity == UidValidity::Reset {
             self.store.ingest(
-                self.account,
+                self.account.clone(),
                 mail_domain::Ingest {
                     mailbox: mailbox.clone(),
                     validity: UidValidity::Reset,
@@ -1375,7 +1378,7 @@ impl<B: Backend> AccountEngine<B> {
             report.headers_fetched += new.len();
             let stored = crate::assemble::absorb_into(
                 &self.store,
-                self.account,
+                self.account.clone(),
                 crate::assemble::Destination {
                     mailbox: mailbox.clone(),
                     role: self.role_of(mailbox),
@@ -1387,7 +1390,7 @@ impl<B: Backend> AccountEngine<B> {
             )?;
             report.arrived.extend(first_stored(&stored));
         }
-        self.store.ingest(self.account, ingest)?;
+        self.store.ingest(self.account.clone(), ingest)?;
         Ok(report)
     }
 
@@ -1513,7 +1516,7 @@ impl<B: Backend> AccountEngine<B> {
         let count = arrivals.len();
         crate::assemble::absorb_into(
             &self.store,
-            self.account,
+            self.account.clone(),
             crate::assemble::Destination {
                 mailbox: mailbox.clone(),
                 role: self.role_of(mailbox),
@@ -1559,7 +1562,7 @@ impl<B: Backend> AccountEngine<B> {
                 ))
             })?;
         let mailbox = MailboxRef {
-            account: self.account,
+            account: self.account.clone(),
             path,
         };
         let outcome = self
@@ -1644,7 +1647,7 @@ impl<B: Backend> AccountEngine<B> {
             };
             crate::assemble::absorb_rebuilt_into(
                 &self.store,
-                self.account,
+                self.account.clone(),
                 crate::assemble::Destination {
                     mailbox: mailbox.clone(),
                     role: self.role_of(mailbox),
@@ -1795,7 +1798,7 @@ impl<B: Backend> AccountEngine<B> {
                 .await
             {
                 Ok(ProtoOutcome::Ingested(ingest)) => {
-                    self.store.ingest(self.account, *ingest)?;
+                    self.store.ingest(self.account.clone(), *ingest)?;
                     self.last.flags = Some(now);
                 }
                 Ok(_) => self.last.flags = Some(now),
@@ -1841,7 +1844,7 @@ impl<B: Backend> AccountEngine<B> {
                             _ => false,
                         })
                         .collect();
-                    self.store.ingest(self.account, *ingest)?;
+                    self.store.ingest(self.account.clone(), *ingest)?;
                     self.last.expunges = Some(now);
                 }
                 Ok(ProtoOutcome::Ingested(mut ingest)) => {
@@ -1849,7 +1852,7 @@ impl<B: Backend> AccountEngine<B> {
                     // knowledge, so the diff happens here — and without it `gone` was always
                     // empty and a message deleted on another device never disappeared.
                     ingest.gone = self.vanished(mailbox)?;
-                    self.store.ingest(self.account, *ingest)?;
+                    self.store.ingest(self.account.clone(), *ingest)?;
                     self.last.expunges = Some(now);
                 }
                 Ok(_) => self.last.expunges = Some(now),
@@ -1970,10 +1973,10 @@ impl<B: Backend> AccountEngine<B> {
     /// The account's stored credential, refreshed if it is close to expiring.
     pub fn credential(
         &self,
-        purpose: mail_domain::SecretPurpose,
-    ) -> Result<mail_domain::Credential, RuntimeError> {
-        self.secrets.get(&mail_domain::SecretKey {
-            account: self.account,
+        purpose: porter_core::SecretPurpose,
+    ) -> Result<porter_core::Credential, RuntimeError> {
+        self.secrets.get(&porter_core::SecretKey {
+            account: self.account.clone(),
             purpose,
         })
     }

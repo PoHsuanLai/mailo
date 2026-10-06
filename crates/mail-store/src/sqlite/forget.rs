@@ -21,7 +21,7 @@
 
 use super::SqliteStore;
 use crate::StoreError;
-use mail_domain::AccountId;
+use porter_core::AccountId;
 use rusqlite::types::ValueRef;
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use std::collections::BTreeSet;

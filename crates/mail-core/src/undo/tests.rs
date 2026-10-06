@@ -1,5 +1,6 @@
 use super::{DEPTH, Undo, UndoStack, reverse_intent, said, said_of};
 use chrono::{TimeZone, Utc};
+use mail_domain::id::new_account_id;
 use mail_domain::*;
 
 fn patch(changes: Vec<Change>) -> Patch {
@@ -78,13 +79,13 @@ fn the_server_is_told_the_reverse_of_what_it_was_told() {
 #[test]
 fn the_stack_forgets_the_oldest_past_its_depth() {
     let mut stack = UndoStack::default();
-    let account = AccountId::generate();
+    let account = new_account_id();
     let threads: Vec<ThreadId> = (0..DEPTH + 3).map(|_| ThreadId::generate()).collect();
     for thread in &threads {
         stack.push(Undo {
             said: "Archived".to_owned(),
             thread: Some(*thread),
-            account,
+            account: account.clone(),
             forward: patch(vec![]),
             inverse: patch(vec![]),
             remote: None,
@@ -107,11 +108,11 @@ fn a_handle_takes_back_its_own_entry_and_only_once() {
     // The toast holds the handle of the op it named. A later op pushed on top must not be what
     // its tab takes back.
     let mut stack = UndoStack::default();
-    let account = AccountId::generate();
+    let account = new_account_id();
     let entry = |thread| Undo {
         said: "Archived".to_owned(),
         thread: Some(thread),
-        account,
+        account: account.clone(),
         forward: patch(vec![]),
         inverse: patch(vec![]),
         remote: None,
@@ -129,11 +130,11 @@ fn a_handle_takes_back_its_own_entry_and_only_once() {
 fn one_gesture_on_several_conversations_is_one_entry() {
     // Archiving three picked conversations is one thing done, and one undo takes all three back.
     let mut stack = UndoStack::default();
-    let account = AccountId::generate();
+    let account = new_account_id();
     let entry = |thread| Undo {
         said: "Archived".to_owned(),
         thread: Some(thread),
-        account,
+        account: account.clone(),
         forward: patch(vec![]),
         inverse: patch(vec![]),
         remote: None,
@@ -190,12 +191,12 @@ fn mail_deleted_forever_is_forgotten_by_the_stack() {
     // A move to Trash of a message later deleted forever cannot be taken back: the message is
     // gone. Its part goes, an entry left with no part goes, and the rest stays as it was.
     let mut stack = UndoStack::default();
-    let account = AccountId::generate();
+    let account = new_account_id();
     let (gone, kept) = (MessageId::generate(), MessageId::generate());
     let trashed = |m: MessageId| Undo {
         said: "Moved to Trash".to_owned(),
         thread: Some(ThreadId::generate()),
-        account,
+        account: account.clone(),
         forward: patch(vec![Change::MessageMailbox(m, MailboxRole::Trash)]),
         inverse: patch(vec![Change::MessageMailbox(m, MailboxRole::Inbox)]),
         remote: None,

@@ -6,11 +6,14 @@
 //! between what a message claims and what gets written.
 
 use mail_core::attach;
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 
 fn store() -> (SqliteStore, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
@@ -20,7 +23,7 @@ fn store() -> (SqliteStore, tempfile::TempDir) {
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [ACCOUNT.to_string()],
+            [acct_account().to_string()],
         )
         .unwrap();
     (store, dir)
@@ -34,7 +37,7 @@ fn with_attachment(store: &SqliteStore, claimed: &str, bytes: &[u8]) -> MessageI
     let message = Message {
         id,
         thread: ThreadId::generate(),
-        account: ACCOUNT,
+        account: acct_account(),
         key: MessageKey::Rfc(format!("{}@example.test", uuid::Uuid::new_v4())),
         date: chrono::Utc::now(),
         from: Address {
@@ -67,10 +70,10 @@ fn with_attachment(store: &SqliteStore, claimed: &str, bytes: &[u8]) -> MessageI
     };
     store
         .ingest(
-            ACCOUNT,
+            acct_account(),
             Ingest {
                 mailbox: MailboxRef {
-                    account: ACCOUNT,
+                    account: acct_account(),
                     path: "INBOX".to_owned(),
                 },
                 validity: UidValidity::Same,
@@ -316,9 +319,9 @@ JVBERi0xLjQKMSAwIG9iajw8L1R5cGUvQ2F0YWxvZz4+ZW5kb2JqCg==\r\n\
         let (store, _dir) = store();
         mail_runtime::absorb(
             &store,
-            ACCOUNT,
+            acct_account(),
             MailboxRef {
-                account: ACCOUNT,
+                account: acct_account(),
                 path: "INBOX".to_owned(),
             },
             Some(SyncCursor::Pop),

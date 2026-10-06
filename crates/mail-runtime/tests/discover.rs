@@ -5,9 +5,10 @@
 //! `autoconfig.example.test`, `starttls.test`, `autoconfig.starttls.test` and `ispdb.test`,
 //! valid until 2126), which the client is told to trust. DNS answers come from a table.
 
-use mail_domain::{AuthPlan, Incoming, OAuthIssuer, Outgoing, Tls};
+use mail_domain::{AuthPlan, Incoming, Outgoing, Tls};
 use mail_proto::discover::{MxRecord, Side, Source, SrvRecord, Unusable};
 use mail_runtime::discover::{self, Dns, Miss, Sources};
+use porter_provider::Issuer;
 use rustls_pki_types::pem::PemObject;
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use std::collections::HashMap;
@@ -351,7 +352,7 @@ async fn an_mx_at_google_is_the_gmail_preset_without_asking_the_ispdb_about_goog
     assert!(matches!(
         found.preset.plan.auth,
         AuthPlan::OAuth {
-            issuer: OAuthIssuer::Google,
+            issuer: Issuer::Google,
             ..
         }
     ));

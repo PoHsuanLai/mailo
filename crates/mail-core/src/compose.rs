@@ -6,9 +6,11 @@
 //! the moment the user pressed the key would lose the message on a train.
 
 use chrono::{DateTime, Local, Utc};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_mime::posting;
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 use std::fmt::Write as _;
 
 pub mod addresses;
@@ -120,7 +122,7 @@ where
     Tz::Offset: std::fmt::Display,
 {
     let original = store.message(message).map_err(|e| e.to_string())?;
-    let identity = identity_of(store, original.account, None)?;
+    let identity = identity_of(store, original.account.clone(), None)?;
 
     let mut draft = Draft::reply_to(&original, &identity, scope, now);
     // `Draft::reply_to` leaves the text empty on purpose — quoting is a rendering decision, not
@@ -184,7 +186,7 @@ where
     Tz::Offset: std::fmt::Display,
 {
     let original = store.message(message).map_err(|e| e.to_string())?;
-    let identity = identity_of(store, original.account, None)?;
+    let identity = identity_of(store, original.account.clone(), None)?;
 
     let mut draft = Draft::forward_of(&original, &identity, now);
     draft.to = to.to_vec();
@@ -223,7 +225,7 @@ pub fn sending_accounts(store: &SqliteStore) -> Vec<(String, AccountId)> {
     };
     rows.filter_map(|row| row.ok())
         .filter(|(_, _, plan)| !keeps_locally(plan))
-        .filter_map(|(address, id, _)| Some((address, AccountId::from_uuid(id.parse().ok()?))))
+        .filter_map(|(address, id, _)| Some((address, account_id_from_uuid(id.parse().ok()?))))
         .collect()
 }
 
@@ -245,12 +247,12 @@ pub fn account_for(store: &SqliteStore, wanted: Option<&str>) -> Result<AccountI
         Some(address) => accounts
             .iter()
             .find(|(had, _)| had.eq_ignore_ascii_case(address))
-            .map(|(_, id)| *id)
+            .map(|(_, id)| id.clone())
             .ok_or_else(|| {
                 let known: Vec<&str> = accounts.iter().map(|(a, _)| a.as_str()).collect();
                 format!("no account {address}. This one has: {}", known.join(", "))
             }),
-        None if accounts.len() == 1 => Ok(accounts[0].1),
+        None if accounts.len() == 1 => Ok(accounts[0].1.clone()),
         None => {
             let known: Vec<&str> = accounts.iter().map(|(a, _)| a.as_str()).collect();
             Err(format!(
@@ -346,7 +348,7 @@ pub fn address_addressed(
 ) -> Result<Address, String> {
     identity_of(
         store,
-        account,
+        account.clone(),
         identity_addressed(store, account, addressed),
     )
     .map(|identity| identity.from)
@@ -598,7 +600,7 @@ pub fn move_draft_to(
     if draft.account == account {
         return Ok(draft);
     }
-    let identity = identity_of(store, account, None)?;
+    let identity = identity_of(store, account.clone(), None)?;
     draft.account = account;
     draft.identity = identity.id;
     draft.updated = now;
@@ -703,7 +705,7 @@ pub fn new_sealed_message(
         }
     }
     if draft.openpgp != OpenPgp::None || draft.smime != Smime::None {
-        let identity = identity_of(store, draft.account, Some(draft.identity))?;
+        let identity = identity_of(store, draft.account.clone(), Some(draft.identity))?;
         let refused = crate::pgp::check(store, &draft, &identity, now)
             .map_err(|e| e.to_string())
             .and_then(|()| {
@@ -794,7 +796,7 @@ pub fn forward(
 pub fn save(store: &SqliteStore, draft: &Draft) -> Result<(), String> {
     store
         .apply(
-            draft.account,
+            draft.account.clone(),
             &Patch {
                 id: ChangeId::generate(),
                 changes: vec![Change::DraftUpsert(Box::new(draft.clone()))],
@@ -1179,7 +1181,7 @@ pub fn queue_with(
             .to_string()
             .into());
     }
-    let identity = identity_of(store, draft.account, Some(draft.identity))?;
+    let identity = identity_of(store, draft.account.clone(), Some(draft.identity))?;
     let parent = draft.in_reply_to.and_then(|id| store.message(id).ok());
 
     // Attachment bytes come from the blob store, because `posting` is pure and takes them as
@@ -1208,7 +1210,7 @@ pub fn queue_with(
 
     let queued = store
         .enqueue(
-            draft.account,
+            draft.account.clone(),
             RemoteIntent::Send {
                 draft: draft.id,
                 raw,
@@ -1284,7 +1286,7 @@ pub fn unsend(store: &SqliteStore, draft: DraftId, now: DateTime<Utc>) -> Result
     };
     store
         .apply(
-            back.account,
+            back.account.clone(),
             &Patch {
                 id: ChangeId::generate(),
                 changes: vec![
@@ -1320,7 +1322,7 @@ where
         let mut out = Vec::new();
         for row in rows {
             if let Ok(id) = row.map_err(|e| e.to_string())?.parse() {
-                out.push(AccountId::from_uuid(id));
+                out.push(account_id_from_uuid(id));
             }
         }
         out

@@ -7,7 +7,7 @@ use super::super::desk::reopen;
 use super::super::page::{Guard, Phase};
 use super::*;
 use crate::ui::editor::{to_flowed, to_html};
-use crate::ui::fixtures::{ACCOUNT, click, press, seeded};
+use crate::ui::fixtures::{acct_account, click, press, seeded};
 use ds_harness::harness::SETTLE_BOUND;
 
 fn far() -> DateTime<Utc> {
@@ -15,13 +15,13 @@ fn far() -> DateTime<Utc> {
 }
 
 fn fresh_draft(store: &SqliteStore) -> Draft {
-    mail_core::compose::draft_new(store, ACCOUNT, &[], "", "", Utc::now())
+    mail_core::compose::draft_new(store, acct_account(), &[], "", "", Utc::now())
         .unwrap_or_else(|why| panic!("a new draft: {why}"))
 }
 
 fn queued(store: &SqliteStore) -> usize {
     store
-        .outbox_due(ACCOUNT, far())
+        .outbox_due(acct_account(), far())
         .unwrap_or_else(|why| panic!("the outbox: {why}"))
         .len()
 }
@@ -397,7 +397,7 @@ async fn send_then_undo_withdraws_the_submission_and_restores_the_draft() {
     // Nothing leaves before the grace period is over.
     assert_eq!(
         store
-            .outbox_due(ACCOUNT, Utc::now())
+            .outbox_due(acct_account(), Utc::now())
             .map(|due| due.len())
             .ok(),
         Some(0)

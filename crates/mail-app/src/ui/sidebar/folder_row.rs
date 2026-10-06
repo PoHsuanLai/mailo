@@ -21,10 +21,9 @@ use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use ds::style::tokens::control_size::ControlSize;
 use mail_core::folder::Refusal;
-use mail_domain::{
-    AccountId, Filter, FolderError, FolderWork, Holds, MailboxRef, NonEmpty, Subscription,
-};
+use mail_domain::{Filter, FolderError, FolderWork, Holds, MailboxRef, NonEmpty, Subscription};
 use mail_store::SqliteStore;
+use porter_core::AccountId;
 use std::sync::Arc;
 
 /// One folder and, beneath it, what it holds: quire's `Row`, a branch while it has children or
@@ -41,7 +40,7 @@ pub(super) fn FolderRow(
         (wires.shell, wires.pages, wires.badges, wires.revision);
     let (mut open, mut note) = (wires.open, wires.note);
     let spot = Spot {
-        account,
+        account: account.clone(),
         path: node.path.clone(),
     };
     let name = node.name.clone();
@@ -53,7 +52,7 @@ pub(super) fn FolderRow(
     // is choosing that place. Elsewhere the folder is a place of its own, and choosing it
     // fetches it too.
     let mailbox = MailboxRef {
-        account,
+        account: account.clone(),
         path: node.path.clone(),
     };
     let fetched = label.is_none().then(|| mailbox.clone());
@@ -156,7 +155,7 @@ pub(super) fn FolderRow(
                 on_input: move |text: String| {
                     open.set(Open::Renaming { spot: rename_spot.clone(), text });
                 },
-                on_commit: move |()| {
+                on_commit: { let account = account.clone(); move |()| {
                     let Open::Renaming { spot, text } = open.peek().clone() else { return };
                     let to = match renamed_path(&spot.path, &text, delimiter) {
                         Ok(to) if to == spot.path => {
@@ -165,13 +164,13 @@ pub(super) fn FolderRow(
                         }
                         Ok(to) => to,
                         Err(text) => {
-                            note.set(Some(Note { account, path: Some(spot.path.clone()), text }));
+                            note.set(Some(Note { account: account.clone(), path: Some(spot.path.clone()), text }));
                             return;
                         }
                     };
                     let work = FolderWork::Rename { from: spot.path.clone(), to };
-                    run(wires, account, Some(spot.path.clone()), work, delimiter);
-                },
+                    run(wires, account.clone(), Some(spot.path.clone()), work, delimiter);
+                } },
                 on_cancel: move |()| open.set(Open::Closed),
             }
         }
@@ -182,7 +181,7 @@ pub(super) fn FolderRow(
             at: Some(spot.clone()),
             delimiter_of: Callback::new(move |_| delimiter),
         }
-        Said { wires, account: Some(account), path: Some(node.path.clone()) }
+        Said { wires, account: Some(account.clone()), path: Some(node.path.clone()) }
     };
     // A right-click opens the folder's menu against the row; the ⋯ in the row is its own
     // `PopUpButton` of the same items.
@@ -192,7 +191,7 @@ pub(super) fn FolderRow(
                 anchor: row_ref(),
                 title: name.clone(),
                 items: items.clone(),
-                on_pick: move |key: String| pick(wires, &key, account, path.clone(), delimiter),
+                on_pick: { let account = account.clone(); move |key: String| pick(wires, &key, account.clone(), path.clone(), delimiter) },
                 // A pick that opened a field or the confirmation keeps it open.
                 on_close: move |_| close(open, |now| matches!(now, Open::Actions(at) if *at == closing)),
             }
@@ -224,12 +223,21 @@ pub(super) fn FolderRow(
                 ),
                 confirm: "Delete Folder and Mail".to_owned(),
                 role: ButtonRole::Destructive,
-                on_confirm: EventHandler::new(move |()| {
-                    let work = FolderWork::Delete {
-                        path: delete.path.clone(),
-                        non_empty: NonEmpty::Allow,
-                    };
-                    run(wires, account, Some(delete.path.clone()), work, delimiter);
+                on_confirm: EventHandler::new({
+                    let account = account.clone();
+                    move |()| {
+                        let work = FolderWork::Delete {
+                            path: delete.path.clone(),
+                            non_empty: NonEmpty::Allow,
+                        };
+                        run(
+                            wires,
+                            account.clone(),
+                            Some(delete.path.clone()),
+                            work,
+                            delimiter,
+                        );
+                    }
                 }),
                 on_cancel: EventHandler::new(move |()| open.set(Open::Closed)),
             })
@@ -240,7 +248,7 @@ pub(super) fn FolderRow(
     let overflow_name = name.clone();
     let mark_path = node.path.clone();
     let accessory = rsx! {
-        super::marks::FolderMark { shell: wires.shell, account, path: mark_path }
+        super::marks::FolderMark { shell: wires.shell, account: account.clone(), path: mark_path }
         if let Some(count) = count {
             Badge {
                 content: BadgeContent::Number(u32::try_from(count).unwrap_or(u32::MAX)),
@@ -253,10 +261,10 @@ pub(super) fn FolderRow(
             title: Some(format!("Actions for {overflow_name}")),
             size: ControlSize::Small,
             items: menu_items("", &items, false),
-            onpick: move |key: String| {
+            onpick: { let account = account.clone(); move |key: String| {
                 note.set(None);
-                pick(wires, &key, account, overflow_path.clone(), delimiter);
-            },
+                pick(wires, &key, account.clone(), overflow_path.clone(), delimiter);
+            } },
         }
     };
     let children = node.children.clone();
@@ -281,7 +289,7 @@ pub(super) fn FolderRow(
             // new folder inside it goes; then what it holds.
             {below}
             for child in children {
-                FolderRow { key: "{child.path}", node: child, account, delimiter, wires }
+                FolderRow { key: "{child.path}", node: child, account: account.clone(), delimiter, wires }
             }
         }
         {menus}
@@ -307,7 +315,7 @@ fn close(mut open: Signal<Open>, still: impl Fn(&Open) -> bool) {
 fn pick(wires: Wires, key: &str, account: AccountId, path: String, delimiter: Option<char>) {
     let mut open = wires.open;
     let spot = Spot {
-        account,
+        account: account.clone(),
         path: path.clone(),
     };
     match key {
@@ -345,7 +353,7 @@ fn pick(wires: Wires, key: &str, account: AccountId, path: String, delimiter: Op
                 &store,
                 wires.shell,
                 wires.revision,
-                account,
+                account.clone(),
                 work,
                 delimiter,
             ) {
@@ -373,7 +381,7 @@ pub(super) fn run(
         &store,
         wires.shell,
         wires.revision,
-        account,
+        account.clone(),
         work,
         delimiter,
     ) {

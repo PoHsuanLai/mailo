@@ -5,11 +5,11 @@
 //! `.vcf` files and syncing a CardDAV address book.
 
 use chrono::{DateTime, Utc};
-use mail_domain::{Credential, SecretKey, SecretPurpose};
 use mail_pim::vcard::{self, Card, Email};
 use mail_runtime::carddav::{self, Dav, DavAuth, How};
 use mail_runtime::{KeyringSecrets, OAuthRegistry, Secrets};
 use mail_store::{AddressBook, Edit, Group, GroupHome, GroupId, Kind, Origin, SqliteStore, Store};
+use porter_core::{CapabilityKind, Credential, SecretKey, SecretPurpose, SecretText};
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
 use std::path::PathBuf;
@@ -329,7 +329,7 @@ async fn sync(
         for book in books {
             let owner = accounts
                 .iter()
-                .find(|a| Some(a.id) == book.account)
+                .find(|a| Some(a.id.clone()) == book.account)
                 .ok_or_else(|| format!("{}: its account is no longer configured", book.url))?;
             let auth = auth_for(owner, book.login.as_deref(), &secrets, saved, now).await?;
             let base = parse_url(&book.url)?;
@@ -365,7 +365,7 @@ async fn sync(
                 url: key,
                 ..AddressBook::default()
             });
-        book.account = Some(owner.id);
+        book.account = Some(owner.id.clone());
         book.login = user.map(str::to_owned);
         out.push_str(&sync_one(&dav, store, book, collection.name).await?);
     }
@@ -429,18 +429,21 @@ async fn auth_for(
 ) -> Result<DavAuth, String> {
     if let Some(login) = login {
         let key = SecretKey {
-            account: account.id,
-            purpose: SecretPurpose::AddressBook,
+            account: account.id.clone(),
+            purpose: SecretPurpose::ServicePassword(CapabilityKind::Contacts),
         };
         let password = match std::env::var("MAILO_PASSWORD") {
             Ok(password) if !password.is_empty() => {
                 secrets
-                    .put(&key, &Credential::Password(password.clone()))
+                    .put(
+                        &key,
+                        &Credential::Password(SecretText::new(password.clone())),
+                    )
                     .map_err(|e| format!("cannot save the password: {e}"))?;
                 password
             }
             _ => match secrets.get(&key) {
-                Ok(Credential::Password(password)) => password,
+                Ok(Credential::Password(password)) => password.expose().to_owned(),
                 _ => {
                     return Err(format!(
                         "no password stored for {login}. Re-run with MAILO_PASSWORD set"
@@ -455,18 +458,18 @@ async fn auth_for(
     }
     let stored = secrets
         .get(&SecretKey {
-            account: account.id,
+            account: account.id.clone(),
             purpose: SecretPurpose::IncomingPassword,
         })
         .map_err(|_| crate::account::no_credential(&account.address, &account.plan.auth))?;
     match crate::sync::signed_in(account, stored, secrets, saved, now).await? {
-        Credential::OAuth { access, .. } => Ok(DavAuth::Bearer(access)),
+        Credential::OAuth { access, .. } => Ok(DavAuth::Bearer(access.expose().to_owned())),
         Credential::Password(password) => Ok(DavAuth::Basic {
             user: account.plan.username(),
-            password,
+            password: password.expose().to_owned(),
         }),
-        Credential::OpenPgp(_) | Credential::SmimeKey(_) => Err(format!(
-            "the credential stored for {} is a private key, not a sign-in",
+        Credential::ApiKey(_) | Credential::KeyPair { .. } => Err(format!(
+            "the credential stored for {} is not a sign-in",
             account.address
         )),
     }

@@ -1,11 +1,20 @@
 use super::*;
 use crate::ui::space::Scope;
+use mail_domain::id::account_id_from_uuid;
 
-const A: AccountId = AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000d1"));
-const B: AccountId = AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000d2"));
-const C: AccountId = AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000d3"));
+fn acct_a() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000d1"))
+}
+fn acct_b() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000d2"))
+}
+fn acct_c() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000d3"))
+}
 /// Keeps its mail here, so it has no link.
-const LOCAL: AccountId = AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000d4"));
+fn acct_local() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000d4"))
+}
 
 /// What is pressed, the Space's scope, and the accounts covered.
 type Case<'a> = (&'a str, Option<AccountId>, Scope, &'a [AccountId]);
@@ -16,45 +25,69 @@ fn of(ids: &[AccountId]) -> Scope {
 
 #[test]
 fn what_a_press_of_sync_covers() {
-    let with_links: BTreeSet<AccountId> = [A, B, C].into();
+    let with_links: BTreeSet<AccountId> = [acct_a(), acct_b(), acct_c()].into();
     let cases: &[Case] = &[
         (
             "every account when nothing narrows it",
             None,
             Scope::All,
-            &[A, B, C],
+            &[acct_a(), acct_b(), acct_c()],
         ),
-        ("a pressed tile is that account", Some(B), Scope::All, &[B]),
-        ("the tile beats the Space", Some(B), of(&[A, C]), &[B]),
-        ("a Space is its accounts", None, of(&[A, C]), &[A, C]),
-        ("a Space of one", None, of(&[C]), &[C]),
+        (
+            "a pressed tile is that account",
+            Some(acct_b()),
+            Scope::All,
+            &[acct_b()],
+        ),
+        (
+            "the tile beats the Space",
+            Some(acct_b()),
+            of(&[acct_a(), acct_c()]),
+            &[acct_b()],
+        ),
+        (
+            "a Space is its accounts",
+            None,
+            of(&[acct_a(), acct_c()]),
+            &[acct_a(), acct_c()],
+        ),
+        ("a Space of one", None, of(&[acct_c()]), &[acct_c()]),
         ("a Space of no accounts covers none", None, of(&[]), &[]),
         (
             "the local account has nothing to fetch",
-            Some(LOCAL),
+            Some(acct_local()),
             Scope::All,
             &[],
         ),
-        ("a Space of only local mail", None, of(&[LOCAL]), &[]),
-        ("local mail beside a server", None, of(&[LOCAL, A]), &[A]),
+        ("a Space of only local mail", None, of(&[acct_local()]), &[]),
+        (
+            "local mail beside a server",
+            None,
+            of(&[acct_local(), acct_a()]),
+            &[acct_a()],
+        ),
     ];
     for (name, pressed, scope, expected) in cases {
-        assert_eq!(in_scope(&with_links, *pressed, scope), *expected, "{name}");
+        assert_eq!(
+            in_scope(&with_links, pressed.clone(), scope),
+            *expected,
+            "{name}"
+        );
     }
 }
 
 #[test]
 fn the_window_asks_its_shell() {
-    let with_links: BTreeSet<AccountId> = [A, B].into();
+    let with_links: BTreeSet<AccountId> = [acct_a(), acct_b()].into();
     let shell = Shell {
-        scope: of(&[B]),
+        scope: of(&[acct_b()]),
         ..Shell::default()
     };
-    assert_eq!(in_view(&with_links, &shell), [B]);
+    assert_eq!(in_view(&with_links, &shell), [acct_b()]);
     let pressed = Shell {
-        account: Some(A),
-        scope: of(&[B]),
+        account: Some(acct_a()),
+        scope: of(&[acct_b()]),
         ..Shell::default()
     };
-    assert_eq!(in_view(&with_links, &pressed), [A]);
+    assert_eq!(in_view(&with_links, &pressed), [acct_a()]);
 }

@@ -9,7 +9,8 @@
 use super::SqliteStore;
 use super::row::uuid;
 use crate::{Offline, RemotePart, StoreError};
-use mail_domain::{AccountId, MailboxRef, MessageId};
+use mail_domain::{MailboxRef, MessageId};
+use porter_core::AccountId;
 use rusqlite::params;
 
 /// An element of `m.attachments`, as `a`, that waits on the server as a section it can be asked

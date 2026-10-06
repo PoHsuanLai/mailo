@@ -7,13 +7,16 @@
 
 use mail_core::auth::{Standing, results_of, standing};
 use mail_core::rules::block::{Blocked, block, condition, unblock};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_mime::Verdict;
 use mail_runtime::{Arrival, absorb};
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 
-const ACCOUNT: AccountId =
-    AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
 
 fn seeded(dir: &std::path::Path) -> SqliteStore {
     std::fs::create_dir_all(dir.join("blobs")).unwrap();
@@ -35,7 +38,10 @@ fn seeded(dir: &std::path::Path) -> SqliteStore {
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@provider.example', ?2, datetime('now'))",
-            rusqlite::params![ACCOUNT.to_string(), serde_json::to_string(&plan).unwrap()],
+            rusqlite::params![
+                acct_account().to_string(),
+                serde_json::to_string(&plan).unwrap()
+            ],
         )
         .unwrap();
     store
@@ -50,9 +56,9 @@ fn arrive(store: &SqliteStore, n: u32, from: &str, headers: &str) -> Message {
     );
     absorb(
         store,
-        ACCOUNT,
+        acct_account(),
         MailboxRef {
-            account: ACCOUNT,
+            account: acct_account(),
             path: "INBOX".to_owned(),
         },
         Some(SyncCursor::Pop),
@@ -137,12 +143,12 @@ fn blocking_makes_exactly_one_rule_and_unblocking_takes_it_back() {
     let dir = tempfile::tempdir().unwrap();
     let store = seeded(dir.path());
     arrive(&store, 3, "Pest <pest@spam.example>", "");
-    let before = store.rules(ACCOUNT).unwrap();
+    let before = store.rules(acct_account()).unwrap();
 
-    let Blocked::Made(rule) = block(&store, ACCOUNT, "pest@spam.example").unwrap() else {
+    let Blocked::Made(rule) = block(&store, acct_account(), "pest@spam.example").unwrap() else {
         panic!("a first block made no rule");
     };
-    let after = store.rules(ACCOUNT).unwrap();
+    let after = store.rules(acct_account()).unwrap();
     assert_eq!(after.len(), before.len() + 1);
     let kept = after
         .iter()
@@ -155,7 +161,7 @@ fn blocking_makes_exactly_one_rule_and_unblocking_takes_it_back() {
     // The rule is about their mail: it matches the conversation they sent.
     let matching = store
         .count(
-            &Filter::And(vec![Filter::Account(ACCOUNT), kept.filter.clone()]),
+            &Filter::And(vec![Filter::Account(acct_account()), kept.filter.clone()]),
             chrono::Utc::now(),
         )
         .unwrap();
@@ -163,13 +169,13 @@ fn blocking_makes_exactly_one_rule_and_unblocking_takes_it_back() {
 
     // Blocking them again, in another case, writes nothing more.
     assert!(matches!(
-        block(&store, ACCOUNT, "Pest@Spam.Example").unwrap(),
+        block(&store, acct_account(), "Pest@Spam.Example").unwrap(),
         Blocked::Already(had) if had.id == rule.id
     ));
-    assert_eq!(store.rules(ACCOUNT).unwrap().len(), before.len() + 1);
+    assert_eq!(store.rules(acct_account()).unwrap().len(), before.len() + 1);
 
     unblock(&store, rule.id).unwrap();
-    assert_eq!(store.rules(ACCOUNT).unwrap(), before);
+    assert_eq!(store.rules(acct_account()).unwrap(), before);
 }
 
 #[test]
@@ -178,7 +184,7 @@ fn a_block_runs_before_the_rules_already_there() {
     let store = seeded(dir.path());
     let archive = Rule {
         id: RuleId::generate(),
-        account: ACCOUNT,
+        account: acct_account(),
         name: "Archive the lot".to_owned(),
         position: 1,
         state: RuleState::Enabled,
@@ -187,10 +193,10 @@ fn a_block_runs_before_the_rules_already_there() {
         after: AfterMatch::Stop,
     };
     store.put_rule(&archive).unwrap();
-    let Blocked::Made(rule) = block(&store, ACCOUNT, "pest@spam.example").unwrap() else {
+    let Blocked::Made(rule) = block(&store, acct_account(), "pest@spam.example").unwrap() else {
         panic!("no rule made");
     };
-    let rules = store.rules(ACCOUNT).unwrap();
+    let rules = store.rules(acct_account()).unwrap();
     let order: Vec<RuleId> = rule::ordered(&rules).iter().map(|r| r.id).collect();
     assert_eq!(order, vec![rule.id, archive.id]);
 }

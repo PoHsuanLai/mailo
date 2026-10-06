@@ -108,12 +108,13 @@ fn where_it_is(thread: &ThreadSummary) -> &'static str {
 mod tests {
     use super::*;
     use crate::ui::view::PageGroup;
+    use mail_domain::id::new_account_id;
     use mail_domain::*;
 
     fn thread(subject: &str, read: ReadState, star: Star, labels: Vec<LabelId>) -> ThreadSummary {
         ThreadSummary {
             id: ThreadId::generate(),
-            account: AccountId::generate(),
+            account: new_account_id(),
             subject: subject.to_owned(),
             snippet: String::new(),
             from: Address {

@@ -1,13 +1,17 @@
 //! Where passwords and tokens live: the platform keyring, never SQLite.
 
 mod chunks;
+mod stored;
 
 use crate::RuntimeError;
+use chrono::DateTime;
 use chunks::{Limit, Slots};
 use keyring_core::CredentialStore;
-use mail_domain::{Credential, SecretKey, SecretPurpose};
+use mail_domain::signing::{SigningKeyId, SigningKeyRef, SigningSecret};
+use porter_core::{CapabilityKind, Credential, SecretKey, SecretPurpose, SecretText, UnixSeconds};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use stored::Stored;
 
 /// A store of credentials.
 ///
@@ -17,22 +21,96 @@ pub trait Secrets: Send + Sync {
     fn get(&self, key: &SecretKey) -> Result<Credential, RuntimeError>;
     fn put(&self, key: &SecretKey, value: &Credential) -> Result<(), RuntimeError>;
     fn forget(&self, key: &SecretKey) -> Result<(), RuntimeError>;
+    /// The secret half of a signing key.
+    fn get_signing(&self, key: &SigningKeyRef) -> Result<SigningSecret, RuntimeError>;
+    fn put_signing(&self, key: &SigningKeyRef, value: &SigningSecret) -> Result<(), RuntimeError>;
+    fn forget_signing(&self, key: &SigningKeyRef) -> Result<(), RuntimeError>;
 }
 
 const SERVICE: &str = "mailo";
 
-fn entry_name(key: &SecretKey) -> String {
+/// The keyring entry for an account's secret.
+///
+/// mailo files four of porter's purposes, and has always filed them under these names, so an
+/// entry written by any earlier build is found. The others (an API key, a key pair, a device
+/// key, a password for a service mailo does not speak) are not mailo's to keep.
+fn entry_name(key: &SecretKey) -> Result<String, RuntimeError> {
     let purpose = match key.purpose {
         SecretPurpose::IncomingPassword => "incoming",
         SecretPurpose::OutgoingPassword => "outgoing",
         SecretPurpose::OAuthRefresh => "oauth",
-        SecretPurpose::AddressBook => "carddav",
-        // Named by the key alone: see `SecretPurpose::OpenPgp` for why the account is not part
-        // of it. The prefix cannot collide with an account's entries, which begin with a UUID.
-        SecretPurpose::OpenPgp(fingerprint) => return format!("openpgp:{fingerprint}"),
-        SecretPurpose::Smime(fingerprint) => return format!("smime:{fingerprint}"),
+        SecretPurpose::ServicePassword(CapabilityKind::Contacts) => "carddav",
+        other => {
+            return Err(RuntimeError::Secrets(format!(
+                "mailo keeps no secret of the purpose {other:?}"
+            )));
+        }
     };
-    format!("{}:{}", key.account, purpose)
+    Ok(format!("{}:{}", key.account, purpose))
+}
+
+/// Named by the key alone: see [`SigningKeyId`] for why the account is not part of it. The
+/// prefix cannot collide with an account's entries, which begin with a UUID.
+fn signing_entry_name(key: &SigningKeyRef) -> String {
+    match key.key {
+        SigningKeyId::OpenPgp(fingerprint) => format!("openpgp:{fingerprint}"),
+        SigningKeyId::Smime(fingerprint) => format!("smime:{fingerprint}"),
+    }
+}
+
+fn account_secret(stored: Stored) -> Result<Credential, RuntimeError> {
+    match stored {
+        Stored::Password(password) => Ok(Credential::Password(SecretText::new(password))),
+        Stored::OAuth {
+            access,
+            refresh,
+            expires_at,
+        } => Ok(Credential::OAuth {
+            access: SecretText::new(access),
+            refresh: SecretText::new(refresh),
+            expires_at: UnixSeconds(expires_at.timestamp()),
+        }),
+        Stored::OpenPgp(_) | Stored::SmimeKey(_) => Err(RuntimeError::Secrets(
+            "the keyring entry holds a signing key, not an account's credential".to_owned(),
+        )),
+    }
+}
+
+fn signing_secret(stored: Stored) -> Result<SigningSecret, RuntimeError> {
+    match stored {
+        Stored::OpenPgp(armored) => Ok(SigningSecret::OpenPgp(armored)),
+        Stored::SmimeKey(pem) => Ok(SigningSecret::SmimeKey(pem)),
+        Stored::Password(_) | Stored::OAuth { .. } => Err(RuntimeError::Secrets(
+            "the keyring entry holds an account's credential, not a signing key".to_owned(),
+        )),
+    }
+}
+
+fn stored_credential(value: &Credential) -> Result<Stored, RuntimeError> {
+    match value {
+        Credential::Password(password) => Ok(Stored::Password(password.expose().to_owned())),
+        Credential::OAuth {
+            access,
+            refresh,
+            expires_at,
+        } => Ok(Stored::OAuth {
+            access: access.expose().to_owned(),
+            refresh: refresh.expose().to_owned(),
+            expires_at: DateTime::from_timestamp(expires_at.0, 0).ok_or_else(|| {
+                RuntimeError::Secrets("the credential's expiry is not a date".to_owned())
+            })?,
+        }),
+        Credential::ApiKey(_) | Credential::KeyPair { .. } => Err(RuntimeError::Secrets(
+            "mailo keeps no API key or key pair".to_owned(),
+        )),
+    }
+}
+
+fn stored_signing(value: &SigningSecret) -> Stored {
+    match value {
+        SigningSecret::OpenPgp(armored) => Stored::OpenPgp(armored.clone()),
+        SigningSecret::SmimeKey(pem) => Stored::SmimeKey(pem.clone()),
+    }
 }
 
 /// The platform keyring: the Secret Service on Linux and the BSDs, the login keychain on macOS,
@@ -41,9 +119,8 @@ fn entry_name(key: &SecretKey) -> String {
 #[derive(Debug, Default)]
 pub struct KeyringSecrets;
 
-impl Secrets for KeyringSecrets {
-    fn get(&self, key: &SecretKey) -> Result<Credential, RuntimeError> {
-        let name = entry_name(key);
+impl KeyringSecrets {
+    fn read(name: String) -> Result<Stored, RuntimeError> {
         let stored = off_runtime(move || chunks::get(&Keyring, &name))?
             .ok_or_else(|| RuntimeError::Secrets("no such credential".to_owned()))?;
         // JSON rather than a bare string so an OAuth credential keeps its expiry and refresh
@@ -52,16 +129,40 @@ impl Secrets for KeyringSecrets {
             .map_err(|e| RuntimeError::Secrets(format!("stored credential is unreadable: {e}")))
     }
 
-    fn put(&self, key: &SecretKey, value: &Credential) -> Result<(), RuntimeError> {
-        let name = entry_name(key);
+    fn write(name: String, value: &Stored) -> Result<(), RuntimeError> {
         let encoded = serde_json::to_string(value)
             .map_err(|e| RuntimeError::Secrets(format!("cannot encode credential: {e}")))?;
         off_runtime(move || chunks::put(&Keyring, &name, &encoded, LIMIT))
     }
 
-    fn forget(&self, key: &SecretKey) -> Result<(), RuntimeError> {
-        let name = entry_name(key);
+    fn remove(name: String) -> Result<(), RuntimeError> {
         off_runtime(move || chunks::forget(&Keyring, &name))
+    }
+}
+
+impl Secrets for KeyringSecrets {
+    fn get(&self, key: &SecretKey) -> Result<Credential, RuntimeError> {
+        account_secret(Self::read(entry_name(key)?)?)
+    }
+
+    fn put(&self, key: &SecretKey, value: &Credential) -> Result<(), RuntimeError> {
+        Self::write(entry_name(key)?, &stored_credential(value)?)
+    }
+
+    fn forget(&self, key: &SecretKey) -> Result<(), RuntimeError> {
+        Self::remove(entry_name(key)?)
+    }
+
+    fn get_signing(&self, key: &SigningKeyRef) -> Result<SigningSecret, RuntimeError> {
+        signing_secret(Self::read(signing_entry_name(key))?)
+    }
+
+    fn put_signing(&self, key: &SigningKeyRef, value: &SigningSecret) -> Result<(), RuntimeError> {
+        Self::write(signing_entry_name(key), &stored_signing(value))
+    }
+
+    fn forget_signing(&self, key: &SigningKeyRef) -> Result<(), RuntimeError> {
+        Self::remove(signing_entry_name(key))
     }
 }
 
@@ -233,32 +334,60 @@ pub fn off_runtime<T: Send>(work: impl FnOnce() -> T + Send) -> T {
 /// An in-memory store. Tests only — it never reaches the user's keyring and never persists.
 #[derive(Debug, Default)]
 pub struct MapSecrets {
-    entries: Mutex<HashMap<String, Credential>>,
+    entries: Mutex<HashMap<String, Stored>>,
 }
 
-impl Secrets for MapSecrets {
-    fn get(&self, key: &SecretKey) -> Result<Credential, RuntimeError> {
+impl MapSecrets {
+    fn lookup(&self, name: &str) -> Result<Stored, RuntimeError> {
         self.entries
             .lock()
             .expect("MapSecrets mutex poisoned")
-            .get(&entry_name(key))
+            .get(name)
             .cloned()
             .ok_or_else(|| RuntimeError::Secrets("no such credential".to_owned()))
     }
 
-    fn put(&self, key: &SecretKey, value: &Credential) -> Result<(), RuntimeError> {
+    fn keep(&self, name: String, value: Stored) {
         self.entries
             .lock()
             .expect("MapSecrets mutex poisoned")
-            .insert(entry_name(key), value.clone());
+            .insert(name, value);
+    }
+
+    fn remove(&self, name: &str) {
+        self.entries
+            .lock()
+            .expect("MapSecrets mutex poisoned")
+            .remove(name);
+    }
+}
+
+impl Secrets for MapSecrets {
+    fn get(&self, key: &SecretKey) -> Result<Credential, RuntimeError> {
+        account_secret(self.lookup(&entry_name(key)?)?)
+    }
+
+    fn put(&self, key: &SecretKey, value: &Credential) -> Result<(), RuntimeError> {
+        self.keep(entry_name(key)?, stored_credential(value)?);
         Ok(())
     }
 
     fn forget(&self, key: &SecretKey) -> Result<(), RuntimeError> {
-        self.entries
-            .lock()
-            .expect("MapSecrets mutex poisoned")
-            .remove(&entry_name(key));
+        self.remove(&entry_name(key)?);
+        Ok(())
+    }
+
+    fn get_signing(&self, key: &SigningKeyRef) -> Result<SigningSecret, RuntimeError> {
+        signing_secret(self.lookup(&signing_entry_name(key))?)
+    }
+
+    fn put_signing(&self, key: &SigningKeyRef, value: &SigningSecret) -> Result<(), RuntimeError> {
+        self.keep(signing_entry_name(key), stored_signing(value));
+        Ok(())
+    }
+
+    fn forget_signing(&self, key: &SigningKeyRef) -> Result<(), RuntimeError> {
+        self.remove(&signing_entry_name(key));
         Ok(())
     }
 }
@@ -267,7 +396,7 @@ impl Secrets for MapSecrets {
 mod tests {
     use super::*;
     use chrono::{DateTime, TimeDelta};
-    use mail_domain::AccountId;
+    use mail_domain::id::account_id_from_uuid;
 
     /// What zbus's blocking API does under its `tokio` feature, done from inside a runtime as a
     /// sync does: without `off_runtime` this panics "Cannot start a runtime from within a runtime".
@@ -288,7 +417,7 @@ mod tests {
 
     fn key(purpose: SecretPurpose) -> SecretKey {
         SecretKey {
-            account: AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-00000000c0de")),
+            account: account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-00000000c0de")),
             purpose,
         }
     }
@@ -301,9 +430,9 @@ mod tests {
         let at =
             DateTime::from_timestamp(1_700_000_000, 0).unwrap() + TimeDelta::try_hours(1).unwrap();
         let cred = Credential::OAuth {
-            access: "ya29.access".into(),
-            refresh: "1//refresh".into(),
-            expires_at: at,
+            access: SecretText::new("ya29.access"),
+            refresh: SecretText::new("1//refresh"),
+            expires_at: UnixSeconds((at).timestamp()),
         };
         store.put(&key(SecretPurpose::OAuthRefresh), &cred).unwrap();
         assert_eq!(store.get(&key(SecretPurpose::OAuthRefresh)).unwrap(), cred);
@@ -316,22 +445,22 @@ mod tests {
         store
             .put(
                 &key(SecretPurpose::IncomingPassword),
-                &Credential::Password("in".into()),
+                &Credential::Password(SecretText::new("in")),
             )
             .unwrap();
         store
             .put(
                 &key(SecretPurpose::OutgoingPassword),
-                &Credential::Password("out".into()),
+                &Credential::Password(SecretText::new("out")),
             )
             .unwrap();
         assert_eq!(
             store.get(&key(SecretPurpose::IncomingPassword)).unwrap(),
-            Credential::Password("in".into())
+            Credential::Password(SecretText::new("in"))
         );
         assert_eq!(
             store.get(&key(SecretPurpose::OutgoingPassword)).unwrap(),
-            Credential::Password("out".into())
+            Credential::Password(SecretText::new("out"))
         );
     }
 

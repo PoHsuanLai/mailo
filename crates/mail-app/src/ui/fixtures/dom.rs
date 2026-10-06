@@ -2,7 +2,7 @@ use super::super::app::App;
 use super::super::compose::{ComposerPage, use_desk};
 use super::super::reading::Reader;
 use super::super::style::STYLE;
-use super::store::{ACCOUNT, seeded};
+use super::store::{acct_account, seeded};
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use dioxus_core::{NoOpMutations, VirtualDom};
@@ -699,7 +699,7 @@ fn ComposerHarness() -> Element {
     let is_open = shell.read().composing.is_some();
     if want_open && !is_open {
         if let Some(draft) = store
-            .drafts(ACCOUNT)
+            .drafts(acct_account())
             .ok()
             .and_then(|d| d.into_iter().next())
         {
@@ -801,7 +801,7 @@ mod tests {
                 .execute(
                     "INSERT INTO accounts (id, address, plan, created_at) VALUES (?1, ?2, ?3, ?4)",
                     rusqlite::params![
-                        mail_domain::AccountId::generate().to_string(),
+                        mail_domain::id::new_account_id().to_string(),
                         address,
                         serde_json::to_string(&plan).unwrap(),
                         format!("2026-01-0{}T00:00:00Z", n + 1),

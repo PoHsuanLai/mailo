@@ -1,0 +1,20 @@
+[
+  {
+    "kind": "o_auth",
+    "v": {
+      "issuer": "google",
+      "scopes": [
+        "https://mail.google.com/"
+      ]
+    }
+  },
+  {
+    "kind": "o_auth",
+    "v": {
+      "issuer": "microsoft",
+      "scopes": [
+        "https://outlook.office.com/IMAP.AccessAsUser.All"
+      ]
+    }
+  }
+]

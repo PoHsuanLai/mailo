@@ -654,7 +654,7 @@ fn import(
 }
 
 /// Account ids in the order they were added, for the first-run Spaces.
-fn account_ids(store: &SqliteStore) -> Vec<mail_domain::AccountId> {
+fn account_ids(store: &SqliteStore) -> Vec<porter_core::AccountId> {
     let db = store.connection();
     let Ok(mut stmt) = db.prepare("SELECT id FROM accounts ORDER BY created_at") else {
         return Vec::new();
@@ -664,7 +664,7 @@ fn account_ids(store: &SqliteStore) -> Vec<mail_domain::AccountId> {
     };
     rows.filter_map(|row| row.ok())
         .filter_map(|id| id.parse().ok())
-        .map(mail_domain::AccountId::from_uuid)
+        .map(mail_domain::id::account_id_from_uuid)
         .collect()
 }
 

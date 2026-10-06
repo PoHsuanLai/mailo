@@ -7,9 +7,10 @@
 
 mod jmap;
 pub use jmap::find as find_jmap;
-use mail_domain::{AuthPlan, Incoming, OAuthIssuer, Outgoing, Retry, Tls, Username};
+use mail_domain::{AuthPlan, Incoming, Outgoing, Retry, Tls, Username};
 use mail_proto::discover::{Found, Unusable};
 use mail_runtime::discover::NotFound;
+use porter_provider::Issuer;
 use std::fmt::Write as _;
 
 /// What was found, for the user to judge.
@@ -53,8 +54,9 @@ pub fn describe(address: &str, origin: &str, found: &mail_domain::presets::Prese
         AuthPlan::OAuth { issuer, .. } => format!(
             "OAuth, signing in with {} in a browser; no password is stored",
             match issuer {
-                OAuthIssuer::Google => "Google",
-                OAuthIssuer::Microsoft => "Microsoft",
+                Issuer::Google => "Google",
+                Issuer::Microsoft => "Microsoft",
+                _ => "an issuer mailo does not read mail through",
             }
         ),
     };

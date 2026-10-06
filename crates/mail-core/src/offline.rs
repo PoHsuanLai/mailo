@@ -10,8 +10,8 @@
 //! is simply never asked about.
 
 use crate::config::{read_json, write_json};
-use mail_domain::AccountId;
 use mail_store::{Offline, Store};
+use porter_core::AccountId;
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
 use std::path::Path;
@@ -138,14 +138,14 @@ pub fn command(
             return Err("no config directory (neither XDG_CONFIG_HOME nor HOME is set)".to_owned());
         };
         for (id, _) in &chosen {
-            save(dir, *id, keep)?;
+            save(dir, id.clone(), keep)?;
         }
     }
     let kept = dir.map(load).unwrap_or_default();
     let mut out = String::new();
     for (id, address) in chosen {
-        let counted = store.offline(*id).map_err(|e| e.to_string())?;
-        let keeps = match kept.of(*id) {
+        let counted = store.offline(id.clone()).map_err(|e| e.to_string())?;
+        let keeps = match kept.of(id.clone()) {
             Keep::Everything => "all mail kept offline",
             Keep::Bodies => "large attachments left on the server until opened",
         };
@@ -160,27 +160,38 @@ pub fn command(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mail_domain::id::account_id_from_uuid;
 
-    const ADA: AccountId =
-        AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"));
-    const BEA: AccountId =
-        AccountId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a2"));
+    fn acct_ada() -> AccountId {
+        account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+    }
+    fn acct_bea() -> AccountId {
+        account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a2"))
+    }
 
     #[test]
     fn off_until_turned_on_and_one_account_at_a_time() {
         let dir = tempfile::tempdir().unwrap();
-        assert_eq!(load(dir.path()).of(ADA), Keep::Bodies, "off by default");
+        assert_eq!(
+            load(dir.path()).of(acct_ada()),
+            Keep::Bodies,
+            "off by default"
+        );
 
-        save(dir.path(), ADA, Keep::Everything).unwrap();
+        save(dir.path(), acct_ada(), Keep::Everything).unwrap();
         let kept = load(dir.path());
-        assert_eq!(kept.of(ADA), Keep::Everything);
-        assert_eq!(kept.of(BEA), Keep::Bodies, "the other account is untouched");
+        assert_eq!(kept.of(acct_ada()), Keep::Everything);
+        assert_eq!(
+            kept.of(acct_bea()),
+            Keep::Bodies,
+            "the other account is untouched"
+        );
 
-        save(dir.path(), BEA, Keep::Everything).unwrap();
-        save(dir.path(), ADA, Keep::Bodies).unwrap();
+        save(dir.path(), acct_bea(), Keep::Everything).unwrap();
+        save(dir.path(), acct_ada(), Keep::Bodies).unwrap();
         let kept = load(dir.path());
         assert_eq!(
-            (kept.of(ADA), kept.of(BEA)),
+            (kept.of(acct_ada()), kept.of(acct_bea())),
             (Keep::Bodies, Keep::Everything)
         );
     }
@@ -189,7 +200,7 @@ mod tests {
     fn a_damaged_file_is_every_account_off() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join(FILE_NAME), b"{not json").unwrap();
-        assert_eq!(load(dir.path()).of(ADA), Keep::Bodies);
+        assert_eq!(load(dir.path()).of(acct_ada()), Keep::Bodies);
     }
 
     #[test]

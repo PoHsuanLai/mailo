@@ -27,6 +27,7 @@ use mail_domain::*;
 use mail_runtime::{AccountEngine, Cancel, Held, JmapEngine, OAuthRegistry, Secrets, Woke};
 use mail_runtime::{KeyringSecrets, RuntimeError};
 use mail_store::SqliteStore;
+use porter_core::{AccountId, SecretKey, SecretPurpose};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::watch;
@@ -106,7 +107,7 @@ pub fn pushing(store: &SqliteStore) -> Vec<AccountId> {
         .unwrap_or_default()
         .iter()
         .filter(|account| pushes(account))
-        .map(|account| account.id)
+        .map(|account| account.id.clone())
         .collect()
 }
 
@@ -190,7 +191,7 @@ impl Waiter {
         }
         let stored = secrets
             .get(&SecretKey {
-                account: account.id,
+                account: account.id.clone(),
                 purpose: SecretPurpose::IncomingPassword,
             })
             .map_err(|_| {
@@ -228,9 +229,13 @@ impl Waiter {
                 })
             }
             Incoming::Jmap { .. } => {
-                let mut engine =
-                    JmapEngine::new(account.id, account.plan.clone(), store.clone(), secrets)
-                        .map_err(|e| Lost::of(&e))?;
+                let mut engine = JmapEngine::new(
+                    account.id.clone(),
+                    account.plan.clone(),
+                    store.clone(),
+                    secrets,
+                )
+                .map_err(|e| Lost::of(&e))?;
                 engine.connect().await.map_err(|e| Lost::of(&e))?;
                 // The stored capabilities said push; the server's own session is the authority.
                 if !engine.pushes() {

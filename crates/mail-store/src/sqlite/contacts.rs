@@ -5,9 +5,9 @@ use super::row::{from_time, json, time, to_json, uuid};
 use crate::StoreError;
 use crate::contact::learn::{self, Event, NameRank, Needle, Row, Seen};
 use crate::contact::{AddressBook, Contact, Kind, Origin, Tally};
-use mail_domain::{
-    AccountId, Address, BlobId, Draft, DraftId, MailboxRole, Message, MessageId, SendState,
-};
+use mail_domain::id::account_id_from_uuid;
+use mail_domain::{Address, BlobId, Draft, DraftId, MailboxRole, Message, MessageId, SendState};
+use porter_core::AccountId;
 use rusqlite::{Connection, OptionalExtension, params};
 
 const COLUMNS: &str = "address, name, name_rank, name_at, written_count, written_last, \
@@ -118,7 +118,7 @@ impl SqliteStore {
                 )
                 .optional()?;
             let from = from.unwrap_or_default();
-            learn_sent(&db, draft.account, Some(&draft), &from, &[], at)?;
+            learn_sent(&db, draft.account.clone(), Some(&draft), &from, &[], at)?;
         }
 
         type Held = (
@@ -159,7 +159,7 @@ impl SqliteStore {
             let decoded = (|| -> Result<_, StoreError> {
                 Ok((
                     MessageId::from_uuid(uuid("messages.id", &id)?),
-                    AccountId::from_uuid(uuid("messages.account", &account)?),
+                    account_id_from_uuid(uuid("messages.account", &account)?),
                     json::<MailboxRole>("messages.mailbox", &mailbox)?,
                     time("messages.date", &date)?,
                     json::<super::read::Recipients>("messages.recipients", &recipients)?,
@@ -389,7 +389,7 @@ fn hear(
 ) -> Result<(), StoreError> {
     for (address, event) in events {
         let row = load(db, address)?.unwrap_or_else(|| Row::new(address));
-        save(db, &learn::apply(row, account, event))?;
+        save(db, &learn::apply(row, account.clone(), event))?;
     }
     Ok(())
 }
@@ -420,7 +420,7 @@ fn save(db: &Connection, row: &Row) -> Result<(), StoreError> {
         row.score,
         to_json("Kind", &c.kind)?,
         to_json("Origin", &c.origin)?,
-        c.account.map(|a| a.to_string()),
+        c.account.clone().map(|a| a.to_string()),
         learn::keys(c),
     ])?;
     Ok(())
@@ -452,7 +452,7 @@ fn read_row(r: &rusqlite::Row<'_>) -> Result<Row, StoreError> {
             origin: json("Origin", &r.get::<_, String>(10)?)?,
             account: r
                 .get::<_, Option<String>>(11)?
-                .map(|a| uuid("contacts.account", &a).map(AccountId::from_uuid))
+                .map(|a| uuid("contacts.account", &a).map(mail_domain::id::account_id_from_uuid))
                 .transpose()?,
         },
         name_rank: NameRank::from_i64(r.get(2)?),

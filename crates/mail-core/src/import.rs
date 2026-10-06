@@ -15,10 +15,11 @@
 //! fit in memory, and a batch is written every [`BATCH`] messages with a progress line.
 
 use chrono::{DateTime, TimeDelta, Utc};
-use mail_domain::{AccountId, ChangeId, Incoming, MailboxRef, Patch, ProtoOp, RemoteIntent};
+use mail_domain::{ChangeId, Incoming, MailboxRef, Patch, ProtoOp, RemoteIntent};
 use mail_mime::archive::{self, Placement, Sniffed, maildir, mbox};
 use mail_runtime::assemble::{self, Keep};
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
 
@@ -235,7 +236,13 @@ pub fn into_local(
             placement: item.placement,
         });
         if batch.len() == BATCH {
-            keep(store, account, std::mem::take(&mut batch), now, &mut total)?;
+            keep(
+                store,
+                account.clone(),
+                std::mem::take(&mut batch),
+                now,
+                &mut total,
+            )?;
             progress(&total);
         }
     }
@@ -288,7 +295,9 @@ pub fn queue_uploads(
              leave out --to-mailbox to keep the mail on this computer"
         ));
     }
-    let listed = store.folders(account.id).map_err(|e| e.to_string())?;
+    let listed = store
+        .folders(account.id.clone())
+        .map_err(|e| e.to_string())?;
     if !listed.is_empty() && !listed.iter().any(|f| f.path == folder) {
         return Err(format!(
             "{address} has no folder called {folder:?}; `mailo folder list {address}` shows \
@@ -296,13 +305,13 @@ pub fn queue_uploads(
         ));
     }
     let mailbox = MailboxRef {
-        account: account.id,
+        account: account.id.clone(),
         path: folder.to_owned(),
     };
     // Uploads already waiting, from an import whose drain did not finish.
     let mut waiting: Vec<mail_domain::BlobId> = store
         .outbox_due(
-            account.id,
+            account.id.clone(),
             now + TimeDelta::try_days(3650).unwrap_or_default(),
         )
         .map_err(|e| e.to_string())?
@@ -326,7 +335,10 @@ pub fn queue_uploads(
             continue;
         };
         let key = assemble::identity(&fields, &item.raw);
-        if store.holds(account.id, &key).map_err(|e| e.to_string())? {
+        if store
+            .holds(account.id.clone(), &key)
+            .map_err(|e| e.to_string())?
+        {
             total.already += 1;
             continue;
         }
@@ -340,7 +352,7 @@ pub fn queue_uploads(
         }
         store
             .enqueue(
-                account.id,
+                account.id.clone(),
                 RemoteIntent::Append {
                     mailbox: mailbox.clone(),
                     flags: item.placement.flags.clone(),

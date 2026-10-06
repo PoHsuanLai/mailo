@@ -10,9 +10,10 @@
 //! arrives in the inbox, and one already marked read is not marked again.
 
 use mail_domain::{
-    AccountCaps, AccountId, AfterMatch, ArchiveMeans, Filter, MailboxRole, Rule, RuleAction,
-    TextMatch, Vacation,
+    AccountCaps, AfterMatch, ArchiveMeans, Filter, MailboxRole, Rule, RuleAction, TextMatch,
+    Vacation,
 };
+use porter_core::AccountId;
 use std::collections::BTreeSet;
 use std::fmt;
 
@@ -193,7 +194,7 @@ fn block(
     places: &Places,
     has: &dyn Fn(&str) -> bool,
 ) -> Result<(String, Vec<&'static str>), Unmappable> {
-    let condition = test(&rule.filter, rule.account)?;
+    let condition = test(&rule.filter, rule.account.clone())?;
     let mut needs = Vec::new();
     let mut flags = Vec::new();
     // Sieve files a message once per `fileinto`, so several would leave copies in several
@@ -286,7 +287,7 @@ fn joined(
 ) -> Result<String, Unmappable> {
     let tests = filters
         .iter()
-        .map(|f| test(f, account))
+        .map(|f| test(f, account.clone()))
         .collect::<Result<Vec<_>, _>>()?;
     Ok(match tests.as_slice() {
         [] => empty.to_owned(),

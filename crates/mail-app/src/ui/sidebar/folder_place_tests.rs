@@ -5,7 +5,7 @@
 use super::super::app::App;
 use super::super::folder_open::Fetcher;
 use super::super::motion::belongs;
-use super::folder_tests::{IMAP, folder};
+use super::folder_tests::{acct_imap, folder};
 use crate::ui::fixtures::{Seen, click, dispatching, empty, rebuild_into};
 use crate::ui::view::{Shell, folder_of, places_with};
 use chrono::Utc;
@@ -16,6 +16,7 @@ use mail_core::fetch::FolderFetch;
 use mail_core::sync::report::{AccountReport, Counts, PassEnd};
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -23,7 +24,7 @@ const PROJECTS: &str = "Projects/2026";
 const RECEIPTS: &str = "收據";
 const OLD: &str = "Old news";
 
-/// A non-Gmail IMAP account with nested folders, one of them unfollowed, and mail in three.
+/// A non-Gmail acct_imap() account with nested folders, one of them unfollowed, and mail in three.
 fn store() -> (Arc<SqliteStore>, tempfile::TempDir, Vec<ThreadId>) {
     let (store, dir) = empty();
     let manual = presets::Manual {
@@ -40,7 +41,7 @@ fn store() -> (Arc<SqliteStore>, tempfile::TempDir, Vec<ThreadId>) {
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at) VALUES (?1, ?2, ?3, ?4)",
             [
-                IMAP.to_string(),
+                acct_imap().to_string(),
                 preset.plan.address.clone(),
                 serde_json::to_string(&preset.plan).unwrap(),
                 Utc::now().to_rfc3339(),
@@ -48,13 +49,13 @@ fn store() -> (Arc<SqliteStore>, tempfile::TempDir, Vec<ThreadId>) {
         )
         .unwrap();
     store
-        .put_caps(IMAP, &preset.expected_caps, Utc::now())
+        .put_caps(acct_imap(), &preset.expected_caps, Utc::now())
         .unwrap();
     let mut old = folder(OLD, Some('/'));
     old.subscription = Subscription::Unsubscribed;
     store
         .put_folders(
-            IMAP,
+            acct_imap(),
             vec![
                 folder("INBOX", Some('/')),
                 folder("Projects", Some('/')),
@@ -71,7 +72,7 @@ fn store() -> (Arc<SqliteStore>, tempfile::TempDir, Vec<ThreadId>) {
         (OLD, 4, "A newsletter from last year"),
     ]
     .iter()
-    .map(|(path, uid, subject)| deliver(&store, IMAP, path, *uid, subject))
+    .map(|(path, uid, subject)| deliver(&store, acct_imap(), path, *uid, subject))
     .collect();
     (store, dir, threads)
 }
@@ -113,7 +114,7 @@ fn deliver(
     let message = Message {
         id: MessageId::generate(),
         thread,
-        account,
+        account: account.clone(),
         key: MessageKey::Rfc(format!("m{uid}@example.test")),
         date: Utc::now() - chrono::TimeDelta::hours(i64::from(uid)),
         from: Address {
@@ -135,7 +136,7 @@ fn deliver(
         body: Body::Absent,
         attachments: vec![],
     };
-    let mut ingest = batch(account, path);
+    let mut ingest = batch(account.clone(), path);
     ingest.messages.push(Fetched {
         remote: remote(path, uid),
         key: message.key.clone(),
@@ -192,7 +193,7 @@ async fn settle(dom: &mut VirtualDom) {
 /// Where the on-demand fetch of `path` on the account stands, as the window's fetching has it.
 fn folder_state(dom: &mut VirtualDom, path: &str) -> FolderFetch {
     dom.in_scope(ScopeId::APP, || {
-        consume_context::<super::super::fetching::Fetching>().folder(IMAP, path)
+        consume_context::<super::super::fetching::Fetching>().folder(acct_imap(), path)
     })
 }
 
@@ -398,9 +399,9 @@ fn an_op_in_a_folder_place_keeps_the_row_while_its_mail_is_still_there() {
     );
 
     // Once the server has moved it and a sync has seen it go, it is out of the folder.
-    let mut gone = batch(IMAP, PROJECTS);
+    let mut gone = batch(acct_imap(), PROJECTS);
     gone.gone.push(remote(PROJECTS, 1));
-    store.ingest(IMAP, gone).unwrap();
+    store.ingest(acct_imap(), gone).unwrap();
     assert!(
         !belongs(&store, &shell, draft, Utc::now()),
         "a row that left stayed"
@@ -418,14 +419,17 @@ async fn render_a_folder_place_to_a_file() {
     dispatching();
     let built = crate::ui::fixtures::work();
     let rows = crate::ui::data::account_rows(&built.store);
-    let account = rows.last().unwrap().id;
+    let account = rows.last().unwrap().id.clone();
     let caps = AccountCaps {
         labels: ServerLabels::LocalOnly,
         ..crate::ui::fixtures::gmail_caps()
     };
-    built.store.put_caps(account, &caps, Utc::now()).unwrap();
+    built
+        .store
+        .put_caps(account.clone(), &caps, Utc::now())
+        .unwrap();
     let listed = |path: &str| Folder {
-        account,
+        account: account.clone(),
         ..folder(path, Some('/'))
     };
     let mut old = listed("Old newsletters");
@@ -439,13 +443,13 @@ async fn render_a_folder_place_to_a_file() {
         listed("旅行/京都"),
         old,
     ];
-    built.store.put_folders(account, folders).unwrap();
+    built.store.put_folders(account.clone(), folders).unwrap();
     for (uid, subject) in [
         (41, "Q3 plan draft, with the open questions"),
         (42, "Budget for the Q3 plan"),
         (43, "Offsite venue: two options"),
     ] {
-        deliver(&built.store, account, PROJECTS, uid, subject);
+        deliver(&built.store, account.clone(), PROJECTS, uid, subject);
     }
     deliver(
         &built.store,

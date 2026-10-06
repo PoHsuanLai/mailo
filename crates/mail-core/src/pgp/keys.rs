@@ -6,10 +6,12 @@
 
 use super::{PgpError, epoch_changed};
 use chrono::{DateTime, Utc};
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_mime::openpgp::{self, Cert, Protection, ReadKey, SecretCert};
 use mail_runtime::Secrets;
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 
 /// An identity of the user's, found by its address on any account.
 pub(crate) fn identity_for(store: &SqliteStore, address: &str) -> Option<Identity> {
@@ -22,7 +24,7 @@ pub(crate) fn identity_for(store: &SqliteStore, address: &str) -> Option<Identit
             |r| Ok((r.get(0)?, r.get(1)?)),
         )
         .ok()?;
-    let account = AccountId::from_uuid(account.parse().ok()?);
+    let account = account_id_from_uuid(account.parse().ok()?);
     let id = IdentityId::from_uuid(id.parse().ok()?);
     drop(db);
     crate::compose::identity_of(store, account, Some(id)).ok()
@@ -222,7 +224,7 @@ fn account_of(store: &SqliteStore, key: &PgpKey) -> AccountId {
     key.emails
         .iter()
         .find_map(|email| identity_for(store, email))
-        .map_or(AccountId::from_uuid(uuid::Uuid::nil()), |i| i.account)
+        .map_or(account_id_from_uuid(uuid::Uuid::nil()), |i| i.account)
 }
 
 /// The secret key to sign with or decrypt by, with its passphrase when it has one.

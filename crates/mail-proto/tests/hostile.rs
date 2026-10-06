@@ -17,9 +17,11 @@
 //! Neither says the parse is *correct* — correctness is what the transcript tests are for. These
 //! say the failure mode is a clean error rather than a crashed or wedged client.
 
-use mail_domain::{Credential, SaslMech};
+use mail_domain::SaslMech;
 use mail_proto::machine::{IoReady, Machine, Progress};
 use mail_proto::{ImapAuth, ImapCommand, ImapSession, Pop3Command, Pop3Session};
+use porter_core::Credential;
+use porter_core::SecretText;
 use proptest::prelude::*;
 
 /// Feed `chunks` to `machine` and report whether it settled.
@@ -48,7 +50,7 @@ fn imap_session(commands: Vec<ImapCommand>) -> ImapSession {
     ImapSession::new(
         ImapAuth {
             username: "ada@example.test".to_owned(),
-            credential: Credential::Password("s3cr3t".to_owned()),
+            credential: Credential::Password(SecretText::new("s3cr3t".to_owned())),
             sasl: vec![SaslMech::Plain],
         },
         commands,

@@ -104,9 +104,10 @@ fn a_longer_code_is_not_read_as_a_shorter_one() {
 
 /// Honouring `LOGINDISABLED`, which outlook.office365.com really does advertise.
 mod login_disabled {
-    use mail_domain::{Credential, SaslMech};
+    use mail_domain::SaslMech;
     use mail_proto::machine::{IoReady, Machine, Progress};
     use mail_proto::{ImapAuth, ImapCommand, ImapSession, has_capability};
+    use porter_core::{Credential, SecretText};
 
     /// The exact capability line outlook.office365.com sent on 2026-09-22.
     const EXCHANGE: &[u8] = b"* CAPABILITY IMAP4 IMAP4rev1 AUTH=XOAUTH2 LOGINDISABLED SASL-IR \
@@ -116,7 +117,7 @@ UIDPLUS MOVE ID UNSELECT CHILDREN IDLE NAMESPACE LITERAL+\r\n";
         ImapSession::new(
             ImapAuth {
                 username: "me@example.test".to_owned(),
-                credential: Credential::Password("pw".to_owned()),
+                credential: Credential::Password(SecretText::new("pw".to_owned())),
                 sasl: vec![SaslMech::Plain],
             },
             commands,

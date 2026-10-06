@@ -1,4 +1,4 @@
-use super::super::tests::{ACCOUNT, account, fetching, link, passer, settle};
+use super::super::tests::{account, acct_account, fetching, link, passer, settle};
 use super::*;
 use crate::ui::app::App;
 use crate::ui::fixtures::{dispatching, rebuild_into};
@@ -121,7 +121,7 @@ async fn a_window_beside_a_watch_fetches_only_when_a_person_asks() {
     for trigger in [Trigger::Poll, Trigger::Push] {
         fetching.sync_all(trigger);
     }
-    fetching.send(ACCOUNT, Event::Tick);
+    fetching.send(acct_account(), Event::Tick);
     settle(&mut dom).await;
     assert_eq!(script.runs.load(Ordering::SeqCst), 0, "a second fetcher");
     assert!(

@@ -120,7 +120,7 @@ pub enum Unusable {
     /// Implicit-TLS servers were offered, but only with sign-in methods this client lacks.
     #[error("the {side} servers want a sign-in this client does not do: {}", list(.offered))]
     Mechanisms { side: Side, offered: Vec<Offer> },
-    /// The address is a personal Microsoft mailbox; see `OAuthIssuer::Microsoft`.
+    /// The address is a personal Microsoft mailbox; see `Issuer::Microsoft`.
     #[error(
         "this is a personal Microsoft mailbox. Those no longer accept passwords, and recent ones \
          refuse client sending even with OAuth; this client supports work and school Microsoft \
@@ -176,7 +176,7 @@ fn oauth(config: &ClientConfig, address: &str, now: DateTime<Utc>) -> Option<Pre
         .chain(&config.outgoing)
         .filter(|s| s.auth.contains(&AuthMethod::OAuth2))
         .find_map(|s| named.or_else(|| presets::issuer_for_server(&expand(&s.hostname, address))))
-        .map(|issuer| presets::preset_for_issuer(issuer, address, now))
+        .and_then(|issuer| presets::preset_for_issuer(issuer, address, now))
 }
 
 fn password(config: &ClientConfig, address: &str, now: DateTime<Utc>) -> Result<Preset, Unusable> {
@@ -456,7 +456,7 @@ fn guard(address: &str, preset: Preset) -> Result<Preset, Unusable> {
     let tenant = matches!(
         preset.plan.auth,
         AuthPlan::OAuth {
-            issuer: mail_domain::OAuthIssuer::Microsoft,
+            issuer: porter_provider::Issuer::Microsoft,
             ..
         }
     );

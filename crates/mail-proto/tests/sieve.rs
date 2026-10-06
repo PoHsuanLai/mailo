@@ -4,17 +4,23 @@ mod common;
 
 use chrono::{DateTime, TimeZone, Utc};
 use common::replay;
+use mail_domain::id::account_id_from_uuid;
 use mail_domain::{
-    AccountId, AfterMatch, Credential, DateRange, Filter, LabelId, MailboxRole, Rule, RuleAction,
-    RuleId, RuleState, TextMatch, Tls, Vacation,
+    AfterMatch, DateRange, Filter, LabelId, MailboxRole, Rule, RuleAction, RuleId, RuleState,
+    TextMatch, Tls, Vacation,
 };
 use mail_proto::ProtoError;
 use mail_proto::sieve::{
     Active, Compiled, Deleted, Places, ScriptEntry, SieveJob, SieveLogin, SieveOutcome,
     SieveSession, Takeover, Unmappable, VacationPlaced, compile, quoted,
 };
+use porter_core::SecretText;
+use porter_core::UnixSeconds;
+use porter_core::{AccountId, Credential};
 
-const ACCOUNT: AccountId = AccountId::from_uuid(uuid::Uuid::from_u128(1));
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::Uuid::from_u128(1))
+}
 
 fn at(day: u32) -> DateTime<Utc> {
     Utc.with_ymd_and_hms(2026, 10, day, 0, 0, 0).unwrap()
@@ -23,7 +29,7 @@ fn at(day: u32) -> DateTime<Utc> {
 fn rule(position: u32, name: &str, filter: Filter, actions: Vec<RuleAction>) -> Rule {
     Rule {
         id: RuleId::from_uuid(uuid::Uuid::from_u128(u128::from(position) + 100)),
-        account: ACCOUNT,
+        account: acct_account(),
         name: name.to_owned(),
         position,
         state: RuleState::Enabled,
@@ -259,7 +265,7 @@ fn a_disabled_rule_is_left_out_and_not_called_local() {
 
 fn vacation() -> Vacation {
     Vacation {
-        account: ACCOUNT,
+        account: acct_account(),
         subject: "Away until the 8th".to_owned(),
         body: "I am away.\nFor \"urgent\" things, call the desk.".to_owned(),
         days: 7,
@@ -361,7 +367,7 @@ fn login(credential: Credential) -> SieveLogin {
 }
 
 fn password() -> Credential {
-    Credential::Password("s3cret".to_owned())
+    Credential::Password(SecretText::new("s3cret".to_owned()))
 }
 
 fn session(job: SieveJob) -> SieveSession {
@@ -524,9 +530,9 @@ fn a_refused_sign_in_asks_for_reauthentication() {
     assert!(matches!(err, ProtoError::AuthRejected(_)), "{err}");
 
     let bearer = Credential::OAuth {
-        access: "ya29.token".to_owned(),
-        refresh: "refresh".to_owned(),
-        expires_at: at(9),
+        access: SecretText::new("ya29.token".to_owned()),
+        refresh: SecretText::new("refresh".to_owned()),
+        expires_at: UnixSeconds((at(9)).timestamp()),
     };
     let err = replay(
         &mut SieveSession::new(login(bearer), SieveJob::Status),
@@ -542,8 +548,9 @@ fn a_refused_sign_in_asks_for_reauthentication() {
 
 #[test]
 fn the_server_is_the_incoming_host_on_4190_with_starttls_required() {
-    use mail_domain::{AccountPlan, AuthPlan, Incoming, OAuthIssuer, Outgoing, SaslMech, Username};
+    use mail_domain::{AccountPlan, AuthPlan, Incoming, Outgoing, SaslMech, Username};
     use mail_proto::sieve::{Endpoint, NoSieve, endpoint};
+    use porter_provider::Issuer;
     let plan = |host: &str, auth: AuthPlan| AccountPlan {
         address: "me@example.test".to_owned(),
         incoming: Incoming::Imap {
@@ -572,16 +579,16 @@ fn the_server_is_the_incoming_host_on_4190_with_starttls_required() {
             plan(
                 "imap.gmail.com",
                 AuthPlan::OAuth {
-                    issuer: OAuthIssuer::Google,
+                    issuer: Issuer::Google,
                     scopes: vec![],
                 },
             ),
-            Err(NoSieve::Provider(OAuthIssuer::Google)),
+            Err(NoSieve::Provider(Issuer::Google)),
         ),
         // Signed in with a password, and still a provider with no ManageSieve.
         (
             plan("outlook.office365.com", password.clone()),
-            Err(NoSieve::Provider(OAuthIssuer::Microsoft)),
+            Err(NoSieve::Provider(Issuer::Microsoft)),
         ),
         // Ends in the same letters, is not the same domain.
         (
