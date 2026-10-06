@@ -6,7 +6,7 @@
 use chrono::{DateTime, TimeZone, Utc};
 use mail_core::compose::Leaves;
 use mail_domain::*;
-use mail_runtime::Secrets;
+use mail_runtime::SigningStore;
 use mail_store::{SqliteStore, Store};
 
 use super::page::List;
@@ -112,7 +112,7 @@ pub(in crate::ui) enum Sent {
 /// the keyring; a draft to be sealed comes back as [`Sent::Sealing`].
 pub(in crate::ui) fn send<Tz: TimeZone>(
     store: &SqliteStore,
-    secrets: &dyn Secrets,
+    secrets: &dyn SigningStore,
     page: &mut Page,
     anyway: Anyway,
     now: DateTime<Utc>,
@@ -172,7 +172,7 @@ where
 #[cfg(test)]
 pub(in crate::ui) fn queue(
     store: &SqliteStore,
-    secrets: &dyn Secrets,
+    secrets: &dyn SigningStore,
     ask: mail_core::pgp::Ask<'_>,
     draft: DraftId,
     leaves: Leaves,
@@ -190,7 +190,7 @@ pub(in crate::ui) fn queue(
 /// with none, a reminder an earlier send of the draft held goes.
 pub(in crate::ui) fn queue_reminding(
     store: &SqliteStore,
-    secrets: &dyn Secrets,
+    secrets: &dyn SigningStore,
     ask: mail_core::pgp::Ask<'_>,
     draft: DraftId,
     leaves: Leaves,

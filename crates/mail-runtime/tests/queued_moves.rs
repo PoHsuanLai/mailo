@@ -10,10 +10,11 @@ use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_proto::backend::{Authenticate, ImapBackend};
 use mail_proto::{ImapAuth, ImapCommand, ImapSession};
-use mail_runtime::{AccountEngine, MapSecrets, Secrets};
+use mail_runtime::{AccountEngine, AccountSecrets};
 use mail_store::{PASSES_TO_FIND, SYNCS_TO_FIND, SqliteStore, Store};
 use porter_core::SecretText;
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
+use porter_secrets::MemorySecrets;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -315,16 +316,15 @@ fn engine(port: u16) -> Fixture {
             [acct_account().to_string()],
         )
         .unwrap();
-    let secrets = MapSecrets::default();
-    secrets
-        .put(
-            &SecretKey {
-                account: acct_account(),
-                purpose: SecretPurpose::IncomingPassword,
-            },
-            &Credential::Password(SecretText::new(PASSWORD.to_owned())),
-        )
-        .unwrap();
+    let secrets = MemorySecrets::default();
+    mail_runtime::block_on(secrets.put(
+        &SecretKey {
+            account: acct_account(),
+            purpose: SecretPurpose::IncomingPassword,
+        },
+        &Credential::Password(SecretText::new(PASSWORD.to_owned())),
+    ))
+    .unwrap();
     let auth = ImapAuth {
         username: "me@example.test".to_owned(),
         credential: Credential::Password(SecretText::new(PASSWORD.to_owned())),

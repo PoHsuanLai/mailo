@@ -473,7 +473,7 @@ fn main() {
         {
             let provider = mail_app::intents::Provider::new(
                 store.clone(),
-                std::sync::Arc::new(mail_runtime::KeyringSecrets),
+                std::sync::Arc::new(mail_runtime::KeyringSigningStore::default()),
                 mail_app::intents::Opener::window(),
             );
             match mail_app::intents::serve(provider) {

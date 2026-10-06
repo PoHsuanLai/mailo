@@ -15,10 +15,11 @@ use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_proto::backend::{Authenticate, Pop3Backend};
 use mail_proto::{Pop3Command, Pop3Session};
-use mail_runtime::{AccountEngine, MapSecrets, Secrets};
+use mail_runtime::{AccountEngine, AccountSecrets};
 use mail_store::{SqliteStore, Store};
 use porter_core::SecretText;
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
+use porter_secrets::MemorySecrets;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
@@ -254,16 +255,15 @@ async fn a_whole_sync_over_a_real_socket_lands_mail_in_the_store() {
         )
         .unwrap();
 
-    let secrets = MapSecrets::default();
-    secrets
-        .put(
-            &SecretKey {
-                account: acct_account(),
-                purpose: SecretPurpose::IncomingPassword,
-            },
-            &Credential::Password(SecretText::new(PASSWORD.to_owned())),
-        )
-        .unwrap();
+    let secrets = MemorySecrets::default();
+    mail_runtime::block_on(secrets.put(
+        &SecretKey {
+            account: acct_account(),
+            purpose: SecretPurpose::IncomingPassword,
+        },
+        &Credential::Password(SecretText::new(PASSWORD.to_owned())),
+    ))
+    .unwrap();
 
     let backend = Pop3Backend::new(
         acct_account(),
@@ -420,16 +420,15 @@ mod repeated_passes {
             )
             .unwrap();
 
-        let secrets = MapSecrets::default();
-        secrets
-            .put(
-                &SecretKey {
-                    account: acct_account(),
-                    purpose: SecretPurpose::IncomingPassword,
-                },
-                &Credential::Password(SecretText::new(PASSWORD.to_owned())),
-            )
-            .unwrap();
+        let secrets = MemorySecrets::default();
+        mail_runtime::block_on(secrets.put(
+            &SecretKey {
+                account: acct_account(),
+                purpose: SecretPurpose::IncomingPassword,
+            },
+            &Credential::Password(SecretText::new(PASSWORD.to_owned())),
+        ))
+        .unwrap();
 
         let backend = Pop3Backend::new(
             acct_account(),
@@ -647,16 +646,15 @@ async fn the_first_sync_fetches_the_newest_mail_first_within_each_band() {
             [acct_account().to_string()],
         )
         .unwrap();
-    let secrets = MapSecrets::default();
-    secrets
-        .put(
-            &SecretKey {
-                account: acct_account(),
-                purpose: SecretPurpose::IncomingPassword,
-            },
-            &Credential::Password(SecretText::new(PASSWORD.to_owned())),
-        )
-        .unwrap();
+    let secrets = MemorySecrets::default();
+    mail_runtime::block_on(secrets.put(
+        &SecretKey {
+            account: acct_account(),
+            purpose: SecretPurpose::IncomingPassword,
+        },
+        &Credential::Password(SecretText::new(PASSWORD.to_owned())),
+    ))
+    .unwrap();
     let backend = Pop3Backend::new(
         acct_account(),
         caps(),
@@ -724,16 +722,15 @@ async fn the_body_pass_fetches_what_the_window_is_showing_first() {
             [acct_account().to_string()],
         )
         .unwrap();
-    let secrets = MapSecrets::default();
-    secrets
-        .put(
-            &SecretKey {
-                account: acct_account(),
-                purpose: SecretPurpose::IncomingPassword,
-            },
-            &Credential::Password(SecretText::new(PASSWORD.to_owned())),
-        )
-        .unwrap();
+    let secrets = MemorySecrets::default();
+    mail_runtime::block_on(secrets.put(
+        &SecretKey {
+            account: acct_account(),
+            purpose: SecretPurpose::IncomingPassword,
+        },
+        &Credential::Password(SecretText::new(PASSWORD.to_owned())),
+    ))
+    .unwrap();
     let backend = Pop3Backend::new(
         acct_account(),
         caps(),

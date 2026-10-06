@@ -6,7 +6,7 @@ use crate::intents::wire::{Integrity, Invocation, Label, Output, Target};
 use chrono::{TimeZone, Utc};
 use mail_domain::id::{account_id_from_uuid, new_account_id};
 use mail_domain::*;
-use mail_runtime::MapSecrets;
+use mail_runtime::MapSigningStore;
 use mail_store::Store;
 use porter_core::AccountId;
 
@@ -145,7 +145,7 @@ fn world_opening(opener: Opener) -> (Provider, Arc<SqliteStore>, tempfile::TempD
             )
             .expect("remote");
     }
-    let provider = Provider::new(store.clone(), Arc::new(MapSecrets::default()), opener);
+    let provider = Provider::new(store.clone(), Arc::new(MapSigningStore::default()), opener);
     (provider, store, dir)
 }
 

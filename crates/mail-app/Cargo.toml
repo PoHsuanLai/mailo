@@ -133,6 +133,7 @@ objc2-app-kit = { version = "0.3", default-features = false, features = ["std", 
 rfd = { version = "=0.17.2", default-features = false }
 
 [dev-dependencies]
+porter-secrets = { workspace = true, features = ["testing"] }
 # Read back by the window's own tests (reader blocks, print, PGP/S-MIME composer); not used by the
 # window itself, which gets them from `mail-core` and quire.
 # Provider icons, and the reader's attachment previews (`preview.rs`): PNG, JPEG, GIF and WebP,

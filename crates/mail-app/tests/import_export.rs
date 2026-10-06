@@ -9,11 +9,10 @@ use mail_core::export;
 use mail_core::import;
 use mail_core::sync;
 use mail_domain::id::new_account_id;
-use mail_domain::signing::{SigningKeyRef, SigningSecret};
 use mail_domain::*;
 use mail_mime::archive::maildir::INFO;
 use mail_mime::archive::mbox;
-use mail_runtime::{OAuthRegistry, RuntimeError, Secrets};
+use mail_runtime::OAuthRegistry;
 use mail_store::{SqliteStore, Store};
 use porter_core::{AccountId, Credential, SecretKey};
 use std::sync::Arc;
@@ -469,24 +468,18 @@ fn a_message_rebuilt_from_its_parts_is_not_exported_as_the_message_even_once_its
 #[derive(Default)]
 struct Counting(AtomicUsize);
 
-impl Secrets for Counting {
-    fn get(&self, _: &SecretKey) -> Result<Credential, RuntimeError> {
+impl porter_secrets::Secrets for Counting {
+    async fn get(&self, _: &SecretKey) -> Result<Credential, porter_secrets::SecretsError> {
         self.0.fetch_add(1, Ordering::SeqCst);
-        Err(RuntimeError::Secrets("none".to_owned()))
+        Err(porter_secrets::SecretsError::Missing)
     }
-    fn put(&self, _: &SecretKey, _: &Credential) -> Result<(), RuntimeError> {
+    async fn put(&self, _: &SecretKey, _: &Credential) -> Result<(), porter_secrets::SecretsError> {
         Ok(())
     }
-    fn forget(&self, _: &SecretKey) -> Result<(), RuntimeError> {
+    async fn delete(&self, _: &SecretKey) -> Result<(), porter_secrets::SecretsError> {
         Ok(())
     }
-    fn get_signing(&self, _: &SigningKeyRef) -> Result<SigningSecret, RuntimeError> {
-        Err(RuntimeError::Secrets("none".to_owned()))
-    }
-    fn put_signing(&self, _: &SigningKeyRef, _: &SigningSecret) -> Result<(), RuntimeError> {
-        Ok(())
-    }
-    fn forget_signing(&self, _: &SigningKeyRef) -> Result<(), RuntimeError> {
+    async fn delete_account(&self, _: &AccountId) -> Result<(), porter_secrets::SecretsError> {
         Ok(())
     }
 }

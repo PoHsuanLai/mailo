@@ -16,7 +16,7 @@ pub use send::{check, outgoing};
 use chrono::{DateTime, Utc};
 use mail_domain::{Fingerprint, KeySource, KeyTrust, SecretHeld};
 use mail_mime::MimeError;
-use mail_runtime::{RuntimeError, Secrets};
+use mail_runtime::{RuntimeError, SigningStore};
 use mail_store::{SqliteStore, Store, StoreError};
 use std::fmt::Write as _;
 
@@ -289,7 +289,7 @@ pub fn parse(args: &[String]) -> Result<PgpCommand, String> {
 /// Run a `mailo pgp` command that needs no network, as the CLI reports it.
 pub fn run(
     store: &SqliteStore,
-    secrets: &dyn Secrets,
+    secrets: &dyn SigningStore,
     command: &PgpCommand,
     now: DateTime<Utc>,
 ) -> Result<String, String> {
@@ -298,7 +298,7 @@ pub fn run(
 
 fn run_typed(
     store: &SqliteStore,
-    secrets: &dyn Secrets,
+    secrets: &dyn SigningStore,
     command: &PgpCommand,
     now: DateTime<Utc>,
 ) -> Result<String, PgpError> {

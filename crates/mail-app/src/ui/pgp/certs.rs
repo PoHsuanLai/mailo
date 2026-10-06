@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
 use mail_domain::{CertFingerprint, CertSource, KeyTrust, SecretHeld, SmimeCert};
-use mail_runtime::Secrets;
+use mail_runtime::SigningStore;
 use mail_store::SqliteStore;
 
 use super::super::press::{available, on_primary};
@@ -103,7 +103,7 @@ pub(in crate::ui) fn work(
 /// this returns.
 fn import(
     store: &SqliteStore,
-    secrets: &dyn Secrets,
+    secrets: &dyn SigningStore,
     path: &Path,
     password: Option<Password>,
 ) -> Result<Done, String> {

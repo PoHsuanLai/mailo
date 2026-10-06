@@ -77,14 +77,13 @@ impl Drop for Bus {
     }
 }
 
-fn proxy<'a>(connection: &'a zbus::Connection) -> zbus::Proxy<'a> {
-    zbus::block_on(zbus::Proxy::new(
-        connection,
-        APP,
-        PATH,
-        "org.quire.IntentProvider1",
-    ))
-    .expect("a proxy")
+/// Async, and awaited inside the test's `zbus::block_on`: with zbus's `tokio` feature on (oo7
+/// turns it on for account secrets, E2) `zbus::block_on` is a tokio runtime's, and one inside
+/// another panics.
+async fn proxy<'a>(connection: &'a zbus::Connection) -> zbus::Proxy<'a> {
+    zbus::Proxy::new(connection, APP, PATH, "org.quire.IntentProvider1")
+        .await
+        .expect("a proxy")
 }
 
 type Options = HashMap<String, OwnedValue>;
@@ -142,7 +141,7 @@ fn the_router_reaches_mailo_over_a_bus_and_nobody_else_does() {
             .request_name(ROUTER)
             .await
             .expect("the router's name");
-        let calls = proxy(&router);
+        let calls = proxy(&router).await;
         let thread = mail_domain::ThreadId::from_uuid(uuid::Uuid::from_u128(0x7001));
         let key = thread.to_string();
 
@@ -222,7 +221,7 @@ fn the_router_reaches_mailo_over_a_bus_and_nobody_else_does() {
 
         // A stranger is refused every member but Summon, and changes nothing.
         let stranger = bus.connect().await;
-        let theirs = proxy(&stranger);
+        let theirs = proxy(&stranger).await;
         let refused = ask(
             &theirs,
             "Perform",

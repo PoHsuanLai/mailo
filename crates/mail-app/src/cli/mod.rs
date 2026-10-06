@@ -1463,7 +1463,7 @@ pub fn run_with_clients(
                 // never before. The decrypted text is printed and kept nowhere.
                 let protected = mail_core::pgp::open_message(
                     store,
-                    &mail_runtime::KeyringSecrets,
+                    &mail_runtime::KeyringSigningStore::default(),
                     &message,
                     &mail_core::pgp::terminal_passphrase,
                     now,
@@ -1484,7 +1484,7 @@ pub fn run_with_clients(
                     Some(text) => Some(text),
                     None => match mail_core::smime::open_message(
                         store,
-                        &mail_runtime::KeyringSecrets,
+                        &mail_runtime::KeyringSigningStore::default(),
                         &message,
                         now,
                     ) {
@@ -1551,7 +1551,7 @@ pub fn run_with_clients(
         // protected key.
         Command::Send { draft, at: None } => mail_core::compose::send_with(
             store,
-            &mail_runtime::KeyringSecrets,
+            &mail_runtime::KeyringSigningStore::default(),
             &mail_core::pgp::terminal_passphrase,
             *draft,
             now,
@@ -1562,7 +1562,7 @@ pub fn run_with_clients(
             at: Some(when),
         } => mail_core::compose::send_later_with(
             store,
-            &mail_runtime::KeyringSecrets,
+            &mail_runtime::KeyringSigningStore::default(),
             &mail_core::pgp::terminal_passphrase,
             *draft,
             when,
@@ -1654,7 +1654,7 @@ pub fn run_with_clients(
         ),
         Command::Smime(smime) => mail_core::smime::run(
             store,
-            &mail_runtime::KeyringSecrets,
+            &mail_runtime::KeyringSigningStore::default(),
             &mail_core::smime::terminal_password,
             smime,
             now,
@@ -1662,7 +1662,12 @@ pub fn run_with_clients(
         Command::Pgp(mail_core::pgp::PgpCommand::Lookup { .. }) => {
             Err("pgp lookup is dispatched before this point".to_owned())
         }
-        Command::Pgp(pgp) => mail_core::pgp::run(store, &mail_runtime::KeyringSecrets, pgp, now),
+        Command::Pgp(pgp) => mail_core::pgp::run(
+            store,
+            &mail_runtime::KeyringSigningStore::default(),
+            pgp,
+            now,
+        ),
         Command::Receipt { message, answer } => {
             mail_core::receipt::answer(store, *message, *answer, now)
         }
@@ -1724,7 +1729,7 @@ pub fn run_with_clients(
         Command::AccountList => mail_core::account::list(store),
         Command::AccountRemove { address, consent } => account::remove(
             store,
-            &mail_runtime::KeyringSecrets,
+            mail_runtime::platform_secrets().as_ref(),
             mail_core::config::config_dir().as_deref(),
             address,
             *consent,

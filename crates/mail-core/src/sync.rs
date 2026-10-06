@@ -21,7 +21,8 @@ use mail_proto::{ImapAuth, ImapCommand, ImapSession, Pop3Command, Pop3Session};
 use mail_runtime::graph::read::{OverHttp, Reader};
 use mail_runtime::renewal::Now;
 use mail_runtime::{
-    AccountEngine, Held, KeyringSecrets, OAuthRegistry, Renewal, Secrets, SyncReport, signin,
+    AccountEngine, AccountSecrets, Held, OAuthRegistry, Renewal, SyncReport, platform_secrets,
+    signin,
 };
 use mail_store::SqliteStore;
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
@@ -193,7 +194,7 @@ pub fn watch(
     };
     run_all(
         store.clone(),
-        Arc::new(KeyringSecrets),
+        platform_secrets(),
         &registry,
         now,
         Mode::Watch,
@@ -226,7 +227,7 @@ pub fn run(
     let registry = OAuthRegistry::load_default().map_err(|e| e.to_string())?;
     run_all(
         store,
-        Arc::new(KeyringSecrets),
+        platform_secrets(),
         &registry,
         now,
         Mode::Once,
@@ -251,7 +252,7 @@ pub fn run(
 /// none, and that a failure in one account does not stop the next.
 pub fn run_with(
     store: Arc<SqliteStore>,
-    secrets: Arc<dyn Secrets>,
+    secrets: Arc<dyn AccountSecrets>,
     registry: &OAuthRegistry,
     now: chrono::DateTime<chrono::Utc>,
     hooks: Hooks<'_>,
@@ -283,7 +284,7 @@ struct Scope<'a> {
 #[allow(clippy::too_many_arguments)]
 fn run_all(
     store: Arc<SqliteStore>,
-    secrets: Arc<dyn Secrets>,
+    secrets: Arc<dyn AccountSecrets>,
     registry: &OAuthRegistry,
     now: chrono::DateTime<chrono::Utc>,
     mode: Mode,
@@ -317,7 +318,7 @@ fn pick(store: &SqliteStore, scope: &Scope<'_>) -> Result<Vec<Configured>, Strin
 #[allow(clippy::too_many_arguments)]
 fn pass_over(
     store: &Arc<SqliteStore>,
-    secrets: Arc<dyn Secrets>,
+    secrets: Arc<dyn AccountSecrets>,
     registry: &OAuthRegistry,
     now: chrono::DateTime<chrono::Utc>,
     mode: Mode,
@@ -413,7 +414,7 @@ fn ended(
 pub(crate) async fn signed_in(
     account: &Configured,
     credential: Credential,
-    secrets: &dyn Secrets,
+    secrets: &dyn AccountSecrets,
     registry: &OAuthRegistry,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<Credential, String> {
@@ -426,7 +427,7 @@ pub(crate) async fn signed_in(
 async fn signed_in_typed(
     account: &Configured,
     credential: Credential,
-    secrets: &dyn Secrets,
+    secrets: &dyn AccountSecrets,
     registry: &OAuthRegistry,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<Credential, Failure> {
@@ -478,7 +479,7 @@ async fn signed_in_typed(
 fn renewal_for(
     account: &Configured,
     held: &Held,
-    secrets: Arc<dyn Secrets>,
+    secrets: Arc<dyn AccountSecrets>,
     registry: &OAuthRegistry,
     clock: Now,
 ) -> Option<Renewal> {
@@ -509,7 +510,7 @@ fn clock_for(mode: Mode, now: chrono::DateTime<chrono::Utc>) -> Now {
 async fn one(
     store: &Arc<SqliteStore>,
     account: &Configured,
-    secrets: Arc<dyn Secrets>,
+    secrets: Arc<dyn AccountSecrets>,
     registry: &OAuthRegistry,
     now: chrono::DateTime<chrono::Utc>,
     mode: Mode,
@@ -524,6 +525,7 @@ async fn one(
             account: account.id.clone(),
             purpose: SecretPurpose::IncomingPassword,
         })
+        .await
         // A credential that is not there is one to be asked for again.
         .map_err(|_| {
             Failure::reauth(crate::account::no_credential(
@@ -685,7 +687,7 @@ fn say(emit: Emit<'_>, progress: Progress) {
 /// account that reads through Graph has no IMAP one, and reads with this.
 async fn sending_token(
     account: &Configured,
-    secrets: &dyn Secrets,
+    secrets: &dyn AccountSecrets,
     registry: &OAuthRegistry,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<(), String> {
@@ -697,7 +699,7 @@ async fn sending_token(
 /// [`sending_token`], with what to do about a failure kept beside what to say about it.
 async fn sending_token_typed(
     account: &Configured,
-    secrets: &dyn Secrets,
+    secrets: &dyn AccountSecrets,
     registry: &OAuthRegistry,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<(), Failure> {
@@ -723,7 +725,7 @@ fn imap_engine(
     store: &Arc<SqliteStore>,
     account: &Configured,
     held: Held,
-    secrets: Arc<dyn Secrets>,
+    secrets: Arc<dyn AccountSecrets>,
 ) -> AccountEngine<ImapBackend> {
     // Password *and* bearer token. Only Gmail needs OAuth; every other IMAP server this client
     // will meet authenticates with `LOGIN`, and refusing one meant the IMAP path could not be
@@ -772,7 +774,7 @@ fn imap_engine(
 fn graph_engine(
     store: &Arc<SqliteStore>,
     account: &Configured,
-    secrets: Arc<dyn Secrets>,
+    secrets: Arc<dyn AccountSecrets>,
 ) -> Result<AccountEngine<OverHttp>, String> {
     let reader =
         Reader::new(account.id.clone(), account.caps.clone()).map_err(|e| e.to_string())?;
@@ -797,20 +799,13 @@ pub fn fetch_part(
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<(), String> {
     let registry = OAuthRegistry::load_default().map_err(|e| e.to_string())?;
-    fetch_part_with(
-        store,
-        Arc::new(KeyringSecrets),
-        &registry,
-        message,
-        section,
-        now,
-    )
+    fetch_part_with(store, platform_secrets(), &registry, message, section, now)
 }
 
 /// The same, with the secret store named, so a test can run it.
 pub fn fetch_part_with(
     store: &Arc<SqliteStore>,
-    secrets: Arc<dyn Secrets>,
+    secrets: Arc<dyn AccountSecrets>,
     registry: &OAuthRegistry,
     message: mail_domain::MessageId,
     section: &str,
@@ -844,7 +839,7 @@ pub fn fetch_part_with(
 async fn signed_in_imap(
     store: &Arc<SqliteStore>,
     account: &Configured,
-    secrets: Arc<dyn Secrets>,
+    secrets: Arc<dyn AccountSecrets>,
     registry: &OAuthRegistry,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<AccountEngine<ImapBackend>, String> {
@@ -853,6 +848,7 @@ async fn signed_in_imap(
             account: account.id.clone(),
             purpose: SecretPurpose::IncomingPassword,
         })
+        .await
         .map_err(|_| crate::account::no_credential(&account.address, &account.plan.auth))?;
     let credential = signed_in(account, stored, secrets.as_ref(), registry, now).await?;
     let held = Held::new(credential);
@@ -880,13 +876,13 @@ pub fn drain(
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<SyncReport, String> {
     let registry = OAuthRegistry::load_default().map_err(|e| e.to_string())?;
-    drain_with(store, Arc::new(KeyringSecrets), &registry, account, now)
+    drain_with(store, platform_secrets(), &registry, account, now)
 }
 
 /// The same, with the secret store named, so a test can run it.
 pub fn drain_with(
     store: &Arc<SqliteStore>,
-    secrets: Arc<dyn Secrets>,
+    secrets: Arc<dyn AccountSecrets>,
     registry: &OAuthRegistry,
     account: AccountId,
     now: chrono::DateTime<chrono::Utc>,
@@ -1346,20 +1342,13 @@ pub fn folder_now(
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<PassEnd, String> {
     let registry = OAuthRegistry::load_default().map_err(|e| e.to_string())?;
-    folder_now_with(
-        store,
-        Arc::new(KeyringSecrets),
-        &registry,
-        account,
-        path,
-        now,
-    )
+    folder_now_with(store, platform_secrets(), &registry, account, path, now)
 }
 
 /// The same, with the secret store named, so a test can run it.
 pub fn folder_now_with(
     store: Arc<SqliteStore>,
-    secrets: Arc<dyn Secrets>,
+    secrets: Arc<dyn AccountSecrets>,
     registry: &OAuthRegistry,
     account: AccountId,
     path: &str,
@@ -1408,6 +1397,7 @@ pub fn folder_now_with(
                 account: account.id.clone(),
                 purpose: SecretPurpose::IncomingPassword,
             })
+            .await
             .map_err(|_| {
                 Failure::reauth(crate::account::no_credential(
                     &account.address,

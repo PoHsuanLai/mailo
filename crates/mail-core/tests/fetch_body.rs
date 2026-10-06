@@ -8,10 +8,11 @@ use chrono::{DateTime, TimeZone, Utc};
 use mail_core::sync;
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
-use mail_runtime::{MapSecrets, OAuthRegistry, Secrets};
+use mail_runtime::{AccountSecrets, OAuthRegistry};
 use mail_store::SqliteStore;
 use porter_core::SecretText;
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
+use porter_secrets::MemorySecrets;
 use std::io::{BufRead as _, BufReader, Write as _};
 use std::net::TcpListener;
 use std::sync::Arc;
@@ -166,23 +167,22 @@ fn held_body(store: &SqliteStore, id: MessageId) -> Option<String> {
     raw
 }
 
-fn with_password(secrets: &MapSecrets) {
-    secrets
-        .put(
-            &SecretKey {
-                account: acct_account(),
-                purpose: SecretPurpose::IncomingPassword,
-            },
-            &Credential::Password(SecretText::new("s3cr3t-pass".to_owned())),
-        )
-        .unwrap();
+fn with_password(secrets: &MemorySecrets) {
+    mail_runtime::block_on(secrets.put(
+        &SecretKey {
+            account: acct_account(),
+            purpose: SecretPurpose::IncomingPassword,
+        },
+        &Credential::Password(SecretText::new("s3cr3t-pass".to_owned())),
+    ))
+    .unwrap();
 }
 
 #[test]
 fn a_body_fetched_on_demand_is_stored_for_the_reader() {
     let (store, id, _dir) = account_with_header_only_message(serve_one());
     assert!(held_body(&store, id).is_none(), "seeded with a body");
-    let secrets = MapSecrets::default();
+    let secrets = MemorySecrets::default();
     with_password(&secrets);
 
     sync::fetch_body_with(
@@ -203,7 +203,7 @@ fn a_missing_credential_asks_for_a_new_sign_in() {
     let (store, id, _dir) = account_with_header_only_message(1);
     let (retry, why) = sync::fetch_body_with(
         store,
-        Arc::new(MapSecrets::default()),
+        Arc::new(MemorySecrets::default()),
         &OAuthRegistry::default(),
         id,
         now(),
@@ -217,7 +217,7 @@ fn a_missing_credential_asks_for_a_new_sign_in() {
 fn an_unreachable_server_can_be_tried_again_later() {
     // Port 1 refuses.
     let (store, id, _dir) = account_with_header_only_message(1);
-    let secrets = MapSecrets::default();
+    let secrets = MemorySecrets::default();
     with_password(&secrets);
     let (retry, why) = sync::fetch_body_with(
         store.clone(),

@@ -4647,3 +4647,60 @@ success colour, and a queued send waited for the next poll.
 Open: the status line sits in the toolbar's centre rather than its subtitle; Connection Doctor's
 tile mark is not reachable by Tab; the daemon does not watch push mail itself, so with it running
 push falls back to polling; JMAP and POP3 bodies still arrive only with a sync.
+
+### F200 — Account secrets are porter's; signing keys stay mailo's (accounts step E2)
+
+Until E2 mailo kept an account's passwords and tokens in the platform keyring under the service
+`mailo`, in its own JSON, with its own chunking for the Windows Credential Manager. They now go
+through `porter_secrets::Secrets` (pinned at the same porter rev as `porter-core`):
+
+- **One store per platform.** Linux is `Oo7Secrets`, standalone (no accountd needed); macOS and
+  Windows are `KeyringSecrets` (which chunks for the Credential Manager itself). `porter-secrets`
+  enters `mail-runtime` only, with `oo7` on Linux and `keyring` on macOS and Windows; the pure
+  crates still reach neither zbus nor tokio (`check-boundary.sh`). The BSDs lose an account store
+  (porter has no Secret Service store but oo7's, Linux-only in the manifest); mailo ships on the
+  three above.
+- **Async all the way, no blocking keyring call for an account secret.** porter's trait is `impl
+  Future`, so `mail_runtime::AccountSecrets` is the same four calls with boxed futures (every
+  `Secrets` is one). Call sites that were synchronous gained `.await`. The two bridges:
+  `PlatformSecrets` hands each call to a runtime that lives as long as the process (oo7 caches one
+  Secret Service connection, and under zbus's `tokio` feature that connection's tasks die with the
+  runtime that opened it; mailo builds short-lived current-thread runtimes per command and per
+  sync), and `mail_runtime::block_on` waits for it from code that is not async (the command line,
+  `account::add`), with a parked thread and no runtime, so it cannot start one inside another.
+  The old panic (zbus's blocking API starting a runtime on a thread that already drives one)
+  cannot come back through this path: nothing in it blocks. `account_secrets` tests run it from a
+  multi-thread task, a current-thread runtime, a bare thread and a thread a runtime is driving.
+- **Signing keys stay mailo's.** `signing_store.rs` (`SigningStore`, `KeyringSigningStore`,
+  `MapSigningStore`) keeps the `Stored` JSON, the E1 fixtures and `chunks.rs`: an armored OpenPGP
+  key or an S/MIME PKCS#8 PEM exceeds the Credential Manager's 2560 bytes, and a test keeps a key
+  over the limit in parts on keyring-core's mock and forgets every part. This is the one place a
+  blocking keyring call is left, on a thread of its own, and the process now holds two Secret
+  Service clients on Linux (oo7 for accounts, keyring-core for signing): the unification
+  regression test runs on the signing path too, over a keyring whose every call starts a runtime.
+- **Adoption of the `service=mailo` entries.** `mail_runtime::adopt::run(store, now)`: for each
+  account without a row in `secrets_adopted` (migration 0028), for each of `<uuid>:incoming|
+  outgoing|oauth|carddav`: read through `chunks::get` and the old `Stored` reader, put through
+  porter under the purpose mailo always used for that name, read back and compare, then
+  `chunks::forget` (every part, then the head). Idempotent; resumable at every operation (the test
+  cuts a run at each one in turn, including between the parts of a chunked OAuth entry and its head);
+  a failed put, a read-back that differs or an unreadable entry keeps the old entry, leaves the
+  account unrecorded and, until a run finishes, `PlatformSecrets` reads the old entry behind the
+  empty store, and forgets it with the account. When porter already holds the key (a run cut after
+  its put) porter's credential wins and the old entry is only deleted: it is at least as new, and a
+  rotated refresh token must not be put back as the stale one.
+- **Where this meets accountd's `Adopt` (E6).** Both land on the same Secret Service items under
+  porter's attributes (`{service: porter, account, purpose}`). Mailo files an account's incoming,
+  outgoing, OAuth and contacts secrets under those four purposes as they were, not merged into
+  `Password` as `adopt_from` does. accountd's `Adopt` reads the legacy entries; once mailo has
+  adopted, they are gone, so `adopt_from` needs one change to find the account filed (an interface
+  ask, in the E2 report): when a legacy item reads `None` but `secrets.get` finds the key it would
+  file, count it as read. Until then accountd's Adopt applies to an account mailo has not yet
+  adopted.
+- `dev/scenarios`' `MAILO_TEST_SECRETS_DIR` (debug builds) still keeps credentials as files, now
+  for both halves, so they never reach the person's keyring or Secret Service.
+- **zbus is now on tokio everywhere** (oo7 → ashpd → zbus `tokio`). Two consequences found by the
+  suite: `zbus::block_on` is a tokio runtime's, so one nested in another panics (the intents test
+  awaited a proxy inside `zbus::block_on` through a second one; `intents::serve` calls it once on
+  the main thread and is unaffected), and every blocking zbus call (the signing store, adoption's
+  reads of the old entries, the notification probe) must stay on `off_runtime`'s plain thread.
