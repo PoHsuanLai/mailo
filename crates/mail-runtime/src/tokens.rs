@@ -353,9 +353,12 @@ async fn sign_in_refresh(
         .await?
     {
         Credential::OAuth { refresh, .. } => Ok(refresh.expose().to_owned()),
-        Credential::Password(_) | Credential::ApiKey(_) | Credential::KeyPair { .. } => Err(
-            RuntimeError::Secrets("sending through Graph needs a Microsoft sign-in".to_owned()),
-        ),
+        Credential::Password(_)
+        | Credential::ApiKey(_)
+        | Credential::Bearer(_)
+        | Credential::KeyPair { .. } => Err(RuntimeError::Secrets(
+            "sending through Graph needs a Microsoft sign-in".to_owned(),
+        )),
     }
 }
 
@@ -622,7 +625,11 @@ impl TokenSource for OAuthTokens {
 fn access_of(credential: &Credential) -> Option<String> {
     match credential {
         Credential::OAuth { access, .. } => Some(access.expose().to_owned()),
-        Credential::Password(_) | Credential::ApiKey(_) | Credential::KeyPair { .. } => None,
+        // Not an OAuth sign-in: nothing to renew. A pasted bearer has no refresh by definition.
+        Credential::Password(_)
+        | Credential::ApiKey(_)
+        | Credential::Bearer(_)
+        | Credential::KeyPair { .. } => None,
     }
 }
 

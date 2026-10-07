@@ -466,6 +466,8 @@ async fn auth_for(
         .map_err(|_| crate::account::no_credential(&account.address, &account.plan.auth))?;
     match crate::sync::signed_in(account, stored, secrets, saved, now).await? {
         Credential::OAuth { access, .. } => Ok(DavAuth::Bearer(access.expose().to_owned())),
+        // A pasted token is presented as it was given: a bearer, with no username.
+        Credential::Bearer(token) => Ok(DavAuth::Bearer(token.expose().to_owned())),
         Credential::Password(password) => Ok(DavAuth::Basic {
             user: account.plan.username(),
             password: password.expose().to_owned(),
