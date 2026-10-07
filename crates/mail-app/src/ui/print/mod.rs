@@ -120,11 +120,12 @@ pub(in crate::ui) fn print(job: Job) {
     print_on_paper(job);
 }
 
-/// Save `job` for printing into the downloads directory, off this thread, and say where.
+/// Save `job` for printing where the window saves files (the downloads directory), off this
+/// thread, and say where.
 pub(in crate::ui) fn save(job: Job) {
     let said = motion();
     let store = consume_context::<Arc<SqliteStore>>();
-    let dir = mail_core::attach::downloads_dir();
+    let dir = crate::ui::files::save_dir();
     let sources = Sources::window();
     dioxus::core::spawn_forever(async move {
         let done = tokio::task::spawn_blocking(move || {

@@ -153,7 +153,7 @@ fn start(
     }
     let store = consume_context::<Arc<SqliteStore>>();
     let fetchers = fetch::fetchers();
-    let dir = mail_core::attach::downloads_dir();
+    let dir = crate::ui::files::save_dir();
     spawn(async move {
         // `spawn_blocking`, not this task: a fetch opens sockets and builds its own runtime,
         // and `Runtime::block_on` inside an async context panics.
