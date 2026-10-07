@@ -4989,3 +4989,188 @@ with `.choosing`, `.hinted`, `.in_part`; `FormPart`; `Choice`; `ProblemKind::Inv
   one. A person with only a JMAP token still types any text in the first form's required password
   (porter's form asks the password first). A password-less provider whose address finds nothing asks
   the first form again to get its password.
+
+### F204 — An account can be the desktop's accountd's: one start decides the link, the engines take its relays and bearers (accounts step E6)
+
+`mail_runtime::link` is new. porter moves to `04721ff` (porter master, which carries the `portable-client` lane: over
+`5231807`, `porter-client`'s inference is behind its default `infer` feature, so
+`default-features = false` builds it without `porter-infer` and so without stoker, a sibling path no
+git dependency can reach: at `5231807` and before, mailo could not depend on `porter-client` at all).
+Every porter line is on that one rev (a second would be a second `porter-core`), which also brings
+`5231807`'s own changes to `porter-service` (a refused refresh leaves the account `NeedsReauth`; the
+sheet host signs any account in again), none of which mailo's code names. `porter-client` is taken
+with `default-features = false` and, through mailo's `quire-desktop`, its `dbus` feature only: mailo
+needs no inference and no `socket` carrier (off the desktop it runs in process).
+
+- **The choice** is `link::start(Here, Usage)`, called once from `main.rs` (`accountd::start`), and the
+  only place that decides. `Here` is the capability probe's answer (`ds_desktop::Desktop::probe`,
+  `Capability::Accounts`: the bus name has an owner or the bus can start it), which only `mail-app`
+  names; a build with `quire-desktop` on Linux that finds accountd connects (`Accounts::over` of
+  `DbusTransport::over(connection)`, on the process-long runtime that holds the secret store's
+  connection, because zbus keeps its tasks on the runtime that made them and a sync's is short), and
+  every other case, including a probe that says yes and a connection that fails, is `Link::Local`.
+  `mailo` says which on stderr when it opens the window or runs `watch` ("accounts link: accountd over
+  D-Bus" or "in process"); a command's output is its own. `Accounts::connect(ClientEnv{links:
+  [Dbus]})` is not what is called: it answers `Accounts<AnyTransport>` over a connection the caller
+  cannot reach, and the link also needs that connection for the signals and a test needs to hand it
+  one; `Accounts::over(DbusTransport::over(conn))` is what `connect` builds for `Dbus`.
+- **`quire-desktop`** is a cargo feature of `mail-runtime`, `mail-core` and `mail-app`, on by default
+  (design/36 rule 3). Cargo cannot say "default on for Linux", so the choice is default features plus
+  CI flags: the macOS and Windows `portable` job, the Windows release build and `bundle.sh` pass
+  `--no-default-features`; `check` gains `cargo check --workspace --no-default-features`. The code is
+  also `cfg(target_os = "linux")`, and `ds-desktop` is a Linux-target dependency, so the feature does
+  nothing elsewhere either way. What it turns on: `porter-client/dbus` (zbus), `porter-dbus` (the
+  signals), `futures-util`, `ds-desktop`. Without it the tree has none of them from this lane (zbus is
+  still there through the keyring's Secret Service and `mail-app`'s intents provider, which are not
+  gated here).
+- **What stays in process.** porter-client's `InProcess` hosts the account service for the Add Account
+  window (E5), unchanged. It does not host mailo's accounts: those are mailo's store and keyring, and a
+  service whose registry held them would be a second copy of both. So `Accounts::over(InProcess::new(
+  service, app))` with `porter-families` is not built: the in-process path of every engine is the
+  direct one it always was (`Transport::connect`, the keyring, `OAuthTokens`), and every existing test
+  of it is unchanged. Moving mailo's own accounts into an in-process porter registry is a decision of
+  its own (their storage, `AccountId`s that are UUIDs, the sign-in files), and would make the
+  `Local` path go through porter's relay too.
+- **The account.** `AuthPlan::Granted { account, grant, endpoints }`: accountd's `AccountId`, the
+  `GrantId`, and the servers the candidate listed (`Candidate.endpoints`, which `open_authenticated`
+  asks for by). The row's id stays mailo's own UUID, because every table reads its account column as
+  one (`uuid("AccountId", ..)` in six store files) and accountd's ids are slugs (`fastmail-me`);
+  `mail_core::account::find_linked` finds one by the other. The plan's `incoming`/`outgoing` are made
+  from the endpoints (IMAP before JMAP before Graph before POP3; SMTP), through the same `presets`
+  mailo uses for a typed server, so the settings pane, the Doctor and `account list` read it as they
+  read any plan, and no secret field exists to put in it. `AuthPlan` gained a variant and nothing else
+  changed shape: every stored plan reads as before, and the new one has a frozen fixture
+  (`account_plan_granted.json`) beside the old. No migration is needed (an older mailo cannot read a
+  `granted` plan, which is the one direction that matters: a newer build wrote it).
+- **Reading accounts.** `accountd::read` runs at start (window, `watch`, every command) and again on
+  `AccountAdded`, `AccountRemoved` and `GrantChanged` (`link::dbus`, merged into `Change`s, followed
+  by `accountd::follow` on a thread of its own, which moves the shared `Revisions` so every window
+  draws): an account Mail holds a grant on and the store lacks is added; one it has has its grant and
+  servers brought up to date, with its identities kept; one accountd removes has its rows and mail
+  forgotten (`forget`), and nothing of accountd's. Closes interface ask 120 (an account added or
+  removed outside the window is read without a restart). Signals are unicast to holders of a grant
+  (porter hub), so an account added with no grant for Mail is not signalled: it is read when Mail is
+  allowed to use it (`GrantChanged`).
+- **Engines, linked.**
+  - IMAP: `AccountEngine::connect` asks `Accountd::open` for the account's IMAP endpoint
+    (`Accounts::open_authenticated`) and drives the session over `Transport::relayed`: the same
+    `ImapSession` with no `LOGIN` or `AUTHENTICATE` queued (the factory's `relayed`), and the relay's
+    `* PREAUTH [CAPABILITY ..]` greeting is accepted as it is (the session already read any greeting).
+    No STARTTLS: mailo's IMAP never had it, and the relay owns TLS.
+  - SMTP: `Submission.relayed` (new field): from the `EHLO` reply to `MAIL FROM`, with no `STARTTLS`
+    asked though the plan says `StartTlsRequired`, no `AUTH`, and `SmtpReply.mechanism` is `None`.
+  - ManageSieve: `SieveLogin.relayed` and `SieveAuth.relay`: `LISTSCRIPTS` straight after the
+    capability list, no `STARTTLS`, no `AUTHENTICATE`. `mail_proto::sieve::endpoint` of a granted
+    account is the endpoint the grant lists, or `NoSieve::NotGranted` (the relay dials only what the
+    account lists, and does not try the host's usual 4190).
+  - POP3: the factory is the same with an empty password and no mechanism, so it sends `USER`/`PASS`,
+    which the relay answers itself (`+OK`, never forwarded). Not exercised against porter's POP3 relay
+    in a test: the Rust half of the suite has no POP3 server (`live_pop3` is a Python one).
+  - JMAP and Graph: a bearer from `Accounts::token` on the grant (`link::LinkedTokens`, audience
+    `jmap` / `graph`), `JmapEngine` through it and `AccountEngine::with_tokens` for Graph.
+    JMAP is reached by `reqwest` with that bearer, not through the HTTP relay.
+  - CardDAV: not through the relay yet (E7): a granted account says so and syncs no contacts.
+- **TokenSource.** Linked: `LinkedTokens` over `Accountd::token`: `ahead` asks when none is held or one
+  is within 60 s of its end, `after_refusal` mints one more and then says `StillRefused` when the
+  token it minted was refused too, an accountd refusal that only the person can answer (`NeedsReauth`,
+  `UnknownGrant`, `AudienceNotGranted`) is remembered and said again without asking. In process: the
+  `OAuthTokens` of E4, unchanged. The credential an engine is handed has an empty refresh half: it
+  stays accountd's.
+- **NeedsReauth.** Any refusal that the person must answer (accountd's `NeedsReauth`, a grant gone, a
+  closed or refused consent) is `RuntimeError::Link { retry: NeedsReauth }`, so the sync report
+  raises `needs_reauth` as for any account and the Doctor's "Sign in again" opens the sheet; an
+  accountd that is not reachable is `Retry::After(30 s)`, not a sign-in to ask for.
+- **Routes.** `add_account::route_of`: with accountd linked, "Add Account…" calls
+  `Accounts::add_account` on a thread of its own and the desktop's shell draws the sheet (sill; mailo
+  opens no window), then `candidates()`, and `request_grant` (accountd's chooser and consent) when the
+  account was added without allowing Mail; the new rows are read in and the shared revision moves.
+  Signing in again an account of accountd's calls `Accounts::reauthenticate` the same way; one
+  mailo holds the secrets of itself keeps mailo's window, because accountd cannot sign it in. Without
+  accountd it is `Route::OwnWindow`, E5's window, unchanged. `ui/settings_window/accounts.rs` is not
+  touched.
+- **`mailo watch`** asks as `Usage::Background`. Its own unit scope is not mailo's to name: mailo does not
+  start `watch` (nothing in the binary calls `systemd-run`); `dist/mailo-watch.service` runs
+  `mailo watch` as a service, whose cgroup (`app.slice/mailo-watch.service`) is not an
+  `app-<id>-<random>.scope`, and accountd proves an app only by that name (`identity_of`), so a watch
+  started by that unit is unproven and accountd refuses it. Proposed, not applied (it cannot be
+  tested without a systemd user session): `ExecStart=/usr/bin/systemd-run --user --scope --collect
+  --quiet --unit=app-org.quire.Mail-watch%b.scope --slice=app.slice /usr/local/bin/mailo watch`
+  (`%b` is the boot id, alphanumeric as the scope's random part must be). Until then a `watch` of
+  linked accounts started by the unit reports them as needing sign-in; one started from the desktop's
+  launcher or `systemd-run` by hand works.
+- **Secrets on the first linked start: a proposal, nothing implemented.** What mailo holds (porter's
+  attributes in the Secret Service, E2) is not touched, moved or deleted by anything here. An address
+  mailo holds that accountd also offers is **left as it is** and named ("left as it is" in the start
+  line and `Reconciled::held`), not replaced. Options for the owner: (a) keep both, as now: the
+  mailo-held account goes on working, the accountd one is not added until the person removes the
+  first (cheap, a duplicate account's worth of confusion); (b) adopt through accountd's `Adopt`
+  (`Accounts::adopt(LegacyRef)`: accountd reads the old entries itself, no credential crosses the bus,
+  and only apps its `[adopt]` table names may ask), then flip the row to `Granted`, keep the old
+  entries until a first sync through the relay has worked, and only then offer, as a button the person
+  presses, to forget them; (c) ask on the first linked start with a sheet that says which accounts
+  could move and what it does. Recommended: (c) offering (b), with the deletion a separate, explicit
+  step. Whatever is chosen, an existing sign-in is never deleted silently.
+- **Behaviour that is not what it was** (every one needs accountd linked; with `Local` nothing differs).
+  1. Add Account is accountd's sheet; mailo opens no window and an account added there has no
+     password or token in mailo's keyring.
+  2. Accounts accountd offers appear in Mail without being added in Mail, at start and on its signals.
+  3. Removing a linked account withdraws Mail's grant (`Accounts::revoke`) and then forgets its rows
+     and mail; it stays accountd's. If accountd cannot be reached the removal stops with the account
+     still here. When accountd removes an account its rows and mail are forgotten, nothing else.
+  4. A new account added through accountd's sheet joins no Space automatically (the window did,
+     `into_scope`); it shows under All and in a Space that shows every account.
+  5. The plan's TLS is what accountd lists and is only shown: the relay owns TLS and the sign-in, so
+     STARTTLS, `AUTH` and `LOGIN` are never sent by mailo for a linked account.
+  6. `account list` says "ready" for a linked account when there is a link, and sync of one with no
+     link says it is not reachable and is retried in 30 s rather than asked to sign in.
+  7. Contacts (CardDAV) are not read for a linked account until E7.
+  8. A `watch` started by `dist/mailo-watch.service` is not accountd's to serve until its scope is
+     named (above).
+  9. Microsoft is IMAP and SMTP through the relay; Graph is mapped for a candidate that lists a Graph
+     mail server, and porter's provider files list none today.
+- **Tests.** The relay is porter's own (`porter_proxy::relay`, a dev-dependency of `mail-runtime`: the real
+  `* PREAUTH`, `220` and ManageSieve greetings) in front of the suite's fake servers on loopback, with
+  a tap that keeps what the app sent, because the relay answers a login the app attempts anyway: the
+  boundary forbids a real accountd as a dev-dependency (it is a daemon with its own zbus, secret
+  store and fakes), so accountd's side is `Accountd` stood in for by the relay in memory, and the
+  bus is tested apart. `mail-domain`: `a_granted_plan_is_additive_and_holds_no_secret`, the frozen
+  fixture `account_plan_granted.json`. `mail-proto`: `a_relayed_session_goes_from_ehlo_to_mail_from_
+  without_auth_or_starttls`, `a_relayed_session_lists_scripts_with_no_starttls_and_no_authenticate`.
+  `mail-runtime`: `imap_end_to_end::a_granted_account_syncs_through_porters_relay_and_never_signs_in_
+  itself` (two messages in the store, one `LOGIN` at the server, none from the app), `submission_end_to_
+  end::a_granted_account_submits_through_porters_relay_without_authenticating_itself`, `sieve::a_granted_
+  account_pushes_through_porters_relay_without_authenticating_itself`; `link::tests` (the choice, every
+  refusal's words, `LinkedTokens`: once while fresh, again near the end, one retry after a refusal,
+  accountd's refusal remembered, an unreachable accountd not); `tests/link_bus.rs`: a private
+  `dbus-daemon` (its own service directory, killed by its pid) and a stand-in owning
+  `org.quire.Accounts1` that sends `AccountAdded`, `AccountRemoved` and `GrantChanged`, which the link
+  hears as `Change`s, and the start that chooses the bus link. `mail-core`: `account::linked_tests`
+  (a candidate as a plan for IMAP, JMAP, Graph, POP3; one with no server or address; read once, again
+  with a new grant keeping the signature; an address mailo holds left alone; removal by the path
+  segment; removing withdraws the grant first and a refusing accountd or no link leaves the account).
+  `mail-app`: `accountd::tests` (a change reads in, a removal forgets one account, the follower, the
+  add through the sheet with and without the consent sheet, a closed sheet, signing in again, the
+  probe on private buses: owned, activatable, absent, another service; the probe feeding the choice),
+  `add_account::route_tests` (window or accountd, for a new account and for signing in again),
+  `words_tests`. The existing suites, the in-process path, are unchanged.
+- **Asks of porter.** None outstanding: the `portable-client` commit is on porter master and mailo is
+  pinned to `04721ffed45ee7e59c4845248a941e49e8650507`. Nothing else:
+  `Accounts`, `DbusTransport::over`, `AuthenticatedStream`, `porter_dbus::ManagerProxy` and
+  `porter_proxy::relay` were enough. (Two observations, no diff asked: `AccountAdded` is not sent to an
+  app with no grant on the new account, so "added elsewhere, not yet allowed" is unseen until the
+  grant; and `Accounts::token` takes a `Candidate` though it reads only its `grant`, so the link keeps
+  the candidates it read.)
+- **Not done, and why.** A real `accountd` against porter's fakes on a private bus (porter's own
+  `accountd` tests and `porter-rig` do that; mailo's boundary would take a daemon as a dev-dependency).
+  macOS and Windows runs of the `--no-default-features` build: checked by `cargo check --workspace
+  --no-default-features`, `clippy --all-targets --no-default-features` and `cargo test --workspace
+  --no-default-features` on Linux only, as design/36 §4 says until a runner exists. `cargo deny` was
+  not run (not installed here): the new crates come from porter (the repository's own licence) and
+  futures-util, and `ds-desktop` is quire's.
+- **Gate note.** zbus is still in the `--no-default-features` tree through mailo's own earlier uses,
+  which are gated separately and not touched here: `mail-core` and `mail-app` (through `oo7`,
+  `secret-service` and `zbus-secret-service-keyring-store` for the secret store, `ashpd`/`rfd` for
+  file dialogs, `notify-rust`, `ds-blitz`, `ds-settings`) and `mail-app`'s intents provider. What
+  E6 adds is absent there: `cargo tree -p mail-app --no-default-features -i porter-dbus` and `-i
+  ds-desktop` find nothing, and `check-boundary.sh` keeps `porter-client`, `porter-dbus`,
+  `ds-desktop` and `zbus` out of the four sans-I/O crates and the two names to their two files.
