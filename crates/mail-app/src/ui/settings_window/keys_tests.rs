@@ -41,7 +41,19 @@ fn each_kind_gets_the_control_detent_gives_it() {
             KeyKind::Segmented {
                 variants: words(&["a", "b", "c"]),
             },
-            Control::Segments(words(&["a", "b", "c"])),
+            Control::PopUp(words(&["a", "b", "c"])),
+        ),
+        (
+            KeyKind::Segmented {
+                variants: words(&["a", "b"]),
+            },
+            Control::Segments(words(&["a", "b"])),
+        ),
+        (
+            KeyKind::Menu {
+                variants: words(&["a", "b"]),
+            },
+            Control::PopUp(words(&["a", "b"])),
         ),
         (KeyKind::Text, Control::Shown),
     ];
