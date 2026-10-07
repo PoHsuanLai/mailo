@@ -207,6 +207,7 @@ pub(super) fn RuleEditor(
                                 image: ImagePosition::Only,
                                 icon: Icon::X,
                                 label: format!("Remove {}", work::action_words(action)),
+                                title: Some(format!("Remove {}", work::action_words(action))),
                                 onclick: on_primary(move || {
                                     if let Some(draft) = editing.write().as_mut()
                                         && at < draft.actions.len()
