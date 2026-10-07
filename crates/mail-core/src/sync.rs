@@ -718,9 +718,12 @@ fn imap_engine(
     // used at all without registering an OAuth client.
     let mechanism = match held.current() {
         Credential::OAuth { .. } => ImapCommand::AuthenticateXoauth2,
-        Credential::Password(_) | Credential::ApiKey(_) | Credential::KeyPair { .. } => {
-            ImapCommand::Login
-        }
+        // A bearer token (JMAP's) has no IMAP mechanism: `LOGIN` is named, and the session
+        // refuses the credential before anything is sent (`credential_forbidden`).
+        Credential::Password(_)
+        | Credential::ApiKey(_)
+        | Credential::Bearer(_)
+        | Credential::KeyPair { .. } => ImapCommand::Login,
     };
     let (username, sasl) = (username_for(&account.plan), sasl_for(&account.plan));
     let backend = ImapBackend::new(

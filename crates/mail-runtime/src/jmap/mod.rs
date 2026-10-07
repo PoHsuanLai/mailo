@@ -144,6 +144,9 @@ impl JmapEngine {
                 Auth::Bearer(token.expose().to_owned())
             }
             (Credential::OAuth { access, .. }, _) => Auth::Bearer(access.expose().to_owned()),
+            // A pasted JMAP API token is a bearer whatever the plan's header says: there is no
+            // username to pair it with for Basic.
+            (Credential::Bearer(token), _) => Auth::Bearer(token.expose().to_owned()),
             // Not a sign-in: an API key or key pair is never kept under this purpose.
             (Credential::ApiKey(_) | Credential::KeyPair { .. }, _) => {
                 return Err(RuntimeError::Secrets(

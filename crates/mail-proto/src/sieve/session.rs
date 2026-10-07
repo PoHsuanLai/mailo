@@ -405,6 +405,11 @@ impl SieveSession {
                     "an API key is not a sign-in credential".to_owned(),
                 ));
             }
+            Credential::Bearer(_) => {
+                return Step::Fail(ProtoError::Unsupported(
+                    "a bearer token signs in to JMAP only, not ManageSieve".to_owned(),
+                ));
+            }
         };
         if !self.caps.sasl.iter().any(|m| m == mechanism) {
             return Step::Fail(ProtoError::Unsupported(format!(
