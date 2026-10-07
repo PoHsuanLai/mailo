@@ -77,7 +77,7 @@ pub(in crate::ui) fn DownloadsButton(shell: Signal<Shell>) -> Element {
             Button {
                 bezel: Bezel::Toolbar,
                 image: ImagePosition::Only,
-                icon: Icon::Download,
+                icon: Icon::File,
                 label: "Downloads",
                 title: "Files you saved".to_owned(),
                 onclick: move |_| {
