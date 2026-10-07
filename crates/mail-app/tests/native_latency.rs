@@ -4,18 +4,20 @@
 //! `frame_budget` times what the store and the reader do on the render thread. This times what a
 //! person waits for: from the key going in to the frame that shows its answer painted, through
 //! the components, the off-thread reads, style, layout and paint (`ds_harness::Harness`). `j`,
-//! `k`, `e`, opening a row, a search, and the window's cold start to its first painted list.
+//! `k`, `e`, opening a row, a search, the window's cold start to its first painted list, and
+//! letters typed into the composer's body, to the frame whose caret has moved.
 //!
-//! The harness runs on [`Clock::Virtual`], so a timer or an animation takes no wall time; what is
+//! The harness runs on `Clock::Virtual`, so a timer or an animation takes no wall time; what is
 //! timed is the machine's work, plus the real time the off-thread reads take. Paint is vello_cpu
 //! at the window's size, which is slower than the GPU the window paints with, so it is printed on
 //! its own. A search includes the box's quiet period (`debounce::QUIET`, 150 ms), which runs on
 //! real time.
 //!
 //! The measurements are ignored by default, and print rather than assert, for the reason
-//! `frame_budget` gives. One check over the same inbox always runs: that the list is windowed,
-//! mounting only the rows near the viewport and asking for the next page as its end comes near.
-//! Run the measurements with
+//! `frame_budget` gives. Two checks over the same inbox always run: that the list is windowed,
+//! mounting only the rows near the viewport and asking for the next page as its end comes near,
+//! and that the composer's caret keeps up with keys closer together than two frames, counted on
+//! the virtual clock rather than in milliseconds of the machine's. Run the measurements with
 //!
 //! ```text
 //! cargo test -p mail-app --test native_latency -- --ignored --nocapture
@@ -23,125 +25,23 @@
 
 #[path = "support/drive.rs"]
 mod drive;
+#[path = "support/latency_inbox.rs"]
+mod inbox;
 #[path = "support/settle.rs"]
 mod settle;
+#[path = "support/typing.rs"]
+mod typing;
 
 use drive::{Drive, Key};
 use ds::prelude::{Point, Px};
-use ds_blitz::{NetPolicy, PrintOutcome};
-use ds_harness::{Clock, Driver, Harness, HarnessConfig, Query as Read, Viewport};
-use mail_app::ui::appearance::WindowDirs;
-use mail_domain::id::account_id_from_uuid;
-use mail_domain::*;
-use mail_runtime::{Arrival, absorb};
-use mail_store::SqliteStore;
-use porter_core::AccountId;
+use ds_harness::{Driver, Harness, Query as Read};
+use inbox::{THREADS, TOPICS, VIEW, config, seeded};
 use settle::{WAIT_BOUND, settle_until};
-use std::sync::Arc;
 use std::time::{Duration, Instant};
-
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000c3"))
-}
-
-const VIEW: Viewport = Viewport {
-    width: 1200,
-    height: 800,
-    scale_percent: 100,
-};
-
-/// Conversations in the inbox: more than a page, so the list is as long as it gets.
-const THREADS: usize = 300;
+use typing::{TYPED, caret, fill_body, report_typing, settled_caret, type_timed};
 
 /// Presses of each key timed.
 const PRESSES: usize = 20;
-
-/// What the subjects are about; a search for one of these finds a fifth of the inbox.
-const TOPICS: [&str; 5] = ["invoices", "travel", "hiring", "roadmap", "lunches"];
-
-/// An HTML newsletter-sized body: a few kilobytes of markup, the shape that costs a render.
-fn raw(n: usize, date: &str) -> Vec<u8> {
-    let topic = TOPICS[n % TOPICS.len()];
-    let paragraphs = format!("<p>About {topic}, item {n}, and what comes next.</p>").repeat(40);
-    format!(
-        "From: sender{n}@example.test\r\nTo: me@example.test\r\n\
-         Subject: Note {n} about {topic}\r\nDate: {date}\r\n\
-         Message-ID: <latency{n}@example.test>\r\nMIME-Version: 1.0\r\n\
-         Content-Type: text/html; charset=utf-8\r\n\r\n\
-         <html><body><h1>Note {n}</h1>{paragraphs}</body></html>\r\n"
-    )
-    .into_bytes()
-}
-
-/// A store in `dir` with one account and [`THREADS`] conversations of one message each.
-fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
-    std::fs::create_dir_all(dir.join("blobs")).unwrap();
-    let store = SqliteStore::open(dir.join("mail.db"), dir.join("blobs")).unwrap();
-    {
-        let db = store.connection();
-        db.execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [acct_account().to_string()],
-        )
-        .unwrap();
-        db.execute(
-            "INSERT INTO identities (id, account, from_name, from_email, is_default)
-             VALUES (?1, ?2, NULL, 'me@example.test', '\"default\"')",
-            [
-                IdentityId::generate().to_string(),
-                acct_account().to_string(),
-            ],
-        )
-        .unwrap();
-    }
-    let now = chrono::Utc::now();
-    let arrivals = (0..THREADS)
-        .map(|n| {
-            let date = (now - chrono::Duration::minutes(n as i64 + 1)).to_rfc2822();
-            Arrival {
-                remote: RemoteRef::Pop {
-                    uidl: format!("latency{n}"),
-                },
-                raw: raw(n, &date),
-            }
-        })
-        .collect();
-    absorb(
-        &store,
-        acct_account(),
-        MailboxRef {
-            account: acct_account(),
-            path: "INBOX".to_owned(),
-        },
-        Some(SyncCursor::Pop),
-        arrivals,
-        false,
-        now,
-    )
-    .unwrap();
-    Arc::new(store)
-}
-
-fn config(store: &Arc<SqliteStore>, dir: &std::path::Path) -> HarnessConfig {
-    let dirs = WindowDirs {
-        config: dir.join("config"),
-        state: dir.join("state"),
-    };
-    let printer = mail_app::ui::native::Printer::with_dialog(|_, _| Ok(PrintOutcome::Cancelled));
-    let contexts = mail_app::ui::native::contexts(
-        Arc::clone(store),
-        mail_app::ui::view::Appearance::default(),
-        mail_app::ui::space::Spaces::default(),
-        Some(dirs),
-        mail_app::ui::Start::Inbox,
-    )
-    .with(printer);
-    HarnessConfig::new(VIEW)
-        .with_net(NetPolicy::Local)
-        .with_clock(Clock::Virtual)
-        .with_contexts(contexts)
-}
 
 fn listed(harness: &Harness) -> bool {
     harness.count(".list .ds-thread") > 0
@@ -395,5 +295,76 @@ fn a_long_inbox_mounts_the_rows_near_the_viewport_and_pages_as_its_end_comes_nea
     assert!(
         (8..=30).contains(&mounted),
         "{mounted} of 200 rows are mounted"
+    );
+}
+
+/// The window over the inbox, with a new message open and six paragraphs in its body.
+fn new_message(dir: &std::path::Path) -> Harness {
+    let store = seeded(dir);
+    let mut harness = Harness::new(mail_app::ui::native::root, config(&store, dir));
+    settle_until(&mut harness, listed);
+    harness.key(Key::Char('c'));
+    settle_until(&mut harness, |h| h.count(".cpage .c-body") == 1);
+    fill_body(&mut harness, ".cpage .c-body > p");
+    harness
+}
+
+#[test]
+#[ignore = "a measurement, not a check; run with --ignored --nocapture"]
+fn from_a_typed_letter_to_its_caret() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut harness = new_message(dir.path());
+    for interval in [12, 40, 120] {
+        let typed = type_timed(&mut harness, TYPED, Duration::from_millis(interval));
+        report_typing(&format!("new message, a key every {interval} ms"), typed);
+    }
+    harness.key(Key::Escape);
+    harness.advance(Duration::from_millis(400));
+
+    // A reply to a long HTML message: its original quoted under the body.
+    let at = row_subject(&harness, 1);
+    harness.click(at);
+    settle_until(&mut harness, |h| subject_of_open(h).is_some());
+    harness.key(Key::Char('r'));
+    settle_until(&mut harness, |h| h.count(".inline-reply .c-body") == 1);
+    fill_body(&mut harness, ".inline-reply .c-body > p");
+    for interval in [12, 40] {
+        let typed = type_timed(&mut harness, TYPED, Duration::from_millis(interval));
+        report_typing(&format!("reply, a key every {interval} ms"), typed);
+    }
+}
+
+/// Keys a held key repeats, or a fast typist's burst: closer together than two frames.
+const BURST: Duration = Duration::from_millis(12);
+
+/// The caret keeps up with typing. Read on the window's own (virtual) clock, so a slow machine
+/// changes how long this takes, never what it sees: every key's caret moves within two frames of
+/// it, however close the keys come, and two frames after the last key the caret is where it
+/// settles. The caret used to wait 34 ms and drop its read whenever a key came in that time, so
+/// a burst left it where typing began until the keys stopped.
+#[test]
+fn the_caret_keeps_up_with_a_burst_of_keys() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut harness = new_message(dir.path());
+    let typed = type_timed(&mut harness, &TYPED[..60], BURST);
+    let lags: Vec<Option<u64>> = typed.iter().map(|t| t.caret).collect();
+    assert!(
+        lags.iter().all(|lag| lag.is_some_and(|ms| ms <= 34)),
+        "the caret fell behind the keys (ms from each key to its caret): {lags:?}"
+    );
+    // The last key's caret, two frames on, is the caret once all is still.
+    harness.key(Key::Char('x'));
+    harness.advance(Duration::from_millis(34));
+    let shown = caret(&harness);
+    assert_eq!(
+        shown,
+        settled_caret(&mut harness),
+        "the caret moved after it was drawn"
+    );
+    // Generous: a key's own work in a debug build on a slow runner is a few milliseconds.
+    let slowest = typed.iter().map(|t| t.work).max().unwrap_or_default();
+    assert!(
+        slowest < Duration::from_millis(500),
+        "a key took {slowest:?} of the thread that draws"
     );
 }

@@ -11,7 +11,7 @@
 //!    page's own selection as the range, the `/` and `@` menus following.
 //!
 //! The caret and the selection are the page's (`Page::session.caret`, `Page::selection`), and
-//! are drawn a frame after each change from the rects the surface's handle reports, less the
+//! are drawn a frame after each change (`follow`) from the rects the surface's handle reports, less the
 //! corner the marks layers are placed from (`.c-edit`'s, where the floats are placed too): the
 //! selection in a layer before the surface, which Blitz paints under the positioned surface's
 //! text as CSS 2.1 stacks them, and the caret and the IME's preedit in one after it. The caret is
@@ -48,7 +48,7 @@ use crate::ui::host::Host;
 use crate::ui::view::Shell;
 
 /// Frames a measure waits for the document to be laid out and free.
-const TRIES: usize = 12;
+const TRIES: usize = 24;
 
 /// Gap between the caret and a float below it, and between a selection and the bubble above it.
 const GAP: f32 = 6.0;
@@ -111,31 +111,13 @@ pub(super) fn Surface(
     // Set while the surface hands over a key the menus or a chord took, so the key goes no
     // further (Escape closes the menu, it does not also park the draft).
     let taken = use_hook(|| Rc::new(Cell::new(false)));
-    // Measure a frame after every change to the page; only the latest measure is kept.
-    let latest = use_hook(|| Rc::new(Cell::new(0u64)));
     // The selection's layer: its corner is the one every mark and float is placed from.
     let mut corner = use_signal(|| None::<Rc<MountedData>>);
+    // Measure a frame after every change to the page.
     use_effect(move || {
-        let read = page.read();
-        let doc = &read.session.doc;
-        let caret = adapt::text_position(doc, read.session.caret.pos);
-        let range = read.selection.map(|range| TextRange {
-            anchor: adapt::text_position(doc, range.start),
-            focus: adapt::text_position(doc, range.end),
-        });
-        drop(read);
-        let turn = latest.get().wrapping_add(1);
-        latest.set(turn);
-        let latest = Rc::clone(&latest);
-        spawn(async move {
-            let Some(measured) = measure(handle, corner, caret, range).await else {
-                return;
-            };
-            let mut marks = marks;
-            if latest.get() == turn && *marks.peek() != measured {
-                marks.set(measured);
-            }
-        });
+        // Subscribes the effect to the page: the document, the caret and the selection.
+        drop(page.read());
+        spawn(follow(handle, corner, page, marks));
     });
 
     // Spelling: quire checks and marks; the word at the caret stays unmarked while it is typed.
@@ -205,21 +187,68 @@ pub(super) fn Surface(
     }
 }
 
-/// The caret and the selection a frame from now, once the document is laid out and free.
-async fn measure(
+/// How far a [`follow`] has got.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Read {
+    /// Nothing measured yet: the document is busy or not laid out.
+    None,
+    /// Measured once; read again a frame later in case that layout was not yet this change's.
+    Once,
+}
+
+/// Draw the marks where the page's caret and selection are, a frame after a change and again a
+/// frame after that.
+///
+/// Each read takes the caret and the selection as the page holds them when it reads, never as
+/// they were when the change was made: a key typed while a read waits is drawn by it instead of
+/// throwing it away. (Throwing it away, as a read of the change's own caret had to, left the
+/// caret where typing began for as long as keys came closer than the wait, a held key's repeat
+/// included.) The wait is one frame: the geometry is the last layout's, and the window lays the
+/// change out on its next frame. The second read puts right a first one that ran before that
+/// frame was drawn.
+async fn follow(
     handle: EditHandle,
     corner: Signal<Option<Rc<MountedData>>>,
-    caret: TextPosition,
-    range: Option<TextRange>,
-) -> Option<Marks> {
+    page: Signal<Page>,
+    mut marks: Signal<Marks>,
+) {
+    let mut read = Read::None;
     for _ in 0..TRIES {
-        ds::base::time::clock::sleep(ds::base::time::FRAME_SLACK).await;
+        ds::base::time::clock::sleep(ds::base::time::FRAME_TICK).await;
+        let Ok(now) = page.try_peek().map(|page| wanted(&page)) else {
+            return;
+        };
         let origin = corner.peek().as_deref().and_then(origin_of);
-        if let Some(marks) = origin.and_then(|at| read_marks(handle, at, &caret, range.as_ref())) {
-            return Some(marks);
+        let Some(measured) =
+            origin.and_then(|at| read_marks(handle, at, &now.caret, now.range.as_ref()))
+        else {
+            continue;
+        };
+        if *marks.peek() != measured {
+            marks.set(measured);
+        }
+        match read {
+            Read::None => read = Read::Once,
+            Read::Once => return,
         }
     }
-    None
+}
+
+/// Where the page wants its marks: the caret, and the selection when there is one.
+struct Wanted {
+    caret: TextPosition,
+    range: Option<TextRange>,
+}
+
+fn wanted(page: &Page) -> Wanted {
+    let doc = &page.session.doc;
+    Wanted {
+        caret: adapt::text_position(doc, page.session.caret.pos),
+        range: page.selection.map(|range| TextRange {
+            anchor: adapt::text_position(doc, range.start),
+            focus: adapt::text_position(doc, range.end),
+        }),
+    }
 }
 
 /// Where `layer` is in the window: the corner of the box the marks and the floats are placed
