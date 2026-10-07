@@ -94,7 +94,7 @@ pub(super) fn has(page: &str, needle: &str) -> bool {
 }
 
 /// `page` without its tags.
-fn words(page: &str) -> String {
+pub(super) fn words(page: &str) -> String {
     let mut out = String::with_capacity(page.len());
     let mut inside = false;
     for ch in page.chars() {
@@ -123,14 +123,19 @@ fn search(dom: &VirtualDom) -> String {
 async fn typing_shows_the_mail_and_the_commands_it_names() {
     let recorder = Recorder::default();
     let mut bar = alone(&recorder);
-    let page = bar.typed("sync", |page| has(page, "Sync now")).await;
-    for title in [COMMANDS, "Notes from the sync review", "Sync now"] {
+    // The commands answer at once; the mail comes later, from the search off the thread. Wait
+    // for all of what is asserted, not the first of it to land.
+    let titles = [COMMANDS, "Notes from the sync review", "Sync now"];
+    let mail = |page: &str| has(page, &format!(">{MAIL}<")) || has(page, &format!(">{TOP}<"));
+    let page = bar
+        .typed("sync", |page| {
+            titles.iter().all(|title| has(page, title)) && mail(page)
+        })
+        .await;
+    for title in titles {
         assert!(has(&page, title), "no {title:?} for sync:\n{page}");
     }
-    assert!(
-        has(&page, &format!(">{MAIL}<")) || has(&page, &format!(">{TOP}<")),
-        "no Mail section for sync:\n{page}"
-    );
+    assert!(mail(&page), "no Mail section for sync:\n{page}");
     // What is typed is the list's search too.
     assert_eq!(search(&bar.dom), "sync");
 }
@@ -139,7 +144,12 @@ async fn typing_shows_the_mail_and_the_commands_it_names() {
 async fn an_empty_bar_offers_recent_mail_and_commands() {
     let recorder = Recorder::default();
     let mut bar = alone(&recorder);
-    let page = until(&mut bar.dom, "", |page| has(page, "Compose")).await;
+    let page = until(&mut bar.dom, "", |page| {
+        has(page, "Compose")
+            && has(page, &format!(">{RECENT}<"))
+            && has(page, &format!(">{COMMANDS}<"))
+    })
+    .await;
     assert!(has(&page, &format!(">{RECENT}<")), "no Recent:\n{page}");
     assert!(has(&page, &format!(">{COMMANDS}<")), "no Commands:\n{page}");
 }
