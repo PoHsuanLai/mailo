@@ -1,9 +1,13 @@
 //! What mailo puts on a quire component's own element.
 
 use dioxus::prelude::*;
-use ds::prelude::{InlineBanner, Severity};
+use ds::components::content::avatar::{
+    AvatarFace, AvatarShape, AvatarSize, AvatarTone, person_hue,
+};
+use ds::prelude::{Icon, InlineBanner, RowLeading, Severity, TileFace};
 use ds::root::common::Common;
 use ds::root::pass_through::ExtraClass;
+use ds::style::icon::family::PlateFamily;
 
 /// A component's own layout class: quire writes it after its own, never in place of one, so a
 /// mailo rule can size or place the element without naming a `ds-` class.
@@ -21,7 +25,7 @@ pub(in crate::ui) fn in_card() -> Common {
     classed("in-card")
 }
 
-/// What the last act on a page of Settings came to, under the group it was done in: quire's
+/// What the last act on a page of Settings came to, at the head of the page's `Form`: quire's
 /// banner, a failure as an alert and anything else as a status. Nothing said draws nothing.
 #[component]
 pub(in crate::ui) fn Told(said: Option<Result<String, String>>) -> Element {
@@ -34,4 +38,25 @@ pub(in crate::ui) fn Told(said: Option<Result<String, String>>) -> Element {
             InlineBanner { severity: Severity::Danger, text: why }
         },
     }
+}
+
+/// A grouped row's leading tile, as System Settings leads a pane's row: `icon` in white on the
+/// light stop of one of design/08's plate families, so mailo picks a family and never a colour.
+pub(in crate::ui) fn tile(icon: Icon, family: PlateFamily) -> RowLeading {
+    RowLeading::Tile(TileFace::Glyph(icon, family.stops().0))
+}
+
+/// A grouped row's leading avatar for a person or an account: the first letter of `shown` on the
+/// hue `key` (an address) always gets.
+pub(in crate::ui) fn person_tile(shown: &str, key: &str) -> RowLeading {
+    RowLeading::Tile(TileFace::Avatar(AvatarFace {
+        initial: shown
+            .chars()
+            .next()
+            .and_then(|ch| ch.to_uppercase().next())
+            .unwrap_or('?'),
+        size: AvatarSize::Size28,
+        tone: AvatarTone::Person(person_hue(key)),
+        shape: AvatarShape::Round,
+    }))
 }

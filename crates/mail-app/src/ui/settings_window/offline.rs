@@ -9,14 +9,14 @@
 use crate::ui::appearance::WindowDirs;
 use crate::ui::data::{AccountRow, account_rows};
 use dioxus::prelude::*;
-use ds::components::fields::field_row::{FieldGroup, FieldRow};
+use ds::components::fields::field_row::FieldRow;
 use ds::prelude::*;
 use mail_core::offline::{self, Keep, Kept};
 use mail_domain::Incoming;
 use mail_store::{SqliteStore, Store as _};
 use std::sync::Arc;
 
-/// What turning the switch on adds, said under each account.
+/// What turning a switch on adds, said under the group, since it is the same for every account.
 const ON_MEANS: &str = "On, every sync also fetches the attachments it leaves on the server until \
     opened, a few at a time and the largest last.";
 
@@ -64,7 +64,9 @@ pub(super) fn OfflineCopy() -> Element {
         return rsx! {};
     }
     rsx! {
-        FieldGroup { title: "Keep all mail offline",
+        FormSection {
+            title: Some("Keep all mail offline".to_owned()),
+            footer: Some(ON_MEANS.to_owned()),
             for line in accounts {
                 OneAccount {
                     key: "{line.row.id}",
@@ -90,6 +92,7 @@ pub(super) fn OfflineCopy() -> Element {
                     },
                 }
             }
+            // A choice that could not be kept is said in the group it was made in.
             if let Some(why) = failed() {
                 FieldRow { label: "Not kept", help: Some(TextLine::from(why)) }
             }
@@ -108,7 +111,7 @@ fn OneAccount(line: Line, kept: Kept, on_keep: EventHandler<Keep>) -> Element {
     rsx! {
         FieldRow {
             label: address.clone(),
-            help: Some(TextLine::from(format!("{said}. {ON_MEANS}"))),
+            help: Some(TextLine::from(format!("{said}."))),
             Toggle {
                 label: format!("Keep all mail offline for {address}"),
                 value: if current == Keep::Everything { Check::On } else { Check::Off },

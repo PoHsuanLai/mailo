@@ -5,12 +5,9 @@
 //! `contacts.vcf` into the downloads directory the way Save writes an attachment, never over a
 //! file already there, and says where it went.
 
-use ds::components::content::avatar::{
-    AvatarFace, AvatarShape, AvatarSize, AvatarTone, person_hue,
-};
 use ds::components::content::text_runs::RunTone;
 use ds::components::controls::button_model::ButtonRole;
-use ds::components::fields::field_row::{FieldGroup, FieldRow};
+use ds::components::fields::field_row::FieldRow;
 use ds::components::lists::list::model::{ListItem, ListStyle};
 use ds::components::lists::row::size::RowSize;
 use ds::prelude::*;
@@ -19,7 +16,7 @@ use ds::root::pass_through::ExtraClass;
 use ds::style::tokens::control_size::ControlSize;
 use std::sync::Arc;
 
-use super::super::common::{Told, classed};
+use super::super::common::{Told, classed, person_tile};
 use dioxus::prelude::*;
 use mail_store::SqliteStore;
 
@@ -50,7 +47,7 @@ pub(in crate::ui) fn ContactsPage(shell: Signal<Shell>) -> Element {
     // Bumped by every write, so the rows are read again.
     let changed = use_signal(|| 0u64);
     let naming = use_signal(|| None::<Naming>);
-    let mut said = use_signal(|| None::<Result<String, String>>);
+    let said = use_signal(|| None::<Result<String, String>>);
     let listed = use_memo(move || {
         let _ = changed();
         let filter = shell.read().contacts.clone();
@@ -72,17 +69,10 @@ pub(in crate::ui) fn ContactsPage(shell: Signal<Shell>) -> Element {
     } else {
         "No one matches"
     };
-    let note = failed.or_else(|| {
-        if total == 0 {
-            Some(empty.to_owned())
-        } else if total > SHOWN {
-            Some(format!(
-                "{SHOWN} of {total} shown. Filter to find the rest."
-            ))
-        } else {
-            None
-        }
-    });
+    // Why the list is empty is a row in it; that it is cut short is said under the group.
+    let note = failed.or_else(|| (total == 0).then(|| empty.to_owned()));
+    let cut =
+        (total > SHOWN).then(|| format!("{SHOWN} of {total} shown. Filter to find the rest."));
     let mut items: Vec<ListItem<String>> = vec![ListItem::row(
         FIND.to_owned(),
         count.clone(),
@@ -116,13 +106,22 @@ pub(in crate::ui) fn ContactsPage(shell: Signal<Shell>) -> Element {
         ));
     }
     rsx! {
-        section { class: "book-part",
-            SectionHeader { title: "People" }
-            List::<String> { label: "Contacts".to_owned(), items, style: ListStyle::Inset }
+        Form {
+            Told { said: said() }
+            FormSection { title: Some("People".to_owned()), footer: cut,
+                List::<String> { label: "Contacts".to_owned(), items, style: ListStyle::Grouped }
+            }
+            GroupRows { filter: filter.clone(), changed, said }
+            ImportExport { changed, said }
         }
-        GroupRows { filter: filter.clone(), changed, said }
-        Told { said: said() }
-        FieldGroup { title: "Import and export",
+    }
+}
+
+/// vCard in and out, and how CardDAV syncs.
+#[component]
+fn ImportExport(changed: Signal<u64>, mut said: Signal<Option<Result<String, String>>>) -> Element {
+    rsx! {
+        FormSection { title: Some("Import and export".to_owned()),
             FieldRow {
                 label: "Import",
                 help: Some(TextLine::from("People from vCard files, added to the book.")),
@@ -204,16 +203,6 @@ fn BookRow(
         None => row.standing.label().to_owned(),
     };
     let action = row.standing.name_action();
-    let face = AvatarFace {
-        initial: shown
-            .chars()
-            .next()
-            .and_then(|ch| ch.to_uppercase().next())
-            .unwrap_or('?'),
-        size: AvatarSize::Size28,
-        tone: AvatarTone::Person(person_hue(&address)),
-        shape: AvatarShape::Round,
-    };
     let acts = rsx! {
         Button {
             label: action.to_owned(),
@@ -248,7 +237,7 @@ fn BookRow(
     });
     rsx! {
         Row {
-            leading: RowLeading::Avatar(face),
+            leading: person_tile(&shown, &address),
             size: RowSize::Settings,
             title: shown,
             detail: Some(format!("{}  ·  {origin}", row.address).into()),

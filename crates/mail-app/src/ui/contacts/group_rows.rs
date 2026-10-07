@@ -10,7 +10,7 @@ use std::sync::Arc;
 use dioxus::prelude::*;
 use mail_store::{Edit, Group, GroupHome, GroupId, SqliteStore};
 
-use super::super::common::classed;
+use super::super::common::{classed, tile};
 use super::super::press::on_primary;
 use super::group_edit::{AddRow, MemberRow, RenameRow};
 use super::groups;
@@ -20,6 +20,7 @@ use ds::components::lists::list::model::{ListItem, ListStyle};
 use ds::components::lists::row::size::RowSize;
 use ds::prelude::*;
 use ds::root::common::Common;
+use ds::style::icon::family::PlateFamily;
 use ds::style::tokens::control_size::ControlSize;
 
 /// The group open for editing, and what is typed in its two fields.
@@ -99,9 +100,8 @@ pub(super) fn GroupRows(
         rsx! { NewGroupRow { making, changed, said } },
     ));
     rsx! {
-        section { class: "book-part",
-            SectionHeader { title: "Groups" }
-            List::<String> { label: "Groups".to_owned(), items, style: ListStyle::Inset }
+        FormSection { title: Some("Groups".to_owned()),
+            List::<String> { label: "Groups".to_owned(), items, style: ListStyle::Grouped }
         }
     }
 }
@@ -129,7 +129,7 @@ fn NewGroupRow(
     let Some(typed) = making() else {
         return rsx! {
             Row {
-                leading: RowLeading::Icon(Icon::Plus),
+                leading: tile(Icon::Plus, PlateFamily::Green),
                 title: "New group",
                 size: RowSize::Settings,
                 accessory: Accessory::Slot(rsx! {
@@ -145,7 +145,7 @@ fn NewGroupRow(
     };
     rsx! {
         Row {
-            leading: RowLeading::Icon(Icon::Plus),
+            leading: tile(Icon::Plus, PlateFamily::Green),
             title: "New group",
             size: RowSize::Settings,
             content: rsx! {
@@ -225,7 +225,7 @@ fn GroupRow(
     let gone = id.clone();
     rsx! {
         Row {
-            leading: RowLeading::Icon(Icon::Group),
+            leading: tile(Icon::Group, PlateFamily::Violet),
             title: group.name.clone(),
             detail: Some(TextLine::from(format!("{count} · {}", standing(&group)))),
             size: RowSize::Settings,

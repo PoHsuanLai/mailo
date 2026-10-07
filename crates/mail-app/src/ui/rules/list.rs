@@ -7,7 +7,7 @@ use ds::components::content::text_runs::RunTone;
 use ds::components::controls::button_model::{Bezel, ButtonRole, ImagePosition};
 use ds::components::controls::progress::model::{Progress, ProgressStyle};
 use ds::components::controls::progress::view::ProgressIndicator;
-use ds::components::fields::field_row::{FieldGroup, FieldRow};
+use ds::components::fields::field_row::FieldRow;
 use ds::prelude::*;
 use ds::root::common::Common;
 use mail_domain::RuleState;
@@ -15,7 +15,7 @@ use mail_store::SqliteStore;
 use porter_core::AccountId;
 use std::sync::Arc;
 
-use super::super::common::{Told, classed};
+use super::super::common::classed;
 use super::super::files::work::grouped;
 use super::super::files::{Phase, run};
 use super::super::motion::{Follow, tell};
@@ -24,13 +24,18 @@ use super::editor::RuleEditor;
 use super::work::{self, Draft, Listed, Step};
 
 /// The rules group of the page: each rule a row, New Rule, how a run on existing mail goes, and
-/// the editor as a group of its own under it while a rule is being made or changed.
+/// the editor as a group of its own under it while a rule is being made or changed. What an act
+/// came to is the page's `said`, drawn at the head of the page.
 #[component]
-pub(super) fn RulesPart(account: AccountId, shown: String, revision: Signal<u64>) -> Element {
+pub(super) fn RulesPart(
+    account: AccountId,
+    shown: String,
+    revision: Signal<u64>,
+    said: Signal<Option<Result<String, String>>>,
+) -> Element {
     // Bumped by every write, so the rules are read again.
     let changed = use_signal(|| 0u64);
     let mut editing = use_signal(|| None::<Draft>);
-    let said = use_signal(|| None::<Result<String, String>>);
     let phase = use_signal(|| Phase::Ready);
     let running = use_signal(String::new);
     let _ = changed();
@@ -42,7 +47,9 @@ pub(super) fn RulesPart(account: AccountId, shown: String, revision: Signal<u64>
     let count = rules.len();
     let busy = editing.read().is_some();
     rsx! {
-        FieldGroup { title: format!("Rules for {shown}"),
+        FormSection {
+            title: Some(format!("Rules for {shown}")),
+            footer: Some("Rules act on new mail, in this order.".to_owned()),
             if count == 0 {
                 FieldRow {
                     label: failed.unwrap_or_else(|| "No rules on this account yet.".to_owned()),
@@ -65,7 +72,6 @@ pub(super) fn RulesPart(account: AccountId, shown: String, revision: Signal<u64>
             RunProgress { phase: phase(), name: running() }
             FieldRow {
                 label: "Add a rule",
-                help: Some(TextLine::from("Rules act on new mail, in this order.")),
                 Button {
                     label: "New Rule…".to_owned(),
                     availability: available(!busy),
@@ -74,7 +80,6 @@ pub(super) fn RulesPart(account: AccountId, shown: String, revision: Signal<u64>
                 }
             }
         }
-        Told { said: said() }
         if busy {
             RuleEditor { account, editing, changed, said }
         }

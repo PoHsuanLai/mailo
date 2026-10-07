@@ -6,7 +6,7 @@
 
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
-use ds::components::fields::field_row::{FieldGroup, FieldRow, RowLayout};
+use ds::components::fields::field_row::{FieldRow, RowLayout};
 use ds::components::fields::text_field_model::{FieldRows, Invalid};
 use ds::motion::detail::stamp::EventStamp;
 use ds::prelude::*;
@@ -14,7 +14,7 @@ use mail_domain::{DateRange, Vacation};
 use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
 
-use super::super::common::{Told, classed};
+use super::super::common::classed;
 use super::super::data::AccountRow;
 use super::super::menus::when_words;
 use super::super::press::on_primary;
@@ -214,9 +214,12 @@ where
 
 /// The vacation reply's group of the page: a switch, and while it is on, the reply's fields and
 /// Keep Reply. Turned off, it is kept off at once; turned on, it is kept when Keep Reply is
-/// pressed, since a reply needs its words first.
+/// pressed, since a reply needs its words first. What keeping it came to is the page's `said`.
 #[component]
-pub(super) fn AwayPart(row: AccountRow) -> Element {
+pub(super) fn AwayPart(
+    row: AccountRow,
+    mut said: Signal<Option<Result<String, String>>>,
+) -> Element {
     let mut away = use_signal({
         let row = row.clone();
         move || {
@@ -224,10 +227,9 @@ pub(super) fn AwayPart(row: AccountRow) -> Element {
             load(&store, &row, Utc::now(), &chrono::Local)
         }
     });
-    let mut said = use_signal(|| None::<Result<String, String>>);
     if let Err(why) = reach(&row.plan) {
         return rsx! {
-            FieldGroup { title: "Vacation reply",
+            FormSection { title: Some("Vacation reply".to_owned()),
                 FieldRow {
                     label: "Vacation reply",
                     help: Some(TextLine::from(format!("No vacation reply here: {why}."))),
@@ -255,7 +257,7 @@ pub(super) fn AwayPart(row: AccountRow) -> Element {
     let off = row.clone();
     let help = |text: String| (!text.is_empty()).then(|| TextLine::from(text));
     rsx! {
-        FieldGroup { title: "Vacation reply",
+        FormSection { title: Some("Vacation reply".to_owned()),
             FieldRow {
                 label: "Vacation reply",
                 help: Some(TextLine::from("Answers mail while you are away, sent by the server.")),
@@ -339,6 +341,5 @@ pub(super) fn AwayPart(row: AccountRow) -> Element {
                 }
             }
         }
-        Told { said: said() }
     }
 }

@@ -6,7 +6,7 @@
 
 use dioxus::prelude::*;
 use ds::components::controls::segmented::Tracking;
-use ds::components::fields::field_row::{FieldGroup, FieldRow};
+use ds::components::fields::field_row::FieldRow;
 use ds::prelude::*;
 use ds::style::tokens::control_size::ControlSize;
 use ds_settings::schema::{KeyKind, KeySpec, Schema};
@@ -138,19 +138,23 @@ pub(super) fn sections(schema: &Schema) -> Vec<(String, Vec<KeySpec>)> {
     out
 }
 
-/// One section: its title over a row per key.
+/// One section: its title over a row per key, and the note that explains the whole group, if the
+/// caller has one, under it.
 #[component]
 pub(super) fn SchemaSection(
     title: String,
     keys: Vec<KeySpec>,
     values: toml::Value,
     onedit: EventHandler<(String, toml::Value)>,
-    /// What the caller adds under the rows: a note, a button that belongs to the section.
+    /// What the caller adds under the rows: a row that belongs to the section.
     #[props(default)]
     children: Element,
+    /// A note about the group as a whole, drawn under it in the help type.
+    #[props(default)]
+    footer: Option<String>,
 ) -> Element {
     rsx! {
-        FieldGroup { title: (!title.is_empty()).then(|| title.clone()),
+        FormSection { title: (!title.is_empty()).then(|| title.clone()), footer,
             for key in keys {
                 KeyRow { key: "{key.path.0}", value: value_of(&values, &key), spec: key.clone(), onedit }
             }

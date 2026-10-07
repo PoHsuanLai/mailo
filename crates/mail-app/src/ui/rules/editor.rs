@@ -6,7 +6,7 @@ use dioxus::prelude::*;
 use ds::components::content::avatar::AvatarSize;
 use ds::components::controls::button_model::{Bezel, ImagePosition};
 use ds::components::controls::segmented::Tracking;
-use ds::components::fields::field_row::{FieldGroup, FieldRow, RowLayout};
+use ds::components::fields::field_row::{FieldRow, RowLayout};
 use ds::components::fields::text_field_model::Invalid;
 use ds::host::measure::MountedRef;
 use ds::motion::detail::stamp::EventStamp;
@@ -163,7 +163,7 @@ pub(super) fn RuleEditor(
     };
     let kinds_open = adding() == Adding::Kinds;
     rsx! {
-        FieldGroup { title: title.to_owned(),
+        FormSection { title: Some(title.to_owned()),
             FieldRow {
                 label: "Name",
                 layout: RowLayout::Form,
