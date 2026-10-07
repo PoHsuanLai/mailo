@@ -203,8 +203,10 @@ where
 /// as a From, and a new message never starts on them.
 pub fn sending_accounts(store: &SqliteStore) -> Vec<(String, AccountId)> {
     let db = store.connection();
-    let Ok(mut stmt) = db.prepare("SELECT address, id, plan FROM accounts ORDER BY created_at")
-    else {
+    let Ok(mut stmt) = db.prepare(&format!(
+        "SELECT address, id, plan FROM {} ORDER BY created_at",
+        store.accounts()
+    )) else {
         return Vec::new();
     };
     let Ok(rows) = stmt.query_map([], |r| {
@@ -1318,7 +1320,10 @@ where
     let accounts: Vec<AccountId> = {
         let db = store.connection();
         let mut stmt = db
-            .prepare("SELECT id FROM accounts ORDER BY created_at")
+            .prepare(&format!(
+                "SELECT id FROM {} ORDER BY created_at",
+                store.accounts()
+            ))
             .map_err(|e| e.to_string())?;
         let rows = stmt
             .query_map([], |r| r.get::<_, String>(0))

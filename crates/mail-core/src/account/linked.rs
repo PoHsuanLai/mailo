@@ -8,10 +8,11 @@
 //! The row's id stays mailo's own, a UUID, because every table of the store reads its account
 //! column as one; accountd's id is in the plan, and [`find`] is how one is found by the other.
 //!
-//! Nothing here deletes anything of the person's. An address mailo already holds with a sign-in
-//! of its own is **not** replaced by accountd's account of the same address: it is left as it is
-//! and named in [`Reconciled::held`], and what to do about it (move its secrets into accountd, or
-//! keep both) is the person's to say, not this module's.
+//! Nothing here deletes or changes anything of the person's. An account mailo signed in itself is
+//! not accountd's and is not made so: while linked it is set aside (`SqliteStore::accounts`) and the
+//! person adds it again through accountd. An address that is both (the person added it again while
+//! mailo still holds it) cannot be two rows, the address being unique: accountd's is not added, and
+//! the address is named in [`Reconciled::held`] until the person removes the old one.
 
 use mail_domain::id::new_account_id;
 use mail_domain::presets::{self, Manual, ManualPop3, Preset};
@@ -39,7 +40,8 @@ pub struct Reconciled {
     pub added: Vec<String>,
     /// Addresses whose grant or servers were read again and had changed.
     pub updated: Vec<String>,
-    /// Addresses accountd offers that mailo already holds with a sign-in of its own: left alone.
+    /// Addresses accountd offers that mailo already holds with a sign-in of its own: not added, the
+    /// row being unique by address, and the old one left alone.
     pub held: Vec<String>,
     /// Accounts accountd offers that cannot be mail here, with why.
     pub unusable: Vec<(String, String)>,

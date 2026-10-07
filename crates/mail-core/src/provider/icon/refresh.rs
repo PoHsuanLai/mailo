@@ -60,7 +60,10 @@ pub fn report(results: &[(Provider, Result<usize, IconError>)]) -> String {
 pub fn providers_of(store: &mail_store::SqliteStore) -> Result<Vec<Provider>, String> {
     let db = store.connection();
     let mut stmt = db
-        .prepare("SELECT plan FROM accounts ORDER BY created_at")
+        .prepare(&format!(
+            "SELECT plan FROM {} ORDER BY created_at",
+            store.accounts()
+        ))
         .map_err(|err| err.to_string())?;
     let rows = stmt
         .query_map([], |row| row.get::<_, String>(0))

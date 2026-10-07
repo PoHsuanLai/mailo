@@ -37,9 +37,8 @@ serde = { workspace = true }
 serde_json = "1"
 uuid = { workspace = true }
 # The keyring's common API, with no store of its own; each platform's store is named below, under
-# its target. It now serves two things that are not account secrets: the signing keys mailo keeps
-# in its own store (`signing_store.rs`), and reading the entries earlier builds filed under the
-# service `mailo`, to adopt them (`adopt.rs`). Account secrets go through porter-secrets.
+# its target. It serves the signing keys mailo keeps in its own store (`signing_store.rs`), which
+# are not account secrets: those go through porter-secrets.
 keyring-core = "1"
 # The system resolver, for `porter_discover::Dns` (SRV and MX, RFC 6186) and BIMI's TXT lookups
 # (`lookup.rs`). MIT OR Apache-2.0; the system resolver's configuration, over tokio. Its
@@ -79,7 +78,7 @@ futures-util = { version = "0.3", default-features = false, features = ["std"], 
 [target.'cfg(any(target_os = "macos", windows))'.dependencies]
 porter-secrets = { workspace = true, features = ["keyring"] }
 
-# The signing keys and the legacy `service=mailo` entries (`signing_store.rs`, `adopt.rs`), over
+# The signing keys (`signing_store.rs`), over
 # keyring-core, at the features `keyring` 4 chose on each.
 #
 # Linux and the BSDs: the Secret Service (GNOME Keyring, KWallet, KeePassXC) over zbus.

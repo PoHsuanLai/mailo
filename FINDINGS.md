@@ -5097,7 +5097,7 @@ needs no inference and no `socket` carrier (off the desktop it runs in process).
   --quiet --unit=app-org.quire.Mail-watch%b.scope --slice=app.slice /usr/local/bin/mailo watch`
   (`%b` is the boot id, alphanumeric as the scope's random part must be), so the watch runs in a scope
   accountd can name.
-- **Secrets on the first linked start: a proposal, nothing implemented.** What mailo holds (porter's
+- **Secrets on the first linked start: a proposal, nothing implemented. Superseded by F205: no transition.** What mailo holds (porter's
   attributes in the Secret Service, E2) is not touched, moved or deleted by anything here. An address
   mailo holds that accountd also offers is **left as it is** and named ("left as it is" in the start
   line and `Reconciled::held`), not replaced. Options for the owner: (a) keep both, as now: the
@@ -5173,3 +5173,75 @@ needs no inference and no `socket` carrier (off the desktop it runs in process).
   E6 adds is absent there: `cargo tree -p mail-app --no-default-features -i porter-dbus` and `-i
   ds-desktop` find nothing, and `check-boundary.sh` keeps `porter-client`, `porter-dbus`,
   `ds-desktop` and `zbus` out of the four sans-I/O crates and the two names to their two files.
+
+### F205 — Linked to accountd, only accountd's accounts are Mail's: no adopt, no mixed mode (accounts step E6b)
+
+Owner decision: no transition code. On the desktop (`Link::Accountd`) accountd holds every account, and
+the person signs in again through Add Account (sill's sheet). There is no adopt step, no question and
+no "forget the old sign-in". Everywhere else (`Link::Local`: macOS, Windows, Linux without accountd)
+mailo holds its own sign-ins through porter in process, and nothing there changed. mailo calls no
+porter `Adopt` and names no `LegacyRef` (F204's option (b) is withdrawn; `mail_runtime::adopt` is mailo's
+own move of its pre-porter keyring entries, not porter's).
+
+- **Held.** An account is *held* when its plan keeps a password or an OAuth sign-in of mailo's own
+  (`auth.kind` is `password` or `o_auth`) and it is not Local folders. A plan with no sign-in
+  (`{}`, the oldest fixtures) or that is not JSON is not held.
+- **Set aside, not removed.** `accountd::hold_back(store, link)`, called once in `main.rs` as soon as
+  the link is chosen, turns on `SqliteStore::set_granted_only` when the link is accountd's. Every
+  place that asks which accounts there are asks `store.accounts()` (the table, or the table without
+  held rows): the sync read (`sync::configured`, so `sync`, folder and body fetches, the watch, rules,
+  contacts, import), the window's account rows and tiles, the sender picker, the first-run Spaces,
+  `account list`, label names, the provider icons, and the adoption of old keyring entries
+  (`unadopted_accounts`: their old entries are not read or moved either). Thread listings and counts
+  leave their mail out (`ts.account NOT IN` held), so the unified lists show none of it. Nothing is
+  written: their stored plan, their mail and their keyring items stay for `Link::Local`.
+  `known_accounts`, which decides which accounts a Space may name, is deliberately not filtered: a
+  held account's place in the Spaces must survive a linked start.
+- **Mixed-mode code removed (what E6 had).** (1) `add_account::route_of(link, ask, is_accountds)`: an
+  account being signed in again that mailo held itself kept mailo's own window while linked; now every
+  sheet is accountd's when linked (`route_of(link)`). (2) `LinkedSecrets::new(store, link)`: a store
+  "beside" the link that forwarded `get`/`put`/`forget` to mailo's keyring while linked; now
+  `LinkedSecrets::new(link)` holds nothing, refuses `get`/`put`, and its `forget` reaches no keyring, so
+  a linked process cannot read, write or delete an item of mailo's own. (3) The adoption of old keyring
+  entries ran before the link was chosen and for every account; it now runs after, over the accounts
+  that are not set aside.
+- **The line.** In Settings > Accounts, above the list, when linked and at least one held account
+  exists: "Some accounts were signed in by Mail itself. Add them again to use them here." with an Add
+  Account button (accountd's sheet). No dialog, nothing else. Absent when not linked or when none is
+  held (`accountd::held_line`).
+- **Behaviour that is not what it was** (linked only). A held account is not shown, synced, offered as a
+  sender or counted until the person adds it through accountd, and its mail is not in any list. Its
+  address cannot be two rows (`accounts.address` is unique): while the old row exists, accountd's
+  account of that address is not added and `Reconciled::held` says so in the start line ("is still
+  signed in by Mail itself, so the desktop's account of it is not added (`mailo account remove` takes
+  the old one away)"). Removing the old one is the person's act, the CLI's, and it deletes that
+  account's mail from this computer. **Open:** this makes re-adding the same address a two-step (remove
+  old, then add); the alternative, a migration relaxing the unique address, rebuilds `accounts` under
+  foreign keys with cascades and is the mail-store owner's call.
+- **Tests.** `mail-store/tests/held.rs` (what is held and what is not; mail left out of listings and
+  counts and still stored; adoption skipping held), `mail-core/tests/held_while_linked.rs` (linked
+  loads only granted and Local folders, syncs none of the held; held plans byte-identical after a read
+  and a forget; unlinked loads all), `mail-runtime` `adopt::tests::linked_to_accountd_the_old_entries_
+  of_an_account_mail_signed_in_itself_are_not_touched` and `link::tests::a_linked_process_hands_the_
+  link_to_whoever_asks_and_holds_no_secret_of_its_own`, `mail-app` `accountd::tests::the_line_is_there_
+  only_when_linked_and_only_when_mail_signed_some_account_in_itself` and `add_account::route_tests`.
+  The existing suite, `Link::Local`, is unchanged.
+- **Held accounts can be removed from the list.** Each is listed by address in Settings > Accounts with
+  a Remove button beside Add Account; it asks in the removal's own words (the mail on this computer
+  that goes with the account; mail on the server is not touched) and is the same removal as `mailo
+  account remove`, which forgets its sign-in from mailo's own store (`mail_runtime::own_secrets`: the
+  linked secrets hold none, and the items of a removed account must not be left behind). The refusal
+  when accountd's account of the same address cannot be added, and the start line, say: "Remove it
+  first: mailo account remove <address>". `accounts.address` stays unique. Test:
+  `held_while_linked::removing_a_held_account_frees_its_address_for_accountds_and_touches_no_other`.
+- **`mail_runtime::adopt` is gone** (the owner's keyring was already moved). Removed: `adopt.rs` and its
+  tests (the cut-point table, the two-process run, the PlatformSecrets fallback tests), `mail_app::
+  adoption` and its start in `main`, the store's `unadopted_accounts`, `secrets_adopted` and
+  `mark_secrets_adopted`, `PlatformSecrets`' fallback to the old `service=mailo` entries (it is now the
+  platform store and nothing else: `PlatformSecrets::over(native)`), and `chunks::testing`. Migration
+  0028 stays (migrations are append-only); `secrets_adopted` is an unused table. `Stored`, `chunks` and
+  `keyring-core` stay: the signing keys are still kept that way. `check-boundary.sh` now refuses
+  `mail_runtime::adopt`, `mail_app::adoption`, `unadopted_accounts` and `mark_secrets_adopted` coming
+  back (it had no adopt entry before). An entry an earlier build left under `service=mailo` is no longer
+  found or moved: F200's adoption paragraphs describe what this removes. What F205 said of
+  adoption running after the link is chosen no longer applies, there being none.

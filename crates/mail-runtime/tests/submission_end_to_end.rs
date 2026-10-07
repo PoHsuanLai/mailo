@@ -355,10 +355,7 @@ fn compose_as(smtp_port: u16, relays: Option<Arc<relay::Relays>>) -> Sending {
                     login: LoginName("me@example.test".to_owned()),
                 }],
             };
-            Arc::new(mail_runtime::link::LinkedSecrets::new(
-                Arc::new(MemorySecrets::default()),
-                relays,
-            ))
+            Arc::new(mail_runtime::link::LinkedSecrets::new(relays))
         }
     };
     let engine = AccountEngine::new(

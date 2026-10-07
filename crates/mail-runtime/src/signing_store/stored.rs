@@ -1,6 +1,6 @@
 //! What one keyring entry holds, as it is written.
 //!
-//! Frozen (the account half is read once, by `adopt.rs`, and then never again): entries written by every earlier build must keep reading,
+//! Frozen: entries written by every earlier build must keep reading,
 //! so the shape here is the shape of `tests/fixtures/keyring/`, whatever types the rest of mailo
 //! holds a secret in. One entry holds one of four things, and which is decided by the entry's
 //! name (`<account>:oauth`, `openpgp:<fingerprint>`), so the same JSON serves an account's

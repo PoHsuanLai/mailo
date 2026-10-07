@@ -20,7 +20,6 @@
 //! Signing keys are not here: they are mailo's own (`signing_store.rs`).
 
 use crate::RuntimeError;
-use crate::adopt::{self, Drained, Legacy};
 use porter_core::{AccountId, Credential, SecretKey};
 use porter_secrets::{Secrets, SecretsError};
 use std::future::Future;
@@ -118,10 +117,6 @@ compile_error!(
     "mailo keeps account secrets in porter-secrets, which has a store only on Linux, macOS and Windows"
 );
 
-pub(crate) fn native() -> Native {
-    Native::default()
-}
-
 /// The runtime every account-secret call runs on, whichever runtime (or none) awaits it.
 ///
 /// oo7 opens one Secret Service connection and keeps it for the process (porter-secrets caches
@@ -164,22 +159,13 @@ async fn on_secrets_runtime<T: Send + 'static>(
         .unwrap_or(Err(SecretsError::Unavailable))
 }
 
-/// The platform's store, and the entries an earlier build left behind it.
-///
-/// Until [`adopt::run`] has finished every account in this process, an entry that is not filed
-/// under porter's attributes is looked for under the old names, so an account whose adoption
-/// could not finish (a failed put, a locked keyring) is still signed in through the entry it had.
-/// Forgetting a secret forgets the old entry too, or the fallback would bring it back. Once the
-/// run is done there are no old entries to look for, and this is the platform store and nothing
-/// else. Every call to the store runs on [`secrets_runtime`].
+/// The platform's store, every call run on [`secrets_runtime`].
 #[derive(Clone)]
 pub struct PlatformSecrets<S = Native> {
     native: Arc<S>,
-    legacy: Legacy,
-    drained: Drained,
 }
 
-// By hand: the old entries are a trait object with no `Debug`, and nothing in here is printable.
+// By hand: the store has no `Debug` to rely on, and nothing in here is printable.
 impl<S> std::fmt::Debug for PlatformSecrets<S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("PlatformSecrets")
@@ -188,21 +174,15 @@ impl<S> std::fmt::Debug for PlatformSecrets<S> {
 
 impl Default for PlatformSecrets {
     fn default() -> Self {
-        Self::over(
-            Native::default(),
-            adopt::platform_legacy(),
-            adopt::platform_drained(),
-        )
+        Self::over(Native::default())
     }
 }
 
 impl<S> PlatformSecrets<S> {
-    /// `native` as the store, with `legacy` behind it until `drained` says it is empty.
-    pub fn over(native: S, legacy: Legacy, drained: Drained) -> Self {
+    /// `native` as the store.
+    pub fn over(native: S) -> Self {
         Self {
             native: Arc::new(native),
-            legacy,
-            drained,
         }
     }
 }
@@ -215,32 +195,17 @@ impl<S: Secrets + 'static> Secrets for PlatformSecrets<S> {
 
     async fn get(&self, key: &SecretKey) -> Result<Credential, SecretsError> {
         let (native, k) = (self.native.clone(), key.clone());
-        match on_secrets_runtime(async move { native.get(&k).await }).await {
-            Err(SecretsError::Missing) if !self.drained.get() => {
-                adopt::legacy_credential(&self.legacy, key)
-                    .await
-                    .ok_or(SecretsError::Missing)
-            }
-            other => other,
-        }
+        on_secrets_runtime(async move { native.get(&k).await }).await
     }
 
     async fn delete(&self, key: &SecretKey) -> Result<(), SecretsError> {
         let (native, k) = (self.native.clone(), key.clone());
-        on_secrets_runtime(async move { native.delete(&k).await }).await?;
-        if !self.drained.get() {
-            adopt::forget_legacy(&self.legacy, key).await;
-        }
-        Ok(())
+        on_secrets_runtime(async move { native.delete(&k).await }).await
     }
 
     async fn delete_account(&self, account: &AccountId) -> Result<(), SecretsError> {
         let (native, a) = (self.native.clone(), account.clone());
-        on_secrets_runtime(async move { native.delete_account(&a).await }).await?;
-        if !self.drained.get() {
-            adopt::forget_legacy_account(&self.legacy, account).await;
-        }
-        Ok(())
+        on_secrets_runtime(async move { native.delete_account(&a).await }).await
     }
 }
 
@@ -248,12 +213,19 @@ impl<S: Secrets + 'static> Secrets for PlatformSecrets<S> {
 /// `dev/scenarios` (`MAILO_TEST_SECRETS_DIR`), a directory of files that never reaches the
 /// person's keyring.
 pub fn platform_secrets() -> Arc<dyn AccountSecrets> {
-    let store = own_store();
-    // Beside the link the process chose at start, if it chose accountd (`link::start`).
+    // The link the process chose at start (`link::start`): accountd's, and then Mail keeps no
+    // secret of its own and opens no keyring, or none, and mailo's own store.
     match crate::link::current() {
-        crate::link::Link::Local => store,
-        crate::link::Link::Accountd(link) => Arc::new(crate::link::LinkedSecrets::new(store, link)),
+        crate::link::Link::Local => own_store(),
+        crate::link::Link::Accountd(link) => Arc::new(crate::link::LinkedSecrets::new(link)),
     }
+}
+
+/// mailo's own store, whatever the link: where the sign-ins Mail holds itself are kept. Linked to
+/// accountd [`platform_secrets`] holds none of them; removing an account Mail signed in itself is
+/// what asks for this, to forget its items with it.
+pub fn own_secrets() -> Arc<dyn AccountSecrets> {
+    own_store()
 }
 
 /// mailo's own store: the platform's, or the scenario directory's.
@@ -429,16 +401,10 @@ mod tests {
     /// Credential Manager's does.
     #[test]
     fn the_account_path_runs_on_any_executor_without_a_blocking_call() {
-        use crate::adopt::{Drained, Legacy};
         use porter_secrets::StoreSecrets;
         let store = keyring_core::mock::Store::new().unwrap();
-        let legacy: Legacy = Arc::new(crate::signing_store::chunks::testing::Empty);
-        let drained = Drained::default();
-        let secrets: Arc<dyn AccountSecrets> = Arc::new(PlatformSecrets::over(
-            StoreSecrets::chunked(store, 16),
-            legacy,
-            drained.clone(),
-        ));
+        let secrets: Arc<dyn AccountSecrets> =
+            Arc::new(PlatformSecrets::over(StoreSecrets::chunked(store, 16)));
         let k = key(SecretPurpose::IncomingPassword);
 
         let multi = tokio::runtime::Builder::new_multi_thread()

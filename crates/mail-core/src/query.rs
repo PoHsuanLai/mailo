@@ -42,7 +42,10 @@ use mail_domain::{DateRange, Filter, LabelId, MailboxRole, ReadState, Star, Text
 pub fn known_labels(store: &mail_store::SqliteStore) -> Vec<(String, LabelId)> {
     let accounts: Vec<porter_core::AccountId> = {
         let db = store.connection();
-        let Ok(mut stmt) = db.prepare("SELECT id FROM accounts ORDER BY created_at") else {
+        let Ok(mut stmt) = db.prepare(&format!(
+            "SELECT id FROM {} ORDER BY created_at",
+            store.accounts()
+        )) else {
             return Vec::new();
         };
         let Ok(rows) = stmt.query_map([], |r| r.get::<_, String>(0)) else {

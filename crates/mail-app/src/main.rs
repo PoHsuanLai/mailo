@@ -265,10 +265,6 @@ fn main() {
     }
 
     let store = std::sync::Arc::new(store);
-    // The window and `watch` live long enough to move what an earlier build kept in the keyring
-    // into porter's store: once, on a thread of its own, and nothing waits on it (until it has
-    // run the old entries are read behind the new store). A failure is logged, not fatal.
-    mail_app::adoption::for_command(command.as_ref(), &store, mail_app::adoption::platform);
     // The link to the desktop's accountd, decided once, here: the window, `watch` and every command
     // that signs in to a server go through it (`mail_runtime::platform_secrets`). `watch` is
     // nobody's foreground, so it asks as a background use. Only the window and `watch` say which
@@ -285,6 +281,9 @@ fn main() {
         if says {
             eprintln!("mailo: accounts link: {}", linked.name());
         }
+        // Linked to accountd, only its accounts are Mail's: the ones Mail signed in itself are
+        // set aside, untouched, before anything lists or syncs.
+        mail_app::accountd::hold_back(&store, &linked);
         // The accounts accountd offers, read into the store before anything draws or syncs.
         match mail_app::accountd::read(&store, &linked) {
             Ok(Some(read)) => {
@@ -706,7 +705,10 @@ fn import(
 /// Account ids in the order they were added, for the first-run Spaces.
 fn account_ids(store: &SqliteStore) -> Vec<porter_core::AccountId> {
     let db = store.connection();
-    let Ok(mut stmt) = db.prepare("SELECT id FROM accounts ORDER BY created_at") else {
+    let Ok(mut stmt) = db.prepare(&format!(
+        "SELECT id FROM {} ORDER BY created_at",
+        store.accounts()
+    )) else {
         return Vec::new();
     };
     let Ok(rows) = stmt.query_map([], |row| row.get::<_, String>(0)) else {

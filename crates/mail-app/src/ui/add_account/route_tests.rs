@@ -40,12 +40,6 @@ impl Accountd for Present {
     }
 }
 
-fn ask(address: Option<&str>) -> Ask {
-    Ask {
-        address: address.map(str::to_owned),
-    }
-}
-
 fn linked() -> Link {
     Link::Accountd(Arc::new(Present))
 }
@@ -56,35 +50,11 @@ fn window(route: &Route) -> bool {
 
 #[test]
 fn without_accountd_the_window_draws_every_sheet() {
-    let local = Link::Local;
-    assert!(window(&route_of(&local, &ask(None), |_| true)));
-    assert!(window(&route_of(
-        &local,
-        &ask(Some("ada@example.test")),
-        |_| true
-    )));
+    assert!(window(&route_of(&Link::Local)));
 }
 
 #[test]
-fn with_accountd_a_new_account_is_added_by_its_sheet_and_mailo_opens_no_window() {
-    assert!(matches!(
-        route_of(&linked(), &ask(None), |_| false),
-        Route::Accountd(_)
-    ));
-}
-
-#[test]
-fn signing_in_again_goes_where_the_accounts_sign_in_is() {
-    let accountds = |address: &str| address == "ada@example.test";
-    // An account of accountd's is signed in again by accountd's sheet.
-    assert!(matches!(
-        route_of(&linked(), &ask(Some("ada@example.test")), accountds),
-        Route::Accountd(_)
-    ));
-    // One mailo holds the secrets of itself keeps mailo's window: accountd cannot sign it in.
-    assert!(window(&route_of(
-        &linked(),
-        &ask(Some("bob@example.test")),
-        accountds
-    )));
+fn with_accountd_every_sheet_is_accountds_and_mailo_opens_no_window() {
+    // A new account, and one signed in again: the same route, because accountd holds them all.
+    assert!(matches!(route_of(&linked()), Route::Accountd(_)));
 }
