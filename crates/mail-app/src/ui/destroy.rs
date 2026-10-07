@@ -1,7 +1,7 @@
 //! Delete forever and Empty Trash in the window: the sheet that asks, and what opens it.
 //!
 //! When the window offers either is `crate::ui::bin`'s: only while Trash or Spam is the place
-//! shown. Every way in — a row's strip, the selection bar, the list bar's Empty button, the Ctrl T
+//! shown. Every way in — a row's menu, the selection bar, the list bar's Empty button, the Ctrl T
 //! menu — opens the same sheet, which names how many messages go and says it cannot be undone;
 //! only its button deletes. Nothing here is on the undo stack, and the toast carries no Undo.
 
@@ -128,7 +128,7 @@ pub(in crate::ui) fn DestroySheet(shell: Signal<Shell>, revision: Signal<u64>) -
                     p { class: "destroy-body", "{said.body}" }
                     div { class: "rules-acts",
                         Button {
-                            size: ControlSize::Small,
+                            size: ControlSize::Large,
                             label: said.confirm.clone(),
                             icon: Icon::Trash,
                             common: Common {
@@ -153,7 +153,7 @@ pub(in crate::ui) fn EmptyButton(shell: Signal<Shell>) -> Element {
     let name = format!("Empty {}", bin.name());
     rsx! {
         Button {
-            size: ControlSize::Small,
+            size: ControlSize::Large,
             label: name.clone(),
             icon: Icon::Trash,
             title: Some(format!("Delete everything in {} forever", bin.name())),

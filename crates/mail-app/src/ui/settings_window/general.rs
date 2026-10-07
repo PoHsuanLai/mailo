@@ -1,8 +1,8 @@
 //! General: mailo's settings schema, a group per section.
 //!
-//! Each row is the schema's ([`super::keys`]); what a section adds beside its rows (Refresh icons,
-//! whether there is a dictionary, how many brand-logo roots are trusted) is said here, by section
-//! title, so the rows themselves stay the ones detent draws. The one key a row of the schema
+//! Each row is the schema's ([`super::keys`]); what a section adds beside its rows (Refresh icons)
+//! and what it says under them (whether there is a dictionary, whether a brand-logo root is
+//! trusted) is said here, by section title, so the rows themselves stay the ones detent draws. The one key a row of the schema
 //! cannot draw, the senders whose images load, is a row per sender with its Remove.
 
 use super::keys::{SchemaSection, sections};
@@ -12,7 +12,7 @@ use crate::ui::compose::dictionaries;
 use crate::ui::press::on_primary;
 use dioxus::prelude::*;
 use ds::components::controls::button_model::Bezel;
-use ds::components::fields::field_row::{FieldGroup, FieldRow};
+use ds::components::fields::field_row::FieldRow;
 use ds::prelude::*;
 use ds::root::common::Common;
 
@@ -35,47 +35,50 @@ pub(super) fn General() -> Element {
     let onedit = move |(path, value): (String, toml::Value)| {
         failed.set(crate::ui::prefs::change_key(&path, value).err());
     };
+    // What a section says about itself as a whole, under its group: that the system has no
+    // dictionary for a language, or that no logo can be verified yet.
+    let footer_of = |title: &str| match title {
+        "Writing" => missing.clone(),
+        "Reading" if settings.reading.brand_logos == BrandLogos::On && roots == 0 => Some(format!(
+            "No mark verifying authority's root is installed, so no logo can be verified yet. Roots can be added to {} in the config directory.",
+            mail_core::bimi::USER_ROOTS
+        )),
+        _ => None,
+    };
     rsx! {
-        for (title, keys) in drawn_sections() {
-            SchemaSection { key: "{title}", title: title.clone(), keys, values: values.clone(), onedit,
-                match title.as_str() {
-                    "Mail list" => rsx! {
-                        FieldRow { label: "Provider icons",
-                            Button {
-                                bezel: Bezel::Inline,
-                                label: "Refresh Icons",
-                                onclick: on_primary(refresh_icons),
-                            }
-                        }
-                    },
-                    "Writing" => rsx! {
-                        if let Some(missing) = missing.clone() {
-                            FieldRow { label: "Dictionaries", help: Some(TextLine::from(missing.clone())) }
-                        }
-                    },
-                    "Reading" => rsx! {
-                        if settings.reading.brand_logos == BrandLogos::On && roots == 0 {
-                            FieldRow {
-                                label: "Logo roots",
-                                help: Some(TextLine::from(format!(
-                                    "No mark verifying authority's root is installed, so no logo can be verified yet. Roots can be added to {} in the config directory.",
-                                    mail_core::bimi::USER_ROOTS
-                                ))),
-                            }
-                        }
-                        TrustedSenders {
-                            senders: settings.reading.trusted_image_senders.clone(),
-                            mode: settings.reading.remote_images,
-                            onfail: move |why: String| failed.set(Some(why)),
-                        }
-                    },
-                    _ => rsx! {},
-                }
+        Form {
+            // A change that could not be kept is the page's to say, above every group.
+            if let Some(why) = failed() {
+                InlineBanner { severity: Severity::Danger, text: "Not kept", detail: Some(TextLine::from(why)) }
             }
-        }
-        if let Some(why) = failed() {
-            FieldGroup {
-                FieldRow { label: "Not kept", help: Some(TextLine::from(why)) }
+            for (title, keys) in drawn_sections() {
+                SchemaSection {
+                    key: "{title}",
+                    title: title.clone(),
+                    keys,
+                    values: values.clone(),
+                    onedit,
+                    footer: footer_of(&title),
+                    match title.as_str() {
+                        "Mail list" => rsx! {
+                            FieldRow { label: "Provider icons",
+                                Button {
+                                    bezel: Bezel::Inline,
+                                    label: "Refresh Icons",
+                                    onclick: on_primary(refresh_icons),
+                                }
+                            }
+                        },
+                        "Reading" => rsx! {
+                            TrustedSenders {
+                                senders: settings.reading.trusted_image_senders.clone(),
+                                mode: settings.reading.remote_images,
+                                onfail: move |why: String| failed.set(Some(why)),
+                            }
+                        },
+                        _ => rsx! {},
+                    }
+                }
             }
         }
     }

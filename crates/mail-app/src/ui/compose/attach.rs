@@ -20,12 +20,13 @@ use crate::ui::press::on_primary;
 use mail_core::compose::ATTACHMENT_BUDGET;
 
 /// A file picker, as a button: the native dialog (`ui::pick`). Each file chosen lands on the
-/// draft and in the Attached row.
+/// draft and in the Attached row. `size` is the bar's it stands in: the composer's own bar, or a
+/// banner's actions.
 #[component]
-pub(super) fn Attach(page: Signal<Page>, label: &'static str) -> Element {
+pub(super) fn Attach(page: Signal<Page>, label: &'static str, size: ControlSize) -> Element {
     rsx! {
         Button {
-            size: ControlSize::Small,
+            size,
             label,
             icon: Icon::Paperclip,
             onclick: on_primary(move || {

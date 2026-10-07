@@ -1,7 +1,6 @@
-/* The Contacts page of Settings: the people and the groups are each a titled list of quire's
-   rows, the filter a field in the first row. What is laid out here is the title above each list,
-   the width of the filter, and a name being typed into a row. */
-.book-part { display: flex; flex-direction: column; min-width: 0; }
+/* The Contacts page of Settings: the people and the groups are each a section of quire's
+   grouped rows, the filter a field in the first row. What is laid out here is the width of the
+   filter, and a name being typed into a row. */
 .book-find { width: 16rem; max-width: 100%; }
 .naming { display: flex; align-items: center; gap: var(--s-6); min-width: 0; }
 .book-name { flex: 1; min-width: 0; }

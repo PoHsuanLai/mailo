@@ -1,10 +1,10 @@
 //! A row's actions in the running window: a right click lists them all, a pick acts as the old
-//! strip's button did (undo included), the hover strip holds only the ⋯, which opens the same
-//! menu and does nothing else, and the picks that open a further menu open it.
+//! strip's button did (undo included), the row's one button is the ⋯, and the picks that open a
+//! further menu open it.
 
 use crate::ui::app::App;
 use crate::ui::fixtures::{
-    INSIDE_THE_SHELL, Seen, chord, click, dispatching, listed_subjects, menu_names, open_row_menu,
+    INSIDE_THE_SHELL, Seen, chord, dispatching, listed_subjects, menu_names, open_row_menu,
     rebuild_into, row_action, work,
 };
 use dioxus::html::input_data::keyboard_types::Modifiers;
@@ -47,15 +47,6 @@ fn changes(store: &SqliteStore) -> i64 {
         .connection()
         .query_row("SELECT total_changes()", [], |row| row.get(0))
         .unwrap_or(0)
-}
-
-/// Draw a few frames, as the window would between them.
-async fn frames(dom: &mut VirtualDom) {
-    for _ in 0..8 {
-        let _ =
-            tokio::time::timeout(std::time::Duration::from_millis(40), dom.wait_for_work()).await;
-        dom.render_immediate(&mut dioxus_core::NoOpMutations);
-    }
 }
 
 #[tokio::test]
@@ -159,56 +150,27 @@ async fn mark_as_read_from_the_menu_is_undone_like_any_op() {
     );
 }
 
+/// Each row carries one button, quire's `RowMore` (the ⋯), which says it opens a menu and that
+/// the menu is shut. A press on it measures the button to hang the menu from, which a document
+/// with no renderer cannot do, so the press itself is `native_layout`'s, on Blitz.
 #[tokio::test]
-async fn the_hover_strip_is_one_button_that_only_opens_the_menu() {
-    let Window {
-        mut dom,
-        seen,
-        store,
-        subject,
-        ..
-    } = window();
+async fn each_row_carries_the_more_button_alone() {
+    let Window { dom, seen, .. } = window();
     let page = dioxus_ssr::render(&dom);
     let rows = listed_subjects(&page);
     assert_eq!(
-        page.matches("ds-strip-action\"").count(),
+        page.matches("class=\"ds-row-more\"").count(),
         rows.len(),
-        "a row's strip holds more than the ⋯:\n{page}"
+        "not one ⋯ per row:\n{page}"
     );
-    let mores = seen.all("aria-label", "More actions");
-    assert_eq!(mores.len(), rows.len(), "not one ⋯ per row");
-    let at = rows
-        .iter()
-        .position(|row| *row == subject)
-        .expect("Dana's row is listed");
-    let (changed, readers, before) = (
-        changes(&store),
-        page.matches("ds-empty-state").count(),
-        rows.clone(),
-    );
-
-    click(&mut dom, mores[at]);
-    frames(&mut dom).await;
-    let page = dioxus_ssr::render(&dom);
     assert_eq!(
-        menu_names(&page).first().map(String::as_str),
-        Some("Open in new window"),
-        "the ⋯ did not open the row's menu:\n{page}"
+        seen.all("aria-label", "More actions").len(),
+        rows.len(),
+        "a ⋯ is not named More actions"
     );
     assert!(
-        page.contains(&format!("aria-label=\"Actions for {subject}\"")),
-        "the menu is not this row's"
-    );
-    assert!(
-        page.contains("aria-expanded=\"true\""),
-        "the ⋯ does not say its menu is open"
-    );
-    assert_eq!(changes(&store), changed, "the ⋯ wrote to the store");
-    assert_eq!(listed_subjects(&page), before, "the ⋯ changed the list");
-    assert_eq!(
-        page.matches("ds-empty-state").count(),
-        readers,
-        "the ⋯ opened the conversation"
+        !page.contains("class=\"ds-strip"),
+        "a row still draws the hover strip:\n{page}"
     );
 }
 

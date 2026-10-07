@@ -1,5 +1,5 @@
 //! The window's layout and chrome against the real window on Blitz (`ds_harness::Harness`): the
-//! hover strip under a resting pointer, the reader's least width, the sidebar's way back and its
+//! row's ⋯ under a resting pointer, the reader's least width, the sidebar's way back and its
 //! footer and account tiles at the sidebar's least width.
 //!
 //! Every case opens the real window over a store seeded in a `TempDir`. The window is handed no
@@ -246,31 +246,40 @@ fn a_click_on_a_row_opens_the_thread_and_never_acts_on_it() {
     );
 }
 
-/// The hover strip is one button, the ⋯ at the row's trailing edge, and a click on it opens
-/// the row's menu and nothing else: the thread neither leaves nor opens.
+/// The row's one button is the ⋯ in its tail, under the time, and a click on it opens the row's
+/// menu and nothing else: the thread neither leaves nor opens.
 #[test]
-fn the_strip_is_the_more_button_alone_and_it_only_opens_the_menu() {
+fn the_more_button_sits_in_the_tail_and_only_opens_the_menu() {
     let (mut harness, _dir) = open(1200, spaces(1));
     let rows = harness.count(".list .ds-thread");
     let readers = harness.count(".reader .ds-empty-state");
-    let strip = format!("{ROW} .ds-strip");
-    assert_eq!(harness.count(&format!("{strip} .ds-strip-action")), 1);
-    let more = format!("{strip} [*|data-op=more]");
+    let more = format!("{ROW} .ds-thread-tail .ds-row-more");
+    assert_eq!(harness.count(&format!("{ROW} .ds-row-more")), 1);
     assert_eq!(
         harness.attr(&more, "aria-label").as_deref(),
         Some("More actions")
     );
-    // At the row's trailing edge, inside the row.
+    // At the row's trailing edge, inside the row, and below the time rather than over it.
     let (button, row) = (rect(&harness, &more), rect(&harness, ROW));
+    let time = rect(&harness, &format!("{ROW} .ds-thread-time"));
     assert!(within(&button, &row), "the ⋯ is not inside its row");
     assert!(
         left(&button) > left(&row) + row.size.width.0 * 0.75,
         "the ⋯ is not at the row's trailing edge"
     );
+    assert!(
+        top(&button) >= bottom(&time) - 0.5,
+        "the ⋯ {button:?} covers the time {time:?}"
+    );
     harness.pointer_move(centre(&harness, &format!("{ROW} .ds-thread-sub")));
     harness.advance(ms(100));
     harness.click(centre(&harness, &more));
     settle_until(&mut harness, |h| h.count(".ds-menu .ds-menu-item") > 0);
+    assert_eq!(
+        harness.attr(&more, "aria-expanded").as_deref(),
+        Some("true"),
+        "the ⋯ does not say its menu is open"
+    );
     assert_eq!(
         harness.count(".list .ds-thread"),
         rows,
@@ -362,20 +371,60 @@ fn the_list_s_title_gives_way_to_its_tools_in_a_narrow_list() {
     );
 }
 
-#[test]
-fn a_row_s_lines_fit_inside_its_slot() {
-    // The list places rows a fixed pitch apart (`ROW_PITCH`) and holds each to its slot, so a
-    // row whose lines run taller than the slot draws its last line under its own selection ring.
-    let (harness, _dir) = open(1200, spaces(1));
-    let slot = rect(&harness, ROW);
-    let row = rect(&harness, &format!("{ROW} .ds-thread"));
-    let lines = rect(&harness, &format!("{ROW} .ds-thread-main"));
+/// The first row's lines lie inside the row, and the row inside the slot the list placed it in.
+fn lines_fit(harness: &Harness, case: &str) {
+    let slot = rect(harness, ROW);
+    let row = rect(harness, &format!("{ROW} .ds-thread"));
+    let lines = rect(harness, &format!("{ROW} .ds-thread-main"));
     assert!(
         within(&row, &slot),
-        "the row {row:?} runs out of its slot {slot:?}"
+        "{case}: the row {row:?} runs out of its slot {slot:?}"
     );
     assert!(
         bottom(&lines) <= bottom(&row) + 0.5,
-        "the row's lines {lines:?} run past the row {row:?} (slot {slot:?})"
+        "{case}: the row's lines {lines:?} run past the row {row:?} (slot {slot:?})"
+    );
+}
+
+/// The index (1-based) of the open menu's item named `name`.
+fn menu_item(harness: &Harness, name: &str) -> String {
+    let n = (1..=harness.count(".ds-menu > *"))
+        .find(|n| {
+            harness
+                .text_of(&format!(".ds-menu > :nth-child({n}) .ds-menu-label"))
+                .is_some_and(|label| label.trim() == name)
+        })
+        .unwrap_or_else(|| panic!("no menu item is named {name:?}:\n{}", harness.html()));
+    format!(".ds-menu > :nth-child({n})")
+}
+
+#[test]
+fn a_row_s_lines_fit_inside_its_slot() {
+    // The list places rows a fixed pitch apart, quire's `thread_card_height` for the lines a
+    // row draws, and holds each to its slot, so a row whose lines run taller than the slot draws
+    // its last line under its own selection ring. With snippets it is three lines; with them
+    // hidden from Properties, two, and the slot shrinks with them.
+    let (mut harness, _dir) = open(1200, spaces(1));
+    assert_eq!(harness.count(&format!("{ROW} .ds-thread-snip")), 1);
+    lines_fit(&harness, "three lines");
+    let three = rect(&harness, ROW).size.height.0;
+
+    harness.click(centre(&harness, "[*|aria-label=\"Properties\"]"));
+    settle_until(&mut harness, |h| h.count(".ds-menu .ds-menu-item") > 0);
+    let snippet = menu_item(&harness, "Snippet");
+    settle_until(&mut harness, |h| {
+        h.centre(&snippet).is_some_and(|at| h.hits(at, &snippet))
+    });
+    harness.click(centre(&harness, &snippet));
+    settle_until(&mut harness, |h| {
+        h.count(&format!("{ROW} .ds-thread-snip")) == 0
+    });
+    harness.key(drive::Key::Escape);
+    harness.advance(ms(300));
+    lines_fit(&harness, "two lines");
+    let two = rect(&harness, ROW).size.height.0;
+    assert!(
+        two < three - 10.0,
+        "the slot did not shrink with the snippet gone: {two} vs {three}"
     );
 }

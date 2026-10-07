@@ -17,10 +17,11 @@ use crate::ui::view::{KeySaid, KeyboardPage as Showing, SettingsPage, Shell, Sho
 use dioxus::prelude::*;
 use ds::components::content::label::LabelRole;
 use ds::components::controls::key_equivalent::{KeyEquivalent, KeyStyle};
-use ds::components::fields::field_row::{FieldGroup, FieldRow};
-use ds::prelude::{Button, Label, Shortcut as Caps, ShortcutKey as Key, TextLine};
+use ds::components::fields::field_row::FieldRow;
+use ds::prelude::{
+    Button, Form, FormSection, Label, Shortcut as Caps, ShortcutKey as Key, TextLine,
+};
 use ds::root::common::Common;
-use ds::style::tokens::control_size::ControlSize;
 
 /// Whether the window's keys all go to the page: it is shown, and an action waits for its key.
 pub(in crate::ui) fn capturing(shell: &Shell) -> bool {
@@ -138,7 +139,6 @@ fn KeyCaps(named: String) -> Element {
                 KeyEquivalent {
                     shortcut: Caps(drawn),
                     style: KeyStyle::Cap,
-                    size: ControlSize::Small,
                 }
             }
         }
@@ -160,7 +160,10 @@ pub(in crate::ui) fn KeyboardPage(shell: Signal<Shell>) -> Element {
     let map = shell.read().keymap.clone();
     let any_changed = DEFAULTS.iter().any(|(action, _)| map.is_changed(*action));
     rsx! {
-        FieldGroup { title: "Shortcuts",
+        Form {
+        FormSection {
+            title: Some("Shortcuts".to_owned()),
+            footer: Some("Letters work while you read, never while you type.".to_owned()),
             FieldRow {
                 label: keymap::name(Shortcut::Back),
                 help: Some(TextLine::from("Always")),
@@ -178,12 +181,10 @@ pub(in crate::ui) fn KeyboardPage(shell: Signal<Shell>) -> Element {
                 }
             }
         }
-        FieldGroup {
+        FormSection {
             FieldRow {
                 label: "Restore the shipped keys",
-                help: Some(said_for(&page, None).unwrap_or_else(|| {
-                    TextLine::from("Letters work while you read, never while you type.")
-                })),
+                help: said_for(&page, None),
                 Button {
                     label: "Reset All",
                     availability: available(any_changed),
@@ -195,6 +196,7 @@ pub(in crate::ui) fn KeyboardPage(shell: Signal<Shell>) -> Element {
                 }
             }
         }
+    }
     }
 }
 
@@ -224,7 +226,6 @@ fn KeyRow(
                 }
             }
             Button {
-                size: ControlSize::Small,
                 label: if listening { "Waiting".to_owned() } else { "Change".to_owned() },
                 common: Common {
                     aria_label: Some(format!("Change the key for {name}")),
@@ -234,7 +235,6 @@ fn KeyRow(
             }
             if changed {
                 Button {
-                    size: ControlSize::Small,
                     label: "Reset".to_owned(),
                     common: Common {
                         aria_label: Some(format!("Reset {name}")),

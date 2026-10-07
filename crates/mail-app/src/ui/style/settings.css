@@ -1,10 +1,7 @@
 /* Settings, a window of its own: the sidebar of pages beside the page, laid out as the desktop's
-   Settings app lays out a program's page. The sidebar stays put; the page scrolls under it.
-   Layout only, but for the notes a page puts under a group's rows. */
+   Settings app lays out a program's page. The sidebar stays put; the page scrolls under it. Each
+   page is quire's Form, which owns the page's margin and the gap between its sections. */
 .app.settings-window { padding: 0; }
 .settings { display: grid; grid-template-columns: 13rem minmax(0, 1fr); height: 100%; min-height: 0; }
 .settings-scroll { height: 100%; min-height: 0; overflow-y: auto; scrollbar-width: none; }
-.settings-page {
-  display: grid; align-content: start; gap: var(--s-14); min-width: 0; box-sizing: border-box;
-  padding: var(--s-14) var(--s-22) var(--s-22);
-}
+.settings-page { min-width: 0; }

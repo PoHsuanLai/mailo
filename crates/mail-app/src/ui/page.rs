@@ -230,7 +230,7 @@ pub(super) fn PageMenus(shell: Signal<Shell>) -> Element {
     rsx! {
         Button {
             bezel: Bezel::Toolbar,
-            size: ControlSize::Small,
+            size: ControlSize::Large,
             image: ImagePosition::Only,
             label: "Group",
             title: Some("Group the list".to_owned()),
@@ -254,7 +254,7 @@ pub(super) fn PageMenus(shell: Signal<Shell>) -> Element {
         }
         Button {
             bezel: Bezel::Toolbar,
-            size: ControlSize::Small,
+            size: ControlSize::Large,
             image: ImagePosition::Only,
             label: "Properties",
             title: Some("What each row shows".to_owned()),
