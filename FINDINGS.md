@@ -5092,12 +5092,11 @@ needs no inference and no `socket` carrier (off the desktop it runs in process).
   start `watch` (nothing in the binary calls `systemd-run`); `dist/mailo-watch.service` runs
   `mailo watch` as a service, whose cgroup (`app.slice/mailo-watch.service`) is not an
   `app-<id>-<random>.scope`, and accountd proves an app only by that name (`identity_of`), so a watch
-  started by that unit is unproven and accountd refuses it. Proposed, not applied (it cannot be
-  tested without a systemd user session): `ExecStart=/usr/bin/systemd-run --user --scope --collect
+  started by that unit was unproven and accountd refused it. Applied (not testable without a systemd
+  user session): `dist/mailo-watch.service` has `ExecStart=/usr/bin/systemd-run --user --scope --collect
   --quiet --unit=app-org.quire.Mail-watch%b.scope --slice=app.slice /usr/local/bin/mailo watch`
-  (`%b` is the boot id, alphanumeric as the scope's random part must be). Until then a `watch` of
-  linked accounts started by the unit reports them as needing sign-in; one started from the desktop's
-  launcher or `systemd-run` by hand works.
+  (`%b` is the boot id, alphanumeric as the scope's random part must be), so the watch runs in a scope
+  accountd can name.
 - **Secrets on the first linked start: a proposal, nothing implemented.** What mailo holds (porter's
   attributes in the Secret Service, E2) is not touched, moved or deleted by anything here. An address
   mailo holds that accountd also offers is **left as it is** and named ("left as it is" in the start
@@ -5124,8 +5123,8 @@ needs no inference and no `socket` carrier (off the desktop it runs in process).
   6. `account list` says "ready" for a linked account when there is a link, and sync of one with no
      link says it is not reachable and is retried in 30 s rather than asked to sign in.
   7. Contacts (CardDAV) are not read for a linked account until E7.
-  8. A `watch` started by `dist/mailo-watch.service` is not accountd's to serve until its scope is
-     named (above).
+  8. A `watch` started by `dist/mailo-watch.service` runs in `app-org.quire.Mail-watch<boot id>.scope`
+     (above), which accountd can name.
   9. Microsoft is IMAP and SMTP through the relay; Graph is mapped for a candidate that lists a Graph
      mail server, and porter's provider files list none today.
 - **Tests.** The relay is porter's own (`porter_proxy::relay`, a dev-dependency of `mail-runtime`: the real
