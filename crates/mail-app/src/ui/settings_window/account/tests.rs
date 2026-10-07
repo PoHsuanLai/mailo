@@ -41,19 +41,26 @@ fn on_account_page(page: &str) -> bool {
         .is_some_and(|drawn| drawn.contains(r#"aria-label="Back to Accounts""#))
 }
 
-/// Let the removal's task land and redraw, keeping what the renders set.
-async fn settle(dom: &mut VirtualDom) -> Seen {
-    let mut seen = Seen::default();
-    for _ in 0..20 {
+/// Render until `done` holds of the page, bounded by the wall clock: the removal and the list's
+/// refresh each land from a task, so on a slow runner they can come after any fixed number of
+/// quiet frames. Waits for the state, not for quiet; the page comes back for the failure message.
+async fn until(dom: &mut VirtualDom, done: impl Fn(&str) -> bool) -> (bool, String) {
+    let started = std::time::Instant::now();
+    loop {
+        let page = dioxus_ssr::render(dom);
+        if done(&page) {
+            return (true, page);
+        }
+        if started.elapsed() > Duration::from_secs(30) {
+            return (false, page);
+        }
         if tokio::time::timeout(Duration::from_millis(80), dom.wait_for_work())
             .await
-            .is_err()
+            .is_ok()
         {
-            break;
+            dom.render_immediate(&mut Seen::default());
         }
-        dom.render_immediate(&mut seen);
     }
-    seen
 }
 
 /// The alert's destructive button: the last destructive control drawn, after the page's own.
@@ -129,19 +136,19 @@ async fn remove_asks_then_removes_the_account_and_goes_back_to_the_list() {
     assert!(on_account_page(&dioxus_ssr::render(&dom)));
 
     click(&mut dom, alert_confirm(&asked));
-    settle(&mut dom).await;
+    let gone = format!("Details for {ADDRESS}");
+    let (listed_without, page) = until(&mut dom, |page| {
+        !on_account_page(page) && !page.contains(&gone)
+    })
+    .await;
     let left = account_rows(&built.store);
     assert_eq!(left.len(), before - 1);
     assert!(
         left.iter().all(|row| row.address != ADDRESS),
         "{ADDRESS} is still stored"
     );
-    let page = dioxus_ssr::render(&dom);
     assert!(!on_account_page(&page), "still on the page: {page}");
-    assert!(
-        !page.contains(&format!("Details for {ADDRESS}")),
-        "the list still has it: {page}"
-    );
+    assert!(listed_without, "the list still has it: {page}");
 }
 
 #[tokio::test]
@@ -165,9 +172,6 @@ async fn the_window_opens_on_the_account_s_page_the_main_window_asks_for() {
     let _ = drain_seen(&mut dom);
     assert!(!on_account_page(&dioxus_ssr::render(&dom)));
     asked.ask(SettingsAt::Account(poh(&built)));
-    settle(&mut dom).await;
-    assert!(
-        on_account_page(&dioxus_ssr::render(&dom)),
-        "it did not turn"
-    );
+    let (turned, page) = until(&mut dom, on_account_page).await;
+    assert!(turned, "it did not turn: {page}");
 }
