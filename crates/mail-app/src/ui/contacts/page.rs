@@ -139,7 +139,7 @@ fn ImportExport(changed: Signal<u64>, mut said: Signal<Option<Result<String, Str
                     label: "Export vCard…".to_owned(),
                     onclick: on_primary(move || {
                         let store = consume_context::<Arc<SqliteStore>>();
-                        let dir = mail_core::attach::downloads_dir();
+                        let dir = crate::ui::files::save_dir();
                         said.set(Some(
                             book::export(store.as_ref(), &dir)
                                 .map(|path| format!("Saved to {}", path.display())),

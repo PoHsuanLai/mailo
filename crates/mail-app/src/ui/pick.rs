@@ -4,8 +4,9 @@
 //! `rfd` through the desktop portal, so it opens the desktop's own dialog. The dialog blocks
 //! until it is answered, so it is opened on a blocking thread, from the click.
 //!
-//! What opens it is a [`Dialogs`] seam, like `pgp::Seams`: a test hands the window its own
-//! answers, and in this crate's tests the real one answers nothing, so no test ever opens a
+//! What opens it is a [`Dialogs`] seam, like `pgp::Seams` and the printer's: a test hands the
+//! window its own answers (a root context, built with [`Dialogs::with_answer`] from outside the
+//! crate), and in this crate's tests the real one answers nothing, so no test ever opens a
 //! dialog.
 
 use std::path::PathBuf;
@@ -15,7 +16,7 @@ use dioxus::prelude::*;
 
 /// What to ask the dialog for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(in crate::ui) enum Ask {
+pub enum Ask {
     /// One file: an mbox or a `.eml`.
     File,
     /// A directory: a Maildir, or where an export goes.
@@ -32,9 +33,23 @@ pub(in crate::ui) type Answer = dyn Fn(Ask, Option<PathBuf>) -> Vec<PathBuf> + S
 
 /// Whatever answers the window's file dialogs, as a root context.
 #[derive(Clone)]
-pub(in crate::ui) struct Dialogs(pub(in crate::ui) Arc<Answer>);
+pub struct Dialogs(pub(in crate::ui) Arc<Answer>);
+
+impl std::fmt::Debug for Dialogs {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Dialogs")
+    }
+}
 
 impl Dialogs {
+    /// Dialogs that `answer` answers: what was asked and where it starts, to what was chosen,
+    /// called off the UI thread as the desktop's dialog would be. For tests: no real dialog.
+    pub fn with_answer(
+        answer: impl Fn(Ask, Option<PathBuf>) -> Vec<PathBuf> + Send + Sync + 'static,
+    ) -> Dialogs {
+        Dialogs(Arc::new(answer))
+    }
+
     /// The desktop's dialog. In this crate's tests, one that answers nothing: a window drawn by
     /// a test has no business opening a dialog.
     fn real() -> Dialogs {

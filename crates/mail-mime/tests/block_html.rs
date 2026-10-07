@@ -36,6 +36,16 @@ fn mappings_match_their_sketch() {
             "letter nothing -\nul\n  item\n    p ltr one\n  item\n    p ltr two\n",
         ),
         (
+            "a space opening a span after a word",
+            "<p><span>Bring</span><span> the</span><span> pen</span> now</p>",
+            "letter nothing -\np ltr Bring the pen now\n",
+        ),
+        (
+            "a list written beside its items belongs to the item before it",
+            "<ul><li>a</li><ul><li>b</li></ul><li>c</li></ul>",
+            "letter nothing -\nul\n  item\n    p ltr a\n    ul\n      item\n        p ltr b\n  item\n    p ltr c\n",
+        ),
+        (
             "ordered",
             "<ol><li>one</li></ol>",
             "letter nothing -\nol\n  item\n    p ltr one\n",

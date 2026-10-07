@@ -92,14 +92,31 @@ pub fn missing_attachment(doc: &Doc) -> bool {
     mentions_attachment(&body_text(doc)) && !has_attachment(doc)
 }
 
+/// Whether a forward's header block has begun in a paragraph.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Forward {
+    NotYet,
+    Begins,
+}
+
+/// The author's own words: everything above a forward's header block, which is the
+/// original's (a forwarded "the minutes are attached" asks for nothing of the sender).
 fn body_text(doc: &Doc) -> String {
     let mut out = String::new();
     for node in &doc.nodes {
         if let Node::Para { runs, .. } = node {
+            let text = runs_text(runs);
+            let (own, forwarded) = match text.find(mail_core::compose::FORWARDED) {
+                Some(at) => (&text[..at], Forward::Begins),
+                None => (text.as_str(), Forward::NotYet),
+            };
             if !out.is_empty() {
                 out.push('\n');
             }
-            out.push_str(&runs_text(runs));
+            out.push_str(own);
+            if forwarded == Forward::Begins {
+                break;
+            }
         }
     }
     out

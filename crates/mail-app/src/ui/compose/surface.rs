@@ -107,6 +107,13 @@ pub(super) fn Surface(
 ) -> Element {
     let handle = use_edit_handle();
     let mut focus = use_signal(|| EditFocus::Out);
+    // A reply, or an addressed message, opens with the keyboard in its body
+    // (`super::opening`). Once, after the surface has mounted: the page is peeked, not read.
+    use_effect(move || {
+        if super::opening(&page.peek()) == super::Opening::Body {
+            handle.focus();
+        }
+    });
     let preedit = use_signal(|| None::<String>);
     // Set while the surface hands over a key the menus or a chord took, so the key goes no
     // further (Escape closes the menu, it does not also park the draft).

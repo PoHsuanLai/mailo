@@ -123,7 +123,7 @@ fn flow_object(object: &Object) -> Option<String> {
                 .join("\n"),
         ),
         Object::QuotedMessage { who, when, body } => {
-            let mut lines = vec![flow_text(&format!("On {who}, {when} wrote:"), Lead::Plain)];
+            let mut lines = vec![flow_text(&format!("On {when}, {who} wrote:"), Lead::Plain)];
             lines.extend(
                 body.iter()
                     .map(block_text)

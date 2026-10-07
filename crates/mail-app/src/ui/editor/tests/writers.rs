@@ -56,6 +56,18 @@ fn flowed_table() {
             "> >x\n>\n> From y\n".into(),
         ),
         (
+            "the quoted original says when, then who, as the reply opened it",
+            doc_of(vec![Node::Object(Object::QuotedMessage {
+                who: "Ada Lovelace".to_owned(),
+                when: "Wed, 07 Oct 2026 at 21:02".to_owned(),
+                body: vec![mail_mime::Block::Paragraph {
+                    spans: vec![mail_mime::Span::Text("See you there.".to_owned())],
+                    dir: mail_mime::Dir::Auto,
+                }],
+            })]),
+            "On Wed, 07 Oct 2026 at 21:02, Ada Lovelace wrote:\n> See you there.\n".into(),
+        ),
+        (
             "bullet",
             doc_of(vec![plain(ParaKind::Bullet, "item")]),
             "- item\n".into(),

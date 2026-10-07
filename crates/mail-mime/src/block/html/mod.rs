@@ -214,10 +214,9 @@ impl<'a> Builder<'a> {
             return;
         }
         let raw = self.stack.last().is_some_and(|frame| frame.raw);
+        let sticky = self.text_before();
         let mut buf = String::new();
-        let mut sticky = false;
         if let Some(frame) = self.stack.last_mut() {
-            sticky = !frame.spans.is_empty();
             buf = std::mem::take(&mut frame.buf);
         }
         let before = buf.len();
@@ -236,6 +235,29 @@ impl<'a> Builder<'a> {
         if let Some(frame) = self.stack.last_mut() {
             frame.buf = buf;
         }
+    }
+
+    /// Whether a word stands just before the next text in the block being built: the open
+    /// frames' runs, innermost first, up to the nearest block. A space after a word separates
+    /// it from the next even when an inline element began between them (`<span>Bring</span>
+    /// <span> the</span>`); a space after a space, or at a block's start, is dropped.
+    fn text_before(&self) -> bool {
+        for frame in self.stack.iter().rev() {
+            if let Some(last) = frame.buf.chars().next_back() {
+                return !last.is_whitespace();
+            }
+            if let Some(span) = frame.spans.last() {
+                let text = span_text(std::slice::from_ref(span));
+                return text
+                    .chars()
+                    .next_back()
+                    .is_some_and(|last| !last.is_whitespace());
+            }
+            if !frame.kind.is_inline() {
+                return false;
+            }
+        }
+        false
     }
 
     fn close_name(&mut self, name: &str) {
