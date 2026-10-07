@@ -43,6 +43,13 @@ pub trait AccountSecrets: Send + Sync {
     fn forget<'a>(&'a self, key: &'a SecretKey) -> Answer<'a, ()>;
     /// Forgets every secret of `account`, in one step, when the account is removed.
     fn forget_account<'a>(&'a self, account: &'a AccountId) -> Answer<'a, ()>;
+
+    /// The desktop's accountd, when this store sits beside a link to it: where the credentials of
+    /// an account that is accountd's come from (`AuthPlan::Granted`), which this store holds none
+    /// of. `None` for every plain store, and then such an account cannot be reached.
+    fn link(&self) -> Option<Arc<dyn crate::link::Accountd>> {
+        None
+    }
 }
 
 /// Every secret failure is `Secrets`, which reads as `NeedsReauth`: a missing or locked store is
@@ -139,6 +146,14 @@ fn secrets_runtime() -> &'static tokio::runtime::Handle {
         .handle()
 }
 
+/// The runtime that outlives every other this crate's callers make: where a connection that keeps
+/// tasks (the secret store's, the link to accountd's) is opened, so it does not die with the short
+/// runtime of the sync or the command that happened to open it.
+#[cfg(all(feature = "quire-desktop", target_os = "linux"))]
+pub(crate) fn long_lived() -> &'static tokio::runtime::Handle {
+    secrets_runtime()
+}
+
 /// Run `work` on [`secrets_runtime`] and await it from here.
 async fn on_secrets_runtime<T: Send + 'static>(
     work: impl Future<Output = Result<T, SecretsError>> + Send + 'static,
@@ -233,6 +248,16 @@ impl<S: Secrets + 'static> Secrets for PlatformSecrets<S> {
 /// `dev/scenarios` (`MAILO_TEST_SECRETS_DIR`), a directory of files that never reaches the
 /// person's keyring.
 pub fn platform_secrets() -> Arc<dyn AccountSecrets> {
+    let store = own_store();
+    // Beside the link the process chose at start, if it chose accountd (`link::start`).
+    match crate::link::current() {
+        crate::link::Link::Local => store,
+        crate::link::Link::Accountd(link) => Arc::new(crate::link::LinkedSecrets::new(store, link)),
+    }
+}
+
+/// mailo's own store: the platform's, or the scenario directory's.
+fn own_store() -> Arc<dyn AccountSecrets> {
     #[cfg(debug_assertions)]
     if let Some(files) = scenario_files() {
         return Arc::new(files);

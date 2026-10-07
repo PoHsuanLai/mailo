@@ -1349,6 +1349,71 @@ fn porter_types_persist_as_mailo_always_wrote_them() {
     assert_eq!(from_old.as_str(), "67e55044-10b1-426f-9247-bb680e5fe0c8");
 }
 
+/// An account of the desktop's accountd, as mailo keeps it once linked (step E6): the grant and
+/// the servers the grant's candidate listed. No secret field exists to put in it.
+fn granted_plan() -> AccountPlan {
+    use porter_core::{EndpointUrl, Family, GrantId, ServiceEndpoint, Tls as EndpointTls};
+    let endpoint = |family, url: &str, login: &str| ServiceEndpoint {
+        family,
+        url: EndpointUrl::parse(url).expect("a literal endpoint url"),
+        tls: EndpointTls::Implicit,
+        login: porter_core::LoginName(login.to_owned()),
+    };
+    AccountPlan {
+        address: "me@example.test".to_owned(),
+        incoming: Incoming::Imap {
+            host: "imap.example.test".to_owned(),
+            port: 993,
+            tls: Tls::Implicit,
+        },
+        outgoing: Outgoing::Smtp {
+            host: "smtp.example.test".to_owned(),
+            port: 465,
+            tls: Tls::Implicit,
+        },
+        auth: AuthPlan::Granted {
+            account: AccountId::parse("fastmail-me-example-test").expect("a literal account id"),
+            grant: GrantId::parse("grant-1").expect("a literal grant id"),
+            endpoints: vec![
+                endpoint(
+                    Family::Imap,
+                    "imaps://imap.example.test:993",
+                    "me@example.test",
+                ),
+                endpoint(
+                    Family::Smtp,
+                    "smtps://smtp.example.test:465",
+                    "me@example.test",
+                ),
+            ],
+        },
+        identities: vec![],
+    }
+}
+
+/// A plan stored before step E6 reads as it always did, and a linked one carries no secret.
+#[test]
+fn a_granted_plan_is_additive_and_holds_no_secret() {
+    let old: AccountPlan = serde_json::from_str(
+        &std::fs::read_to_string(fixture_dir().join("account_plan_jmap.json")).unwrap(),
+    )
+    .expect("a plan from before E6");
+    assert!(matches!(old.auth, AuthPlan::Password { .. }));
+
+    let plan = granted_plan();
+    let json = serde_json::to_value(&plan).unwrap();
+    assert_eq!(json["auth"]["kind"], "granted");
+    assert!(json["auth"]["v"]["grant"].is_string());
+    assert!(json["auth"]["v"]["account"].is_string());
+    let text = json.to_string();
+    for word in ["password", "token", "secret", "credential"] {
+        assert!(!text.contains(word), "{word} in a linked plan: {text}");
+    }
+    // Signing in is the relay's: no mechanism, and the address is the name.
+    assert_eq!(plan.sasl(), Vec::<SaslMech>::new());
+    assert_eq!(plan.username(), "me@example.test");
+}
+
 fixtures! {
     // The two OAuth issuers an `AccountPlan` can name, as stored: the issuer is porter's type
     // and its spelling here is what every saved OAuth account already holds.
@@ -1435,6 +1500,8 @@ fixtures! {
     "sync_cursors.json" => Vec<SyncCursor> = vec![imap_cursor(), SyncCursor::Pop],
     // JMAP (plan.md 10.17): an account read and sent over one session URL, its addresses, and
     // its cursor. Additive variants; the files above are untouched.
+    // Linked to accountd (step E6): added after the plans above were frozen, which keep loading.
+    "account_plan_granted.json" => AccountPlan = granted_plan(),
     "account_plan_jmap.json" => AccountPlan =
         presets::jmap("me@example.test", "https://jmap.example.test/.well-known/jmap", HttpAuth::Bearer).plan,
     "remote_refs_jmap.json" => Vec<RemoteRef> = vec![

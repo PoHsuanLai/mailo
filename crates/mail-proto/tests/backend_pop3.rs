@@ -364,6 +364,7 @@ fn smtp_backend_submits_and_reports_no_remote_copy() {
                 username: "ada@example.com".to_owned(),
                 credential: Credential::Password(SecretText::new("s3cr3t-password".to_owned())),
                 sasl: vec![SaslMech::Plain],
+                relayed: false,
                 mail_from: posting.mail_from,
                 recipients: posting.rcpt_to,
                 receipt: None,

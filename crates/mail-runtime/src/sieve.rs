@@ -11,7 +11,8 @@ use mail_domain::{Rule, Vacation};
 use mail_proto::sieve::{
     Compiled, Endpoint, Places, SieveJob, SieveLogin, SieveOutcome, SieveSession, Takeover, compile,
 };
-use porter_core::Credential;
+use porter_core::{Credential, GrantId, ServiceEndpoint};
+use std::sync::Arc;
 
 /// Who to sign in as.
 ///
@@ -20,6 +21,18 @@ use porter_core::Credential;
 pub struct SieveAuth {
     pub username: String,
     pub credential: Credential,
+    /// For an account that is the desktop's accountd's: its relay for the ManageSieve server. The
+    /// connection comes from the daemon already upgraded and signed in, and `username` and
+    /// `credential` are not read.
+    pub relay: Option<Relay>,
+}
+
+/// accountd's relay to one server of a granted account.
+#[derive(Debug, Clone)]
+pub struct Relay {
+    pub link: Arc<dyn crate::link::Accountd>,
+    pub grant: GrantId,
+    pub endpoint: ServiceEndpoint,
 }
 
 /// Do one job on the account's ManageSieve server.
@@ -29,7 +42,10 @@ pub async fn manage(
     job: SieveJob,
     cancel: &mut Cancel,
 ) -> Result<SieveOutcome, RuntimeError> {
-    let mut transport = Transport::connect(&endpoint.host, endpoint.port, endpoint.tls).await?;
+    let mut transport = match &auth.relay {
+        Some(relay) => relay.link.open(&relay.grant, &relay.endpoint).await?,
+        None => Transport::connect(&endpoint.host, endpoint.port, endpoint.tls).await?,
+    };
     let mut session = SieveSession::new(
         SieveLogin {
             host: endpoint.host.clone(),
@@ -37,6 +53,7 @@ pub async fn manage(
             tls: endpoint.tls,
             username: auth.username.clone(),
             credential: auth.credential.clone(),
+            relayed: auth.relay.is_some(),
         },
         job,
     );

@@ -60,6 +60,7 @@ async fn a_real_server_accepts_what_this_client_sends() {
         username: USER.to_owned(),
         credential: Credential::Password(SecretText::new(PASS.to_owned())),
         sasl: vec![SaslMech::Plain],
+        relayed: false,
         mail_from: USER.to_owned(),
         // Two recipients, so a client that sends one RCPT TO for a list is caught.
         recipients: vec![
@@ -142,6 +143,7 @@ async fn a_real_server_rejecting_a_password_is_an_auth_error_not_a_crash() {
         username: USER.to_owned(),
         credential: Credential::Password(SecretText::new("definitely-not-the-password".to_owned())),
         sasl: vec![SaslMech::Plain],
+        relayed: false,
         mail_from: USER.to_owned(),
         recipients: vec!["bob@example.test".to_owned()],
         receipt: None,
