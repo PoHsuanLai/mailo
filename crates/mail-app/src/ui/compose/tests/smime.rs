@@ -12,6 +12,13 @@ use super::*;
 use crate::ui::fixtures::smime_support::{Person, identity, pki, rng};
 use crate::ui::fixtures::{Seen, acct_account, click, rebuild_into, seeded};
 
+thread_local! {
+    /// The Settings windows the page last drawn asked for: the composer's bar sends a key to
+    /// make to the Keys and certificates page.
+    static ASKED: std::cell::RefCell<Arc<crate::ui::settings_window::tests::Asked>> =
+        std::cell::RefCell::new(Arc::default());
+}
+
 const PASSWORD: &str = "p12 password";
 
 /// Every choice the menu offers, by key.
@@ -47,7 +54,14 @@ fn window(store: Arc<SqliteStore>, draft: Draft, secrets: Arc<MapSigningStore>) 
     crate::ui::fixtures::dispatching();
     let mut dom = VirtualDom::new_with_props(PageHarness, PageHarnessProps { draft })
         .with_root_context(store)
-        .with_root_context(crate::ui::pgp::tests::seams_with(secrets));
+        .with_root_context(crate::ui::pgp::tests::seams_with(secrets))
+        .with_root_context(crate::ui::settings_window::SettingsWindows(ASKED.with(
+            |asked| {
+                let fresh = Arc::new(crate::ui::settings_window::tests::Asked::default());
+                *asked.borrow_mut() = fresh.clone();
+                fresh
+            },
+        )));
     let seen = rebuild_into(&mut dom);
     let desk = DESK.with(Cell::get).unwrap();
     let shell = SHELL.with(Cell::get).unwrap();
@@ -182,8 +196,11 @@ async fn what_smime_check_says_stands_in_the_way_is_said_in_the_bar() {
         &mut window.dom,
         after.one("aria-label", "Import your certificate…"),
     );
-    let shell = window.shell;
-    assert!(window.dom.in_runtime(|| shell.peek().keys.is_some()));
+    // Making a key or importing a certificate is the Keys and certificates page's.
+    assert_eq!(
+        ASKED.with(|asked| asked.borrow().asks()),
+        [Some(crate::ui::view::SettingsPage::Keys)]
+    );
 
     // With one, dana has none: S/MIME has no directory to ask, so only sending without
     // encryption is offered, and how her certificate would come is said.

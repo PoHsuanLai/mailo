@@ -10,6 +10,7 @@ fn a_key_is_drawn_as_the_caps_that_press_it() {
         ("#", vec![Key::Char('#')]),
         ("ArrowDown", vec![Key::Down]),
         ("Delete", vec![Key::Delete]),
+        ("Escape", vec![Key::Escape]),
         ("F5", Vec::new()),
     ];
     for (key, drawn) in cases {

@@ -202,8 +202,7 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
     let send = move |anyway: Anyway| send_page(page, desk, revision, folding, anyway, None);
     // Made here, so a send or a lookup the bar starts belongs to the page and not to the bar,
     // which goes away as it starts.
-    let on_seal =
-        use_callback(move |act: BarAct| seal_act(page, shell, desk, revision, folding, act));
+    let on_seal = use_callback(move |act: BarAct| seal_act(page, desk, revision, folding, act));
 
     rsx! {
         div {
@@ -382,7 +381,6 @@ fn send_page(
 /// What the signing and encrypting bar's buttons do.
 fn seal_act(
     mut page: Signal<Page>,
-    shell: Signal<Shell>,
     desk: Desk,
     revision: Signal<u64>,
     folding: Folding,
@@ -404,7 +402,10 @@ fn seal_act(
         BarAct::Unlock(passphrase) => {
             send_page(page, desk, revision, folding, Anyway::Yes, Some(passphrase));
         }
-        BarAct::OpenSheet => super::pgp::keys::open(shell),
+        // Making a key or importing a certificate is the Keys and certificates page's.
+        BarAct::OpenKeys => {
+            super::settings_window::open_at(crate::ui::view::SettingsPage::Keys);
+        }
         BarAct::LookUp(addresses) => {
             page.write().seal_bar = SealBar::Looking(addresses.clone());
             let store = consume_context::<Arc<SqliteStore>>();

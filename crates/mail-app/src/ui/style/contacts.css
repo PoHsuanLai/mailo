@@ -1,22 +1,7 @@
-/* The Contacts sheet: a search field over the book's rows, which are quire's `Row`s in an inset
-   `List`, and the buttons that move a book in and out. The sender card's part in the book sits
-   between what the card knows and what it can do. */
-.book-head { display: grid; gap: var(--s-6); }
-.book-rows { display: grid; gap: var(--s-6); max-height: 60vh; overflow-y: auto; scrollbar-width: none; }
+/* The Contacts page of Settings: the people and the groups are each a titled list of quire's
+   rows, the filter a field in the first row. What is laid out here is the title above each list,
+   the width of the filter, and a name being typed into a row. */
+.book-part { display: flex; flex-direction: column; min-width: 0; }
+.book-find { width: 16rem; max-width: 100%; }
 .naming { display: flex; align-items: center; gap: var(--s-6); min-width: 0; }
 .book-name { flex: 1; min-width: 0; }
-
-.book-groups { padding: var(--s-6) 0; border-bottom: var(--hair) solid var(--line-soft); }
-.book-sub { display: flex; align-items: center; gap: var(--s-8); padding: var(--s-4) var(--s-8); }
-.book-sub h4 { margin: 0; margin-right: auto; color: var(--ink-soft); }
-.group-new { padding: var(--s-4) var(--s-8); }
-.group-list { margin: 0; padding: 0; }
-.book-row, .group-row { display: flex; align-items: center; gap: var(--s-8); min-width: 0; }
-.group-av { flex: none; }
-.group-row .who { min-width: 0; flex: 1; }
-.group-row .origin { color: var(--ink-faint); }
-.group-row .acts { display: flex; gap: var(--s-4); }
-.group-edit { display: grid; gap: var(--s-6); padding: var(--s-4) 0; }
-.group-members { margin: 0; padding: 0; display: grid; gap: var(--s-3); }
-.group-member { display: flex; align-items: center; gap: var(--s-8); }
-.group-member .addr { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; }

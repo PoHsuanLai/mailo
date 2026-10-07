@@ -1,4 +1,4 @@
-//! The Contacts sheet as drawn: its filter, its writes, every class it uses styled, and a file
+//! The Contacts page as drawn: its filter, its writes, every class it uses styled, and a file
 //! of it over the frame to look at.
 
 use std::sync::Arc;
@@ -8,13 +8,13 @@ use dioxus_core::VirtualDom;
 use ds::prelude::*;
 use mail_store::{SqliteStore, Store};
 
-use super::ContactsSheet;
+use super::ContactsPage;
 use super::tests::{ADDED, HEARD, NO_REPLY, the_book};
 use crate::ui::fixtures::{Seen, click, dispatching, drain_seen, rebuild_into, type_into};
 use crate::ui::view::Shell;
 
-/// The first render, then the ones after it, keeping every attribute they set: a quire sheet is
-/// drawn a frame after the one that asked for it, on quire's clock.
+/// The first render, then the ones after it, keeping every attribute they set: what floats in
+/// quire's overlay is drawn a frame after the one that asked for it, on quire's clock.
 async fn landed(dom: &mut VirtualDom) -> Seen {
     let mut seen = rebuild_into(dom);
     for _ in 0..40 {
@@ -30,46 +30,48 @@ async fn landed(dom: &mut VirtualDom) -> Seen {
     seen.merge(drain_seen(dom))
 }
 
-/// The sheet open on `filter`, alone.
+/// The page filtered by `filter`, alone.
 #[component]
-fn Sheet(filter: String) -> Element {
+fn Page(filter: String) -> Element {
     let shell = use_signal(|| Shell {
-        contacts: Some(filter.clone()),
+        contacts: filter.clone(),
         ..Shell::default()
     });
-    // Inside a quire root, as the window has it: the sheet is quire's and floats in its overlay.
+    // Inside a quire root, as the Settings window has it.
     rsx! {
         Ds {
             appearance: Appearance::default(),
             material: Material::Window,
             stylesheet: ds::assembly::ds::Inject::Host,
-            ContactsSheet { shell }
+            ContactsPage { shell }
         }
     }
 }
 
 fn sheet(store: &Arc<SqliteStore>, filter: &str) -> VirtualDom {
     VirtualDom::new_with_props(
-        Sheet,
-        SheetProps {
+        Page,
+        PageProps {
             filter: filter.to_owned(),
         },
     )
     .with_root_context(store.clone())
 }
 
-/// The addresses the rows list, from each row's detail line ("address  ·  where it came from").
+/// The addresses the people's rows list, from each row's detail line ("address  ·  where it came
+/// from"); a group's detail line ("1 member · made here") holds no address.
 fn listed(page: &str) -> Vec<String> {
     page.split("class=\"ds-row-detail")
         .skip(1)
         .filter_map(|rest| rest.split_once('>')?.1.split('<').next())
         .filter_map(|detail| detail.split("  ·  ").next())
+        .filter(|address| address.contains('@'))
         .map(str::to_owned)
         .collect()
 }
 
 #[tokio::test]
-async fn the_sheet_lists_the_whole_book_and_narrows_as_the_filter_is_typed() {
+async fn the_page_lists_the_whole_book_and_narrows_as_the_filter_is_typed() {
     dispatching();
     let (store, _dir) = the_book();
     let mut dom = sheet(&store, "");
@@ -84,7 +86,7 @@ async fn the_sheet_lists_the_whole_book_and_narrows_as_the_filter_is_typed() {
 }
 
 #[tokio::test]
-async fn the_sheet_renames_and_forgets_an_entry() {
+async fn the_page_renames_and_forgets_an_entry() {
     dispatching();
     let (store, _dir) = the_book();
     let mut dom = sheet(&store, "");
@@ -166,7 +168,7 @@ async fn import_vcard_reads_the_files_the_dialog_chose() {
         listed(&page).contains(&"ines.moreau@example.test".to_owned()),
         "{page}"
     );
-    // The second file could not be read, and the sheet says so last.
+    // The second file could not be read, and the page says so last.
     assert!(page.contains("Cannot read gone.vcf."), "{page}");
 }
 
@@ -182,7 +184,7 @@ async fn without_a_dialog_of_its_own_a_test_opens_none() {
     assert_eq!(store.contacts().unwrap_or_default().len(), before);
 }
 
-/// The sheet with a name being edited.
+/// The page with a name being edited.
 async fn every_state(store: &Arc<SqliteStore>) -> String {
     let mut dom = sheet(store, "");
     let seen = landed(&mut dom).await;
@@ -213,7 +215,7 @@ fn inject(page: &str, extra: &str) -> String {
 
 #[tokio::test]
 #[ignore = "writes target/contacts.html and target/contacts-dark.html for a person to look at"]
-async fn render_the_contacts_sheet_to_a_file() {
+async fn render_the_contacts_page_to_a_file() {
     dispatching();
     let built = crate::ui::fixtures::work();
     built
@@ -239,7 +241,7 @@ async fn render_the_contacts_sheet_to_a_file() {
 }
 
 #[tokio::test]
-async fn the_sheet_makes_a_group_and_adds_someone_to_it() {
+async fn the_page_makes_a_group_and_adds_someone_to_it() {
     dispatching();
     let (store, _dir) = the_book();
     let before = store.groups().unwrap_or_default().len();

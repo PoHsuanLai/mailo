@@ -1,6 +1,7 @@
-//! The Rules sheet: an account's rules, its vacation reply, and putting both on its server.
+//! The Rules page of Settings: an account's rules, its vacation reply, and putting both on its
+//! server.
 //!
-//! ⌘K "Rules…" opens it. Everything it writes goes through the same
+//! ⌘K "Rules…" opens Settings on it. Everything it writes goes through the same
 //! rows `mailo rules`, `mailo vacation` and `mailo sieve push` use — [`work`], [`away`] and
 //! [`server`] are those questions and writes as functions; the parts only draw them. One account
 //! at a time, because a rule acts on one account's labels and folders, and a server runs one
@@ -12,89 +13,63 @@ mod list;
 mod server;
 pub(in crate::ui) mod work;
 
-use super::common::in_card;
 use dioxus::prelude::*;
-use ds::components::content::label::LabelRole;
-use ds::components::controls::segmented::Tracking;
-use ds::components::overlays::sheet_width::SheetWidth;
-use ds::prelude::*;
+use ds::components::fields::field_row::{FieldGroup, FieldRow};
+use ds::components::menus::item::item::MenuItem;
+use ds::components::menus::pop_up_button::PopUpButton;
 use mail_store::SqliteStore;
 use porter_core::AccountId;
 use std::sync::Arc;
 
 use super::data::account_rows;
-use super::press::SheetClose;
-use crate::ui::view::{RulesSheet as Showing, Shell};
+use crate::ui::view::{RulesPage as Showing, Shell};
 use away::AwayPart;
 use list::RulesPart;
 use server::ServerPart;
 
-/// Open the sheet on the first account.
-pub(in crate::ui) fn open(mut shell: Signal<Shell>) {
-    shell.write().rules = Some(Showing::default());
-}
-
-/// Close the sheet and give the keyboard back to the window.
-pub(in crate::ui) fn close(mut shell: Signal<Shell>) {
-    shell.write().rules = None;
-    crate::ui::host::Host::focus_app();
-}
-
-/// The sheet. Mounted while `shell.rules` is `Some`.
+/// The page. Its groups are each one account's, the account chosen at the top when there are
+/// several.
 #[component]
-pub(in crate::ui) fn RulesSheet(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
+pub(in crate::ui) fn RulesPage(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
     let store = consume_context::<Arc<SqliteStore>>();
     let rows = account_rows(&store);
-    let chosen = shell
-        .read()
-        .rules
-        .as_ref()
-        .and_then(|sheet| sheet.account.clone());
+    let chosen = shell.read().rules.account.clone();
     let account = chosen
         .and_then(|id| rows.iter().find(|row| row.id == id))
         .or_else(|| rows.first())
         .cloned();
-    let choices: Vec<Choice<AccountId>> = rows
+    let items: Vec<MenuItem<AccountId>> = rows
         .iter()
-        .map(|row| Choice::new(row.id.clone(), row.shown()))
+        .map(|row| MenuItem::new(row.id.clone(), row.shown()))
         .collect();
-    let several = choices.len() > 1;
+    let several = items.len() > 1;
     rsx! {
-        Sheet {
-            common: in_card(),
-            label: "Rules".to_owned(),
-            onclose: move |()| close(shell),
-            width: SheetWidth::Wide,
-            div { class: "rules",
-                if several && let Some(current) = account.as_ref() {
-                    SegmentedControl::<AccountId> {
-                        label: "Account".to_owned(),
-                        choices,
-                        tracking: Tracking::SelectOne(current.id.clone()),
-                        onchange: move |id: AccountId| {
-                            shell.write().rules = Some(Showing { account: Some(id) });
+        if several && let Some(current) = account.as_ref() {
+            FieldGroup {
+                FieldRow { label: "Account",
+                    PopUpButton::<AccountId> {
+                        items,
+                        value: Some(current.id.clone()),
+                        title: Some("Account".to_owned()),
+                        onpick: move |id: AccountId| {
+                            shell.write().rules = Showing { account: Some(id) };
                         },
                     }
                 }
-                match account {
-                    None => rsx! {
-                        Label {
-                            text: "Add an account first.".to_owned(),
-                            role: LabelRole::Secondary,
-                        }
-                    },
-                    Some(row) => rsx! {
-                        div { class: "rules-main",
-                            RulesPart { key: "r-{row.id}", account: row.id.clone(), revision }
-                            AwayPart { key: "v-{row.id}", row: row.clone() }
-                            ServerPart { key: "s-{row.id}", row }
-                        }
-                    },
-                }
-                div { class: "sheet-actions",
-                    SheetClose { label: "Done".to_owned(), on_close: move |()| close(shell) }
-                }
             }
+        }
+        match account {
+            None => rsx! {
+                FieldGroup { title: "Rules",
+                    FieldRow { label: "Add an account first." }
+                }
+            },
+            // The first node's key is the whole block's: another account remounts all three parts.
+            Some(row) => rsx! {
+                RulesPart { key: "{row.id}", account: row.id.clone(), shown: row.shown(), revision }
+                AwayPart { row: row.clone() }
+                ServerPart { row }
+            },
         }
     }
 }
@@ -102,6 +77,6 @@ pub(in crate::ui) fn RulesSheet(shell: Signal<Shell>, revision: Signal<u64>) -> 
 #[cfg(test)]
 mod away_tests;
 #[cfg(test)]
-mod sheet_tests;
+mod page_tests;
 #[cfg(test)]
 mod work_tests;

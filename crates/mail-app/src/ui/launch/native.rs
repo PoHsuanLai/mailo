@@ -66,7 +66,9 @@ pub(super) fn run(opening: Opening) {
         // what the main window does to it, and the other way round (`ui/revisions`).
         .with_context(crate::ui::revisions::Revisions::new())
         // And one for the configuration files a window writes (key bindings, Spaces).
-        .with_context(crate::ui::revisions::Configured::default());
+        .with_context(crate::ui::revisions::Configured::default())
+        // And the page the Settings window shows next, which ⌘K and the composer turn it to.
+        .with_context(crate::ui::settings_window::SettingsAsked::default());
     let config = match brand {
         Some(brand) => config.with_context(brand),
         None => config,

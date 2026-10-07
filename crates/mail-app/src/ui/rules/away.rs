@@ -1,4 +1,4 @@
-//! The vacation reply, in the Rules sheet: what `mailo vacation on|off` keeps, from fields.
+//! The vacation reply, on the Rules page: what `mailo vacation on|off` keeps, from fields.
 //!
 //! Kept here, run by the server: "Put on server" is what installs it, as `mailo sieve push`
 //! does. A server without ManageSieve cannot run one, and this client does not send one itself
@@ -6,8 +6,6 @@
 
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
-use ds::components::content::label::{LabelRole, LabelStyle};
-use ds::components::controls::segmented::Tracking;
 use ds::components::fields::field_row::{FieldGroup, FieldRow, RowLayout};
 use ds::components::fields::text_field_model::{FieldRows, Invalid};
 use ds::motion::detail::stamp::EventStamp;
@@ -16,6 +14,7 @@ use mail_domain::{DateRange, Vacation};
 use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
 
+use super::super::common::{Told, classed};
 use super::super::data::AccountRow;
 use super::super::menus::when_words;
 use super::super::press::on_primary;
@@ -115,7 +114,7 @@ where
         })
 }
 
-/// Keep what the form says on `row`, returning what the sheet says of it.
+/// Keep what the form says on `row`, returning what the page says of it.
 pub(in crate::ui) fn save<Tz: TimeZone>(
     store: &SqliteStore,
     row: &AccountRow,
@@ -213,7 +212,9 @@ where
     }
 }
 
-/// The vacation reply's part of the sheet.
+/// The vacation reply's group of the page: a switch, and while it is on, the reply's fields and
+/// Keep Reply. Turned off, it is kept off at once; turned on, it is kept when Keep Reply is
+/// pressed, since a reply needs its words first.
 #[component]
 pub(super) fn AwayPart(row: AccountRow) -> Element {
     let mut away = use_signal({
@@ -226,9 +227,11 @@ pub(super) fn AwayPart(row: AccountRow) -> Element {
     let mut said = use_signal(|| None::<Result<String, String>>);
     if let Err(why) = reach(&row.plan) {
         return rsx! {
-            section { class: "rules-part",
-                SectionHeader { title: "Vacation reply".to_owned() }
-                Label { text: format!("No vacation reply here: {why}."), role: LabelRole::Tertiary }
+            FieldGroup { title: "Vacation reply",
+                FieldRow {
+                    label: "Vacation reply",
+                    help: Some(TextLine::from(format!("No vacation reply here: {why}."))),
+                }
             }
         };
     }
@@ -249,94 +252,93 @@ pub(super) fn AwayPart(row: AccountRow) -> Element {
     let (from_validity, from_hint) = hint(&form.from);
     let (until_validity, until_hint) = hint(&form.until);
     let keep = row.clone();
+    let off = row.clone();
+    let help = |text: String| (!text.is_empty()).then(|| TextLine::from(text));
     rsx! {
-        section { class: "rules-part",
-            SectionHeader { title: "Vacation reply".to_owned() }
-            SegmentedControl::<Reply> {
-                label: "Vacation reply".to_owned(),
-                choices: vec![Choice::new(Reply::Off, "Off"), Choice::new(Reply::On, "On")],
-                tracking: Tracking::SelectOne(form.reply),
-                onchange: move |reply: Reply| away.write().reply = reply,
+        FieldGroup { title: "Vacation reply",
+            FieldRow {
+                label: "Vacation reply",
+                help: Some(TextLine::from("Answers mail while you are away, sent by the server.")),
+                Toggle {
+                    label: "Vacation reply".to_owned(),
+                    value: if on { Check::On } else { Check::Off },
+                    onchange: move |_| {
+                        if on {
+                            away.write().reply = Reply::Off;
+                            let store = consume_context::<Arc<SqliteStore>>();
+                            let form = away.peek().clone();
+                            said.set(Some(save(&store, &off, &form, Utc::now(), &chrono::Local)));
+                        } else {
+                            away.write().reply = Reply::On;
+                            said.set(None);
+                        }
+                    },
+                }
             }
             if on {
-                FieldGroup {
-                    FieldRow {
-                        label: "Subject",
-                        layout: RowLayout::Form,
-                        TextField {
-                            label: "Subject".to_owned(),
-                            value: form.subject.clone(),
-                            placeholder: "Away until the 12th".to_owned(),
-                            oninput: move |value: String| away.write().subject = value,
-                        }
-                    }
-                    FieldRow {
-                        label: "Reply",
-                        layout: RowLayout::Form,
-                        TextField {
-                            label: "The reply's text".to_owned(),
-                            kind: FieldKind::Multiline,
-                            rows: FieldRows::Four,
-                            value: form.body.clone(),
-                            placeholder: "Reply text".to_owned(),
-                            oninput: move |value: String| away.write().body = value,
-                        }
-                    }
-                    FieldRow {
-                        label: "From",
-                        help: Some(from_hint.into()),
-                        layout: RowLayout::Form,
-                        TextField {
-                            label: "From".to_owned(),
-                            value: form.from.clone(),
-                            placeholder: "now, or 2026-10-08".to_owned(),
-                            validity: from_validity,
-                            oninput: move |value: String| away.write().from = value,
-                        }
-                    }
-                    FieldRow {
-                        label: "Until",
-                        help: Some(until_hint.into()),
-                        layout: RowLayout::Form,
-                        TextField {
-                            label: "Until".to_owned(),
-                            value: form.until.clone(),
-                            placeholder: "turned off, or monday".to_owned(),
-                            validity: until_validity,
-                            oninput: move |value: String| away.write().until = value,
-                        }
-                    }
-                    FieldRow {
-                        label: "Answers mail to",
-                        layout: RowLayout::Form,
-                        TextField {
-                            label: "Answers mail to".to_owned(),
-                            value: form.addresses.clone(),
-                            placeholder: "you@example.com".to_owned(),
-                            oninput: move |value: String| away.write().addresses = value,
-                        }
+                FieldRow { label: "Subject", layout: RowLayout::Form,
+                    TextField {
+                        label: "Subject".to_owned(),
+                        value: form.subject.clone(),
+                        placeholder: "Away until the 12th".to_owned(),
+                        common: classed("rules-field"),
+                        oninput: move |value: String| away.write().subject = value,
                     }
                 }
-            }
-            div { class: "rules-acts",
-                match said() {
-                    Some(Ok(text)) => rsx! {
-                        div { role: "status", Label { text, role: LabelRole::Secondary } }
-                    },
-                    Some(Err(why)) => rsx! {
-                        div { role: "alert", Label { text: why, role: LabelRole::Primary, style: LabelStyle::Headline } }
-                    },
-                    None => rsx! {},
+                FieldRow { label: "Reply", layout: RowLayout::Form,
+                    TextField {
+                        label: "The reply's text".to_owned(),
+                        kind: FieldKind::Multiline,
+                        rows: FieldRows::Four,
+                        value: form.body.clone(),
+                        placeholder: "Reply text".to_owned(),
+                        common: classed("rules-field"),
+                        oninput: move |value: String| away.write().body = value,
+                    }
                 }
-                Button {
-                    label: "Keep reply".to_owned(),
-                    onclick: on_primary(move || {
-                        let store = consume_context::<Arc<SqliteStore>>();
-                        let form = away.peek().clone();
-                        said.set(Some(save(&store, &keep, &form, Utc::now(), &chrono::Local)));
-                    }),
+                FieldRow { label: "From", help: help(from_hint), layout: RowLayout::Form,
+                    TextField {
+                        label: "From".to_owned(),
+                        value: form.from.clone(),
+                        placeholder: "now, or 2026-10-08".to_owned(),
+                        validity: from_validity,
+                        common: classed("rules-field"),
+                        oninput: move |value: String| away.write().from = value,
+                    }
+                }
+                FieldRow { label: "Until", help: help(until_hint), layout: RowLayout::Form,
+                    TextField {
+                        label: "Until".to_owned(),
+                        value: form.until.clone(),
+                        placeholder: "turned off, or monday".to_owned(),
+                        validity: until_validity,
+                        common: classed("rules-field"),
+                        oninput: move |value: String| away.write().until = value,
+                    }
+                }
+                FieldRow { label: "Answers mail to", layout: RowLayout::Form,
+                    TextField {
+                        label: "Answers mail to".to_owned(),
+                        value: form.addresses.clone(),
+                        placeholder: "you@example.com".to_owned(),
+                        common: classed("rules-field"),
+                        oninput: move |value: String| away.write().addresses = value,
+                    }
+                }
+                FieldRow {
+                    label: "Keep the reply",
+                    help: Some(TextLine::from("Put on Server installs it.")),
+                    Button {
+                        label: "Keep Reply".to_owned(),
+                        onclick: on_primary(move || {
+                            let store = consume_context::<Arc<SqliteStore>>();
+                            let form = away.peek().clone();
+                            said.set(Some(save(&store, &keep, &form, Utc::now(), &chrono::Local)));
+                        }),
+                    }
                 }
             }
         }
+        Told { said: said() }
     }
 }
