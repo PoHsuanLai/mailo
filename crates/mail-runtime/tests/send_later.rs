@@ -371,6 +371,9 @@ async fn the_date_it_carries_is_when_it_left_not_when_it_was_written() {
 /// Wait with a poll interval far longer than the test, for a send due in a moment.
 async fn woken_for(mode: WatchMode) -> (Result<Woke, mail_runtime::RuntimeError>, Duration, bool) {
     let mut it = fixture(mode).await;
+    // The clock starts where the due time is taken, not after the send is filed: on a loaded
+    // runner filing it took over 100 ms, and a wake exactly on time then read as early.
+    let started = Instant::now();
     let soon = Utc::now() + TimeDelta::milliseconds(300);
     schedule(&it.store, soon);
     let (_tx, mut cancel) = watch::channel(false);
@@ -378,7 +381,6 @@ async fn woken_for(mode: WatchMode) -> (Result<Woke, mail_runtime::RuntimeError>
         account: acct_account(),
         path: "INBOX".to_owned(),
     };
-    let started = Instant::now();
     let woke = tokio::time::timeout(
         Duration::from_secs(10),
         it.engine
