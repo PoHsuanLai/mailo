@@ -1,9 +1,9 @@
 //! The work behind the Keys and certificates page of Settings ([`super::keys_page`]): OpenPGP
 //! keys, then S/MIME certificates, the user's own first in each, and what can be done to each.
 //!
-//! ⌘K "Keys and certificates…" opens Settings on it. Every change goes through
-//! [`mail_core::pgp::keys`] or [`mail_core::smime::certs`], the functions `mailo pgp` and `mailo smime`
-//! use, and runs on a blocking thread: a key is made, imported, exported or forgotten in the
+//! The search bar's "Keys and Certificates Settings" opens Settings on it. Every change goes
+//! through [`mail_core::pgp::keys`] or [`mail_core::smime::certs`], the functions `mailo pgp`
+//! and `mailo smime` use, and runs on a blocking thread: a key is made, imported, exported or forgotten in the
 //! keyring, and a file is read or written, none of which the thread that draws may wait on. The
 //! acts that cannot be taken back — writing a secret key to a file, and deleting one — are each
 //! asked again by the page, in words, before anything happens.

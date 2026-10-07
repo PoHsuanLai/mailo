@@ -1,5 +1,5 @@
-//! Adding an account from the window: "Add account…" from ⌘K, the "+" after the account tiles,
-//! Settings, and the Connection Doctor's sign-in again.
+//! Adding an account from the window: "Add account…" from the search bar, the "+" after the
+//! account tiles, Settings, and the Connection Doctor's sign-in again.
 //!
 //! The add-account window is a window of its own, as Settings is: a separate top-level window,
 //! raised when it is already open, that draws porter's accounts sheet with quire's
