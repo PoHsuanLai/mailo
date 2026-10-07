@@ -4,7 +4,7 @@
 //! account's own sheet in the window.
 
 use super::{OpenSettings, SettingsWindows, settings_root};
-use crate::settings::{BrandLogos, MailSettings, ProviderMarks, Spelling};
+use crate::settings::{BrandLogos, LoadRemoteImages, MailSettings, ProviderMarks, Spelling};
 use crate::ui::app::App;
 use crate::ui::fixtures::{
     INSIDE_THE_SHELL, Seen, Work, chord, click, dispatching, drain_seen, press, rebuild_into, work,
@@ -231,4 +231,45 @@ async fn an_open_window_turns_to_the_page_asked_for() {
         page.contains("data-page=\"Keyboard\""),
         "it did not turn: {page}"
     );
+}
+
+#[tokio::test]
+async fn each_trusted_sender_is_a_row_whose_remove_stops_its_images() {
+    let built = work();
+    let mut settings = MailSettings::default();
+    settings.reading.remote_images = LoadRemoteImages::Trusted;
+    settings.reading.trusted_image_senders = vec![
+        "news@example.test".to_owned(),
+        "bob@example.test".to_owned(),
+    ];
+    crate::settings::store(crate::settings::root_for(&built.dirs.config))
+        .save(&settings)
+        .unwrap_or_else(|why| panic!("{why:?}"));
+    let (mut dom, seen) = opened_on(&built, SettingsPage::General);
+    let page = dioxus_ssr::render(&dom);
+    assert!(page.contains("news@example.test"), "{page}");
+    assert!(
+        !page.contains("[\"news@example.test\""),
+        "the list is drawn as its raw value too: {page}"
+    );
+    click(
+        &mut dom,
+        seen.one("aria-label", "Stop loading images from news@example.test"),
+    );
+    assert_eq!(
+        stored(&built).reading.trusted_image_senders,
+        ["bob@example.test"]
+    );
+}
+
+#[tokio::test]
+async fn trusting_senders_with_none_yet_says_how_one_is_trusted() {
+    let built = work();
+    let mut settings = MailSettings::default();
+    settings.reading.remote_images = LoadRemoteImages::Trusted;
+    crate::settings::store(crate::settings::root_for(&built.dirs.config))
+        .save(&settings)
+        .unwrap_or_else(|why| panic!("{why:?}"));
+    let (dom, _) = opened_on(&built, SettingsPage::General);
+    assert!(dioxus_ssr::render(&dom).contains("No trusted senders yet"));
 }
