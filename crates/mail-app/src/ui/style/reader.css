@@ -10,10 +10,18 @@
   color: var(--ink-faint);
 }
 .reader-head .head-row { display: flex; gap: var(--s-6); align-items: center; margin-bottom: var(--s-9); }
-.reader-meta { display: flex; align-items: center; gap: var(--s-8); margin-top: var(--s-9); }
-.reader-who { display: grid; min-width: 0; }
+/* A message's header, as Mail draws it: the avatar, then the sender's line (name, address, and
+   the date at its end) over whom it went to. The compact one, an earlier message's, is a small
+   avatar, the name and the date on one line. */
+.msg-head { display: flex; align-items: flex-start; gap: var(--s-10); min-width: 0; }
+.msg-head[*|data-detail="compact"] { align-items: center; gap: var(--s-8); }
+.msg-line { display: flex; align-items: baseline; gap: var(--s-6); min-width: 0; }
+.msg-line > :not(.msg-when) { min-width: 0; flex: 0 1 auto; }
+.msg-head[*|data-detail="compact"] .msg-line { flex: 1; }
+.msg-when { margin-left: auto; flex: none; padding-left: var(--s-8); white-space: nowrap; }
+.reader-who { display: flex; flex-direction: column; gap: var(--s-2); min-width: 0; flex: 1; }
 .reader-av {
-  width: 28px; height: 28px; border-radius: var(--r-pill); display: grid; place-items: center; flex: none;
+  width: 34px; height: 34px; border-radius: var(--r-pill); display: grid; place-items: center; flex: none;
   overflow: hidden;
 }
 .reader-logo { background: var(--paper); overflow: hidden; }
@@ -32,11 +40,8 @@
 article.frame { display: flex; flex-direction: column; flex: none; }
 article.frame:last-of-type { flex: 1 0 auto; }
 article.frame > :not(.html) { margin-left: var(--s-18); margin-right: var(--s-18); }
-article.frame header {
-  display: flex; align-items: baseline; gap: var(--s-8); margin-top: var(--s-12); margin-bottom: var(--s-10);
-  font-size: var(--fs-control); color: var(--ink);
-}
-article.frame header time { margin-left: auto; }
+article.frame header { margin-top: var(--s-14); margin-bottom: var(--s-12); }
+article.frame header[*|data-detail="compact"] { margin-top: var(--s-10); margin-bottom: var(--s-10); }
 article.frame + article.frame { border-top: var(--hair) solid var(--line-soft); }
 /* Whatever else the reader puts under the messages (the inline reply) is inset as their heads are. */
 .reader-body > :not(.frame):not(.banners) { margin-left: var(--s-18); margin-right: var(--s-18); margin-bottom: var(--s-18); }

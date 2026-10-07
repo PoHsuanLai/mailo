@@ -2,12 +2,13 @@ mod attachments;
 pub(super) mod blocks;
 mod cache;
 mod fetch;
+mod header;
 mod images;
 mod thumb;
 mod viewer;
 
 use super::press::on_primary;
-use super::text::{address, attachment_rows, from_name, stamp};
+use super::text::{attachment_rows, stamp};
 use crate::ui::view::{Peek, Shell};
 use attachments::Attachments;
 pub(in crate::ui) use cache::use_warming;
@@ -16,7 +17,7 @@ use dioxus::prelude::*;
 use ds::components::content::avatar::{
     AvatarFace, AvatarShape, AvatarSize, AvatarTone, person_hue,
 };
-use ds::components::content::label::{LabelRole, LabelStyle};
+use ds::components::content::label::LabelStyle;
 use ds::components::controls::button_model::{Bezel, ImagePosition};
 use ds::components::overlays::inline_banner::InlineBanner;
 use ds::prelude::*;
@@ -47,10 +48,16 @@ fn sender_face(message: &Message) -> AvatarFace {
     let named = message.from.name.as_deref().filter(|name| !name.is_empty());
     AvatarFace {
         initial: initial(named.unwrap_or(message.from.email.as_str())),
-        size: AvatarSize::Size28,
+        size: AvatarSize::Size34,
         tone: AvatarTone::Person(person_hue(&message.from.email)),
         shape: AvatarShape::Round,
     }
+}
+
+/// When `message` came, as a list row writes it: the time today, a weekday this week, a date
+/// beyond. The header's tooltip has the full date.
+fn when_short(message: &Message, now: chrono::DateTime<chrono::Utc>) -> String {
+    mail_core::when::listed(message.date, now, &chrono::Local)
 }
 
 /// The host a remote image would report the open to.
@@ -498,18 +505,10 @@ pub(super) fn Reader(
         .find(|(message, ..)| message.subject == loaded.summary.subject)
         .and_then(|(message, ..)| super::pgp::subject(message))
         .unwrap_or_else(|| loaded.summary.subject.clone());
-    let meta = shown.last().map(|(message, ..)| {
-        (
-            sender_face(message),
-            from_name(message),
-            address(message),
-            stamp(message),
-        )
-    });
-    // Whose word the sender's checks are on: the message the head names.
-    let checked = shown
-        .last()
-        .map(|(message, ..)| (message.id, message.body.raw()));
+    // How many messages there are, and the moment their dates are written against: the newest
+    // says everything in its header, the rest who and when.
+    let count = shown.len();
+    let now = super::clock::now();
     // The banner: what is still blocked comes first, since that is what it asks about; else the
     // host whose images are showing. Both name the newest such message's sender.
     let blocked = shown
@@ -589,25 +588,7 @@ pub(super) fn Reader(
                 }
             }
             super::follow_up::FollowUpNote { follow_up: loaded.summary.follow_up }
-            if let Some((face, from, addr, when)) = meta {
-                div { class: "reader-meta",
-                    if let Some((id, raw)) = checked {
-                        {rsx! { super::brand::ReaderAvatar { key: "{id}-{raw:?}", message: id, body: raw, from: addr.clone(), initial: face.initial.to_string() } }}
-                    } else {
-                        Avatar { initial: face.initial, size: face.size, tone: face.tone }
-                    }
-                    div { class: "reader-who",
-                        Label { text: from, style: LabelStyle::Headline }
-                        Label { text: addr, role: LabelRole::Secondary, style: LabelStyle::Footnote }
-                        if let Some((id, raw)) = checked {
-                            {rsx! { super::checks::SenderChecks { key: "{id}-{raw:?}", message: id, body: raw } }}
-                        }
-                        Label { text: when, role: LabelRole::Tertiary, style: LabelStyle::Footnote }
-                    }
-                    {rsx! { super::unsubscribe::Leave { key: "{leave_key}", thread, bodies: bodies.clone(), revision } }}
-                }
-            }
-            {rsx! { super::receipt::Receipts { key: "{leave_key}", bodies } }}
+            {rsx! { super::receipt::Receipts { key: "{leave_key}", bodies: bodies.clone() } }}
         }
         div { class: "reader-body",
             div { class: "banners",
@@ -657,12 +638,19 @@ pub(super) fn Reader(
                 }
             }
             }
-            for ((message, body, ..), attached) in shown.into_iter().zip(attached) {
+            for (at, ((message, body, ..), attached)) in shown.into_iter().zip(attached).enumerate() {
                 article { key: "{message.id}", class: "frame",
-                    header {
-                        Label { text: from_name(&message), style: LabelStyle::Headline }
-                        Label { text: address(&message), role: LabelRole::Secondary, style: LabelStyle::Footnote }
-                        time { Label { text: stamp(&message), role: LabelRole::Tertiary, style: LabelStyle::Footnote } }
+                    header::MessageHead {
+                        detail: header::detail_at(at, count),
+                        when: (when_short(&message, now), stamp(&message)),
+                        extras: (header::detail_at(at, count) == header::Detail::Full).then(|| header::Extras {
+                            checked: (message.id, message.body.raw()),
+                            thread,
+                            leave_key: leave_key.clone(),
+                            bodies: bodies.clone(),
+                            revision,
+                        }),
+                        message: message.clone(),
                     }
                     super::pgp::Seal {
                         key: "{message.id}-{message.body.raw():?}",
