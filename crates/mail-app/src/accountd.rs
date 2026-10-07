@@ -118,11 +118,10 @@ pub fn said(read: &Reconciled) -> Option<String> {
     if !read.updated.is_empty() {
         parts.push(format!("updated {}", read.updated.join(", ")));
     }
-    if !read.held.is_empty() {
+    for address in &read.held {
         parts.push(format!(
-            "{} is still signed in by Mail itself, so the desktop's account of it is not added \
-             (`mailo account remove` takes the old one away)",
-            read.held.join(", ")
+            "{address} is still signed in by Mail itself, so the desktop's account of it is not \
+             added. Remove it first: mailo account remove {address}"
         ));
     }
     for (name, why) in &read.unusable {
@@ -255,6 +254,29 @@ pub fn hold_back(store: &SqliteStore, link: &Link) {
 /// [`HELD_LINE`], when the store is set aside from accounts Mail signed in itself and has some.
 pub fn held_line(store: &SqliteStore) -> Option<&'static str> {
     (store.granted_only() && !store.held_accounts().is_empty()).then_some(HELD_LINE)
+}
+
+/// The accounts Mail signed in itself that are set aside while linked, by address, oldest first:
+/// what the account list offers to remove.
+pub fn held(store: &SqliteStore) -> Vec<(porter_core::AccountId, String)> {
+    if !store.granted_only() {
+        return Vec::new();
+    }
+    store
+        .held_accounts()
+        .into_iter()
+        .filter_map(|id| {
+            let address = store
+                .connection()
+                .query_row(
+                    "SELECT address FROM accounts WHERE id = ?1",
+                    [id.to_string()],
+                    |r| r.get::<_, String>(0),
+                )
+                .ok()?;
+            Some((id, address))
+        })
+        .collect()
 }
 
 /// The accounts that are accountd's, for a caller that wants to say so.

@@ -32,7 +32,9 @@ pub mod unsubscribe;
 pub mod wanted;
 pub mod wkd;
 
-pub use account_secrets::{AccountSecrets, PlatformSecrets, block_on, platform_secrets};
+pub use account_secrets::{
+    AccountSecrets, PlatformSecrets, block_on, own_secrets, platform_secrets,
+};
 pub use assemble::{Arrival, Destination, absorb, absorb_into, assemble};
 pub use drive::{Cancel, drive};
 pub use engine::{AccountEngine, PartBudget, SyncReport, Woke};

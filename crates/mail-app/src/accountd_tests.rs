@@ -364,6 +364,10 @@ fn what_a_read_did_is_said_in_one_line_or_not_at_all() {
         line.contains("bob@example.test is still signed in by Mail itself"),
         "{line}"
     );
+    assert!(
+        line.contains("Remove it first: mailo account remove bob@example.test"),
+        "{line}"
+    );
 }
 
 /// A row as an unlinked start wrote it: Mail signed this account in itself.

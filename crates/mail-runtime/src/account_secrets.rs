@@ -256,6 +256,13 @@ pub fn platform_secrets() -> Arc<dyn AccountSecrets> {
     }
 }
 
+/// mailo's own store, whatever the link: where the sign-ins Mail holds itself are kept. Linked to
+/// accountd [`platform_secrets`] holds none of them; removing an account Mail signed in itself is
+/// what asks for this, to forget its items with it.
+pub fn own_secrets() -> Arc<dyn AccountSecrets> {
+    own_store()
+}
+
 /// mailo's own store: the platform's, or the scenario directory's.
 fn own_store() -> Arc<dyn AccountSecrets> {
     #[cfg(debug_assertions)]

@@ -190,3 +190,52 @@ fn linked_leaves_what_mailo_held_exactly_as_it_was() {
     assert!(named(&store).contains(&PASSWORD.to_owned()));
     assert!(named(&store).contains(&OAUTH.to_owned()));
 }
+
+#[test]
+fn removing_a_held_account_frees_its_address_for_accountds_and_touches_no_other() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = SqliteStore::in_memory(dir.path()).unwrap();
+    let manual = Manual {
+        imap_host: "imap.example.test".to_owned(),
+        imap_port: 993,
+        smtp_host: "smtp.example.test".to_owned(),
+        smtp_port: 465,
+        login: None,
+    };
+    // Mail signed in itself the address accountd also offers, and one other.
+    let same = row(&store, 1, presets::manual(GRANTED, &manual, now()));
+    row(&store, 2, presets::manual(PASSWORD, &manual, now()));
+    store.set_granted_only(true);
+
+    // While the old one is here, accountd's account of that address is not added.
+    let said = reconcile(&store, &[fastmail()], now()).unwrap();
+    assert!(said.added.is_empty());
+    assert_eq!(said.held, [GRANTED]);
+
+    // Remove, as the button and `mailo account remove` do: only that account goes.
+    let secrets = porter_secrets::MemorySecrets::default();
+    let removed =
+        mail_runtime::block_on(mail_core::account::remove(&store, &secrets, same)).unwrap();
+    assert_eq!(removed.address, GRANTED);
+    let left: Vec<String> = store
+        .held_accounts()
+        .into_iter()
+        .map(|id| {
+            store
+                .connection()
+                .query_row(
+                    "SELECT address FROM accounts WHERE id = ?1",
+                    [id.to_string()],
+                    |r| r.get(0),
+                )
+                .unwrap()
+        })
+        .collect();
+    assert_eq!(left, [PASSWORD]);
+
+    // The same address through accountd is now accepted.
+    let said = reconcile(&store, &[fastmail()], now()).unwrap();
+    assert_eq!(said.added, [GRANTED]);
+    assert!(said.held.is_empty());
+    assert_eq!(named(&store), [GRANTED]);
+}
