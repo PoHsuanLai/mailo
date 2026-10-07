@@ -107,7 +107,16 @@ mod searching_in_the_window {
             .expect("the search panel's field");
         crate::ui::fixtures::type_into(&mut dom, field, typed);
         tokio::time::advance(crate::ui::debounce::QUIET).await;
-        until(&mut dom, landed).await
+        // The list may already look like the answer before the search lands (the Inbox can hold
+        // just the one conversation), so wait for the panel to show what was typed as well: the
+        // whole state the tests go on to read, not the first part of it to arrive.
+        let shown = format!(r#"value="{typed}""#);
+        until(&mut dom, |page| {
+            page.contains(&format!(r#"aria-label="{}""#, crate::ui::command::LABEL))
+                && page.contains(&shown)
+                && landed(page)
+        })
+        .await
     }
 
     /// The subjects the list pane is showing.
