@@ -575,6 +575,23 @@ fn open_configured(
     (dom, seen, dir)
 }
 
+/// Let `dom` finish what it sent off the thread (the senders' checks, `images::look_later`) and
+/// draw what landed: until nothing more arrives for a while, or ten seconds. What the renders
+/// gave ids to is added to `seen`.
+async fn settle(dom: &mut VirtualDom, seen: &mut crate::ui::fixtures::Seen) -> String {
+    let give_up = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+    while tokio::time::Instant::now() < give_up {
+        let more = tokio::time::timeout(std::time::Duration::from_millis(300), dom.wait_for_work());
+        if more.await.is_err() {
+            break;
+        }
+        let mut drawn = crate::ui::fixtures::Seen::default();
+        dom.render_immediate(&mut drawn);
+        *seen = std::mem::take(seen).merge(drawn);
+    }
+    dioxus_ssr::render(dom)
+}
+
 fn ada() -> Address {
     Address {
         name: Some("Ada".to_owned()),
@@ -590,7 +607,8 @@ fn loaded_pixel(markup: &str) -> bool {
 
 #[tokio::test]
 async fn always_opens_with_images_and_no_blocked_banner() {
-    // No checks at all: Always does not ask who the sender is, only where the message is filed.
+    // No checks at all: Always does not ask who the sender is, only where the message is filed,
+    // so the first frame already has the images; nothing waits.
     let (_config, dirs) = configured(|settings| {
         settings.reading.remote_images = crate::settings::LoadRemoteImages::Always;
     });
@@ -608,16 +626,32 @@ async fn always_opens_with_images_and_no_blocked_banner() {
 }
 
 #[tokio::test]
-async fn a_trusted_sender_opens_with_images() {
+async fn a_trusted_sender_opens_with_images_once_the_checks_land() {
+    // Opening draws at once, without reading the message's bytes for its checks: the sender is
+    // not trusted yet, so the first frame asks and offers nothing more. Once the checks land off
+    // the thread, DMARC passed, and the images load without a press.
     let (_config, dirs) = configured(|settings| {
         settings.reading.remote_images = crate::settings::LoadRemoteImages::Trusted;
         settings.reading.trusted_image_senders = vec!["ada@example.test".to_owned()];
     });
-    let (dom, _seen, _dir) = open_configured(&dirs, &ada(), pixel_from_ada(true));
-    let markup = dioxus_ssr::render(&dom);
+    let (mut dom, mut seen, _dir) = open_configured(&dirs, &ada(), pixel_from_ada(true));
+    let first = dioxus_ssr::render(&dom);
     assert!(
-        loaded_pixel(&markup),
-        "a trusted sender's images were blocked:\n{markup}"
+        first.contains("Remote images blocked"),
+        "the first frame waited for the checks, or trusted without them:\n{first}"
+    );
+    assert!(
+        !iframe_srcdoc(&first).contains("remote.example/pixel.png"),
+        "the pixel loaded before the checks were known:\n{first}"
+    );
+    assert!(
+        !first.contains("Always load from"),
+        "offered trust before the checks were known:\n{first}"
+    );
+    let landed = settle(&mut dom, &mut seen).await;
+    assert!(
+        loaded_pixel(&landed),
+        "a trusted sender's images were blocked once the checks landed:\n{landed}"
     );
 }
 
@@ -627,8 +661,13 @@ async fn an_untrusted_sender_still_asks_and_is_offered_trust() {
         settings.reading.remote_images = crate::settings::LoadRemoteImages::Trusted;
         settings.reading.trusted_image_senders = vec!["someone@else.example".to_owned()];
     });
-    let (dom, _seen, _dir) = open_configured(&dirs, &ada(), pixel_from_ada(true));
-    let markup = dioxus_ssr::render(&dom);
+    let (mut dom, mut seen, _dir) = open_configured(&dirs, &ada(), pixel_from_ada(true));
+    let first = dioxus_ssr::render(&dom);
+    assert!(
+        !first.contains("Always load from"),
+        "offered trust before the checks were known:\n{first}"
+    );
+    let markup = settle(&mut dom, &mut seen).await;
     assert!(
         markup.contains("Remote images blocked"),
         "a stranger's images loaded:\n{markup}"
@@ -659,8 +698,8 @@ async fn a_trusted_address_that_cannot_be_believed_still_asks() {
         (spoofed, pixel_from_ada(true), "a spoofed display name"),
         (ada(), pixel_from_ada(false), "no DMARC pass"),
     ] {
-        let (dom, _seen, _dir) = open_configured(&dirs, &from, raw);
-        let markup = dioxus_ssr::render(&dom);
+        let (mut dom, mut seen, _dir) = open_configured(&dirs, &from, raw);
+        let markup = settle(&mut dom, &mut seen).await;
         assert!(
             markup.contains("Remote images blocked"),
             "{why}: images loaded on the list's word:\n{markup}"
@@ -685,8 +724,8 @@ async fn always_load_from_trusts_the_sender_and_shows_the_images() {
     // Under the default, Ask: the press trusts Ada and moves the setting to Trusted, so it means
     // something for her next message too.
     let (_config, dirs) = configured(|_| {});
-    let (mut dom, seen, _dir) = open_configured(&dirs, &ada(), pixel_from_ada(true));
-    let before = dioxus_ssr::render(&dom);
+    let (mut dom, mut seen, _dir) = open_configured(&dirs, &ada(), pixel_from_ada(true));
+    let before = settle(&mut dom, &mut seen).await;
     assert!(before.contains("Remote images blocked"), "{before}");
     click(
         &mut dom,
@@ -708,9 +747,9 @@ async fn always_load_from_trusts_the_sender_and_shows_the_images() {
         "the images did not load on the press:\n{after}"
     );
 
-    // And the next message from her opens with them, without a press.
-    let (dom, _seen, _dir) = open_configured(&dirs, &ada(), pixel_from_ada(true));
-    let next = dioxus_ssr::render(&dom);
+    // And the next message from her opens with them, without a press, once its checks land.
+    let (mut dom, mut seen, _dir) = open_configured(&dirs, &ada(), pixel_from_ada(true));
+    let next = settle(&mut dom, &mut seen).await;
     assert!(loaded_pixel(&next), "her next message still asked:\n{next}");
 }
 

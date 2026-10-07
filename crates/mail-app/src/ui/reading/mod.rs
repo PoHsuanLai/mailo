@@ -26,6 +26,8 @@ use ds::style::tokens::control_size::ControlSize;
 use mail_domain::*;
 use mail_mime::SanitizePolicy;
 use mail_store::{SqliteStore, Store};
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::sync::Arc;
 pub(super) use viewer::{AttachmentViewer, viewer_key};
 
@@ -403,6 +405,12 @@ pub(super) fn Reader(
     let sent = use_hook(|| std::rc::Rc::new(std::cell::RefCell::new(cache::Sent::default())));
     let rendered_later = use_signal(|| 0u64);
     let _ = rendered_later();
+    // The same for senders' checks, on which whether a message's images load can turn
+    // (`images::look_later`).
+    let looked = use_hook(|| Rc::new(RefCell::new(images::Checked::default())));
+    let checked_later = use_signal(|| 0u64);
+    let _ = checked_later();
+    let mut wanted = Vec::new();
     let mut room = cache::ON_THE_FRAME;
     let mut later = Vec::new();
     // Newest first, so the message the conversation opens on is the one the frame's room goes
@@ -422,7 +430,8 @@ pub(super) fn Reader(
         .rev()
         .filter_map(|id| store.message(*id).ok())
         .map(|message| {
-            let showing = pressed || images::auto_allow_message(&store, &reading, &message);
+            let showing = pressed
+                || images::auto_allow_message(&reading, &looked.borrow(), &message, &mut wanted);
             let policy = shell.read().policy_with(showing);
             let mut frame = |policy| {
                 cache::on_the_frame(
@@ -514,17 +523,28 @@ pub(super) fn Reader(
     // (not under `Always`, which already would; not in Junk, which is always asked about), and
     // never to a sender who is not provably who the address says: trusting a forged address would
     // trust everyone who forges it next.
+    // Until the sender's checks are known it is not offered; it appears when they land.
     let offer = blocked.as_ref().and_then(|message| {
         let worth = reading.remote_images != crate::settings::LoadRemoteImages::Always
             && message.mailbox != MailboxRole::Spam
-            && !message.from.email.trim().is_empty()
-            && !images::suspicious(
-                message.from.name.as_deref(),
-                &message.from.email,
-                images::dmarc_passed(&store, message),
-            );
-        worth.then(|| message.from.email.trim().to_lowercase())
+            && !message.from.email.trim().is_empty();
+        if !worth {
+            return None;
+        }
+        let passed = images::dmarc_known(&looked.borrow(), message, &mut wanted)?;
+        (!images::suspicious(message.from.name.as_deref(), &message.from.email, passed))
+            .then(|| message.from.email.trim().to_lowercase())
     });
+    if !wanted.is_empty() {
+        let messages = shown.iter().map(|(message, ..)| message.clone()).collect();
+        images::look_later(
+            store.clone(),
+            messages,
+            wanted,
+            looked.clone(),
+            checked_later,
+        );
+    }
     // A protected message opened to a body lists what is attached inside it; its stored parts
     // are its wrapping.
     let attached: Vec<_> = shown

@@ -24,8 +24,9 @@ type Known = Vec<(MessageId, BlobId, Option<AuthResults>)>;
 static CACHE: std::sync::Mutex<Known> = std::sync::Mutex::new(Vec::new());
 
 /// The answer already found for `message` with body `raw`, if one has been. `Some(None)` is a
-/// message that was read and has no field this client believes.
-fn cached(message: MessageId, raw: BlobId) -> Option<Option<AuthResults>> {
+/// message that was read and has no field this client believes. Never reads the store, so the
+/// thread that draws may ask.
+pub(in crate::ui) fn cached(message: MessageId, raw: BlobId) -> Option<Option<AuthResults>> {
     let cache = CACHE.lock().unwrap_or_else(|held| held.into_inner());
     cache
         .iter()
