@@ -33,6 +33,10 @@ pub enum RuntimeError {
     /// Microsoft Graph answered, and not with acceptance. Classified where the status is read.
     #[error("{why}")]
     Graph { why: String, retry: Retry },
+    /// The desktop's accountd (step E6) could not do what was asked for an account that is its,
+    /// classified where it answered ([`crate::link::LinkError::retry`]).
+    #[error("{why}")]
+    Link { why: String, retry: Retry },
     /// A one-click unsubscribe did not go through. See [`crate::unsubscribe`].
     #[error("{0}")]
     Unsubscribe(crate::unsubscribe::UnsubscribeFailure),
@@ -64,7 +68,7 @@ impl Retryable for RuntimeError {
             RuntimeError::NoServer(_) => Retry::Fatal(self.to_string()),
             // Not a failure: the user closed the app or switched accounts.
             RuntimeError::Cancelled => Retry::Fatal("cancelled".to_owned()),
-            RuntimeError::Graph { retry, .. } => retry.clone(),
+            RuntimeError::Graph { retry, .. } | RuntimeError::Link { retry, .. } => retry.clone(),
             RuntimeError::Unsubscribe(failure) => failure.retry(),
             RuntimeError::CardDav(failure) => failure.retry(),
         }

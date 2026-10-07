@@ -1,0 +1,17 @@
+# SYNTHETIC. Written from the greeting porter's ManageSieve relay gives an app (porter-proxy,
+# the server's capability lines less SASL and STARTTLS, then `OK "porter relay ready"`): the
+# relay upgraded and signed in before the app saw a byte, so the first thing sent is LISTSCRIPTS.
+S: "IMPLEMENTATION" "Example Sieve"
+S: "SIEVE" "fileinto vacation imap4flags date relational"
+S: "VERSION" "1.0"
+S: OK "porter relay ready"
+C: LISTSCRIPTS
+S: "mailo" ACTIVE
+S: OK "Listscripts completed."
+C: GETSCRIPT "mailo"
+SPLIT
+S64: ezE1fQ0Ka2VlcDsNCiMgZG9uZQ0KDQo=
+S: OK "Getscript completed."
+C: LOGOUT
+S: OK "Logout completed."
+DONE

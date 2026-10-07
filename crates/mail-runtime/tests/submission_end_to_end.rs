@@ -26,6 +26,9 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 use tokio::sync::watch;
 
+#[path = "support/relay.rs"]
+mod relay;
+
 fn acct_account() -> AccountId {
     account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
 }
@@ -248,6 +251,12 @@ struct Sending {
 
 /// Everything up to the moment the user presses send.
 fn compose(smtp_port: u16) -> Sending {
+    compose_as(smtp_port, None)
+}
+
+/// [`compose`], for an account that is the desktop's accountd's when `relays` is given: no
+/// password of its own, and the submission goes through porter's relay.
+fn compose_as(smtp_port: u16, relays: Option<Arc<relay::Relays>>) -> Sending {
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(SqliteStore::in_memory(dir.path()).unwrap());
     {
@@ -331,12 +340,33 @@ fn compose(smtp_port: u16) -> Sending {
             Pop3Session::new("me@example.test", PASSWORD, all)
         }),
     );
+    let mut account_plan = plan(smtp_port, 1);
+    let secrets: Arc<dyn AccountSecrets> = match relays {
+        None => Arc::new(secrets),
+        Some(relays) => {
+            use porter_core::{EndpointUrl, Family, GrantId, LoginName, ServiceEndpoint};
+            account_plan.auth = AuthPlan::Granted {
+                account: AccountId::parse("fastmail-me").unwrap(),
+                grant: GrantId::parse("grant-1").unwrap(),
+                endpoints: vec![ServiceEndpoint {
+                    family: Family::Smtp,
+                    url: EndpointUrl::parse(&format!("smtp://127.0.0.1:{smtp_port}")).unwrap(),
+                    tls: porter_core::Tls::Plain,
+                    login: LoginName("me@example.test".to_owned()),
+                }],
+            };
+            Arc::new(mail_runtime::link::LinkedSecrets::new(
+                Arc::new(MemorySecrets::default()),
+                relays,
+            ))
+        }
+    };
     let engine = AccountEngine::new(
         acct_account(),
-        plan(smtp_port, 1),
+        account_plan,
         backend,
         store.clone(),
-        Arc::new(secrets),
+        secrets,
     );
     Sending {
         store,
@@ -514,4 +544,55 @@ async fn a_submission_that_cannot_connect_is_retried_not_lost() {
         ),
         other => panic!("expected Failed with a retry, got {other:?}"),
     }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_granted_account_submits_through_porters_relay_without_authenticating_itself() {
+    // porter's SMTP relay does `EHLO` and `AUTH` to the server, and gives the app `220 porter
+    // ESMTP ready` and an `EHLO` reply with no `AUTH` and no `STARTTLS`: the session goes straight
+    // to `MAIL FROM`, though the plan says the real server wants STARTTLS and a password.
+    let seen: Shared = Arc::new(Mutex::new(Transcript::default()));
+    let port = serve(seen.clone()).await;
+    let relays = relay::Relays::signing_in_with(PASSWORD);
+    let mut it = compose_as(port, Some(relays.clone()));
+    let (_tx, mut cancel) = watch::channel(false);
+
+    let report = it
+        .engine
+        .drain_outbox(&mut cancel, now())
+        .await
+        .expect("the drain reaches the submission server through the relay");
+    assert_eq!(report.submitted, 1, "{report:?}");
+    assert!(
+        report.needs_attention.is_empty(),
+        "{:?}",
+        report.needs_attention
+    );
+
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen.mail_from().as_deref(), Some("me@example.test"));
+    let mut rcpt = seen.rcpt_to();
+    rcpt.sort();
+    assert_eq!(rcpt.len(), 3, "{rcpt:?}");
+    assert!(
+        seen.body.contains("Shall we say one o'clock?"),
+        "{}",
+        seen.body
+    );
+    // The relay is what authenticated to the server.
+    assert!(
+        seen.commands.iter().any(|c| c == "AUTH PLAIN"),
+        "{:?}",
+        seen.commands
+    );
+    // The app sent no AUTH to the relay, and never held the password.
+    let app = relays.app_sent().to_uppercase();
+    assert!(
+        !app.contains("AUTH"),
+        "the app authenticated itself:\n{app}"
+    );
+    assert!(!app.contains("STARTTLS"), "{app}");
+    assert!(!app.contains(&PASSWORD.to_uppercase()));
+    assert!(app.contains("MAIL FROM:<ME@EXAMPLE.TEST>"), "{app}");
+    assert_eq!(relays.opened(), 1);
 }

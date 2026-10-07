@@ -17,7 +17,7 @@ use mail_mime::Posting;
 use mail_proto::backend::SmtpBackend;
 use mail_proto::{Backend, Moved, ProtoOutcome, Submission};
 use mail_store::{Dispatch, OutboxEntry, Settle, SqliteStore, Store};
-use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
+use porter_core::{AccountId, Credential, Family, SecretKey, SecretPurpose, SecretText};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -364,7 +364,46 @@ impl<B: Backend> AccountEngine<B> {
         let (host, port, tls) = self
             .incoming()
             .ok_or(RuntimeError::NoServer("connect to"))?;
-        Transport::connect(host, port, tls).await
+        let family = match self.plan.incoming {
+            Incoming::Pop3 { .. } => Family::Pop3,
+            _ => Family::Imap,
+        };
+        match self.relayed(family).await? {
+            Some(relay) => Ok(relay),
+            None => Transport::connect(host, port, tls).await,
+        }
+    }
+
+    /// A connection to the account's server of `family` that accountd has already signed in to,
+    /// when the account is accountd's ([`mail_domain::AuthPlan::Granted`]); `None` when it is mailo's own.
+    ///
+    /// An accountd account with no link to accountd (it is not running, or this is a build that
+    /// has no D-Bus) cannot be reached, and says so as something to try again, not as a password
+    /// to ask for.
+    async fn relayed(&self, family: Family) -> Result<Option<Transport>, RuntimeError> {
+        let Some(grant) = self.plan.grant() else {
+            return Ok(None);
+        };
+        let Some(link) = self.secrets.link() else {
+            return Err(RuntimeError::Link {
+                why: format!(
+                    "{} is an account of the desktop's account service, which is not reachable",
+                    self.plan.address
+                ),
+                retry: Retry::After(Duration::from_secs(30)),
+            });
+        };
+        let Some(endpoint) = self.plan.endpoint(family) else {
+            return Err(RuntimeError::Link {
+                why: format!(
+                    "the grant on {} lists no {} server",
+                    self.plan.address,
+                    family.slug()
+                ),
+                retry: Retry::Fatal(format!("no {} server granted", family.slug())),
+            });
+        };
+        Ok(Some(link.open(grant, endpoint).await?))
     }
 
     /// Run one operation, with a token that is fresh — and, if the server refuses a token that
@@ -553,12 +592,18 @@ impl<B: Backend> AccountEngine<B> {
         // Most providers authenticate submission with the same secret as retrieval, which is
         // what `AuthPlan` means by covering both directions. A separate outgoing secret is
         // preferred where one was stored, because a few hosts really do differ.
-        let credential = match &self.tokens {
-            Some(tokens) => tokens.current(Token::Sending).await?,
-            None => match self.secret(SecretPurpose::OutgoingPassword).await {
-                Ok(credential) => credential,
-                Err(_) => self.secret(SecretPurpose::IncomingPassword).await?,
-            },
+        let relayed = self.plan.grant().is_some();
+        let credential = if relayed {
+            // The relay signs in: nothing to present, and nothing of the account's in this process.
+            Credential::Password(SecretText::new(""))
+        } else {
+            match &self.tokens {
+                Some(tokens) => tokens.current(Token::Sending).await?,
+                None => match self.secret(SecretPurpose::OutgoingPassword).await {
+                    Ok(credential) => credential,
+                    Err(_) => self.secret(SecretPurpose::IncomingPassword).await?,
+                },
+            }
         };
         // The incoming backend's capabilities. They describe the *account*, not the socket:
         // `SmtpBackend` reads none of the IMAP-shaped fields, and giving it a second, emptier
@@ -576,6 +621,7 @@ impl<B: Backend> AccountEngine<B> {
                     username: username.clone(),
                     credential: credential.clone(),
                     sasl: sasl.clone(),
+                    relayed,
                     // Straight from the Posting. Re-deriving either of these from `message`
                     // is FINDINGS F37.
                     mail_from: posting.mail_from,
@@ -663,7 +709,10 @@ impl<B: Backend> AccountEngine<B> {
 
         let mut backend = self.submitter().await?;
         backend.stage(posting)?;
-        let mut transport = Transport::connect(&host, port, tls).await?;
+        let mut transport = match self.relayed(Family::Smtp).await? {
+            Some(relay) => relay,
+            None => Transport::connect(&host, port, tls).await?,
+        };
         let mut step = BackendMachine {
             backend: &mut backend,
             op: Some(op),
