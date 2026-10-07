@@ -25,10 +25,18 @@ async fn every_icon_button_in_the_window_has_a_tip() {
     drain_seen(&mut dom);
     let page = dioxus_ssr::render(&dom);
     let buttons = icon_buttons(&page);
-    assert!(buttons.len() >= 8, "too few icon buttons to be the window: {}", buttons.len());
+    assert!(
+        buttons.len() >= 8,
+        "too few icon buttons to be the window: {}",
+        buttons.len()
+    );
     let bare: Vec<&str> = buttons
         .into_iter()
         .filter(|tag| !tag.contains(" title=\""))
         .collect();
-    assert!(bare.is_empty(), "icon buttons with no tip:\n{}", bare.join("\n"));
+    assert!(
+        bare.is_empty(),
+        "icon buttons with no tip:\n{}",
+        bare.join("\n")
+    );
 }

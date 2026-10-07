@@ -158,7 +158,11 @@ mod tests {
                 "Sync now",
             ),
             (line("Offline", Tone::Warn, None), Said::OnLine, "Sync now"),
-            (line("Sign-in failed", Tone::Danger, None), Said::OnLine, "Sync now"),
+            (
+                line("Sign-in failed", Tone::Danger, None),
+                Said::OnLine,
+                "Sync now",
+            ),
         ];
         for (line, where_, tip) in cases {
             assert_eq!(said(&line), where_, "{:?}", line.text);

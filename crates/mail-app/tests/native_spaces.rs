@@ -226,7 +226,11 @@ fn deleting_a_space_asks_first_and_then_removes_it() {
 fn a_plain_click_on_the_spaces_name_opens_nothing() {
     let (mut harness, _dir) = open(1200, spaces(2));
     press(&mut harness, NAME);
-    assert_eq!(harness.count(MENU), 0, "a left click opened the Space's menu");
+    assert_eq!(
+        harness.count(MENU),
+        0,
+        "a left click opened the Space's menu"
+    );
     right_press(&mut harness, NAME);
     assert!(harness.count(MENU) > 0, "a right click did not open it");
 }

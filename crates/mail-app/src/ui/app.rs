@@ -1261,7 +1261,10 @@ mod tests {
         label: &str,
     ) -> crate::ui::fixtures::Seen {
         use crate::ui::fixtures::{click, drain_seen};
-        let view = *seen.all("aria-label", "View").last().expect("no View button");
+        let view = *seen
+            .all("aria-label", "View")
+            .last()
+            .expect("no View button");
         click(dom, view);
         let menu = seen.merge(drain_seen(dom));
         let row = menu.fixed("class", "ds-menu-item")[view_row(label)];

@@ -23,11 +23,11 @@ use crate::ui::view::{Shell, SpaceShowing};
 use dioxus::prelude::*;
 use ds::base::press::Press;
 use ds::components::app::edge_peek::EdgePeek;
+use ds::components::content::label::{Label, LabelRole, LabelStyle};
 use ds::components::controls::button_model::ImagePosition;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::root::pass_through::{DataAttr, DataName, ExtraClass};
-use ds::components::content::label::{Label, LabelRole, LabelStyle};
 use ds::style::space::frame_vars::FrameVars;
 use ds::style::space::look::SpaceLook;
 
