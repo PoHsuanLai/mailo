@@ -342,6 +342,11 @@ pub(in crate::ui) fn pick_sends(page: &mut Page, key: &str) {
 /// The chips of one list, the field beside them, and the people menu under it.
 #[component]
 fn Recipients(page: Signal<Page>, list: List, refused: Option<u32>) -> Element {
+    // To takes the keyboard as a new, unaddressed message opens (`super::opening`).
+    let focus = use_hook(|| match (list, super::opening(&page.peek())) {
+        (List::To, super::Opening::To) => FieldFocus::OnMount,
+        _ => FieldFocus::Manual,
+    });
     // The field's box, which the people menu floats under.
     let mut field_at = use_signal(|| None::<MountedRef>);
     let read = page.read();
@@ -427,6 +432,7 @@ fn Recipients(page: Signal<Page>, list: List, refused: Option<u32>) -> Element {
                 },
                 bezel: FieldBezel::Plain,
                 placeholder: placeholder.to_owned(),
+                focus,
                 validity: match refused {
                     None => Validity::Valid,
                     Some(count) => Validity::Invalid(Invalid {

@@ -119,6 +119,24 @@ pub(in crate::ui) fn ComposerPage(
     }
 }
 
+/// Where the keyboard is when a page opens, so what is typed next is written: r, a, f, c and
+/// every other way in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Opening {
+    /// A new message nobody is in yet: its To.
+    To,
+    /// A reply, or a message already addressed: its body.
+    Body,
+}
+
+/// Where `page` takes the keyboard as it opens.
+pub(super) fn opening(page: &Page) -> Opening {
+    match (page.kind, page.to.as_slice()) {
+        (PageKind::New, []) => Opening::To,
+        (PageKind::Reply, _) | (PageKind::New, [_, ..]) => Opening::Body,
+    }
+}
+
 #[component]
 fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Element {
     let mut desk = use_context::<Desk>();
