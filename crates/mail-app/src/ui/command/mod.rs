@@ -1,207 +1,118 @@
-//! The ⌘K menu: a field, the operator chips, and the grouped results.
+//! The search bar in the list's toolbar: one field that searches the list, and a panel under
+//! it of the mail, commands, places and people the text names. What the ⌘K menu offered, it
+//! offers, matched and ranked as the menu did.
 //!
-//! The rows are built in [`items`]; this file is the overlay and what a pick does. The search
-//! runs off the thread that draws, once the field has been still for [`super::debounce::QUIET`],
-//! and an answer to text a newer keystroke has replaced is dropped. What is drawn is always one
-//! answer to one query, so Enter picks from the rows on screen, not from a query run afresh.
+//! The rows are built in [`items`] and regrouped into the panel's sections in [`sections`]; the
+//! field and its panel are [`bar`], its keys [`keys`]; this file is what a pick does.
 
+mod bar;
 mod items;
+mod keys;
+mod panel;
 pub(in crate::ui) mod people;
+mod sections;
 mod templates;
 
+#[cfg(test)]
+pub(in crate::ui) use bar::LABEL;
+pub(in crate::ui) use bar::{SearchBar, press_elsewhere, summon};
 pub(in crate::ui) use items::avatar_color;
 
-use super::debounce::{Settled, use_debounced};
-use super::menu::{Right, palette_groups};
 use super::ops::{Composes, start_composing, start_new};
-use crate::ui::view::{PageMenu, SettingsPage, Shell};
-use chrono::Utc;
+use crate::ui::view::{Bar, BarListing, PageMenu, SettingsPage, Shell};
+use bar::Ctx;
 use dioxus::prelude::*;
-use ds::components::content::avatar::AvatarSize;
-use ds::prelude::*;
-use items::{Pick, interpret, restate_sidebar, rows_of, search_now, tokens};
-use mail_core::search::Results;
+use items::Pick;
 use mail_store::SqliteStore;
-use std::collections::HashMap;
+use sections::Choice;
 use std::sync::Arc;
 
-/// The centred overlay: quire's `CommandPalette`, rising opaque. Open while `shell.command` is
-/// `Some`. It floats over the window on quire's palette layer, so the keys typed into it never
-/// reach the window's shortcuts.
-#[component]
-pub(super) fn CommandMenu(
-    shell: Signal<Shell>,
-    pages: Signal<u32>,
-    revision: Signal<u64>,
-    side_hidden: Signal<bool>,
-    spaces: Signal<crate::ui::space::Spaces>,
-) -> Element {
-    let query = shell.read().command.clone().unwrap_or_default();
-    let debounced = use_debounced(shell, |shell| shell.command.clone().unwrap_or_default());
-    let mut drawn = use_signal(|| {
-        let store = consume_context::<Arc<SqliteStore>>();
-        Drawn::of(&store, debounced.settled.peek().clone())
-    });
-    let _fetch = use_resource(move || {
-        let settled = debounced.settled.read().clone();
-        let store = consume_context::<Arc<SqliteStore>>();
-        async move {
-            // The first frame already drew this generation, on the thread that draws.
-            if drawn.peek().settled == settled {
-                return;
-            }
-            let done = tokio::task::spawn_blocking(move || Drawn::of(&store, settled)).await;
-            if let Ok(done) = done
-                && debounced.is_latest(done.settled.generation)
-            {
-                drawn.set(done);
-            }
-        }
-    });
-    let shown = drawn.read();
-    let mut items = rows_of(&shown.results, &shown.names, &shown.settled.text);
-    drop(shown);
-    // Compose's key is the user's to change: the row says the one it has now.
-    let compose = shell.read().keymap.keys(crate::ui::view::Shortcut::Compose);
-    for item in items.iter_mut().filter(|item| item.key == "action:Compose") {
-        item.right = compose.first().map_or(Right::None, |key| {
-            Right::Shortcut(crate::ui::keymap::spoken(key))
-        });
-    }
-    let sidebar = if side_hidden() {
-        Shown::Hidden
-    } else {
-        Shown::Visible
-    };
-    let items: Vec<_> = items
-        .into_iter()
-        .map(|item| restate_sidebar(item, sidebar, &query))
-        .collect();
-    let chips = tokens(&query);
-    let placeholder = "Search mail, people, actions · try from:dana or has:attachment".to_owned();
-    // "New from template" lists the templates in this same overlay rather than running anything.
-    let mut listing = use_signal(|| Listing::Search);
-    let mut choose = move |pick: Option<Pick>| match pick {
-        Some(Pick::Action(label)) if label == templates::ACTION => {
-            listing.set(Listing::Templates);
-            shell.write().command = Some(String::new());
-        }
-        pick => act(shell, pages, revision, side_hidden, spaces, pick),
-    };
-    if listing() == Listing::Templates {
-        return rsx! { templates::TemplateMenu { shell, revision } };
-    }
-    let groups = palette_groups(&items, AvatarSize::Size22, None);
-    rsx! {
-        CommandPalette::<String> {
-            label: "Search and commands".to_owned(),
-            placeholder,
-            query,
-            tokens: chips,
-            groups,
-            empty: "Nothing matches.".to_owned(),
-            oninput: move |value| {
-                shell.write().command = Some(value);
-            },
-            onpick: move |key: String| {
-                let pick = drawn.read().pick(&key);
-                choose(pick);
-            },
-            onclose: move |()| close(shell),
-            onkey: move |event: KeyboardEvent| toggle_key(&event, shell),
-        }
-    }
-}
-
-/// ⌘K in the palette's field closes it, as ⌘K in the window opens it. The field holds the
-/// keyboard while the palette is up, so the window's own shortcut never hears it.
-fn toggle_key(event: &KeyboardEvent, shell: Signal<Shell>) {
-    let key = event.key().to_string();
-    if super::chord::chord(&key, event.modifiers()) == Some(super::chord::Chord::CommandMenu) {
-        event.prevent_default();
-        close(shell);
-    }
-}
-
-/// What the overlay is listing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Listing {
-    /// Mail, people and actions for the query.
-    Search,
-    /// Templates, after "New from template".
-    Templates,
-}
-
-/// One answer, and the settled text it answers.
-#[derive(Debug, Clone, PartialEq)]
-struct Drawn {
-    settled: Settled,
-    results: Results,
-    names: HashMap<String, String>,
-}
-
-impl Drawn {
-    /// Search for `settled`. Blocking: the store is read.
-    fn of(store: &SqliteStore, settled: Settled) -> Self {
-        let (results, names) = search_now(store, &settled.text, Utc::now());
-        Self {
-            settled,
-            results,
-            names,
-        }
-    }
-
-    /// What the row keyed `key` does, read back against this answer.
-    fn pick(&self, key: &str) -> Option<Pick> {
-        interpret(&self.results, key)
-    }
-}
-
+/// The panel closed, and the keyboard back with the list.
 fn close(mut shell: Signal<Shell>) {
-    shell.write().command = None;
+    shell.write().bar = Bar::Closed;
     shell.write().page_menu = PageMenu::Closed;
     crate::ui::host::Host::focus_app();
 }
 
-fn act(
-    mut shell: Signal<Shell>,
-    mut pages: Signal<u32>,
-    mut revision: Signal<u64>,
-    mut side_hidden: Signal<bool>,
-    spaces: Signal<crate::ui::space::Spaces>,
-    pick: Option<Pick>,
-) {
-    let Some(pick) = pick else {
+/// The search the list showed before a command's name was typed over it, back in the list: the
+/// name was never a search.
+fn restore(mut shell: Signal<Shell>, mut pages: Signal<u32>) {
+    let before = match &shell.peek().bar {
+        Bar::Open(open) => open.before.clone(),
+        Bar::Closed => return,
+    };
+    if shell.peek().search != before {
+        shell.write().search = before;
+        pages.set(1);
+    }
+}
+
+/// Do what the picked row says. A mail opens with the search that found it still shown; a
+/// person's mail becomes the search; a place, a Space or a command runs on the search there was.
+fn act(ctx: Ctx, choice: Option<Choice>) {
+    let Ctx {
+        mut shell,
+        mut pages,
+        mut revision,
+        mut side_hidden,
+        spaces,
+        ..
+    } = ctx;
+    let Some(choice) = choice else {
         return;
     };
-    match pick {
-        Pick::Open(id) => {
+    match choice {
+        Choice::Pick(Pick::Open(id)) => {
             shell.write().open(id);
             close(shell);
         }
-        Pick::From(email) => {
+        Choice::Pick(Pick::From(email)) => {
             shell.write().search = format!("from:{email}");
             pages.set(1);
             close(shell);
         }
-        Pick::Action(label) => run_action(
-            shell,
-            pages,
-            &mut revision,
-            &mut side_hidden,
-            spaces,
-            &label,
-        ),
+        Choice::Place(index) => {
+            restore(shell, pages);
+            shell.write().select(index);
+            pages.set(1);
+            close(shell);
+        }
+        Choice::Space(index) => {
+            restore(shell, pages);
+            close(shell);
+            super::switch::go(spaces, shell, pages, index);
+        }
+        // "New from template" lists the templates in the same panel rather than running anything.
+        Choice::Pick(Pick::Action(label)) if label == templates::ACTION => {
+            restore(shell, pages);
+            if let Bar::Open(open) = &mut shell.write().bar {
+                open.listing = BarListing::Templates(String::new());
+                open.active = 0;
+            }
+        }
+        Choice::Pick(Pick::Action(label)) => {
+            restore(shell, pages);
+            run_action(
+                shell,
+                pages,
+                &mut revision,
+                &mut side_hidden,
+                spaces,
+                &label,
+            );
+        }
     }
 }
 
 /// The page of Settings a command's entry opens, when it is one.
 fn settings_page_of(label: &str) -> Option<SettingsPage> {
     match label {
-        "Contacts" => Some(SettingsPage::Contacts),
-        "Rules…" => Some(SettingsPage::Rules),
-        "Keys and certificates…" => Some(SettingsPage::Keys),
-        "Keyboard shortcuts…" => Some(SettingsPage::Keyboard),
+        "General Settings" => Some(SettingsPage::General),
+        "Accounts Settings" => Some(SettingsPage::Accounts),
+        "Contacts Settings" => Some(SettingsPage::Contacts),
+        "Rules Settings" => Some(SettingsPage::Rules),
+        "Keys and Certificates Settings" => Some(SettingsPage::Keys),
+        "Keyboard Shortcuts Settings" => Some(SettingsPage::Keyboard),
         _ => None,
     }
 }
@@ -349,5 +260,9 @@ fn run_action(
     }
 }
 
+#[cfg(test)]
+mod bar_tests;
+#[cfg(test)]
+pub(in crate::ui) mod pictures;
 #[cfg(test)]
 pub(in crate::ui) mod tests;

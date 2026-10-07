@@ -1,8 +1,7 @@
-//! ⌘K's "New from template": the same overlay, listing every template through the one
-//! [`Menu`]. Picking one starts a draft from it and opens that draft as a composer page; the ×
-//! deletes one.
+//! The search bar's "New from template": the same panel, listing every template. Picking one
+//! starts a draft from it and opens that draft as a composer page. A template is deleted from
+//! the composer's own list of them, whose rows carry the ×; a menu row has none.
 
-use ds::prelude::*;
 use std::sync::Arc;
 
 use chrono::Utc;
@@ -10,15 +9,10 @@ use dioxus::prelude::*;
 use mail_domain::Draft;
 use mail_store::SqliteStore;
 
-use super::super::compose::{every_template, forget_template, template_rows};
-use super::super::menu::palette_groups;
+use super::super::compose::{every_template, template_rows};
+use super::super::menu::MenuItem;
 use super::super::motion::{Follow, tell};
 use crate::ui::view::Shell;
-use ds::components::content::avatar::AvatarSize;
-
-#[cfg(test)]
-#[path = "templates_tests.rs"]
-mod tests;
 
 /// The action's label, as the Actions group lists it.
 pub(super) const ACTION: &str = "New from template";
@@ -34,60 +28,21 @@ pub(in crate::ui) fn start(store: &SqliteStore, key: &str) -> Result<Draft, Stri
     mail_core::template::start(store, id, &[], Utc::now())
 }
 
-/// The overlay, while ⌘K is listing templates: quire's palette again. The field narrows
-/// the list; each row's × deletes its template.
-#[component]
-pub(super) fn TemplateMenu(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
-    let store = use_hook(consume_context::<Arc<SqliteStore>>);
-    // Bumped by a delete, so the list is read again.
-    let mut deleted = use_signal(|| 0u64);
-    let _ = deleted();
-    let all = every_template(&store);
-    let typed = shell.read().command.clone().unwrap_or_default();
-    let items = template_rows(&all, &typed);
-    let empty = if all.is_empty() {
-        "No templates"
-    } else {
-        "Nothing matches."
-    };
-    let pick = move |key: String| {
-        let store = consume_context::<Arc<SqliteStore>>();
-        match start(&store, &key) {
-            Ok(draft) => {
-                shell.write().compose(&draft);
-                let mut revision = revision;
-                revision += 1;
-                super::close(shell);
-            }
-            Err(why) => tell(why, Follow::Nothing),
+/// The panel's rows while it lists the templates, narrowed by `typed`.
+pub(super) fn rows(store: &SqliteStore, typed: &str) -> Vec<MenuItem> {
+    template_rows(&every_template(store), typed)
+}
+
+/// Start a draft from the template `key` names and open it as a composer page.
+pub(super) fn run(shell: Signal<Shell>, mut revision: Signal<u64>, key: &str) {
+    let store = consume_context::<Arc<SqliteStore>>();
+    match start(&store, key) {
+        Ok(draft) => {
+            let mut shell = shell;
+            shell.write().compose(&draft);
+            revision += 1;
+            super::close(shell);
         }
-    };
-    let remove = EventHandler::new(move |key: String| {
-        let store = consume_context::<Arc<SqliteStore>>();
-        match forget_template(&store, &key) {
-            Ok(said) => tell(said, Follow::Nothing),
-            Err(why) => tell(why, Follow::Nothing),
-        }
-        deleted += 1;
-    });
-    let mut groups = palette_groups(&items, AvatarSize::Size22, Some(remove));
-    for group in &mut groups.0 {
-        group.title = "Templates".to_owned();
-    }
-    rsx! {
-        CommandPalette::<String> {
-            label: "New from template".to_owned(),
-            placeholder: "New from template · type to narrow".to_owned(),
-            query: typed,
-            tokens: Vec::new(),
-            groups,
-            empty: empty.to_owned(),
-            oninput: move |value| {
-                shell.write().command = Some(value);
-            },
-            onpick: pick,
-            onclose: move |()| super::close(shell),
-            onkey: move |event: KeyboardEvent| super::toggle_key(&event, shell),
-        }
+        Err(why) => tell(why, Follow::Nothing),
     }
 }

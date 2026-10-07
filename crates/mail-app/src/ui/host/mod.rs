@@ -29,6 +29,9 @@ pub(in crate::ui) enum Ask {
     FocusApp,
     /// Focus the first element `selector` matches, `when` it is there.
     Focus { selector: &'static str, when: When },
+    /// Focus the first element `selector` matches, now, with its whole text selected, so the
+    /// first key typed replaces it: the search bar ⌘K summons.
+    FocusAll(&'static str),
     /// Bring the first element `selector` matches into the middle of its scroller, after the
     /// render that moved it.
     ScrollIntoView(&'static str),
@@ -92,6 +95,11 @@ impl Host {
             selector,
             when: When::Now,
         });
+    }
+
+    /// Focus the element `selector` matches, now, selecting its whole text.
+    pub(in crate::ui) fn focus_all(selector: &'static str) {
+        Host::ask(Ask::FocusAll(selector));
     }
 
     /// Focus the element `selector` matches after the next frame: a sheet's field, once the

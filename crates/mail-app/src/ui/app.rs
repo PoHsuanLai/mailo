@@ -1,5 +1,4 @@
 use super::chord::Chord;
-use super::command::CommandMenu;
 use super::compose::{self, ComposerPage, PageKind, SendPill};
 use super::data::{PAGE, accounts, count_badges};
 use super::frame;
@@ -457,13 +456,7 @@ pub(super) fn App() -> Element {
                 return;
             }
             Some(Chord::CommandMenu) => {
-                let open = shell.read().command.is_some();
-                if open {
-                    shell.write().command = None;
-                    super::host::Host::focus_app();
-                } else {
-                    shell.write().command = Some(String::new());
-                }
+                super::command::summon(shell);
                 return;
             }
             Some(Chord::Settings) => {
@@ -476,8 +469,7 @@ pub(super) fn App() -> Element {
         // trying to filter for, and the menu's own handler already took the arrows.
         let menu_open = {
             let current = shell.read();
-            current.command.is_some()
-                || current.page_menu != PageMenu::Closed
+            current.page_menu != PageMenu::Closed
                 || current.snoozing.is_some()
                 || current.labelling.is_some()
                 || current.filing.is_some()
@@ -485,7 +477,6 @@ pub(super) fn App() -> Element {
         if menu_open {
             if key == "Escape" {
                 let mut write = shell.write();
-                write.command = None;
                 write.page_menu = PageMenu::Closed;
                 write.snoozing = None;
                 write.labelling = None;
@@ -673,7 +664,7 @@ pub(super) fn App() -> Element {
                 panes: vec![SplitPane::new(LIST, rsx! {
                     ThreadList {
                         shell, pages, revision, in_a_field, threads, drafts, nothing, more,
-                        marking, top, paging, side_hidden, question: asked,
+                        marking, top, paging, side_hidden, spaces, question: asked,
                     }
                 })],
                 section { class: "reader",
@@ -701,6 +692,8 @@ pub(super) fn App() -> Element {
             tabindex: "0",
             onmounted: super::host::Host::app_mounted,
             onkeydown: on_key,
+            // The search bar keeps its own presses; any other closes its panel.
+            onpointerdown: move |_| super::command::press_elsewhere(shell),
             onpointermove: move |event| {
                 let at = event.client_coordinates();
                 let held = !event.held_buttons().is_empty();
@@ -729,9 +722,6 @@ pub(super) fn App() -> Element {
                 }
             }
             SpaceMenuView { spaces, editing, shell, pages, today: today_list }
-            if shell.read().command.is_some() {
-                CommandMenu { shell, pages, revision, side_hidden, spaces }
-            }
             if shell.read().files.is_some() {
                 super::files::FilesSheet { shell, revision }
             }
@@ -1169,7 +1159,13 @@ mod tests {
         let (store, _dir) = realistic();
         let markup = markup(store);
 
-        for expected in ["Inbox", "Drafts", "Search all mail", "GitHub", "dinner?"] {
+        for expected in [
+            "Inbox",
+            "Drafts",
+            crate::ui::command::LABEL,
+            "GitHub",
+            "dinner?",
+        ] {
             assert!(markup.contains(expected), "no {expected:?} in:\n{markup}");
         }
         // Long subjects are ellipsised by CSS, not truncated in the markup — the full text has

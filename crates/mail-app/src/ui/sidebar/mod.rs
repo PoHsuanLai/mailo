@@ -22,7 +22,6 @@ use crate::ui::today::Today;
 use crate::ui::view::{Shell, SpaceShowing};
 use dioxus::prelude::*;
 use ds::base::press::Press;
-use ds::components::app::command_pill::CommandPill;
 use ds::components::app::edge_peek::EdgePeek;
 use ds::components::controls::button_model::ImagePosition;
 use ds::prelude::*;
@@ -105,13 +104,6 @@ pub(super) fn Places(
             pinned,
             onpin: move |()| side_hidden.set(false),
             common: Common { extra_class: ExtraClass::parse("side").ok(), ..Common::default() },
-            CommandPill {
-                label: "Search or run a command".to_owned(),
-                shortcut: Shortcut(vec![ShortcutKey::Super, ShortcutKey::Char('k')]),
-                onclick: move |()| {
-                    shell.write().command = Some(String::new());
-                },
-            }
             div { class: "slide",
                 AccountTiles { shell, pages, spaces, space: space.clone(), counted: tiles.clone() }
                 PlaceList { shell, pages, badges, folded }

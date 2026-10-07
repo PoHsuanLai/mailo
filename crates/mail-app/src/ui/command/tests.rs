@@ -1,75 +1,16 @@
-//! The ⌘K menu over the reference fixture, and the pages its screenshots are taken from.
+//! The search bar's rows over the reference fixture, what its commands do, and the pages its
+//! screenshots are taken from. How the bar itself behaves is `bar_tests.rs`.
 
 use super::super::app::App;
 use super::items::{Pick, interpret, rows_of, search_now, tokens};
 use super::*;
 use crate::ui::fixtures::work;
 use crate::ui::view::Shell;
+use chrono::Utc;
 use dioxus_core::VirtualDom;
+use ds::prelude::*;
 use mail_core::search::{Results, Top};
-use mail_domain::Filter;
 use std::collections::HashMap;
-
-/// The command menu open on `dana`, as a page a browser can photograph.
-#[component]
-pub(in crate::ui) fn MenuPicture() -> Element {
-    let shell = use_signal(|| Shell {
-        command: Some("dana".to_owned()),
-        ..Shell::default()
-    });
-    let pages = use_signal(|| 1u32);
-    let revision = use_signal(|| 0u64);
-    let side_hidden = use_signal(|| false);
-    let spaces = use_signal(crate::ui::space::Spaces::default);
-    // Inside a quire root, as the window has it: the palette floats in its overlay.
-    rsx! {
-        Ds {
-            appearance: Appearance::default(),
-            material: Material::Window,
-            stylesheet: ds::assembly::ds::Inject::Host,
-            CommandMenu { shell, pages, revision, side_hidden, spaces }
-        }
-    }
-}
-
-/// The open command menu and a label menu, so the stylesheet test sees those classes.
-#[component]
-pub(in crate::ui) fn OpenMenus() -> Element {
-    let store = use_hook(consume_context::<Arc<SqliteStore>>);
-    let known = mail_core::query::known_labels(&store);
-    let shell = use_signal(|| Shell {
-        command: Some("dana".to_owned()),
-        labels: known,
-        ..Shell::default()
-    });
-    let pages = use_signal(|| 1u32);
-    let revision = use_signal(|| 0u64);
-    let side_hidden = use_signal(|| false);
-    let spaces = use_signal(crate::ui::space::Spaces::default);
-    let summary = mail_core::search::Source::listed(
-        store.as_ref(),
-        &Filter::All,
-        mail_core::search::first(1),
-        Utc::now(),
-    )
-    .into_iter()
-    .next();
-    rsx! {
-        Ds {
-            appearance: Appearance::default(),
-            material: Material::Window,
-            stylesheet: ds::assembly::ds::Inject::Host,
-            CommandMenu { shell, pages, revision, side_hidden, spaces }
-            // quire's menu, floating in the same root's overlay.
-            if let Some(summary) = summary {
-                {
-                    let id = summary.id;
-                    rsx! { super::super::menus::LabelMenu { id, summary, shell, revision, anchor: None } }
-                }
-            }
-        }
-    }
-}
 
 fn at_dana(store: &SqliteStore) -> (Results, HashMap<String, String>) {
     search_now(store, "dana", Utc::now())
@@ -235,28 +176,28 @@ fn from_dana_is_a_chip() {
     assert_eq!(tokens("from:dana spec"), vec!["from:dana".to_owned()]);
 }
 
-/// The People row's name is drawn with the typed characters as `<mark>` nodes: quire's palette
-/// row, whose title is the runs mailo marked.
-#[tokio::test]
-async fn dana_is_marked_in_the_persons_name() {
+/// The People row's name keeps the typed characters marked, as the ⌘K menu drew them. quire's
+/// `Menu` draws no marks in a title yet, so they are data the panel holds, not markup.
+#[test]
+fn dana_is_marked_in_the_persons_name() {
     let built = work();
-    let mut menus = VirtualDom::new(MenuPicture).with_root_context(built.store);
-    menus.rebuild_in_place();
-    crate::ui::fixtures::drain(&mut menus);
-    let page = dioxus_ssr::render(&menus);
-    let people = page.find(">People<").expect("no People group on dana");
-    let after = &page[people..];
-    let name = &after[after
-        .find("<b class=\"ds-row-title")
-        .expect("a person item has a name")..];
-    let name = &name[..name.find("</b>").expect("the name closes")];
-    assert!(
-        name.contains("<mark class=\"ds-mark\">Dana</mark>"),
-        "the person's name marks nothing: {name}"
-    );
+    let (results, names) = at_dana(&built.store);
+    let person = rows_of(&results, &names, "dana")
+        .into_iter()
+        .find(|item| item.key.starts_with("person:"))
+        .expect("a person for dana");
+    let name = &person.title[0];
+    let marked: String = name
+        .text
+        .chars()
+        .enumerate()
+        .filter(|(index, _)| name.marks.contains(&(*index as u32)))
+        .map(|(_, c)| c)
+        .collect();
+    assert_eq!(marked, "Dana", "the person's name marks {marked:?}");
 }
 
-/// The command menu open on `dana` (`menus.html`), and the label menu open on the second row
+/// The search bar open on `dana` (`menus.html`), and the label menu open on the second row
 /// (`menus-label.html`), each in both themes, as pages a browser can photograph. Two pages
 /// because two open menus at once is a state the window never shows.
 #[tokio::test]
@@ -274,22 +215,19 @@ async fn render_the_menus_to_a_file() {
             .with_root_context(built.store.clone())
             .with_root_context(built.dirs.clone())
             .with_root_context(in_scheme(scheme));
-        dom.rebuild_in_place();
-        settle(&mut dom).await;
-        // ⌘K in the window, then "dana" in quire's palette, which floats in the root's
-        // overlay and answers once the field has been still.
+        // ⌘K in the window, then "dana" in the bar, whose panel floats in the root's overlay
+        // and answers once the field has been still.
+        let seen = crate::ui::fixtures::rebuild_into(&mut dom);
         crate::ui::fixtures::chord(
             &mut dom,
-            "t",
+            "k",
             dioxus::html::input_data::keyboard_types::Modifiers::CONTROL,
             dioxus_core::ElementId(crate::ui::fixtures::INSIDE_THE_SHELL as usize),
         );
-        let opened = crate::ui::fixtures::drain_seen(&mut dom);
-        // The card and its field are both named for what they are; the field is drawn last.
-        let field = *opened
-            .all("aria-label", "Search and commands")
+        let field = *seen
+            .all("aria-label", LABEL)
             .last()
-            .expect("the palette's field");
+            .expect("the bar's field");
         crate::ui::fixtures::type_into(&mut dom, field, "dana");
         for _ in 0..6 {
             settle(&mut dom).await;
@@ -336,10 +274,12 @@ async fn settle(dom: &mut VirtualDom) {
 fn the_entries_that_are_a_page_of_settings_name_it() {
     use crate::ui::view::SettingsPage;
     const CASES: &[(&str, Option<SettingsPage>)] = &[
-        ("Contacts", Some(SettingsPage::Contacts)),
-        ("Rules…", Some(SettingsPage::Rules)),
-        ("Keys and certificates…", Some(SettingsPage::Keys)),
-        ("Keyboard shortcuts…", Some(SettingsPage::Keyboard)),
+        ("General Settings", Some(SettingsPage::General)),
+        ("Accounts Settings", Some(SettingsPage::Accounts)),
+        ("Contacts Settings", Some(SettingsPage::Contacts)),
+        ("Rules Settings", Some(SettingsPage::Rules)),
+        ("Keys and Certificates Settings", Some(SettingsPage::Keys)),
+        ("Keyboard Shortcuts Settings", Some(SettingsPage::Keyboard)),
         ("Settings…", None),
         ("Add account…", None),
     ];
@@ -362,7 +302,7 @@ fn the_entries_that_are_a_page_of_settings_name_it() {
 #[component]
 fn Runs(label: String) -> Element {
     let shell = use_signal(|| Shell {
-        command: Some(String::new()),
+        bar: Bar::Open(crate::ui::view::BarOpen::over(String::new())),
         ..Shell::default()
     });
     let pages = use_signal(|| 1u32);
@@ -384,10 +324,12 @@ async fn each_settings_entry_opens_the_settings_window_on_its_page() {
     use crate::ui::settings_window::tests::Asked;
     use crate::ui::view::SettingsPage;
     for (label, page) in [
-        ("Contacts", SettingsPage::Contacts),
-        ("Rules…", SettingsPage::Rules),
-        ("Keys and certificates…", SettingsPage::Keys),
-        ("Keyboard shortcuts…", SettingsPage::Keyboard),
+        ("General Settings", SettingsPage::General),
+        ("Accounts Settings", SettingsPage::Accounts),
+        ("Contacts Settings", SettingsPage::Contacts),
+        ("Rules Settings", SettingsPage::Rules),
+        ("Keys and Certificates Settings", SettingsPage::Keys),
+        ("Keyboard Shortcuts Settings", SettingsPage::Keyboard),
     ] {
         crate::ui::fixtures::dispatching();
         let asked = Arc::new(Asked::default());

@@ -371,6 +371,47 @@ fn the_list_s_title_gives_way_to_its_tools_in_a_narrow_list() {
     );
 }
 
+#[test]
+fn the_search_bar_is_a_toolbar_field_beside_the_tools_in_a_narrow_list() {
+    // The narrowest window the list keeps its least width in, and the same list with the search
+    // bar holding text, which adds Save as view to the tools.
+    let (mut harness, _dir) = open(760, spaces(1));
+    for case in ["idle", "searching"] {
+        let column = rect(&harness, ".list-col");
+        let toolbar = rect(&harness, ".list-col .ds-toolbar");
+        let tools = rect(&harness, ".bar-tools");
+        let field = rect(&harness, ".list-head .bar .ds-text-field-frame");
+        assert!(
+            (field.size.height.0 - 28.0).abs() < 0.5,
+            "{case}: the field is {:?} high, not the toolbar's 28",
+            field.size.height
+        );
+        assert!(
+            within(&field, &toolbar),
+            "{case}: the field {field:?} is not in the toolbar {toolbar:?}"
+        );
+        assert!(
+            within(&field, &column),
+            "{case}: the field {field:?} is clipped by the list {column:?}"
+        );
+        assert!(
+            left(&field) >= right(&tools) - 0.5,
+            "{case}: the field {field:?} runs over the tools {tools:?}"
+        );
+        assert!(
+            within(&tools, &column),
+            "{case}: the tools {tools:?} are clipped by the list {column:?}"
+        );
+        if case == "idle" {
+            harness.click(centre(&harness, ".search input"));
+            for key in "zz".chars() {
+                harness.key(drive::Key::Char(key));
+            }
+            harness.advance(ms(400));
+        }
+    }
+}
+
 /// The first row's lines lie inside the row, and the row inside the slot the list placed it in.
 fn lines_fit(harness: &Harness, case: &str) {
     let slot = rect(harness, ROW);

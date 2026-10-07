@@ -441,10 +441,55 @@ pub enum PageMenu {
     Properties,
 }
 
+/// The search bar's panel of suggestions, under its field in the list's toolbar.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum Bar {
+    /// No panel: the field is a search box and nothing more.
+    #[default]
+    Closed,
+    /// The panel is up.
+    Open(BarOpen),
+}
+
+/// The panel while it is up.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BarOpen {
+    /// The highlighted suggestion, counted over the rows (the section titles not counted).
+    pub active: usize,
+    /// What the panel lists.
+    pub listing: BarListing,
+    /// The search the window showed before the field took the keyboard. What is typed into the
+    /// bar is a search and a command's name at once; a command runs on the search there was
+    /// before its name was typed, so "Export mail…" exports what the list showed, not "export".
+    pub before: String,
+}
+
+impl BarOpen {
+    /// The panel as it opens over the search `before`: the search's suggestions, the first
+    /// highlighted.
+    pub fn over(before: String) -> Self {
+        Self {
+            active: 0,
+            listing: BarListing::Search,
+            before,
+        }
+    }
+}
+
+/// What the bar's panel lists.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BarListing {
+    /// Mail, commands, places and people for the field's text, which is the list's search.
+    Search,
+    /// The templates, after "New from template", narrowed by the text held here: while it
+    /// lists them the field narrows the templates and leaves the list's search alone.
+    Templates(String),
+}
+
 /// Which of the two mail-file sheets is open, and what its field holds.
 ///
-/// The field's text lives here, beside the command menu's query, because the debounce that
-/// reads it takes a function of the shell.
+/// The field's text lives here because the debounce that reads it takes a function of the
+/// shell.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FileSheet {
     /// "Import mail…": the path typed so far.
@@ -651,8 +696,8 @@ pub struct Shell {
     pub parts: PageParts,
     /// The list-bar menu that is open.
     pub page_menu: PageMenu,
-    /// The command menu's query while it is open. `None` is closed.
-    pub command: Option<String>,
+    /// The search bar's panel of suggestions.
+    pub bar: Bar,
     /// What the Contacts page of Settings is filtered by.
     pub contacts: String,
     /// The Import or Export sheet while it is open, with the text its field holds. `None` is
@@ -788,7 +833,7 @@ impl Default for Shell {
             group: PageGroup::None,
             parts: PageParts::default(),
             page_menu: PageMenu::Closed,
-            command: None,
+            bar: Bar::Closed,
             contacts: String::new(),
             files: None,
             rules: RulesPage::default(),
