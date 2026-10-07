@@ -18,6 +18,7 @@ use super::view_groups::group_list;
 use crate::ui::fetching::{CANNOT_LOAD, Fetching, HasRows, ListFace, list_face, sync_availability};
 use crate::ui::view::{Nothing, Shell};
 use dioxus::prelude::*;
+use ds::components::app::thread_height::{ThreadLines, thread_card_gap, thread_card_height};
 use ds::components::chrome::toolbar::view::Toolbar;
 use ds::components::content::label::{Label, LabelRole, LabelStyle};
 use ds::components::controls::button_model::{Bezel, BusyLook, ImagePosition};
@@ -38,20 +39,18 @@ mod status;
 use self::first_sync::FirstSyncRows;
 use self::status::ListStatus;
 
-/// How far apart the list's rows are, their gap included: quire's card-density `ThreadRow` (three
-/// lines, 58.5 px on quire v0.2.15's type scale, and 10 px of padding above and below) and the
-/// 7 px of inset and gap around it. `native_layout`'s `a_row_s_lines_fit_inside_its_slot` fails
-/// when quire's type grows past it.
-const ROW_PITCH: f32 = 86.0;
-
 /// A `SectionHeader`'s height: its eyebrow line and its padding (27.05 px drawn).
 const HEADING_PITCH: f32 = 27.0;
 
 /// How tall `slot`'s item is. Each is held to its height (`style/list.css`), so a font that sets a
-/// line a fraction taller cannot push the rows off the offsets the window is computed from.
-fn pitch(slot: &Slot) -> f32 {
+/// line a fraction taller cannot push the rows off the offsets the window is computed from. A
+/// row's is quire's card `ThreadRow` with `lines` of text and the gap under it, both computed
+/// from quire's own tokens, so a change to its type scale moves the pitch with it.
+fn pitch(slot: &Slot, lines: ThreadLines) -> f32 {
     match slot {
-        Slot::Draft(_) | Slot::Top(_) | Slot::Thread(_) | Slot::Server(_) => ROW_PITCH,
+        Slot::Draft(_) | Slot::Top(_) | Slot::Thread(_) | Slot::Server(_) => {
+            thread_card_height(lines).0 + thread_card_gap().0
+        }
         Slot::Band(_) | Slot::TopHeading | Slot::NewestHeading | Slot::ServerHeading => {
             HEADING_PITCH
         }
@@ -325,7 +324,13 @@ pub(super) fn ThreadList(
         .map(|item| (item.key, item.content))
         .collect();
     let row = Callback::new(move |slot: Slot| drawn.get(&slot).cloned().unwrap_or_else(|| rsx! {}));
-    let height = RowHeight::PerKey(Callback::new(|slot: Slot| Px(pitch(&slot))));
+    // A row draws its snippet as a third line only while the list's parts show snippets.
+    let lines = if shell.read().parts.snippet.shown() {
+        ThreadLines::Three
+    } else {
+        ThreadLines::Two
+    };
+    let height = RowHeight::PerKey(Callback::new(move |slot: Slot| Px(pitch(&slot, lines))));
     let nothing_here = threads().is_empty() && drafts().is_empty() && found().is_empty();
     let has_rows = if nothing_here {
         HasRows::No
