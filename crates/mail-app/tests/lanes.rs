@@ -36,3 +36,13 @@ mod window;
 mod compose;
 #[path = "lanes/format.rs"]
 mod format;
+
+// 3–6: a reply's round trip, an invitation, links, forwarding.
+#[path = "lanes/forward.rs"]
+mod forward;
+#[path = "lanes/invite.rs"]
+mod invite;
+#[path = "lanes/links.rs"]
+mod links;
+#[path = "lanes/reply.rs"]
+mod reply;
