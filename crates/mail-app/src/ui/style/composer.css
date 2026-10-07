@@ -5,7 +5,6 @@
    places them, and styles the message body, which is the person's text and not chrome. */
 .cpage {
   display: flex; flex-direction: column; min-height: 0; height: 100%; background: var(--surface); position: relative;
-  animation: page-in var(--t-move) var(--e-out);
 }
 .cpage.sending { opacity: 0; transition: opacity var(--t-quick) var(--e-exit); }
 .cpage.focus { position: absolute; inset: var(--s-8); z-index: var(--z-focus-page); border-radius: var(--r-card); box-shadow: var(--shadow-card); }
