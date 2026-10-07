@@ -1,0 +1,41 @@
+{
+  "address": "me@example.test",
+  "incoming": {
+    "kind": "imap",
+    "v": {
+      "host": "imap.example.test",
+      "port": 993,
+      "tls": "implicit"
+    }
+  },
+  "outgoing": {
+    "kind": "smtp",
+    "v": {
+      "host": "smtp.example.test",
+      "port": 465,
+      "tls": "implicit"
+    }
+  },
+  "auth": {
+    "kind": "granted",
+    "v": {
+      "account": "fastmail-me-example-test",
+      "grant": "grant-1",
+      "endpoints": [
+        {
+          "family": "imap",
+          "url": "imaps://imap.example.test:993",
+          "tls": "implicit",
+          "login": "me@example.test"
+        },
+        {
+          "family": "smtp",
+          "url": "smtps://smtp.example.test:465",
+          "tls": "implicit",
+          "login": "me@example.test"
+        }
+      ]
+    }
+  },
+  "identities": []
+}

@@ -363,6 +363,7 @@ fn login(credential: Credential) -> SieveLogin {
         tls: Tls::StartTlsRequired,
         username: "me@example.test".to_owned(),
         credential,
+        relayed: false,
     }
 }
 
@@ -413,6 +414,24 @@ fn status_upgrades_first_then_lists_and_fetches_our_script() {
             },
         ]
     );
+    assert_eq!(ours.as_deref(), Some("keep;\r\n# done\r\n"));
+}
+
+/// A porter relay's connection is signed in and upgraded already: the session asks for neither,
+/// even though the plan says the real server wants `STARTTLS`.
+#[test]
+fn a_relayed_session_lists_scripts_with_no_starttls_and_no_authenticate() {
+    let mut relayed = SieveSession::new(
+        SieveLogin {
+            relayed: true,
+            ..login(password())
+        },
+        SieveJob::Status,
+    );
+    let out = replay(&mut relayed, include_str!("traces/sieve/relayed.trace")).unwrap();
+    let SieveOutcome::Status { ours, .. } = out else {
+        panic!("{out:?}");
+    };
     assert_eq!(ours.as_deref(), Some("keep;\r\n# done\r\n"));
 }
 

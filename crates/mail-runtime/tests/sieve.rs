@@ -18,6 +18,9 @@ use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 
+#[path = "support/relay.rs"]
+mod relay;
+
 fn acct_account() -> AccountId {
     account_id_from_uuid(uuid::Uuid::from_u128(1))
 }
@@ -144,6 +147,7 @@ fn auth() -> SieveAuth {
     SieveAuth {
         username: "me@example.test".to_owned(),
         credential: Credential::Password(SecretText::new("s3cret".to_owned())),
+        relay: None,
     }
 }
 
@@ -331,4 +335,63 @@ async fn a_server_without_starttls_never_hears_a_credential() {
         "not a word was sent: {:?}",
         state.lock().unwrap().heard
     );
+}
+
+/// An account of the desktop's accountd: the connection is porter's ManageSieve relay, which
+/// upgraded and signed in before the app saw the capability list, and the session asks for neither
+/// though the plan says the real server wants STARTTLS.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_granted_account_pushes_through_porters_relay_without_authenticating_itself() {
+    use porter_core::{EndpointUrl, Family, GrantId, LoginName, ServiceEndpoint};
+    let (mut endpoint, state) = server(Server::default()).await;
+    let relays = relay::Relays::signing_in_with("s3cret");
+    let mut through = auth();
+    through.credential = Credential::Password(SecretText::new(String::new()));
+    through.relay = Some(mail_runtime::sieve::Relay {
+        link: relays.clone(),
+        grant: GrantId::parse("grant-1").unwrap(),
+        endpoint: ServiceEndpoint {
+            family: Family::Sieve,
+            url: EndpointUrl::parse(&format!("sieve://127.0.0.1:{}", endpoint.port)).unwrap(),
+            tls: porter_core::Tls::Plain,
+            login: LoginName("me@example.test".to_owned()),
+        },
+    });
+    endpoint.tls = Tls::StartTlsRequired;
+    let (_tx, mut cancel) = tokio::sync::watch::channel(false);
+    let pushed = push(
+        &endpoint,
+        &through,
+        &rules(),
+        None,
+        &Places::default(),
+        Takeover::Refuse,
+        now(),
+        &mut cancel,
+    )
+    .await
+    .expect("a push through the relay");
+    assert!(
+        matches!(pushed.outcome, SieveOutcome::Installed { .. }),
+        "{:?}",
+        pushed.outcome
+    );
+    let held = state.lock().unwrap();
+    assert!(
+        held.scripts
+            .iter()
+            .any(|(n, _, active)| n == "mailo" && *active)
+    );
+    // The relay signed in, once per connection; the app did not.
+    let heard_auth = held
+        .heard
+        .iter()
+        .filter(|l| l.starts_with("AUTHENTICATE"))
+        .count();
+    assert_eq!(heard_auth, relays.opened(), "{:?}", held.heard);
+    let app = relays.app_sent().to_uppercase();
+    assert!(!app.contains("AUTHENTICATE"), "{app}");
+    assert!(!app.contains("STARTTLS"), "{app}");
+    assert!(app.contains("LISTSCRIPTS"), "{app}");
+    assert_eq!(relays.opened(), 2, "a push is two connections");
 }

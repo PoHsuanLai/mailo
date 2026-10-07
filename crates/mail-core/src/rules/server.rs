@@ -234,6 +234,34 @@ async fn auth(
     now: DateTime<Utc>,
 ) -> Result<SieveAuth, String> {
     let secrets = platform_secrets();
+    // An account of the desktop's accountd: its relay for the ManageSieve server it lists, and no
+    // credential of ours.
+    if let Some(grant) = account.plan.grant() {
+        let link = secrets.link().ok_or_else(|| {
+            format!(
+                "{} is an account of the desktop's account service, which is not reachable",
+                account.address
+            )
+        })?;
+        let endpoint = account
+            .plan
+            .endpoint(porter_core::Family::Sieve)
+            .ok_or_else(|| {
+                format!(
+                    "{}: the account service lists no ManageSieve server for it",
+                    account.address
+                )
+            })?;
+        return Ok(SieveAuth {
+            username: account.plan.username(),
+            credential: Credential::Password(porter_core::SecretText::new("")),
+            relay: Some(mail_runtime::sieve::Relay {
+                link,
+                grant: grant.clone(),
+                endpoint: endpoint.clone(),
+            }),
+        });
+    }
     let stored: Credential = secrets
         .get(&SecretKey {
             account: account.id.clone(),
@@ -245,6 +273,7 @@ async fn auth(
     Ok(SieveAuth {
         username: account.plan.username(),
         credential,
+        relay: None,
     })
 }
 

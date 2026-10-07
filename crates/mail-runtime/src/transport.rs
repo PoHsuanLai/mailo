@@ -7,6 +7,8 @@
 use crate::RuntimeError;
 use mail_domain::Tls;
 use mail_proto::{IoNeed, IoReady};
+use porter_client::AuthenticatedStream;
+use porter_core::stream::{ByteStream, DuplexEnd};
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -19,14 +21,21 @@ use tokio_rustls::client::TlsStream;
 /// syscalls against a per-connection buffer rather than trying to read a response in one go.
 const READ_CHUNK: usize = 16 * 1024;
 
-/// An open connection, plaintext or TLS.
+/// An open connection, plaintext or TLS, or a porter relay's stream.
 ///
-/// Not a trait. There are exactly two cases and no third is planned; an enum keeps the match
-/// exhaustive and costs nothing.
+/// Not a trait. There are a few cases and no more planned; an enum keeps the match exhaustive and
+/// costs nothing.
 #[derive(Debug)]
 enum Stream {
     Plain(TcpStream),
     Tls(Box<TlsStream<TcpStream>>),
+    /// The desktop accountd's relay, as a Unix socket it handed over: the relay dialled the
+    /// server, secured the connection and signed in before this end saw a byte
+    /// ([`Transport::relayed`]).
+    #[cfg(unix)]
+    Relay(tokio::net::UnixStream),
+    /// A relay hosted in this process, as an in-memory duplex.
+    Memory(DuplexEnd),
     /// Held only while [`Transport::upgrade`] moves the socket into the TLS wrapper. Any use
     /// of a transport in this state is a bug, and every method says so rather than panicking.
     Upgrading,
@@ -37,6 +46,8 @@ enum Stream {
 pub struct Transport {
     stream: Stream,
 }
+
+const RELAYED: &str = "a relay's connection is already secured by the relay";
 
 /// Choose the crypto provider, once, before rustls is asked to.
 ///
@@ -81,12 +92,44 @@ impl Transport {
         Ok(Self { stream })
     }
 
+    /// A connection that is already open and already authenticated: the end of a porter relay
+    /// (`Accounts::open_authenticated`). The relay owns TLS and the sign-in, so [`Transport::upgrade`]
+    /// has nothing to do on it, and the machine driven over it must not authenticate (the IMAP
+    /// session without a `LOGIN`, the SMTP and ManageSieve ones `relayed`).
+    pub fn relayed(stream: AuthenticatedStream) -> Result<Self, RuntimeError> {
+        let stream = match stream {
+            #[cfg(unix)]
+            AuthenticatedStream::Fd(fd) => {
+                let socket = std::os::unix::net::UnixStream::from(fd);
+                socket
+                    .set_nonblocking(true)
+                    .map_err(|e| RuntimeError::Io(format!("the relay's socket: {e}")))?;
+                let socket = tokio::net::UnixStream::from_std(socket)
+                    .map_err(|e| RuntimeError::Io(format!("the relay's socket: {e}")))?;
+                Stream::Relay(socket)
+            }
+            AuthenticatedStream::Memory(end) => Stream::Memory(end),
+        };
+        Ok(Self { stream })
+    }
+
     /// Upgrade a plaintext connection after the protocol's `STARTTLS`/`STLS` was accepted.
     pub async fn upgrade(&mut self, host: &str) -> Result<(), RuntimeError> {
         match std::mem::replace(&mut self.stream, Stream::Upgrading) {
             Stream::Plain(tcp) => {
                 self.stream = Stream::Tls(Box::new(Self::wrap(tcp, host).await?));
                 Ok(())
+            }
+            // A relay's stream is as secure as the relay made it, and a machine over it does not
+            // ask: if one does, say so rather than pretend.
+            #[cfg(unix)]
+            other @ Stream::Relay(_) => {
+                self.stream = other;
+                Err(RuntimeError::Tls(RELAYED.to_owned()))
+            }
+            other @ Stream::Memory(_) => {
+                self.stream = other;
+                Err(RuntimeError::Tls(RELAYED.to_owned()))
             }
             // Upgrading twice is a bug in the caller, not a condition to tolerate silently.
             // Put the stream back so the error does not also destroy the connection.
@@ -159,6 +202,9 @@ impl Transport {
         match &mut self.stream {
             Stream::Plain(s) => s.write_all(bytes).await,
             Stream::Tls(s) => s.write_all(bytes).await,
+            #[cfg(unix)]
+            Stream::Relay(s) => s.write_all(bytes).await,
+            Stream::Memory(s) => ByteStream::write_all(s, bytes).await,
             Stream::Upgrading => {
                 return Err(RuntimeError::Tls("transport used mid-upgrade".to_owned()));
             }
@@ -170,6 +216,9 @@ impl Transport {
         match &mut self.stream {
             Stream::Plain(s) => s.flush().await,
             Stream::Tls(s) => s.flush().await,
+            #[cfg(unix)]
+            Stream::Relay(s) => s.flush().await,
+            Stream::Memory(_) => Ok(()),
             Stream::Upgrading => {
                 return Err(RuntimeError::Tls("transport used mid-upgrade".to_owned()));
             }
@@ -181,6 +230,9 @@ impl Transport {
         match &mut self.stream {
             Stream::Plain(s) => s.read(buf).await,
             Stream::Tls(s) => s.read(buf).await,
+            #[cfg(unix)]
+            Stream::Relay(s) => s.read(buf).await,
+            Stream::Memory(s) => ByteStream::read(s, buf).await,
             Stream::Upgrading => {
                 return Err(RuntimeError::Tls("transport used mid-upgrade".to_owned()));
             }

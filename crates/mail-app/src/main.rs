@@ -269,6 +269,33 @@ fn main() {
     // into porter's store: once, on a thread of its own, and nothing waits on it (until it has
     // run the old entries are read behind the new store). A failure is logged, not fatal.
     mail_app::adoption::for_command(command.as_ref(), &store, mail_app::adoption::platform);
+    // The link to the desktop's accountd, decided once, here: the window, `watch` and every command
+    // that signs in to a server go through it (`mail_runtime::platform_secrets`). `watch` is
+    // nobody's foreground, so it asks as a background use. Only the window and `watch` say which
+    // was chosen: a command's output is its own.
+    {
+        use mail_app::cli::Command;
+        let background = matches!(command, Some(Command::Watch { .. }));
+        let linked = mail_app::accountd::start(if background {
+            porter_core::consent::Usage::Background
+        } else {
+            porter_core::consent::Usage::Interactive
+        });
+        let says = background || command.is_none();
+        if says {
+            eprintln!("mailo: accounts link: {}", linked.name());
+        }
+        // The accounts accountd offers, read into the store before anything draws or syncs.
+        match mail_app::accountd::read(&store, &linked) {
+            Ok(Some(read)) => {
+                if let Some(line) = mail_app::accountd::said(&read).filter(|_| says) {
+                    eprintln!("mailo: {line}");
+                }
+            }
+            Ok(None) => {}
+            Err(why) => eprintln!("mailo: reading the desktop's accounts: {why}"),
+        }
+    }
     let start = match &mailto {
         Some(link) => match mail_app::ui::start_mailto(&store, link, chrono::Utc::now()) {
             Ok(compose) => Some(compose),

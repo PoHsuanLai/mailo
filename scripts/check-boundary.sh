@@ -7,7 +7,9 @@
 set -uo pipefail
 
 PURE=(mail-domain mail-mime mail-proto mail-pim)
-FORBIDDEN=(tokio rusqlite dioxus reqwest keyring-core)
+# E6: nor the desktop's D-Bus link (porter's client and bus vocabulary, quire's capability probe):
+# the sans-I/O crates know nothing of accountd.
+FORBIDDEN=(tokio rusqlite dioxus reqwest keyring-core porter-client porter-dbus ds-desktop zbus)
 # `mail-core` is the I/O-capable core: it may use tokio, rusqlite and the network, which the PURE
 # crates may not. What it may never reach is anything that draws, the window's toolkit or the
 # renderer under it, so that `mail-app`'s two front-ends (`ui`, `cli`) sit over one core that
@@ -132,6 +134,17 @@ ratchet scripts/core-result-string-allowlist.txt 'Result<String, String>' \
 FORBIDDEN_SYMBOLS='\bOAuthRegistry\b|\bmail_runtime::(oauth|signin|renewal|loopback)\b|\bmail_runtime::\{[^}]*\b(oauth|signin|renewal|loopback|Renewal|Registration|Loopback)\b|\bmail_runtime::(Renewal|Registration|Loopback)\b|\bcrate::(oauth|signin|renewal|loopback)\b|\bsignin::(http_client|renew|graph_token|default_path)\b|\boauth2::|\bwith_renewal\b|\bOAuthIssuer\b|\bAccountId::(from_uuid|generate)\b|\bSecretPurpose::(AddressBook|OpenPgp|Smime)\b|\bCredential::(OpenPgp|SmimeKey)\b|\bmail_domain::(AccountId|Credential|SecretKey|SecretPurpose)\b|\bMapSecrets\b|\bmail_runtime::(KeyringSecrets|Secrets|MapSecrets|secrets)\b|\bmail_runtime::\{[^}]*\b(KeyringSecrets|Secrets|MapSecrets)\b|\bdyn Secrets\b|\b(get|put|forget)_signing\b|\bcrate::secrets\b|\bpresets::preset_for\b|\bpresets::\{[^}]*\bpreset_for\b|\bpreset_for\(|\bpreset_for_mail_exchanger\b|\bis_personal_microsoft\b|\bmail_proto::discover\b|\bmail_runtime::discover\b|\bmail_(proto|runtime)::\{[^}]*\bdiscover\b|\badd_account::(flow|sheet|copy)\b|\bAddAccountSheet\b|\bshell\.(read|write)\(\)\.adding\b'
 if grep -rnE "$FORBIDDEN_SYMBOLS" crates --include='*.rs' | grep -vE '^[^:]+:[0-9]+:[[:space:]]*//'; then
   echo "a symbol that moved to porter (or was deleted with its type) is back: see FORBIDDEN_SYMBOLS in scripts/check-boundary.sh"
+  fail=1
+fi
+
+# The D-Bus link to accountd is desktop-only code behind the `quire-desktop` feature (quire design/36
+# rule 3): `porter_dbus` is named in `mail-runtime`'s `link/dbus.rs` and its bus test, and quire's
+# probe `ds_desktop` in `mail-app`'s `accountd` and its tests, and nowhere else. Everything else
+# asks `mail_runtime::link::Accountd`, which a build for another desktop has too.
+if grep -rnE '\b(porter_dbus|ds_desktop)\b' crates --include='*.rs' \
+  | grep -vE '^crates/mail-runtime/src/link/dbus\.rs:|^crates/mail-runtime/tests/link_bus\.rs:|^crates/mail-app/src/accountd(_tests)?\.rs:' \
+  | grep -vE '^[^:]+:[0-9]+:[[:space:]]*//'; then
+  echo "porter_dbus and ds_desktop belong to the quire-desktop link only: see scripts/check-boundary.sh"
   fail=1
 fi
 

@@ -48,6 +48,7 @@ fn build(
         username: USER.into(),
         credential,
         sasl,
+        relayed: false,
         mail_from: USER.into(),
         recipients: recipients.iter().map(|addr| (*addr).to_owned()).collect(),
         receipt: None,
@@ -92,6 +93,7 @@ fn envelope(mail_from: &str, recipients: &[&str], message: &str) -> SmtpSession 
         username: USER.into(),
         credential: password(),
         sasl: vec![SaslMech::Plain],
+        relayed: false,
         mail_from: mail_from.into(),
         recipients: recipients.iter().map(|addr| (*addr).to_owned()).collect(),
         receipt: None,
@@ -113,6 +115,7 @@ fn with_receipt(
         username: USER.into(),
         credential: password(),
         sasl: vec![SaslMech::Plain],
+        relayed: false,
         mail_from: mail_from.into(),
         recipients: recipients.iter().map(|addr| (*addr).to_owned()).collect(),
         receipt,
@@ -168,7 +171,7 @@ fn submit_plain_stuffs_a_leading_dot_and_records_extensions() {
         DOTTED,
     );
     let reply = replay(&mut session, include_str!("traces/smtp/submit.trace")).unwrap();
-    assert_eq!(reply.mechanism, SaslMech::Plain);
+    assert_eq!(reply.mechanism, Some(SaslMech::Plain));
     assert_eq!(
         reply.extensions.auth,
         vec![SaslMech::Plain, SaslMech::Login, SaslMech::XOauth2]
@@ -185,6 +188,31 @@ fn submit_plain_stuffs_a_leading_dot_and_records_extensions() {
     assert_secrets_absent(&format!("{session:?} {reply:?}"));
 }
 
+/// On a porter relay's connection the session never authenticates, and does not ask for
+/// `STARTTLS` the plan says the real server wants: the relay owns both (`Submission::relayed`).
+#[test]
+fn a_relayed_session_goes_from_ehlo_to_mail_from_without_auth_or_starttls() {
+    let mut session = SmtpSession::new(Submission {
+        ehlo: "client.example".into(),
+        host: "smtp.example".into(),
+        port: 587,
+        tls: Tls::StartTlsRequired,
+        username: USER.into(),
+        credential: password(),
+        sasl: vec![],
+        relayed: true,
+        mail_from: USER.into(),
+        recipients: vec!["bob@example.com".to_owned()],
+        receipt: None,
+        message: SHORT.as_bytes().to_vec(),
+    });
+    let reply = replay(&mut session, include_str!("traces/smtp/relayed.trace")).unwrap();
+    assert_eq!(reply.mechanism, None);
+    assert_eq!(reply.extensions.auth, vec![]);
+    assert_eq!(reply.accepted.code, 250);
+    assert_secrets_absent(&format!("{session:?} {reply:?}"));
+}
+
 #[test]
 fn auth_login_upgrades_with_starttls_and_answers_both_challenges() {
     let mut session = build(
@@ -196,7 +224,7 @@ fn auth_login_upgrades_with_starttls_and_answers_both_challenges() {
         SHORT,
     );
     let reply = replay(&mut session, include_str!("traces/smtp/auth_login.trace")).unwrap();
-    assert_eq!(reply.mechanism, SaslMech::Login);
+    assert_eq!(reply.mechanism, Some(SaslMech::Login));
     assert_eq!(reply.extensions.auth, vec![SaslMech::Login]);
     assert_eq!(reply.extensions.starttls, Advertised::Offered);
     assert_eq!(session.mechanism(), Some(SaslMech::Login));
@@ -213,7 +241,7 @@ fn auth_xoauth2_skips_plain_when_the_credential_is_a_token() {
         SHORT,
     );
     let reply = replay(&mut session, include_str!("traces/smtp/auth_xoauth2.trace")).unwrap();
-    assert_eq!(reply.mechanism, SaslMech::XOauth2);
+    assert_eq!(reply.mechanism, Some(SaslMech::XOauth2));
     assert_eq!(
         reply.extensions.auth,
         vec![SaslMech::Plain, SaslMech::XOauth2]
@@ -227,7 +255,7 @@ fn auth_xoauth2_skips_plain_when_the_credential_is_a_token() {
 fn ehlo_split_byte_by_byte_still_submits() {
     let mut session = plain(SHORT, &["bob@example.com"]);
     let reply = replay(&mut session, include_str!("traces/smtp/ehlo_split.trace")).unwrap();
-    assert_eq!(reply.mechanism, SaslMech::Plain);
+    assert_eq!(reply.mechanism, Some(SaslMech::Plain));
     assert_eq!(reply.extensions.eight_bit_mime, Advertised::Offered);
     assert_eq!(
         reply.extensions,
@@ -325,7 +353,7 @@ fn an_unusable_mechanism_exposes_what_the_server_offered() {
 fn eight_bit_messages_require_the_extension_and_declare_it() {
     let mut session = plain("café\r\n", &["bob@example.com"]);
     let reply = replay(&mut session, include_str!("traces/smtp/eight_bit.trace")).unwrap();
-    assert_eq!(reply.mechanism, SaslMech::Plain);
+    assert_eq!(reply.mechanism, Some(SaslMech::Plain));
     assert_eq!(reply.extensions.eight_bit_mime, Advertised::Offered);
 
     let mut session = plain("café\r\n", &["bob@example.com"]);

@@ -27,7 +27,7 @@ use mail_domain::*;
 use mail_runtime::{AccountEngine, AccountSecrets, Cancel, ClientRegistry, Held, JmapEngine, Woke};
 use mail_runtime::{RuntimeError, platform_secrets};
 use mail_store::SqliteStore;
-use porter_core::{AccountId, SecretKey, SecretPurpose};
+use porter_core::AccountId;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::watch;
@@ -190,18 +190,7 @@ impl Waiter {
         if !pushes(account) {
             return Err(Lost::unsupported("this account has no push to wait on"));
         }
-        let stored = secrets
-            .get(&SecretKey {
-                account: account.id.clone(),
-                purpose: SecretPurpose::IncomingPassword,
-            })
-            .await
-            .map_err(|_| {
-                Failure::reauth(crate::account::no_credential(
-                    &account.address,
-                    &account.plan.auth,
-                ))
-            })?;
+        let stored = super::stored_credential(account, secrets.as_ref()).await?;
         // The wall clock, because a watch outlives any `now` it could be handed.
         let now = chrono::Utc::now();
         let credential = signed_in_typed(account, stored, secrets.as_ref(), registry, now).await?;

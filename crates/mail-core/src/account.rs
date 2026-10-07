@@ -14,8 +14,13 @@ use porter_provider::ClientEntry;
 use porter_provider::Issuer;
 use std::fmt::Write as _;
 
+mod linked;
 mod remove;
 
+pub use linked::{
+    Linked, Reconciled, find as find_linked, forget, linked as linked_accounts, named_by_segment,
+    preset_of, reconcile,
+};
 pub use remove::{RemoveError, Removed, remove};
 
 /// Servers the user named, for an address the preset table does not cover.
@@ -375,6 +380,14 @@ pub fn add_receiving(
         }
     );
     match &plan.auth {
+        // Presets make no such plan: an account of the desktop's accountd is read from it
+        // (`linked::reconcile`), never typed in here.
+        AuthPlan::Granted { .. } => {
+            return Err(
+                "this account is the desktop's account service's: add it there, in Add Account"
+                    .to_owned(),
+            );
+        }
         AuthPlan::Password { username, sasl } => {
             let login = username.resolve(&address);
             match password {
@@ -719,16 +732,24 @@ pub fn list(store: &SqliteStore) -> Result<String, String> {
             let _ = writeln!(out, "{address:<28} kept on this computer; nothing to sync");
             continue;
         }
-        let has_password = mail_runtime::block_on(secrets.get(&SecretKey {
-            account,
-            purpose: SecretPurpose::IncomingPassword,
-        }))
-        .is_ok();
+        // An account of the desktop's accountd has no credential here to look for: it is ready
+        // when there is a link to it.
+        let granted = matches!(plans.get(&address), Some(AuthPlan::Granted { .. }));
+        let has_password = if granted {
+            secrets.link().is_some()
+        } else {
+            mail_runtime::block_on(secrets.get(&SecretKey {
+                account,
+                purpose: SecretPurpose::IncomingPassword,
+            }))
+            .is_ok()
+        };
         // What is missing depends on how the account signs in, and `sync` says so at length.
         // Saying "no credential stored" for an OAuth account reads as "find a password", which
         // is the one thing that will not work — the same contradiction, one line shorter.
         let waiting_on = match plans.get(&address) {
             Some(AuthPlan::OAuth { .. }) => "not signed in",
+            Some(AuthPlan::Granted { .. }) => "the desktop's account service is not reachable",
             _ => "no credential stored",
         };
         let _ = writeln!(
@@ -869,6 +890,11 @@ pub fn no_credential(address: &str, auth: &AuthPlan) -> String {
         AuthPlan::Password { .. } => {
             format!("no credential stored. Run:\n    MAILO_PASSWORD=… mailo account add {address}")
         }
+        // Not a credential of ours to be missing: the grant is what is wanted.
+        AuthPlan::Granted { .. } => format!(
+            "the desktop's account service does not let Mail use {address} (any more). Allow it \
+             again in Add Account"
+        ),
     }
 }
 

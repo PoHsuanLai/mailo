@@ -6,6 +6,7 @@
 //! with neither: what the desktop's intent router asks of mailo over D-Bus. The `mailo` binary
 //! (`main.rs`) is the router between them.
 
+pub mod accountd;
 pub mod adoption;
 pub mod cli;
 pub mod intents;

@@ -112,8 +112,9 @@ pub struct ReplyText {
 pub struct SmtpReply {
     /// Extensions from the `EHLO` that preceded authentication.
     pub extensions: EhloExtensions,
-    /// The mechanism the server accepted.
-    pub mechanism: SaslMech,
+    /// The mechanism the server accepted. `None` on a porter relay's connection
+    /// ([`Submission::relayed`]), which signed in before the session began.
+    pub mechanism: Option<SaslMech>,
     /// The positive reply to the terminating dot. This is the acceptance.
     pub accepted: ReplyText,
     /// The reply to `QUIT`. `None` when the connection closed after acceptance
@@ -137,6 +138,10 @@ pub struct Submission {
     pub credential: Credential,
     /// Mechanisms this account will use, most preferred first.
     pub sasl: Vec<SaslMech>,
+    /// The connection is a porter relay's: already authenticated, and as secure as the relay made
+    /// it, so the session offers no `STARTTLS` and no `AUTH` of its own and goes from the `EHLO`
+    /// reply to `MAIL FROM`. `credential`, `username` and `sasl` are not read.
+    pub relayed: bool,
     pub mail_from: String,
     pub recipients: Vec<String>,
     /// Delivery status to request. `None` leaves the envelope commands unchanged.
@@ -156,6 +161,7 @@ impl fmt::Debug for Submission {
             .field("username", &self.username)
             .field("credential", &self.credential)
             .field("sasl", &self.sasl)
+            .field("relayed", &self.relayed)
             .field("mail_from", &self.mail_from)
             .field("recipients", &self.recipients)
             .field("receipt", &self.receipt)
@@ -346,11 +352,12 @@ impl SmtpSession {
         accepted: ReplyText,
         closing: Option<ReplyText>,
     ) -> Progress<SmtpReply> {
-        let Some(mechanism) = self.mechanism else {
+        let mechanism = self.mechanism;
+        if mechanism.is_none() && !self.submission.relayed {
             return self.fail(ProtoError::Malformed(
                 "finished without authenticating".into(),
             ));
-        };
+        }
         let extensions = self.extensions.clone();
         self.phase = Phase::Finished;
         Progress::Done(SmtpReply {
@@ -711,7 +718,7 @@ fn decide(
         Phase::Data => on_data(reply, sub),
         Phase::Body => on_body(reply),
         Phase::Bdat => on_bdat(reply),
-        Phase::Quit(accepted) => on_quit(accepted, reply, ext, mech),
+        Phase::Quit(accepted) => on_quit(accepted, reply, ext, mech, sub.relayed),
         Phase::Finished => Err(ProtoError::Malformed(
             "reply after the session finished".into(),
         )),
@@ -731,7 +738,7 @@ fn on_ehlo(
 ) -> Result<Outcome, ProtoError> {
     expect_success(reply)?;
     let after_tls = matches!(phase, Phase::EhloAfterTls);
-    if sub.tls == Tls::StartTlsRequired && !after_tls {
+    if sub.tls == Tls::StartTlsRequired && !after_tls && !sub.relayed {
         if ext.starttls != Advertised::Offered {
             return Err(ProtoError::Unsupported("STARTTLS".into()));
         }
@@ -743,6 +750,24 @@ fn on_ehlo(
     // DSN and CHUNKING are decided here too, from this EHLO and not the one
     // that preceded STARTTLS.
     let envelope = prepare_envelope(ext, &sub.mail_from, &sub.recipients, sub.receipt.as_ref())?;
+    if sub.relayed {
+        // The relay signed in before the app saw its greeting: nothing to authenticate, so the
+        // envelope goes ahead and `MAIL FROM` is the next command.
+        return match send_mail_from(sub, Some(&envelope))? {
+            Outcome::Continue {
+                next,
+                mechanism,
+                needs,
+                ..
+            } => Ok(Outcome::Continue {
+                next,
+                mechanism,
+                needs,
+                envelope: Some(envelope),
+            }),
+            done => Ok(done),
+        };
+    }
     let mech = choose_mech(&ext.auth, &sub.sasl, &sub.credential)?;
     let (next, command) = auth_command(mech, sub)?;
     Ok(continue_with_envelope(
@@ -877,12 +902,14 @@ fn on_quit(
     reply: &ServerReply,
     ext: &EhloExtensions,
     mech: Option<SaslMech>,
+    relayed: bool,
 ) -> Result<Outcome, ProtoError> {
-    let Some(mechanism) = mech else {
+    if mech.is_none() && !relayed {
         return Err(ProtoError::Malformed(
             "finished without authenticating".into(),
         ));
-    };
+    }
+    let mechanism = mech;
     // Any reply to QUIT ends the session. The message was accepted at the dot; failing
     // here would make the outbox undo a delivery the server has already taken.
     Ok(Outcome::Done(SmtpReply {
@@ -1606,6 +1633,7 @@ mod tests {
             username: "ada@example.com".into(),
             credential: Credential::Password(SecretText::new(PASSWORD)),
             sasl: vec![SaslMech::Plain, SaslMech::Login],
+            relayed: false,
             mail_from: "ada@example.com".into(),
             recipients: vec!["bob@example.com".into()],
             receipt: None,
