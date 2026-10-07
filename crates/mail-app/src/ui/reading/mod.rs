@@ -2,6 +2,7 @@ mod attachments;
 pub(super) mod blocks;
 mod cache;
 mod fetch;
+mod images;
 mod thumb;
 mod viewer;
 
@@ -25,6 +26,8 @@ use ds::style::tokens::control_size::ControlSize;
 use mail_domain::*;
 use mail_mime::SanitizePolicy;
 use mail_store::{SqliteStore, Store};
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::sync::Arc;
 pub(super) use viewer::{AttachmentViewer, viewer_key};
 
@@ -60,6 +63,11 @@ fn host_of(email: &str) -> &str {
 
 fn show_images() -> &'static str {
     "Show images"
+}
+
+/// The banner's second offer: this sender's images, from now on.
+fn always_load_from(email: &str) -> String {
+    format!("Always load from {email}")
 }
 
 fn peek_tool(peek: Peek, current: Peek, icon: Icon, mut shell: Signal<Shell>) -> Element {
@@ -358,6 +366,10 @@ pub(super) fn Reader(
     // this thread; here it is only looked up.
     let landed = use_signal(|| 0u64);
     let _ = landed();
+    // The window's settings, for whose images load without asking. Not `prefs::use_settings`: a
+    // reader drawn with no window around it (a test's) asks about every image rather than read
+    // the person's own `settings.toml`, which is the safe way for a stray reader to be wrong.
+    let settings = use_hook(try_consume_context::<Signal<crate::settings::MailSettings>>);
     // The window's consent to remote images, and this reader's claim on it; closing the reader
     // takes back what it granted.
     let consent = use_hook(|| {
@@ -381,24 +393,46 @@ pub(super) fn Reader(
             }
         };
     };
-    let policy = shell.read().policy();
-    let showing = shell.read().show_remote_images;
+    // Read here, in the render, so adding a trusted sender or changing the mode draws the reader
+    // again with the images it now allows.
+    let reading = settings
+        .map(|settings| settings.read().reading.clone())
+        .unwrap_or_default();
+    let pressed = shell.read().show_remote_images;
     let peek = shell.read().peek;
     // What this reader sent to be rendered off the thread, and the count that moves when some of
     // it lands (`cache::render_later`).
     let sent = use_hook(|| std::rc::Rc::new(std::cell::RefCell::new(cache::Sent::default())));
     let rendered_later = use_signal(|| 0u64);
     let _ = rendered_later();
+    // The same for senders' checks, on which whether a message's images load can turn
+    // (`images::look_later`).
+    let looked = use_hook(|| Rc::new(RefCell::new(images::Checked::default())));
+    let checked_later = use_signal(|| 0u64);
+    let _ = checked_later();
+    let mut wanted = Vec::new();
     let mut room = cache::ON_THE_FRAME;
     let mut later = Vec::new();
     // Newest first, so the message the conversation opens on is the one the frame's room goes
     // to; drawn oldest first as before.
-    let mut shown: Vec<(Message, Option<FrameBody>, bool)> = loaded
+    //
+    // Whether images load is decided per message, not per conversation: "Show images" allows
+    // every message in it, and the settings ([`images::auto_allow`]) allow each message on its
+    // own sender's standing. A thread where a trusted sender's newsletter was answered by a
+    // stranger loads the newsletter's images and asks about the stranger's, and a forged message
+    // dropped into a trusted sender's thread gains nothing from the thread it is in. The render
+    // and its cache entry are already per message and keyed by the policy (`cache`), and the
+    // Original frames' consent lists each message's fetches apart (`ui/original`), so nothing
+    // has to be shared between messages that would let one's allowance reach another.
+    let mut shown: Vec<(Message, Option<FrameBody>, bool, bool)> = loaded
         .messages
         .iter()
         .rev()
         .filter_map(|id| store.message(*id).ok())
         .map(|message| {
+            let showing = pressed
+                || images::auto_allow_message(&reading, &looked.borrow(), &message, &mut wanted);
+            let policy = shell.read().policy_with(showing);
             let mut frame = |policy| {
                 cache::on_the_frame(
                     &store,
@@ -419,7 +453,7 @@ pub(super) fn Reader(
                 }
                 _ => false,
             };
-            (message, body, remote)
+            (message, body, remote, showing)
         })
         .collect();
     shown.reverse();
@@ -430,12 +464,17 @@ pub(super) fn Reader(
     // The consent, as the Original frames' network reads it (`ui/original`): written here, in the
     // render, so a frame that reloads with the consented markup finds it already granted, and
     // taken back by the same render that stops showing the images (open, select, close all
-    // clear `show_remote_images`). Only the launched window, or a harness, provides one.
+    // clear `show_remote_images`; a trusted sender taken off the list, or the mode set back to
+    // Ask, draws the reader again without them). Only the launched window, or a harness, provides
+    // one.
     if let Some((consent, holder)) = &consent {
-        let allowed = showing.then(|| {
+        // Only the messages whose images are shown: one the settings left blocked in a thread
+        // where another loads keeps its frame's requests refused.
+        let allowed = shown.iter().any(|(.., showing)| *showing).then(|| {
             shown
                 .iter()
-                .map(|(message, body, _)| {
+                .filter(|(.., showing)| *showing)
+                .map(|(message, body, ..)| {
                     let fetches = body.as_ref().map(FrameBody::frame_fetches);
                     (message.id, fetches.unwrap_or_default().to_vec())
                 })
@@ -447,16 +486,16 @@ pub(super) fn Reader(
     // What the list lookup is a function of. Ids and blob ids only: nothing here reads a blob.
     let bodies: super::unsubscribe::Bodies = shown
         .iter()
-        .map(|(message, _, _)| (message.id, message.body.raw()))
+        .map(|(message, ..)| (message.id, message.body.raw()))
         .collect();
     let leave_key = leave_key(thread, &bodies);
     // An encrypted message's subject travels inside it; the outside says `...`.
     let subject = shown
         .iter()
-        .find(|(message, _, _)| message.subject == loaded.summary.subject)
-        .and_then(|(message, _, _)| super::pgp::subject(message))
+        .find(|(message, ..)| message.subject == loaded.summary.subject)
+        .and_then(|(message, ..)| super::pgp::subject(message))
         .unwrap_or_else(|| loaded.summary.subject.clone());
-    let meta = shown.last().map(|(message, _, _)| {
+    let meta = shown.last().map(|(message, ..)| {
         (
             sender_face(message),
             from_name(message),
@@ -467,17 +506,50 @@ pub(super) fn Reader(
     // Whose word the sender's checks are on: the message the head names.
     let checked = shown
         .last()
-        .map(|(message, _, _)| (message.id, message.body.raw()));
+        .map(|(message, ..)| (message.id, message.body.raw()));
+    // The banner: what is still blocked comes first, since that is what it asks about; else the
+    // host whose images are showing. Both name the newest such message's sender.
+    let blocked = shown
+        .iter()
+        .rev()
+        .find(|(_, _, remote, showing)| *remote && !showing)
+        .map(|(message, ..)| message.clone());
     let from_host = shown
         .iter()
         .rev()
-        .find(|(_, _, remote)| *remote)
-        .map(|(message, _, _)| host_of(&message.from.email).to_owned());
+        .find(|(_, _, remote, _)| *remote)
+        .map(|(message, ..)| host_of(&message.from.email).to_owned());
+    // "Always load from" the blocked sender: offered where it could ever load their images
+    // (not under `Always`, which already would; not in Junk, which is always asked about), and
+    // never to a sender who is not provably who the address says: trusting a forged address would
+    // trust everyone who forges it next.
+    // Until the sender's checks are known it is not offered; it appears when they land.
+    let offer = blocked.as_ref().and_then(|message| {
+        let worth = reading.remote_images != crate::settings::LoadRemoteImages::Always
+            && message.mailbox != MailboxRole::Spam
+            && !message.from.email.trim().is_empty();
+        if !worth {
+            return None;
+        }
+        let passed = images::dmarc_known(&looked.borrow(), message, &mut wanted)?;
+        (!images::suspicious(message.from.name.as_deref(), &message.from.email, passed))
+            .then(|| message.from.email.trim().to_lowercase())
+    });
+    if !wanted.is_empty() {
+        let messages = shown.iter().map(|(message, ..)| message.clone()).collect();
+        images::look_later(
+            store.clone(),
+            messages,
+            wanted,
+            looked.clone(),
+            checked_later,
+        );
+    }
     // A protected message opened to a body lists what is attached inside it; its stored parts
     // are its wrapping.
     let attached: Vec<_> = shown
         .iter()
-        .map(|(message, _, _)| {
+        .map(|(message, ..)| {
             super::pgp::attachments(message).unwrap_or_else(|| attachment_rows(message))
         })
         .collect();
@@ -537,7 +609,7 @@ pub(super) fn Reader(
         div { class: "reader-body",
             div { class: "banners",
             if let Some(host) = from_host {
-                if showing {
+                if blocked.is_none() {
                     InlineBanner {
                         severity: Severity::Info,
                         icon: Some(Icon::Image),
@@ -558,12 +630,33 @@ pub(super) fn Reader(
                                     super::host::Host::focus_app();
                                 }),
                             }
+                            if let Some(email) = offer {
+                                Button {
+                                    size: ControlSize::Small,
+                                    label: always_load_from(&email),
+                                    common: Common { aria_label: Some(always_load_from(&email)), ..Common::default() },
+                                    onclick: on_primary(move || {
+                                        // The sender joins the list, and under Ask the mode
+                                        // becomes Trusted (`ReadingSettings::trust_images_from`);
+                                        // written to settings.toml and told to the other windows.
+                                        let email = email.clone();
+                                        if let Err(why) = crate::ui::prefs::change(|settings| {
+                                            settings.reading.trust_images_from(&email);
+                                        }) {
+                                            eprintln!("remote images: {why}");
+                                        }
+                                        // This conversation's images now, whatever the write did.
+                                        shell.write().show_remote_images = true;
+                                        super::host::Host::focus_app();
+                                    }),
+                                }
+                            }
                         },
                     }
                 }
             }
             }
-            for ((message, body, _), attached) in shown.into_iter().zip(attached) {
+            for ((message, body, ..), attached) in shown.into_iter().zip(attached) {
                 article { key: "{message.id}", class: "frame",
                     header {
                         Label { text: from_name(&message), style: LabelStyle::Headline }

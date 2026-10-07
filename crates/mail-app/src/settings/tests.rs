@@ -1,8 +1,8 @@
 //! The schema detent reads, and `settings.toml` read, started from the old files and written.
 
 use super::{
-    BrandLogos, MailSettings, NewMail, ProviderMarks, ServerSearch, Spelling, change, load, schema,
-    store,
+    BrandLogos, LoadRemoteImages, MailSettings, NewMail, ProviderMarks, ReadingSettings,
+    ServerSearch, Spelling, change, load, schema, store,
 };
 use ds_settings::ConfigRoot;
 use ds_settings::schema::{KeyKind, Page, Schema};
@@ -30,29 +30,34 @@ fn the_schema_names_every_key_on_mailo_s_page_in_mailo_s_file() {
     assert_eq!(schema.app.0, "mailo");
     // detent skips a schema whose file is not `<app>/<name>.toml`.
     assert_eq!(schema.file.0, "mailo/settings.toml");
-    // (path, the words it is stored as)
-    let expect: &[(&str, [&str; 2])] = &[
-        ("window.provider_marks", ["icons", "letters"]),
-        ("notifications.new_mail", ["on", "off"]),
-        ("compose.spelling", ["on", "off"]),
-        ("reading.brand_logos", ["on", "off"]),
-        ("search.server_automatically", ["on", "off"]),
-    ];
+    let pair = |a: &str, b: &str| KeyKind::Toggle {
+        variants: [a.to_owned(), b.to_owned()],
+    };
+    // (path, its kind: the words it is stored as, or a list of text)
+    let want: Vec<(String, KeyKind)> = [
+        ("window.provider_marks", pair("icons", "letters")),
+        ("notifications.new_mail", pair("on", "off")),
+        ("compose.spelling", pair("on", "off")),
+        ("reading.brand_logos", pair("on", "off")),
+        (
+            "reading.remote_images",
+            KeyKind::Segmented {
+                variants: ["ask", "trusted", "always"].map(str::to_owned).to_vec(),
+            },
+        ),
+        (
+            "reading.trusted_image_senders",
+            KeyKind::List(Box::new(KeyKind::Text)),
+        ),
+        ("search.server_automatically", pair("on", "off")),
+    ]
+    .into_iter()
+    .map(|(path, kind)| (path.to_owned(), kind))
+    .collect();
     let got: Vec<(String, KeyKind)> = schema
         .key
         .iter()
         .map(|key| (key.path.0.clone(), key.kind.clone()))
-        .collect();
-    let want: Vec<(String, KeyKind)> = expect
-        .iter()
-        .map(|(path, [a, b])| {
-            (
-                (*path).to_owned(),
-                KeyKind::Toggle {
-                    variants: [(*a).to_owned(), (*b).to_owned()],
-                },
-            )
-        })
         .collect();
     assert_eq!(got, want);
     assert!(
@@ -67,6 +72,29 @@ fn the_schema_names_every_key_on_mailo_s_page_in_mailo_s_file() {
             .iter()
             .all(|key| !key.label.0.is_empty() && !key.help.0.is_empty())
     );
+}
+
+#[test]
+fn load_remote_images_says_what_trusted_means_and_starts_at_ask() {
+    let schema = schema();
+    let key = schema
+        .key
+        .iter()
+        .find(|key| key.path.0 == "reading.remote_images")
+        .expect("reading.remote_images");
+    assert_eq!(key.label.0, "Load remote images");
+    assert_eq!(
+        key.help.0,
+        "A remote image tells the sender when you read the message and your network address."
+    );
+    assert_eq!(key.labels.of("trusted"), Some("From senders I trust"));
+    assert_eq!(key.default, toml::Value::String("ask".to_owned()));
+    let senders = schema
+        .key
+        .iter()
+        .find(|key| key.path.0 == "reading.trusted_image_senders")
+        .expect("reading.trusted_image_senders");
+    assert_eq!(senders.default, toml::Value::Array(Vec::new()));
 }
 
 #[test]
@@ -175,4 +203,64 @@ fn a_config_directory_named_mailo_is_in_its_root_and_any_other_is_a_root() {
             dir.display()
         );
     }
+}
+
+#[test]
+fn remote_images_and_trusted_senders_are_written_and_read_back() {
+    let (dir, root) = scratch();
+    let written = change(&root, |settings| {
+        settings.reading.remote_images = LoadRemoteImages::Trusted;
+        settings.reading.trusted_image_senders = vec![
+            "news@shop.example".to_owned(),
+            "ada@example.test".to_owned(),
+        ];
+    })
+    .unwrap();
+    assert_eq!(load(&root), written);
+    let text = std::fs::read_to_string(dir.path().join("mailo").join("settings.toml")).unwrap();
+    assert!(text.contains("remote_images = \"trusted\""), "{text}");
+    assert!(text.contains("news@shop.example"), "{text}");
+}
+
+#[test]
+fn a_file_from_before_remote_images_asks_and_trusts_nobody() {
+    let (dir, root) = scratch();
+    write(
+        &mailo_dir(&dir),
+        "settings.toml",
+        "[reading]\nbrand_logos = \"on\"\n",
+    );
+    let loaded = load(&root);
+    assert_eq!(loaded.reading.brand_logos, BrandLogos::On);
+    assert_eq!(loaded.reading.remote_images, LoadRemoteImages::Ask);
+    assert!(loaded.reading.trusted_image_senders.is_empty());
+}
+
+#[test]
+fn trusting_a_sender_keeps_one_lowercase_address_and_leaves_ask_for_trusted() {
+    // (mode before, mode after)
+    let cases = [
+        (LoadRemoteImages::Ask, LoadRemoteImages::Trusted),
+        (LoadRemoteImages::Trusted, LoadRemoteImages::Trusted),
+        (LoadRemoteImages::Always, LoadRemoteImages::Always),
+    ];
+    for (before, after) in cases {
+        let mut reading = ReadingSettings {
+            remote_images: before,
+            ..ReadingSettings::default()
+        };
+        reading.trust_images_from(" News@Shop.Example ");
+        reading.trust_images_from("news@shop.example");
+        assert_eq!(reading.remote_images, after, "{before:?}");
+        assert_eq!(reading.trusted_image_senders, ["news@shop.example"]);
+        assert!(reading.trusts_images_from("NEWS@shop.example"));
+        assert!(!reading.trusts_images_from("other@shop.example"));
+    }
+    let mut reading = ReadingSettings::default();
+    reading.trust_images_from("  ");
+    assert_eq!(
+        reading,
+        ReadingSettings::default(),
+        "a blank address is no one"
+    );
 }
