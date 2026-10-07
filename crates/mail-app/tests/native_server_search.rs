@@ -228,6 +228,37 @@ fn press(harness: &mut Harness, selector: &str) {
     harness.advance(ms(400));
 }
 
+/// ⌘K: the search panel up, with the keyboard in its field.
+fn summon(harness: &mut Harness) {
+    harness.chord(&[Key::Ctrl], Key::Char('k'));
+    let started = std::time::Instant::now();
+    while !harness.is_focused(".spotlight input") {
+        assert!(
+            started.elapsed() < Duration::from_secs(30),
+            "⌘K brought up no search panel:\n{}",
+            harness.html()
+        );
+        harness.advance(ms(16));
+    }
+}
+
+/// A press outside the search panel: it goes, and the search it held stays the list's.
+fn put_away(harness: &mut Harness) {
+    harness.click(ds::prelude::Point {
+        x: ds::prelude::Px(4.0),
+        y: ds::prelude::Px(4.0),
+    });
+    let started = std::time::Instant::now();
+    while harness.count(".spotlight") > 0 {
+        assert!(
+            started.elapsed() < Duration::from_secs(30),
+            "the search panel stayed up:\n{}",
+            harness.html()
+        );
+        harness.advance(ms(16));
+    }
+}
+
 fn type_text(harness: &mut Harness, text: &str) {
     for c in text.chars() {
         harness.key(if c == ' ' { Key::Space } else { Key::Char(c) });
@@ -280,7 +311,7 @@ fn a_search_with_nothing_here_offers_the_server_and_lists_what_it_finds() {
         "nothing is offered before a search"
     );
 
-    press(&mut harness, ".search input");
+    summon(&mut harness);
     type_text(&mut harness, "spreadsheet");
     // The offer is drawn for every line that matches nothing here, a prefix of the word as well:
     // the press must wait for the whole word to settle, or it asks the server for the prefix.
@@ -303,6 +334,7 @@ fn a_search_with_nothing_here_offers_the_server_and_lists_what_it_finds() {
 
     // Where the list has come to rest, so the press lands on the button and not where it was.
     harness.advance(ms(400));
+    put_away(&mut harness);
     press(&mut harness, OFFER);
     until(&mut harness, "the press reaching the server", |_| {
         calls.load(Ordering::SeqCst) == 1
@@ -341,7 +373,7 @@ fn a_search_that_finds_mail_here_still_ends_with_the_offer() {
     let Open {
         mut harness, calls, ..
     } = open();
-    press(&mut harness, ".search input");
+    summon(&mut harness);
     type_text(&mut harness, "flight");
     until(&mut harness, "the search listing its match", |h| {
         subjects(h) == vec!["Flight to the conference".to_owned()]
@@ -353,7 +385,7 @@ fn a_search_that_finds_mail_here_still_ends_with_the_offer() {
     // Emptying the box is the place again, with nothing offered. The box is emptied from its
     // start with Delete: on macOS Blitz leaves Backspace in a field to the system's key bindings,
     // which a headless window never gets, so Backspace deletes nothing there.
-    press(&mut harness, ".search input");
+    press(&mut harness, ".spotlight input");
     harness.key(Key::Home);
     for _ in 0.."flight".len() {
         harness.key(Key::Delete);
@@ -377,7 +409,7 @@ fn turned_on_the_server_is_asked_once_as_the_search_is_shown() {
     let Open {
         mut harness, asked, ..
     } = open_with(Some(dirs));
-    press(&mut harness, ".search input");
+    summon(&mut harness);
     type_text(&mut harness, "spreadsheet");
     until(&mut harness, "the server's hit being listed unasked", |h| {
         subjects(h) == vec![HIT.to_owned()]

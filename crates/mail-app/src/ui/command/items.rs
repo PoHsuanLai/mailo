@@ -152,19 +152,25 @@ fn mail_item(hit: &MailHit, group: &str, query: &str) -> MenuItem {
         group: Some(group.to_owned()),
         marks: char_marks(&hit.summary.subject, &hit.indices, &hit.marks),
         title: Vec::new(),
-        detail: vec![
-            Run {
-                marks: query_marks(query, &who),
-                text: who,
-                tone: Tone::Strong,
-            },
-            Run {
-                text: format!(" · {}", hit.preview),
-                marks: Vec::new(),
-                tone: Tone::Plain,
-            },
-        ],
+        detail: mail_detail(who, &hit.preview, query),
     }
+}
+
+/// A mail row's second line: its sender, then its snippet when it has one.
+fn mail_detail(who: String, preview: &str, query: &str) -> Vec<Run> {
+    let mut runs = vec![Run {
+        marks: query_marks(query, &who),
+        text: who,
+        tone: Tone::Strong,
+    }];
+    if !preview.trim().is_empty() {
+        runs.push(Run {
+            text: format!(" · {preview}"),
+            marks: Vec::new(),
+            tone: Tone::Plain,
+        });
+    }
+    runs
 }
 
 fn char_marks(text: &str, indices: &[u32], ranges: &[std::ops::Range<usize>]) -> Vec<u32> {
@@ -341,4 +347,25 @@ pub(in crate::ui) fn search_now(
     let mut results = search::run(query, store, &affinity, &commands(), now);
     super::people::from_book(&mut results, &mut names, store, query, &history);
     (results, names)
+}
+
+#[cfg(test)]
+mod detail_tests {
+    use super::mail_detail;
+
+    #[test]
+    fn a_mail_with_no_snippet_is_its_sender_alone() {
+        let cases: &[(&str, &str)] = &[
+            ("see you at noon", "Dana · see you at noon"),
+            ("", "Dana"),
+            ("  ", "Dana"),
+        ];
+        for (preview, want) in cases {
+            let line: String = mail_detail("Dana".to_owned(), preview, "")
+                .iter()
+                .map(|run| run.text.as_str())
+                .collect();
+            assert_eq!(line, *want, "{preview:?}");
+        }
+    }
 }

@@ -1,9 +1,11 @@
-//! The search bar in the list's toolbar: one field that searches the list, and a panel under
-//! it of the mail, commands, places and people the text names. What the ⌘K menu offered, it
-//! offers, matched and ranked as the menu did.
+//! The window's search: a small affordance in the list's toolbar, and a panel at the top centre
+//! of the window (Spotlight's) with one field that searches the list, and under it the mail,
+//! commands, places and people the text names. What the ⌘K menu offered, it offers, matched
+//! and ranked as the menu did.
 //!
-//! The rows are built in [`items`] and regrouped into the panel's sections in [`sections`]; the
-//! field and its panel are [`bar`], its keys [`keys`]; this file is what a pick does.
+//! The rows are built in [`items`], regrouped into the panel's sections in [`sections`] and
+//! drawn as quire's result rows by [`suggest`]; the toolbar's affordance is [`bar`], the panel
+//! [`spotlight`], its keys [`keys`]; this file is what a pick does.
 
 mod bar;
 mod items;
@@ -11,20 +13,25 @@ mod keys;
 mod panel;
 pub(in crate::ui) mod people;
 mod sections;
+mod spotlight;
+mod suggest;
 mod templates;
 
+pub(in crate::ui) use bar::SearchBox;
 #[cfg(test)]
-pub(in crate::ui) use bar::LABEL;
-pub(in crate::ui) use bar::{SearchBar, press_elsewhere, summon};
+pub(in crate::ui) use bar::{BOX_LABEL, CLEAR_LABEL};
 pub(in crate::ui) use items::avatar_color;
+#[cfg(test)]
+pub(in crate::ui) use spotlight::{FIELD, LABEL};
+pub(in crate::ui) use spotlight::{Spotlight, summon};
 
 use super::ops::{Composes, start_composing, start_new};
 use crate::ui::view::{Bar, BarListing, PageMenu, SettingsPage, Shell};
-use bar::Ctx;
 use dioxus::prelude::*;
 use items::Pick;
 use mail_store::SqliteStore;
 use sections::Choice;
+use spotlight::Ctx;
 use std::sync::Arc;
 
 /// The panel closed, and the keyboard back with the list.
@@ -266,3 +273,5 @@ mod bar_tests;
 pub(in crate::ui) mod pictures;
 #[cfg(test)]
 pub(in crate::ui) mod tests;
+#[cfg(test)]
+mod window_tests;

@@ -372,49 +372,96 @@ fn the_list_s_title_gives_way_to_its_tools_in_a_narrow_list() {
 }
 
 #[test]
-fn the_search_bar_is_a_toolbar_field_beside_the_tools_in_a_narrow_list() {
-    // The narrowest window the list keeps its least width in, and the same list with the search
-    // bar holding text, which adds Save as view to the tools.
+fn the_toolbars_search_sits_beside_the_tools_in_a_narrow_list() {
+    // The narrowest window the list keeps its least width in, idle (the magnifier) and with a
+    // search the panel left behind (the search shown and its clear, and Save as view added to
+    // the tools).
     let (mut harness, _dir) = open(760, spaces(1));
-    // A toolbar field is quire's Large control, whatever height quire's ladder gives it.
-    let large = ds::style::tokens::control_size::ControlSize::Large
-        .scale()
-        .height
-        .0 as f32;
     for case in ["idle", "searching"] {
         let column = rect(&harness, ".list-col");
         let toolbar = rect(&harness, ".list-col .ds-toolbar");
         let tools = rect(&harness, ".bar-tools");
-        let field = rect(&harness, ".list-head .bar .ds-text-field-frame");
+        let search = rect(&harness, ".list-head .bar");
         assert!(
-            (field.size.height.0 - large).abs() < 0.5,
-            "{case}: the field is {:?} high, not the toolbar's {large}",
-            field.size.height
+            within(&search, &toolbar),
+            "{case}: the search {search:?} is not in the toolbar {toolbar:?}"
         );
         assert!(
-            within(&field, &toolbar),
-            "{case}: the field {field:?} is not in the toolbar {toolbar:?}"
+            within(&search, &column),
+            "{case}: the search {search:?} is clipped by the list {column:?}"
         );
         assert!(
-            within(&field, &column),
-            "{case}: the field {field:?} is clipped by the list {column:?}"
-        );
-        assert!(
-            left(&field) >= right(&tools) - 0.5,
-            "{case}: the field {field:?} runs over the tools {tools:?}"
+            left(&search) >= right(&tools) - 0.5,
+            "{case}: the search {search:?} runs over the tools {tools:?}"
         );
         assert!(
             within(&tools, &column),
             "{case}: the tools {tools:?} are clipped by the list {column:?}"
         );
         if case == "idle" {
-            harness.click(centre(&harness, ".search input"));
+            // Idle, the toolbar has no field: the magnifier alone.
+            assert_eq!(harness.count(".list-head input"), 0);
+            harness.chord(&[drive::Key::Ctrl], drive::Key::Char('k'));
+            settle_until(&mut harness, |h| h.is_focused(".spotlight input"));
             for key in "zz".chars() {
                 harness.key(drive::Key::Char(key));
             }
             harness.advance(ms(400));
+            // A press outside the panel puts it away and leaves the search.
+            let column = rect(&harness, ".list-col");
+            harness.click(Point {
+                x: Px(column.origin.x.0 + 40.0),
+                y: Px(column.origin.y.0 + column.size.height.0 - 40.0),
+            });
+            settle_until(&mut harness, |h| {
+                h.count(".spotlight") == 0 && h.count(".list-head .search-shown") == 1
+            });
         }
     }
+}
+
+#[test]
+fn the_search_panel_sits_at_the_top_centre_of_the_window() {
+    for width in [1200u32, 760] {
+        let (mut harness, _dir) = open(width, spaces(1));
+        harness.chord(&[drive::Key::Ctrl], drive::Key::Char('k'));
+        settle_until(&mut harness, |h| {
+            h.is_focused(".spotlight input") && h.count(".spotlight .ds-menu-item") > 0
+        });
+        harness.advance(ms(300));
+        let panel = rect(&harness, ".spotlight");
+        let middle = panel.origin.x.0 + panel.size.width.0 / 2.0;
+        assert!(
+            (middle - width as f32 / 2.0).abs() <= 1.0,
+            "{width}: the panel {panel:?} is not centred in the window"
+        );
+        assert!(
+            panel.size.width.0 >= 520.0,
+            "{width}: the panel {panel:?} is narrower than a Spotlight"
+        );
+        assert!(
+            panel.origin.y.0 > 52.0 && panel.origin.y.0 < 700.0 / 3.0,
+            "{width}: the panel {panel:?} is not near the top"
+        );
+        assert!(
+            panel.origin.x.0 >= 0.0 && right(&panel) <= width as f32,
+            "{width}: the panel {panel:?} leaves the window"
+        );
+        ds_harness::inset::assert_insets(&harness, &ds_harness::inset::Policy::quire());
+    }
+}
+
+#[test]
+fn the_reader_keeps_its_content_inset() {
+    let (mut harness, _dir) = open(1200, spaces(1));
+    let subject = rect(&harness, &format!("{ROW} .ds-thread-sub"));
+    harness.click(Point {
+        x: Px(subject.origin.x.0 + 24.0),
+        y: Px(subject.origin.y.0 + subject.size.height.0 / 2.0),
+    });
+    settle_until(&mut harness, |h| h.count(".reader .msg-head") == 1);
+    harness.advance(ms(300));
+    ds_harness::inset::assert_insets(&harness, &ds_harness::inset::Policy::quire());
 }
 
 /// The first row's lines lie inside the row, and the row inside the slot the list placed it in.

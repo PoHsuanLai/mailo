@@ -162,6 +162,37 @@ fn labelled(label: &str) -> String {
     format!("[*|aria-label=\"{label}\"]")
 }
 
+/// ⌘K: the search panel up, with the keyboard in its field.
+fn summon(harness: &mut Harness) {
+    harness.chord(&[Key::Ctrl], Key::Char('k'));
+    let started = std::time::Instant::now();
+    while !harness.is_focused(".spotlight input") {
+        assert!(
+            started.elapsed() < Duration::from_secs(30),
+            "⌘K brought up no search panel:\n{}",
+            harness.html()
+        );
+        harness.advance(ms(16));
+    }
+}
+
+/// A press outside the search panel: it goes, and the search it held stays the list's.
+fn put_away(harness: &mut Harness) {
+    harness.click(ds::prelude::Point {
+        x: ds::prelude::Px(4.0),
+        y: ds::prelude::Px(4.0),
+    });
+    let started = std::time::Instant::now();
+    while harness.count(".spotlight") > 0 {
+        assert!(
+            started.elapsed() < Duration::from_secs(30),
+            "the search panel stayed up:\n{}",
+            harness.html()
+        );
+        harness.advance(ms(16));
+    }
+}
+
 fn type_text(harness: &mut Harness, text: &str) {
     for c in text.chars() {
         harness.key(if c == ' ' { Key::Space } else { Key::Char(c) });
@@ -235,9 +266,10 @@ fn place(name: &str) -> String {
 /// Search for `in:inbox`, save it as "Mine" grouped by read state with Archive and Snooze on
 /// hover, and return with the view shown.
 fn make_the_view(harness: &mut Harness) {
-    press(harness, ".search input");
+    summon(harness);
     type_text(harness, "in:inbox");
     harness.advance(ms(800));
+    put_away(harness);
     press(harness, &labelled("Save as view"));
     let sheet = labelled("Saved view");
     assert_eq!(harness.count(&sheet), 1, "Save as view opened no sheet");
@@ -295,13 +327,13 @@ fn a_search_saved_as_a_view_is_a_place_grouped_and_offered_as_it_was_saved() {
     assert_eq!(views[0].group_by, Some(GroupKey::Read));
     assert_eq!(views[0].hover, vec![OpKind::Snooze, OpKind::Archive]);
 
-    // In the sidebar, and shown, the search box empty again.
+    // In the sidebar, and shown, the search empty again: the toolbar's magnifier, no search.
     assert_eq!(
         harness.count(&place("Mine")),
         1,
         "the view is not in the sidebar"
     );
-    assert_eq!(harness.attr(".search input", "value").as_deref(), Some(""));
+    assert_eq!(harness.count(".list-head .search-shown"), 0);
     let title = harness.text_of(".list-title .ds-label").unwrap_or_default();
     assert!(title.starts_with("Mine"), "{title}");
 

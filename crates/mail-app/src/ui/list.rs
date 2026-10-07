@@ -93,7 +93,6 @@ pub(super) fn ThreadList(
     shell: Signal<Shell>,
     pages: Signal<u32>,
     revision: Signal<u64>,
-    in_a_field: Signal<bool>,
     threads: Memo<Vec<ThreadSummary>>,
     drafts: Memo<Vec<Draft>>,
     nothing: Memo<Nothing>,
@@ -105,8 +104,6 @@ pub(super) fn ThreadList(
     paging: Memo<bool>,
     /// Whether the sidebar is folded away; while it is, the header offers the way back.
     side_hidden: Signal<bool>,
-    /// The Spaces, which the search bar's commands and places switch between and restyle.
-    spaces: Signal<super::space::Spaces>,
     /// Which question the rows answer (`list_query::ListView::asked`).
     question: ReadSignal<u64>,
 ) -> Element {
@@ -483,9 +480,9 @@ pub(super) fn ThreadList(
                                     }),
                                 }
                             }
-                            // Search and the window's commands in one field, at the toolbar's
-                            // trailing end, where the Mac keeps its search field.
-                            super::command::SearchBar { shell, pages, revision, in_a_field, side_hidden, spaces }
+                            // The search, at the toolbar's trailing end where the Mac keeps it: a
+                            // magnifier that brings up the search panel, or the search shown.
+                            super::command::SearchBox { shell, pages }
                         }
                     }
                 },

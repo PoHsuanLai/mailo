@@ -17,7 +17,7 @@ use mail_core::search::list_highlight;
 use mail_domain::id::new_account_id;
 use mail_domain::*;
 
-/// The window over the Work Space, and its search box.
+/// The window over the Work Space, and its search panel's field.
 struct Window {
     dom: VirtualDom,
     search: ElementId,
@@ -36,11 +36,20 @@ fn window() -> Window {
     let mut dom = VirtualDom::new(App)
         .with_root_context(store)
         .with_root_context(dirs);
-    let seen = rebuild_into(&mut dom);
+    rebuild_into(&mut dom);
+    // ⌘K brings up the search panel, whose field is the list's search; it floats in the root's
+    // overlay, drawn the renders after it asks.
+    crate::ui::fixtures::chord(
+        &mut dom,
+        "k",
+        dioxus::html::input_data::keyboard_types::Modifiers::CONTROL,
+        ElementId(crate::ui::fixtures::INSIDE_THE_SHELL as usize),
+    );
+    let seen = crate::ui::fixtures::drain_seen(&mut dom);
     let search = *seen
         .all("aria-label", crate::ui::command::LABEL)
         .last()
-        .expect("the search bar");
+        .expect("the search panel's field");
     Window {
         dom,
         search,

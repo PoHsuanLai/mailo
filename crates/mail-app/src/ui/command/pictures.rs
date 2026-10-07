@@ -1,5 +1,5 @@
-//! The search bar drawn alone for a test: open over a text, with the signals a test reads back,
-//! and beside a label menu for the stylesheet test.
+//! The search panel drawn alone for a test: open over a text, with the signals a test reads
+//! back, and beside a label menu for the stylesheet test.
 
 use super::*;
 use crate::ui::view::Shell;
@@ -22,11 +22,11 @@ pub(in crate::ui) struct Held {
 /// What the last [`BarAlone`] drawn holds.
 pub(in crate::ui) fn held() -> Held {
     HELD.with(Cell::get)
-        .unwrap_or_else(|| panic!("no search bar was drawn"))
+        .unwrap_or_else(|| panic!("no search panel was drawn"))
 }
 
-/// The search bar alone, its panel up over `typed`, inside a quire root as the window has it:
-/// the panel floats in the root's overlay.
+/// The search panel alone, up over `typed`, inside a quire root as the window has it: the panel
+/// floats in the root's overlay.
 #[component]
 pub(in crate::ui) fn BarAlone(typed: String) -> Element {
     let shell = use_signal(|| Shell {
@@ -45,12 +45,12 @@ pub(in crate::ui) fn BarAlone(typed: String) -> Element {
             appearance: Appearance::default(),
             material: Material::Window,
             stylesheet: ds::assembly::ds::Inject::Host,
-            SearchBar { shell, pages, revision, in_a_field, side_hidden, spaces }
+            Spotlight { shell, pages, revision, in_a_field, side_hidden, spaces }
         }
     }
 }
 
-/// The search bar's panel open on `dana`, and a label menu, so the stylesheet test sees those
+/// The search panel open on `dana`, and a label menu, so the stylesheet test sees those
 /// classes.
 #[component]
 pub(in crate::ui) fn OpenMenus() -> Element {

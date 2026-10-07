@@ -308,9 +308,9 @@ fn from_a_key_to_its_frame() {
 
     let mut searched = Vec::new();
     for topic in TOPICS {
-        let search = harness.centre(".search input").expect("a search box");
-        harness.click(search);
-        harness.chord(&[Key::Ctrl], Key::Char('a'));
+        // ⌘K: the search panel, its text selected, so the topic replaces the last one.
+        harness.chord(&[Key::Ctrl], Key::Char('k'));
+        settle_until(&mut harness, |h| h.is_focused(".spotlight input"));
         let (typed, last) = topic.split_at(topic.len() - 1);
         for key in typed.chars() {
             harness.key(Key::Char(key));

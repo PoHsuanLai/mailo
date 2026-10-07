@@ -11,8 +11,7 @@ fn every_ask() -> Vec<Ask> {
     let focus = |selector, when| Ask::Focus { selector, when };
     vec![
         Ask::FocusApp,
-        focus(".search input", When::Now),
-        Ask::FocusAll(".search input"),
+        Ask::FocusAll(".spotlight input"),
         focus(".acct-sheet input", When::NextFrame),
         focus(".book-find .inp", When::NextFrame),
         focus(".files-main input", When::NextFrame),
@@ -30,8 +29,7 @@ fn empty() -> Element {
 /// Every typed operation, in the order `every_ask` lists their asks.
 fn ask_everything() {
     Host::focus_app();
-    Host::focus(".search input");
-    Host::focus_all(".search input");
+    Host::focus_all(".spotlight input");
     Host::focus_next_frame(".acct-sheet input");
     Host::focus_next_frame(".book-find .inp");
     Host::focus_next_frame(".files-main input");

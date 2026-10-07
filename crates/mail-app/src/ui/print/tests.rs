@@ -1,3 +1,4 @@
+use super::tool::{PrintChoice, ROWS, job_of};
 use super::{Job, PrintTool, SAVED_AS, Sources, build, job_for, save_into, started};
 use crate::ui::app::App;
 use crate::ui::fixtures::{
@@ -252,49 +253,81 @@ fn Head(thread: ThreadId) -> Element {
     rsx! { ds::prelude::Ds { appearance: ds::prelude::Appearance::default(), material: ds::prelude::Material::Window, div { class: "bar-tools", PrintTool { thread } } } }
 }
 
+#[test]
+fn each_row_of_the_menu_starts_its_own_job() {
+    let thread = ThreadId::generate();
+    let cases: &[(&str, PrintChoice, Pages)] = &[
+        (
+            "Print Conversation…",
+            PrintChoice::Print(Pages::Flow),
+            Pages::Flow,
+        ),
+        (
+            "Print Each Message Separately…",
+            PrintChoice::Print(Pages::PerMessage),
+            Pages::PerMessage,
+        ),
+        ("Save Conversation as PDF…", PrintChoice::Save, Pages::Flow),
+    ];
+    let rows: Vec<(PrintChoice, &str)> = ROWS.into_iter().flatten().collect();
+    assert_eq!(rows.len(), cases.len());
+    for ((choice, title), (want_title, want_choice, pages)) in rows.into_iter().zip(cases) {
+        assert_eq!(title, *want_title);
+        assert_eq!(choice, *want_choice, "{title}");
+        assert_eq!(
+            job_of(thread, choice),
+            Job {
+                thread,
+                pages: *pages
+            },
+            "{title}"
+        );
+    }
+    // The rule sits between printing and saving.
+    assert_eq!(ROWS[2], None);
+}
+
 #[tokio::test]
-async fn the_menu_prints_the_pages_chosen_and_everything_it_draws_is_styled() {
+async fn print_opens_a_menu_whose_rows_print_the_pages_they_name() {
     dispatching();
     let (store, thread, _dir) = conversation();
-    let mut dom = VirtualDom::new_with_props(Head, HeadProps { thread }).with_root_context(store);
-    let seen = rebuild_into(&mut dom);
-    assert!(!dioxus_ssr::render(&dom).contains("print-menu"));
-
-    let seen_open = click(&mut dom, seen.one("aria-label", "Print this conversation"));
-    // The popover is quire's and floats in the root's overlay, drawn the render after it asks.
-    let seen_open = seen_open.merge(crate::ui::fixtures::drain_seen(&mut dom));
-    let page = dioxus_ssr::render(&dom);
-    assert!(
-        page.contains("print-menu"),
-        "the menu did not open:\n{page}"
-    );
-    let offences = crate::ui::style::tests::markup_offences(&page);
-    assert!(offences.is_empty(), "the markup lint: {offences:#?}");
-    assert!(
-        page.contains("aria-checked=\"true\"") && page.contains(">Whole conversation<"),
-        "the flow is not the default:\n{page}"
-    );
-
-    // The Pages segments, in order: the flow, then a page each.
-    let picked = click(
-        &mut dom,
-        seen_open.after("aria-label", "Pages", "aria-checked")[1],
-    )
-    .merge(crate::ui::fixtures::drain_seen(&mut dom));
-    click(&mut dom, seen_open.merge(picked).one("aria-label", "Print"));
-    assert_eq!(
-        started(),
-        vec![Job {
-            thread,
-            pages: Pages::PerMessage
-        }]
-    );
-    crate::ui::fixtures::drain(&mut dom);
-    assert!(
-        !dioxus_ssr::render(&dom).contains("print-menu"),
-        "the menu stayed open after Print"
-    );
+    for (row, pages) in [
+        ("Print Conversation…", Pages::Flow),
+        ("Print Each Message Separately…", Pages::PerMessage),
+    ] {
+        let mut dom =
+            VirtualDom::new_with_props(Head, HeadProps { thread }).with_root_context(store.clone());
+        let seen = rebuild_into(&mut dom);
+        assert!(!dioxus_ssr::render(&dom).contains("role=\"menu\""));
+        let opened = click(&mut dom, seen.one("aria-label", "Print this conversation"))
+            .merge(crate::ui::fixtures::drain_seen(&mut dom));
+        let page = dioxus_ssr::render(&dom);
+        let offences = crate::ui::style::tests::markup_offences(&page);
+        assert!(offences.is_empty(), "the markup lint: {offences:#?}");
+        // A standard pop-up menu: the three rows, a rule between printing and saving, and no
+        // popover of controls.
+        assert_eq!(
+            crate::ui::fixtures::menu_names(&page),
+            [
+                "Print Conversation…",
+                "Print Each Message Separately…",
+                "Save Conversation as PDF…"
+            ],
+            "{page}"
+        );
+        assert!(page.contains("ds-menu-separator"), "{page}");
+        assert!(!page.contains("print-menu") && !page.contains("class=\"ds-segmented"));
+        let before = started().len();
+        crate::ui::fixtures::pick_named(&mut dom, &opened, row).await;
+        assert_eq!(started()[before..], [Job { thread, pages }], "{row}");
+        crate::ui::fixtures::drain(&mut dom);
+        assert!(
+            !dioxus_ssr::render(&dom).contains("role=\"menu\""),
+            "the menu stayed open after {row}"
+        );
+    }
 }
+
 /// The reader head with Print's menu open, and a printed page, for screenshots.
 ///
 /// ```text
