@@ -194,7 +194,11 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
     let scheduled = read.when != When::Now;
     let send_label = if scheduled { "Schedule" } else { "Send" };
     let anyway_label = "Send anyway";
-    let flowed = crate::ui::editor::to_flowed(&read.session.doc);
+    // The plain text is written out only while it is shown: not on every key.
+    let flowed = match plain() {
+        Fold::Open => crate::ui::editor::to_flowed(&read.session.doc),
+        Fold::Folded => String::new(),
+    };
     drop(read);
 
     let send = move |anyway: Anyway| send_page(page, desk, revision, folding, anyway, None);
