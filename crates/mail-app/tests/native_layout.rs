@@ -376,14 +376,19 @@ fn the_search_bar_is_a_toolbar_field_beside_the_tools_in_a_narrow_list() {
     // The narrowest window the list keeps its least width in, and the same list with the search
     // bar holding text, which adds Save as view to the tools.
     let (mut harness, _dir) = open(760, spaces(1));
+    // A toolbar field is quire's Large control, whatever height quire's ladder gives it.
+    let large = ds::style::tokens::control_size::ControlSize::Large
+        .scale()
+        .height
+        .0 as f32;
     for case in ["idle", "searching"] {
         let column = rect(&harness, ".list-col");
         let toolbar = rect(&harness, ".list-col .ds-toolbar");
         let tools = rect(&harness, ".bar-tools");
         let field = rect(&harness, ".list-head .bar .ds-text-field-frame");
         assert!(
-            (field.size.height.0 - 28.0).abs() < 0.5,
-            "{case}: the field is {:?} high, not the toolbar's 28",
+            (field.size.height.0 - large).abs() < 0.5,
+            "{case}: the field is {:?} high, not the toolbar's {large}",
             field.size.height
         );
         assert!(
