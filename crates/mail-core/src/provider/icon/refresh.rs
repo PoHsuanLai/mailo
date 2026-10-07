@@ -1,4 +1,5 @@
-//! Fetch, decode and store: on `mailo account add`, and on an explicit refresh.
+//! Fetch, decode and store: on `mailo account add`, on an explicit refresh, and once when a window
+//! opens for the known providers not yet cached ([`missing`]).
 
 use super::IconError;
 use super::cache::{cached, file_stem, store};
@@ -77,6 +78,21 @@ pub fn providers_of(store: &mail_store::SqliteStore) -> Result<Vec<Provider>, St
         }
     }
     Ok(out)
+}
+
+/// The known providers whose icon is not cached yet, when the user binary is the one running.
+///
+/// Every one, not only the configured accounts': Add Account lists them all before any account
+/// is on one, and an account added in the window would otherwise show its letter until a manual
+/// refresh. Empty under a test binary, which must not open a socket or write `~/.cache/mailo`.
+pub fn missing(dir: &Path) -> Vec<Provider> {
+    if !user_binary() {
+        return Vec::new();
+    }
+    Provider::ALL
+        .into_iter()
+        .filter(|provider| url(*provider).is_some() && cached(dir, *provider).is_none())
+        .collect()
 }
 
 /// Fetch and cache `provider` when the user binary is the one running and the
