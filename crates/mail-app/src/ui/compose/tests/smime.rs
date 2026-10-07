@@ -199,7 +199,9 @@ async fn what_smime_check_says_stands_in_the_way_is_said_in_the_bar() {
     // Making a key or importing a certificate is the Keys and certificates page's.
     assert_eq!(
         ASKED.with(|asked| asked.borrow().asks()),
-        [Some(crate::ui::view::SettingsPage::Keys)]
+        [Some(crate::ui::settings_window::SettingsAt::Page(
+            crate::ui::view::SettingsPage::Keys
+        ))]
     );
 
     // With one, dana has none: S/MIME has no directory to ask, so only sending without

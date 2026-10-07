@@ -1,4 +1,4 @@
-//! What the account sheet says: the account's servers and sign-in as rows, what Remove takes
+//! What an account's page says: the account's servers and sign-in as rows, what Remove takes
 //! with it, and why a removal did not happen. Pure, so each is a table test.
 
 use crate::ui::files::work::messages;
@@ -6,7 +6,7 @@ use mail_core::account::RemoveError;
 use mail_domain::{AccountPlan, AuthPlan, HttpAuth, Incoming, LeaveOnServer, Outgoing, Tls};
 use porter_provider::Issuer;
 
-/// One row of the sheet's settings: what it is, and how the account has it.
+/// One row of the page's settings: what it is, and how the account has it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Line {
     pub label: &'static str,
@@ -41,7 +41,7 @@ fn issuer(issuer: Issuer) -> &'static str {
     }
 }
 
-/// The account's settings as the sheet lists them, in order: receiving, what POP3 does with what
+/// The account's settings as the page lists them, in order: receiving, what POP3 does with what
 /// it downloads, sending, signing in, and the addresses it sends as.
 pub(super) fn settings(plan: &AccountPlan) -> Vec<Line> {
     let mut lines = Vec::new();
@@ -131,7 +131,7 @@ pub(super) struct Asking {
 pub(super) const REMOVE: &str = "Remove Account";
 
 /// The confirmation for removing `address`, which holds `held` messages here. A POP3 server that
-/// deletes what it hands over has no copy left, and the sheet says so rather than "on the
+/// deletes what it hands over has no copy left, and the alert says so rather than "on the
 /// server".
 pub(super) fn asking(address: &str, held: usize, incoming: &Incoming) -> Asking {
     let mail = messages(held);
@@ -155,7 +155,7 @@ pub(super) fn asking(address: &str, held: usize, incoming: &Incoming) -> Asking 
     }
 }
 
-/// Why nothing was removed, as the sheet says it.
+/// Why nothing was removed, as the page says it.
 pub(super) fn refused(error: &RemoveError) -> String {
     match error {
         RemoveError::Unknown => "This account was already removed.".to_owned(),

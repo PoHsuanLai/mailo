@@ -1,12 +1,21 @@
-//! Accounts: each account on this computer, a row that opens the sheet showing its servers and
-//! removing it; which accounts keep all their mail here; and Add Account….
+//! Accounts: a pane of two levels, as System Settings' Internet Accounts is. Its root lists each
+//! account on this computer, a chevron row that pushes the account's own page ([`super::account`],
+//! its servers and Remove Account…) into the same pane; which accounts keep all their mail here;
+//! and Add Account….
+//!
+//! The pages are quire's `PaneStack`; which are shown is the window's `Shell`
+//! (`accounts_pane.path`), so the main window can ask for an account's page
+//! ([`super::open_account`]) and a removal can go back to the list. The stack takes the back
+//! button, Escape and ⌘[, moves the keyboard to the pushed page's back button and, on the way
+//! back, to the row that opened it.
 //!
 //! Which Space shows which account is the Space's menu's; this page is every account at once.
 
+use super::account::{AccountPage, back, row_of};
 use super::offline::OfflineCopy;
 use crate::ui::common::{person_tile, tile};
 use crate::ui::data::account_rows;
-use crate::ui::view::Shell;
+use crate::ui::view::{AccountStep, AccountsPage, Shell};
 use dioxus::prelude::*;
 use ds::components::lists::list::model::ListStyle;
 use ds::components::lists::row::size::RowSize;
@@ -15,13 +24,56 @@ use ds::root::common::Common;
 use ds::style::icon::family::PlateFamily;
 use mail_domain::Incoming;
 use mail_store::SqliteStore;
+use porter_core::AccountId;
 use std::sync::Arc;
 
 /// The key of the Add Account… row, which no account id can be.
 const ADD: &str = " add";
 
+/// The pane's name, the root's title and what an account's back button says.
+const TITLE: &str = "Accounts";
+
+/// The stack's element id: its back buttons are `accounts-pane-back-root` and `-detail`.
+const STACK: &str = "accounts-pane";
+
+/// The element id of the row that pushes `account`, where the keyboard goes back to.
+fn row_id(account: &AccountId) -> String {
+    format!("accounts-pane-open-{account}")
+}
+
+/// The pane: the list at its root, an account's page over it.
 #[component]
 pub(super) fn Accounts(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
+    let path = shell.read().accounts_pane.path.clone();
+    let title = use_callback(|page: AccountsPage| match page {
+        AccountsPage::List => TITLE.to_owned(),
+        AccountsPage::Account(account) => {
+            row_of(&account).map_or_else(|| account.to_string(), |row| row.shown())
+        }
+    });
+    let page = use_callback(move |page: AccountsPage| match page {
+        AccountsPage::List => rsx! { AccountList { shell, revision } },
+        AccountsPage::Account(account) => rsx! { AccountPage { shell, revision, account } },
+    });
+    let opener = use_callback(|page: AccountsPage| match page {
+        AccountsPage::List => None,
+        AccountsPage::Account(account) => Some(row_id(&account)),
+    });
+    rsx! {
+        PaneStack::<AccountsPage> {
+            path,
+            title,
+            page,
+            opener: Some(opener),
+            on_back: move |()| back(shell),
+            common: Common { id: Some(STACK.to_owned()), ..Common::default() },
+        }
+    }
+}
+
+/// The root: every account, Add Account… and which accounts keep all their mail here.
+#[component]
+fn AccountList(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
     // Read again when an account comes or goes.
     let _ = revision();
     let rows = try_consume_context::<Arc<SqliteStore>>()
@@ -51,10 +103,9 @@ pub(super) fn Accounts(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
                     detail: Some(TextLine::from(kind_of(&row.plan.incoming))),
                     size: RowSize::Settings,
                     accessory: if opens { Accessory::Chevron } else { Accessory::None },
-                    onclick: opens.then(|| EventHandler::new(move |_| {
-                        crate::ui::account_settings::open(shell, id.clone())
-                    })),
+                    onclick: opens.then(|| EventHandler::new(move |_| push(shell, id.clone()))),
                     common: Common {
+                        id: Some(row_id(&row.id)),
                         aria_label: opens.then(|| format!("Details for {shown}")),
                         ..Common::default()
                     },
@@ -82,12 +133,22 @@ pub(super) fn Accounts(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
     rsx! {
         Form {
             FormSection {
-                title: Some("Accounts".to_owned()),
                 footer: Some("Which accounts a Space shows is chosen from the Space's menu.".to_owned()),
                 List::<String> { label: "Accounts", items, style: ListStyle::Grouped }
             }
             OfflineCopy {}
         }
+    }
+}
+
+/// Push `account`'s page over the list. The pane is two levels deep, so it is the list and that
+/// page whatever was shown.
+pub(super) fn push(mut shell: Signal<Shell>, account: AccountId) {
+    let mut write = shell.write();
+    write.accounts_pane.path =
+        PanePath::new(AccountsPage::List).pushed(AccountsPage::Account(account));
+    if write.accounts_pane.step != AccountStep::Removing {
+        write.accounts_pane.step = AccountStep::Showing;
     }
 }
 
