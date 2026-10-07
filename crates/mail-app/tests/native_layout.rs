@@ -417,6 +417,19 @@ fn the_search_bar_is_a_toolbar_field_beside_the_tools_in_a_narrow_list() {
     }
 }
 
+#[test]
+fn the_reader_keeps_its_content_inset() {
+    let (mut harness, _dir) = open(1200, spaces(1));
+    let subject = rect(&harness, &format!("{ROW} .ds-thread-sub"));
+    harness.click(Point {
+        x: Px(subject.origin.x.0 + 24.0),
+        y: Px(subject.origin.y.0 + subject.size.height.0 / 2.0),
+    });
+    settle_until(&mut harness, |h| h.count(".reader .msg-head") == 1);
+    harness.advance(ms(300));
+    ds_harness::inset::assert_insets(&harness, &ds_harness::inset::Policy::quire());
+}
+
 /// The first row's lines lie inside the row, and the row inside the slot the list placed it in.
 fn lines_fit(harness: &Harness, case: &str) {
     let slot = rect(harness, ROW);

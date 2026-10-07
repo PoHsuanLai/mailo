@@ -121,14 +121,14 @@ async fn ask(
     mail_core::bimi::brand_logo(Setting::On, Some(results), from, &lookup, dir).await
 }
 
-/// The reader head's avatar: the sender's logo when there is one, else their initial. Keyed by
-/// its parent on the message and its body, as the checks line is.
+/// The message header's avatar: the sender's logo when there is one, else quire's avatar with
+/// their initial. Keyed by its parent on the message and its body, as the checks line is.
 #[component]
 pub(in crate::ui) fn ReaderAvatar(
     message: MessageId,
     body: Option<BlobId>,
     from: String,
-    initial: String,
+    face: ds::components::content::avatar::AvatarFace,
 ) -> Element {
     let logo = use_brand_logo(message, body, from.clone());
     match logo() {
@@ -141,7 +141,9 @@ pub(in crate::ui) fn ReaderAvatar(
             }
         }
         None => rsx! {
-            div { class: "reader-av", "{initial}" }
+            div { class: "reader-av",
+                ds::components::content::avatar::Avatar { initial: face.initial, size: face.size, tone: face.tone }
+            }
         },
     }
 }
