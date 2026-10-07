@@ -1300,6 +1300,9 @@ fn password(cred: &Credential) -> Result<&str, ProtoError> {
         Credential::ApiKey(_) | Credential::KeyPair { .. } => Err(ProtoError::Unsupported(
             "an API key is not a sign-in credential".into(),
         )),
+        Credential::Bearer(_) => Err(ProtoError::Unsupported(
+            "a bearer token signs in to JMAP only, not SMTP".into(),
+        )),
     }
 }
 
@@ -1311,6 +1314,9 @@ fn access_token(cred: &Credential) -> Result<&str, ProtoError> {
         )),
         Credential::ApiKey(_) | Credential::KeyPair { .. } => Err(ProtoError::Unsupported(
             "an API key is not a sign-in credential".into(),
+        )),
+        Credential::Bearer(_) => Err(ProtoError::Unsupported(
+            "a bearer token signs in to JMAP only, not SMTP".into(),
         )),
     }
 }
@@ -1568,6 +1574,8 @@ fn secret_strings(sub: &Submission) -> Vec<String> {
             }
         }
         Credential::ApiKey(key) => push_secret(&mut out, key.expose()),
+        // Never sent here (SMTP refuses it), but redacted all the same should one reach a log.
+        Credential::Bearer(token) => push_secret(&mut out, token.expose()),
         Credential::KeyPair { secret, .. } => push_secret(&mut out, secret.expose()),
     }
     out
@@ -1607,6 +1615,24 @@ mod tests {
 
     fn session(message: &str) -> SmtpSession {
         SmtpSession::new(submission(message))
+    }
+
+    #[test]
+    fn a_bearer_token_is_refused_for_every_smtp_mechanism_and_never_logged() {
+        let token = Credential::Bearer(SecretText::new("jmap-api-token-1"));
+        assert!(matches!(password(&token), Err(ProtoError::Unsupported(_))));
+        assert!(matches!(
+            access_token(&token),
+            Err(ProtoError::Unsupported(_))
+        ));
+        let sub = Submission {
+            credential: token,
+            ..submission("Subject: x\r\n\r\nhi\r\n")
+        };
+        assert_eq!(
+            scrub_text("permanent 535 bad jmap-api-token-1".to_owned(), &sub),
+            "permanent 535 bad <redacted>"
+        );
     }
 
     #[test]

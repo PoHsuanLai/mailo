@@ -1094,7 +1094,8 @@ fn credential_forbidden(credential: &Credential) -> bool {
             access, refresh, ..
         } => forbidden(access.expose()) || forbidden(refresh.expose()),
         // Not a sign-in credential at all: refused the same way as one that would break a line.
-        Credential::ApiKey(_) | Credential::KeyPair { .. } => true,
+        // A bearer token signs in to JMAP only; IMAP has no mechanism that presents one.
+        Credential::ApiKey(_) | Credential::Bearer(_) | Credential::KeyPair { .. } => true,
     }
 }
 
