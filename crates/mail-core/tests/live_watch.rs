@@ -184,6 +184,15 @@ type Listening = (
 
 /// Run the watch on a thread, as the window does; returns what it heard and how it ended.
 fn listening(store: Arc<SqliteStore>, cancel: watch::Receiver<bool>) -> Listening {
+    listening_with_grace(store, cancel, Duration::from_millis(100))
+}
+
+/// [`listening`], with the grace after which a wait that has not failed counts as established.
+fn listening_with_grace(
+    store: Arc<SqliteStore>,
+    cancel: watch::Receiver<bool>,
+    grace: Duration,
+) -> Listening {
     let heard = Arc::new(Mutex::new(Vec::new()));
     let said = heard.clone();
     let handle = std::thread::spawn(move || {
@@ -194,7 +203,7 @@ fn listening(store: Arc<SqliteStore>, cancel: watch::Receiver<bool>) -> Listenin
             acct_account(),
             cancel,
             None,
-            Duration::from_millis(100),
+            grace,
             &|h| said.lock().unwrap().push(h),
         )
     });
@@ -249,7 +258,9 @@ fn a_refused_sign_in_is_a_loss_that_asks_for_one() {
     let port = server(Idling::Quiet, Login::Refuse);
     let (store, _dir) = account(port, WatchMode::Idle);
     let (_cancel, rx) = watch::channel(false);
-    let (handle, heard) = listening(store, rx);
+    // "Established" is a wait that outlived its grace, not a login that succeeded. With the
+    // others' 100 ms, a loaded CI runner took longer than that to be refused and heard it.
+    let (handle, heard) = listening_with_grace(store, rx, Duration::from_secs(30));
 
     let lost = handle.join().unwrap().expect_err("the server said no");
     assert_eq!(lost.retry, Retry::NeedsReauth, "{lost:?}");
