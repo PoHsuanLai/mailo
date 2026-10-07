@@ -4,7 +4,13 @@
 /* A long place name gives way to the tools: it fades out (quire's `.ds-truncate`), never under
    a button. */
 .list-title > * { min-width: 0; overflow: hidden; white-space: nowrap; }
-.list-col > .search { margin: var(--s-4) var(--s-12) var(--s-8); }
+/* The search bar: the toolbar's search field, after its tools, where the Mac keeps it. It takes
+   its width when there is room and gives way to the tools; the place's title gives way first. */
+.list-head .bar { display: flex; flex: 0 6 200px; min-width: 64px; }
+.list-head .bar > .search { flex: 1; min-width: 0; }
+/* Its panel holds quire's menu rows in the flow of quire's popover, which does not inset them as a
+   floating menu's own panel does: the same inset, so the rows sit as a menu's. */
+.bar-rows { padding: var(--s-5); }
 /* The box around quire's list. The list scrolls itself (`VirtualList` holds the scroller), so this
    does not, and its padding goes to the sides of each item: at the top or bottom it would shift
    every row off the offsets the window is computed from. Each item is held to its slot. */

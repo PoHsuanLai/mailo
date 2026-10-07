@@ -1,8 +1,8 @@
 //! The Keyboard page of Settings: which key does what, and the user's own keys.
 //!
-//! Opened from Settings' sidebar and from ⌘K "Keyboard shortcuts…". Change on an action waits
-//! for the next key pressed, and gives it to the action or says, under that action, which action
-//! holds it already. Each action can be put back as it ships, and so can all of them. Every
+//! Opened from Settings' sidebar and from the search bar's "Keyboard Shortcuts Settings". Change
+//! on an action waits for the next key pressed, and gives it to the action or says, under that
+//! action, which action holds it already. Each action can be put back as it ships, and so can all of them. Every
 //! change is kept at once in `keyboard.json`, like notifications and provider marks: what a key
 //! means is the window's, not a Space's. What a key may be given is [`crate::ui::keymap`]'s; this
 //! only draws the map and hands it the presses.

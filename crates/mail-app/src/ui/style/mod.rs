@@ -82,7 +82,7 @@ pub(in crate::ui) mod tests {
             .with_root_context(built.dirs);
         dom.rebuild_in_place();
         let mut menus =
-            VirtualDom::new(crate::ui::command::tests::OpenMenus).with_root_context(store);
+            VirtualDom::new(crate::ui::command::pictures::OpenMenus).with_root_context(store);
         menus.rebuild_in_place();
         // The palette floats in the root's overlay, drawn the render after it asks.
         crate::ui::fixtures::drain(&mut menus);

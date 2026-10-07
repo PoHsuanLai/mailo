@@ -1,4 +1,4 @@
-//! Picture generator (ignored): the main window, the composer, the command palette, a menu and
+//! Picture generator (ignored): the main window, the composer, the search bar's panel, a menu and
 //! a sheet, in light and dark, over fake mail in a scratch store. Set MAILO_SHOTS to a directory.
 
 use ds::prelude::*;
@@ -280,7 +280,7 @@ fn screens() {
         }
         shot(&mut h, &out, "composer", dark);
 
-        // The command pill's menu, then the Add Account sheet from it.
+        // The search bar's panel (⌘K), then the Add Account sheet from it.
         let (mut h, _d) = open(dark);
         h.chord(&[Key::Ctrl], Key::Char('k'));
         h.advance(ms(400));

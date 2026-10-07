@@ -1,4 +1,4 @@
-//! The rows of the ⌘K menu, built from one `search::run`.
+//! The search bar's rows, built from one `search::run`, as the ⌘K menu built them.
 //!
 //! The ranker's sender affinity comes from the one grouped sender history the hover cards read
 //! (`ui::history`): how many conversations, and whether you have written to them.
@@ -32,15 +32,18 @@ pub(in crate::ui) fn commands() -> Vec<Command> {
         "Empty Trash…",
         "Empty Spam…",
         "Hide sidebar",
-        "Contacts",
         "Add account…",
         "Import mail…",
         "Export mail…",
-        "Rules…",
         "New view…",
-        "Keys and certificates…",
-        "Keyboard shortcuts…",
         "Settings…",
+        // Each page of Settings, named so that "set" finds them all.
+        "General Settings",
+        "Accounts Settings",
+        "Contacts Settings",
+        "Rules Settings",
+        "Keys and Certificates Settings",
+        "Keyboard Shortcuts Settings",
         "Theme light",
         "Theme dark",
         "Theme system",
@@ -303,15 +306,16 @@ fn action_icon(label: &str) -> Icon {
         "Go to Snoozed" => Icon::Clock,
         "Go to Archive" => Icon::Archive,
         "Go to Trash" => Icon::Trash,
-        "Contacts" => Icon::Group,
+        "Contacts Settings" => Icon::Group,
+        "Accounts Settings" => Icon::Mail,
         "Add account…" => Icon::Plus,
         "Import mail…" => Icon::Plus,
         "Export mail…" => Icon::Forward,
-        "Rules…" => Icon::FolderInput,
+        "Rules Settings" => Icon::FolderInput,
         "New view…" => Icon::Search,
-        "Keys and certificates…" => Icon::Key,
-        "Keyboard shortcuts…" => Icon::Keyboard,
-        "Settings…" => Icon::Settings,
+        "Keys and Certificates Settings" => Icon::Key,
+        "Keyboard Shortcuts Settings" => Icon::Keyboard,
+        "Settings…" | "General Settings" => Icon::Settings,
         _ => Icon::Command,
     }
 }

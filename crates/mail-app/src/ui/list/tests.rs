@@ -221,7 +221,7 @@ mod searching_in_the_window {
         let page = typing(store, "label:travel", |page| listed(page) == ["hi"]).await;
         assert!(
             page.contains(r#"class="ds-text-field search""#)
-                && page.contains(r#"aria-placeholder="Search all mail""#)
+                && page.contains(r#"aria-placeholder="Search""#)
                 && page.contains(r#"value="label:travel""#),
             "the search box lost the text:\n{page}"
         );
