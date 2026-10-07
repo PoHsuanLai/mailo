@@ -3,11 +3,13 @@
 //! while a pass runs. Passes are the test's own (see `tests`).
 
 use super::tests::{
-    Ending, Script, account, finished, link, passer, refused, settle, unreachable, window,
+    Ending, Script, account, acct_account, finished, link, passer, refused, settle, unreachable,
+    window,
 };
-use crate::ui::fixtures::{Seen, click, key};
+use crate::ui::fixtures::{Seen, click};
 use dioxus::prelude::{ScopeId, VirtualDom, consume_context};
 use mail_core::fetch::{Link, Trigger};
+use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
@@ -180,86 +182,62 @@ async fn the_sync_button_is_busy_while_a_pass_runs_and_not_after() {
     );
 }
 
-/// The Doctor's row opens the account's own sheet, which lists its servers; Remove asks, Escape
-/// goes back from the question, and confirming removes the account from the store, drops its link
-/// and brings the Doctor back without it.
+/// The Doctor's gear opens Settings on the account's own page, and leaves the Doctor where it is.
 #[tokio::test]
-async fn an_account_removed_from_its_sheet_leaves_the_store_its_link_and_the_doctor() {
+async fn the_doctor_s_gear_opens_settings_on_the_account_s_page() {
     let (mut dom, seen, _script, _dir) = after_a_pass(refused).await;
-    let store = dom.in_scope(dioxus::prelude::ScopeId::APP, || {
-        dioxus::prelude::consume_context::<std::sync::Arc<mail_store::SqliteStore>>()
-    });
+    let asked = Arc::new(crate::ui::settings_window::tests::Asked::default());
+    dom.provide_root_context(crate::ui::settings_window::SettingsWindows(asked.clone()));
     let mark = seen.one("aria-label", "Sign in again to keep receiving mail.");
     let seen = click(&mut dom, mark).merge(settle_seen(&mut dom).await);
 
     let open = seen.one("aria-label", "Account settings for me@nowhere.example");
-    let seen = click(&mut dom, open).merge(settle_seen(&mut dom).await);
-    let page = dioxus_ssr::render(&dom);
-    assert!(
-        page.contains("IMAP, imap.nowhere.example:993, TLS"),
-        "{page}"
-    );
-    assert!(
-        !page.contains("Check All"),
-        "the doctor is still over it: {page}"
-    );
-
-    let ask = seen.one("aria-label", "Remove me@nowhere.example");
-    let seen = click(&mut dom, ask).merge(settle_seen(&mut dom).await);
-    let page = dioxus_ssr::render(&dom);
-    assert!(page.contains("Remove me@nowhere.example?"), "{page}");
-    assert!(
-        page.contains("Mail on the server is not touched."),
-        "{page}"
-    );
-
-    let confirm = seen.one("aria-label", "Remove Account");
-    click(&mut dom, confirm);
+    click(&mut dom, open);
     settle_seen(&mut dom).await;
-    let accounts: i64 = store
-        .connection()
-        .query_row("SELECT count(*) FROM accounts", [], |r| r.get(0))
-        .unwrap();
-    assert_eq!(accounts, 0, "the account is still stored");
-    let links = dom.in_scope(dioxus::prelude::ScopeId::APP, || {
-        super::tests::fetching(&dom).all_links()
-    });
+    let account = acct_account();
+    assert_eq!(
+        asked.asks(),
+        [Some(crate::ui::settings_window::SettingsAt::Account(
+            account
+        ))]
+    );
+    let page = dioxus_ssr::render(&dom);
+    assert!(page.contains("Check All"), "the doctor went: {page}");
+}
+
+/// An account removed in the Settings window, which moves the shared revision, leaves this
+/// window's links and its Doctor.
+#[tokio::test]
+async fn an_account_removed_in_settings_leaves_the_links_and_the_doctor() {
+    let (store, _dir) = account(true);
+    let (passer, script) = passer();
+    let revisions = crate::ui::revisions::Revisions::new();
+    crate::ui::fixtures::dispatching();
+    let mut dom = VirtualDom::new(crate::ui::app::App)
+        .with_root_context(store.clone())
+        .with_root_context(passer)
+        .with_root_context(revisions.clone());
+    let _ = crate::ui::fixtures::rebuild_into(&mut dom);
+    super::tests::fetching(&dom).sync_all(Trigger::Manual);
+    settle(&mut dom).await;
+    script.release.lock().unwrap().send(refused).unwrap();
+    let seen = settle_seen(&mut dom).await;
+    let mark = seen.one("aria-label", "Sign in again to keep receiving mail.");
+    click(&mut dom, mark);
+    settle_seen(&mut dom).await;
+    assert!(dioxus_ssr::render(&dom).contains("me@nowhere.example"));
+
+    let account = acct_account();
+    let secrets = porter_secrets::MemorySecrets::default();
+    mail_core::account::remove(&store, &secrets, account)
+        .await
+        .unwrap_or_else(|why| panic!("{why:?}"));
+    let (mut settings, _) = revisions.join(0);
+    revisions.publish(&mut settings);
+    settle_seen(&mut dom).await;
+    let links = dom.in_scope(ScopeId::APP, || super::tests::fetching(&dom).all_links());
     assert!(links.is_empty(), "its link is still running: {links:?}");
     let page = dioxus_ssr::render(&dom);
     assert!(page.contains("No accounts to check."), "{page}");
     assert!(!page.contains("me@nowhere.example"), "{page}");
-}
-
-/// Escape on the question goes back to the settings, and on the settings closes the sheet and
-/// brings the Doctor back. Nothing is removed.
-#[tokio::test]
-async fn escape_steps_back_out_of_the_account_sheet_and_removes_nothing() {
-    let (mut dom, seen, _script, _dir) = after_a_pass(refused).await;
-    let mark = seen.one("aria-label", "Sign in again to keep receiving mail.");
-    let seen = click(&mut dom, mark).merge(settle_seen(&mut dom).await);
-    let open = seen.one("aria-label", "Account settings for me@nowhere.example");
-    let seen = click(&mut dom, open).merge(settle_seen(&mut dom).await);
-    click(
-        &mut dom,
-        seen.one("aria-label", "Remove me@nowhere.example"),
-    );
-    settle_seen(&mut dom).await;
-
-    key(&mut dom, "Escape");
-    settle_seen(&mut dom).await;
-    let page = dioxus_ssr::render(&dom);
-    assert!(!page.contains("Remove me@nowhere.example?"), "{page}");
-    assert!(
-        page.contains("IMAP, imap.nowhere.example:993, TLS"),
-        "{page}"
-    );
-
-    key(&mut dom, "Escape");
-    settle_seen(&mut dom).await;
-    let page = dioxus_ssr::render(&dom);
-    assert!(
-        page.contains("Check All"),
-        "the doctor did not come back: {page}"
-    );
-    assert!(page.contains("me@nowhere.example"), "{page}");
 }

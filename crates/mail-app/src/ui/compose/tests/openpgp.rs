@@ -292,7 +292,9 @@ async fn no_key_of_ones_own_offers_to_make_one() {
     // Making a key or importing a certificate is the Keys and certificates page's.
     assert_eq!(
         ASKED.with(|asked| asked.borrow().asks()),
-        [Some(crate::ui::view::SettingsPage::Keys)]
+        [Some(crate::ui::settings_window::SettingsAt::Page(
+            crate::ui::view::SettingsPage::Keys
+        ))]
     );
 }
 

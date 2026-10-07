@@ -1,13 +1,13 @@
 //! The Settings window, over the reference fixture and a temporary config directory: ⌘, and the
 //! gear ask for it, ⌘K's entries ask for it on their page, each schema key is a row whose control
-//! writes `settings.toml`, every page draws in the window, and the Accounts page opens an
-//! account's own sheet in the window.
+//! writes `settings.toml`, and every page draws in the window. An account's page in the Accounts
+//! pane is `account`'s (`account/tests.rs`).
 
-use super::{OpenSettings, SettingsWindows, settings_root};
+use super::{OpenSettings, SettingsAt, SettingsWindows, settings_root};
 use crate::settings::{BrandLogos, LoadRemoteImages, MailSettings, ProviderMarks, Spelling};
 use crate::ui::app::App;
 use crate::ui::fixtures::{
-    INSIDE_THE_SHELL, Seen, Work, chord, click, dispatching, drain_seen, press, rebuild_into, work,
+    INSIDE_THE_SHELL, Seen, Work, chord, click, dispatching, drain_seen, rebuild_into, work,
 };
 use crate::ui::view::SettingsPage;
 use dioxus::dioxus_core::{self, VirtualDom};
@@ -38,21 +38,21 @@ fn stored(built: &Work) -> MailSettings {
         .value
 }
 
-/// The windows the main window asked for, each with the page it asked it to show.
+/// The windows the main window asked for, each with where it asked it to be.
 #[derive(Default)]
-pub(in crate::ui) struct Asked(Mutex<Vec<Option<SettingsPage>>>);
+pub(in crate::ui) struct Asked(Mutex<Vec<Option<SettingsAt>>>);
 
 impl Asked {
     /// Every ask so far, in order.
-    pub(in crate::ui) fn asks(&self) -> Vec<Option<SettingsPage>> {
+    pub(in crate::ui) fn asks(&self) -> Vec<Option<SettingsAt>> {
         self.0.lock().map(|asks| asks.clone()).unwrap_or_default()
     }
 }
 
 impl OpenSettings for Asked {
-    fn open(&self, page: Option<SettingsPage>) {
+    fn open(&self, at: Option<SettingsAt>) {
         if let Ok(mut asks) = self.0.lock() {
-            asks.push(page);
+            asks.push(at);
         }
     }
 }
@@ -135,35 +135,6 @@ async fn provider_marks_are_a_choice() {
     assert_eq!(stored(&built).window.provider_marks, ProviderMarks::Letters);
 }
 
-#[tokio::test]
-async fn the_accounts_page_opens_an_account_s_sheet_in_the_window() {
-    let built = work();
-    let (mut dom, seen) = opened_on(&built, SettingsPage::Accounts);
-    let page = dioxus_ssr::render(&dom);
-    assert!(page.contains("poh@acme.example"), "{page}");
-    assert!(page.contains("Add Account\u{2026}"), "{page}");
-
-    click(
-        &mut dom,
-        seen.one("aria-label", "Details for poh@acme.example"),
-    );
-    let _ = drain_seen(&mut dom);
-    let page = dioxus_ssr::render(&dom);
-    assert!(
-        page.contains("Account Settings"),
-        "no account sheet: {page}"
-    );
-
-    press(&mut dom, "Escape", INSIDE_THE_SHELL);
-    let _ = drain_seen(&mut dom);
-    let page = dioxus_ssr::render(&dom);
-    assert!(
-        !page.contains("Account Settings"),
-        "Escape left the sheet open: {page}"
-    );
-    assert!(page.contains("data-page=\"Accounts\""), "{page}");
-}
-
 /// Each page, by the sidebar's row, and a line only that page draws.
 const PAGES: &[(SettingsPage, &str)] = &[
     (SettingsPage::General, "Check spelling"),
@@ -202,7 +173,7 @@ async fn every_page_is_drawn_in_the_window_from_its_sidebar_row() {
 async fn an_open_window_turns_to_the_page_asked_for() {
     let built = work();
     let asked = super::SettingsAsked::default();
-    asked.ask(SettingsPage::Rules);
+    asked.ask(SettingsAt::Page(SettingsPage::Rules));
     dispatching();
     let mut dom = VirtualDom::new(settings_root)
         .with_root_context(built.store.clone())
@@ -215,7 +186,7 @@ async fn an_open_window_turns_to_the_page_asked_for() {
         "it opened elsewhere: {page}"
     );
 
-    asked.ask(SettingsPage::Keyboard);
+    asked.ask(SettingsAt::Page(SettingsPage::Keyboard));
     for _ in 0..20 {
         let quiet = std::time::Duration::from_millis(50);
         if tokio::time::timeout(quiet, dom.wait_for_work())

@@ -9,8 +9,7 @@
 //! Sign In and Settings borrow the Add account sheet, prefilled with the account. This sheet
 //! steps aside while it is open and comes back when it closes, and what the account was waiting
 //! for is told to its link once the Add account sheet has changed something. Each row's gear
-//! opens the account's own sheet (`account_settings`), which steps this one aside
-//! the same way.
+//! opens Settings on the account's own page (`settings_window::open_account`).
 
 use crate::ui::common::in_card;
 use crate::ui::data::account_rows;
@@ -114,10 +113,6 @@ pub(in crate::ui) fn DoctorView(shell: Signal<Shell>, revision: Signal<u64>) -> 
     let Some(fetching) = fetching else {
         return rsx! {};
     };
-    // An account's own sheet is in front while it is open.
-    if shell.read().account_sheet.is_some() {
-        return rsx! {};
-    }
     let accounts = listed(fetching, &consume_context::<Arc<SqliteStore>>());
     let now = crate::ui::clock::now();
     let busy = accounts.iter().any(|(_, _, link)| link.is_busy());
@@ -157,7 +152,7 @@ pub(in crate::ui) fn DoctorView(shell: Signal<Shell>, revision: Signal<u64>) -> 
                         },
                         open: {
                             let account = account.clone();
-                            move |()| crate::ui::account_settings::open(shell, account.clone())
+                            move |()| crate::ui::settings_window::open_account(account.clone())
                         },
                     }
                 }

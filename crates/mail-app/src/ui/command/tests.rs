@@ -342,6 +342,10 @@ async fn each_settings_entry_opens_the_settings_window_on_its_page() {
         .with_root_context(SettingsWindows(asked.clone()));
         let seen = crate::ui::fixtures::rebuild_into(&mut dom);
         crate::ui::fixtures::click(&mut dom, seen.one("aria-label", &format!("run {label}")));
-        assert_eq!(asked.asks(), [Some(page)], "{label:?}");
+        assert_eq!(
+            asked.asks(),
+            [Some(crate::ui::settings_window::SettingsAt::Page(page))],
+            "{label:?}"
+        );
     }
 }
