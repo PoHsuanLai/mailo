@@ -11,10 +11,9 @@
 //! quire's parts (`map`). `window` is the window, [`Ask`] and [`AddAccountWindows`] the way it is
 //! opened.
 //!
-//! **Who draws.** Today the window is the only host, on every platform ([`Route`]). On Linux with
-//! the desktop's accountd (step E6) mailo asks it to run the sheet and sill draws it
-//! (`Accounts::add_account`), and the window is not opened at all: that is one more [`Route`],
-//! chosen in [`route`], and nothing else here changes.
+//! **Who draws** ([`Route`]). With the desktop's accountd linked (step E6, `mail_runtime::link`)
+//! mailo asks it to run the sheet and sill draws it (`Accounts::add_account`), and the window is
+//! not opened at all. Otherwise the window is the host, on every platform, as before.
 
 mod host;
 mod map;
@@ -59,16 +58,38 @@ impl std::fmt::Debug for AddAccountWindows {
 }
 
 /// Who draws the add-account sheet.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 enum Route {
     /// This process hosts porter's account service and draws the sheet in a window of its own.
     OwnWindow,
+    /// The desktop's accountd runs the sheet and its shell draws it (`Accounts::add_account`, and
+    /// `Accounts::reauthenticate` for an account being signed in again): mailo opens no window.
+    Accountd(Arc<dyn mail_runtime::Accountd>),
 }
 
-/// Who draws the sheet now: the one choice E6 adds a case to (`Accounts::connect` finding
-/// accountd, whose sheet sill draws).
-fn route() -> Route {
-    Route::OwnWindow
+/// Who draws the sheet for `ask`, given the link this process chose (`mail_runtime::link`) and
+/// whether `is_accountds` says an address is an account of accountd's.
+///
+/// With accountd linked every new account is accountd's. An account being signed in again is
+/// signed in again where its sign-in is: an account mailo holds the secrets of itself keeps its
+/// window, because accountd cannot sign it in.
+fn route_of(link: &mail_runtime::Link, ask: &Ask, is_accountds: impl Fn(&str) -> bool) -> Route {
+    match (link.accountd(), ask.address.as_deref()) {
+        (Some(accountd), None) => Route::Accountd(accountd.clone()),
+        (Some(accountd), Some(address)) if is_accountds(address) => {
+            Route::Accountd(accountd.clone())
+        }
+        _ => Route::OwnWindow,
+    }
+}
+
+/// Who draws the sheet now, from the link chosen at start.
+fn route(ask: &Ask, store: &SqliteStore) -> Route {
+    route_of(&mail_runtime::link::current(), ask, |address| {
+        crate::accountd::linked(store)
+            .iter()
+            .any(|account| account.address.eq_ignore_ascii_case(address))
+    })
 }
 
 /// Open the add-account window, or raise it. Call it from an event handler.
@@ -87,9 +108,45 @@ pub(in crate::ui) fn open_for(address: String) {
 fn request(ask: Ask) {
     match try_consume_context::<AddAccountWindows>() {
         Some(windows) => windows.0.open(ask),
-        None => match route() {
-            Route::OwnWindow => quire(ask),
-        },
+        None => {
+            let store = consume_context::<Arc<SqliteStore>>();
+            match route(&ask, &store) {
+                Route::OwnWindow => quire(ask),
+                Route::Accountd(accountd) => through_accountd(accountd, store, ask),
+            }
+        }
+    }
+}
+
+/// Run accountd's sheet for `ask` on a thread of its own, and tell every window when it ends.
+///
+/// The sheet is the desktop's (sill draws it, over everything), and the call waits for the person,
+/// so it is not made on the window's thread. What the person added is read into the store, and the
+/// shared revision moves, so every window draws it. A sheet closed is nothing to say; a failure is
+/// said on stderr and in the window's notice.
+fn through_accountd(accountd: Arc<dyn mail_runtime::Accountd>, store: Arc<SqliteStore>, ask: Ask) {
+    let revisions = try_consume_context::<crate::ui::revisions::Revisions>();
+    let spawned = std::thread::Builder::new()
+        .name("mailo-add-account".to_owned())
+        .spawn(move || {
+            match crate::accountd::add(&store, &accountd, ask.address.as_deref()) {
+                Ok(crate::accountd::Added::Account(read)) => {
+                    if let Some(said) = crate::accountd::said(&read) {
+                        eprintln!("mailo: {said}");
+                    }
+                }
+                Ok(crate::accountd::Added::Nothing) => {}
+                Err(why) => eprintln!("mailo: Add Account: {why}"),
+            }
+            if let Some(revisions) = revisions {
+                revisions.bump();
+            }
+        });
+    if let Err(why) = spawned {
+        crate::ui::motion::tell(
+            format!("Could not open the Add Account sheet: {why}"),
+            crate::ui::motion::Follow::Nothing,
+        );
     }
 }
 
@@ -134,5 +191,7 @@ mod host_tests;
 mod map_tests;
 #[cfg(test)]
 mod provider_tests;
+#[cfg(test)]
+mod route_tests;
 #[cfg(test)]
 mod size_tests;
