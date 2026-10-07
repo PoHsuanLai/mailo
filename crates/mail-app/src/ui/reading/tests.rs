@@ -772,3 +772,26 @@ fn the_sender_s_body_style_is_the_frame_s_body() {
         super::html_sheet()
     );
 }
+
+/// How many times `needle` occurs in `markup`.
+fn count(markup: &str, needle: &str) -> usize {
+    markup.matches(needle).count()
+}
+
+#[tokio::test]
+async fn a_message_has_one_header_its_avatar_name_date_and_whom_it_went_to() {
+    let (store, _dir) = realistic();
+    let thread = thread_like(&store, "rust-lang");
+    let messages = store.thread(thread).unwrap().messages.len();
+    let markup = reader_markup(store, thread);
+    assert_eq!(messages, 1, "the fixture's thread is one message");
+    // One header, Mail's: the avatar, the name, the date at the line's end (the To line is
+    // `header`'s own test: this fixture's mail names no recipient).
+    assert_eq!(count(&markup, "class=\"msg-head"), 1, "{markup}");
+    assert_eq!(count(&markup, "data-detail=\"full\""), 1, "{markup}");
+    assert_eq!(count(&markup, "class=\"ds-avatar\""), 1, "{markup}");
+    assert_eq!(count(&markup, "class=\"msg-when\""), 1, "{markup}");
+    // The sender is named once: no second line above the body repeating them.
+    assert_eq!(count(&markup, ">GitHub<"), 1, "{markup}");
+    assert!(!markup.contains("class=\"reader-head\"><div class=\"reader-meta"));
+}
