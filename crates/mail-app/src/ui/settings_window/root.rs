@@ -3,14 +3,16 @@
 //! quire gives this VirtualDom the same root contexts as the first window. What the window keeps
 //! for itself is made here again: its `Shell` (which page is shown, which sheet is open), its
 //! `revision`, its toast host. What it changes it tells the other windows by moving the shared
-//! revision: a setting, a key binding, an account added or removed.
+//! revision: a setting, a key binding, an account added or removed. The page it shows is the one
+//! the main window asked for last ([`super::SettingsAsked`]), and it turns to each page asked
+//! for while it is open.
 
-use super::SettingsView;
+use super::{SettingsAsked, SettingsView};
 use crate::ui::app::Frame;
 use crate::ui::appearance::WindowDirs;
 use crate::ui::space::Spaces;
 use crate::ui::style::STYLE;
-use crate::ui::view::{SettingsPage, Shell};
+use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::base::spawner::Spawner;
 use ds_settings::use_environment;
@@ -46,12 +48,14 @@ fn SettingsShell() -> Element {
     use_context_provider(|| icons);
     crate::ui::host::use_window_host();
     let dirs = try_consume_context::<WindowDirs>();
+    let asked = try_consume_context::<SettingsAsked>();
+    let first = asked.as_ref().map(SettingsAsked::page).unwrap_or_default();
     let shell = use_signal({
         let dirs = dirs.clone();
         move || {
             let store = consume_context::<Arc<SqliteStore>>();
             Shell {
-                settings: Some(SettingsPage::General),
+                settings: Some(first),
                 appearance: try_consume_context::<crate::ui::view::Appearance>()
                     .unwrap_or_default(),
                 keymap: dirs
@@ -61,6 +65,19 @@ fn SettingsShell() -> Element {
                 labels: mail_core::query::known_labels(&store),
                 accounts: mail_core::compose::sending_accounts(&store),
                 ..Shell::default()
+            }
+        }
+    });
+    // Each page the main window asks for while this window is open.
+    use_future(move || {
+        let asked = asked.clone();
+        async move {
+            let Some(asked) = asked else { return };
+            let mut heard = asked.heard();
+            heard.mark_unchanged();
+            while heard.changed().await.is_ok() {
+                let page = *heard.borrow_and_update();
+                super::go(shell, page);
             }
         }
     });
@@ -80,13 +97,14 @@ fn SettingsShell() -> Element {
     crate::ui::hover::use_hover();
     crate::ui::motion::use_motion();
     // Key bindings and Spaces another window writes; this one tells them its own through
-    // `frame::keep` and the keyboard sheet. Settings are watched by the root.
+    // `frame::keep` and the Keyboard page. Settings are watched by the root.
     crate::ui::frame::use_followed_configuration(shell, spaces, None);
 
     let on_key = move |event: Event<KeyboardData>| {
         let key = event.key().to_string();
-        // The keyboard sheet takes every key: the one pressed to be bound must do nothing else.
-        if shell.read().keyboard.is_some() {
+        // The Keyboard page takes every key while an action waits for one: the key pressed to be
+        // bound must do nothing else, Escape included, which stops the wait.
+        if crate::ui::keyboard::capturing(&shell.read()) {
             let held = event.modifiers();
             let key = if held.shift() {
                 crate::ui::view::shifted(&key).to_owned()
@@ -105,12 +123,6 @@ fn SettingsShell() -> Element {
             crate::ui::account_settings::escape(shell);
         } else if open.adding.is_some() {
             crate::ui::add_account::close(shell);
-        } else if open.contacts.is_some() {
-            crate::ui::contacts::close(shell);
-        } else if open.rules.is_some() {
-            crate::ui::rules::close(shell);
-        } else if open.keys.is_some() {
-            crate::ui::pgp::keys::close(shell);
         }
     };
 
@@ -122,23 +134,11 @@ fn SettingsShell() -> Element {
                 onmounted: crate::ui::host::Host::app_mounted,
                 onkeydown: on_key,
                 SettingsView { shell, revision }
-                if shell.read().contacts.is_some() {
-                    crate::ui::contacts::ContactsSheet { shell }
-                }
                 if shell.read().adding.is_some() {
                     crate::ui::add_account::AddAccountSheet { shell, revision, spaces }
                 }
-                if shell.read().rules.is_some() {
-                    crate::ui::rules::RulesSheet { shell, revision }
-                }
-                if shell.read().keys.is_some() {
-                    crate::ui::pgp::keys::KeysSheet { shell }
-                }
                 if shell.read().account_sheet.is_some() {
                     crate::ui::account_settings::AccountSettingsSheet { shell, revision }
-                }
-                if shell.read().keyboard.is_some() {
-                    crate::ui::keyboard::KeyboardSheet { shell }
                 }
                 crate::ui::motion::Toast { shell, revision }
             }

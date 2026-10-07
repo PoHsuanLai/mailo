@@ -1,4 +1,4 @@
-//! The sheet as drawn: a condition refused as it is typed, Put on server through a test's
+//! The Rules page as drawn: a condition refused as it is typed, Put on server through a test's
 //! server, the reason where there is no server to put rules on, every class styled, and files of
 //! it to look at.
 
@@ -13,7 +13,7 @@ use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
 
-use super::RulesSheet;
+use super::RulesPage;
 use super::away_tests::{answering, own_server};
 use super::list::RunProgress;
 use super::server::{Pusher, reach};
@@ -25,8 +25,8 @@ use crate::ui::fixtures::{
 };
 use crate::ui::view::Shell;
 
-/// The first render, then the ones after it, keeping every attribute they set: a quire sheet is
-/// drawn a frame after the one that asked for it, on quire's clock.
+/// The first render, then the ones after it, keeping every attribute they set: what floats in
+/// quire's overlay is drawn a frame after the one that asked for it, on quire's clock.
 async fn landed(dom: &mut VirtualDom) -> Seen {
     let mut seen = rebuild_into(dom);
     for _ in 0..40 {
@@ -42,11 +42,11 @@ async fn landed(dom: &mut VirtualDom) -> Seen {
     seen.merge(drain_seen(dom))
 }
 
-/// The sheet on `account`, alone.
+/// The page on `account`, alone.
 #[component]
-fn Sheet(account: Option<AccountId>) -> Element {
+fn Page(account: Option<AccountId>) -> Element {
     let shell = use_signal(|| Shell {
-        rules: Some(crate::ui::view::RulesSheet { account }),
+        rules: crate::ui::view::RulesPage { account },
         ..Shell::default()
     });
     let revision = use_signal(|| 0u64);
@@ -56,15 +56,15 @@ fn Sheet(account: Option<AccountId>) -> Element {
             appearance: Appearance::default(),
             material: Material::Window,
             stylesheet: ds::assembly::ds::Inject::Host,
-            RulesSheet { shell, revision }
+            RulesPage { shell, revision }
         }
     }
 }
 
 fn sheet(store: &Arc<SqliteStore>, account: AccountId, push: Pusher) -> VirtualDom {
     VirtualDom::new_with_props(
-        Sheet,
-        SheetProps {
+        Page,
+        PageProps {
             account: Some(account),
         },
     )
@@ -260,7 +260,7 @@ fn Phases() -> Element {
     }
 }
 
-/// Every state the sheet draws, as one page: the list, the editor with a refusal and its menu
+/// Every state the page draws, as one page: the list, the editor with a refusal and its menu
 /// open, the vacation form, a push said, and a run in each phase.
 async fn every_state(store: &Arc<SqliteStore>) -> String {
     two_rules(store);
@@ -306,7 +306,7 @@ async fn every_state(store: &Arc<SqliteStore>) -> String {
 }
 
 #[tokio::test]
-async fn every_class_the_rules_sheet_draws_is_styled() {
+async fn every_class_the_rules_page_draws_is_styled() {
     dispatching();
     let (store, _dir) = crate::ui::fixtures::seeded();
     let markup = every_state(&store).await;
@@ -314,8 +314,10 @@ async fn every_class_the_rules_sheet_draws_is_styled() {
         "ds-toggle",
         "data-validity=\"invalid\"",
         "rules-action",
-        "role=\"listbox\"",
-        "rules-said",
+        // The rules are a group of quire's rows now, not a list; the menu is the action menu.
+        "role=\"menu\"",
+        "ds-field-row",
+        "rules-field",
         "ds-progress",
     ] {
         assert!(markup.contains(class), "{class} was not drawn: {markup}");
@@ -333,7 +335,7 @@ fn inject(page: &str, extra: &str) -> String {
 
 #[tokio::test]
 #[ignore = "writes target/rules*.html and their -dark twins to look at"]
-async fn render_the_rules_sheet_to_files() {
+async fn render_the_rules_page_to_files() {
     dispatching();
     let built = crate::ui::fixtures::work();
     let mut frame = VirtualDom::new(crate::ui::app::App)

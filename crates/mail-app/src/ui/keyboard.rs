@@ -1,77 +1,60 @@
-//! The keyboard shortcuts sheet: which key does what, and the user's own keys.
+//! The Keyboard page of Settings: which key does what, and the user's own keys.
 //!
-//! Opened from the settings' Keyboard section and from Ctrl T "Keyboard shortcuts…". Change on
-//! an action waits for the next key pressed, and gives it to the action or says, by name, which
-//! action holds it already. Each action can be put back as it ships, and so can all of them.
-//! Every change is kept at once in `keyboard.json`, like notifications and provider marks: what
-//! a key means is the window's, not a Space's. What a key may be given is [`crate::ui::keymap`]'s;
-//! this only draws the map and hands it the presses.
+//! Opened from Settings' sidebar and from ⌘K "Keyboard shortcuts…". Change on an action waits
+//! for the next key pressed, and gives it to the action or says, under that action, which action
+//! holds it already. Each action can be put back as it ships, and so can all of them. Every
+//! change is kept at once in `keyboard.json`, like notifications and provider marks: what a key
+//! means is the window's, not a Space's. What a key may be given is [`crate::ui::keymap`]'s; this
+//! only draws the map and hands it the presses.
 //!
-//! While the sheet is open the keyboard is its own (`App`'s key handler sends every press here),
-//! so a key pressed to be bound does not also archive the open conversation.
+//! While an action waits, the keyboard is the page's own (the Settings window's key handler sends
+//! every press here), so a key pressed to be bound does nothing else.
 
-use super::press::{SheetClose, on_primary};
+use super::press::{available, on_primary};
 use crate::ui::appearance::WindowDirs;
 use crate::ui::keymap::{self, DEFAULTS, Keymap, Refused};
-use crate::ui::view::{KeyboardSheet as Showing, Shell, Shortcut};
+use crate::ui::view::{KeySaid, KeyboardPage as Showing, SettingsPage, Shell, Shortcut};
 use dioxus::prelude::*;
+use ds::components::content::label::LabelRole;
 use ds::components::controls::key_equivalent::{KeyEquivalent, KeyStyle};
-use ds::prelude::{Button, Icon, Shortcut as Caps, ShortcutKey as Key};
+use ds::components::fields::field_row::{FieldGroup, FieldRow};
+use ds::prelude::{Button, Label, Shortcut as Caps, ShortcutKey as Key, TextLine};
 use ds::root::common::Common;
 use ds::style::tokens::control_size::ControlSize;
 
-/// What the sheet and its menu entry are called.
-pub(in crate::ui) const TITLE: &str = "Keyboard shortcuts";
-
-/// Open the sheet, waiting for nothing.
-pub(in crate::ui) fn open(mut shell: Signal<Shell>) {
-    shell.write().keyboard = Some(Showing::default());
+/// Whether the window's keys all go to the page: it is shown, and an action waits for its key.
+pub(in crate::ui) fn capturing(shell: &Shell) -> bool {
+    shell.settings == Some(SettingsPage::Keyboard) && shell.keyboard.listening.is_some()
 }
 
-/// Close the sheet and give the keyboard back to the window.
-pub(in crate::ui) fn close(mut shell: Signal<Shell>) {
-    shell.write().keyboard = None;
-    crate::ui::host::Host::focus_app();
-}
-
-/// Change the open sheet, if it is still open.
+/// Change the page's state.
 fn edit(mut shell: Signal<Shell>, change: impl FnOnce(&mut Showing)) {
-    if let Some(sheet) = shell.write().keyboard.as_mut() {
-        change(sheet);
-    }
+    change(&mut shell.write().keyboard);
 }
 
 /// Wait for `action`'s new key.
 ///
-/// The window's own element takes focus from the pressed button, so the key comes to `App`'s
-/// handler whatever the button does with a key of its own.
+/// The window's own element takes focus from the pressed button, so the key comes to the
+/// window's handler whatever the button does with a key of its own.
 fn listen(shell: Signal<Shell>, action: Shortcut) {
-    edit(shell, |sheet| {
-        sheet.listening = Some(action);
-        sheet.said = None;
+    edit(shell, |page| {
+        page.listening = Some(action);
+        page.said = None;
     });
     crate::ui::host::Host::focus_app();
 }
 
-/// A key pressed while the sheet is open, named as `App` names a shortcut's key (Shift already
-/// folded in). `chord` is whether Ctrl, Alt or Super was held.
+/// A key pressed while an action waits, named as the window names a shortcut's key (Shift
+/// already folded in). `chord` is whether Ctrl, Alt or Super was held.
 ///
-/// Waiting for a key: Esc stops waiting, a modifier alone is passed over, and anything else is
-/// offered to the action. Not waiting: Esc closes the sheet, and nothing else is anything.
+/// Esc stops waiting, a modifier alone is passed over, and anything else is offered to the
+/// action. Waiting for nothing, a key is nothing to the page.
 pub(in crate::ui) fn pressed(shell: Signal<Shell>, key: &str, chord: bool) {
-    let listening = shell
-        .peek()
-        .keyboard
-        .as_ref()
-        .and_then(|sheet| sheet.listening);
-    let Some(action) = listening else {
-        if key == "Escape" {
-            close(shell);
-        }
+    let Some(action) = shell.peek().keyboard.listening else {
         return;
     };
     if key == "Escape" {
-        edit(shell, |sheet| sheet.listening = None);
+        edit(shell, |page| page.listening = None);
         return;
     }
     if keymap::is_not_a_key(key) {
@@ -87,12 +70,12 @@ pub(in crate::ui) fn pressed(shell: Signal<Shell>, key: &str, chord: bool) {
     } else {
         keymap::bind(&current, action, key)
     };
-    settle(shell, bound);
+    settle(shell, Some(action), bound);
 }
 
-/// Keep `changed` in the window and on disk, or say why there is no change. Either way the sheet
-/// stops waiting.
-fn settle(mut shell: Signal<Shell>, changed: Result<Keymap, Refused>) {
+/// Keep `changed` in the window and on disk, or say why there is no change, under `about`'s row
+/// (Reset All's when `None`). Either way the page stops waiting.
+fn settle(mut shell: Signal<Shell>, about: Option<Shortcut>, changed: Result<Keymap, Refused>) {
     let said = match changed {
         Ok(map) => {
             let kept = match try_consume_context::<WindowDirs>() {
@@ -109,9 +92,9 @@ fn settle(mut shell: Signal<Shell>, changed: Result<Keymap, Refused>) {
         }
         Err(refused) => Some(refused.to_string()),
     };
-    edit(shell, |sheet| {
-        sheet.listening = None;
-        sheet.said = said;
+    edit(shell, |page| {
+        page.listening = None;
+        page.said = said.map(|text| KeySaid { about, text });
     });
 }
 
@@ -124,6 +107,9 @@ fn caps(key: &str) -> Vec<Key> {
         }
         (Some(c), None) => vec![Key::Char(c)],
         _ => match key {
+            "Escape" => vec![Key::Escape],
+            "Enter" => vec![Key::Enter],
+            "Tab" => vec![Key::Tab],
             "ArrowDown" => vec![Key::Down],
             "ArrowUp" => vec![Key::Up],
             "ArrowLeft" => vec![Key::Left],
@@ -159,78 +145,60 @@ fn KeyCaps(named: String) -> Element {
     }
 }
 
-/// The sheet. Mounted while `shell.keyboard` is `Some`.
+/// What the row of `about` says under its name: why the last change to it did not happen.
+fn said_for(page: &Showing, about: Option<Shortcut>) -> Option<TextLine> {
+    page.said
+        .as_ref()
+        .filter(|said| said.about == about)
+        .map(|said| TextLine::from(said.text.clone()))
+}
+
+/// The page: Back, which is always Esc, each action with its keys, and Reset All.
 #[component]
-pub(in crate::ui) fn KeyboardSheet(shell: Signal<Shell>) -> Element {
-    let Some(sheet) = shell.read().keyboard.clone() else {
-        return rsx! {};
-    };
+pub(in crate::ui) fn KeyboardPage(shell: Signal<Shell>) -> Element {
+    let page = shell.read().keyboard.clone();
     let map = shell.read().keymap.clone();
     let any_changed = DEFAULTS.iter().any(|(action, _)| map.is_changed(*action));
     rsx! {
-        div {
-            class: "rules-wrap",
-            onclick: move |_| close(shell),
-            div {
-                class: "rules",
-                role: "dialog",
-                aria_label: TITLE,
-                onclick: move |event| event.stop_propagation(),
-                div { class: "rules-head",
-                    h3 { "{TITLE}" }
-                    SheetClose { label: "Done", on_close: move |()| close(shell) }
+        FieldGroup { title: "Shortcuts",
+            FieldRow {
+                label: keymap::name(Shortcut::Back),
+                help: Some(TextLine::from("Always")),
+                KeyCaps { named: "Escape" }
+            }
+            for (action, _) in DEFAULTS.iter().copied() {
+                KeyRow {
+                    key: "{action:?}",
+                    shell,
+                    action,
+                    keys: map.keys(action),
+                    changed: map.is_changed(action),
+                    listening: page.listening == Some(action),
+                    said: said_for(&page, Some(action)),
                 }
-                div { class: "rules-main",
-                    div { class: "rules-part",
-                        p { class: "rules-faint",
-                            "Press Change, then the key you want. Letters work while you read, never while you type."
-                        }
-                        ul { class: "rules-list kb-list",
-                            li { class: "rules-row kb-row",
-                                span { class: "rules-text", b { "{keymap::name(Shortcut::Back)}" } }
-                                span { class: "kb-keys", KeyCaps { named: "Escape" } }
-                                span { class: "rules-row-acts kb-acts",
-                                    span { class: "rules-faint", "Always" }
-                                }
-                            }
-                            for (action, _) in DEFAULTS.iter().copied() {
-                                KeyRow {
-                                    key: "{action:?}",
-                                    shell,
-                                    action,
-                                    keys: map.keys(action),
-                                    changed: map.is_changed(action),
-                                    listening: sheet.listening == Some(action),
-                                }
-                            }
-                        }
-                    }
-                }
-                div { class: "rules-part",
-                    div { class: "rules-acts",
-                        if let Some(why) = sheet.said.clone() {
-                            p { class: "capnote files-bad", role: "alert", "{why}" }
-                        }
-                        if any_changed {
-                            Button {
-                                size: ControlSize::Small,
-                                label: "Reset all".to_owned(),
-                                icon: Icon::Refresh,
-                                common: Common {
-                                    aria_label: Some("Reset every shortcut".to_owned()),
-                                    ..Common::default()
-                                },
-                                onclick: on_primary(move || settle(shell, Ok(Keymap::default()))),
-                            }
-                        }
-                    }
+            }
+        }
+        FieldGroup {
+            FieldRow {
+                label: "Restore the shipped keys",
+                help: Some(said_for(&page, None).unwrap_or_else(|| {
+                    TextLine::from("Letters work while you read, never while you type.")
+                })),
+                Button {
+                    label: "Reset All",
+                    availability: available(any_changed),
+                    common: Common {
+                        aria_label: Some("Reset every shortcut".to_owned()),
+                        ..Common::default()
+                    },
+                    onclick: on_primary(move || settle(shell, None, Ok(Keymap::default()))),
                 }
             }
         }
     }
 }
 
-/// One action: its name, its keys, and Change and Reset.
+/// One action: its name, its keys, Change, and Reset when it is not as it ships.
 #[component]
 fn KeyRow(
     shell: Signal<Shell>,
@@ -238,43 +206,44 @@ fn KeyRow(
     keys: Vec<String>,
     changed: bool,
     listening: bool,
+    said: Option<TextLine>,
 ) -> Element {
     let name = keymap::name(action);
     rsx! {
-        li { class: "rules-row kb-row", "data-action": "{action:?}",
-            span { class: "rules-text", b { "{name}" } }
-            span { class: "kb-keys",
-                if listening {
-                    span { class: "kb-wait", "Press a key…" }
-                } else {
+        FieldRow {
+            label: name,
+            help: said,
+            common: crate::ui::sidebar::tagged("action", format!("{action:?}")),
+            if listening {
+                Label { text: "Press a key…", role: LabelRole::Secondary }
+            } else {
+                span { class: "kb-keys",
                     for key in keys {
                         KeyCaps { key: "{key}", named: key.clone() }
                     }
                 }
             }
-            span { class: "rules-row-acts kb-acts",
+            Button {
+                size: ControlSize::Small,
+                label: if listening { "Waiting".to_owned() } else { "Change".to_owned() },
+                common: Common {
+                    aria_label: Some(format!("Change the key for {name}")),
+                    ..Common::default()
+                },
+                onclick: on_primary(move || listen(shell, action)),
+            }
+            if changed {
                 Button {
                     size: ControlSize::Small,
-                    label: if listening { "Waiting".to_owned() } else { "Change".to_owned() },
+                    label: "Reset".to_owned(),
                     common: Common {
-                        aria_label: Some(format!("Change the key for {name}")),
+                        aria_label: Some(format!("Reset {name}")),
                         ..Common::default()
                     },
-                    onclick: on_primary(move || listen(shell, action)),
-                }
-                if changed {
-                    Button {
-                        size: ControlSize::Small,
-                        label: "Reset".to_owned(),
-                        common: Common {
-                            aria_label: Some(format!("Reset {name}")),
-                            ..Common::default()
-                        },
-                        onclick: on_primary(move || {
-                            let back = keymap::reset(&shell.peek().keymap, action);
-                            settle(shell, back);
-                        }),
-                    }
+                    onclick: on_primary(move || {
+                        let back = keymap::reset(&shell.peek().keymap, action);
+                        settle(shell, Some(action), back);
+                    }),
                 }
             }
         }

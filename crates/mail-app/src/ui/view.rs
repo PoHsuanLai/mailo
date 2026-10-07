@@ -453,17 +453,12 @@ pub enum FileSheet {
     Export { query: String },
 }
 
-/// The Rules sheet while it is open: which account's rules, vacation reply and server script
-/// it shows. `None` is the first account there is.
+/// The Rules page of Settings: which account's rules, vacation reply and server script it
+/// shows. `None` is the first account there is.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct RulesSheet {
+pub struct RulesPage {
     pub account: Option<AccountId>,
 }
-
-/// The keys and certificates sheet while it is open. Nothing about a key is kept here: the sheet
-/// reads the store, and a passphrase, a password or a secret key never passes through the shell.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct KeysSheet;
 
 /// The Connection Doctor sheet while it is open. It keeps nothing: it reads every account's
 /// link, and a sign-in it starts is the Add account sheet's.
@@ -501,12 +496,18 @@ pub enum SpaceShowing {
     Delete,
 }
 
-/// A page of Settings.
+/// A page of Settings, in the order its sidebar lists them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum SettingsPage {
     #[default]
     General,
     Accounts,
+    Contacts,
+    Rules,
+    /// OpenPGP keys and S/MIME certificates. Nothing about a key is kept in the shell: the page
+    /// reads the store, and a passphrase, a password or a secret key never passes through it.
+    Keys,
+    Keyboard,
 }
 
 /// Where the account sheet is.
@@ -522,14 +523,24 @@ pub enum AccountStep {
     Refused(String),
 }
 
-/// The keyboard shortcuts sheet while it is open.
+/// The Keyboard page of Settings: which action is waiting for its key, and what the last change
+/// came to.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct KeyboardSheet {
-    /// The action waiting for its new key: the next press is offered to it. `None` is waiting
-    /// for nothing, and the keyboard is the sheet's own.
+pub struct KeyboardPage {
+    /// The action waiting for its new key: the next press is offered to it, and the window
+    /// gives every key to the page until then. `None` is waiting for nothing.
     pub listening: Option<Shortcut>,
-    /// Why the last key was not taken, or the keymap not kept, in words.
-    pub said: Option<String>,
+    /// Why the last key was not taken, or the keymap not kept, in words, under the row it is
+    /// about.
+    pub said: Option<KeySaid>,
+}
+
+/// Why a change on the Keyboard page did not happen, and which row says so: an action's, or
+/// `None` for Reset All's.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KeySaid {
+    pub about: Option<Shortcut>,
+    pub text: String,
 }
 
 /// The attachment viewer while it is open: which stored part of which message, and for a PDF
@@ -642,8 +653,8 @@ pub struct Shell {
     pub page_menu: PageMenu,
     /// The command menu's query while it is open. `None` is closed.
     pub command: Option<String>,
-    /// The Contacts sheet's filter while it is open. `None` is closed.
-    pub contacts: Option<String>,
+    /// What the Contacts page of Settings is filtered by.
+    pub contacts: String,
     /// The Import or Export sheet while it is open, with the text its field holds. `None` is
     /// closed.
     pub files: Option<FileSheet>,
@@ -651,10 +662,8 @@ pub struct Shell {
     ///
     /// Only the address: a password typed into the sheet lives in the sheet and goes with it.
     pub adding: Option<String>,
-    /// The Rules sheet while it is open. `None` is closed.
-    pub rules: Option<RulesSheet>,
-    /// The keys and certificates sheet while it is open. `None` is closed.
-    pub keys: Option<KeysSheet>,
+    /// Which account the Rules page of Settings shows.
+    pub rules: RulesPage,
     /// The Connection Doctor sheet while it is open. `None` is closed.
     pub doctor: Option<DoctorSheet>,
     /// The account sheet, opened from the Connection Doctor or Settings, while it is open. `None`
@@ -667,8 +676,8 @@ pub struct Shell {
     /// Which key does what: the shipped keys with the user's own over them, read from
     /// `keyboard.json` when the window opens.
     pub keymap: crate::ui::keymap::Keymap,
-    /// The keyboard shortcuts sheet while it is open. `None` is closed.
-    pub keyboard: Option<KeyboardSheet>,
+    /// The Keyboard page of Settings: the action waiting for its key, and what was said.
+    pub keyboard: KeyboardPage,
     /// The Delete forever / Empty Trash confirmation while it is open. `None` is closed.
     pub destroying: Option<crate::ui::bin::Destroying>,
     /// A Space's menu, or the part of it a row opened, at the pointer. `None` is closed.
@@ -784,14 +793,13 @@ impl Default for Shell {
             parts: PageParts::default(),
             page_menu: PageMenu::Closed,
             command: None,
-            contacts: None,
+            contacts: String::new(),
             files: None,
             adding: None,
-            rules: None,
-            keys: None,
+            rules: RulesPage::default(),
             view_editor: None,
             keymap: crate::ui::keymap::Keymap::default(),
-            keyboard: None,
+            keyboard: KeyboardPage::default(),
             doctor: None,
             account_sheet: None,
             settings: None,

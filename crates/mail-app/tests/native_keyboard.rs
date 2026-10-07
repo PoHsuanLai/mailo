@@ -1,5 +1,5 @@
 //! Custom keyboard shortcuts, driven the way their user drives them in the real window on Blitz
-//! (`ds_harness::Harness`): the Settings window's Keyboard card, Change on Archive, a key that
+//! (`ds_harness::Harness`): the Settings window's Keyboard page, Change on Archive, a key that
 //! another action holds refused by that action's name, a free key taken, and then, in the main
 //! window, which hears the shared revision, the new key archiving and the old one doing nothing.
 //!
@@ -42,8 +42,8 @@ const VIEW: Viewport = Viewport {
     scale_percent: 100,
 };
 
-/// The Settings window at the size it opens at: its last card, Keyboard, is below the fold and is
-/// reached by scrolling.
+/// The Settings window at the size it opens at: the Keyboard page's last row, Reset All, is below
+/// the fold and is reached by scrolling.
 const SETTINGS_VIEW: Viewport = Viewport {
     width: 780,
     height: 620,
@@ -174,7 +174,7 @@ fn settings_window(store: &Arc<SqliteStore>, dirs: &WindowDirs, revisions: &Shar
         .with_clock(Clock::Virtual)
         .with_contexts(contexts(store, dirs, revisions));
     let mut harness = Harness::new(mail_app::ui::native::settings_root, config);
-    settle_until(&mut harness, |harness| harness.count(LAST_CARD) == 1);
+    settle_until(&mut harness, |harness| harness.count(GENERAL) == 1);
     harness
 }
 
@@ -231,12 +231,17 @@ fn in_inbox(store: &SqliteStore) -> usize {
         .len()
 }
 
-const SHEET: &str = "[*|aria-label=\"Keyboard shortcuts\"][*|role=dialog]";
+const PAGE: &str = ".settings-page[*|data-page=\"Keyboard\"]";
+/// The page the window opens on.
+const GENERAL: &str = ".settings-page[*|data-page=\"General\"]";
 const CHANGE_ARCHIVE: &str = "[*|aria-label=\"Change the key for Archive\"]";
+/// What Archive's row says under its name: why its last key was refused.
+const ARCHIVE_SAID: &str = "[*|data-action=Archive] .ds-field-row-help";
 
 const SCROLLER: &str = ".settings-scroll";
-const LAST_CARD: &str = "[*|aria-label=\"Keyboard shortcuts\"]";
-const KEYBOARD: &str = "button[*|aria-label=\"Keyboard shortcuts\"]";
+const SIDEBAR_KEYBOARD: &str = ".ds-sidebar [*|aria-label=\"Keyboard\"]";
+const LAST_CARD: &str = "[*|aria-label=\"Restore the shipped keys\"]";
+const RESET_ALL: &str = "button[*|aria-label=\"Reset every shortcut\"]";
 
 /// Where `selector` is drawn, or a failure that shows the document.
 fn rect(harness: &Harness, selector: &str) -> ds::prelude::Rect {
@@ -285,15 +290,10 @@ fn wheel_to(harness: &mut Harness, view: (f32, f32), selector: &str) {
     }
 }
 
-/// The Keyboard shortcuts sheet, from the Settings window's last card.
-fn open_sheet(settings: &mut Harness) {
-    let view = view_of(settings);
-    wheel_to(settings, view, KEYBOARD);
-    click(settings, KEYBOARD);
-    settle_until(settings, |harness| harness.count(SHEET) == 1);
-    // The sheet slides in by a transform, which the hit test applies and a rect leaves out: let
-    // it land before anything is pressed.
-    settings.advance(ms(1000));
+/// The Keyboard page, from the Settings window's sidebar.
+fn open_page(settings: &mut Harness) {
+    click(settings, SIDEBAR_KEYBOARD);
+    settle_until(settings, |harness| harness.count(PAGE) == 1);
 }
 
 #[test]
@@ -312,15 +312,13 @@ fn archive_rebound_in_settings_archives_on_its_new_key_in_the_main_window() {
     std::thread::scope(|scope| {
         scope.spawn(|| {
             let mut settings = settings_window(&store, &dirs, &revisions);
-            open_sheet(&mut settings);
+            open_page(&mut settings);
 
             // A key another action holds is refused, by that action's name, and nothing changes.
             click(&mut settings, CHANGE_ARCHIVE);
             settings.key(Key::Char('s'));
             settings.advance(ms(200));
-            let said = settings
-                .text_of(".rules [*|role=alert]")
-                .unwrap_or_default();
+            let said = settings.text_of(ARCHIVE_SAID).unwrap_or_default();
             assert!(said.contains("Star or unstar"), "{said:?}");
             assert!(
                 !dirs.config.join(mail_app::ui::keymap::FILE_NAME).exists(),
@@ -331,18 +329,14 @@ fn archive_rebound_in_settings_archives_on_its_new_key_in_the_main_window() {
             click(&mut settings, CHANGE_ARCHIVE);
             settings.key(Key::Char('x'));
             settings.advance(ms(200));
-            assert_eq!(
-                settings.count(".rules [*|role=alert]"),
-                0,
-                "{}",
-                settings.html()
-            );
+            assert_eq!(settings.count(ARCHIVE_SAID), 0, "{}", settings.html());
             let kept = mail_app::ui::keymap::load(&dirs.config);
             assert_eq!(kept.keys(Shortcut::Archive), ["x"]);
             assert_eq!(kept.action("e", false), None);
+            // Escape with nothing waiting leaves the page as it is: it is a page, not a sheet.
             settings.key(Key::Escape);
             settings.advance(ms(300));
-            assert_eq!(settings.count(SHEET), 0);
+            assert_eq!(settings.count(PAGE), 1);
         });
     });
 
@@ -385,12 +379,12 @@ fn a_keymap_kept_earlier_is_the_one_settings_shows_and_reset_puts_it_back() {
     mail_app::ui::keymap::save(&dirs.config, &moved).unwrap();
     let mut settings = settings_window(&store, &dirs, &(Revisions::new(), Configured::default()));
 
-    open_sheet(&mut settings);
+    open_page(&mut settings);
     let row = "[*|data-action=Archive]";
     assert_eq!(
         settings.attr(&format!("{row} .kb-key"), "title").as_deref(),
         Some("X"),
-        "the sheet shows the kept key"
+        "the page shows the kept key"
     );
     click(&mut settings, "[*|aria-label=\"Reset Archive\"]");
     assert_eq!(
@@ -408,6 +402,7 @@ fn a_keymap_kept_earlier_is_the_one_settings_shows_and_reset_puts_it_back() {
 #[test]
 fn the_settings_window_scrolls_to_its_last_card() {
     let (_main, mut settings, _dir, _store, _dirs) = open();
+    open_page(&mut settings);
     let view = view_of(&settings);
     assert!(
         !in_view(&settings, view, LAST_CARD),
@@ -420,9 +415,13 @@ fn the_settings_window_scrolls_to_its_last_card() {
         "the wheel stopped with the last card {:?} outside the view {view:?}",
         rect(&settings, LAST_CARD),
     );
-    let button = centre(&settings, KEYBOARD);
+    // Reset All is there, and unavailable with nothing changed, so it takes no pointer: what
+    // must not be under something else is the row's own name.
+    assert_eq!(settings.count(RESET_ALL), 1);
+    let title = format!("{LAST_CARD} .ds-field-row-title");
+    let name = centre(&settings, &title);
     assert!(
-        settings.hits(button, KEYBOARD),
-        "the Keyboard button is under something else at {button:?}"
+        settings.hits(name, LAST_CARD),
+        "the last card is under something else at {name:?}"
     );
 }

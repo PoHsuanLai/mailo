@@ -1,5 +1,5 @@
-//! The keys sheet as drawn: the user's keys first, and the two acts that cannot be undone each
-//! asked again before anything happens.
+//! The Keys and certificates page as drawn: the user's keys first, and the two acts that cannot
+//! be undone each asked again, in quire's alert, before anything happens.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -7,36 +7,49 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use dioxus::prelude::*;
-use dioxus_core::{NoOpMutations, VirtualDom};
+use dioxus_core::VirtualDom;
 use mail_domain::signing::{SigningKeyId, SigningKeyRef};
 use mail_domain::*;
 use mail_runtime::{MapSigningStore, SigningStore};
 use mail_store::{SqliteStore, Store};
 
-use super::keys::{KeysSheet, ordered};
+use super::keys::{KeysPage, ordered};
 use super::short;
 use super::tests::{own_key, seams_with, someone_elses};
-use crate::ui::fixtures::{Seen, click, dispatching, rebuild_into, seeded};
-use crate::ui::view::Shell;
+use crate::ui::fixtures::{Seen, click, dispatching, drain_seen, rebuild_into, seeded};
 
+/// The page inside a quire root, as the Settings window has it: its alerts and sheets float in
+/// the root's overlay.
 #[component]
-fn Sheet() -> Element {
-    let shell = use_signal(|| Shell {
-        keys: Some(crate::ui::view::KeysSheet),
-        ..Shell::default()
-    });
-    rsx! { ds::prelude::Ds { appearance: ds::prelude::Appearance::default(), material: ds::prelude::Material::Window, KeysSheet { shell } } }
+fn Page() -> Element {
+    rsx! { ds::prelude::Ds { appearance: ds::prelude::Appearance::default(), material: ds::prelude::Material::Window, KeysPage {} } }
 }
 
 pub(super) fn sheet(store: &Arc<SqliteStore>, seams: super::Seams) -> (VirtualDom, Seen) {
     dispatching();
-    let mut dom = VirtualDom::new(Sheet)
+    let mut dom = VirtualDom::new(Page)
         .with_root_context(store.clone())
         .with_root_context(seams);
     let seen = rebuild_into(&mut dom);
-    // The sheet is quire's and floats in the root's overlay, drawn the render after it asks.
-    let seen = seen.merge(crate::ui::fixtures::drain_seen(&mut dom));
+    let seen = seen.merge(drain_seen(&mut dom));
     (dom, seen)
+}
+
+/// Press `element`, then let the alert or sheet it asks for land in the overlay: what that
+/// render set.
+pub(super) fn asking(dom: &mut VirtualDom, element: dioxus_core::ElementId) -> Seen {
+    click(dom, element).merge(drain_seen(dom))
+}
+
+/// The alert's button that answers `answers` ("return" for its default, "escape" for a Cancel
+/// that is not), or its destructive one for `None`: quire's alert names its buttons by their
+/// words, which a render's attributes do not carry.
+pub(super) fn alert_button(asked: &Seen, answers: Option<&str>) -> dioxus_core::ElementId {
+    let found = match answers {
+        Some(answers) => asked.all("data-answers", answers),
+        None => asked.all("data-role", "destructive"),
+    };
+    *found.last().expect("the alert has that button")
 }
 
 /// The most a job on the sheet's blocking thread may take before a test gives up. Importing an
@@ -44,13 +57,13 @@ pub(super) fn sheet(store: &Arc<SqliteStore>, seams: super::Seams) -> (VirtualDo
 /// loaded machine takes seconds: generous against that, and a job that never ends still fails.
 const SETTLE_BOUND: Duration = Duration::from_secs(60);
 
-/// Whether the sheet is running a job: its import button, always drawn, is disabled while one
-/// runs (`KeysSheet`'s `busy`).
+/// Whether the page is running a job: its import button, always drawn, is disabled while one
+/// runs (`KeysPage`'s `busy`).
 fn working(dom: &VirtualDom) -> bool {
     let markup = dioxus_ssr::render(dom);
     let label = markup
         .find("aria-label=\"Import from a file…\"")
-        .expect("the sheet's import button is drawn");
+        .expect("the page's import button is drawn");
     let start = markup[..label].rfind('<').unwrap_or(0);
     let end = label + markup[label..].find('>').unwrap_or(markup.len() - label);
     markup[start..end].contains("aria-disabled=\"true\"")
@@ -141,7 +154,7 @@ fn the_users_own_keys_come_first() {
 }
 
 #[tokio::test]
-async fn the_sheet_lists_own_keys_first_with_what_is_known_of_each() {
+async fn the_page_lists_own_keys_first_with_what_is_known_of_each() {
     let (store, _dir, secrets, mine, theirs) = two_keys();
     let (dom, _) = sheet(&store, seams_with(secrets));
     let page = dioxus_ssr::render(&dom);
@@ -149,7 +162,7 @@ async fn the_sheet_lists_own_keys_first_with_what_is_known_of_each() {
     let at_theirs = page.find(&short(theirs.fingerprint)).unwrap();
     assert!(at_mine < at_theirs, "{page}");
     assert!(page.contains("secret key held here"), "{page}");
-    assert!(page.contains("keys-row mine"), "{page}");
+    assert!(page.contains("data-mine=\"yes\""), "{page}");
     assert!(page.contains("Them &#60;bea@example.test&#62;"), "{page}");
     // Me has a key, so nothing is offered to make one.
     assert!(!page.contains("Make a key for"), "{page}");
@@ -161,7 +174,7 @@ async fn deleting_a_key_with_its_secret_is_asked_again_first() {
     let (mut dom, seen) = sheet(&store, seams_with(secrets.clone()));
     let id = short(mine.fingerprint);
 
-    let mut asked = click(&mut dom, seen.one("aria-label", &format!("Delete {id}")));
+    let mut asked = asking(&mut dom, seen.one("aria-label", &format!("Delete {id}")));
     let page = dioxus_ssr::render(&dom);
     assert!(page.contains("cannot be undone"), "{page}");
     assert!(
@@ -170,19 +183,14 @@ async fn deleting_a_key_with_its_secret_is_asked_again_first() {
     );
     assert!(held(&secrets, &mine));
 
-    // Cancel keeps it.
-    click(
-        &mut dom,
-        asked.one("aria-label", "Cancel: Delete the key and its secret"),
-    );
-    assert!(!dioxus_ssr::render(&dom).contains("cannot be recovered"));
+    // Cancel, the alert's default, keeps it.
+    click(&mut dom, alert_button(&asked, Some("return")));
+    let _ = drain_seen(&mut dom);
+    assert!(!dioxus_ssr::render(&dom).contains("cannot be undone"));
     assert!(held(&secrets, &mine));
 
-    asked = click(&mut dom, seen.one("aria-label", &format!("Delete {id}")));
-    let mut done = click(
-        &mut dom,
-        asked.one("aria-label", "Delete the key and its secret"),
-    );
+    asked = asking(&mut dom, seen.one("aria-label", &format!("Delete {id}")));
+    let mut done = click(&mut dom, alert_button(&asked, None));
     settle(&mut dom, &mut done).await;
     assert!(store.pgp_key(mine.fingerprint).unwrap().is_none());
     assert!(
@@ -227,11 +235,10 @@ async fn exporting_the_secret_key_is_asked_again_and_only_then_written() {
     let (mut dom, seen) = sheet(&store, seams);
     let id = short(mine.fingerprint);
 
-    let asked = click(
+    let asked = asking(
         &mut dom,
         seen.one("aria-label", &format!("Export the secret key {id}")),
     );
-    dom.render_immediate(&mut NoOpMutations);
     let page = dioxus_ssr::render(&dom);
     assert!(
         page.contains("Anyone with this file can read your mail"),
@@ -244,7 +251,7 @@ async fn exporting_the_secret_key_is_asked_again_and_only_then_written() {
     );
     assert!(!out.exists());
 
-    let mut done = click(&mut dom, asked.one("aria-label", "Save the secret key…"));
+    let mut done = click(&mut dom, alert_button(&asked, Some("return")));
     settle(&mut dom, &mut done).await;
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     let written = std::fs::read_to_string(&out).unwrap();
@@ -300,15 +307,15 @@ async fn generate_verify_and_import_go_through_the_keyring_handed_in() {
 }
 
 #[tokio::test]
-async fn every_class_on_the_sheet_is_styled() {
+async fn every_class_on_the_page_is_styled() {
     let (store, _dir, secrets, mine, _) = two_keys();
     let (mut dom, seen) = sheet(&store, seams_with(secrets));
-    click(
+    asking(
         &mut dom,
         seen.one("aria-label", &format!("Delete {}", short(mine.fingerprint))),
     );
     let page = dioxus_ssr::render(&dom);
-    assert!(page.contains("keys-confirm"), "{page}");
+    assert!(page.contains("ds-alert"), "{page}");
     let offences = crate::ui::style::tests::markup_offences(&page);
     assert!(offences.is_empty(), "the markup lint: {offences:#?}");
 }

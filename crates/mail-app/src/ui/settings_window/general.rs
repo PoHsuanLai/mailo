@@ -1,5 +1,4 @@
-//! General: mailo's settings schema, a group per section, and under the groups the sheets that
-//! hold more than a switch.
+//! General: mailo's settings schema, a group per section.
 //!
 //! Each row is the schema's ([`super::keys`]); what a section adds beside its rows (Refresh icons,
 //! whether there is a dictionary, how many brand-logo roots are trusted) is said here, by section
@@ -10,15 +9,13 @@ use crate::settings::{BrandLogos, Spelling};
 use crate::ui::appearance::WindowDirs;
 use crate::ui::compose::dictionaries;
 use crate::ui::press::on_primary;
-use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::components::controls::button_model::Bezel;
-use ds::components::fields::field_row::{FieldGroup, FieldRow};
+use ds::components::fields::field_row::FieldRow;
 use ds::prelude::*;
-use ds::root::common::Common;
 
 #[component]
-pub(super) fn General(shell: Signal<Shell>) -> Element {
+pub(super) fn General() -> Element {
     let settings = crate::ui::prefs::current();
     let values =
         toml::Value::try_from(&settings).unwrap_or_else(|_| toml::Value::Table(toml::Table::new()));
@@ -67,27 +64,6 @@ pub(super) fn General(shell: Signal<Shell>) -> Element {
         }
         if let Some(why) = failed() {
             p { class: "capnote", "{why}" }
-        }
-        FieldGroup { title: "More",
-            FieldRow { label: "Contacts",
-                Button { label: "Contacts\u{2026}", onclick: on_primary(move || crate::ui::contacts::open(shell)) }
-            }
-            FieldRow { label: "Rules",
-                Button { label: "Rules\u{2026}", onclick: on_primary(move || crate::ui::rules::open(shell)) }
-            }
-            FieldRow { label: "Keys and certificates",
-                Button {
-                    label: "Keys and Certificates\u{2026}",
-                    onclick: on_primary(move || crate::ui::pgp::keys::open(shell)),
-                }
-            }
-            FieldRow { label: "Keyboard",
-                Button {
-                    label: "Keyboard Shortcuts\u{2026}",
-                    common: Common { aria_label: Some("Keyboard shortcuts".to_owned()), ..Common::default() },
-                    onclick: on_primary(move || crate::ui::keyboard::open(shell)),
-                }
-            }
         }
     }
 }

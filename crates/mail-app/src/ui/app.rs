@@ -374,14 +374,6 @@ pub(super) fn App() -> Element {
             super::reading::viewer_key(shell, &key);
             return;
         }
-        // The Contacts sheet owns it while it is open: its filter takes letters, and Esc closes
-        // it and nothing else.
-        if shell.read().contacts.is_some() {
-            if key == "Escape" {
-                super::contacts::close(shell);
-            }
-            return;
-        }
         // The Import and Export sheets likewise: their fields take letters, Esc closes them.
         if shell.read().files.is_some() {
             if key == "Escape" {
@@ -412,13 +404,6 @@ pub(super) fn App() -> Element {
             }
             return;
         }
-        // The Rules sheet likewise: its fields take letters, Esc closes it.
-        if shell.read().rules.is_some() {
-            if key == "Escape" {
-                super::rules::close(shell);
-            }
-            return;
-        }
         // The view editor likewise: its fields take letters, Esc closes it.
         if shell.read().view_editor.is_some() {
             if key == "Escape" {
@@ -431,26 +416,6 @@ pub(super) fn App() -> Element {
         if shell.read().destroying.is_some() {
             if key == "Escape" {
                 super::destroy::close(shell);
-            }
-            return;
-        }
-        // The keyboard shortcuts sheet takes every key: the one pressed to be bound must not
-        // also do what it did before, and Esc stops a wait before it closes the sheet.
-        if shell.read().keyboard.is_some() {
-            let held = event.modifiers();
-            let key = if held.shift() {
-                crate::ui::view::shifted(&key).to_owned()
-            } else {
-                key
-            };
-            let chord = held.ctrl() || held.alt() || held.meta();
-            super::keyboard::pressed(shell, &key, chord);
-            return;
-        }
-        // And the keys and certificates sheet: its fields take letters, Esc closes it.
-        if shell.read().keys.is_some() {
-            if key == "Escape" {
-                super::pgp::keys::close(shell);
             }
             return;
         }
@@ -774,20 +739,11 @@ pub(super) fn App() -> Element {
             if shell.read().command.is_some() {
                 CommandMenu { shell, pages, revision, side_hidden, spaces }
             }
-            if shell.read().contacts.is_some() {
-                super::contacts::ContactsSheet { shell }
-            }
             if shell.read().files.is_some() {
                 super::files::FilesSheet { shell, revision }
             }
             if shell.read().adding.is_some() {
                 super::add_account::AddAccountSheet { shell, revision, spaces }
-            }
-            if shell.read().rules.is_some() {
-                super::rules::RulesSheet { shell, revision }
-            }
-            if shell.read().keys.is_some() {
-                super::pgp::keys::KeysSheet { shell }
             }
             if shell.read().doctor.is_some() {
                 super::doctor::DoctorView { shell, revision }
@@ -797,9 +753,6 @@ pub(super) fn App() -> Element {
             }
             if shell.read().view_editor.is_some() {
                 super::views::ViewSheet { shell, revision, pages }
-            }
-            if shell.read().keyboard.is_some() {
-                super::keyboard::KeyboardSheet { shell }
             }
             if shell.read().viewing.is_some() {
                 super::reading::AttachmentViewer { shell }
