@@ -9,6 +9,7 @@ mod forget;
 pub use forget::Freed;
 mod found;
 mod groups;
+mod held;
 mod invite;
 mod offline;
 mod outbox;
@@ -75,6 +76,8 @@ pub struct SqliteStore {
     /// open file handles without limit; `try_lock` in turn takes the first free one.
     readers: Vec<ReentrantMutex<Connection>>,
     blobs: BlobStore,
+    /// Held accounts are set aside (see `held.rs`).
+    granted_only: std::sync::atomic::AtomicBool,
 }
 
 /// How many read-only connections to open beside the writer.
@@ -148,6 +151,7 @@ impl SqliteStore {
             db: ReentrantMutex::new(db),
             readers: Vec::new(),
             blobs: BlobStore::new(blob_root.as_ref().to_path_buf()),
+            granted_only: std::sync::atomic::AtomicBool::new(false),
         };
         store.refresh_queued_summaries()?;
         store.backfill_contacts()?;
@@ -382,6 +386,14 @@ fn decode_cursor(cursor: &Cursor) -> Result<(String, String), StoreError> {
         .ok_or(StoreError::BadCursor)
 }
 
+/// `where_clause` with the held accounts' mail left out, when the store sets them aside.
+fn aside(store: &SqliteStore, where_clause: &str) -> String {
+    match store.set_aside() {
+        Some(clause) => format!("{where_clause} AND {clause}"),
+        None => where_clause.to_owned(),
+    }
+}
+
 impl Store for SqliteStore {
     fn threads(
         &self,
@@ -416,7 +428,7 @@ impl Store for SqliteStore {
         let sql_text = format!(
             "SELECT {} FROM thread_summary ts WHERE {} AND {} ORDER BY {column} {dir}, ts.thread {dir} LIMIT ?",
             read::SUMMARY_COLUMNS.replace("thread,", "ts.thread,"),
-            compiled.where_clause,
+            aside(self, &compiled.where_clause),
             keyset,
         );
 
@@ -476,7 +488,7 @@ impl Store for SqliteStore {
         let compiled = sql::compile(filter, now);
         let sql_text = format!(
             "SELECT count(*) FROM thread_summary ts WHERE {}",
-            compiled.where_clause
+            aside(self, &compiled.where_clause)
         );
         let n: i64 = self.reader().query_row(
             &sql_text,

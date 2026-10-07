@@ -13,11 +13,14 @@ impl SqliteStore {
     /// The accounts whose secrets have not been recorded as adopted, in the order they were added.
     pub fn unadopted_accounts(&self) -> Result<Vec<AccountId>, StoreError> {
         let db = self.connection();
-        let mut stmt = db.prepare(
-            "SELECT id FROM accounts
+        // Linked to accountd, accounts Mail signed in itself are set aside (`held.rs`): their
+        // keyring items are not touched either.
+        let mut stmt = db.prepare(&format!(
+            "SELECT id FROM {}
              WHERE id NOT IN (SELECT account FROM secrets_adopted)
              ORDER BY created_at, id",
-        )?;
+            self.accounts()
+        ))?;
         let ids = stmt
             .query_map([], |row| row.get::<_, String>(0))?
             .collect::<Result<Vec<_>, _>>()?;
