@@ -3,7 +3,7 @@
 //!
 //! Mail marks an account with a problem in the sidebar and puts no banner over the messages;
 //! pressing the mark opens this. Here the marks are `sidebar::marks`, the status line under the
-//! list's title opens it too when it is a warning, and so does the command menu. The words of
+//! list's title opens it too when it is a warning, and so does the search bar. The words of
 //! each line are [`crate::ui::fetching::account_line`]'s.
 //!
 //! Sign In and Settings borrow the Add account sheet, prefilled with the account. This sheet

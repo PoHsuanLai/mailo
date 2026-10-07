@@ -1,7 +1,7 @@
 //! The saved-view sheet: make a view, change one, or forget it.
 //!
 //! Opened by "Save as view" beside a search, by "Edit view" while a view is shown, and by
-//! "New view…" in the command menu. Drawn in the Rules sheet's shape and with its parts: a view
+//! "New view…" in the search bar. Drawn in the Rules sheet's shape and with its parts: a view
 //! is a search that stays, and the editor that keeps a rule's search is the one people already
 //! know. What it writes is [`crate::ui::saved`]'s to decide; this only draws the draft and hands it
 //! to the store.

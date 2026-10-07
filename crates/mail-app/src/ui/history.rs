@@ -2,7 +2,7 @@
 //!
 //! One grouped read of the `messages` table, the way `data.rs` reads `accounts`: no new `Store`
 //! method, nothing written. It is asked once per list revision and shared, never per hover, and
-//! the ⌘K menu ranks people from the same answer.
+//! the search bar ranks people from the same answer.
 
 use chrono::{DateTime, Utc};
 use mail_core::search::{Affinity, SenderStats};

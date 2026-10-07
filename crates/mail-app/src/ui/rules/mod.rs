@@ -1,8 +1,8 @@
 //! The Rules page of Settings: an account's rules, its vacation reply, and putting both on its
 //! server.
 //!
-//! ⌘K "Rules…" opens Settings on it. Everything it writes goes through the same
-//! rows `mailo rules`, `mailo vacation` and `mailo sieve push` use — [`work`], [`away`] and
+//! The search bar's "Rules Settings" opens Settings on it. Everything it writes goes through the
+//! same rows `mailo rules`, `mailo vacation` and `mailo sieve push` use — [`work`], [`away`] and
 //! [`server`] are those questions and writes as functions; the parts only draw them. One account
 //! at a time, because a rule acts on one account's labels and folders, and a server runs one
 //! account's script.
