@@ -119,8 +119,8 @@ pub(in crate::ui) enum BarAct {
     /// Take the protection off and send.
     Plain,
     LookUp(Vec<String>),
-    /// Open the keys and certificates sheet: to make a key, or import a certificate.
-    OpenSheet,
+    /// Open Settings on Keys and certificates: to make a key, or import a certificate.
+    OpenKeys,
     Unlock(Password),
 }
 
@@ -180,7 +180,7 @@ pub(in crate::ui) fn SealWarn(bar: SealBar, on_act: EventHandler<BarAct>) -> Ele
             Severity::Warn,
             format!("No OpenPGP key for {address}"),
             rsx! {
-                {act("Create a key…", on_act, || BarAct::OpenSheet)}
+                {act("Create a key…", on_act, || BarAct::OpenKeys)}
                 {act("Send without OpenPGP", on_act, || BarAct::Plain)}
             },
             None,
@@ -199,7 +199,7 @@ pub(in crate::ui) fn SealWarn(bar: SealBar, on_act: EventHandler<BarAct>) -> Ele
             Severity::Warn,
             format!("No S/MIME certificate for {address}"),
             rsx! {
-                {act("Import your certificate…", on_act, || BarAct::OpenSheet)}
+                {act("Import your certificate…", on_act, || BarAct::OpenKeys)}
                 {act("Send without S/MIME", on_act, || BarAct::Plain)}
             },
             None,

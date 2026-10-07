@@ -1,5 +1,5 @@
-//! The Contacts sheet: the whole book, a filter, a name to edit and an entry to forget on each
-//! row, and vCard in and out.
+//! The Contacts page of Settings: the whole book, a filter, a name to edit and an entry to forget
+//! on each row, the groups, and vCard in and out.
 //!
 //! Import takes files through the native dialog Attach uses (`ui::pick`); export writes
 //! `contacts.vcf` into the downloads directory the way Save writes an attachment, never over a
@@ -8,28 +8,33 @@
 use ds::components::content::avatar::{
     AvatarFace, AvatarShape, AvatarSize, AvatarTone, person_hue,
 };
-use ds::components::content::label::{LabelRole, LabelStyle};
+use ds::components::content::text_runs::RunTone;
 use ds::components::controls::button_model::ButtonRole;
+use ds::components::fields::field_row::{FieldGroup, FieldRow};
 use ds::components::lists::list::model::{ListItem, ListStyle};
-use ds::components::overlays::sheet_width::SheetWidth;
+use ds::components::lists::row::size::RowSize;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::root::pass_through::ExtraClass;
 use ds::style::tokens::control_size::ControlSize;
 use std::sync::Arc;
 
-use super::super::common::in_card;
+use super::super::common::{Told, classed};
 use dioxus::prelude::*;
 use mail_store::SqliteStore;
 
 use super::super::pick::{Ask, choose, file_name};
-use super::super::press::{SheetClose, on_primary};
+use super::super::press::on_primary;
 use super::book::{self, Row, SYNC_COMMAND};
 use super::group_rows::GroupRows;
 use crate::ui::view::Shell;
 
 /// Rows drawn at once. A book of thousands is filtered, not scrolled through.
 const SHOWN: usize = 200;
+
+/// The keys of the list's filter row and its closing note, which no address can be.
+const FIND: &str = " find";
+const NOTE: &str = " note";
 
 /// The name being edited: whose, and what is typed so far.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,17 +43,17 @@ struct Naming {
     typed: String,
 }
 
-/// The sheet. Mounted while `shell.contacts` is `Some`, which holds the filter.
+/// The page: the people, filtered, then the groups, then vCard in and out and CardDAV.
 #[component]
-pub(in crate::ui) fn ContactsSheet(shell: Signal<Shell>) -> Element {
-    let filter = shell.read().contacts.clone().unwrap_or_default();
+pub(in crate::ui) fn ContactsPage(shell: Signal<Shell>) -> Element {
+    let filter = shell.read().contacts.clone();
     // Bumped by every write, so the rows are read again.
     let changed = use_signal(|| 0u64);
     let naming = use_signal(|| None::<Naming>);
-    let mut said = use_signal(|| None::<String>);
+    let mut said = use_signal(|| None::<Result<String, String>>);
     let listed = use_memo(move || {
         let _ = changed();
-        let filter = shell.read().contacts.clone().unwrap_or_default();
+        let filter = shell.read().contacts.clone();
         let store = consume_context::<Arc<SqliteStore>>();
         book::rows(store.as_ref(), &filter)
     });
@@ -63,89 +68,93 @@ pub(in crate::ui) fn ContactsSheet(shell: Signal<Shell>) -> Element {
         format!("{total} contacts")
     };
     let empty = if filter.trim().is_empty() {
-        "No contacts"
+        "No contacts yet"
     } else {
-        "No matches"
+        "No one matches"
     };
-    let items: Vec<ListItem<String>> = rows
-        .into_iter()
-        .take(SHOWN)
-        .map(|row| {
-            let label = row.name.clone().unwrap_or_else(|| row.address.clone());
-            let key = row.address.clone();
-            ListItem::row(key, label, rsx! { BookRow { row, naming, changed, said } })
-        })
-        .collect();
-    let note = failed.unwrap_or_else(|| {
+    let note = failed.or_else(|| {
         if total == 0 {
-            empty.to_owned()
+            Some(empty.to_owned())
         } else if total > SHOWN {
-            format!("{SHOWN} of {total} shown. Filter to find the rest.")
+            Some(format!(
+                "{SHOWN} of {total} shown. Filter to find the rest."
+            ))
         } else {
-            String::new()
+            None
         }
     });
-    rsx! {
-        Sheet {
-            common: in_card(),
-            label: "Contacts".to_owned(),
-            onclose: move |()| super::close(shell),
-            width: SheetWidth::Wide,
-            div { class: "book",
-                div { class: "book-head",
-                    Label { text: count, role: LabelRole::Secondary }
+    let mut items: Vec<ListItem<String>> = vec![ListItem::row(
+        FIND.to_owned(),
+        count.clone(),
+        rsx! {
+            Row {
+                title: count,
+                size: RowSize::Settings,
+                accessory: Accessory::Slot(rsx! {
                     TextField {
                         label: "Filter by name or address".to_owned(),
                         kind: FieldKind::Search,
                         placeholder: "Filter by name or address".to_owned(),
                         value: filter.clone(),
-                        focus: FieldFocus::OnMount,
-                        oninput: move |value: String| shell.write().contacts = Some(value),
+                        common: classed("book-find"),
+                        oninput: move |value: String| shell.write().contacts = value,
                     }
+                }),
+            }
+        },
+    )];
+    items.extend(rows.into_iter().take(SHOWN).map(|row| {
+        let label = row.name.clone().unwrap_or_else(|| row.address.clone());
+        let key = row.address.clone();
+        ListItem::row(key, label, rsx! { BookRow { row, naming, changed, said } })
+    }));
+    if let Some(note) = note {
+        items.push(ListItem::row(
+            NOTE.to_owned(),
+            note.clone(),
+            rsx! { Row { title: TextLine::Runs(vec![TextRun::new(note, RunTone::Faint)]), size: RowSize::Settings } },
+        ));
+    }
+    rsx! {
+        section { class: "book-part",
+            SectionHeader { title: "People" }
+            List::<String> { label: "Contacts".to_owned(), items, style: ListStyle::Inset }
+        }
+        GroupRows { filter: filter.clone(), changed, said }
+        Told { said: said() }
+        FieldGroup { title: "Import and export",
+            FieldRow {
+                label: "Import",
+                help: Some(TextLine::from("People from vCard files, added to the book.")),
+                Button {
+                    label: "Import vCard…".to_owned(),
+                    common: Common { aria_label: Some("Import vCard…".to_owned()), ..Common::default() },
+                    onclick: on_primary(move || {
+                        choose(Ask::Cards, None, move |paths| import(paths, changed, said));
+                    }),
                 }
-                div { class: "book-rows",
-                    GroupRows { filter: filter.clone(), changed, said }
-                    List::<String> {
-                        label: "Contacts".to_owned(),
-                        items,
-                        style: ListStyle::Inset,
-                    }
-                    if !note.is_empty() {
-                        Label { text: note, role: LabelRole::Tertiary }
-                    }
+            }
+            FieldRow {
+                label: "Export",
+                help: Some(TextLine::from(format!("The whole book as {} in your downloads.", book::EXPORT_NAME))),
+                Button {
+                    label: "Export vCard…".to_owned(),
+                    onclick: on_primary(move || {
+                        let store = consume_context::<Arc<SqliteStore>>();
+                        let dir = mail_core::attach::downloads_dir();
+                        said.set(Some(
+                            book::export(store.as_ref(), &dir)
+                                .map(|path| format!("Saved to {}", path.display())),
+                        ));
+                    }),
                 }
-                div { class: "sheet-actions",
-                    if let Some(said) = said() {
-                        Label { text: said, role: LabelRole::Secondary }
-                    }
-                    Button {
-                        label: "Import vCard…".to_owned(),
-                        common: Common { aria_label: Some("Import vCard…".to_owned()), ..Common::default() },
-                        icon: Icon::Plus,
-                        onclick: on_primary(move || {
-                            choose(Ask::Cards, None, move |paths| import(paths, changed, said));
-                        }),
-                    }
-                    Button {
-                        label: "Export vCard…".to_owned(),
-                        icon: Icon::Forward,
-                        onclick: on_primary(move || {
-                            let store = consume_context::<Arc<SqliteStore>>();
-                            let dir = mail_core::attach::downloads_dir();
-                            said.set(Some(match book::export(store.as_ref(), &dir) {
-                                Ok(path) => format!("Saved to {}", path.display()),
-                                Err(why) => why,
-                            }));
-                        }),
-                    }
-                    SheetClose { label: "Done".to_owned(), on_close: move |()| super::close(shell) }
-                }
-                Label {
-                    text: "CardDAV syncs from the command line:".to_owned(),
-                    role: LabelRole::Tertiary,
-                    style: LabelStyle::Footnote,
-                }
-                Label { text: SYNC_COMMAND.to_owned(), role: LabelRole::Tertiary, style: LabelStyle::Footnote }
+            }
+            FieldRow {
+                label: "CardDAV",
+                help: Some(TextLine::Runs(vec![
+                    TextRun::new("Syncs from the command line: ", RunTone::Plain),
+                    TextRun::new(SYNC_COMMAND, RunTone::Code),
+                ])),
             }
         }
     }
@@ -156,7 +165,7 @@ pub(in crate::ui) fn ContactsSheet(shell: Signal<Shell>) -> Element {
 fn import(
     paths: Vec<std::path::PathBuf>,
     mut changed: Signal<u64>,
-    mut said: Signal<Option<String>>,
+    mut said: Signal<Option<Result<String, String>>>,
 ) {
     spawn(async move {
         for path in paths {
@@ -169,7 +178,7 @@ fn import(
                 }
                 _ => Err(format!("Cannot read {name}.")),
             };
-            said.set(Some(answer.unwrap_or_else(|why| why)));
+            said.set(Some(answer));
             changed += 1;
         }
     });
@@ -181,7 +190,7 @@ fn BookRow(
     row: Row,
     naming: Signal<Option<Naming>>,
     changed: Signal<u64>,
-    said: Signal<Option<String>>,
+    said: Signal<Option<Result<String, String>>>,
 ) -> Element {
     let shown = row.name.clone().unwrap_or_else(|| row.address.clone());
     let editing = naming
@@ -225,10 +234,9 @@ fn BookRow(
                 let address = address.clone();
                 move || {
                     let store = consume_context::<Arc<SqliteStore>>();
-                    said.set(Some(match book::forget(store.as_ref(), &address) {
-                        Ok(_) => format!("Forgot {address}"),
-                        Err(why) => why,
-                    }));
+                    said.set(Some(
+                        book::forget(store.as_ref(), &address).map(|_| format!("Forgot {address}")),
+                    ));
                     changed += 1;
                 }
             }),
@@ -241,6 +249,7 @@ fn BookRow(
     rsx! {
         Row {
             leading: RowLeading::Avatar(face),
+            size: RowSize::Settings,
             title: shown,
             detail: Some(format!("{}  ·  {origin}", row.address).into()),
             content,
@@ -256,7 +265,7 @@ fn NameField(
     typed: String,
     naming: Signal<Option<Naming>>,
     changed: Signal<u64>,
-    said: Signal<Option<String>>,
+    said: Signal<Option<Result<String, String>>>,
 ) -> Element {
     let keep = {
         let address = address.clone();
@@ -268,7 +277,7 @@ fn NameField(
                 .unwrap_or_default();
             let store = consume_context::<Arc<SqliteStore>>();
             if let Err(why) = book::name(store.as_ref(), &address, &typed) {
-                said.set(Some(why));
+                said.set(Some(Err(why)));
             }
             naming.set(None);
             changed += 1;

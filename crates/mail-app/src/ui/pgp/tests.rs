@@ -873,7 +873,7 @@ async fn render_the_reader_badges_and_the_keys_sheet_to_a_file() {
         ));
     }
     let (mut sheet, seen) = super::keys_tests::sheet(&store, seams_with(secrets));
-    click(
+    super::keys_tests::asking(
         &mut sheet,
         seen.one(
             "aria-label",

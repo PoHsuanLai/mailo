@@ -1,54 +1,33 @@
-//! The keys and certificates sheet: OpenPGP keys, then S/MIME certificates, the user's own first
-//! in each, and what can be done to each.
+//! The work behind the Keys and certificates page of Settings ([`super::keys_page`]): OpenPGP
+//! keys, then S/MIME certificates, the user's own first in each, and what can be done to each.
 //!
-//! ⌘K "Keys and certificates…" opens it. Every change goes through
+//! ⌘K "Keys and certificates…" opens Settings on it. Every change goes through
 //! [`mail_core::pgp::keys`] or [`mail_core::smime::certs`], the functions `mailo pgp` and `mailo smime`
 //! use, and runs on a blocking thread: a key is made, imported, exported or forgotten in the
 //! keyring, and a file is read or written, none of which the thread that draws may wait on. The
 //! acts that cannot be taken back — writing a secret key to a file, and deleting one — are each
-//! asked again in the sheet, in words, before anything happens.
+//! asked again by the page, in words, before anything happens.
 //!
 //! Nothing here clears what the reader found when it opened a message: every change moves the
 //! count of key changes, and the reader opens a message again when that has moved.
 
-use super::super::common::in_card;
 use chrono::Utc;
-use dioxus::prelude::*;
-use ds::components::content::label::{LabelRole, LabelStyle};
-use ds::components::lists::list::model::ListStyle;
-use ds::components::overlays::sheet_attach::Attach;
-use ds::components::overlays::sheet_width::SheetWidth;
-use ds::prelude::*;
-use ds::root::common::Common;
 use mail_domain::{Fingerprint, PgpKey, SecretHeld};
 use mail_runtime::SigningStore;
-use mail_store::{SqliteStore, Store};
+use mail_store::SqliteStore;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use super::super::data::account_rows;
-use super::super::press::{SheetClose, available, on_primary};
-use super::certs::{CertJob, CertPart};
-use super::key_row::{Confirm, KeyRow};
-use super::{Busy, Seams, seams, short, who};
-use crate::ui::view::{KeysSheet as Showing, Shell};
+use super::certs::CertJob;
+use super::{Seams, short, who};
 use mail_core::pgp::WithSecret;
 
-/// What the sheet and its menu entry are called.
+/// What the page is called.
 pub(in crate::ui) const TITLE: &str = "Keys and certificates";
 
-/// Open the sheet.
-pub(in crate::ui) fn open(mut shell: Signal<Shell>) {
-    shell.write().keys = Some(Showing);
-}
+pub(in crate::ui) use super::keys_page::KeysPage;
 
-/// Close the sheet and give the keyboard back to the window.
-pub(in crate::ui) fn close(mut shell: Signal<Shell>) {
-    shell.write().keys = None;
-    crate::ui::host::Host::focus_app();
-}
-
-/// The keys in the order the sheet lists them: the user's own — those whose secret half the
+/// The keys in the order the page lists them: the user's own — those whose secret half the
 /// keyring holds — first, then everyone else's, each group as the store orders it.
 pub(in crate::ui) fn ordered(keys: Vec<PgpKey>) -> Vec<PgpKey> {
     let (mut own, others): (Vec<PgpKey>, Vec<PgpKey>) = keys
@@ -69,7 +48,7 @@ pub(in crate::ui) fn keyless(store: &SqliteStore) -> Vec<String> {
         .collect()
 }
 
-/// Something the sheet does off the thread that draws.
+/// Something the page does off the thread that draws.
 #[derive(Debug)]
 pub(in crate::ui) enum Job {
     Generate(String),
@@ -84,13 +63,13 @@ pub(in crate::ui) enum Job {
 /// What a job came to.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::ui) enum Done {
-    /// What the sheet says afterwards.
+    /// What the page says afterwards.
     Said(String),
-    /// The file at this path is an identity that needs its password: the sheet asks for it.
+    /// The file at this path is an identity that needs its password: the page asks for it.
     Password(PathBuf),
 }
 
-/// Do `job`. Blocks — on the keyring, a file dialog, the disk — so the sheet runs it on a
+/// Do `job`. Blocks — on the keyring, a file dialog, the disk — so the page runs it on a
 /// blocking thread.
 pub(in crate::ui) fn work(store: &SqliteStore, seams: &Seams, job: Job) -> Result<Done, String> {
     let secrets = seams.secrets.as_ref();
@@ -177,7 +156,7 @@ fn file_name(key: &PgpKey, half: &str) -> String {
 }
 
 /// Write `text` to `path`. A secret key is readable by its owner only, and so is every file the
-/// sheet writes.
+/// page writes.
 pub(super) fn write(path: &Path, text: &str) -> Result<(), String> {
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create(true).truncate(true);
@@ -185,126 +164,11 @@ pub(super) fn write(path: &Path, text: &str) -> Result<(), String> {
     std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
     // Windows has no mode bits: a new file takes the access list of the folder it is put in,
     // which under the user's profile admits only them, SYSTEM and Administrators. Setting one of
-    // its own needs the Win32 security API, which is `unsafe` this workspace forbids; the sheet
+    // its own needs the Win32 security API, which is `unsafe` this workspace forbids; the page
     // says to keep a secret key offline either way.
     use std::io::Write as _;
     options
         .open(path)
         .and_then(|mut file| file.write_all(text.as_bytes()))
         .map_err(|e| format!("{}: {e}", path.display()))
-}
-
-/// The sheet. Mounted while `shell.keys` is `Some`.
-#[component]
-pub(in crate::ui) fn KeysSheet(shell: Signal<Shell>) -> Element {
-    // Bumped by every change, so the keys are read again.
-    let mut changed = use_signal(|| 0u64);
-    let mut said = use_signal(|| None::<Result<String, String>>);
-    let mut busy = use_signal(|| Busy::Idle);
-    let mut confirm = use_signal(|| Confirm::Nothing);
-    let _ = changed();
-    let store = consume_context::<Arc<SqliteStore>>();
-    let (keys, failed) = match store.pgp_keys() {
-        Ok(keys) => (ordered(keys), None),
-        Err(why) => (Vec::new(), Some(why.to_string())),
-    };
-    let (certs, certs_failed) = match store.smime_certs() {
-        Ok(certs) => (super::certs::ordered(certs), None),
-        Err(why) => (Vec::new(), Some(why.to_string())),
-    };
-    let keyless = keyless(&store);
-    // Made here, so the task belongs to the sheet and not to a row a deletion takes away.
-    let run = use_callback(move |job: Job| {
-        if *busy.peek() == Busy::Working {
-            return;
-        }
-        busy.set(Busy::Working);
-        said.set(None);
-        let store = consume_context::<Arc<SqliteStore>>();
-        let seams = seams();
-        spawn(async move {
-            let done = tokio::task::spawn_blocking(move || work(&store, &seams, job))
-                .await
-                .unwrap_or_else(|error| Err(format!("It stopped before it finished: {error}")));
-            match done {
-                Ok(Done::Said(text)) => said.set(Some(Ok(text))),
-                Ok(Done::Password(path)) => confirm.set(Confirm::Password(path)),
-                Err(why) => said.set(Some(Err(why))),
-            }
-            busy.set(Busy::Idle);
-            changed += 1;
-        });
-    });
-    let working = busy() == Busy::Working;
-    let import_label = "Import from a file…";
-    let key_items: Vec<ListItem<String>> = keys
-        .into_iter()
-        .map(|key| {
-            let id = key.fingerprint.to_string();
-            let name = who(&key);
-            ListItem::row(
-                id.clone(),
-                name,
-                rsx! { KeyRow { key: "{id}", pgp: key, confirm, run, busy: busy() } },
-            )
-        })
-        .collect();
-    rsx! {
-            Sheet {
-                label: TITLE,
-                attach: Attach::Window,
-                common: in_card(),
-                width: SheetWidth::Wide,
-                onclose: move |()| close(shell),
-                div { class: "keys",
-                    Label { text: TITLE, style: LabelStyle::Title }
-                    match said() {
-                        Some(Ok(text)) => rsx! { p { class: "keys-said", role: "status", Label { text, role: LabelRole::Secondary } } },
-                        Some(Err(why)) => rsx! { p { class: "keys-said", role: "alert", Label { text: why, role: LabelRole::Secondary } } },
-                        None => rsx! {},
-                    }
-                    div { class: "keys-main",
-                        section { class: "keys-part",
-                            SectionHeader { title: "OpenPGP" }
-                            Label {
-                                text: "Yours sign and decrypt. Theirs encrypt and verify.",
-                                role: LabelRole::Secondary,
-                                style: LabelStyle::Footnote,
-                            }
-                            div { class: "keys-list",
-                                List::<String> { label: "OpenPGP keys", items: key_items, style: ListStyle::Inset }
-                                if let Some(why) = failed {
-                                    Label { text: why, role: LabelRole::Tertiary }
-                                }
-                            }
-                            div { class: "keys-acts",
-                                for address in keyless {
-                                    Button {
-                                        key: "{address}",
-                                        label: format!("Make a key for {address}"),
-                                        icon: Some(IconSource::Glyph(Icon::Plus)),
-                                        availability: available(!working),
-                                        onclick: {
-                                            let address = address.clone();
-                                            on_primary(move || run.call(Job::Generate(address.clone())))
-                                        },
-        common: Common { aria_label: Some(format!("Make a key for {address}")), ..Common::default() },
-    }
-                                }
-                                Button {
-                                    label: import_label,
-                                    availability: available(!working),
-                                    onclick: on_primary(move || run.call(Job::Import)),
-        common: Common { aria_label: Some(import_label.to_string()), ..Common::default() },
-    }
-                            }
-                        }
-                        CertPart { certs, failed: certs_failed, confirm, run, busy: busy() }
-                    }
-                    div { class: "keys-foot",
-                        SheetClose { on_close: move |()| close(shell) }
-                    }
-                }
-            }
-        }
 }
