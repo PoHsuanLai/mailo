@@ -136,6 +136,7 @@ fn Shell() -> Element {
     let loaded = try_consume_context::<Loaded>().unwrap_or_default();
     let icons = use_signal(|| loaded);
     use_context_provider(|| icons);
+    crate::ui::provider_chip::use_fetch_missing(icons);
     super::host::use_window_host();
     rsx! { App {} }
 }
