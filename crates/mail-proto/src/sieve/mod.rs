@@ -36,12 +36,19 @@ pub enum NoSieve {
     /// own filter and vacation settings are reached through their own APIs, which this client
     /// does not use; rules on these accounts run here.
     Provider(Issuer),
+    /// An account of the desktop's accountd, whose grant lists no ManageSieve server: its relays
+    /// reach what the account lists and nothing else.
+    NotGranted,
 }
 
 impl std::fmt::Display for NoSieve {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             NoSieve::Local => f.write_str("this account keeps its mail on this computer"),
+            NoSieve::NotGranted => f.write_str(
+                "the account service lists no ManageSieve server for this account, and reaches \
+                 only the servers it lists",
+            ),
             NoSieve::Provider(issuer) => write!(
                 f,
                 "{issuer:?} offers no ManageSieve, so this account's rules run in this client \
@@ -61,6 +68,23 @@ pub const PORT: u16 = 4190;
 /// rule that holds for IMAP and SMTP holds here: an upgrade that may silently not happen is one
 /// an attacker chooses for you. A server that does not offer it is not signed in to.
 pub fn endpoint(plan: &AccountPlan) -> Result<Endpoint, NoSieve> {
+    // An account of the desktop's accountd is reached through its relays, which dial only the
+    // servers its grant lists: that server, or none.
+    if plan.grant().is_some() {
+        let listed = plan
+            .endpoint(porter_core::Family::Sieve)
+            .ok_or(NoSieve::NotGranted)?;
+        let origin = listed.url.origin();
+        return Ok(Endpoint {
+            host: origin.host,
+            port: origin.port,
+            tls: match listed.tls {
+                porter_core::Tls::Implicit => Tls::Implicit,
+                porter_core::Tls::StartTls => Tls::StartTlsRequired,
+                porter_core::Tls::Plain => Tls::Plaintext,
+            },
+        });
+    }
     if let AuthPlan::OAuth { issuer, .. } = &plan.auth {
         return Err(NoSieve::Provider(*issuer));
     }

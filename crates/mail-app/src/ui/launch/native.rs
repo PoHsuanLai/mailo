@@ -53,6 +53,15 @@ pub(super) fn run(opening: Opening) {
             ))
         });
     let original = Original::window();
+    // One revision for every window, so a conversation open in a window of its own follows what
+    // the main window does to it, and the other way round (`ui/revisions`). It is also what the
+    // follower of accountd's changes moves: an account added or removed there is every window's
+    // to draw.
+    let revisions = crate::ui::revisions::Revisions::new();
+    let following = revisions.clone();
+    crate::accountd::follow(&store, &mail_runtime::link::current(), move |_| {
+        following.bump();
+    });
     let config = AppConfig::new("mailo", ds_blitz::WindowSize::new(1200, 800))
         .with_app_id(AppId(APP_ID.to_owned()))
         .with_net(original.net())
@@ -62,9 +71,7 @@ pub(super) fn run(opening: Opening) {
         .with_context(original.pill())
         .with_context(original.images())
         .with_context(icons)
-        // One revision for every window, so a conversation open in a window of its own follows
-        // what the main window does to it, and the other way round (`ui/revisions`).
-        .with_context(crate::ui::revisions::Revisions::new())
+        .with_context(revisions)
         // And one for the configuration files a window writes (key bindings, Spaces).
         .with_context(crate::ui::revisions::Configured::default())
         // And the page the Settings window shows next, which ⌘K and the composer turn it to.

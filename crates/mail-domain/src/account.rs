@@ -10,7 +10,7 @@ use crate::content::Address;
 use crate::id::IdentityId;
 use crate::state::{IsDefault, MailboxRole};
 use chrono::{DateTime, Utc};
-use porter_core::AccountId;
+use porter_core::{AccountId, Family, GrantId, ServiceEndpoint};
 use porter_provider::Issuer;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -35,7 +35,7 @@ impl AccountPlan {
     pub fn username(&self) -> String {
         match &self.auth {
             AuthPlan::Password { username, .. } => username.resolve(&self.address),
-            AuthPlan::OAuth { .. } => self.address.clone(),
+            AuthPlan::OAuth { .. } | AuthPlan::Granted { .. } => self.address.clone(),
         }
     }
 
@@ -44,6 +44,27 @@ impl AccountPlan {
         match &self.auth {
             AuthPlan::Password { sasl, .. } => sasl.clone(),
             AuthPlan::OAuth { .. } => vec![SaslMech::XOauth2],
+            // The relay signs in: this account names no mechanism, and a session built from an
+            // empty list does not authenticate (`AuthPlan::Granted`).
+            AuthPlan::Granted { .. } => Vec::new(),
+        }
+    }
+
+    /// The grant this account is signed in through: `Some` for an account of the desktop's
+    /// accountd ([`AuthPlan::Granted`]), `None` for one mailo holds the secrets of itself.
+    pub fn grant(&self) -> Option<&GrantId> {
+        match &self.auth {
+            AuthPlan::Granted { grant, .. } => Some(grant),
+            AuthPlan::OAuth { .. } | AuthPlan::Password { .. } => None,
+        }
+    }
+
+    /// The server of `family` the grant's candidate listed, which is what a relay is asked for it
+    /// by. `None` for an account that is not accountd's, and for a family it listed no server of.
+    pub fn endpoint(&self, family: Family) -> Option<&ServiceEndpoint> {
+        match &self.auth {
+            AuthPlan::Granted { endpoints, .. } => endpoints.iter().find(|e| e.family == family),
+            AuthPlan::OAuth { .. } | AuthPlan::Password { .. } => None,
         }
     }
 
@@ -178,6 +199,21 @@ pub enum AuthPlan {
         /// Acceptable SASL mechanisms, most preferred first. A list because some servers
         /// offer only `LOGIN`.
         sasl: Vec<SaslMech>,
+    },
+    /// The account is the desktop's accountd's, and this program holds a grant on it (porter, step
+    /// E6). No password and no token is kept here: IMAP, SMTP, POP3, ManageSieve and HTTP are
+    /// reached through accountd's authenticated relays (`Accounts::open_authenticated`), which
+    /// sign in themselves, and JMAP's and Graph's bearer tokens are asked of accountd with the
+    /// grant (`Accounts::token`). `account` is accountd's name for it, which is not mailo's: the
+    /// row keeps mailo's own id (a UUID, which every table of the store reads its account column
+    /// as) and this is the key that finds it again when accountd says what changed. `endpoints` is
+    /// what the grant's candidate listed: where the account's servers are, and the names a relay
+    /// is asked for them by. Added after the first plans were stored, and no stored plan changes
+    /// shape for it.
+    Granted {
+        account: AccountId,
+        grant: GrantId,
+        endpoints: Vec<ServiceEndpoint>,
     },
 }
 

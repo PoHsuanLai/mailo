@@ -75,19 +75,9 @@ pub fn fetch_body_with(
         .map_err(|e| fatal(format!("cannot start the async runtime: {e}")))?;
     runtime.block_on(async {
         let (_tx, mut cancel) = watch::channel(false);
-        let stored = secrets
-            .get(&SecretKey {
-                account: account.id.clone(),
-                purpose: SecretPurpose::IncomingPassword,
-            })
+        let stored = super::stored_credential(&account, secrets.as_ref())
             .await
-            // A credential that is not there is one to be asked for again.
-            .map_err(|_| {
-                (
-                    Retry::NeedsReauth,
-                    crate::account::no_credential(&account.address, &account.plan.auth),
-                )
-            })?;
+            .map_err(|f| (f.retry, f.why))?;
         let credential = signed_in_typed(&account, stored, secrets.as_ref(), registry, now)
             .await
             .map_err(|f| (f.retry, f.why))?;

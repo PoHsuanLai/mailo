@@ -98,6 +98,9 @@ pub(super) fn settings(plan: &AccountPlan) -> Vec<Line> {
             (AuthPlan::Password { .. }, false) => {
                 format!("With a password, as {}", plan.username())
             }
+            (AuthPlan::Granted { .. }, _) => {
+                "By the desktop's accounts; Mail keeps no password for it".to_owned()
+            }
         },
     ));
     let addresses: Vec<String> = plan

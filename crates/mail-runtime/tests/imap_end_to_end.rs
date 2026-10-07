@@ -26,6 +26,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::watch;
 
+#[path = "support/relay.rs"]
+mod relay;
+
 fn acct_account() -> AccountId {
     account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
 }
@@ -1833,4 +1836,102 @@ kept for years\r\n";
             "something was uploaded anyway"
         );
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// An account of the desktop's accountd (porter, step E6): the same server, reached through
+// porter's relay, which signs in and greets with `* PREAUTH`.
+// ---------------------------------------------------------------------------------------------
+
+/// An engine for a granted account: no secret of its own, a link to accountd's relay, and a
+/// session factory that does not authenticate (what `mail_core::sync::imap_engine` builds for one).
+fn engine_granted(port: u16, dir: tempfile::TempDir, relays: Arc<relay::Relays>) -> Fixture {
+    use porter_core::{EndpointUrl, Family, GrantId, LoginName, ServiceEndpoint};
+    let store = Arc::new(SqliteStore::open(dir.path().join("mail.db"), dir.path()).unwrap());
+    store
+        .connection()
+        .execute(
+            "INSERT OR IGNORE INTO accounts (id, address, plan, created_at)
+             VALUES (?1, 'me@example.test', '{}', datetime('now'))",
+            [acct_account().to_string()],
+        )
+        .unwrap();
+    let mut plan = plan(port);
+    plan.auth = AuthPlan::Granted {
+        account: AccountId::parse("fastmail-me").unwrap(),
+        grant: GrantId::parse("grant-1").unwrap(),
+        endpoints: vec![ServiceEndpoint {
+            family: Family::Imap,
+            url: EndpointUrl::parse(&format!("imap://127.0.0.1:{port}")).unwrap(),
+            tls: porter_core::Tls::Plain,
+            login: LoginName("me@example.test".to_owned()),
+        }],
+    };
+    let auth = ImapAuth {
+        username: "me@example.test".to_owned(),
+        credential: Credential::Password(SecretText::new(String::new())),
+        sasl: Vec::new(),
+    };
+    let backend = ImapBackend::new(
+        acct_account(),
+        caps(),
+        Box::new(move |_authenticate, commands: Vec<ImapCommand>| {
+            // The relay signed in before the app saw its greeting: nothing to send first.
+            ImapSession::new(auth.clone(), commands)
+        }),
+    );
+    let secrets =
+        mail_runtime::link::LinkedSecrets::new(Arc::new(MemorySecrets::default()), relays);
+    let engine = AccountEngine::new(
+        acct_account(),
+        plan,
+        backend,
+        store.clone(),
+        Arc::new(secrets),
+    );
+    Fixture {
+        store,
+        engine,
+        _dir: dir,
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_granted_account_syncs_through_porters_relay_and_never_signs_in_itself() {
+    let seen: Shared = Arc::new(Mutex::new(Seen::default()));
+    let (port, _validity) = serve(seen.clone(), Fault::None).await;
+    let relays = relay::Relays::signing_in_with(PASSWORD);
+    let mut it = engine_granted(port, tempfile::tempdir().unwrap(), relays.clone());
+    let (_tx, mut cancel) = watch::channel(false);
+
+    let report = it
+        .engine
+        .sync(&inbox(), &mut cancel, now(), 200)
+        .await
+        .expect("a sync over a relay");
+    assert_eq!(report.headers_fetched, 2, "{report:?}");
+    let bodies = it
+        .engine
+        .fetch_bodies(&inbox(), &mut cancel, now(), 100)
+        .await
+        .expect("bodies");
+    assert_eq!(bodies.bodies_fetched, 2, "{bodies:?}");
+    assert_eq!(count(&it.store), 2);
+
+    // Every connection was one of accountd's relays, and the relay is what logged in to the
+    // server (the server's transcript has its `LOGIN`); the app sent none, and no password of the
+    // account was ever in this process (`relay::Relays` holds it, standing for accountd).
+    assert!(relays.opened() >= 2, "{}", relays.opened());
+    assert!(
+        seen.lock().unwrap().commands.iter().any(|c| c == "LOGIN"),
+        "the relay never signed in to the server"
+    );
+    let app = relays.app_sent().to_uppercase();
+    assert!(!app.contains("LOGIN"), "the app signed in itself:\n{app}");
+    assert!(
+        !app.contains("AUTHENTICATE"),
+        "the app authenticated itself:\n{app}"
+    );
+    assert!(!app.contains(&PASSWORD.to_uppercase()));
+    assert!(app.contains("UID FETCH"), "the app sent nothing:\n{app}");
 }

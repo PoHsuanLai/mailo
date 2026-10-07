@@ -32,6 +32,10 @@ pub struct SieveLogin {
     pub tls: Tls,
     pub username: String,
     pub credential: Credential,
+    /// The connection is a porter relay's, signed in before the session began: no `STARTTLS` and
+    /// no `AUTHENTICATE` of its own, the first thing sent is `LISTSCRIPTS`. `username` and
+    /// `credential` are not read.
+    pub relayed: bool,
 }
 
 /// What the connection is for.
@@ -378,6 +382,9 @@ impl SieveSession {
 
     /// Upgrade first when the upgrade is required and has not happened; then sign in.
     fn after_capabilities(&mut self) -> Step {
+        if self.login.relayed {
+            return self.list();
+        }
         if self.login.tls == Tls::StartTlsRequired && self.phase == Phase::Greeting {
             if self.caps.starttls != Offered::Yes {
                 return Step::Fail(ProtoError::Unsupported(

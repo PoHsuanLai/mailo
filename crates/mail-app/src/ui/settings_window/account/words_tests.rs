@@ -113,6 +113,26 @@ fn each_kind_of_account_lists_its_servers_and_how_it_signs_in() {
                 "Signs in: With a token, as ada@example.com",
             ],
         ),
+        (
+            plan(
+                Incoming::Imap {
+                    host: "imap.example.com".to_owned(),
+                    port: 993,
+                    tls: Tls::Implicit,
+                },
+                smtp(Tls::Implicit),
+                AuthPlan::Granted {
+                    account: porter_core::AccountId::parse("fastmail-ada").unwrap(),
+                    grant: porter_core::GrantId::parse("grant-1").unwrap(),
+                    endpoints: Vec::new(),
+                },
+            ),
+            &[
+                "Receiving: IMAP, imap.example.com:993, TLS",
+                "Sending: SMTP, smtp.example.com:587, TLS",
+                "Signs in: By the desktop's accounts; Mail keeps no password for it",
+            ],
+        ),
     ];
     for (plan, expect) in cases {
         assert_eq!(said(&plan), *expect, "{plan:?}");

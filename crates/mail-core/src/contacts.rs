@@ -457,6 +457,15 @@ async fn auth_for(
             password,
         });
     }
+    // An account of the desktop's accountd holds nothing here to sign in to a CardDAV server with,
+    // and its contacts go through accountd's relay (step E7), which this does not reach yet.
+    if account.plan.grant().is_some() {
+        return Err(format!(
+            "{} is an account of the desktop's account service, whose contacts Mail does not \
+             read yet",
+            account.address
+        ));
+    }
     let stored = secrets
         .get(&SecretKey {
             account: account.id.clone(),

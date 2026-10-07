@@ -412,7 +412,7 @@ impl OAuthTokens {
     ) -> Self {
         let incoming_scopes = match &plan.auth {
             AuthPlan::OAuth { scopes, .. } => incoming_scopes(scopes),
-            AuthPlan::Password { .. } => Vec::new(),
+            AuthPlan::Password { .. } | AuthPlan::Granted { .. } => Vec::new(),
         };
         Self {
             account,

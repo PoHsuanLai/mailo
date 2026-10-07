@@ -11,6 +11,9 @@ porter-provider.workspace = true
 porter-discover.workspace = true
 porter-http.workspace = true
 porter-oauth = { workspace = true, features = ["io"] }
+# The link to the desktop's accountd (`link/`, step E6). Without the `dbus` feature this is
+# porter's client over the in-process transport and the relay's byte streams: no zbus.
+porter-client.workspace = true
 mail-domain.workspace = true
 mail-proto.workspace = true
 mail-store.workspace = true
@@ -68,6 +71,10 @@ zeroize = "1"
 # platform, chosen by these two lines and nowhere else.
 [target.'cfg(target_os = "linux")'.dependencies]
 porter-secrets = { workspace = true, features = ["oo7"] }
+# Desktop extras (design/36 rule 3): the bus's own vocabulary, for the signals accountd sends
+# (`link/dbus.rs`). Only on Linux and only with `quire-desktop`.
+porter-dbus = { workspace = true, optional = true }
+futures-util = { version = "0.3", default-features = false, features = ["std"], optional = true }
 
 [target.'cfg(any(target_os = "macos", windows))'.dependencies]
 porter-secrets = { workspace = true, features = ["keyring"] }
@@ -92,7 +99,23 @@ dirs = "6"
 windows-native-keyring-store = "1"
 dirs = "6"
 
+[features]
+# Desktop extras, additive and lit by capability: the link to accountd over D-Bus. On by default
+# so a Linux build has it; a build for another desktop (and the portable gate,
+# `cargo check --workspace --no-default-features`) has the in-process path alone. The code is
+# also `cfg(target_os = "linux")`. Cargo cannot say "default on for Linux" (a feature is on or off
+# for the whole build), so the macOS and Windows jobs in CI pass `--no-default-features`, which
+# keeps zbus and porter's D-Bus transport out of those builds.
+default = ["quire-desktop"]
+quire-desktop = ["porter-client/dbus", "dep:porter-dbus", "dep:futures-util"]
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+# The bus of its own the link's tests run on (`tests/link_bus.rs`): the same zbus the secret store
+# and the intents provider already bring.
+zbus = "5.19"
+
 [dev-dependencies]
+porter-proxy.workspace = true
 porter-secrets = { workspace = true, features = ["testing", "keyring"] }
 tokio = { version = "1", features = ["full"] }
 tempfile = "3"

@@ -16,7 +16,10 @@ After=graphical-session.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/mailo watch
+# In its own scope, named `app-org.quire.Mail-watch<boot id>.scope` under app.slice: accountd proves
+# an app by the scope its process runs in, and a service's cgroup is not one. `%b` is the boot id
+# (alphanumeric, as a scope's random part must be). The scope is the unit's main process.
+ExecStart=/usr/bin/systemd-run --user --scope --collect --quiet --unit=app-org.quire.Mail-watch%b.scope --slice=app.slice /usr/local/bin/mailo watch
 # A watch ends for good only when every account has stopped for a reason retrying cannot fix (a
 # refused sign-in). Anything else that ends it is worth a retry after a pause.
 Restart=on-failure

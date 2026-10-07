@@ -10,6 +10,13 @@
 //! The database goes last ([`SqliteStore::remove_account`]): every row that names the account,
 //! and the stored messages and attachment parts nothing else uses. Nothing on the server is
 //! touched, and keys and certificates stay: they are the user's, not the account's.
+//!
+//! An account that is the desktop's accountd's (`AuthPlan::Granted`) has no secret here to forget:
+//! removing it is withdrawing Mail's grant on it, which stops Mail using the account and leaves it
+//! accountd's, and then the database. The grant goes first, for the same reason the secrets do: a
+//! grant that could not be withdrawn stops the removal with the account still here, where the
+//! other order would leave a grant nothing names and the next read of accountd's accounts would
+//! bring the account straight back.
 
 use mail_domain::{AccountPlan, Incoming};
 use mail_runtime::AccountSecrets;
@@ -71,17 +78,33 @@ pub async fn remove(
         .map_err(|e| RemoveError::Store(e.to_string()))?
         .ok_or(RemoveError::Unknown)?
     };
+    let plan = serde_json::from_str::<AccountPlan>(&plan).ok();
     // A plan that no longer reads is still an account with a server: only a readable `Local`
     // is refused.
-    if serde_json::from_str::<AccountPlan>(&plan)
-        .is_ok_and(|plan| matches!(plan.incoming, Incoming::Local))
+    if plan
+        .as_ref()
+        .is_some_and(|plan| matches!(plan.incoming, Incoming::Local))
     {
         return Err(RemoveError::Local);
     }
-    secrets
-        .forget_account(&account)
-        .await
-        .map_err(|e| RemoveError::Keyring(e.to_string()))?;
+    match plan.as_ref().and_then(|plan| plan.grant()) {
+        Some(grant) => {
+            let link = secrets.link().ok_or_else(|| {
+                RemoveError::Keyring(
+                    "the desktop's account service is not reachable, so Mail's grant on the \
+                     account cannot be withdrawn"
+                        .to_owned(),
+                )
+            })?;
+            link.revoke(grant)
+                .await
+                .map_err(|e| RemoveError::Keyring(e.to_string()))?;
+        }
+        None => secrets
+            .forget_account(&account)
+            .await
+            .map_err(|e| RemoveError::Keyring(e.to_string()))?,
+    }
     match store
         .remove_account(account)
         .map_err(|e| RemoveError::Store(e.to_string()))?
