@@ -22,7 +22,6 @@ use ds::prelude::{
     Button, Form, FormSection, Label, Shortcut as Caps, ShortcutKey as Key, TextLine,
 };
 use ds::root::common::Common;
-use ds::style::tokens::control_size::ControlSize;
 
 /// Whether the window's keys all go to the page: it is shown, and an action waits for its key.
 pub(in crate::ui) fn capturing(shell: &Shell) -> bool {
@@ -140,7 +139,6 @@ fn KeyCaps(named: String) -> Element {
                 KeyEquivalent {
                     shortcut: Caps(drawn),
                     style: KeyStyle::Cap,
-                    size: ControlSize::Small,
                 }
             }
         }
@@ -228,7 +226,6 @@ fn KeyRow(
                 }
             }
             Button {
-                size: ControlSize::Small,
                 label: if listening { "Waiting".to_owned() } else { "Change".to_owned() },
                 common: Common {
                     aria_label: Some(format!("Change the key for {name}")),
@@ -238,7 +235,6 @@ fn KeyRow(
             }
             if changed {
                 Button {
-                    size: ControlSize::Small,
                     label: "Reset".to_owned(),
                     common: Common {
                         aria_label: Some(format!("Reset {name}")),

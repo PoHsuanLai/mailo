@@ -10,7 +10,6 @@ use ds::components::controls::segmented::Tracking;
 use ds::components::menus::pop_up_button::PopUpButton;
 use ds::host::measure::{Anchor, MountedRef};
 use ds::prelude::*;
-use ds::style::tokens::control_size::ControlSize;
 
 use super::super::common::classed;
 use super::super::menu::{MenuKey, anchor_at, menu_items, menu_key};
@@ -399,14 +398,12 @@ fn Bubble(page: Signal<Page>, place: Option<String>) -> Element {
                         items: menu_items("", &turn, false),
                         value: now,
                         title: "Text".to_owned(),
-                        size: ControlSize::Small,
                         onpick: move |key: String| pick_turn(&mut page.write(), &key),
                     }
                     SegmentedControl::<Mark> {
                         label: "Text style".to_owned(),
                         choices: marks,
                         tracking: Tracking::SelectAny(held),
-                        size: ControlSize::Small,
                         onchange: move |mark: Mark| match mark {
                             Mark::Code => {
                                 code(page);
@@ -420,7 +417,6 @@ fn Bubble(page: Signal<Page>, place: Option<String>) -> Element {
                         bezel: Bezel::Toolbar,
                         label: "Link",
                         title: "Link (\u{2318}K)".to_owned(),
-                        size: ControlSize::Small,
                         icon: Icon::Link,
                         image: ImagePosition::Only,
                         onclick: on_primary(move || page.write().float = Float::Link(String::new())),

@@ -17,7 +17,6 @@
 use ds::components::lists::list::model::ListStyle;
 use ds::prelude::*;
 use ds::root::common::Common;
-use ds::style::tokens::control_size::ControlSize;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -65,7 +64,6 @@ pub(super) fn Attachments(
             let here = kept == Kept::Here;
             let button = rsx! {
                 Button {
-                    size: ControlSize::Small,
                     label,
                     common: Common { aria_label: Some(format!("{label} {name}")), ..Common::default() },
                     availability: if busy { Availability::Busy } else { Availability::Enabled },
@@ -102,7 +100,6 @@ pub(super) fn Attachments(
                             actions: match failure.again {
                                 Again::Offer => Some(rsx! {
                                     Button {
-                                        size: ControlSize::Small,
                                         label: "Try Again",
                                         common: Common { aria_label: Some(format!("Try again to download {name}")), ..Common::default() },
                                         onclick: super::super::press::on_primary(move || {

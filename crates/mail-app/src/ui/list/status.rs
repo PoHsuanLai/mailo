@@ -13,7 +13,6 @@ use ds::components::content::label::{Label, LabelRole, LabelStyle};
 use ds::components::controls::button_model::Bezel;
 use ds::prelude::*;
 use ds::root::common::Common;
-use ds::style::tokens::control_size::ControlSize;
 use std::time::Duration;
 
 /// How often "5 minutes ago" is read again. A minute is the finest the words go.
@@ -56,7 +55,6 @@ pub(super) fn ListStatus(shell: Signal<Shell>) -> Element {
             Button {
                 label: line.text.clone(),
                 bezel: Bezel::Inline,
-                size: ControlSize::Small,
                 title: Some("Open Connection Doctor".to_owned()),
                 onclick: on_primary(move || crate::ui::doctor::open(shell)),
                 common: classed(class),
@@ -70,7 +68,6 @@ pub(super) fn ListStatus(shell: Signal<Shell>) -> Element {
                 ProgressIndicator {
                     style: ProgressStyle::Bar,
                     progress: Progress::Known(Fraction(thousandths(done, of))),
-                    size: ControlSize::Small,
                     common: Common { aria_label: Some(line.text), ..Common::default() },
                 }
             }

@@ -11,6 +11,7 @@ use ds::host::measure::{Anchor, MountedRef};
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::root::pass_through::ExtraClass;
+use ds::style::tokens::control_size::ControlSize;
 use mail_domain::ThreadId;
 use mail_mime::Pages;
 
@@ -31,6 +32,7 @@ pub(in crate::ui) fn PrintTool(thread: ThreadId) -> Element {
     rsx! {
         Button {
             bezel: Bezel::Toolbar,
+            size: ControlSize::Large,
             image: ImagePosition::Only,
             label,
             icon: Some(IconSource::Glyph(Icon::Printer)),

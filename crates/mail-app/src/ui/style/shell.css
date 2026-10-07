@@ -64,9 +64,12 @@
 }
 .list-head .status.bad { color: var(--danger); font-weight: 600; }
 .list-head .status.warn { color: var(--warn); }
+/* The selection's actions are toolbar-sized buttons, set close as a toolbar's icon group is.
+   They take the room they need before the count does, so the usual set stays on one line in the
+   list column and the count gives way first. */
 .pick-tools {
   display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center;
-  gap: var(--s-4); flex: 1 1 0; min-width: 0;
+  gap: var(--s-4); flex: 0 1 auto; min-width: 0;
 }
 .bar-tools { display: flex; gap: var(--s-6); align-items: center; margin-left: auto; position: relative; flex: none; }
 

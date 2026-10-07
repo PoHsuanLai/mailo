@@ -25,6 +25,7 @@ use ds::components::controls::button_model::{Bezel, BusyLook, ImagePosition};
 use ds::components::lists::virtual_list::{RowHeight, VirtualList};
 use ds::components::overlays::empty_state::EmptyForm;
 use ds::prelude::*;
+use ds::style::tokens::control_size::ControlSize;
 use mail_core::fetch::Link;
 use mail_core::provider::provider;
 use mail_domain::*;
@@ -387,6 +388,7 @@ pub(super) fn ThreadList(
                         if side_hidden() {
                             Button {
                                 bezel: Bezel::Toolbar,
+                                size: ControlSize::Large,
                                 image: ImagePosition::Only,
                                 label: "Show sidebar",
                                 icon: Some(IconSource::Glyph(Icon::PanelLeft)),
@@ -425,6 +427,7 @@ pub(super) fn ThreadList(
                                 if !shell.read().search.trim().is_empty() {
                                     Button {
                                         bezel: Bezel::Toolbar,
+                                        size: ControlSize::Large,
                                         image: ImagePosition::Only,
                                         label: "Save as view",
                                         icon: Some(IconSource::Glyph(Icon::Plus)),
@@ -437,6 +440,7 @@ pub(super) fn ThreadList(
                                 } else if let Some(view) = shell.read().saved_view().cloned() {
                                     Button {
                                         bezel: Bezel::Toolbar,
+                                        size: ControlSize::Large,
                                         image: ImagePosition::Only,
                                         label: "Edit view",
                                         icon: Some(IconSource::Glyph(Icon::Settings)),
@@ -447,6 +451,7 @@ pub(super) fn ThreadList(
                                 if !quiet {
                                     Button {
                                         bezel: Bezel::Toolbar,
+                                        size: ControlSize::Large,
                                         image: ImagePosition::Only,
                                         label: "Sync now",
                                         icon: Some(IconSource::Glyph(Icon::Refresh)),
@@ -458,6 +463,7 @@ pub(super) fn ThreadList(
                                 }
                                 Button {
                                     bezel: Bezel::Toolbar,
+                                    size: ControlSize::Large,
                                     image: ImagePosition::Only,
                                     label: "Compose",
                                     icon: Some(IconSource::Glyph(Icon::Pen)),
@@ -479,8 +485,10 @@ pub(super) fn ThreadList(
                     }
                 },
             }
+            // Mail's search field is one of its unified toolbar's controls, at their size.
             TextField {
                 kind: FieldKind::Search,
+                size: ControlSize::Large,
                 label: "Search all mail".to_owned(),
                 placeholder: "Search all mail".to_owned(),
                 value: shell.read().search.clone(),
