@@ -132,6 +132,7 @@ fn RuleRow(
             image: ImagePosition::Only,
             icon: Icon::ChevronUp,
             label: format!("Move {name} up"),
+            title: Some(format!("Move {name} up")),
             availability: available(!first),
             onclick: on_primary(move || {
                 let store = consume_context::<Arc<SqliteStore>>();
@@ -143,6 +144,7 @@ fn RuleRow(
             image: ImagePosition::Only,
             icon: Icon::ChevronDown,
             label: format!("Move {name} down"),
+            title: Some(format!("Move {name} down")),
             availability: available(!last),
             onclick: on_primary(move || {
                 let store = consume_context::<Arc<SqliteStore>>();
@@ -154,6 +156,7 @@ fn RuleRow(
             image: ImagePosition::Only,
             icon: Icon::Pen,
             label: format!("Edit {name}"),
+            title: Some(format!("Edit {name}")),
             onclick: on_primary(move || {
                 let mut editing = editing;
                 editing.set(Some(Draft::of(&edit)));
@@ -187,6 +190,7 @@ fn RuleRow(
             role: ButtonRole::Destructive,
             icon: Icon::Trash,
             label: format!("Delete {name}"),
+            title: Some(format!("Delete {name}")),
             onclick: on_primary(move || {
                 let store = consume_context::<Arc<SqliteStore>>();
                 match work::delete(&store, &gone) {

@@ -152,7 +152,7 @@ pub(super) fn ServerPart(
     };
     let help = match pushing() {
         Pushing::Running => "Putting them on the server…",
-        _ => "Runs your rules and vacation reply on the server while this computer is off.",
+        _ => "Keeps your rules and vacation reply working while this computer is off.",
     };
     rsx! {
         FormSection { title: Some("On the server".to_owned()),

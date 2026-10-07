@@ -22,20 +22,21 @@
 .c-pin { display: flex; flex: 1; min-width: 120px; position: relative; }
 .pinput { flex: 1; min-width: 120px; }
 
-/* the document: one surface, like writing a letter */
+/* the document: one surface, like writing a letter, set as the reader sets a message (its frame's
+   14 px, 1.5 and paragraph gap in `reading::html_sheet`), so what is written is what is read */
 .c-edit { position: relative; }
 .c-body {
-  display: block; position: relative; outline: none; font-size: var(--fs-compose); line-height: 1.65; color: var(--ink);
+  display: block; position: relative; outline: none; font-size: var(--fs-reading); line-height: 1.5; color: var(--ink);
   max-width: 66ch; min-height: 180px; padding-left: var(--s-22); margin-left: calc(-1 * var(--s-22)); caret-color: var(--accent-text);
 }
-.c-body > * { margin: 0 0 .55em; }
+.c-body > * { margin: 0 0 1em; }
 .c-body p, .c-body li, .c-body blockquote, .c-body h2, .c-body h3, .c-body h4 { white-space: pre-wrap; word-break: break-word; }
 .c-body.ph > p:first-child { position: relative; }
 .c-body.ph > p:first-child::before { content: "Write, or type / for more"; position: absolute; left: 0; top: 0; color: var(--ink-faint); pointer-events: none; }
 .c-body h2 { font-size: var(--fs-heading); line-height: 1.25; margin: .9em 0 .35em; }
 .c-body h3 { font-size: var(--fs-heading-3); margin: .8em 0 .3em; }
 .c-body h4 { font-size: var(--fs-base); margin: .7em 0 .3em; }
-.c-body blockquote { border-left: 3px solid var(--ink); padding-left: var(--s-12); margin-left: 0; color: var(--ink-soft); }
+.c-body blockquote { border-left: 3px solid var(--line); padding-left: var(--s-12); margin-left: 0; color: var(--ink-soft); }
 .c-body pre {
   font-family: var(--font-code); font-size: var(--fs-meta); line-height: 1.6; background: var(--surface);
   border: var(--hair) solid var(--line-soft); border-radius: var(--r-field) var(--r-field) var(--r-field) var(--r-micro); padding: var(--s-10) var(--s-12); white-space: pre-wrap;
@@ -70,7 +71,7 @@
 .c-sel { position: absolute; background: var(--accent-soft); border-radius: var(--r-micro); }
 .c-caret { position: absolute; width: var(--caret-w); background: var(--accent-text); }
 .c-preedit {
-  position: absolute; white-space: pre; font-size: var(--fs-compose); color: var(--ink); background: var(--paper);
+  position: absolute; white-space: pre; font-size: var(--fs-reading); color: var(--ink); background: var(--paper);
   text-decoration: underline;
 }
 
@@ -147,8 +148,12 @@
 .today-at.draft { font-style: italic; }
 
 /* undo send: quire's SendPill, centred over the card rather than the window. The box is the
-   card's width and no height, at the card's foot, so it covers nothing the pointer wants. */
-.send-at { position: absolute; left: 232px; right: 0; bottom: var(--s-8); height: 0; z-index: var(--z-card); }
+   pill's own size, centred between the card's edges by its auto margins, so it covers nothing
+   the pointer wants and the pill inside it is hit where it is drawn. */
+.send-at {
+  position: absolute; left: 232px; right: 0; bottom: var(--s-8); width: max-content; margin: 0 auto;
+  z-index: var(--z-card);
+}
 .app.no-side .send-at { left: 0; }
 
 /* send later: the popover that reads a time, and the one that names a template */

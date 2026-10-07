@@ -14,14 +14,14 @@ use std::sync::Arc;
 
 /// Which of the row's actions was picked from its menu.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Pressed {
+pub(in crate::ui) enum Pressed {
     Op(OpKind),
     MoveTo,
 }
 
 /// One of the row's actions picked: the op it names, at once. Label, snooze and move open their
 /// menus (picked while open, they close); a reply opens the composer on its draft.
-pub(super) fn press(
+pub(in crate::ui) fn press(
     mut shell: Signal<Shell>,
     mut revision: Signal<u64>,
     id: ThreadId,

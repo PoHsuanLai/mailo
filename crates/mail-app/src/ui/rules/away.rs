@@ -260,7 +260,7 @@ pub(super) fn AwayPart(
         FormSection { title: Some("Vacation reply".to_owned()),
             FieldRow {
                 label: "Vacation reply",
-                help: Some(TextLine::from("Answers mail while you are away, sent by the server.")),
+                help: Some(TextLine::from("Replies to mail for you while you're away.")),
                 Toggle {
                     label: "Vacation reply".to_owned(),
                     value: if on { Check::On } else { Check::Off },
@@ -329,7 +329,7 @@ pub(super) fn AwayPart(
                 }
                 FieldRow {
                     label: "Keep the reply",
-                    help: Some(TextLine::from("Put on Server installs it.")),
+                    help: Some(TextLine::from("Turns on once it's on the server.")),
                     Button {
                         label: "Keep Reply".to_owned(),
                         onclick: on_primary(move || {

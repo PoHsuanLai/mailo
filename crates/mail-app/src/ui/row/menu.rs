@@ -21,7 +21,7 @@ use mail_domain::{OpKind, ReadState, Star};
 
 /// A row of the menu.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Pick {
+pub(in crate::ui) enum Pick {
     /// Open in new window.
     Window,
     /// One of the row's actions, as the old strip pressed it.
@@ -136,6 +136,43 @@ pub(super) fn groups(offered: &[OpKind], read: ReadState, star: Star) -> Vec<Vec
     out
 }
 
+/// The open conversation's ⋯ in the reader: the row's menu without what the reader's toolbar
+/// already holds (Move, Mute, Remind, and the window, which the view menu offers), and with the
+/// replies and the quieter actions a conversation always has.
+pub(in crate::ui) fn reader_groups(
+    offered: &[OpKind],
+    read: ReadState,
+    star: Star,
+) -> Vec<Vec<Pick>> {
+    let always = [
+        OpKind::Reply,
+        OpKind::ReplyAll,
+        OpKind::Forward,
+        OpKind::Pin,
+        OpKind::Snooze,
+        OpKind::AddLabel,
+    ];
+    let offered: Vec<OpKind> = always.iter().chain(offered).copied().collect();
+    groups(&offered, read, star)
+        .into_iter()
+        .map(|group| {
+            group
+                .into_iter()
+                .filter(|pick| {
+                    !matches!(
+                        pick,
+                        Pick::Window
+                            | Pick::Remind
+                            | Pick::Press(Pressed::MoveTo)
+                            | Pick::Press(Pressed::Op(OpKind::Mute | OpKind::FollowUp))
+                    )
+                })
+                .collect::<Vec<_>>()
+        })
+        .filter(|group| !group.is_empty())
+        .collect()
+}
+
 /// What a row is called. One that opens a further menu or a sheet ends in "…", as the Mac's do.
 pub(super) fn name(pick: Pick, muted: Muted) -> String {
     let muted = muted == Muted::Yes;
@@ -156,7 +193,7 @@ pub(super) fn name(pick: Pick, muted: Muted) -> String {
 
 /// Whether the conversation is muted, which names its mute row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Muted {
+pub(in crate::ui) enum Muted {
     Yes,
     No,
 }
@@ -171,7 +208,7 @@ fn icon(pick: Pick) -> Icon {
 }
 
 /// The groups as quire's menu rows, a rule between each group.
-pub(super) fn rows(groups: &[Vec<Pick>], muted: Muted) -> Vec<MenuItem<Pick>> {
+pub(in crate::ui) fn rows(groups: &[Vec<Pick>], muted: Muted) -> Vec<MenuItem<Pick>> {
     let mut out = Vec::new();
     for (n, group) in groups.iter().enumerate() {
         if n > 0 {
@@ -314,6 +351,40 @@ mod tests {
         for (case, offered, read, star, muted, want) in cases {
             assert_eq!(names(offered, *read, *star, *muted), *want, "{case}");
         }
+    }
+
+    #[test]
+    fn the_readers_more_menu_leaves_out_what_its_toolbar_holds() {
+        let inbox = [OpKind::Archive, OpKind::Trash, OpKind::Spam];
+        let names: Vec<String> = rows(
+            &reader_groups(&inbox, ReadState::Read, Star::Unstarred),
+            Muted::No,
+        )
+        .into_iter()
+        .map(|row| match row {
+            MenuItem::Item { title, .. } => title,
+            _ => "-".to_owned(),
+        })
+        .collect();
+        assert_eq!(
+            names,
+            [
+                "Reply",
+                "Reply all",
+                "Forward",
+                "-",
+                "Mark as unread",
+                "Star",
+                "Pin",
+                "-",
+                "Snooze…",
+                "Label…",
+                "-",
+                "Archive",
+                "Spam",
+                "Trash",
+            ]
+        );
     }
 
     #[test]

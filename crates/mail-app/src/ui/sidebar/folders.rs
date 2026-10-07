@@ -78,7 +78,6 @@ enum FolderKey {
     New,
     Folder(AccountId, String),
     Toggle,
-    Empty,
 }
 
 #[component]
@@ -102,7 +101,6 @@ pub(super) fn FolderList(
     };
     let trees = section.trees.clone();
     let several = trees.len() > 1;
-    let empty = trees.iter().all(|tree| tree.nodes.is_empty());
     let accounts: Vec<(AccountId, String, Option<char>)> = trees
         .iter()
         .map(|tree| (tree.account.clone(), tree.address.clone(), tree.delimiter))
@@ -130,21 +128,7 @@ pub(super) fn FolderList(
             },
         ));
     }
-    if empty {
-        items.push(
-            ListItem::row(
-                FolderKey::Empty,
-                "No folders",
-                rsx! {
-                    Label {
-                        text: "No folders of your own yet.",
-                        role: ds::components::content::label::LabelRole::Tertiary,
-                    }
-                },
-            )
-            .with(Availability::Disabled),
-        );
-    }
+    // No folders of their own: the header and its New say it, as Mail's empty section does.
     for tree in trees {
         if several {
             items.push(ListItem::heading(

@@ -1244,6 +1244,26 @@ mod tests {
         ("Side peek", "side", false),
     ];
 
+    /// The view menu's row for `label`, in the order the menu lists them.
+    /// A press on the reader's View button, then on `label` in its menu, once quire's blink has
+    /// passed and the pick has acted: what the window drew.
+    async fn pick_view(
+        dom: &mut VirtualDom,
+        seen: crate::ui::fixtures::Seen,
+        label: &str,
+    ) -> crate::ui::fixtures::Seen {
+        use crate::ui::fixtures::{click, drain_seen, pick_named};
+        let view = *seen
+            .all("aria-label", "View")
+            .last()
+            .expect("no View button");
+        click(dom, view);
+        // Only the rows this menu drew: what was seen before may hold an earlier menu's.
+        let drawn = drain_seen(dom);
+        let after = pick_named(dom, &drawn, label).await;
+        seen.merge(drawn).merge(after)
+    }
+
     #[tokio::test]
     async fn each_peek_writes_data_peek_and_the_panel_only_while_a_thread_is_open() {
         use crate::ui::fixtures::{click, key};
@@ -1276,10 +1296,7 @@ mod tests {
                     crate::ui::fixtures::drain(&mut dom);
                 }
                 label => {
-                    let id = seen.one("aria-label", label);
-                    click(&mut dom, id);
-                    let later = crate::ui::fixtures::drain_seen(&mut dom);
-                    seen = seen.merge(later);
+                    seen = pick_view(&mut dom, std::mem::take(&mut seen), label).await;
                 }
             }
             let page = dioxus_ssr::render(&dom);
@@ -1307,7 +1324,7 @@ mod tests {
 
     #[tokio::test]
     async fn changing_the_peek_keeps_the_same_thread_and_document_in_the_reader() {
-        use crate::ui::fixtures::{click, drain_seen, key};
+        use crate::ui::fixtures::{drain_seen, key};
 
         dispatching();
         let (store, _dir) = realistic();
@@ -1315,15 +1332,12 @@ mod tests {
         dom.rebuild_in_place();
 
         // The newest rows are plain text. Walk until the open thread is one with a frame. The
-        // peek buttons are created on the first open and not rewritten while only the message
-        // changes, so their ids come from that first render.
-        let mut centre = None;
-        let mut full = None;
+        // View button is created on the first open and not rewritten while only the message
+        // changes, so what each render drew is kept.
+        let mut seen = crate::ui::fixtures::Seen::default();
         let mut page = String::new();
         for _ in 0..8 {
-            let seen = key(&mut dom, "j");
-            centre = centre.or_else(|| seen.get("aria-label", "Centre peek"));
-            full = full.or_else(|| seen.get("aria-label", "Full page"));
+            seen = seen.merge(key(&mut dom, "j"));
             page = dioxus_ssr::render(&dom);
             if shell_markup(&page).contains("<iframe") {
                 break;
@@ -1334,13 +1348,10 @@ mod tests {
             "no HTML thread in the fixture:\n{page}"
         );
         let srcdoc = iframe_srcdoc(&page);
-        let centre = centre.expect("the reader never drew Centre peek");
-        let full = full.expect("the reader never drew Full page");
 
         // The reader moves from the card's column into quire's panel and stays the same thread:
         // its frame is built again, from the same sanitized document.
-        click(&mut dom, centre);
-        let seen = drain_seen(&mut dom);
+        let seen = pick_view(&mut dom, seen, "Centre peek").await;
         let floating = dioxus_ssr::render(&dom);
         assert_eq!(peek_attr(&floating), "center");
         assert_eq!(peeks_up(&floating), 1, "the reader is not in quire's panel");
@@ -1349,14 +1360,13 @@ mod tests {
             srcdoc,
             "the panel shows another document"
         );
-        let full = seen.get("aria-label", "Full page").unwrap_or(full);
-        click(&mut dom, full);
+        pick_view(&mut dom, seen, "Full page").await;
         drain_seen(&mut dom);
         let after = dioxus_ssr::render(&dom);
         assert_eq!(
             peek_attr(&after),
             "full",
-            "the Full page click did not change the peek, so this test never moved the reader"
+            "the Full page pick did not change the peek, so this test never moved the reader"
         );
         assert_eq!(
             iframe_srcdoc(&after),

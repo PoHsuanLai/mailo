@@ -3,8 +3,8 @@
 //! and a gap in quire is reported to quire (coherence rule 3, FINDINGS "quire requests"), never
 //! patched here.
 //!
-//! There is none at present: quire's `FieldRow` wraps a control cell holding several controls
-//! (v0.2.2), which was the one line that stood here.
+//! There is none at present: quire v0.2.21 puts a short-labelled Setting row's control at the
+//! row's end, which was the one line that stood here.
 
 use ds_lint::Exception;
 

@@ -263,23 +263,22 @@ fn click_row(harness: &mut Harness, n: usize) {
     harness.advance(ms(300));
 }
 
-/// Wait for the one menu row, then press it where it is drawn.
+/// Wait for the menu's Open in new window, then press it where it is drawn.
 fn press_open_in_window(harness: &mut Harness) {
-    let item = ".ds-menu-item";
+    let row = |h: &Harness| {
+        (1..=h.count(".ds-menu > *")).find(|n| {
+            h.text_of(&format!(".ds-menu > :nth-child({n}) .ds-menu-label"))
+                .is_some_and(|name| name.trim() == "Open in new window")
+        })
+    };
     settle_until(harness, |h| {
-        h.centre(item).is_some_and(|at| h.hits(at, item))
+        row(h).is_some_and(|n| {
+            let item = format!(".ds-menu > :nth-child({n})");
+            h.centre(&item).is_some_and(|at| h.hits(at, &item))
+        })
     });
-    assert_eq!(
-        harness
-            .text_of(item)
-            .as_deref()
-            .map(str::trim)
-            .map(|t| t.starts_with("Open in new window")),
-        Some(true),
-        "{:?}",
-        harness.text_of(item)
-    );
-    harness.click(centre(harness, item));
+    let n = row(harness).unwrap_or_else(|| panic!("no Open in new window:\n{}", harness.html()));
+    harness.click(centre(harness, &format!(".ds-menu > :nth-child({n})")));
     // The menu blinks the picked row and acts on it as it closes, which takes real time on a
     // slow runner: a fixed advance can end before the ask is made.
     settle_until(harness, |h| h.count(".ds-menu") == 0);
@@ -300,7 +299,7 @@ fn the_reader_s_menu_asks_for_the_open_conversation_in_a_window_of_its_own() {
     click_row(&mut harness, 2);
     assert_eq!(recorder.asked(), Vec::<Ask>::new());
 
-    harness.click(centre(&harness, ".reader-head [*|aria-label=\"More\"]"));
+    harness.click(centre(&harness, ".reader-head [*|aria-label=\"View\"]"));
     press_open_in_window(&mut harness);
     assert_eq!(recorder.asked(), asked_for(&store, INBOX[1].1));
     assert_eq!(harness.count(".ds-menu"), 0, "the pick left the menu open");
@@ -359,8 +358,8 @@ fn the_window_s_root_draws_the_reader_for_its_conversation_and_nothing_else() {
         "the window drew a list"
     );
     assert_eq!(harness.count(".side"), 0, "the window drew the sidebar");
-    // The window is the page: no peek, and no second "Open in new window" from inside it.
-    for tool in ["Side peek", "Centre peek", "Full page", "More"] {
+    // The window is the page: no view menu, so no peek and no second "Open in new window".
+    for tool in ["View", "Side peek", "Centre peek", "Full page"] {
         assert_eq!(
             harness.count(&format!(".reader-head [*|aria-label=\"{tool}\"]")),
             0,

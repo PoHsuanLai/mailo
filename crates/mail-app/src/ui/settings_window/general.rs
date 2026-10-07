@@ -39,10 +39,9 @@ pub(super) fn General() -> Element {
     // dictionary for a language, or that no logo can be verified yet.
     let footer_of = |title: &str| match title {
         "Writing" => missing.clone(),
-        "Reading" if settings.reading.brand_logos == BrandLogos::On && roots == 0 => Some(format!(
-            "No mark verifying authority's root is installed, so no logo can be verified yet. Roots can be added to {} in the config directory.",
-            mail_core::bimi::USER_ROOTS
-        )),
+        "Reading" if settings.reading.brand_logos == BrandLogos::On && roots == 0 => {
+            Some("Logos can't be verified on this computer yet.".to_owned())
+        }
         _ => None,
     };
     rsx! {
@@ -115,7 +114,7 @@ fn TrustedSenders(
             FieldRow {
                 label: "No trusted senders yet",
                 help: Some(TextLine::from(
-                    "A message's blocked-images banner offers Always Load From its sender.",
+                    "Choose Always Load From on a message's image banner.",
                 )),
             }
         }

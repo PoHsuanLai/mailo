@@ -196,7 +196,7 @@ fn standing(group: &Group) -> &'static str {
         } => "from an address book",
         GroupHome::Book {
             edit: Edit::Edited, ..
-        } => "edited · written back by mailo contacts sync",
+        } => "edited · saved to the address book on the next sync",
     }
 }
 

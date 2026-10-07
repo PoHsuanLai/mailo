@@ -5,11 +5,12 @@ mod fetch;
 mod header;
 mod images;
 mod thumb;
+mod tools;
 mod viewer;
 
 use super::press::on_primary;
 use super::text::{attachment_rows, stamp};
-use crate::ui::view::{Peek, Shell};
+use crate::ui::view::Shell;
 use attachments::Attachments;
 pub(in crate::ui) use cache::use_warming;
 pub use cache::{rendered as render_message, warm};
@@ -77,26 +78,6 @@ fn always_load_from(email: &str) -> String {
     format!("Always load from {email}")
 }
 
-fn peek_tool(peek: Peek, current: Peek, icon: Icon, mut shell: Signal<Shell>) -> Element {
-    let label = peek.label();
-    let pressed = if current == peek {
-        Check::On
-    } else {
-        Check::Off
-    };
-    rsx! {
-        Button {
-            bezel: Bezel::Toolbar,
-            size: ControlSize::Large,
-            image: ImagePosition::Only,
-            label: label.to_owned(),
-            icon: Some(IconSource::Glyph(icon)),
-            value: Some(pressed),
-            onclick: move |_| shell.write().peek = peek,
-        }
-    }
-}
-
 /// Mute, in the head's tools: pressed while the conversation is muted, and a press mutes or
 /// unmutes it through the same gesture as the row's button, so Ctrl Z and the toast take it back.
 fn mute_tool(thread: ThreadId, mute: Mute, shell: Signal<Shell>, revision: Signal<u64>) -> Element {
@@ -111,6 +92,7 @@ fn mute_tool(thread: ThreadId, mute: Mute, shell: Signal<Shell>, revision: Signa
             image: ImagePosition::Only,
             icon: Some(IconSource::Glyph(Icon::BellOff)),
             label: label.to_owned(),
+            title: Some(label.to_owned()),
             value: Some(pressed),
             onclick: move |_| {
                 let store = consume_context::<Arc<SqliteStore>>();
@@ -138,48 +120,6 @@ pub(in crate::ui) enum ReaderIn {
     /// A window of its own (`ui/window`): the window is the page, so no peek and no "Open in new
     /// window".
     Window,
-}
-
-/// The reader's menu: what it does beyond its tools. "Open in new window" for now.
-#[component]
-fn ReaderMenu(thread: ThreadId) -> Element {
-    let mut open = use_signal(|| false);
-    let mut tool = use_signal(|| None::<ds::host::measure::MountedRef>);
-    rsx! {
-        Button {
-            bezel: Bezel::Toolbar,
-            size: ControlSize::Large,
-            image: ImagePosition::Only,
-            icon: Some(IconSource::Glyph(Icon::Ellipsis)),
-            label: "More".to_owned(),
-            shown: Some(if open() {
-                ds::prelude::Shown::Visible
-            } else {
-                ds::prelude::Shown::Hidden
-            }),
-            common: Common {
-                mounted: Some(EventHandler::new(move |event: MountedEvent| {
-                    tool.set(Some(ds::host::measure::MountedRef(event.data())));
-                })),
-                ..Common::default()
-            },
-            onclick: move |_| open.toggle(),
-        }
-        if open() {
-            super::menu::Floating {
-                anchor: tool(),
-                title: String::new(),
-                items: vec![super::window::menu_item()],
-                on_pick: move |key: String| {
-                    open.set(false);
-                    if key == super::window::OPEN_KEY {
-                        super::window::open_in_window(thread);
-                    }
-                },
-                on_close: move |_| open.set(false),
-            }
-        }
-    }
 }
 
 /// What the reader displays for one message body in its sandboxed frame.
@@ -294,7 +234,8 @@ const FRAME_FONT: &str =
     "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, Helvetica, Arial, sans-serif";
 
 /// What an HTML message's document starts from before the sender's own sheets: a browser's
-/// defaults, as a mail client's are, with nothing wider than the frame where Blitz can say so
+/// defaults, as a mail client's are, with quotes, code and headings drawn as the composer draws
+/// them, so a message written here reads as it was written, with nothing wider than the frame where Blitz can say so
 /// (a table's own percentage `max-width` does not hold a fixed-width table nested in an
 /// auto-width one: a pane under 600 px still cuts a 600 px newsletter's right edge). An image
 /// keeps the size its attributes give it, so a blocked one still holds its place. The sender's
@@ -305,7 +246,13 @@ fn html_sheet() -> String {
         ":root {{ color-scheme: light; }} html, body {{ margin: 0; }} \
          body {{ padding: 16px; font-family: {FRAME_FONT}; font-size: 14px; line-height: 1.5; \
          color: #1d1d1f; background: #fff; overflow-wrap: anywhere; }} \
-         img {{ max-width: 100%; }} table {{ max-width: 100%; }}"
+         img {{ max-width: 100%; }} table {{ max-width: 100%; }} \
+         blockquote {{ margin: 0 0 1em; padding-left: 12px; border-left: 3px solid #d2d2d7; color: #424245; }} \
+         pre, code {{ font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9em; }} \
+         pre {{ background: #f5f5f7; border-radius: 6px; padding: 10px 12px; white-space: pre-wrap; }} \
+         h2 {{ font-size: 1.3em; line-height: 1.25; margin: .9em 0 .35em; }} \
+         h3 {{ font-size: 1.15em; margin: .8em 0 .3em; }} h4 {{ font-size: 1em; margin: .7em 0 .3em; }} \
+         a {{ color: #0066cc; }}"
     )
 }
 
@@ -573,10 +520,10 @@ pub(super) fn Reader(
                     }
                     super::print::PrintTool { thread }
                     if place == ReaderIn::Pane {
-                        {peek_tool(Peek::Side, peek, Icon::Panel, shell)}
-                        {peek_tool(Peek::CENTER, peek, Icon::Square, shell)}
-                        {peek_tool(Peek::FULL, peek, Icon::Maximize, shell)}
-                        ReaderMenu { thread }
+                        tools::ViewMenu { thread, peek, shell }
+                    }
+                    if let Some(revision) = revision {
+                        tools::ReaderMore { summary: loaded.summary.clone(), shell, revision }
                     }
                 }
             }

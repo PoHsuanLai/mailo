@@ -206,6 +206,7 @@ fn AccountRowView(
                 image: ImagePosition::Only,
                 icon: Icon::Settings,
                 label: format!("Account settings for {name}"),
+                title: Some(format!("Account settings for {name}")),
                 onclick: on_primary(move || open.call(())),
             }
         }

@@ -85,6 +85,8 @@ mod window;
 mod fixtures;
 #[cfg(test)]
 mod shell_tests;
+#[cfg(test)]
+mod tips_tests;
 
 pub use launch::run;
 
