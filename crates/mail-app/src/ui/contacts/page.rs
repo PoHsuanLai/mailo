@@ -13,7 +13,6 @@ use ds::components::lists::row::size::RowSize;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::root::pass_through::ExtraClass;
-use ds::style::tokens::control_size::ControlSize;
 use std::sync::Arc;
 
 use super::super::common::{Told, classed, person_tile};
@@ -206,7 +205,6 @@ fn BookRow(
     let acts = rsx! {
         Button {
             label: action.to_owned(),
-            size: ControlSize::Small,
             onclick: {
                 let address = address.clone();
                 let typed = row.name.clone().unwrap_or_default();
@@ -216,7 +214,6 @@ fn BookRow(
         }
         Button {
             role: ButtonRole::Destructive,
-            size: ControlSize::Small,
             label: "Forget".to_owned(),
             title: "Mail may teach it again".to_owned(),
             onclick: on_primary({
@@ -301,7 +298,6 @@ fn NameField(
             }
             Button {
                 label: "Save".to_owned(),
-                size: ControlSize::Small,
                 onclick: on_primary(keep_on_click),
                 common: Common { aria_label: Some(format!("Save the name for {address}")), ..Common::default() },
             }

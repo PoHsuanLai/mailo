@@ -174,7 +174,7 @@ pub(super) fn PickBar(
                     key: "{name}",
                     bezel: Bezel::Toolbar,
                     image: ImagePosition::Only,
-                    size: ControlSize::Small,
+                    size: ControlSize::Large,
                     label: name.to_owned(),
                     icon,
                     title: Some(name.to_owned()),
@@ -191,7 +191,7 @@ pub(super) fn PickBar(
             Button {
                 bezel: Bezel::Toolbar,
                 image: ImagePosition::Only,
-                size: ControlSize::Small,
+                size: ControlSize::Large,
                 label: mute.to_owned(),
                 icon: Icon::BellOff,
                 title: Some(format!("{mute} (m)")),
@@ -208,7 +208,7 @@ pub(super) fn PickBar(
                 Button {
                     bezel: Bezel::Toolbar,
                     image: ImagePosition::Only,
-                    size: ControlSize::Small,
+                    size: ControlSize::Large,
                     label: "Delete forever".to_owned(),
                     icon: Icon::Trash,
                     title: Some("Delete forever…".to_owned()),
@@ -227,7 +227,7 @@ pub(super) fn PickBar(
             Button {
                 bezel: Bezel::Toolbar,
                 image: ImagePosition::Only,
-                size: ControlSize::Small,
+                size: ControlSize::Large,
                 label: "Clear the selection".to_owned(),
                 icon: Icon::X,
                 title: Some("Clear the selection (Esc)".to_owned()),

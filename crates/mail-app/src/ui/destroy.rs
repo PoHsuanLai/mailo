@@ -128,7 +128,7 @@ pub(in crate::ui) fn DestroySheet(shell: Signal<Shell>, revision: Signal<u64>) -
                     p { class: "destroy-body", "{said.body}" }
                     div { class: "rules-acts",
                         Button {
-                            size: ControlSize::Small,
+                            size: ControlSize::Large,
                             label: said.confirm.clone(),
                             icon: Icon::Trash,
                             common: Common {
@@ -153,7 +153,7 @@ pub(in crate::ui) fn EmptyButton(shell: Signal<Shell>) -> Element {
     let name = format!("Empty {}", bin.name());
     rsx! {
         Button {
-            size: ControlSize::Small,
+            size: ControlSize::Large,
             label: name.clone(),
             icon: Icon::Trash,
             title: Some(format!("Delete everything in {} forever", bin.name())),

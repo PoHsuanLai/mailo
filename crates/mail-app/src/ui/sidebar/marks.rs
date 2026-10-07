@@ -55,7 +55,7 @@ fn glyph(shell: Signal<Shell>, why: String, icon: Icon) -> Element {
                     icon: IconSource::Glyph(icon),
                     image: ImagePosition::Only,
                     bezel: Bezel::Toolbar,
-                    size: ControlSize::Mini,
+                    size: ControlSize::Small,
                     // Inside a row: pressing the mark is not pressing the row.
                     propagation: Propagation::Stop,
                     onclick: on_primary(move || crate::ui::doctor::open(shell)),

@@ -14,7 +14,6 @@ use ds::host::measure::{Anchor, MountedRef};
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::root::pass_through::ExtraClass;
-use ds::style::tokens::control_size::ControlSize;
 use mail_core::unsubscribe::Outcome;
 use mail_domain::ThreadId;
 use mail_store::SqliteStore;
@@ -74,7 +73,6 @@ pub(in crate::ui) fn Leave(
     rsx! {
         div { class: "leave",
             Button {
-                size: ControlSize::Small,
                 label,
                 shown: Some(if open { Shown::Visible } else { Shown::Hidden }),
                 onclick: on_primary(move || {

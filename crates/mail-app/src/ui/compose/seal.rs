@@ -10,7 +10,6 @@
 use ds::components::overlays::inline_banner::InlineBanner;
 use ds::prelude::*;
 use ds::root::common::Common;
-use ds::style::tokens::control_size::ControlSize;
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
@@ -128,7 +127,6 @@ pub(in crate::ui) enum BarAct {
 fn act(words: &'static str, on_act: EventHandler<BarAct>, what: fn() -> BarAct) -> Element {
     rsx! {
         Button {
-            size: ControlSize::Small,
             label: words.to_string(),
             onclick: on_primary(move || on_act.call(what())),
             common: Common { aria_label: Some(words.to_string()), ..Common::default() },
@@ -166,7 +164,6 @@ pub(in crate::ui) fn SealWarn(bar: SealBar, on_act: EventHandler<BarAct>) -> Ele
                 format!("No OpenPGP key for {listed}"),
                 rsx! {
                     Button {
-                        size: ControlSize::Small,
                         label: look.to_string(),
                         onclick: on_primary(move || on_act.call(BarAct::LookUp(addresses.clone()))),
                         common: Common { aria_label: Some(look.to_string()), ..Common::default() },

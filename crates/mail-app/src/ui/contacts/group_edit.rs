@@ -15,7 +15,6 @@ use ds::components::lists::row::size::RowSize;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::icon::family::PlateFamily;
-use ds::style::tokens::control_size::ControlSize;
 
 /// The open group's name, in a field, with Rename.
 #[component]
@@ -68,7 +67,6 @@ pub(super) fn RenameRow(
             },
             accessory: Accessory::Slot(rsx! {
                 Button {
-                    size: ControlSize::Small,
                     label: "Rename".to_owned(),
                     common: Common {
                         aria_label: Some("Rename the group".to_owned()),
@@ -97,7 +95,6 @@ pub(super) fn MemberRow(
             size: RowSize::Settings,
             accessory: Accessory::Slot(rsx! {
                 Button {
-                    size: ControlSize::Small,
                     label: "Remove".to_owned(),
                     common: Common {
                         aria_label: Some(format!("Remove {label}")),
@@ -172,7 +169,6 @@ pub(super) fn AddRow(
             },
             accessory: Accessory::Slot(rsx! {
                 Button {
-                    size: ControlSize::Small,
                     answers: Answers::Return,
                     label: "Add".to_owned(),
                     common: Common {

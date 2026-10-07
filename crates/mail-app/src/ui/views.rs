@@ -171,7 +171,6 @@ pub(in crate::ui) fn ViewSheet(
                         span { class: "files-k", "Group by" }
                         div {
                             Button {
-                                size: ControlSize::Small,
                                 label: group_label.clone(),
                                 icon: Icon::Group,
                                 shown: Some(if grouping() { Shown::Visible } else { Shown::Hidden }),
@@ -235,7 +234,7 @@ pub(in crate::ui) fn ViewSheet(
                         }
                         if editing {
                             Button {
-                                size: ControlSize::Small,
+                                size: ControlSize::Large,
                                 label: "Delete view".to_owned(),
                                 icon: Icon::Trash,
                                 common: Common {
@@ -246,12 +245,12 @@ pub(in crate::ui) fn ViewSheet(
                             }
                         }
                         Button {
-                            size: ControlSize::Small,
+                            size: ControlSize::Large,
                             label: "Cancel".to_owned(),
                             onclick: on_primary(move || close(shell)),
                         }
                         Button {
-                            size: ControlSize::Small,
+                            size: ControlSize::Large,
                             answers: Answers::Return,
                             label: "Save".to_owned(),
                             common: Common {
@@ -274,7 +273,6 @@ fn HoverChoice(kind: OpKind, on: bool, shell: Signal<Shell>) -> Element {
     rsx! {
         li {
             Button {
-                size: ControlSize::Small,
                 label: name,
                 value: Some(if on { Check::On } else { Check::Off }),
                 common: Common {

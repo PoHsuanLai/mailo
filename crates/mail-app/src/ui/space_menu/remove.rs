@@ -139,12 +139,12 @@ pub(super) fn DeletePopover(
                 p { class: "destroy-body", "{said.body}" }
                 div { class: "space-part-acts",
                     Button {
-                        size: ControlSize::Small,
+                        size: ControlSize::Large,
                         label: "Cancel",
                         onclick: on_primary(move || dismiss(shell, editing)),
                     }
                     Button {
-                        size: ControlSize::Small,
+                        size: ControlSize::Large,
                         label: said.confirm.clone(),
                         icon: Icon::Trash,
                         common: Common { aria_label: Some(said.confirm.clone()), ..Common::default() },

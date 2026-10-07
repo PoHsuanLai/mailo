@@ -236,6 +236,7 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                     span { class: "grow" }
                     Button {
                         bezel: Bezel::Toolbar,
+                        size: ControlSize::Large,
                         icon: Icon::Maximize,
                         label: "Focus".to_owned(),
                         title: "Focus (\u{21e7}\u{2318}F)".to_owned(),
@@ -244,6 +245,7 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                     }
                     Button {
                         bezel: Bezel::Toolbar,
+                        size: ControlSize::Large,
                         icon: Icon::Archive,
                         label: "Keep for later".to_owned(),
                         title: "Keep for later (Esc)".to_owned(),
@@ -252,6 +254,7 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                     }
                     Button {
                         bezel: Bezel::Toolbar,
+                        size: ControlSize::Large,
                         icon: Icon::Trash,
                         label: "Discard".to_owned(),
                         title: "Discard".to_owned(),
@@ -298,9 +301,8 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                         icon: Some(Icon::Paperclip),
                         text: "No file attached",
                         actions: rsx! {
-                            Attach { page, label: "Attach a file" }
+                            Attach { page, label: "Attach a file", size: ControlSize::Regular }
                             Button {
-                                size: ControlSize::Small,
                                 label: "Send anyway",
                                 onclick: on_primary(move || send(Anyway::Yes)),
                                 common: Common { aria_label: Some(anyway_label.to_owned()), ..Common::default() },
@@ -310,16 +312,17 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                 }
                 SealWarn { bar: seal_bar, on_act: on_seal }
                 Button {
-                    size: ControlSize::Small,
+                    size: ControlSize::Large,
                     label: "Plain text",
                     value: Some(if plain() == Fold::Open { Check::On } else { Check::Off }),
                     onclick: on_primary(move || plain.set(if plain() == Fold::Open { Fold::Folded } else { Fold::Open })),
                 }
-                Attach { page, label: "Attach" }
+                Attach { page, label: "Attach", size: ControlSize::Large }
                 emoji::EmojiButton { page }
                 span { class: "grow" }
                 Button {
                     answers: Answers::Return,
+                    size: ControlSize::Large,
                     label: if scheduled { "Schedule" } else { "Send" },
                     icon: if scheduled { Icon::Clock } else { Icon::Send },
                     onclick: on_primary(move || send(Anyway::No)),

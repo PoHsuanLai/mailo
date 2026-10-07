@@ -8,7 +8,6 @@ use dioxus::prelude::*;
 use ds::components::controls::segmented::Tracking;
 use ds::components::fields::field_row::FieldRow;
 use ds::prelude::*;
-use ds::style::tokens::control_size::ControlSize;
 use ds_settings::schema::{KeyKind, KeySpec, Schema};
 
 /// Words that are the off side of a pair (detent's `TogglePair` rule, design/22 section 9.1).
@@ -202,7 +201,6 @@ fn KeyRow(
                     label: label.clone(),
                     choices,
                     tracking: Tracking::SelectOne(current.clone()),
-                    size: ControlSize::Small,
                     onchange: move |word: String| onedit.call((path.clone(), toml::Value::String(word))),
                 }
             }
