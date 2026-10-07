@@ -32,6 +32,7 @@ mod data;
 mod debounce;
 mod destroy;
 mod doctor;
+mod downloads;
 mod fetching;
 mod files;
 mod folder_open;
@@ -97,6 +98,7 @@ pub mod native {
     pub use super::brand::BrandCache;
     pub use super::clock::WallClock;
     pub use super::compose::Dictionaries;
+    pub use super::downloads::Opener as FileOpener;
     pub use super::files::SaveDir;
     pub use super::follow_up::Notices;
     pub use super::handoff::{ActivationToken, Request, Requests};

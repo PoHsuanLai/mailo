@@ -124,14 +124,13 @@ pub(in crate::ui) fn save_ics(
     message: MessageId,
     title: &str,
     dir: &Path,
-) -> Result<String, String> {
+) -> Result<std::path::PathBuf, String> {
     let bytes = mail_core::invite::export(store, message)?;
     let stem = match title.trim() {
         "" | "(no title)" => "invitation",
         named => named,
     };
-    let path = mail_core::attach::write_new(dir, &format!("{stem}.ics"), &bytes)?;
-    Ok(format!("Saved to {}", path.display()))
+    mail_core::attach::write_new(dir, &format!("{stem}.ics"), &bytes)
 }
 
 /// The first line of `said`, starting with a capital.

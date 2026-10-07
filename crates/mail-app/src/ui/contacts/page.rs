@@ -140,10 +140,11 @@ fn ImportExport(changed: Signal<u64>, mut said: Signal<Option<Result<String, Str
                     onclick: on_primary(move || {
                         let store = consume_context::<Arc<SqliteStore>>();
                         let dir = crate::ui::files::save_dir();
-                        said.set(Some(
-                            book::export(store.as_ref(), &dir)
-                                .map(|path| format!("Saved to {}", path.display())),
-                        ));
+                        let saved = book::export(store.as_ref(), &dir);
+                        if let Ok(path) = &saved {
+                            crate::ui::downloads::Saving::quick().end(Some(path), None);
+                        }
+                        said.set(Some(saved.map(|path| format!("Saved to {}", path.display()))));
                     }),
                 }
             }

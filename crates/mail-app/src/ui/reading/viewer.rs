@@ -132,7 +132,11 @@ pub(in crate::ui) fn AttachmentViewer(shell: Signal<Shell>) -> Element {
         let dir = super::super::files::save_dir();
         said.set(Some(
             match mail_core::attach::save(&store, viewing.message, viewing.index, &dir) {
-                Ok(path) => format!("Saved to {}", path.display()),
+                Ok(path) => {
+                    let origin = crate::ui::downloads::origin(&store, viewing.message);
+                    crate::ui::downloads::Saving::quick().end(Some(&path), origin);
+                    format!("Saved to {}", path.display())
+                }
                 Err(why) => why,
             },
         ));

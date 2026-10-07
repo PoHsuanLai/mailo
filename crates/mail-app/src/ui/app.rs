@@ -74,6 +74,8 @@ pub(super) fn App() -> Element {
     let spaces = use_signal(|| boot.spaces.clone());
     let mut today_list = use_signal(|| boot.today.clone());
     let dirs = boot.dirs.clone();
+    // The files this window saves, behind the sidebar's Downloads button.
+    super::downloads::use_provide_shelf(dirs.as_ref());
     let mut side_hidden = use_signal(|| false);
     // The Space a part of its menu (its name, its colour) holds, while that part is open.
     let editing = use_signal(|| None::<crate::ui::space::edit::Draft>);
@@ -734,10 +736,11 @@ pub(super) fn App() -> Element {
     }
 }
 
-/// The sidebar pane: 232 wide, 180 to 320, and it folds away past half of its least.
+/// The sidebar pane: 232 wide, 212 to 320, and it folds away past half of its least. 212 is
+/// what the foot needs: Downloads, two Space dots, New Space, Settings and the sidebar toggle.
 const SIDEBAR: PaneSpec = PaneSpec {
     preferred: Px(232.0),
-    min: Px(180.0),
+    min: Px(212.0),
     max: Px(320.0),
     collapsing: Collapsing::Snaps,
 };

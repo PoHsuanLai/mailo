@@ -377,15 +377,14 @@ async fn save_ics_writes_the_event_beside_what_is_there_and_never_over_it() {
 }
 
 #[test]
-fn saving_names_the_file_for_the_event_and_says_where() {
+fn saving_names_the_file_for_the_event() {
     let (store, _dir) = seeded();
     let saves = tempfile::tempdir().unwrap();
     let (_, message) = put(&store, &request(0), "REQUEST");
-    let said = super::save_ics(&store, message, "Design review", saves.path()).unwrap();
-    let path = saves.path().join("Design review.ics");
-    assert_eq!(said, format!("Saved to {}", path.display()));
+    let saved = super::save_ics(&store, message, "Design review", saves.path()).unwrap();
+    assert_eq!(saved, saves.path().join("Design review.ics"));
     let unnamed = super::save_ics(&store, message, "(no title)", saves.path()).unwrap();
-    assert!(unnamed.ends_with("invitation.ics"), "{unnamed}");
+    assert!(unnamed.ends_with("invitation.ics"), "{unnamed:?}");
 }
 
 #[test]
