@@ -78,6 +78,15 @@ impl Revisions {
         self.0.stamp.send_modify(|stamp| bridge.publish(stamp));
     }
 
+    /// Something that is no window's changed the store (an account accountd added or removed):
+    /// every window reads it again. Nobody's own move, so every window follows it.
+    pub fn bump(&self) {
+        self.0.stamp.send_modify(|stamp| {
+            stamp.generation = stamp.generation.wrapping_add(1);
+            stamp.by = None;
+        });
+    }
+
     /// How many moves there have been, from any window.
     pub fn generation(&self) -> u64 {
         self.0.stamp.borrow().generation
