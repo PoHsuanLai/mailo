@@ -78,6 +78,11 @@ jobs:
       - name: The sans-I/O boundary
         run: ./scripts/check-boundary.sh
 
+      # The portable core builds without our desktop's extras (design/36 section 4): the proxy,
+      # until a macOS and a Windows runner say so themselves, for "no zbus transport needed".
+      - name: Portable build (no desktop extras)
+        run: cargo check --workspace --no-default-features
+
   # Real sockets, against servers this repository did not write: a Twisted IMAP4Server, an
   # aiosmtpd SMTP server, and a POP3 server. Separate from `check` because it needs Python and a
   # few seconds of setup, and because a failure here means something different — the protocol
@@ -132,11 +137,14 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
+      # `--no-default-features`: the `quire-desktop` feature (the link to accountd over D-Bus) is
+      # our desktop's extras and is on by default for a Linux build; here the in-process path is
+      # what is built and tested, with no zbus transport in the tree (quire design/36 rule 3).
       - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --no-default-features -- -D warnings
       # No network, as in `check`: everything that talks to a socket is `#[ignore]`d.
       - name: Tests
-        run: cargo test --workspace
+        run: cargo test --workspace --no-default-features
 
   # Unsigned packages for each platform, on every push to master and by hand. They are artifacts
   # of the run, not a release: nothing here publishes anything.
@@ -204,7 +212,7 @@ jobs:
       # Windows: an MSI through cargo-wix, registering mailo for mailto: links.
       - name: Release build (Windows)
         if: runner.os == 'Windows'
-        run: cargo build --release --locked -p mail-app --bin mailo
+        run: cargo build --release --locked --no-default-features -p mail-app --bin mailo
       - name: Icon (Windows)
         if: runner.os == 'Windows'
         shell: bash

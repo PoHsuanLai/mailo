@@ -59,10 +59,20 @@ path = "src/lib.rs"
 name = "mailo"
 path = "src/main.rs"
 
+[features]
+# Desktop extras (design/36 rule 3): what only our desktop has, lit by a capability probe at run
+# time and never by asking which OS this is. Here: the link to accountd, so the add-account sheet
+# is sill's and the account's secrets are accountd's. On by default; a build for another desktop,
+# and the portable gate (`cargo check --workspace --no-default-features`), has the in-process path
+# alone, and `ds-desktop`, zbus and the D-Bus transport are not in its tree.
+default = ["quire-desktop"]
+quire-desktop = ["mail-core/quire-desktop", "mail-runtime/quire-desktop", "dep:ds-desktop"]
+
 [dependencies]
 porter-core.workspace = true
 porter-provider.workspace = true
 porter-service.workspace = true
+porter-client.workspace = true
 # `Secrets`, the seam porter's service is built over; no store feature, so no keyring and no zbus.
 porter-secrets.workspace = true
 mail-core.workspace = true
@@ -119,6 +129,12 @@ url = "2"
 # dioxus-desktop linked when the window was a webview (F158); moving it is a decision of its own.
 #
 # On Linux and the BSDs, through the desktop portal (and so from inside a Flatpak), with no GTK.
+[target.'cfg(target_os = "linux")'.dependencies]
+# The capability probe (`Desktop::probe`, `Capability::Accounts`): is accountd on the session bus,
+# or one the bus would start. quire's own crate, at the tag `ds` names; its `dbus` feature is zbus
+# (already in this tree for intents), and without `quire-desktop` it is not here at all.
+ds-desktop = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.2.20", default-features = false, features = ["dbus"], optional = true }
+
 [target.'cfg(not(any(target_os = "macos", windows)))'.dependencies]
 rfd = { version = "=0.17.2", default-features = false, features = ["xdg-portal"] }
 # The unread count on the launcher entry (`launcher/session.rs`): one signal on the session bus.
