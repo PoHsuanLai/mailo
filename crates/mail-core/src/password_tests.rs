@@ -106,6 +106,7 @@ fn add_with_password_keeps_the_password_in_the_store_it_is_handed_and_nowhere_el
             saved: &ClientRegistry::default(),
             secrets: &secrets,
             on_url: &|url| panic!("a password account asked for a browser: {url}"),
+            signed: None,
         },
     )
     .unwrap();
@@ -153,6 +154,7 @@ fn no_password_stores_nothing_and_says_so() {
                 saved: &ClientRegistry::default(),
                 secrets: &secrets,
                 on_url: &|url| panic!("a password account asked for a browser: {url}"),
+                signed: None,
             },
         )
         .unwrap();
@@ -192,6 +194,7 @@ fn a_jmap_bearer_token_goes_where_a_password_would_and_the_plan_says_bearer() {
             saved: &ClientRegistry::default(),
             secrets: &secrets,
             on_url: &|url| panic!("a JMAP account asked for a browser: {url}"),
+            signed: None,
         },
     )
     .unwrap();
@@ -227,4 +230,41 @@ fn a_jmap_bearer_token_goes_where_a_password_would_and_the_plan_says_bearer() {
         !everything_in(&store).contains(SECRET),
         "the token reached SQLite"
     );
+}
+
+#[test]
+fn a_credential_a_sign_in_already_made_is_filed_without_asking_for_a_browser_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = SqliteStore::in_memory(dir.path()).unwrap();
+    let secrets = MemorySecrets::default();
+    let saved = mail_runtime::clients::registry_of(vec![mail_runtime::clients::entry(
+        porter_provider::Issuer::Google,
+        "client-id",
+        Some("client-secret"),
+    )]);
+    let signed = Credential::Password(SecretText::new("refresh-token"));
+    let said = add_with_password(
+        &store,
+        "ada@gmail.com",
+        None,
+        false,
+        false,
+        now(),
+        Credentials {
+            password: None,
+            saved: &saved,
+            secrets: &secrets,
+            on_url: &|url| panic!("the sign-in was made already, and asked for a browser: {url}"),
+            signed: Some(&signed),
+        },
+    )
+    .unwrap();
+    assert!(said.contains("signed in"), "{said}");
+    let account = account_of(&store, "ada@gmail.com");
+    let kept = mail_runtime::block_on(secrets.get(&SecretKey {
+        account,
+        purpose: SecretPurpose::OAuthRefresh,
+    }))
+    .unwrap();
+    assert_eq!(kept, signed);
 }

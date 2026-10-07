@@ -6,7 +6,7 @@ use super::tests::{
     Ending, Script, account, finished, link, passer, refused, settle, unreachable, window,
 };
 use crate::ui::fixtures::{Seen, click, key};
-use dioxus::prelude::VirtualDom;
+use dioxus::prelude::{ScopeId, VirtualDom, consume_context};
 use mail_core::fetch::{Link, Trigger};
 use std::sync::atomic::Ordering;
 use std::time::Duration;
@@ -92,14 +92,16 @@ async fn an_account_that_must_sign_in_again_shows_a_mark_that_opens_the_connecti
     assert!(page.contains("Check All"), "no Check All: {page}");
     let sign_in = seen.one("aria-label", "Sign In for me@nowhere.example");
 
-    // Sign In hands the account to the Add account sheet, and the doctor steps aside.
+    // Sign In asks for the Add Account window, with the account's address typed in. The window is
+    // another window: this one's doctor stays as it is.
     click(&mut dom, sign_in);
     settle(&mut dom).await;
-    let page = dioxus_ssr::render(&dom);
-    assert!(page.contains("acct-sheet"), "no Add account sheet: {page}");
-    assert!(
-        !page.contains("Check All"),
-        "the doctor is still over it: {page}"
+    let asked = dom.in_scope(ScopeId::APP, consume_context::<super::tests::Asked>);
+    assert_eq!(
+        *asked.0.lock().unwrap(),
+        [crate::ui::add_account::Ask {
+            address: Some("me@nowhere.example".to_owned())
+        }]
     );
 }
 

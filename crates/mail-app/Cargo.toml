@@ -62,6 +62,9 @@ path = "src/main.rs"
 [dependencies]
 porter-core.workspace = true
 porter-provider.workspace = true
+porter-service.workspace = true
+# `Secrets`, the seam porter's service is built over; no store feature, so no keyring and no zbus.
+porter-secrets.workspace = true
 mail-core.workspace = true
 mail-domain.workspace = true
 mail-store.workspace = true
@@ -88,6 +91,9 @@ dioxus = { version = "0.7" }
 ds = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.2.19" }
 # Settings I/O: `appearance.toml` (imported once from `appearance.json`), the settings portal.
 ds-settings = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.2.19", features = ["dioxus"] }
+# The account sheets' views (step E5): `ds_shell::accounts`, the parts `sill` draws the same sheet with.
+# Only the accounts module is used; the shell's own surfaces (bar, dock, lock) are not drawn here.
+ds-shell = { git = "https://github.com/PoHsuanLai/quire", tag = "v0.2.19" }
 # `mailo.toml`, and the `appearance.toml` written once on the first run after the move.
 toml = "1"
 # The window: quire's Blitz host (the window, its fonts, focus, clipboard, PDF output), and

@@ -198,7 +198,7 @@ pub(super) fn AccountTiles(
                         .map(|row| (row.id.clone(), row.shown()))
                         .collect();
                     match join::plus(&spaces.peek().current_space(), &all) {
-                        Plus::AddNew => super::super::add_account::open(shell),
+                        Plus::AddNew => super::super::add_account::open(),
                         Plus::Offer(outside) => joining.set(Some(outside)),
                     }
                 }),
@@ -235,7 +235,7 @@ pub(super) fn AccountTiles(
                     joining.set(None);
                     match join::picked(&key, &outside) {
                         Some(account) => bring_in(shell, spaces, account),
-                        None => super::super::add_account::open(shell),
+                        None => super::super::add_account::open(),
                     }
                 },
                 on_close: move |_| joining.set(None),
@@ -251,7 +251,7 @@ fn bring_in(mut shell: Signal<Shell>, mut spaces: Signal<Spaces>, account: Accou
         let current = all.current;
         all.spaces
             .get_mut(current)
-            .is_some_and(|space| super::super::add_account::flow::widen(space, account))
+            .is_some_and(|space| space.widen(account))
     };
     if widened {
         super::super::frame::keep(&spaces.read());

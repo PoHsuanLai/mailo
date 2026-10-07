@@ -53,6 +53,10 @@ porter-discover = { git = "https://github.com/PoHsuanLai/porter", rev = "ba86570
 # loopback listener.
 porter-oauth = { git = "https://github.com/PoHsuanLai/porter", rev = "ba8657098927fb12e1a84bb17cee37aa5f916958", default-features = false }
 porter-http = { git = "https://github.com/PoHsuanLai/porter", rev = "ba8657098927fb12e1a84bb17cee37aa5f916958", default-features = false }
+# Step E5: the add-account window hosts porter's account service in process and draws its sheet
+# (`porter-service`: the sheet's conversation, `Sheets`, `AccountService`; pure, no zbus). It enters
+# `mail-app`, the front-end that draws.
+porter-service = { git = "https://github.com/PoHsuanLai/porter", rev = "ba8657098927fb12e1a84bb17cee37aa5f916958" }
 serde       = { version = "1", features = ["derive"] }
 chrono      = { version = "0.4", features = ["serde"] }
 uuid        = { version = "1", features = ["v4", "serde"] }
