@@ -63,9 +63,7 @@ pub(in crate::ui) use page::PageKind;
 pub(in crate::ui) use pill::SendPill;
 pub use spell::Dictionaries;
 pub(in crate::ui) use spell::{dictionaries, use_test_dictionaries};
-pub(in crate::ui) use templates::{
-    every as every_template, forget as forget_template, template_rows,
-};
+pub(in crate::ui) use templates::{every as every_template, template_rows};
 
 use super::press::on_primary;
 use crate::ui::view::Shell;
