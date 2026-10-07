@@ -46,3 +46,15 @@ mod invite;
 mod links;
 #[path = "lanes/reply.rs"]
 mod reply;
+
+// 7–11: triage, send later and remind, contacts, rules, print.
+#[path = "lanes/contacts.rs"]
+mod contacts;
+#[path = "lanes/later.rs"]
+mod later;
+#[path = "lanes/print.rs"]
+mod print;
+#[path = "lanes/rules.rs"]
+mod rules;
+#[path = "lanes/triage.rs"]
+mod triage;
