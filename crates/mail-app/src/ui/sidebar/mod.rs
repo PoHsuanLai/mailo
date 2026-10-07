@@ -27,7 +27,9 @@ use ds::components::controls::button_model::ImagePosition;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::root::pass_through::{DataAttr, DataName, ExtraClass};
+use ds::components::content::label::{Label, LabelRole, LabelStyle};
 use ds::style::space::frame_vars::FrameVars;
+use ds::style::space::look::SpaceLook;
 
 /// A `data-<name>` of mailo's own on a quire component: where a hover card or a test finds the
 /// thing the element stands for.
@@ -85,7 +87,7 @@ pub(super) fn Places(
     let scheme = use_scope().scheme;
     let tiles = counted.read().clone();
     let name = space.name.clone();
-    // The Space's menu at the pointer, from a right click anywhere on the foot.
+    // The Space's menu at the pointer, from a right click on its name.
     let open_menu = move |event: MouseEvent| {
         event.prevent_default();
         let at = event.client_coordinates();
@@ -104,6 +106,21 @@ pub(super) fn Places(
             pinned,
             onpin: move |()| side_hidden.set(false),
             common: Common { extra_class: ExtraClass::parse("side").ok(), ..Common::default() },
+            // The Space's name heads the sidebar, as a browser's does; a right click on it is the
+            // Space's menu, and a plain press does nothing.
+            div { class: "side-head",
+                oncontextmenu: open_menu,
+                Label {
+                    text: name.clone(),
+                    style: LabelStyle::Headline,
+                    role: LabelRole::Secondary,
+                    common: Common {
+                        aria_label: Some(format!("The {name} Space")),
+                        extra_class: ExtraClass::parse("ds-truncate").ok(),
+                        ..Common::default()
+                    },
+                }
+            }
             div { class: "slide",
                 AccountTiles { shell, pages, spaces, space: space.clone(), counted: tiles.clone() }
                 PlaceList { shell, pages, badges, folded }
@@ -114,22 +131,7 @@ pub(super) fn Places(
                 TodayList { shell, today, space_index, dirs: dirs.clone() }
             }
             div { class: "side-foot",
-                oncontextmenu: open_menu,
                 crate::ui::downloads::DownloadsButton { shell }
-                Button {
-                    bezel: ds::components::controls::button_model::Bezel::Inline,
-                    label: name.clone(),
-                    title: "This Space's menu".to_owned(),
-                    common: Common {
-                        aria_label: Some(format!("The {name} Space")),
-                        extra_class: ExtraClass::parse("space-name").ok(),
-                        ..Common::default()
-                    },
-                    onclick: move |press: Press| {
-                        let at = (f64::from(press.at.x.0), f64::from(press.at.y.0));
-                        crate::ui::space_menu::open(shell, space_index, at);
-                    },
-                }
                 div { class: "space-dots", role: "group", aria_label: "Spaces",
                     for (index, one) in spaces.read().spaces.iter().enumerate() {
                         {
@@ -139,7 +141,7 @@ pub(super) fn Places(
                                 .map_or_else(Vec::new, |digit| vec![ShortcutKey::Super, ShortcutKey::Char(digit)]);
                             rsx! {
                                 // A right click on a dot is that Space's menu, not the current one's.
-                                span { key: "{index}", class: "space-dot-hold",
+                                span { key: "{index}", class: if index == space_index { "space-dot-hold" } else { "space-dot-hold dim" },
                                     oncontextmenu: move |event: MouseEvent| {
                                         event.prevent_default();
                                         event.stop_propagation();
@@ -148,7 +150,9 @@ pub(super) fn Places(
                                     },
                                 SpaceDot {
                                     name: one.name.clone(),
-                                    frame: FrameVars::of(&one.look, scheme),
+                                    // Every dot the quiet neutral one, as Dia draws them: the Space's own
+                                    // colours are its frame's, not the picker's.
+                                    frame: FrameVars::of(&SpaceLook::default(), scheme),
                                     selection,
                                     shortcut: Shortcut(keys),
                                     onclick: move |()| {

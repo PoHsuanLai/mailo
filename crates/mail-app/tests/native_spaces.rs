@@ -5,6 +5,7 @@
 //! Every case opens the real window over a store seeded in a `TempDir`. The window is handed no
 //! directories, so it writes no file anywhere.
 
+use ds::base::press::PointerButton;
 use ds_blitz::{NetPolicy, PrintOutcome};
 use ds_harness::{Clock, Driver, Harness, HarnessConfig, Query, Viewport};
 
@@ -163,12 +164,21 @@ fn open(width: u32, spaces: Spaces) -> (Harness, tempfile::TempDir) {
 }
 
 const DOTS: &str = ".space-dots > *";
-const NAME: &str = ".space-name";
+const NAME: &str = ".side-head";
 const MENU: &str = ".ds-menu-item";
 /// The menu's last row: Delete Space… while another Space remains, New Space otherwise.
 const LAST_ROW: &str = ".ds-menu-item:last-child";
 const ASKING: &str = ".space-delete";
 const CONFIRM: &str = ".space-delete [*|aria-label=\"Delete Space\"]";
+
+/// A right click on `selector`: the Space's name opens its menu only so.
+fn right_press(harness: &mut Harness, selector: &str) {
+    let at = harness
+        .centre(selector)
+        .unwrap_or_else(|| panic!("{selector} is not drawn:\n{}", harness.html()));
+    harness.press(at, PointerButton::Secondary);
+    harness.advance(ms(400));
+}
 
 fn press(harness: &mut Harness, selector: &str) {
     let at = harness
@@ -182,7 +192,7 @@ fn press(harness: &mut Harness, selector: &str) {
 fn deleting_a_space_asks_first_and_then_removes_it() {
     let (mut harness, _dir) = open(1200, spaces(2));
     assert_eq!(harness.count(DOTS), 2, "the fixture is not two Spaces");
-    press(&mut harness, NAME);
+    right_press(&mut harness, NAME);
     assert!(
         harness.count(MENU) > 0,
         "the Space's name did not open its menu"
@@ -213,9 +223,18 @@ fn deleting_a_space_asks_first_and_then_removes_it() {
 }
 
 #[test]
-fn escape_keeps_the_space() {
+fn a_plain_click_on_the_spaces_name_opens_nothing() {
     let (mut harness, _dir) = open(1200, spaces(2));
     press(&mut harness, NAME);
+    assert_eq!(harness.count(MENU), 0, "a left click opened the Space's menu");
+    right_press(&mut harness, NAME);
+    assert!(harness.count(MENU) > 0, "a right click did not open it");
+}
+
+#[test]
+fn escape_keeps_the_space() {
+    let (mut harness, _dir) = open(1200, spaces(2));
+    right_press(&mut harness, NAME);
     press(&mut harness, LAST_ROW);
     assert_eq!(harness.count(ASKING), 1, "Delete Space did not ask");
     harness.key(Key::Escape);
@@ -231,7 +250,7 @@ fn escape_keeps_the_space() {
 #[test]
 fn the_only_space_has_no_delete_row() {
     let (mut harness, _dir) = open(1200, spaces(1));
-    press(&mut harness, NAME);
+    right_press(&mut harness, NAME);
     assert!(
         harness.count(MENU) > 0,
         "the Space's name did not open its menu"
