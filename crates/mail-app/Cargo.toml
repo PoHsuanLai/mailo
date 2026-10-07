@@ -171,7 +171,7 @@ regex = "1"
 # A PDF attachment's later pages in the viewer (`preview.rs`): quire rasterises only a first page.
 # The same pin quire names (`Cargo.toml` of quire master), so the tree holds one pdfrum.
 # The print tests read printouts back with it too (`ui/print/pdf_tests.rs`).
-pdfrum = { git = "https://github.com/PoHsuanLai/pdfrum", rev = "8c7faadc3f858a005bbd03f564cdeb49fca63aeb", default-features = false, features = ["vello-cpu"] }
+pdfrum = { git = "https://github.com/PoHsuanLai/pdfrum", rev = "e21b9352e0e070e4572ad67d16a309c570df2b83", default-features = false, features = ["vello-cpu"] }
 tempfile = "3"
 # The throwaway certificate authority `tests/smime.rs` builds its fixtures with
 # (`mail-mime/tests/smime_support`). All already in the tree through `mail-mime`.

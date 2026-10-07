@@ -740,7 +740,7 @@ dependencies = [
 [[package]]
 name = "blitz-kit"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/blitz-kit?rev=40fc7fd01598ad00f726296537a0daf1931ad3e2#40fc7fd01598ad00f726296537a0daf1931ad3e2"
+source = "git+https://github.com/PoHsuanLai/blitz-kit?rev=f181d2a571022aa76c34ca6b19ec8df1af42b22f#f181d2a571022aa76c34ca6b19ec8df1af42b22f"
 dependencies = [
  "blitz-dom",
  "blitz-traits",
@@ -2288,7 +2288,7 @@ checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
 [[package]]
 name = "ds"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.20#a781a289894202df6416e5bbfeb6d4984f7505c6"
+source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.20#c2375087b86204fbcda00da77b181f8103980972"
 dependencies = [
  "dioxus",
  "ds-core",
@@ -2303,7 +2303,7 @@ dependencies = [
 [[package]]
 name = "ds-behaviour"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.20#a781a289894202df6416e5bbfeb6d4984f7505c6"
+source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.20#c2375087b86204fbcda00da77b181f8103980972"
 dependencies = [
  "ds-core",
 ]
@@ -2311,7 +2311,7 @@ dependencies = [
 [[package]]
 name = "ds-blitz"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.20#a781a289894202df6416e5bbfeb6d4984f7505c6"
+source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.20#c2375087b86204fbcda00da77b181f8103980972"
 dependencies = [
  "anyrender",
  "anyrender_vello_hybrid",
@@ -2351,7 +2351,7 @@ dependencies = [
 [[package]]
 name = "ds-core"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.20#a781a289894202df6416e5bbfeb6d4984f7505c6"
+source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.20#c2375087b86204fbcda00da77b181f8103980972"
 dependencies = [
  "ds-core-derive",
  "futures-timer",
@@ -2363,7 +2363,7 @@ dependencies = [
 [[package]]
 name = "ds-core-derive"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.20#a781a289894202df6416e5bbfeb6d4984f7505c6"
+source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.20#c2375087b86204fbcda00da77b181f8103980972"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -2374,7 +2374,7 @@ dependencies = [
 [[package]]
 name = "ds-desktop"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.20#a781a289894202df6416e5bbfeb6d4984f7505c6"
+source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.20#c2375087b86204fbcda00da77b181f8103980972"
 dependencies = [
  "zbus",
 ]
@@ -2382,7 +2382,7 @@ dependencies = [
 [[package]]
 name = "ds-harness"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.20#a781a289894202df6416e5bbfeb6d4984f7505c6"
+source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.20#c2375087b86204fbcda00da77b181f8103980972"
 dependencies = [
  "anyrender",
  "anyrender_vello_cpu",
@@ -2412,7 +2412,7 @@ dependencies = [
 [[package]]
 name = "ds-intents"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.20#a781a289894202df6416e5bbfeb6d4984f7505c6"
+source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.20#c2375087b86204fbcda00da77b181f8103980972"
 dependencies = [
  "ds-core",
 ]
@@ -2420,7 +2420,7 @@ dependencies = [
 [[package]]
 name = "ds-lint"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.20#a781a289894202df6416e5bbfeb6d4984f7505c6"
+source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.20#c2375087b86204fbcda00da77b181f8103980972"
 dependencies = [
  "cssparser 0.37.0",
  "ds-core",
@@ -2430,7 +2430,7 @@ dependencies = [
 [[package]]
 name = "ds-motion"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.20#a781a289894202df6416e5bbfeb6d4984f7505c6"
+source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.20#c2375087b86204fbcda00da77b181f8103980972"
 dependencies = [
  "dioxus",
  "ds-core",
@@ -2440,7 +2440,7 @@ dependencies = [
 [[package]]
 name = "ds-settings"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.20#a781a289894202df6416e5bbfeb6d4984f7505c6"
+source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.20#c2375087b86204fbcda00da77b181f8103980972"
 dependencies = [
  "dioxus",
  "ds-behaviour",
@@ -2459,7 +2459,7 @@ dependencies = [
 [[package]]
 name = "ds-settings-derive"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.20#a781a289894202df6416e5bbfeb6d4984f7505c6"
+source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.20#c2375087b86204fbcda00da77b181f8103980972"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2469,7 +2469,7 @@ dependencies = [
 [[package]]
 name = "ds-shell"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.20#a781a289894202df6416e5bbfeb6d4984f7505c6"
+source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.20#c2375087b86204fbcda00da77b181f8103980972"
 dependencies = [
  "dioxus",
  "ds",
@@ -2482,7 +2482,7 @@ dependencies = [
 [[package]]
 name = "ds-style"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.20#a781a289894202df6416e5bbfeb6d4984f7505c6"
+source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.20#c2375087b86204fbcda00da77b181f8103980972"
 dependencies = [
  "dioxus",
  "ds-core",
@@ -5710,7 +5710,7 @@ dependencies = [
 [[package]]
 name = "pdfrum"
 version = "0.4.0"
-source = "git+https://github.com/PoHsuanLai/pdfrum?rev=8c7faadc3f858a005bbd03f564cdeb49fca63aeb#8c7faadc3f858a005bbd03f564cdeb49fca63aeb"
+source = "git+https://github.com/PoHsuanLai/pdfrum?rev=e21b9352e0e070e4572ad67d16a309c570df2b83#e21b9352e0e070e4572ad67d16a309c570df2b83"
 dependencies = [
  "kurbo",
  "pdfrum-common",
@@ -5731,7 +5731,7 @@ dependencies = [
 [[package]]
 name = "pdfrum-anyrender"
 version = "0.4.0"
-source = "git+https://github.com/PoHsuanLai/pdfrum?rev=8c7faadc3f858a005bbd03f564cdeb49fca63aeb#8c7faadc3f858a005bbd03f564cdeb49fca63aeb"
+source = "git+https://github.com/PoHsuanLai/pdfrum?rev=e21b9352e0e070e4572ad67d16a309c570df2b83#e21b9352e0e070e4572ad67d16a309c570df2b83"
 dependencies = [
  "anyrender",
  "pdfrum-common",
@@ -5744,7 +5744,7 @@ dependencies = [
 [[package]]
 name = "pdfrum-cmap"
 version = "0.4.0"
-source = "git+https://github.com/PoHsuanLai/pdfrum?rev=8c7faadc3f858a005bbd03f564cdeb49fca63aeb#8c7faadc3f858a005bbd03f564cdeb49fca63aeb"
+source = "git+https://github.com/PoHsuanLai/pdfrum?rev=e21b9352e0e070e4572ad67d16a309c570df2b83#e21b9352e0e070e4572ad67d16a309c570df2b83"
 dependencies = [
  "pdfrum-common",
  "pdfrum-object",
@@ -5754,7 +5754,7 @@ dependencies = [
 [[package]]
 name = "pdfrum-common"
 version = "0.4.0"
-source = "git+https://github.com/PoHsuanLai/pdfrum?rev=8c7faadc3f858a005bbd03f564cdeb49fca63aeb#8c7faadc3f858a005bbd03f564cdeb49fca63aeb"
+source = "git+https://github.com/PoHsuanLai/pdfrum?rev=e21b9352e0e070e4572ad67d16a309c570df2b83#e21b9352e0e070e4572ad67d16a309c570df2b83"
 dependencies = [
  "kurbo",
 ]
@@ -5762,7 +5762,7 @@ dependencies = [
 [[package]]
 name = "pdfrum-crypt"
 version = "0.4.0"
-source = "git+https://github.com/PoHsuanLai/pdfrum?rev=8c7faadc3f858a005bbd03f564cdeb49fca63aeb#8c7faadc3f858a005bbd03f564cdeb49fca63aeb"
+source = "git+https://github.com/PoHsuanLai/pdfrum?rev=e21b9352e0e070e4572ad67d16a309c570df2b83#e21b9352e0e070e4572ad67d16a309c570df2b83"
 dependencies = [
  "aes 0.9.3",
  "cbc 0.2.1",
@@ -5780,7 +5780,7 @@ dependencies = [
 [[package]]
 name = "pdfrum-doc"
 version = "0.4.0"
-source = "git+https://github.com/PoHsuanLai/pdfrum?rev=8c7faadc3f858a005bbd03f564cdeb49fca63aeb#8c7faadc3f858a005bbd03f564cdeb49fca63aeb"
+source = "git+https://github.com/PoHsuanLai/pdfrum?rev=e21b9352e0e070e4572ad67d16a309c570df2b83#e21b9352e0e070e4572ad67d16a309c570df2b83"
 dependencies = [
  "kurbo",
  "pdfrum-common",
@@ -5796,7 +5796,7 @@ dependencies = [
 [[package]]
 name = "pdfrum-edit"
 version = "0.4.0"
-source = "git+https://github.com/PoHsuanLai/pdfrum?rev=8c7faadc3f858a005bbd03f564cdeb49fca63aeb#8c7faadc3f858a005bbd03f564cdeb49fca63aeb"
+source = "git+https://github.com/PoHsuanLai/pdfrum?rev=e21b9352e0e070e4572ad67d16a309c570df2b83#e21b9352e0e070e4572ad67d16a309c570df2b83"
 dependencies = [
  "getrandom 0.4.3",
  "kurbo",
@@ -5819,7 +5819,7 @@ dependencies = [
 [[package]]
 name = "pdfrum-filters"
 version = "0.4.0"
-source = "git+https://github.com/PoHsuanLai/pdfrum?rev=8c7faadc3f858a005bbd03f564cdeb49fca63aeb#8c7faadc3f858a005bbd03f564cdeb49fca63aeb"
+source = "git+https://github.com/PoHsuanLai/pdfrum?rev=e21b9352e0e070e4572ad67d16a309c570df2b83#e21b9352e0e070e4572ad67d16a309c570df2b83"
 dependencies = [
  "miniz_oxide 0.9.1",
  "pdfrum-common",
@@ -5831,7 +5831,7 @@ dependencies = [
 [[package]]
 name = "pdfrum-font"
 version = "0.4.0"
-source = "git+https://github.com/PoHsuanLai/pdfrum?rev=8c7faadc3f858a005bbd03f564cdeb49fca63aeb#8c7faadc3f858a005bbd03f564cdeb49fca63aeb"
+source = "git+https://github.com/PoHsuanLai/pdfrum?rev=e21b9352e0e070e4572ad67d16a309c570df2b83#e21b9352e0e070e4572ad67d16a309c570df2b83"
 dependencies = [
  "pdfrum-cmap",
  "pdfrum-common",
@@ -5847,7 +5847,7 @@ dependencies = [
 [[package]]
 name = "pdfrum-object"
 version = "0.4.0"
-source = "git+https://github.com/PoHsuanLai/pdfrum?rev=8c7faadc3f858a005bbd03f564cdeb49fca63aeb#8c7faadc3f858a005bbd03f564cdeb49fca63aeb"
+source = "git+https://github.com/PoHsuanLai/pdfrum?rev=e21b9352e0e070e4572ad67d16a309c570df2b83#e21b9352e0e070e4572ad67d16a309c570df2b83"
 dependencies = [
  "bytes",
  "pdfrum-common",
@@ -5858,7 +5858,7 @@ dependencies = [
 [[package]]
 name = "pdfrum-page"
 version = "0.4.0"
-source = "git+https://github.com/PoHsuanLai/pdfrum?rev=8c7faadc3f858a005bbd03f564cdeb49fca63aeb#8c7faadc3f858a005bbd03f564cdeb49fca63aeb"
+source = "git+https://github.com/PoHsuanLai/pdfrum?rev=e21b9352e0e070e4572ad67d16a309c570df2b83#e21b9352e0e070e4572ad67d16a309c570df2b83"
 dependencies = [
  "kurbo",
  "moxcms 0.9.1",
@@ -5874,7 +5874,7 @@ dependencies = [
 [[package]]
 name = "pdfrum-parser"
 version = "0.4.0"
-source = "git+https://github.com/PoHsuanLai/pdfrum?rev=8c7faadc3f858a005bbd03f564cdeb49fca63aeb#8c7faadc3f858a005bbd03f564cdeb49fca63aeb"
+source = "git+https://github.com/PoHsuanLai/pdfrum?rev=e21b9352e0e070e4572ad67d16a309c570df2b83#e21b9352e0e070e4572ad67d16a309c570df2b83"
 dependencies = [
  "pdfrum-common",
  "pdfrum-crypt",
@@ -5886,7 +5886,7 @@ dependencies = [
 [[package]]
 name = "pdfrum-raster-vello-cpu"
 version = "0.4.0"
-source = "git+https://github.com/PoHsuanLai/pdfrum?rev=8c7faadc3f858a005bbd03f564cdeb49fca63aeb#8c7faadc3f858a005bbd03f564cdeb49fca63aeb"
+source = "git+https://github.com/PoHsuanLai/pdfrum?rev=e21b9352e0e070e4572ad67d16a309c570df2b83#e21b9352e0e070e4572ad67d16a309c570df2b83"
 dependencies = [
  "kurbo",
  "pdfrum-page",
@@ -5898,7 +5898,7 @@ dependencies = [
 [[package]]
 name = "pdfrum-render"
 version = "0.4.0"
-source = "git+https://github.com/PoHsuanLai/pdfrum?rev=8c7faadc3f858a005bbd03f564cdeb49fca63aeb#8c7faadc3f858a005bbd03f564cdeb49fca63aeb"
+source = "git+https://github.com/PoHsuanLai/pdfrum?rev=e21b9352e0e070e4572ad67d16a309c570df2b83#e21b9352e0e070e4572ad67d16a309c570df2b83"
 dependencies = [
  "kurbo",
  "pdfrum-common",
@@ -5913,7 +5913,7 @@ dependencies = [
 [[package]]
 name = "pdfrum-text"
 version = "0.4.0"
-source = "git+https://github.com/PoHsuanLai/pdfrum?rev=8c7faadc3f858a005bbd03f564cdeb49fca63aeb#8c7faadc3f858a005bbd03f564cdeb49fca63aeb"
+source = "git+https://github.com/PoHsuanLai/pdfrum?rev=e21b9352e0e070e4572ad67d16a309c570df2b83#e21b9352e0e070e4572ad67d16a309c570df2b83"
 dependencies = [
  "kurbo",
  "pdfrum-common",
@@ -5927,7 +5927,7 @@ dependencies = [
 [[package]]
 name = "pdfrum-type1"
 version = "0.4.0"
-source = "git+https://github.com/PoHsuanLai/pdfrum?rev=8c7faadc3f858a005bbd03f564cdeb49fca63aeb#8c7faadc3f858a005bbd03f564cdeb49fca63aeb"
+source = "git+https://github.com/PoHsuanLai/pdfrum?rev=e21b9352e0e070e4572ad67d16a309c570df2b83#e21b9352e0e070e4572ad67d16a309c570df2b83"
 dependencies = [
  "pdfrum-common",
  "read-fonts 0.44.0",
@@ -6376,7 +6376,7 @@ dependencies = [
 [[package]]
 name = "porter-client"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=04721ffed45ee7e59c4845248a941e49e8650507#04721ffed45ee7e59c4845248a941e49e8650507"
+source = "git+https://github.com/PoHsuanLai/porter?rev=e92f4126ae8020b4fcf7f13286fc3994b82a8615#e92f4126ae8020b4fcf7f13286fc3994b82a8615"
 dependencies = [
  "porter-core",
  "porter-dbus",
@@ -6393,7 +6393,7 @@ dependencies = [
 [[package]]
 name = "porter-core"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=04721ffed45ee7e59c4845248a941e49e8650507#04721ffed45ee7e59c4845248a941e49e8650507"
+source = "git+https://github.com/PoHsuanLai/porter?rev=e92f4126ae8020b4fcf7f13286fc3994b82a8615#e92f4126ae8020b4fcf7f13286fc3994b82a8615"
 dependencies = [
  "serde",
  "serde_json",
@@ -6403,7 +6403,7 @@ dependencies = [
 [[package]]
 name = "porter-dbus"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=04721ffed45ee7e59c4845248a941e49e8650507#04721ffed45ee7e59c4845248a941e49e8650507"
+source = "git+https://github.com/PoHsuanLai/porter?rev=e92f4126ae8020b4fcf7f13286fc3994b82a8615#e92f4126ae8020b4fcf7f13286fc3994b82a8615"
 dependencies = [
  "porter-core",
  "serde",
@@ -6414,7 +6414,7 @@ dependencies = [
 [[package]]
 name = "porter-discover"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=04721ffed45ee7e59c4845248a941e49e8650507#04721ffed45ee7e59c4845248a941e49e8650507"
+source = "git+https://github.com/PoHsuanLai/porter?rev=e92f4126ae8020b4fcf7f13286fc3994b82a8615#e92f4126ae8020b4fcf7f13286fc3994b82a8615"
 dependencies = [
  "porter-core",
  "porter-http",
@@ -6428,7 +6428,7 @@ dependencies = [
 [[package]]
 name = "porter-http"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=04721ffed45ee7e59c4845248a941e49e8650507#04721ffed45ee7e59c4845248a941e49e8650507"
+source = "git+https://github.com/PoHsuanLai/porter?rev=e92f4126ae8020b4fcf7f13286fc3994b82a8615#e92f4126ae8020b4fcf7f13286fc3994b82a8615"
 dependencies = [
  "porter-core",
  "thiserror 2.0.21",
@@ -6437,7 +6437,7 @@ dependencies = [
 [[package]]
 name = "porter-oauth"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=04721ffed45ee7e59c4845248a941e49e8650507#04721ffed45ee7e59c4845248a941e49e8650507"
+source = "git+https://github.com/PoHsuanLai/porter?rev=e92f4126ae8020b4fcf7f13286fc3994b82a8615#e92f4126ae8020b4fcf7f13286fc3994b82a8615"
 dependencies = [
  "base64 0.22.1",
  "porter-core",
@@ -6454,7 +6454,7 @@ dependencies = [
 [[package]]
 name = "porter-provider"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=04721ffed45ee7e59c4845248a941e49e8650507#04721ffed45ee7e59c4845248a941e49e8650507"
+source = "git+https://github.com/PoHsuanLai/porter?rev=e92f4126ae8020b4fcf7f13286fc3994b82a8615#e92f4126ae8020b4fcf7f13286fc3994b82a8615"
 dependencies = [
  "porter-core",
  "serde",
@@ -6465,7 +6465,7 @@ dependencies = [
 [[package]]
 name = "porter-proxy"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=04721ffed45ee7e59c4845248a941e49e8650507#04721ffed45ee7e59c4845248a941e49e8650507"
+source = "git+https://github.com/PoHsuanLai/porter?rev=e92f4126ae8020b4fcf7f13286fc3994b82a8615#e92f4126ae8020b4fcf7f13286fc3994b82a8615"
 dependencies = [
  "base64 0.22.1",
  "porter-core",
@@ -6475,7 +6475,7 @@ dependencies = [
 [[package]]
 name = "porter-secrets"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=04721ffed45ee7e59c4845248a941e49e8650507#04721ffed45ee7e59c4845248a941e49e8650507"
+source = "git+https://github.com/PoHsuanLai/porter?rev=e92f4126ae8020b4fcf7f13286fc3994b82a8615#e92f4126ae8020b4fcf7f13286fc3994b82a8615"
 dependencies = [
  "apple-native-keyring-store",
  "keyring-core",
@@ -6489,7 +6489,7 @@ dependencies = [
 [[package]]
 name = "porter-service"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=04721ffed45ee7e59c4845248a941e49e8650507#04721ffed45ee7e59c4845248a941e49e8650507"
+source = "git+https://github.com/PoHsuanLai/porter?rev=e92f4126ae8020b4fcf7f13286fc3994b82a8615#e92f4126ae8020b4fcf7f13286fc3994b82a8615"
 dependencies = [
  "porter-core",
  "porter-provider",
