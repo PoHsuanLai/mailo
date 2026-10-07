@@ -14,8 +14,12 @@
 //! list of addresses to forge.
 
 use crate::settings::LoadRemoteImages;
-use mail_domain::{MailboxRole, Message};
+use dioxus::prelude::*;
+use mail_domain::{BlobId, MailboxRole, Message, MessageId};
 use mail_store::SqliteStore;
+use std::cell::RefCell;
+use std::rc::Rc;
+use std::sync::Arc;
 
 /// Whether a sender is one whose word about who they are cannot be taken: the display name
 /// claims a brand the address is not theirs, or the receiving server did not say DMARC passed for
@@ -34,8 +38,8 @@ pub(super) fn suspicious(display: Option<&str>, email: &str, auth_passed: bool) 
 ///   [`suspicious`].
 ///
 /// Junk (`in_junk`) is always asked about, whatever the mode: a message filed there is one
-/// somebody already doubted. `auth_passed` is asked only when the answer matters, since finding
-/// it reads the message's stored bytes.
+/// somebody already doubted. `auth_passed` is asked only when the answer matters: under Trusted,
+/// for a listed sender. Only then does the reader have to wait for a message's checks.
 pub(super) fn auto_allow(
     mode: LoadRemoteImages,
     trusted: &[String],
@@ -58,37 +62,128 @@ pub(super) fn auto_allow(
     }
 }
 
-/// Whether the receiving server said DMARC passed for the domain of `message`'s From address, as
-/// the reader's checks line and the brand logo read it (`ui/checks`, `ui/brand`). No body here,
-/// no results this client believes, or an address with no domain: not passed.
-///
-/// Blocking: the first ask for a message reads its stored bytes; the answer is remembered by
-/// `ui/checks`, so the reader's next render, and the head's checks line, find it known.
-pub(super) fn dmarc_passed(store: &SqliteStore, message: &Message) -> bool {
-    let Some(raw) = message.body.raw() else {
-        return false;
-    };
-    let Some(domain) = mail_core::bimi::domain_of(&message.from.email) else {
-        return false;
-    };
-    crate::ui::checks::lookup(store, message.id, raw)
-        .is_some_and(|results| mail_mime::bimi::dmarc_passed_for(&results, domain))
+/// Whether the receiving server said DMARC passed for `domain`, by what `results` hold.
+fn passed(results: Option<&mail_mime::AuthResults>, domain: &str) -> bool {
+    results.is_some_and(|results| mail_mime::bimi::dmarc_passed_for(results, domain))
 }
 
-/// [`auto_allow`] for one stored `message`, under the reader's settings.
-pub(super) fn auto_allow_message(
-    store: &SqliteStore,
-    reading: &crate::settings::ReadingSettings,
+/// One message whose checks the reader is waiting on: which message, and the body they are in.
+type Wanted = (MessageId, BlobId);
+
+/// What one reader has looked up off the thread that draws, as `cache::Sent` is for renderings.
+#[derive(Default)]
+pub(super) struct Checked {
+    /// Being read on a blocking thread: asked for again by nobody until it lands.
+    going: Vec<Wanted>,
+    /// Read, and whether DMARC passed for the sender's domain. Kept here as well as in
+    /// `ui/checks`' cache, which holds only the last few: an answer that cache dropped before
+    /// the reader drew again would otherwise be sent for again, for ever.
+    landed: Vec<(Wanted, bool)>,
+}
+
+/// Whether the receiving server said DMARC passed for the domain of `message`'s From address,
+/// as the reader's checks line and the brand logo read it (`ui/checks`, `ui/brand`), if that is
+/// known yet. No body here, or an address with no domain: known, and not passed.
+///
+/// Never reads the store: only what this reader already looked up, and `ui/checks`' cache. When
+/// neither knows, `None`, and the message is put in `wanted` for [`look_later`]: opening a
+/// conversation must not wait on reading and parsing its raw bytes.
+pub(super) fn dmarc_known(
+    checked: &Checked,
     message: &Message,
+    wanted: &mut Vec<Wanted>,
+) -> Option<bool> {
+    let Some(raw) = message.body.raw() else {
+        return Some(false);
+    };
+    let Some(domain) = mail_core::bimi::domain_of(&message.from.email) else {
+        return Some(false);
+    };
+    let key = (message.id, raw);
+    if let Some((_, passed)) = checked.landed.iter().find(|(had, _)| *had == key) {
+        return Some(*passed);
+    }
+    if let Some(results) = crate::ui::checks::cached(message.id, raw) {
+        return Some(passed(results.as_ref(), domain));
+    }
+    if !wanted.contains(&key) {
+        wanted.push(key);
+    }
+    None
+}
+
+/// [`auto_allow`] for one stored `message`, under the reader's settings. A sender whose checks
+/// are not known yet is not trusted yet: the message is asked about, its checks are put in
+/// `wanted`, and the reader decides again once they land.
+pub(super) fn auto_allow_message(
+    reading: &crate::settings::ReadingSettings,
+    checked: &Checked,
+    message: &Message,
+    wanted: &mut Vec<Wanted>,
 ) -> bool {
     auto_allow(
         reading.remote_images,
         &reading.trusted_image_senders,
         &message.from.email,
         message.from.name.as_deref(),
-        || dmarc_passed(store, message),
+        || dmarc_known(checked, message, wanted).unwrap_or(false),
         message.mailbox == MailboxRole::Spam,
     )
+}
+
+/// Read `wanted`'s checks on a blocking thread, as the checks line does (`ui/checks`), then move
+/// `landed` so the reader decides again with them. What is already being read is not sent twice.
+pub(super) fn look_later(
+    store: Arc<SqliteStore>,
+    messages: Vec<Message>,
+    wanted: Vec<Wanted>,
+    checked: Rc<RefCell<Checked>>,
+    mut landed: Signal<u64>,
+) {
+    let fresh: Vec<Message> = {
+        let mut checked = checked.borrow_mut();
+        let fresh: Vec<Message> = messages
+            .into_iter()
+            .filter(|message| {
+                message.body.raw().is_some_and(|raw| {
+                    let key = (message.id, raw);
+                    wanted.contains(&key) && !checked.going.contains(&key)
+                })
+            })
+            .collect();
+        checked.going.extend(
+            fresh
+                .iter()
+                .filter_map(|message| Some((message.id, message.body.raw()?))),
+        );
+        fresh
+    };
+    if fresh.is_empty() {
+        return;
+    }
+    spawn(async move {
+        let found = tokio::task::spawn_blocking(move || {
+            fresh
+                .iter()
+                .filter_map(|message| {
+                    let raw = message.body.raw()?;
+                    let domain = mail_core::bimi::domain_of(&message.from.email)?;
+                    let results = crate::ui::checks::lookup(&store, message.id, raw);
+                    Some(((message.id, raw), passed(results.as_ref(), domain)))
+                })
+                .collect::<Vec<_>>()
+        })
+        .await
+        .unwrap_or_default();
+        {
+            let mut checked = checked.borrow_mut();
+            checked
+                .going
+                .retain(|key| !found.iter().any(|(had, _)| had == key));
+            checked.landed.extend(found);
+        }
+        landed += 1;
+    });
 }
 
 #[cfg(test)]
