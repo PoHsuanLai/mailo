@@ -3,15 +3,11 @@
 //! and a gap in quire is reported to quire (coherence rule 3, FINDINGS "quire requests"), never
 //! patched here.
 //!
-//! One at present, until the re-pin to quire v0.2.21 drops it.
+//! There is none at present: quire v0.2.21 puts a short-labelled Setting row's control at the
+//! row's end, which was the one line that stood here.
 
-use ds_lint::{Exception, Rule};
+use ds_lint::Exception;
 
-pub(super) const STYLE: &[Exception] = &[Exception {
-    rule: Rule::DsInternals,
-    selector: ".ds-field-row[*|data-layout=setting] > .ds-field-row-control",
-    reason: "quire v0.2.20 left a short-labelled Setting row's control mid-row; reported and fixed \
-             in v0.2.21, whose re-pin removes this line",
-}];
+pub(super) const STYLE: &[Exception] = &[];
 
 pub(in crate::ui) const MARKUP: &[Exception] = &[];

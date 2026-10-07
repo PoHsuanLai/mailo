@@ -5,6 +5,3 @@
 .settings { display: grid; grid-template-columns: 13rem minmax(0, 1fr); height: 100%; min-height: 0; }
 .settings-scroll { height: 100%; min-height: 0; overflow-y: auto; scrollbar-width: none; }
 .settings-page { min-width: 0; }
-/* quire v0.2.20 holds a Setting row's label to 60 % without pushing the control to the end, so a
-   short label left its toggle mid-row. Fixed in quire v0.2.21; drop this line with that re-pin. */
-.ds-field-row[*|data-layout=setting] > .ds-field-row-control { margin-inline-start: auto; }
