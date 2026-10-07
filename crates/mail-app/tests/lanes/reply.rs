@@ -2,7 +2,7 @@
 //! quote and send it; the answer to it comes back into the same conversation, and Reply all on
 //! that one addresses everyone on it.
 
-use ds_harness::Query;
+use ds_harness::{Driver, Query};
 
 use super::drive::{Drive, Key};
 use super::window::{INBOX, Window, hours_ago, parsed, queued};
@@ -102,11 +102,27 @@ fn a_reply_goes_out_quoted_its_answer_threads_back_and_reply_all_answers_everyon
         window.subjects()
     );
 
-    // Reply all on it: Ada in To, Grace in Cc, and never me.
-    window.press(&[], Key::Char('a'), 1);
-    window.until("a opens a reply to all", |h| {
-        h.count(&format!("{REPLY} .c-body")) == 1
+    // Reply all on it: Ada in To, Grace in Cc, and never me. The first reply's composer must
+    // have gone, so the key is the window's shortcut and not a letter typed into it; a slow
+    // runner can still draw the answer before the window takes keys back, so a press nothing
+    // took is pressed again, and only while no composer is open to type into.
+    window.until("the first reply's composer has gone", |h| {
+        h.count(".c-body") == 0
     });
+    let replying = |h: &ds_harness::Harness| h.count(&format!("{REPLY} .c-body")) == 1;
+    let deadline = std::time::Instant::now() + super::settle::WAIT_BOUND;
+    while !replying(&window.harness) && std::time::Instant::now() < deadline {
+        if window.harness.count(".c-body") == 0 {
+            window.press(&[], Key::Char('a'), 1);
+        }
+        for _ in 0..20 {
+            if replying(&window.harness) {
+                break;
+            }
+            window.harness.advance(std::time::Duration::from_millis(10));
+        }
+    }
+    window.until("a opens a reply to all", replying);
     let props = format!("{REPLY} .c-props");
     window.until("Grace is in Cc", |h| {
         h.text_of(&format!("{props} [*|data-row=cc]"))
