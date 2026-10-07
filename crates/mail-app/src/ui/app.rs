@@ -1245,31 +1245,23 @@ mod tests {
     ];
 
     /// The view menu's row for `label`, in the order the menu lists them.
-    fn view_row(label: &str) -> usize {
-        match label {
-            "Side peek" => 0,
-            "Centre peek" => 1,
-            "Full page" => 2,
-            other => panic!("the view menu has no {other:?}"),
-        }
-    }
-
-    /// A press on the reader's View button, then on `label` in its menu: what the window drew.
-    fn pick_view(
+    /// A press on the reader's View button, then on `label` in its menu, once quire's blink has
+    /// passed and the pick has acted: what the window drew.
+    async fn pick_view(
         dom: &mut VirtualDom,
         seen: crate::ui::fixtures::Seen,
         label: &str,
     ) -> crate::ui::fixtures::Seen {
-        use crate::ui::fixtures::{click, drain_seen};
+        use crate::ui::fixtures::{click, drain_seen, pick_named};
         let view = *seen
             .all("aria-label", "View")
             .last()
             .expect("no View button");
         click(dom, view);
-        let menu = seen.merge(drain_seen(dom));
-        let row = menu.fixed("class", "ds-menu-item")[view_row(label)];
-        click(dom, row);
-        menu.merge(drain_seen(dom))
+        // Only the rows this menu drew: what was seen before may hold an earlier menu's.
+        let drawn = drain_seen(dom);
+        let after = pick_named(dom, &drawn, label).await;
+        seen.merge(drawn).merge(after)
     }
 
     #[tokio::test]
@@ -1304,7 +1296,7 @@ mod tests {
                     crate::ui::fixtures::drain(&mut dom);
                 }
                 label => {
-                    seen = pick_view(&mut dom, std::mem::take(&mut seen), label);
+                    seen = pick_view(&mut dom, std::mem::take(&mut seen), label).await;
                 }
             }
             let page = dioxus_ssr::render(&dom);
@@ -1359,7 +1351,7 @@ mod tests {
 
         // The reader moves from the card's column into quire's panel and stays the same thread:
         // its frame is built again, from the same sanitized document.
-        let seen = pick_view(&mut dom, seen, "Centre peek");
+        let seen = pick_view(&mut dom, seen, "Centre peek").await;
         let floating = dioxus_ssr::render(&dom);
         assert_eq!(peek_attr(&floating), "center");
         assert_eq!(peeks_up(&floating), 1, "the reader is not in quire's panel");
@@ -1368,7 +1360,7 @@ mod tests {
             srcdoc,
             "the panel shows another document"
         );
-        pick_view(&mut dom, seen, "Full page");
+        pick_view(&mut dom, seen, "Full page").await;
         drain_seen(&mut dom);
         let after = dioxus_ssr::render(&dom);
         assert_eq!(
