@@ -8,8 +8,8 @@
 //! actions are in its menu ([`menu`]), opened by a right click or by the one button the row shows
 //! under the pointer, quire's `RowMore` (the ⋯), which cannot act on the conversation by itself.
 
-mod act;
-mod menu;
+pub(in crate::ui) mod act;
+pub(in crate::ui) mod menu;
 #[cfg(test)]
 mod tests;
 

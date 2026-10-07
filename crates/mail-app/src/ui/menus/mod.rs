@@ -165,7 +165,17 @@ pub(super) fn SnoozeMenu(
     /// The snooze button's rect once measured, which wins over `anchor`.
     #[props(default)]
     placed: Option<Rect>,
+    /// Told when the menu goes, picked or dismissed: a host that opened it itself (the reader's
+    /// ⋯) closes it so.
+    #[props(default)]
+    on_done: Option<EventHandler<()>>,
 ) -> Element {
+    let mut done = move || {
+        shell.write().snoozing = None;
+        if let Some(on_done) = on_done {
+            on_done.call(());
+        }
+    };
     let now = Utc::now();
     // The Mac's menu has no second line, so each choice says its time at its trailing end.
     let items = snooze_items(now, &chrono::Local);
@@ -181,7 +191,7 @@ pub(super) fn SnoozeMenu(
                 // undo, the curl and the toast are the window's.
                 match mail_core::snooze::snooze_until(&phrase, Utc::now(), &chrono::Local) {
                     Ok(at) => {
-                        shell.write().snoozing = None;
+                        done();
                         // The whole selection when this row is picked, as one gesture.
                         let ops = with_selection(shell, id)
                             .into_iter()
@@ -194,7 +204,7 @@ pub(super) fn SnoozeMenu(
                     Err(why) => eprintln!("snooze: {why}"),
                 }
             },
-            on_close: move |_| shell.write().snoozing = None,
+            on_close: move |_| done(),
         }
     }
 }
@@ -211,7 +221,16 @@ pub(super) fn LabelMenu(
     /// The Label button's rect once measured, which wins over `anchor`.
     #[props(default)]
     placed: Option<Rect>,
+    /// Told when the list goes, as [`SnoozeMenu`]'s is.
+    #[props(default)]
+    on_done: Option<EventHandler<()>>,
 ) -> Element {
+    let mut done = move || {
+        shell.write().labelling = None;
+        if let Some(on_done) = on_done {
+            on_done.call(());
+        }
+    };
     let mut typed = use_signal(String::new);
     let (create, base): (Vec<MenuItem>, Vec<MenuItem>) =
         label_items(&shell.read().labels, &summary, &typed())
@@ -254,7 +273,7 @@ pub(super) fn LabelMenu(
                         .map(|thread| (thread, Op::Label(created, Membership::In)))
                         .collect();
                     act_all(&store, shell, revision, ops);
-                    shell.write().labelling = None;
+                    done();
                     return;
                 }
                 let Some(which) = shell
@@ -274,7 +293,7 @@ pub(super) fn LabelMenu(
                 let wanted = if on { Membership::Out } else { Membership::In };
                 act(&store, shell, revision, id, Op::Label(which, wanted));
             },
-            onclose: move |()| shell.write().labelling = None,
+            onclose: move |()| done(),
         }
     }
 }

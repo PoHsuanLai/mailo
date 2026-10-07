@@ -359,8 +359,8 @@ fn the_window_s_root_draws_the_reader_for_its_conversation_and_nothing_else() {
         "the window drew a list"
     );
     assert_eq!(harness.count(".side"), 0, "the window drew the sidebar");
-    // The window is the page: no peek, and no second "Open in new window" from inside it.
-    for tool in ["Side peek", "Centre peek", "Full page", "More"] {
+    // The window is the page: no view menu, so no peek and no second "Open in new window".
+    for tool in ["View", "Side peek", "Centre peek", "Full page"] {
         assert_eq!(
             harness.count(&format!(".reader-head [*|aria-label=\"{tool}\"]")),
             0,

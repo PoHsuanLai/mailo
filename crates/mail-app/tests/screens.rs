@@ -241,7 +241,9 @@ fn screens() {
         let (mut h, _d) = open(dark);
         open_row(&mut h, 1);
         shot(&mut h, &out, "reader", dark);
-        click(&mut h, "[*|aria-label=\"Centre peek\"]");
+        click(&mut h, ".reader-head [*|aria-label=\"View\"]");
+        h.advance(ms(300));
+        click(&mut h, ".ds-menu .ds-menu-item:nth-child(2)");
         shot(&mut h, &out, "peek", dark);
 
         // A message with banners: remote images blocked and a read receipt asked for.
@@ -298,10 +300,13 @@ fn screens() {
         h.advance(ms(200));
         h.key(Key::Enter);
         shot(&mut h, &out, "add-account-sheet", dark);
-        // The Space's menu, through the Space's name.
+        // The Space's menu, through a right click on the Space's name.
         h.key(Key::Escape);
         h.advance(ms(400));
-        click(&mut h, ".space-name");
+        if let Some(at) = h.centre(".side-head") {
+            h.press(at, ds::base::press::PointerButton::Secondary);
+            h.advance(ms(400));
+        }
         shot(&mut h, &out, "space-menu", dark);
     }
 }
