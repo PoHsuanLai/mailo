@@ -45,8 +45,8 @@ pub(in crate::ui) struct Destination {
 
 /// The panel's rows for `query`: `rows` (the ⌘K menu's, as [`super::items::rows_of`] builds
 /// them) under the panel's titles, then `places`, each section capped, in the panel's order.
-/// A row's tile is a glyph, since a menu row draws no avatar: a mail is an envelope with its
-/// sender at the end, a person the people glyph.
+/// A row keeps its tile: a mail and a person lead with their avatar, as quire's result rows draw
+/// one.
 pub(in crate::ui) fn sections(
     rows: Vec<MenuItem>,
     places: Vec<MenuItem>,
@@ -67,10 +67,10 @@ pub(in crate::ui) fn sections(
             _ if empty => RECENT,
             _ => MAIL,
         };
-        let row = glyphed(MenuItem {
+        let row = MenuItem {
             group: Some(section.to_owned()),
             ..row
-        });
+        };
         match section {
             TOP => top.push(row),
             COMMANDS => commands.push(row),
@@ -94,22 +94,6 @@ pub(in crate::ui) fn sections(
         .chain(commands)
         .chain(found)
         .collect()
-}
-
-/// `row` with a glyph for its tile and its sender as the trailing word, as a menu row draws it.
-fn glyphed(row: MenuItem) -> MenuItem {
-    let tile = match &row.tile {
-        Tile::Avatar { .. } if row.key.starts_with("mail:") => Tile::Icon(Icon::Mail),
-        Tile::Avatar { .. } => Tile::Icon(Icon::Group),
-        other => other.clone(),
-    };
-    // A mail's sender is the first run of its detail; a person's address is theirs.
-    let help = match row.key.split_once(':') {
-        Some(("mail", _)) => row.detail.first().map(|run| run.text.clone()),
-        Some(("person", email)) if row.name != email => Some(email.to_owned()),
-        _ => row.help.clone(),
-    };
-    MenuItem { tile, help, ..row }
 }
 
 /// The places and Spaces whose names `query` matches, best first, by the matcher the ⌘K menu

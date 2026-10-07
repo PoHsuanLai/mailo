@@ -1,12 +1,12 @@
-//! The search bar as a person drives it: typing brings up the sections, the arrows move across
-//! them, Return runs and Tab completes the highlighted row, Escape empties then leaves the
-//! field, ⌘K summons it, and the sidebar no longer has a field of its own.
+//! The search panel as a person drives it: typing brings up the sections, the arrows move
+//! across them, Return runs and Tab completes the highlighted row, Escape empties then closes
+//! the panel, ⌘K or the toolbar's magnifier summons it, the toolbar shows a search the panel
+//! left behind, and the sidebar has no field of its own.
 
 use super::pictures::{BarAlone, BarAloneProps, held};
 use super::sections::{COMMANDS, MAIL, RECENT, TOP};
 use super::*;
-use crate::ui::app::App;
-use crate::ui::fixtures::{INSIDE_THE_SHELL, chord, dispatching, rebuild_into, type_into, work};
+use crate::ui::fixtures::{chord, dispatching, drain_seen, rebuild_into, type_into, work};
 use crate::ui::host::{Ask, Recorder};
 use crate::ui::view::{BarListing, BarOpen};
 use dioxus::html::input_data::keyboard_types::Modifiers;
@@ -37,11 +37,12 @@ fn alone_over<K: 'static>(recorder: &Recorder, store: Arc<SqliteStore>, kept: K)
     )
     .with_root_context(store)
     .with_root_context(recorder.host());
-    let seen = rebuild_into(&mut dom);
+    // The panel floats in the root's overlay, drawn the render after it asks.
+    let seen = rebuild_into(&mut dom).merge(drain_seen(&mut dom));
     let field = *seen
         .all("aria-label", LABEL)
         .last()
-        .expect("the bar's field");
+        .expect("the panel's field");
     Alone {
         dom,
         field,
@@ -64,7 +65,11 @@ impl<K> Alone<K> {
 
 /// Render until `landed` holds for the page, doing the window's work in between. The search
 /// waits for the field to be still, then runs off the thread that draws.
-async fn until(dom: &mut VirtualDom, text: &str, landed: impl Fn(&str) -> bool) -> String {
+pub(super) async fn until(
+    dom: &mut VirtualDom,
+    text: &str,
+    landed: impl Fn(&str) -> bool,
+) -> String {
     let start = std::time::Instant::now();
     loop {
         dom.render_immediate(&mut NoOpMutations);
@@ -82,6 +87,27 @@ async fn until(dom: &mut VirtualDom, text: &str, landed: impl Fn(&str) -> bool) 
     }
 }
 
+/// Whether `page` says `needle`, in its markup or in its words: a row's matched characters are
+/// marked, so "Sync now" is drawn as `<span>Sync</span> now`.
+pub(super) fn has(page: &str, needle: &str) -> bool {
+    page.contains(needle) || words(page).contains(needle)
+}
+
+/// `page` without its tags.
+fn words(page: &str) -> String {
+    let mut out = String::with_capacity(page.len());
+    let mut inside = false;
+    for ch in page.chars() {
+        match ch {
+            '<' => inside = true,
+            '>' => inside = false,
+            ch if !inside => out.push(ch),
+            _ => {}
+        }
+    }
+    out
+}
+
 fn open(dom: &VirtualDom) -> Option<BarOpen> {
     dom.in_runtime(|| match &held().shell.peek().bar {
         Bar::Open(open) => Some(open.clone()),
@@ -97,12 +123,12 @@ fn search(dom: &VirtualDom) -> String {
 async fn typing_shows_the_mail_and_the_commands_it_names() {
     let recorder = Recorder::default();
     let mut bar = alone(&recorder);
-    let page = bar.typed("sync", |page| page.contains("Sync now")).await;
+    let page = bar.typed("sync", |page| has(page, "Sync now")).await;
     for title in [COMMANDS, "Notes from the sync review", "Sync now"] {
-        assert!(page.contains(title), "no {title:?} for sync:\n{page}");
+        assert!(has(&page, title), "no {title:?} for sync:\n{page}");
     }
     assert!(
-        page.contains(&format!(">{MAIL}<")) || page.contains(&format!(">{TOP}<")),
+        has(&page, &format!(">{MAIL}<")) || has(&page, &format!(">{TOP}<")),
         "no Mail section for sync:\n{page}"
     );
     // What is typed is the list's search too.
@@ -113,19 +139,16 @@ async fn typing_shows_the_mail_and_the_commands_it_names() {
 async fn an_empty_bar_offers_recent_mail_and_commands() {
     let recorder = Recorder::default();
     let mut bar = alone(&recorder);
-    let page = until(&mut bar.dom, "", |page| page.contains("Compose")).await;
-    assert!(page.contains(&format!(">{RECENT}<")), "no Recent:\n{page}");
-    assert!(
-        page.contains(&format!(">{COMMANDS}<")),
-        "no Commands:\n{page}"
-    );
+    let page = until(&mut bar.dom, "", |page| has(page, "Compose")).await;
+    assert!(has(&page, &format!(">{RECENT}<")), "no Recent:\n{page}");
+    assert!(has(&page, &format!(">{COMMANDS}<")), "no Commands:\n{page}");
 }
 
 #[tokio::test]
 async fn return_on_a_command_runs_it_on_the_search_there_was() {
     let recorder = Recorder::default();
     let mut bar = alone(&recorder);
-    bar.typed("hide sidebar", |page| page.contains("Hide sidebar"))
+    bar.typed("hide sidebar", |page| has(page, "Hide sidebar"))
         .await;
     bar.key("Enter");
     assert!(
@@ -149,7 +172,7 @@ async fn the_arrows_move_across_the_sections_and_stop_at_the_ends() {
     // One letter: mail, commands and places all match it.
     let page = bar
         .typed("e", |page| {
-            page.contains(&format!(">{COMMANDS}<")) && page.contains(&format!(">{TOP}<"))
+            has(page, &format!(">{COMMANDS}<")) && has(page, &format!(">{TOP}<"))
         })
         .await;
     let rows = page.matches("role=\"menuitem\"").count();
@@ -178,18 +201,17 @@ async fn the_arrows_move_across_the_sections_and_stop_at_the_ends() {
 async fn tab_completes_the_top_row() {
     let recorder = Recorder::default();
     let mut bar = alone(&recorder);
-    bar.typed("settings", |page| page.contains("Settings…"))
-        .await;
+    bar.typed("settings", |page| has(page, "Settings…")).await;
     bar.key("Tab");
     assert_eq!(search(&bar.dom), "Settings…");
     assert!(open(&bar.dom).is_some(), "Tab closed the panel");
 }
 
 #[tokio::test]
-async fn escape_empties_the_field_then_leaves_it() {
+async fn escape_empties_the_field_then_closes_the_panel() {
     let recorder = Recorder::default();
     let mut bar = alone(&recorder);
-    bar.typed("sync", |page| page.contains("Sync now")).await;
+    bar.typed("sync", |page| has(page, "Sync now")).await;
     bar.key("Escape");
     assert_eq!(search(&bar.dom), "");
     assert!(
@@ -225,14 +247,15 @@ async fn new_from_template_lists_the_templates_in_the_panel_and_starts_one() {
         .unwrap_or_else(|why| panic!("a template: {why}"));
     // The row, not the field's own value, which holds the same words.
     bar.typed(templates::ACTION, |page| {
-        page.contains(&format!(">{}<", templates::ACTION))
+        // The answer to the words typed, not the empty field's: the action is the top hit.
+        words(page).contains(&format!("{TOP}{}", templates::ACTION))
     })
     .await;
     bar.key("Enter");
     let listing = open(&bar.dom).map(|open| open.listing);
     assert_eq!(listing, Some(BarListing::Templates(String::new())));
-    let page = until(&mut bar.dom, "templates", |page| page.contains(">Weekly<")).await;
-    assert!(page.contains(">Templates<"), "{page}");
+    let page = until(&mut bar.dom, "templates", |page| has(page, ">Weekly<")).await;
+    assert!(has(&page, ">Templates<"), "{page}");
     // The list's search is what it was before the action's name was typed.
     assert_eq!(search(&bar.dom), "");
     bar.key("Enter");
@@ -252,62 +275,17 @@ async fn new_from_template_lists_the_templates_in_the_panel_and_starts_one() {
     assert_eq!(open(&bar.dom), None);
 }
 
-/// The window over the reference fixture, with a recorder for what it asks of its host.
-fn window(recorder: &Recorder) -> (VirtualDom, crate::ui::fixtures::Work) {
-    dispatching();
-    let built = work();
-    let mut dom = VirtualDom::new(App)
-        .with_root_context(built.store.clone())
-        .with_root_context(built.dirs.clone())
-        .with_root_context(recorder.host());
-    rebuild_into(&mut dom);
-    (dom, built)
-}
-
 #[tokio::test]
-async fn command_k_puts_the_keyboard_in_the_bar_with_its_text_selected() {
+async fn command_k_in_the_panel_selects_what_is_typed() {
     let recorder = Recorder::default();
-    let (mut dom, _built) = window(&recorder);
-    chord(
-        &mut dom,
-        "k",
-        Modifiers::CONTROL,
-        ElementId(INSIDE_THE_SHELL as usize),
-    );
+    let mut bar = alone(&recorder);
+    bar.typed("sync", |page| has(page, "Sync now")).await;
+    chord(&mut bar.dom, "k", Modifiers::CONTROL, bar.field);
     assert!(
-        recorder.asked().contains(&Ask::FocusAll(".search input")),
-        "⌘K asked for {:?}",
+        recorder.asked().contains(&Ask::FocusAll(FIELD)),
+        "{:?}",
         recorder.asked()
     );
-    // The panel is up over the empty search: what the bar offers before anything is typed.
-    let page = until(&mut dom, "⌘K", |page| {
-        page.contains(&format!(">{RECENT}<"))
-    })
-    .await;
-    assert!(page.contains("Compose"), "{page}");
-    assert!(
-        !page.contains("class=\"ds-palette"),
-        "⌘K still opened the palette"
-    );
-}
-
-#[tokio::test]
-async fn the_bar_is_in_the_lists_toolbar_and_the_sidebar_has_no_field() {
-    let recorder = Recorder::default();
-    let (dom, _built) = window(&recorder);
-    let page = dioxus_ssr::render(&dom);
-    assert!(
-        !page.contains("class=\"ds-command-pill"),
-        "the sidebar still has its pill"
-    );
-    assert!(!page.contains("Search or run a command"));
-    let side = &page[page.find("class=\"ds-side").expect("the sidebar")..];
-    let side = &side[..side.find("class=\"card").unwrap_or(side.len())];
-    assert!(!side.contains("<input"), "the sidebar has a field:\n{side}");
-    let head = &page[page.find("list-head").expect("the list's toolbar")..];
-    let bar = head
-        .find(&format!("aria-label=\"{LABEL}\""))
-        .expect("no bar in the toolbar");
-    let list = head.find("class=\"list\"").expect("the list");
-    assert!(bar < list, "the bar is not above the list");
+    assert_eq!(search(&bar.dom), "sync");
+    assert!(open(&bar.dom).is_some(), "⌘K closed the panel");
 }

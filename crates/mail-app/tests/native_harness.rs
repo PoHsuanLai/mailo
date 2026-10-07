@@ -462,47 +462,52 @@ fn the_toast_hides_after_its_hold() {
 }
 
 #[test]
-fn command_k_puts_the_keyboard_in_the_search_bar_and_escape_gives_it_back() {
+fn command_k_puts_the_keyboard_in_the_search_panel_and_escape_gives_it_back() {
     let (mut harness, _dir) = open();
     assert_eq!(harness.count(".ds-menu"), 0);
     harness.chord(&[Key::Ctrl], Key::Char('k'));
     harness.advance(ms(300));
     assert!(
-        harness.is_focused(".search input"),
+        harness.is_focused(".spotlight input"),
         "Cmd K (Ctrl under Toshy) left the keyboard elsewhere"
     );
-    // The panel of suggestions hangs from the bar; there is no palette over the window.
-    settle_until(&mut harness, |h| h.count(".ds-menu") == 1);
+    // The search panel is up at the top of the window; there is no palette over it.
+    settle_until(&mut harness, |h| h.count(".spotlight .ds-menu") == 1);
     assert_eq!(harness.count(".ds-palette"), 0);
-    // Typed letters are the bar's, not shortcuts: the list's search, and the panel's query.
+    // Typed letters are the panel's, not shortcuts: the list's search, and the panel's query.
     for key in "arch".chars() {
         harness.key(Key::Char(key));
     }
     harness.advance(ms(200));
     assert_eq!(
-        harness.attr(".search input", "value").as_deref(),
+        harness.attr(".spotlight input", "value").as_deref(),
         Some("arch")
     );
     // The first Escape empties the field and keeps the keyboard there.
     harness.key(Key::Escape);
     harness.advance(ms(300));
-    assert_eq!(harness.attr(".search input", "value").as_deref(), Some(""));
+    assert_eq!(
+        harness.attr(".spotlight input", "value").as_deref(),
+        Some("")
+    );
     assert!(
-        harness.is_focused(".search input"),
+        harness.is_focused(".spotlight input"),
         "the first Escape left the field"
     );
     settle_until(&mut harness, |h| subjects(h).len() == INBOX.len());
     // The second leaves it, and the panel goes with it.
     harness.key(Key::Escape);
     harness.advance(ms(400));
-    assert_eq!(harness.count(".ds-menu"), 0, "Escape left the panel open");
+    assert_eq!(harness.count(".spotlight"), 0, "Escape left the panel open");
     assert!(harness.is_focused(".app"), "the keyboard did not come back");
 }
 
 #[test]
-fn typing_in_the_search_box_filters_the_rows() {
+fn typing_in_the_search_panel_filters_the_rows() {
     let (mut harness, _dir) = open();
-    harness.click(centre(&harness, ".search input"));
+    // The toolbar's magnifier brings up the panel with the keyboard in its field.
+    harness.click(centre(&harness, SEARCH_BUTTON));
+    settle_until(&mut harness, |h| h.is_focused(".spotlight input"));
     for key in "invoice".chars() {
         harness.key(Key::Char(key));
     }
@@ -512,21 +517,24 @@ fn typing_in_the_search_box_filters_the_rows() {
         subjects(h) == vec!["The invoice for September".to_owned()]
     });
     assert_eq!(
-        harness.attr(".search input", "value").as_deref(),
+        harness.attr(".spotlight input", "value").as_deref(),
         Some("invoice")
     );
 }
 
+/// The toolbar's search: the magnifier while nothing is searched.
+const SEARCH_BUTTON: &str = ".list-head .bar [*|aria-label=\"Search\"]";
+
 // Beyond the eight: the native host's own asks, and what is not on Blitz yet.
 
 #[test]
-fn ctrl_f_puts_the_keyboard_in_the_search_field() {
+fn ctrl_f_brings_up_the_search_panel() {
     let (mut harness, _dir) = open();
     open_row(&mut harness, 1);
     harness.chord(&[Key::Ctrl], Key::Char('f'));
     harness.advance(ms(300));
     assert!(
-        harness.is_focused(".search input"),
+        harness.is_focused(".spotlight input"),
         "Ctrl+F left the keyboard elsewhere"
     );
 }

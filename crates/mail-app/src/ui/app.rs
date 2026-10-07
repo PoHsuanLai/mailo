@@ -436,7 +436,7 @@ pub(super) fn App() -> Element {
                 return;
             }
             Some(Chord::Find) => {
-                super::host::Host::focus(".search input");
+                super::command::summon(shell);
                 return;
             }
             Some(Chord::Print) => {
@@ -655,8 +655,8 @@ pub(super) fn App() -> Element {
                 label: "List and reader",
                 panes: vec![SplitPane::new(LIST, rsx! {
                     ThreadList {
-                        shell, pages, revision, in_a_field, threads, drafts, nothing, more,
-                        marking, top, paging, side_hidden, spaces, question: asked,
+                        shell, pages, revision, threads, drafts, nothing, more,
+                        marking, top, paging, side_hidden, question: asked,
                     }
                 })],
                 section { class: "reader",
@@ -684,8 +684,6 @@ pub(super) fn App() -> Element {
             tabindex: "0",
             onmounted: super::host::Host::app_mounted,
             onkeydown: on_key,
-            // The search bar keeps its own presses; any other closes its panel.
-            onpointerdown: move |_| super::command::press_elsewhere(shell),
             onpointermove: move |event| {
                 let at = event.client_coordinates();
                 let held = !event.held_buttons().is_empty();
@@ -714,6 +712,8 @@ pub(super) fn App() -> Element {
                 }
             }
             SpaceMenuView { spaces, editing, shell, pages, today: today_list }
+            // The search panel, at the top centre of the window while it is up.
+            super::command::Spotlight { shell, pages, revision, in_a_field, side_hidden, spaces }
             if shell.read().files.is_some() {
                 super::files::FilesSheet { shell, revision }
             }

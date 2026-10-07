@@ -82,43 +82,27 @@ fn each_section_is_capped() {
 }
 
 #[test]
-fn a_menu_row_has_a_glyph_and_its_sender_at_the_end() {
+fn a_mail_and_a_person_keep_their_avatars() {
+    let face = Tile::Avatar {
+        letter: 'D',
+        color: "#000".to_owned(),
+    };
     let mail = MenuItem {
-        tile: Tile::Avatar {
-            letter: 'D',
-            color: "#000".to_owned(),
-        },
-        detail: vec![
-            Run {
-                text: "Dana".to_owned(),
-                marks: Vec::new(),
-                tone: Tone::Strong,
-            },
-            Run {
-                text: " · see you at noon".to_owned(),
-                marks: Vec::new(),
-                tone: Tone::Plain,
-            },
-        ],
+        tile: face.clone(),
+        detail: vec![Run {
+            text: "Dana".to_owned(),
+            marks: Vec::new(),
+            tone: Tone::Strong,
+        }],
         ..row("mail:1", "Lunch", "Mail")
     };
     let person = MenuItem {
-        tile: Tile::Avatar {
-            letter: 'D',
-            color: "#000".to_owned(),
-        },
+        tile: face.clone(),
         ..row("person:dana@example.org", "Dana Ng", "People")
     };
     let drawn = sections(vec![mail, person], Vec::new(), "d");
-    let ends: Vec<(Tile, Option<String>)> =
-        drawn.into_iter().map(|row| (row.tile, row.help)).collect();
-    assert_eq!(
-        ends,
-        vec![
-            (Tile::Icon(Icon::Mail), Some("Dana".to_owned())),
-            (Tile::Icon(Icon::Group), Some("dana@example.org".to_owned())),
-        ]
-    );
+    let tiles: Vec<Tile> = drawn.into_iter().map(|row| row.tile).collect();
+    assert_eq!(tiles, vec![face.clone(), face]);
 }
 
 fn place(name: &str) -> Destination {
