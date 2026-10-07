@@ -181,6 +181,8 @@ pub fn schema() -> Schema {
         file: FilePath(FILE.to_owned()),
         version: 1,
         key,
+        // mailo keeps no tables of another app's.
+        foreign: Default::default(),
     }
 }
 
