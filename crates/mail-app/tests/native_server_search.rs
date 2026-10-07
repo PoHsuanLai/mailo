@@ -282,7 +282,12 @@ fn a_search_with_nothing_here_offers_the_server_and_lists_what_it_finds() {
 
     press(&mut harness, ".search input");
     type_text(&mut harness, "spreadsheet");
-    until(&mut harness, "the search settling", |h| h.count(OFFER) == 1);
+    // The offer is drawn for every line that matches nothing here, a prefix of the word as well:
+    // the press must wait for the whole word to settle, or it asks the server for the prefix.
+    until(&mut harness, "the search settling", |h| {
+        h.count(OFFER) == 1
+            && h.attr(".server-search", "data-line").as_deref() == Some("spreadsheet")
+    });
     assert_eq!(
         subjects(&harness),
         Vec::<String>::new(),

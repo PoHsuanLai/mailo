@@ -235,7 +235,9 @@ pub(super) fn ServerSearch(
         },
     ));
     rsx! {
-        div { class: "server-search",
+        // The line the buttons search for, which the list settles a beat after the typing: a
+        // press is for this line, and its answer shows while the line is still this one.
+        div { class: "server-search", "data-line": "{input}",
             for (account, address) in accounts {
                 {
                     let answer = answer_for(&asked.read(), &input, account.clone()).cloned();

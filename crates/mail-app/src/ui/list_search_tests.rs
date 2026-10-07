@@ -37,7 +37,10 @@ fn window() -> Window {
         .with_root_context(store)
         .with_root_context(dirs);
     let seen = rebuild_into(&mut dom);
-    let search = seen.one("aria-placeholder", "Search all mail");
+    let search = *seen
+        .all("aria-label", crate::ui::command::LABEL)
+        .last()
+        .expect("the search bar");
     Window {
         dom,
         search,

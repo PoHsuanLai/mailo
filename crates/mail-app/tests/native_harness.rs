@@ -462,37 +462,40 @@ fn the_toast_hides_after_its_hold() {
 }
 
 #[test]
-fn ctrl_t_opens_the_palette_with_the_keyboard_in_its_field() {
+fn command_k_puts_the_keyboard_in_the_search_bar_and_escape_gives_it_back() {
     let (mut harness, _dir) = open();
-    assert_eq!(harness.count(".ds-palette"), 0);
+    assert_eq!(harness.count(".ds-menu"), 0);
     harness.chord(&[Key::Ctrl], Key::Char('k'));
     harness.advance(ms(300));
-    assert_eq!(
-        harness.count(".ds-palette"),
-        1,
-        "Cmd K (Ctrl under Toshy) opened no palette"
-    );
     assert!(
-        harness.is_focused(".ds-palette input"),
-        "the palette's field does not hold the keyboard"
+        harness.is_focused(".search input"),
+        "Cmd K (Ctrl under Toshy) left the keyboard elsewhere"
     );
-    // Typed letters are the palette's, not shortcuts.
+    // The panel of suggestions hangs from the bar; there is no palette over the window.
+    settle_until(&mut harness, |h| h.count(".ds-menu") == 1);
+    assert_eq!(harness.count(".ds-palette"), 0);
+    // Typed letters are the bar's, not shortcuts: the list's search, and the panel's query.
     for key in "arch".chars() {
         harness.key(Key::Char(key));
     }
     harness.advance(ms(200));
     assert_eq!(
-        harness.attr(".ds-palette input", "value").as_deref(),
+        harness.attr(".search input", "value").as_deref(),
         Some("arch")
     );
-    assert_eq!(subjects(&harness).len(), INBOX.len());
+    // The first Escape empties the field and keeps the keyboard there.
+    harness.key(Key::Escape);
+    harness.advance(ms(300));
+    assert_eq!(harness.attr(".search input", "value").as_deref(), Some(""));
+    assert!(
+        harness.is_focused(".search input"),
+        "the first Escape left the field"
+    );
+    settle_until(&mut harness, |h| subjects(h).len() == INBOX.len());
+    // The second leaves it, and the panel goes with it.
     harness.key(Key::Escape);
     harness.advance(ms(400));
-    assert_eq!(
-        harness.count(".ds-palette"),
-        0,
-        "Escape left the palette open"
-    );
+    assert_eq!(harness.count(".ds-menu"), 0, "Escape left the panel open");
     assert!(harness.is_focused(".app"), "the keyboard did not come back");
 }
 

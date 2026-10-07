@@ -7,7 +7,7 @@
 //!
 //! | Before   | Now | Does                         |
 //! | -------- | --- | ---------------------------- |
-//! | Ctrl T   | ⌘K  | the command menu             |
+//! | Ctrl T   | ⌘K  | the search bar               |
 //! | Ctrl S   | ⌃⌘S | hide or show the sidebar     |
 //! | Ctrl 1-9 | ⌘1-9 | switch to Space n           |
 //! | Ctrl F   | ⌘F  | find in the open message     |
@@ -22,7 +22,7 @@ use dioxus::prelude::Modifiers;
 /// A chord the window answers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::ui) enum Chord {
-    /// ⌘K: the command menu.
+    /// ⌘K: the keyboard to the search bar.
     CommandMenu,
     /// ⌃⌘S: hide or show the sidebar.
     ToggleSidebar,

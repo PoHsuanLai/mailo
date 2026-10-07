@@ -105,6 +105,8 @@ pub(super) fn ThreadList(
     paging: Memo<bool>,
     /// Whether the sidebar is folded away; while it is, the header offers the way back.
     side_hidden: Signal<bool>,
+    /// The Spaces, which the search bar's commands and places switch between and restyle.
+    spaces: Signal<super::space::Spaces>,
     /// Which question the rows answer (`list_query::ListView::asked`).
     question: ReadSignal<u64>,
 ) -> Element {
@@ -481,24 +483,12 @@ pub(super) fn ThreadList(
                                     }),
                                 }
                             }
+                            // Search and the window's commands in one field, at the toolbar's
+                            // trailing end, where the Mac keeps its search field.
+                            super::command::SearchBar { shell, pages, revision, in_a_field, side_hidden, spaces }
                         }
                     }
                 },
-            }
-            // Mail's search field is one of its unified toolbar's controls, at their size.
-            TextField {
-                kind: FieldKind::Search,
-                size: ControlSize::Large,
-                label: "Search all mail".to_owned(),
-                placeholder: "Search all mail".to_owned(),
-                value: shell.read().search.clone(),
-                oninput: move |value: String| {
-                    shell.write().search = value;
-                    pages.set(1);
-                },
-                onfocus: move |()| in_a_field.set(true),
-                onblur: move |()| in_a_field.set(false),
-                common: classed("search"),
             }
             // quire's list: it keeps each row by its key, so a row that leaves plays its exit and
             // the rows below close the gap. A `Loadable` decides what the pane holds: outline rows
