@@ -19,10 +19,11 @@
 mod host;
 mod map;
 mod provider;
+mod size;
 mod window;
 
 pub use provider::{Request, Seams};
-pub use window::{Browse, Opened, Wiring, add_account_root};
+pub use window::{Browse, Fit, Opened, Wiring, add_account_root};
 
 use std::cell::RefCell;
 use std::sync::Arc;
@@ -33,9 +34,6 @@ use mail_store::SqliteStore;
 
 /// What the window and its command are called.
 pub(in crate::ui) const TITLE: &str = "Add Account";
-
-/// The size the window opens at, in logical pixels.
-const SIZE: (u32, u32) = (500, 640);
 
 /// What the window opens with: the address of an account being signed in again, already typed.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -118,7 +116,9 @@ fn quire(ask: Ask) {
         wiring: window::Wiring::real(store),
         prefill: ask.address,
     };
-    let spec = WindowSpec::new(TITLE, ds_blitz::WindowSize::new(SIZE.0, SIZE.1));
+    // It opens at the size of the list, its first step, fitted to the screen (`size`).
+    let screen = try_consume_context::<ds_blitz::AppHandle>().and_then(|app| app.screen_extent());
+    let spec = WindowSpec::new(TITLE, size::opening(screen));
     match ds_blitz::open_window_with(spec, window::AddAccountWindow, props) {
         Ok(handle) => OPEN.with(|open| *open.borrow_mut() = Some(handle)),
         Err(why) => crate::ui::motion::tell(
@@ -134,3 +134,5 @@ mod host_tests;
 mod map_tests;
 #[cfg(test)]
 mod provider_tests;
+#[cfg(test)]
+mod size_tests;

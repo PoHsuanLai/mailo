@@ -28,12 +28,17 @@ use porter_core::AccountId;
 use super::host::{self, Ended, Shown};
 use super::map::{self, Action, Out, Sheet, Step};
 use super::provider::{Added, Seams};
+use super::size;
 use crate::ui::app::Frame;
 use crate::ui::space::{self, Spaces};
 use crate::ui::style::STYLE;
 
 /// Open an address in the system browser.
 pub type Browse = dyn Fn(&str) -> Result<(), String> + Send + Sync;
+
+/// Told each size the window asks for: the size of the step it now shows, capped to the screen
+/// (`size`). A test's seam; the window itself resizes through quire's `WindowSizer`.
+pub type Fit = dyn Fn(ds_blitz::Extent) + Send + Sync;
 
 /// What the window reaches the world with: the sign-in's seams, and the system's browser.
 /// Compared by identity, as every other window's props are.
@@ -43,6 +48,7 @@ pub struct Wiring(Arc<Reach>);
 struct Reach {
     seams: Seams,
     browse: Arc<Browse>,
+    fit: Arc<Fit>,
 }
 
 impl PartialEq for Wiring {
@@ -62,7 +68,18 @@ impl Wiring {
 
     /// `seams` and `browse`, which a test makes.
     pub fn new(seams: Seams, browse: Arc<Browse>) -> Wiring {
-        Wiring(Arc::new(Reach { seams, browse }))
+        // A test sees the sizes asked; the window resizes itself through quire's sizer.
+        let fit: Arc<Fit> = Arc::new(|_| {});
+        Wiring(Arc::new(Reach { seams, browse, fit }))
+    }
+
+    /// The same wiring, handing each size the window asks for to `fit`.
+    pub fn fitting(self, fit: Arc<Fit>) -> Wiring {
+        Wiring(Arc::new(Reach {
+            seams: self.0.seams.clone(),
+            browse: Arc::clone(&self.0.browse),
+            fit,
+        }))
     }
 }
 
@@ -192,6 +209,29 @@ fn AddAccountShell(wiring: Wiring, prefill: Option<String>) -> Element {
     });
 
     let step = map::step_of(&sheet.read());
+    // The window is as big as the step it shows, capped to the screen: asked again only when the
+    // size changes, and not at all once the person has resized the window themselves.
+    let screen = ds_blitz::use_app_handle().and_then(|app| app.screen_extent());
+    let wanted = size::fitted(size::extent(step.as_ref()), screen);
+    let fit = Arc::clone(&wiring.0.fit);
+    let sizer = ds_blitz::use_window_sizer();
+    let asked = use_hook(|| std::rc::Rc::new(std::cell::Cell::new(None::<ds_blitz::Extent>)));
+    use_effect(use_reactive!(|wanted| {
+        if asked.get() == Some(wanted) {
+            return;
+        }
+        let person = sizer
+            .as_ref()
+            .is_some_and(|sizer| sizer.origin() == Some(ds_blitz::SizeOrigin::Person));
+        if person {
+            return;
+        }
+        asked.set(Some(wanted));
+        fit(wanted);
+        if let Some(sizer) = &sizer {
+            sizer.request_size(wanted);
+        }
+    }));
     let slug = step.as_ref().map_or("none", Step::slug);
     rsx! {
         Frame { spaces, sheet: Some(ds_shell::stylesheet()),

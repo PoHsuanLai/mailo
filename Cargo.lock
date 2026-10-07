@@ -2461,7 +2461,7 @@ dependencies = [
 [[package]]
 name = "ds-shell"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.16#c0e079442de9b5cbdc814002c904e92b72e4080c"
+source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.19#eba96488c64bdb0d5a65f0f124719bea20a1604c"
 dependencies = [
  "dioxus",
  "ds",
@@ -6439,7 +6439,7 @@ dependencies = [
 [[package]]
 name = "porter-service"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=5fdeafa29ed17ddd6ef65ef7d0d1096557d57c94#5fdeafa29ed17ddd6ef65ef7d0d1096557d57c94"
+source = "git+https://github.com/PoHsuanLai/porter?rev=ba8657098927fb12e1a84bb17cee37aa5f916958#ba8657098927fb12e1a84bb17cee37aa5f916958"
 dependencies = [
  "porter-core",
  "porter-provider",

@@ -4912,11 +4912,10 @@ Linux-only dependency, and no `cfg(target_os)` in the new code).
      Yahoo, GMX, Email (IMAP) as "Other…"), then the form, the review, then added. The address-first
      sheet with "Look up" and a found-settings summary (the hosts and ports, and where they came
      from) is gone; the review lists what the account brings (Mail) with its switch.
-  2. Typing servers by hand is one host, IMAP and SMTP on 993 and 465 over implicit TLS, asked for
-     when the search finds none. POP3 and JMAP by hand, other ports, another login name and a JMAP
-     API token are `mailo account add` only; JMAP found by discovery is still added. When a
-     domain offers both IMAP and JMAP the IMAP offer is the one added (the old sheet offered both).
-     An interface ask for porter: richer form fields for a server (port, protocol, login).
+  2. ~~Typing servers by hand is one host, IMAP and SMTP on 993 and 465.~~ Closed by E5b below:
+     the form is porter's `manual_form` (protocol, server, security and port for each direction,
+     a login name, a JMAP session URL and token). When a domain offers both IMAP and JMAP the IMAP
+     offer is the one added (the old sheet offered both).
   3. What `add_with_password` printed ("Password saved for…", a provider's app-password warning)
      is no longer shown, and a refusal is one of porter's eight sentences (`SignInFault`), not the
      old sheet's words for each miss; a missing OAuth client id is "no client registered", with
@@ -4939,3 +4938,54 @@ Linux-only dependency, and no `cfg(target_os)` in the new code).
   "look only when asked", "add only when told to", a form checked field by field, a second press
   while working, dismissal at every step. mailo-only behaviour keeps a test here: the lookup's
   faults, JMAP beside IMAP, the typed server, `Space::widen`, the pre-signed credential.
+
+#### E5b: the hand-typed server form, and a window sized to its step
+
+porter at ba86570 and quire v0.2.19 (`FieldKind`'s seven new kinds, `FieldKind::choices()`, `ProblemKind::Invalid`,
+`sheet::{manual_form, refit, form_problem, parse_manual}`), quire at 85d03c20 (`FormField::new`
+with `.choosing`, `.hinted`, `.in_part`; `FormPart`; `Choice`; `ProblemKind::Invalid`).
+
+- **The form.** `map.rs` draws porter's form as three titled parts: Incoming (Protocol, Server,
+  Security, Port, Session URL), Outgoing (server, security, port), Sign in (login name, token). The
+  protocol and the two securities are quire pop-ups worded here (`IMAP`, `POP3`, `JMAP`, `SSL/TLS`,
+  `STARTTLS`; a pick arrives as exactly porter's slug), ports are optional entries hinted with the
+  usual number (quire words an optional login name's empty entry itself). The first form (address, password) is
+  still one group. `provider.rs` asks `manual_form(Imap, domain)` when the lookup finds nothing,
+  and `parse_manual` is what the answers mean: `Setup::Discovered` of `presets::manual` (IMAP) or
+  `manual_pop3` with each server's security put in the plan (`Tls::Implicit` or
+  `StartTlsRequired`; `plain` is porter's loopback-only case and is `Tls::Plaintext`), or
+  `Setup::Jmap` whose credential is the token as a bearer (`HttpAuth::Bearer`) when one was given,
+  else the password as Basic.
+- **A pick refits at once.** A pick of the protocol or a security runs `porter_core::sheet::refit`
+  on the draft (JMAP has no outgoing fields; a port follows protocol and security until one is
+  typed; a guessed host follows the protocol; the token is kept across a security pick), so the
+  list changes without a round trip. Continue sends nothing while `form_problem` is `Some`.
+- **The window's size.** `size.rs` computes a size per step from its content (rows of the list,
+  fields and parts of the form), measured from the pictures. The window applies it with quire's
+  `WindowSizer` (`use_window_sizer`, `request_size`), each size capped to 85% of the screen
+  (`AppHandle::screen_extent`, `Extent::fit`) and never below the smallest step, and stops asking
+  once `origin()` is `SizeOrigin::Person`. It opens at the list's size (`WindowSize::fitting`).
+  `Wiring::fitting` stays as the seam a test sees every size asked through. Sizes in logical px:
+  list 480x493, short form 480x201, IMAP/POP3 form 560x677, JMAP form 560x442, working/failed
+  480x135, browser 480x165, review 480x147.
+- **Continue.** A field that cannot be right (`form_problem` is `Invalid`) is passed to quire as the
+  form's problem as it is typed, which quire draws as Continue disabled and marks on the field; the
+  draft sends nothing meanwhile.
+- **Tests.** `map_tests`: the form's roles, parts, choices, hints; every `FieldKind` and `FieldRole` both
+  ways; choice slugs exactly; a refit on a protocol pick (IMAP to POP3 moves the ports and the guessed
+  host, to JMAP drops outgoing and gains session URL and token, back again; a typed port stays); Continue
+  blocked on an invalid port, a non-https session URL and a missing server; `provider_tests`: the
+  form is porter's, the add is handed an IMAP plan, a POP3 plan on STARTTLS with a login, a JMAP bearer
+  and a JMAP password; `host_tests`: a whole typed POP3 add over `AccountService` (faked seams; porter's
+  `FakePop3` is not a dev-dependency here), with a refused port first; `size_tests`: a size per step;
+  `native_add_account`: a whole typed POP3 add in the window (picking in the pop-up), JMAP's form,
+  a wrong port marked and nothing sent, the size asked per step, the markup lint on the server form.
+  Pictures: `MAILO_SHOTS=dir cargo test -p mail-app --test native_add_account -- --ignored
+  render_the_typed_forms_and_the_resized_steps`.
+- **What remains of F203.** Item 1 (the address-first sheet's found-settings summary), 3 (the old
+  sheet's printed warnings) and 4 (no switch on the review) are as E5 left them. No sign-in probe for
+  IMAP, POP3 or SMTP at add time (a wrong password or port is found by the first sync: porter has no
+  socket seam either). A POP3 server found by discovery (`Found.pop3`) is still not offered, only a typed
+  one. A person with only a JMAP token still types any text in the first form's required password
+  (porter's form asks the password first). A password-less provider whose address finds nothing asks
+  the first form again to get its password.

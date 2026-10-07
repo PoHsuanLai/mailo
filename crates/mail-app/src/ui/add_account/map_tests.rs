@@ -2,14 +2,14 @@
 
 use ds_shell::accounts::hidden::Hidden;
 use ds_shell::accounts::model::{
-    CopyState, FieldRole, FieldText, Limitation, ProviderPick, ServiceKey, ServiceOffer,
-    SignInFault as ShellFault,
+    CopyState, FieldRole, FieldText, FormPart, Limitation, ProblemKind as ShellProblemKind,
+    ProviderPick, Requirement, ServiceKey, ServiceOffer, SignInFault as ShellFault,
 };
 
 use porter_core::sheet::{
-    Entry, FieldKind, FieldProblem, FieldSpec, FieldValue, Presence, ProblemKind, ProviderRow,
-    Review, ReviewView, RowKind, ServiceChoice, ServiceRow, ServiceState, SheetInput, SheetView,
-    SignInFault, SignInView, UserCode,
+    Entry, FieldKind, FieldProblem, FieldSpec, FieldValue, Presence, ProblemKind, Protocol,
+    ProviderRow, Review, ReviewView, RowKind, ServiceChoice, ServiceRow, ServiceState, SheetInput,
+    SheetView, SignInFault, SignInView, UserCode, manual_form,
 };
 use porter_core::{
     AbsentReason, AccountLabel, CapabilityKind, EndpointUrl, LimitReason, ProviderId, SecretText,
@@ -17,8 +17,8 @@ use porter_core::{
 };
 
 use super::map::{
-    Action, Awaiting, ListKey, Out, Sheet, Step, acted, fault_of, kind_of, list_key, mark_of,
-    provider_label, role_of, service_key, shown, step_of, typed,
+    Action, Awaiting, ListKey, Out, Sheet, Step, acted, choice_label, fault_of, kind_of, list_key,
+    mark_of, provider_label, role_of, service_key, shown, step_of, typed,
 };
 
 fn id(text: &str) -> ProviderId {
@@ -426,6 +426,13 @@ fn the_parts_events_map_back_to_porters_values() {
         (FieldRole::Password, FieldKind::Password),
         (FieldRole::ApiKey, FieldKind::ApiKey),
         (FieldRole::Token, FieldKind::Token),
+        (FieldRole::Protocol, FieldKind::Protocol),
+        (FieldRole::Port, FieldKind::Port),
+        (FieldRole::Security, FieldKind::Security),
+        (FieldRole::OutgoingServer, FieldKind::OutgoingServer),
+        (FieldRole::OutgoingPort, FieldKind::OutgoingPort),
+        (FieldRole::OutgoingSecurity, FieldKind::OutgoingSecurity),
+        (FieldRole::SessionUrl, FieldKind::SessionUrl),
     ] {
         assert_eq!(role_of(kind), role);
         assert_eq!(kind_of(role), kind);
@@ -474,4 +481,322 @@ fn every_fault_has_its_sentence_and_every_provider_its_words() {
     ] {
         assert_eq!(provider_label(&id(provider)), label);
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// The server form typed by hand.
+
+/// The form porter asks when the lookup found no server: IMAP, guessed from `example.test`.
+fn servers() -> SheetView {
+    SheetView::SignIn(SignInView {
+        provider: id("generic-imap"),
+        fields: manual_form(Protocol::Imap, Some("example.test")),
+        problem: None,
+    })
+}
+
+fn props(sheet: &Sheet) -> super::map::SignInProps {
+    let Some(Step::SignIn(props)) = step_of(sheet) else {
+        panic!("not the form");
+    };
+    props
+}
+
+fn roles(sheet: &Sheet) -> Vec<FieldRole> {
+    props(sheet).fields.iter().map(|f| f.role).collect()
+}
+
+fn text_of(sheet: &Sheet, role: FieldRole) -> String {
+    match &props(sheet)
+        .fields
+        .iter()
+        .find(|f| f.role == role)
+        .unwrap_or_else(|| panic!("{role:?} is not asked"))
+        .text
+    {
+        FieldText::Plain(text) => text.clone(),
+        FieldText::Secret(_) => String::new(),
+    }
+}
+
+fn type_in(sheet: Sheet, role: FieldRole, text: &str) -> (Sheet, Option<SheetInput>) {
+    acted(sheet, typed(role, FieldText::Plain(text.to_owned())))
+}
+
+#[test]
+fn the_server_form_is_drawn_in_parts_with_its_choices_and_the_usual_ports_as_hints() {
+    // The first form is one group: no parts, no choices.
+    let first = props(&showing(form()));
+    assert!(
+        first
+            .fields
+            .iter()
+            .all(|f| f.part.is_none() && f.choices.is_none())
+    );
+    let form = props(&showing(servers()));
+    assert_eq!(
+        form.fields.iter().map(|f| f.role).collect::<Vec<_>>(),
+        [
+            FieldRole::Protocol,
+            FieldRole::Server,
+            FieldRole::Security,
+            FieldRole::Port,
+            FieldRole::OutgoingServer,
+            FieldRole::OutgoingSecurity,
+            FieldRole::OutgoingPort,
+            FieldRole::Username,
+        ]
+    );
+    let parts: Vec<_> = form.fields.iter().map(|f| f.part).collect();
+    let (incoming, outgoing, sign_in) = (
+        Some(FormPart::Incoming),
+        Some(FormPart::Outgoing),
+        Some(FormPart::SignIn),
+    );
+    assert_eq!(
+        parts,
+        [
+            incoming, incoming, incoming, incoming, outgoing, outgoing, outgoing, sign_in
+        ]
+    );
+    // Choices are the three fields porter says are choices, in mailo's words.
+    let choices = |role: FieldRole| -> Option<Vec<(String, String)>> {
+        form.fields
+            .iter()
+            .find(|f| f.role == role)?
+            .choices
+            .as_ref()
+            .map(|all| {
+                all.iter()
+                    .map(|c| (c.slug.clone(), c.label.clone()))
+                    .collect()
+            })
+    };
+    let pair = |slug: &str, label: &str| (slug.to_owned(), label.to_owned());
+    assert_eq!(
+        choices(FieldRole::Protocol),
+        Some(vec![
+            pair("imap", "IMAP"),
+            pair("pop3", "POP3"),
+            pair("jmap", "JMAP")
+        ])
+    );
+    for role in [FieldRole::Security, FieldRole::OutgoingSecurity] {
+        assert_eq!(
+            choices(role),
+            Some(vec![pair("tls", "SSL/TLS"), pair("starttls", "STARTTLS")])
+        );
+    }
+    for role in [FieldRole::Server, FieldRole::Port, FieldRole::Username] {
+        assert_eq!(choices(role), None, "{role:?} is typed");
+    }
+    // Ports are optional with the usual number as the hint; the rest follow porter's presence.
+    let field = |role: FieldRole| form.fields.iter().find(|f| f.role == role).unwrap();
+    for (role, hint) in [(FieldRole::Port, "993"), (FieldRole::OutgoingPort, "465")] {
+        assert_eq!(field(role).requirement, Requirement::Optional);
+        assert_eq!(field(role).hint.as_deref(), Some(hint));
+    }
+    assert_eq!(field(FieldRole::Server).requirement, Requirement::Required);
+    assert_eq!(
+        field(FieldRole::Server).text,
+        FieldText::Plain("imap.example.test".to_owned()),
+        "the guess is what porter prefilled"
+    );
+    assert_eq!(
+        field(FieldRole::Protocol).text,
+        FieldText::Plain("imap".to_owned())
+    );
+}
+
+#[test]
+fn a_choice_arrives_as_exactly_its_slug_and_goes_back_as_the_same_slug() {
+    for (kind, role) in [
+        (FieldKind::Protocol, FieldRole::Protocol),
+        (FieldKind::Security, FieldRole::Security),
+        (FieldKind::OutgoingSecurity, FieldRole::OutgoingSecurity),
+    ] {
+        let form = props(&showing(servers()));
+        let choices = form
+            .fields
+            .iter()
+            .find(|f| f.role == role)
+            .and_then(|f| f.choices.clone())
+            .unwrap();
+        // Each option is one of porter's slugs, all of them, in porter's order.
+        let slugs: Vec<&str> = choices.iter().map(|c| c.slug.as_str()).collect();
+        assert_eq!(slugs, kind.choices());
+        for choice in &choices {
+            assert_eq!(choice.label, choice_label(&choice.slug));
+            assert_eq!(
+                typed(role, FieldText::Plain(choice.slug.clone())),
+                Action::Type(kind, FieldValue::Plain(choice.slug.clone())),
+                "a pick is its slug"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_protocol_pick_refits_the_form_at_once_jmap_drops_outgoing_and_pop3_moves_the_ports() {
+    let sheet = showing(servers());
+    assert_eq!(text_of(&sheet, FieldRole::Port), "993");
+    assert_eq!(text_of(&sheet, FieldRole::OutgoingPort), "465");
+
+    // IMAP to POP3: the same fields, the ports follow, the guessed host follows.
+    let (pop3, input) = type_in(sheet.clone(), FieldRole::Protocol, "pop3");
+    assert_eq!(input, None, "a pick is not sent: the form changes here");
+    assert_eq!(roles(&pop3), roles(&sheet));
+    assert_eq!(text_of(&pop3, FieldRole::Port), "995");
+    assert_eq!(text_of(&pop3, FieldRole::OutgoingPort), "465");
+    assert_eq!(text_of(&pop3, FieldRole::Server), "pop.example.test");
+    let hint = |sheet: &Sheet, role: FieldRole| {
+        props(sheet)
+            .fields
+            .iter()
+            .find(|f| f.role == role)
+            .unwrap()
+            .hint
+            .clone()
+    };
+    assert_eq!(hint(&pop3, FieldRole::Port).as_deref(), Some("995"));
+
+    // The security is a pick too: STARTTLS moves the ports to theirs.
+    let (starttls, _) = type_in(pop3.clone(), FieldRole::Security, "starttls");
+    assert_eq!(text_of(&starttls, FieldRole::Port), "110");
+    assert_eq!(hint(&starttls, FieldRole::Port).as_deref(), Some("110"));
+    let (starttls, _) = type_in(starttls, FieldRole::OutgoingSecurity, "starttls");
+    assert_eq!(text_of(&starttls, FieldRole::OutgoingPort), "587");
+    assert_eq!(
+        hint(&starttls, FieldRole::OutgoingPort).as_deref(),
+        Some("587")
+    );
+
+    // To JMAP: no outgoing fields, no port; a session URL and a token instead.
+    let (jmap, _) = type_in(pop3.clone(), FieldRole::Protocol, "jmap");
+    assert_eq!(
+        roles(&jmap),
+        [
+            FieldRole::Protocol,
+            FieldRole::SessionUrl,
+            FieldRole::Token,
+            FieldRole::Username
+        ]
+    );
+    assert_eq!(
+        text_of(&jmap, FieldRole::SessionUrl),
+        "https://example.test/.well-known/jmap"
+    );
+    let token = props(&jmap)
+        .fields
+        .into_iter()
+        .find(|f| f.role == FieldRole::Token)
+        .unwrap();
+    assert!(matches!(token.text, FieldText::Secret(_)));
+    assert_eq!(token.requirement, Requirement::Optional);
+
+    // And back to IMAP: the outgoing fields return, the ports are the usual ones again.
+    let (imap, _) = type_in(jmap, FieldRole::Protocol, "imap");
+    assert_eq!(roles(&imap), roles(&sheet));
+    assert_eq!(text_of(&imap, FieldRole::Port), "993");
+    assert_eq!(text_of(&imap, FieldRole::Server), "imap.example.test");
+
+    // A port the person typed is theirs and stays through a pick.
+    let (typed_port, _) = type_in(sheet, FieldRole::Port, "1993");
+    let (picked, _) = type_in(typed_port, FieldRole::Protocol, "pop3");
+    assert_eq!(text_of(&picked, FieldRole::Port), "1993");
+    assert_eq!(text_of(&picked, FieldRole::OutgoingPort), "465");
+}
+
+#[test]
+fn a_form_with_a_wrong_port_is_marked_invalid_as_typed_and_is_not_sent() {
+    let sheet = showing(servers());
+    let (sheet, _) = type_in(sheet, FieldRole::Port, "993");
+    assert_eq!(props(&sheet).problem, None, "a good form has no mark");
+
+    // The mark is what quire draws Continue disabled for.
+    let (sheet, _) = type_in(sheet, FieldRole::Port, "99999");
+    let problem = props(&sheet).problem.expect("the port is marked");
+    assert_eq!(
+        (problem.role, problem.kind),
+        (FieldRole::Port, ShellProblemKind::Invalid)
+    );
+    let (sheet, input) = acted(sheet, Action::Submit);
+    assert_eq!(input, None, "nothing is sent while a field cannot be right");
+    assert_eq!(sheet.awaiting, Awaiting::Nothing);
+
+    // Mending it clears the mark and the form goes, with every field once.
+    let (sheet, _) = type_in(sheet, FieldRole::Port, "993");
+    assert_eq!(props(&sheet).problem, None);
+    let (sheet, input) = acted(sheet, Action::Submit);
+    let Some(SheetInput::Submit(answers)) = input else {
+        panic!("{input:?}");
+    };
+    assert_eq!(answers.len(), 8);
+    assert_eq!(sheet.awaiting, Awaiting::View);
+}
+
+#[test]
+fn a_session_url_that_is_not_https_and_a_missing_server_are_what_porter_says() {
+    let (sheet, _) = type_in(showing(servers()), FieldRole::Protocol, "jmap");
+    let (sheet, _) = type_in(
+        sheet,
+        FieldRole::SessionUrl,
+        "http://jmap.example.test/session",
+    );
+    let (sheet, input) = acted(sheet, Action::Submit);
+    assert_eq!(input, None);
+    let problem = props(&sheet).problem.unwrap();
+    assert_eq!(
+        (problem.role, problem.kind),
+        (FieldRole::SessionUrl, ShellProblemKind::Invalid)
+    );
+    let (sheet, _) = type_in(
+        sheet,
+        FieldRole::SessionUrl,
+        "https://jmap.example.test/session",
+    );
+    let (_, input) = acted(sheet, Action::Submit);
+    assert!(matches!(input, Some(SheetInput::Submit(_))), "{input:?}");
+
+    // A required field left empty is not sent either, and is not an `Invalid` mark.
+    let (sheet, _) = type_in(showing(servers()), FieldRole::Server, "");
+    let (sheet, input) = acted(sheet, Action::Submit);
+    assert_eq!(input, None);
+    assert_eq!(props(&sheet).problem, None);
+}
+
+#[test]
+fn what_the_service_says_is_wrong_with_the_form_is_marked_as_it_says() {
+    let sheet = showing(servers());
+    let SheetView::SignIn(view) = sheet.view.clone().unwrap() else {
+        unreachable!()
+    };
+    let said = SheetView::SignIn(SignInView {
+        problem: Some(FieldProblem {
+            field: FieldKind::OutgoingPort,
+            problem: ProblemKind::Invalid,
+        }),
+        ..view
+    });
+    let (sheet, _) = shown(sheet, said);
+    let problem = props(&sheet).problem.unwrap();
+    assert_eq!(
+        (problem.role, problem.kind),
+        (FieldRole::OutgoingPort, ShellProblemKind::Invalid)
+    );
+}
+
+#[test]
+fn a_form_picked_as_pop3_goes_with_every_field_once() {
+    let (sheet, _) = type_in(showing(servers()), FieldRole::Protocol, "pop3");
+    let (sheet, input) = acted(sheet, Action::Submit);
+    let Some(SheetInput::Submit(answers)) = input else {
+        panic!("{input:?} {:?}", props(&sheet).problem);
+    };
+    assert_eq!(answers.len(), 8);
+    assert_eq!(
+        answers[0].value,
+        FieldValue::Plain("pop3".to_owned()),
+        "the protocol goes as its slug"
+    );
 }
