@@ -16,6 +16,7 @@ use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::icon::render::Glyph;
+use ds::style::tokens::control_size::ControlSize;
 use mail_core::notify::Notifier;
 use mail_domain::{FollowUp, Op, ThreadId};
 use mail_store::SqliteStore;
@@ -220,6 +221,7 @@ pub(in crate::ui) fn FollowUpTool(
     rsx! {
         Button {
             bezel: Bezel::Toolbar,
+            size: ControlSize::Large,
             image: ImagePosition::Only,
             icon: Icon::Bell,
             label: "Remind me if no reply".to_owned(),

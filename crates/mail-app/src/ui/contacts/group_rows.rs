@@ -10,7 +10,7 @@ use std::sync::Arc;
 use dioxus::prelude::*;
 use mail_store::{Edit, Group, GroupHome, GroupId, SqliteStore};
 
-use super::super::common::classed;
+use super::super::common::{classed, tile};
 use super::super::press::on_primary;
 use super::group_edit::{AddRow, MemberRow, RenameRow};
 use super::groups;
@@ -20,7 +20,7 @@ use ds::components::lists::list::model::{ListItem, ListStyle};
 use ds::components::lists::row::size::RowSize;
 use ds::prelude::*;
 use ds::root::common::Common;
-use ds::style::tokens::control_size::ControlSize;
+use ds::style::icon::family::PlateFamily;
 
 /// The group open for editing, and what is typed in its two fields.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -99,9 +99,8 @@ pub(super) fn GroupRows(
         rsx! { NewGroupRow { making, changed, said } },
     ));
     rsx! {
-        section { class: "book-part",
-            SectionHeader { title: "Groups" }
-            List::<String> { label: "Groups".to_owned(), items, style: ListStyle::Inset }
+        FormSection { title: Some("Groups".to_owned()),
+            List::<String> { label: "Groups".to_owned(), items, style: ListStyle::Grouped }
         }
     }
 }
@@ -129,12 +128,11 @@ fn NewGroupRow(
     let Some(typed) = making() else {
         return rsx! {
             Row {
-                leading: RowLeading::Icon(Icon::Plus),
+                leading: tile(Icon::Plus, PlateFamily::Green),
                 title: "New group",
                 size: RowSize::Settings,
                 accessory: Accessory::Slot(rsx! {
                     Button {
-                        size: ControlSize::Small,
                         label: "New Group…".to_owned(),
                         common: Common { aria_label: Some("New group".to_owned()), ..Common::default() },
                         onclick: on_primary(move || making.set(Some(String::new()))),
@@ -145,7 +143,7 @@ fn NewGroupRow(
     };
     rsx! {
         Row {
-            leading: RowLeading::Icon(Icon::Plus),
+            leading: tile(Icon::Plus, PlateFamily::Green),
             title: "New group",
             size: RowSize::Settings,
             content: rsx! {
@@ -174,13 +172,11 @@ fn NewGroupRow(
             },
             accessory: Accessory::Slot(rsx! {
                 Button {
-                    size: ControlSize::Small,
                     label: "Cancel".to_owned(),
                     common: Common { aria_label: Some("Cancel the new group".to_owned()), ..Common::default() },
                     onclick: on_primary(move || making.set(None)),
                 }
                 Button {
-                    size: ControlSize::Small,
                     answers: Answers::Return,
                     label: "Make".to_owned(),
                     common: Common { aria_label: Some("Make the group".to_owned()), ..Common::default() },
@@ -225,13 +221,12 @@ fn GroupRow(
     let gone = id.clone();
     rsx! {
         Row {
-            leading: RowLeading::Icon(Icon::Group),
+            leading: tile(Icon::Group, PlateFamily::Violet),
             title: group.name.clone(),
             detail: Some(TextLine::from(format!("{count} · {}", standing(&group)))),
             size: RowSize::Settings,
             accessory: Accessory::Slot(rsx! {
                 Button {
-                    size: ControlSize::Small,
                     label: if editing { "Done".to_owned() } else { "Edit".to_owned() },
                     common: Common {
                         aria_label: Some(format!("Edit the group {name}")),
@@ -248,7 +243,6 @@ fn GroupRow(
                 }
                 if local {
                     Button {
-                        size: ControlSize::Small,
                         role: ButtonRole::Destructive,
                         label: "Delete".to_owned(),
                         common: Common {

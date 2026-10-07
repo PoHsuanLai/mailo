@@ -18,12 +18,14 @@ use super::view_groups::group_list;
 use crate::ui::fetching::{CANNOT_LOAD, Fetching, HasRows, ListFace, list_face, sync_availability};
 use crate::ui::view::{Nothing, Shell};
 use dioxus::prelude::*;
+use ds::components::app::thread_height::{ThreadLines, thread_card_gap, thread_card_height};
 use ds::components::chrome::toolbar::view::Toolbar;
 use ds::components::content::label::{Label, LabelRole, LabelStyle};
 use ds::components::controls::button_model::{Bezel, BusyLook, ImagePosition};
 use ds::components::lists::virtual_list::{RowHeight, VirtualList};
 use ds::components::overlays::empty_state::EmptyForm;
 use ds::prelude::*;
+use ds::style::tokens::control_size::ControlSize;
 use mail_core::fetch::Link;
 use mail_core::provider::provider;
 use mail_domain::*;
@@ -38,20 +40,18 @@ mod status;
 use self::first_sync::FirstSyncRows;
 use self::status::ListStatus;
 
-/// How far apart the list's rows are, their gap included: quire's card-density `ThreadRow` (three
-/// lines, 58.5 px on quire v0.2.15's type scale, and 10 px of padding above and below) and the
-/// 7 px of inset and gap around it. `native_layout`'s `a_row_s_lines_fit_inside_its_slot` fails
-/// when quire's type grows past it.
-const ROW_PITCH: f32 = 86.0;
-
 /// A `SectionHeader`'s height: its eyebrow line and its padding (27.05 px drawn).
 const HEADING_PITCH: f32 = 27.0;
 
 /// How tall `slot`'s item is. Each is held to its height (`style/list.css`), so a font that sets a
-/// line a fraction taller cannot push the rows off the offsets the window is computed from.
-fn pitch(slot: &Slot) -> f32 {
+/// line a fraction taller cannot push the rows off the offsets the window is computed from. A
+/// row's is quire's card `ThreadRow` with `lines` of text and the gap under it, both computed
+/// from quire's own tokens, so a change to its type scale moves the pitch with it.
+fn pitch(slot: &Slot, lines: ThreadLines) -> f32 {
     match slot {
-        Slot::Draft(_) | Slot::Top(_) | Slot::Thread(_) | Slot::Server(_) => ROW_PITCH,
+        Slot::Draft(_) | Slot::Top(_) | Slot::Thread(_) | Slot::Server(_) => {
+            thread_card_height(lines).0 + thread_card_gap().0
+        }
         Slot::Band(_) | Slot::TopHeading | Slot::NewestHeading | Slot::ServerHeading => {
             HEADING_PITCH
         }
@@ -325,7 +325,13 @@ pub(super) fn ThreadList(
         .map(|item| (item.key, item.content))
         .collect();
     let row = Callback::new(move |slot: Slot| drawn.get(&slot).cloned().unwrap_or_else(|| rsx! {}));
-    let height = RowHeight::PerKey(Callback::new(|slot: Slot| Px(pitch(&slot))));
+    // A row draws its snippet as a third line only while the list's parts show snippets.
+    let lines = if shell.read().parts.snippet.shown() {
+        ThreadLines::Three
+    } else {
+        ThreadLines::Two
+    };
+    let height = RowHeight::PerKey(Callback::new(move |slot: Slot| Px(pitch(&slot, lines))));
     let nothing_here = threads().is_empty() && drafts().is_empty() && found().is_empty();
     let has_rows = if nothing_here {
         HasRows::No
@@ -382,6 +388,7 @@ pub(super) fn ThreadList(
                         if side_hidden() {
                             Button {
                                 bezel: Bezel::Toolbar,
+                                size: ControlSize::Large,
                                 image: ImagePosition::Only,
                                 label: "Show sidebar",
                                 icon: Some(IconSource::Glyph(Icon::PanelLeft)),
@@ -420,6 +427,7 @@ pub(super) fn ThreadList(
                                 if !shell.read().search.trim().is_empty() {
                                     Button {
                                         bezel: Bezel::Toolbar,
+                                        size: ControlSize::Large,
                                         image: ImagePosition::Only,
                                         label: "Save as view",
                                         icon: Some(IconSource::Glyph(Icon::Plus)),
@@ -432,6 +440,7 @@ pub(super) fn ThreadList(
                                 } else if let Some(view) = shell.read().saved_view().cloned() {
                                     Button {
                                         bezel: Bezel::Toolbar,
+                                        size: ControlSize::Large,
                                         image: ImagePosition::Only,
                                         label: "Edit view",
                                         icon: Some(IconSource::Glyph(Icon::Settings)),
@@ -442,6 +451,7 @@ pub(super) fn ThreadList(
                                 if !quiet {
                                     Button {
                                         bezel: Bezel::Toolbar,
+                                        size: ControlSize::Large,
                                         image: ImagePosition::Only,
                                         label: "Sync now",
                                         icon: Some(IconSource::Glyph(Icon::Refresh)),
@@ -453,6 +463,7 @@ pub(super) fn ThreadList(
                                 }
                                 Button {
                                     bezel: Bezel::Toolbar,
+                                    size: ControlSize::Large,
                                     image: ImagePosition::Only,
                                     label: "Compose",
                                     icon: Some(IconSource::Glyph(Icon::Pen)),
@@ -474,8 +485,10 @@ pub(super) fn ThreadList(
                     }
                 },
             }
+            // Mail's search field is one of its unified toolbar's controls, at their size.
             TextField {
                 kind: FieldKind::Search,
+                size: ControlSize::Large,
                 label: "Search all mail".to_owned(),
                 placeholder: "Search all mail".to_owned(),
                 value: shell.read().search.clone(),

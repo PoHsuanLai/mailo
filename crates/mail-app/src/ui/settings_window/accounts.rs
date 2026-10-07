@@ -1,19 +1,24 @@
-//! Accounts: each account on this computer, with the sheet that shows its servers and removes it;
-//! which accounts keep all their mail here; and Add Account….
+//! Accounts: each account on this computer, a row that opens the sheet showing its servers and
+//! removing it; which accounts keep all their mail here; and Add Account….
 //!
 //! Which Space shows which account is the Space's menu's; this page is every account at once.
 
 use super::offline::OfflineCopy;
+use crate::ui::common::{person_tile, tile};
 use crate::ui::data::account_rows;
-use crate::ui::press::on_primary;
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
-use ds::components::fields::field_row::{FieldGroup, FieldRow};
+use ds::components::lists::list::model::ListStyle;
+use ds::components::lists::row::size::RowSize;
 use ds::prelude::*;
 use ds::root::common::Common;
+use ds::style::icon::family::PlateFamily;
 use mail_domain::Incoming;
 use mail_store::SqliteStore;
 use std::sync::Arc;
+
+/// The key of the Add Account… row, which no account id can be.
+const ADD: &str = " add";
 
 #[component]
 pub(super) fn Accounts(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
@@ -22,41 +27,67 @@ pub(super) fn Accounts(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
     let rows = try_consume_context::<Arc<SqliteStore>>()
         .map(|store| account_rows(&store))
         .unwrap_or_default();
+    let mut items: Vec<ListItem<String>> = Vec::new();
+    if rows.is_empty() {
+        items.push(ListItem::row(
+            " none".to_owned(),
+            "No accounts yet".to_owned(),
+            rsx! { Row { title: "No accounts yet", size: RowSize::Settings } },
+        ));
+    }
+    for row in rows {
+        let shown = row.shown();
+        let key = row.id.to_string();
+        // Mail kept only here has no servers to show, so its row opens nothing.
+        let opens = !row.is_local();
+        let id = row.id.clone();
+        items.push(ListItem::row(
+            key,
+            shown.clone(),
+            rsx! {
+                Row {
+                    leading: person_tile(&shown, &row.address),
+                    title: shown.clone(),
+                    detail: Some(TextLine::from(kind_of(&row.plan.incoming))),
+                    size: RowSize::Settings,
+                    accessory: if opens { Accessory::Chevron } else { Accessory::None },
+                    onclick: opens.then(|| EventHandler::new(move |_| {
+                        crate::ui::account_settings::open(shell, id.clone())
+                    })),
+                    common: Common {
+                        aria_label: opens.then(|| format!("Details for {shown}")),
+                        ..Common::default()
+                    },
+                }
+            },
+        ));
+    }
+    items.push(ListItem::row(
+        ADD.to_owned(),
+        "Add Account\u{2026}".to_owned(),
+        rsx! {
+            Row {
+                leading: tile(Icon::Plus, PlateFamily::Blue),
+                title: "Add Account\u{2026}",
+                size: RowSize::Settings,
+                accessory: Accessory::Chevron,
+                onclick: move |_| crate::ui::add_account::open(),
+                common: Common {
+                    aria_label: Some("Add Account\u{2026}".to_owned()),
+                    ..Common::default()
+                },
+            }
+        },
+    ));
     rsx! {
-        FieldGroup { title: "Accounts",
-            if rows.is_empty() {
-                FieldRow { label: "No accounts yet" }
+        Form {
+            FormSection {
+                title: Some("Accounts".to_owned()),
+                footer: Some("Which accounts a Space shows is chosen from the Space's menu.".to_owned()),
+                List::<String> { label: "Accounts", items, style: ListStyle::Grouped }
             }
-            for row in rows {
-                FieldRow {
-                    key: "{row.id}",
-                    label: row.shown(),
-                    help: Some(TextLine::from(kind_of(&row.plan.incoming))),
-                    if !row.is_local() {
-                        Button {
-                            label: "Details\u{2026}",
-                            common: Common {
-                                aria_label: Some(format!("Details for {}", row.shown())),
-                                ..Common::default()
-                            },
-                            onclick: {
-                                let id = row.id.clone();
-                                on_primary(move || {
-                                    crate::ui::account_settings::open(shell, id.clone())
-                                })
-                            },
-                        }
-                    }
-                }
-            }
-            FieldRow { label: "New account",
-                Button {
-                    label: "Add Account\u{2026}",
-                    onclick: on_primary(crate::ui::add_account::open),
-                }
-            }
+            OfflineCopy {}
         }
-        OfflineCopy {}
     }
 }
 

@@ -9,13 +9,14 @@ use ds::components::overlays::alert_model::{AlertButton, AlertRole, AlertStyle};
 use ds::components::overlays::sheet_width::SheetWidth;
 use ds::prelude::*;
 use ds::root::common::Common;
+use ds::style::icon::family::PlateFamily;
 use std::path::PathBuf;
 
 use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
 use mail_domain::{CertFingerprint, Fingerprint, KeySource, KeyTrust, PgpKey, SecretHeld};
 
-use super::super::common::in_card;
+use super::super::common::{in_card, tile};
 use super::super::press::{available, on_primary};
 use super::super::sidebar::tagged;
 use super::certs::CertJob;
@@ -166,7 +167,11 @@ pub(in crate::ui) fn KeyRow(
     ]);
     rsx! {
         Row {
-            leading: RowLeading::Icon(if mine { Icon::Key } else { Icon::Mail }),
+            leading: if mine {
+                tile(Icon::Key, PlateFamily::Amber)
+            } else {
+                tile(Icon::Mail, PlateFamily::Blue)
+            },
             title,
             detail: Some(TextLine::from(meta)),
             size: RowSize::Settings,

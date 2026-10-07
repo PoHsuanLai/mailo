@@ -6,7 +6,7 @@ use std::sync::Arc;
 use dioxus::prelude::*;
 use mail_store::{GroupId, SqliteStore};
 
-use super::super::common::classed;
+use super::super::common::{classed, tile};
 use super::super::press::on_primary;
 use super::group_rows::Open;
 use super::groups;
@@ -14,7 +14,7 @@ use ds::components::controls::button_model::Answers;
 use ds::components::lists::row::size::RowSize;
 use ds::prelude::*;
 use ds::root::common::Common;
-use ds::style::tokens::control_size::ControlSize;
+use ds::style::icon::family::PlateFamily;
 
 /// The open group's name, in a field, with Rename.
 #[component]
@@ -40,7 +40,7 @@ pub(super) fn RenameRow(
     let mut rename_on_enter = rename.clone();
     rsx! {
         Row {
-            leading: RowLeading::Icon(Icon::Pen),
+            leading: tile(Icon::Pen, PlateFamily::Amber),
             title: "Name",
             size: RowSize::Settings,
             content: rsx! {
@@ -67,7 +67,6 @@ pub(super) fn RenameRow(
             },
             accessory: Accessory::Slot(rsx! {
                 Button {
-                    size: ControlSize::Small,
                     label: "Rename".to_owned(),
                     common: Common {
                         aria_label: Some("Rename the group".to_owned()),
@@ -91,12 +90,11 @@ pub(super) fn MemberRow(
 ) -> Element {
     rsx! {
         Row {
-            leading: RowLeading::Icon(Icon::Mail),
+            leading: tile(Icon::Mail, PlateFamily::Blue),
             title: label.clone(),
             size: RowSize::Settings,
             accessory: Accessory::Slot(rsx! {
                 Button {
-                    size: ControlSize::Small,
                     label: "Remove".to_owned(),
                     common: Common {
                         aria_label: Some(format!("Remove {label}")),
@@ -144,7 +142,7 @@ pub(super) fn AddRow(
     let mut add_on_enter = add.clone();
     rsx! {
         Row {
-            leading: RowLeading::Icon(Icon::Plus),
+            leading: tile(Icon::Plus, PlateFamily::Green),
             title: "Add an address",
             size: RowSize::Settings,
             content: rsx! {
@@ -171,7 +169,6 @@ pub(super) fn AddRow(
             },
             accessory: Accessory::Slot(rsx! {
                 Button {
-                    size: ControlSize::Small,
                     answers: Answers::Return,
                     label: "Add".to_owned(),
                     common: Common {

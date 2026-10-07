@@ -1,6 +1,6 @@
 //! A conversation row's menu, driven the way a person does: a right click on the row, then the
-//! item that says what to do. A row has no action buttons of its own; its hover strip is the ⋯
-//! alone, and every action is in this menu.
+//! item that says what to do. A row has no action buttons of its own; its one button is the ⋯,
+//! and every action is in this menu.
 //!
 //! Included by the integration tests through `#[path]`, beside `settle.rs` and `drive.rs`.
 

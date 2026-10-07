@@ -80,6 +80,7 @@ fn peek_tool(peek: Peek, current: Peek, icon: Icon, mut shell: Signal<Shell>) ->
     rsx! {
         Button {
             bezel: Bezel::Toolbar,
+            size: ControlSize::Large,
             image: ImagePosition::Only,
             label: label.to_owned(),
             icon: Some(IconSource::Glyph(icon)),
@@ -99,6 +100,7 @@ fn mute_tool(thread: ThreadId, mute: Mute, shell: Signal<Shell>, revision: Signa
     rsx! {
         Button {
             bezel: Bezel::Toolbar,
+            size: ControlSize::Large,
             image: ImagePosition::Only,
             icon: Some(IconSource::Glyph(Icon::BellOff)),
             label: label.to_owned(),
@@ -139,6 +141,7 @@ fn ReaderMenu(thread: ThreadId) -> Element {
     rsx! {
         Button {
             bezel: Bezel::Toolbar,
+            size: ControlSize::Large,
             image: ImagePosition::Only,
             icon: Some(IconSource::Glyph(Icon::Ellipsis)),
             label: "More".to_owned(),
@@ -622,7 +625,6 @@ pub(super) fn Reader(
                         text: "Remote images blocked",
                         actions: rsx! {
                             Button {
-                                size: ControlSize::Small,
                                 label: show_images(),
                                 common: Common { aria_label: Some(show_images().to_owned()), ..Common::default() },
                                 onclick: on_primary(move || {
@@ -632,7 +634,6 @@ pub(super) fn Reader(
                             }
                             if let Some(email) = offer {
                                 Button {
-                                    size: ControlSize::Small,
                                     label: always_load_from(&email),
                                     common: Common { aria_label: Some(always_load_from(&email)), ..Common::default() },
                                     onclick: on_primary(move || {

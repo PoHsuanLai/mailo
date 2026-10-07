@@ -9,7 +9,6 @@ use ds::components::controls::button_model::Answers;
 use ds::components::overlays::inline_banner::InlineBanner;
 use ds::prelude::*;
 use ds::root::common::Common;
-use ds::style::tokens::control_size::ControlSize;
 use mail_core::receipt::ReceiptState;
 use mail_domain::{MessageId, ReceiptAnswer};
 use mail_store::SqliteStore;
@@ -92,14 +91,12 @@ pub(in crate::ui) fn Bar(
                     common: Common { aria_label: Some("Read receipt".to_owned()), ..Common::default() },
                     actions: rsx! {
                         Button {
-                            size: ControlSize::Small,
                             label: decline.to_string(),
                             availability: available(!working),
                             onclick: on_primary(move || give(message, ReceiptAnswer::Declined, phase, known)),
                             common: Common { aria_label: Some(decline.to_string()), ..Common::default() },
                         }
                         Button {
-                            size: ControlSize::Small,
                             answers: Answers::Return,
                             label: if working { "Working…".to_owned() } else { send.to_string() },
                             availability: available(!working),

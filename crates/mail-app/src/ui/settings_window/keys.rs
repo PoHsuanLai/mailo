@@ -6,9 +6,11 @@
 
 use dioxus::prelude::*;
 use ds::components::controls::segmented::Tracking;
-use ds::components::fields::field_row::{FieldGroup, FieldRow};
+use ds::components::fields::field_row::FieldRow;
+use ds::components::menus::item::item::MenuItem;
+use ds::components::menus::pop_up_button::PopUpButton;
 use ds::prelude::*;
-use ds::style::tokens::control_size::ControlSize;
+use ds::root::common::Common;
 use ds_settings::schema::{KeyKind, KeySpec, Schema};
 
 /// Words that are the off side of a pair (detent's `TogglePair` rule, design/22 section 9.1).
@@ -53,7 +55,11 @@ impl Pair {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Control {
     Switch(Pair),
+    /// Two short choices, side by side.
     Segments(Vec<String>),
+    /// Three or more choices, or a menu: a pop-up button showing the chosen one, as the Mac
+    /// draws any choice whose segments would squeeze the row's label.
+    PopUp(Vec<String>),
     /// A kind this sheet does not draw yet: the value, read-only.
     Shown,
 }
@@ -63,10 +69,9 @@ pub(super) fn control_of(kind: &KeyKind) -> Control {
     match kind {
         KeyKind::Toggle { variants } => Pair::of(variants)
             .map(Control::Switch)
-            .unwrap_or_else(|| Control::Segments(variants.to_vec())),
-        KeyKind::Segmented { variants } | KeyKind::Menu { variants } => {
-            Control::Segments(variants.clone())
-        }
+            .unwrap_or_else(|| choice(variants.to_vec())),
+        KeyKind::Segmented { variants } => choice(variants.clone()),
+        KeyKind::Menu { variants } => Control::PopUp(variants.clone()),
         KeyKind::Fixed { .. }
         | KeyKind::Bounded { .. }
         | KeyKind::Text
@@ -75,6 +80,14 @@ pub(super) fn control_of(kind: &KeyKind) -> Control {
         | KeyKind::List(_)
         | KeyKind::Rows { .. }
         | KeyKind::Live { .. } => Control::Shown,
+    }
+}
+
+/// The control for a choice between `words`: segments for two, a pop-up for more.
+fn choice(words: Vec<String>) -> Control {
+    match words.len() {
+        0..=2 => Control::Segments(words),
+        _ => Control::PopUp(words),
     }
 }
 
@@ -138,19 +151,23 @@ pub(super) fn sections(schema: &Schema) -> Vec<(String, Vec<KeySpec>)> {
     out
 }
 
-/// One section: its title over a row per key.
+/// One section: its title over a row per key, and the note that explains the whole group, if the
+/// caller has one, under it.
 #[component]
 pub(super) fn SchemaSection(
     title: String,
     keys: Vec<KeySpec>,
     values: toml::Value,
     onedit: EventHandler<(String, toml::Value)>,
-    /// What the caller adds under the rows: a note, a button that belongs to the section.
+    /// What the caller adds under the rows: a row that belongs to the section.
     #[props(default)]
     children: Element,
+    /// A note about the group as a whole, drawn under it in the help type.
+    #[props(default)]
+    footer: Option<String>,
 ) -> Element {
     rsx! {
-        FieldGroup { title: (!title.is_empty()).then(|| title.clone()),
+        FormSection { title: (!title.is_empty()).then(|| title.clone()), footer,
             for key in keys {
                 KeyRow { key: "{key.path.0}", value: value_of(&values, &key), spec: key.clone(), onedit }
             }
@@ -198,8 +215,21 @@ fn KeyRow(
                     label: label.clone(),
                     choices,
                     tracking: Tracking::SelectOne(current.clone()),
-                    size: ControlSize::Small,
                     onchange: move |word: String| onedit.call((path.clone(), toml::Value::String(word))),
+                }
+            }
+        }
+        Control::PopUp(words) => {
+            let items = words
+                .iter()
+                .map(|word| MenuItem::new(word.clone(), word_label(&spec, word)))
+                .collect::<Vec<_>>();
+            rsx! {
+                PopUpButton::<String> {
+                    items,
+                    value: Some(current.clone()),
+                    common: Common { aria_label: Some(label.clone()), ..Common::default() },
+                    onpick: move |word: String| onedit.call((path.clone(), toml::Value::String(word))),
                 }
             }
         }

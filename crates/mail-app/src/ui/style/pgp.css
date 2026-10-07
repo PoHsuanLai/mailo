@@ -12,7 +12,6 @@
 .unlock-field { flex: 1; min-width: 0; }
 
 
-/* The Keys and certificates page of Settings: OpenPGP and S/MIME are each a titled list of
-   quire's rows; the identity file's password is asked in a sheet. */
-.keys-part { display: flex; flex-direction: column; min-width: 0; }
+/* The Keys and certificates page of Settings: OpenPGP and S/MIME are each a section of quire's
+   grouped rows; the identity file's password is asked in a sheet. */
 .keys-ask { display: grid; gap: var(--s-10); }

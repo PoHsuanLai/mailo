@@ -17,7 +17,6 @@ use ds::components::overlays::inline_banner::InlineBanner;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::root::pass_through::ExtraClass;
-use ds::style::tokens::control_size::ControlSize;
 use mail_domain::{Attendance, BlobId, MessageId};
 use mail_store::SqliteStore;
 use std::sync::Arc;
@@ -123,7 +122,6 @@ pub(in crate::ui) fn InviteCard(card: Card, known: Signal<Option<Option<Card>>>)
                     span { class: card.tag.class(), Chip { variant: card.tag.chip(), text: card.tag.word().to_owned() } }
                     h3 { class: "inv-title", Label { text: card.title.clone(), style: LabelStyle::Title } }
                     Button {
-        size: ControlSize::Small,
         label: save,
         availability: available(!working),
         onclick: on_primary(move || save_file(message, title.clone(), phase)),
@@ -187,7 +185,6 @@ pub(in crate::ui) fn InviteCard(card: Card, known: Signal<Option<Option<Card>>>)
                             detail: note.as_ref().map(|note| TextLine::from(format!("\u{201c}{note}\u{201d}"))),
                             actions: rsx! {
                                 Button {
-                                    size: ControlSize::Small,
                                     label: change,
                                     onclick: on_primary(move || phase.set(Phase::Changing)),
                                     common: Common { aria_label: Some(change.to_owned()), ..Common::default() },
@@ -289,7 +286,6 @@ fn Noting(
                     common: Common { extra_class: ExtraClass::parse("inv-note-field").ok(), ..Common::default() },
                 }
                 Button {
-        size: ControlSize::Small,
         label: "Cancel".to_owned(),
     common: Common { aria_label: Some("Cancel answer".to_owned()), ..Common::default() },
         onclick: on_primary(move || phase.set(Phase::Resting)),

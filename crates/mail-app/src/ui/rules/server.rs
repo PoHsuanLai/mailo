@@ -7,7 +7,7 @@
 
 use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
-use ds::components::fields::field_row::{FieldGroup, FieldRow};
+use ds::components::fields::field_row::FieldRow;
 use ds::prelude::*;
 use ds::root::common::Common;
 use mail_domain::AccountPlan;
@@ -15,7 +15,6 @@ use mail_runtime::sieve::Pushed;
 use mail_store::SqliteStore;
 use std::sync::Arc;
 
-use super::super::common::Told;
 use super::super::data::AccountRow;
 use super::super::press::{available, on_primary};
 use mail_core::sync::Configured;
@@ -93,23 +92,26 @@ pub(in crate::ui) fn put(
     Ok(mail_core::rules::server::said(&account.address, &pushed))
 }
 
-/// Where a push stands.
+/// Where a push stands. One that failed is ready again, its reason the page's to say.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Pushing {
     Ready,
     Running,
     Said(String),
-    Failed(String),
 }
 
 /// The server's group of the page: Put on Server and what the last push said, or the reason
-/// there is no server to put rules on.
+/// there is no server to put rules on. A push that failed is said at the head of the page, the
+/// page's `said`.
 #[component]
-pub(super) fn ServerPart(row: AccountRow) -> Element {
+pub(super) fn ServerPart(
+    row: AccountRow,
+    mut said: Signal<Option<Result<String, String>>>,
+) -> Element {
     let mut pushing = use_signal(|| Pushing::Ready);
     if let Err(why) = reach(&row.plan) {
         return rsx! {
-            FieldGroup { title: "On the server",
+            FormSection { title: Some("On the server".to_owned()),
                 FieldRow {
                     label: "No copy on a server",
                     help: Some(TextLine::from(format!("{why}."))),
@@ -126,6 +128,7 @@ pub(super) fn ServerPart(row: AccountRow) -> Element {
                 return;
             }
             pushing.set(Pushing::Running);
+            said.set(None);
             let store = consume_context::<Arc<SqliteStore>>();
             let push = try_consume_context::<Pusher>()
                 .unwrap_or_else(Pusher::server)
@@ -134,13 +137,16 @@ pub(super) fn ServerPart(row: AccountRow) -> Element {
             spawn(async move {
                 let done =
                     tokio::task::spawn_blocking(move || put(&store, &row, &push, Utc::now())).await;
-                pushing.set(match done {
-                    Ok(Ok(said)) => Pushing::Said(said),
-                    Ok(Err(why)) => Pushing::Failed(why),
-                    Err(error) => {
-                        Pushing::Failed(format!("It stopped before it finished: {error}"))
+                let failed = match done {
+                    Ok(Ok(words)) => {
+                        pushing.set(Pushing::Said(words));
+                        return;
                     }
-                });
+                    Ok(Err(why)) => why,
+                    Err(error) => format!("It stopped before it finished: {error}"),
+                };
+                pushing.set(Pushing::Ready);
+                said.set(Some(Err(failed)));
             });
         }
     };
@@ -149,7 +155,7 @@ pub(super) fn ServerPart(row: AccountRow) -> Element {
         _ => "Runs your rules and vacation reply on the server while this computer is off.",
     };
     rsx! {
-        FieldGroup { title: "On the server",
+        FormSection { title: Some("On the server".to_owned()),
             FieldRow {
                 label: "Put on server",
                 help: Some(TextLine::from(help)),
@@ -173,9 +179,6 @@ pub(super) fn ServerPart(row: AccountRow) -> Element {
                     }
                 }
             }
-        }
-        if let Pushing::Failed(why) = pushing() {
-            Told { said: Some(Err(why)) }
         }
     }
 }

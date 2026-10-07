@@ -29,7 +29,6 @@ use ds::prelude::*;
 use ds::root::common::Common;
 use ds::root::pass_through::{DataAttr, DataName, ExtraClass};
 use ds::style::space::frame_vars::FrameVars;
-use ds::style::tokens::control_size::ControlSize;
 
 /// A `data-<name>` of mailo's own on a quire component: where a hover card or a test finds the
 /// thing the element stands for.
@@ -173,7 +172,6 @@ pub(super) fn Places(
                 Button {
                     bezel: ds::components::controls::button_model::Bezel::Toolbar,
                     image: ImagePosition::Only,
-                    size: ControlSize::Small,
                     icon: Icon::Plus,
                     label: "New Space",
                     title: "New Space".to_owned(),
@@ -190,7 +188,6 @@ pub(super) fn Places(
                 Button {
                     bezel: ds::components::controls::button_model::Bezel::Toolbar,
                     image: ImagePosition::Only,
-                    size: ControlSize::Small,
                     icon: Icon::Settings,
                     label: "Settings",
                     title: "Settings (\u{2318},)".to_owned(),
@@ -199,7 +196,6 @@ pub(super) fn Places(
                 Button {
                     bezel: ds::components::controls::button_model::Bezel::Toolbar,
                     image: ImagePosition::Only,
-                    size: ControlSize::Small,
                     icon: Icon::PanelLeft,
                     label: if side_hidden() { "Show sidebar" } else { "Hide sidebar" },
                     title: if side_hidden() {
