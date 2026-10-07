@@ -52,6 +52,7 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
     let loaded = try_consume_context::<mail_core::provider::icon::Loaded>().unwrap_or_default();
     let icons = use_signal(|| loaded);
     use_context_provider(|| icons);
+    crate::ui::provider_chip::use_fetch_missing(icons);
     crate::ui::host::use_window_host();
     // The settings its root watches (brand logos, spelling, server search), or, drawn by a test,
     // read from its config directory.

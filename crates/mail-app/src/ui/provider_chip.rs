@@ -28,6 +28,33 @@ pub(crate) fn current() -> Loaded {
     }
 }
 
+/// Fetch the known providers' icons that are not cached yet, once, and show them as they land.
+///
+/// Called by each window's root right after it provides the icon signal. The fetch runs off the
+/// draw (`refresh` is async); nothing waits for it, and a provider whose fetch fails keeps its
+/// letter. Under a test binary [`mail_core::provider::icon::missing`] is empty, so no socket opens.
+pub(crate) fn use_fetch_missing(mut icons: Signal<Loaded>) {
+    use_hook(move || {
+        let Some(root) = mail_core::config::cache_dir() else {
+            return;
+        };
+        let dir = root.join("providers");
+        let missing = mail_core::provider::icon::missing(&dir);
+        if missing.is_empty() {
+            return;
+        }
+        spawn(async move {
+            let results = mail_core::provider::icon::refresh(&dir, &missing).await;
+            for (provider, result) in &results {
+                if let Err(err) = result {
+                    eprintln!("provider icon: {provider:?}: {err}");
+                }
+            }
+            icons.set(Loaded::read(&dir));
+        });
+    });
+}
+
 /// quire's name for `provider`: the two tables are the same six, letter for letter.
 pub(crate) fn mark_of(provider: Provider) -> MarkProvider {
     match provider {

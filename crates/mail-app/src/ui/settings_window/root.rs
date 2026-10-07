@@ -46,6 +46,7 @@ fn SettingsShell() -> Element {
     let loaded = try_consume_context::<mail_core::provider::icon::Loaded>().unwrap_or_default();
     let icons = use_signal(|| loaded);
     use_context_provider(|| icons);
+    crate::ui::provider_chip::use_fetch_missing(icons);
     crate::ui::host::use_window_host();
     let dirs = try_consume_context::<WindowDirs>();
     let asked = try_consume_context::<SettingsAsked>();
