@@ -5,8 +5,8 @@
 //!
 //! Each row is quire's `ThreadRow` inside mailo's `.row`, the box the row's own menus and the
 //! snooze float are placed against. A click anywhere on a row only opens or picks it: the row's
-//! actions are in its menu ([`menu`]), opened by a right click or by the one button its hover
-//! strip shows, the ⋯, which cannot act on the conversation by itself.
+//! actions are in its menu ([`menu`]), opened by a right click or by the one button the row shows
+//! under the pointer, quire's `RowMore` (the ⋯), which cannot act on the conversation by itself.
 
 mod act;
 mod menu;
@@ -29,7 +29,7 @@ use chrono::Local;
 use dioxus::prelude::*;
 use ds::base::press::{PointerButton, Press};
 use ds::base::vocab::RowState;
-use ds::components::app::hover_strip::{ActionId, HoverStrip, StripAction, Titles};
+use ds::components::app::row_more::RowMore;
 use ds::components::app::thread_row::ThreadRow;
 use ds::components::content::text_runs::{RunTone, TextRun};
 use ds::components::controls::badge::{Badge, BadgeContent, BadgeTone};
@@ -81,6 +81,7 @@ pub(super) fn DraftRow(draft: Draft, shell: Signal<Shell>) -> Element {
                 tags: rsx! {},
                 star: None,
                 strip: None,
+                more: None,
                 onclick: move |_| {
                     let store = consume_context::<Arc<SqliteStore>>();
                     if let Ok(draft) = store.draft(id) {
@@ -139,7 +140,7 @@ pub(super) fn MailRow(
         Attachments::Present { count } => Some(count),
         Attachments::None => None,
     };
-    // The menu offers what the strip used to: the saved view's own actions, or the usual ones,
+    // The menu offers what the old hover strip did: the saved view's own actions, or the usual ones,
     // and, in Trash or Spam and only there, Delete forever, which asks first.
     let mut offered: Vec<OpKind> = hover_in(shell.read().saved_view(), &summary);
     if crate::ui::bin::offered(crate::ui::bin::bin_shown(&shell.read()), &summary) {
@@ -156,8 +157,8 @@ pub(super) fn MailRow(
     let mut move_at = use_signal(|| None::<Rect>);
     let mut row_box = use_signal(|| None::<MountedRef>);
     // The focus inside the row shows its ⋯, as the pointer over it does: Blitz never matches
-    // `:focus-within`, so quire's strip is told.
-    let mut strip_shown = use_signal(|| None::<Shown>);
+    // `:focus-within`, so quire's button is told.
+    let mut more_shown = use_signal(|| None::<Shown>);
     // The row's menu, and what opened it.
     let mut row_menu = use_signal(|| None::<Opener>);
     // "Remind me if no reply", opened from the row's menu where it stood.
@@ -213,36 +214,15 @@ pub(super) fn MailRow(
             }
         }
     };
-    // The strip is quire's, with one button: the ⋯, which opens the row's menu and does
-    // nothing else, so a click that lands on it by mistake changes nothing. Its press opens the
-    // menu at once, against the row; the button's rect follows once measured and the menu moves
-    // under it.
-    let more = StripAction {
-        id: ActionId(MORE.to_owned()),
-        icon: Icon::Ellipsis,
-        label: MORE_LABEL.to_owned(),
-        fly: MORE_LABEL.to_owned(),
-        onhover: None,
-        onclick: EventHandler::new(move |rect: Rect| {
-            if matches!(row_menu(), Some(Opener::More(_))) {
-                row_menu.set(Some(Opener::More(Some(rect))));
-            }
-        }),
-    };
-    let strip = rsx! {
-        HoverStrip {
-            actions: vec![more],
+    // The ⋯ sits in the row's flow, under the time, and opens the row's menu and does nothing
+    // else, so a click that lands on it by mistake changes nothing. The menu hangs from the
+    // button's own rect, measured as it is pressed.
+    let more = rsx! {
+        RowMore {
             // Kept up while its own menu is open, so the menu hangs from something drawn.
-            shown: match row_menu() {
-                Some(Opener::More(_)) => Some(Shown::Visible),
-                _ => strip_shown(),
-            },
-            titles: Titles::FromLabel,
-            expanded: vec![(
-                ActionId(MORE.to_owned()),
-                if row_menu().is_some() { Shown::Visible } else { Shown::Hidden },
-            )],
-            on_press: move |_: ActionId| row_menu.set(Some(Opener::More(None))),
+            expanded: if matches!(row_menu(), Some(Opener::More(_))) { Shown::Visible } else { Shown::Hidden },
+            shown: more_shown(),
+            onclick: move |rect: Rect| row_menu.set(Some(Opener::More(rect))),
         }
     };
     let dragged = motion().is_some_and(
@@ -265,8 +245,8 @@ pub(super) fn MailRow(
     rsx! {
         div { key: "{id}", class: "row", role: "none",
             onmounted: move |event: MountedEvent| row_box.set(Some(MountedRef(event.data()))),
-            onfocusin: move |_| strip_shown.set(Some(Shown::Visible)),
-            onfocusout: move |_| strip_shown.set(None),
+            onfocusin: move |_| more_shown.set(Some(Shown::Visible)),
+            onfocusout: move |_| more_shown.set(None),
             oncontextmenu: move |event: MouseEvent| {
                 event.prevent_default();
                 row_menu.set(Some(Opener::Pointer(point_rect(event.client_coordinates()))));
@@ -288,7 +268,8 @@ pub(super) fn MailRow(
                 time,
                 tags,
                 star: Some(star),
-                strip,
+                strip: None,
+                more: Some(more),
                 onclick: move |press: Press| {
                     if let Some(click) = click_of(press) {
                         shell.write().click(id, click, &drawn_order());
@@ -316,7 +297,7 @@ pub(super) fn MailRow(
                             Pick::Remind => reminding.set(Some(opener)),
                             Pick::Press(pressed) => {
                                 // A menu the pick opens stands where this one stood.
-                                let at = opener.place();
+                                let at = Some(opener.place());
                                 match pressed {
                                     Pressed::Op(OpKind::Snooze) => snooze_at.set(at),
                                     Pressed::Op(OpKind::AddLabel) => label_at.set(at),
@@ -337,7 +318,7 @@ pub(super) fn MailRow(
                     shell,
                     revision,
                     anchor: row_box(),
-                    placed: opener.place(),
+                    placed: Some(opener.place()),
                     on_close: move |_| reminding.set(None),
                 }
             }
@@ -374,12 +355,6 @@ fn point_rect(at: dioxus::html::geometry::ClientPoint) -> Rect {
         },
     }
 }
-
-/// The strip's name for its one button, the ⋯.
-const MORE: &str = "more";
-
-/// What the ⋯ is called, and what its tooltip says.
-const MORE_LABEL: &str = "More actions";
 
 /// What a click on a row asks for, from its button and the keys held with it. Only the primary
 /// button opens or picks: a right click is the row's menu, and opens nothing by itself. Shift

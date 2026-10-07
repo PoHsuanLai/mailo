@@ -3,8 +3,8 @@
 //! The row draws no action buttons. A button that sits where the pointer rests is pressed by a
 //! click that meant to open the conversation, and an archive or a trash nobody asked for is
 //! worse than one more click for the one they did. So the actions live here, opened by a right
-//! click at the pointer or by the row's single "More actions" button (the ⋯ the hover strip
-//! still shows), and a stray click can only ever open this menu.
+//! click at the pointer or by the row's single "More actions" button (quire's `RowMore`, the ⋯
+//! in the row's tail), and a stray click can only ever open this menu.
 //!
 //! The rows are data ([`groups`], [`rows`]) and pure, so what the menu lists is a table test;
 //! every pick goes back through the row's own `press`, which the old strip used, so a pick on a
@@ -35,16 +35,15 @@ pub(super) enum Pick {
 pub(super) enum Opener {
     /// A right click: a context menu at this point.
     Pointer(Rect),
-    /// The ⋯ button: a pop-up under it, against the row until the button's rect is measured.
-    More(Option<Rect>),
+    /// The ⋯ button: a pop-up under its measured rect.
+    More(Rect),
 }
 
 impl Opener {
     /// The rect a menu opened from here hangs from: the point, or the measured button.
-    pub(super) fn place(self) -> Option<Rect> {
+    pub(super) fn place(self) -> Rect {
         match self {
-            Opener::Pointer(at) => Some(at),
-            Opener::More(at) => at,
+            Opener::Pointer(at) | Opener::More(at) => at,
         }
     }
 
@@ -201,7 +200,7 @@ pub(super) fn RowMenu(
     rsx! {
         Menu::<Pick> {
             placement: opener.placement(),
-            anchor: crate::ui::menu::anchor_for(anchor, opener.place()),
+            anchor: crate::ui::menu::anchor_for(anchor, Some(opener.place())),
             items,
             common: Common {
                 aria_label: Some(format!("Actions for {subject}")),

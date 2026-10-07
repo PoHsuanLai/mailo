@@ -129,7 +129,7 @@ fn one_account_has_no_all_tile() {
 }
 
 #[test]
-fn the_work_rows_carry_the_read_state_the_chip_and_the_archive_strip() {
+fn the_work_rows_carry_the_read_state_the_chip_and_the_more_button() {
     let built = work();
     // `root` keeps the temp directory alive; `dana` is the thread the frame opens.
     let _ = (built.root.path(), built.dana);
@@ -149,15 +149,15 @@ fn the_work_rows_carry_the_read_state_the_chip_and_the_archive_strip() {
         "Dana is unread:\n{dana}"
     );
     assert!(dana.contains(">spec<"), "Dana's chip is spec:\n{dana}");
-    // The row's hover strip is the ⋯ alone: its actions are in the menu it opens.
+    // The row's one button is the ⋯: its actions are in the menu it opens.
     assert!(
-        dana.contains("data-op=\"more\"") && dana.contains("aria-label=\"More actions\""),
-        "the strip has no ⋯:\n{dana}"
+        dana.contains("class=\"ds-row-more\"") && dana.contains("aria-label=\"More actions\""),
+        "the row has no ⋯:\n{dana}"
     );
     assert_eq!(
-        dana.matches("ds-strip-action").count(),
+        dana.matches("aria-haspopup").count(),
         1,
-        "the strip has more than the ⋯:\n{dana}"
+        "the row has more than the ⋯:\n{dana}"
     );
 }
 
