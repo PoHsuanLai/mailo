@@ -25,7 +25,8 @@ done
 # `#` or `@`.
 version="$(cargo pkgid -p mail-app | sed 's/.*[#@]//')"
 
-cargo build --release --locked -p mail-app --bin mailo
+# `quire-desktop` is our desktop's extras (the link to accountd over D-Bus): not in a macOS build.
+cargo build --release --locked --no-default-features -p mail-app --bin mailo
 
 rm -rf "$out"
 app="$out/mailo.app"

@@ -13,6 +13,11 @@ authors = ["Po Hsuan Lai <pohsuanlai0208@gmail.com>"]
 # and the network; it must never depend on dioxus, ds, ds-settings or ds-blitz, or on anything
 # else that draws. `scripts/check-boundary.sh` enforces that.
 
+[features]
+# Desktop extras (design/36): the link to accountd over D-Bus, in mail-runtime.
+default = ["quire-desktop"]
+quire-desktop = ["mail-runtime/quire-desktop"]
+
 [dependencies]
 porter-core.workspace = true
 porter-provider.workspace = true

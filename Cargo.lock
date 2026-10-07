@@ -2372,6 +2372,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "ds-desktop"
+version = "0.1.0"
+source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.20#a781a289894202df6416e5bbfeb6d4984f7505c6"
+dependencies = [
+ "zbus",
+]
+
+[[package]]
 name = "ds-harness"
 version = "0.1.0"
 source = "git+https://github.com/PoHsuanLai/quire?tag=v0.2.20#a781a289894202df6416e5bbfeb6d4984f7505c6"
@@ -4430,6 +4438,7 @@ dependencies = [
  "dioxus-ssr",
  "ds",
  "ds-blitz",
+ "ds-desktop",
  "ds-harness",
  "ds-lint",
  "ds-settings",
@@ -4449,6 +4458,7 @@ dependencies = [
  "objc2-foundation 0.3.2",
  "p256",
  "pdfrum",
+ "porter-client",
  "porter-core",
  "porter-provider",
  "porter-secrets",
@@ -4645,6 +4655,7 @@ dependencies = [
  "const-oid 0.9.6",
  "der",
  "dirs",
+ "futures-util",
  "hickory-resolver",
  "keyring-core",
  "mail-domain",
@@ -4653,11 +4664,14 @@ dependencies = [
  "mail-proto",
  "mail-store",
  "p256",
+ "porter-client",
  "porter-core",
+ "porter-dbus",
  "porter-discover",
  "porter-http",
  "porter-oauth",
  "porter-provider",
+ "porter-proxy",
  "porter-secrets",
  "psl",
  "rand 0.8.8",
@@ -4682,6 +4696,7 @@ dependencies = [
  "webpki-roots",
  "windows-native-keyring-store",
  "x509-cert",
+ "zbus",
  "zbus-secret-service-keyring-store",
  "zeroize",
 ]
@@ -6359,9 +6374,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "porter-client"
+version = "0.1.0"
+source = "git+https://github.com/PoHsuanLai/porter?rev=04721ffed45ee7e59c4845248a941e49e8650507#04721ffed45ee7e59c4845248a941e49e8650507"
+dependencies = [
+ "porter-core",
+ "porter-dbus",
+ "porter-provider",
+ "porter-secrets",
+ "porter-service",
+ "rustix",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+]
+
+[[package]]
 name = "porter-core"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=523180752ca760b35451fcab57a01ba22a1a5a99#523180752ca760b35451fcab57a01ba22a1a5a99"
+source = "git+https://github.com/PoHsuanLai/porter?rev=04721ffed45ee7e59c4845248a941e49e8650507#04721ffed45ee7e59c4845248a941e49e8650507"
 dependencies = [
  "serde",
  "serde_json",
@@ -6369,9 +6401,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "porter-dbus"
+version = "0.1.0"
+source = "git+https://github.com/PoHsuanLai/porter?rev=04721ffed45ee7e59c4845248a941e49e8650507#04721ffed45ee7e59c4845248a941e49e8650507"
+dependencies = [
+ "porter-core",
+ "serde",
+ "serde_json",
+ "zbus",
+]
+
+[[package]]
 name = "porter-discover"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=523180752ca760b35451fcab57a01ba22a1a5a99#523180752ca760b35451fcab57a01ba22a1a5a99"
+source = "git+https://github.com/PoHsuanLai/porter?rev=04721ffed45ee7e59c4845248a941e49e8650507#04721ffed45ee7e59c4845248a941e49e8650507"
 dependencies = [
  "porter-core",
  "porter-http",
@@ -6385,7 +6428,7 @@ dependencies = [
 [[package]]
 name = "porter-http"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=523180752ca760b35451fcab57a01ba22a1a5a99#523180752ca760b35451fcab57a01ba22a1a5a99"
+source = "git+https://github.com/PoHsuanLai/porter?rev=04721ffed45ee7e59c4845248a941e49e8650507#04721ffed45ee7e59c4845248a941e49e8650507"
 dependencies = [
  "porter-core",
  "thiserror 2.0.21",
@@ -6394,7 +6437,7 @@ dependencies = [
 [[package]]
 name = "porter-oauth"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=523180752ca760b35451fcab57a01ba22a1a5a99#523180752ca760b35451fcab57a01ba22a1a5a99"
+source = "git+https://github.com/PoHsuanLai/porter?rev=04721ffed45ee7e59c4845248a941e49e8650507#04721ffed45ee7e59c4845248a941e49e8650507"
 dependencies = [
  "base64 0.22.1",
  "porter-core",
@@ -6411,7 +6454,7 @@ dependencies = [
 [[package]]
 name = "porter-provider"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=523180752ca760b35451fcab57a01ba22a1a5a99#523180752ca760b35451fcab57a01ba22a1a5a99"
+source = "git+https://github.com/PoHsuanLai/porter?rev=04721ffed45ee7e59c4845248a941e49e8650507#04721ffed45ee7e59c4845248a941e49e8650507"
 dependencies = [
  "porter-core",
  "serde",
@@ -6420,9 +6463,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "porter-proxy"
+version = "0.1.0"
+source = "git+https://github.com/PoHsuanLai/porter?rev=04721ffed45ee7e59c4845248a941e49e8650507#04721ffed45ee7e59c4845248a941e49e8650507"
+dependencies = [
+ "base64 0.22.1",
+ "porter-core",
+ "tokio",
+]
+
+[[package]]
 name = "porter-secrets"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=523180752ca760b35451fcab57a01ba22a1a5a99#523180752ca760b35451fcab57a01ba22a1a5a99"
+source = "git+https://github.com/PoHsuanLai/porter?rev=04721ffed45ee7e59c4845248a941e49e8650507#04721ffed45ee7e59c4845248a941e49e8650507"
 dependencies = [
  "apple-native-keyring-store",
  "keyring-core",
@@ -6436,7 +6489,7 @@ dependencies = [
 [[package]]
 name = "porter-service"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=523180752ca760b35451fcab57a01ba22a1a5a99#523180752ca760b35451fcab57a01ba22a1a5a99"
+source = "git+https://github.com/PoHsuanLai/porter?rev=04721ffed45ee7e59c4845248a941e49e8650507#04721ffed45ee7e59c4845248a941e49e8650507"
 dependencies = [
  "porter-core",
  "porter-provider",
