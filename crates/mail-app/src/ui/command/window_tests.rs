@@ -2,8 +2,8 @@
 //! keyboard in its field, the toolbar holds no field while idle, and a search the panel leaves
 //! behind is shown in the toolbar until it is cleared.
 
-use super::bar_tests::{has, until};
-use super::sections::RECENT;
+use super::bar_tests::{has, until, words};
+use super::sections::{COMMANDS, MAIL, PLACES, RECENT, TOP};
 use super::*;
 use crate::ui::app::App;
 use crate::ui::fixtures::{
@@ -41,7 +41,10 @@ async fn command_k_brings_up_the_panel_with_the_keyboard_in_its_field() {
         recorder.asked()
     );
     // The panel is up over the empty search: what it offers before anything is typed.
-    let page = until(&mut dom, "⌘K", |page| has(page, &format!(">{RECENT}<"))).await;
+    let page = until(&mut dom, "⌘K", |page| {
+        has(page, &format!(">{RECENT}<")) && has(page, "Compose")
+    })
+    .await;
     assert!(has(&page, "Compose"), "{page}");
     assert!(has(&page, "class=\"spotlight\""), "no panel:\n{page}");
     assert!(
@@ -109,8 +112,20 @@ async fn opening_a_mail_keeps_its_search_shown_in_the_toolbar_until_it_is_cleare
         .last()
         .expect("the panel's field");
     type_into(&mut dom, field, "sync");
+    // The list shows the mail before the panel does: wait for the panel's top hit, which comes
+    // from the search off the thread, so Return opens the mail rather than the first command.
     until(&mut dom, "sync", |page| {
-        has(page, "Notes from the sync review")
+        let words = words(page);
+        let Some((_, top)) = words.split_once(TOP) else {
+            return false;
+        };
+        // The top hit's own section, up to whichever section comes next.
+        let top = [MAIL, COMMANDS, PLACES]
+            .iter()
+            .filter_map(|next| top.find(next))
+            .min()
+            .map_or(top, |end| &top[..end]);
+        top.contains("Notes from the sync review")
     })
     .await;
     // The top hit is the mail; Return opens it and the panel goes.
