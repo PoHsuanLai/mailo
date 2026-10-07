@@ -25,9 +25,10 @@ use super::motion::{Follow, tell};
 use crate::ui::view::{FileSheet, Shell};
 
 /// Where the sheets suggest and start: the downloads directory, unless the window was handed
-/// another one. Tests hand one, so nothing looks at the real downloads directory.
+/// another one. Tests hand one as a root context, so nothing looks at the real downloads
+/// directory.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(in crate::ui) struct SaveDir(pub std::path::PathBuf);
+pub struct SaveDir(pub std::path::PathBuf);
 
 /// The directory [`SaveDir`] names.
 pub(in crate::ui) fn save_dir() -> std::path::PathBuf {
