@@ -1,68 +1,13 @@
 //! The list pane, driven through the real `App`.
 
 use super::super::app::App;
-use crate::ui::fixtures::{Typed, acct_account, dispatching, seeded};
+use crate::ui::fixtures::{acct_account, dispatching, seeded};
 use dioxus::prelude::*;
 use dioxus_core::{NoOpMutations, VirtualDom};
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 use searching_in_the_window::listed;
 use std::sync::Arc;
-
-/// Records which `ElementId` each dynamic attribute landed on.
-///
-/// The one thing a test needs in order to drive the real `App` rather than a stand-in:
-/// `handle_event` addresses an element by id, and nothing else in the harness says which id
-/// is which. Static attributes live in the template and never appear here, so an element is
-/// found by an attribute the component computes — `value` on the search box.
-use dioxus_core::ElementId;
-
-#[derive(Default)]
-struct WhereThingsWent {
-    attrs: Vec<(String, String, dioxus_core::ElementId)>,
-}
-
-impl WhereThingsWent {
-    /// The element a dynamic `name` attribute was set on, where its value matched.
-    fn with_attr(&self, name: &str, matching: impl Fn(&str) -> bool) -> Vec<ElementId> {
-        self.attrs
-            .iter()
-            .filter(|(n, v, _)| n == name && matching(v))
-            .map(|(_, _, id)| *id)
-            .collect()
-    }
-}
-
-impl dioxus_core::WriteMutations for WhereThingsWent {
-    fn set_attribute(
-        &mut self,
-        name: &'static str,
-        _ns: Option<&'static str>,
-        value: &dioxus_core::AttributeValue,
-        id: ElementId,
-    ) {
-        let rendered = match value {
-            dioxus_core::AttributeValue::Text(t) => t.clone(),
-            other => format!("{other:?}"),
-        };
-        self.attrs.push((name.to_owned(), rendered, id));
-    }
-
-    fn append_children(&mut self, _: ElementId, _: usize) {}
-    fn assign_node_id(&mut self, _: &'static [u8], _: ElementId) {}
-    fn create_placeholder(&mut self, _: ElementId) {}
-    fn create_text_node(&mut self, _: &str, _: ElementId) {}
-    fn load_template(&mut self, _: dioxus_core::Template, _: usize, _: ElementId) {}
-    fn replace_node_with(&mut self, _: ElementId, _: usize) {}
-    fn replace_placeholder_with_nodes(&mut self, _: &'static [u8], _: usize) {}
-    fn insert_nodes_after(&mut self, _: ElementId, _: usize) {}
-    fn insert_nodes_before(&mut self, _: ElementId, _: usize) {}
-    fn set_node_text(&mut self, _: &str, _: ElementId) {}
-    fn create_event_listener(&mut self, _: &'static str, _: ElementId) {}
-    fn remove_event_listener(&mut self, _: &'static str, _: ElementId) {}
-    fn remove_node(&mut self, _: ElementId) {}
-    fn push_root(&mut self, _: ElementId) {}
-}
 
 /// Render until `landed` holds for the page, doing the tree's pending work in between.
 ///
@@ -135,35 +80,32 @@ mod searching_in_the_window {
         (store, dir)
     }
 
-    /// Mount `App`, type `typed` into its search box, let the box go still, and return the
+    /// Mount `App`, type `typed` into its search panel, let the field go still, and return the
     /// page once `landed` holds for it.
     async fn typing(store: Arc<SqliteStore>, typed: &str, landed: impl Fn(&str) -> bool) -> String {
         dispatching();
         let mut dom = VirtualDom::new(App).with_root_context(store);
-        let mut seen = WhereThingsWent::default();
-        dom.rebuild(&mut seen);
+        dom.rebuild_in_place();
         // Let the mount-time effects run: the label index is one of them, and the whole
         // question is whether it is there by the time someone types.
         tokio::time::timeout(std::time::Duration::from_millis(500), dom.wait_for_work())
             .await
             .ok();
         dom.render_immediate(&mut NoOpMutations);
-
-        // The search box is the only element whose `value` the component computes; the
-        // composer's inputs exist only once a draft is open, and none is.
-        let boxes = seen.with_attr("value", |_| true);
-        assert_eq!(
-            boxes.len(),
-            1,
-            "expected exactly one dynamic value attribute, found {boxes:?}"
+        // ⌘K brings up the search panel, whose field is the list's search. It floats in the
+        // root's overlay, drawn the renders after it asks.
+        crate::ui::fixtures::chord(
+            &mut dom,
+            "k",
+            dioxus::html::input_data::keyboard_types::Modifiers::CONTROL,
+            dioxus_core::ElementId(crate::ui::fixtures::INSIDE_THE_SHELL as usize),
         );
-        #[allow(deprecated)]
-        dom.handle_event(
-            "input",
-            std::rc::Rc::new(PlatformEventData::new(Box::new(Typed(typed.to_owned())))),
-            boxes[0],
-            true,
-        );
+        let drawn = crate::ui::fixtures::drain_seen(&mut dom);
+        let field = *drawn
+            .all("aria-label", crate::ui::command::LABEL)
+            .last()
+            .expect("the search panel's field");
+        crate::ui::fixtures::type_into(&mut dom, field, typed);
         tokio::time::advance(crate::ui::debounce::QUIET).await;
         until(&mut dom, landed).await
     }
@@ -220,8 +162,7 @@ mod searching_in_the_window {
         let (store, _dir) = labelled();
         let page = typing(store, "label:travel", |page| listed(page) == ["hi"]).await;
         assert!(
-            page.contains(r#"class="ds-text-field search""#)
-                && page.contains(r#"aria-placeholder="Search""#)
+            page.contains(&format!(r#"aria-label="{}""#, crate::ui::command::LABEL))
                 && page.contains(r#"value="label:travel""#),
             "the search box lost the text:\n{page}"
         );

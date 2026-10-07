@@ -4,13 +4,16 @@
 /* A long place name gives way to the tools: it fades out (quire's `.ds-truncate`), never under
    a button. */
 .list-title > * { min-width: 0; overflow: hidden; white-space: nowrap; }
-/* The search bar: the toolbar's search field, after its tools, where the Mac keeps it. It takes
-   its width when there is room and gives way to the tools; the place's title gives way first. */
-.list-head .bar { display: flex; flex: 0 6 200px; min-width: 64px; }
-.list-head .bar > .search { flex: 1; min-width: 0; }
-/* Its panel holds quire's menu rows in the flow of quire's popover, which does not inset them as a
-   floating menu's own panel does: the same inset, so the rows sit as a menu's. */
-.bar-rows { padding: var(--s-5); }
+/* The toolbar's search, after its tools, where the Mac keeps it: the magnifier, or the search
+   shown and its clear. The words give way to the tools, cut at the end of the button. */
+.list-head .bar { display: flex; align-items: center; flex: 0 1 auto; min-width: 0; }
+.list-head .bar .search-shown { min-width: 0; max-width: 168px; overflow: hidden; }
+/* The search panel: quire's popover hangs from a line across the window a little way down from
+   its top, centred under it, as Spotlight sits on the screen. The card is the field over the
+   rows; the rows sit inset as a menu's do, and scroll past a glance's worth. */
+.spotlight-line { position: absolute; left: 0; right: 0; top: 14%; height: var(--hair); pointer-events: none; }
+.spotlight { display: flex; flex-direction: column; width: 600px; }
+.spotlight-rows { padding: var(--s-5); max-height: 440px; overflow-y: auto; }
 /* The box around quire's list. The list scrolls itself (`VirtualList` holds the scroller), so this
    does not, and its padding goes to the sides of each item: at the top or bottom it would shift
    every row off the offsets the window is computed from. Each item is held to its slot. */

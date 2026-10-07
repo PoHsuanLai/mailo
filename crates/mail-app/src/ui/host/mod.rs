@@ -14,8 +14,6 @@ mod native;
 /// When a field is focused, relative to the render that draws it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::ui) enum When {
-    /// Now: the element is already in the page.
-    Now,
     /// After the next frame, once the render that opened it has reached the page.
     NextFrame,
     /// After the task that is running, once a menu's pick has been drawn.
@@ -30,7 +28,7 @@ pub(in crate::ui) enum Ask {
     /// Focus the first element `selector` matches, `when` it is there.
     Focus { selector: &'static str, when: When },
     /// Focus the first element `selector` matches, now, with its whole text selected, so the
-    /// first key typed replaces it: the search bar ⌘K summons.
+    /// first key typed replaces it: the search panel ⌘K summons.
     FocusAll(&'static str),
     /// Bring the first element `selector` matches into the middle of its scroller, after the
     /// render that moved it.
@@ -87,14 +85,6 @@ impl Host {
     /// Give the keyboard back to the window, `.app`.
     pub(in crate::ui) fn focus_app() {
         Host::ask(Ask::FocusApp);
-    }
-
-    /// Focus the element `selector` matches, now.
-    pub(in crate::ui) fn focus(selector: &'static str) {
-        Host::ask(Ask::Focus {
-            selector,
-            when: When::Now,
-        });
     }
 
     /// Focus the element `selector` matches, now, selecting its whole text.
