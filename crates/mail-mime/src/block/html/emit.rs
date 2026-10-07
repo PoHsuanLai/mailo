@@ -253,7 +253,13 @@ impl<'a> Builder<'a> {
         }
         self.block_count += 1;
         if let Some(parent) = self.stack.last_mut() {
-            parent.blocks.push(block);
+            match parent.items.last_mut() {
+                // A block inside a list but outside its items, as some editors write a nested
+                // list (`<ul><li>a</li><ul>…</ul></ul>`), belongs to the item before it, where a
+                // browser draws it, not before the whole list.
+                Some(item) if parent.kind == Kind::List => item.push(block),
+                _ => parent.blocks.push(block),
+            }
         } else {
             self.output.push(block);
         }
