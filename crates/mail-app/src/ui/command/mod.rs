@@ -14,7 +14,7 @@ pub(in crate::ui) use items::avatar_color;
 use super::debounce::{Settled, use_debounced};
 use super::menu::{Right, palette_groups};
 use super::ops::{Composes, start_composing, start_new};
-use crate::ui::view::{PageMenu, Shell};
+use crate::ui::view::{PageMenu, SettingsPage, Shell};
 use chrono::Utc;
 use dioxus::prelude::*;
 use ds::components::content::avatar::AvatarSize;
@@ -195,6 +195,17 @@ fn act(
     }
 }
 
+/// The page of Settings a command's entry opens, when it is one.
+fn settings_page_of(label: &str) -> Option<SettingsPage> {
+    match label {
+        "Contacts" => Some(SettingsPage::Contacts),
+        "Rules…" => Some(SettingsPage::Rules),
+        "Keys and certificates…" => Some(SettingsPage::Keys),
+        "Keyboard shortcuts…" => Some(SettingsPage::Keyboard),
+        _ => None,
+    }
+}
+
 fn run_action(
     mut shell: Signal<Shell>,
     mut pages: Signal<u32>,
@@ -226,6 +237,12 @@ fn run_action(
             let store = consume_context::<Arc<SqliteStore>>();
             super::destroy::ask_everything(&store, shell);
         }
+        return;
+    }
+    // The entries that are a page of Settings open the window on that page.
+    if let Some(page) = settings_page_of(label) {
+        close(shell);
+        super::settings_window::open_at(page);
         return;
     }
     match label {
@@ -280,10 +297,6 @@ fn run_action(
             side_hidden.set(!side_hidden());
             close(shell);
         }
-        "Contacts" => {
-            close(shell);
-            super::contacts::open(shell);
-        }
         "Add account…" => {
             close(shell);
             super::add_account::open(shell);
@@ -298,27 +311,15 @@ fn run_action(
             close(shell);
             super::files::open_export(shell);
         }
-        "Rules…" => {
-            close(shell);
-            super::rules::open(shell);
-        }
         "New view…" => {
             // Closed first, like Export: the view starts from the search the window shows.
             close(shell);
             let search = shell.peek().search.clone();
             super::views::open_new(shell, &search);
         }
-        "Keys and certificates…" => {
-            close(shell);
-            super::pgp::keys::open(shell);
-        }
         "Connection Doctor" => {
             close(shell);
             super::doctor::open(shell);
-        }
-        "Keyboard shortcuts…" => {
-            close(shell);
-            super::keyboard::open(shell);
         }
         "Settings…" => {
             close(shell);

@@ -1,5 +1,5 @@
-//! The Contacts sheet's groups: listed above the people, one open at a time to rename, to add
-//! an address to, or to take a member out of; a new one made from a name.
+//! The Contacts page's groups, under the people, each a row of quire's list: one open at a time
+//! to rename, to add an address to, or to take a member out of; a new one made from a name.
 //!
 //! Every write is `groups`', on the event that asks for it. An edit to a synced group is marked
 //! for the next `mailo contacts sync`, which writes it back to its address book, and the row
@@ -10,32 +10,36 @@ use std::sync::Arc;
 use dioxus::prelude::*;
 use mail_store::{Edit, Group, GroupHome, GroupId, SqliteStore};
 
+use super::super::common::classed;
 use super::super::press::on_primary;
+use super::group_edit::{AddRow, MemberRow, RenameRow};
 use super::groups;
+use ds::components::content::text_runs::RunTone;
 use ds::components::controls::button_model::{Answers, ButtonRole};
+use ds::components::lists::list::model::{ListItem, ListStyle};
+use ds::components::lists::row::size::RowSize;
 use ds::prelude::*;
 use ds::root::common::Common;
-use ds::root::pass_through::ExtraClass;
-use ds::style::icon::render::Glyph;
 use ds::style::tokens::control_size::ControlSize;
 
 /// The group open for editing, and what is typed in its two fields.
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct Open {
-    id: GroupId,
-    name: String,
-    adding: String,
+pub(super) struct Open {
+    pub(super) id: GroupId,
+    pub(super) name: String,
+    pub(super) adding: String,
 }
 
-/// The groups whose names fit `filter`, and the way to make one.
+/// The groups whose names fit `filter`, the open one's members and fields under it, and the way
+/// to make one: every one a row of quire's list.
 #[component]
 pub(super) fn GroupRows(
     filter: String,
     changed: Signal<u64>,
-    said: Signal<Option<String>>,
+    said: Signal<Option<Result<String, String>>>,
 ) -> Element {
     let open = use_signal(|| None::<Open>);
-    let mut making = use_signal(|| None::<String>);
+    let making = use_signal(|| None::<String>);
     // Read on every render, which `changed` asks for after each write: a book holds a handful
     // of groups, where it may hold thousands of people.
     let _ = changed();
@@ -43,37 +47,110 @@ pub(super) fn GroupRows(
         let store = consume_context::<Arc<SqliteStore>>();
         groups::listed(store.as_ref(), &filter).unwrap_or_default()
     };
+    let mut items: Vec<ListItem<String>> = Vec::new();
+    if listed.is_empty() {
+        items.push(ListItem::row(
+            "none".to_owned(),
+            "No groups".to_owned(),
+            rsx! { Row { title: TextLine::Runs(vec![TextRun::new("No groups yet", RunTone::Faint)]), size: RowSize::Settings } },
+        ));
+    }
+    for group in listed {
+        let editing = open.read().as_ref().filter(|o| o.id == group.id).cloned();
+        let id = group.id.to_string();
+        if let Some(editing) = editing {
+            let labels = {
+                let store = consume_context::<Arc<SqliteStore>>();
+                groups::member_labels(store.as_ref(), &group)
+            };
+            items.push(ListItem::row(
+                format!("g:{id}"),
+                group.name.clone(),
+                rsx! { GroupRow { group: group.clone(), open, changed, said } },
+            ));
+            items.push(ListItem::row(
+                format!("n:{id}"),
+                "Name".to_owned(),
+                rsx! { RenameRow { id: group.id.clone(), typed: editing.name.clone(), open, changed, said } },
+            ));
+            for (uri, label) in labels {
+                items.push(ListItem::row(
+                    format!("m:{id}:{uri}"),
+                    label.clone(),
+                    rsx! { MemberRow { id: group.id.clone(), uri, label, changed, said } },
+                ));
+            }
+            items.push(ListItem::row(
+                format!("a:{id}"),
+                "Add an address".to_owned(),
+                rsx! { AddRow { id: group.id.clone(), typed: editing.adding.clone(), open, changed, said } },
+            ));
+        } else {
+            items.push(ListItem::row(
+                format!("g:{id}"),
+                group.name.clone(),
+                rsx! { GroupRow { group, open, changed, said } },
+            ));
+        }
+    }
+    items.push(ListItem::row(
+        "new".to_owned(),
+        "New group".to_owned(),
+        rsx! { NewGroupRow { making, changed, said } },
+    ));
+    rsx! {
+        section { class: "book-part",
+            SectionHeader { title: "Groups" }
+            List::<String> { label: "Groups".to_owned(), items, style: ListStyle::Inset }
+        }
+    }
+}
+
+/// The last row: New Group, or the new group's name being typed, with Make.
+#[component]
+fn NewGroupRow(
+    making: Signal<Option<String>>,
+    changed: Signal<u64>,
+    said: Signal<Option<Result<String, String>>>,
+) -> Element {
     let make = move || {
         let name = making.peek().clone().unwrap_or_default();
         let store = consume_context::<Arc<SqliteStore>>();
         match groups::create(store.as_ref(), &name) {
             Ok(group) => {
-                said.set(Some(format!("Made the group {}.", group.name)));
+                said.set(Some(Ok(format!("Made the group {}.", group.name))));
                 making.set(None);
                 changed += 1;
             }
-            Err(why) => said.set(Some(why)),
+            Err(why) => said.set(Some(Err(why))),
         }
     };
     let mut make_on_enter = make;
-    rsx! {
-        li { class: "book-groups",
-            div { class: "book-sub",
-                h4 { "Groups" }
-                Button {
-                    size: ControlSize::Small,
-                    label: "New group".to_owned(),
-                    icon: Icon::Plus,
-                    common: Common {
-                        aria_label: Some("New group".to_owned()),
-                        ..Common::default()
-                    },
-                    onclick: on_primary(move || making.set(Some(String::new()))),
-                }
+    let Some(typed) = making() else {
+        return rsx! {
+            Row {
+                leading: RowLeading::Icon(Icon::Plus),
+                title: "New group",
+                size: RowSize::Settings,
+                accessory: Accessory::Slot(rsx! {
+                    Button {
+                        size: ControlSize::Small,
+                        label: "New Group…".to_owned(),
+                        common: Common { aria_label: Some("New group".to_owned()), ..Common::default() },
+                        onclick: on_primary(move || making.set(Some(String::new()))),
+                    }
+                }),
             }
-            if let Some(typed) = making() {
+        };
+    };
+    rsx! {
+        Row {
+            leading: RowLeading::Icon(Icon::Plus),
+            title: "New group",
+            size: RowSize::Settings,
+            content: rsx! {
                 div {
-                    class: "naming group-new",
+                    class: "naming",
                     onkeydown: move |event: KeyboardEvent| match event.key().to_string().as_str() {
                         "Enter" => {
                             event.prevent_default();
@@ -89,29 +166,27 @@ pub(super) fn GroupRows(
                         label: "The group's name".to_owned(),
                         value: typed,
                         placeholder: "The group's name".to_owned(),
-                        common: Common {
-                            extra_class: ExtraClass::parse("book-name").ok(),
-                            ..Common::default()
-                        },
+                        focus: FieldFocus::OnMount,
+                        common: classed("book-name"),
                         oninput: move |value: String| making.set(Some(value)),
                     }
-                    Button {
-                        size: ControlSize::Small,
-                        answers: Answers::Return,
-                        label: "Make".to_owned(),
-                        common: Common {
-                            aria_label: Some("Make the group".to_owned()),
-                            ..Common::default()
-                        },
-                        onclick: on_primary(make),
-                    }
                 }
-            }
-            ul { class: "group-list",
-                for group in listed {
-                    GroupRow { key: "{group.id}", group, open, changed, said }
+            },
+            accessory: Accessory::Slot(rsx! {
+                Button {
+                    size: ControlSize::Small,
+                    label: "Cancel".to_owned(),
+                    common: Common { aria_label: Some("Cancel the new group".to_owned()), ..Common::default() },
+                    onclick: on_primary(move || making.set(None)),
                 }
-            }
+                Button {
+                    size: ControlSize::Small,
+                    answers: Answers::Return,
+                    label: "Make".to_owned(),
+                    common: Common { aria_label: Some("Make the group".to_owned()), ..Common::default() },
+                    onclick: on_primary(make),
+                }
+            }),
         }
     }
 }
@@ -129,57 +204,47 @@ fn standing(group: &Group) -> &'static str {
     }
 }
 
-/// One group: its name and how many it holds, and when open, its members and the fields that
-/// change it.
+/// One group: its name, how many it holds and where it lives, Edit (Done while open) and, for one
+/// made here, Delete.
 #[component]
 fn GroupRow(
     group: Group,
     open: Signal<Option<Open>>,
     changed: Signal<u64>,
-    said: Signal<Option<String>>,
+    said: Signal<Option<Result<String, String>>>,
 ) -> Element {
     let count = match group.members.len() {
         0 => "nobody yet".to_owned(),
         1 => "1 member".to_owned(),
         n => format!("{n} members"),
     };
-    let editing = open.read().as_ref().filter(|o| o.id == group.id).cloned();
+    let editing = open.read().as_ref().is_some_and(|o| o.id == group.id);
     let id = group.id.clone();
     let name = group.name.clone();
     let local = group.home == GroupHome::Local;
-    let labels: Vec<(String, String)> = if editing.is_some() {
-        let store = consume_context::<Arc<SqliteStore>>();
-        groups::member_labels(store.as_ref(), &group)
-    } else {
-        Vec::new()
-    };
+    let gone = id.clone();
     rsx! {
-        li { class: "book-row group-row",
-            span { class: "group-av", Glyph { icon: Icon::Group } }
-            div { class: "who",
-                b { "{group.name}" }
-                span { class: "origin", "{count} · {standing(&group)}" }
-            }
-            div { class: "acts",
+        Row {
+            leading: RowLeading::Icon(Icon::Group),
+            title: group.name.clone(),
+            detail: Some(TextLine::from(format!("{count} · {}", standing(&group)))),
+            size: RowSize::Settings,
+            accessory: Accessory::Slot(rsx! {
                 Button {
                     size: ControlSize::Small,
-                    label: if editing.is_some() { "Done".to_owned() } else { "Edit".to_owned() },
+                    label: if editing { "Done".to_owned() } else { "Edit".to_owned() },
                     common: Common {
                         aria_label: Some(format!("Edit the group {name}")),
                         ..Common::default()
                     },
-                    onclick: {
-                        let id = id.clone();
-                        let name = name.clone();
-                        on_primary(move || {
-                            let shut = open.peek().as_ref().is_some_and(|o| o.id == id);
-                            open.set((!shut).then(|| Open {
-                                id: id.clone(),
-                                name: name.clone(),
-                                adding: String::new(),
-                            }));
-                        })
-                    },
+                    onclick: on_primary(move || {
+                        let shut = open.peek().as_ref().is_some_and(|o| o.id == id);
+                        open.set((!shut).then(|| Open {
+                            id: id.clone(),
+                            name: name.clone(),
+                            adding: String::new(),
+                        }));
+                    }),
                 }
                 if local {
                     Button {
@@ -187,170 +252,21 @@ fn GroupRow(
                         role: ButtonRole::Destructive,
                         label: "Delete".to_owned(),
                         common: Common {
-                            aria_label: Some(format!("Delete the group {name}")),
+                            aria_label: Some(format!("Delete the group {}", group.name)),
                             ..Common::default()
                         },
-                        onclick: {
-                            let id = id.clone();
-                            on_primary(move || {
-                                let store = consume_context::<Arc<SqliteStore>>();
-                                said.set(Some(match groups::forget(store.as_ref(), &id) {
-                                    Ok(()) => "Deleted the group. Its people stay in the book.".to_owned(),
-                                    Err(why) => why,
-                                }));
-                                open.set(None);
-                                changed += 1;
-                            })
-                        },
+                        onclick: on_primary(move || {
+                            let store = consume_context::<Arc<SqliteStore>>();
+                            said.set(Some(
+                                groups::forget(store.as_ref(), &gone)
+                                    .map(|()| "Deleted the group. Its people stay in the book.".to_owned()),
+                            ));
+                            open.set(None);
+                            changed += 1;
+                        }),
                     }
                 }
-            }
-            if let Some(editing) = editing {
-                GroupEditor { id: id.clone(), editing, labels, open, changed, said }
-            }
-        }
-    }
-}
-
-/// The open group's fields: its name, its members each with a way out, and an address to add.
-#[component]
-fn GroupEditor(
-    id: GroupId,
-    editing: Open,
-    labels: Vec<(String, String)>,
-    open: Signal<Option<Open>>,
-    changed: Signal<u64>,
-    said: Signal<Option<String>>,
-) -> Element {
-    let rename = {
-        let id = id.clone();
-        move || {
-            let typed = open
-                .peek()
-                .as_ref()
-                .map(|o| o.name.clone())
-                .unwrap_or_default();
-            let store = consume_context::<Arc<SqliteStore>>();
-            if let Err(why) = groups::rename(store.as_ref(), &id, &typed) {
-                said.set(Some(why));
-            }
-            changed += 1;
-        }
-    };
-    let add = {
-        let id = id.clone();
-        move || {
-            let typed = open
-                .peek()
-                .as_ref()
-                .map(|o| o.adding.clone())
-                .unwrap_or_default();
-            let store = consume_context::<Arc<SqliteStore>>();
-            match groups::add(store.as_ref(), &id, &typed) {
-                Ok(_) => {
-                    if let Some(o) = open.write().as_mut() {
-                        o.adding.clear();
-                    }
-                }
-                Err(why) => said.set(Some(why)),
-            }
-            changed += 1;
-        }
-    };
-    let mut rename_on_enter = rename.clone();
-    let mut add_on_enter = add.clone();
-    rsx! {
-        div { class: "group-edit",
-            div {
-                class: "naming",
-                onkeydown: move |event: KeyboardEvent| {
-                    if event.key().to_string() == "Enter" {
-                        event.prevent_default();
-                        rename_on_enter();
-                    }
-                },
-                TextField {
-                    label: "The group's name".to_owned(),
-                    value: editing.name.clone(),
-                    placeholder: "The group's name".to_owned(),
-                    common: Common {
-                        extra_class: ExtraClass::parse("book-name").ok(),
-                        ..Common::default()
-                    },
-                    oninput: move |value: String| {
-                        if let Some(o) = open.write().as_mut() {
-                            o.name = value;
-                        }
-                    },
-                }
-                Button {
-                    size: ControlSize::Small,
-                    label: "Rename".to_owned(),
-                    common: Common {
-                        aria_label: Some("Rename the group".to_owned()),
-                        ..Common::default()
-                    },
-                    onclick: on_primary(rename),
-                }
-            }
-            ul { class: "group-members",
-                for (uri, label) in labels {
-                    li { key: "{uri}", class: "group-member",
-                        span { class: "addr", "{label}" }
-                        Button {
-                            size: ControlSize::Small,
-                            label: "Remove".to_owned(),
-                            common: Common {
-                                aria_label: Some(format!("Remove {label}")),
-                                ..Common::default()
-                            },
-                            onclick: {
-                                let id = id.clone();
-                                on_primary(move || {
-                                    let store = consume_context::<Arc<SqliteStore>>();
-                                    if let Err(why) = groups::remove(store.as_ref(), &id, &uri) {
-                                        said.set(Some(why));
-                                    }
-                                    changed += 1;
-                                })
-                            },
-                        }
-                    }
-                }
-            }
-            div {
-                class: "naming",
-                onkeydown: move |event: KeyboardEvent| {
-                    if event.key().to_string() == "Enter" {
-                        event.prevent_default();
-                        add_on_enter();
-                    }
-                },
-                TextField {
-                    label: "Add an address".to_owned(),
-                    value: editing.adding.clone(),
-                    placeholder: "Add an address".to_owned(),
-                    common: Common {
-                        extra_class: ExtraClass::parse("book-name").ok(),
-                        ..Common::default()
-                    },
-                    oninput: move |value: String| {
-                        if let Some(o) = open.write().as_mut() {
-                            o.adding = value;
-                        }
-                    },
-                }
-                Button {
-                    size: ControlSize::Small,
-                    answers: Answers::Return,
-                    label: "Add".to_owned(),
-                    common: Common {
-                        aria_label: Some("Add to the group".to_owned()),
-                        ..Common::default()
-                    },
-                    onclick: on_primary(add),
-                }
-            }
+            }),
         }
     }
 }

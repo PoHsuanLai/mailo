@@ -1,5 +1,7 @@
 //! What mailo puts on a quire component's own element.
 
+use dioxus::prelude::*;
+use ds::prelude::{InlineBanner, Severity};
 use ds::root::common::Common;
 use ds::root::pass_through::ExtraClass;
 
@@ -17,4 +19,19 @@ pub(in crate::ui) fn classed(class: &str) -> Common {
 /// attachment to a pane, which is a quire request).
 pub(in crate::ui) fn in_card() -> Common {
     classed("in-card")
+}
+
+/// What the last act on a page of Settings came to, under the group it was done in: quire's
+/// banner, a failure as an alert and anything else as a status. Nothing said draws nothing.
+#[component]
+pub(in crate::ui) fn Told(said: Option<Result<String, String>>) -> Element {
+    match said {
+        None => rsx! {},
+        Some(Ok(text)) => rsx! {
+            InlineBanner { severity: Severity::Ok, text }
+        },
+        Some(Err(why)) => rsx! {
+            InlineBanner { severity: Severity::Danger, text: why }
+        },
+    }
 }

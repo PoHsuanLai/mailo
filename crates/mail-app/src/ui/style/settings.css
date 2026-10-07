@@ -2,7 +2,7 @@
    Settings app lays out a program's page. The sidebar stays put; the page scrolls under it.
    Layout only, but for the notes a page puts under a group's rows. */
 .app.settings-window { padding: 0; }
-.settings { display: grid; grid-template-columns: 11rem minmax(0, 1fr); height: 100%; min-height: 0; }
+.settings { display: grid; grid-template-columns: 13rem minmax(0, 1fr); height: 100%; min-height: 0; }
 .settings-scroll { height: 100%; min-height: 0; overflow-y: auto; scrollbar-width: none; }
 .settings-page {
   display: grid; align-content: start; gap: var(--s-14); min-width: 0; box-sizing: border-box;

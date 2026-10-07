@@ -11,6 +11,13 @@ use super::super::seal::SealBar;
 use super::*;
 use crate::ui::fixtures::{Seen, acct_account, click, rebuild_into, seeded, type_into};
 
+thread_local! {
+    /// The Settings windows the page last drawn asked for: the composer's bar sends a key to
+    /// make to the Keys and certificates page.
+    static ASKED: std::cell::RefCell<Arc<crate::ui::settings_window::tests::Asked>> =
+        std::cell::RefCell::new(Arc::default());
+}
+
 fn far() -> DateTime<Utc> {
     Utc::now() + chrono::TimeDelta::days(365)
 }
@@ -60,7 +67,14 @@ fn window_with(
     crate::ui::fixtures::dispatching();
     let mut dom = VirtualDom::new_with_props(PageHarness, PageHarnessProps { draft })
         .with_root_context(store)
-        .with_root_context(seams);
+        .with_root_context(seams)
+        .with_root_context(crate::ui::settings_window::SettingsWindows(ASKED.with(
+            |asked| {
+                let fresh = Arc::new(crate::ui::settings_window::tests::Asked::default());
+                *asked.borrow_mut() = fresh.clone();
+                fresh
+            },
+        )));
     let seen = rebuild_into(&mut dom);
     let desk = DESK.with(Cell::get).unwrap();
     let shell = SHELL.with(Cell::get).unwrap();
@@ -275,8 +289,11 @@ async fn no_key_of_ones_own_offers_to_make_one() {
     );
     assert!(queued(&store).is_empty());
     click(&mut window.dom, after.one("aria-label", "Create a key…"));
-    let shell = window.shell;
-    assert!(window.dom.in_runtime(|| shell.peek().keys.is_some()));
+    // Making a key or importing a certificate is the Keys and certificates page's.
+    assert_eq!(
+        ASKED.with(|asked| asked.borrow().asks()),
+        [Some(crate::ui::view::SettingsPage::Keys)]
+    );
 }
 
 #[tokio::test]

@@ -1,21 +1,21 @@
-//! The rules of one account, in the order they run: each with its switch, its place in the
+//! The rules of one account, in the order they run, a row each: its switch, its place in the
 //! order, Edit, Run on existing mail, and Delete.
 
 use chrono::Utc;
 use dioxus::prelude::*;
-use ds::components::content::label::{LabelRole, LabelStyle};
 use ds::components::content::text_runs::RunTone;
 use ds::components::controls::button_model::{Bezel, ButtonRole, ImagePosition};
 use ds::components::controls::progress::model::{Progress, ProgressStyle};
 use ds::components::controls::progress::view::ProgressIndicator;
-use ds::components::lists::list::model::{ListItem, ListStyle};
+use ds::components::fields::field_row::{FieldGroup, FieldRow};
 use ds::prelude::*;
 use ds::root::common::Common;
-use mail_domain::{RuleId, RuleState};
+use mail_domain::RuleState;
 use mail_store::SqliteStore;
 use porter_core::AccountId;
 use std::sync::Arc;
 
+use super::super::common::{Told, classed};
 use super::super::files::work::grouped;
 use super::super::files::{Phase, run};
 use super::super::motion::{Follow, tell};
@@ -23,9 +23,10 @@ use super::super::press::{available, on_primary};
 use super::editor::RuleEditor;
 use super::work::{self, Draft, Listed, Step};
 
-/// The rules part of the sheet.
+/// The rules group of the page: each rule a row, New Rule, how a run on existing mail goes, and
+/// the editor as a group of its own under it while a rule is being made or changed.
 #[component]
-pub(super) fn RulesPart(account: AccountId, revision: Signal<u64>) -> Element {
+pub(super) fn RulesPart(account: AccountId, shown: String, revision: Signal<u64>) -> Element {
     // Bumped by every write, so the rules are read again.
     let changed = use_signal(|| 0u64);
     let mut editing = use_signal(|| None::<Draft>);
@@ -39,14 +40,17 @@ pub(super) fn RulesPart(account: AccountId, revision: Signal<u64>) -> Element {
         Err(why) => (Vec::new(), Some(why)),
     };
     let count = rules.len();
-    let items: Vec<ListItem<RuleId>> = rules
-        .into_iter()
-        .enumerate()
-        .map(|(at, listed)| {
-            let id = listed.rule.id;
-            let name = listed.rule.name.clone();
-            let row = rsx! {
+    let busy = editing.read().is_some();
+    rsx! {
+        FieldGroup { title: format!("Rules for {shown}"),
+            if count == 0 {
+                FieldRow {
+                    label: failed.unwrap_or_else(|| "No rules on this account yet.".to_owned()),
+                }
+            }
+            for (at, id, listed) in rules.into_iter().enumerate().map(|(at, listed)| (at, listed.rule.id, listed)) {
                 RuleRow {
+                    key: "{id}",
                     listed,
                     first: at == 0,
                     last: at + 1 == count,
@@ -57,51 +61,22 @@ pub(super) fn RulesPart(account: AccountId, revision: Signal<u64>) -> Element {
                     running,
                     revision,
                 }
-            };
-            ListItem::row(id, name, row)
-        })
-        .collect();
-    rsx! {
-        section { class: "rules-part",
-            SectionHeader { title: "Rules".to_owned() }
-            Label {
-                text: "Applied to new mail, in order.".to_owned(),
-                role: LabelRole::Secondary,
-                style: LabelStyle::Footnote,
-            }
-            List::<RuleId> {
-                label: "Rules".to_owned(),
-                items,
-                style: ListStyle::Inset,
-            }
-            if count == 0 {
-                Label {
-                    text: failed.unwrap_or_else(|| "No rules on this account yet.".to_owned()),
-                    role: LabelRole::Tertiary,
-                }
             }
             RunProgress { phase: phase(), name: running() }
-            match said() {
-                Some(Ok(text)) => rsx! {
-                    div { role: "status", Label { text, role: LabelRole::Secondary } }
-                },
-                Some(Err(why)) => rsx! {
-                    div { role: "alert", Label { text: why, role: LabelRole::Primary, style: LabelStyle::Headline } }
-                },
-                None => rsx! {},
-            }
-            if editing.read().is_some() {
-                RuleEditor { account, editing, changed, said }
-            } else {
-                div { class: "rules-acts",
-                    Button {
-                        label: "New rule".to_owned(),
-                        common: Common { aria_label: Some("New rule".to_owned()), ..Common::default() },
-                        icon: Icon::Plus,
-                        onclick: on_primary(move || editing.set(Some(Draft::blank()))),
-                    }
+            FieldRow {
+                label: "Add a rule",
+                help: Some(TextLine::from("Rules act on new mail, in this order.")),
+                Button {
+                    label: "New Rule…".to_owned(),
+                    availability: available(!busy),
+                    common: Common { aria_label: Some("New rule".to_owned()), ..Common::default() },
+                    onclick: on_primary(move || editing.set(Some(Draft::blank()))),
                 }
             }
+        }
+        Told { said: said() }
+        if busy {
+            RuleEditor { account, editing, changed, said }
         }
     }
 }
@@ -222,13 +197,13 @@ fn RuleRow(
         }
     };
     rsx! {
-        Row {
-            title: name.clone(),
-            detail: Some(TextLine::Runs(vec![
+        FieldRow {
+            label: name.clone(),
+            help: Some(TextLine::Runs(vec![
                 TextRun::new(listed.when.clone(), RunTone::Strong),
                 TextRun::new(format!("  {}", listed.does), RunTone::Faint),
             ])),
-            accessory: Accessory::Slot(acts),
+            {acts}
         }
     }
 }
@@ -241,23 +216,22 @@ pub(super) fn RunProgress(phase: Phase, name: String) -> Element {
         Phase::Running { done, of } => {
             let share = (done.min(of) * 1000).checked_div(of).unwrap_or(0);
             rsx! {
-                div { class: "files-progress", role: "status",
-                    Label {
-                        text: format!("Running “{name}”… {} of {} conversations", grouped(done), grouped(of)),
-                        role: LabelRole::Secondary,
-                    }
+                FieldRow {
+                    label: format!("Running “{name}”…"),
+                    help: Some(TextLine::from(format!("{} of {} conversations", grouped(done), grouped(of)))),
                     ProgressIndicator {
                         style: ProgressStyle::Bar,
                         progress: Progress::Known(Fraction(u16::try_from(share).unwrap_or(1000))),
+                        common: classed("rules-progress"),
                     }
                 }
             }
         }
         Phase::Finished(said) => rsx! {
-            div { role: "status", Label { text: said, role: LabelRole::Secondary } }
+            FieldRow { label: format!("Ran “{name}”"), help: Some(TextLine::from(said)) }
         },
         Phase::Failed(why) => rsx! {
-            div { role: "alert", Label { text: why, role: LabelRole::Primary, style: LabelStyle::Headline } }
+            FieldRow { label: format!("“{name}” did not run"), help: Some(TextLine::from(why)) }
         },
     }
 }

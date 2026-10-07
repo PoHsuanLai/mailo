@@ -331,3 +331,75 @@ async fn settle(dom: &mut VirtualDom) {
         .ok();
     dom.render_immediate(&mut dioxus_core::NoOpMutations);
 }
+
+#[test]
+fn the_entries_that_are_a_page_of_settings_name_it() {
+    use crate::ui::view::SettingsPage;
+    const CASES: &[(&str, Option<SettingsPage>)] = &[
+        ("Contacts", Some(SettingsPage::Contacts)),
+        ("Rules…", Some(SettingsPage::Rules)),
+        ("Keys and certificates…", Some(SettingsPage::Keys)),
+        ("Keyboard shortcuts…", Some(SettingsPage::Keyboard)),
+        ("Settings…", None),
+        ("Add account…", None),
+    ];
+    for (label, page) in CASES {
+        assert_eq!(settings_page_of(label), *page, "{label:?}");
+    }
+    let offered: Vec<String> = super::items::commands()
+        .into_iter()
+        .map(|command| command.label)
+        .collect();
+    for (label, _) in CASES {
+        assert!(
+            offered.iter().any(|one| one == label),
+            "{label:?} is not offered"
+        );
+    }
+}
+
+/// A button that runs the command `label`, as Enter on its row in the menu does.
+#[component]
+fn Runs(label: String) -> Element {
+    let shell = use_signal(|| Shell {
+        command: Some(String::new()),
+        ..Shell::default()
+    });
+    let pages = use_signal(|| 1u32);
+    let mut revision = use_signal(|| 0u64);
+    let mut side_hidden = use_signal(|| false);
+    let spaces = use_signal(crate::ui::space::Spaces::default);
+    let name = format!("run {label}");
+    rsx! {
+        button {
+            "aria-label": name,
+            onclick: move |_| run_action(shell, pages, &mut revision, &mut side_hidden, spaces, &label),
+        }
+    }
+}
+
+#[tokio::test]
+async fn each_settings_entry_opens_the_settings_window_on_its_page() {
+    use crate::ui::settings_window::SettingsWindows;
+    use crate::ui::settings_window::tests::Asked;
+    use crate::ui::view::SettingsPage;
+    for (label, page) in [
+        ("Contacts", SettingsPage::Contacts),
+        ("Rules…", SettingsPage::Rules),
+        ("Keys and certificates…", SettingsPage::Keys),
+        ("Keyboard shortcuts…", SettingsPage::Keyboard),
+    ] {
+        crate::ui::fixtures::dispatching();
+        let asked = Arc::new(Asked::default());
+        let mut dom = VirtualDom::new_with_props(
+            Runs,
+            RunsProps {
+                label: label.to_owned(),
+            },
+        )
+        .with_root_context(SettingsWindows(asked.clone()));
+        let seen = crate::ui::fixtures::rebuild_into(&mut dom);
+        crate::ui::fixtures::click(&mut dom, seen.one("aria-label", &format!("run {label}")));
+        assert_eq!(asked.asks(), [Some(page)], "{label:?}");
+    }
+}

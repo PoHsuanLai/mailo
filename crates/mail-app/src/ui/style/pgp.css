@@ -12,19 +12,7 @@
 .unlock-field { flex: 1; min-width: 0; }
 
 
-/* The keys and certificates sheet: a key or a certificate a row, OpenPGP above S/MIME. */
-.keys { display: flex; flex-direction: column; gap: var(--s-8); max-height: 100%; min-height: 0; }
-.keys-main { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: none; }
-.keys-part { display: grid; gap: var(--s-7); padding-bottom: var(--s-14); }
-.keys-said { margin: 0; }
-.keys-ask { display: flex; align-items: flex-end; gap: var(--s-8); }
-.keys-ask .unlock { flex: 1; min-width: 0; }
-.keys-list { display: grid; gap: var(--s-4); }
-.keys-row { display: grid; gap: var(--s-4); }
-.keys-row.mine { box-shadow: inset 2px 0 0 var(--accent); }
-.keys-row-acts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--s-4); }
-.keys-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-6) var(--s-10); padding: var(--s-8) var(--s-10); border-radius: var(--r-btn); background: var(--c-red-soft); }
-.keys-confirm .say { flex: 1 1 260px; }
-.keys-confirm .acts { display: flex; gap: var(--s-6); margin-left: auto; }
-.keys-acts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-8); }
-.keys-foot { display: flex; justify-content: flex-end; }
+/* The Keys and certificates page of Settings: OpenPGP and S/MIME are each a titled list of
+   quire's rows; the identity file's password is asked in a sheet. */
+.keys-part { display: flex; flex-direction: column; min-width: 0; }
+.keys-ask { display: grid; gap: var(--s-10); }

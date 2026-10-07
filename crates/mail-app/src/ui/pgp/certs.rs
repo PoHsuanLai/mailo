@@ -1,4 +1,4 @@
-//! The S/MIME half of the keys and certificates sheet: the user's own certificates first, then
+//! The S/MIME half of the Keys and certificates page: the user's own certificates first, then
 //! their correspondents' and the authorities', and what can be done to each.
 //!
 //! Every change goes through [`mail_core::smime::certs`], the functions `mailo smime` uses, on the
@@ -6,10 +6,10 @@
 //! when the file turns out to need one: typed into a [`Password`], moved into the one import
 //! that uses it, and dropped with it — never drawn, never in a signal.
 
-use ds::components::content::label::{LabelRole, LabelStyle};
 use ds::components::content::text_runs::RunTone;
-use ds::components::controls::button_model::{Answers, Bezel, ButtonRole};
+use ds::components::controls::button_model::{Bezel, ButtonRole};
 use ds::components::lists::list::model::ListStyle;
+use ds::components::lists::row::size::RowSize;
 use ds::prelude::*;
 use ds::root::common::Common;
 use std::path::{Path, PathBuf};
@@ -21,9 +21,10 @@ use mail_runtime::SigningStore;
 use mail_store::SqliteStore;
 
 use super::super::press::{available, on_primary};
-use super::key_row::{Confirm, ConfirmBar};
+use super::super::sidebar::tagged;
+use super::key_row::Confirm;
 use super::keys::{Done, Job, write};
-use super::{Busy, Seams, Tried, Unlock, cert_short, whose};
+use super::{Busy, Seams, cert_short, whose};
 use mail_core::password::Password;
 use mail_core::pgp::WithSecret;
 use mail_core::smime::SmimeError;
@@ -149,7 +150,8 @@ pub(in crate::ui) fn validity(cert: &SmimeCert, now: DateTime<Utc>) -> String {
     }
 }
 
-/// The S/MIME section: the certificates, the password asked for an identity file, and Import.
+/// The S/MIME group: the certificates, and Import. A file that needs a password is asked for
+/// by the page ([`super::key_row::Asking`]).
 #[component]
 pub(in crate::ui) fn CertPart(
     certs: Vec<SmimeCert>,
@@ -159,13 +161,8 @@ pub(in crate::ui) fn CertPart(
     busy: Busy,
 ) -> Element {
     let working = busy == Busy::Working;
-    let mut confirm = confirm;
     let import_label = "Import a certificate or identity…";
-    let asking = match confirm() {
-        Confirm::Password(path) => Some(path),
-        _ => None,
-    };
-    let items: Vec<ListItem<String>> = certs
+    let mut items: Vec<ListItem<String>> = certs
         .into_iter()
         .map(|cert| {
             let id = cert.fingerprint.to_string();
@@ -177,58 +174,53 @@ pub(in crate::ui) fn CertPart(
             )
         })
         .collect();
-    rsx! {
-            section { class: "keys-part",
-                SectionHeader { title: "S/MIME" }
-                Label {
-                    text: "Yours sign and decrypt. Theirs encrypt and verify.",
-                    role: LabelRole::Secondary,
-                    style: LabelStyle::Footnote,
-                }
-                div { class: "keys-list",
-                    List::<String> { label: "S/MIME certificates", items, style: ListStyle::Inset }
-                    if let Some(why) = failed {
-                        Label { text: why, role: LabelRole::Tertiary }
-                    }
-                }
-                if let Some(path) = asking {
-                    {
-                        let file = path
-                            .file_name()
-                            .map_or_else(|| path.display().to_string(), |name| name.to_string_lossy().into_owned());
-                        rsx! {
-                            div { class: "keys-ask",
-                                Unlock {
-                                    prompt: format!("{file} is an identity file. Type the password it was saved with to import it."),
-                                    tried: Tried::Nothing,
-                                    act: "Import".to_owned(),
-                                    noun: "Password".to_owned(),
-                                    working: busy,
-                                    on_unlock: move |password: Password| {
-                                        confirm.set(Confirm::Nothing);
-                                        run.call(Job::Cert(CertJob::ImportWith(path.clone(), password)));
-                                    },
-                                }
-                                Button {
-                                    label: "Cancel",
-                                    answers: Answers::Escape,
-                                    onclick: on_primary(move || confirm.set(Confirm::Nothing)),
-        common: Common { aria_label: Some(format!("Cancel: Import {file}")), ..Common::default() },
+    if items.is_empty() {
+        let said = failed.unwrap_or_else(|| "No S/MIME certificates yet".to_owned());
+        items.push(quiet_item(said));
     }
-                            }
-                        }
-                    }
-                }
-                div { class: "keys-acts",
+    items.push(ListItem::row(
+        IMPORT.to_owned(),
+        import_label.to_owned(),
+        rsx! {
+            Row {
+                leading: RowLeading::Icon(Icon::Plus),
+                title: "Import",
+                detail: Some(TextLine::from("A certificate, or your identity as a PKCS#12 file.")),
+                size: RowSize::Settings,
+                accessory: Accessory::Slot(rsx! {
                     Button {
-                        label: import_label,
+                        label: "Import…",
                         availability: available(!working),
                         onclick: on_primary(move || run.call(Job::Cert(CertJob::Import))),
-        common: Common { aria_label: Some(import_label.to_string()), ..Common::default() },
-    }
-                }
+                        common: Common { aria_label: Some(import_label.to_owned()), ..Common::default() },
+                    }
+                }),
             }
+        },
+    ));
+    rsx! {
+        section { class: "keys-part",
+            SectionHeader { title: "S/MIME" }
+            List::<String> { label: "S/MIME certificates", items, style: ListStyle::Inset }
         }
+    }
+}
+
+/// The key of the import row, which no fingerprint can be.
+pub(super) const IMPORT: &str = " import";
+
+/// A row that says something and does nothing: an empty list's sentence.
+pub(super) fn quiet_item(said: String) -> ListItem<String> {
+    ListItem::row(
+        " quiet".to_owned(),
+        said.clone(),
+        rsx! {
+            Row {
+                title: TextLine::Runs(vec![TextRun::new(said, RunTone::Faint)]),
+                size: RowSize::Settings,
+            }
+        },
+    )
 }
 
 /// One certificate, its actions, and the question asked before deleting one with a private key.
@@ -259,10 +251,9 @@ fn CertRow(cert: SmimeCert, confirm: Signal<Confirm>, run: Callback<Job>, busy: 
         .filter(|part| !part.is_empty())
         .collect::<Vec<_>>()
         .join(" · ");
-    let (copied, saved, deleted, gone) = (cert.clone(), cert.clone(), cert.clone(), cert.clone());
+    let (copied, saved, deleted) = (cert.clone(), cert.clone(), cert.clone());
     let mut confirm = confirm;
     let actions = rsx! {
-            div { class: "keys-row-acts",
                 Button {
                     label: "Copy",
                     bezel: Bezel::Inline,
@@ -316,33 +307,19 @@ fn CertRow(cert: SmimeCert, confirm: Signal<Confirm>, run: Callback<Job>, busy: 
                     }),
                     common: Common { aria_label: Some(format!("Delete {id}")), ..Common::default() },
                 }
-            }
         };
     let title = TextLine::Runs(vec![
         TextRun::new(cert.subject.clone(), RunTone::Strong),
         TextRun::new(format!("  {id}"), RunTone::Faint),
     ]);
     rsx! {
-        div { class: if mine { "keys-row mine" } else { "keys-row" },
-            Row {
-                leading: RowLeading::Icon(if mine { Icon::Key } else { Icon::Mail }),
-                title,
-                detail: Some(TextLine::from(meta)),
-                accessory: Accessory::Slot(actions),
-            }
-            if confirm() == Confirm::DeleteCert(fingerprint) {
-                ConfirmBar {
-                    sentence: format!(
-                        "Deleting {id} also deletes its private key. This cannot be undone."
-                    ),
-                    act: "Delete the certificate and its private key".to_owned(),
-                    confirm,
-                    on_yes: move |_| {
-                        confirm.set(Confirm::Nothing);
-                        run.call(Job::Cert(CertJob::Delete(gone.clone(), WithSecret::Confirmed)));
-                    },
-                }
-            }
+        Row {
+            leading: RowLeading::Icon(if mine { Icon::Key } else { Icon::Mail }),
+            title,
+            detail: Some(TextLine::from(meta)),
+            size: RowSize::Settings,
+            accessory: Accessory::Slot(actions),
+            common: tagged("mine", if mine { "yes" } else { "no" }),
         }
     }
 }

@@ -1,8 +1,7 @@
-//! The sheet's S/MIME half as drawn: the user's own certificates first, an identity file's
-//! password asked for in the sheet and never drawn, deleting a private key asked again, trust
-//! given and taken back — and the OpenPGP half's dates.
+//! The Keys and certificates page's S/MIME half as drawn: the user's own certificates first, an
+//! identity file's password asked for in a sheet and never drawn, deleting a private key asked
+//! again in an alert, trust given and taken back — and the OpenPGP half's dates.
 
-use std::cell::Cell;
 use std::sync::Arc;
 
 use chrono::{TimeDelta, Utc};
@@ -15,39 +14,29 @@ use mail_store::{SqliteStore, Store};
 
 use super::certs::ordered;
 use super::key_row::lifetime;
-use super::keys::{KeysSheet, TITLE};
-use super::keys_tests::settle;
+use super::keys::KeysPage;
+use super::keys_tests::{alert_button, asking, settle};
 use super::smime_tests::{PASSWORD, identity_file, trust_root, with_identity};
 use super::tests::{own_key, seams_with};
 use super::{Seams, cert_short, short};
 use crate::ui::fixtures::smime_support::pki;
 use crate::ui::fixtures::{
-    Seen, acct_account, click, dispatching, rebuild_into, seeded, type_into,
+    Seen, acct_account, click, dispatching, drain_seen, rebuild_into, seeded, type_into,
 };
-use crate::ui::view::Shell;
 
-thread_local! {
-    static SHELL: Cell<Option<Signal<Shell>>> = const { Cell::new(None) };
-}
-
+/// The page inside a quire root, as the Settings window has it.
 #[component]
-fn Sheet() -> Element {
-    let shell = use_signal(|| Shell {
-        keys: Some(crate::ui::view::KeysSheet),
-        ..Shell::default()
-    });
-    SHELL.with(|slot| slot.set(Some(shell)));
-    rsx! { ds::prelude::Ds { appearance: ds::prelude::Appearance::default(), material: ds::prelude::Material::Window, KeysSheet { shell } } }
+fn Page() -> Element {
+    rsx! { ds::prelude::Ds { appearance: ds::prelude::Appearance::default(), material: ds::prelude::Material::Window, KeysPage {} } }
 }
 
 fn sheet(store: &Arc<SqliteStore>, seams: Seams) -> (VirtualDom, Seen) {
     dispatching();
-    let mut dom = VirtualDom::new_with_props(Sheet, ())
+    let mut dom = VirtualDom::new_with_props(Page, ())
         .with_root_context(store.clone())
         .with_root_context(seams);
     let seen = rebuild_into(&mut dom);
-    // The sheet is quire's and floats in the root's overlay, drawn the render after it asks.
-    let seen = seen.merge(crate::ui::fixtures::drain_seen(&mut dom));
+    let seen = seen.merge(drain_seen(&mut dom));
     (dom, seen)
 }
 
@@ -104,7 +93,6 @@ async fn the_sheet_lists_keys_then_certificates_own_first_with_what_is_known_of_
     let mine = with_identity(&store, &secrets);
     let (dom, _) = sheet(&store, seams_with(secrets));
     let page = markup(&dom);
-    assert!(page.contains(TITLE), "{page}");
     let at_pgp = page.find(">OpenPGP<").unwrap();
     let at_smime = page.find(">S/MIME<").unwrap();
     assert!(at_pgp < at_smime, "{page}");
@@ -129,7 +117,7 @@ async fn the_sheet_lists_keys_then_certificates_own_first_with_what_is_known_of_
 }
 
 #[tokio::test]
-async fn an_identity_files_password_is_asked_in_the_sheet_and_never_drawn() {
+async fn an_identity_files_password_is_asked_in_a_sheet_and_never_drawn() {
     let (store, dir) = seeded();
     let secrets = Arc::new(MapSigningStore::default());
     let file = dir.path().join("me.p12");
@@ -152,7 +140,6 @@ async fn an_identity_files_password_is_asked_in_the_sheet_and_never_drawn() {
         asked.one("aria-label", &format!("Password: {prompt}")),
         PASSWORD,
     );
-    let shell = SHELL.with(Cell::get).unwrap();
     assert!(
         !markup(&dom).contains(PASSWORD),
         "the password is in the markup"
@@ -166,8 +153,6 @@ async fn an_identity_files_password_is_asked_in_the_sheet_and_never_drawn() {
     );
     assert!(!page.contains(PASSWORD), "the password is in the markup");
     assert!(!page.contains(prompt), "still asking: {page}");
-    let debug = dom.in_runtime(|| format!("{:?}", shell.peek()));
-    assert!(!debug.contains(PASSWORD), "the password is in the shell");
     let own = mail_core::smime::own_cert(&store, "me@example.test", Utc::now())
         .unwrap()
         .unwrap();
@@ -181,17 +166,18 @@ async fn deleting_a_certificate_with_its_private_key_is_asked_again_first() {
     let mine = with_identity(&store, &secrets);
     let (mut dom, seen) = sheet(&store, seams_with(secrets.clone()));
     let id = cert_short(mine.fingerprint);
-    let act = "Delete the certificate and its private key";
 
-    let asked = click(&mut dom, seen.one("aria-label", &format!("Delete {id}")));
+    let asked = asking(&mut dom, seen.one("aria-label", &format!("Delete {id}")));
     assert!(markup(&dom).contains("also deletes its private key"));
     assert!(store.smime_cert(mine.fingerprint).unwrap().is_some());
     assert!(holds(&secrets, &mine));
-    click(&mut dom, asked.one("aria-label", &format!("Cancel: {act}")));
+    // Cancel, the alert's default, keeps it.
+    click(&mut dom, alert_button(&asked, Some("return")));
+    let _ = drain_seen(&mut dom);
     assert!(!markup(&dom).contains("also deletes its private key"));
 
-    let asked = click(&mut dom, seen.one("aria-label", &format!("Delete {id}")));
-    let mut done = click(&mut dom, asked.one("aria-label", act));
+    let asked = asking(&mut dom, seen.one("aria-label", &format!("Delete {id}")));
+    let mut done = click(&mut dom, alert_button(&asked, None));
     settle(&mut dom, &mut done).await;
     assert!(store.smime_cert(mine.fingerprint).unwrap().is_none());
     assert!(
@@ -325,7 +311,8 @@ async fn every_class_of_the_certificates_half_is_styled() {
     );
     settle(&mut dom, &mut untrusted).await;
     page += &markup(&dom);
-    assert!(page.contains("keys-said"), "{page}");
+    // What a change came to is said in quire's banner.
+    assert!(page.contains("ds-inline-banner"), "{page}");
     click(
         &mut dom,
         seen.one(
@@ -333,9 +320,11 @@ async fn every_class_of_the_certificates_half_is_styled() {
             &format!("Delete {}", cert_short(mine.fingerprint)),
         ),
     );
+    // The question is quire's alert, drawn in the root's overlay the render after it asks.
+    crate::ui::fixtures::drain(&mut dom);
     page += &markup(&dom);
     assert!(
-        page.contains("keys-confirm") && page.contains("ds-section-header-title"),
+        page.contains("ds-alert") && page.contains("ds-section-header-title"),
         "{page}"
     );
     let offences = crate::ui::style::tests::markup_offences(&page);
