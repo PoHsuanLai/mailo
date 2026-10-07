@@ -67,6 +67,26 @@ pub(crate) fn mark_of(provider: Provider) -> MarkProvider {
     }
 }
 
+/// mailo's provider behind quire's `mark`: the inverse of [`mark_of`], over the five it names.
+/// IMAP and local folders have no icon of their own.
+pub(crate) fn provider_of_mark(mark: MarkProvider) -> Option<Provider> {
+    match mark {
+        MarkProvider::Google => Some(Provider::Google),
+        MarkProvider::Microsoft => Some(Provider::Microsoft),
+        MarkProvider::Fastmail => Some(Provider::Fastmail),
+        MarkProvider::ICloud => Some(Provider::Icloud),
+        MarkProvider::Yahoo => Some(Provider::Yahoo),
+        _ => None,
+    }
+}
+
+/// How quire's `mark` is drawn under the provider-marks setting: [`mark_style`] for the provider
+/// behind it, else the letter. For parts that name a mark rather than one of mailo's providers
+/// (Add Account's list and its steps).
+pub(crate) fn style_of_mark(mark: MarkProvider, marks: super::view::Marks) -> MarkStyle {
+    provider_of_mark(mark).map_or(MarkStyle::Letter, |provider| mark_style(provider, marks))
+}
+
 /// How `provider` is drawn under the provider-marks setting: the cached icon when the setting
 /// says icons and one is held, else the letter. Reads the startup load, so call it in a render.
 pub(crate) fn mark_style(provider: Provider, marks: super::view::Marks) -> MarkStyle {
@@ -94,6 +114,24 @@ pub(crate) fn ProvChip(provider: Provider, marks: super::view::Marks, place: Chi
 mod tests {
     use super::*;
     use crate::ui::view::Marks;
+
+    #[test]
+    fn quires_mark_names_the_same_provider_back() {
+        // Add Account names marks, not providers: every known provider must come back through
+        // its mark, or its list row would keep the letter while a row on the list has the icon.
+        for provider in Provider::ALL {
+            let back = provider_of_mark(mark_of(provider));
+            match provider {
+                Provider::Imap => assert_eq!(back, None),
+                _ => assert_eq!(back, Some(provider), "{provider:?}"),
+            }
+        }
+        assert_eq!(provider_of_mark(MarkProvider::Local), None);
+        assert_eq!(
+            style_of_mark(MarkProvider::Imap, Marks::Icons),
+            MarkStyle::Letter
+        );
+    }
 
     #[tokio::test]
     async fn the_chip_draws_the_cached_icon_or_the_letter() {
