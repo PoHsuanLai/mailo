@@ -67,29 +67,21 @@ enum Route {
     Accountd(Arc<dyn mail_runtime::Accountd>),
 }
 
-/// Who draws the sheet for `ask`, given the link this process chose (`mail_runtime::link`) and
-/// whether `is_accountds` says an address is an account of accountd's.
+/// Who draws the sheet, given the link this process chose (`mail_runtime::link`).
 ///
-/// With accountd linked every new account is accountd's. An account being signed in again is
-/// signed in again where its sign-in is: an account mailo holds the secrets of itself keeps its
-/// window, because accountd cannot sign it in.
-fn route_of(link: &mail_runtime::Link, ask: &Ask, is_accountds: impl Fn(&str) -> bool) -> Route {
-    match (link.accountd(), ask.address.as_deref()) {
-        (Some(accountd), None) => Route::Accountd(accountd.clone()),
-        (Some(accountd), Some(address)) if is_accountds(address) => {
-            Route::Accountd(accountd.clone())
-        }
-        _ => Route::OwnWindow,
+/// With accountd linked every sheet is accountd's, a new account or one signed in again: accountd
+/// holds every account, and mailo opens no window and keeps no sign-in of its own. Without
+/// accountd it is the window's.
+fn route_of(link: &mail_runtime::Link) -> Route {
+    match link.accountd() {
+        Some(accountd) => Route::Accountd(accountd.clone()),
+        None => Route::OwnWindow,
     }
 }
 
 /// Who draws the sheet now, from the link chosen at start.
-fn route(ask: &Ask, store: &SqliteStore) -> Route {
-    route_of(&mail_runtime::link::current(), ask, |address| {
-        crate::accountd::linked(store)
-            .iter()
-            .any(|account| account.address.eq_ignore_ascii_case(address))
-    })
+fn route() -> Route {
+    route_of(&mail_runtime::link::current())
 }
 
 /// Open the add-account window, or raise it. Call it from an event handler.
@@ -110,7 +102,7 @@ fn request(ask: Ask) {
         Some(windows) => windows.0.open(ask),
         None => {
             let store = consume_context::<Arc<SqliteStore>>();
-            match route(&ask, &store) {
+            match route() {
                 Route::OwnWindow => quire(ask),
                 Route::Accountd(accountd) => through_accountd(accountd, store, ask),
             }

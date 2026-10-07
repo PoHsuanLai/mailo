@@ -1880,8 +1880,7 @@ fn engine_granted(port: u16, dir: tempfile::TempDir, relays: Arc<relay::Relays>)
             ImapSession::new(auth.clone(), commands)
         }),
     );
-    let secrets =
-        mail_runtime::link::LinkedSecrets::new(Arc::new(MemorySecrets::default()), relays);
+    let secrets = mail_runtime::link::LinkedSecrets::new(relays);
     let engine = AccountEngine::new(
         acct_account(),
         plan,

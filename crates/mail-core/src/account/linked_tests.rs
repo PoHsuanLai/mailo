@@ -371,7 +371,7 @@ fn removing_a_linked_account_withdraws_the_grant_first_and_touches_no_keyring() 
         refuse: true,
         ..Revoking::default()
     });
-    let secrets = LinkedSecrets::new(Arc::new(MemorySecrets::default()), down.clone());
+    let secrets = LinkedSecrets::new(down.clone());
     let refused = mail_runtime::block_on(remove(&store, &secrets, id.clone()));
     assert!(
         matches!(refused, Err(RemoveError::Keyring(_))),
@@ -381,7 +381,7 @@ fn removing_a_linked_account_withdraws_the_grant_first_and_touches_no_keyring() 
 
     // Reached: the grant is withdrawn, then the rows go.
     let up = Arc::new(Revoking::default());
-    let secrets = LinkedSecrets::new(Arc::new(MemorySecrets::default()), up.clone());
+    let secrets = LinkedSecrets::new(up.clone());
     let removed = mail_runtime::block_on(remove(&store, &secrets, id)).unwrap();
     assert_eq!(removed.address, "me@example.test");
     assert_eq!(

@@ -536,6 +536,50 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn linked_to_accountd_the_old_entries_of_an_account_mail_signed_in_itself_are_not_touched()
+     {
+        let (mem, _want) = legacy_entries();
+        let before = mem.entries.lock().unwrap().clone();
+        let (store, _dir) = store_with_account();
+        // The account's plan says Mail holds its sign-in (the plan an earlier start wrote).
+        let manual = mail_domain::presets::Manual {
+            imap_host: "imap.example.test".to_owned(),
+            imap_port: 993,
+            smtp_host: "smtp.example.test".to_owned(),
+            smtp_port: 465,
+            login: None,
+        };
+        let plan = mail_domain::presets::manual("me@example.test", &manual, now()).plan;
+        store
+            .connection()
+            .execute(
+                "UPDATE accounts SET plan = ?1",
+                [serde_json::to_string(&plan).unwrap()],
+            )
+            .unwrap();
+        store.set_granted_only(true);
+
+        let secrets = MemorySecrets::default();
+        let drained = Drained::default();
+        let report = run_over(&store, &legacy_of(&mem), &drained, &secrets, now())
+            .await
+            .unwrap();
+
+        assert!(report.nothing_to_do());
+        assert_eq!(report.moved, 0);
+        assert_eq!(*mem.entries.lock().unwrap(), before, "an old entry moved");
+        assert!(secrets.get(&key_of("incoming")).await.is_err());
+        assert!(!store.secrets_adopted(&account()).unwrap());
+
+        // Not linked, the same run moves them as it always did.
+        store.set_granted_only(false);
+        let report = run_over(&store, &legacy_of(&mem), &drained, &secrets, now())
+            .await
+            .unwrap();
+        assert_eq!(report.finished, [account()]);
+    }
+
+    #[tokio::test]
     async fn a_run_moves_every_entry_deletes_every_part_and_is_idempotent() {
         let (mem, want) = legacy_entries();
         assert!(

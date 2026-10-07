@@ -248,11 +248,11 @@ impl<S: Secrets + 'static> Secrets for PlatformSecrets<S> {
 /// `dev/scenarios` (`MAILO_TEST_SECRETS_DIR`), a directory of files that never reaches the
 /// person's keyring.
 pub fn platform_secrets() -> Arc<dyn AccountSecrets> {
-    let store = own_store();
-    // Beside the link the process chose at start, if it chose accountd (`link::start`).
+    // The link the process chose at start (`link::start`): accountd's, and then Mail keeps no
+    // secret of its own and opens no keyring, or none, and mailo's own store.
     match crate::link::current() {
-        crate::link::Link::Local => store,
-        crate::link::Link::Accountd(link) => Arc::new(crate::link::LinkedSecrets::new(store, link)),
+        crate::link::Link::Local => own_store(),
+        crate::link::Link::Accountd(link) => Arc::new(crate::link::LinkedSecrets::new(link)),
     }
 }
 

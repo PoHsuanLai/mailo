@@ -267,11 +267,36 @@ fn the_process_link_is_in_process_until_one_is_installed() {
 }
 
 #[test]
-fn a_store_beside_a_link_hands_the_link_to_whoever_asks() {
+fn a_linked_process_hands_the_link_to_whoever_asks_and_holds_no_secret_of_its_own() {
+    use porter_core::{SecretKey, SecretPurpose};
     use porter_secrets::MemorySecrets;
+    let plain: Arc<dyn AccountSecrets> = Arc::new(MemorySecrets::default());
+    assert!(plain.link().is_none(), "a plain store has no link");
+
     let table: Arc<dyn Accountd> = Table::saying(vec![]);
-    let store: Arc<dyn AccountSecrets> = Arc::new(MemorySecrets::default());
-    assert!(store.link().is_none(), "a plain store has no link");
-    let beside = LinkedSecrets::new(store, table);
-    assert!(beside.link().is_some());
+    let linked = LinkedSecrets::new(table);
+    assert!(linked.link().is_some());
+
+    let key = SecretKey {
+        account: mail_domain::id::account_id_from_uuid(uuid::uuid!(
+            "00000000-0000-4000-8000-00000000c0de"
+        )),
+        purpose: SecretPurpose::IncomingPassword,
+    };
+    runtime().block_on(async {
+        assert!(
+            linked.get(&key).await.is_err(),
+            "nothing is read from a keyring"
+        );
+        assert!(
+            linked
+                .put(&key, &Credential::Password(SecretText::new("x")))
+                .await
+                .is_err(),
+            "nothing is written to one"
+        );
+        // Forgetting is not an error and reaches nothing.
+        linked.forget(&key).await.unwrap();
+        linked.forget_account(&key.account).await.unwrap();
+    });
 }

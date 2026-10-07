@@ -279,16 +279,17 @@ pub(crate) fn fresh(token: &IssuedToken, now: UnixSeconds) -> bool {
     token.expires.0 - now.0 > REFRESH_MARGIN
 }
 
-/// An account store beside a link to accountd: every call is the store's, and [`link`] is where an
-/// account that is accountd's gets its credentials. What is in the store stays where it is.
+/// The account secrets of a process linked to accountd: none. accountd holds every account's
+/// credentials ([`link`] is where an account that is accountd's gets them), so this store keeps
+/// nothing, gives nothing and takes nothing, and in particular never reaches mailo's own keyring
+/// items: those belong to a start that is not linked, and stay exactly as they are.
 ///
 /// [`link`]: AccountSecrets::link
 pub struct LinkedSecrets {
-    store: Arc<dyn AccountSecrets>,
     link: Arc<dyn Accountd>,
 }
 
-// By hand: the store is a trait object with no `Debug`, and nothing in it is printable.
+// By hand: a link is a trait object with no `Debug` of its own to rely on.
 impl fmt::Debug for LinkedSecrets {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("LinkedSecrets")
@@ -298,41 +299,50 @@ impl fmt::Debug for LinkedSecrets {
 }
 
 impl LinkedSecrets {
-    /// `store`, beside `link`.
-    pub fn new(store: Arc<dyn AccountSecrets>, link: Arc<dyn Accountd>) -> Self {
-        Self { store, link }
+    /// The secrets of a process linked to `link`.
+    pub fn new(link: Arc<dyn Accountd>) -> Self {
+        Self { link }
     }
+}
+
+/// What a linked process says to a secret it is asked to read or write.
+fn not_here() -> RuntimeError {
+    RuntimeError::Secrets(
+        "linked to the desktop's accounts: Mail keeps no secret of its own".to_owned(),
+    )
 }
 
 impl AccountSecrets for LinkedSecrets {
     fn get<'a>(
         &'a self,
-        key: &'a SecretKey,
+        _key: &'a SecretKey,
     ) -> Pin<Box<dyn Future<Output = Result<porter_core::Credential, RuntimeError>> + Send + 'a>>
     {
-        self.store.get(key)
+        Box::pin(async { Err(not_here()) })
     }
 
     fn put<'a>(
         &'a self,
-        key: &'a SecretKey,
-        value: &'a porter_core::Credential,
+        _key: &'a SecretKey,
+        _value: &'a porter_core::Credential,
     ) -> Pin<Box<dyn Future<Output = Result<(), RuntimeError>> + Send + 'a>> {
-        self.store.put(key, value)
+        Box::pin(async { Err(not_here()) })
     }
 
+    // Nothing is held, so nothing is forgotten: and an item of mailo's own is never deleted from
+    // here.
     fn forget<'a>(
         &'a self,
-        key: &'a SecretKey,
+        _key: &'a SecretKey,
     ) -> Pin<Box<dyn Future<Output = Result<(), RuntimeError>> + Send + 'a>> {
-        self.store.forget(key)
+        Box::pin(async { Ok(()) })
     }
 
     fn forget_account<'a>(
         &'a self,
-        account: &'a AccountId,
+        _account: &'a AccountId,
     ) -> Pin<Box<dyn Future<Output = Result<(), RuntimeError>> + Send + 'a>> {
-        self.store.forget_account(account)
+        Box::pin(async { Ok(()) })
     }
 
     fn link(&self) -> Option<Arc<dyn Accountd>> {

@@ -361,9 +361,84 @@ fn what_a_read_did_is_said_in_one_line_or_not_at_all() {
     .unwrap();
     assert!(line.contains("added ada@example.test"), "{line}");
     assert!(
-        line.contains("bob@example.test here with a sign-in of its own"),
+        line.contains("bob@example.test is still signed in by Mail itself"),
         "{line}"
     );
+}
+
+/// A row as an unlinked start wrote it: Mail signed this account in itself.
+fn held_row(store: &SqliteStore, address: &str) {
+    let manual = mail_domain::presets::Manual {
+        imap_host: "imap.example.test".to_owned(),
+        imap_port: 993,
+        smtp_host: "smtp.example.test".to_owned(),
+        smtp_port: 465,
+        login: None,
+    };
+    let now = chrono::Utc::now();
+    let preset = mail_domain::presets::manual(address, &manual, now);
+    let id = mail_domain::id::new_account_id().to_string();
+    let db = store.connection();
+    db.execute(
+        "INSERT INTO accounts (id, address, plan, created_at) VALUES (?1, ?2, ?3, ?4)",
+        rusqlite::params![
+            id,
+            address,
+            serde_json::to_string(&preset.plan).unwrap(),
+            now.to_rfc3339()
+        ],
+    )
+    .unwrap();
+    db.execute(
+        "INSERT INTO account_caps (account, caps, observed_at) VALUES (?1, ?2, ?3)",
+        rusqlite::params![
+            id,
+            serde_json::to_string(&preset.expected_caps).unwrap(),
+            now.to_rfc3339()
+        ],
+    )
+    .unwrap();
+}
+
+#[test]
+fn the_line_is_there_only_when_linked_and_only_when_mail_signed_some_account_in_itself() {
+    assert_eq!(
+        HELD_LINE,
+        "Some accounts were signed in by Mail itself. Add them again to use them here."
+    );
+    let accountd: Arc<dyn Accountd> = Daemon::offering(vec![]);
+    let linked = Link::Accountd(accountd);
+
+    // Linked, with only accountd's accounts: no line.
+    let (store, _dir) = store();
+    read(
+        &store,
+        &Link::Accountd(Daemon::offering(vec![candidate(
+            "fastmail-ada",
+            "ada@example.test",
+            "g-1",
+        )])),
+    )
+    .unwrap();
+    hold_back(&store, &linked);
+    assert_eq!(held_line(&store), None);
+
+    // Linked, with one Mail signed in itself: the line, and that account is not among the
+    // accounts the window draws or the sync takes.
+    held_row(&store, "bob@example.test");
+    assert_eq!(held_line(&store), Some(HELD_LINE));
+    assert_eq!(
+        mail_core::sync::addresses(&store)
+            .into_iter()
+            .map(|(_, address)| address)
+            .collect::<Vec<_>>(),
+        ["ada@example.test"]
+    );
+
+    // Not linked: no line, and the account is Mail's again, untouched.
+    hold_back(&store, &Link::Local);
+    assert_eq!(held_line(&store), None);
+    assert_eq!(mail_core::sync::addresses(&store).len(), 2);
 }
 
 #[cfg(all(feature = "quire-desktop", target_os = "linux"))]

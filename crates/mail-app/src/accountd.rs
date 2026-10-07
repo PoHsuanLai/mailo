@@ -9,7 +9,9 @@
 //!
 //! Nothing is removed here that is the person's. Accounts accountd offers are read into the store
 //! (`mail_core::account::reconcile`), an account it removes has its rows and mail forgotten here
-//! and nothing else, and what mailo already holds with a sign-in of its own is left alone.
+//! and nothing else. Linked, the accounts Mail shows and syncs are accountd's alone: those Mail
+//! signed in itself are set aside ([`hold_back`]), left exactly as they are for a start that is
+//! not linked, and the account list says so in one line ([`HELD_LINE`]).
 
 use std::sync::Arc;
 
@@ -118,7 +120,8 @@ pub fn said(read: &Reconciled) -> Option<String> {
     }
     if !read.held.is_empty() {
         parts.push(format!(
-            "{} here with a sign-in of its own, left as it is",
+            "{} is still signed in by Mail itself, so the desktop's account of it is not added \
+             (`mailo account remove` takes the old one away)",
             read.held.join(", ")
         ));
     }
@@ -233,6 +236,25 @@ pub fn add(
         Err(LinkError::Refused(Refusal::Dismissed)) => Ok(Added::Nothing),
         Err(e) => Err(e.to_string()),
     }
+}
+
+/// What the account list says when accountd is linked and some accounts here were signed in by
+/// Mail itself: they are not loaded, synced or offered while linked, and the way to use them is
+/// to add them again.
+pub const HELD_LINE: &str =
+    "Some accounts were signed in by Mail itself. Add them again to use them here.";
+
+/// Sets aside the accounts Mail signed in itself when `link` is accountd's, and takes them back
+/// when it is not. Nothing is written or deleted: their plans, their mail and their keyring
+/// items stay as they are for a start that is not linked. Called once, as soon as the link is
+/// chosen and before anything lists, syncs or adopts.
+pub fn hold_back(store: &SqliteStore, link: &Link) {
+    store.set_granted_only(link.accountd().is_some());
+}
+
+/// [`HELD_LINE`], when the store is set aside from accounts Mail signed in itself and has some.
+pub fn held_line(store: &SqliteStore) -> Option<&'static str> {
+    (store.granted_only() && !store.held_accounts().is_empty()).then_some(HELD_LINE)
 }
 
 /// The accounts that are accountd's, for a caller that wants to say so.

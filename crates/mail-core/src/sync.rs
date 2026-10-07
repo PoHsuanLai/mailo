@@ -67,11 +67,12 @@ pub fn caps_of(store: &SqliteStore, account: AccountId) -> Option<AccountCaps> {
 pub(crate) fn configured(store: &SqliteStore) -> Result<Vec<Configured>, String> {
     let db = store.connection();
     let mut stmt = db
-        .prepare(
+        .prepare(&format!(
             "SELECT a.id, a.address, a.plan, c.caps
-             FROM accounts a LEFT JOIN account_caps c ON c.account = a.id
+             FROM {} a LEFT JOIN account_caps c ON c.account = a.id
              ORDER BY a.created_at",
-        )
+            store.accounts()
+        ))
         .map_err(|e| e.to_string())?;
     let rows = stmt
         .query_map([], |r| {

@@ -15,8 +15,11 @@ use super::account::{AccountPage, back, row_of};
 use super::offline::OfflineCopy;
 use crate::ui::common::{person_tile, tile};
 use crate::ui::data::account_rows;
+use crate::ui::press::on_primary;
 use crate::ui::view::{AccountStep, AccountsPage, Shell};
 use dioxus::prelude::*;
+use ds::components::controls::button_model::Bezel;
+use ds::components::fields::field_row::FieldRow;
 use ds::components::lists::list::model::ListStyle;
 use ds::components::lists::row::size::RowSize;
 use ds::prelude::*;
@@ -76,9 +79,15 @@ pub(super) fn Accounts(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
 fn AccountList(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
     // Read again when an account comes or goes.
     let _ = revision();
-    let rows = try_consume_context::<Arc<SqliteStore>>()
-        .map(|store| account_rows(&store))
+    let store = try_consume_context::<Arc<SqliteStore>>();
+    let rows = store
+        .as_ref()
+        .map(|store| account_rows(store))
         .unwrap_or_default();
+    // Linked to the desktop's accounts, with accounts here that Mail itself signed in: one line.
+    let held = store
+        .as_ref()
+        .and_then(|store| crate::accountd::held_line(store));
     let mut items: Vec<ListItem<String>> = Vec::new();
     if rows.is_empty() {
         items.push(ListItem::row(
@@ -132,6 +141,17 @@ fn AccountList(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
     ));
     rsx! {
         Form {
+            if let Some(line) = held {
+                FormSection {
+                    FieldRow { label: line,
+                        Button {
+                            bezel: Bezel::Inline,
+                            label: "Add Account",
+                            onclick: on_primary(crate::ui::add_account::open),
+                        }
+                    }
+                }
+            }
             FormSection {
                 footer: Some("Which accounts a Space shows is chosen from the Space's menu.".to_owned()),
                 List::<String> { label: "Accounts", items, style: ListStyle::Grouped }

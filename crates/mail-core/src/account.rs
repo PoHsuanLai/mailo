@@ -708,7 +708,10 @@ fn authorize(
 pub fn list(store: &SqliteStore) -> Result<String, String> {
     let db = store.connection();
     let mut stmt = db
-        .prepare("SELECT id, address FROM accounts ORDER BY created_at")
+        .prepare(&format!(
+            "SELECT id, address FROM {} ORDER BY created_at",
+            store.accounts()
+        ))
         .map_err(|e| e.to_string())?;
     let rows = stmt
         .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
