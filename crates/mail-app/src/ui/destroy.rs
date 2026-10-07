@@ -10,6 +10,7 @@ use super::press::{SheetClose, on_primary};
 use crate::ui::bin::{Bin, Destroying, Reach, bin_shown, doomed, offered, words};
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
+use ds::components::controls::button_model::{Bezel, ImagePosition};
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::tokens::control_size::ControlSize;
@@ -152,11 +153,14 @@ pub(in crate::ui) fn EmptyButton(shell: Signal<Shell>) -> Element {
     };
     let name = format!("Empty {}", bin.name());
     rsx! {
+        // A plain toolbar icon beside the others; its name is its tip, and it asks before it acts.
         Button {
+            bezel: Bezel::Toolbar,
             size: ControlSize::Large,
+            image: ImagePosition::Only,
             label: name.clone(),
             icon: Icon::Trash,
-            title: Some(format!("Delete everything in {} forever", bin.name())),
+            title: Some(format!("{name}\u{2026}")),
             common: Common {
                 aria_label: Some(name.clone()),
                 ..Common::default()
