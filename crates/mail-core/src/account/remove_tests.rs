@@ -46,6 +46,7 @@ fn two_accounts(secrets: &MemorySecrets) -> (SqliteStore, tempfile::TempDir) {
                 saved: &ClientRegistry::default(),
                 secrets,
                 on_url: &|url| panic!("a password account asked for a browser: {url}"),
+                signed: None,
             },
         )
         .unwrap();

@@ -94,19 +94,18 @@ fn listed(fetching: Fetching, store: &SqliteStore) -> Vec<Listed> {
 pub(in crate::ui) fn DoctorView(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
     let fetching = try_consume_context::<Fetching>();
     let mut pending = use_signal(|| None::<(AccountId, u64, After)>);
-    // The Add account sheet that signed an account in, or changed its settings, has closed.
+    // The Add account window signed an account in, or changed its settings: it moves the shared
+    // revision when it does, and a window closed with nothing added leaves the sign-in waiting.
     use_effect(move || {
-        if shell.read().adding.is_some() {
-            return;
-        }
+        let now = revision();
         let Some((account, at, after)) = pending.peek().clone() else {
             return;
         };
-        pending.set(None);
-        let Some(fetching) = fetching else { return };
-        if *revision.peek() == at {
+        if now == at {
             return;
         }
+        pending.set(None);
+        let Some(fetching) = fetching else { return };
         match after {
             After::SignedIn => fetching.signed_in(account),
             After::Retry => fetching.send(account, Event::Start(Trigger::Manual)),
@@ -115,8 +114,8 @@ pub(in crate::ui) fn DoctorView(shell: Signal<Shell>, revision: Signal<u64>) -> 
     let Some(fetching) = fetching else {
         return rsx! {};
     };
-    // The Add account sheet is in front while it is open, and so is an account's own sheet.
-    if shell.read().adding.is_some() || shell.read().account_sheet.is_some() {
+    // An account's own sheet is in front while it is open.
+    if shell.read().account_sheet.is_some() {
         return rsx! {};
     }
     let accounts = listed(fetching, &consume_context::<Arc<SqliteStore>>());
@@ -133,8 +132,7 @@ pub(in crate::ui) fn DoctorView(shell: Signal<Shell>, revision: Signal<u64>) -> 
                 Remedy::Settings => After::Retry,
             };
             pending.set(Some((account, *revision.peek(), after)));
-            shell.write().adding = Some(name);
-            crate::ui::host::Host::focus_next_frame(".acct-sheet input");
+            crate::ui::add_account::open_for(name);
         },
     );
     rsx! {

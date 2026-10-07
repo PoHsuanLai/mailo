@@ -103,6 +103,7 @@ pub fn add(
                 // As `println!` would, but a closed stdout is not worth a panic mid-sign-in.
                 let _ = print_signin(url, &mut std::io::stdout().lock());
             },
+            signed: None,
         },
     )
 }
@@ -126,6 +127,10 @@ pub struct Credentials<'a> {
     /// waits for it. The command line prints it; the window shows it and opens a browser.
     /// Called on the thread the add runs on.
     pub on_url: &'a dyn Fn(&str),
+    /// The OAuth credential a sign-in already obtained, for an account that signs in in a browser:
+    /// the add window signs in first and asks for the confirmation after, so the browser is not
+    /// opened a second time here. `None` signs in here, as the command line does.
+    pub signed: Option<&'a Credential>,
 }
 
 // By hand: the password's own `Debug` already redacts it, and the credential store has none.
@@ -185,6 +190,7 @@ pub fn add_receiving(
         saved,
         secrets,
         on_url,
+        signed,
     } = credentials;
     // Normalised once, here, and used for the preset, the stored plan and the stored column
     // alike. `known` deliberately keeps the address exactly as typed, and the accounts
@@ -420,7 +426,10 @@ pub fn add_receiving(
         }
         AuthPlan::OAuth { issuer, scopes } => match client_for(*issuer, saved) {
             Some((client, typed)) => {
-                let credential = authorize(&client, scopes, on_url, now)?;
+                let credential = match signed {
+                    Some(credential) => credential.clone(),
+                    None => authorize(&client, scopes, on_url, now)?,
+                };
                 mail_runtime::block_on(secrets.put(
                     &SecretKey {
                         account: account.clone(),
@@ -594,6 +603,13 @@ fn client_for(issuer: Issuer, saved: &ClientRegistry) -> Option<(ClientEntry, bo
         return Some((typed, true));
     }
     clients::client(saved, issuer).map(|client| (client.clone(), false))
+}
+
+/// The OAuth client an address's sign-in would use for `issuer`: the one typed in the environment,
+/// else one the registry holds. `None` is a sign-in that cannot start, and the one thing to say is
+/// where to get a client id ([`no_client_id`]).
+pub fn oauth_client(issuer: Issuer, saved: &ClientRegistry) -> Option<ClientEntry> {
+    client_for(issuer, saved).map(|(client, _)| client)
 }
 
 /// The OAuth clients earlier sign-ins recorded, for [`add`] to fall back on.

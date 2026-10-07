@@ -230,6 +230,18 @@ impl From<SpaceRaw> for Space {
 }
 
 impl Space {
+    /// Put `account` in this Space when it shows some accounts and not that one yet. Returns
+    /// whether the Space changed: a Space over every account already shows it.
+    pub(in crate::ui) fn widen(&mut self, account: AccountId) -> bool {
+        match &mut self.scope {
+            Scope::Accounts(ids) if !ids.contains(&account) => {
+                ids.push(account);
+                true
+            }
+            _ => false,
+        }
+    }
+
     /// `raw` as the Space at `index`: a missing grain is that index's preset default.
     fn from_raw(raw: SpaceRaw, index: usize) -> Self {
         let mut dots: Vec<Dot> = raw.dots.into_iter().map(clamp_dot).collect();

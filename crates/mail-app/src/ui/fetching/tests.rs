@@ -135,11 +135,26 @@ pub(super) fn passer() -> (Passer, Script) {
     (passer, script)
 }
 
+/// What asked for the Add Account window, which a test's window cannot open.
+#[derive(Clone, Default)]
+pub(super) struct Asked(pub Arc<Mutex<Vec<crate::ui::add_account::Ask>>>);
+
+impl crate::ui::add_account::OpenAddAccount for Asked {
+    fn open(&self, ask: crate::ui::add_account::Ask) {
+        self.0.lock().unwrap().push(ask);
+    }
+}
+
 pub(super) fn window(store: Arc<SqliteStore>, passer: Passer) -> (VirtualDom, Seen) {
     dispatching();
+    let asked = Asked::default();
     let mut dom = VirtualDom::new(App)
         .with_root_context(store)
-        .with_root_context(passer);
+        .with_root_context(passer)
+        .with_root_context(crate::ui::add_account::AddAccountWindows(Arc::new(
+            asked.clone(),
+        )))
+        .with_root_context(asked);
     let seen = rebuild_into(&mut dom);
     (dom, seen)
 }
