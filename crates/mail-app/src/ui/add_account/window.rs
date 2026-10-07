@@ -13,6 +13,8 @@
 //! window's two notices: the shared revision moves, so every window draws the new account, and the
 //! current Space takes it in when it shows some accounts and not others.
 
+use crate::ui::provider_chip::style_of_mark;
+use crate::ui::view::Marks;
 use std::sync::Arc;
 
 use dioxus::prelude::*;
@@ -120,9 +122,22 @@ pub fn add_account_root() -> Element {
 
 #[component]
 fn AddAccountShell(wiring: Wiring, prefill: Option<String>) -> Element {
+    // The provider icons as the first window read them, fetched here too when any is missing:
+    // the list offers every known provider before an account is on one.
+    let loaded = try_consume_context::<mail_core::provider::icon::Loaded>().unwrap_or_default();
+    let icons = use_signal(|| loaded);
+    use_context_provider(|| icons);
+    crate::ui::provider_chip::use_fetch_missing(icons);
     crate::ui::host::use_window_host();
     let dirs = try_consume_context::<crate::ui::appearance::WindowDirs>();
     let _ = crate::ui::prefs::use_prefs(dirs.as_ref());
+    // Icons or letters, as the provider-marks setting says.
+    let marks = Marks::from(
+        crate::ui::prefs::use_settings()
+            .read()
+            .window
+            .provider_marks,
+    );
     let mut revision = use_signal(|| 0u64);
     crate::ui::revisions::use_shared_revision(revision);
     // The Spaces as the first window keeps them: this window wears the Space and may add to it.
@@ -248,7 +263,7 @@ fn AddAccountShell(wiring: Wiring, prefill: Option<String>) -> Element {
                 if let Some(step) = step {
                     // One column per step: a new step mounts afresh and the keyboard lands on its
                     // default control again.
-                    div { class: "add-account-step", key: "{slug}", {body(step, send)} }
+                    div { class: "add-account-step", key: "{slug}", {body(step, send, marks)} }
                 }
             }
         }
@@ -256,7 +271,8 @@ fn AddAccountShell(wiring: Wiring, prefill: Option<String>) -> Element {
 }
 
 /// One step's column, with every event sent as an [`Action`].
-fn body(step: Step, send: Callback<Action>) -> Element {
+/// One step as quire's part, its provider marks drawn as `marks` says.
+fn body(step: Step, send: Callback<Action>, marks: Marks) -> Element {
     let cancel = move |()| send.call(Action::Cancel);
     let back = move |()| send.call(Action::Back);
     let copy = move |text: String| {
@@ -271,7 +287,14 @@ fn body(step: Step, send: Callback<Action>) -> Element {
     match step {
         Step::Providers(props) => rsx! {
             ProviderList {
-                providers: props.providers,
+                providers: props
+                    .providers
+                    .into_iter()
+                    .map(|entry| {
+                        let style = style_of_mark(entry.mark, marks);
+                        entry.styled(style)
+                    })
+                    .collect::<Vec<_>>(),
                 query: props.query,
                 cursor: props.cursor,
                 on_query: move |query| send.call(Action::Query(query)),
@@ -285,6 +308,7 @@ fn body(step: Step, send: Callback<Action>) -> Element {
             SignInForm {
                 provider: props.provider,
                 mark: props.mark,
+                style: style_of_mark(props.mark, marks),
                 fields: props.fields,
                 problem: props.problem,
                 on_input: move |(role, text)| send.call(map::typed(role, text)),
@@ -296,11 +320,14 @@ fn body(step: Step, send: Callback<Action>) -> Element {
         },
         Step::Browser {
             provider,
+            mark,
             url,
             copied,
         } => rsx! {
             BrowserWait {
                 provider,
+                mark: Some(mark),
+                style: style_of_mark(mark, marks),
                 url,
                 copied,
                 on_open_again: move |()| send.call(Action::OpenAgain),
@@ -338,9 +365,15 @@ fn body(step: Step, send: Callback<Action>) -> Element {
                 title: StepTitle::Own,
             }
         },
-        Step::Working { provider } => {
-            rsx! { SignInWorking { provider, on_cancel: cancel, title: StepTitle::Own } }
-        }
+        Step::Working { provider, mark } => rsx! {
+            SignInWorking {
+                provider,
+                mark: Some(mark),
+                style: style_of_mark(mark, marks),
+                on_cancel: cancel,
+                title: StepTitle::Own,
+            }
+        },
         Step::Failed { provider, why } => rsx! {
             SignInFailed {
                 provider,

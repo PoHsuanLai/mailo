@@ -460,6 +460,7 @@ pub(super) enum Step {
     SignIn(SignInProps),
     Browser {
         provider: String,
+        mark: MarkProvider,
         url: String,
         copied: CopyState,
     },
@@ -472,6 +473,7 @@ pub(super) enum Step {
     Review(ReviewProps),
     Working {
         provider: String,
+        mark: MarkProvider,
     },
     Failed {
         provider: String,
@@ -504,10 +506,12 @@ pub(super) fn step_of(sheet: &Sheet) -> Option<Step> {
             providers: rows
                 .iter()
                 .filter(|row| row.kind == RowKind::Provider)
-                .map(|row| ProviderEntry {
-                    key: ProviderKey(row.id.as_str().to_owned()),
-                    label: row.label.clone(),
-                    mark: mark_of(&row.mark),
+                .map(|row| {
+                    ProviderEntry::new(
+                        ProviderKey(row.id.as_str().to_owned()),
+                        row.label.clone(),
+                        mark_of(&row.mark),
+                    )
                 })
                 .collect(),
             query: draft.query.clone(),
@@ -532,6 +536,7 @@ pub(super) fn step_of(sheet: &Sheet) -> Option<Step> {
             })
         }
         SheetView::BrowserWait { provider, url } => Step::Browser {
+            mark: mark_of(provider.as_str()),
             provider: provider_label(provider),
             url: url.as_str().to_owned(),
             copied: copy_state(draft),
@@ -569,6 +574,7 @@ pub(super) fn step_of(sheet: &Sheet) -> Option<Step> {
             allow: None,
         }),
         SheetView::Working(provider) => Step::Working {
+            mark: mark_of(provider.as_str()),
             provider: provider_label(provider),
         },
         SheetView::Failed { provider, fault } => Step::Failed {
