@@ -99,7 +99,7 @@ pub(super) fn settings(plan: &AccountPlan) -> Vec<Line> {
                 format!("With a password, as {}", plan.username())
             }
             (AuthPlan::Granted { .. }, _) => {
-                "By the desktop's accounts; Mail keeps no password for it".to_owned()
+                "Through your system's accounts".to_owned()
             }
         },
     ));

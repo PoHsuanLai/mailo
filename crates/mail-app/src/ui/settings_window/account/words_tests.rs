@@ -130,7 +130,7 @@ fn each_kind_of_account_lists_its_servers_and_how_it_signs_in() {
             &[
                 "Receiving: IMAP, imap.example.com:993, TLS",
                 "Sending: SMTP, smtp.example.com:587, TLS",
-                "Signs in: By the desktop's accounts; Mail keeps no password for it",
+                "Signs in: Through your system's accounts",
             ],
         ),
     ];

@@ -85,7 +85,7 @@ fn load_remote_images_says_what_trusted_means_and_starts_at_ask() {
     assert_eq!(key.label.0, "Load remote images");
     assert_eq!(
         key.help.0,
-        "A remote image tells the sender when you read the message and your network address."
+        "Images from the web can tell the sender when you open a message."
     );
     assert_eq!(key.labels.of("trusted"), Some("From senders I trust"));
     assert_eq!(key.default, toml::Value::String("ask".to_owned()));

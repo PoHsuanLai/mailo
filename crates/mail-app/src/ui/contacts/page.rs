@@ -21,7 +21,7 @@ use mail_store::SqliteStore;
 
 use super::super::pick::{Ask, choose, file_name};
 use super::super::press::on_primary;
-use super::book::{self, Row, SYNC_COMMAND};
+use super::book::{self, Row};
 use super::group_rows::GroupRows;
 use crate::ui::view::Shell;
 
@@ -123,7 +123,7 @@ fn ImportExport(changed: Signal<u64>, mut said: Signal<Option<Result<String, Str
         FormSection { title: Some("Import and export".to_owned()),
             FieldRow {
                 label: "Import",
-                help: Some(TextLine::from("People from vCard files, added to the book.")),
+                help: Some(TextLine::from("Add people from vCard files.")),
                 Button {
                     label: "Import vCard…".to_owned(),
                     common: Common { aria_label: Some("Import vCard…".to_owned()), ..Common::default() },
@@ -134,7 +134,7 @@ fn ImportExport(changed: Signal<u64>, mut said: Signal<Option<Result<String, Str
             }
             FieldRow {
                 label: "Export",
-                help: Some(TextLine::from(format!("The whole book as {} in your downloads.", book::EXPORT_NAME))),
+                help: Some(TextLine::from(format!("Save everyone as {} in Downloads.", book::EXPORT_NAME))),
                 Button {
                     label: "Export vCard…".to_owned(),
                     onclick: on_primary(move || {
@@ -147,13 +147,6 @@ fn ImportExport(changed: Signal<u64>, mut said: Signal<Option<Result<String, Str
                         said.set(Some(saved.map(|path| format!("Saved to {}", path.display()))));
                     }),
                 }
-            }
-            FieldRow {
-                label: "CardDAV",
-                help: Some(TextLine::Runs(vec![
-                    TextRun::new("Syncs from the command line: ", RunTone::Plain),
-                    TextRun::new(SYNC_COMMAND, RunTone::Code),
-                ])),
             }
         }
     }

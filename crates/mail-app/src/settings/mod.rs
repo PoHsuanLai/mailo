@@ -44,7 +44,7 @@ fn page() -> Page {
 pub struct WindowSettings {
     #[settings(
         label = "Provider marks",
-        help = "Each account's provider on its chips and tiles: the provider's icon, or a letter.",
+        help = "Show each account's provider as its logo or as a letter.",
         section = "Mail list"
     )]
     pub provider_marks: ProviderMarks,
@@ -57,7 +57,7 @@ pub struct WindowSettings {
 pub struct NotificationSettings {
     #[settings(
         label = "New mail",
-        help = "A notification for each new message in an inbox, raised by mailo watch.",
+        help = "Show a notification when new mail arrives.",
         section = "Notifications"
     )]
     pub new_mail: NewMail,
@@ -70,7 +70,7 @@ pub struct NotificationSettings {
 pub struct ComposeSettings {
     #[settings(
         label = "Check spelling",
-        help = "Misspelt words are underlined as you write, with the system's dictionaries.",
+        help = "Underline misspelt words as you type.",
         section = "Writing"
     )]
     pub spelling: Spelling,
@@ -83,13 +83,13 @@ pub struct ComposeSettings {
 pub struct ReadingSettings {
     #[settings(
         label = "Brand logos",
-        help = "A sender's verified logo (BIMI), fetched only for mail whose sender passed DMARC.",
+        help = "Show a company's logo beside mail it has verified as its own.",
         section = "Reading"
     )]
     pub brand_logos: BrandLogos,
     #[settings(
         label = "Load remote images",
-        help = "A remote image tells the sender when you read the message and your network address.",
+        help = "Images from the web can tell the sender when you open a message.",
         section = "Reading"
     )]
     pub remote_images: LoadRemoteImages,
@@ -98,7 +98,7 @@ pub struct ReadingSettings {
     /// the desktop's Settings app can show and edit it like any other.
     #[settings(
         label = "Senders whose images load",
-        help = "Their images load only when the message proves it came from them.",
+        help = "Only for mail verified as really coming from them.",
         section = "Reading"
     )]
     pub trusted_image_senders: Vec<String>,
@@ -141,7 +141,7 @@ impl ReadingSettings {
 pub struct SearchSettings {
     #[settings(
         label = "Search the server automatically",
-        help = "A search also asks each account's server, without pressing Search on the server.",
+        help = "Also search the mail on your servers as you type.",
         section = "Search"
     )]
     pub server_automatically: ServerSearch,

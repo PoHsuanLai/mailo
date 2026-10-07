@@ -171,8 +171,3 @@ pub(in crate::ui) fn export(store: &dyn Store, dir: &Path) -> Result<PathBuf, St
     let text = mail_core::contacts::export(store)?;
     mail_core::attach::write_new(dir, EXPORT_NAME, text.as_bytes())
 }
-
-/// The command that syncs a CardDAV address book. The window does not: it needs a URL and a
-/// password, and the command line is where those are typed.
-pub(in crate::ui) const SYNC_COMMAND: &str =
-    "mailo contacts sync <url> [--account <address>] [--user <login>]";

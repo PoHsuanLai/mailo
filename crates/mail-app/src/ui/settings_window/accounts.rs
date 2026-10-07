@@ -148,7 +148,7 @@ fn AccountList(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
                 HeldAccounts { line, accounts, revision }
             }
             FormSection {
-                footer: Some("Which accounts a Space shows is chosen from the Space's menu.".to_owned()),
+                footer: Some("Choose which accounts a Space shows from the Space's menu.".to_owned()),
                 List::<String> { label: "Accounts", items, style: ListStyle::Grouped }
             }
             OfflineCopy {}
