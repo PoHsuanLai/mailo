@@ -1,9 +1,7 @@
 /* The add-account window: quire's `ds-shell::accounts` parts in a window of their own. What is
-   left here is the window's column, centred in the window. An account's own sheet
-   (`account_settings`) keeps its column below. */
+   left here is the window's column, centred in the window. An account's own page in Settings
+   (`settings_window::account`) lines its Remove Account… up under its servers, at the end. */
 .add-account-window { display: flex; justify-content: center; align-items: flex-start; box-sizing: border-box; min-height: 100vh; color: var(--ink); }
 .add-account-window:focus { outline: none; }
 .add-account-step { display: flex; flex-direction: column; width: 100%; min-width: 0; }
-.acct-details { display: grid; gap: var(--s-10); padding: var(--s-14); min-width: 0; }
-.acct-foot { display: flex; justify-content: flex-end; gap: var(--s-8); padding-top: var(--s-4); }
-.acct-done { display: grid; gap: var(--s-4); }
+.acct-actions { display: flex; flex-direction: column; align-items: flex-end; gap: var(--s-8); }

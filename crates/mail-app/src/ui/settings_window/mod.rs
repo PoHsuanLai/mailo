@@ -5,16 +5,17 @@
 //!
 //! General draws mailo's settings schema (`crate::settings`) row by row ([`keys`]), the same
 //! keys detent draws on mailo's page and writes to the same `mailo/settings.toml`. Accounts
-//! lists each account, with its own sheet (`account_settings`), which accounts keep all their
-//! mail here, and Add Account…. Contacts, Rules, Keys and certificates and Keyboard are pages
-//! of their own, drawn by their modules (`contacts`, `rules`, `pgp::keys`, `keyboard`) as rows
-//! in titled groups, as System Settings draws a pane; a sheet is only for making something or
-//! asking before something goes. What belongs to one Space (its name, look and accounts) is the
-//! Space's menu's, a right click on the Space.
+//! lists each account, whose row pushes its own page into the pane ([`account`]), which
+//! accounts keep all their mail here, and Add Account…. Contacts, Rules, Keys and certificates
+//! and Keyboard are pages of their own, drawn by their modules (`contacts`, `rules`,
+//! `pgp::keys`, `keyboard`) as rows in titled groups, as System Settings draws a pane; a sheet is
+//! only for making something or asking before something goes. What belongs to one Space (its
+//! name, look and accounts) is the Space's menu's, a right click on the Space.
 //!
 //! Every way into one of those pages from the main window (⌘K, the composer's bar) opens the
-//! window on that page, or turns the open window to it ([`open_at`]): the page asked for is put
-//! in [`SettingsAsked`], which every window shares, and the Settings window follows it.
+//! window on that page, or turns the open window to it ([`open_at`]), and the Connection Doctor's
+//! gear opens it on an account's page ([`open_account`]): where it is asked to be is put in
+//! [`SettingsAsked`], which every window shares, and the Settings window follows it.
 //!
 //! The window is quire's (`ds_blitz::open_window`), with the root contexts every window of the
 //! app is given. It keeps its own `Shell` for its pages and the sheets it opens, and tells the other windows
@@ -24,6 +25,7 @@
 //! the window was given one, which is how a test sees what would open: quire's harness has no
 //! event loop to open a window on.
 
+mod account;
 mod accounts;
 mod general;
 mod keys;
@@ -33,12 +35,13 @@ mod root;
 pub(in crate::ui) use keys::with_value;
 pub use root::settings_root;
 
-use crate::ui::view::{SettingsPage, Shell};
+use crate::ui::view::{AccountStep, AccountsPage, AccountsPane, SettingsPage, Shell};
 use dioxus::prelude::*;
 use ds::components::chrome::sidebar::Sidebar;
 use ds::components::chrome::sidebar_model::SidebarSection;
 use ds::prelude::*;
 use ds_blitz::{WindowHandle, WindowLife, WindowSpec};
+use porter_core::AccountId;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -84,23 +87,58 @@ impl SettingsPage {
     }
 }
 
+/// Where the Settings window is asked to be: a page, or one account's page pushed over Accounts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SettingsAt {
+    Page(SettingsPage),
+    Account(AccountId),
+}
+
+impl SettingsAt {
+    /// The page of the sidebar it is on.
+    pub(in crate::ui) fn page(&self) -> SettingsPage {
+        match self {
+            SettingsAt::Page(page) => *page,
+            SettingsAt::Account(_) => SettingsPage::Accounts,
+        }
+    }
+
+    /// The Accounts pane as it stands there: the list, or the account's page over it.
+    pub(in crate::ui) fn pane(&self) -> AccountsPane {
+        match self {
+            SettingsAt::Page(_) => AccountsPane::default(),
+            SettingsAt::Account(account) => AccountsPane {
+                path: PanePath::new(AccountsPage::List)
+                    .pushed(AccountsPage::Account(account.clone())),
+                step: AccountStep::Showing,
+            },
+        }
+    }
+}
+
+impl Default for SettingsAt {
+    fn default() -> Self {
+        SettingsAt::Page(SettingsPage::default())
+    }
+}
+
 /// Whatever opens the Settings window: quire's event loop in the launched window, a recorder in
 /// a test.
 pub trait OpenSettings: Send + Sync + 'static {
-    /// Open the Settings window, or raise it when it is open, turned to `page` when one is asked
-    /// for and on the page it shows otherwise.
-    fn open(&self, page: Option<SettingsPage>);
+    /// Open the Settings window, or raise it when it is open, turned to `at` when it is asked
+    /// for and where it is otherwise.
+    fn open(&self, at: Option<SettingsAt>);
 }
 
-/// The page the Settings window shows next, as a root context every window shares: the main
-/// window puts the page it asks for here, a Settings window opening starts on it, and an open one
-/// turns to it. Without one (a test's single window) the window opens on General.
+/// Where the Settings window is next, as a root context every window shares: the main window puts
+/// where it asks for here, a Settings window opening starts there, and an open one turns to it.
+/// Without one (a test's single window) the window opens on General.
 #[derive(Clone)]
-pub struct SettingsAsked(Arc<watch::Sender<SettingsPage>>);
+pub struct SettingsAsked(Arc<watch::Sender<SettingsAt>>);
 
 impl Default for SettingsAsked {
     fn default() -> Self {
-        SettingsAsked(Arc::new(watch::channel(SettingsPage::default()).0))
+        SettingsAsked(Arc::new(watch::channel(SettingsAt::default()).0))
     }
 }
 
@@ -113,19 +151,19 @@ impl std::fmt::Debug for SettingsAsked {
 }
 
 impl SettingsAsked {
-    /// The page asked for last.
-    pub(in crate::ui) fn page(&self) -> SettingsPage {
-        *self.0.borrow()
+    /// Where it was asked to be last.
+    pub(in crate::ui) fn at(&self) -> SettingsAt {
+        self.0.borrow().clone()
     }
 
-    /// Ask for `page`. Sent even when it is the page asked for last: the window may have been
-    /// turned to another since.
-    pub(in crate::ui) fn ask(&self, page: SettingsPage) {
-        self.0.send_replace(page);
+    /// Ask for `at`. Sent even when it is where it was asked to be last: the window may have been
+    /// turned elsewhere since.
+    pub(in crate::ui) fn ask(&self, at: SettingsAt) {
+        self.0.send_replace(at);
     }
 
     /// What a Settings window hears each ask through.
-    pub(in crate::ui) fn heard(&self) -> watch::Receiver<SettingsPage> {
+    pub(in crate::ui) fn heard(&self) -> watch::Receiver<SettingsAt> {
         self.0.subscribe()
     }
 }
@@ -156,27 +194,47 @@ pub(in crate::ui) fn open() {
 
 /// Open Settings on `page`, or raise it and turn it to `page`.
 pub(in crate::ui) fn open_at(page: SettingsPage) {
-    ask(Some(page));
+    ask(Some(SettingsAt::Page(page)));
 }
 
-fn ask(page: Option<SettingsPage>) {
+/// Open Settings on `account`'s page, pushed over Accounts, or raise it and turn it there.
+pub(in crate::ui) fn open_account(account: AccountId) {
+    ask(Some(SettingsAt::Account(account)));
+}
+
+fn ask(at: Option<SettingsAt>) {
     match try_consume_context::<SettingsWindows>() {
-        Some(windows) => windows.0.open(page),
+        Some(windows) => windows.0.open(at),
         None => {
-            if let (Some(page), Some(asked)) = (page, try_consume_context::<SettingsAsked>()) {
-                asked.ask(page);
+            if let (Some(at), Some(asked)) = (at, try_consume_context::<SettingsAsked>()) {
+                asked.ask(at);
             }
             quire();
         }
     }
 }
 
-/// Show `page` in this Settings window. A key the Keyboard page was waiting for is waited for no
-/// longer: the page that took every key is gone.
+/// Show `page` in this Settings window, Accounts at its list as System Settings shows a pane
+/// chosen in its sidebar. A key the Keyboard page was waiting for is waited for no longer: the
+/// page that took every key is gone.
 pub(in crate::ui) fn go(mut shell: Signal<Shell>, page: SettingsPage) {
     let mut write = shell.write();
     write.settings = Some(page);
     write.keyboard.listening = None;
+    if write.accounts_pane.step != AccountStep::Removing {
+        write.accounts_pane = AccountsPane::default();
+    }
+}
+
+/// Turn this Settings window to `at`: a page, or an account's page over Accounts.
+pub(in crate::ui) fn go_to(shell: Signal<Shell>, at: SettingsAt) {
+    match at {
+        SettingsAt::Page(page) => go(shell, page),
+        SettingsAt::Account(account) => {
+            go(shell, SettingsPage::Accounts);
+            accounts::push(shell, account);
+        }
+    }
 }
 
 /// Whether a window opened earlier is one to raise rather than open again.

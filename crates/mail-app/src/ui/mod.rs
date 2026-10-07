@@ -18,7 +18,6 @@ pub mod spelling;
 pub mod today;
 pub mod view;
 
-mod account_settings;
 mod add_account;
 mod app;
 mod brand;
@@ -107,7 +106,9 @@ pub mod native {
     pub use super::reading::OriginalFrame;
     pub use super::revisions::{Configured, Revisions};
     pub use super::server_search::{Search, ServerSearcher};
-    pub use super::settings_window::{OpenSettings, SettingsAsked, SettingsWindows, settings_root};
+    pub use super::settings_window::{
+        OpenSettings, SettingsAsked, SettingsAt, SettingsWindows, settings_root,
+    };
     pub use super::window::{Ask, MessageOpen, OpenWindow, Windows, message_root};
 }
 

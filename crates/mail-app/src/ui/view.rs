@@ -510,12 +510,30 @@ pub struct RulesPage {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DoctorSheet;
 
-/// The account sheet while it is open: which account, and how far a removal has got. It keeps
-/// nothing of the account itself, which it reads from the store.
+/// A page of Settings' Accounts pane: the list of accounts, or one account's own page pushed
+/// over it.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AccountSheet {
-    pub account: AccountId,
+pub enum AccountsPage {
+    List,
+    Account(AccountId),
+}
+
+/// Settings' Accounts pane: the pages shown (quire's `PanePath`, the list at its root), and how
+/// far a removal on an account's page has got. It keeps nothing of the account itself, which the
+/// page reads from the store.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AccountsPane {
+    pub path: PanePath<AccountsPage>,
     pub step: AccountStep,
+}
+
+impl Default for AccountsPane {
+    fn default() -> Self {
+        AccountsPane {
+            path: PanePath::new(AccountsPage::List),
+            step: AccountStep::Showing,
+        }
+    }
 }
 
 /// A Space's menu, opened by a right click on the Space (its dot, its name, the sidebar's foot)
@@ -555,7 +573,7 @@ pub enum SettingsPage {
     Keyboard,
 }
 
-/// Where the account sheet is.
+/// Where an account's page is.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AccountStep {
     /// The account's settings, and Remove Account.
@@ -707,9 +725,8 @@ pub struct Shell {
     pub rules: RulesPage,
     /// The Connection Doctor sheet while it is open. `None` is closed.
     pub doctor: Option<DoctorSheet>,
-    /// The account sheet, opened from the Connection Doctor or Settings, while it is open. `None`
-    /// is closed.
-    pub account_sheet: Option<AccountSheet>,
+    /// Settings' Accounts pane: the list, or an account's page over it.
+    pub accounts_pane: AccountsPane,
     /// Settings while it is open, on the page shown. `None` is closed.
     pub settings: Option<SettingsPage>,
     /// The saved-view editor while it is open, with what its fields hold. `None` is closed.
@@ -841,7 +858,7 @@ impl Default for Shell {
             keymap: crate::ui::keymap::Keymap::default(),
             keyboard: KeyboardPage::default(),
             doctor: None,
-            account_sheet: None,
+            accounts_pane: AccountsPane::default(),
             settings: None,
             destroying: None,
             space_menu: None,
