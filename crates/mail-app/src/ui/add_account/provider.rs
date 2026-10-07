@@ -21,19 +21,20 @@ use chrono::{DateTime, Utc};
 use mail_core::account::Setup;
 use mail_core::discover::{Failed, Found, Gap};
 use mail_core::password::Password;
-use mail_domain::presets::{self, Manual, Preset};
-use mail_domain::{AuthPlan, HttpAuth};
+use mail_domain::presets::{self, Manual, ManualPop3, Preset};
+use mail_domain::{AuthPlan, HttpAuth, Incoming, Outgoing, Tls};
 use mail_store::SqliteStore;
 use porter_core::sheet::{
-    Entry, FieldAnswer, FieldKind, FieldSpec, FieldValue, Presence, SignInFault, SignInInput,
+    Entry, FieldAnswer, FieldKind, FieldSpec, FieldValue, Hop, MailServers, Manual as Typed,
+    Presence, Protocol, Security, SignInFault, SignInInput, manual_form, parse_manual,
 };
 use porter_core::{
     Account, AccountId, AccountLabel, AuthKind, CapabilityKind, Claim, Credential, Offer,
     Provenance, Restriction, Subject, UnixSeconds, WebUrl,
 };
 use porter_provider::{
-    DomainName, Issuer, Presented, Provider, ProviderError, ProviderSession, ProviderSpec,
-    RevokeOutcome, SignIn, SignInMode, SignInStart, SignInStep, Signed,
+    Issuer, Presented, Provider, ProviderError, ProviderSession, ProviderSpec, RevokeOutcome,
+    SignIn, SignInMode, SignInStart, SignInStep, Signed,
 };
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -324,20 +325,90 @@ impl Proposal {
         }
     }
 
-    /// IMAP and SMTP at `host`, over implicit TLS on their usual ports, signed in with a password.
-    fn typed(address: &str, host: &DomainName) -> Proposal {
-        Proposal {
+    /// The servers the person typed: IMAP or POP3 with SMTP, each as secure as was said, or a
+    /// JMAP session. The secret the sign-in is made with is a password, or, for JMAP given an
+    /// API token, the token (`typed` is the one place that decides which).
+    fn typed(
+        address: &str,
+        typed: Typed,
+        password: Option<Password>,
+        now: DateTime<Utc>,
+    ) -> (Proposal, Option<Password>) {
+        let (setup, password) = match typed {
+            Typed::Imap(servers) => {
+                let manual = Manual {
+                    imap_host: servers.incoming.host.clone(),
+                    imap_port: servers.incoming.port,
+                    smtp_host: servers.outgoing.host.clone(),
+                    smtp_port: servers.outgoing.port,
+                    login: servers.login.clone(),
+                };
+                let preset = presets::manual(address, &manual, now);
+                (
+                    Setup::Discovered(Box::new(secured(preset, &servers))),
+                    password,
+                )
+            }
+            Typed::Pop3(servers) => {
+                let manual = ManualPop3 {
+                    pop3_host: servers.incoming.host.clone(),
+                    pop3_port: servers.incoming.port,
+                    smtp_host: servers.outgoing.host.clone(),
+                    smtp_port: servers.outgoing.port,
+                    login: servers.login.clone(),
+                };
+                let preset = presets::manual_pop3(address, &manual, now);
+                (
+                    Setup::Discovered(Box::new(secured(preset, &servers))),
+                    password,
+                )
+            }
+            Typed::Jmap(server) => {
+                let (auth, secret) = match server.token {
+                    // The token is what the account signs in with; the password typed on the
+                    // first form is not used.
+                    Some(token) => (
+                        HttpAuth::Bearer,
+                        Some(Password::new(token.expose().to_owned())),
+                    ),
+                    None => (HttpAuth::Basic, password),
+                };
+                let setup = Setup::Jmap {
+                    session: Some(server.session.as_str().to_owned()),
+                    login: server.login,
+                    auth,
+                };
+                (setup, secret)
+            }
+        };
+        let proposal = Proposal {
             address: address.to_owned(),
-            setup: Setup::Imap(Manual {
-                imap_host: host.to_string(),
-                imap_port: 993,
-                smtp_host: host.to_string(),
-                smtp_port: 465,
-                login: None,
-            }),
+            setup,
             auth: Auth::Password,
-        }
+        };
+        (proposal, password)
     }
+}
+
+/// `preset` with the security each of its servers was typed with (the presets are made for
+/// implicit TLS).
+fn secured(mut preset: Preset, servers: &MailServers) -> Preset {
+    let tls = |hop: &Hop| match hop.security {
+        Security::Tls => Tls::Implicit,
+        Security::StartTls => Tls::StartTlsRequired,
+        // Porter accepts it for a server on this computer only, where nothing can listen in.
+        Security::Plain => Tls::Plaintext,
+    };
+    match &mut preset.plan.incoming {
+        Incoming::Imap { tls: at, .. } | Incoming::Pop3 { tls: at, .. } => {
+            *at = tls(&servers.incoming);
+        }
+        _ => {}
+    }
+    if let Outgoing::Smtp { tls: at, .. } = &mut preset.plan.outgoing {
+        *at = tls(&servers.outgoing);
+    }
+    preset
 }
 
 /// What looking an address up came to.
@@ -396,20 +467,13 @@ fn look(typed: &str, seams: &Seams, now: DateTime<Utc>) -> Looked {
     }
 }
 
-/// The fields a form asks for: the address, then a password where one is wanted, a server where
-/// the lookup found none.
-fn form(wants: Wants, server: Server, prefill: Option<&str>) -> Vec<FieldSpec> {
+/// The fields the first form asks for: the address, then a password where one is wanted.
+fn form(wants: Wants, prefill: Option<&str>) -> Vec<FieldSpec> {
     let address = FieldSpec {
         kind: FieldKind::Address,
         entry: Entry::Plain,
         presence: Presence::Required,
         prefill: prefill.map(str::to_owned),
-    };
-    let server_field = FieldSpec {
-        kind: FieldKind::Server,
-        entry: Entry::Plain,
-        presence: Presence::Required,
-        prefill: None,
     };
     let password = FieldSpec {
         kind: FieldKind::Password,
@@ -417,13 +481,7 @@ fn form(wants: Wants, server: Server, prefill: Option<&str>) -> Vec<FieldSpec> {
         presence: Presence::Required,
         prefill: None,
     };
-    let mut fields = Vec::new();
-    if server == Server::Asked {
-        // The address is known by then; only the server is missing.
-        fields.push(server_field);
-    } else {
-        fields.push(address);
-    }
+    let mut fields = vec![address];
     if wants == Wants::Password {
         fields.push(password);
     }
@@ -435,13 +493,6 @@ fn form(wants: Wants, server: Server, prefill: Option<&str>) -> Vec<FieldSpec> {
 enum Wants {
     Password,
     NoPassword,
-}
-
-/// Whether a form asks for a server rather than an address.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Server {
-    Asked,
-    NotAsked,
 }
 
 /// The plain text typed for `kind`, trimmed, when it is not empty.
@@ -548,7 +599,7 @@ impl MailSignIn {
     /// The form again, with `prefill` in its address.
     fn ask(&mut self, wants: Wants, prefill: Option<&str>) -> SignInStep {
         self.state = State::Asked;
-        SignInStep::AskFields(form(wants, Server::NotAsked, prefill))
+        SignInStep::AskFields(form(wants, prefill))
     }
 
     async fn submitted(&mut self, answers: Vec<FieldAnswer>) -> SignInStep {
@@ -562,32 +613,28 @@ impl MailSignIn {
         match looked {
             Ok(Looked::Found(offer)) => self.found(offer, password).await,
             Ok(Looked::Ask) => {
-                // A password already typed is not asked for again.
-                let wants = match password {
-                    Some(_) => Wants::NoPassword,
-                    None => Wants::Password,
-                };
-                self.state = State::AskedServer(Held {
-                    address: address.to_lowercase(),
-                    password,
-                });
-                SignInStep::AskFields(form(wants, Server::Asked, None))
+                // The servers are typed by hand, from guesses at the address's own domain. A
+                // password already typed is not asked for again.
+                let address = address.to_lowercase();
+                let guess = domain_of(&address);
+                self.state = State::AskedServer(Held { address, password });
+                SignInStep::AskFields(manual_form(Protocol::Imap, guess.as_deref()))
             }
             Ok(Looked::Failed(fault)) => self.failed(fault),
             Err(_) => self.failed(SignInFault::Unreadable),
         }
     }
 
-    /// What the form's server answers: IMAP and SMTP there, over implicit TLS.
+    /// What the form of typed servers answers: IMAP or POP3 and SMTP there, or a JMAP session.
     async fn served(&mut self, held: Held, answers: Vec<FieldAnswer>) -> SignInStep {
-        let Some(host) = text_of(&answers, FieldKind::Server)
-            .and_then(|typed| DomainName::parse(typed.trim()).ok())
-        else {
+        // The sheet checked the answers before it sent them; one that is wrong anyway is a
+        // form this provider did not ask.
+        let Ok(typed) = parse_manual(&answers) else {
             return self.failed(SignInFault::Unreadable);
         };
         let Held { address, password } = held;
-        let password = secret_of(&answers, FieldKind::Password).or(password);
-        self.found(Proposal::typed(&address, &host), password).await
+        let (offer, password) = Proposal::typed(&address, typed, password, Utc::now());
+        self.found(offer, password).await
     }
 
     /// An offer: a password account goes to review once it has its password, a browser account

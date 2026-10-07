@@ -5,8 +5,11 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use mail_core::discover::{Failed, Gap};
 use porter_core::sheet::ServiceChoice;
-use porter_core::sheet::{FieldAnswer, FieldKind, FieldValue, SheetInput, SheetView, SignInFault};
+use porter_core::sheet::{
+    FieldAnswer, FieldKind, FieldValue, ProblemKind, SheetInput, SheetView, SignInFault,
+};
 use porter_core::{CapabilityKind, ProviderId, SecretText, Toggle};
 
 use super::host::{self, Ended, Shown, WindowEnd};
@@ -205,4 +208,98 @@ async fn dismissing_adds_nothing_and_closing_the_window_ends_a_browser_wait() {
     drop(end);
     assert_eq!(task.await.unwrap(), Ended::NoAccount);
     assert!(log.adds.lock().unwrap().is_empty());
+}
+
+fn typed(kind: FieldKind, text: &str) -> (FieldKind, FieldValue) {
+    (kind, FieldValue::Plain(text.to_owned()))
+}
+
+/// A lookup that finds no server for the address.
+fn nothing_found() -> Script {
+    Script {
+        lookup: Err(Failed::NoServers {
+            address: "ada@example.test".to_owned(),
+            gap: Gap::Nothing,
+            tried: String::new(),
+        }),
+        ..Script::default()
+    }
+}
+
+#[tokio::test]
+async fn a_whole_typed_pop3_add_over_the_service() {
+    let (mut end, task, log, added) = serve(&nothing_found());
+    view(&mut end, |v| matches!(v, SheetView::Providers(_))).await;
+    end.inputs.send(pick("generic-imap")).unwrap();
+    view(&mut end, |v| matches!(v, SheetView::SignIn(_))).await;
+    end.inputs
+        .send(submit(vec![
+            typed(FieldKind::Address, "ada@example.test"),
+            (
+                FieldKind::Password,
+                FieldValue::Secret(SecretText::new(PASSWORD)),
+            ),
+        ]))
+        .unwrap();
+
+    // Nothing found: the form of typed servers, as IMAP first.
+    let SheetView::SignIn(form) = view(&mut end, |v| {
+        matches!(v, SheetView::SignIn(form) if form.fields.iter().any(|f| f.kind == FieldKind::Protocol))
+    })
+    .await
+    else {
+        unreachable!()
+    };
+    assert!(
+        form.fields
+            .iter()
+            .any(|f| f.kind == FieldKind::OutgoingServer)
+    );
+    assert_eq!(log.lookups.lock().unwrap().len(), 1);
+
+    // An unusable port is the machine's problem, before anything is sent anywhere.
+    let answers = |port: &str| {
+        submit(vec![
+            typed(FieldKind::Protocol, "pop3"),
+            typed(FieldKind::Server, "pop.example.test"),
+            typed(FieldKind::Security, "tls"),
+            typed(FieldKind::Port, port),
+            typed(FieldKind::OutgoingServer, "smtp.example.test"),
+            typed(FieldKind::OutgoingSecurity, "starttls"),
+            typed(FieldKind::OutgoingPort, ""),
+            typed(FieldKind::Username, ""),
+        ])
+    };
+    end.inputs.send(answers("pop3")).unwrap();
+    let SheetView::SignIn(form) = view(
+        &mut end,
+        |v| matches!(v, SheetView::SignIn(form) if form.problem.is_some()),
+    )
+    .await
+    else {
+        unreachable!()
+    };
+    let problem = form.problem.unwrap();
+    assert_eq!(
+        (problem.field, problem.problem),
+        (FieldKind::Port, ProblemKind::Invalid)
+    );
+
+    end.inputs.send(answers("995")).unwrap();
+    view(&mut end, |v| matches!(v, SheetView::Review(_))).await;
+    assert!(
+        log.adds.lock().unwrap().is_empty(),
+        "nothing is added before Confirm"
+    );
+    end.inputs.send(confirm()).unwrap();
+    assert_eq!(task.await.unwrap(), Ended::Added);
+    assert_eq!(
+        *log.adds.lock().unwrap(),
+        [(
+            "ada@example.test".to_owned(),
+            Some(PASSWORD.to_owned()),
+            false
+        )]
+    );
+    assert_eq!(added.take().as_deref(), Some("ada@example.test"));
 }

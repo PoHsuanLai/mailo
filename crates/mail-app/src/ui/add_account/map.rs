@@ -17,6 +17,14 @@
 //! | `Done`        | nothing           | (the window closes)                                     |
 //! | `Consent`     | nothing           | mailo asks no one's consent: it is its service's only caller |
 //!
+//! The server form a person types by hand (porter's `manual_form`) is the same `SignIn` view with
+//! more fields: a protocol, a server, a security and a port for each direction, the login name,
+//! and for JMAP a session URL and a token. Three of them are choices (the protocol and the two
+//! securities, `FieldKind::choices()` worded here), a pick refits the form at once
+//! (`porter_core::sheet::refit`: JMAP has no outgoing server, a port follows protocol and
+//! security until one is typed), and a form `form_problem` finds wrong is not sent: its field is
+//! marked as it is typed, which quire draws as Continue disabled.
+//!
 //! A typed password lives in the draft and nowhere else, as porter's `SecretText` (its `Debug`
 //! prints nothing); it reaches the parts as quire's `Hidden` and the service as the one
 //! `SheetInput::Submit`, and the draft empties it as it sends.
@@ -24,13 +32,14 @@
 use ds::components::content::provider_mark::MarkProvider;
 use ds_shell::accounts::hidden::Hidden;
 use ds_shell::accounts::model::{
-    Attempt, CopyState, FieldProblem as ShellProblem, FieldRole, FieldText, FormField, Limitation,
-    ProblemKind as ShellProblemKind, ProviderEntry, ProviderKey, ProviderPick, Requirement,
-    ServiceKey, ServiceLine, ServiceOffer, SignInFault as ShellFault,
+    Attempt, Choice, CopyState, FieldProblem as ShellProblem, FieldRole, FieldText, FormField,
+    FormPart, Limitation, ProblemKind as ShellProblemKind, ProviderEntry, ProviderKey,
+    ProviderPick, Requirement, ServiceKey, ServiceLine, ServiceOffer, SignInFault as ShellFault,
 };
 use porter_core::sheet::{
-    Entry, FieldAnswer, FieldKind, FieldSpec, FieldValue, Presence, ProblemKind, ProviderRow,
-    RowKind, ServiceChoice, ServiceState, SheetInput, SheetView, SignInFault,
+    Entry, FieldAnswer, FieldKind, FieldProblem, FieldSpec, FieldValue, Presence, ProblemKind,
+    ProviderRow, RowKind, ServiceChoice, ServiceState, SheetInput, SheetView, SignInFault,
+    form_problem, refit,
 };
 use porter_core::{AbsentReason, CapabilityKind, LimitReason, ProviderId, SecretText, WebUrl};
 
@@ -83,10 +92,29 @@ impl FieldDraft {
         }
     }
 
-    fn is_blank(&self) -> bool {
-        match &self.value {
-            FieldValue::Plain(text) => text.trim().is_empty(),
-            FieldValue::Secret(text) => text.expose().is_empty(),
+    /// The field as a refit form shapes it: what it prefills, except a secret, which stays what
+    /// was typed (porter's form has none to carry).
+    fn refitted(spec: &FieldSpec, kept: Option<&FieldDraft>) -> FieldDraft {
+        let value = match (spec.entry, kept.map(|field| &field.value)) {
+            (Entry::Secret, Some(secret @ FieldValue::Secret(_))) => secret.clone(),
+            (Entry::Secret, _) => FieldValue::Secret(SecretText::new("")),
+            (Entry::Plain, _) => FieldValue::Plain(spec.prefill.clone().unwrap_or_default()),
+        };
+        FieldDraft {
+            kind: spec.kind,
+            entry: spec.entry,
+            presence: spec.presence,
+            value,
+        }
+    }
+
+    fn answer(&self) -> FieldAnswer {
+        FieldAnswer {
+            kind: self.kind,
+            value: match &self.value {
+                FieldValue::Plain(text) => FieldValue::Plain(text.trim().to_owned()),
+                secret @ FieldValue::Secret(_) => secret.clone(),
+            },
         }
     }
 }
@@ -270,7 +298,7 @@ fn act(view: &SheetView, draft: Draft, action: Action) -> (Draft, Option<SheetIn
             None,
         ),
         (SheetView::Providers(rows), action) => providers(rows, draft, action),
-        (SheetView::SignIn(_), action) => form(draft, action),
+        (SheetView::SignIn(form), action) => self::form(&form.fields, draft, action),
         (SheetView::Review(_), Action::Confirm) => {
             let choices = draft.choices.clone();
             (draft, Some(SheetInput::Confirm(choices)))
@@ -304,7 +332,7 @@ fn providers(rows: &[ProviderRow], draft: Draft, action: Action) -> (Draft, Opti
     }
 }
 
-fn form(draft: Draft, action: Action) -> (Draft, Option<SheetInput>) {
+fn form(specs: &[FieldSpec], draft: Draft, action: Action) -> (Draft, Option<SheetInput>) {
     match action {
         Action::Type(kind, value) => {
             let fields = draft
@@ -323,33 +351,60 @@ fn form(draft: Draft, action: Action) -> (Draft, Option<SheetInput>) {
                     field
                 })
                 .collect();
-            (Draft { fields, ..draft }, None)
+            let draft = Draft { fields, ..draft };
+            // A pick of the protocol or a security reshapes the form now, as the service would
+            // when it was sent.
+            match kind.choices().is_empty() {
+                true => (draft, None),
+                false => (reshaped(specs, draft), None),
+            }
         }
-        Action::Submit => submit(draft),
+        Action::Submit => submit(specs, draft),
         _ => (draft, None),
     }
 }
 
-/// Send the form when every required field has text; the secrets leave the draft with it.
-fn submit(draft: Draft) -> (Draft, Option<SheetInput>) {
-    let ready = draft
-        .fields
+/// Whether `specs` is the form of a server typed by hand.
+fn is_manual(specs: &[FieldSpec]) -> bool {
+    specs.iter().any(|spec| spec.kind == FieldKind::Protocol)
+}
+
+fn answers_of(draft: &Draft) -> Vec<FieldAnswer> {
+    draft.fields.iter().map(FieldDraft::answer).collect()
+}
+
+/// The form `specs` as the draft's answers shape it: porter's `refit`, so the draft and the
+/// service agree on which fields there are.
+fn shaped(specs: &[FieldSpec], draft: &Draft) -> Vec<FieldSpec> {
+    refit(specs, &answers_of(draft))
+}
+
+/// `draft` with the fields a refit form has: the ones it lost are gone, the ones it gained
+/// start from their prefill, and a port that follows protocol and security follows.
+fn reshaped(specs: &[FieldSpec], draft: Draft) -> Draft {
+    if !is_manual(specs) {
+        return draft;
+    }
+    let fields = shaped(specs, &draft)
         .iter()
-        .all(|field| field.presence == Presence::Optional || !field.is_blank());
-    if !ready {
+        .map(|spec| FieldDraft::refitted(spec, draft.fields.iter().find(|f| f.kind == spec.kind)))
+        .collect();
+    Draft { fields, ..draft }
+}
+
+/// What is wrong with the form as typed, if anything: porter's `form_problem`, the one rule the
+/// service sends by too.
+fn problem_of(specs: &[FieldSpec], draft: &Draft) -> Option<FieldProblem> {
+    form_problem(&shaped(specs, draft), &answers_of(draft))
+}
+
+/// Send the form when it has nothing wrong; the secrets leave the draft with it. A form with a
+/// field that cannot be right is not sent: that field is marked.
+fn submit(specs: &[FieldSpec], draft: Draft) -> (Draft, Option<SheetInput>) {
+    if problem_of(specs, &draft).is_some() {
         return (draft, None);
     }
-    let answers = draft
-        .fields
-        .iter()
-        .map(|field| FieldAnswer {
-            kind: field.kind,
-            value: match &field.value {
-                FieldValue::Plain(text) => FieldValue::Plain(text.trim().to_owned()),
-                secret @ FieldValue::Secret(_) => secret.clone(),
-            },
-        })
-        .collect();
+    let answers = answers_of(&draft);
     let fields = draft
         .fields
         .into_iter()
@@ -463,33 +518,19 @@ pub(super) fn step_of(sheet: &Sheet) -> Option<Step> {
                 ListKey::Other => ProviderPick::Other,
             }),
         }),
-        SheetView::SignIn(form) => Step::SignIn(SignInProps {
-            provider: provider_label(&form.provider),
-            mark: mark_of(form.provider.as_str()),
-            fields: draft
-                .fields
-                .iter()
-                .map(|field| FormField {
-                    role: role_of(field.kind),
-                    requirement: match field.presence {
-                        Presence::Required => Requirement::Required,
-                        Presence::Optional => Requirement::Optional,
-                    },
-                    text: match &field.value {
-                        FieldValue::Secret(text) => FieldText::Secret(Hidden::new(text.expose())),
-                        FieldValue::Plain(text) => FieldText::Plain(text.clone()),
-                    },
-                })
-                .collect(),
-            problem: form.problem.map(|problem| ShellProblem {
-                role: role_of(problem.field),
-                kind: match problem.problem {
-                    ProblemKind::Missing => ShellProblemKind::Missing,
-                    ProblemKind::Refused => ShellProblemKind::Refused,
-                },
-                attempt: Attempt(draft.submits.0),
-            }),
-        }),
+        SheetView::SignIn(form) => {
+            let manual = is_manual(&form.fields);
+            Step::SignIn(SignInProps {
+                provider: provider_label(&form.provider),
+                mark: mark_of(form.provider.as_str()),
+                fields: draft
+                    .fields
+                    .iter()
+                    .map(|field| form_field(field, draft, manual))
+                    .collect(),
+                problem: form_marked(&form.fields, form.problem, draft),
+            })
+        }
         SheetView::BrowserWait { provider, url } => Step::Browser {
             provider: provider_label(provider),
             url: url.as_str().to_owned(),
@@ -538,6 +579,123 @@ pub(super) fn step_of(sheet: &Sheet) -> Option<Step> {
     })
 }
 
+/// One field of the form, as quire's part is given it.
+fn form_field(field: &FieldDraft, draft: &Draft, manual: bool) -> FormField {
+    let requirement = match field.presence {
+        Presence::Required => Requirement::Required,
+        Presence::Optional => Requirement::Optional,
+    };
+    let text = match &field.value {
+        FieldValue::Secret(text) => FieldText::Secret(Hidden::new(text.expose())),
+        FieldValue::Plain(text) => FieldText::Plain(text.clone()),
+    };
+    let mut out = FormField::new(role_of(field.kind), requirement, text);
+    if !field.kind.choices().is_empty() {
+        out = out.choosing(choices_of(field.kind));
+    }
+    if matches!(field.kind, FieldKind::Port | FieldKind::OutgoingPort) {
+        out = out.hinted(usual_port(field.kind, draft).to_string());
+    }
+    // The server form is long enough to be read in parts; the first form (an address, a
+    // password) is one group.
+    match manual {
+        true => out.in_part(part_of(field.kind)),
+        false => out,
+    }
+}
+
+/// The field to mark: what the service said was wrong, or the first field that cannot be right as
+/// typed. An `Invalid` mark is also what quire draws Continue disabled for.
+fn form_marked(
+    specs: &[FieldSpec],
+    said: Option<FieldProblem>,
+    draft: &Draft,
+) -> Option<ShellProblem> {
+    let mark = |problem: FieldProblem, attempt: u32| ShellProblem {
+        role: role_of(problem.field),
+        kind: match problem.problem {
+            ProblemKind::Missing => ShellProblemKind::Missing,
+            ProblemKind::Refused => ShellProblemKind::Refused,
+            ProblemKind::Invalid => ShellProblemKind::Invalid,
+        },
+        attempt: Attempt(attempt),
+    };
+    if let Some(problem) = said {
+        return Some(mark(problem, draft.submits.0));
+    }
+    problem_of(specs, draft)
+        .filter(|problem| problem.problem == ProblemKind::Invalid)
+        .map(|problem| mark(problem, draft.submits.0))
+}
+
+/// The part of the server form a field sits in.
+fn part_of(kind: FieldKind) -> FormPart {
+    match kind {
+        FieldKind::Protocol
+        | FieldKind::Server
+        | FieldKind::Security
+        | FieldKind::Port
+        | FieldKind::SessionUrl => FormPart::Incoming,
+        FieldKind::OutgoingServer | FieldKind::OutgoingSecurity | FieldKind::OutgoingPort => {
+            FormPart::Outgoing
+        }
+        FieldKind::Address
+        | FieldKind::Username
+        | FieldKind::Password
+        | FieldKind::ApiKey
+        | FieldKind::Token => FormPart::SignIn,
+    }
+}
+
+/// The options of a choice field, each of porter's slugs in mailo's words.
+fn choices_of(kind: FieldKind) -> Vec<Choice> {
+    kind.choices()
+        .iter()
+        .map(|slug| Choice::new(*slug, choice_label(slug)))
+        .collect()
+}
+
+/// What a choice's slug is called.
+pub(super) fn choice_label(slug: &str) -> String {
+    match slug {
+        "imap" => "IMAP",
+        "pop3" => "POP3",
+        "jmap" => "JMAP",
+        "tls" => "SSL/TLS",
+        "starttls" => "STARTTLS",
+        other => other,
+    }
+    .to_owned()
+}
+
+/// The port a server usually listens on, for the protocol and security the draft holds: the
+/// number a port's empty entry shows.
+fn usual_port(port: FieldKind, draft: &Draft) -> u16 {
+    let plain = |kind| {
+        draft
+            .fields
+            .iter()
+            .find(|field| field.kind == kind)
+            .and_then(|field| match &field.value {
+                FieldValue::Plain(text) => Some(text.as_str()),
+                FieldValue::Secret(_) => None,
+            })
+    };
+    let outgoing = port == FieldKind::OutgoingPort;
+    let secure = plain(match outgoing {
+        true => FieldKind::OutgoingSecurity,
+        false => FieldKind::Security,
+    }) != Some("starttls");
+    match (outgoing, plain(FieldKind::Protocol), secure) {
+        (true, _, true) => 465,
+        (true, _, false) => 587,
+        (false, Some("pop3"), true) => 995,
+        (false, Some("pop3"), false) => 110,
+        (false, _, true) => 993,
+        (false, _, false) => 143,
+    }
+}
+
 fn copy_state(draft: &Draft) -> CopyState {
     match draft.copied {
         CopyMark::Idle => CopyState::Idle,
@@ -577,6 +735,13 @@ pub(super) fn role_of(kind: FieldKind) -> FieldRole {
         FieldKind::Password => FieldRole::Password,
         FieldKind::ApiKey => FieldRole::ApiKey,
         FieldKind::Token => FieldRole::Token,
+        FieldKind::Protocol => FieldRole::Protocol,
+        FieldKind::Port => FieldRole::Port,
+        FieldKind::Security => FieldRole::Security,
+        FieldKind::OutgoingServer => FieldRole::OutgoingServer,
+        FieldKind::OutgoingPort => FieldRole::OutgoingPort,
+        FieldKind::OutgoingSecurity => FieldRole::OutgoingSecurity,
+        FieldKind::SessionUrl => FieldRole::SessionUrl,
     }
 }
 
@@ -589,6 +754,13 @@ pub(super) fn kind_of(role: FieldRole) -> FieldKind {
         FieldRole::Password => FieldKind::Password,
         FieldRole::ApiKey => FieldKind::ApiKey,
         FieldRole::Token => FieldKind::Token,
+        FieldRole::Protocol => FieldKind::Protocol,
+        FieldRole::Port => FieldKind::Port,
+        FieldRole::Security => FieldKind::Security,
+        FieldRole::OutgoingServer => FieldKind::OutgoingServer,
+        FieldRole::OutgoingPort => FieldKind::OutgoingPort,
+        FieldRole::OutgoingSecurity => FieldKind::OutgoingSecurity,
+        FieldRole::SessionUrl => FieldKind::SessionUrl,
     }
 }
 

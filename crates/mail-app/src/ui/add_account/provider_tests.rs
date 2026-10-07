@@ -8,11 +8,13 @@ use chrono::Utc;
 use mail_core::account::Setup;
 use mail_core::discover::{Failed, Found, Gap, Source};
 use mail_domain::presets::{self, Manual};
+use mail_domain::{HttpAuth, Incoming, LeaveOnServer, Outgoing, Tls};
 use porter_core::sheet::{
-    Entry, FieldAnswer, FieldKind, FieldValue, Presence, SignInFault, SignInInput,
+    Entry, FieldAnswer, FieldKind, FieldSpec, FieldValue, Presence, Protocol, SignInFault,
+    SignInInput, manual_form,
 };
 use porter_core::{Credential, ProviderId, SecretText};
-use porter_provider::{DomainName, Issuer, Provider, SignIn, SignInMode, SignInStart, SignInStep};
+use porter_provider::{Issuer, Provider, SignIn, SignInMode, SignInStart, SignInStep};
 use tokio::sync::Notify;
 
 use super::provider::{Added, MailProvider, Request, Seams, offered};
@@ -291,18 +293,44 @@ async fn an_oauth_provider_asks_for_a_password_only_when_the_address_turns_out_t
     assert_eq!(fields[0].prefill.as_deref(), Some("ada@example.test"));
 }
 
-#[tokio::test]
-async fn no_servers_found_asks_for_the_server_and_adds_imap_and_smtp_there() {
-    let log = Arc::new(Log::default());
-    let script = Script {
+/// No server is found for `ada@example.test`.
+fn nothing_found() -> Script {
+    Script {
         lookup: Err(Failed::NoServers {
             address: "ada@example.test".to_owned(),
             gap: Gap::Nothing,
             tried: String::new(),
         }),
         ..Script::default()
-    };
-    let fakes = seams(&script, &log);
+    }
+}
+
+fn plain(kind: FieldKind, text: &str) -> FieldAnswer {
+    answer(kind, FieldValue::Plain(text.to_owned()))
+}
+
+/// A sign-in that asked for the servers (the lookup found none), over seams whose add records
+/// the request it is handed.
+async fn asked_servers(
+    script: &Script,
+) -> (
+    super::provider::MailSignIn,
+    Vec<FieldSpec>,
+    Arc<Mutex<Option<(Setup, Option<String>)>>>,
+) {
+    let log = Arc::new(Log::default());
+    let seen = Arc::new(Mutex::new(None));
+    let record = seen.clone();
+    let mut fakes = seams(script, &log);
+    fakes.add = Arc::new(move |request| {
+        *record.lock().unwrap() = Some((
+            request.setup,
+            request
+                .password
+                .map(|password| password.expose().to_owned()),
+        ));
+        Ok(String::new())
+    });
     let mut sign_in = start(&provider("generic-imap", &fakes, &Added::default(), None));
     sign_in.next(SignInInput::Start).await;
     let ask = sign_in
@@ -314,50 +342,147 @@ async fn no_servers_found_asks_for_the_server_and_adds_imap_and_smtp_there() {
     let SignInStep::AskFields(fields) = ask else {
         panic!("{ask:?}");
     };
+    (sign_in, fields, seen)
+}
+
+#[tokio::test]
+async fn no_servers_found_asks_for_the_typed_server_form_and_adds_imap_and_smtp_there() {
+    let (mut sign_in, fields, seen) = asked_servers(&nothing_found()).await;
+    // Porter's form, guessed from the address's domain, with no password asked twice.
     assert_eq!(
-        fields.iter().map(|f| f.kind).collect::<Vec<_>>(),
-        [FieldKind::Server],
-        "the password is not asked twice"
+        fields,
+        manual_form(Protocol::Imap, Some("example.test")),
+        "the form is porter's"
     );
+    assert!(fields.iter().all(|f| f.kind != FieldKind::Password));
     let review = sign_in
-        .next(SignInInput::Fields(vec![answer(
-            FieldKind::Server,
-            FieldValue::Plain("mail.example.test".to_owned()),
-        )]))
-        .await;
-    assert!(matches!(review, SignInStep::Review { .. }), "{review:?}");
-    // The setup the add is handed is the typed server, on the usual ports.
-    let host = DomainName::parse("mail.example.test").unwrap();
-    let want = Setup::Imap(Manual {
-        imap_host: host.to_string(),
-        imap_port: 993,
-        smtp_host: host.to_string(),
-        smtp_port: 465,
-        login: None,
-    });
-    let seen = Arc::new(Mutex::new(None));
-    let record = seen.clone();
-    let mut capture = fakes.clone();
-    capture.add = Arc::new(move |request| {
-        *record.lock().unwrap() = Some(request.setup);
-        Ok(String::new())
-    });
-    let mut again = start(&provider("generic-imap", &capture, &Added::default(), None));
-    again.next(SignInInput::Start).await;
-    again
         .next(SignInInput::Fields(vec![
-            address("ada@example.test"),
-            password(PASSWORD),
+            plain(FieldKind::Protocol, "imap"),
+            plain(FieldKind::Server, "mail.example.test"),
+            plain(FieldKind::Security, "tls"),
+            plain(FieldKind::Port, ""),
+            plain(FieldKind::OutgoingServer, "smtp.example.test"),
+            plain(FieldKind::OutgoingSecurity, "tls"),
+            plain(FieldKind::OutgoingPort, ""),
+            plain(FieldKind::Username, ""),
         ]))
         .await;
-    again
-        .next(SignInInput::Fields(vec![answer(
-            FieldKind::Server,
-            FieldValue::Plain("mail.example.test".to_owned()),
-        )]))
+    assert!(matches!(review, SignInStep::Review { .. }), "{review:?}");
+    sign_in.next(SignInInput::Confirm(vec![])).await;
+    let (setup, secret) = seen.lock().unwrap().clone().expect("added");
+    let manual = Manual {
+        imap_host: "mail.example.test".to_owned(),
+        imap_port: 993,
+        smtp_host: "smtp.example.test".to_owned(),
+        smtp_port: 465,
+        login: None,
+    };
+    let want = Setup::Discovered(Box::new(presets::manual(
+        "ada@example.test",
+        &manual,
+        Utc::now(),
+    )));
+    // `expected_caps.observed_at` is the moment it was made: compare the plan.
+    match (&setup, &want) {
+        (Setup::Discovered(got), Setup::Discovered(want)) => assert_eq!(got.plan, want.plan),
+        _ => panic!("{setup:?}"),
+    }
+    assert_eq!(secret.as_deref(), Some(PASSWORD));
+}
+
+#[tokio::test]
+async fn a_typed_pop3_server_with_starttls_and_a_login_is_added_as_pop3_with_each_security() {
+    let (mut sign_in, _, seen) = asked_servers(&nothing_found()).await;
+    let review = sign_in
+        .next(SignInInput::Fields(vec![
+            plain(FieldKind::Protocol, "pop3"),
+            plain(FieldKind::Server, "pop.example.test"),
+            plain(FieldKind::Security, "starttls"),
+            plain(FieldKind::Port, "2110"),
+            plain(FieldKind::OutgoingServer, "smtp.example.test"),
+            plain(FieldKind::OutgoingSecurity, "tls"),
+            plain(FieldKind::OutgoingPort, ""),
+            plain(FieldKind::Username, "ada"),
+        ]))
         .await;
-    again.next(SignInInput::Confirm(vec![])).await;
-    assert_eq!(seen.lock().unwrap().clone(), Some(want));
+    assert!(matches!(review, SignInStep::Review { .. }), "{review:?}");
+    sign_in.next(SignInInput::Confirm(vec![])).await;
+    let (setup, secret) = seen.lock().unwrap().clone().expect("added");
+    let Setup::Discovered(preset) = setup else {
+        panic!("{setup:?}");
+    };
+    assert_eq!(
+        preset.plan.incoming,
+        Incoming::Pop3 {
+            host: "pop.example.test".to_owned(),
+            port: 2110,
+            tls: Tls::StartTlsRequired,
+            leave: LeaveOnServer::Keep,
+        }
+    );
+    assert_eq!(
+        preset.plan.outgoing,
+        Outgoing::Smtp {
+            host: "smtp.example.test".to_owned(),
+            port: 465,
+            tls: Tls::Implicit,
+        }
+    );
+    assert_eq!(preset.plan.username(), "ada");
+    assert_eq!(secret.as_deref(), Some(PASSWORD));
+}
+
+#[tokio::test]
+async fn a_typed_jmap_server_with_a_token_signs_in_with_the_token_as_a_bearer() {
+    let (mut sign_in, _, seen) = asked_servers(&nothing_found()).await;
+    let review = sign_in
+        .next(SignInInput::Fields(vec![
+            plain(FieldKind::Protocol, "jmap"),
+            plain(FieldKind::SessionUrl, "https://jmap.example.test/session"),
+            answer(
+                FieldKind::Token,
+                FieldValue::Secret(SecretText::new("api-token-77")),
+            ),
+            plain(FieldKind::Username, ""),
+        ]))
+        .await;
+    assert!(matches!(review, SignInStep::Review { .. }), "{review:?}");
+    sign_in.next(SignInInput::Confirm(vec![])).await;
+    let (setup, secret) = seen.lock().unwrap().clone().expect("added");
+    assert_eq!(
+        setup,
+        Setup::Jmap {
+            session: Some("https://jmap.example.test/session".to_owned()),
+            login: None,
+            auth: HttpAuth::Bearer,
+        }
+    );
+    assert_eq!(
+        secret.as_deref(),
+        Some("api-token-77"),
+        "the token, not the password"
+    );
+
+    // Without a token, the password typed first is the credential, sent as Basic.
+    let (mut sign_in, _, seen) = asked_servers(&nothing_found()).await;
+    sign_in
+        .next(SignInInput::Fields(vec![
+            plain(FieldKind::Protocol, "jmap"),
+            plain(FieldKind::SessionUrl, "https://jmap.example.test/session"),
+            plain(FieldKind::Username, "ada"),
+        ]))
+        .await;
+    sign_in.next(SignInInput::Confirm(vec![])).await;
+    let (setup, secret) = seen.lock().unwrap().clone().expect("added");
+    assert_eq!(
+        setup,
+        Setup::Jmap {
+            session: Some("https://jmap.example.test/session".to_owned()),
+            login: Some("ada".to_owned()),
+            auth: HttpAuth::Basic,
+        }
+    );
+    assert_eq!(secret.as_deref(), Some(PASSWORD));
 }
 
 #[tokio::test]
