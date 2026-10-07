@@ -7,7 +7,6 @@
 //! (`main.rs`) is the router between them.
 
 pub mod accountd;
-pub mod adoption;
 pub mod cli;
 pub mod intents;
 pub mod session;

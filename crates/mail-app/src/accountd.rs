@@ -246,7 +246,7 @@ pub const HELD_LINE: &str =
 /// Sets aside the accounts Mail signed in itself when `link` is accountd's, and takes them back
 /// when it is not. Nothing is written or deleted: their plans, their mail and their keyring
 /// items stay as they are for a start that is not linked. Called once, as soon as the link is
-/// chosen and before anything lists, syncs or adopts.
+/// chosen and before anything lists or syncs.
 pub fn hold_back(store: &SqliteStore, link: &Link) {
     store.set_granted_only(link.accountd().is_some());
 }

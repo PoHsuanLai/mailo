@@ -282,7 +282,7 @@ fn main() {
             eprintln!("mailo: accounts link: {}", linked.name());
         }
         // Linked to accountd, only its accounts are Mail's: the ones Mail signed in itself are
-        // set aside, untouched, before anything lists, syncs or adopts.
+        // set aside, untouched, before anything lists or syncs.
         mail_app::accountd::hold_back(&store, &linked);
         // The accounts accountd offers, read into the store before anything draws or syncs.
         match mail_app::accountd::read(&store, &linked) {
@@ -295,12 +295,6 @@ fn main() {
             Err(why) => eprintln!("mailo: reading the desktop's accounts: {why}"),
         }
     }
-    // After the link is chosen, because linked to accountd the accounts Mail signed in itself are
-    // not adopted (their keyring items stay as they are). The window and `watch` live long enough
-    // to move what an earlier build kept in the keyring into porter's store: once, on a thread of
-    // its own, and nothing waits on it (until it has run the old entries are read behind the new
-    // store). A failure is logged, not fatal.
-    mail_app::adoption::for_command(command.as_ref(), &store, mail_app::adoption::platform);
     let start = match &mailto {
         Some(link) => match mail_app::ui::start_mailto(&store, link, chrono::Utc::now()) {
             Ok(compose) => Some(compose),

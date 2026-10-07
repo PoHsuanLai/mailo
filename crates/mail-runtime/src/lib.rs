@@ -4,7 +4,6 @@
 //! satisfies those, which is what makes cancellation expressible at all — see [`drive`].
 
 pub mod account_secrets;
-pub mod adopt;
 pub mod assemble;
 pub mod authorize;
 pub mod bimi;

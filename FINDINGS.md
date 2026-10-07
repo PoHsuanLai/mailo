@@ -5226,3 +5226,22 @@ own move of its pre-porter keyring entries, not porter's).
   link_to_whoever_asks_and_holds_no_secret_of_its_own`, `mail-app` `accountd::tests::the_line_is_there_
   only_when_linked_and_only_when_mail_signed_some_account_in_itself` and `add_account::route_tests`.
   The existing suite, `Link::Local`, is unchanged.
+- **Held accounts can be removed from the list.** Each is listed by address in Settings > Accounts with
+  a Remove button beside Add Account; it asks in the removal's own words (the mail on this computer
+  that goes with the account; mail on the server is not touched) and is the same removal as `mailo
+  account remove`, which forgets its sign-in from mailo's own store (`mail_runtime::own_secrets`: the
+  linked secrets hold none, and the items of a removed account must not be left behind). The refusal
+  when accountd's account of the same address cannot be added, and the start line, say: "Remove it
+  first: mailo account remove <address>". `accounts.address` stays unique. Test:
+  `held_while_linked::removing_a_held_account_frees_its_address_for_accountds_and_touches_no_other`.
+- **`mail_runtime::adopt` is gone** (the owner's keyring was already moved). Removed: `adopt.rs` and its
+  tests (the cut-point table, the two-process run, the PlatformSecrets fallback tests), `mail_app::
+  adoption` and its start in `main`, the store's `unadopted_accounts`, `secrets_adopted` and
+  `mark_secrets_adopted`, `PlatformSecrets`' fallback to the old `service=mailo` entries (it is now the
+  platform store and nothing else: `PlatformSecrets::over(native)`), and `chunks::testing`. Migration
+  0028 stays (migrations are append-only); `secrets_adopted` is an unused table. `Stored`, `chunks` and
+  `keyring-core` stay: the signing keys are still kept that way. `check-boundary.sh` now refuses
+  `mail_runtime::adopt`, `mail_app::adoption`, `unadopted_accounts` and `mark_secrets_adopted` coming
+  back (it had no adopt entry before). An entry an earlier build left under `service=mailo` is no longer
+  found or moved: F200's adoption paragraphs describe what this removes. What F205 said of
+  adoption running after the link is chosen no longer applies, there being none.

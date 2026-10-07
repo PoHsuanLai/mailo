@@ -178,13 +178,3 @@ fn set_aside_their_mail_is_in_no_listing_and_no_count_and_is_still_stored() {
     store.set_granted_only(false);
     assert_eq!(store.count(&Filter::All, now()).unwrap(), 2);
 }
-
-#[test]
-fn set_aside_the_secrets_of_their_accounts_are_not_up_for_adoption() {
-    let (store, _dir) = store();
-    assert_eq!(store.unadopted_accounts().unwrap().len(), 5);
-    store.set_granted_only(true);
-    let ids = store.unadopted_accounts().unwrap();
-    assert_eq!(ids.len(), 3);
-    assert!(!ids.contains(&account(1)) && !ids.contains(&account(2)));
-}

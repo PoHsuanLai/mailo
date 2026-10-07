@@ -20,10 +20,10 @@ use crate::ui::view::{AccountStep, AccountsPage, Shell};
 use dioxus::prelude::*;
 use ds::components::content::label::Label;
 use ds::components::controls::button_model::{Bezel, ButtonRole};
-use ds::components::overlays::alert_model::{AlertButton, AlertRole, AlertStyle};
 use ds::components::fields::field_row::FieldRow;
 use ds::components::lists::list::model::ListStyle;
 use ds::components::lists::row::size::RowSize;
+use ds::components::overlays::alert_model::{AlertButton, AlertRole, AlertStyle};
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::icon::family::PlateFamily;
@@ -88,9 +88,9 @@ fn AccountList(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
         .unwrap_or_default();
     // Linked to the desktop's accounts, with accounts here that Mail itself signed in: one line,
     // and each of them to remove.
-    let held = store
-        .as_ref()
-        .and_then(|store| crate::accountd::held_line(store).map(|line| (line, crate::accountd::held(store))));
+    let held = store.as_ref().and_then(|store| {
+        crate::accountd::held_line(store).map(|line| (line, crate::accountd::held(store)))
+    });
     let mut items: Vec<ListItem<String>> = Vec::new();
     if rows.is_empty() {
         items.push(ListItem::row(
