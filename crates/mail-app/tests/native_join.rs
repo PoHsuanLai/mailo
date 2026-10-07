@@ -117,6 +117,16 @@ fn centre(harness: &Harness, selector: &str) -> Point {
         .unwrap_or_else(|| panic!("{selector} is not drawn:\n{}", harness.html()))
 }
 
+/// One menu open and placed. quire draws a menu hung from its anchor only once the anchor is
+/// measured (until then it is laid out but hidden, and a press cannot land on it), so a test
+/// waits for the place, not just the element.
+fn menu_placed(harness: &Harness) -> bool {
+    harness.count(".ds-menu") == 1
+        && !harness
+            .attr(".ds-menu", "style")
+            .is_some_and(|style| style.contains("visibility:hidden"))
+}
+
 #[test]
 fn plus_offers_the_account_the_space_does_not_show_and_picking_it_brings_it_in() {
     let (mut harness, _dir, opened) = open();
@@ -126,7 +136,7 @@ fn plus_offers_the_account_the_space_does_not_show_and_picking_it_brings_it_in()
     );
 
     harness.click(centre(&harness, PLUS));
-    settle_until(&mut harness, |h| h.count(".ds-menu") == 1);
+    settle_until(&mut harness, menu_placed);
     let menu = harness.html();
     assert!(
         menu.contains("me@home.example"),
@@ -147,7 +157,7 @@ fn plus_offers_the_account_the_space_does_not_show_and_picking_it_brings_it_in()
 fn when_every_account_is_shown_plus_goes_straight_to_add_account() {
     let (mut harness, _dir, opened) = open();
     harness.click(centre(&harness, PLUS));
-    settle_until(&mut harness, |h| h.count(".ds-menu") == 1);
+    settle_until(&mut harness, menu_placed);
     harness.click(centre(&harness, ".ds-menu .ds-menu-item"));
     settle_until(&mut harness, |h| h.count(".ds-menu") == 0);
 

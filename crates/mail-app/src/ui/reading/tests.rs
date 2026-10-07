@@ -221,7 +221,9 @@ fn row_has(item: &str, name: &str, size: &str, action: &str) -> Result<(), Strin
         name_cell.as_str(),
         size_cell.as_str(),
         button.as_str(),
-        "m16 6-8.41",
+        // A drawn glyph marks the row (quire's icon, not an emoji). Not its path: quire's glyphs
+        // change shape between releases (v0.2.21 made them solid).
+        r#"class="ds-ic""#,
     ] {
         if !item.contains(needle) {
             missing.push(needle.to_owned());
