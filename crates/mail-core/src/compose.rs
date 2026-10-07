@@ -719,6 +719,10 @@ pub fn new_sealed_message(
     Ok(out)
 }
 
+/// The line a forward's header block starts with. What follows it is the original's, not the
+/// sender's own words.
+pub const FORWARDED: &str = "---------- Forwarded message ----------";
+
 /// The forward body: what the user wrote, then the original beneath a header block.
 ///
 /// Not `>`-quoted. A forward is the message itself being passed on rather than answered, and
@@ -733,7 +737,7 @@ where
         out.push_str(body.trim_end());
         out.push_str("\r\n");
     }
-    out.push_str("\r\n---------- Forwarded message ----------\r\n");
+    let _ = write!(out, "\r\n{FORWARDED}\r\n");
     let _ = write!(
         out,
         "From: {}\r\n",

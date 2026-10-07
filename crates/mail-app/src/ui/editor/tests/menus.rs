@@ -45,6 +45,19 @@ fn attachment_detector_in_six_languages() {
         !missing_attachment(&doc),
         "an attachment object satisfies the guard"
     );
+
+    let forward = Doc::from_text(
+        "For you.\n\n---------- Forwarded message ----------\nFrom: Ada\n\nThe minutes are attached.",
+    );
+    assert!(
+        !missing_attachment(&forward),
+        "a forwarded message's words are not the sender's"
+    );
+    let asks = Doc::from_text("See the attached.\n\n---------- Forwarded message ----------");
+    assert!(
+        missing_attachment(&asks),
+        "the sender's own words still count"
+    );
 }
 
 #[test]
