@@ -14,13 +14,15 @@ mod server;
 pub(in crate::ui) mod work;
 
 use dioxus::prelude::*;
-use ds::components::fields::field_row::{FieldGroup, FieldRow};
+use ds::components::fields::field_row::FieldRow;
 use ds::components::menus::item::item::MenuItem;
 use ds::components::menus::pop_up_button::PopUpButton;
+use ds::prelude::*;
 use mail_store::SqliteStore;
 use porter_core::AccountId;
 use std::sync::Arc;
 
+use super::common::Told;
 use super::data::account_rows;
 use crate::ui::view::{RulesPage as Showing, Shell};
 use away::AwayPart;
@@ -43,33 +45,40 @@ pub(in crate::ui) fn RulesPage(shell: Signal<Shell>, revision: Signal<u64>) -> E
         .map(|row| MenuItem::new(row.id.clone(), row.shown()))
         .collect();
     let several = items.len() > 1;
+    // What the last act on the page came to, whichever group it was done in: said once, at the
+    // head of the page, and forgotten when another account is chosen.
+    let mut said = use_signal(|| None::<Result<String, String>>);
     rsx! {
-        if several && let Some(current) = account.as_ref() {
-            FieldGroup {
-                FieldRow { label: "Account",
-                    PopUpButton::<AccountId> {
-                        items,
-                        value: Some(current.id.clone()),
-                        title: Some("Account".to_owned()),
-                        onpick: move |id: AccountId| {
-                            shell.write().rules = Showing { account: Some(id) };
-                        },
+        Form {
+            Told { said: said() }
+            if several && let Some(current) = account.as_ref() {
+                FormSection {
+                    FieldRow { label: "Account",
+                        PopUpButton::<AccountId> {
+                            items,
+                            value: Some(current.id.clone()),
+                            title: Some("Account".to_owned()),
+                            onpick: move |id: AccountId| {
+                                said.set(None);
+                                shell.write().rules = Showing { account: Some(id) };
+                            },
+                        }
                     }
                 }
             }
-        }
-        match account {
-            None => rsx! {
-                FieldGroup { title: "Rules",
-                    FieldRow { label: "Add an account first." }
-                }
-            },
-            // The first node's key is the whole block's: another account remounts all three parts.
-            Some(row) => rsx! {
-                RulesPart { key: "{row.id}", account: row.id.clone(), shown: row.shown(), revision }
-                AwayPart { row: row.clone() }
-                ServerPart { row }
-            },
+            match account {
+                None => rsx! {
+                    FormSection { title: Some("Rules".to_owned()),
+                        FieldRow { label: "Add an account first." }
+                    }
+                },
+                // The first node's key is the whole block's: another account remounts all three parts.
+                Some(row) => rsx! {
+                    RulesPart { key: "{row.id}", account: row.id.clone(), shown: row.shown(), revision, said }
+                    AwayPart { row: row.clone(), said }
+                    ServerPart { row, said }
+                },
+            }
         }
     }
 }

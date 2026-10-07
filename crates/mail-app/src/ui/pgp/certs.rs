@@ -12,6 +12,7 @@ use ds::components::lists::list::model::ListStyle;
 use ds::components::lists::row::size::RowSize;
 use ds::prelude::*;
 use ds::root::common::Common;
+use ds::style::icon::family::PlateFamily;
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
@@ -20,6 +21,7 @@ use mail_domain::{CertFingerprint, CertSource, KeyTrust, SecretHeld, SmimeCert};
 use mail_runtime::SigningStore;
 use mail_store::SqliteStore;
 
+use super::super::common::tile;
 use super::super::press::{available, on_primary};
 use super::super::sidebar::tagged;
 use super::key_row::Confirm;
@@ -183,7 +185,7 @@ pub(in crate::ui) fn CertPart(
         import_label.to_owned(),
         rsx! {
             Row {
-                leading: RowLeading::Icon(Icon::Plus),
+                leading: tile(Icon::Plus, PlateFamily::Green),
                 title: "Import",
                 detail: Some(TextLine::from("A certificate, or your identity as a PKCS#12 file.")),
                 size: RowSize::Settings,
@@ -199,9 +201,8 @@ pub(in crate::ui) fn CertPart(
         },
     ));
     rsx! {
-        section { class: "keys-part",
-            SectionHeader { title: "S/MIME" }
-            List::<String> { label: "S/MIME certificates", items, style: ListStyle::Inset }
+        FormSection { title: Some("S/MIME".to_owned()),
+            List::<String> { label: "S/MIME certificates", items, style: ListStyle::Grouped }
         }
     }
 }
@@ -314,7 +315,11 @@ fn CertRow(cert: SmimeCert, confirm: Signal<Confirm>, run: Callback<Job>, busy: 
     ]);
     rsx! {
         Row {
-            leading: RowLeading::Icon(if mine { Icon::Key } else { Icon::Mail }),
+            leading: if mine {
+                tile(Icon::Key, PlateFamily::Amber)
+            } else {
+                tile(Icon::Mail, PlateFamily::Blue)
+            },
             title,
             detail: Some(TextLine::from(meta)),
             size: RowSize::Settings,

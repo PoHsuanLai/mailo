@@ -8,10 +8,11 @@ use ds::components::lists::list::model::ListStyle;
 use ds::components::lists::row::size::RowSize;
 use ds::prelude::*;
 use ds::root::common::Common;
+use ds::style::icon::family::PlateFamily;
 use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
 
-use super::super::common::Told;
+use super::super::common::{Told, tile};
 use super::super::press::{available, on_primary};
 use super::certs::{CertPart, IMPORT, quiet_item};
 use super::key_row::{Asking, Confirm, KeyRow};
@@ -86,7 +87,7 @@ pub(in crate::ui) fn KeysPage() -> Element {
             label.clone(),
             rsx! {
                 Row {
-                    leading: RowLeading::Icon(Icon::Plus),
+                    leading: tile(Icon::Plus, PlateFamily::Green),
                     title: address.clone(),
                     detail: Some(TextLine::from("No key of your own yet")),
                     size: RowSize::Settings,
@@ -107,7 +108,7 @@ pub(in crate::ui) fn KeysPage() -> Element {
         import_label.to_owned(),
         rsx! {
             Row {
-                leading: RowLeading::Icon(Icon::Plus),
+                leading: tile(Icon::Plus, PlateFamily::Green),
                 title: "Import",
                 detail: Some(TextLine::from("Yours sign and decrypt; theirs encrypt and verify.")),
                 size: RowSize::Settings,
@@ -123,12 +124,13 @@ pub(in crate::ui) fn KeysPage() -> Element {
         },
     ));
     rsx! {
-        Told { said: said() }
-        section { class: "keys-part",
-            SectionHeader { title: "OpenPGP" }
-            List::<String> { label: "OpenPGP keys", items, style: ListStyle::Inset }
+        Form {
+            Told { said: said() }
+            FormSection { title: Some("OpenPGP".to_owned()),
+                List::<String> { label: "OpenPGP keys", items, style: ListStyle::Grouped }
+            }
+            CertPart { certs, failed: certs_failed, confirm, run, busy: busy() }
+            Asking { confirm, run, busy: busy() }
         }
-        CertPart { certs, failed: certs_failed, confirm, run, busy: busy() }
-        Asking { confirm, run, busy: busy() }
     }
 }
