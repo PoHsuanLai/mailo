@@ -43,7 +43,7 @@ fn pop3(leave: LeaveOnServer) -> Incoming {
     }
 }
 
-/// Each row as `label: value`, so a case reads as the sheet does.
+/// Each row as `label: value`, so a case reads as the page does.
 fn said(plan: &AccountPlan) -> Vec<String> {
     settings(plan)
         .into_iter()

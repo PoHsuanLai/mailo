@@ -3,16 +3,16 @@
 //! quire gives this VirtualDom the same root contexts as the first window. What the window keeps
 //! for itself is made here again: its `Shell` (which page is shown, which sheet is open), its
 //! `revision`, its toast host. What it changes it tells the other windows by moving the shared
-//! revision: a setting, a key binding, an account added or removed. The page it shows is the one
-//! the main window asked for last ([`super::SettingsAsked`]), and it turns to each page asked
-//! for while it is open.
+//! revision: a setting, a key binding, an account added or removed. It opens where the main
+//! window asked for last ([`super::SettingsAsked`]), a page or an account's page, and turns to
+//! each place asked for while it is open.
 
 use super::{SettingsAsked, SettingsView};
 use crate::ui::app::Frame;
 use crate::ui::appearance::WindowDirs;
 use crate::ui::space::Spaces;
 use crate::ui::style::STYLE;
-use crate::ui::view::Shell;
+use crate::ui::view::{SettingsPage, Shell};
 use dioxus::prelude::*;
 use ds::base::spawner::Spawner;
 use ds_settings::use_environment;
@@ -49,13 +49,14 @@ fn SettingsShell() -> Element {
     crate::ui::host::use_window_host();
     let dirs = try_consume_context::<WindowDirs>();
     let asked = try_consume_context::<SettingsAsked>();
-    let first = asked.as_ref().map(SettingsAsked::page).unwrap_or_default();
+    let first = asked.as_ref().map(SettingsAsked::at).unwrap_or_default();
     let shell = use_signal({
         let dirs = dirs.clone();
         move || {
             let store = consume_context::<Arc<SqliteStore>>();
             Shell {
-                settings: Some(first),
+                settings: Some(first.page()),
+                accounts_pane: first.pane(),
                 appearance: try_consume_context::<crate::ui::view::Appearance>()
                     .unwrap_or_default(),
                 keymap: dirs
@@ -68,7 +69,7 @@ fn SettingsShell() -> Element {
             }
         }
     });
-    // Each page the main window asks for while this window is open.
+    // Each place the main window asks for while this window is open.
     use_future(move || {
         let asked = asked.clone();
         async move {
@@ -76,8 +77,8 @@ fn SettingsShell() -> Element {
             let mut heard = asked.heard();
             heard.mark_unchanged();
             while heard.changed().await.is_ok() {
-                let page = *heard.borrow_and_update();
-                super::go(shell, page);
+                let at = heard.borrow_and_update().clone();
+                super::go_to(shell, at);
             }
         }
     });
@@ -115,12 +116,11 @@ fn SettingsShell() -> Element {
             crate::ui::keyboard::pressed(shell, &key, chord);
             return;
         }
-        if key != "Escape" {
-            return;
-        }
-        let open = shell.read().clone();
-        if open.account_sheet.is_some() {
-            crate::ui::account_settings::escape(shell);
+        // Escape with the keyboard outside the Accounts pane (on the window itself, or the
+        // sidebar) still goes back from an account's page; inside it the pane's stack took it.
+        let pushed = !shell.read().accounts_pane.path.is_root();
+        if key == "Escape" && pushed && shell.read().settings == Some(SettingsPage::Accounts) {
+            super::account::back(shell);
         }
     };
 
@@ -132,9 +132,6 @@ fn SettingsShell() -> Element {
                 onmounted: crate::ui::host::Host::app_mounted,
                 onkeydown: on_key,
                 SettingsView { shell, revision }
-                if shell.read().account_sheet.is_some() {
-                    crate::ui::account_settings::AccountSettingsSheet { shell, revision }
-                }
                 crate::ui::motion::Toast { shell, revision }
             }
         }
