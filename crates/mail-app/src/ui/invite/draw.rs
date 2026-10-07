@@ -341,12 +341,19 @@ fn give(
 fn save_file(message: MessageId, title: String, mut phase: Signal<Phase>) {
     let store = consume_context::<Arc<SqliteStore>>();
     let dir = super::super::files::save_dir();
+    let saving = crate::ui::downloads::Saving::quick();
     spawn(async move {
-        let done =
-            tokio::task::spawn_blocking(move || save_ics(&store, message, &title, &dir)).await;
+        let done = tokio::task::spawn_blocking(move || {
+            let saved = save_ics(&store, message, &title, &dir);
+            (saved, crate::ui::downloads::origin(&store, message))
+        })
+        .await;
         match done {
-            Ok(Ok(said)) => tell(said, Follow::Nothing),
-            Ok(Err(why)) => phase.set(Phase::Failed(format!("The file was not saved: {why}"))),
+            Ok((Ok(path), origin)) => {
+                saving.end(Some(&path), origin);
+                tell(format!("Saved to {}", path.display()), Follow::Nothing);
+            }
+            Ok((Err(why), _)) => phase.set(Phase::Failed(format!("The file was not saved: {why}"))),
             Err(error) => phase.set(Phase::Failed(format!("The file was not saved: {error}"))),
         }
     });

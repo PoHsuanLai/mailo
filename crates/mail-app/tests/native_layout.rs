@@ -331,7 +331,7 @@ fn every_footer_control_stays_inside_the_sidebar_at_its_least_width() {
     drag_sidebar(&mut harness, -60.0);
     let side = rect(&harness, ".side");
     assert!(
-        side.size.width.0 < 200.0,
+        side.size.width.0 < 220.0,
         "the sidebar did not reach its least: {}px",
         side.size.width.0
     );

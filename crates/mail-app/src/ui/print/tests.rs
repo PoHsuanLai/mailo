@@ -164,8 +164,8 @@ fn save_for_printing_writes_beside_what_is_there_and_says_where() {
     );
     let one = into.path().join(format!("{SUBJECT}.{SAVED_AS}"));
     let two = into.path().join(format!("{SUBJECT} (2).{SAVED_AS}"));
-    assert_eq!(first, format!("Saved for printing to {}", one.display()));
-    assert_eq!(second, format!("Saved for printing to {}", two.display()));
+    assert_eq!(first, Ok(one.clone()));
+    assert_eq!(second, Ok(two.clone()));
     // The PDF's own text is `pdf_tests.rs`'s; here, only that both are one. Two PDFs of the same
     // document are not byte for byte the same (each file's `/ID` is its own), so no more.
     for path in [&one, &two] {
@@ -193,7 +193,8 @@ fn a_thread_that_is_gone_says_so_rather_than_saving_nothing() {
         into.path(),
         &chrono::Utc,
         now(),
-    );
+    )
+    .unwrap_err();
     assert!(said.starts_with("Could not save for printing:"), "{said}");
     assert_eq!(std::fs::read_dir(into.path()).unwrap().count(), 0);
 }

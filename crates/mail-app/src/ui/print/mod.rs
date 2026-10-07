@@ -72,8 +72,9 @@ where
 /// The file Save for printing writes ends in this.
 pub(in crate::ui) const SAVED_AS: &str = "pdf";
 
-/// Build `job` and write it into `dir` beside anything already there, and say where it went.
-/// Blocking. A PDF, with the remote images `sources` consents to.
+/// Build `job` and write it into `dir` beside anything already there, and answer where it went,
+/// or the sentence that says why it did not. Blocking. A PDF, with the remote images `sources`
+/// consents to.
 pub(in crate::ui) fn save_into<Tz>(
     store: &SqliteStore,
     job: Job,
@@ -81,21 +82,19 @@ pub(in crate::ui) fn save_into<Tz>(
     dir: &Path,
     zone: &Tz,
     now: DateTime<Utc>,
-) -> String
+) -> Result<std::path::PathBuf, String>
 where
     Tz: TimeZone,
     Tz::Offset: std::fmt::Display,
 {
-    let saved = saved_bytes(store, job, sources, zone, now).and_then(|(subject, bytes)| {
-        mail_core::print::write_file_into(dir, &subject, SAVED_AS, &bytes)
-    });
-    match saved {
-        Ok(path) => format!("Saved for printing to {}", path.display()),
-        Err(why) => {
+    saved_bytes(store, job, sources, zone, now)
+        .and_then(|(subject, bytes)| {
+            mail_core::print::write_file_into(dir, &subject, SAVED_AS, &bytes)
+        })
+        .map_err(|why| {
             eprintln!("save for printing: {why}");
             format!("Could not save for printing: {why}")
-        }
-    }
+        })
 }
 
 #[cfg(test)]
@@ -127,15 +126,30 @@ pub(in crate::ui) fn save(job: Job) {
     let store = consume_context::<Arc<SqliteStore>>();
     let dir = crate::ui::files::save_dir();
     let sources = Sources::window();
+    let saving = crate::ui::downloads::Saving::quick();
     dioxus::core::spawn_forever(async move {
         let done = tokio::task::spawn_blocking(move || {
             save_into(&store, job, &sources, &dir, &chrono::Local, Utc::now())
         })
         .await;
-        tell_through(
-            said,
-            done.unwrap_or_else(|error| format!("Couldn\u{2019}t save: {error}")),
-        );
+        let text = match done {
+            Ok(Ok(path)) => {
+                // The file is named for the conversation's subject: the list's name for it.
+                let subject = path
+                    .file_stem()
+                    .map(|stem| stem.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                let origin = crate::ui::downloads::Origin {
+                    thread: job.thread,
+                    subject,
+                };
+                saving.end(Some(&path), Some(origin));
+                format!("Saved for printing to {}", path.display())
+            }
+            Ok(Err(said)) => said,
+            Err(error) => format!("Couldn\u{2019}t save: {error}"),
+        };
+        tell_through(said, text);
     });
 }
 

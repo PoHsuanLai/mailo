@@ -115,6 +115,7 @@ pub(super) fn Places(
             }
             div { class: "side-foot",
                 oncontextmenu: open_menu,
+                crate::ui::downloads::DownloadsButton { shell }
                 Button {
                     bezel: ds::components::controls::button_model::Bezel::Inline,
                     label: name.clone(),

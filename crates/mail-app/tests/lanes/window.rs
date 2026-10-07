@@ -74,6 +74,25 @@ impl Browse for Opened {
     }
 }
 
+/// Every saved file the window opened, or showed in its folder: `"open"` or `"reveal"`, and
+/// the file.
+pub type Launched = Arc<Mutex<Vec<(&'static str, PathBuf)>>>;
+
+fn file_opener(launched: &Launched) -> mail_app::ui::native::FileOpener {
+    let opened = Arc::clone(launched);
+    let revealed = Arc::clone(launched);
+    mail_app::ui::native::FileOpener::new(
+        move |path| {
+            held(&opened).push(("open", path.to_owned()));
+            Ok(())
+        },
+        move |path| {
+            held(&revealed).push(("reveal", path.to_owned()));
+            Ok(())
+        },
+    )
+}
+
 /// The frames' network: fetches nothing, as a person who never consented to remote images.
 struct Offline;
 
@@ -125,6 +144,7 @@ pub struct Window {
     shared: Shared,
     picker: Picker,
     opened: Arc<Opened>,
+    launched: Launched,
     printed: Printed,
     notices: Arc<Notices>,
     clock: WallClock,
@@ -142,6 +162,7 @@ impl Window {
         let picker = Picker::default();
         let opened = Arc::new(Opened::default());
         let printed = Printed::default();
+        let launched = Launched::default();
         let notices = Arc::new(Notices::default());
         let base = chrono::Utc::now();
         // Read first on the harness's thread, where quire's clock is the virtual one.
@@ -174,6 +195,7 @@ impl Window {
             .contexts()
             .with(printer)
             .with(clock.clone())
+            .with(file_opener(&launched))
             .with(mail_app::ui::native::Notices(notices.clone()));
         let config = HarnessConfig::new(VIEW)
             .with_focus_fallback(FocusFallback::Ancestor)
@@ -190,6 +212,7 @@ impl Window {
             shared,
             picker,
             opened,
+            launched,
             printed,
             notices,
             clock,
@@ -243,6 +266,16 @@ impl Window {
         held(&self.opened.0).clone()
     }
 
+    /// Every saved file opened, or shown in its folder, from Downloads.
+    pub fn launched(&self) -> Vec<(&'static str, PathBuf)> {
+        held(&self.launched).clone()
+    }
+
+    /// The window's state directory, where the Downloads list is stored.
+    pub fn state(&self) -> PathBuf {
+        self.shared.dirs.state.clone()
+    }
+
     /// Every PDF handed to the print dialog.
     pub fn printed(&self) -> Vec<(Vec<u8>, String)> {
         held(&self.printed).clone()
@@ -287,6 +320,14 @@ impl Window {
         let printed = Arc::clone(&self.printed);
         hands::until(&mut self.harness, what, move |_| {
             held(&printed).len() >= count
+        });
+    }
+
+    /// Wait for Downloads to have opened or shown `count` files in all.
+    pub fn until_launched(&mut self, what: &str, count: usize) {
+        let launched = Arc::clone(&self.launched);
+        hands::until(&mut self.harness, what, move |_| {
+            held(&launched).len() >= count
         });
     }
 

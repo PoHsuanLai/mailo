@@ -62,13 +62,15 @@ pub(super) fn Attachments(
             let name = row.name.clone();
             let kept = row.kept;
             let here = kept == Kept::Here;
+            let saved_name = name.clone();
+            let again_name = name.clone();
             let button = rsx! {
                 Button {
                     label,
                     common: Common { aria_label: Some(format!("{label} {name}")), ..Common::default() },
                     availability: if busy { Availability::Busy } else { Availability::Enabled },
                     onclick: super::super::press::on_primary(move || {
-                        start(message, body, index, kept, downloads, toasts);
+                        start(message, body, index, kept, &saved_name, downloads, toasts);
                     }),
                 }
             };
@@ -103,7 +105,7 @@ pub(super) fn Attachments(
                                         label: "Try Again",
                                         common: Common { aria_label: Some(format!("Try again to download {name}")), ..Common::default() },
                                         onclick: super::super::press::on_primary(move || {
-                                            start(message, body, index, kept, downloads, toasts);
+                                            start(message, body, index, kept, &again_name, downloads, toasts);
                                         }),
                                     }
                                 }),
@@ -145,24 +147,41 @@ fn start(
     body: Option<BlobId>,
     index: usize,
     kept: Kept,
+    name: &str,
     downloads: Downloads,
     toasts: Toasts,
 ) {
     if send(downloads, index, DownloadEvent::Start) != Some(DownloadEffect::Begin) {
         return;
     }
+    // What is on the server takes a while, and shows in Downloads while it does.
+    let saving = match kept {
+        Kept::OnServer => crate::ui::downloads::Saving::begin(name),
+        Kept::Here | Kept::Opened => crate::ui::downloads::Saving::quick(),
+    };
     let store = consume_context::<Arc<SqliteStore>>();
     let fetchers = fetch::fetchers();
     let dir = crate::ui::files::save_dir();
     spawn(async move {
         // `spawn_blocking`, not this task: a fetch opens sockets and builds its own runtime,
         // and `Runtime::block_on` inside an async context panics.
-        let done = tokio::task::spawn_blocking(move || match kept {
-            Kept::Here => mail_core::attach::save(&store, message, index, &dir),
-            Kept::Opened => super::super::pgp::save_attachment(message, body, index, &dir),
-            Kept::OnServer => fetch::fetch_then_save(&store, &fetchers, message, index, &dir),
+        let done = tokio::task::spawn_blocking(move || {
+            let saved = match kept {
+                Kept::Here => mail_core::attach::save(&store, message, index, &dir),
+                Kept::Opened => super::super::pgp::save_attachment(message, body, index, &dir),
+                Kept::OnServer => fetch::fetch_then_save(&store, &fetchers, message, index, &dir),
+            };
+            (saved, crate::ui::downloads::origin(&store, message))
         })
         .await;
+        let (done, origin) = match done {
+            Ok((saved, origin)) => (Ok(saved), origin),
+            Err(error) => (Err(error), None),
+        };
+        saving.end(
+            done.as_ref().ok().and_then(|saved| saved.as_deref().ok()),
+            origin,
+        );
         let event = match done {
             Ok(Ok(path)) => DownloadEvent::Saved(path),
             Ok(Err(why)) => DownloadEvent::Failed {

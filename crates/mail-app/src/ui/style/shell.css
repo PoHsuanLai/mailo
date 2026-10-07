@@ -42,6 +42,19 @@
 .space-dots { display: flex; gap: var(--s-5); align-items: center; flex: none; }
 /* The hold a dot's right click is caught on: it lays out as the dot. */
 .space-dot-hold { display: flex; }
+/* Downloads: the button's hold carries the dot that says a file is being saved, or one was
+   saved since the list was last opened. */
+.downloads-hold { position: relative; display: flex; }
+.downloads-dot {
+  position: absolute; top: var(--s-3); right: var(--s-3); width: 6px; height: 6px;
+  border-radius: var(--r-pill); background: var(--accent-text); pointer-events: none;
+}
+.downloads-dot.going { background: var(--f-ink); opacity: .62; }
+.downloads { display: flex; flex-direction: column; gap: var(--s-4); width: 320px; max-height: 420px; overflow-y: auto; scrollbar-width: none; padding: var(--s-5); }
+.downloads-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s-8); padding: 0 var(--s-6); }
+.downloads-empty { margin: 0; padding: var(--s-10) var(--s-6); color: var(--ink-soft); }
+.downloads .gone { opacity: .62; }
+.downloads-row { display: block; }
 .card {
   height: 100%; box-sizing: border-box;
   min-width: 0; min-height: 0; background: var(--surface); color: var(--ink);

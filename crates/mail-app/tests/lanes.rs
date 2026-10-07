@@ -38,6 +38,8 @@ mod compose;
 mod format;
 
 // 3–6: a reply's round trip, an invitation, links, forwarding.
+#[path = "lanes/downloads.rs"]
+mod downloads;
 #[path = "lanes/forward.rs"]
 mod forward;
 #[path = "lanes/invite.rs"]
