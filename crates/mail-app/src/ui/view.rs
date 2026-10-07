@@ -584,10 +584,14 @@ pub struct Shell {
     /// ([`Self::open`]). Always read through the list's ids, so a pick that has left the list
     /// is never acted on.
     pub picked: Picked,
-    /// Whether the reader may fetch remote images for the thread currently open.
+    /// Whether "Show images" was pressed for the thread currently open: the reader may fetch
+    /// every one of its messages' remote images.
     ///
-    /// Per thread and not persisted: consenting to load one sender's images is not consent for
-    /// the next message, and a remote image is a read receipt the sender never asked for.
+    /// Per thread and not persisted. Under `reading.remote_images = "ask"` (the default),
+    /// consenting to load one sender's images is not consent for the next message, and a remote
+    /// image is a read receipt the sender never asked for. `trusted` and `always` are the
+    /// person's standing consent, given in the settings rather than here; the reader adds what
+    /// they allow message by message (`reading::images`), and this press covers the rest.
     pub show_remote_images: bool,
     /// Where the reader sits. Per session, not persisted.
     pub peek: Peek,
@@ -1033,10 +1037,17 @@ impl Shell {
         self.composing = None;
     }
 
-    /// The sanitizer policy for the thread currently open.
+    /// The sanitizer policy for the thread currently open, by the press alone.
     pub fn policy(&self) -> SanitizePolicy {
+        self.policy_with(false)
+    }
+
+    /// The sanitizer policy for one message of the thread currently open: remote images allowed
+    /// when "Show images" was pressed, or when the settings allow them for this message
+    /// (`allowed`, from `reading::images::auto_allow`).
+    pub fn policy_with(&self, allowed: bool) -> SanitizePolicy {
         SanitizePolicy {
-            remote_images: if self.show_remote_images {
+            remote_images: if self.show_remote_images || allowed {
                 RemoteImages::Allowed
             } else {
                 RemoteImages::Blocked

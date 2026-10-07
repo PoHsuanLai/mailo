@@ -18,9 +18,10 @@
 mod legacy;
 mod words;
 
-pub use words::{BrandLogos, NewMail, ProviderMarks, ServerSearch, Spelling};
+pub use words::{BrandLogos, LoadRemoteImages, NewMail, ProviderMarks, ServerSearch, Spelling};
 
-use ds_settings::schema::{AppId, FilePath, Page, Schema, SettingsSchema};
+use ds::prelude::Word;
+use ds_settings::schema::{AppId, FilePath, KeySpec, Page, Schema, SettingsSchema, WordLabels};
 use ds_settings::{AppName, ConfigRoot, FileName, Format, SettingsDoc, Store};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -86,6 +87,51 @@ pub struct ReadingSettings {
         section = "Reading"
     )]
     pub brand_logos: BrandLogos,
+    #[settings(
+        label = "Load remote images",
+        help = "A remote image tells the sender when you read the message and your network address.",
+        section = "Reading"
+    )]
+    pub remote_images: LoadRemoteImages,
+    /// The senders whose remote images load under [`LoadRemoteImages::Trusted`]: addresses, in
+    /// lowercase, added by "Always load from" in the reader. A key of its own, a list of text, so
+    /// the desktop's Settings app can show and edit it like any other.
+    #[settings(
+        label = "Senders whose images load",
+        help = "Their images load only when the message proves it came from them.",
+        section = "Reading"
+    )]
+    pub trusted_image_senders: Vec<String>,
+}
+
+impl ReadingSettings {
+    /// Whether `email` is one of [`Self::trusted_image_senders`], whatever its case: an address's
+    /// domain has no case, and the list is kept in lowercase anyway.
+    pub fn trusts_images_from(&self, email: &str) -> bool {
+        let email = email.trim();
+        self.trusted_image_senders
+            .iter()
+            .any(|trusted| trusted.eq_ignore_ascii_case(email))
+    }
+
+    /// "Always load from" `email`: the address joins the trusted senders, in lowercase and once.
+    ///
+    /// Under [`LoadRemoteImages::Ask`] that alone would change nothing anyone can see, since
+    /// `Ask` never reads the list; so it also moves the setting to `Trusted`, which is what the
+    /// person asked for in the only words the reader gave them. `Always` is left as it is: it
+    /// already loads more than the list does.
+    pub fn trust_images_from(&mut self, email: &str) {
+        let email = email.trim().to_lowercase();
+        if email.is_empty() {
+            return;
+        }
+        if !self.trusts_images_from(&email) {
+            self.trusted_image_senders.push(email);
+        }
+        if self.remote_images == LoadRemoteImages::Ask {
+            self.remote_images = LoadRemoteImages::Trusted;
+        }
+    }
 }
 
 /// `search.*`: searching mail.
@@ -128,6 +174,7 @@ pub fn schema() -> Schema {
     ]
     .into_iter()
     .flat_map(|schema| schema.key)
+    .map(with_word_labels)
     .collect();
     Schema {
         app: AppId(APP.0.to_owned()),
@@ -135,6 +182,21 @@ pub fn schema() -> Schema {
         version: 1,
         key,
     }
+}
+
+/// `key` with the words a person reads for its values, where they are not the stored word
+/// written out: "From senders I trust" for `trusted`. The derive leaves every key's labels empty,
+/// and a Settings page shows a word without a label as itself.
+fn with_word_labels(mut key: KeySpec) -> KeySpec {
+    if key.path.0 == "reading.remote_images" {
+        key.labels = WordLabels(
+            LoadRemoteImages::ALL
+                .iter()
+                .map(|word| (word.slug().to_owned(), word.label().to_owned()))
+                .collect(),
+        );
+    }
+    key
 }
 
 /// The config root a mailo config directory stands for: `~/.config/mailo` is `~/.config`, the
