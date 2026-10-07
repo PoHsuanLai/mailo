@@ -109,7 +109,3 @@ article.frame + article.frame { border-top: var(--hair) solid var(--line-soft); 
 }
 .leave-url .dim { color: var(--ink-faint); }
 .leave-ask .acts { display: flex; justify-content: flex-end; gap: var(--s-6); padding-top: var(--s-4); }
-/* ---- printing: the head's Print, and its menu of pages ---- */
-.print-menu { display: grid; gap: var(--s-8); width: 330px; }
-.print-menu .acts { display: flex; justify-content: flex-end; gap: var(--s-6); }
-
