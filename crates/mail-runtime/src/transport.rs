@@ -49,6 +49,67 @@ pub struct Transport {
 
 const RELAYED: &str = "a relay's connection is already secured by the relay";
 
+/// A relay's stream as tokio I/O: what a client that is handed a stream (hyper, for CardDAV)
+/// reads and writes.
+pub(crate) trait RelayIo:
+    tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Unpin
+{
+}
+impl<T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Unpin> RelayIo for T {}
+
+/// The end of a porter relay (`Accounts::open_authenticated`) as [`RelayIo`], the same stream
+/// [`Transport::relayed`] wraps for the protocol machines. A socket is the socket; an in-memory
+/// duplex has no poll interface, so a task carries its bytes to and from a tokio duplex until
+/// either side is done.
+pub(crate) fn relayed_io(stream: AuthenticatedStream) -> Result<Box<dyn RelayIo>, RuntimeError> {
+    match stream {
+        #[cfg(unix)]
+        AuthenticatedStream::Fd(fd) => {
+            let socket = std::os::unix::net::UnixStream::from(fd);
+            socket
+                .set_nonblocking(true)
+                .map_err(|e| RuntimeError::Io(format!("the relay's socket: {e}")))?;
+            let socket = tokio::net::UnixStream::from_std(socket)
+                .map_err(|e| RuntimeError::Io(format!("the relay's socket: {e}")))?;
+            Ok(Box::new(socket))
+        }
+        AuthenticatedStream::Memory(mut end) => {
+            let (ours, theirs) = tokio::io::duplex(READ_CHUNK * 4);
+            tokio::spawn(async move {
+                let (mut from_us, mut to_us) = (vec![0u8; READ_CHUNK], vec![0u8; READ_CHUNK]);
+                let (mut theirs_read, mut theirs_write) = tokio::io::split(theirs);
+                loop {
+                    tokio::select! {
+                        got = ByteStream::read(&mut end, &mut to_us) => match got {
+                            Ok(0) | Err(_) => {
+                                let _ = theirs_write.shutdown().await;
+                                break;
+                            }
+                            Ok(n) => {
+                                if theirs_write.write_all(&to_us[..n]).await.is_err() {
+                                    break;
+                                }
+                            }
+                        },
+                        got = theirs_read.read(&mut from_us) => match got {
+                            Ok(0) | Err(_) => {
+                                let _ = ByteStream::shutdown(&mut end).await;
+                                break;
+                            }
+                            Ok(n) => {
+                                if ByteStream::write_all(&mut end, &from_us[..n]).await.is_err() {
+                                    break;
+                                }
+                            }
+                        },
+                    }
+                }
+            });
+            Ok(Box::new(ours))
+        }
+    }
+}
+
 /// Choose the crypto provider, once, before rustls is asked to.
 ///
 /// rustls 0.23 refuses to pick when more than one provider is compiled in, and **panics** rather

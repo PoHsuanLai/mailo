@@ -31,6 +31,13 @@ rusqlite = { version = "0.40", features = ["bundled"] }
 # The PKCE verifier and state of a sign-in (porter-oauth takes its randomness as arguments).
 rand = "0.8"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "charset", "http2"] }
+# CardDAV through accountd's relay (`carddav/relay.rs`, step E7): reqwest has no connector for a
+# stream it is handed, so the relayed requests go through hyper's own client over that stream. The
+# same hyper reqwest already uses; only the client connection and the tokio adapter are named.
+hyper = { version = "1", default-features = false, features = ["client", "http1"] }
+hyper-util = { version = "0.1", default-features = false, features = ["tokio"] }
+http-body-util = "0.1"
+bytes = "1"
 url = "2"
 base64 = "0.22"
 serde = { workspace = true }

@@ -2,10 +2,12 @@
 
 use super::{Accountd, Answer, Change, Changes, LinkError};
 use crate::Transport;
-use porter_client::{Accounts, ClientError, Found, Transport as Carrier, TransportError};
+use porter_client::{
+    Accounts, AuthenticatedStream, ClientError, Found, Transport as Carrier, TransportError,
+};
 use porter_core::capability::{Access, Delta, Offered};
 use porter_core::consent::Usage;
-use porter_core::need::MailNeed;
+use porter_core::need::{MailNeed, PimNeed};
 use porter_core::wire::{ParentWindow, ProviderHint};
 use porter_core::{
     AccountId, Audience, Candidate, DataClass, GrantId, IssuedToken, Need, ServiceEndpoint,
@@ -62,6 +64,15 @@ impl<T: Carrier + 'static> Client<T> {
         Need::Mail(MailNeed {
             access: Access::ReadWrite,
             send: Offered::Absent,
+            delta: Delta::None,
+        })
+    }
+
+    /// What Mail needs of an account to read its address books: reading them. Writing a group back
+    /// is tried when a group was edited, and a server that refuses it says so then.
+    fn contacts_need() -> Need {
+        Need::Contacts(PimNeed {
+            access: Access::Read,
             delta: Delta::None,
         })
     }
@@ -157,6 +168,49 @@ impl<T: Carrier + 'static> Accountd for Client<T> {
                 .await
                 .map_err(failed)?;
             Transport::relayed(stream).map_err(|e| LinkError::Other(e.to_string()))
+        })
+    }
+
+    fn open_stream<'a>(
+        &'a self,
+        grant: &'a GrantId,
+        endpoint: &'a ServiceEndpoint,
+    ) -> Answer<'a, AuthenticatedStream> {
+        Box::pin(async move {
+            self.accounts
+                .open_authenticated(grant, &endpoint.url)
+                .await
+                .map_err(failed)
+        })
+    }
+
+    fn contacts(&self) -> Answer<'_, Vec<Candidate>> {
+        Box::pin(async move {
+            let found = self
+                .accounts
+                .find(&Self::contacts_need(), DataClass::Contacts, self.usage)
+                .await
+                .map_err(failed)?;
+            Ok(match found {
+                Found::One(one) => vec![one],
+                Found::Several(many) => many,
+                // No grant yet (or no account): the caller asks, with `request_contacts`.
+                Found::NeedsConsent(_) | Found::None(_) => Vec::new(),
+            })
+        })
+    }
+
+    fn request_contacts(&self) -> Answer<'_, Candidate> {
+        Box::pin(async move {
+            let offer = porter_client::ConsentOffer {
+                need: Self::contacts_need(),
+                class: DataClass::Contacts,
+                usage: self.usage,
+            };
+            self.accounts
+                .request_grant(&offer, &ParentWindow::Unparented)
+                .await
+                .map_err(failed)
         })
     }
 

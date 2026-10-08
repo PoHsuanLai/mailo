@@ -19,7 +19,7 @@
 //! does. Last, every group of the book edited here is written back (`group::write_back`).
 
 use super::group::{Unwritten, put_group, write_back};
-use super::{CardDavFailure, Dav, resolve, same};
+use super::{CardDavFailure, Dav, same};
 use crate::RuntimeError;
 use mail_pim::dav::{self, Prop};
 use mail_store::{AddressBook, BookCard, GroupId, Origin, Store};
@@ -190,7 +190,7 @@ async fn report_changes(
     let mut members = Vec::new();
     let mut removed = Vec::new();
     for response in &reply.responses {
-        let href = resolve(&url, &response.href)?;
+        let href = dav.resolve(&url, &response.href)?;
         if same(&href, collection) {
             continue;
         }
@@ -226,7 +226,7 @@ async fn etags(dav: &Dav, collection: &Url) -> Result<Listing, CardDavFailure> {
         .await?;
     let mut members = Vec::new();
     for response in &reply.responses {
-        let href = resolve(&url, &response.href)?;
+        let href = dav.resolve(&url, &response.href)?;
         if same(&href, collection)
             || response
                 .props
@@ -265,7 +265,7 @@ async fn multiget(
         .await?;
     let mut out = Vec::new();
     for response in reply.responses {
-        let href = resolve(&url, &response.href)?;
+        let href = dav.resolve(&url, &response.href)?;
         if response.gone() {
             out.push((href, String::new(), None));
             continue;
