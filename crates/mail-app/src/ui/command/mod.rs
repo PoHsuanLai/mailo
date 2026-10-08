@@ -25,7 +25,7 @@ pub(in crate::ui) use items::avatar_color;
 pub(in crate::ui) use spotlight::{FIELD, LABEL};
 pub(in crate::ui) use spotlight::{Spotlight, summon};
 
-use super::ops::{Composes, start_composing, start_new};
+use super::ops::{Composes, compose_new, start_composing};
 use crate::ui::view::{Bar, BarListing, PageMenu, SettingsPage, Shell};
 use dioxus::prelude::*;
 use items::Pick;
@@ -168,13 +168,8 @@ fn run_action(
     match label {
         "Compose" => {
             let store = consume_context::<Arc<SqliteStore>>();
-            let known = shell.peek().accounts.clone();
-            match start_new(&store, &known) {
-                Ok(draft) => {
-                    shell.write().compose(&draft);
-                    *revision += 1;
-                }
-                Err(why) => eprintln!("compose: {why}"),
+            if compose_new(&store, shell) {
+                *revision += 1;
             }
             close(shell);
         }

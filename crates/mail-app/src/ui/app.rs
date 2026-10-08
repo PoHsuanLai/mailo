@@ -4,7 +4,7 @@ use super::data::{PAGE, accounts, count_badges};
 use super::frame;
 use super::list::ThreadList;
 use super::list_query::{ListView, use_list};
-use super::ops::{Composes, apply_op, start_composing, start_new};
+use super::ops::{Composes, apply_op, compose_new, start_composing};
 use super::reading::Reader;
 use super::sidebar::Places;
 use super::style::STYLE;
@@ -590,15 +590,8 @@ pub(super) fn App() -> Element {
                 // Cloned out and the guard dropped before anything writes back. The same
                 // hazard the composer's handlers document, caught here by the borrow checker
                 // rather than at runtime.
-                let known = shell.peek().accounts.clone();
-                match start_new(&store, &known) {
-                    Ok(draft) => {
-                        shell.write().compose(&draft);
-                        revision += 1;
-                    }
-                    // Nowhere to put it: the composer that would show a notice is what failed
-                    // to open. Same bind as the reply buttons, and the same answer.
-                    Err(why) => eprintln!("compose: {why}"),
+                if compose_new(&store, shell) {
+                    revision += 1;
                 }
             }
             Shortcut::Reply | Shortcut::ReplyAll | Shortcut::Forward => {
@@ -746,6 +739,9 @@ pub(super) fn App() -> Element {
             if shell.read().destroying.is_some() {
                 super::destroy::DestroySheet { shell, revision }
             }
+            if shell.read().no_account {
+                super::no_account::NoAccountAlert { shell }
+            }
         }
         }
     }
@@ -834,8 +830,8 @@ pub(super) fn window_appearance(environment: &Environment) -> ds::prelude::Appea
 mod tests {
     use super::App;
     use crate::ui::fixtures::{
-        FakeKey, INSIDE_THE_SHELL, acct_account, dispatching, empty, inbox_query, markup, press,
-        realistic, seeded,
+        FakeKey, INSIDE_THE_SHELL, acct_account, dispatching, drain, empty, inbox_query, markup,
+        press, realistic, seeded,
     };
     use dioxus::prelude::*;
     use dioxus_core::{NoOpMutations, VirtualDom};
@@ -877,6 +873,31 @@ mod tests {
         assert!(
             !shown.to_lowercase().contains("mailo "),
             "the first run tells of a command line:\n{shown}"
+        );
+    }
+
+    #[tokio::test]
+    async fn compose_with_no_account_says_so_and_offers_to_add_one() {
+        // The pencil, ⌘N and `c` did nothing at all with no account to send from: the reason
+        // went to the terminal. The window says it, and offers the way out.
+        dispatching();
+        let (store, _dir) = empty();
+        let mut dom = VirtualDom::new(App).with_root_context(store);
+        dom.rebuild_in_place();
+        assert!(
+            !dioxus_ssr::render(&dom).contains("No account to send from"),
+            "the alert is up before anything asked for a message"
+        );
+
+        press(&mut dom, "c", INSIDE_THE_SHELL);
+        // The alert is a quire sheet: placed in the root's overlay by an effect, drawn after.
+        drain(&mut dom);
+
+        let page = dioxus_ssr::render(&dom);
+        assert!(page.contains("No account to send from"), "{page}");
+        assert!(
+            page.contains("Add an email account, then write your message."),
+            "{page}"
         );
     }
 

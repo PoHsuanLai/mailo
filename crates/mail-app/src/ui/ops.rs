@@ -1,4 +1,5 @@
-use crate::ui::view::op_for;
+use crate::ui::view::{Shell, op_for};
+use dioxus::prelude::{ReadableExt, Signal, WritableExt};
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
@@ -51,6 +52,27 @@ pub(super) fn start_new(
     // No recipients and no subject: there is no original to take either from, and a guess is
     // something the sender has to notice and undo. Saved anyway, so closing the window keeps it.
     mail_core::compose::draft_new(store, account, &[], "", "", chrono::Utc::now())
+}
+
+/// Begin a new message and open it in the composer, the pencil's, ⌘N's and ⌘K's Compose. With
+/// no account to send from, the window says so and offers Add Account (`no_account`); anything
+/// else that stops it goes to the log. `true` when the composer opened.
+pub(super) fn compose_new(store: &SqliteStore, mut shell: Signal<Shell>) -> bool {
+    let known = shell.peek().accounts.clone();
+    match start_new(store, &known) {
+        Ok(draft) => {
+            shell.write().compose(&draft);
+            true
+        }
+        Err(_) if known.is_empty() && mail_core::compose::sending_accounts(store).is_empty() => {
+            shell.write().no_account = true;
+            false
+        }
+        Err(why) => {
+            eprintln!("compose: {why}");
+            false
+        }
+    }
 }
 
 pub(super) fn start_composing(
