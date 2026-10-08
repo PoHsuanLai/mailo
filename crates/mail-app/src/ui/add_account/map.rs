@@ -36,7 +36,6 @@ use ds_shell::accounts::model::{
     FormPart, Limitation, ProblemKind as ShellProblemKind, ProviderEntry, ProviderKey,
     ProviderPick, Requirement, ServiceKey, ServiceLine, ServiceOffer, SignInFault as ShellFault,
 };
-use ds_shell::prelude::Recovery;
 use porter_core::sheet::{
     Entry, FieldAnswer, FieldKind, FieldProblem, FieldSpec, FieldValue, Presence, ProblemKind,
     ProviderRow, RowKind, ServiceChoice, ServiceState, SheetInput, SheetView, SignInFault,
@@ -479,7 +478,6 @@ pub(super) enum Step {
     Failed {
         provider: String,
         why: ShellFault,
-        recovery: Recovery,
     },
 }
 
@@ -508,6 +506,8 @@ pub(super) fn step_of(sheet: &Sheet) -> Option<Step> {
             providers: rows
                 .iter()
                 .filter(|row| row.kind == RowKind::Provider)
+                // gap(quire): porter's `row.mark_face` has nowhere to go until ProviderEntry
+                // takes a face (`.faced`, quire v0.2.31); the mark id picks a known one.
                 .map(|row| {
                     ProviderEntry::new(
                         ProviderKey(row.id.as_str().to_owned()),
@@ -585,7 +585,6 @@ pub(super) fn step_of(sheet: &Sheet) -> Option<Step> {
         } => Step::Failed {
             provider: provider_label(provider),
             why: fault_of(*fault),
-            recovery: recovery_of(*fault),
         },
         SheetView::Done | SheetView::Consent(_) => return None,
     })
@@ -654,6 +653,7 @@ fn part_of(kind: FieldKind) -> FormPart {
         FieldKind::Address
         | FieldKind::Username
         | FieldKind::Password
+        | FieldKind::AppPassword
         | FieldKind::ApiKey
         | FieldKind::Token => FormPart::SignIn,
     }
@@ -670,11 +670,12 @@ fn choices_of(kind: FieldKind) -> Vec<Choice> {
 /// What a choice's slug is called.
 pub(super) fn choice_label(slug: &str) -> String {
     match slug {
-        "imap" => "IMAP",
-        "pop3" => "POP3",
-        "jmap" => "JMAP",
-        "tls" => "SSL/TLS",
-        "starttls" => "STARTTLS",
+        // The plain name first and the protocol second, as quire's own forms word them.
+        "imap" => "Most servers (IMAP)",
+        "pop3" => "Older servers (POP)",
+        "jmap" => "Newer servers (JMAP)",
+        "tls" => "Secure from the start (SSL/TLS)",
+        "starttls" => "Secure after connecting (STARTTLS)",
         other => other,
     }
     .to_owned()
@@ -745,6 +746,7 @@ pub(super) fn role_of(kind: FieldKind) -> FieldRole {
         FieldKind::Server => FieldRole::Server,
         FieldKind::Username => FieldRole::Username,
         FieldKind::Password => FieldRole::Password,
+        FieldKind::AppPassword => FieldRole::AppPassword,
         FieldKind::ApiKey => FieldRole::ApiKey,
         FieldKind::Token => FieldRole::Token,
         FieldKind::Protocol => FieldRole::Protocol,
@@ -764,6 +766,7 @@ pub(super) fn kind_of(role: FieldRole) -> FieldKind {
         FieldRole::Server => FieldKind::Server,
         FieldRole::Username => FieldKind::Username,
         FieldRole::Password => FieldKind::Password,
+        FieldRole::AppPassword => FieldKind::AppPassword,
         FieldRole::ApiKey => FieldKind::ApiKey,
         FieldRole::Token => FieldKind::Token,
         FieldRole::Protocol => FieldKind::Protocol,
@@ -850,18 +853,7 @@ pub(super) fn fault_of(fault: SignInFault) -> ShellFault {
         SignInFault::NotInstalled => ShellFault::NotInstalled,
         // The launcher did not answer in time: the person waited and nothing came.
         SignInFault::Expired => ShellFault::TimedOut,
-        // gap(quire): the sheet has no word for an account that is already there. The nearest
-        // is that what was entered was not taken, and there is no Try Again (`recovery_of`).
-        SignInFault::AlreadyAdded => ShellFault::Refused,
-    }
-}
-
-/// Whether trying again could help: not when the account is already there, which nothing in the
-/// sheet changes.
-pub(super) fn recovery_of(fault: SignInFault) -> Recovery {
-    match fault {
-        SignInFault::AlreadyAdded => Recovery::NoRetry,
-        _ => Recovery::Retry,
+        SignInFault::AlreadyAdded => ShellFault::AlreadyAdded,
     }
 }
 

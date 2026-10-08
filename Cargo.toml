@@ -41,34 +41,34 @@ mail-store  = { path = "crates/mail-store" }
 # target in mail-runtime's own Cargo.toml: `oo7` on Linux, `keyring` on macOS and Windows. It
 # enters mail-runtime, the I/O crate, and no pure crate: mail-domain, -mime, -proto and -pim
 # stay free of zbus and tokio (`scripts/check-boundary.sh`).
-porter-core = { git = "https://github.com/PoHsuanLai/porter", rev = "5d4ef2dfb13d8cc24276f5e4971893874bfebb4f" }
-porter-provider = { git = "https://github.com/PoHsuanLai/porter", rev = "5d4ef2dfb13d8cc24276f5e4971893874bfebb4f" }
-porter-secrets = { git = "https://github.com/PoHsuanLai/porter", rev = "5d4ef2dfb13d8cc24276f5e4971893874bfebb4f", default-features = false }
+porter-core = { git = "https://github.com/PoHsuanLai/porter", rev = "260a14df80d98dcfde32dc2da909b58482e236f5" }
+porter-provider = { git = "https://github.com/PoHsuanLai/porter", rev = "260a14df80d98dcfde32dc2da909b58482e236f5" }
+porter-secrets = { git = "https://github.com/PoHsuanLai/porter", rev = "260a14df80d98dcfde32dc2da909b58482e236f5", default-features = false }
 # Step E3: discovery. porter-discover without its `io` feature is pure parsers and two seams (no
 # tokio, no hickory); mail-runtime implements `porter_discover::Dns` and `porter_http::Http` over
 # the resolver and the HTTP client mailo already has, so neither dependency is added for them.
-porter-discover = { git = "https://github.com/PoHsuanLai/porter", rev = "5d4ef2dfb13d8cc24276f5e4971893874bfebb4f", default-features = false }
+porter-discover = { git = "https://github.com/PoHsuanLai/porter", rev = "260a14df80d98dcfde32dc2da909b58482e236f5", default-features = false }
 # Step E4: OAuth. Without its `io` feature porter-oauth is the rules, the registry and the exchanges
 # over `porter_http::Http` (no tokio); only mail-runtime, the I/O crate, turns `io` on, for the
 # loopback listener.
-porter-oauth = { git = "https://github.com/PoHsuanLai/porter", rev = "5d4ef2dfb13d8cc24276f5e4971893874bfebb4f", default-features = false }
-porter-http = { git = "https://github.com/PoHsuanLai/porter", rev = "5d4ef2dfb13d8cc24276f5e4971893874bfebb4f", default-features = false }
+porter-oauth = { git = "https://github.com/PoHsuanLai/porter", rev = "260a14df80d98dcfde32dc2da909b58482e236f5", default-features = false }
+porter-http = { git = "https://github.com/PoHsuanLai/porter", rev = "260a14df80d98dcfde32dc2da909b58482e236f5", default-features = false }
 # Step E5: the add-account window hosts porter's account service in process and draws its sheet
 # (`porter-service`: the sheet's conversation, `Sheets`, `AccountService`; pure, no zbus). It enters
 # `mail-app`, the front-end that draws.
-porter-service = { git = "https://github.com/PoHsuanLai/porter", rev = "5d4ef2dfb13d8cc24276f5e4971893874bfebb4f" }
+porter-service = { git = "https://github.com/PoHsuanLai/porter", rev = "260a14df80d98dcfde32dc2da909b58482e236f5" }
 # Step E6: the link to the desktop's accountd. porter-client is the app-facing API over two
 # transports: in process (always) and D-Bus (its `dbus` feature, enabled only by mailo's
 # `quire-desktop` feature, on Linux: design/36 section 1 rule 3). Without `dbus` and `framed` it
 # is the pure client (porter-core, -provider, -secrets, -service, -infer): no zbus. porter-dbus
 # is the bus's own vocabulary, for the signals a client waits on (`AccountAdded`,
 # `AccountRemoved`); it is reached only from the `quire-desktop` code.
-porter-client = { git = "https://github.com/PoHsuanLai/porter", rev = "5d4ef2dfb13d8cc24276f5e4971893874bfebb4f", default-features = false }
-porter-dbus = { git = "https://github.com/PoHsuanLai/porter", rev = "5d4ef2dfb13d8cc24276f5e4971893874bfebb4f" }
+porter-client = { git = "https://github.com/PoHsuanLai/porter", rev = "260a14df80d98dcfde32dc2da909b58482e236f5", default-features = false }
+porter-dbus = { git = "https://github.com/PoHsuanLai/porter", rev = "260a14df80d98dcfde32dc2da909b58482e236f5" }
 # The relay itself, for the tests of the link only (`mail-runtime`'s dev-dependencies): the real
 # `* PREAUTH` / `220` / `+OK porter relay ready` greetings in front of a fake server on loopback,
 # rather than a copy of them written here. Not in any build of mailo.
-porter-proxy = { git = "https://github.com/PoHsuanLai/porter", rev = "5d4ef2dfb13d8cc24276f5e4971893874bfebb4f", default-features = false, features = ["io"] }
+porter-proxy = { git = "https://github.com/PoHsuanLai/porter", rev = "260a14df80d98dcfde32dc2da909b58482e236f5", default-features = false, features = ["io"] }
 serde       = { version = "1", features = ["derive"] }
 chrono      = { version = "0.4", features = ["serde"] }
 uuid        = { version = "1", features = ["v4", "serde"] }

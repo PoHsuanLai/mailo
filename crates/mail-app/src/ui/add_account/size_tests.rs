@@ -36,6 +36,8 @@ fn each_step_is_its_own_size_and_the_form_grows_with_its_fields() {
             label: provider.to_owned(),
             mark: "mail".to_owned(),
             kind: porter_core::sheet::RowKind::Provider,
+            mark_face: None,
+            group: None,
         })
         .to_vec();
     let providers = extent(Some(&step(SheetView::Providers(rows))));

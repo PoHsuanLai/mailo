@@ -5,7 +5,6 @@ use ds_shell::accounts::model::{
     CopyState, FieldRole, FieldText, FormPart, Limitation, ProblemKind as ShellProblemKind,
     ProviderPick, Requirement, ServiceKey, ServiceOffer, SignInFault as ShellFault,
 };
-use ds_shell::prelude::Recovery;
 
 use porter_core::sheet::{
     Entry, FieldKind, FieldProblem, FieldSpec, FieldValue, Presence, ProblemKind, Protocol,
@@ -19,7 +18,7 @@ use porter_core::{
 
 use super::map::{
     Action, Awaiting, ListKey, Out, Sheet, Step, acted, choice_label, fault_of, kind_of, list_key,
-    mark_of, provider_label, recovery_of, role_of, service_key, shown, step_of, typed,
+    mark_of, provider_label, role_of, service_key, shown, step_of, typed,
 };
 
 fn id(text: &str) -> ProviderId {
@@ -30,7 +29,12 @@ fn rows() -> Vec<ProviderRow> {
     [
         ("google", "Google", "google", RowKind::Provider),
         ("fastmail", "Fastmail", "fastmail", RowKind::Provider),
-        ("generic-imap", "Email (IMAP)", "mail", RowKind::Generic),
+        (
+            "generic-imap",
+            "Other email account",
+            "mail",
+            RowKind::Generic,
+        ),
     ]
     .map(|(provider, label, mark, kind)| ProviderRow {
         auth: Default::default(),
@@ -38,6 +42,8 @@ fn rows() -> Vec<ProviderRow> {
         label: label.to_owned(),
         mark: mark.to_owned(),
         kind,
+        mark_face: None,
+        group: None,
     })
     .to_vec()
 }
@@ -492,12 +498,10 @@ fn every_fault_has_its_sentence_and_every_provider_its_words() {
         (SignInFault::Cancelled, ShellFault::Cancelled),
         (SignInFault::Forbidden, ShellFault::Forbidden),
         (SignInFault::StoreFailed, ShellFault::StoreFailed),
-        (SignInFault::AlreadyAdded, ShellFault::Refused),
+        (SignInFault::AlreadyAdded, ShellFault::AlreadyAdded),
     ] {
         assert_eq!(fault_of(fault), want);
     }
-    assert_eq!(recovery_of(SignInFault::AlreadyAdded), Recovery::NoRetry);
-    assert_eq!(recovery_of(SignInFault::Refused), Recovery::Retry);
     for (provider, label) in [
         ("google", "Google"),
         ("microsoft", "Microsoft"),
@@ -603,15 +607,18 @@ fn the_server_form_is_drawn_in_parts_with_its_choices_and_the_usual_ports_as_hin
     assert_eq!(
         choices(FieldRole::Protocol),
         Some(vec![
-            pair("imap", "IMAP"),
-            pair("pop3", "POP3"),
-            pair("jmap", "JMAP")
+            pair("imap", "Most servers (IMAP)"),
+            pair("pop3", "Older servers (POP)"),
+            pair("jmap", "Newer servers (JMAP)")
         ])
     );
     for role in [FieldRole::Security, FieldRole::OutgoingSecurity] {
         assert_eq!(
             choices(role),
-            Some(vec![pair("tls", "SSL/TLS"), pair("starttls", "STARTTLS")])
+            Some(vec![
+                pair("tls", "Secure from the start (SSL/TLS)"),
+                pair("starttls", "Secure after connecting (STARTTLS)")
+            ])
         );
     }
     for role in [FieldRole::Server, FieldRole::Port, FieldRole::Username] {

@@ -222,7 +222,13 @@ pub fn add(
                 .await
                 .map(|()| None);
         }
-        let added = accountd.add_account().await?;
+        // An account already there is the one the person meant: Mail goes on to its grant, as for
+        // one just added.
+        let added = match accountd.add_account().await {
+            Ok(added) => added,
+            Err(LinkError::AlreadyAdded(there)) => there,
+            Err(e) => return Err(e),
+        };
         let granted = accountd.candidates().await?;
         if granted.iter().any(|c| c.account == added) {
             return Ok(Some(added));

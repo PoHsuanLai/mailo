@@ -1,9 +1,8 @@
 //! Every button that draws only its icon says what it does on hover, as a Mac control's help
 //! tag does. Under quire's `Ds` a titled button's tip is written as its `aria-description` (the
 //! web's AXHelp: what a screen reader reads after the name), unless a `Tooltip` wraps it, whose
-//! text is then the tip. Since quire v0.2.28 the description is left out when it equals the
-//! button's name, which the markup cannot tell from no tip at all: those buttons are named in
-//! [`TIP_IS_NAME`].
+//! text is then the tip. A tip that equals the button's name is written as `data-tip` instead of
+//! a description, which would be read twice.
 
 use super::app::App;
 use super::fixtures::{dispatching, drain_seen, key, realistic};
@@ -33,20 +32,12 @@ fn icon_buttons(page: &str) -> Vec<IconButton<'_>> {
         .collect()
 }
 
-/// The buttons whose tip is their name, so quire writes no `aria-description` (it would be read
-/// twice): matched by the start of their `aria-label`. gap(quire): a marker on the button would
-/// let the test read that from the markup instead.
-const TIP_IS_NAME: &[&str] = &["Close ", "New Space", "Sync now", "Mute this conversation"];
-
-/// The `aria-label` of `tag`, if it has one.
-fn name(tag: &str) -> Option<&str> {
-    let (_, rest) = tag.split_once(r#"aria-label=""#)?;
-    rest.split_once('"').map(|(text, _)| text)
-}
-
-/// Whether `tag` is a button whose tip is its own name.
+/// Whether `tag` is a button whose tip is its own name: quire leaves its `aria-description` out
+/// (it would be read twice) and writes the tip as `data-tip` instead.
 fn tip_is_name(tag: &str) -> bool {
-    name(tag).is_some_and(|name| TIP_IS_NAME.iter().any(|known| name.starts_with(known)))
+    tag.split_once(r#"data-tip=""#)
+        .and_then(|(_, rest)| rest.split_once('"'))
+        .is_some_and(|(tip, _)| !tip.trim().is_empty())
 }
 
 /// The non-empty `aria-description` of `tag`, if it has one.
