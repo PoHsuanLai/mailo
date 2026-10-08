@@ -5,11 +5,12 @@
 //! `.vcf` files and syncing a CardDAV address book.
 
 use chrono::{DateTime, Utc};
+use mail_domain::AuthPlan;
 use mail_pim::vcard::{self, Card, Email};
 use mail_runtime::carddav::{self, Dav, DavAuth, How};
 use mail_runtime::{AccountSecrets, ClientRegistry, platform_secrets};
 use mail_store::{AddressBook, Edit, Group, GroupHome, GroupId, Kind, Origin, SqliteStore, Store};
-use porter_core::{CapabilityKind, Credential, SecretKey, SecretPurpose, SecretText};
+use porter_core::{CapabilityKind, Credential, Family, SecretKey, SecretPurpose, SecretText};
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
 use std::path::PathBuf;
@@ -316,43 +317,69 @@ async fn sync(
     saved: &ClientRegistry,
     now: DateTime<Utc>,
 ) -> Result<String, String> {
+    sync_with(
+        store,
+        url,
+        account,
+        user,
+        platform_secrets().as_ref(),
+        saved,
+        now,
+    )
+    .await
+}
+
+/// [`sync`] over the secrets (and so the link) it is given: the process's, or a test's.
+async fn sync_with(
+    store: &SqliteStore,
+    url: Option<&str>,
+    account: Option<&str>,
+    user: Option<&str>,
+    secrets: &dyn AccountSecrets,
+    saved: &ClientRegistry,
+    now: DateTime<Utc>,
+) -> Result<String, String> {
     let accounts = crate::sync::configured(store)?;
-    let secrets = platform_secrets();
     let http = carddav::client().map_err(|e| e.to_string())?;
     let mut out = String::new();
 
-    let Some(url) = url else {
+    if url.is_none() {
         let books = store.address_books().map_err(|e| e.to_string())?;
-        if books.is_empty() {
+        if !books.is_empty() {
+            for book in books {
+                let owner = accounts
+                    .iter()
+                    .find(|a| Some(a.id.clone()) == book.account)
+                    .ok_or_else(|| format!("{}: its account is no longer configured", book.url))?;
+                let base = parse_url(&book.url)?;
+                let (dav, _) = open_dav(
+                    owner,
+                    book.login.as_deref(),
+                    Some(&base),
+                    &http,
+                    secrets,
+                    saved,
+                    now,
+                )
+                .await?;
+                out.push_str(&sync_one(&dav, store, book, None).await?);
+            }
+            return Ok(out);
+        }
+        // Nothing synced yet and no address given: an account of the desktop's accountd names its
+        // own address book server (its grant lists it), so the first sync needs no URL. Any other
+        // account has none to name.
+        let named = owner_of(&accounts, account)
+            .ok()
+            .filter(|owner| user.is_none() && owner.plan.grant().is_some());
+        if named.is_none() {
             return Ok("no address book has been synced yet: mailo contacts sync <url>\n".into());
         }
-        for book in books {
-            let owner = accounts
-                .iter()
-                .find(|a| Some(a.id.clone()) == book.account)
-                .ok_or_else(|| format!("{}: its account is no longer configured", book.url))?;
-            let auth = auth_for(owner, book.login.as_deref(), secrets.as_ref(), saved, now).await?;
-            let base = parse_url(&book.url)?;
-            let dav = Dav::new(http.clone(), &base, auth).map_err(|e| e.to_string())?;
-            out.push_str(&sync_one(&dav, store, book, None).await?);
-        }
-        return Ok(out);
-    };
+    }
 
-    let owner = match account {
-        Some(address) => accounts
-            .iter()
-            .find(|a| a.address.eq_ignore_ascii_case(address))
-            .ok_or_else(|| format!("no account {address:?}"))?,
-        None => match accounts.as_slice() {
-            [only] => only,
-            [] => return Err("add an account first: an address book is kept under one".into()),
-            _ => return Err("name the account it belongs to: --account you@example.com".into()),
-        },
-    };
-    let auth = auth_for(owner, user, secrets.as_ref(), saved, now).await?;
-    let start = parse_url(url)?;
-    let dav = Dav::new(http, &start, auth).map_err(|e| e.to_string())?;
+    let owner = owner_of(&accounts, account)?;
+    let start = url.map(parse_url).transpose()?;
+    let (dav, start) = open_dav(owner, user, start.as_ref(), &http, secrets, saved, now).await?;
     let found = carddav::discover(&dav, &start)
         .await
         .map_err(|e| e.to_string())?;
@@ -370,6 +397,132 @@ async fn sync(
         out.push_str(&sync_one(&dav, store, book, collection.name).await?);
     }
     Ok(out)
+}
+
+/// The account an address book is kept under: the one named, or the only one.
+fn owner_of<'a>(
+    accounts: &'a [crate::sync::Configured],
+    account: Option<&str>,
+) -> Result<&'a crate::sync::Configured, String> {
+    match account {
+        Some(address) => accounts
+            .iter()
+            .find(|a| a.address.eq_ignore_ascii_case(address))
+            .ok_or_else(|| format!("no account {address:?}")),
+        None => match accounts {
+            [only] => Ok(only),
+            [] => Err("add an account first: an address book is kept under one".into()),
+            _ => Err("name the account it belongs to: --account you@example.com".into()),
+        },
+    }
+}
+
+/// The session with the address book server of `owner`, and the URL to start from.
+///
+/// An account of the desktop's accountd with no login of its own goes through accountd's relay
+/// ([`relayed`]): Mail holds no password or token for it. Every other account, and a login given
+/// with `--user`, is a client of ours with the credential [`auth_for`] finds, as it always was.
+async fn open_dav(
+    owner: &crate::sync::Configured,
+    login: Option<&str>,
+    start: Option<&url::Url>,
+    http: &reqwest::Client,
+    secrets: &dyn AccountSecrets,
+    saved: &ClientRegistry,
+    now: DateTime<Utc>,
+) -> Result<(Dav, url::Url), String> {
+    if login.is_none() && owner.plan.grant().is_some() {
+        return relayed(owner, start, secrets).await;
+    }
+    let start = start.ok_or("an address book needs the address of its server")?;
+    let auth = auth_for(owner, login, secrets, saved, now).await?;
+    let dav = Dav::new(http.clone(), start, auth).map_err(|e| e.to_string())?;
+    Ok((dav, start.clone()))
+}
+
+/// The desktop's accountd's relay to the CardDAV server of `owner`, on the grant Mail holds on the
+/// account's contacts. That is a grant of its own: when Mail has none, accountd is asked for it
+/// the way it is for mail (its chooser and consent sheet; Mail opens no dialog), and a refusal is
+/// said in the account's own words.
+///
+/// An account whose contacts are not CardDAV (Google serves them through People) syncs none, and
+/// says so: Mail has no People client.
+async fn relayed(
+    owner: &crate::sync::Configured,
+    start: Option<&url::Url>,
+    secrets: &dyn AccountSecrets,
+) -> Result<(Dav, url::Url), String> {
+    let address = &owner.address;
+    let AuthPlan::Granted { account, .. } = &owner.plan.auth else {
+        return Err(format!(
+            "{address} is not an account of the desktop's account service"
+        ));
+    };
+    let ungranted = |why: &dyn std::fmt::Display| {
+        format!(
+            "{address} is an account of the desktop's account service, and Mail has not been \
+             allowed to read its contacts ({why})"
+        )
+    };
+    let Some(link) = secrets.link() else {
+        return Err(format!(
+            "{address} is an account of the desktop's account service, which is not reachable \
+             from here"
+        ));
+    };
+    let held = link
+        .contacts()
+        .await
+        .map_err(|e| format!("{address}: {e}"))?;
+    let candidate = match held.into_iter().find(|c| c.account == *account) {
+        Some(candidate) => candidate,
+        None => {
+            let asked = link.request_contacts().await.map_err(|e| ungranted(&e))?;
+            if asked.account != *account {
+                return Err(ungranted(&"the grant was given to another account"));
+            }
+            asked
+        }
+    };
+    let servers = || {
+        candidate
+            .endpoints
+            .iter()
+            .filter(|e| e.family == Family::CardDav)
+    };
+    let origin_of = |endpoint: &porter_core::ServiceEndpoint| {
+        url::Url::parse(endpoint.url.as_str())
+            .ok()
+            .map(|u| u.origin())
+    };
+    let Some(first) = servers().next() else {
+        return Err(format!(
+            "{address} is an account of the desktop's account service whose contacts are not \
+             CardDAV (Google's are served through People, which Mail does not read): no \
+             contacts were synced"
+        ));
+    };
+    let endpoint = match start {
+        Some(start) => servers()
+            .find(|e| origin_of(e) == Some(start.origin()))
+            .ok_or_else(|| {
+                format!(
+                    "{start} is not the address book server of {address} ({}): the desktop's \
+                     account service relays that one only",
+                    first.url.as_str()
+                )
+            })?,
+        None => first,
+    };
+    let dav =
+        Dav::relayed(link, candidate.grant.clone(), endpoint.clone()).map_err(|e| e.to_string())?;
+    let start = match start {
+        Some(start) => start.clone(),
+        None => dav
+            .endpoint_url()
+            .ok_or_else(|| format!("{address}: the address book server has no address"))?,
+    };
+    Ok((dav, start))
 }
 
 async fn sync_one(
@@ -457,15 +610,8 @@ async fn auth_for(
             password,
         });
     }
-    // An account of the desktop's accountd holds nothing here to sign in to a CardDAV server with,
-    // and its contacts go through accountd's relay (step E7), which this does not reach yet.
-    if account.plan.grant().is_some() {
-        return Err(format!(
-            "{} is an account of the desktop's account service, whose contacts Mail does not \
-             read yet",
-            account.address
-        ));
-    }
+    // An account of the desktop's accountd holds nothing here to sign in to a CardDAV server with:
+    // its contacts go through accountd's relay ([`relayed`]) and never reach this.
     let stored = secrets
         .get(&SecretKey {
             account: account.id.clone(),
@@ -650,5 +796,309 @@ mod tests {
             .unwrap_or_else(|| panic!("no group exported:\n{out}"));
         assert_eq!(team.uid.as_deref(), Some("team-1"));
         assert_eq!(team.members, groups[0].members);
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // An account of the desktop's accountd (step E7)
+    // -----------------------------------------------------------------------------------------
+
+    use mail_runtime::Transport;
+    use mail_runtime::link::{Accountd, Answer, Changes, LinkError, LinkedSecrets};
+    use porter_core::capability::{
+        Access, Capability, Delta, LabelModel, MailCap, MailTransport, Offered, PimCap,
+        PimTransport,
+    };
+    use porter_core::wire::Refusal;
+    use porter_core::{
+        AccountId, AccountLabel, Audience, Candidate, EndpointUrl, GrantId, IssuedToken, LoginName,
+        ProviderId, Restriction, ServiceEndpoint, Subject, Tls,
+    };
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    const ME: &str = "me@example.test";
+
+    fn endpoint(family: Family, url: &str, tls: Tls) -> ServiceEndpoint {
+        ServiceEndpoint {
+            family,
+            url: EndpointUrl::parse(url).unwrap(),
+            tls,
+            login: LoginName(ME.to_owned()),
+        }
+    }
+
+    fn base(
+        account: &str,
+        grant: &str,
+        capability: Capability,
+        endpoints: Vec<ServiceEndpoint>,
+    ) -> Candidate {
+        Candidate {
+            account: AccountId::parse(account).unwrap(),
+            label: AccountLabel(ME.to_owned()),
+            provider: ProviderId::parse("fastmail").unwrap(),
+            subject: Subject::Account,
+            capability,
+            restriction: Restriction::none(),
+            grant: GrantId::parse(grant).unwrap(),
+            endpoints,
+        }
+    }
+
+    /// What accountd lists for Mail's mail grant on the account.
+    fn mail() -> Candidate {
+        base(
+            "fastmail-me",
+            "grant-mail",
+            Capability::Mail(MailCap {
+                access: Access::ReadWrite,
+                send: Offered::Present,
+                delta: Delta::Push,
+                transport: MailTransport::Imap,
+                labels: LabelModel::Folders,
+            }),
+            vec![
+                endpoint(Family::Imap, "imaps://imap.example.test:993", Tls::Implicit),
+                endpoint(Family::Smtp, "smtp://smtp.example.test:587", Tls::StartTls),
+            ],
+        )
+    }
+
+    fn pim(transport: PimTransport) -> Capability {
+        Capability::Contacts(PimCap {
+            access: Access::ReadWrite,
+            delta: Delta::Poll,
+            transport,
+            collections: Offered::Present,
+        })
+    }
+
+    /// What accountd lists for Mail's contacts grant: a CardDAV server.
+    fn carddav_grant(account: &str) -> Candidate {
+        base(
+            account,
+            "grant-contacts",
+            pim(PimTransport::CardDav),
+            vec![endpoint(
+                Family::CardDav,
+                "https://carddav.example.test/",
+                Tls::Implicit,
+            )],
+        )
+    }
+
+    /// Google: contacts through People.
+    fn people_grant() -> Candidate {
+        base(
+            "fastmail-me",
+            "grant-contacts",
+            pim(PimTransport::GoogleApi),
+            vec![endpoint(
+                Family::GooglePeople,
+                "https://people.googleapis.com/",
+                Tls::Implicit,
+            )],
+        )
+    }
+
+    /// accountd, as far as contacts go: the grants held, and what asking for one comes to.
+    #[derive(Debug)]
+    struct Daemon {
+        held: Vec<Candidate>,
+        asked: Result<Candidate, LinkError>,
+        requests: AtomicUsize,
+    }
+
+    impl Daemon {
+        fn new(held: Vec<Candidate>, asked: Result<Candidate, LinkError>) -> Arc<Daemon> {
+            Arc::new(Daemon {
+                held,
+                asked,
+                requests: AtomicUsize::new(0),
+            })
+        }
+
+        fn requests(&self) -> usize {
+            self.requests.load(Ordering::SeqCst)
+        }
+    }
+
+    fn nothing<T>() -> Answer<'static, T> {
+        Box::pin(async { Err(LinkError::Other("not part of this test".to_owned())) })
+    }
+
+    impl Accountd for Daemon {
+        fn candidates(&self) -> Answer<'_, Vec<Candidate>> {
+            nothing()
+        }
+        fn token<'a>(&'a self, _: &'a GrantId, _: &'a Audience) -> Answer<'a, IssuedToken> {
+            nothing()
+        }
+        fn open<'a>(&'a self, _: &'a GrantId, _: &'a ServiceEndpoint) -> Answer<'a, Transport> {
+            nothing()
+        }
+        fn contacts(&self) -> Answer<'_, Vec<Candidate>> {
+            let held = self.held.clone();
+            Box::pin(async move { Ok(held) })
+        }
+        fn request_contacts(&self) -> Answer<'_, Candidate> {
+            self.requests.fetch_add(1, Ordering::SeqCst);
+            let asked = self.asked.clone();
+            Box::pin(async move { asked })
+        }
+        fn add_account(&self) -> Answer<'_, AccountId> {
+            nothing()
+        }
+        fn reauthenticate<'a>(&'a self, _: &'a AccountId) -> Answer<'a, ()> {
+            nothing()
+        }
+        fn request_grant(&self) -> Answer<'_, Candidate> {
+            nothing()
+        }
+        fn revoke<'a>(&'a self, _: &'a GrantId) -> Answer<'a, ()> {
+            nothing()
+        }
+        fn changes(&self) -> Answer<'_, Option<Box<dyn Changes>>> {
+            Box::pin(async { Ok(None) })
+        }
+    }
+
+    fn now() -> DateTime<Utc> {
+        DateTime::from_timestamp(1_700_000_000, 0).unwrap()
+    }
+
+    /// The account as the store has it once accountd's mail grant is read.
+    fn owner() -> crate::sync::Configured {
+        let preset = crate::account::preset_of(&mail(), now()).unwrap();
+        crate::sync::Configured {
+            id: mail_domain::id::new_account_id(),
+            address: preset.plan.address.clone(),
+            plan: preset.plan,
+            caps: preset.expected_caps,
+            keep: Default::default(),
+        }
+    }
+
+    fn linked(daemon: &Arc<Daemon>) -> LinkedSecrets {
+        LinkedSecrets::new(daemon.clone())
+    }
+
+    #[tokio::test]
+    async fn a_linked_account_is_asked_for_its_contacts_once_and_reads_its_carddav_server() {
+        // No grant on its contacts yet: accountd's own sheet is asked, once.
+        let daemon = Daemon::new(Vec::new(), Ok(carddav_grant("fastmail-me")));
+        let (dav, start) = relayed(&owner(), None, &linked(&daemon)).await.unwrap();
+        assert_eq!(start.as_str(), "https://carddav.example.test/");
+        assert_eq!(dav.endpoint_url(), Some(start));
+        assert_eq!(daemon.requests(), 1);
+
+        // A grant already held is used as it is: nothing is asked.
+        let daemon = Daemon::new(vec![carddav_grant("fastmail-me")], nothing_asked());
+        relayed(&owner(), None, &linked(&daemon)).await.unwrap();
+        assert_eq!(daemon.requests(), 0);
+
+        // A grant the person gave to some other account is not this account's.
+        let daemon = Daemon::new(Vec::new(), Ok(carddav_grant("fastmail-other")));
+        let why = relayed(&owner(), None, &linked(&daemon)).await.unwrap_err();
+        assert!(why.contains("another account"), "{why}");
+    }
+
+    fn nothing_asked() -> Result<Candidate, LinkError> {
+        Err(LinkError::Other("nothing should be asked".to_owned()))
+    }
+
+    #[tokio::test]
+    async fn a_linked_account_whose_contacts_are_not_allowed_says_so_in_its_own_words() {
+        let daemon = Daemon::new(Vec::new(), Err(LinkError::Refused(Refusal::Denied)));
+        let why = relayed(&owner(), None, &linked(&daemon)).await.unwrap_err();
+        assert_eq!(
+            why,
+            "me@example.test is an account of the desktop's account service, and Mail has not \
+             been allowed to read its contacts (the desktop's account service refused: the \
+             person said no)"
+        );
+        assert_eq!(daemon.requests(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_linked_account_whose_contacts_are_not_carddav_syncs_none_and_says_so() {
+        let daemon = Daemon::new(vec![people_grant()], nothing_asked());
+        let why = relayed(&owner(), None, &linked(&daemon)).await.unwrap_err();
+        assert!(
+            why.contains("not CardDAV")
+                && why.contains("People")
+                && why.contains("no contacts were synced"),
+            "{why}"
+        );
+        assert_eq!(daemon.requests(), 0, "a grant it holds is not asked again");
+    }
+
+    #[tokio::test]
+    async fn a_linked_account_is_relayed_to_its_own_server_and_no_other() {
+        let daemon = Daemon::new(vec![carddav_grant("fastmail-me")], nothing_asked());
+        let elsewhere = url::Url::parse("https://evil.example.test/dav/").unwrap();
+        let why = relayed(&owner(), Some(&elsewhere), &linked(&daemon))
+            .await
+            .unwrap_err();
+        assert!(why.contains("is not the address book server of"), "{why}");
+
+        let own = url::Url::parse("https://carddav.example.test/dav/").unwrap();
+        let (_, start) = relayed(&owner(), Some(&own), &linked(&daemon))
+            .await
+            .unwrap();
+        assert_eq!(
+            start, own,
+            "a path on the account's server is the start as given"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_account_of_accountd_with_no_link_is_not_reachable_rather_than_asked_for_a_password()
+    {
+        let secrets = porter_secrets::MemorySecrets::default();
+        let why = relayed(&owner(), None, &secrets).await.unwrap_err();
+        assert!(why.contains("not reachable"), "{why}");
+    }
+
+    #[tokio::test]
+    async fn the_first_sync_of_a_linked_account_needs_no_address_and_another_account_still_does() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = SqliteStore::in_memory(dir.path()).unwrap();
+        let saved = ClientRegistry::default();
+
+        // No account at all: the old answer.
+        let none = Daemon::new(Vec::new(), nothing_asked());
+        let said = sync_with(&store, None, None, None, &linked(&none), &saved, now())
+            .await
+            .unwrap();
+        assert!(
+            said.starts_with("no address book has been synced yet"),
+            "{said}"
+        );
+
+        // accountd's account: the first sync asks accountd for its contacts and goes on to its
+        // server (here Google's, which is not CardDAV) with no address given.
+        crate::account::reconcile(&store, &[mail()], now()).unwrap();
+        let daemon = Daemon::new(vec![people_grant()], nothing_asked());
+        let why = sync_with(&store, None, None, None, &linked(&daemon), &saved, now())
+            .await
+            .unwrap_err();
+        assert!(why.contains("People"), "{why}");
+        // A login of its own is the address book's own sign-in: not the relay's, and not asked.
+        let said = sync_with(
+            &store,
+            None,
+            None,
+            Some("ada"),
+            &linked(&daemon),
+            &saved,
+            now(),
+        )
+        .await
+        .unwrap();
+        assert!(
+            said.starts_with("no address book has been synced yet"),
+            "{said}"
+        );
     }
 }
