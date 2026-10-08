@@ -207,7 +207,7 @@ fn the_trouble_a_pass_gathers_keeps_its_mailbox_and_decision() {
             },
         ]
     );
-    assert!(needs_reauth(&done.trouble));
+    assert!(needs_person(&done.trouble));
     assert_eq!(hold(&done.trouble), Some(std::time::Duration::from_secs(9)));
 }
 

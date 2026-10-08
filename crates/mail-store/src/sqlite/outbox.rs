@@ -485,7 +485,7 @@ impl SqliteStore {
                         params![id.as_i64(), from_time(now + wait), reason],
                     )?;
                 }
-                Retry::NeedsReauth => {
+                Retry::NeedsReauth | Retry::NeedsGrant => {
                     // Keep it queued and keep it pending: the user's change is not wrong, the
                     // credential is. Park it far enough out that it is not retried in a loop,
                     // and let the runtime surface the reauth prompt.

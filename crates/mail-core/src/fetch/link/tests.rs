@@ -275,6 +275,17 @@ fn rejection_and_fatal_stop_without_a_wake() {
             vec![]
         )
     );
+    // A grant withdrawn is its own stop: allowing Mail again, not signing in, starts it again.
+    let (to, fx) = go(
+        &running,
+        failed(Retry::NeedsGrant, Pause::Unreachable),
+        t(0, 0),
+    );
+    assert!(matches!(to, Link::NeedsAllow { .. }), "{to:?}");
+    assert!(fx.is_empty());
+    assert!(!to.may_start(Trigger::Poll));
+    let (again, _) = go(&to, Event::SignedIn, t(0, 1));
+    assert!(again.is_busy(), "{again:?}");
     let (to, fx) = go(
         &running,
         failed(Retry::Fatal("gone".into()), Pause::Unreachable),

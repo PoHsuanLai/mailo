@@ -5,7 +5,7 @@
 //! Everything that turns one into the other is here, where a table can test it, and the window's
 //! runner only moves the results.
 
-use super::{PassEnd, Progress, Trouble as Found, hold, needs_reauth};
+use super::{PassEnd, Progress, Trouble as Found, hold, person_asked};
 use crate::fetch::{Count, Event, Pause, Step, Trouble};
 use mail_domain::Retry;
 use porter_core::AccountId;
@@ -50,6 +50,7 @@ fn said(retry: &Retry, why: Option<&String>) -> String {
     match (why, retry) {
         (Some(why), _) => why.clone(),
         (None, Retry::NeedsReauth) => "The sign-in was refused".to_owned(),
+        (None, Retry::NeedsGrant) => "Mail is no longer allowed to use this account".to_owned(),
         (None, Retry::After(_)) => "The server asked to wait".to_owned(),
         (None, Retry::Now) => "The connection dropped".to_owned(),
         (None, Retry::Fatal(why)) => why.clone(),
@@ -71,15 +72,10 @@ fn troubles(found: &[Found]) -> Vec<Trouble> {
 fn ended(end: PassEnd) -> Event {
     match end {
         PassEnd::Finished(report) => {
-            if needs_reauth(&report.trouble) {
-                let why = report
-                    .trouble
-                    .iter()
-                    .find(|t| matches!(t.retry, Retry::NeedsReauth))
-                    .and_then(|t| t.why.clone());
+            if let Some(asked) = person_asked(&report.trouble) {
                 return Event::Failed {
-                    retry: Retry::NeedsReauth,
-                    why: said(&Retry::NeedsReauth, why.as_ref()),
+                    retry: asked.retry.clone(),
+                    why: said(&asked.retry, asked.why.as_ref()),
                     pause: Pause::ServerBusy,
                 };
             }

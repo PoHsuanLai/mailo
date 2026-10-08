@@ -36,6 +36,7 @@ pub enum Problem {
     Unreachable,
     Broken,
     SignIn,
+    Allow,
 }
 
 impl Problem {
@@ -48,6 +49,7 @@ impl Problem {
             }
             Problem::Broken => "Something is wrong with this account. Check its settings.",
             Problem::SignIn => "Sign in again to load your mail.",
+            Problem::Allow => "Allow Mail to use this account again to load your mail.",
         }
     }
 }
@@ -99,6 +101,7 @@ fn cannot_load(links: &[&Link]) -> Option<Problem> {
 fn problem(link: &Link) -> Option<Problem> {
     match link {
         Link::NeedsSignIn { .. } => Some(Problem::SignIn),
+        Link::NeedsAllow { .. } => Some(Problem::Allow),
         Link::Broken { .. } => Some(Problem::Broken),
         Link::Waiting {
             why: Pause::Unreachable,

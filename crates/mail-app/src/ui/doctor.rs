@@ -59,6 +59,7 @@ enum After {
 fn label_of(remedy: Remedy) -> &'static str {
     match remedy {
         Remedy::SignIn => "Sign In",
+        Remedy::Allow => "Allow Mail\u{2026}",
         Remedy::TryAgain => "Try Again",
         Remedy::Settings => "Settings\u{2026}",
     }
@@ -121,6 +122,11 @@ pub(in crate::ui) fn DoctorView(shell: Signal<Shell>, revision: Signal<u64>) -> 
             let after = match remedy {
                 Remedy::TryAgain => {
                     fetching.send(account, Event::Start(Trigger::Manual));
+                    return;
+                }
+                Remedy::Allow => {
+                    pending.set(Some((account, *revision.peek(), After::SignedIn)));
+                    crate::ui::add_account::allow_again();
                     return;
                 }
                 Remedy::SignIn => After::SignedIn,

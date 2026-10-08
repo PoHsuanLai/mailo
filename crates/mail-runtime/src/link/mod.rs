@@ -92,15 +92,15 @@ impl LinkError {
             LinkError::Unreachable | LinkError::Refused(Refusal::Unavailable) => {
                 Retry::After(Duration::from_secs(30))
             }
-            // What is wanted of the person: sign in again, or allow Mail to use the account.
+            // What is wanted of the person: sign in again ...
             LinkError::Refused(
-                Refusal::NeedsReauth
-                | Refusal::UnknownGrant
-                | Refusal::AudienceNotGranted
-                | Refusal::Denied
-                | Refusal::Dismissed
-                | Refusal::NoFittingAccount,
+                Refusal::NeedsReauth | Refusal::Dismissed | Refusal::NoFittingAccount,
             ) => Retry::NeedsReauth,
+            // ... or allow Mail to use the account again: the grant was withdrawn, does not
+            // cover the service, or was refused. A sign-in does not bring a grant back.
+            LinkError::Refused(
+                Refusal::UnknownGrant | Refusal::AudienceNotGranted | Refusal::Denied,
+            ) => Retry::NeedsGrant,
             // NoLauncher is an agent account's, never a mail account's: nothing Mail can do.
             LinkError::Refused(Refusal::EndpointNotGranted | Refusal::NoLauncher)
             | LinkError::AlreadyAdded(_)
@@ -110,7 +110,7 @@ impl LinkError {
 
     /// Whether the person has something to do (sign in again, allow Mail again) rather than wait.
     pub fn needs_person(&self) -> bool {
-        matches!(self.retry(), Retry::NeedsReauth)
+        self.retry().needs_person()
     }
 }
 

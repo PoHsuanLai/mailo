@@ -123,6 +123,21 @@ fn each_refusal_is_told_to_the_person_or_waited_out() {
     ] {
         assert!(person(LinkError::Refused(refusal)), "{refusal:?}");
     }
+    // A grant gone, not covering the service or refused is allowed again, never signed in again.
+    for refusal in [UnknownGrant, AudienceNotGranted, Denied] {
+        assert_eq!(
+            LinkError::Refused(refusal).retry(),
+            Retry::NeedsGrant,
+            "{refusal:?}"
+        );
+    }
+    for refusal in [NeedsReauth, Dismissed, NoFittingAccount] {
+        assert_eq!(
+            LinkError::Refused(refusal).retry(),
+            Retry::NeedsReauth,
+            "{refusal:?}"
+        );
+    }
     let fatal = LinkError::Refused(EndpointNotGranted);
     assert!(matches!(fatal.retry(), Retry::Fatal(_)));
     assert!(matches!(

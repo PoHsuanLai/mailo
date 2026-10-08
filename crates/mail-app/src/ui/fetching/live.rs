@@ -147,7 +147,7 @@ pub(super) struct Reconnect {
 pub(super) fn reconnect(failures: u32, retry: &Retry, floor: Duration) -> Reconnect {
     let schedule = fetch::backoff(failures, floor);
     match retry {
-        Retry::NeedsReauth => Reconnect {
+        Retry::NeedsReauth | Retry::NeedsGrant => Reconnect {
             wait: BACKOFF_CEILING,
             nudge: Some(Event::Start(Trigger::Poll)),
         },

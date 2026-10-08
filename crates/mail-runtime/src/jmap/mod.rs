@@ -208,7 +208,7 @@ impl JmapEngine {
     /// Forget the session after a failure that may mean it is stale: a refused credential, or
     /// a server that answers with a different session state.
     fn forget_if_stale(&mut self, error: &RuntimeError) {
-        if matches!(error.retry(), Retry::NeedsReauth) {
+        if error.retry().needs_person() {
             self.client = None;
         }
     }
@@ -294,8 +294,9 @@ impl JmapEngine {
     ) -> Result<SyncReport, RuntimeError> {
         let mut report = SyncReport::default();
         if let Err(e) = self.connect().await {
-            if matches!(e.retry(), Retry::NeedsReauth) {
-                report.saw(&Retry::NeedsReauth);
+            let retry = e.retry();
+            if retry.needs_person() {
+                report.saw(&retry);
                 report.needs_attention.push(e.to_string());
                 return Ok(report);
             }
@@ -316,7 +317,7 @@ impl JmapEngine {
                 let retry = e.retry();
                 report.saw(&retry);
                 report.needs_attention.push(e.to_string());
-                if matches!(retry, Retry::NeedsReauth) {
+                if retry.needs_person() {
                     break;
                 }
             }

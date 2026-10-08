@@ -126,6 +126,9 @@ pub struct SyncReport {
     /// failed logins a day against the user's own mail server, which is how an account gets
     /// locked. A poll loop must stop on this and wait for the user, not back off and continue.
     pub needs_reauth: bool,
+    /// The desktop's account service no longer lets Mail use the account (`Retry::NeedsGrant`):
+    /// stopped on as `needs_reauth` is, and asked of the person as allowing, not signing in.
+    pub needs_grant: bool,
     /// The longest wait a server asked for during this pass, where one asked.
     ///
     /// A rate limit is the one refusal whose entire remedy is doing nothing, and hammering
@@ -187,6 +190,7 @@ impl SyncReport {
     pub fn saw(&mut self, retry: &Retry) {
         match retry {
             Retry::NeedsReauth => self.needs_reauth = true,
+            Retry::NeedsGrant => self.needs_grant = true,
             // The longest wait anyone asked for. Ordinary backoffs land here too, at a minute or
             // so, and are absorbed by the caller's own interval; a rate limit is an hour and is
             // not. Both mean the same thing to a scheduler, so neither needs a special case.
@@ -856,7 +860,7 @@ impl<B: Backend> AccountEngine<B> {
                         self.store.outbox_settle(id, Settle::InPart { done }, now)?;
                         break;
                     }
-                    if matches!(retry, Retry::NeedsReauth | Retry::Fatal(_)) {
+                    if retry.needs_person() || matches!(retry, Retry::Fatal(_)) {
                         report.needs_attention.push(e.to_string());
                     }
                     if let Some(draft) = draft {

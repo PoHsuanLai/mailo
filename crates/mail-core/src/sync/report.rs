@@ -245,6 +245,13 @@ impl Done {
                 why: None,
             });
         }
+        if report.needs_grant {
+            self.trouble.push(Trouble {
+                mailbox: None,
+                retry: Retry::NeedsGrant,
+                why: None,
+            });
+        }
         if let Some(wait) = report.hold {
             self.trouble.push(Trouble {
                 mailbox: None,
@@ -285,11 +292,14 @@ impl Done {
     }
 }
 
-/// Whether any of `trouble` is a refused credential.
-pub(crate) fn needs_reauth(trouble: &[Trouble]) -> bool {
-    trouble
-        .iter()
-        .any(|t| matches!(t.retry, Retry::NeedsReauth))
+/// The first of `trouble` only the person can answer: a refused credential, or a grant gone.
+pub(crate) fn person_asked(trouble: &[Trouble]) -> Option<&Trouble> {
+    trouble.iter().find(|t| t.retry.needs_person())
+}
+
+/// Whether any of `trouble` is one only the person can answer.
+pub(crate) fn needs_person(trouble: &[Trouble]) -> bool {
+    person_asked(trouble).is_some()
 }
 
 /// The longest wait any of `trouble` asked for.

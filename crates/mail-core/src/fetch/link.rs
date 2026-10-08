@@ -62,6 +62,13 @@ pub enum Link {
         /// Whether no pass has ever finished.
         first: First,
     },
+    /// The desktop's account service no longer lets Mail use the account. Signing in cannot
+    /// help, and nothing is tried until the person allows Mail again.
+    NeedsAllow {
+        why: String,
+        /// Whether no pass has ever finished.
+        first: First,
+    },
     /// Failed for a reason no retry changes.
     Broken {
         why: String,
@@ -181,7 +188,7 @@ impl Link {
         match self {
             Link::Fresh | Link::Current { .. } | Link::Waiting { .. } => true,
             Link::Broken { .. } => trigger == Trigger::Manual,
-            Link::Syncing { .. } | Link::NeedsSignIn { .. } => false,
+            Link::Syncing { .. } | Link::NeedsSignIn { .. } | Link::NeedsAllow { .. } => false,
         }
     }
 
@@ -194,6 +201,7 @@ impl Link {
             Link::Syncing { first, .. }
             | Link::Waiting { first, .. }
             | Link::NeedsSignIn { first, .. }
+            | Link::NeedsAllow { first, .. }
             | Link::Broken { first, .. } => *first,
         }
     }
@@ -243,7 +251,7 @@ pub fn step(link: &Link, event: Event, now: DateTime<Utc>, every: Duration) -> (
             Event::Tick,
         ) if now >= later(*at, every) => begin(link),
         (Link::Waiting { until, .. }, Event::Tick) if now >= *until => begin(link),
-        (Link::NeedsSignIn { .. }, Event::SignedIn) => begin(link),
+        (Link::NeedsSignIn { .. } | Link::NeedsAllow { .. }, Event::SignedIn) => begin(link),
         (Link::Current { at, trouble, live }, Event::Live(now_live)) if *live != now_live => {
             let current = Link::Current {
                 at: *at,
@@ -365,6 +373,7 @@ fn failed(
             }
         }
         Retry::NeedsReauth => (Link::NeedsSignIn { why, first }, vec![]),
+        Retry::NeedsGrant => (Link::NeedsAllow { why, first }, vec![]),
         Retry::Fatal(fatal) => (
             Link::Broken {
                 why: if fatal.is_empty() { why } else { fatal },
