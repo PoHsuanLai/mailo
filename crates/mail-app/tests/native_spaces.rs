@@ -16,7 +16,7 @@ use settle::settle_until;
 #[path = "support/drive.rs"]
 mod drive;
 use drive::{Drive, Key};
-use mail_app::ui::space::{Space, Spaces};
+use mail_app::ui::space::{Mail, Scope, Spaces};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_runtime::{Arrival, absorb};
@@ -126,16 +126,18 @@ fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
 
 /// `count` Spaces, the first on screen, each showing every account.
 fn spaces(count: usize) -> Spaces {
-    Spaces {
-        spaces: (1..=count)
-            .map(|n| Space {
-                name: format!("Space {n}"),
-                ..Space::default()
+    mail_app::ui::space::built(
+        (1..=count)
+            .map(|n| {
+                (
+                    format!("Space {n}"),
+                    ds::style::space::look::SpaceLook::default(),
+                    Mail::over(Scope::All),
+                )
             })
             .collect(),
-        current: 0,
-        recall: Default::default(),
-    }
+        0,
+    )
 }
 
 /// The window, `width` wide, over a freshly seeded store and `spaces`, first frame drawn. The
@@ -148,7 +150,7 @@ fn open(width: u32, spaces: Spaces) -> (Harness, tempfile::TempDir) {
     let contexts = mail_app::ui::native::contexts(
         store,
         mail_app::ui::view::Appearance::default(),
-        spaces,
+        Some(spaces),
         None,
         mail_app::ui::Start::Inbox,
     )
@@ -163,13 +165,13 @@ fn open(width: u32, spaces: Spaces) -> (Harness, tempfile::TempDir) {
     (harness, dir)
 }
 
-const DOTS: &str = ".space-dots > *";
-const NAME: &str = ".side-head";
+const DOTS: &str = ".ds-spaces-dots > *";
+const NAME: &str = ".ds-space-head";
 const MENU: &str = ".ds-menu-item";
 /// The menu's last row: Delete Space… while another Space remains, New Space otherwise.
 const LAST_ROW: &str = ".ds-menu-item:last-child";
-const ASKING: &str = ".space-delete";
-const CONFIRM: &str = ".space-delete [*|aria-label=\"Delete Space\"]";
+const ASKING: &str = ".ds-space-delete";
+const CONFIRM: &str = ".ds-space-delete [*|aria-label=\"Delete Space\"]";
 
 /// A right click on `selector`: the Space's name opens its menu only so.
 fn right_press(harness: &mut Harness, selector: &str) {

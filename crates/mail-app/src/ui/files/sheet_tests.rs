@@ -219,11 +219,7 @@ async fn local_folders_are_named_so_and_have_nothing_to_sync() {
     let (store, dir) = crate::ui::fixtures::seeded();
     import_locally(&store, &a_maildir(dir.path()));
     // One Space over every account, so both tiles are drawn side by side.
-    let everything = crate::ui::space::Spaces {
-        spaces: vec![crate::ui::space::Space::default()],
-        current: 0,
-        recall: std::collections::BTreeMap::new(),
-    };
+    let everything = crate::ui::space::first_run(&[]);
     let mut dom = VirtualDom::new(crate::ui::app::App)
         .with_root_context(store.clone())
         .with_root_context(everything);

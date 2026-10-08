@@ -510,7 +510,7 @@ async fn render_the_folders_to_a_file() {
         old,
     ];
     built.store.put_folders(account, folders).unwrap();
-    let space = crate::ui::space::load(&built.dirs.config).current_space();
+    let space = crate::ui::space::load(&built.dirs).current().clone();
     let mut dom = VirtualDom::new(App)
         .with_root_context(built.store.clone())
         .with_root_context(built.dirs);

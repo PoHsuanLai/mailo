@@ -1,9 +1,9 @@
-use super::{Moved, space_key, switch};
+use super::{recall_of, restore, space_key};
 use crate::ui::app::App;
 use crate::ui::fixtures::{
     INSIDE_THE_SHELL, Scripts, Work, chord, dispatching, rebuild_into, root_attr, work,
 };
-use crate::ui::space::{self, PRESETS, Scope, Space, Spaces};
+use crate::ui::space::{self, Mail, Scope, SpaceId};
 use crate::ui::view::Shell;
 use dioxus::html::input_data::keyboard_types::Modifiers;
 use dioxus::prelude::*;
@@ -12,10 +12,10 @@ use ds::prelude::{Scheme, SpaceLook, Theme, Word};
 use ds::style::space::frame_vars::FrameVars;
 use ds::style::space::look::CardAccent;
 use ds::style::space::palette::{Dot, derive, gradient};
+use ds::style::space::presets::PRESETS;
 use mail_domain::ThreadId;
 use mail_domain::id::account_id_from_uuid;
 use porter_core::AccountId;
-use std::collections::BTreeMap;
 use uuid::Uuid;
 
 fn account(n: u128) -> AccountId {
@@ -24,25 +24,6 @@ fn account(n: u128) -> AccountId {
 
 fn thread(n: u128) -> ThreadId {
     ThreadId::from_uuid(Uuid::from_u128(n))
-}
-
-fn two_spaces() -> Spaces {
-    Spaces {
-        spaces: vec![
-            Space {
-                name: "Work".to_owned(),
-                scope: Scope::All,
-                ..Space::default()
-            },
-            Space {
-                name: "Home".to_owned(),
-                scope: Scope::Accounts(vec![account(2)]),
-                ..Space::default()
-            },
-        ],
-        current: 0,
-        recall: BTreeMap::new(),
-    }
 }
 
 fn place(shell: &Shell) -> &str {
@@ -56,6 +37,14 @@ fn select(shell: &mut Shell, name: &str) {
         .position(|place| place.name == name)
         .unwrap_or_else(|| panic!("no place {name}"));
     shell.select(index);
+}
+
+/// The neutral look with `dots`.
+fn dotted(dots: &[Dot]) -> SpaceLook {
+    SpaceLook {
+        dots: dots.to_vec(),
+        ..SpaceLook::default()
+    }
 }
 
 #[test]
@@ -74,60 +63,34 @@ fn ctrl_and_a_digit_name_a_space() {
     }
 }
 
+/// quire's kit hands back what [`recall_of`] took when the Space was left; [`restore`] shows it
+/// again, and what belonged to the Space left (a search, a selection) does not follow.
 #[test]
-fn each_space_gets_its_place_thread_and_tile_back() {
-    let mut spaces = two_spaces();
+fn a_space_gets_its_place_thread_and_tile_back_and_nothing_else() {
     let mut shell = Shell::default();
     select(&mut shell, "Archive");
     shell.open(thread(7));
     shell.account = Some(account(1));
-    shell.search = "from:dana".to_owned();
+    let left = recall_of(&shell);
 
-    assert_eq!(switch(&mut spaces, &mut shell, 1), Moved::Yes);
-    assert_eq!(spaces.current, 1);
-    assert_eq!(
-        shell.scope,
-        Scope::Accounts(vec![account(2)]),
-        "the list is not Home's"
+    let mut elsewhere = Shell::default();
+    select(&mut elsewhere, "Sent");
+    elsewhere.open(thread(9));
+    elsewhere.search = "from:dana".to_owned();
+    restore(&mut elsewhere, &left);
+    assert_eq!(place(&elsewhere), "Archive");
+    assert_eq!(elsewhere.open, Some(thread(7)));
+    assert_eq!(elsewhere.account, Some(account(1)));
+    assert!(
+        elsewhere.search.is_empty(),
+        "the search followed into the Space"
     );
-    assert_eq!(
-        place(&shell),
-        "Inbox",
-        "a Space with no memory opens on the Inbox"
-    );
-    assert_eq!(shell.open, None);
-    assert_eq!(
-        shell.account, None,
-        "Work's tile is not one of Home's accounts"
-    );
-    assert!(shell.search.is_empty(), "Work's search followed into Home");
 
-    select(&mut shell, "Sent");
-    shell.open(thread(9));
-    shell.account = Some(account(2));
-
-    assert_eq!(switch(&mut spaces, &mut shell, 0), Moved::Yes);
-    assert_eq!(shell.scope, Scope::All, "Work is every account");
-    assert_eq!(place(&shell), "Archive");
-    assert_eq!(shell.open, Some(thread(7)));
-    assert_eq!(shell.account, Some(account(1)));
-
-    assert_eq!(switch(&mut spaces, &mut shell, 1), Moved::Yes);
-    assert_eq!(place(&shell), "Sent");
-    assert_eq!(shell.open, Some(thread(9)));
-    assert_eq!(shell.account, Some(account(2)));
-}
-
-#[test]
-fn switching_to_where_you_are_or_nowhere_changes_nothing() {
-    let mut spaces = two_spaces();
-    let mut shell = Shell::default();
-    select(&mut shell, "Archive");
-    let (before_spaces, before_shell) = (spaces.clone(), shell.clone());
-    assert_eq!(switch(&mut spaces, &mut shell, 0), Moved::No);
-    assert_eq!(switch(&mut spaces, &mut shell, 2), Moved::No);
-    assert_eq!(spaces, before_spaces);
-    assert_eq!(shell, before_shell);
+    // A Space never left opens on the first place, with nothing open and every account.
+    restore(&mut elsewhere, &space::Recall::default());
+    assert_eq!(place(&elsewhere), "Inbox");
+    assert_eq!(elsewhere.open, None);
+    assert_eq!(elsewhere.account, None);
 }
 
 fn rows(page: &str) -> usize {
@@ -154,19 +117,16 @@ async fn ctrl_2_repaints_the_frame_and_scopes_the_list() {
     dispatching();
     let built = work();
     let ids = crate::ui::data::accounts(&built.store);
-    let mut stored = space::load(&built.dirs.config);
-    let home = Space {
-        name: "Solo".to_owned(),
-        look: SpaceLook {
-            dots: PRESETS[4].to_vec(),
-            theme: Theme::Light,
-            ..Space::default().look
-        },
-        scope: Scope::Accounts(vec![ids[0].clone()]),
-        ..Space::default()
+    let home = SpaceLook {
+        theme: Theme::Light,
+        ..dotted(PRESETS[4].dots)
     };
-    stored.spaces.push(home.clone());
-    space::save(&built.dirs.config, &stored).unwrap_or_else(|e| panic!("{e}"));
+    let solo = with_second(
+        &built,
+        "Solo",
+        home.clone(),
+        Mail::over(Scope::Accounts(vec![ids[0].clone()])),
+    );
 
     let scripts = Scripts::default();
     let mut dom = VirtualDom::new(App)
@@ -187,7 +147,7 @@ async fn ctrl_2_repaints_the_frame_and_scopes_the_list() {
     let page = drawn_when(&mut dom, |page| rows(page) < before).await;
 
     // The frame is the root's own to paint now: no script, the Space's gradient on `.ds`.
-    let gradient = gradient(&derive(&home.look.dots, Scheme::Light));
+    let gradient = gradient(&derive(&home.dots, Scheme::Light));
     let style = root_attr(&page, "style").unwrap_or_default();
     assert!(
         style.contains(&format!("--f-grad:{gradient};")),
@@ -211,18 +171,25 @@ async fn ctrl_2_repaints_the_frame_and_scopes_the_list() {
         "the foot does not show Solo: {page}"
     );
     assert_eq!(
-        space::load(&built.dirs.config).current,
-        1,
+        space::load(&built.dirs).current().id,
+        solo,
         "the switch was not written to spaces.json"
     );
 }
 
-/// `built`'s Work Space, then `extra`, written to its `spaces.json`, with Work current.
-fn with_second(built: &Work, extra: Space) {
-    let mut stored = space::load(&built.dirs.config);
-    stored.spaces.push(extra);
-    stored.current = 0;
-    space::save(&built.dirs.config, &stored).unwrap_or_else(|e| panic!("{e}"));
+/// `built`'s Work Space, then one called `name` with `look` over `mail`, written to its
+/// `spaces.json`, with Work current. The new Space's id is returned.
+fn with_second(built: &Work, name: &str, look: SpaceLook, mail: Mail) -> SpaceId {
+    let mut stored = space::load(&built.dirs);
+    let first = stored.current().id;
+    let made = stored.add(mail);
+    stored.edit(made, |space| {
+        space.name = name.to_owned();
+        space.look = look;
+    });
+    stored.select(first);
+    space::save(Some(&built.dirs), &stored).unwrap_or_else(|e| panic!("{e}"));
+    made
 }
 
 /// `App` on `built`, first frame rendered.
@@ -281,7 +248,7 @@ async fn the_first_frame_and_a_switch_paint_a_space_the_same() {
             "dark, the card follows the Space",
             SpaceLook {
                 grain: ds::prelude::Grain(35),
-                dots: PRESETS[1].to_vec(),
+                dots: PRESETS[1].dots.to_vec(),
                 theme: Theme::Dark,
                 card_accent: CardAccent::SpaceHue,
             },
@@ -290,9 +257,8 @@ async fn the_first_frame_and_a_switch_paint_a_space_the_same() {
         (
             "light, the chosen accent",
             SpaceLook {
-                dots: PRESETS[3].to_vec(),
                 theme: Theme::Light,
-                ..Space::default().look
+                ..dotted(PRESETS[3].dots)
             },
             Scheme::Light,
         ),
@@ -300,11 +266,10 @@ async fn the_first_frame_and_a_switch_paint_a_space_the_same() {
             "system, a hand-made dot",
             SpaceLook {
                 grain: ds::prelude::Grain(35),
-                dots: vec![Dot {
+                ..dotted(&[Dot {
                     hue: 164.066_35,
                     chroma: 0.7,
-                }],
-                ..Space::default().look
+                }])
             },
             // No desktop preference in a test: System is light.
             Scheme::Light,
@@ -312,22 +277,16 @@ async fn the_first_frame_and_a_switch_paint_a_space_the_same() {
     ];
     for (name, look, scheme) in cases {
         let want = FrameVars::of(&look, scheme).style_attr();
-        let other = Space {
-            name: "Other".to_owned(),
-            look: look.clone(),
-            ..Space::default()
-        };
-
         let built = work();
-        with_second(&built, other.clone());
+        with_second(&built, "Other", look.clone(), Mail::default());
         let mut dom = app_on(&built);
         let switched = switch_to(&mut dom, "2");
 
         let opened = work();
-        let mut stored = space::load(&opened.dirs.config);
-        stored.spaces.push(other);
-        stored.current = 1;
-        space::save(&opened.dirs.config, &stored).unwrap_or_else(|e| panic!("{e}"));
+        let other = with_second(&opened, "Other", look.clone(), Mail::default());
+        let mut stored = space::load(&opened.dirs);
+        stored.select(other);
+        space::save(Some(&opened.dirs), &stored).unwrap_or_else(|e| panic!("{e}"));
         let first = dioxus_ssr::render(&app_on(&opened));
 
         for (how, page) in [("switched to", &switched), ("opened on", &first)] {
@@ -353,19 +312,12 @@ async fn the_first_frame_and_a_switch_paint_a_space_the_same() {
 async fn a_switch_keeps_the_old_gradient_behind_the_new_one() {
     dispatching();
     let built = work();
-    let work_look = space::load(&built.dirs.config).current_space().look;
-    let home = Space {
-        name: "Home".to_owned(),
-        look: SpaceLook {
-            dots: PRESETS[2].to_vec(),
-            ..Space::default().look
-        },
-        ..Space::default()
-    };
-    with_second(&built, home.clone());
+    let work_look = space::load(&built.dirs).current().look.clone();
+    let home = dotted(PRESETS[2].dots);
+    with_second(&built, "Home", home.clone(), Mail::default());
     let mut dom = app_on(&built);
     let old = gradient(&derive(&work_look.dots, Scheme::Light));
-    let new = gradient(&derive(&home.look.dots, Scheme::Light));
+    let new = gradient(&derive(&home.dots, Scheme::Light));
     let before = layers(&dioxus_ssr::render(&dom));
     assert!(
         before.iter().any(|(slot, g)| slot.is_none() && *g == old),
@@ -393,18 +345,15 @@ async fn a_switch_keeps_the_old_gradient_behind_the_new_one() {
 async fn the_chosen_accent_writes_none_and_a_switch_to_it_clears_the_hue() {
     dispatching();
     let built = work();
-    let mut stored = space::load(&built.dirs.config);
-    stored.spaces[0].look.card_accent = CardAccent::SpaceHue;
-    space::save(&built.dirs.config, &stored).unwrap_or_else(|e| panic!("{e}"));
-    let chosen = Space {
-        name: "Plain".to_owned(),
-        look: SpaceLook {
-            card_accent: CardAccent::Chosen,
-            ..Space::default().look
-        },
-        ..Space::default()
+    let mut stored = space::load(&built.dirs);
+    let first = stored.current().id;
+    stored.edit(first, |space| space.look.card_accent = CardAccent::SpaceHue);
+    space::save(Some(&built.dirs), &stored).unwrap_or_else(|e| panic!("{e}"));
+    let chosen = SpaceLook {
+        card_accent: CardAccent::Chosen,
+        ..SpaceLook::default()
     };
-    with_second(&built, chosen);
+    with_second(&built, "Plain", chosen, Mail::default());
     let mut dom = app_on(&built);
     let hue = root_attr(&dioxus_ssr::render(&dom), "style").unwrap_or_default();
     assert!(hue.contains("--accent:"), "Work lends its hue: {hue}");

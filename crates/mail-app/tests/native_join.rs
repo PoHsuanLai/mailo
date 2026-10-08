@@ -6,7 +6,7 @@
 use ds::prelude::*;
 use ds_blitz::NetPolicy;
 use ds_harness::{Clock, Driver, Harness, HarnessConfig, Query, Viewport};
-use mail_app::ui::space::{Scope, Space, Spaces};
+use mail_app::ui::space::{Mail, Scope};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::presets;
 use mail_store::SqliteStore;
@@ -71,18 +71,18 @@ fn store(dir: &std::path::Path) -> Arc<SqliteStore> {
 /// The window over both accounts, in one Space that shows only Work.
 fn open() -> (Harness, tempfile::TempDir, Opened) {
     let dir = tempfile::tempdir().unwrap();
-    let spaces = Spaces {
-        spaces: vec![Space {
-            name: "Work".to_owned(),
-            scope: Scope::Accounts(vec![acct_work()]),
-            ..Space::default()
-        }],
-        ..Spaces::default()
-    };
+    let spaces = mail_app::ui::space::built(
+        vec![(
+            "Work".to_owned(),
+            ds::style::space::look::SpaceLook::default(),
+            Mail::over(Scope::Accounts(vec![acct_work()])),
+        )],
+        0,
+    );
     let contexts = mail_app::ui::native::contexts(
         store(dir.path()),
         mail_app::ui::view::Appearance::default(),
-        spaces,
+        Some(spaces),
         None,
         mail_app::ui::Start::Inbox,
     );

@@ -205,7 +205,7 @@ fn PageHarness(draft: Draft) -> Element {
     let mut shell = use_signal(Shell::default);
     let revision = use_signal(|| 0u64);
     let today = use_signal(crate::ui::today::Today::default);
-    let spaces = use_signal(crate::ui::space::Spaces::default);
+    let spaces = use_signal(|| crate::ui::space::first_run(&[]));
     let side = use_signal(|| false);
     let dirs = try_consume_context::<WindowDirs>();
     let desk = use_desk(today, spaces, dirs, side);

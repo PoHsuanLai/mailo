@@ -40,7 +40,7 @@ pub(super) fn counts(store: &SqliteStore, space: &Space) -> Counts {
     let rows = account_rows(store);
     let shown: Vec<_> = rows
         .into_iter()
-        .filter(|row| space.scope.shows(row.id.clone()))
+        .filter(|row| space.payload.scope.shows(row.id.clone()))
         .collect();
     let labels = query::known_labels(store);
     let scope = scope_filter(space);
@@ -80,6 +80,7 @@ pub(super) fn counts(store: &SqliteStore, space: &Space) -> Counts {
         })
         .collect();
     let pins = space
+        .payload
         .pins
         .iter()
         .map(|pin| unread(pin_filter(pin, &labels)))
@@ -88,7 +89,7 @@ pub(super) fn counts(store: &SqliteStore, space: &Space) -> Counts {
 }
 
 fn scope_filter(space: &Space) -> Option<Filter> {
-    space.scope.filter()
+    space.payload.scope.filter()
 }
 
 fn pin_filter(pin: &Pinned, labels: &[(String, LabelId)]) -> Filter {
@@ -197,7 +198,7 @@ pub(super) fn AccountTiles(
                         .into_iter()
                         .map(|row| (row.id.clone(), row.shown()))
                         .collect();
-                    match join::plus(&spaces.peek().current_space(), &all) {
+                    match join::plus(spaces.peek().current(), &all) {
                         Plus::AddNew => super::super::add_account::open(),
                         Plus::Offer(outside) => joining.set(Some(outside)),
                     }
@@ -248,14 +249,14 @@ pub(super) fn AccountTiles(
 fn bring_in(mut shell: Signal<Shell>, mut spaces: Signal<Spaces>, account: AccountId) {
     let widened = {
         let mut all = spaces.write();
-        let current = all.current;
-        all.spaces
-            .get_mut(current)
-            .is_some_and(|space| space.widen(account))
+        let current = all.current().id;
+        let mut widened = false;
+        all.edit(current, |space| widened = space.payload.widen(account));
+        widened
     };
     if widened {
         super::super::frame::keep(&spaces.read());
-        shell.write().scope = spaces.read().current_space().scope;
+        shell.write().scope = spaces.read().current().payload.scope.clone();
     }
 }
 
@@ -475,14 +476,14 @@ pub(super) fn PinnedList(
     pins: Vec<u64>,
 ) -> Element {
     // No pins, no heading: a source list does not show an empty group.
-    if space.pins.is_empty() {
+    if space.payload.pins.is_empty() {
         return rsx! {};
     }
     let mut items = vec![ListItem::heading(
         "head".to_owned(),
         rsx! { SectionHeader { title: "Pinned" } },
     )];
-    for (index, pin) in space.pins.iter().enumerate() {
+    for (index, pin) in space.payload.pins.iter().enumerate() {
         let name = match pin {
             Pinned::Person { name, .. } | Pinned::Search { name, .. } => name.clone(),
         };

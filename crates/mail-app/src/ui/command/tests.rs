@@ -308,7 +308,7 @@ fn Runs(label: String) -> Element {
     let pages = use_signal(|| 1u32);
     let mut revision = use_signal(|| 0u64);
     let mut side_hidden = use_signal(|| false);
-    let spaces = use_signal(crate::ui::space::Spaces::default);
+    let spaces = use_signal(|| crate::ui::space::first_run(&[]));
     let name = format!("run {label}");
     rsx! {
         button {

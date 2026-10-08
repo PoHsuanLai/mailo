@@ -66,7 +66,7 @@ pub(super) fn run(opening: Opening) {
         .with_app_id(AppId(APP_ID.to_owned()))
         .with_net(original.net())
         .with_frame_links(original.links())
-        .with_contexts(contexts(store, look, spaces, dirs, start))
+        .with_contexts(contexts(store, look, Some(spaces), dirs, start))
         .with_context(original.consent())
         .with_context(original.pill())
         .with_context(original.images())
@@ -104,7 +104,8 @@ pub(super) fn run(opening: Opening) {
 
 /// The root contexts the window reads, for `AppConfig` or `HarnessConfig::with_contexts`: the
 /// store, the look, the Spaces, where the window opens, and the directories it writes, when there
-/// are any. Without directories the window keeps its choices in memory and writes no file.
+/// are any. Without directories the window keeps its choices in memory and writes no file; `None`
+/// for the Spaces is a first run over the store's accounts, as a window with nothing stored has.
 ///
 /// The provider icons and the brand logo cache are left out: a test has no cache to read them
 /// from, and the window then draws each provider's letter and each sender's initial. A test that
@@ -112,15 +113,14 @@ pub(super) fn run(opening: Opening) {
 pub fn contexts(
     store: Arc<SqliteStore>,
     look: Appearance,
-    spaces: Spaces,
+    spaces: Option<Spaces>,
     dirs: Option<WindowDirs>,
     start: crate::ui::Start,
 ) -> RootContexts {
-    let contexts = RootContexts::new()
-        .with(store)
-        .with(look)
-        .with(spaces)
-        .with(start);
+    let mut contexts = RootContexts::new().with(store).with(look).with(start);
+    if let Some(spaces) = spaces {
+        contexts = contexts.with(spaces);
+    }
     match dirs {
         Some(dirs) => contexts.with(dirs),
         None => contexts,

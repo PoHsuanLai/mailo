@@ -6,9 +6,9 @@
 //! know. What it writes is [`crate::ui::saved`]'s to decide; this only draws the draft and hands it
 //! to the store.
 
+use super::common::Seg;
 use super::menu::{Floating, MenuItem, Right, Tile};
 use super::press::{SheetClose, on_primary};
-use super::space_menu::Seg;
 use crate::ui::saved::{self, HOVER_CHOICES, ViewDraft, group_choices, group_name, hover_name};
 use crate::ui::view::Shell;
 use dioxus::prelude::*;

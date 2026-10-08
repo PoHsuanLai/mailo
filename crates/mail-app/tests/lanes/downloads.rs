@@ -6,7 +6,7 @@ use super::window::{Window, deliver, hours_ago};
 
 const SUBJECT: &str = "Notes from Thursday";
 const NAME: &str = "notes.txt";
-const BUTTON: &str = ".side-foot [*|aria-label=\"Downloads\"]";
+const BUTTON: &str = ".ds-spaces-foot [*|aria-label=\"Downloads\"]";
 const LIST: &str = ".downloads";
 const DOT: &str = ".downloads-dot";
 

@@ -87,7 +87,9 @@ fn act(ctx: Ctx, choice: Option<Choice>) {
         Choice::Space(index) => {
             restore(shell, pages);
             close(shell);
-            super::switch::go(spaces, shell, pages, index);
+            if let Some(handle) = try_consume_context::<crate::ui::space::Handle>() {
+                let _ = handle.switch_index(index);
+            }
         }
         // "New from template" lists the templates in the same panel rather than running anything.
         Choice::Pick(Pick::Action(label)) if label == templates::ACTION => {
@@ -254,11 +256,8 @@ fn run_action(
             let mut spaces = spaces;
             {
                 let mut all = spaces.write();
-                let current = all.current;
-                match all.spaces.get_mut(current) {
-                    Some(space) => space.look.theme = theme,
-                    None => return close(shell),
-                }
+                let current = all.current().id;
+                all.edit(current, |space| space.look.theme = theme);
             }
             super::frame::keep(&spaces.read());
             close(shell);

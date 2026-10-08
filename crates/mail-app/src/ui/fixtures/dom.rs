@@ -135,7 +135,7 @@ pub(in crate::ui) fn write_page(name: &str, page: &str) {
 /// is the `.ds` root's `data-theme`, which quire always writes; a component rendered on its
 /// own is placed in a root of each ([`framed`]).
 pub(in crate::ui) fn dump(name: &str, body: &str) {
-    let look = crate::ui::space::Space::default().look;
+    let look = ds::prelude::SpaceLook::default();
     for (suffix, scheme) in [("", Scheme::Light), ("-dark", Scheme::Dark)] {
         write_page(
             &format!("{name}{suffix}"),
@@ -691,7 +691,7 @@ fn ComposerHarness() -> Element {
     let mut shell = use_signal(Shell::default);
     let revision = use_signal(|| 0u64);
     let today = use_signal(crate::ui::today::Today::default);
-    let spaces = use_signal(crate::ui::space::Spaces::default);
+    let spaces = use_signal(|| crate::ui::space::first_run(&[]));
     let side = use_signal(|| false);
     use_desk(today, spaces, None, side);
 
@@ -845,15 +845,14 @@ mod tests {
         }
         // One Space over every account. The first-run layout is one Space per
         // account, which would hide four of the five tiles.
-        let spaces = crate::ui::space::Spaces {
-            current: 0,
-            recall: std::collections::BTreeMap::new(),
-            spaces: vec![crate::ui::space::Space {
-                name: "Mail".to_owned(),
-                scope: crate::ui::space::Scope::All,
-                ..crate::ui::space::Space::default()
-            }],
-        };
+        let spaces = crate::ui::space::built(
+            vec![(
+                "Mail".to_owned(),
+                ds::prelude::SpaceLook::default(),
+                crate::ui::space::Mail::over(crate::ui::space::Scope::All),
+            )],
+            0,
+        );
         let mut dom = dioxus::prelude::VirtualDom::new(crate::ui::app::App)
             .with_root_context(store)
             .with_root_context(loaded)

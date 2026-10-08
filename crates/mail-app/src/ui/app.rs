@@ -7,7 +7,6 @@ use super::list_query::{ListView, use_list};
 use super::ops::{Composes, apply_op, start_composing, start_new};
 use super::reading::Reader;
 use super::sidebar::Places;
-use super::space_menu::SpaceMenuView;
 use super::style::STYLE;
 use crate::ui::selection::Toward;
 use crate::ui::space::Spaces;
@@ -16,6 +15,7 @@ use crate::ui::view::{
     nothing_to_show, places_with,
 };
 use dioxus::prelude::*;
+use ds::components::app::spaces::{Showing, Switched, use_spaces};
 use ds::components::chrome::split_view::model::{Collapsing, PaneSpec, SplitPane};
 use ds::components::chrome::split_view::view::SplitView;
 use ds::prelude::*;
@@ -71,14 +71,31 @@ pub(super) fn App() -> Element {
     // token.
     super::handoff::use_handoff(shell);
     let boot = use_hook(frame::load_boot);
-    let spaces = use_signal(|| boot.spaces.clone());
+    // quire's Spaces: the list, switching, the look and the menu. Where a Space was left is the
+    // shell's place, open thread and account tile; arriving shows where the Space was left.
+    // How many pages of the list have been asked for. Reset whenever the list itself changes,
+    // because "page 3" of the Inbox means nothing once the user is looking at Archive.
+    let mut pages = use_signal(|| 1u32);
+    let handle = {
+        let first = boot.spaces.clone();
+        use_spaces(
+            move || first,
+            |spaces: &crate::ui::space::Spaces| frame::keep(spaces),
+            move || super::switch::recall_of(&shell.peek()),
+            move |arrived: Switched<crate::ui::space::Recall>| {
+                super::switch::restore(&mut shell.write(), &arrived.restore);
+                pages.set(1);
+            },
+        )
+    };
+    // For what switches Space from elsewhere: ⌘K's Spaces.
+    use_context_provider(|| handle);
+    let spaces = handle.spaces();
     let mut today_list = use_signal(|| boot.today.clone());
     let dirs = boot.dirs.clone();
     // The files this window saves, behind the sidebar's Downloads button.
     super::downloads::use_provide_shelf(dirs.as_ref());
     let mut side_hidden = use_signal(|| false);
-    // The Space a part of its menu (its name, its colour) holds, while that part is open.
-    let editing = use_signal(|| None::<crate::ui::space::edit::Draft>);
     let prefs = super::prefs::use_prefs(dirs.as_ref());
     let desk = compose::use_desk(today_list, spaces, dirs.clone(), side_hidden);
     compose::use_test_dictionaries();
@@ -109,9 +126,6 @@ pub(super) fn App() -> Element {
         write.accounts = mail_core::compose::sending_accounts(&store);
     });
 
-    // How many pages of the list have been asked for. Reset whenever the list itself changes,
-    // because "page 3" of the Inbox means nothing once the user is looking at Archive.
-    let pages = use_signal(|| 1u32);
     // Mail that only arrives when you press a button is mail you miss: every account's link, the
     // timers that poll them and the loop that runs their passes (`fetching`).
     super::fetching::use_fetching(revision);
@@ -227,7 +241,7 @@ pub(super) fn App() -> Element {
     // the tiles' menus edit it. Read through `peek`, so a tile press (a shell change) does not
     // run this, and a pressed tile whose account left the Space goes back to every account.
     use_effect(move || {
-        let scope = spaces.read().current_space().scope;
+        let scope = spaces.read().current().payload.scope.clone();
         if shell.peek().scope != scope {
             let mut write = shell.write();
             if write
@@ -252,14 +266,14 @@ pub(super) fn App() -> Element {
 
     // Another window (Settings) may have written a key binding or the Spaces: read them again.
     // `settings.toml` needs nothing here: the window's root watches it.
-    super::frame::use_followed_configuration(shell, spaces, Some(editing));
+    super::frame::use_followed_configuration(shell, spaces, Some(handle));
 
     // An account removed, here or from a terminal, leaves every Space, and the tile pressed. Not
-    // while a part of the Space's menu holds a draft: the Spaces are the draft then. Run again
-    // when the part closes, which also takes the account out of the Space it kept.
+    // while a part of the Space's menu is open: its close writes the Spaces. Run again when the
+    // part closes, which also takes the account out of the Space it kept.
     use_effect(move || {
         let _ = revision();
-        if editing.read().is_some() {
+        if handle.editing().is_some() {
             return;
         }
         let store = consume_context::<Arc<SqliteStore>>();
@@ -270,7 +284,7 @@ pub(super) fn App() -> Element {
         if crate::ui::space::forget_unknown(&mut next, &known) == crate::ui::space::Forgot::Changed
         {
             frame::keep(&next);
-            let scope = next.current_space().scope;
+            let scope = next.current().payload.scope.clone();
             let mut spaces = spaces;
             spaces.set(next);
             shell.write().scope = scope;
@@ -292,8 +306,10 @@ pub(super) fn App() -> Element {
         let Some(id) = open else {
             return;
         };
-        let index = spaces.peek().current;
-        today_list.write().opened(index, id, chrono::Utc::now());
+        let space = spaces.peek().current().id;
+        today_list
+            .write()
+            .opened(space, id, crate::ui::today::at(chrono::Utc::now()));
         if let Some(dirs) = today_dirs.clone() {
             let _ = crate::ui::today::save(&dirs.state, &today_list.read());
         }
@@ -409,10 +425,9 @@ pub(super) fn App() -> Element {
         // field takes letters, the colour field's handles the arrows, and quire's layer stack
         // closes it on Escape. A part that holds no focus (the colour, the Delete question)
         // never sees the key, so an Escape that reaches the window closes it here.
-        let menu = shell.read().space_menu;
-        if let Some(open) = menu {
-            if key == "Escape" && open.showing != crate::ui::view::SpaceShowing::Menu {
-                super::space_menu::close(shell, editing, spaces);
+        if let Some(open) = handle.open() {
+            if key == "Escape" && open.showing != Showing::Menu {
+                handle.close_menu();
             }
             return;
         }
@@ -434,7 +449,7 @@ pub(super) fn App() -> Element {
                 return;
             }
             Some(Chord::SwitchSpace(index)) => {
-                super::switch::go(spaces, shell, pages, index);
+                let _ = handle.switch_index(index);
                 return;
             }
             Some(Chord::Find) => {
@@ -644,8 +659,8 @@ pub(super) fn App() -> Element {
     } else {
         rsx! {
             Places {
-                shell, pages, badges, revision, spaces, today: today_list, dirs: dirs.clone(),
-                side_hidden, editing,
+                shell, pages, badges, revision, handle, today: today_list, dirs: dirs.clone(),
+                side_hidden,
             }
         }
     };
@@ -708,12 +723,12 @@ pub(super) fn App() -> Element {
             if side_hidden() {
                 div { class: "edge-host",
                     Places {
-                        shell, pages, badges, revision, spaces, today: today_list, dirs: dirs.clone(),
-                        side_hidden, editing,
+                        shell, pages, badges, revision, handle, today: today_list, dirs: dirs.clone(),
+                        side_hidden,
                     }
                 }
             }
-            SpaceMenuView { spaces, editing, shell, pages, today: today_list }
+            super::space_menu::MailSpaceMenu { handle, today: today_list }
             // The search panel, at the top centre of the window while it is up.
             super::command::Spotlight { shell, pages, revision, in_a_field, side_hidden, spaces }
             if shell.read().files.is_some() {
@@ -789,13 +804,13 @@ pub(super) fn Frame(
     children: Element,
 ) -> Element {
     let environment = environment();
-    let space = spaces.read().current_space();
+    let look = spaces.read().current().look.clone();
     let appearance = window_appearance(&environment);
     rsx! {
         Ds {
             appearance,
             system: environment.system,
-            look: space.look,
+            look,
             material: Material::Window,
             tint_alpha: Some(environment.tint_alpha()),
             stack: Some(environment.material_stack()),

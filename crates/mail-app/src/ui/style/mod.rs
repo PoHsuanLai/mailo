@@ -18,7 +18,6 @@ mod exceptions;
 
 pub(super) const STYLE: &str = concat!(
     include_str!("shell.css"),
-    include_str!("editor.css"),
     include_str!("list.css"),
     include_str!("menus.css"),
     include_str!("reader.css"),
@@ -68,9 +67,8 @@ pub(in crate::ui) mod tests {
         )
     }
 
-    /// The window's first frame with a conversation open in the reader, the command menu's
-    /// open menus, and each of the Space's parts, which the first frame never shows: opened
-    /// here from the Space's menu as a person would.
+    /// The window's first frame with a conversation open in the reader, and the command menu's
+    /// open menus. The Space's menu and its parts are quire's, styled by quire's sheet.
     async fn frame_markup() -> String {
         use crate::ui::app::App;
         use crate::ui::fixtures::work;
@@ -86,12 +84,7 @@ pub(in crate::ui) mod tests {
         menus.rebuild_in_place();
         // The palette floats in the root's overlay, drawn the render after it asks.
         crate::ui::fixtures::drain(&mut menus);
-        let editor = crate::ui::space_menu::tests::parts_open_markup().await;
-        assert!(
-            editor.contains("data-part=\"colour\""),
-            "the Space's colour did not open: {editor}"
-        );
-        dioxus_ssr::render(&dom) + &dioxus_ssr::render(&menus) + &editor
+        dioxus_ssr::render(&dom) + &dioxus_ssr::render(&menus)
     }
 
     /// Coherence rule 1: mailo's own stylesheet at quire's strictest profile, spacing included.

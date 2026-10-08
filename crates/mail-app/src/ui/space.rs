@@ -1,37 +1,42 @@
 //! Spaces: a tint, and whose mail they show.
 //!
-//! Stored in `spaces.json` under the config directory, beside appearance and
-//! not in the mail database. A cosmetic choice must not be a write against
-//! someone's mail.
+//! The Spaces are quire's kit (`ds::components::app::spaces`): the list, its ids, switching,
+//! the look, the menu and Today are the same in every app. What a Space holds that is mail's is
+//! its [`Mail`] payload: whose mail it shows, what stays pinned, and each account's colour. Where
+//! a Space was left is mailo's [`Recall`].
+//!
+//! Stored in `spaces.json` under the config directory, beside appearance and not in the mail
+//! database: a cosmetic choice must not be a write against someone's mail. quire reads the file
+//! leniently, field by field; [`Mail`] reads its own fields the same way.
 
-use crate::ui::appearance::Legacy;
-use ds::prelude::{SpaceLook, Theme, Word};
-use ds::style::space::look::{CardAccent, Grain};
-use ds::style::space::palette::{Dot, NEUTRAL_DOT};
-use ds::style::space::presets::default_look;
+use crate::ui::appearance::{Legacy, WindowDirs};
+use ds::components::app::spaces;
+use ds::prelude::SpaceLook;
 use ds::style::tokens::person::PersonSwatch;
-use mail_core::config::write_json;
+use ds_settings::{Fixup, SpacesStorage};
 use mail_domain::Filter;
 use porter_core::AccountId;
 use serde::de::Deserializer;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::path::Path;
 
-pub mod edit;
 mod forget;
 mod member;
-mod migrate;
-mod presets;
 mod recall;
-pub mod remove;
 
+pub use ds::components::app::spaces::SpaceId;
 pub use forget::{Forgot, forget_account, forget_unknown};
 pub use member::{Member, with_member};
-pub use presets::{PRESET_NAMES, PRESETS};
 pub use recall::Recall;
 
-const FILE_NAME: &str = "spaces.json";
+/// One context: quire's Space over mail's payload.
+pub type Space = spaces::Space<Mail>;
+
+/// Every Space, which one is on screen, and where each was left.
+pub type Spaces = spaces::Spaces<Mail, Recall>;
+
+/// The window's Spaces as quire's controller drives them: switching, the menu, and writing.
+pub type Handle = spaces::SpacesHandle<Mail, Recall>;
 
 /// Which accounts a Space shows.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -87,23 +92,14 @@ pub enum Pinned {
     Search { name: String, query: String },
 }
 
-/// One context: a name, how its frame looks, and whose mail it shows.
-///
-/// The look is quire's [`SpaceLook`]: one to three dots (empty input is the neutral dot; a
-/// fourth is dropped), the palette this Space resolves to independently of the window, and
-/// whether the card follows its hue. It is written flat into `spaces.json`, beside the fields
-/// that are mailo's; it is read through [`SpaceRaw`], leniently, field by field. A file written
-/// before quire's one Look may still hold a `motion` per Space: nobody reads it, and the next
-/// write drops it. The `grain` key is read again; a file without one takes the preset's own.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(from = "SpaceRaw")]
-pub struct Space {
-    /// What the switcher calls it. "Space 1" until someone renames it.
-    pub name: String,
-    /// The frame's dots, theme and card accent: what the window's `Ds` root paints.
-    #[serde(flatten)]
-    pub look: SpaceLook,
+/// What a Space holds that is mail's. Written flat beside the Space's own fields in
+/// `spaces.json`, as mailo always wrote them; a field that is missing or unreadable is its
+/// default, never a failure of the whole file.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct Mail {
     /// Whose mail this Space shows.
+    #[serde(deserialize_with = "de_scope")]
     pub scope: Scope,
     /// People and saved searches that stay put.
     pub pins: Vec<Pinned>,
@@ -114,104 +110,26 @@ pub struct Space {
     pub colors: BTreeMap<AccountId, String>,
 }
 
-/// The swatch an account at `index` takes when a Space has not chosen one, as stored.
-fn swatch(index: usize) -> String {
-    PersonSwatch::nth(index).hex().css()
-}
-
-/// The colour `id` wears in `space`, or the swatch at `index` when none was stored.
-pub fn avatar_color(space: &Space, id: AccountId, index: usize) -> String {
-    space
-        .colors
-        .get(&id)
-        .cloned()
-        .unwrap_or_else(|| swatch(index))
-}
-
-/// Fill any account that has no colour yet. Returns whether the Space changed.
-pub fn ensure_colors(space: &mut Space, accounts: &[AccountId]) -> bool {
-    let mut changed = false;
-    for (index, id) in accounts.iter().enumerate() {
-        if space.colors.contains_key(id) {
-            continue;
-        }
-        space.colors.insert(id.clone(), swatch(index));
-        changed = true;
-    }
-    changed
-}
-
-impl Default for Space {
-    fn default() -> Self {
-        Self {
-            name: String::new(),
-            look: SpaceLook {
-                dots: vec![NEUTRAL_DOT],
-                grain: Grain::default(),
-                theme: Theme::default(),
-                card_accent: CardAccent::default(),
-            },
-            scope: Scope::default(),
-            pins: Vec::new(),
-            colors: BTreeMap::new(),
+impl Mail {
+    /// A Space's mail over `scope`, nothing pinned and no colour chosen.
+    pub fn over(scope: Scope) -> Mail {
+        Mail {
+            scope,
+            ..Mail::default()
         }
     }
-}
 
-impl Spaces {
-    /// The Space on screen, or a blank one when the file held none.
-    pub fn current_space(&self) -> Space {
-        self.spaces.get(self.current).cloned().unwrap_or_default()
+    /// Put `account` in this Space when it shows some accounts and not that one yet. Returns
+    /// whether it changed: a Space over every account already shows it.
+    pub(in crate::ui) fn widen(&mut self, account: AccountId) -> bool {
+        match &mut self.scope {
+            Scope::Accounts(ids) if !ids.contains(&account) => {
+                ids.push(account);
+                true
+            }
+            _ => false,
+        }
     }
-}
-
-/// Every Space, and which one is on screen.
-///
-/// A missing file is an empty list, not a first run: [`first_run`] builds the
-/// list once the accounts are known.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
-#[serde(from = "SpacesRaw")]
-pub struct Spaces {
-    pub spaces: Vec<Space>,
-    /// Index into [`Self::spaces`]. Past the end, it becomes the last Space.
-    pub current: usize,
-    /// Where each Space was left, by index: its place, its open thread, its account tile.
-    ///
-    /// Beside `current` rather than inside a [`Space`] because it is where you are, not how
-    /// the Space looks: the editor's Esc restores a Space exactly and must not also move you.
-    /// A Space with no entry opens on the Inbox.
-    pub recall: BTreeMap<usize, Recall>,
-}
-
-#[derive(Deserialize)]
-struct SpaceRaw {
-    #[serde(default)]
-    name: String,
-    #[serde(default)]
-    dots: Vec<Dot>,
-    /// Absent, or not a number: the preset's own grain for this Space's place in the list.
-    #[serde(default, deserialize_with = "de_grain")]
-    grain: Option<u8>,
-    #[serde(default, deserialize_with = "de_theme")]
-    theme: Theme,
-    #[serde(default, deserialize_with = "de_card_accent")]
-    card_accent: CardAccent,
-    #[serde(default, deserialize_with = "de_scope")]
-    scope: Scope,
-    #[serde(default)]
-    pins: Vec<Pinned>,
-    #[serde(default)]
-    colors: BTreeMap<AccountId, String>,
-}
-
-#[derive(Deserialize)]
-struct SpacesRaw {
-    #[serde(default)]
-    spaces: Vec<SpaceRaw>,
-    #[serde(default, deserialize_with = "de_index")]
-    current: usize,
-    #[serde(default, deserialize_with = "recall::de_recall")]
-    recall: BTreeMap<usize, Recall>,
 }
 
 #[derive(Deserialize)]
@@ -223,227 +141,145 @@ enum ScopeRaw {
     Unknown,
 }
 
-impl From<SpaceRaw> for Space {
-    fn from(raw: SpaceRaw) -> Self {
-        Self::from_raw(raw, 0)
-    }
-}
-
-impl Space {
-    /// Put `account` in this Space when it shows some accounts and not that one yet. Returns
-    /// whether the Space changed: a Space over every account already shows it.
-    pub(in crate::ui) fn widen(&mut self, account: AccountId) -> bool {
-        match &mut self.scope {
-            Scope::Accounts(ids) if !ids.contains(&account) => {
-                ids.push(account);
-                true
-            }
-            _ => false,
-        }
-    }
-
-    /// `raw` as the Space at `index`: a missing grain is that index's preset default.
-    fn from_raw(raw: SpaceRaw, index: usize) -> Self {
-        let mut dots: Vec<Dot> = raw.dots.into_iter().map(clamp_dot).collect();
-        if dots.is_empty() {
-            dots.push(NEUTRAL_DOT);
-        } else if dots.len() > 3 {
-            dots.truncate(3);
-        }
-        Self {
-            name: raw.name,
-            look: SpaceLook {
-                dots,
-                grain: raw.grain.map_or_else(|| Grain(preset_grain(index)), Grain),
-                theme: raw.theme,
-                card_accent: raw.card_accent,
-            },
-            scope: raw.scope,
-            pins: raw.pins,
-            colors: raw.colors,
-        }
-    }
-}
-
-impl From<SpacesRaw> for Spaces {
-    fn from(raw: SpacesRaw) -> Self {
-        let spaces: Vec<Space> = raw
-            .spaces
-            .into_iter()
-            .enumerate()
-            .map(|(index, space)| Space::from_raw(space, index))
-            .collect();
-        let current = match spaces.len() {
-            0 => 0,
-            count => raw.current.min(count - 1),
-        };
-        let recall = raw
-            .recall
-            .into_iter()
-            .filter(|(index, _)| *index < spaces.len())
-            .collect();
-        Self {
-            spaces,
-            current,
-            recall,
-        }
-    }
-}
-
-fn clamp_dot(dot: Dot) -> Dot {
-    let hue = if dot.hue.is_finite() {
-        dot.hue.rem_euclid(360.0)
-    } else {
-        NEUTRAL_DOT.hue
-    };
-    let chroma = if dot.chroma.is_finite() {
-        dot.chroma.clamp(0.0, 1.0)
-    } else {
-        NEUTRAL_DOT.chroma
-    };
-    Dot { hue, chroma }
-}
-
-fn de_index<'de, D>(deserializer: D) -> Result<usize, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let value = i64::deserialize(deserializer)?;
-    Ok(usize::try_from(value).unwrap_or(0))
-}
-
-fn de_grain<'de, D>(deserializer: D) -> Result<Option<u8>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let value = serde_json::Value::deserialize(deserializer)?;
-    Ok(value
-        .as_u64()
-        .map(|grain| u8::try_from(grain).unwrap_or(u8::MAX).min(100)))
-}
-
-/// The grain the preset at `index` paints with.
-fn preset_grain(index: usize) -> u8 {
-    default_look(index, Grain::default(), CardAccent::default())
-        .grain
-        .0
-}
-
-fn de_theme<'de, D>(deserializer: D) -> Result<Theme, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let word = String::deserialize(deserializer)?;
-    Ok(Theme::parse(&word).unwrap_or_default())
-}
-
-fn de_card_accent<'de, D>(deserializer: D) -> Result<CardAccent, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let word = String::deserialize(deserializer)?;
-    // `hint` is what mailo wrote before the look was quire's; `space_hue` is quire's word
-    // for the same choice, and what is written now. `postmark`, the accent mailo once had, and
-    // every other word are the chosen accent: Blue unless the person picked another.
-    Ok(match word.as_str() {
-        "hint" | "space_hue" => CardAccent::SpaceHue,
-        _ => CardAccent::Chosen,
-    })
-}
-
 fn de_scope<'de, D>(deserializer: D) -> Result<Scope, D::Error>
 where
     D: Deserializer<'de>,
 {
-    Ok(match ScopeRaw::deserialize(deserializer)? {
-        ScopeRaw::All | ScopeRaw::Unknown => Scope::All,
-        ScopeRaw::Accounts(ids) => Scope::Accounts(ids),
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(match serde_json::from_value::<ScopeRaw>(value) {
+        Ok(ScopeRaw::Accounts(ids)) => Scope::Accounts(ids),
+        Ok(ScopeRaw::All | ScopeRaw::Unknown) | Err(_) => Scope::All,
     })
 }
 
-/// The stored Spaces, or an empty list when there is no file or it cannot be read.
-///
-/// Dots are kept to the first three, and `current` to a real
-/// index. A missing dot list is the neutral dot. An unknown word for one field
-/// is that field's default, not a failure of the whole file.
-///
-/// The theme moved from `appearance.json` into each Space. A Space written before that has
-/// none, and takes the window-wide value stored beside it in the same directory, so the first
-/// read after the upgrade looks the way the window did.
-pub fn load(dir: &Path) -> Spaces {
-    let Ok(bytes) = std::fs::read(dir.join(FILE_NAME)) else {
-        return Spaces::default();
-    };
-    migrate::read_with(&bytes, &crate::ui::appearance::legacy(dir))
+/// The swatch an account at `index` takes when a Space has not chosen one, as stored.
+fn swatch(index: usize) -> String {
+    PersonSwatch::nth(index).hex().css()
 }
 
-/// Give every Space `look`'s theme. For Spaces made before any were stored.
-pub fn inherit(spaces: &mut Spaces, look: &Legacy) {
-    for space in &mut spaces.spaces {
-        space.look.theme = look.theme;
+/// The colour `id` wears in `space`, or the swatch at `index` when none was stored.
+pub fn avatar_color(space: &Space, id: AccountId, index: usize) -> String {
+    space
+        .payload
+        .colors
+        .get(&id)
+        .cloned()
+        .unwrap_or_else(|| swatch(index))
+}
+
+/// Fill any account that has no colour yet. Returns whether the Space changed.
+pub fn ensure_colors(mail: &mut Mail, accounts: &[AccountId]) -> bool {
+    let mut changed = false;
+    for (index, id) in accounts.iter().enumerate() {
+        if mail.colors.contains_key(id) {
+            continue;
+        }
+        mail.colors.insert(id.clone(), swatch(index));
+        changed = true;
     }
+    changed
 }
 
-/// A Space for "+": named after its position, tinted from the next preset in turn.
-///
-/// It covers every account, and keeps the current Space's theme so making one does not also
-/// change how the window looks.
-pub fn new_space(spaces: &Spaces) -> Space {
-    let count = spaces.spaces.len();
-    let current = spaces.current_space();
-    let mut made = Space {
-        name: format!("Space {}", count + 1),
-        scope: Scope::All,
-        ..Space::default()
-    };
-    made.look.dots = PRESETS[count % PRESETS.len()].to_vec();
-    made.look.grain = Grain(preset_grain(count));
-    made.look.theme = current.look.theme;
+/// One Space per account, named "Space 1" onward and tinted from quire's presets in order; no
+/// accounts is one Space over every account, so the window has somewhere to put the mail.
+/// Nothing is pinned.
+pub fn first_run(accounts: &[AccountId]) -> Spaces {
+    Spaces::first_run(
+        accounts
+            .iter()
+            .map(|id| Mail::over(Scope::Accounts(vec![id.clone()]))),
+        || Mail::over(Scope::All),
+    )
+}
+
+/// Spaces made from `spaces`, each a name, a look and its mail, in order, with the one at
+/// `current` on screen. For a window handed its Spaces (a test's) rather than reading them.
+pub fn built(spaces: Vec<(String, SpaceLook, Mail)>, current: usize) -> Spaces {
+    let (names, mails): (Vec<(String, SpaceLook)>, Vec<Mail>) = spaces
+        .into_iter()
+        .map(|(name, look, mail)| ((name, look), mail))
+        .unzip();
+    let mut made = Spaces::first_run(mails, Mail::default);
+    let ids: Vec<SpaceId> = made.list().iter().map(|space| space.id).collect();
+    for (id, (name, look)) in ids.iter().zip(names) {
+        made.edit(*id, |space| {
+            space.name = name;
+            space.look = look;
+        });
+    }
+    if let Some(id) = ids.get(current) {
+        made.select(*id);
+    }
     made
 }
 
-/// Write `spaces` to `dir/spaces.json`, creating `dir` if needed.
-pub fn save(dir: &Path, spaces: &Spaces) -> Result<(), String> {
-    write_json(dir, FILE_NAME, spaces)
+/// Where the window's Spaces and Today are kept: its directories, or nowhere (a window launched
+/// with none keeps them for the session).
+pub fn storage(dirs: Option<&WindowDirs>) -> SpacesStorage {
+    SpacesStorage::at(
+        dirs.map(|dirs| dirs.config.clone()),
+        dirs.map(|dirs| dirs.state.clone()),
+    )
 }
 
-/// The first-run look with the dots of preset `index`, in turn.
-fn preset_look(index: usize) -> SpaceLook {
-    default_look(index, Grain::default(), CardAccent::default())
-}
-
-/// One Space per account, named "Space 1" onward, tinted from [`PRESETS`] in order.
+/// The window's first Spaces: the stored ones, else a first run over `accounts`; the current
+/// Space's accounts given a colour each. Written when that was a first run or a colour was
+/// filled.
 ///
-/// No accounts still yields one Space, covering everything, so the window has
-/// somewhere to put the mail. Nothing is pinned.
-pub fn first_run(accounts: &[AccountId]) -> Spaces {
-    if accounts.is_empty() {
-        return Spaces {
-            spaces: vec![Space {
-                name: "Space 1".to_owned(),
-                look: preset_look(0),
-                scope: Scope::All,
-                ..Space::default()
-            }],
-            current: 0,
-            recall: BTreeMap::new(),
-        };
+/// The theme moved from `appearance.json` into each Space. A Space written before that has
+/// none, and takes the window-wide one `legacy` read, so the first read after the upgrade looks
+/// the way the window did; a first run starts from it too.
+pub fn boot(dirs: Option<&WindowDirs>, accounts: &[AccountId], legacy: &Legacy) -> Spaces {
+    let theme = serde_json::to_value(legacy.theme).unwrap_or(serde_json::Value::Null);
+    let raw_fix = |value: &mut serde_json::Value| inherit_theme(value, &theme);
+    let made = || {
+        let mut spaces = first_run(accounts);
+        let ids: Vec<SpaceId> = spaces.list().iter().map(|space| space.id).collect();
+        for id in ids {
+            spaces.edit(id, |space| space.look.theme = legacy.theme);
+        }
+        spaces
+    };
+    let colour = |spaces: &mut Spaces| {
+        let current = spaces.current().id;
+        let mut changed = false;
+        spaces.edit(current, |space| {
+            changed = ensure_colors(&mut space.payload, accounts);
+        });
+        if changed { Fixup::Changed } else { Fixup::Kept }
+    };
+    storage(dirs).boot_spaces(raw_fix, made, colour).0
+}
+
+/// Give each stored Space that has no `theme` of its own `theme`.
+///
+/// Only a missing key inherits. A Space that stored a word, even one this build does not know,
+/// made a choice of its own, and that word falls to the field's default as it always has.
+fn inherit_theme(value: &mut serde_json::Value, theme: &serde_json::Value) {
+    if let Some(list) = value
+        .get_mut("spaces")
+        .and_then(serde_json::Value::as_array_mut)
+    {
+        for space in list.iter_mut().filter_map(serde_json::Value::as_object_mut) {
+            space.entry("theme").or_insert_with(|| theme.clone());
+        }
     }
-    let spaces = accounts
-        .iter()
-        .enumerate()
-        .map(|(index, id)| Space {
-            name: format!("Space {}", index + 1),
-            look: preset_look(index),
-            scope: Scope::Accounts(vec![id.clone()]),
-            ..Space::default()
-        })
-        .collect();
-    Spaces {
-        spaces,
-        current: 0,
-        recall: BTreeMap::new(),
-    }
+}
+
+/// The Spaces as stored in `dirs`, for a window that only wears them (Settings, a message
+/// window): no first run is written, and with no file the one default Space stands in.
+pub fn load(dirs: &WindowDirs) -> Spaces {
+    storage(Some(dirs))
+        .load_spaces(|_| {})
+        .unwrap_or_else(|| first_run(&[]))
+}
+
+/// Write `spaces` where the window keeps them. A write that cannot happen leaves them for the
+/// session.
+pub fn save(dirs: Option<&WindowDirs>, spaces: &Spaces) -> Result<(), String> {
+    storage(dirs)
+        .save_spaces(spaces)
+        .map_err(|why| why.to_string())
 }
 
 #[cfg(test)]

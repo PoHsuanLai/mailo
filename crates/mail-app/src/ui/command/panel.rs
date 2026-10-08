@@ -58,8 +58,9 @@ pub(super) fn panel_rows(
                     icon: place_icon(&place.source),
                 })
                 .collect();
-            let names: Vec<String> = spaces.spaces.iter().map(|one| one.name.clone()).collect();
-            let found = places_for(query, &places, &names, spaces.current, &offered);
+            let names: Vec<String> = spaces.list().iter().map(|one| one.name.clone()).collect();
+            let current = spaces.index_of(spaces.current().id).unwrap_or(0);
+            let found = places_for(query, &places, &names, current, &offered);
             sections(rows, found, query)
         }
     }

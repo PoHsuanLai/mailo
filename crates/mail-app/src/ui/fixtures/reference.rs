@@ -6,7 +6,7 @@
 
 use super::store::gmail_caps;
 use crate::ui::appearance::WindowDirs;
-use crate::ui::space::{self, Pinned, Scope, Space, Spaces};
+use crate::ui::space::{self, Pinned, Scope};
 use crate::ui::today::{self, Today};
 use chrono::Datelike;
 use ds::prelude::{SpaceLook, Theme};
@@ -234,56 +234,60 @@ pub(in crate::ui) fn work() -> Work {
     colors.insert(acct_google(), "#5B4FC4".to_owned());
     colors.insert(acct_microsoft(), "#2F7F6E".to_owned());
     colors.insert(acct_fastmail(), "#B0662E".to_owned());
-    let spaces = Spaces {
-        current: 0,
-        recall: BTreeMap::new(),
-        spaces: vec![Space {
-            name: "Work".to_owned(),
-            look: SpaceLook {
-                grain: ds::prelude::Grain(35),
-                dots: vec![
-                    Dot {
-                        hue: 268.0,
-                        chroma: 0.72,
-                    },
-                    Dot {
-                        hue: 318.0,
-                        chroma: 0.55,
-                    },
-                ],
-                theme: Theme::System,
-                card_accent: CardAccent::SpaceHue,
+    let work = SpaceLook {
+        grain: ds::prelude::Grain(35),
+        dots: vec![
+            Dot {
+                hue: 268.0,
+                chroma: 0.72,
             },
-            scope: Scope::All,
-            pins: vec![
-                Pinned::Person {
-                    name: "Dana Okafor".to_owned(),
-                    email: "dana@example.com".to_owned(),
-                },
-                Pinned::Person {
-                    name: "Release list".to_owned(),
-                    email: "release@example.com".to_owned(),
-                },
-                Pinned::Search {
-                    name: "Unread".to_owned(),
-                    query: "is:unread".to_owned(),
-                },
-                Pinned::Person {
-                    name: "Build bot".to_owned(),
-                    email: "ci@example.com".to_owned(),
-                },
-            ],
-            colors,
-        }],
+            Dot {
+                hue: 318.0,
+                chroma: 0.55,
+            },
+        ],
+        theme: Theme::System,
+        card_accent: CardAccent::SpaceHue,
     };
-    space::save(&config, &spaces).unwrap();
+    let mail = space::Mail {
+        scope: Scope::All,
+        pins: vec![
+            Pinned::Person {
+                name: "Dana Okafor".to_owned(),
+                email: "dana@example.com".to_owned(),
+            },
+            Pinned::Person {
+                name: "Release list".to_owned(),
+                email: "release@example.com".to_owned(),
+            },
+            Pinned::Search {
+                name: "Unread".to_owned(),
+                query: "is:unread".to_owned(),
+            },
+            Pinned::Person {
+                name: "Build bot".to_owned(),
+                email: "ci@example.com".to_owned(),
+            },
+        ],
+        colors,
+    };
+    let spaces = space::built(vec![("Work".to_owned(), work, mail)], 0);
+    space::save(
+        Some(&WindowDirs {
+            config: config.clone(),
+            state: state.clone(),
+        }),
+        &spaces,
+    )
+    .unwrap();
     let mut today = Today::default();
+    let first = spaces.current().id;
     today.opened(
-        0,
+        first,
         sam.expect("sam"),
-        chrono::Utc::now() - chrono::TimeDelta::minutes(30),
+        today::at(chrono::Utc::now() - chrono::TimeDelta::minutes(30)),
     );
-    today.opened(0, dana.expect("dana"), chrono::Utc::now());
+    today.opened(first, dana.expect("dana"), today::at(chrono::Utc::now()));
     today::save(&state, &today).unwrap();
     Work {
         store,

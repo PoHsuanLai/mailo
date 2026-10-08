@@ -145,9 +145,9 @@ fn AddAccountShell(wiring: Wiring, prefill: Option<String>) -> Element {
         let dirs = dirs.clone();
         move || {
             dirs.as_ref()
-                .map(|dirs| space::load(&dirs.config))
+                .map(space::load)
                 .or_else(try_consume_context::<Spaces>)
-                .unwrap_or_default()
+                .unwrap_or_else(|| crate::ui::space::first_run(&[]))
         }
     });
     let mut sheet = use_signal(Sheet::default);
@@ -400,18 +400,18 @@ fn account_at(address: &str) -> Option<AccountId> {
 fn into_scope(spaces: &mut Signal<Spaces>, account: AccountId) {
     // The Spaces as they are on disk: this window's copy may be older than a Space another
     // window added or switched to meanwhile, and keeping it would undo that.
-    if let Some(dirs) = try_consume_context::<crate::ui::appearance::WindowDirs>() {
-        let stored = space::load(&dirs.config);
-        if !stored.spaces.is_empty() && *spaces.peek() != stored {
-            spaces.set(stored);
-        }
+    if let Some(dirs) = try_consume_context::<crate::ui::appearance::WindowDirs>()
+        && let Some(stored) = space::storage(Some(&dirs)).load_spaces(|_| {})
+        && *spaces.peek() != stored
+    {
+        spaces.set(stored);
     }
     let widened = {
         let mut all = spaces.write();
-        let current = all.current;
-        all.spaces
-            .get_mut(current)
-            .is_some_and(|space| space.widen(account))
+        let current = all.current().id;
+        let mut widened = false;
+        all.edit(current, |space| widened = space.payload.widen(account));
+        widened
     };
     if widened {
         crate::ui::frame::keep(&spaces.read());

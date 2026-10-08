@@ -79,7 +79,7 @@ fn a_change_to_the_desktops_appearance_restyles_the_running_window() {
     let contexts = mail_app::ui::native::contexts(
         Arc::new(mail),
         mail_app::ui::view::Appearance::default(),
-        mail_app::ui::space::Spaces::default(),
+        None,
         None,
         mail_app::ui::Start::Inbox,
     )

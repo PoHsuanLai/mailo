@@ -179,7 +179,7 @@ fn window_contexts(store: &Arc<SqliteStore>, revisions: &Revisions) -> RootConte
     mail_app::ui::native::contexts(
         Arc::clone(store),
         mail_app::ui::view::Appearance::default(),
-        mail_app::ui::space::Spaces::default(),
+        None,
         None,
         mail_app::ui::Start::Inbox,
     )
