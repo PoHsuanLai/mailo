@@ -10,7 +10,7 @@ use crate::ui::data::account_rows;
 use crate::ui::space::{Handle, Mail, Member, Recall, Scope, SpaceId, with_member};
 use crate::ui::today::Today;
 use dioxus::prelude::*;
-use ds::components::app::spaces::{Showing, SpaceMenu};
+use ds::components::app::spaces::SpaceMenu;
 use ds::components::menus::item::item::{AfterPick, MenuItem};
 use ds::prelude::{Availability, Check};
 use mail_store::SqliteStore;
@@ -73,15 +73,6 @@ pub(in crate::ui) fn toggled(scope: &Scope, account: AccountId, all: &[AccountId
 /// The Space's menu, wherever it was opened.
 #[component]
 pub(in crate::ui) fn MailSpaceMenu(handle: Handle, mut today: Signal<Today>) -> Element {
-    // Where the keyboard goes as a part opens: the Delete question's buttons, so Escape and
-    // Return answer it; the colour holds no focus of its own, so back to the window, whose
-    // Escape closes it (`App`). Rename's field takes the focus itself.
-    let showing = handle.open().map(|open| open.showing);
-    use_effect(use_reactive!(|showing| match showing {
-        Some(Showing::Delete) => crate::ui::host::Host::focus_next_frame(".ds-space-delete button"),
-        Some(Showing::Colour) => crate::ui::host::Host::focus_app(),
-        Some(Showing::Menu | Showing::Rename) | None => {}
-    }));
     let every = accounts();
     let extra = handle
         .open()
