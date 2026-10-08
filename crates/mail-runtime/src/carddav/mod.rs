@@ -97,6 +97,10 @@ pub enum CardDavFailure {
     /// `401`: the password or token was refused.
     #[error("the address book server refused the sign-in")]
     Unauthorized,
+    /// Through accountd's relay: Mail is no longer allowed to read the account's contacts (the
+    /// grant was withdrawn). Allowing Mail again answers it, not a sign-in.
+    #[error("Mail is no longer allowed to read this account's contacts")]
+    NotAllowed,
     /// Any other status the exchange could not go on from.
     #[error("the address book server answered {status} to {what}")]
     Refused { status: u16, what: &'static str },
@@ -125,6 +129,7 @@ impl Retryable for CardDavFailure {
     fn retry(&self) -> Retry {
         match self {
             CardDavFailure::Unauthorized => Retry::NeedsReauth,
+            CardDavFailure::NotAllowed => Retry::NeedsGrant,
             CardDavFailure::Refused {
                 status: 429 | 500..=599,
                 ..

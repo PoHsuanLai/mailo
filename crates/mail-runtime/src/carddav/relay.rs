@@ -130,12 +130,13 @@ impl Relay {
     }
 }
 
-/// accountd's answer to opening the relay, as a CardDAV failure: a refusal only the person can
-/// answer (the account needs signing in, the grant is gone) is `Unauthorized`, which routes as
-/// the sign-in being refused does; a daemon that is not there now is a failure to reach.
+/// accountd's answer to opening the relay, as a CardDAV failure: the account needing a sign-in is
+/// `Unauthorized`, which routes as the sign-in being refused does; the grant gone is
+/// `NotAllowed`; a daemon that is not there now is a failure to reach.
 fn refused(error: LinkError) -> CardDavFailure {
     match error.retry() {
         Retry::NeedsReauth => CardDavFailure::Unauthorized,
+        Retry::NeedsGrant => CardDavFailure::NotAllowed,
         Retry::Now | Retry::After(_) => CardDavFailure::Unreachable(error.to_string()),
         Retry::Fatal(why) => CardDavFailure::Malformed(why),
     }

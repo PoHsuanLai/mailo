@@ -28,6 +28,8 @@ pub enum Standing {
 pub enum Remedy {
     /// Replace the password.
     SignIn,
+    /// Let Mail use the desktop's account again: the grant was withdrawn.
+    Allow,
     /// Ask for a pass now instead of waiting.
     TryAgain,
     /// Open the account's settings.
@@ -59,6 +61,11 @@ where
         Link::Fresh => said(Standing::Fine, "Not checked yet", Some(Remedy::TryAgain)),
         Link::Syncing { .. } => said(Standing::Working, "Checking\u{2026}", None),
         Link::NeedsSignIn { .. } => said(Standing::Warn, "Sign-in needed", Some(Remedy::SignIn)),
+        Link::NeedsAllow { .. } => said(
+            Standing::Warn,
+            "Mail isn\u{2019}t allowed to use this account",
+            Some(Remedy::Allow),
+        ),
         Link::Broken { why, .. } => said(Standing::Broken, why.clone(), Some(Remedy::Settings)),
         Link::Waiting { until, why, .. } => {
             let at = clock(*until, zone);
@@ -161,6 +168,10 @@ mod tests {
             why: "The server is gone.".into(),
             first: First::No,
         };
+        let withdrawn = Link::NeedsAllow {
+            why: "x".into(),
+            first: First::No,
+        };
         let cases = [
             (
                 Link::Fresh,
@@ -180,6 +191,12 @@ mod tests {
                 Standing::Broken,
                 "The server is gone.",
                 Some(Remedy::Settings),
+            ),
+            (
+                withdrawn,
+                Standing::Warn,
+                "Mail isn\u{2019}t allowed to use this account",
+                Some(Remedy::Allow),
             ),
             (
                 waiting(Pause::Unreachable),

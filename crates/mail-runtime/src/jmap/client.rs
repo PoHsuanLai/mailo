@@ -332,6 +332,7 @@ mod tests {
             .retry()
             {
                 Retry::NeedsReauth => "reauth",
+                Retry::NeedsGrant => "grant",
                 Retry::After(_) => "after",
                 Retry::Fatal(_) => "fatal",
                 Retry::Now => "now",

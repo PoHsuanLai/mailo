@@ -38,6 +38,9 @@ where
         Link::Syncing { .. } => Mark::Busy,
         Link::Fresh => Mark::Quiet,
         Link::NeedsSignIn { .. } => Mark::Warn("Sign in again to keep receiving mail.".to_owned()),
+        Link::NeedsAllow { .. } => {
+            Mark::Warn("Allow Mail again to keep receiving mail.".to_owned())
+        }
         Link::Broken { why, .. } => Mark::Warn(why.clone()),
         Link::Waiting { until, why, .. } => {
             let at = clock(*until, zone);

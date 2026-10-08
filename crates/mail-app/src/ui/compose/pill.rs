@@ -120,6 +120,10 @@ where
                 "Not sent · sign in to the account again".to_owned(),
                 Mood::Shake,
             ),
+            Retry::NeedsGrant => failed(
+                "Not sent · allow Mail to use the account again".to_owned(),
+                Mood::Shake,
+            ),
             Retry::Fatal(_) => failed(format!("Not sent: {reason}"), Mood::Fatal),
         }),
     }

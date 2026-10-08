@@ -1100,7 +1100,7 @@ fn after_pass(
     // The rule F128 built its loop on, and the reason this one is not a bare sleep: a credential
     // the server has already refused must stop the loop rather than slow it. Sixty seconds of
     // wrong passwords is still a locked account by morning.
-    if report::needs_reauth(&done.trouble) {
+    if report::needs_person(&done.trouble) {
         return AfterPass::Stop;
     }
     // The server asked. Honour it before doing anything else (F130).
@@ -1154,9 +1154,9 @@ async fn pass<B: mail_proto::Backend>(
             // A refused sign-in is reported as one, so the watch stops and says so. As prose it
             // read as an ordinary failure, and a watch retries those every minute — against a
             // credential already refused, which is the loop F128 exists to prevent.
-            Err(e) if matches!(e.retry(), Retry::NeedsReauth) => {
+            Err(e) if e.retry().needs_person() => {
                 let mut done = Done::default();
-                done.trouble(None, Retry::NeedsReauth, e.to_string());
+                done.trouble(None, e.retry(), e.to_string());
                 return Ok(done);
             }
             // Not fatal. A server that refuses CAPABILITY still delivers mail, and the stored
@@ -1206,7 +1206,7 @@ async fn pass<B: mail_proto::Backend>(
     // Not after a refused sign-in or a rate limit, which would only add one more failed login
     // or one more request the server asked not to receive.
     if engine.folders_unlisted()
-        && !report::needs_reauth(&done.trouble)
+        && !report::needs_person(&done.trouble)
         && report::hold(&done.trouble).is_none()
     {
         say(emit, Progress::Folders);

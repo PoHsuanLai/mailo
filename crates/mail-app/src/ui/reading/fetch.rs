@@ -63,7 +63,7 @@ impl Again {
     fn of(retry: &Retry) -> Again {
         match retry {
             Retry::Now | Retry::After(_) => Again::Offer,
-            Retry::NeedsReauth | Retry::Fatal(_) => Again::Withhold,
+            Retry::NeedsReauth | Retry::NeedsGrant | Retry::Fatal(_) => Again::Withhold,
         }
     }
 }
@@ -98,6 +98,7 @@ pub(super) fn one_line(why: &str) -> String {
 pub(super) fn body_reason(retry: &Retry, why: &str, account: &str) -> String {
     match retry {
         Retry::NeedsReauth => format!("Sign in to {account} again to download it."),
+        Retry::NeedsGrant => format!("Allow Mail to use {account} again to download it."),
         Retry::Fatal(_) => "This account's messages download with the next sync.".to_owned(),
         Retry::Now | Retry::After(_) => {
             let detail = one_line(why);
@@ -138,6 +139,7 @@ pub(super) struct Failure {
 pub(super) fn download_failure(name: &str, retry: &Retry, why: &str, account: &str) -> Failure {
     let detail = match retry {
         Retry::NeedsReauth => format!("Sign in to {account} again."),
+        Retry::NeedsGrant => format!("Allow Mail to use {account} again."),
         _ => one_line(why),
     };
     Failure {

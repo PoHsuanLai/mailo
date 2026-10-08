@@ -1714,7 +1714,7 @@ impl Inner {
                     row.attempts = attempts.saturating_add(1);
                     row.next_attempt = when;
                 }
-                Retry::NeedsReauth => {
+                Retry::NeedsReauth | Retry::NeedsGrant => {
                     let when = now.checked_add_signed(reauth_delay()).ok_or_else(|| {
                         StoreError::Db("next_attempt overflowed DateTime".to_owned())
                     })?;

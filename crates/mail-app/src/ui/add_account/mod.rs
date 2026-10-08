@@ -97,6 +97,22 @@ pub(in crate::ui) fn open_for(address: String) {
     });
 }
 
+/// Let Mail use an account of the desktop's again, when the grant on it was withdrawn: accountd's
+/// chooser and consent sheet, not a sign-in. Without accountd there are no grants, and this is
+/// Add Account. Call it from an event handler.
+pub(in crate::ui) fn allow_again() {
+    if try_consume_context::<AddAccountWindows>().is_none()
+        && let Route::Accountd(accountd) = route()
+    {
+        let store = consume_context::<Arc<SqliteStore>>();
+        through_accountd(accountd, store, |store, accountd| {
+            crate::accountd::allow(store, accountd)
+        });
+        return;
+    }
+    request(Ask::default());
+}
+
 fn request(ask: Ask) {
     match try_consume_context::<AddAccountWindows>() {
         Some(windows) => windows.0.open(ask),
@@ -104,41 +120,71 @@ fn request(ask: Ask) {
             let store = consume_context::<Arc<SqliteStore>>();
             match route() {
                 Route::OwnWindow => quire(ask),
-                Route::Accountd(accountd) => through_accountd(accountd, store, ask),
+                Route::Accountd(accountd) => {
+                    through_accountd(accountd, store, move |store, accountd| {
+                        crate::accountd::add(store, accountd, ask.address.as_deref())
+                    })
+                }
             }
         }
     }
 }
 
-/// Run accountd's sheet for `ask` on a thread of its own, and tell every window when it ends.
+/// Run accountd's sheet (`sheet`: an add, a sign-in again, an allow again) on a thread of its
+/// own, and tell every window when it ends.
 ///
 /// The sheet is the desktop's (sill draws it, over everything), and the call waits for the person,
 /// so it is not made on the window's thread. What the person added is read into the store, and the
 /// shared revision moves, so every window draws it. A sheet closed is nothing to say; a failure is
-/// said on stderr and in the window's notice.
-fn through_accountd(accountd: Arc<dyn mail_runtime::Accountd>, store: Arc<SqliteStore>, ask: Ask) {
+/// said on stderr and in the notice of the window that asked, which hears it back on its own
+/// thread.
+fn through_accountd(
+    accountd: Arc<dyn mail_runtime::Accountd>,
+    store: Arc<SqliteStore>,
+    sheet: impl FnOnce(
+        &SqliteStore,
+        &Arc<dyn mail_runtime::Accountd>,
+    ) -> Result<crate::accountd::Added, String>
+    + Send
+    + 'static,
+) {
     let revisions = try_consume_context::<crate::ui::revisions::Revisions>();
+    let motion = crate::ui::motion::motion();
+    let (failed, heard) = tokio::sync::oneshot::channel::<String>();
     let spawned = std::thread::Builder::new()
         .name("mailo-add-account".to_owned())
         .spawn(move || {
-            match crate::accountd::add(&store, &accountd, ask.address.as_deref()) {
+            match sheet(&store, &accountd) {
                 Ok(crate::accountd::Added::Account(read)) => {
                     if let Some(said) = crate::accountd::said(&read) {
                         eprintln!("mailo: {said}");
                     }
                 }
                 Ok(crate::accountd::Added::Nothing) => {}
-                Err(why) => eprintln!("mailo: Add Account: {why}"),
+                Err(why) => {
+                    eprintln!("mailo: Add Account: {why}");
+                    let _ = failed.send(format!("Could not add the account: {why}"));
+                }
             }
             if let Some(revisions) = revisions {
                 revisions.bump();
             }
         });
-    if let Err(why) = spawned {
-        crate::ui::motion::tell(
+    match spawned {
+        // Nothing comes back when it worked or the sheet was closed: the sender is dropped.
+        // At the root: the button that asked may be gone (a Settings window closed) by the time
+        // the person is done with the sheet.
+        Ok(_) => {
+            dioxus::core::spawn_forever(async move {
+                if let Ok(text) = heard.await {
+                    crate::ui::motion::tell_through(motion, text);
+                }
+            });
+        }
+        Err(why) => crate::ui::motion::tell(
             format!("Could not open the Add Account sheet: {why}"),
             crate::ui::motion::Follow::Nothing,
-        );
+        ),
     }
 }
 

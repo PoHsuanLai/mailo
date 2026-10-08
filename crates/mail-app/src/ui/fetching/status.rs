@@ -95,7 +95,7 @@ fn busy(links: &[&Link]) -> Option<StatusLine> {
 fn trouble_rank(link: &Link) -> Option<u8> {
     match link {
         Link::Broken { .. } => Some(5),
-        Link::NeedsSignIn { .. } => Some(4),
+        Link::NeedsSignIn { .. } | Link::NeedsAllow { .. } => Some(4),
         Link::Waiting {
             why: Pause::Throttled,
             ..
@@ -119,6 +119,7 @@ where
     match link {
         Link::Broken { .. } => line("Can\u{2019}t fetch mail", Tone::Danger),
         Link::NeedsSignIn { .. } => line("Sign-in needed", Tone::Warn),
+        Link::NeedsAllow { .. } => line("Mail not allowed", Tone::Warn),
         Link::Waiting { until, why, .. } => {
             let what = match why {
                 Pause::Unreachable => "Offline",

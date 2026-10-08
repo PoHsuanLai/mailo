@@ -96,7 +96,7 @@ impl JmapEngine {
                 Err(e) => {
                     self.forget_if_stale(&e);
                     let retry = e.retry();
-                    if matches!(retry, Retry::NeedsReauth | Retry::Fatal(_)) {
+                    if retry.needs_person() || matches!(retry, Retry::Fatal(_)) {
                         report.needs_attention.push(e.to_string());
                     }
                     report.saw(&retry);
