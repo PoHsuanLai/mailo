@@ -5,6 +5,7 @@ use ds_shell::accounts::model::{
     CopyState, FieldRole, FieldText, FormPart, Limitation, ProblemKind as ShellProblemKind,
     ProviderPick, Requirement, ServiceKey, ServiceOffer, SignInFault as ShellFault,
 };
+use ds_shell::prelude::Recovery;
 
 use porter_core::sheet::{
     Entry, FieldKind, FieldProblem, FieldSpec, FieldValue, Presence, ProblemKind, Protocol,
@@ -18,7 +19,7 @@ use porter_core::{
 
 use super::map::{
     Action, Awaiting, ListKey, Out, Sheet, Step, acted, choice_label, fault_of, kind_of, list_key,
-    mark_of, provider_label, role_of, service_key, shown, step_of, typed,
+    mark_of, provider_label, recovery_of, role_of, service_key, shown, step_of, typed,
 };
 
 fn id(text: &str) -> ProviderId {
@@ -91,6 +92,7 @@ fn review() -> SheetView {
             endpoints: vec![],
         },
         allow: None,
+        allow_label: None,
     })
 }
 
@@ -490,9 +492,12 @@ fn every_fault_has_its_sentence_and_every_provider_its_words() {
         (SignInFault::Cancelled, ShellFault::Cancelled),
         (SignInFault::Forbidden, ShellFault::Forbidden),
         (SignInFault::StoreFailed, ShellFault::StoreFailed),
+        (SignInFault::AlreadyAdded, ShellFault::Refused),
     ] {
         assert_eq!(fault_of(fault), want);
     }
+    assert_eq!(recovery_of(SignInFault::AlreadyAdded), Recovery::NoRetry);
+    assert_eq!(recovery_of(SignInFault::Refused), Recovery::Retry);
     for (provider, label) in [
         ("google", "Google"),
         ("microsoft", "Microsoft"),

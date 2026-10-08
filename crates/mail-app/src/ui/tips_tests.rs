@@ -1,7 +1,9 @@
 //! Every button that draws only its icon says what it does on hover, as a Mac control's help
 //! tag does. Under quire's `Ds` a titled button's tip is written as its `aria-description` (the
 //! web's AXHelp: what a screen reader reads after the name), unless a `Tooltip` wraps it, whose
-//! text is then the tip.
+//! text is then the tip. Since quire v0.2.28 the description is left out when it equals the
+//! button's name, which the markup cannot tell from no tip at all: those buttons are named in
+//! [`TIP_IS_NAME`].
 
 use super::app::App;
 use super::fixtures::{dispatching, drain_seen, key, realistic};
@@ -31,6 +33,22 @@ fn icon_buttons(page: &str) -> Vec<IconButton<'_>> {
         .collect()
 }
 
+/// The buttons whose tip is their name, so quire writes no `aria-description` (it would be read
+/// twice): matched by the start of their `aria-label`. gap(quire): a marker on the button would
+/// let the test read that from the markup instead.
+const TIP_IS_NAME: &[&str] = &["Close ", "New Space", "Sync now", "Mute this conversation"];
+
+/// The `aria-label` of `tag`, if it has one.
+fn name(tag: &str) -> Option<&str> {
+    let (_, rest) = tag.split_once(r#"aria-label=""#)?;
+    rest.split_once('"').map(|(text, _)| text)
+}
+
+/// Whether `tag` is a button whose tip is its own name.
+fn tip_is_name(tag: &str) -> bool {
+    name(tag).is_some_and(|name| TIP_IS_NAME.iter().any(|known| name.starts_with(known)))
+}
+
 /// The non-empty `aria-description` of `tag`, if it has one.
 fn description(tag: &str) -> Option<&str> {
     let (_, rest) = tag.split_once(r#"aria-description=""#)?;
@@ -56,7 +74,9 @@ async fn every_icon_button_in_the_window_has_a_tip() {
     );
     let bare: Vec<&str> = buttons
         .iter()
-        .filter(|button| !button.wrapped && description(button.tag).is_none())
+        .filter(|button| {
+            !button.wrapped && description(button.tag).is_none() && !tip_is_name(button.tag)
+        })
         .map(|button| button.tag)
         .collect();
     assert!(

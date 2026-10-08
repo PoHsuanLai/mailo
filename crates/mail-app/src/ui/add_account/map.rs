@@ -36,6 +36,7 @@ use ds_shell::accounts::model::{
     FormPart, Limitation, ProblemKind as ShellProblemKind, ProviderEntry, ProviderKey,
     ProviderPick, Requirement, ServiceKey, ServiceLine, ServiceOffer, SignInFault as ShellFault,
 };
+use ds_shell::prelude::Recovery;
 use porter_core::sheet::{
     Entry, FieldAnswer, FieldKind, FieldProblem, FieldSpec, FieldValue, Presence, ProblemKind,
     ProviderRow, RowKind, ServiceChoice, ServiceState, SheetInput, SheetView, SignInFault,
@@ -478,6 +479,7 @@ pub(super) enum Step {
     Failed {
         provider: String,
         why: ShellFault,
+        recovery: Recovery,
     },
 }
 
@@ -583,6 +585,7 @@ pub(super) fn step_of(sheet: &Sheet) -> Option<Step> {
         } => Step::Failed {
             provider: provider_label(provider),
             why: fault_of(*fault),
+            recovery: recovery_of(*fault),
         },
         SheetView::Done | SheetView::Consent(_) => return None,
     })
@@ -847,6 +850,18 @@ pub(super) fn fault_of(fault: SignInFault) -> ShellFault {
         SignInFault::NotInstalled => ShellFault::NotInstalled,
         // The launcher did not answer in time: the person waited and nothing came.
         SignInFault::Expired => ShellFault::TimedOut,
+        // gap(quire): the sheet has no word for an account that is already there. The nearest
+        // is that what was entered was not taken, and there is no Try Again (`recovery_of`).
+        SignInFault::AlreadyAdded => ShellFault::Refused,
+    }
+}
+
+/// Whether trying again could help: not when the account is already there, which nothing in the
+/// sheet changes.
+pub(super) fn recovery_of(fault: SignInFault) -> Recovery {
+    match fault {
+        SignInFault::AlreadyAdded => Recovery::NoRetry,
+        _ => Recovery::Retry,
     }
 }
 

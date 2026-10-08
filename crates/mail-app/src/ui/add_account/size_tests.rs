@@ -69,6 +69,7 @@ fn each_step_is_its_own_size_and_the_form_grows_with_its_fields() {
             endpoints: vec![],
         },
         allow: None,
+        allow_label: None,
     }))));
 
     // The window opens at the list, the first step.
