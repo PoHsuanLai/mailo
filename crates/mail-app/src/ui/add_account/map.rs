@@ -804,27 +804,10 @@ pub(super) fn mark_of(mark: &str) -> MarkProvider {
     }
 }
 
-/// What a kind of service is called on the review.
+/// What a kind of service is called on the review: porter's own name for it, so mailo's review
+/// and porter's say the same.
 pub(super) fn service_name(kind: CapabilityKind) -> &'static str {
-    match kind {
-        CapabilityKind::Identity => "Account details",
-        CapabilityKind::Mail => "Mail",
-        CapabilityKind::Calendar => "Calendar",
-        CapabilityKind::Contacts => "Contacts",
-        CapabilityKind::Tasks => "Tasks",
-        CapabilityKind::Notes => "Notes",
-        CapabilityKind::Storage => "Files",
-        CapabilityKind::Photos => "Photos",
-        CapabilityKind::Llm => "Language model",
-        CapabilityKind::Embeddings => "Search by meaning",
-        CapabilityKind::Speech => "Speech",
-        CapabilityKind::ImageGen => "Image generation",
-        CapabilityKind::Rerank => "Result ranking",
-        CapabilityKind::ComputerUse => "Operating windows",
-        CapabilityKind::KeyValue => "Small synced items",
-        CapabilityKind::Push => "Notifications",
-        CapabilityKind::Agent => "Coding agent",
-    }
+    kind.display_name()
 }
 
 /// The review's secondary line for a service the provider offers but limits.

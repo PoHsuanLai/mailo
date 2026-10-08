@@ -6377,7 +6377,7 @@ dependencies = [
 [[package]]
 name = "porter-client"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=a51ace3afc12977eeca36519ed7c4fb23c9ea5db#a51ace3afc12977eeca36519ed7c4fb23c9ea5db"
+source = "git+https://github.com/PoHsuanLai/porter?rev=82e6515b76b691821fb8dff74c3dbfaeeee30b92#82e6515b76b691821fb8dff74c3dbfaeeee30b92"
 dependencies = [
  "porter-core",
  "porter-dbus",
@@ -6394,7 +6394,7 @@ dependencies = [
 [[package]]
 name = "porter-core"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=a51ace3afc12977eeca36519ed7c4fb23c9ea5db#a51ace3afc12977eeca36519ed7c4fb23c9ea5db"
+source = "git+https://github.com/PoHsuanLai/porter?rev=82e6515b76b691821fb8dff74c3dbfaeeee30b92#82e6515b76b691821fb8dff74c3dbfaeeee30b92"
 dependencies = [
  "serde",
  "serde_json",
@@ -6404,7 +6404,7 @@ dependencies = [
 [[package]]
 name = "porter-dbus"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=a51ace3afc12977eeca36519ed7c4fb23c9ea5db#a51ace3afc12977eeca36519ed7c4fb23c9ea5db"
+source = "git+https://github.com/PoHsuanLai/porter?rev=82e6515b76b691821fb8dff74c3dbfaeeee30b92#82e6515b76b691821fb8dff74c3dbfaeeee30b92"
 dependencies = [
  "porter-core",
  "serde",
@@ -6415,7 +6415,7 @@ dependencies = [
 [[package]]
 name = "porter-discover"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=a51ace3afc12977eeca36519ed7c4fb23c9ea5db#a51ace3afc12977eeca36519ed7c4fb23c9ea5db"
+source = "git+https://github.com/PoHsuanLai/porter?rev=82e6515b76b691821fb8dff74c3dbfaeeee30b92#82e6515b76b691821fb8dff74c3dbfaeeee30b92"
 dependencies = [
  "porter-core",
  "porter-http",
@@ -6429,7 +6429,7 @@ dependencies = [
 [[package]]
 name = "porter-http"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=a51ace3afc12977eeca36519ed7c4fb23c9ea5db#a51ace3afc12977eeca36519ed7c4fb23c9ea5db"
+source = "git+https://github.com/PoHsuanLai/porter?rev=82e6515b76b691821fb8dff74c3dbfaeeee30b92#82e6515b76b691821fb8dff74c3dbfaeeee30b92"
 dependencies = [
  "porter-core",
  "thiserror 2.0.21",
@@ -6438,7 +6438,7 @@ dependencies = [
 [[package]]
 name = "porter-oauth"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=a51ace3afc12977eeca36519ed7c4fb23c9ea5db#a51ace3afc12977eeca36519ed7c4fb23c9ea5db"
+source = "git+https://github.com/PoHsuanLai/porter?rev=82e6515b76b691821fb8dff74c3dbfaeeee30b92#82e6515b76b691821fb8dff74c3dbfaeeee30b92"
 dependencies = [
  "base64 0.22.1",
  "porter-core",
@@ -6455,7 +6455,7 @@ dependencies = [
 [[package]]
 name = "porter-provider"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=a51ace3afc12977eeca36519ed7c4fb23c9ea5db#a51ace3afc12977eeca36519ed7c4fb23c9ea5db"
+source = "git+https://github.com/PoHsuanLai/porter?rev=82e6515b76b691821fb8dff74c3dbfaeeee30b92#82e6515b76b691821fb8dff74c3dbfaeeee30b92"
 dependencies = [
  "porter-core",
  "serde",
@@ -6466,7 +6466,7 @@ dependencies = [
 [[package]]
 name = "porter-proxy"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=a51ace3afc12977eeca36519ed7c4fb23c9ea5db#a51ace3afc12977eeca36519ed7c4fb23c9ea5db"
+source = "git+https://github.com/PoHsuanLai/porter?rev=82e6515b76b691821fb8dff74c3dbfaeeee30b92#82e6515b76b691821fb8dff74c3dbfaeeee30b92"
 dependencies = [
  "base64 0.22.1",
  "porter-core",
@@ -6476,7 +6476,7 @@ dependencies = [
 [[package]]
 name = "porter-secrets"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=a51ace3afc12977eeca36519ed7c4fb23c9ea5db#a51ace3afc12977eeca36519ed7c4fb23c9ea5db"
+source = "git+https://github.com/PoHsuanLai/porter?rev=82e6515b76b691821fb8dff74c3dbfaeeee30b92#82e6515b76b691821fb8dff74c3dbfaeeee30b92"
 dependencies = [
  "apple-native-keyring-store",
  "keyring-core",
@@ -6490,7 +6490,7 @@ dependencies = [
 [[package]]
 name = "porter-service"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=a51ace3afc12977eeca36519ed7c4fb23c9ea5db#a51ace3afc12977eeca36519ed7c4fb23c9ea5db"
+source = "git+https://github.com/PoHsuanLai/porter?rev=82e6515b76b691821fb8dff74c3dbfaeeee30b92#82e6515b76b691821fb8dff74c3dbfaeeee30b92"
 dependencies = [
  "porter-core",
  "porter-provider",
