@@ -223,16 +223,19 @@ fn grip(
     mut handle: Signal<Option<MountedRef>>,
 ) -> Element {
     rsx! {
-        span {
-            class: "ograb",
-            title: "Options",
-            onmounted: move |event: MountedEvent| handle.set(Some(MountedRef(event.data()))),
-            onmousedown: move |event| event.prevent_default(),
-            onclick: move |_| {
-                let next = if menu { Float::Closed } else { Float::Object(n) };
-                page.write().float = next;
-            },
-            "⋮⋮"
+        // quire's tip, not a `title`: the Mac help tag every other control in the window shows.
+        Tooltip { text: "Options".to_owned(),
+            span {
+                class: "ograb",
+                aria_label: "Options",
+                onmounted: move |event: MountedEvent| handle.set(Some(MountedRef(event.data()))),
+                onmousedown: move |event| event.prevent_default(),
+                onclick: move |_| {
+                    let next = if menu { Float::Closed } else { Float::Object(n) };
+                    page.write().float = next;
+                },
+                "⋮⋮"
+            }
         }
         if menu {
             Floating {

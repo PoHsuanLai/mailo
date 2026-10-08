@@ -56,10 +56,49 @@ async fn every_icon_button_in_the_window_has_a_tip() {
     // A conversation open, so the reader's toolbar is drawn beside the list's.
     key(&mut dom, "j");
     drain_seen(&mut dom);
+    every_tip(&dioxus_ssr::render(&dom), 8);
+}
+
+#[tokio::test]
+async fn every_icon_button_in_the_composer_has_a_tip() {
+    dispatching();
+    let (store, _dir) = realistic();
+    let mut dom = VirtualDom::new(App).with_root_context(store);
+    dom.rebuild_in_place();
+    // A new message: the composer's head, its property rows and its foot.
+    key(&mut dom, "c");
+    drain_seen(&mut dom);
     let page = dioxus_ssr::render(&dom);
-    let buttons = icon_buttons(&page);
+    assert!(page.contains("cpage"), "the composer did not open");
+    every_tip(&page, 3);
+}
+
+/// quire's own parts that still write a bare `title` (gap(quire)), by their class.
+const QUIRE_TITLED: &[&str] = &[
+    r#"class="ds-provider""#,
+    r#"class="ds-pin-tile""#,
+    r#"class="ds-space-dot""#,
+];
+
+/// Every icon-only button in `page` has one tip, and there are at least `least` of them.
+fn every_tip(page: &str, least: usize) {
+    // A tip is quire's: no element carries a bare `title` the browser would draw its own way. An
+    // iframe's title is its accessible name, not a tip. gap(quire): quire's own provider mark,
+    // pin tile and Space dot still write one.
+    let raw: Vec<&str> = page
+        .split('<')
+        .filter_map(|tag| tag.split('>').next())
+        .filter(|tag| tag.contains(" title=\"") && !tag.starts_with("iframe"))
+        .filter(|tag| !QUIRE_TITLED.iter().any(|class| tag.contains(class)))
+        .collect();
     assert!(
-        buttons.len() >= 8,
+        raw.is_empty(),
+        "a bare title where a quire tip belongs:\n{}",
+        raw.join("\n")
+    );
+    let buttons = icon_buttons(page);
+    assert!(
+        buttons.len() >= least,
         "too few icon buttons to be the window: {}",
         buttons.len()
     );
