@@ -1,4 +1,6 @@
-//! A saved file, opened in the app the system gives its kind, or shown in its folder.
+//! A saved file, opened in the app the system gives its kind, or shown in its folder. On the
+//! quire desktop a file opens in anyview, the desktop's viewer, which shows nearly every kind an
+//! attachment comes in; the system's app is the way when anyview does not answer.
 //!
 //! Both block until the system has taken the request, so the window calls them off the thread
 //! that draws. What they answer on failure is a sentence the window shows as it is.
@@ -10,6 +12,10 @@ use std::process::Command;
 pub(in crate::ui) fn open(path: &Path) -> Result<(), String> {
     if !path.exists() {
         return Err(gone(path));
+    }
+    #[cfg(all(feature = "quire-desktop", not(any(target_os = "macos", windows))))]
+    if in_anyview(path).is_ok() {
+        return Ok(());
     }
     run(opener(path))
 }
@@ -75,6 +81,27 @@ fn run(mut command: Command) -> Result<(), String> {
             "Couldn\u{2019}t open it: the opener exited with {status}"
         ))
     }
+}
+
+/// anyview's `Open` on the session bus (`org.quire.Anyview1`, which starts anyview when it is not
+/// running): an array of absolute paths to files that exist.
+#[cfg(all(feature = "quire-desktop", not(any(target_os = "macos", windows))))]
+fn in_anyview(path: &Path) -> Result<(), String> {
+    let full = path.canonicalize().map_err(|e| e.to_string())?;
+    let full = full
+        .to_str()
+        .ok_or_else(|| format!("{} is not a path anyview can be given", full.display()))?;
+    let connection = zbus::blocking::Connection::session().map_err(|e| e.to_string())?;
+    connection
+        .call_method(
+            Some("org.quire.Anyview1"),
+            "/org/quire/Anyview1",
+            Some("org.quire.Anyview1"),
+            "Open",
+            &(vec![full],),
+        )
+        .map(|_| ())
+        .map_err(|e| e.to_string())
 }
 
 /// The file manager's own "show this file" on the session bus (`org.freedesktop.FileManager1`),
