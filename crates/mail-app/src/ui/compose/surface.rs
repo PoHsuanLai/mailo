@@ -11,12 +11,15 @@
 //!    page's own selection as the range, the `/` and `@` menus following.
 //!
 //! The caret and the selection are the page's (`Page::session.caret`, `Page::selection`), and
-//! are drawn a frame after each change (`follow`) from the rects the surface's handle reports, less the
-//! corner the marks layers are placed from (`.c-edit`'s, where the floats are placed too): the
-//! selection in a layer before the surface, which Blitz paints under the positioned surface's
-//! text as CSS 2.1 stacks them, and the caret and the IME's preedit in one after it. The caret is
-//! drawn at its rect as given, `--caret-w` wide. The caret's rect in the window is also where the
-//! IME's candidate window goes and where the `/` and `@` menus float (`Marks::at`).
+//! are drawn in the frame that draws the text they follow: quire's `use_caret_rect` and
+//! `use_selection_rects` have the window publish their boxes between layout and paint. The boxes
+//! are the surface's; the marks layers are placed from `.c-edit`'s corner (where the floats are
+//! placed too), which `.c-body`'s gutter puts left of the surface's, so each box is moved by the
+//! surface's place in that corner ([`Place`], read once the layout settles). The selection is in
+//! a layer before the surface, which Blitz paints under the positioned surface's text as CSS 2.1
+//! stacks them, and the caret and the IME's preedit in one after it. The caret is drawn at its
+//! rect as given, `--caret-w` wide. The caret's rect in the window is also where the IME's
+//! candidate window goes and where the `/` and `@` menus float (`Marks::at`).
 //!
 //! Spelling is quire's: the surface checks, marks and offers suggestions itself (`spell.rs` says
 //! with which checker). The page hands it the setting, its caret, so the word being typed waits
@@ -28,9 +31,11 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use dioxus::prelude::*;
+use ds::edit::caret::use_caret_rect;
 use ds::edit::handle::{EditHandle, use_edit_handle};
 use ds::edit::input::{Composition, EditInput};
 use ds::edit::pointer::{EditFocus, EditPointer};
+use ds::edit::selection::use_selection_rects;
 use ds::host::position::{TextPosition, TextRange};
 use ds::root::common::Common;
 use ds::root::pass_through::ExtraClass;
@@ -47,7 +52,7 @@ use crate::ui::editor::{Caret, Doc, InputEvent, Pos, Range};
 use crate::ui::host::Host;
 use crate::ui::view::Shell;
 
-/// Frames a measure waits for the document to be laid out and free.
+/// Frames a read of the surface's place waits for the document to be laid out and free.
 const TRIES: usize = 24;
 
 /// Gap between the caret and a float below it, and between a selection and the bubble above it.
@@ -89,6 +94,43 @@ impl Marks {
     }
 }
 
+/// Where the surface sits in the box its marks are placed from (`.c-edit`), read from the last
+/// layout. The caret and the selection move with every key, and come from the frame phase; this
+/// moves only when the page does, so a read a frame late is in time.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Place {
+    /// The surface's corner in the window.
+    surface: Point,
+    /// The surface's corner from the marks' corner.
+    offset: Point,
+    /// From the marks' corner to the surface's bottom.
+    height: f32,
+}
+
+impl Place {
+    /// `rect`, given from the surface's corner, from the marks' corner.
+    fn inside(&self, rect: Rect) -> Rect {
+        Rect {
+            origin: Point {
+                x: Px(rect.origin.x.0 + self.offset.x.0),
+                y: Px(rect.origin.y.0 + self.offset.y.0),
+            },
+            size: rect.size,
+        }
+    }
+
+    /// `rect`, given from the surface's corner, in the window.
+    fn in_window(&self, rect: Rect) -> Rect {
+        Rect {
+            origin: Point {
+                x: Px(rect.origin.x.0 + self.surface.x.0),
+                y: Px(rect.origin.y.0 + self.surface.y.0),
+            },
+            size: rect.size,
+        }
+    }
+}
+
 /// A box's inline style inside the marks layer.
 fn boxed(rect: &Rect) -> String {
     format!(
@@ -120,11 +162,24 @@ pub(super) fn Surface(
     let taken = use_hook(|| Rc::new(Cell::new(false)));
     // The selection's layer: its corner is the one every mark and float is placed from.
     let mut corner = use_signal(|| None::<Rc<MountedData>>);
-    // Measure a frame after every change to the page.
+    // The caret and the selection, from the surface's corner, as the frame being drawn lays the
+    // text out.
+    let wants = wanted(&page.read());
+    let caret_box = use_caret_rect(handle, Some(wants.caret));
+    let selection_boxes = use_selection_rects(handle, wants.range);
+    // The surface's place, read again whenever the marks move: the text may have grown it.
+    let place = use_signal(|| None::<Place>);
     use_effect(move || {
-        // Subscribes the effect to the page: the document, the caret and the selection.
-        drop(page.read());
-        spawn(follow(handle, corner, page, marks));
+        drop(caret_box.read());
+        drop(selection_boxes.read());
+        spawn(settle(handle, corner, place));
+    });
+    // The floats and the bubble follow the marks, a frame behind is soon enough for them.
+    use_effect(move || {
+        let measured = marks_of(place(), caret_box(), &selection_boxes.read());
+        if *marks.peek() != measured {
+            marks.set(measured);
+        }
     });
 
     // Spelling: quire checks and marks; the word at the caret stays unmarked while it is typed.
@@ -137,7 +192,7 @@ pub(super) fn Surface(
         let read = page.read();
         adapt::text_position(&read.session.doc, read.session.caret.pos)
     };
-    let shown = marks.read().clone();
+    let shown = marks_of(place(), caret_box(), &selection_boxes.read());
     let showing = preedit.read().clone();
     let caret = shown
         .caret
@@ -194,50 +249,26 @@ pub(super) fn Surface(
     }
 }
 
-/// How far a [`follow`] has got.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Read {
-    /// Nothing measured yet: the document is busy or not laid out.
-    None,
-    /// Measured once; read again a frame later in case that layout was not yet this change's.
-    Once,
-}
-
-/// Draw the marks where the page's caret and selection are, a frame after a change and again a
-/// frame after that.
-///
-/// Each read takes the caret and the selection as the page holds them when it reads, never as
-/// they were when the change was made: a key typed while a read waits is drawn by it instead of
-/// throwing it away. (Throwing it away, as a read of the change's own caret had to, left the
-/// caret where typing began for as long as keys came closer than the wait, a held key's repeat
-/// included.) The wait is one frame: the geometry is the last layout's, and the window lays the
-/// change out on its next frame. The second read puts right a first one that ran before that
-/// frame was drawn.
-async fn follow(
+/// Read the surface's place once the layout is settled: `None` while the document is busy or not
+/// laid out, so the read waits a frame and tries again.
+async fn settle(
     handle: EditHandle,
     corner: Signal<Option<Rc<MountedData>>>,
-    page: Signal<Page>,
-    mut marks: Signal<Marks>,
+    mut place: Signal<Option<Place>>,
 ) {
-    let mut read = Read::None;
     for _ in 0..TRIES {
         ds::base::time::clock::sleep(ds::base::time::FRAME_TICK).await;
-        let Ok(now) = page.try_peek().map(|page| wanted(&page)) else {
-            return;
-        };
-        let origin = corner.peek().as_deref().and_then(origin_of);
-        let Some(measured) =
-            origin.and_then(|at| read_marks(handle, at, &now.caret, now.range.as_ref()))
+        let Some(read) = corner
+            .try_peek()
+            .ok()
+            .and_then(|corner| corner.as_deref().and_then(|layer| place_of(handle, layer)))
         else {
             continue;
         };
-        if *marks.peek() != measured {
-            marks.set(measured);
+        if *place.peek() != Some(read) {
+            place.set(Some(read));
         }
-        match read {
-            Read::None => read = Read::Once,
-            Read::Once => return,
-        }
+        return;
     }
 }
 
@@ -258,43 +289,37 @@ fn wanted(page: &Page) -> Wanted {
     }
 }
 
-/// Where `layer` is in the window: the corner of the box the marks and the floats are placed
-/// in. `.c-body` hangs its gutter outside that box (its negative margin), so the surface's own
-/// corner is not it.
-fn origin_of(layer: &MountedData) -> Option<Point> {
+/// The surface's place from `layer`'s corner: the corner of the box the marks and the floats
+/// are placed in. `.c-body` hangs its gutter outside that box (its negative margin), so the
+/// surface's own corner is not it.
+fn place_of(handle: EditHandle, layer: &MountedData) -> Option<Place> {
     let host = use_document_host();
-    match host.geometry().measure(layer) {
-        Measured::At(rect) => Some(rect.origin),
-        Measured::Busy | Measured::Unknown => None,
-    }
-}
-
-/// One try at the marks: `None` while the document is busy or not laid out yet.
-fn read_marks(
-    handle: EditHandle,
-    origin: Point,
-    caret: &TextPosition,
-    range: Option<&TextRange>,
-) -> Option<Marks> {
+    let origin = match host.geometry().measure(layer) {
+        Measured::At(rect) => rect.origin,
+        Measured::Busy | Measured::Unknown => return None,
+    };
     let bounds = handle.bounds().found()?;
-    let at = handle.caret_rect(caret).found()?;
-    let selection = match range {
-        Some(range) => handle.selection_rects(range).found()?,
-        None => Vec::new(),
-    };
-    let inside = |rect: Rect| Rect {
-        origin: Point {
-            x: Px(rect.origin.x.0 - origin.x.0),
-            y: Px(rect.origin.y.0 - origin.y.0),
+    Some(Place {
+        surface: bounds.origin,
+        offset: Point {
+            x: Px(bounds.origin.x.0 - origin.x.0),
+            y: Px(bounds.origin.y.0 - origin.y.0),
         },
-        size: rect.size,
-    };
-    Some(Marks {
-        at: Some(at),
-        caret: Some(inside(at)),
-        selection: selection.into_iter().map(inside).collect(),
         height: bounds.origin.y.0 + bounds.size.height.0 - origin.y.0,
     })
+}
+
+/// The marks, from the boxes the frame phase gave and the surface's place: none until both are in.
+fn marks_of(place: Option<Place>, caret: Option<Rect>, selection: &[Rect]) -> Marks {
+    let Some(place) = place else {
+        return Marks::default();
+    };
+    Marks {
+        at: caret.map(|rect| place.in_window(rect)),
+        caret: caret.map(|rect| place.inside(rect)),
+        selection: selection.iter().map(|rect| place.inside(*rect)).collect(),
+        height: place.height,
+    }
 }
 
 /// One input from the surface.

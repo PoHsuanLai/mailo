@@ -87,7 +87,6 @@ fn a_selection_made_with_shift_arrows_or_a_drag_takes_bold_italic_and_underline_
 }
 
 #[test]
-#[ignore = "gap(quire): a press on a SegmentedControl segment takes the keyboard from the ds-edit body (click_focus press exempts fields, not ds-edit), so the next Ctrl-I goes nowhere"]
 fn a_selection_bolded_from_the_bubble_keeps_the_keyboard_for_ctrl_i() {
     let mut window = composing();
     window.type_text("a bold move");

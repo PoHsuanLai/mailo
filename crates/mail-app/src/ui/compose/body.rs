@@ -393,7 +393,9 @@ fn Bubble(page: Signal<Page>, place: Option<String>) -> Element {
                         }
                     }
                 },
-                _ => rsx! {
+                // The bar acts on a press and leaves the keyboard in the body, as a Mac format
+                // bar does: Bold, then Ctrl-I, italicises the same words.
+                _ => rsx! { FocusOnPressScope { focus: FocusOnPress::Refuses,
                     PopUpButton::<String> {
                         items: menu_items("", &turn, false),
                         value: now,
@@ -421,7 +423,7 @@ fn Bubble(page: Signal<Page>, place: Option<String>) -> Element {
                         image: ImagePosition::Only,
                         onclick: on_primary(move || page.write().float = Float::Link(String::new())),
                     }
-                },
+                } },
             }
         }
     }
