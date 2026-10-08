@@ -85,14 +85,25 @@ pub(super) fn Attachments(
                 row.index,
                 row.name.clone(),
                 rsx! {
+                    // A stored part leads with its preview (a picture's, a PDF's first page, or the
+                    // paperclip) beside the row, on one line; one still on the server, with the
+                    // row's own paperclip.
                     if here {
-                        Thumb { message, index, name: thumb_name, shell }
-                    }
-                    Row {
-                        leading: if here { RowLeading::None } else { RowLeading::Icon(Icon::Paperclip) },
-                        title: row.name.clone(),
-                        detail: Some(TextLine::from(row.size.clone())),
-                        accessory: Accessory::Slot(button),
+                        div { class: "att-line",
+                            Thumb { message, index, name: thumb_name, shell }
+                            Row {
+                                title: row.name.clone(),
+                                detail: Some(TextLine::from(row.size.clone())),
+                                accessory: Accessory::Slot(button),
+                            }
+                        }
+                    } else {
+                        Row {
+                            leading: RowLeading::Icon(Icon::Paperclip),
+                            title: row.name.clone(),
+                            detail: Some(TextLine::from(row.size.clone())),
+                            accessory: Accessory::Slot(button),
+                        }
                     }
                     if let Some(failure) = failure {
                         InlineBanner {

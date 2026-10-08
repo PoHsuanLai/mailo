@@ -112,11 +112,16 @@ pub(super) fn Thumb(
         height: Px(ROOM),
     };
     match shown {
+        // The paperclip stands in a thumbnail's room, so every name in the list starts in line.
         Shown::Nothing => rsx! {
-            Glyph { icon: Icon::Paperclip, size: IconSize::Compact }
+            div { class: "att-mark",
+                Glyph { icon: Icon::Paperclip, size: IconSize::Compact }
+            }
         },
         Shown::Refused(why) => rsx! {
-            Glyph { icon: Icon::Paperclip, size: IconSize::Compact }
+            div { class: "att-mark",
+                Glyph { icon: Icon::Paperclip, size: IconSize::Compact }
+            }
             span { class: "att-note", "{why}" }
         },
         Shown::Image(picture) => rsx! {
