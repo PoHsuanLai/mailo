@@ -79,9 +79,9 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
     // The Spaces, read and never written: the first window owns the file.
     let spaces = use_signal(|| {
         try_consume_context::<crate::ui::appearance::WindowDirs>()
-            .map(|dirs| crate::ui::space::load(&dirs.config))
+            .map(|dirs| crate::ui::space::load(&dirs))
             .or_else(try_consume_context::<Spaces>)
-            .unwrap_or_default()
+            .unwrap_or_else(|| crate::ui::space::first_run(&[]))
     });
     crate::ui::frame::use_followed_configuration(shell, spaces, None);
     // A reply's desk. Handed no directories, so nothing here writes Today or the settings,

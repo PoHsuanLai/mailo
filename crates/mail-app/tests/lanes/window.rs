@@ -126,7 +126,7 @@ impl Shared {
         mail_app::ui::native::contexts(
             Arc::clone(&self.store),
             mail_app::ui::view::Appearance::default(),
-            mail_app::ui::space::Spaces::default(),
+            None,
             Some(self.dirs.clone()),
             mail_app::ui::Start::Inbox,
         )

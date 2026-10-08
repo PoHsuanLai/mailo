@@ -62,7 +62,7 @@ pub(in crate::ui) fn park(
     mut page: Page,
     parked: &mut Vec<Page>,
     today: &mut Today,
-    space: usize,
+    space: crate::ui::space::SpaceId,
     now: DateTime<Utc>,
 ) -> Result<(), String> {
     let saved = save(store, &mut page, now);
@@ -74,7 +74,7 @@ pub(in crate::ui) fn park(
     page.float = super::page::Float::Closed;
     page.selection = None;
     parked.retain(|kept| kept.draft != page.draft);
-    today.park(space, page.draft, &title, now);
+    today.park(space, page.draft, &title, crate::ui::today::at(now));
     parked.push(page);
     saved.map(|_| ())
 }

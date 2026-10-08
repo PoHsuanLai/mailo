@@ -458,7 +458,7 @@ async fn render_a_folder_place_to_a_file() {
         44,
         "Your receipt for September",
     );
-    let space = crate::ui::space::load(&built.dirs.config).current_space();
+    let space = crate::ui::space::load(&built.dirs).current().clone();
     let (fetcher, _) = counting(Ok(()));
     let mut dom = VirtualDom::new(App)
         .with_root_context(built.store.clone())

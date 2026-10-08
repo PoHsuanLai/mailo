@@ -99,7 +99,7 @@ fn composing() -> (Harness, tempfile::TempDir, Arc<SqliteStore>) {
     let contexts = mail_app::ui::native::contexts(
         Arc::clone(&store),
         mail_app::ui::view::Appearance::default(),
-        mail_app::ui::space::Spaces::default(),
+        None,
         None,
         mail_app::ui::Start::Inbox,
     )

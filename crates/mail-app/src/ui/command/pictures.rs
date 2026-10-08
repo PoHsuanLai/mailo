@@ -39,7 +39,7 @@ pub(in crate::ui) fn BarAlone(typed: String) -> Element {
     let pages = use_signal(|| 1u32);
     let revision = use_signal(|| 0u64);
     let in_a_field = use_signal(|| false);
-    let spaces = use_signal(crate::ui::space::Spaces::default);
+    let spaces = use_signal(|| crate::ui::space::first_run(&[]));
     rsx! {
         Ds {
             appearance: Appearance::default(),

@@ -90,9 +90,9 @@ fn SettingsShell() -> Element {
         let dirs = dirs.clone();
         move || {
             dirs.as_ref()
-                .map(|dirs| crate::ui::space::load(&dirs.config))
+                .map(crate::ui::space::load)
                 .or_else(try_consume_context::<Spaces>)
-                .unwrap_or_default()
+                .unwrap_or_else(|| crate::ui::space::first_run(&[]))
         }
     });
     let _ = crate::ui::prefs::use_prefs(dirs.as_ref());

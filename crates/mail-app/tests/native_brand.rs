@@ -140,7 +140,7 @@ fn open(on: mail_core::bimi::Setting) -> Opened {
     let contexts = mail_app::ui::native::contexts(
         Arc::clone(&store),
         mail_app::ui::view::Appearance::default(),
-        mail_app::ui::space::Spaces::default(),
+        None,
         Some(dirs),
         mail_app::ui::Start::Inbox,
     )

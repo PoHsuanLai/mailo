@@ -152,7 +152,7 @@ fn contexts(dir: &std::path::Path, store: &Arc<SqliteStore>, revisions: &Shared)
     mail_app::ui::native::contexts(
         Arc::clone(store),
         mail_app::ui::view::Appearance::default(),
-        mail_app::ui::space::Spaces::default(),
+        None,
         Some(mail_app::ui::appearance::WindowDirs {
             config: dir.join("config"),
             state: dir.join("state"),

@@ -172,7 +172,7 @@ fn open(dark: bool) -> (Harness, tempfile::TempDir) {
     let contexts = mail_app::ui::native::contexts(
         store,
         mail_app::ui::view::Appearance::default(),
-        mail_app::ui::space::Spaces::default(),
+        None,
         None,
         mail_app::ui::Start::Inbox,
     );
@@ -303,7 +303,7 @@ fn screens() {
         // The Space's menu, through a right click on the Space's name.
         h.key(Key::Escape);
         h.advance(ms(400));
-        if let Some(at) = h.centre(".side-head") {
+        if let Some(at) = h.centre(".ds-space-head") {
             h.press(at, ds::base::press::PointerButton::Secondary);
             h.advance(ms(400));
         }

@@ -1,174 +1,88 @@
-//! The Space's menu over the reference fixture: a right click on the Space's name opens it with
-//! every part of the Space; Rename, Colour and Delete open their popovers where it stood; a
-//! rename shows at once and is kept when the popover closes, by Escape as by Return; Delete asks,
-//! and only its button deletes.
+use super::{accounts_menu, toggled};
+use crate::ui::space::Scope;
+use ds::components::menus::item::item::{AfterPick, MenuItem};
+use ds::prelude::Check;
+use porter_core::AccountId;
+use uuid::Uuid;
 
-use crate::ui::app::App;
-use crate::ui::fixtures::{Seen, Work, chord, dispatching, later, rebuild_into, right_click, work};
-use crate::ui::space;
-use dioxus::prelude::*;
-use dioxus_core::{ElementId, VirtualDom};
-
-/// The renders after an event: quire's menu and popovers float in the root's overlay, drawn a
-/// render or two after they are asked for.
-fn settle(dom: &mut VirtualDom, mut seen: Seen) -> Seen {
-    for _ in 0..8 {
-        dom.process_events();
-        let mut more = Seen::default();
-        dom.render_immediate(&mut more);
-        seen = seen.merge(more);
-    }
-    seen
+fn account(n: u128) -> AccountId {
+    mail_domain::id::account_id_from_uuid(Uuid::from_u128(n))
 }
 
-fn click(dom: &mut VirtualDom, element: ElementId) -> Seen {
-    let seen = crate::ui::fixtures::click(dom, element);
-    settle(dom, seen)
+fn named(ns: &[u128]) -> Vec<(AccountId, String)> {
+    ns.iter()
+        .map(|n| (account(*n), format!("a{n}@example.test")))
+        .collect()
 }
 
-/// Pick a row of the menu: quire blinks the row, closes the menu, then acts, on its clock.
-async fn pick(dom: &mut VirtualDom, element: ElementId) -> Seen {
-    let seen = click(dom, element);
-    seen.merge(later(dom).await)
+/// The Accounts rows of the menu, as (name, check, stays open).
+fn rows(items: &[MenuItem<AccountId>]) -> Vec<(String, Check, bool)> {
+    let [
+        MenuItem::Submenu {
+            title, children, ..
+        },
+    ] = items
+    else {
+        panic!("not one Accounts submenu: {items:?}");
+    };
+    assert_eq!(title, "Accounts");
+    children
+        .iter()
+        .map(|child| match child {
+            MenuItem::Item {
+                title,
+                check,
+                after,
+                ..
+            } => (
+                title.clone(),
+                check.unwrap_or(Check::Off),
+                *after == AfterPick::KeepOpen,
+            ),
+            other => panic!("not an account row: {other:?}"),
+        })
+        .collect()
 }
 
-/// The window on the Work Space, with a second Space beside it so Delete is offered, and Work's
-/// menu open from a right click on its name. The `Work` comes back too: it owns the directories
-/// the window writes into.
-fn menu_open() -> (VirtualDom, Seen, Work) {
-    dispatching();
-    let built = work();
-    let mut spaces = space::load(&built.dirs.config);
-    let mut home = spaces.current_space();
-    home.name = "Home".to_owned();
-    spaces.spaces.push(home);
-    space::save(&built.dirs.config, &spaces).expect("the fixture's Spaces are written");
-    let mut dom = VirtualDom::new(App)
-        .with_root_context(built.store.clone())
-        .with_root_context(built.dirs.clone());
-    let seen = rebuild_into(&mut dom);
-    let opened = right_click(&mut dom, seen.one("aria-label", "The Work Space"));
-    let seen = settle(&mut dom, seen.merge(opened));
-    (dom, seen, built)
-}
-
-/// The menu's rows in order: Rename, Colour, Appearance, Accent, Accounts, New Space, Delete.
-fn row(seen: &Seen, n: usize) -> ElementId {
-    seen.fixed("class", "ds-menu-item")[n]
-}
-
-const RENAME: usize = 0;
-const COLOUR: usize = 1;
-const DELETE: usize = 6;
-
-/// The frame with each of the Space's parts open in turn, for the stylesheet's class check.
-pub(in crate::ui) async fn parts_open_markup() -> String {
-    let mut out = String::new();
-    for part in [RENAME, COLOUR, DELETE] {
-        let (mut dom, seen, _built) = menu_open();
-        let _ = pick(&mut dom, row(&seen, part)).await;
-        out.push_str(&dioxus_ssr::render(&dom));
-    }
-    out
-}
-
-#[tokio::test]
-async fn a_right_click_on_the_space_lists_its_parts() {
-    let (dom, _seen, _built) = menu_open();
-    let page = dioxus_ssr::render(&dom);
-    assert!(page.contains("aria-label=\"Work Space\""), "{page}");
-    for item in [
-        "Rename\u{2026}",
-        "Colour\u{2026}",
-        "Appearance",
-        "Accent Inside the Card",
-        "Accounts",
-        "New Space",
-        "Delete Space\u{2026}",
-    ] {
-        assert!(page.contains(item), "{item} missing: {page}");
-    }
-    assert!(
-        !page.contains("aria-label=\"Space editor\""),
-        "the old editor sheet opened: {page}"
-    );
-}
-
-#[tokio::test]
-async fn a_rename_shows_at_once_and_escape_keeps_it() {
-    let (mut dom, seen, built) = menu_open();
-    let picked = pick(&mut dom, row(&seen, RENAME)).await;
-    let seen = seen.merge(picked);
-    let field = seen.one("aria-label", "Space name");
-    let _ = crate::ui::fixtures::type_into(&mut dom, field, "Studio");
-    let live = dioxus_ssr::render(&dom);
-    assert!(
-        live.contains("aria-label=\"The Studio Space\""),
-        "the name did not reach the sidebar live: {live}"
-    );
-    // Escape on the popover, which closes the topmost layer of quire's stack.
-    let popover = seen.one("aria-label", "Rename Space");
-    let _ = chord(&mut dom, "Escape", Modifiers::empty(), popover);
-    let _ = later(&mut dom).await;
-    let page = dioxus_ssr::render(&dom);
-    assert!(
-        !page.contains("aria-label=\"Rename Space\""),
-        "Escape left the popover open: {page}"
-    );
+#[test]
+fn accounts_are_checked_by_the_space_s_scope_and_stay_open_on_a_pick() {
+    let all = named(&[1, 2, 3]);
+    let shown = rows(&accounts_menu(
+        &Scope::Accounts(vec![account(1), account(3)]),
+        &all,
+    ));
     assert_eq!(
-        space::load(&built.dirs.config).current_space().name,
-        "Studio"
+        shown,
+        [
+            ("a1@example.test".to_owned(), Check::On, true),
+            ("a2@example.test".to_owned(), Check::Off, true),
+            ("a3@example.test".to_owned(), Check::On, true),
+        ]
     );
-}
-
-#[tokio::test]
-async fn return_closes_the_rename_and_keeps_it() {
-    let (mut dom, seen, built) = menu_open();
-    let picked = pick(&mut dom, row(&seen, RENAME)).await;
-    let seen = seen.merge(picked);
-    let field = seen.one("aria-label", "Space name");
-    let _ = crate::ui::fixtures::type_into(&mut dom, field, "Desk");
-    let _ = chord(&mut dom, "Enter", Modifiers::empty(), field);
-    let _ = settle(&mut dom, Seen::default());
+    let every = rows(&accounts_menu(&Scope::All, &all));
     assert!(
-        !dioxus_ssr::render(&dom).contains("aria-label=\"Rename Space\""),
-        "Return left the popover open"
+        every.iter().all(|(_, check, _)| *check == Check::On),
+        "{every:?}"
     );
-    assert_eq!(space::load(&built.dirs.config).current_space().name, "Desk");
-}
-
-#[tokio::test]
-async fn colour_opens_the_colour_half_of_quire_s_editor() {
-    let (mut dom, seen, _built) = menu_open();
-    let _ = pick(&mut dom, row(&seen, COLOUR)).await;
-    let page = dioxus_ssr::render(&dom);
-    assert!(page.contains("data-part=\"colour\""), "{page}");
     assert!(
-        !page.contains("aria-label=\"Appearance\""),
-        "the colour popover drew the whole editor: {page}"
+        accounts_menu(&Scope::All, &[]).is_empty(),
+        "a menu with no accounts"
     );
 }
 
-#[tokio::test]
-async fn delete_asks_and_only_its_button_deletes() {
-    let (mut dom, seen, built) = menu_open();
-    let before = space::load(&built.dirs.config).spaces.len();
-    assert!(before > 1, "the fixture has one Space");
-    let picked = pick(&mut dom, row(&seen, DELETE)).await;
-    let seen = seen.merge(picked);
-    let page = dioxus_ssr::render(&dom);
-    assert!(page.contains("Delete \u{201c}Work\u{201d}?"), "{page}");
-    assert_eq!(space::load(&built.dirs.config).spaces.len(), before);
-    let _ = click(&mut dom, seen.one("aria-label", "Delete Space"));
-    assert_eq!(space::load(&built.dirs.config).spaces.len(), before - 1);
-    assert!(
-        !dioxus_ssr::render(&dom).contains("Delete \u{201c}Work\u{201d}?"),
-        "the question stayed"
-    );
-}
-
-#[tokio::test]
-async fn the_parts_lint_clean() {
-    let offences = crate::ui::style::tests::markup_offences(&parts_open_markup().await);
-    assert!(offences.is_empty(), "the markup lint: {offences:#?}");
+#[test]
+fn a_pick_takes_an_account_out_or_puts_it_in() {
+    let all = [account(1), account(2), account(3)];
+    let of = |ns: &[u128]| Scope::Accounts(ns.iter().map(|n| account(*n)).collect());
+    // (scope, the account picked, the scope after)
+    let cases = [
+        (Scope::All, 2, of(&[1, 3])),
+        (of(&[1]), 2, of(&[1, 2])),
+        (of(&[1, 2]), 2, of(&[1])),
+        // Every account again is every account, so one added later shows too.
+        (of(&[1, 3]), 2, Scope::All),
+    ];
+    for (scope, n, after) in cases {
+        assert_eq!(toggled(&scope, account(n), &all), after, "{scope:?} {n}");
+    }
 }

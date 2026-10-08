@@ -536,29 +536,6 @@ impl Default for AccountsPane {
     }
 }
 
-/// A Space's menu, opened by a right click on the Space (its dot, its name, the sidebar's foot)
-/// or a click on its name, and what it shows now.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SpaceMenu {
-    /// Which Space, by index into the window's Spaces.
-    pub index: usize,
-    /// Where it opened, in the window's client pixels: the menu and each part stand there.
-    pub at: (i32, i32),
-    pub showing: SpaceShowing,
-}
-
-/// The menu itself, or one of the parts that opens at the pointer instead of changing at once.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SpaceShowing {
-    Menu,
-    /// A field holding the name.
-    Rename,
-    /// The colour field, stops, grain and presets (quire's `SpaceColour`).
-    Colour,
-    /// Asking before the Space goes.
-    Delete,
-}
-
 /// A page of Settings, in the order its sidebar lists them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum SettingsPage {
@@ -738,8 +715,6 @@ pub struct Shell {
     pub keyboard: KeyboardPage,
     /// The Delete forever / Empty Trash confirmation while it is open. `None` is closed.
     pub destroying: Option<crate::ui::bin::Destroying>,
-    /// A Space's menu, or the part of it a row opened, at the pointer. `None` is closed.
-    pub space_menu: Option<SpaceMenu>,
     /// What the undo toast and ⌘Z can take back, newest last.
     pub undo: mail_core::undo::UndoStack,
     /// The attachment viewer, over the window. `None` is closed. Belongs to the open thread:
@@ -861,7 +836,6 @@ impl Default for Shell {
             accounts_pane: AccountsPane::default(),
             settings: None,
             destroying: None,
-            space_menu: None,
             undo: mail_core::undo::UndoStack::default(),
             viewing: None,
         }

@@ -1,387 +1,83 @@
-use super::{PRESETS, Pinned, Recall, Scope, Space, Spaces, load, new_space, preset_grain, save};
-use ds::prelude::{Grain, SpaceLook, Theme};
+//! mailo's part of the Spaces: what a Space holds that is mail's, how the window boots them, and
+//! that every `spaces.json` mailo ever wrote still reads as it did. How quire's kit reads a file
+//! field by field is quire's to test; these are mailo's files through it.
+
+use super::{Mail, Pinned, Recall, Scope, SpaceId, Spaces, boot, ensure_colors, first_run, load};
+use crate::ui::appearance::{Legacy, WindowDirs};
+use ds::prelude::{SpaceLook, Theme};
 use ds::style::space::look::CardAccent;
 use ds::style::space::palette::Dot;
+use ds::style::space::presets::PRESETS;
 use mail_domain::ThreadId;
 use mail_domain::id::account_id_from_uuid;
 use porter_core::AccountId;
 use std::collections::BTreeMap;
-use std::path::Path;
 use uuid::Uuid;
 
 fn account(n: u128) -> AccountId {
     account_id_from_uuid(Uuid::from_u128(n))
 }
 
-fn entries(dir: &Path) -> Vec<String> {
-    let mut names = std::fs::read_dir(dir)
-        .unwrap_or_else(|e| panic!("{}: {e}", dir.display()))
-        .map(|entry| {
-            entry
-                .unwrap_or_else(|e| panic!("{e}"))
-                .file_name()
-                .to_string_lossy()
-                .into_owned()
+/// A config and a state directory, in one scratch directory.
+fn dirs() -> (tempfile::TempDir, WindowDirs) {
+    let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+    let dirs = WindowDirs {
+        config: dir.path().join("config"),
+        state: dir.path().join("state"),
+    };
+    std::fs::create_dir_all(&dirs.config).unwrap_or_else(|e| panic!("{e}"));
+    (dir, dirs)
+}
+
+fn write(dirs: &WindowDirs, text: &str) {
+    std::fs::write(dirs.config.join("spaces.json"), text).unwrap_or_else(|e| panic!("{e}"));
+}
+
+/// Each Space's name, look and mail, in order.
+fn shown(spaces: &Spaces) -> Vec<(String, SpaceLook, Mail)> {
+    spaces
+        .list()
+        .iter()
+        .map(|space| {
+            (
+                space.name.clone(),
+                space.look.clone(),
+                space.payload.clone(),
+            )
         })
-        .collect::<Vec<_>>();
-    names.sort();
-    names
-}
-
-fn plain(name: &str) -> Space {
-    Space {
-        name: name.to_owned(),
-        ..Space::default()
-    }
-}
-
-/// The Space `plain(name)` reads back as at `index` in a file that stored no grain: the preset's.
-fn plain_at(name: &str, index: usize) -> Space {
-    let mut space = plain(name);
-    space.look.grain = Grain(preset_grain(index));
-    space
-}
-
-/// The first-run look, edited.
-fn look(edit: impl FnOnce(&mut SpaceLook)) -> SpaceLook {
-    let mut look = Space::default().look;
-    edit(&mut look);
-    look
-}
-
-#[test]
-fn spaces_round_trip() {
-    let work = account(1);
-    let home = account(2);
-    let cases = [
-        ("empty", Spaces::default()),
-        (
-            "two spaces",
-            Spaces {
-                current: 1,
-                recall: BTreeMap::from([(
-                    0,
-                    Recall {
-                        place: "Archive".to_owned(),
-                        open: Some(ThreadId::from_uuid(Uuid::from_u128(9))),
-                        account: Some(work.clone()),
-                    },
-                )]),
-                spaces: vec![
-                    Space {
-                        name: "Work".to_owned(),
-                        look: SpaceLook {
-                            grain: ds::prelude::Grain(35),
-                            dots: vec![
-                                Dot {
-                                    hue: 268.0,
-                                    chroma: 0.5,
-                                },
-                                Dot {
-                                    hue: 318.0,
-                                    chroma: 0.25,
-                                },
-                            ],
-                            theme: Theme::Dark,
-                            card_accent: CardAccent::Chosen,
-                        },
-                        scope: Scope::Accounts(vec![work]),
-                        pins: vec![
-                            Pinned::Person {
-                                name: "Dana".to_owned(),
-                                email: "dana@example.com".to_owned(),
-                            },
-                            Pinned::Search {
-                                name: "Unread".to_owned(),
-                                query: "is:unread".to_owned(),
-                            },
-                        ],
-                        colors: BTreeMap::new(),
-                    },
-                    Space {
-                        name: "Home".to_owned(),
-                        look: SpaceLook {
-                            grain: ds::prelude::Grain(35),
-                            dots: PRESETS[1].to_vec(),
-                            theme: Theme::Light,
-                            card_accent: CardAccent::SpaceHue,
-                        },
-                        scope: Scope::Accounts(vec![home]),
-                        pins: Vec::new(),
-                        colors: BTreeMap::new(),
-                    },
-                ],
-            },
-        ),
-    ];
-    let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
-    let fresh = dir.path().join("mailo");
-    for (name, spaces) in cases {
-        save(&fresh, &spaces).unwrap_or_else(|e| panic!("{name}: {e}"));
-        assert_eq!(load(&fresh), spaces, "{name}");
-        assert_eq!(entries(&fresh), ["spaces.json"], "{name}");
-    }
-}
-
-#[test]
-fn a_missing_file_is_empty() {
-    let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
-    assert_eq!(load(dir.path()), Spaces::default());
-}
-
-#[test]
-fn garbage_bytes_are_empty() {
-    let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
-    let path = dir.path().join("spaces.json");
-    const CASES: &[(&str, &[u8])] = &[
-        ("empty", b""),
-        ("prose", b"not json {{{"),
-        ("binary", &[0xff, 0xfe, b'{']),
-    ];
-    for &(name, bytes) in CASES {
-        std::fs::write(&path, bytes).unwrap_or_else(|e| panic!("{name}: {e}"));
-        assert_eq!(load(dir.path()), Spaces::default(), "{name}");
-    }
-}
-
-#[test]
-fn a_partial_file_keeps_the_fields_it_has() {
-    let cases: &[(&str, &str, Spaces)] = &[
-        (
-            "theme only",
-            r#"{"spaces":[{"theme":"light"}]}"#,
-            Spaces {
-                spaces: vec![Space {
-                    look: look(|l| l.theme = Theme::Light),
-                    ..Space::default()
-                }],
-                current: 0,
-                recall: BTreeMap::new(),
-            },
-        ),
-        (
-            "unknown theme keeps the card accent",
-            r#"{"spaces":[{"name":"Work","theme":"sepia","card_accent":"space_hue"}]}"#,
-            Spaces {
-                spaces: vec![Space {
-                    name: "Work".to_owned(),
-                    look: look(|l| {
-                        l.card_accent = CardAccent::SpaceHue;
-                        l.theme = Theme::System;
-                    }),
-                    ..Space::default()
-                }],
-                current: 0,
-                recall: BTreeMap::new(),
-            },
-        ),
-        (
-            "unknown card accent is the chosen one and keeps the theme",
-            r#"{"spaces":[{"name":"Work","card_accent":"rose","theme":"dark"}]}"#,
-            Spaces {
-                spaces: vec![Space {
-                    name: "Work".to_owned(),
-                    look: look(|l| {
-                        l.theme = Theme::Dark;
-                        l.card_accent = CardAccent::Chosen;
-                    }),
-                    ..Space::default()
-                }],
-                current: 0,
-                recall: BTreeMap::new(),
-            },
-        ),
-        (
-            "unknown scope keeps the name",
-            r#"{"spaces":[{"name":"Work","scope":{"kind":"nowhere"}}]}"#,
-            Spaces {
-                spaces: vec![plain("Work")],
-                current: 0,
-                recall: BTreeMap::new(),
-            },
-        ),
-        (
-            "an extra field is ignored",
-            r#"{"spaces":[{"name":"Work","future":true}],"later":1}"#,
-            Spaces {
-                spaces: vec![plain("Work")],
-                current: 0,
-                recall: BTreeMap::new(),
-            },
-        ),
-    ];
-    let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
-    let path = dir.path().join("spaces.json");
-    for &(name, bytes, ref want) in cases {
-        std::fs::write(&path, bytes).unwrap_or_else(|e| panic!("{name}: {e}"));
-        assert_eq!(load(dir.path()), *want, "{name}: {bytes}");
-    }
-}
-
-#[test]
-fn out_of_range_values_are_clamped() {
-    let wide = Space {
-        name: "Wide".to_owned(),
-        look: look(|l| {
-            l.dots = vec![
-                Dot {
-                    hue: 10.0,
-                    chroma: 0.5,
-                },
-                Dot {
-                    hue: 20.0,
-                    chroma: 0.25,
-                },
-                Dot {
-                    hue: 30.0,
-                    chroma: 0.75,
-                },
-            ];
-        }),
-        ..Space::default()
-    };
-    let cases = [
-        (
-            "dots past three keep the first three",
-            r#"{"spaces":[{"name":"Wide","dots":[
-                {"hue":10,"chroma":0.5},
-                {"hue":20,"chroma":0.25},
-                {"hue":30,"chroma":0.75},
-                {"hue":40,"chroma":1},
-                {"hue":50,"chroma":0}
-            ]}]}"#,
-            Spaces {
-                spaces: vec![wide],
-                current: 0,
-                recall: BTreeMap::new(),
-            },
-        ),
-        (
-            "no dots becomes the neutral one",
-            r#"{"spaces":[{"name":"Plain","dots":[]}]}"#,
-            Spaces {
-                spaces: vec![plain("Plain")],
-                current: 0,
-                recall: BTreeMap::new(),
-            },
-        ),
-        (
-            "current past the last space",
-            r#"{"current":9,"spaces":[{"name":"A"},{"name":"B"}]}"#,
-            Spaces {
-                current: 1,
-                recall: BTreeMap::new(),
-                spaces: vec![plain_at("A", 0), plain_at("B", 1)],
-            },
-        ),
-    ];
-    let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
-    let path = dir.path().join("spaces.json");
-    for (name, bytes, want) in cases {
-        std::fs::write(&path, bytes).unwrap_or_else(|e| panic!("{name}: {e}"));
-        assert_eq!(load(dir.path()), want, "{name}: {bytes}");
-    }
-}
-
-#[test]
-fn first_run_follows_the_accounts() {
-    let none = first_run_case(&[]);
-    assert_eq!(none.spaces.len(), 1, "zero accounts");
-    assert_eq!(none.current, 0, "zero accounts");
-    assert_eq!(none.spaces[0].name, "Space 1", "zero accounts");
-    assert_eq!(none.spaces[0].look.dots, PRESETS[0], "zero accounts");
-    assert_eq!(none.spaces[0].scope, Scope::All, "zero accounts");
-    assert!(none.spaces[0].pins.is_empty(), "zero accounts");
-    assert_eq!(none.spaces[0].look.theme, Theme::System, "zero accounts");
-    assert_eq!(
-        none.spaces[0].look.card_accent,
-        CardAccent::Chosen,
-        "zero accounts"
-    );
-
-    let one_id = account(7);
-    let one = first_run_case(std::slice::from_ref(&one_id));
-    assert_eq!(one.spaces.len(), 1, "one account");
-    assert_eq!(one.spaces[0].name, "Space 1", "one account");
-    assert_eq!(one.spaces[0].look.dots, PRESETS[0], "one account");
-    assert_eq!(
-        one.spaces[0].scope,
-        Scope::Accounts(vec![one_id]),
-        "one account"
-    );
-    assert!(one.spaces[0].pins.is_empty(), "one account");
-
-    let ids = [account(1), account(2), account(3)];
-    let three = first_run_case(&ids);
-    assert_eq!(three.spaces.len(), 3, "three accounts");
-    assert_eq!(three.current, 0, "three accounts");
-    for (index, id) in ids.iter().enumerate() {
-        let space = &three.spaces[index];
-        let name = format!("Space {}", index + 1);
-        assert_eq!(space.name, name, "{name}");
-        assert_eq!(space.look.dots, PRESETS[index], "{name}");
-        assert_eq!(space.scope, Scope::Accounts(vec![id.clone()]), "{name}");
-        assert!(space.pins.is_empty(), "{name}");
-        assert_eq!(space.look.card_accent, CardAccent::Chosen, "{name}");
-    }
-}
-
-fn first_run_case(accounts: &[AccountId]) -> Spaces {
-    super::first_run(accounts)
-}
-
-#[test]
-fn a_new_space_takes_the_next_preset_and_keeps_the_look() {
-    let spaces = Spaces {
-        spaces: vec![
-            Space {
-                look: look(|l| l.theme = Theme::Dark),
-                ..plain("Work")
-            },
-            plain("Home"),
-        ],
-        current: 0,
-        recall: BTreeMap::new(),
-    };
-    let made = new_space(&spaces);
-    assert_eq!(made.name, "Space 3");
-    assert_eq!(made.look.dots, PRESETS[2]);
-    assert_eq!(made.look.theme, Theme::Dark);
-    assert_eq!(made.scope, Scope::All);
+        .collect()
 }
 
 /// A `spaces.json` exactly as mailo wrote it before the look was quire's: flat look fields, the
-/// card accent spelled `hint`. It must still load to the same Spaces, and a save must keep the
-/// flat shape and read back unchanged.
+/// card accent spelled `hint`, a `motion` nobody reads. It must still load to the same Spaces,
+/// and a save must keep the flat shape and read back unchanged.
 const BEFORE_QUIRE: &str = r#"{"spaces":[{"name":"Work","dots":[{"hue":268.0,"chroma":0.72},{"hue":318.0,"chroma":0.55}],"grain":35,"theme":"dark","motion":"calm","card_accent":"hint","scope":{"kind":"all"},"pins":[{"kind":"person","name":"Dana","email":"dana@example.com"}],"colors":{}},{"name":"Home","dots":[{"hue":152.0,"chroma":0.62}],"grain":55,"theme":"system","motion":"standard","card_accent":"postmark","scope":{"kind":"all"},"pins":[],"colors":{}}],"current":1,"recall":{}}
 "#;
 
 #[test]
 fn a_spaces_file_from_before_quire_still_loads_and_round_trips() {
-    let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
-    std::fs::write(dir.path().join("spaces.json"), BEFORE_QUIRE).unwrap_or_else(|e| panic!("{e}"));
-    let read = load(dir.path());
-    let want = Spaces {
-        current: 1,
-        recall: BTreeMap::new(),
-        spaces: vec![
-            Space {
-                name: "Work".to_owned(),
-                look: SpaceLook {
-                    grain: ds::prelude::Grain(35),
-                    dots: vec![
-                        Dot {
-                            hue: 268.0,
-                            chroma: 0.72,
-                        },
-                        Dot {
-                            hue: 318.0,
-                            chroma: 0.55,
-                        },
-                    ],
-                    theme: Theme::Dark,
-                    card_accent: CardAccent::SpaceHue,
-                },
+    let (_dir, dirs) = dirs();
+    write(&dirs, BEFORE_QUIRE);
+    let read = load(&dirs);
+    let want = vec![
+        (
+            "Work".to_owned(),
+            SpaceLook {
+                grain: ds::prelude::Grain(35),
+                dots: vec![
+                    Dot {
+                        hue: 268.0,
+                        chroma: 0.72,
+                    },
+                    Dot {
+                        hue: 318.0,
+                        chroma: 0.55,
+                    },
+                ],
+                theme: Theme::Dark,
+                card_accent: CardAccent::SpaceHue,
+            },
+            Mail {
                 scope: Scope::All,
                 pins: vec![Pinned::Person {
                     name: "Dana".to_owned(),
@@ -389,64 +85,200 @@ fn a_spaces_file_from_before_quire_still_loads_and_round_trips() {
                 }],
                 colors: BTreeMap::new(),
             },
-            Space {
-                name: "Home".to_owned(),
-                look: SpaceLook {
-                    grain: ds::prelude::Grain(55),
-                    dots: vec![Dot {
-                        hue: 152.0,
-                        chroma: 0.62,
-                    }],
-                    theme: Theme::System,
-                    card_accent: CardAccent::Chosen,
-                },
-                scope: Scope::All,
-                pins: Vec::new(),
-                colors: BTreeMap::new(),
+        ),
+        (
+            "Home".to_owned(),
+            SpaceLook {
+                grain: ds::prelude::Grain(55),
+                dots: vec![Dot {
+                    hue: 152.0,
+                    chroma: 0.62,
+                }],
+                theme: Theme::System,
+                card_accent: CardAccent::Chosen,
             },
-        ],
-    };
-    assert_eq!(read, want);
+            Mail::over(Scope::All),
+        ),
+    ];
+    assert_eq!(shown(&read), want);
+    assert_eq!(read.current().name, "Home", "`current` is a position");
 
-    save(dir.path(), &read).unwrap_or_else(|e| panic!("{e}"));
+    super::save(Some(&dirs), &read).unwrap_or_else(|e| panic!("{e}"));
     let written: serde_json::Value = serde_json::from_slice(
-        &std::fs::read(dir.path().join("spaces.json")).unwrap_or_else(|e| panic!("{e}")),
+        &std::fs::read(dirs.config.join("spaces.json")).unwrap_or_else(|e| panic!("{e}")),
     )
     .unwrap_or_else(|e| panic!("{e}"));
     let work = &written["spaces"][0];
-    // Flat, as before: the look is not nested under a key of its own.
+    // Flat, as before: neither the look nor mail's own fields are nested under a key.
     assert!(work.get("look").is_none(), "{work}");
-    // The grain is read and written again; what no build reads (`motion`) is not.
+    assert!(work.get("payload").is_none(), "{work}");
     assert_eq!(work["grain"], 35, "{work}");
     assert!(work.get("motion").is_none(), "{work}");
-    assert_eq!(work["theme"], "dark", "{work}");
     assert_eq!(work["card_accent"], "space_hue", "{work}");
-    assert_eq!(work["dots"][0]["hue"], 268.0, "{work}");
-    assert_eq!(load(dir.path()), want, "after saving");
+    assert_eq!(work["scope"]["kind"], "all", "{work}");
+    assert_eq!(work["pins"][0]["email"], "dana@example.com", "{work}");
+    assert_eq!(shown(&load(&dirs)), want, "after saving");
+    assert_eq!(load(&dirs).current().name, "Home", "after saving");
+}
+
+/// The shape of the file mailo wrote last before the kit: four Spaces over accounts, `current` and
+/// `recall` by position.
+#[test]
+fn the_last_file_before_the_kit_keeps_its_spaces_current_and_recall() {
+    let (_dir, dirs) = dirs();
+    let one = account(1);
+    let thread = ThreadId::from_uuid(Uuid::from_u128(9));
+    let space = |name: &str, scope: &str| {
+        format!(
+            r##"{{"name":"{name}","dots":[{{"hue":268.0,"chroma":0.5}}],"grain":0,"theme":"system","card_accent":"chosen","scope":{scope},"pins":[],"colors":{{"{one}":"#5B4FC4"}}}}"##
+        )
+    };
+    let accounts = format!(r#"{{"kind":"accounts","v":["{one}"]}}"#);
+    let text = format!(
+        r#"{{"spaces":[{},{},{},{}],"current":1,"recall":{{"0":{{"place":"Sent","open":null,"account":null}},"1":{{"place":"Archive","open":"{thread}","account":"{one}"}}}}}}"#,
+        space("A", &accounts),
+        space("B", &accounts),
+        space("C", &accounts),
+        space("D", r#"{"kind":"all"}"#),
+    );
+    write(&dirs, &text);
+    let read = load(&dirs);
+    let names: Vec<&str> = read
+        .list()
+        .iter()
+        .map(|space| space.name.as_str())
+        .collect();
+    assert_eq!(names, ["A", "B", "C", "D"]);
+    assert_eq!(read.current().name, "B");
+    assert_eq!(read.current().id, SpaceId(1), "ids are the old positions");
+    assert_eq!(
+        read.list()[0].payload.scope,
+        Scope::Accounts(vec![one.clone()])
+    );
+    assert_eq!(read.list()[3].payload.scope, Scope::All);
+    assert_eq!(
+        read.list()[0].payload.colors.get(&one).map(String::as_str),
+        Some("#5B4FC4")
+    );
+    assert_eq!(
+        read.recall().of(SpaceId(1)),
+        Recall {
+            place: "Archive".to_owned(),
+            open: Some(thread),
+            account: Some(one),
+        }
+    );
+    assert_eq!(read.recall().of(SpaceId(0)).place, "Sent");
+}
+
+/// What a Space holds that is mail's reads field by field: a scope this build does not know is
+/// every account, and a field that is missing is its default.
+#[test]
+fn mail_s_own_fields_read_leniently() {
+    let (_dir, dirs) = dirs();
+    write(
+        &dirs,
+        r#"{"spaces":[{"name":"A","scope":{"kind":"team","v":"x"}},{"name":"B","scope":"garbage"},{"name":"C"}]}"#,
+    );
+    let read = load(&dirs);
+    let mails: Vec<Mail> = read
+        .list()
+        .iter()
+        .map(|space| space.payload.clone())
+        .collect();
+    assert_eq!(mails, vec![Mail::default(); 3]);
 }
 
 #[test]
-fn a_space_without_a_grain_key_takes_its_presets_grain() {
-    let read: Spaces = serde_json::from_str(
-        r#"{"spaces":[{"name":"A"},{"name":"B","grain":7},{"name":"C","grain":"loud"}]}"#,
-    )
-    .unwrap_or_else(|e| panic!("{e}"));
-    let grains: Vec<u8> = read.spaces.iter().map(|space| space.look.grain.0).collect();
-    // The preset's grain, which is none since quire's quiet Look (`Grain::default`); what was stored;
-    // and the default's for a value that is not a number.
-    assert_eq!(grains, [0, 7, 0]);
+fn first_run_follows_the_accounts() {
+    let none = first_run(&[]);
+    assert_eq!(none.count(), 1, "zero accounts");
+    assert_eq!(none.current().name, "Space 1");
+    assert_eq!(none.current().look.dots, PRESETS[0].dots);
+    assert_eq!(none.current().payload, Mail::over(Scope::All));
+
+    let ids = [account(1), account(2), account(3)];
+    let three = first_run(&ids);
+    assert_eq!(three.count(), 3, "three accounts");
+    assert_eq!(three.current().name, "Space 1");
+    for (index, id) in ids.iter().enumerate() {
+        let space = &three.list()[index];
+        let name = format!("Space {}", index + 1);
+        assert_eq!(space.name, name);
+        assert_eq!(space.look.dots, PRESETS[index].dots, "{name}");
+        assert_eq!(
+            space.payload,
+            Mail::over(Scope::Accounts(vec![id.clone()])),
+            "{name}"
+        );
+    }
+}
+
+/// The window's boot: a first run is written; a stored Space with no theme takes the window-wide
+/// one mailo kept before themes were the Spaces'; the current Space's accounts get a colour each.
+#[test]
+fn boot_writes_a_first_run_inherits_a_missing_theme_and_colours_the_accounts() {
+    let ids = [account(1), account(2)];
+    let legacy = Legacy {
+        theme: Theme::Dark,
+        ..Legacy::default()
+    };
+
+    let (_dir, first) = dirs();
+    let made = boot(Some(&first), &ids, &legacy);
+    assert_eq!(made.count(), 2);
+    assert!(
+        made.list()
+            .iter()
+            .all(|space| space.look.theme == Theme::Dark)
+    );
+    assert_eq!(
+        shown(&load(&first)),
+        shown(&made),
+        "the first run was not written"
+    );
+
+    let (_dir, stored) = dirs();
+    write(
+        &stored,
+        r#"{"spaces":[{"name":"A","scope":{"kind":"all"}},{"name":"B","theme":"light"}]}"#,
+    );
+    let read = boot(Some(&stored), &ids, &legacy);
+    let themes: Vec<Theme> = read.list().iter().map(|space| space.look.theme).collect();
+    assert_eq!(
+        themes,
+        [Theme::Dark, Theme::Light],
+        "only a missing theme inherits"
+    );
+    let colours = &read.current().payload.colors;
+    assert!(ids.iter().all(|id| colours.contains_key(id)), "{colours:?}");
+    assert_eq!(
+        load(&stored).current().payload.colors,
+        *colours,
+        "the colours were not written"
+    );
+}
+
+#[test]
+fn colours_fill_only_the_accounts_without_one() {
+    let mut mail = Mail::default();
+    mail.colors.insert(account(1), "#000000".to_owned());
+    assert!(ensure_colors(&mut mail, &[account(1), account(2)]));
+    assert_eq!(mail.colors[&account(1)], "#000000");
+    assert!(mail.colors.contains_key(&account(2)));
+    assert!(
+        !ensure_colors(&mut mail, &[account(1), account(2)]),
+        "twice"
+    );
 }
 
 #[test]
 fn a_new_account_joins_a_scoped_space_and_not_an_open_one() {
-    let mut open = Space::default();
+    let mut open = Mail::over(Scope::All);
     assert!(!open.widen(account(1)));
     assert_eq!(open.scope, Scope::All);
 
-    let mut scoped = Space {
-        scope: Scope::Accounts(vec![account(2)]),
-        ..Space::default()
-    };
+    let mut scoped = Mail::over(Scope::Accounts(vec![account(2)]));
     assert!(scoped.widen(account(1)));
     assert!(!scoped.widen(account(1)), "added twice");
     assert_eq!(scoped.scope, Scope::Accounts(vec![account(2), account(1)]));

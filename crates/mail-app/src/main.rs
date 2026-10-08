@@ -631,28 +631,13 @@ fn main() {
                 mail_app::ui::appearance::adopt(from, &to);
             }
             let ids = account_ids(&store);
-            let spaces = match &config {
-                Some(dir) => {
-                    let loaded = mail_app::ui::space::load(dir);
-                    if loaded.spaces.is_empty() {
-                        let mut made = mail_app::ui::space::first_run(&ids);
-                        mail_app::ui::space::inherit(&mut made, &legacy);
-                        let _ = mail_app::ui::space::save(dir, &made);
-                        made
-                    } else {
-                        loaded
-                    }
-                }
-                None => {
-                    let mut made = mail_app::ui::space::first_run(&ids);
-                    mail_app::ui::space::inherit(&mut made, &legacy);
-                    made
-                }
-            };
             let dirs = config.and_then(|config| {
                 mail_core::config::state_dir()
                     .map(|state| mail_app::ui::appearance::WindowDirs { config, state })
             });
+            // The stored Spaces, or a first run over the accounts, written where the window
+            // keeps them.
+            let spaces = mail_app::ui::space::boot(dirs.as_ref(), &ids, &legacy);
             mail_app::ui::run(
                 store,
                 look,

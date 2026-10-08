@@ -215,7 +215,7 @@ fn contexts(dir: &std::path::Path) -> RootContexts {
     mail_app::ui::native::contexts(
         seeded(dir),
         mail_app::ui::view::Appearance::default(),
-        mail_app::ui::space::Spaces::default(),
+        None,
         None,
         mail_app::ui::Start::Inbox,
     )

@@ -16,7 +16,7 @@ use settle::settle_until;
 #[path = "support/drive.rs"]
 mod drive;
 use drive::Drive;
-use mail_app::ui::space::{Space, Spaces};
+use mail_app::ui::space::{Mail, Scope, Spaces};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_runtime::{Arrival, absorb};
@@ -126,16 +126,18 @@ fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
 
 /// `count` Spaces, the first on screen, each showing every account.
 fn spaces(count: usize) -> Spaces {
-    Spaces {
-        spaces: (1..=count)
-            .map(|n| Space {
-                name: format!("Space {n}"),
-                ..Space::default()
+    mail_app::ui::space::built(
+        (1..=count)
+            .map(|n| {
+                (
+                    format!("Space {n}"),
+                    ds::style::space::look::SpaceLook::default(),
+                    Mail::over(Scope::All),
+                )
             })
             .collect(),
-        current: 0,
-        recall: Default::default(),
-    }
+        0,
+    )
 }
 
 /// The window, `width` wide, over a freshly seeded store and `spaces`, first frame drawn. The
@@ -148,7 +150,7 @@ fn open(width: u32, spaces: Spaces) -> (Harness, tempfile::TempDir) {
     let contexts = mail_app::ui::native::contexts(
         store,
         mail_app::ui::view::Appearance::default(),
-        spaces,
+        Some(spaces),
         None,
         mail_app::ui::Start::Inbox,
     )
@@ -294,7 +296,7 @@ fn the_more_button_sits_in_the_tail_and_only_opens_the_menu() {
 
 #[test]
 fn a_hidden_sidebar_can_be_shown_again_from_the_list() {
-    const HIDE: &str = ".side-foot [aria-label=\"Hide sidebar\"]";
+    const HIDE: &str = ".ds-spaces-foot [aria-label=\"Hide sidebar\"]";
     const SHOW: &str = ".list-head [aria-label=\"Show sidebar\"]";
     let (mut harness, _dir) = open(1200, spaces(1));
     assert_eq!(
@@ -337,7 +339,7 @@ fn every_footer_control_stays_inside_the_sidebar_at_its_least_width() {
     );
     let mut seen = 0;
     for child in 1..=8 {
-        let selector = format!(".side-foot > :nth-child({child})");
+        let selector = format!(".ds-spaces-foot > :nth-child({child})");
         if let Some(found) = harness.rect(&selector) {
             seen += 1;
             assert!(
@@ -347,7 +349,7 @@ fn every_footer_control_stays_inside_the_sidebar_at_its_least_width() {
         }
     }
     assert!(seen >= 4, "only {seen} footer controls are drawn");
-    let toggle = rect(&harness, ".side-foot > :last-child");
+    let toggle = rect(&harness, ".ds-spaces-foot > :last-child");
     assert!(
         within(&toggle, &side),
         "the sidebar toggle is clipped: {toggle:?} in {side:?}"

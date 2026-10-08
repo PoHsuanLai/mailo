@@ -1,30 +1,31 @@
 use super::super::app::App;
 use crate::ui::fixtures::empty;
-use crate::ui::space::{Space, Spaces};
+use crate::ui::space::{Mail, Scope, built};
 use dioxus::prelude::*;
-use std::collections::BTreeMap;
-
-fn named(name: &str) -> Space {
-    Space {
-        name: name.to_owned(),
-        ..Space::default()
-    }
-}
+use ds::prelude::SpaceLook;
 
 #[tokio::test]
 async fn the_foot_dots_are_buttons_that_say_which_space_is_on() {
     let (store, _dir) = empty();
-    let spaces = Spaces {
-        spaces: vec![named("Work"), named("Home"), named("Club")],
-        current: 1,
-        recall: BTreeMap::new(),
-    };
+    let spaces = built(
+        ["Work", "Home", "Club"]
+            .into_iter()
+            .map(|name| {
+                (
+                    name.to_owned(),
+                    SpaceLook::default(),
+                    Mail::over(Scope::All),
+                )
+            })
+            .collect(),
+        1,
+    );
     let mut dom = VirtualDom::new(App)
         .with_root_context(store)
         .with_root_context(spaces);
     dom.rebuild_in_place();
     let page = dioxus_ssr::render(&dom);
-    let dots = buttons_in(&page, "space-dots");
+    let dots = buttons_in(&page, "ds-spaces-dots");
     let labels: Vec<&str> = dots
         .iter()
         .map(|button| button.attr("aria-label"))
@@ -36,9 +37,14 @@ async fn the_foot_dots_are_buttons_that_say_which_space_is_on() {
         "{page}"
     );
     assert!(
-        dots.iter()
-            .enumerate()
-            .all(|(index, button)| button.attr("title").ends_with(&format!("(⌘{})", index + 1))),
+        dots.iter().enumerate().all(|(index, button)| {
+            // The tip: quire writes it as the description under `Ds`.
+            let tip = match button.attr("aria-description") {
+                "" => button.attr("title"),
+                tip => tip,
+            };
+            tip.ends_with(&format!("(⌘{})", index + 1))
+        }),
         "a dot does not name its key: {page}"
     );
     assert!(page.contains("aria-label=\"New Space\""), "{page}");

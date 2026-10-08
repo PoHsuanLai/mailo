@@ -6,6 +6,7 @@ use ds::components::lists::list::model::ListStyle;
 use ds::prelude::*;
 use std::sync::Arc;
 
+use crate::ui::space::SpaceId;
 use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
 use mail_domain::DraftId;
@@ -111,7 +112,7 @@ pub(in crate::ui) fn keep(mut desk: Desk, page: Signal<Page>) {
         return;
     };
     let store = consume_context::<Arc<SqliteStore>>();
-    let space = desk.spaces.peek().current;
+    let space = desk.spaces.peek().current().id;
     let parked = life::park(
         &store,
         snapshot,
@@ -128,7 +129,7 @@ pub(in crate::ui) fn keep(mut desk: Desk, page: Signal<Page>) {
 
 /// The draft is open, sent or gone: it leaves Today.
 pub(in crate::ui) fn unpark(mut desk: Desk, draft: DraftId) {
-    desk.today.write().unpark(draft);
+    desk.today.write().unpark(&draft);
     save_today(desk);
 }
 
@@ -224,17 +225,17 @@ pub(in crate::ui) fn reopen(desk: Desk, mut shell: Signal<Shell>, draft: DraftId
 
 /// The pencil entries in Today: drafts put aside in this Space, as rows of a source list.
 #[component]
-pub(in crate::ui) fn ParkedDrafts(shell: Signal<Shell>, space_index: usize) -> Element {
+pub(in crate::ui) fn ParkedDrafts(shell: Signal<Shell>, space: SpaceId) -> Element {
     let Some(desk) = try_use_context::<Desk>() else {
         return rsx! {};
     };
     let items: Vec<ListItem<DraftId>> = desk
         .today
         .read()
-        .parked(space_index)
+        .parked_in(space)
         .into_iter()
         .map(|parked| {
-            let draft = parked.draft;
+            let draft = parked.item;
             let row = rsx! {
                 Row {
                     leading: RowLeading::Icon(Icon::Pen),

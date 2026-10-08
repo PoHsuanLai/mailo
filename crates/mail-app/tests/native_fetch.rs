@@ -74,7 +74,7 @@ fn an_account_never_fetched_shows_placeholder_rows_and_a_caption() {
     let contexts = mail_app::ui::native::contexts(
         store,
         mail_app::ui::view::Appearance::default(),
-        mail_app::ui::space::Spaces::default(),
+        None,
         None,
         mail_app::ui::Start::Inbox,
     );

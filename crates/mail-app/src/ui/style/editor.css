@@ -1,9 +1,0 @@
-/* A Space's parts, each a popover where the Space's menu stood (`space_menu`): its name, its
-   colour (quire's SpaceColour, frameless) and the question before it is deleted. */
-.space-part { display: grid; gap: var(--s-10); padding: var(--s-12); }
-.space-rename { width: 240px; }
-.space-colour { width: 340px; }
-.space-delete { width: 300px; }
-.space-delete h3 { margin: 0; }
-.space-part-acts { display: flex; justify-content: flex-end; gap: var(--s-6); }
-.ed-label { margin: 0; color: var(--ink-soft); }

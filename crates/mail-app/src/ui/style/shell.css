@@ -31,16 +31,7 @@
 /* The accounts: quire's `PinTile`s, four to a row. */
 /* A folder the person does not follow is drawn quieter. */
 .dim { opacity: .62; }
-.side-foot {
-  display: flex; align-items: center; gap: var(--s-6); padding-top: var(--s-6); min-width: 0;
-}
-/* The Space's name, heading the sidebar. */
-.side-head { display: flex; align-items: center; min-width: 0; padding: 0 var(--s-6); }
-.side-foot > * { flex: none; }
-/* The dots take the foot's free width, so the buttons sit at its end. */
-.space-dots { display: flex; gap: var(--s-5); align-items: center; flex: 1 1 auto; min-width: 0; }
-/* The hold a dot's right click is caught on: it lays out as the dot. */
-.space-dot-hold { display: flex; }
+/* The sidebar's head and foot are quire's Spaces kit (`SpaceHead`, `SpacesFoot`). */
 /* Downloads: the button's hold carries the dot that says a file is being saved, or one was
    saved since the list was last opened. */
 .downloads-hold { position: relative; display: flex; }

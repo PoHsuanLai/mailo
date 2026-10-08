@@ -5,7 +5,7 @@
 //! until one is added to it: accounts belong to Spaces, so the Space does not widen itself to
 //! everyone else's mail. The other accounts' colours stay as they were stored.
 
-use super::{Scope, Spaces};
+use super::{Scope, SpaceId, Spaces};
 use porter_core::AccountId;
 
 /// Whether forgetting an account changed the Spaces, and so whether they need writing.
@@ -20,20 +20,23 @@ pub enum Forgot {
 /// Take `account` out of every Space in `spaces`.
 pub fn forget_account(spaces: &mut Spaces, account: AccountId) -> Forgot {
     let mut forgot = Forgot::Nothing;
-    for space in &mut spaces.spaces {
-        if let Scope::Accounts(ids) = &mut space.scope
-            && ids.contains(&account)
-        {
-            ids.retain(|id| *id != account);
-            forgot = Forgot::Changed;
-        }
-        if space.colors.remove(&account).is_some() {
-            forgot = Forgot::Changed;
-        }
-    }
-    for recall in spaces.recall.values_mut() {
-        if recall.account == Some(account.clone()) {
-            recall.account = None;
+    let ids: Vec<SpaceId> = spaces.list().iter().map(|space| space.id).collect();
+    for id in ids {
+        spaces.edit(id, |space| {
+            let mail = &mut space.payload;
+            if let Scope::Accounts(ids) = &mut mail.scope
+                && ids.contains(&account)
+            {
+                ids.retain(|id| *id != account);
+                forgot = Forgot::Changed;
+            }
+            if mail.colors.remove(&account).is_some() {
+                forgot = Forgot::Changed;
+            }
+        });
+        // Only a Space left on the account is touched: one never left has no recall to write.
+        if spaces.recall().of(id).account.as_ref() == Some(&account) {
+            spaces.edit_recall(id, |recall| recall.account = None);
             forgot = Forgot::Changed;
         }
     }
@@ -44,18 +47,13 @@ pub fn forget_account(spaces: &mut Spaces, account: AccountId) -> Forgot {
 /// for each the Spaces name that the store no longer has, removed here or from a terminal.
 pub fn forget_unknown(spaces: &mut Spaces, known: &[AccountId]) -> Forgot {
     let mut named: Vec<AccountId> = Vec::new();
-    for space in &spaces.spaces {
-        if let Scope::Accounts(ids) = &space.scope {
+    for space in spaces.list() {
+        if let Scope::Accounts(ids) = &space.payload.scope {
             named.extend(ids.iter().cloned());
         }
-        named.extend(space.colors.keys().cloned());
+        named.extend(space.payload.colors.keys().cloned());
+        named.extend(spaces.recall().of(space.id).account);
     }
-    named.extend(
-        spaces
-            .recall
-            .values()
-            .filter_map(|recall| recall.account.clone()),
-    );
     named.sort();
     named.dedup();
     named
@@ -72,30 +70,41 @@ pub fn forget_unknown(spaces: &mut Spaces, known: &[AccountId]) -> Forgot {
 #[cfg(test)]
 mod tests {
     use super::{Forgot, forget_account, forget_unknown};
-    use crate::ui::space::{Recall, Scope, Space, Spaces};
+    use crate::ui::space::{Mail, Recall, Scope, Spaces};
     use porter_core::AccountId;
-    use std::collections::BTreeMap;
     use uuid::Uuid;
 
     fn account(n: u128) -> AccountId {
         mail_domain::id::account_id_from_uuid(Uuid::from_u128(n))
     }
 
-    fn scoped(ids: &[u128], colors: &[u128]) -> Space {
-        Space {
+    fn scoped(ids: &[u128], colors: &[u128]) -> Mail {
+        Mail {
             scope: Scope::Accounts(ids.iter().copied().map(account).collect()),
             colors: colors
                 .iter()
                 .map(|n| (account(*n), format!("#{n:06}")))
                 .collect(),
-            ..Space::default()
+            ..Mail::default()
         }
+    }
+
+    fn spaces(of: Vec<Mail>) -> Spaces {
+        Spaces::first_run(of, Mail::default)
+    }
+
+    fn payloads(spaces: &Spaces) -> Vec<Mail> {
+        spaces
+            .list()
+            .iter()
+            .map(|space| space.payload.clone())
+            .collect()
     }
 
     #[test]
     fn the_account_leaves_every_space_and_nothing_else_does() {
         // (before, after, what forgetting account 1 reports)
-        let cases: Vec<(Space, Space, Forgot)> = vec![
+        let cases: Vec<(Mail, Mail, Forgot)> = vec![
             (
                 scoped(&[1, 2], &[1, 2]),
                 scoped(&[2], &[2]),
@@ -105,11 +114,11 @@ mod tests {
             (scoped(&[1], &[1]), scoped(&[], &[]), Forgot::Changed),
             // Over every account, only its colour goes.
             (
-                Space {
+                Mail {
                     scope: Scope::All,
                     ..scoped(&[], &[1, 2])
                 },
-                Space {
+                Mail {
                     scope: Scope::All,
                     ..scoped(&[], &[2])
                 },
@@ -122,49 +131,35 @@ mod tests {
             ),
         ];
         for (before, after, expect) in cases {
-            let mut spaces = Spaces {
-                spaces: vec![before.clone()],
-                current: 0,
-                recall: BTreeMap::new(),
-            };
-            assert_eq!(
-                forget_account(&mut spaces, account(1)),
-                expect,
-                "{before:?}"
-            );
-            assert_eq!(spaces.spaces, vec![after], "{before:?}");
+            let mut all = spaces(vec![before.clone()]);
+            assert_eq!(forget_account(&mut all, account(1)), expect, "{before:?}");
+            assert_eq!(payloads(&all), vec![after], "{before:?}");
         }
     }
 
     #[test]
     fn a_space_left_on_the_account_comes_back_on_every_account() {
-        let recall = |tile: Option<u128>| Recall {
+        let mut all = spaces(vec![Mail::default(), Mail::default()]);
+        let [first, second] = [all.list()[0].id, all.list()[1].id];
+        let left = |tile: u128| Recall {
             place: "Inbox".to_owned(),
             open: None,
-            account: tile.map(account),
+            account: Some(account(tile)),
         };
-        let mut spaces = Spaces {
-            spaces: vec![Space::default(), Space::default()],
-            current: 0,
-            recall: BTreeMap::from([(0, recall(Some(1))), (1, recall(Some(2)))]),
-        };
-        assert_eq!(forget_account(&mut spaces, account(1)), Forgot::Changed);
-        assert_eq!(
-            spaces.recall,
-            BTreeMap::from([(0, recall(None)), (1, recall(Some(2)))])
-        );
+        all.edit_recall(first, |recall| *recall = left(1));
+        all.edit_recall(second, |recall| *recall = left(2));
+        assert_eq!(forget_account(&mut all, account(1)), Forgot::Changed);
+        assert_eq!(all.recall().of(first).account, None);
+        assert_eq!(all.recall().of(first).place, "Inbox");
+        assert_eq!(all.recall().of(second), left(2));
     }
 
     #[test]
     fn accounts_the_store_no_longer_has_leave_and_known_ones_stay() {
-        let mut spaces = Spaces {
-            spaces: vec![scoped(&[1, 2], &[1, 2, 3]), scoped(&[3], &[3])],
-            current: 0,
-            recall: BTreeMap::new(),
-        };
+        let mut all = spaces(vec![scoped(&[1, 2], &[1, 2, 3]), scoped(&[3], &[3])]);
         let known = [account(1)];
-        assert_eq!(forget_unknown(&mut spaces, &known), Forgot::Changed);
-        assert_eq!(spaces.spaces, vec![scoped(&[1], &[1]), scoped(&[], &[])]);
-        assert_eq!(forget_unknown(&mut spaces, &known), Forgot::Nothing);
+        assert_eq!(forget_unknown(&mut all, &known), Forgot::Changed);
+        assert_eq!(payloads(&all), vec![scoped(&[1], &[1]), scoped(&[], &[])]);
+        assert_eq!(forget_unknown(&mut all, &known), Forgot::Nothing);
     }
 }

@@ -22,11 +22,11 @@ pub(super) enum Plus {
 
 /// What "+" does for `space`, given every account as `(id, name)`.
 pub(super) fn plus(space: &Space, accounts: &[(AccountId, String)]) -> Plus {
-    let outside: Vec<(AccountId, String)> = match &space.scope {
+    let outside: Vec<(AccountId, String)> = match &space.payload.scope {
         Scope::All => Vec::new(),
         Scope::Accounts(_) => accounts
             .iter()
-            .filter(|(id, _)| !space.scope.shows(id.clone()))
+            .filter(|(id, _)| !space.payload.scope.shows(id.clone()))
             .cloned()
             .collect(),
     };
@@ -100,10 +100,16 @@ mod tests {
     }
 
     fn space(scope: Scope) -> Space {
-        Space {
-            scope,
-            ..Space::default()
-        }
+        crate::ui::space::built(
+            vec![(
+                String::new(),
+                ds::prelude::SpaceLook::default(),
+                crate::ui::space::Mail::over(scope),
+            )],
+            0,
+        )
+        .current()
+        .clone()
     }
 
     #[test]

@@ -229,7 +229,7 @@ async fn esc_parks_the_draft_in_today_and_the_entry_brings_it_back_exactly() {
     });
     let before = window.dom.in_runtime(|| to_html(&page.peek().session.doc));
     assert!(before.contains("<u>"), "{before}");
-    assert!(crate::ui::today::load(&dirs.state).drafts.is_empty());
+    assert!(crate::ui::today::load(&dirs.state).parked.is_empty());
 
     let root_id = seen.one("class", "cpage");
     press(
@@ -245,9 +245,9 @@ async fn esc_parks_the_draft_in_today_and_the_entry_brings_it_back_exactly() {
     );
     let today = crate::ui::today::load(&dirs.state);
     let parked: Vec<(DraftId, String)> = today
-        .parked(0)
+        .parked_in(crate::ui::space::SpaceId(0))
         .iter()
-        .map(|p| (p.draft, p.title.clone()))
+        .map(|p| (p.item, p.title.clone()))
         .collect();
     assert_eq!(
         parked,
@@ -266,7 +266,9 @@ async fn esc_parks_the_draft_in_today_and_the_entry_brings_it_back_exactly() {
         "the reopened draft is not the one that was parked"
     );
     assert!(
-        crate::ui::today::load(&dirs.state).parked(0).is_empty(),
+        crate::ui::today::load(&dirs.state)
+            .parked_in(crate::ui::space::SpaceId(0))
+            .is_empty(),
         "reopening left the entry in Today"
     );
 }

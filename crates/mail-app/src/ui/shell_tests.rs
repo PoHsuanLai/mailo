@@ -185,7 +185,7 @@ async fn closing_a_today_entry_writes_the_file_and_not_the_mail() {
     let close = follow_any(&mut dom, shown, &close_label).await;
     let stored = std::fs::read_to_string(built.dirs.state.join("today.json")).unwrap_or_default();
     assert_eq!(
-        stored.matches("\"thread\"").count(),
+        stored.matches("\"item\"").count(),
         2,
         "opening two threads did not store two shortcuts: {stored}"
     );
@@ -193,7 +193,7 @@ async fn closing_a_today_entry_writes_the_file_and_not_the_mail() {
     super::fixtures::click(&mut dom, close);
     let stored = std::fs::read_to_string(built.dirs.state.join("today.json")).unwrap_or_default();
     assert_eq!(
-        stored.matches("\"thread\"").count(),
+        stored.matches("\"item\"").count(),
         1,
         "closing one shortcut left {stored}"
     );
