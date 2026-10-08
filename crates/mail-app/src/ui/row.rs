@@ -197,8 +197,10 @@ pub(super) fn MailRow(
             }
         }
         if muted {
-            span { class: "mute-mark", title: "Muted", "data-muted": "true",
-                Glyph { icon: Icon::BellOff, size: IconSize::Micro }
+            Tooltip { text: "Muted".to_owned(),
+                span { class: "mute-mark", aria_label: "Muted", "data-muted": "true",
+                    Glyph { icon: Icon::BellOff, size: IconSize::Micro }
+                }
             }
         }
         if let Some(words) = no_reply {
@@ -378,9 +380,11 @@ fn ViaChip(via: Provider, marks: Marks) -> Element {
     let short = via.short();
     let title = via.title();
     rsx! {
-        span { class: "via", title: "{title}",
-            ProvChip { provider: via, marks, place: ChipPlace::Row }
-            "{short}"
+        Tooltip { text: title,
+            span { class: "via",
+                ProvChip { provider: via, marks, place: ChipPlace::Row }
+                "{short}"
+            }
         }
     }
 }

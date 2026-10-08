@@ -92,8 +92,11 @@ pub(super) fn MessageHead(
     let (short, full) = when;
     let face = sender_face(&message);
     let date = rsx! {
-        time { class: "msg-when", title: "{full}",
-            Label { text: short, role: LabelRole::Tertiary, style: LabelStyle::Footnote }
+        Tooltip { text: full.clone(),
+            // The full date is the time's name as well as its tip: what a screen reader says.
+            time { class: "msg-when", aria_label: full,
+                Label { text: short, role: LabelRole::Tertiary, style: LabelStyle::Footnote }
+            }
         }
     };
     match detail {
@@ -261,7 +264,7 @@ mod tests {
         assert_eq!(page.matches("class=\"ds-avatar\"").count(), 1, "{page}");
         assert_eq!(page.matches(">Bob<").count(), 1, "{page}");
         assert!(page.contains(">bob@example.test<"), "{page}");
-        assert!(page.contains("title=\"2023-11-15 07:13\""), "{page}");
+        assert!(page.contains("aria-label=\"2023-11-15 07:13\""), "{page}");
         assert!(page.contains(">07:13<"), "{page}");
         assert!(page.contains(">To: Ada, Grace +3<"), "{page}");
         assert!(page.contains(">Cc: Edsger<"), "{page}");

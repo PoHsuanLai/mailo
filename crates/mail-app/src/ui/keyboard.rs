@@ -19,7 +19,7 @@ use ds::components::content::label::LabelRole;
 use ds::components::controls::key_equivalent::{KeyEquivalent, KeyStyle};
 use ds::components::fields::field_row::FieldRow;
 use ds::prelude::{
-    Button, Form, FormSection, Label, Shortcut as Caps, ShortcutKey as Key, TextLine,
+    Button, Form, FormSection, Label, Shortcut as Caps, ShortcutKey as Key, TextLine, Tooltip,
 };
 use ds::root::common::Common;
 
@@ -131,14 +131,17 @@ fn caps(key: &str) -> Vec<Key> {
 #[component]
 fn KeyCaps(named: String) -> Element {
     let drawn = caps(&named);
+    let spoken = keymap::spoken(&named);
     rsx! {
-        span { class: "kb-key", title: keymap::spoken(&named),
-            if drawn.is_empty() {
-                "{named}"
-            } else {
-                KeyEquivalent {
-                    shortcut: Caps(drawn),
-                    style: KeyStyle::Cap,
+        Tooltip { text: spoken.clone(),
+            span { class: "kb-key", aria_label: spoken,
+                if drawn.is_empty() {
+                    "{named}"
+                } else {
+                    KeyEquivalent {
+                        shortcut: Caps(drawn),
+                        style: KeyStyle::Cap,
+                    }
                 }
             }
         }

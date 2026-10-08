@@ -382,13 +382,17 @@ fn a_keymap_kept_earlier_is_the_one_settings_shows_and_reset_puts_it_back() {
     open_page(&mut settings);
     let row = "[*|data-action=Archive]";
     assert_eq!(
-        settings.attr(&format!("{row} .kb-key"), "title").as_deref(),
+        settings
+            .attr(&format!("{row} .kb-key"), "aria-label")
+            .as_deref(),
         Some("X"),
         "the page shows the kept key"
     );
     click(&mut settings, "[*|aria-label=\"Reset Archive\"]");
     assert_eq!(
-        settings.attr(&format!("{row} .kb-key"), "title").as_deref(),
+        settings
+            .attr(&format!("{row} .kb-key"), "aria-label")
+            .as_deref(),
         Some("E")
     );
     assert_eq!(
