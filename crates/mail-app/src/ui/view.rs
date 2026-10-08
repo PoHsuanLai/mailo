@@ -715,6 +715,9 @@ pub struct Shell {
     pub keyboard: KeyboardPage,
     /// The Delete forever / Empty Trash confirmation while it is open. `None` is closed.
     pub destroying: Option<crate::ui::bin::Destroying>,
+    /// A new message was asked for with no account to send it from: the alert that says so,
+    /// and offers Add Account, is up.
+    pub no_account: bool,
     /// What the undo toast and ⌘Z can take back, newest last.
     pub undo: mail_core::undo::UndoStack,
     /// The attachment viewer, over the window. `None` is closed. Belongs to the open thread:
@@ -836,6 +839,7 @@ impl Default for Shell {
             accounts_pane: AccountsPane::default(),
             settings: None,
             destroying: None,
+            no_account: false,
             undo: mail_core::undo::UndoStack::default(),
             viewing: None,
         }

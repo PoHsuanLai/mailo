@@ -8,7 +8,7 @@ use super::common::classed;
 use super::data::{AccountRow, account_rows, syncs_nothing};
 use super::list_search::{Marking, RowHit, Scope, row_hit};
 use super::motion::{Ghost, Toast};
-use super::ops::start_new;
+use super::ops::compose_new;
 use super::page::PageMenus;
 use super::picks::PickBar;
 use super::press::on_primary;
@@ -459,13 +459,8 @@ pub(super) fn ThreadList(
                                     title: Some("New message (\u{2318}N)".to_owned()),
                                     onclick: on_primary(move || {
                                         let store = consume_context::<Arc<SqliteStore>>();
-                                        let known = shell.peek().accounts.clone();
-                                        match start_new(&store, &known) {
-                                            Ok(draft) => {
-                                                shell.write().compose(&draft);
-                                                revision += 1;
-                                            }
-                                            Err(why) => eprintln!("compose: {why}"),
+                                        if compose_new(&store, shell) {
+                                            revision += 1;
                                         }
                                     }),
                                 }
