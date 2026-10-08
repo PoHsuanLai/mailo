@@ -6,7 +6,7 @@
 //! or a URL that says neither, is asked again at `/.well-known/carddav`. From the principal, the
 //! home set; from each home, its children that are address books.
 
-use super::{CardDavFailure, Dav, resolve, same};
+use super::{CardDavFailure, Dav, same};
 use crate::RuntimeError;
 use mail_pim::dav::{self, Prop};
 use url::Url;
@@ -56,10 +56,10 @@ pub async fn discover(dav: &Dav, start: &Url) -> Result<Vec<Collection>, Runtime
             }]);
         }
         for home in &first.props.addressbook_home_set {
-            homes.push(resolve(&url, home)?);
+            homes.push(dav.resolve(&url, home)?);
         }
         if let Some(href) = &first.props.current_user_principal {
-            principal = Some(resolve(&url, href)?);
+            principal = Some(dav.resolve(&url, href)?);
         }
         if !homes.is_empty() || principal.is_some() {
             break;
@@ -76,7 +76,7 @@ pub async fn discover(dav: &Dav, start: &Url) -> Result<Vec<Collection>, Runtime
             .await?;
         for response in &reply.responses {
             for home in &response.props.addressbook_home_set {
-                homes.push(resolve(&url, home)?);
+                homes.push(dav.resolve(&url, home)?);
             }
         }
     }
@@ -97,7 +97,7 @@ pub async fn discover(dav: &Dav, start: &Url) -> Result<Vec<Collection>, Runtime
             if !response.props.is_address_book() {
                 continue;
             }
-            let collection = resolve(&url, &response.href)?;
+            let collection = dav.resolve(&url, &response.href)?;
             if !found.iter().any(|c: &Collection| same(&c.url, &collection)) {
                 found.push(Collection {
                     url: collection,

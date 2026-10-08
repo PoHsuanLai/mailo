@@ -5069,7 +5069,7 @@ needs no inference and no `socket` carrier (off the desktop it runs in process).
   - JMAP and Graph: a bearer from `Accounts::token` on the grant (`link::LinkedTokens`, audience
     `jmap` / `graph`), `JmapEngine` through it and `AccountEngine::with_tokens` for Graph.
     JMAP is reached by `reqwest` with that bearer, not through the HTTP relay.
-  - CardDAV: not through the relay yet (E7): a granted account says so and syncs no contacts.
+  - CardDAV (E7): through the relay, in the next row (F206).
 - **TokenSource.** Linked: `LinkedTokens` over `Accountd::token`: `ahead` asks when none is held or one
   is within 60 s of its end, `after_refusal` mints one more and then says `StillRefused` when the
   token it minted was refused too, an accountd refusal that only the person can answer (`NeedsReauth`,
@@ -5122,7 +5122,7 @@ needs no inference and no `socket` carrier (off the desktop it runs in process).
      STARTTLS, `AUTH` and `LOGIN` are never sent by mailo for a linked account.
   6. `account list` says "ready" for a linked account when there is a link, and sync of one with no
      link says it is not reachable and is retried in 30 s rather than asked to sign in.
-  7. Contacts (CardDAV) are not read for a linked account until E7.
+  7. Contacts (CardDAV) of a linked account go through the relay (F206, E7).
   8. A `watch` started by `dist/mailo-watch.service` runs in `app-org.quire.Mail-watch<boot id>.scope`
      (above), which accountd can name.
   9. Microsoft is IMAP and SMTP through the relay; Graph is mapped for a candidate that lists a Graph
@@ -5245,3 +5245,67 @@ own move of its pre-porter keyring entries, not porter's).
   back (it had no adopt entry before). An entry an earlier build left under `service=mailo` is no longer
   found or moved: F200's adoption paragraphs describe what this removes. What F205 said of
   adoption running after the link is chosen no longer applies, there being none.
+
+### F206 — Contacts (CardDAV) of a linked account go through accountd's relay (accounts step E7)
+
+`mailo contacts sync` of an account that is accountd's no longer says "whose contacts Mail does not
+read yet": discovery, `sync-collection`, `addressbook-multiget` and the group `PUT` with `If-Match`
+(groups over CardDAV, above) run over the stream `Accounts::open_authenticated` returns for the account's CardDAV
+endpoint. `Link::Local` and an account with a login of its own (`--user`) are the direct path of
+before, byte for byte (the existing suite).
+
+- **The seam.** `carddav::Dav` holds a `Wire`: `Http(reqwest::Client)` as before, or `Relay`
+  (`carddav/relay.rs`, the one adapter). `Dav::relayed(link, grant, endpoint)` makes the second.
+  reqwest has no connector for a stream it is handed, so the relayed requests go through hyper's
+  client connection (`hyper::client::conn::http1`, over the same hyper reqwest uses; `hyper`,
+  `hyper-util` with only `tokio`, `http-body-util` and `bytes` are named in `mail-runtime`, no new
+  crate in `Cargo.lock`). `transport::relayed_io` turns the relay's end into tokio I/O: the Unix
+  socket as it is, an in-memory duplex through a task that carries its bytes. The redirect loop,
+  statuses and bodies are shared by both wires, so `discover`, `sync` and `write_back` did not change
+  but for `dav.resolve` where they called the free `resolve`.
+- **No credential here.** `DavAuth::Relayed` is the third form: it has no `Authorization` value, so
+  no request of that session carries one, and `Dav::new` refuses it (a session of our own has a
+  credential). The relay drops any `Authorization` an app writes and adds its own; the test reads the
+  bytes the app wrote and finds none, and finds the relay's `Basic` at the server.
+- **The https rule, relayed.** The relay owns TLS, so "https only" reads: a request may name the
+  origin (scheme, host, port) of the endpoint the grant lists, and nothing else
+  (`Dav::secure`). porter lists `http` only for a loopback host (`Tls::Plain`), so the scheme is the
+  endpoint's own and not Mail's to second-guess. Any other origin, from a redirect, an href or the
+  start URL, is `CardDavFailure::Foreign` and nothing is sent or asked of accountd (the relay would
+  refuse it with `ForeignOrigin` anyway). A session of our own still refuses everything but `https:`.
+- **One stream for each request.** The relay does not frame responses, and several CardDAV servers
+  close after every reply; a connection kept between requests would be found closed and a `PUT` is
+  not safe to repeat. A stream is one call to accountd and one TLS handshake by the relay; a sync is
+  a handful of requests. accountd refusing the stream for something only the person can answer
+  (`NeedsReauth`, a grant gone) is `CardDavFailure::Unauthorized`, so it routes as a refused sign-in
+  (`Retry::NeedsReauth`); an accountd that is not there is `Unreachable`.
+- **The grant is for contacts.** A grant is per account, kind, data class and use, and the endpoints
+  a candidate lists are those of the kind that fits, so the grant on an account's mail neither covers
+  its contacts nor lists its address book server. `Accountd` gained `contacts()` (candidates for
+  `Need::Contacts`, `DataClass::Contacts`, read access; empty by default) and `request_contacts()`
+  (accountd's chooser and consent sheet, asked the way `request_grant` asks for mail: Mail opens no
+  dialog), and `open_stream()` (the same relay as `open`, as the stream). When Mail has no grant on
+  the account's contacts, `mailo contacts sync` asks for it once. A refusal says, in the account's
+  own words: "me@example.test is an account of the desktop's account service, and Mail has not been
+  allowed to read its contacts (the desktop's account service refused: the person said no)". A grant
+  the person gave to another account is not this one's and is said so.
+- **No address needed.** With nothing synced yet and no URL, an account of accountd's starts from its
+  CardDAV endpoint (its grant lists it); every other account still needs `mailo contacts sync <url>`.
+  A URL given for a linked account must be on the endpoint's origin.
+- **Google is People.** An account whose contacts grant lists no CardDAV endpoint (Google serves
+  contacts through People) syncs no contacts and says so: "... whose contacts are not CardDAV
+  (Google's are served through People, which Mail does not read): no contacts were synced". There
+  is no People client here.
+- **Tests.** `mail-runtime/tests/carddav.rs`: `a_linked_account_discovers_syncs_and_writes_a_group_
+  back_through_the_relay` (porter's own relay in memory in front of the suite's fake server in plain
+  text: no `Authorization` on the app's side, the relay's at the server, a stream for each request),
+  `a_relayed_session_sends_nothing_to_any_server_but_the_accounts`, `a_relay_accountd_refuses_for_
+  the_person_to_answer_is_a_reauth_and_the_book_is_untouched`, `no_credential_belongs_to_a_session_
+  of_our_own`. `mail-core` `contacts::tests`: `a_linked_account_is_asked_for_its_contacts_once_and_
+  reads_its_carddav_server`, `..._whose_contacts_are_not_allowed_says_so_in_its_own_words`,
+  `..._whose_contacts_are_not_carddav_syncs_none_and_says_so`, `a_linked_account_is_relayed_to_its_
+  own_server_and_no_other`, `an_account_of_accountd_with_no_link_is_not_reachable_...`,
+  `the_first_sync_of_a_linked_account_needs_no_address_and_another_account_still_does`. As in F204,
+  accountd's side is the relay in memory (the boundary keeps a real accountd out of the dev
+  dependencies). **Not tested:** the Unix-socket end of a real accountd's relay; `relayed_io` takes
+  the fd the way `Transport::relayed` does, and the suite has no real accountd to hand one over.

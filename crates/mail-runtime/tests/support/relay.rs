@@ -19,8 +19,8 @@ use mail_runtime::link::{Accountd, Answer, Changes, LinkError};
 use porter_client::AuthenticatedStream;
 use porter_core::stream::{ByteStream, DuplexEnd, duplex};
 use porter_core::{
-    AccountId, Audience, Candidate, CapabilityKind, GrantId, IssuedToken, Origin, RelayAuth,
-    RelayPlan, SecretText, ServiceEndpoint, Tls,
+    AccountId, Audience, Candidate, CapabilityKind, Family, GrantId, IssuedToken, Origin,
+    RelayAuth, RelayPlan, SecretText, ServiceEndpoint, Tls,
 };
 use porter_proxy::{Connect, ConnectFault, TokioStream, relay};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -67,6 +67,27 @@ impl Relays {
             opened: AtomicUsize::new(0),
             tokens: Mutex::new(Vec::new()),
         })
+    }
+
+    /// A relay to `endpoint` with a tap on the app's side: the app's end of it.
+    fn start(&self, endpoint: &ServiceEndpoint) -> AuthenticatedStream {
+        self.opened.fetch_add(1, Ordering::SeqCst);
+        // app <-> tap <-> relay
+        let (app, near) = duplex(64 * 1024);
+        let (far, relay_end) = duplex(64 * 1024);
+        let plan = RelayPlan {
+            endpoint: endpoint.clone(),
+            kind: match endpoint.family {
+                Family::CardDav => CapabilityKind::Contacts,
+                _ => CapabilityKind::Mail,
+            },
+            auth: RelayAuth::Password(SecretText::new(self.password.clone())),
+        };
+        tokio::spawn(async move {
+            let _ = relay(plan, relay_end, &Loopback).await;
+        });
+        tokio::spawn(tap(near, far, self.app_sent.clone()));
+        AuthenticatedStream::Memory(app)
     }
 
     /// Every byte the app sent into a relay, in order, across connections.
@@ -133,22 +154,16 @@ impl Accountd for Relays {
         endpoint: &'a ServiceEndpoint,
     ) -> Answer<'a, Transport> {
         Box::pin(async move {
-            self.opened.fetch_add(1, Ordering::SeqCst);
-            // app <-> tap <-> relay
-            let (app, near) = duplex(64 * 1024);
-            let (far, relay_end) = duplex(64 * 1024);
-            let plan = RelayPlan {
-                endpoint: endpoint.clone(),
-                kind: CapabilityKind::Mail,
-                auth: RelayAuth::Password(SecretText::new(self.password.clone())),
-            };
-            tokio::spawn(async move {
-                let _ = relay(plan, relay_end, &Loopback).await;
-            });
-            tokio::spawn(tap(near, far, self.app_sent.clone()));
-            Transport::relayed(AuthenticatedStream::Memory(app))
-                .map_err(|e| LinkError::Other(e.to_string()))
+            Transport::relayed(self.start(endpoint)).map_err(|e| LinkError::Other(e.to_string()))
         })
+    }
+
+    fn open_stream<'a>(
+        &'a self,
+        _grant: &'a GrantId,
+        endpoint: &'a ServiceEndpoint,
+    ) -> Answer<'a, AuthenticatedStream> {
+        Box::pin(async move { Ok(self.start(endpoint)) })
     }
 
     fn add_account(&self) -> Answer<'_, AccountId> {

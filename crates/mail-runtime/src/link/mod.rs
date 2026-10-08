@@ -38,6 +38,7 @@ use porter_core::SecretKey;
 
 use crate::{RuntimeError, Transport};
 use mail_domain::Retry;
+use porter_client::AuthenticatedStream;
 use porter_core::wire::Refusal;
 use porter_core::{
     AccountId, Audience, Candidate, GrantId, IssuedToken, ServiceEndpoint, UnixSeconds,
@@ -151,6 +152,36 @@ pub trait Accountd: Send + Sync + fmt::Debug {
         grant: &'a GrantId,
         endpoint: &'a ServiceEndpoint,
     ) -> Answer<'a, Transport>;
+
+    /// The same connection as [`open`](Accountd::open), as the stream itself, for a client that
+    /// speaks over a stream of its own: CardDAV's HTTP client (step E7). The relay adds the
+    /// `Authorization` and owns TLS; what is written to the stream is plain HTTP/1.1.
+    ///
+    /// A link that cannot hand a stream over says so; that is the default.
+    fn open_stream<'a>(
+        &'a self,
+        _grant: &'a GrantId,
+        _endpoint: &'a ServiceEndpoint,
+    ) -> Answer<'a, AuthenticatedStream> {
+        Box::pin(async { Err(LinkError::Other("this link opens no raw stream".to_owned())) })
+    }
+
+    /// The accounts Mail holds a grant on for their contacts (a grant of its own: the one on the
+    /// account's mail does not cover them). Empty by default: a link that knows no address books.
+    fn contacts(&self) -> Answer<'_, Vec<Candidate>> {
+        Box::pin(async { Ok(Vec::new()) })
+    }
+
+    /// Asks the person to allow Mail to read one of their accounts' contacts, the way
+    /// [`request_grant`](Accountd::request_grant) asks for mail (the chooser and the consent sheet
+    /// are accountd's), and answers with the one they picked, granted.
+    fn request_contacts(&self) -> Answer<'_, Candidate> {
+        Box::pin(async {
+            Err(LinkError::Other(
+                "this link asks for no grant on contacts".to_owned(),
+            ))
+        })
+    }
 
     /// Opens the add-account sheet, drawn by the desktop's own shell (mailo opens no window), and
     /// answers with the account added.
