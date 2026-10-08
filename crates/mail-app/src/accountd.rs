@@ -243,6 +243,19 @@ pub fn add(
     }
 }
 
+/// Ask accountd to let Mail use an account again, after the grant on it was withdrawn: its
+/// chooser and consent sheet (Mail draws no dialog of its own). What it grants is read into the
+/// store, as an add is; closing the sheet is an answer, not a failure.
+pub fn allow(store: &SqliteStore, accountd: &Arc<dyn Accountd>) -> Result<Added, String> {
+    use mail_runtime::link::LinkError;
+    use porter_core::wire::Refusal;
+    match with_runtime(accountd.request_grant()) {
+        Ok(_) => read_from(store, accountd).map(Added::Account),
+        Err(LinkError::Refused(Refusal::Dismissed)) => Ok(Added::Nothing),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 /// What the account list says when accountd is linked and some accounts here were signed in by
 /// Mail itself: they are not loaded, synced or offered while linked, and the way to use them is
 /// to add them again.
