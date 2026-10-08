@@ -113,7 +113,11 @@ pub(super) fn ListStatus(shell: Signal<Shell>) -> Element {
                 bezel: Bezel::Inline,
                 title: Some("Open Connection Doctor".to_owned()),
                 onclick: on_primary(move || crate::ui::doctor::open(shell)),
-                common: classed(class),
+                // `data-opens`: what it opens, for a test to find it by, since its words change.
+                common: Common {
+                    extra_class: classed(class).extra_class,
+                    ..crate::ui::sidebar::tagged("opens", "doctor")
+                },
             }
         },
     };

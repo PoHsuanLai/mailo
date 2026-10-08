@@ -14,12 +14,21 @@ fn porters_files_and_mailos_are_all_in_the_set() {
         "icloud",
         "microsoft",
         "yahoo",
-        "google-mail",
+        "google",
     ] {
         let id = porter_core::ProviderId::parse(want).unwrap();
         assert!(set().get(&id).is_some(), "{want}");
     }
-    assert_eq!(set().specs().len(), shipped_specs().len() + OWN.len());
+    // mailo's Google replaces porter's, so the set is porter's count.
+    assert_eq!(set().specs().len(), shipped_specs().len());
+    let google = set().get(&porter_core::ProviderId::parse("google").unwrap());
+    assert!(
+        google.is_some_and(|spec| spec
+            .capabilities
+            .iter()
+            .any(|c| c.family == porter_core::Family::Smtp)),
+        "the Google in mailo's set is not mailo's: it has no SMTP"
+    );
 }
 
 /// mailo's own file claims what mailo's preset table claimed for Google, and nothing else.
@@ -34,7 +43,7 @@ fn the_google_file_claims_gmails_domains_and_its_exchangers() {
             .first()
             .map(|(spec, how)| (spec.id.to_string(), *how))
     };
-    let google = |how| Some(("google-mail".to_owned(), how));
+    let google = |how| Some(("google".to_owned(), how));
     assert_eq!(claim("gmail.com", &[]), google(Domain));
     assert_eq!(claim("googlemail.com", &[]), google(Domain));
     assert_eq!(claim("firm.example", &["aspmx.l.google.com"]), google(Mx));

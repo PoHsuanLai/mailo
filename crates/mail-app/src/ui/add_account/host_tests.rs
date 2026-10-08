@@ -23,7 +23,7 @@ async fn view(end: &mut WindowEnd, is: impl Fn(&SheetView) -> bool) -> SheetView
             if let Shown::View(view) = end.views.borrow_and_update().clone()
                 && is(&view)
             {
-                return view;
+                return *view;
             }
             end.views.changed().await.expect("the service ended first");
         }
@@ -111,7 +111,7 @@ async fn a_whole_browser_add_over_the_service_and_open_again_shows_the_page_agai
     let script = Script::default();
     let (mut end, task, log, _added) = serve(&script);
     view(&mut end, |v| matches!(v, SheetView::Providers(_))).await;
-    end.inputs.send(pick("google-mail")).unwrap();
+    end.inputs.send(pick("google")).unwrap();
     view(&mut end, |v| matches!(v, SheetView::SignIn(_))).await;
     end.inputs
         .send(submit(vec![(
@@ -132,7 +132,10 @@ async fn a_whole_browser_add_over_the_service_and_open_again_shows_the_page_agai
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(end.views.borrow_and_update().clone(), Shown::View(page));
+    assert_eq!(
+        end.views.borrow_and_update().clone(),
+        Shown::View(Box::new(page))
+    );
 
     script.release.notify_one();
     view(&mut end, |v| matches!(v, SheetView::Review(_))).await;
@@ -195,7 +198,7 @@ async fn dismissing_adds_nothing_and_closing_the_window_ends_a_browser_wait() {
 
     let (mut end, task, log, _) = serve(&Script::default());
     view(&mut end, |v| matches!(v, SheetView::Providers(_))).await;
-    end.inputs.send(pick("google-mail")).unwrap();
+    end.inputs.send(pick("google")).unwrap();
     view(&mut end, |v| matches!(v, SheetView::SignIn(_))).await;
     end.inputs
         .send(submit(vec![(

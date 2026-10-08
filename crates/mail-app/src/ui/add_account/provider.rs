@@ -43,7 +43,7 @@ use tokio::task::JoinHandle;
 /// ones an address of their own domains signs in with a browser, the ones that sign in with a
 /// (app) password, and "Email (IMAP)", which takes any other address.
 const OFFERED: [&str; 7] = [
-    "google-mail",
+    "google",
     "microsoft",
     "fastmail",
     "icloud",

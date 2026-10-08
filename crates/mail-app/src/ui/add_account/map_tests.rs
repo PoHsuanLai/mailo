@@ -27,11 +27,12 @@ fn id(text: &str) -> ProviderId {
 
 fn rows() -> Vec<ProviderRow> {
     [
-        ("google-mail", "Google", "google", RowKind::Provider),
+        ("google", "Google", "google", RowKind::Provider),
         ("fastmail", "Fastmail", "fastmail", RowKind::Provider),
         ("generic-imap", "Email (IMAP)", "mail", RowKind::Generic),
     ]
     .map(|(provider, label, mark, kind)| ProviderRow {
+        auth: Default::default(),
         id: id(provider),
         label: label.to_owned(),
         mark: mark.to_owned(),
@@ -51,6 +52,7 @@ fn spec(kind: FieldKind, entry: Entry) -> FieldSpec {
 
 fn form() -> SheetView {
     SheetView::SignIn(SignInView {
+        row: None,
         provider: id("fastmail"),
         fields: vec![
             FieldSpec {
@@ -65,6 +67,7 @@ fn form() -> SheetView {
 
 fn review() -> SheetView {
     SheetView::Review(ReviewView {
+        row: None,
         provider: id("fastmail"),
         review: Review {
             label: AccountLabel("ada@example.test".to_owned()),
@@ -105,7 +108,8 @@ fn every_view_is_the_right_step() {
         (
             "browser",
             SheetView::BrowserWait {
-                provider: id("google-mail"),
+                row: None,
+                provider: id("google"),
                 url,
             },
             Some("browser"),
@@ -113,6 +117,7 @@ fn every_view_is_the_right_step() {
         (
             "code",
             SheetView::ShowCode {
+                row: None,
                 provider: id("microsoft"),
                 user_code: UserCode("BQKD-4MZP".to_owned()),
                 url: page,
@@ -122,12 +127,16 @@ fn every_view_is_the_right_step() {
         ("review", review(), Some("review")),
         (
             "working",
-            SheetView::Working(id("fastmail")),
+            SheetView::Working {
+                provider: id("fastmail"),
+                row: None,
+            },
             Some("working"),
         ),
         (
             "failed",
             SheetView::Failed {
+                row: None,
                 provider: id("fastmail"),
                 fault: SignInFault::Unreachable,
             },
@@ -152,7 +161,7 @@ fn the_list_leaves_the_generic_row_to_the_lists_own_other() {
         panic!("not the list");
     };
     let keys: Vec<&str> = props.providers.iter().map(|p| p.key.0.as_str()).collect();
-    assert_eq!(keys, ["google-mail", "fastmail"]);
+    assert_eq!(keys, ["google", "fastmail"]);
     let marks: Vec<_> = props.providers.iter().map(|p| p.mark).collect();
     assert_eq!(marks, [mark_of("google"), mark_of("fastmail")]);
 }
@@ -254,10 +263,12 @@ fn submit_sends_every_field_once_and_empties_the_secret() {
 fn every_event_is_the_right_input() {
     let url = WebUrl::parse("https://login.example.test/start?x=1").unwrap();
     let browser = SheetView::BrowserWait {
-        provider: id("google-mail"),
+        row: None,
+        provider: id("google"),
         url,
     };
     let failed = SheetView::Failed {
+        row: None,
         provider: id("fastmail"),
         fault: SignInFault::Unreachable,
     };
@@ -294,7 +305,10 @@ fn every_event_is_the_right_input() {
         ),
         (
             "cancel working",
-            SheetView::Working(id("fastmail")),
+            SheetView::Working {
+                provider: id("fastmail"),
+                row: None,
+            },
             Action::Cancel,
             Some(SheetInput::Dismiss),
         ),
@@ -391,7 +405,8 @@ fn no_switch_is_drawn_for_a_service_the_add_does_nothing_with() {
 fn a_browser_step_asks_the_window_to_open_its_page_each_time_it_is_shown() {
     let url = WebUrl::parse("https://login.example.test/start?x=1").unwrap();
     let view = SheetView::BrowserWait {
-        provider: id("google-mail"),
+        row: None,
+        provider: id("google"),
         url: url.clone(),
     };
     let (sheet, out) = shown(Sheet::default(), view.clone());
@@ -412,7 +427,13 @@ fn a_browser_step_asks_the_window_to_open_its_page_each_time_it_is_shown() {
     };
     assert_eq!(copied, CopyState::Copied);
     // A different step starts clean.
-    let (sheet, out) = shown(sheet, SheetView::Working(id("google-mail")));
+    let (sheet, out) = shown(
+        sheet,
+        SheetView::Working {
+            provider: id("google"),
+            row: None,
+        },
+    );
     assert!(out.is_empty());
     assert_eq!(sheet.draft.copied, super::map::CopyMark::Idle);
 }
@@ -473,7 +494,7 @@ fn every_fault_has_its_sentence_and_every_provider_its_words() {
         assert_eq!(fault_of(fault), want);
     }
     for (provider, label) in [
-        ("google-mail", "Google"),
+        ("google", "Google"),
         ("microsoft", "Microsoft"),
         ("yahoo", "Yahoo Mail"),
         ("generic-imap", "your email server"),
@@ -489,6 +510,7 @@ fn every_fault_has_its_sentence_and_every_provider_its_words() {
 /// The form porter asks when the lookup found no server: IMAP, guessed from `example.test`.
 fn servers() -> SheetView {
     SheetView::SignIn(SignInView {
+        row: None,
         provider: id("generic-imap"),
         fields: manual_form(Protocol::Imap, Some("example.test")),
         problem: None,

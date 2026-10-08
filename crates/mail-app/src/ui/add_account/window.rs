@@ -182,7 +182,7 @@ fn AddAccountShell(wiring: Wiring, prefill: Option<String>) -> Element {
                     let Shown::View(view) = now else {
                         continue;
                     };
-                    let (next, out) = map::shown(sheet.peek().clone(), view);
+                    let (next, out) = map::shown(sheet.peek().clone(), *view);
                     sheet.set(next);
                     for Out::OpenPage(page) in out {
                         // The address is on screen too, to copy, when no browser takes it.
