@@ -535,7 +535,7 @@ pub(super) fn step_of(sheet: &Sheet) -> Option<Step> {
                 problem: form_marked(&form.fields, form.problem, draft),
             })
         }
-        SheetView::BrowserWait { provider, url } => Step::Browser {
+        SheetView::BrowserWait { provider, url, .. } => Step::Browser {
             mark: mark_of(provider.as_str()),
             provider: provider_label(provider),
             url: url.as_str().to_owned(),
@@ -545,6 +545,7 @@ pub(super) fn step_of(sheet: &Sheet) -> Option<Step> {
             provider,
             user_code,
             url,
+            ..
         } => Step::Code {
             provider: provider_label(provider),
             code: user_code.0.clone(),
@@ -573,11 +574,13 @@ pub(super) fn step_of(sheet: &Sheet) -> Option<Step> {
                 .collect(),
             allow: None,
         }),
-        SheetView::Working(provider) => Step::Working {
+        SheetView::Working { provider, .. } => Step::Working {
             mark: mark_of(provider.as_str()),
             provider: provider_label(provider),
         },
-        SheetView::Failed { provider, fault } => Step::Failed {
+        SheetView::Failed {
+            provider, fault, ..
+        } => Step::Failed {
             provider: provider_label(provider),
             why: fault_of(*fault),
         },
@@ -820,6 +823,7 @@ pub(super) fn service_name(kind: CapabilityKind) -> &'static str {
         CapabilityKind::ComputerUse => "Operating windows",
         CapabilityKind::KeyValue => "Small synced items",
         CapabilityKind::Push => "Notifications",
+        CapabilityKind::Agent => "Coding agent",
     }
 }
 
@@ -855,6 +859,11 @@ pub(super) fn fault_of(fault: SignInFault) -> ShellFault {
         SignInFault::Cancelled => ShellFault::Cancelled,
         SignInFault::Forbidden => ShellFault::Forbidden,
         SignInFault::StoreFailed => ShellFault::StoreFailed,
+        // An agent's own login, never a mail account's; said as quire's sheet says them.
+        SignInFault::NoLauncher => ShellFault::NoLauncher,
+        SignInFault::NotInstalled => ShellFault::NotInstalled,
+        // The launcher did not answer in time: the person waited and nothing came.
+        SignInFault::Expired => ShellFault::TimedOut,
     }
 }
 

@@ -110,7 +110,7 @@ async fn an_account_that_must_sign_in_again_shows_a_mark_that_opens_the_connecti
 #[tokio::test]
 async fn the_status_line_of_a_warning_opens_the_connection_doctor() {
     let (mut dom, seen, _script, _dir) = after_a_pass(refused).await;
-    let line = seen.one("title", "Open Connection Doctor");
+    let line = seen.one("data-opens", "doctor");
     click(&mut dom, line);
     settle(&mut dom).await;
     let page = dioxus_ssr::render(&dom);
@@ -130,7 +130,7 @@ async fn try_again_in_the_connection_doctor_asks_for_a_manual_pass() {
     );
     assert!(!page.contains("Check All"), "open unasked: {page}");
 
-    let line = seen.one("title", "Open Connection Doctor");
+    let line = seen.one("data-opens", "doctor");
     let seen = click(&mut dom, line);
     let seen = seen.merge(settle_seen(&mut dom).await);
     let page = dioxus_ssr::render(&dom);

@@ -16,6 +16,7 @@ fn id(text: &str) -> ProviderId {
 
 fn sign_in(fields: Vec<FieldSpec>) -> SheetView {
     SheetView::SignIn(SignInView {
+        row: None,
         provider: id("generic-imap"),
         fields,
         problem: None,
@@ -28,21 +29,15 @@ fn step(view: SheetView) -> Step {
 
 #[test]
 fn each_step_is_its_own_size_and_the_form_grows_with_its_fields() {
-    let rows = [
-        "google-mail",
-        "microsoft",
-        "fastmail",
-        "icloud",
-        "yahoo",
-        "gmx",
-    ]
-    .map(|provider| porter_core::sheet::ProviderRow {
-        id: id(provider),
-        label: provider.to_owned(),
-        mark: "mail".to_owned(),
-        kind: porter_core::sheet::RowKind::Provider,
-    })
-    .to_vec();
+    let rows = ["google", "microsoft", "fastmail", "icloud", "yahoo", "gmx"]
+        .map(|provider| porter_core::sheet::ProviderRow {
+            auth: Default::default(),
+            id: id(provider),
+            label: provider.to_owned(),
+            mark: "mail".to_owned(),
+            kind: porter_core::sheet::RowKind::Provider,
+        })
+        .to_vec();
     let providers = extent(Some(&step(SheetView::Providers(rows))));
     let first = extent(Some(&step(sign_in(vec![
         spec(FieldKind::Address),
@@ -56,12 +51,17 @@ fn each_step_is_its_own_size_and_the_form_grows_with_its_fields() {
         Protocol::Jmap,
         Some("example.test"),
     )))));
-    let working = extent(Some(&step(SheetView::Working(id("generic-imap")))));
+    let working = extent(Some(&step(SheetView::Working {
+        provider: id("generic-imap"),
+        row: None,
+    })));
     let failed = extent(Some(&step(SheetView::Failed {
+        row: None,
         provider: id("generic-imap"),
         fault: SignInFault::Unreachable,
     })));
     let review = extent(Some(&step(SheetView::Review(ReviewView {
+        row: None,
         provider: id("generic-imap"),
         review: Review {
             label: AccountLabel("ada@example.test".to_owned()),

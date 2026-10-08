@@ -29,7 +29,7 @@ pub(super) enum Shown {
     Nothing,
     /// This. Told again with the same view, it is a view shown again (the browser's page, on
     /// "Open Again").
-    View(SheetView),
+    View(Box<SheetView>),
     /// The sheet is closed: the service has finished.
     Closed,
 }
@@ -74,7 +74,7 @@ pub(super) struct WindowLink {
 impl SheetLink for WindowLink {
     async fn update(&mut self, view: SheetView) -> Result<(), SheetFault> {
         self.views
-            .send(Shown::View(view))
+            .send(Shown::View(Box::new(view)))
             .map_err(|_| SheetFault::Closed)
     }
 
@@ -105,7 +105,7 @@ impl Sheets for WindowSheets {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .take()
             .ok_or(SheetFault::Unavailable)?;
-        self.views.send_replace(Shown::View(open.view));
+        self.views.send_replace(Shown::View(Box::new(open.view)));
         Ok(WindowLink {
             views: Arc::clone(&self.views),
             inputs,

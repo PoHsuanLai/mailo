@@ -1,15 +1,14 @@
 # Gmail, as mailo reads it: mail over IMAP and SMTP with XOAUTH2 (the sign-in's
 # `mail.google.com` scope), signed in with Google's OAuth issuer.
 #
-# This file is mailo's, not porter's. porter's `google.toml` has no mail row and no `matching`
-# (owner decision D1: Google is a TODO in porter, and a `google-mail` row is to exist only when
-# the registry has a client allowed for `mail.google.com`), so nothing in porter's files claims
-# a Gmail address, and mailo would stop recognising its own Gmail accounts. It is laid over
-# porter's files the way a user's file is (`ProviderSet::layered`), claims what mailo's preset
-# table claimed before it moved (`gmail.com` and `googlemail.com` by domain, and a domain whose
-# MX host is under `google.com`, `googlemail.com` or `gmail.com` by MX), and goes when porter
-# ships Google mail.
-id = "google-mail"
+# This file is mailo's, not porter's. porter's `google.toml` is the Google family (calendar,
+# contacts, tasks, files, photos), and its mail row is for a person's own OAuth client only, with
+# IMAP and no SMTP. mailo's sign-in and send need both, so this file has porter's id and replaces
+# porter's in mailo's set, the way a user's file does (`ProviderSet::layered`). It claims what
+# mailo's preset table claimed before it moved (`gmail.com` and `googlemail.com` by domain, and a
+# domain whose MX host is under `google.com`, `googlemail.com` or `gmail.com` by MX), and goes when
+# porter's covers mailo's mail.
+id = "google"
 label = "Google"
 mark = "google"
 

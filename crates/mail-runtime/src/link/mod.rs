@@ -75,6 +75,7 @@ fn words(refusal: &Refusal) -> &'static str {
         Refusal::NeedsReauth => "the account needs signing in again",
         Refusal::Unavailable => "the account or its secret store cannot be reached",
         Refusal::EndpointNotGranted => "that server is not one of the account's",
+        Refusal::NoLauncher => "only a coding agent signs itself in, and none is registered",
     }
 }
 
@@ -95,9 +96,9 @@ impl LinkError {
                 | Refusal::Dismissed
                 | Refusal::NoFittingAccount,
             ) => Retry::NeedsReauth,
-            LinkError::Refused(Refusal::EndpointNotGranted) | LinkError::Other(_) => {
-                Retry::Fatal(self.to_string())
-            }
+            // NoLauncher is an agent account's, never a mail account's: nothing Mail can do.
+            LinkError::Refused(Refusal::EndpointNotGranted | Refusal::NoLauncher)
+            | LinkError::Other(_) => Retry::Fatal(self.to_string()),
         }
     }
 

@@ -166,7 +166,7 @@ fn the_providers_offered_are_mails_own_in_the_order_the_list_shows_them() {
     assert_eq!(
         ids,
         [
-            "google-mail",
+            "google",
             "microsoft",
             "fastmail",
             "icloud",
@@ -187,7 +187,7 @@ async fn a_password_form_asks_for_an_address_and_a_password_and_an_oauth_one_for
             vec![FieldKind::Address, FieldKind::Password],
         ),
         ("fastmail", vec![FieldKind::Address, FieldKind::Password]),
-        ("google-mail", vec![FieldKind::Address]),
+        ("google", vec![FieldKind::Address]),
         ("microsoft", vec![FieldKind::Address]),
     ] {
         let mut sign_in = start(&provider(
@@ -278,7 +278,7 @@ async fn a_password_account_is_looked_up_once_reviewed_and_added_only_on_confirm
 async fn an_oauth_provider_asks_for_a_password_only_when_the_address_turns_out_to_want_one() {
     let log = Arc::new(Log::default());
     let fakes = seams(&Script::default(), &log);
-    let mut sign_in = start(&provider("google-mail", &fakes, &Added::default(), None));
+    let mut sign_in = start(&provider("google", &fakes, &Added::default(), None));
     sign_in.next(SignInInput::Start).await;
     let again = sign_in
         .next(SignInInput::Fields(vec![address("ada@example.test")]))
@@ -625,7 +625,7 @@ async fn a_browser_account_opens_the_browser_then_reviews_and_adds_with_the_cred
     let script = Script::default();
     let added = Added::default();
     let fakes = seams(&script, &log);
-    let mut sign_in = start(&provider("google-mail", &fakes, &added, None));
+    let mut sign_in = start(&provider("google", &fakes, &added, None));
     sign_in.next(SignInInput::Start).await;
     let step = sign_in
         .next(SignInInput::Fields(vec![address("ada@gmail.com")]))
@@ -656,7 +656,7 @@ async fn a_browser_account_without_a_client_id_says_so_and_opens_nothing() {
         ..Script::default()
     };
     let fakes = seams(&script, &log);
-    let mut sign_in = start(&provider("google-mail", &fakes, &Added::default(), None));
+    let mut sign_in = start(&provider("google", &fakes, &Added::default(), None));
     sign_in.next(SignInInput::Start).await;
     let step = sign_in
         .next(SignInInput::Fields(vec![address("ada@gmail.com")]))
@@ -672,7 +672,7 @@ async fn a_refused_browser_sign_in_fails_and_cancel_stops_one_in_flight() {
         ..Script::default()
     };
     let fakes = seams(&script, &log);
-    let mut sign_in = start(&provider("google-mail", &fakes, &Added::default(), None));
+    let mut sign_in = start(&provider("google", &fakes, &Added::default(), None));
     sign_in.next(SignInInput::Start).await;
     sign_in
         .next(SignInInput::Fields(vec![address("ada@gmail.com")]))
@@ -685,7 +685,7 @@ async fn a_refused_browser_sign_in_fails_and_cancel_stops_one_in_flight() {
 
     let script = Script::default();
     let fakes = seams(&script, &log);
-    let mut sign_in = start(&provider("google-mail", &fakes, &Added::default(), None));
+    let mut sign_in = start(&provider("google", &fakes, &Added::default(), None));
     sign_in.next(SignInInput::Start).await;
     sign_in
         .next(SignInInput::Fields(vec![address("ada@gmail.com")]))
@@ -703,7 +703,7 @@ async fn a_refused_browser_sign_in_fails_and_cancel_stops_one_in_flight() {
 async fn the_issuers_the_providers_sign_in_with_are_google_and_microsoft() {
     let log = Arc::new(Log::default());
     let fakes = seams(&Script::default(), &log);
-    let google = provider("google-mail", &fakes, &Added::default(), None);
+    let google = provider("google", &fakes, &Added::default(), None);
     let microsoft = provider("microsoft", &fakes, &Added::default(), None);
     assert_eq!(google.spec().auth.issuer, Some(Issuer::Google));
     assert_eq!(microsoft.spec().auth.issuer, Some(Issuer::Microsoft));

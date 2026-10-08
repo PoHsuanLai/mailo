@@ -1154,7 +1154,7 @@ mod tests {
         for expected in [
             "Inbox",
             "Drafts",
-            crate::ui::command::LABEL,
+            crate::ui::command::BOX_LABEL,
             "GitHub",
             "dinner?",
         ] {
