@@ -1,23 +1,44 @@
-//! Every button that draws only its icon says what it does on hover: its `title`, which quire
-//! draws as the tooltip, as a Mac control's help tag is.
+//! Every button that draws only its icon says what it does on hover, as a Mac control's help
+//! tag does. Under quire's `Ds` a titled button's tip is written as its `aria-description` (the
+//! web's AXHelp: what a screen reader reads after the name), unless a `Tooltip` wraps it, whose
+//! text is then the tip.
 
 use super::app::App;
 use super::fixtures::{dispatching, drain_seen, key, realistic};
 use dioxus::prelude::*;
 
-/// The opening tags of the buttons in `page` that draw no words of their own.
-fn icon_buttons(page: &str) -> Vec<&str> {
-    page.split("<button")
-        .skip(1)
-        .filter_map(|rest| rest.split_once('>').map(|(tag, _)| tag))
-        .filter(|tag| tag.contains(r#"data-image="only""#))
+/// An icon-only button's opening tag, and whether the element just before it is a quire
+/// `Tooltip`'s wrapper.
+struct IconButton<'a> {
+    tag: &'a str,
+    wrapped: bool,
+}
+
+/// The buttons in `page` that draw no words of their own.
+fn icon_buttons(page: &str) -> Vec<IconButton<'_>> {
+    let parts: Vec<&str> = page.split("<button").collect();
+    parts
+        .windows(2)
+        .filter_map(|pair| {
+            let (tag, _) = pair[1].split_once('>')?;
+            let before = pair[0].rsplit('<').next().unwrap_or_default();
+            Some(IconButton {
+                tag,
+                wrapped: before.contains(r#"class="ds-hover-target""#),
+            })
+        })
+        .filter(|button| button.tag.contains(r#"data-image="only""#))
         .collect()
 }
 
+/// The non-empty `aria-description` of `tag`, if it has one.
+fn description(tag: &str) -> Option<&str> {
+    let (_, rest) = tag.split_once(r#"aria-description=""#)?;
+    let (text, _) = rest.split_once('"')?;
+    Some(text).filter(|text| !text.trim().is_empty())
+}
+
 #[tokio::test]
-#[ignore = "gap: under Ds, quire v0.2.22 shows a titled control's tip through its hover hub and \
-            writes no attribute, so the markup no longer says which buttons have one; asked quire \
-            to carry the tip as aria-description"]
 async fn every_icon_button_in_the_window_has_a_tip() {
     dispatching();
     let (store, _dir) = realistic();
@@ -34,12 +55,24 @@ async fn every_icon_button_in_the_window_has_a_tip() {
         buttons.len()
     );
     let bare: Vec<&str> = buttons
-        .into_iter()
-        .filter(|tag| !tag.contains(" title=\""))
+        .iter()
+        .filter(|button| !button.wrapped && description(button.tag).is_none())
+        .map(|button| button.tag)
         .collect();
     assert!(
         bare.is_empty(),
         "icon buttons with no tip:\n{}",
         bare.join("\n")
+    );
+    // A Tooltip's own text is the tip there: the button under it says nothing more.
+    let doubled: Vec<&str> = buttons
+        .iter()
+        .filter(|button| button.wrapped && description(button.tag).is_some())
+        .map(|button| button.tag)
+        .collect();
+    assert!(
+        doubled.is_empty(),
+        "icon buttons with two tips:\n{}",
+        doubled.join("\n")
     );
 }
