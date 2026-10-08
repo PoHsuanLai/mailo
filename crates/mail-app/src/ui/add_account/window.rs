@@ -374,15 +374,10 @@ fn body(step: Step, send: Callback<Action>, marks: Marks) -> Element {
                 title: StepTitle::Own,
             }
         },
-        Step::Failed {
-            provider,
-            why,
-            recovery,
-        } => rsx! {
+        Step::Failed { provider, why } => rsx! {
             SignInFailed {
                 provider,
                 why,
-                recovery,
                 on_retry: move |()| send.call(Action::Retry),
                 on_back: back,
                 on_cancel: cancel,

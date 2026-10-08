@@ -135,6 +135,7 @@ pub(crate) fn failed(error: ClientError) -> LinkError {
         }
         ClientError::Transport(other) => LinkError::Other(other.to_string()),
         ClientError::Refused(refusal) => LinkError::Refused(refusal),
+        ClientError::AlreadyAdded(account) => LinkError::AlreadyAdded(account),
         // A reply that does not answer the question (a daemon of another version), and whatever
         // else a client may say with the features it has.
         other => LinkError::Other(other.to_string()),

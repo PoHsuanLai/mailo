@@ -61,6 +61,10 @@ pub enum LinkError {
     /// accountd answered no.
     #[error("the desktop's account service refused: {}", words(.0))]
     Refused(Refusal),
+    /// The add-account sheet found the account already there: nothing was added, and the
+    /// account it names is as it was.
+    #[error("that account is already added")]
+    AlreadyAdded(porter_core::AccountId),
     /// Anything else (a reply that is not porter's, a daemon of another version).
     #[error("the desktop's account service: {0}")]
     Other(String),
@@ -99,6 +103,7 @@ impl LinkError {
             ) => Retry::NeedsReauth,
             // NoLauncher is an agent account's, never a mail account's: nothing Mail can do.
             LinkError::Refused(Refusal::EndpointNotGranted | Refusal::NoLauncher)
+            | LinkError::AlreadyAdded(_)
             | LinkError::Other(_) => Retry::Fatal(self.to_string()),
         }
     }

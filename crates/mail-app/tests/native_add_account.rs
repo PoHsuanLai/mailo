@@ -391,7 +391,7 @@ fn to_server_form(w: &mut Window) {
     type_text(w, SECRET);
     w.harness.key(Key::Enter);
     until(w, "the form of typed servers never came", |h| {
-        h.html().contains("Outgoing server") || h.html().contains("Session URL")
+        h.html().contains("Outgoing server") || h.html().contains("Server web address")
     });
 }
 
@@ -425,7 +425,12 @@ fn a_whole_typed_pop3_add_through_the_window() {
     to_server_form(&mut w);
     let html = w.harness.html();
     for word in [
-        "Incoming", "Outgoing", "Sign in", "Protocol", "IMAP", "SSL/TLS",
+        "Incoming",
+        "Outgoing",
+        "Sign in",
+        "Server type",
+        "(IMAP)",
+        "(SSL/TLS)",
     ] {
         assert!(html.contains(word), "{word}:\n{html}");
     }
@@ -435,7 +440,7 @@ fn a_whole_typed_pop3_add_through_the_window() {
     // POP3: the form changes at once (no sending): the guessed host and the ports follow.
     pick_protocol(&mut w, 2);
     let html = w.harness.html();
-    assert!(html.contains("POP3"), "{html}");
+    assert!(html.contains("Older servers (POP)"), "{html}");
     assert!(html.contains("pop.example.test"), "{html}");
     assert!(html.contains("995"), "{html}");
     assert_eq!(
@@ -473,7 +478,7 @@ fn jmap_drops_the_outgoing_form_and_asks_a_session_url_and_a_token() {
     to_server_form(&mut w);
     pick_protocol(&mut w, 3);
     let html = w.harness.html();
-    assert!(html.contains("Session URL"), "{html}");
+    assert!(html.contains("Server web address"), "{html}");
     assert!(html.contains("Access token"), "{html}");
     assert!(!html.contains("Outgoing server"), "{html}");
     assert!(!html.contains("Outgoing"), "no outgoing part:\n{html}");

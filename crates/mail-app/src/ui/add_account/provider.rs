@@ -41,7 +41,7 @@ use tokio::task::JoinHandle;
 
 /// The provider files mailo offers to sign mail in with, in the order the list shows them: the
 /// ones an address of their own domains signs in with a browser, the ones that sign in with a
-/// (app) password, and "Email (IMAP)", which takes any other address.
+/// (app) password, and "Other email account", which takes any other address.
 const OFFERED: [&str; 7] = [
     "google",
     "microsoft",
@@ -608,7 +608,9 @@ impl MailSignIn {
         let Some(address) = text_of(&answers, FieldKind::Address) else {
             return self.failed(SignInFault::Refused);
         };
-        let password = secret_of(&answers, FieldKind::Password);
+        // An app password (iCloud, Fastmail, Yahoo) is the password the server takes.
+        let password = secret_of(&answers, FieldKind::Password)
+            .or_else(|| secret_of(&answers, FieldKind::AppPassword));
         let seams = self.seams.clone();
         let typed = address.clone();
         let looked = tokio::task::spawn_blocking(move || look(&typed, &seams, Utc::now())).await;
