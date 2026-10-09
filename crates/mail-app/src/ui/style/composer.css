@@ -5,7 +5,7 @@
    places them, and styles the message body, which is the person's text and not chrome. */
 /* The page is set as the reader sets a message (`reader.css`), on the reader's ground and at its
    inset, `--s-18`, on every edge: the subject in the head band where a message's title is, the
-   property lines where its header is, then the body on white where its frame is. */
+   property lines where its header is, then the body on the same ground. */
 .cpage {
   display: flex; flex-direction: column; min-height: 0; height: 100%; background: var(--surface-2); position: relative;
 }
@@ -35,7 +35,7 @@
 
 /* the document: one surface, like writing a letter, set as the reader sets a message (its frame's
    14 px, 1.5 and paragraph gap in `reading::html_sheet`), so what is written is what is read */
-.c-main { flex: 1 0 auto; padding: var(--s-16) var(--s-18) var(--s-18); background: var(--surface); }
+.c-main { flex: 1 0 auto; padding: var(--s-16) var(--s-18) var(--s-18); background: var(--surface-2); }
 .c-edit { position: relative; }
 .c-body {
   display: block; position: relative; outline: none; font-family: var(--font-ui); font-size: var(--fs-reading); line-height: 1.65; color: var(--ink);
@@ -83,7 +83,7 @@
 .c-sel { position: absolute; background: var(--accent-soft); border-radius: var(--r-micro); }
 .c-caret { position: absolute; width: var(--caret-w); background: var(--accent-text); }
 .c-preedit {
-  position: absolute; white-space: pre; font-size: var(--fs-reading); color: var(--ink); background: var(--paper);
+  position: absolute; white-space: pre; font-size: var(--fs-reading); color: var(--ink); background: var(--surface-2);
   text-decoration: underline;
 }
 
@@ -113,7 +113,7 @@
 .o-hr hr { border: 0; border-top: var(--hair) solid var(--line); margin: var(--s-14) 0; }
 .o-att { display: inline-flex; align-items: center; gap: var(--s-6); color: var(--ink-soft); }
 .o-rq .rq-body {
-  border-left: var(--s-2) solid var(--ink-soft); padding-left: var(--s-12); color: var(--ink-faint);
+  border-left: var(--s-2) solid var(--ink-soft); padding-left: var(--s-12); color: var(--ink-soft);
   margin-top: var(--s-4); 
 }
 .o-rq .rq-body p { margin: .3em 0; }
@@ -131,7 +131,7 @@
 
 .plain {
   margin-top: var(--s-14); border: var(--hair) solid var(--line-soft); border-radius: var(--r-media); background: var(--surface-2);
-  padding: var(--s-12) var(--s-14); font-family: var(--font-code); font-size: var(--fs-meta); line-height: 1.65; white-space: pre-wrap; color: var(--ink-soft);
+  padding: var(--s-12) var(--s-14); font-family: var(--font-code); font-size: var(--fs-meta); line-height: 1.65; white-space: pre-wrap; color: var(--ink);
 }
 .plain .cap { display: block; color: var(--ink-faint); margin-bottom: var(--s-6); }
 
@@ -142,7 +142,7 @@
 }
 
 /* reply lives under the thread, set as the next message would be: across the reader, a hairline
-   over it, its lines on the header's ground and its body on the frame's white */
+   over it, its lines and its body on the header's ground */
 .inline-reply { border-top: var(--hair) solid var(--line-soft); background: var(--surface-2); position: relative; }
 .inline-reply.parking { opacity: 0; transition: opacity var(--t-quick) var(--e-exit); }
 .inline-reply .c-scroll { overflow: visible; }

@@ -391,6 +391,209 @@ pub(in crate::ui) mod tests {
         }
     }
 
+    /// Colour rule: the stylesheet names no colour. A hex, a colour function or a named colour in
+    /// a property that paints is a value nobody can retheme; quire's tokens are the palette.
+    #[test]
+    fn the_stylesheet_names_no_colour() {
+        const PAINTS: &[&str] = &[
+            "color",
+            "background",
+            "background-color",
+            "border",
+            "border-top",
+            "border-right",
+            "border-bottom",
+            "border-left",
+            "border-color",
+            "outline",
+            "caret-color",
+            "box-shadow",
+            "text-decoration-color",
+            "fill",
+            "stroke",
+        ];
+        const NAMED: &[&str] = &[
+            "white", "black", "red", "green", "blue", "gray", "grey", "orange", "yellow",
+        ];
+        let off: Vec<_> = declarations()
+            .into_iter()
+            .filter(|(_, property, value)| {
+                PAINTS.contains(&property.as_str())
+                    && (value.contains('#')
+                        || ["rgb", "hsl", "oklch", "color-mix"]
+                            .iter()
+                            .any(|function| value.contains(function))
+                        || words(value)
+                            .iter()
+                            .any(|word| NAMED.contains(&word.as_str())))
+            })
+            .collect();
+        assert!(off.is_empty(), "colours written as literals: {off:#?}");
+    }
+
+    /// Colour rule: the reader and the composer are one ground, `--surface-2`, from the head to
+    /// the body and the inline reply under a thread.
+    #[test]
+    fn the_reader_and_the_composer_are_on_one_ground() {
+        for selector in [".reader", ".cpage", ".c-main", ".inline-reply"] {
+            assert_eq!(
+                values_of(selector, "background"),
+                ["var(--surface-2)"],
+                "{selector}"
+            );
+        }
+    }
+
+    /// Colour rule: the ink ladder. Text is `--ink` (content), `--ink-soft` (labels) or
+    /// `--ink-faint` (metadata); a status says a fact in `--danger` or `--warn`; the frame's own
+    /// ink is the sidebar's. And state is quire's: nothing here dims by opacity but to fade a part
+    /// in or out (0 and 1), so hover, pressed, disabled and selected are drawn by quire alone.
+    #[test]
+    fn ink_is_a_ladder_and_state_is_not_an_opacity() {
+        const INKS: &[&str] = &[
+            "var(--ink)",
+            "var(--ink-soft)",
+            "var(--ink-faint)",
+            "var(--danger)",
+            "var(--warn)",
+            "var(--f-ink)",
+            "var(--accent-text)",
+        ];
+        let off: Vec<_> = declarations()
+            .into_iter()
+            .filter(|(_, property, value)| property == "color" && !INKS.contains(&value.as_str()))
+            .collect();
+        assert!(off.is_empty(), "text in an ink off the ladder: {off:#?}");
+        let dimmed: Vec<_> = declarations()
+            .into_iter()
+            .filter(|(_, property, value)| {
+                property == "opacity" && !["0", "1"].contains(&value.as_str())
+            })
+            .collect();
+        assert!(dimmed.is_empty(), "state drawn by opacity: {dimmed:#?}");
+    }
+
+    /// Colour rule: the accent is for the primary action, which is quire's button. In mailo's own
+    /// rules it appears only where the person's text takes it: the caret, a selection, a link, a
+    /// ticked box, and the ring round a drop target.
+    #[test]
+    fn the_accent_is_in_seven_places_and_no_more() {
+        const TAKEN: &[&str] = &[
+            ".c-body",
+            ".c-body ul.todo > li.done .box",
+            ".c-body .m-a",
+            ".c-sel",
+            ".c-caret",
+            ".cpage[*|data-drop=\"accepts\"], .inline-reply[*|data-drop=\"accepts\"]",
+            ".cpage[*|data-drop=\"target\"], .inline-reply[*|data-drop=\"target\"]",
+        ];
+        let off: Vec<_> = declarations()
+            .into_iter()
+            .filter(|(selector, _, value)| {
+                value.contains("var(--accent") && !TAKEN.contains(&selector.as_str())
+            })
+            .collect();
+        assert!(off.is_empty(), "the accent where it is not taken: {off:#?}");
+    }
+
+    /// The `.rs` files under `src`, as (path, text) pairs, tests and fixtures left out: a file
+    /// whose path says test or fixtures, and a file's text from its `#[cfg(test)]` on.
+    fn shipped_sources() -> Vec<(std::path::PathBuf, String)> {
+        fn walk(dir: &std::path::Path, found: &mut Vec<(std::path::PathBuf, String)>) {
+            let Ok(entries) = std::fs::read_dir(dir) else {
+                return;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let name = path.to_string_lossy().to_lowercase();
+                if path.is_dir() {
+                    if !name.contains("fixtures") {
+                        walk(&path, found);
+                    }
+                } else if name.ends_with(".rs") && !name.contains("test") {
+                    if let Ok(text) = std::fs::read_to_string(&path) {
+                        let shipped = text.split("#[cfg(test)]").next().unwrap_or("").to_owned();
+                        found.push((path, shipped));
+                    }
+                }
+            }
+        }
+        let mut found = Vec::new();
+        walk(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
+            &mut found,
+        );
+        found
+    }
+
+    /// Whether `line` writes a colour: `#rgb`, `#rgba`, `#rrggbb` or `#rrggbbaa`, or a colour
+    /// function, inside a string.
+    fn writes_a_colour(line: &str) -> bool {
+        if ["rgb(", "rgba(", "hsl(", "hsla("]
+            .iter()
+            .any(|f| line.contains(f))
+        {
+            return true;
+        }
+        let bytes = line.as_bytes();
+        let mut at = 0;
+        while let Some(found) = line[at..].find('#') {
+            let start = at + found + 1;
+            let digits = bytes[start..]
+                .iter()
+                .take_while(|byte| byte.is_ascii_hexdigit())
+                .count();
+            let after = bytes.get(start + digits).copied();
+            if [3, 4, 6, 8].contains(&digits)
+                && !after.is_some_and(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+            {
+                return true;
+            }
+            at = start;
+        }
+        false
+    }
+
+    /// Colour rule: a colour literal is allowed in a frame sheet, in print and in a test, and
+    /// there it is a named `const`. Nowhere in the window's code is a colour written in a string
+    /// beside the code that uses it.
+    #[test]
+    fn colour_literals_are_named_consts_in_frame_and_print_sheets() {
+        let mut off = Vec::new();
+        for (path, text) in shipped_sources() {
+            for (number, line) in text.lines().enumerate() {
+                let code = line.trim_start();
+                if code.starts_with("//") || code.contains("const ") {
+                    continue;
+                }
+                if writes_a_colour(line) {
+                    off.push(format!(
+                        "{}:{}: {}",
+                        path.display(),
+                        number + 1,
+                        line.trim()
+                    ));
+                }
+            }
+        }
+        assert!(
+            off.is_empty(),
+            "colour literals not in a const:\n{}",
+            off.join("\n")
+        );
+    }
+
+    /// The scan finds what it is named for, and passes what it is not.
+    #[test]
+    fn the_colour_scan_reads_a_hex_and_not_a_fragment() {
+        assert!(writes_a_colour(r##"let c = "#1d1d1f";"##));
+        assert!(writes_a_colour(r##"let c = "#fff";"##));
+        assert!(writes_a_colour(r#"let c = "rgba(0, 0, 0, .5)";"#));
+        assert!(!writes_a_colour(r##"let h = "#top";"##));
+        assert!(!writes_a_colour(r##"let n = "#53667";"##));
+        assert!(!writes_a_colour("#[derive(Debug)]"));
+    }
+
     /// Type rule: sizes are the scale's tokens, and the scale in use is a closed set. A new size
     /// is a step added here on purpose, not a token reached for because it was near. The sizes
     /// mailo's rules once took from beside the scale (`--fs-small`, `--fs-note`, `--fs-eyebrow`,
