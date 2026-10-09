@@ -1041,13 +1041,35 @@ mod an_account_with_nothing_stored {
 
     /// `mailo account list` is the third surface, and it has to agree with the other two.
     ///
-    /// It reads the real keyring for the stored credential, which is safe here and only here:
-    /// the account ids are generated per test and nothing of theirs exists, so this is a read of
-    /// a key that is not present. It writes nothing, so there is nothing to clear afterwards.
-    /// `platform_secrets()` follows `link::current()`, so no test in the `core` binary (all of
-    /// `tests/core/`) may call `mail_runtime::link::install`.
+    /// It reads the stored credential, so it runs in a child process of this binary whose
+    /// `MAILO_TEST_SECRETS_DIR` names a scratch directory: a test never asks the person's keyring
+    /// anything, not even for a key that is not there. `platform_secrets()` follows
+    /// `link::current()`, so no test in the `core` binary (all of `tests/core/`) may call
+    /// `mail_runtime::link::install`.
     #[test]
     fn the_account_listing_says_the_same_thing_in_fewer_words() {
+        if std::env::var_os("MAILO_TEST_SECRETS_DIR").is_none() {
+            let secrets = tempfile::tempdir().unwrap();
+            let name = "the_account_listing_says_the_same_thing_in_fewer_words";
+            // The test's full name in this binary: its module path without the crate's own name.
+            let full = match module_path!().split_once("::") {
+                Some((_, module)) => format!("{module}::{name}"),
+                None => name.to_owned(),
+            };
+            let out = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([full.as_str(), "--exact", "--nocapture", "--test-threads=1"])
+                .env("MAILO_TEST_SECRETS_DIR", secrets.path())
+                .output()
+                .unwrap();
+            let said = format!(
+                "{}{}",
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr)
+            );
+            assert!(out.status.success(), "{name} failed:\n{said}");
+            assert!(said.contains("1 passed"), "{name} did not run:\n{said}");
+            return;
+        }
         let (oauth, _a) = configured_with(
             1,
             caps(),
