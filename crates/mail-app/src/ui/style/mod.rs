@@ -315,14 +315,9 @@ pub(in crate::ui) mod tests {
     /// three widths (narrow, medium and wide: a time to pick, a list, a grid of emoji).
     #[test]
     fn sheets_and_popovers_keep_their_measures() {
-        for selector in [".sheet-form, .book, .rules"] {
-            assert_eq!(
-                values_of(selector, "padding"),
-                ["var(--s-16)"],
-                "{selector}"
-            );
-            assert_eq!(values_of(selector, "gap"), ["var(--s-12)"], "{selector}");
-        }
+        let sheets = ".sheet-form, .book, .rules";
+        assert_eq!(values_of(sheets, "padding"), ["var(--s-16)"], "{sheets}");
+        assert_eq!(values_of(sheets, "gap"), ["var(--s-12)"], "{sheets}");
         assert_eq!(values_of(".doctor", "padding"), ["var(--s-16)"]);
         assert_eq!(values_of(".doctor", "gap"), ["var(--s-12)"]);
         const NARROW: &str = "260px";
@@ -510,11 +505,12 @@ pub(in crate::ui) mod tests {
                     if !name.contains("fixtures") {
                         walk(&path, found);
                     }
-                } else if name.ends_with(".rs") && !name.contains("test") {
-                    if let Ok(text) = std::fs::read_to_string(&path) {
-                        let shipped = text.split("#[cfg(test)]").next().unwrap_or("").to_owned();
-                        found.push((path, shipped));
-                    }
+                } else if name.ends_with(".rs")
+                    && !name.contains("test")
+                    && let Ok(text) = std::fs::read_to_string(&path)
+                {
+                    let shipped = text.split("#[cfg(test)]").next().unwrap_or("").to_owned();
+                    found.push((path, shipped));
                 }
             }
         }
