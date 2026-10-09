@@ -166,13 +166,17 @@ fn the_reader_shows_what_the_receiving_server_checked() {
         harness.attr(HEAD_CHECKS, "data-standing").as_deref(),
         Some("pass")
     );
-    let said = harness.text_of(HEAD_CHECKS).unwrap_or_default();
-    assert!(
-        said.contains("SPF pass")
-            && said.contains("DKIM pass (sender.example)")
-            && said.contains("DMARC pass")
-            && said.contains("checked by mx.provider.example"),
-        "{said}"
+    // A pass is a mark beside the name, named for a screen reader; no method names, no words.
+    assert_eq!(
+        harness.text_of(HEAD_CHECKS).unwrap_or_default().trim(),
+        "",
+        "a pass says nothing"
+    );
+    assert_eq!(
+        harness
+            .attr(&format!("{HEAD_CHECKS} .sender-mark"), "aria-label")
+            .as_deref(),
+        Some("Verified sender")
     );
     let rect = harness.rect(HEAD_CHECKS).expect("the line is laid out");
     assert!(
@@ -191,8 +195,5 @@ fn a_forged_pass_under_the_servers_fail_shows_as_a_fail() {
         Some("fail")
     );
     let said = harness.text_of(HEAD_CHECKS).unwrap_or_default();
-    assert!(
-        said.contains("DMARC fail") && !said.contains("pass"),
-        "{said}"
-    );
+    assert_eq!(said.trim(), "May not be from this sender");
 }

@@ -1,5 +1,7 @@
-//! What the receiving server checked about a sender, as the reader's head and the sender card
-//! show it: one line under the name, "SPF pass · DKIM pass · DMARC pass — checked by …".
+//! What the receiving server checked about a sender, as the reader's head shows it beside the
+//! name: a small check when the sender is who they say, a plain warning when they may not be,
+//! and nothing when nothing could be told. The method names stay out of the window; the raw
+//! results are in Show Original for whoever wants them.
 //!
 //! The results are in the stored raw message ([`mail_core::auth`]), so finding them reads a blob.
 //! That is done off the thread that draws, once per message and body, and remembered: the reader
@@ -10,7 +12,7 @@
 use dioxus::prelude::*;
 use ds::prelude::*;
 use ds::style::icon::render::Glyph;
-use mail_core::auth::{Standing, sentence, standing};
+use mail_core::auth::{Standing, standing};
 use mail_domain::{BlobId, MessageId};
 use mail_mime::AuthResults;
 use mail_store::{SqliteStore, Store};
@@ -57,15 +59,6 @@ pub(in crate::ui) fn lookup(
     results
 }
 
-/// The glyph a standing is drawn with.
-fn glyph(standing: Standing) -> Icon {
-    match standing {
-        Standing::Passed => Icon::Check,
-        Standing::Failed => Icon::X,
-        Standing::Unsure => Icon::Key,
-    }
-}
-
 /// The line, once the answer is known; nothing before, and nothing for a message without a
 /// believed field. Keyed by its parent on the message and its body, so a body arriving asks
 /// again and one message's answer is never drawn under another.
@@ -92,15 +85,26 @@ pub(in crate::ui) fn SenderChecks(message: MessageId, body: Option<BlobId>) -> E
         return rsx! {};
     };
     let standing = standing(&results);
-    let said = sentence(&results);
     rsx! {
-        div {
+        span {
             class: "sender-checks",
             "data-standing": standing.word(),
-            span { class: "sender-mark",
-                Glyph { icon: glyph(standing), size: IconSize::Small }
+            match standing {
+                Standing::Passed => rsx! {
+                    Tooltip { text: "Verified sender",
+                        span { class: "sender-mark", aria_label: "Verified sender",
+                            Glyph { icon: Icon::Check, size: IconSize::Small }
+                        }
+                    }
+                },
+                Standing::Failed => rsx! {
+                    span { class: "sender-mark",
+                        Glyph { icon: Icon::TriangleAlert, size: IconSize::Small }
+                    }
+                    span { "May not be from this sender" }
+                },
+                Standing::Unsure => rsx! {},
             }
-            span { "{said}" }
         }
     }
 }

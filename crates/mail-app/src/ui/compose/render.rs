@@ -189,14 +189,17 @@ fn Para(n: usize, kind: ParaKind, runs: Vec<Run>, page: Signal<Page>) -> Element
         },
         ParaKind::Bullet | ParaKind::Numbered => rsx! { li { ..node_attrs(n), {inner} } },
         ParaKind::Todo(check) => {
-            let (class, next) = match check {
-                Check::Open => ("", Check::Done),
-                Check::Done => ("done", Check::Open),
+            let (class, next, checked) = match check {
+                Check::Open => ("", Check::Done, "false"),
+                Check::Done => ("done", Check::Open, "true"),
             };
             rsx! {
                 li { ..todo_attrs(n, class),
                     span {
                         class: "box",
+                        role: "checkbox",
+                        aria_checked: checked,
+                        aria_label: "Done",
                         contenteditable: "false",
                         onmousedown: move |event| event.prevent_default(),
                         onclick: move |_| {

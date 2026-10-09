@@ -27,10 +27,10 @@
 .reader-logo { background: var(--paper); overflow: hidden; }
 .reader-logo img { display: block; width: 100%; height: 100%; }
 .sender-checks {
-  display: flex; align-items: center; gap: var(--s-4); margin-top: var(--s-2);
-  color: var(--ink-faint);
+  display: inline-flex; align-items: center; gap: var(--s-2); flex: none;
+  color: var(--ink-faint); font-size: var(--fs-meta);
 }
-.sender-checks[*|data-standing="pass"] .sender-mark { color: var(--ok); }
+.sender-checks[*|data-standing="pass"] .sender-mark { color: var(--ink-faint); }
 .sender-checks[*|data-standing="fail"] { color: var(--danger); }
 /* the message body is an opaque sandboxed frame: we animate the container,
    never its contents, because we cannot reach inside it and must not try. */
