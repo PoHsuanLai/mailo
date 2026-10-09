@@ -181,19 +181,18 @@ pub fn load(
         .ok_or_else(|| Unshown::Store(format!("there is no attachment {index}")))?;
     let blob = attachment.blob().ok_or(Unshown::NotHere)?;
     let blobs = store.blobs();
-    let db = store.connection();
     let head = blobs
-        .head(&db, blob, SNIFF)
+        .head(blob, SNIFF)
         .map_err(|e| Unshown::Store(e.to_string()))?;
     let kind = sniff(&head).ok_or(Unshown::NotAPicture)?;
     let size = blobs
-        .size(&db, blob)
+        .size(blob)
         .map_err(|e| Unshown::Store(e.to_string()))?;
     if size > kind.max_bytes() {
         return Err(Unshown::Refused(Refusal::TooManyBytes(size)));
     }
     let bytes = blobs
-        .get(&db, blob)
+        .get(blob)
         .map_err(|e| Unshown::Store(e.to_string()))?;
     Ok((kind, bytes))
 }

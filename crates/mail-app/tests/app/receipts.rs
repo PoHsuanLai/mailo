@@ -66,7 +66,7 @@ fn seeded(raw: Option<Vec<u8>>) -> (SqliteStore, tempfile::TempDir, ThreadId) {
     }
     let blob = store
         .blobs()
-        .put(&store.connection(), raw.as_deref().unwrap_or(b"headers"))
+        .put(raw.as_deref().unwrap_or(b"headers"))
         .unwrap();
     let thread = ThreadId::generate();
     let message = Message {
@@ -202,7 +202,7 @@ fn sending_queues_the_receipt_and_mdnsent_and_asks_once() {
         } => {
             assert_eq!(mail_from, "me@example.test");
             assert_eq!(rcpt_to, &vec!["ada@example.test".to_owned()]);
-            let bytes = store.blobs().get(&store.connection(), *raw).unwrap();
+            let bytes = store.blobs().get(*raw).unwrap();
             let text = String::from_utf8_lossy(&bytes);
             assert!(
                 text.contains("report-type=\"disposition-notification\""),

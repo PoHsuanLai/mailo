@@ -50,7 +50,7 @@ pub fn state(store: &SqliteStore, message: &Message) -> Result<ReceiptState, Str
     };
     let bytes = store
         .blobs()
-        .get(&store.connection(), raw)
+        .get(raw)
         .map_err(|e| e.to_string())?;
     Ok(match mail_mime::receipt_asked(&bytes) {
         Some(ask) => ReceiptState::Pending(ask),
@@ -98,7 +98,7 @@ pub fn answer(
             .ok_or_else(|| "the message's body is missing".to_owned())?;
         let bytes = store
             .blobs()
-            .get(&store.connection(), raw)
+            .get(raw)
             .map_err(|e| e.to_string())?;
         let identity = crate::compose::identity_of(
             store,
@@ -121,7 +121,7 @@ pub fn answer(
         .map_err(|e| e.to_string())?;
         let frozen = store
             .blobs()
-            .put(&store.connection(), &post.message)
+            .put(&post.message)
             .map_err(|e| e.to_string())?;
         let queued = store
             .enqueue(

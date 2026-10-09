@@ -66,7 +66,7 @@ fn garbled_messages_held_whole_are_re_read_and_the_rest_are_left_alone() {
                 [acct_account().to_string()],
             )
             .unwrap();
-        let raw = store.blobs().put(&store.connection(), GBK_RAW).unwrap();
+        let raw = store.blobs().put(GBK_RAW).unwrap();
         let held = || Body::Present {
             text: Some("body".to_owned()),
             raw,

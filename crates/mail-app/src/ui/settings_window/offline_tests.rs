@@ -52,7 +52,7 @@ fn with_a_part_on_the_server(built: &Work, id: AccountId) {
     let raw = built
         .store
         .blobs()
-        .put(&built.store.connection(), b"rebuilt")
+        .put(b"rebuilt")
         .unwrap();
     let message = Message {
         id: MessageId::generate(),

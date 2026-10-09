@@ -2,25 +2,35 @@
 //!
 //! Does disk I/O. Opens no sockets. The schema is `migrations/0001_initial.sql`.
 
-pub mod blob;
+mod account;
+mod blob;
 pub mod contact;
 mod dispatch;
 pub mod error;
 mod filing;
 mod follow_up;
+mod history;
 pub mod memory;
 mod memory_search;
+// Public to the test-support feature only: a test of the schema walks its steps.
+#[cfg(feature = "test-support")]
 pub mod migrate;
+#[cfg(not(feature = "test-support"))]
+mod migrate;
 mod offline;
 mod pgp;
 mod prefix;
 mod remote_row;
 pub mod rules;
 mod smime;
-pub mod sql;
-pub mod sqlite;
+mod sql;
+mod sqlite;
 mod term;
 
+pub use account::{NewAccount, StoredAccount};
+pub use blob::Blobs;
+pub use follow_up::FollowUpHold;
+pub use history::SenderRecord;
 pub use contact::{
     AddressBook, BookCard, Contact, Edit, Group, GroupHome, GroupId, Kind, Origin, Tally,
 };

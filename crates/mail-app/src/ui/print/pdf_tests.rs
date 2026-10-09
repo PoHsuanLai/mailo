@@ -54,7 +54,7 @@ fn thread_of(store: &SqliteStore, seeds: Vec<Seed>) -> ThreadId {
             );
             let raw = store
                 .blobs()
-                .put(&store.connection(), raw.as_bytes())
+                .put(raw.as_bytes())
                 .unwrap();
             let key = format!("paper{index}.{tag}@example.test");
             let message = Message {

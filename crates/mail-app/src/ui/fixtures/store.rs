@@ -64,7 +64,6 @@ pub(in crate::ui) fn seeded() -> (Arc<SqliteStore>, tempfile::TempDir) {
     let raw = store
         .blobs()
         .put(
-            &store.connection(),
             b"From: ada@example.test\r\nSubject: hi\r\n\r\nbody\r\n",
         )
         .unwrap();
@@ -222,7 +221,7 @@ pub(in crate::ui) fn realistic() -> (Arc<SqliteStore>, tempfile::TempDir) {
         } else {
             subject.as_bytes().to_vec()
         };
-        let raw = store.blobs().put(&store.connection(), &bytes).unwrap();
+        let raw = store.blobs().put(&bytes).unwrap();
         let message = Message {
             id: MessageId::generate(),
             thread: ThreadId::generate(),
@@ -316,8 +315,8 @@ pub(in crate::ui) fn empty() -> (Arc<SqliteStore>, tempfile::TempDir) {
 pub(in crate::ui) fn held_and_remote() -> (Arc<SqliteStore>, tempfile::TempDir) {
     let (store, dir) = seeded();
     let bytes = b"From: ada@example.test\r\nSubject: quarterly figures\r\n\r\nsee attached\r\n";
-    let raw = store.blobs().put(&store.connection(), bytes).unwrap();
-    let notes = store.blobs().put(&store.connection(), b"notes").unwrap();
+    let raw = store.blobs().put(bytes).unwrap();
+    let notes = store.blobs().put(b"notes").unwrap();
     let message = Message {
         id: MessageId::generate(),
         thread: ThreadId::generate(),

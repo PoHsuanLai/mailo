@@ -47,7 +47,7 @@ fn store() -> (SqliteStore, tempfile::TempDir) {
 fn fill(store: &SqliteStore, count: i64) {
     let raw = store
         .blobs()
-        .put(&store.connection(), b"shared body bytes")
+        .put(b"shared body bytes")
         .unwrap();
     for batch in 0..(count / 500) {
         let mut messages = Vec::with_capacity(500);
@@ -287,7 +287,7 @@ mod ingest_throughput {
     fn batch(store: &SqliteStore, from: i64, count: i64, thread: Option<ThreadId>) -> Ingest {
         let raw = store
             .blobs()
-            .put(&store.connection(), b"shared body bytes")
+            .put(b"shared body bytes")
             .unwrap();
         let mut messages = Vec::with_capacity(count as usize);
         for i in 0..count {

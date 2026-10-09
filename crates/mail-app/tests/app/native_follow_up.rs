@@ -256,7 +256,7 @@ fn sent_bytes(store: &SqliteStore, draft: DraftId) -> Vec<u8> {
         panic!("the outbox holds no submission: {op}");
     };
     assert_eq!(of, draft);
-    store.blobs().get(&store.connection(), raw).unwrap()
+    store.blobs().get(raw).unwrap()
 }
 
 #[test]

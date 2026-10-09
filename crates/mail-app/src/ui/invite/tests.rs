@@ -85,7 +85,7 @@ fn put(store: &SqliteStore, calendar: &str, method: &str) -> (ThreadId, MessageI
     );
     let raw = store
         .blobs()
-        .put(&store.connection(), bytes.as_bytes())
+        .put(bytes.as_bytes())
         .unwrap();
     let id = MessageId::generate();
     let message = Message {
@@ -157,7 +157,7 @@ fn submissions(store: &SqliteStore) -> Vec<String> {
         .into_iter()
         .filter_map(|entry| match entry.op {
             ProtoOp::Submit { raw, .. } => Some(
-                String::from_utf8(store.blobs().get(&store.connection(), raw).unwrap()).unwrap(),
+                String::from_utf8(store.blobs().get(raw).unwrap()).unwrap(),
             ),
             _ => None,
         })

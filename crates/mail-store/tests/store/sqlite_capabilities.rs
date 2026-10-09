@@ -124,7 +124,7 @@ fn fts5vocab_row_accepts_the_external_content_index() {
         )
         .expect("fts5vocab must accept the external-content messages_fts");
 
-    let raw = store.blobs().put(&store.connection(), b"raw").unwrap();
+    let raw = store.blobs().put(b"raw").unwrap();
     let message = Message {
         id: MessageId::generate(),
         thread: ThreadId::generate(),
@@ -209,7 +209,7 @@ fn nested_connection_access_does_not_deadlock() {
         )
         .unwrap();
 
-    let raw = store.blobs().put(&store.connection(), b"raw").unwrap();
+    let raw = store.blobs().put(b"raw").unwrap();
     let thread = ThreadId::generate();
     let message = Message {
         id: MessageId::generate(),

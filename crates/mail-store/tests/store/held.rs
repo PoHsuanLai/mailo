@@ -35,7 +35,7 @@ fn addresses(store: &SqliteStore) -> Vec<String> {
 }
 
 fn message(store: &SqliteStore, account: AccountId, uid: u32) {
-    let raw = store.blobs().put(&store.connection(), b"raw").unwrap();
+    let raw = store.blobs().put(b"raw").unwrap();
     let message = Message {
         id: MessageId::generate(),
         thread: ThreadId::generate(),

@@ -81,7 +81,7 @@ fn sent_bytes(store: &SqliteStore, message: &Message) -> Result<BlobId, String> 
     };
     let bytes = store
         .blobs()
-        .get(&store.connection(), raw)
+        .get(raw)
         .map_err(|e| e.to_string())?;
     if rebuilt(message, &bytes) {
         return Err(

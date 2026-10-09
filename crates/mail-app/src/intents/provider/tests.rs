@@ -21,7 +21,7 @@ fn thread_of(n: u128) -> ThreadId {
 fn message(store: &SqliteStore, n: u128, subject: &str, body: &str) -> Message {
     let raw = store
         .blobs()
-        .put(&store.connection(), body.as_bytes())
+        .put(body.as_bytes())
         .expect("blob");
     Message {
         id: MessageId::from_uuid(uuid::Uuid::from_u128(0x9000 + n)),

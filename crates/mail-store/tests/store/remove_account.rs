@@ -42,7 +42,7 @@ fn store() -> (SqliteStore, tempfile::TempDir) {
 }
 
 fn put(store: &SqliteStore, bytes: &[u8]) -> BlobId {
-    store.blobs().put(&store.connection(), bytes).unwrap()
+    store.blobs().put(bytes).unwrap()
 }
 
 fn kept(account: AccountId, key: &str, raw: BlobId, parts: &[BlobId]) -> Kept {
@@ -89,7 +89,7 @@ fn kept(account: AccountId, key: &str, raw: BlobId, parts: &[BlobId]) -> Kept {
 }
 
 fn is_blob(store: &SqliteStore, blob: BlobId) -> bool {
-    store.blobs().get(&store.connection(), blob).is_ok()
+    store.blobs().get(blob).is_ok()
 }
 
 fn files(dir: &std::path::Path) -> usize {

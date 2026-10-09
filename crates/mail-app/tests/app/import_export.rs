@@ -141,7 +141,7 @@ fn a_takeout_mbox_lands_in_local_folders_threaded_labelled_and_only_once() {
     let Body::Present { raw, .. } = &lunch.body else {
         panic!("imported with a body")
     };
-    let bytes = store.blobs().get(&store.connection(), *raw).unwrap();
+    let bytes = store.blobs().get(*raw).unwrap();
     let text = String::from_utf8_lossy(&bytes);
     assert!(
         text.contains("\r\nFrom the archive, a quoted line.\r\n"),
@@ -407,8 +407,8 @@ fn a_message_rebuilt_from_its_parts_is_not_exported_as_the_message_even_once_its
         --mix\r\nContent-Type: application/pdf\r\n\
         Content-Disposition: attachment; filename=\"report.pdf\"\r\n\
         X-Mailo-Remote-Section: 2\r\nX-Mailo-Remote-Octets: 2000000\r\n\r\n\r\n--mix--\r\n";
-    let raw = store.blobs().put(&store.connection(), rebuilt).unwrap();
-    let pdf = store.blobs().put(&store.connection(), b"%PDF-1.4").unwrap();
+    let raw = store.blobs().put(rebuilt).unwrap();
+    let pdf = store.blobs().put(b"%PDF-1.4").unwrap();
     let message = Message {
         id: MessageId::generate(),
         thread: ThreadId::generate(),

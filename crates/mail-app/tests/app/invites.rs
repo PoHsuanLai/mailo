@@ -116,7 +116,7 @@ fn seeded(raw: Option<Vec<u8>>) -> (SqliteStore, tempfile::TempDir, ThreadId) {
     }
     let blob = store
         .blobs()
-        .put(&store.connection(), raw.as_deref().unwrap_or(b"headers"))
+        .put(raw.as_deref().unwrap_or(b"headers"))
         .unwrap();
     let thread = ThreadId::generate();
     let message = Message {
@@ -196,7 +196,7 @@ fn submissions(store: &SqliteStore) -> Vec<(String, Vec<String>, String)> {
                 rcpt_to,
                 ..
             } => {
-                let bytes = store.blobs().get(&store.connection(), raw).unwrap();
+                let bytes = store.blobs().get(raw).unwrap();
                 Some((mail_from, rcpt_to, String::from_utf8(bytes).unwrap()))
             }
             _ => None,

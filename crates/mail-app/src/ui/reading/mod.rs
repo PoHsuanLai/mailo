@@ -214,7 +214,7 @@ pub(super) fn render(
 fn parse_body(store: &SqliteStore, message: &Message) -> Option<mail_mime::Parsed> {
     let raw = message.body.raw()?;
     // A reader, not the writer: a sync's ingest holds the writer for a whole batch.
-    let bytes = store.blobs().get(&store.reader(), raw).ok()?;
+    let bytes = store.blobs().get(raw).ok()?;
     mail_mime::parse(&bytes).ok()
 }
 

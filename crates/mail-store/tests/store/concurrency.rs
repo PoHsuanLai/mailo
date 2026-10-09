@@ -41,7 +41,7 @@ fn store() -> (Arc<SqliteStore>, tempfile::TempDir) {
 }
 
 fn ingest_of(store: &SqliteStore, from: i64, count: i64) -> Ingest {
-    let raw = store.blobs().put(&store.connection(), b"body").unwrap();
+    let raw = store.blobs().put(b"body").unwrap();
     let messages = (0..count)
         .map(|i| {
             let n = from + i;
@@ -315,7 +315,7 @@ mod a_reader_that_is_not_the_writer {
         // connection that answered quickly with stale rows would pass it.
         let (store, _dir) = on_disk();
         let thread = ThreadId::generate();
-        let raw = store.blobs().put(&store.connection(), b"bytes").unwrap();
+        let raw = store.blobs().put(b"bytes").unwrap();
         let message = Message {
             id: MessageId::generate(),
             thread,

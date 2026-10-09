@@ -39,7 +39,7 @@ pub fn reparse_queued(store: &SqliteStore) -> Result<usize, RuntimeError> {
 fn reparsed(store: &SqliteStore, id: MessageId) -> Option<Message> {
     let message = store.message(id).ok()?;
     let raw = message.body.raw()?;
-    let bytes = store.blobs().get(&store.connection(), raw).ok()?;
+    let bytes = store.blobs().get(raw).ok()?;
     let fields = mail_mime::parse(&bytes).ok()?;
     let from = fields.from.unwrap_or_else(|| message.from.clone());
     Some(Message {

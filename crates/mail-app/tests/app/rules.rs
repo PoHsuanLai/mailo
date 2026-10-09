@@ -181,7 +181,6 @@ fn held(store: &SqliteStore, uid: u32, from: &str) -> MessageId {
     let raw = store
         .blobs()
         .put(
-            &store.connection(),
             format!("From: {from}\r\n\r\nhi\r\n").as_bytes(),
         )
         .unwrap();

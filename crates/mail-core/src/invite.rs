@@ -159,7 +159,7 @@ pub fn answer(
     .map_err(|e| e.to_string())?;
     let frozen = store
         .blobs()
-        .put(&store.connection(), &post.message)
+        .put(&post.message)
         .map_err(|e| e.to_string())?;
     let queued = store
         .enqueue(
@@ -375,7 +375,7 @@ fn raw_of(store: &SqliteStore, message: &Message) -> Result<Option<Vec<u8>>, Str
     };
     store
         .blobs()
-        .get(&store.connection(), raw)
+        .get(raw)
         .map(Some)
         .map_err(|e| e.to_string())
 }

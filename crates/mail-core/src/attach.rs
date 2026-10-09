@@ -166,7 +166,7 @@ pub fn save(
     };
     let bytes = store
         .blobs()
-        .get(&store.connection(), blob)
+        .get(blob)
         .map_err(|e| format!("cannot read the attachment: {e}"))?;
 
     write_new(dir, &attachment.name, &bytes)

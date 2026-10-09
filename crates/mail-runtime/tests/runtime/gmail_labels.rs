@@ -113,7 +113,7 @@ fn a_label_on_the_wire_becomes_a_label_you_can_search_for() {
     let (store, _dir) = store();
 
     // A message already held, as the header pass would have left it.
-    let raw = store.blobs().put(&store.connection(), b"raw").unwrap();
+    let raw = store.blobs().put(b"raw").unwrap();
     let message = Message {
         id: MessageId::generate(),
         thread: ThreadId::generate(),

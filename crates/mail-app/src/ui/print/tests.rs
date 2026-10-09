@@ -36,7 +36,7 @@ fn conversation() -> (Arc<SqliteStore>, ThreadId, tempfile::TempDir) {
             );
             let raw = store
                 .blobs()
-                .put(&store.connection(), raw.as_bytes())
+                .put(raw.as_bytes())
                 .unwrap();
             let message = Message {
                 id: MessageId::generate(),

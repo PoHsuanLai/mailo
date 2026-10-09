@@ -60,7 +60,7 @@ fn plan_of(store: &SqliteStore, account: AccountId) -> Option<AccountPlan> {
 /// no field is believed. Reads a blob: call it off the thread that draws.
 pub fn results_of(store: &SqliteStore, message: &Message) -> Option<AuthResults> {
     let raw = message.body.raw()?;
-    let bytes = store.blobs().get(&store.connection(), raw).ok()?;
+    let bytes = store.blobs().get(raw).ok()?;
     let receiver = plan_of(store, message.account.clone())
         .as_ref()
         .map_or(Receiver::Topmost, receiver);

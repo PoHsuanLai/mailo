@@ -76,7 +76,7 @@ fn stored(
     );
     let raw = store
         .blobs()
-        .put(&store.connection(), raw_bytes.as_bytes())
+        .put(raw_bytes.as_bytes())
         .unwrap();
     let id = MessageId::generate();
     let message = Message {

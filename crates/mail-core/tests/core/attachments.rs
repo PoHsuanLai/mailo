@@ -31,8 +31,8 @@ fn store() -> (SqliteStore, tempfile::TempDir) {
 
 /// A message carrying one attachment with the name a sender chose.
 fn with_attachment(store: &SqliteStore, claimed: &str, bytes: &[u8]) -> MessageId {
-    let raw = store.blobs().put(&store.connection(), b"raw").unwrap();
-    let blob = store.blobs().put(&store.connection(), bytes).unwrap();
+    let raw = store.blobs().put(b"raw").unwrap();
+    let blob = store.blobs().put(bytes).unwrap();
     let id = MessageId::generate();
     let message = Message {
         id,
@@ -485,7 +485,7 @@ mod left_on_the_server {
             // What the network half does: store the bytes, record the part as held.
             let blob = store
                 .blobs()
-                .put(&store.connection(), b"%PDF-1.4")
+                .put(b"%PDF-1.4")
                 .map_err(|e| e.to_string())?;
             store
                 .hold_part(id, section, blob, 8)

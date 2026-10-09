@@ -296,7 +296,7 @@ async fn opening_the_attachment_downloads_and_decodes_it() {
     let blob = it.engine.fetch_part(id, "2", &mut cancel).await.unwrap();
 
     assert_eq!(*it.asked.lock().unwrap(), ["sections 2.MIME 2"]);
-    let bytes = it.store.blobs().get(&it.store.connection(), blob).unwrap();
+    let bytes = it.store.blobs().get(blob).unwrap();
     assert_eq!(
         bytes, b"%PDF-1.4",
         "stored decoded, not as the base64 that was fetched"

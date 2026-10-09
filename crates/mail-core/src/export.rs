@@ -192,7 +192,7 @@ pub fn export(
         };
         let bytes = store
             .blobs()
-            .get(&store.connection(), *raw)
+            .get(*raw)
             .map_err(|e| e.to_string())?;
         // Read from the bytes as well as the attachments: a part fetched since leaves the
         // attachment held and the stored message as rebuilt, its part still empty in it.

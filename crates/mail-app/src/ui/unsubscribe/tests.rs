@@ -43,7 +43,7 @@ fn put(store: &SqliteStore, sender: &str, headers: &str, held: Held) -> ThreadId
     );
     let raw = store
         .blobs()
-        .put(&store.connection(), bytes.as_bytes())
+        .put(bytes.as_bytes())
         .unwrap();
     let id = MessageId::generate();
     let message = Message {

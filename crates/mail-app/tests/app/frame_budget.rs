@@ -92,7 +92,7 @@ fn generated() -> (SqliteStore, tempfile::TempDir) {
             let n = batch * 500 + i;
             let raw = store
                 .blobs()
-                .put(&store.connection(), &raw_message(n))
+                .put(&raw_message(n))
                 .unwrap();
             let key = format!("m{n}@example.test");
             let message = Message {

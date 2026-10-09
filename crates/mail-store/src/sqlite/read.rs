@@ -221,6 +221,6 @@ impl SqliteStore {
 
 impl From<rusqlite::Error> for StoreError {
     fn from(e: rusqlite::Error) -> Self {
-        StoreError::Db(e.to_string())
+        StoreError::db(e)
     }
 }

@@ -96,7 +96,7 @@ fn assemble_as(
         }
         let blob = store
             .blobs()
-            .put(&store.connection(), &arrival.raw)
+            .put(&arrival.raw)
             .map_err(RuntimeError::Store)?;
         let key = message_key(&fields, Tiebreak::Remote(&arrival.remote));
         parsed.push((
@@ -194,7 +194,7 @@ fn build(
                         PartContent::Held(
                             store
                                 .blobs()
-                                .put(&store.connection(), &part.bytes)
+                                .put(&part.bytes)
                                 .map_err(RuntimeError::Store)?,
                         ),
                         part.bytes.len() as u64,
@@ -352,7 +352,7 @@ fn prepare(
         };
         let blob = store
             .blobs()
-            .put(&store.connection(), &item.raw)
+            .put(&item.raw)
             .map_err(RuntimeError::Store)?;
         let key = message_key(&fields, Tiebreak::Bytes(&item.raw));
         built.push(Built {

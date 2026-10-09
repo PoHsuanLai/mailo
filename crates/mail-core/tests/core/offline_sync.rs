@@ -361,7 +361,7 @@ async fn kept_offline_every_part_is_fetched_largest_last() {
         let bytes = passed
             .store
             .blobs()
-            .get(&passed.store.connection(), raw)
+            .get(raw)
             .unwrap();
         assert!(mail_mime::left_on_server(&bytes), "{}", message.subject);
         assert!(

@@ -21,7 +21,7 @@ const VOCAB: &str = "CREATE VIRTUAL TABLE IF NOT EXISTS temp.messages_vocab \
 /// connection, so every connection creates its own.
 pub(super) fn ensure_vocab(db: &Connection) -> Result<(), StoreError> {
     db.execute_batch(VOCAB)
-        .map_err(|e| StoreError::Db(e.to_string()))
+        .map_err(StoreError::db)
 }
 
 pub(super) fn terms_with_prefix(
@@ -60,7 +60,7 @@ pub(super) fn terms_with_prefix(
     let mut terms = Vec::new();
     for row in rows {
         let (text, doc) = row?;
-        let docs = u64::try_from(doc).map_err(|e| StoreError::Db(format!("vocab doc: {e}")))?;
+        let docs = u64::try_from(doc).map_err(|e| StoreError::db(format!("vocab doc: {e}")))?;
         terms.push(Term {
             cjk_bigram: is_cjk_bigram(&text),
             text,
@@ -116,7 +116,7 @@ pub(super) fn top_hits(
          LIMIT ?"
     );
     let ids: Vec<String> = window.iter().map(|id| id.to_string()).collect();
-    let ids = serde_json::to_string(&ids).map_err(|e| StoreError::Db(format!("window: {e}")))?;
+    let ids = serde_json::to_string(&ids).map_err(|e| StoreError::db(format!("window: {e}")))?;
     let params = [
         SqlValue::Text(ids),
         SqlValue::Text(needles.join(" OR ")),

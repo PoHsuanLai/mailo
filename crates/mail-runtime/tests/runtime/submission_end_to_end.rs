@@ -279,7 +279,7 @@ fn queue(store: &SqliteStore, draft: &Draft, parent: Option<&Message>) {
     let post = posting(draft, &identity(), parent, &[]).expect("the draft has recipients");
     let raw = store
         .blobs()
-        .put(&store.connection(), &post.message)
+        .put(&post.message)
         .unwrap();
     store
         .enqueue(
@@ -715,7 +715,7 @@ async fn a_pop3_send_is_kept_in_sent_on_its_conversation_and_outlives_the_next_s
     let Body::Present { raw, .. } = kept.body else {
         panic!("the copy holds its body: {:?}", kept.body);
     };
-    let bytes = it.store.blobs().get(&it.store.connection(), raw).unwrap();
+    let bytes = it.store.blobs().get(raw).unwrap();
     let bytes = String::from_utf8(bytes).unwrap();
     assert!(
         bytes.contains("Bcc: dee@example.test\r\n"),

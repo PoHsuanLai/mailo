@@ -552,7 +552,6 @@ fn a_sender_whose_mail_came_through_a_list_is_not_offered_until_written_to() {
     let raw = store
         .blobs()
         .put(
-            &store.connection(),
             b"From: Poster <poster@example.test>\r\nList-Id: Talk <talk.example.test>\r\n\r\nhi",
         )
         .unwrap();

@@ -314,7 +314,7 @@ async fn a_send_is_imported_submitted_with_every_recipient_and_filed_in_sent() {
     let blob = s
         .store
         .blobs()
-        .put(&s.store.connection(), frozen.as_bytes())
+        .put(frozen.as_bytes())
         .unwrap();
     s.store
         .enqueue(

@@ -51,7 +51,7 @@ fn both<T>(scenario: impl Fn(&dyn Store, &Blobs) -> T) -> (T, T) {
             .map(|n| {
                 sqlite
                     .blobs()
-                    .put(&sqlite.connection(), format!("raw {n}").as_bytes())
+                    .put(format!("raw {n}").as_bytes())
                     .unwrap()
             })
             .collect(),

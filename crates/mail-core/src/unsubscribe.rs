@@ -53,7 +53,7 @@ pub fn list_of(store: &SqliteStore, message: &Message) -> Result<ListHeaders, St
     })?;
     let bytes = store
         .blobs()
-        .get(&store.connection(), raw)
+        .get(raw)
         .map_err(|e| format!("the stored message is unreadable: {e}"))?;
     Ok(mail_mime::list_headers(&bytes))
 }

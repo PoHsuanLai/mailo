@@ -469,7 +469,7 @@ pub fn attach_bytes(
 
     let blob = store
         .blobs()
-        .put(&store.connection(), bytes)
+        .put(bytes)
         .map_err(|e| format!("cannot store {name}: {e}"))?;
     draft.attachments.push(PendingAttachment {
         mime: media_type_of(&name).to_owned(),
@@ -540,7 +540,7 @@ fn attached_size(store: &SqliteStore, draft: &Draft) -> u64 {
     draft
         .attachments
         .iter()
-        .filter_map(|a| store.blobs().size(&store.connection(), a.blob).ok())
+        .filter_map(|a| store.blobs().size(a.blob).ok())
         .sum()
 }
 
@@ -555,7 +555,7 @@ pub fn attached_to(store: &SqliteStore, draft: &Draft) -> Vec<(String, String)> 
         .map(|a| {
             let size = store
                 .blobs()
-                .size(&store.connection(), a.blob)
+                .size(a.blob)
                 .map(crate::attach::human_size)
                 .unwrap_or_else(|_| "missing".to_owned());
             (a.name.clone(), size)
@@ -573,7 +573,7 @@ pub fn attachments_of(store: &SqliteStore, draft: DraftId) -> Result<String, Str
     for (index, attachment) in draft.attachments.iter().enumerate() {
         let size = store
             .blobs()
-            .size(&store.connection(), attachment.blob)
+            .size(attachment.blob)
             .map(crate::attach::human_size)
             .unwrap_or_else(|_| "missing".to_owned());
         let _ = writeln!(
@@ -1196,7 +1196,7 @@ pub fn queue_with(
     for attachment in &draft.attachments {
         let bytes = store
             .blobs()
-            .get(&store.connection(), attachment.blob)
+            .get(attachment.blob)
             .map_err(|e| format!("attachment {}: {e}", attachment.name))?;
         parts.push((attachment.blob, bytes));
     }
@@ -1211,7 +1211,7 @@ pub fn queue_with(
     post.message = crate::smime::outgoing(store, secrets, &draft, &identity, post.message, now)?;
     let raw = store
         .blobs()
-        .put(&store.connection(), &post.message)
+        .put(&post.message)
         .map_err(|e| e.to_string())?;
 
     let queued = store

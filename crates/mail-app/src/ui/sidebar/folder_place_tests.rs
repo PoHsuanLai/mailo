@@ -109,7 +109,7 @@ fn deliver(
     uid: u32,
     subject: &str,
 ) -> ThreadId {
-    let raw = store.blobs().put(&store.connection(), b"x").unwrap();
+    let raw = store.blobs().put(b"x").unwrap();
     let thread = ThreadId::generate();
     let message = Message {
         id: MessageId::generate(),

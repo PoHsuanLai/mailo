@@ -338,7 +338,7 @@ fn arrival<S: Store>(store: &S, raw: BlobId) -> Seen {
 #[test]
 fn a_rule_acts_once_on_arriving_mail_and_the_server_is_told_as_the_user_would_tell_it() {
     let (sqlite, _dir) = sqlite();
-    let raw = sqlite.blobs().put(&sqlite.connection(), b"raw").unwrap();
+    let raw = sqlite.blobs().put(b"raw").unwrap();
     let seen = arrival(&sqlite, raw);
 
     assert_eq!(seen.first, vec![vec!["Bills".to_owned()]]);
@@ -430,7 +430,7 @@ fn backlog<S: Store>(store: &S, raw: BlobId) -> (Vec<Vec<String>>, Vec<usize>, R
 #[test]
 fn run_now_reaches_mail_that_was_already_here_in_batches() {
     let (sqlite, _dir) = sqlite();
-    let raw = sqlite.blobs().put(&sqlite.connection(), b"raw").unwrap();
+    let raw = sqlite.blobs().put(b"raw").unwrap();
     let (at_arrival, batches, ran, ops) = backlog(&sqlite, raw);
 
     assert_eq!(
@@ -488,7 +488,7 @@ fn chain<S: Store>(store: &S, raw: BlobId) -> (Vec<Vec<String>>, State) {
 #[test]
 fn a_later_rule_sees_what_an_earlier_one_did_and_stop_means_stop() {
     let (sqlite, _dir) = sqlite();
-    let raw = sqlite.blobs().put(&sqlite.connection(), b"raw").unwrap();
+    let raw = sqlite.blobs().put(b"raw").unwrap();
     let seen = chain(&sqlite, raw);
     assert_eq!(
         seen.0,
@@ -508,7 +508,7 @@ fn a_later_rule_sees_what_an_earlier_one_did_and_stop_means_stop() {
 #[test]
 fn filing_on_a_server_with_folders_queues_one_move_into_the_folder() {
     let (store, _dir) = sqlite();
-    let raw = store.blobs().put(&store.connection(), b"raw").unwrap();
+    let raw = store.blobs().put(b"raw").unwrap();
     store
         .put_rule(&rule(
             1,
@@ -592,7 +592,7 @@ fn at_now() -> DateTime<Utc> {
 #[test]
 fn a_rule_about_a_folder_asks_the_messages_own_addresses() {
     let (sqlite, _dir) = sqlite();
-    let raw = sqlite.blobs().put(&sqlite.connection(), b"raw").unwrap();
+    let raw = sqlite.blobs().put(b"raw").unwrap();
     let seen = by_folder(&sqlite, raw);
     assert_eq!(seen, vec![vec!["from the inbox".to_owned()]]);
     assert_eq!(by_folder(&MemoryStore::new(), BlobId::generate()), seen);
@@ -721,7 +721,7 @@ fn muting<S: Store>(store: &S, raw: BlobId) -> Muting {
 #[test]
 fn a_muted_conversations_reply_arrives_read_and_archived_and_an_unmuted_ones_does_not() {
     let (sqlite, _dir) = sqlite();
-    let raw = sqlite.blobs().put(&sqlite.connection(), b"raw").unwrap();
+    let raw = sqlite.blobs().put(b"raw").unwrap();
     let seen = muting(&sqlite, raw);
 
     let unread_inbox = (

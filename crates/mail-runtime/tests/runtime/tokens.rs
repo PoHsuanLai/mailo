@@ -772,7 +772,7 @@ fn queued(graph_port: u16, registration: ClientEntry, graph: Credential) -> Send
     let post = posting(&draft, &identity(), None, &[]).unwrap();
     let raw = store
         .blobs()
-        .put(&store.connection(), &post.message)
+        .put(&post.message)
         .unwrap();
     store
         .enqueue(

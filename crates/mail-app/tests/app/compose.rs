@@ -80,7 +80,7 @@ fn seeded() -> (SqliteStore, tempfile::TempDir) {
 
     let raw = store
         .blobs()
-        .put(&store.connection(), b"raw original")
+        .put(b"raw original")
         .unwrap();
     let thread = ThreadId::generate();
     let message = Message {
@@ -308,7 +308,7 @@ fn own_message(store: &SqliteStore) -> MessageId {
     let id = MessageId::generate();
     let raw = store
         .blobs()
-        .put(&store.connection(), b"raw to self")
+        .put(b"raw to self")
         .unwrap();
     let message = Message {
         id,
@@ -372,7 +372,7 @@ fn own_message(store: &SqliteStore) -> MessageId {
 /// A second message, headers only — the normal mid-sync state.
 fn headers_only(store: &SqliteStore) -> MessageId {
     let id = MessageId::generate();
-    let raw = store.blobs().put(&store.connection(), b"raw two").unwrap();
+    let raw = store.blobs().put(b"raw two").unwrap();
     let message = Message {
         id,
         thread: ThreadId::generate(),
@@ -511,7 +511,7 @@ fn the_queued_bytes_are_frozen_against_a_later_edit() {
     let ProtoOp::Submit { raw, .. } = &due[0].op else {
         panic!("expected a submission");
     };
-    let bytes = store.blobs().get(&store.connection(), *raw).unwrap();
+    let bytes = store.blobs().get(*raw).unwrap();
     let text = String::from_utf8_lossy(&bytes);
     assert!(
         text.contains("Re: lunch on friday"),
@@ -1011,7 +1011,7 @@ mod forwarding_as_an_attachment {
     /// Store `raw` as a message with `attachments`, and return its id.
     fn stored(store: &SqliteStore, raw: &[u8], attachments: Vec<Attachment>) -> MessageId {
         let id = MessageId::generate();
-        let blob = store.blobs().put(&store.connection(), raw).unwrap();
+        let blob = store.blobs().put(raw).unwrap();
         let key = MessageKey::Rfc(format!("{id}@example.test"));
         let message = Message {
             id,
@@ -1074,7 +1074,7 @@ mod forwarding_as_an_attachment {
         let ProtoOp::Submit { raw, .. } = &due[0].op else {
             panic!("expected a submission");
         };
-        store.blobs().get(&store.connection(), *raw).unwrap()
+        store.blobs().get(*raw).unwrap()
     }
 
     /// The round trip: what goes out carries the stored message, and that part parses back to
@@ -1343,7 +1343,7 @@ mod writing_to_someone_new {
         let ProtoOp::Submit { raw, .. } = &due[0].op else {
             panic!("expected a submission");
         };
-        let bytes = store.blobs().get(&store.connection(), *raw).unwrap();
+        let bytes = store.blobs().get(*raw).unwrap();
         let text = String::from_utf8_lossy(&bytes);
         assert!(
             !text.contains("In-Reply-To:"),
@@ -1642,7 +1642,7 @@ mod carrying_a_file {
         let ProtoOp::Submit { raw, .. } = &due[0].op else {
             panic!("expected a submission");
         };
-        let bytes = store.blobs().get(&store.connection(), *raw).unwrap();
+        let bytes = store.blobs().get(*raw).unwrap();
         String::from_utf8_lossy(&bytes).into_owned()
     }
 

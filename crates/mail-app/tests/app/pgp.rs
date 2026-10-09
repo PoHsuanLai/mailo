@@ -121,7 +121,7 @@ fn frozen(store: &SqliteStore) -> Vec<u8> {
     let ProtoOp::Submit { raw, .. } = &entries[0].op else {
         panic!("{:?}", entries[0].op);
     };
-    store.blobs().get(&store.connection(), *raw).unwrap()
+    store.blobs().get(*raw).unwrap()
 }
 
 fn send(store: &SqliteStore, secrets: &MapSigningStore, draft: DraftId) -> Result<String, String> {

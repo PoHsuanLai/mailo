@@ -210,7 +210,7 @@ fn fill(store: &SqliteStore) {
     // of the same bytes would measure the disk, not the search.
     let raw = store
         .blobs()
-        .put(&store.connection(), b"shared body bytes")
+        .put(b"shared body bytes")
         .unwrap();
     let mut zipf = Zipf::new();
     for batch in 0..MESSAGES / BATCH {

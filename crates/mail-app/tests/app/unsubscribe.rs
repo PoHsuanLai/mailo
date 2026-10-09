@@ -93,7 +93,7 @@ fn list_message(
     );
     let raw = store
         .blobs()
-        .put(&store.connection(), raw_bytes.as_bytes())
+        .put(raw_bytes.as_bytes())
         .unwrap();
     let id = MessageId::generate();
     let message = Message {
@@ -245,7 +245,7 @@ fn a_mailto_becomes_a_queued_message_from_the_address_the_list_writes_to() {
     };
     assert_eq!(mail_from, "lists@example.test");
     assert_eq!(rcpt_to, &vec!["leave@example.test".to_owned()]);
-    let bytes = store.blobs().get(&store.connection(), *raw).unwrap();
+    let bytes = store.blobs().get(*raw).unwrap();
     let text = String::from_utf8_lossy(&bytes);
     assert!(text.contains("Subject: remove me"), "{text}");
 }

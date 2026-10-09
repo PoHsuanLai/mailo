@@ -42,7 +42,7 @@ fn store() -> (SqliteStore, tempfile::TempDir) {
 
 /// One message, already stored and mapped, as a survey would find it.
 fn message(store: &SqliteStore, uid: u32) -> MessageId {
-    let raw = store.blobs().put(&store.connection(), b"raw").unwrap();
+    let raw = store.blobs().put(b"raw").unwrap();
     let id = MessageId::generate();
     let message = Message {
         id,

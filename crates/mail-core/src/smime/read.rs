@@ -88,7 +88,7 @@ pub fn open_message(
     if let Some(hit) = cached(raw_id) {
         return Ok(Some(hit));
     }
-    let raw = store.blobs().get(&store.connection(), raw_id)?;
+    let raw = store.blobs().get(raw_id)?;
     let Some((protected, opened)) = opened(store, secrets, &raw, now)? else {
         return Ok(None);
     };

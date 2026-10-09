@@ -395,7 +395,7 @@ fn build(store: &SqliteStore, batch: &[&Mail]) -> BuiltMail {
         );
         let raw = store
             .blobs()
-            .put(&store.connection(), bytes.as_bytes())
+            .put(bytes.as_bytes())
             .unwrap();
         let remote = RemoteRef::Pop {
             uidl: format!("w-{n}-{}", item.account),

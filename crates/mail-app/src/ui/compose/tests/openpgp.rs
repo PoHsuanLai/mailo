@@ -28,7 +28,7 @@ fn queued(store: &SqliteStore) -> Vec<Vec<u8>> {
         .unwrap()
         .into_iter()
         .filter_map(|entry| match entry.op {
-            ProtoOp::Submit { raw, .. } => store.blobs().get(&store.connection(), raw).ok(),
+            ProtoOp::Submit { raw, .. } => store.blobs().get(raw).ok(),
             _ => None,
         })
         .collect()

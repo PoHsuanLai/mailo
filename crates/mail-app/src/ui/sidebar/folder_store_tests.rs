@@ -213,7 +213,7 @@ fn a_delete_that_takes_mail_is_asked_first_and_offers_no_undo() {
         account: acct_imap(),
         path: "收據".to_owned(),
     };
-    let raw = store.blobs().put(&store.connection(), b"x").unwrap();
+    let raw = store.blobs().put(b"x").unwrap();
     let message = Message {
         id: MessageId::generate(),
         thread: ThreadId::generate(),

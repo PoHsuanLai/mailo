@@ -703,7 +703,7 @@ async fn a_literal_body_survives_a_line_that_looks_like_a_tagged_response() {
         for id in thread.messages {
             let message = it.store.message(id).unwrap();
             if let Body::Present { raw, .. } = message.body {
-                let bytes = it.store.blobs().get(&it.store.connection(), raw).unwrap();
+                let bytes = it.store.blobs().get(raw).unwrap();
                 let text = String::from_utf8_lossy(&bytes);
                 if text.contains("looks like a tag") {
                     // Exact bytes, not `contains`. This asserted only that the tag-shaped line
@@ -1730,7 +1730,7 @@ kept for years\r\n";
         let raw = it
             .store
             .blobs()
-            .put(&it.store.connection(), IMPORTED)
+            .put(IMPORTED)
             .unwrap();
         let mailbox = MailboxRef {
             account: acct_account(),

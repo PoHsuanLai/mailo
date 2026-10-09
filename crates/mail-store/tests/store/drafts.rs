@@ -259,7 +259,7 @@ fn ingest_one(b: &Both) -> MessageId {
     let raw = b
         .sqlite
         .blobs()
-        .put(&b.sqlite.connection(), b"raw bytes")
+        .put(b"raw bytes")
         .unwrap();
     let message = Message {
         id: MessageId::generate(),

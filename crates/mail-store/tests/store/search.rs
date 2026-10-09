@@ -39,7 +39,7 @@ fn load(mails: &[Mail<'_>]) -> Held {
     let dir = tempfile::tempdir().unwrap();
     let sqlite = SqliteStore::in_memory(dir.path()).unwrap();
     let memory = MemoryStore::new();
-    let raw = sqlite.blobs().put(&sqlite.connection(), b"raw").unwrap();
+    let raw = sqlite.blobs().put(b"raw").unwrap();
     let mut seen = Vec::new();
     for mail in mails {
         if !seen.contains(&mail.account) {
@@ -374,7 +374,7 @@ fn a_repeated_subject_term_outranks_one_hit_in_a_long_body() {
             [acct_a().to_string()],
         )
         .unwrap();
-    let raw = sqlite.blobs().put(&sqlite.connection(), b"raw").unwrap();
+    let raw = sqlite.blobs().put(b"raw").unwrap();
     let mut ids = Vec::new();
     for (i, (subject, body, secs)) in [("kite kite", "ok", 1i64), ("hello", long.as_str(), 2)]
         .into_iter()
@@ -519,7 +519,7 @@ fn terms_are_visible_from_a_read_connection() {
             [acct_a().to_string()],
         )
         .unwrap();
-    let raw = sqlite.blobs().put(&sqlite.connection(), b"raw").unwrap();
+    let raw = sqlite.blobs().put(b"raw").unwrap();
     sqlite
         .apply(
             acct_a(),

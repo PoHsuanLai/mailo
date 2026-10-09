@@ -19,7 +19,7 @@ fn acct_account() -> AccountId {
 fn raw(store: &SqliteStore, n: i64) -> BlobId {
     store
         .blobs()
-        .put(&store.connection(), format!("raw {n}").as_bytes())
+        .put(format!("raw {n}").as_bytes())
         .unwrap()
 }
 

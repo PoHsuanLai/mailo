@@ -193,7 +193,7 @@ where
 /// The message's stored bytes, parsed; `None` for the cases the reader also falls back on.
 fn parse_body(store: &SqliteStore, message: &Message) -> Option<Parsed> {
     let raw = message.body.raw()?;
-    let bytes = store.blobs().get(&store.connection(), raw).ok()?;
+    let bytes = store.blobs().get(raw).ok()?;
     mail_mime::parse(&bytes).ok()
 }
 

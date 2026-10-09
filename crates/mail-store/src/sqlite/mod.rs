@@ -1,5 +1,6 @@
 //! The real [`Store`]: SQLite in WAL mode, with FTS5.
 
+mod accounts;
 mod contacts;
 mod destroyed;
 mod draft;
@@ -92,24 +93,24 @@ impl SqliteStore {
         blob_root: impl AsRef<Path>,
     ) -> Result<Self, StoreError> {
         let path = db_path.as_ref().to_path_buf();
-        let db = Connection::open(&path).map_err(|e| StoreError::Db(e.to_string()))?;
+        let db = Connection::open(&path).map_err(StoreError::db)?;
         let mut store = Self::from_connection(db, blob_root)?;
         // After `from_connection`, which is what runs the migrations: a reader opened against an
         // unmigrated file would be a connection whose schema does not exist yet.
         for _ in 0..READERS {
-            let reader = Connection::open(&path).map_err(|e| StoreError::Db(e.to_string()))?;
+            let reader = Connection::open(&path).map_err(StoreError::db)?;
             reader
                 .execute_batch(
                     "PRAGMA journal_mode = WAL;
                      PRAGMA busy_timeout = 5000;",
                 )
-                .map_err(|e| StoreError::Db(e.to_string()))?;
+                .map_err(StoreError::db)?;
             // Before `query_only`: a TEMP vocab table is per connection, and a query-only
             // connection is not allowed to create one.
             search::ensure_vocab(&reader)?;
             reader
                 .execute_batch("PRAGMA query_only = ON;")
-                .map_err(|e| StoreError::Db(e.to_string()))?;
+                .map_err(StoreError::db)?;
             store.readers.push(ReentrantMutex::new(reader));
         }
         Ok(store)
@@ -117,7 +118,7 @@ impl SqliteStore {
 
     /// An in-memory database. Tests only: it vanishes when dropped.
     pub fn in_memory(blob_root: impl AsRef<Path>) -> Result<Self, StoreError> {
-        let db = Connection::open_in_memory().map_err(|e| StoreError::Db(e.to_string()))?;
+        let db = Connection::open_in_memory().map_err(StoreError::db)?;
         Self::from_connection(db, blob_root)
     }
 
@@ -142,7 +143,7 @@ impl SqliteStore {
              PRAGMA synchronous = NORMAL;
              PRAGMA busy_timeout = 5000;",
         )
-        .map_err(|e| StoreError::Db(e.to_string()))?;
+        .map_err(StoreError::db)?;
         migrate::migrate(&db)?;
         backfill_fts(&db)?;
         search::ensure_vocab(&db)?;
@@ -176,7 +177,7 @@ impl SqliteStore {
         let db = self.connection();
         let tx = db
             .unchecked_transaction()
-            .map_err(|e| StoreError::Db(e.to_string()))?;
+            .map_err(StoreError::db)?;
         for thread in queued {
             let id: uuid::Uuid = thread
                 .parse()
@@ -189,7 +190,7 @@ impl SqliteStore {
             let _ = self.refresh_summary(mail_domain::ThreadId::from_uuid(id));
         }
         tx.execute("DELETE FROM summaries_to_refresh", [])?;
-        tx.commit().map_err(|e| StoreError::Db(e.to_string()))?;
+        tx.commit().map_err(StoreError::db)?;
         Ok(())
     }
 }
@@ -232,7 +233,7 @@ fn backfill_fts(db: &Connection) -> Result<(), StoreError> {
             [],
             |r| r.get(0),
         )
-        .map_err(|e| StoreError::Db(e.to_string()))?;
+        .map_err(StoreError::db)?;
     if pending == 0 {
         return Ok(());
     }
@@ -245,7 +246,7 @@ fn backfill_fts(db: &Connection) -> Result<(), StoreError> {
                 "SELECT rowid, subject, from_name, from_email, recipients, body_text
                  FROM messages WHERE fts_text IS NULL",
             )
-            .map_err(|e| StoreError::Db(e.to_string()))?;
+            .map_err(StoreError::db)?;
         let mapped = stmt
             .query_map([], |r| {
                 Ok((
@@ -257,15 +258,15 @@ fn backfill_fts(db: &Connection) -> Result<(), StoreError> {
                     r.get(5)?,
                 ))
             })
-            .map_err(|e| StoreError::Db(e.to_string()))?;
+            .map_err(StoreError::db)?;
         mapped
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| StoreError::Db(e.to_string()))?
+            .map_err(StoreError::db)?
     };
 
     let tx = db
         .unchecked_transaction()
-        .map_err(|e| StoreError::Db(e.to_string()))?;
+        .map_err(StoreError::db)?;
     for (rowid, subject, from_name, from_email, recipients, body_text) in rows {
         // A row whose recipients no longer decode is indexed without them, rather than stopping
         // the database from opening over one message.
@@ -286,15 +287,21 @@ fn backfill_fts(db: &Connection) -> Result<(), StoreError> {
             "UPDATE messages SET fts_text = ?2 WHERE rowid = ?1",
             rusqlite::params![rowid, text],
         )
-        .map_err(|e| StoreError::Db(e.to_string()))?;
+        .map_err(StoreError::db)?;
     }
-    tx.commit().map_err(|e| StoreError::Db(e.to_string()))?;
+    tx.commit().map_err(StoreError::db)?;
     Ok(())
 }
 
 impl SqliteStore {
-    /// The blob store, for callers that need to read a raw message or an attachment.
-    pub fn blobs(&self) -> &BlobStore {
+    /// The blobs, for callers that need to read a raw message or an attachment.
+    pub fn blobs(&self) -> crate::blob::Blobs<'_> {
+        crate::blob::Blobs::of(self)
+    }
+
+    /// The files and rows blobs are kept in, for the store's own code to read through a
+    /// connection it chose.
+    pub(crate) fn files(&self) -> &BlobStore {
         &self.blobs
     }
 
@@ -629,7 +636,7 @@ impl Store for SqliteStore {
         // window: one prepared statement whatever the number of threads.
         let ids: Vec<String> = threads.iter().map(ToString::to_string).collect();
         let ids =
-            serde_json::to_string(&ids).map_err(|e| StoreError::Db(format!("threads: {e}")))?;
+            serde_json::to_string(&ids).map_err(|e| StoreError::db(format!("threads: {e}")))?;
         let db = self.connection();
         let mut stmt = db.prepare_cached(
             "SELECT r.mailbox, r.uidvalidity, r.uid, r.uidl, m.thread

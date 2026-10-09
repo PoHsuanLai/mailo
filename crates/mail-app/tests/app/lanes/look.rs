@@ -78,7 +78,7 @@ pub fn queued(store: &SqliteStore) -> Vec<Queued> {
             } => {
                 let bytes = store
                     .blobs()
-                    .get(&store.connection(), raw)
+                    .get(raw)
                     .expect("the submission's bytes");
                 Some(Queued {
                     draft,

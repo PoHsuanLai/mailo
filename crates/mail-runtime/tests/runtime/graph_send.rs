@@ -282,7 +282,6 @@ fn compose_as(port: u16, message: Option<Vec<u8>>) -> Sending {
     let raw = store
         .blobs()
         .put(
-            &store.connection(),
             message.as_deref().unwrap_or(&post.message),
         )
         .unwrap();

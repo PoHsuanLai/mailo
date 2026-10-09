@@ -1104,7 +1104,7 @@ impl Inner {
             .and_then(|map| map.get(&message.key))
             && *other != message.id
         {
-            return Err(StoreError::Db(format!(
+            return Err(StoreError::db(format!(
                 "message key already maps to {other}"
             )));
         }
@@ -1444,7 +1444,7 @@ impl Inner {
             return Ok(None);
         };
         if !self.accounts.contains(&account) {
-            return Err(StoreError::Db(format!("no such account: {account}")));
+            return Err(StoreError::NoAccount(account));
         }
         let messages = crate::dispatch::addressed(intent, &|m: MessageId| {
             Ok(!self.refs_for(account.clone(), &[m])?.is_empty()
@@ -1672,7 +1672,7 @@ impl Inner {
         now: DateTime<Utc>,
     ) -> Result<(), StoreError> {
         if !self.outbox.contains_key(&id) {
-            return Err(StoreError::Db(format!("no such outbox entry: {id}")));
+            return Err(StoreError::db(format!("no such outbox entry: {id}")));
         }
         match settle {
             Settle::Ok => {
@@ -1705,22 +1705,22 @@ impl Inner {
                     // `attempts` is the count before this failure, matching `sqlite::outbox`.
                     let wait = backoff(attempts).max(floor);
                     let when = now.checked_add_signed(wait).ok_or_else(|| {
-                        StoreError::Db("next_attempt overflowed DateTime".to_owned())
+                        StoreError::db("next_attempt overflowed DateTime".to_owned())
                     })?;
                     let row = self
                         .outbox
                         .get_mut(&id)
-                        .ok_or_else(|| StoreError::Db(format!("no such outbox entry: {id}")))?;
+                        .ok_or_else(|| StoreError::db(format!("no such outbox entry: {id}")))?;
                     row.attempts = attempts.saturating_add(1);
                     row.next_attempt = when;
                 }
                 Retry::NeedsReauth | Retry::NeedsGrant => {
                     let when = now.checked_add_signed(reauth_delay()).ok_or_else(|| {
-                        StoreError::Db("next_attempt overflowed DateTime".to_owned())
+                        StoreError::db("next_attempt overflowed DateTime".to_owned())
                     })?;
                     self.outbox
                         .get_mut(&id)
-                        .ok_or_else(|| StoreError::Db(format!("no such outbox entry: {id}")))?
+                        .ok_or_else(|| StoreError::db(format!("no such outbox entry: {id}")))?
                         .next_attempt = when;
                 }
                 Retry::Fatal(_) => {
