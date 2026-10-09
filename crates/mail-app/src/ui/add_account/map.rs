@@ -854,6 +854,11 @@ pub(super) fn fault_of(fault: SignInFault) -> ShellFault {
         // The launcher did not answer in time: the person waited and nothing came.
         SignInFault::Expired => ShellFault::TimedOut,
         SignInFault::AlreadyAdded => ShellFault::AlreadyAdded,
+        // A program on this computer that holds its own sign-in (Tailscale): never a mail
+        // account's either, said as quire's sheet says them.
+        SignInFault::NotRunning => ShellFault::NotRunning,
+        SignInFault::SignedOut => ShellFault::SignedOut,
+        SignInFault::NotAllowed => ShellFault::NotAllowed,
     }
 }
 
