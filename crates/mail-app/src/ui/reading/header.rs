@@ -130,6 +130,9 @@ pub(super) fn MessageHead(
                     div { class: "reader-who",
                         div { class: "msg-line",
                             Label { text: name, style: LabelStyle::Headline, common: crate::ui::common::classed("ds-truncate") }
+                            if let Some(Extras { checked: (id, raw), .. }) = &extras {
+                                super::super::checks::SenderChecks { key: "{id}-{raw:?}", message: *id, body: *raw }
+                            }
                             if !addr.is_empty() {
                                 Label { text: addr, role: LabelRole::Secondary, style: LabelStyle::Footnote, common: crate::ui::common::classed("ds-truncate") }
                             }
@@ -140,9 +143,6 @@ pub(super) fn MessageHead(
                         }
                         if let Some(cc) = cc {
                             Label { text: cc, role: LabelRole::Secondary, style: LabelStyle::Footnote, common: crate::ui::common::classed("ds-truncate") }
-                        }
-                        if let Some(Extras { checked: (id, raw), .. }) = &extras {
-                            super::super::checks::SenderChecks { key: "{id}-{raw:?}", message: *id, body: *raw }
                         }
                     }
                     if let Some(Extras { thread, leave_key, bodies, revision, .. }) = extras {

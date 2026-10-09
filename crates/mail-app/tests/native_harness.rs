@@ -1259,3 +1259,45 @@ fn going_to_another_folder_ends_a_rename() {
         "the abandoned rename was written: {paths:?}"
     );
 }
+
+/// Every tipped control in the window, the pointer rested on it past the tip delay, shows its
+/// tip through quire's hover hub: the buttons whose tip is their name, and the message's time,
+/// whose tip is the full date.
+#[test]
+fn a_rested_pointer_shows_each_controls_tip() {
+    let (mut harness, _dir) = open();
+    open_row(&mut harness, 1);
+    let html = harness.html();
+    let mut tipped: Vec<(String, String)> = html
+        .split("data-tip=\"")
+        .skip(1)
+        .filter_map(|after| after.split('"').next())
+        .map(|tip| (format!("[data-tip=\"{tip}\"]"), tip.to_owned()))
+        .collect();
+    tipped.dedup();
+    assert!(tipped.len() >= 4, "too few tipped controls: {tipped:?}");
+    let full = harness
+        .attr("time.msg-when", "aria-label")
+        .expect("the message's time is drawn");
+    tipped.push(("time.msg-when".to_owned(), full));
+    for (selector, tip) in tipped {
+        // Away first, long enough for the hub to cool, so each tip waits its own delay.
+        harness.pointer_move(Point {
+            x: Px(5.0),
+            y: Px(790.0),
+        });
+        harness.advance(ms(2500));
+        assert_eq!(
+            harness.count(".ds-tooltip"),
+            0,
+            "a tip stands with the pointer away"
+        );
+        harness.pointer_move(centre(&harness, &selector));
+        harness.advance(ms(1300));
+        assert_eq!(
+            harness.text_of(".ds-tooltip").as_deref(),
+            Some(tip.as_str()),
+            "{selector}"
+        );
+    }
+}

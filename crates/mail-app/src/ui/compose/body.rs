@@ -358,11 +358,23 @@ fn Bubble(page: Signal<Page>, place: Option<String>) -> Element {
         .find(|item| matches!(item.right, super::super::menu::Right::Check(true)))
         .map(|item| item.key.clone());
     let marks = vec![
-        Choice::new(Mark::Bold, "").with_icon(Icon::Bold),
-        Choice::new(Mark::Italic, "").with_icon(Icon::Italic),
-        Choice::new(Mark::Underline, "").with_icon(Icon::Underline),
-        Choice::new(Mark::Strike, "").with_icon(Icon::Strike),
-        Choice::new(Mark::Code, "").with_icon(Icon::Code),
+        // Named, since a segment that is a picture alone says nothing else. gap(quire): a named
+        // image-only segment takes no tip yet.
+        Choice::new(Mark::Bold, "")
+            .with_icon(Icon::Bold)
+            .with_name("Bold"),
+        Choice::new(Mark::Italic, "")
+            .with_icon(Icon::Italic)
+            .with_name("Italic"),
+        Choice::new(Mark::Underline, "")
+            .with_icon(Icon::Underline)
+            .with_name("Underline"),
+        Choice::new(Mark::Strike, "")
+            .with_icon(Icon::Strike)
+            .with_name("Strikethrough"),
+        Choice::new(Mark::Code, "")
+            .with_icon(Icon::Code)
+            .with_name("Code"),
     ];
     rsx! {
         div {
