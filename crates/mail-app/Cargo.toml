@@ -176,7 +176,7 @@ regex = "1"
 # The print tests read printouts back with it too (`ui/print/pdf_tests.rs`).
 pdfrum = { git = "https://github.com/PoHsuanLai/pdfrum", rev = "e21b9352e0e070e4572ad67d16a309c570df2b83", default-features = false, features = ["vello-cpu"] }
 tempfile = "3"
-# The throwaway certificate authority `tests/smime.rs` builds its fixtures with
+# The throwaway certificate authority `tests/app/smime.rs` builds its fixtures with
 # (`mail-mime/tests/smime_support`). All already in the tree through `mail-mime`.
 x509-cert = { version = "0.2", features = ["builder"] }
 der = "0.7"

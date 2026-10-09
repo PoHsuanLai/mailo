@@ -1,3 +1,4 @@
+// Its own test binary: it compares timings, which hundreds of tests beside it make noisy.
 //! How the store behaves with a real mailbox in it.
 //!
 //! Every other test here holds two or three messages, which is enough to check *what* a query

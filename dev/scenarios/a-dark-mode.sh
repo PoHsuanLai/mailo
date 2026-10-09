@@ -14,7 +14,7 @@
 #   4. mailo wrote nothing of its own appearance in all that (its file is unchanged, and no
 #      `appearance.toml` appeared beside the desktop's).
 #
-# The harness test (`tests/native_desktop_appearance.rs`) proves the restyle in the document; this
+# The harness test (`tests/app/native_desktop_appearance.rs`) proves the restyle in the document; this
 # proves the whole path: the file watch in a real process, the real renderer, the real pixels.
 #
 # Usage: dev/scenarios/a-dark-mode.sh

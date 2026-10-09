@@ -4,7 +4,7 @@
 //! its Rust types are what define the forms. They live in a repository mailo does not depend on,
 //! so this module mirrors the part mailo speaks: the serde forms are the router's (adjacently
 //! tagged enums, `kind` and `v`; ids and units as bare strings and numbers), and
-//! `tests/forms.rs` pins each one to the text the router writes or reads. A form the router adds
+//! `tests.rs` pins each one to the text the router writes or reads. A form the router adds
 //! later is one this module has to be taught; one it already sends that mailo does not know
 //! reads as [`Value::Other`], which no action accepts.
 //!

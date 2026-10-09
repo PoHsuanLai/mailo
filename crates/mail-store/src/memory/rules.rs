@@ -1,5 +1,5 @@
 //! Rules and vacation replies in the in-memory store. Kept in step with `sqlite/rules.rs`, which
-//! the parity tests in `tests/rules.rs` hold it to.
+//! the parity tests in `tests/store/rules.rs` hold it to.
 
 use super::Inner;
 use crate::StoreError;

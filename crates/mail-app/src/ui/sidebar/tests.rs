@@ -36,7 +36,7 @@ async fn the_foot_dots_are_buttons_that_say_which_space_is_on() {
         ["Home Space"],
         "{page}"
     );
-    // Each dot's tip, which names its key, is quire's hover tip: `tests/native_harness.rs`
+    // Each dot's tip, which names its key, is quire's hover tip: `tests/app/native_harness.rs`
     // rests the pointer on one and reads it.
     assert!(page.contains("aria-label=\"New Space\""), "{page}");
     assert!(

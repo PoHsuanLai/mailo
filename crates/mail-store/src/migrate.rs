@@ -12,7 +12,7 @@ use rusqlite::Connection;
 /// **Append only.** A released migration is a fact about databases that already exist on
 /// disk; editing one does not change them, it only makes this build disagree with them.
 ///
-/// Public so `tests/upgrade.rs` can build a database at any prior version by applying a prefix
+/// Public so `tests/store/upgrade.rs` can build a database at any prior version by applying a prefix
 /// of it. The alternative is a checked-in binary fixture per version, which drifts from the
 /// migration it is supposed to represent the moment anyone edits one.
 pub const MIGRATIONS: &[(u32, &str)] = &[

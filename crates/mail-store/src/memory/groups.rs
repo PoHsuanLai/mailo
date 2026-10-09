@@ -1,5 +1,5 @@
 //! Contact groups in memory. Kept in step with `sqlite/groups.rs`, which the parity tests in
-//! `tests/groups.rs` hold it to.
+//! `tests/store/groups.rs` hold it to.
 
 use super::Inner;
 use crate::contact::{Group, GroupId};

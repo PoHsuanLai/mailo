@@ -1,3 +1,4 @@
+// Its own test binary: dev/scenarios/lib.sh runs it by name, with MAILO_TEST_SECRETS_DIR.
 //! Seeds the account `dev/scenarios` runs the real `mailo` against: one IMAP account on the local
 //! fake server (`scripts/live-imapd.py`), in plaintext, holding its password in the scenario's
 //! secrets directory (debug builds only, `MAILO_TEST_SECRETS_DIR`), and nothing else.

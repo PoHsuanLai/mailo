@@ -1,5 +1,5 @@
 //! S/MIME certificates in the in-memory store. Kept in step with `sqlite/smime.rs`, which the
-//! parity tests in `tests/smime_certs.rs` hold it to.
+//! parity tests in `tests/store/smime_certs.rs` hold it to.
 
 use super::Inner;
 use crate::StoreError;

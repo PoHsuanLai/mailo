@@ -1,5 +1,5 @@
 //! Addresses of messages deleted forever, in the in-memory store. Kept in step with
-//! `sqlite/destroyed.rs`, which says why they are kept; the parity tests in `tests/destroy.rs`
+//! `sqlite/destroyed.rs`, which says why they are kept; the parity tests in `tests/store/destroy.rs`
 //! hold the two to each other.
 
 use super::{Inner, RemoteRow, remote_parts, row_to_remote, same_remote};

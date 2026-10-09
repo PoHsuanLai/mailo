@@ -1,5 +1,5 @@
 //! The address book in memory. Kept in step with `sqlite/contacts.rs`, which the parity tests
-//! in `tests/contacts.rs` hold it to.
+//! in `tests/store/contacts.rs` hold it to.
 //!
 //! One difference, and it is about input rather than rules: this store holds no raw bytes, so
 //! it cannot see a `List-Id` header and judges a sender by its address alone.

@@ -1,5 +1,5 @@
 //! Mailboxes in the in-memory store. Kept in step with `sqlite/folders.rs`, which the parity
-//! tests in `tests/folders.rs` hold it to.
+//! tests in `tests/store/folders.rs` hold it to.
 
 use super::Inner;
 use mail_domain::folder::{layered, renamed};

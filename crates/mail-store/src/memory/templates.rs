@@ -1,5 +1,5 @@
 //! Templates in the in-memory store. Kept in step with `sqlite/template.rs`, which the parity
-//! tests in `tests/templates.rs` hold it to.
+//! tests in `tests/store/templates.rs` hold it to.
 
 use super::Inner;
 use crate::StoreError;
