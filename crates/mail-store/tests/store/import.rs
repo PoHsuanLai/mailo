@@ -17,10 +17,7 @@ fn acct_account() -> AccountId {
 
 /// Stored bytes for message `n`, so the body's foreign key holds.
 fn raw(store: &SqliteStore, n: i64) -> BlobId {
-    store
-        .blobs()
-        .put(format!("raw {n}").as_bytes())
-        .unwrap()
+    store.blobs().put(format!("raw {n}").as_bytes()).unwrap()
 }
 
 fn sqlite() -> (SqliteStore, tempfile::TempDir) {

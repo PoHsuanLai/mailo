@@ -208,10 +208,7 @@ fn store(dir: &std::path::Path) -> SqliteStore {
 fn fill(store: &SqliteStore) {
     // One raw blob shared by every message: the index reads `text`, and fifty thousand copies
     // of the same bytes would measure the disk, not the search.
-    let raw = store
-        .blobs()
-        .put(b"shared body bytes")
-        .unwrap();
+    let raw = store.blobs().put(b"shared body bytes").unwrap();
     let mut zipf = Zipf::new();
     for batch in 0..MESSAGES / BATCH {
         let messages = (0..BATCH)

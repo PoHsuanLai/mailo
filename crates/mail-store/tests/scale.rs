@@ -45,10 +45,7 @@ fn store() -> (SqliteStore, tempfile::TempDir) {
 
 /// Fill the store with `count` messages, each its own thread, in batches.
 fn fill(store: &SqliteStore, count: i64) {
-    let raw = store
-        .blobs()
-        .put(b"shared body bytes")
-        .unwrap();
+    let raw = store.blobs().put(b"shared body bytes").unwrap();
     for batch in 0..(count / 500) {
         let mut messages = Vec::with_capacity(500);
         for i in 0..500 {
@@ -285,10 +282,7 @@ mod ingest_throughput {
 
     /// One batch of `count` messages, all in distinct threads.
     fn batch(store: &SqliteStore, from: i64, count: i64, thread: Option<ThreadId>) -> Ingest {
-        let raw = store
-            .blobs()
-            .put(b"shared body bytes")
-            .unwrap();
+        let raw = store.blobs().put(b"shared body bytes").unwrap();
         let mut messages = Vec::with_capacity(count as usize);
         for i in 0..count {
             let n = from + i;

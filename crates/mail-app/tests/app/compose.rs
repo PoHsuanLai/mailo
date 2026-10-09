@@ -78,10 +78,7 @@ fn seeded() -> (SqliteStore, tempfile::TempDir) {
         .unwrap();
     }
 
-    let raw = store
-        .blobs()
-        .put(b"raw original")
-        .unwrap();
+    let raw = store.blobs().put(b"raw original").unwrap();
     let thread = ThreadId::generate();
     let message = Message {
         id: ORIGINAL,
@@ -306,10 +303,7 @@ fn the_attribution_line_is_in_the_senders_zone_not_utc() {
 /// `Draft::reply_to` deliberately empties: replying to yourself addresses nobody.
 fn own_message(store: &SqliteStore) -> MessageId {
     let id = MessageId::generate();
-    let raw = store
-        .blobs()
-        .put(b"raw to self")
-        .unwrap();
+    let raw = store.blobs().put(b"raw to self").unwrap();
     let message = Message {
         id,
         thread: ThreadId::generate(),

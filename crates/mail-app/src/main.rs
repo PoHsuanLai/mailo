@@ -692,19 +692,11 @@ fn import(
 
 /// Account ids in the order they were added, for the first-run Spaces.
 fn account_ids(store: &SqliteStore) -> Vec<porter_core::AccountId> {
-    let db = store.connection();
-    let Ok(mut stmt) = db.prepare(&format!(
-        "SELECT id FROM {} ORDER BY created_at",
-        store.accounts()
-    )) else {
-        return Vec::new();
-    };
-    let Ok(rows) = stmt.query_map([], |row| row.get::<_, String>(0)) else {
-        return Vec::new();
-    };
-    rows.filter_map(|row| row.ok())
-        .filter_map(|id| id.parse().ok())
-        .map(mail_domain::id::account_id_from_uuid)
+    store
+        .list_accounts()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|account| account.id)
         .collect()
 }
 

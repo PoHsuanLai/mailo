@@ -90,10 +90,7 @@ fn generated() -> (SqliteStore, tempfile::TempDir) {
         let mut messages = Vec::with_capacity(500);
         for i in 0..500 {
             let n = batch * 500 + i;
-            let raw = store
-                .blobs()
-                .put(&raw_message(n))
-                .unwrap();
+            let raw = store.blobs().put(&raw_message(n)).unwrap();
             let key = format!("m{n}@example.test");
             let message = Message {
                 id: MessageId::generate(),

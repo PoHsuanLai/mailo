@@ -20,8 +20,7 @@ const VOCAB: &str = "CREATE VIRTUAL TABLE IF NOT EXISTS temp.messages_vocab \
 /// `temp.messages_vocab` over the external-content index. A TEMP table dies with the
 /// connection, so every connection creates its own.
 pub(super) fn ensure_vocab(db: &Connection) -> Result<(), StoreError> {
-    db.execute_batch(VOCAB)
-        .map_err(StoreError::db)
+    db.execute_batch(VOCAB).map_err(StoreError::db)
 }
 
 pub(super) fn terms_with_prefix(

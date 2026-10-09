@@ -281,9 +281,7 @@ fn compose_as(port: u16, message: Option<Vec<u8>>) -> Sending {
     let post = posting(&draft, &identity(), None, &[]).expect("the draft has recipients");
     let raw = store
         .blobs()
-        .put(
-            message.as_deref().unwrap_or(&post.message),
-        )
+        .put(message.as_deref().unwrap_or(&post.message))
         .unwrap();
     store
         .enqueue(

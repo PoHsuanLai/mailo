@@ -21,21 +21,7 @@ pub fn armed(
     account: AccountId,
     now: DateTime<Utc>,
 ) -> Result<DateTime<Utc>, String> {
-    let db = store.connection();
-    // `OR IGNORE`: the first writer wins and every later pass reads what it wrote.
-    db.execute(
-        "INSERT OR IGNORE INTO notify_floor (account, armed_at) VALUES (?1, ?2)",
-        rusqlite::params![account.to_string(), now.to_rfc3339()],
-    )
-    .map_err(|e| format!("cannot arm notifications: {e}"))?;
-    let stored: String = db
-        .query_row(
-            "SELECT armed_at FROM notify_floor WHERE account = ?1",
-            [account.to_string()],
-            |r| r.get(0),
-        )
-        .map_err(|e| format!("cannot read when notifications were armed: {e}"))?;
-    DateTime::parse_from_rfc3339(&stored)
-        .map(|at| at.with_timezone(&Utc))
-        .map_err(|e| format!("the stored notification floor {stored:?} is unreadable: {e}"))
+    store
+        .arm_notify_floor(account, now)
+        .map_err(|e| format!("cannot arm notifications: {e}"))
 }

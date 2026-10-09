@@ -74,10 +74,7 @@ fn stored(
         "From: sender{n}@example.test\r\nTo: me@example.test\r\nSubject: {subject}\r\n\
          Message-ID: <{rfc_id}>\r\n\r\n{text}\r\n"
     );
-    let raw = store
-        .blobs()
-        .put(raw_bytes.as_bytes())
-        .unwrap();
+    let raw = store.blobs().put(raw_bytes.as_bytes()).unwrap();
     let id = MessageId::generate();
     let message = Message {
         id,

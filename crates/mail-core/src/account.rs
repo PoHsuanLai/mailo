@@ -4,10 +4,10 @@
 //! a password is read from the environment rather than invented, and an OAuth account says what
 //! it still needs rather than pretending to be configured.
 
-use mail_domain::id::{account_id_from_uuid, new_account_id};
+use mail_domain::id::new_account_id;
 use mail_domain::*;
 use mail_runtime::{AccountSecrets, ClientRegistry, clients, tokens};
-use mail_store::SqliteStore;
+use mail_store::{NewAccount, SqliteStore};
 use porter_core::SecretText;
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
 use porter_provider::ClientEntry;
@@ -276,15 +276,10 @@ pub fn add_receiving(
     // particular must be the *existing* one: it is the keyring key, so minting a fresh one
     // would orphan a credential already stored and a working account would quietly stop working.
     let existing: Option<AccountId> = store
-        .connection()
-        .query_row(
-            "SELECT id FROM accounts WHERE address = ?1",
-            [&address],
-            |row| row.get::<_, String>(0),
-        )
+        .account_by_address(&address)
         .ok()
-        .and_then(|id| id.parse().ok())
-        .map(mail_domain::id::account_id_from_uuid);
+        .flatten()
+        .map(|stored| stored.id);
     let account = existing
         .clone()
         .unwrap_or_else(mail_domain::id::new_account_id);
@@ -315,53 +310,17 @@ pub fn add_receiving(
         default: IsDefault::Default,
     });
     plan.identities = vec![identity.clone()];
-    let plan_json =
-        serde_json::to_string(&plan).map_err(|e| format!("cannot encode the account plan: {e}"))?;
-    let caps_json = serde_json::to_string(&preset.expected_caps)
-        .map_err(|e| format!("cannot encode capabilities: {e}"))?;
 
     store
-        .connection()
-        .execute(
-            // The plan is refreshed — a preset may have learned a better host since — while
-            // `created_at` and the id stay as they were.
-            "INSERT INTO accounts (id, address, plan, created_at) VALUES (?1, ?2, ?3, ?4)
-             ON CONFLICT(address) DO UPDATE SET plan = excluded.plan",
-            rusqlite_params(&[
-                &account.to_string(),
-                &address,
-                &plan_json,
-                &now.to_rfc3339(),
-            ]),
-        )
+        .upsert_account(&NewAccount {
+            id: &account,
+            address: &address,
+            plan: &plan,
+            caps: &preset.expected_caps,
+            identities: &plan.identities,
+            at: now,
+        })
         .map_err(|e| format!("cannot save the account: {e}"))?;
-    store
-        .connection()
-        .execute(
-            // Left alone if it is already there, so a signature and a display name survive.
-            "INSERT INTO identities (id, account, from_name, from_email, reply_to, signature,
-                 is_default)
-             VALUES (?1, ?2, NULL, ?3, NULL, NULL, ?4)
-             ON CONFLICT(id) DO NOTHING",
-            rusqlite_params(&[
-                &identity.id.to_string(),
-                &account.to_string(),
-                &identity.from.email,
-                &serde_json::to_string(&identity.default)
-                    .map_err(|e| format!("cannot encode the identity: {e}"))?,
-            ]),
-        )
-        .map_err(|e| format!("cannot save the identity: {e}"))?;
-    store
-        .connection()
-        .execute(
-            // Expected capabilities from the preset, which a real connection later replaces.
-            "INSERT INTO account_caps (account, caps, observed_at) VALUES (?1, ?2, ?3)
-             ON CONFLICT(account) DO UPDATE
-                 SET caps = excluded.caps, observed_at = excluded.observed_at",
-            rusqlite_params(&[&account.to_string(), &caps_json, &now.to_rfc3339()]),
-        )
-        .map_err(|e| format!("cannot save capabilities: {e}"))?;
 
     let mut out = format!(
         "{} {address} as {account}\n",
@@ -559,38 +518,23 @@ pub fn add_receiving(
 /// stored like any account's, because everything that lists accounts reads them.
 pub fn local(store: &SqliteStore, now: chrono::DateTime<chrono::Utc>) -> Result<AccountId, String> {
     let address = mail_domain::presets::LOCAL_FOLDERS;
-    let existing: Option<AccountId> = store
-        .connection()
-        .query_row(
-            "SELECT id FROM accounts WHERE address = ?1",
-            [address],
-            |row| row.get::<_, String>(0),
-        )
-        .ok()
-        .and_then(|id| id.parse().ok())
-        .map(mail_domain::id::account_id_from_uuid);
+    let existing = store
+        .account_by_address(address)
+        .map_err(|e| format!("cannot read the accounts: {e}"))?;
     if let Some(account) = existing {
-        return Ok(account);
+        return Ok(account.id);
     }
     let account = new_account_id();
     let preset = mail_domain::presets::local_folders(now);
-    let plan_json = serde_json::to_string(&preset.plan)
-        .map_err(|e| format!("cannot encode the account plan: {e}"))?;
-    let caps_json = serde_json::to_string(&preset.expected_caps)
-        .map_err(|e| format!("cannot encode capabilities: {e}"))?;
     store
-        .connection()
-        .execute(
-            "INSERT INTO accounts (id, address, plan, created_at) VALUES (?1, ?2, ?3, ?4)",
-            rusqlite_params(&[&account.to_string(), address, &plan_json, &now.to_rfc3339()]),
-        )
-        .map_err(|e| format!("cannot save the local account: {e}"))?;
-    store
-        .connection()
-        .execute(
-            "INSERT INTO account_caps (account, caps, observed_at) VALUES (?1, ?2, ?3)",
-            rusqlite_params(&[&account.to_string(), &caps_json, &now.to_rfc3339()]),
-        )
+        .upsert_account(&NewAccount {
+            id: &account,
+            address,
+            plan: &preset.plan,
+            caps: &preset.expected_caps,
+            identities: &[],
+            at: now,
+        })
         .map_err(|e| format!("cannot save the local account: {e}"))?;
     Ok(account)
 }
@@ -706,16 +650,7 @@ fn authorize(
 
 /// Accounts, with what each one still needs.
 pub fn list(store: &SqliteStore) -> Result<String, String> {
-    let db = store.connection();
-    let mut stmt = db
-        .prepare(&format!(
-            "SELECT id, address FROM {} ORDER BY created_at",
-            store.accounts()
-        ))
-        .map_err(|e| e.to_string())?;
-    let rows = stmt
-        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
-        .map_err(|e| e.to_string())?;
+    let accounts = store.list_accounts().map_err(|e| e.to_string())?;
 
     // Which folders each account fetches, so `account list` can answer "why is my Sent folder
     // empty" without the user having to guess. A store that cannot answer is not an error here:
@@ -726,10 +661,8 @@ pub fn list(store: &SqliteStore) -> Result<String, String> {
 
     let secrets = mail_runtime::platform_secrets();
     let mut out = String::new();
-    for row in rows {
-        let (id, address) = row.map_err(|e| e.to_string())?;
-        let Ok(uuid) = id.parse() else { continue };
-        let account = account_id_from_uuid(uuid);
+    for stored in accounts {
+        let (account, address) = (stored.id, stored.address);
         // Asked of the keyring for no reason otherwise: there is no credential to have.
         if local.contains(&account) {
             let _ = writeln!(out, "{address:<28} kept on this computer; nothing to sync");
@@ -770,7 +703,6 @@ pub fn list(store: &SqliteStore) -> Result<String, String> {
     Ok(out)
 }
 
-/// `rusqlite::params!` over a slice, so the call sites stay readable.
 /// Where an installed-application client id comes from, per issuer.
 ///
 /// Named rather than left as "register an installed application with the issuer", which is a
@@ -810,34 +742,7 @@ fn where_to_get_one(issuer: Issuer) -> &'static str {
 /// Read back rather than rebuilt so that re-running `account add` keeps whatever the user has
 /// since put on it — a signature, a display name — instead of resetting it to the bare address.
 fn default_identity(store: &SqliteStore, account: AccountId) -> Option<Identity> {
-    store
-        .connection()
-        .query_row(
-            "SELECT id, from_name, from_email, reply_to, signature FROM identities
-             WHERE account = ?1 ORDER BY is_default DESC LIMIT 1",
-            [account.to_string()],
-            |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, Option<String>>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, Option<String>>(3)?,
-                    row.get::<_, Option<String>>(4)?,
-                ))
-            },
-        )
-        .ok()
-        .and_then(|(id, name, email, reply_to, signature)| {
-            Some(Identity {
-                id: IdentityId::from_uuid(id.parse().ok()?),
-                account,
-                from: Address { name, email },
-                reply_to: reply_to
-                    .and_then(|r| crate::compose::addresses::parse_addresses(&r).ok()?.pop()),
-                signature,
-                default: IsDefault::Default,
-            })
-        })
+    store.identities(account).ok()?.into_iter().next()
 }
 
 /// The host mail arrives from, whichever protocol that is.
@@ -848,10 +753,6 @@ fn incoming_host(plan: &AccountPlan) -> Option<&str> {
         // password warnings (all about IMAP app passwords) are about.
         Incoming::Local | Incoming::Graph | Incoming::Jmap { .. } => None,
     }
-}
-
-fn rusqlite_params<'a>(values: &'a [&'a str]) -> impl rusqlite::Params + 'a {
-    rusqlite::params_from_iter(values.iter().copied())
 }
 
 /// What to tell someone whose account has no credential stored yet.

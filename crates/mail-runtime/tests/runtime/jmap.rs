@@ -311,11 +311,7 @@ async fn a_send_is_imported_submitted_with_every_recipient_and_filed_in_sent() {
         "From: {USER}\r\nTo: ada@example.test\r\nSubject: Minutes\r\n\
          Message-ID: <sent1@example.test>\r\nDate: Mon, 01 Sep 2026 10:00:00 +0000\r\n\r\nhere\r\n"
     );
-    let blob = s
-        .store
-        .blobs()
-        .put(frozen.as_bytes())
-        .unwrap();
+    let blob = s.store.blobs().put(frozen.as_bytes()).unwrap();
     s.store
         .enqueue(
             acct_account(),

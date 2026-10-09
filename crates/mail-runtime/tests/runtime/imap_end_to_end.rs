@@ -1727,11 +1727,7 @@ Message-ID: <imported-1@example.test>\r\n\
 Subject: from the archive\r\n\
 \r\n\
 kept for years\r\n";
-        let raw = it
-            .store
-            .blobs()
-            .put(IMPORTED)
-            .unwrap();
+        let raw = it.store.blobs().put(IMPORTED).unwrap();
         let mailbox = MailboxRef {
             account: acct_account(),
             path: "Archive".to_owned(),

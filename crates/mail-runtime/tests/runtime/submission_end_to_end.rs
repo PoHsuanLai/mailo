@@ -277,10 +277,7 @@ fn queue(store: &SqliteStore, draft: &Draft, parent: Option<&Message>) {
         )
         .unwrap();
     let post = posting(draft, &identity(), parent, &[]).expect("the draft has recipients");
-    let raw = store
-        .blobs()
-        .put(&post.message)
-        .unwrap();
+    let raw = store.blobs().put(&post.message).unwrap();
     store
         .enqueue(
             acct_account(),

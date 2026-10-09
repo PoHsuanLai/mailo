@@ -36,10 +36,7 @@ fn both<T>(scenario: impl Fn(&dyn Store, BlobId) -> T) -> (T, T) {
             )
             .unwrap();
     }
-    let raw = sqlite
-        .blobs()
-        .put(b"headers")
-        .unwrap();
+    let raw = sqlite.blobs().put(b"headers").unwrap();
     let memory = MemoryStore::new();
     (scenario(&sqlite, raw), scenario(&memory, raw))
 }

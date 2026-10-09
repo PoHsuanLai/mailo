@@ -180,9 +180,7 @@ fn held(store: &SqliteStore, uid: u32, from: &str) -> MessageId {
     let key = format!("{uid}@example.test");
     let raw = store
         .blobs()
-        .put(
-            format!("From: {from}\r\n\r\nhi\r\n").as_bytes(),
-        )
+        .put(format!("From: {from}\r\n\r\nhi\r\n").as_bytes())
         .unwrap();
     let message = Message {
         id: MessageId::generate(),

@@ -29,12 +29,12 @@ mod term;
 
 pub use account::{NewAccount, StoredAccount};
 pub use blob::Blobs;
-pub use follow_up::FollowUpHold;
-pub use history::SenderRecord;
 pub use contact::{
     AddressBook, BookCard, Contact, Edit, Group, GroupHome, GroupId, Kind, Origin, Tally,
 };
 pub use dispatch::{PASSES_TO_FIND, SYNCS_TO_FIND};
+pub use follow_up::FollowUpHold;
+pub use history::SenderRecord;
 pub use memory::MemoryStore;
 pub use offline::{Offline, RemotePart};
 pub use sql::{SqlFilter, SqlValue, compile};

@@ -191,9 +191,7 @@ pub fn load(
     if size > kind.max_bytes() {
         return Err(Unshown::Refused(Refusal::TooManyBytes(size)));
     }
-    let bytes = blobs
-        .get(blob)
-        .map_err(|e| Unshown::Store(e.to_string()))?;
+    let bytes = blobs.get(blob).map_err(|e| Unshown::Store(e.to_string()))?;
     Ok((kind, bytes))
 }
 

@@ -48,12 +48,7 @@ fn both<T>(scenario: impl Fn(&dyn Store, &Blobs) -> T) -> (T, T) {
     }
     let blobs = Blobs {
         raw: (0..8)
-            .map(|n| {
-                sqlite
-                    .blobs()
-                    .put(format!("raw {n}").as_bytes())
-                    .unwrap()
-            })
+            .map(|n| sqlite.blobs().put(format!("raw {n}").as_bytes()).unwrap())
             .collect(),
     };
     let memory = MemoryStore::new();

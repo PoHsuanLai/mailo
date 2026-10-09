@@ -1,6 +1,6 @@
 //! Where each account's link begins, and how the set of links follows the set of accounts.
 
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::{DateTime, Utc};
 use mail_core::fetch::{Link, Live};
 use mail_domain::{Filter, JMAP_ALL, MailboxRef};
 use mail_store::{SqliteStore, Store};
@@ -9,23 +9,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
 
 /// When the last pass of `account` finished, as the store recorded it.
-///
-/// A pass always fetches the inbox (or, for JMAP, the one mailbox that stands for all of them),
-/// and every ingest that knows where a mailbox got to stamps the time beside the cursor. The
-/// store has no call for it, so it is read where `sync` reads the rest of its own tables.
 pub(super) fn last_synced(store: &SqliteStore, account: AccountId) -> Option<DateTime<Utc>> {
-    let stamp: Option<String> = store
-        .connection()
-        .query_row(
-            "SELECT MAX(synced_at) FROM sync_state WHERE account = ?1",
-            [account.to_string()],
-            |row| row.get(0),
-        )
-        .ok()
-        .flatten();
-    NaiveDateTime::parse_from_str(&stamp?, "%Y-%m-%d %H:%M:%S")
-        .ok()
-        .map(|naive| naive.and_utc())
+    store.last_synced(account).ok().flatten()
 }
 
 /// Whether the store holds anything of `account`'s: a cursor, or mail that an import left

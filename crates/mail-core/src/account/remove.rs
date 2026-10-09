@@ -18,11 +18,10 @@
 //! other order would leave a grant nothing names and the next read of accountd's accounts would
 //! bring the account straight back.
 
-use mail_domain::{AccountPlan, Incoming};
+use mail_domain::Incoming;
 use mail_runtime::AccountSecrets;
 use mail_store::{Freed, SqliteStore};
 use porter_core::AccountId;
-use rusqlite::OptionalExtension as _;
 
 /// An account that was removed.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -66,19 +65,12 @@ pub async fn remove(
     secrets: &dyn AccountSecrets,
     account: AccountId,
 ) -> Result<Removed, RemoveError> {
-    let id = account.to_string();
-    let (address, plan) = {
-        let db = store.connection();
-        db.query_row(
-            "SELECT address, plan FROM accounts WHERE id = ?1",
-            [&id],
-            |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
-        )
-        .optional()
+    let stored = store
+        .account(account.clone())
         .map_err(|e| RemoveError::Store(e.to_string()))?
-        .ok_or(RemoveError::Unknown)?
-    };
-    let plan = serde_json::from_str::<AccountPlan>(&plan).ok();
+        .ok_or(RemoveError::Unknown)?;
+    let address = stored.address;
+    let plan = stored.plan.ok();
     // A plan that no longer reads is still an account with a server: only a readable `Local`
     // is refused.
     if plan

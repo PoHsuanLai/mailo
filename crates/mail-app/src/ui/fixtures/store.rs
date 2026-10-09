@@ -63,9 +63,7 @@ pub(in crate::ui) fn seeded() -> (Arc<SqliteStore>, tempfile::TempDir) {
 
     let raw = store
         .blobs()
-        .put(
-            b"From: ada@example.test\r\nSubject: hi\r\n\r\nbody\r\n",
-        )
+        .put(b"From: ada@example.test\r\nSubject: hi\r\n\r\nbody\r\n")
         .unwrap();
     let message = Message {
         id: MessageId::generate(),

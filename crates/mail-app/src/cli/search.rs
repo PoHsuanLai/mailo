@@ -134,10 +134,7 @@ mod tests {
             )
             .expect("account");
         for (i, (subject, body, secs)) in rows.iter().enumerate() {
-            let raw = store
-                .blobs()
-                .put(body.as_bytes())
-                .expect("blob");
+            let raw = store.blobs().put(body.as_bytes()).expect("blob");
             let mut message = message(i as u128, subject, body, *secs);
             if let Body::Present { raw: slot, .. } = &mut message.body {
                 *slot = raw;

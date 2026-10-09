@@ -14,7 +14,6 @@ pub use body::{fetch_body, fetch_body_with};
 mod jmap;
 mod search;
 
-use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_proto::backend::{Authenticate, ImapBackend, Pop3Backend};
 use mail_proto::{ImapAuth, ImapCommand, ImapSession, Pop3Command, Pop3Session};
@@ -52,48 +51,21 @@ pub struct Configured {
 /// than as an error: the window can be opened before the first sync, and refusing to act at all
 /// would be worse than acting locally.
 pub fn caps_of(store: &SqliteStore, account: AccountId) -> Option<AccountCaps> {
-    let db = store.connection();
-    let stored: Option<String> = db
-        .query_row(
-            "SELECT caps FROM account_caps WHERE account = ?1",
-            [account.to_string()],
-            |r| r.get(0),
-        )
-        .ok();
-    serde_json::from_str(&stored?).ok()
+    store.account_caps(account).ok().flatten()
 }
 
 /// Read the accounts back out of the store.
 pub(crate) fn configured(store: &SqliteStore) -> Result<Vec<Configured>, String> {
-    let db = store.connection();
-    let mut stmt = db
-        .prepare(&format!(
-            "SELECT a.id, a.address, a.plan, c.caps
-             FROM {} a LEFT JOIN account_caps c ON c.account = a.id
-             ORDER BY a.created_at",
-            store.accounts()
-        ))
-        .map_err(|e| e.to_string())?;
-    let rows = stmt
-        .query_map([], |r| {
-            Ok((
-                r.get::<_, String>(0)?,
-                r.get::<_, String>(1)?,
-                r.get::<_, String>(2)?,
-                r.get::<_, Option<String>>(3)?,
-            ))
-        })
-        .map_err(|e| e.to_string())?;
-
     let mut out = Vec::new();
-    for row in rows {
-        let (id, address, plan, caps) = row.map_err(|e| e.to_string())?;
-        let Ok(uuid) = id.parse() else { continue };
-        let plan: AccountPlan = serde_json::from_str(&plan)
-            .map_err(|e| format!("{address}: stored plan is unreadable: {e}"))?;
-        let caps: AccountCaps = match caps {
-            Some(text) => serde_json::from_str(&text)
-                .map_err(|e| format!("{address}: stored capabilities are unreadable: {e}"))?,
+    for stored in store.list_accounts().map_err(|e| e.to_string())? {
+        let address = stored.address;
+        let plan: AccountPlan = stored
+            .plan
+            .map_err(|e| format!("{address}: stored plan is unreadable: {}", why(&e)))?;
+        let caps: AccountCaps = match stored.caps {
+            Some(caps) => caps.map_err(|e| {
+                format!("{address}: stored capabilities are unreadable: {}", why(&e))
+            })?,
             // No capabilities yet means nothing has connected. The expected ones from the
             // preset are a starting point, not a claim about the server.
             None => {
@@ -103,7 +75,7 @@ pub(crate) fn configured(store: &SqliteStore) -> Result<Vec<Configured>, String>
             }
         };
         out.push(Configured {
-            id: account_id_from_uuid(uuid),
+            id: stored.id,
             address,
             plan,
             caps,
@@ -111,6 +83,14 @@ pub(crate) fn configured(store: &SqliteStore) -> Result<Vec<Configured>, String>
         });
     }
     Ok(out)
+}
+
+/// Why a stored value would not read, without the store's own preamble.
+pub(crate) fn why(error: &mail_store::StoreError) -> String {
+    match error {
+        mail_store::StoreError::Decode { why, .. } => why.clone(),
+        other => other.to_string(),
+    }
 }
 
 /// How each configured account signs in, by address.

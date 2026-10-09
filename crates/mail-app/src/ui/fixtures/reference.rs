@@ -393,10 +393,7 @@ fn build(store: &SqliteStore, batch: &[&Mail]) -> BuiltMail {
             "From: {} <{}>\r\nSubject: {}\r\n\r\n{}\r\n",
             item.name, item.email, item.subject, item.body
         );
-        let raw = store
-            .blobs()
-            .put(bytes.as_bytes())
-            .unwrap();
+        let raw = store.blobs().put(bytes.as_bytes()).unwrap();
         let remote = RemoteRef::Pop {
             uidl: format!("w-{n}-{}", item.account),
         };

@@ -80,11 +80,13 @@ pub fn migrate(db: &Connection) -> Result<(), StoreError> {
         }
         // One transaction per migration: a failure half way leaves the database at the last
         // version that fully applied, rather than in a shape no version describes.
-        let tx = db
-            .unchecked_transaction()
-            .map_err(StoreError::db)?;
-        tx.execute_batch(sql)
-            .map_err(|e| StoreError::db(crate::error::Context::new(format!("migration {version}"), e)))?;
+        let tx = db.unchecked_transaction().map_err(StoreError::db)?;
+        tx.execute_batch(sql).map_err(|e| {
+            StoreError::db(crate::error::Context::new(
+                format!("migration {version}"),
+                e,
+            ))
+        })?;
         // 0001 seeds its own row; later migrations must record themselves.
         if *version > 1 {
             tx.execute(

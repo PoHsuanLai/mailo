@@ -15,19 +15,7 @@ use porter_core::AccountId;
 
 /// An identity of the user's, found by its address on any account.
 pub(crate) fn identity_for(store: &SqliteStore, address: &str) -> Option<Identity> {
-    let db = store.connection();
-    let (id, account): (String, String) = db
-        .query_row(
-            "SELECT id, account FROM identities WHERE lower(from_email) = lower(?1)
-             ORDER BY is_default DESC, id LIMIT 1",
-            [address.trim()],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        )
-        .ok()?;
-    let account = account_id_from_uuid(account.parse().ok()?);
-    let id = IdentityId::from_uuid(id.parse().ok()?);
-    drop(db);
-    crate::compose::identity_of(store, account, Some(id)).ok()
+    store.identity_for_address(address).ok().flatten()
 }
 
 /// The user's own key for `address`: one whose secret half the keyring holds, best first.

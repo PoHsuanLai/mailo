@@ -31,9 +31,7 @@ impl<'a> Blobs<'a> {
     /// Store `bytes`, returning the id to reference them by. Identical bytes are stored once
     /// and share an id.
     pub fn put(&self, bytes: &[u8]) -> Result<BlobId, StoreError> {
-        self.store
-            .files()
-            .put(&self.store.connection(), bytes)
+        self.store.files().put(&self.store.connection(), bytes)
     }
 
     /// The bytes behind `id`.
@@ -144,7 +142,12 @@ impl BlobStore {
 
     /// At most the first `limit` bytes behind `id`: enough of a raw message for its headers,
     /// without reading a large attachment to find them.
-    pub(crate) fn head(&self, db: &Connection, id: BlobId, limit: usize) -> Result<Vec<u8>, StoreError> {
+    pub(crate) fn head(
+        &self,
+        db: &Connection,
+        id: BlobId,
+        limit: usize,
+    ) -> Result<Vec<u8>, StoreError> {
         let row: Option<(Option<String>, Option<Vec<u8>>)> = db
             .query_row(
                 "SELECT path, substr(inline, 1, ?2) FROM blobs WHERE id = ?1",

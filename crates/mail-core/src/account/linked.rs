@@ -9,7 +9,7 @@
 //! column as one; accountd's id is in the plan, and [`find`] is how one is found by the other.
 //!
 //! Nothing here deletes or changes anything of the person's. An account mailo signed in itself is
-//! not accountd's and is not made so: while linked it is set aside (`SqliteStore::accounts`) and the
+//! not accountd's and is not made so: while linked it is set aside (`SqliteStore::set_granted_only`) and the
 //! person adds it again through accountd. An address that is both (the person added it again while
 //! mailo still holds it) cannot be two rows, the address being unique: accountd's is not added, and
 //! the address is named in [`Reconciled::held`] until the person removes the old one.
@@ -20,7 +20,7 @@ use mail_domain::{
     AccountPlan, Address, AuthPlan, HttpAuth, Identity, IdentityId, Incoming, IsDefault, Outgoing,
     Tls,
 };
-use mail_store::SqliteStore;
+use mail_store::{NewAccount, SqliteStore};
 use porter_core::{AccountId, Candidate, Family, ServiceEndpoint};
 
 /// One account of accountd's, as the store has it.
@@ -152,30 +152,18 @@ pub fn preset_of(
 
 /// Every linked account in the store.
 pub fn linked(store: &SqliteStore) -> Vec<Linked> {
-    let db = store.connection();
-    let Ok(mut stmt) = db.prepare("SELECT id, address, plan FROM accounts") else {
-        return Vec::new();
-    };
-    let rows = stmt.query_map([], |r| {
-        Ok((
-            r.get::<_, String>(0)?,
-            r.get::<_, String>(1)?,
-            r.get::<_, String>(2)?,
-        ))
-    });
-    let Ok(rows) = rows else {
-        return Vec::new();
-    };
-    rows.filter_map(Result::ok)
-        .filter_map(|(id, address, plan)| {
-            let plan: AccountPlan = serde_json::from_str(&plan).ok()?;
-            let AuthPlan::Granted { account, .. } = plan.auth else {
+    store
+        .list_all_accounts()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|stored| {
+            let AuthPlan::Granted { account, .. } = stored.plan.ok()?.auth else {
                 return None;
             };
             Some(Linked {
-                id: AccountId::parse(&id).ok()?,
+                id: stored.id,
                 account,
-                address,
+                address: stored.address,
             })
         })
         .collect()
@@ -235,14 +223,7 @@ pub fn reconcile(
 
 /// Whether the store has a row for `address` that is not accountd's.
 fn holds(store: &SqliteStore, address: &str) -> bool {
-    store
-        .connection()
-        .query_row(
-            "SELECT 1 FROM accounts WHERE address = ?1",
-            [address],
-            |_| Ok(()),
-        )
-        .is_ok()
+    store.account_by_address(address).ok().flatten().is_some()
 }
 
 fn insert(
@@ -263,62 +244,37 @@ fn insert(
         signature: None,
         default: IsDefault::Default,
     }];
-    let plan_json = serde_json::to_string(&plan).map_err(|e| format!("the plan: {e}"))?;
-    let caps_json =
-        serde_json::to_string(&preset.expected_caps).map_err(|e| format!("capabilities: {e}"))?;
-    let db = store.connection();
-    db.execute(
-        "INSERT INTO accounts (id, address, plan, created_at) VALUES (?1, ?2, ?3, ?4)",
-        rusqlite::params![id.to_string(), plan.address, plan_json, now.to_rfc3339()],
-    )
-    .map_err(|e| format!("cannot save the account: {e}"))?;
-    for identity in &plan.identities {
-        db.execute(
-            "INSERT INTO identities (id, account, from_name, from_email, reply_to, signature,
-                 is_default)
-             VALUES (?1, ?2, NULL, ?3, NULL, NULL, ?4)",
-            rusqlite::params![
-                identity.id.to_string(),
-                id.to_string(),
-                identity.from.email,
-                serde_json::to_string(&identity.default).map_err(|e| format!("identity: {e}"))?,
-            ],
-        )
-        .map_err(|e| format!("cannot save the identity: {e}"))?;
-    }
-    db.execute(
-        "INSERT INTO account_caps (account, caps, observed_at) VALUES (?1, ?2, ?3)",
-        rusqlite::params![id.to_string(), caps_json, now.to_rfc3339()],
-    )
-    .map_err(|e| format!("cannot save capabilities: {e}"))?;
-    Ok(())
+    store
+        .upsert_account(&NewAccount {
+            id: &id,
+            address: &plan.address,
+            plan: &plan,
+            caps: &preset.expected_caps,
+            identities: &plan.identities,
+            at: now,
+        })
+        .map_err(|e| format!("cannot save the account: {e}"))
 }
 
 /// Brings the row's grant and servers up to date, keeping what the person set (identities).
 /// Whether anything changed.
 fn refresh(store: &SqliteStore, here: &Linked, fresh: AccountPlan) -> Result<bool, String> {
-    let db = store.connection();
-    let stored: String = db
-        .query_row(
-            "SELECT plan FROM accounts WHERE id = ?1",
-            [here.id.to_string()],
-            |r| r.get(0),
-        )
-        .map_err(|e| format!("cannot read the account: {e}"))?;
-    let mut plan: AccountPlan =
-        serde_json::from_str(&stored).map_err(|e| format!("cannot read the plan: {e}"))?;
+    let stored = store
+        .account(here.id.clone())
+        .map_err(|e| format!("cannot read the account: {e}"))?
+        .ok_or_else(|| "cannot read the account: it is gone".to_owned())?;
+    let mut plan: AccountPlan = stored
+        .plan
+        .map_err(|e| format!("cannot read the plan: {}", crate::sync::why(&e)))?;
     let identities = std::mem::take(&mut plan.identities);
     let mut next = fresh;
     next.identities = identities;
     if next == plan_with(&plan, &next.identities) {
         return Ok(false);
     }
-    let json = serde_json::to_string(&next).map_err(|e| format!("the plan: {e}"))?;
-    db.execute(
-        "UPDATE accounts SET plan = ?2 WHERE id = ?1",
-        rusqlite::params![here.id.to_string(), json],
-    )
-    .map_err(|e| format!("cannot save the account: {e}"))?;
+    store
+        .set_account_plan(here.id.clone(), &next)
+        .map_err(|e| format!("cannot save the account: {e}"))?;
     Ok(true)
 }
 

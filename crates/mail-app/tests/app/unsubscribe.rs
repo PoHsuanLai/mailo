@@ -91,10 +91,7 @@ fn list_message(
         "From: news@example.test\r\nTo: lists@example.test\r\nSubject: news {n}\r\n\
          Message-ID: <{rfc_id}>\r\n{headers}\r\nthis week's news\r\n"
     );
-    let raw = store
-        .blobs()
-        .put(raw_bytes.as_bytes())
-        .unwrap();
+    let raw = store.blobs().put(raw_bytes.as_bytes()).unwrap();
     let id = MessageId::generate();
     let message = Message {
         id,

@@ -483,10 +483,7 @@ mod left_on_the_server {
         let said = attach::fetch_and_save(&store, id, 0, out.path(), |section| {
             asked.push(section.to_owned());
             // What the network half does: store the bytes, record the part as held.
-            let blob = store
-                .blobs()
-                .put(b"%PDF-1.4")
-                .map_err(|e| e.to_string())?;
+            let blob = store.blobs().put(b"%PDF-1.4").map_err(|e| e.to_string())?;
             store
                 .hold_part(id, section, blob, 8)
                 .map_err(|e| e.to_string())

@@ -175,9 +175,7 @@ impl SqliteStore {
         // Held for the whole pass: the lock is reentrant, so `refresh_summary` takes it again
         // inside this transaction rather than waiting on it.
         let db = self.connection();
-        let tx = db
-            .unchecked_transaction()
-            .map_err(StoreError::db)?;
+        let tx = db.unchecked_transaction().map_err(StoreError::db)?;
         for thread in queued {
             let id: uuid::Uuid = thread
                 .parse()
@@ -264,9 +262,7 @@ fn backfill_fts(db: &Connection) -> Result<(), StoreError> {
             .map_err(StoreError::db)?
     };
 
-    let tx = db
-        .unchecked_transaction()
-        .map_err(StoreError::db)?;
+    let tx = db.unchecked_transaction().map_err(StoreError::db)?;
     for (rowid, subject, from_name, from_email, recipients, body_text) in rows {
         // A row whose recipients no longer decode is indexed without them, rather than stopping
         // the database from opening over one message.

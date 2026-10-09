@@ -6,7 +6,6 @@
 //! the moment the user pressed the key would lose the message on a train.
 
 use chrono::{DateTime, Local, Utc};
-use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_mime::posting;
 use mail_store::{SqliteStore, Store};
@@ -30,63 +29,24 @@ pub fn identity_of(
     account: AccountId,
     wanted: Option<IdentityId>,
 ) -> Result<Identity, String> {
-    let db = store.connection();
-    // `is_default` sorts 'alternate' before 'default', so DESC puts the default first; the id
-    // breaks the tie so an account with two alternates picks the same one every time.
-    let (sql, param): (&str, String) = match wanted {
-        Some(id) => (
-            "SELECT id, from_name, from_email, reply_to, signature, is_default
-             FROM identities WHERE id = ?1",
-            id.to_string(),
-        ),
-        None => (
-            "SELECT id, from_name, from_email, reply_to, signature, is_default
-             FROM identities WHERE account = ?1 ORDER BY is_default DESC, id LIMIT 1",
-            account.to_string(),
-        ),
+    // The default first, and the id breaks the tie so an account with two alternates picks the
+    // same one every time.
+    let found = match wanted {
+        Some(id) => store.identity(id),
+        None => store
+            .identities(account)
+            .map(|identities| identities.into_iter().next()),
     };
-    let mut stmt = db.prepare(sql).map_err(|e| e.to_string())?;
-    let found = stmt
-        .query_row([param], |r| {
-            Ok((
-                r.get::<_, String>(0)?,
-                r.get::<_, Option<String>>(1)?,
-                r.get::<_, String>(2)?,
-                r.get::<_, Option<String>>(3)?,
-                r.get::<_, Option<String>>(4)?,
-                r.get::<_, String>(5)?,
-            ))
-        })
-        .map_err(|_| match wanted {
+    match found {
+        Ok(Some(identity)) => Ok(identity),
+        Ok(None) => Err(match wanted {
             Some(id) => format!("the draft names identity {id}, which this account no longer has"),
             None => "this account has no identity to send as. It was added before identities \
                      were created at setup; re-add it with: mailo account add <address>"
                 .to_owned(),
-        })?;
-
-    let (id, from_name, from_email, reply_to, signature, is_default) = found;
-    let parse = |what: &str, text: &str| -> Result<serde_json::Value, String> {
-        serde_json::from_str(text).map_err(|e| format!("stored {what} is unreadable: {e}"))
-    };
-    Ok(Identity {
-        id: IdentityId::from_uuid(
-            id.parse()
-                .map_err(|_| format!("stored identity id {id:?} is unreadable"))?,
-        ),
-        account,
-        from: Address {
-            name: from_name,
-            email: from_email,
-        },
-        reply_to: match reply_to {
-            Some(text) => serde_json::from_str(&text)
-                .map_err(|e| format!("stored reply_to is unreadable: {e}"))?,
-            None => None,
-        },
-        signature,
-        default: serde_json::from_value(parse("is_default", &is_default)?)
-            .map_err(|e| format!("stored is_default is unreadable: {e}"))?,
-    })
+        }),
+        Err(e) => Err(format!("stored identity is unreadable: {e}")),
+    }
 }
 
 /// Create and persist a reply to `message`, returning the draft.
@@ -202,32 +162,20 @@ where
 /// Local folders are not one: they have no server to send through, so they are never offered
 /// as a From, and a new message never starts on them.
 pub fn sending_accounts(store: &SqliteStore) -> Vec<(String, AccountId)> {
-    let db = store.connection();
-    let Ok(mut stmt) = db.prepare(&format!(
-        "SELECT address, id, plan FROM {} ORDER BY created_at",
-        store.accounts()
-    )) else {
-        return Vec::new();
-    };
-    let Ok(rows) = stmt.query_map([], |r| {
-        Ok((
-            r.get::<_, String>(0)?,
-            r.get::<_, String>(1)?,
-            r.get::<_, String>(2)?,
-        ))
-    }) else {
+    let Ok(accounts) = store.list_accounts() else {
         return Vec::new();
     };
     // Read row by row rather than through `sync::configured`, which gives up on the whole list
     // when one plan does not parse: an account whose plan cannot be read is still offered, as it
     // always was, and only a plan that says Local is left out.
-    let keeps_locally = |plan: &str| {
-        serde_json::from_str::<AccountPlan>(plan)
+    let keeps_locally = |plan: &Result<AccountPlan, mail_store::StoreError>| {
+        plan.as_ref()
             .is_ok_and(|plan| matches!(plan.incoming, Incoming::Local))
     };
-    rows.filter_map(|row| row.ok())
-        .filter(|(_, _, plan)| !keeps_locally(plan))
-        .filter_map(|(address, id, _)| Some((address, account_id_from_uuid(id.parse().ok()?))))
+    accounts
+        .into_iter()
+        .filter(|account| !keeps_locally(&account.plan))
+        .map(|account| (account.address, account.id))
         .collect()
 }
 
@@ -366,25 +314,16 @@ pub fn identity_addressed(
     account: AccountId,
     addressed: &[Address],
 ) -> Option<IdentityId> {
-    let db = store.connection();
-    let mut stmt = db
-        .prepare(
-            "SELECT id, from_email FROM identities WHERE account = ?1
-             ORDER BY is_default DESC, id",
-        )
-        .ok()?;
-    let rows = stmt
-        .query_map([account.to_string()], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
-        })
-        .ok()?;
-    rows.filter_map(Result::ok)
-        .find(|(_, email)| {
+    store
+        .identities(account)
+        .ok()?
+        .into_iter()
+        .find(|identity| {
             addressed
                 .iter()
-                .any(|a| a.email.eq_ignore_ascii_case(email))
+                .any(|a| a.email.eq_ignore_ascii_case(&identity.from.email))
         })
-        .and_then(|(id, _)| id.parse().ok().map(IdentityId::from_uuid))
+        .map(|identity| identity.id)
 }
 
 /// The most a single message may carry, before base64 expands it.
@@ -920,11 +859,7 @@ pub fn set_signature(
     // rather than two that can disagree.
     let trimmed = signature.map(str::trim_end).filter(|s| !s.is_empty());
     store
-        .connection()
-        .execute(
-            "UPDATE identities SET signature = ?2 WHERE id = ?1",
-            rusqlite::params![identity.id.to_string(), trimmed],
-        )
+        .set_signature(identity.id, trimmed)
         .map_err(|e| e.to_string())?;
     Ok(match trimmed {
         Some(_) => format!("signature set for {}\n", identity.from.email),
@@ -1317,25 +1252,12 @@ pub fn drafts_in<Tz: chrono::TimeZone>(store: &SqliteStore, zone: &Tz) -> Result
 where
     Tz::Offset: std::fmt::Display,
 {
-    let accounts: Vec<AccountId> = {
-        let db = store.connection();
-        let mut stmt = db
-            .prepare(&format!(
-                "SELECT id FROM {} ORDER BY created_at",
-                store.accounts()
-            ))
-            .map_err(|e| e.to_string())?;
-        let rows = stmt
-            .query_map([], |r| r.get::<_, String>(0))
-            .map_err(|e| e.to_string())?;
-        let mut out = Vec::new();
-        for row in rows {
-            if let Ok(id) = row.map_err(|e| e.to_string())?.parse() {
-                out.push(account_id_from_uuid(id));
-            }
-        }
-        out
-    };
+    let accounts: Vec<AccountId> = store
+        .list_accounts()
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .map(|account| account.id)
+        .collect();
 
     let mut out = String::new();
     for account in accounts {

@@ -114,10 +114,7 @@ pub fn sqlite_with(rows: &[(&str, &str, i64)]) -> (SqliteStore, tempfile::TempDi
         )
         .expect("account");
     for (i, (subject, body, secs)) in rows.iter().enumerate() {
-        let raw = store
-            .blobs()
-            .put(body.as_bytes())
-            .expect("blob");
+        let raw = store.blobs().put(body.as_bytes()).expect("blob");
         let mut message = message(
             i as u128,
             subject,

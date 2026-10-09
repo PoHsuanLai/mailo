@@ -358,11 +358,7 @@ async fn kept_offline_every_part_is_fetched_largest_last() {
     // (F165), which export and forward tell from the whole one by its bytes.
     for message in messages(&passed.store) {
         let raw = message.body.raw().expect("a body");
-        let bytes = passed
-            .store
-            .blobs()
-            .get(raw)
-            .unwrap();
+        let bytes = passed.store.blobs().get(raw).unwrap();
         assert!(mail_mime::left_on_server(&bytes), "{}", message.subject);
         assert!(
             message.attachments.iter().all(|a| a.blob().is_some()),

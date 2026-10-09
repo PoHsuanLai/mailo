@@ -17,7 +17,7 @@ pub mod floor;
 
 use chrono::{DateTime, Utc};
 use mail_domain::ThreadId;
-use mail_domain::{AccountPlan, MailboxRole, Message, MessageId, ReadState, Snooze};
+use mail_domain::{MailboxRole, Message, MessageId, ReadState, Snooze};
 use mail_store::{SqliteStore, Store as _};
 use porter_core::AccountId;
 use std::path::Path;
@@ -277,31 +277,15 @@ pub fn announce(
 
 /// Every address the user sends from: each account's own, and each identity's.
 pub fn own_addresses(store: &SqliteStore) -> Result<Own, String> {
-    let db = store.connection();
     let mut addresses: Vec<String> = Vec::new();
-    let mut plans = db
-        .prepare("SELECT address, plan FROM accounts")
-        .map_err(|e| e.to_string())?;
-    let rows = plans
-        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
-        .map_err(|e| e.to_string())?;
-    for row in rows {
-        let (address, plan) = row.map_err(|e| e.to_string())?;
-        addresses.push(address);
+    for account in store.list_all_accounts().map_err(|e| e.to_string())? {
+        addresses.push(account.address);
         // An unreadable plan still has its address; the identities are a bonus.
-        if let Ok(plan) = serde_json::from_str::<AccountPlan>(&plan) {
+        if let Ok(plan) = account.plan {
             addresses.extend(plan.identities.into_iter().map(|i| i.from.email));
         }
     }
-    let mut identities = db
-        .prepare("SELECT from_email FROM identities")
-        .map_err(|e| e.to_string())?;
-    let rows = identities
-        .query_map([], |r| r.get::<_, String>(0))
-        .map_err(|e| e.to_string())?;
-    for row in rows {
-        addresses.push(row.map_err(|e| e.to_string())?);
-    }
+    addresses.extend(store.identity_addresses().map_err(|e| e.to_string())?);
     Ok(Own::new(addresses))
 }
 

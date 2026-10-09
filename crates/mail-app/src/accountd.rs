@@ -285,14 +285,7 @@ pub fn held(store: &SqliteStore) -> Vec<(porter_core::AccountId, String)> {
         .held_accounts()
         .into_iter()
         .filter_map(|id| {
-            let address = store
-                .connection()
-                .query_row(
-                    "SELECT address FROM accounts WHERE id = ?1",
-                    [id.to_string()],
-                    |r| r.get::<_, String>(0),
-                )
-                .ok()?;
+            let address = store.account(id.clone()).ok()??.address;
             Some((id, address))
         })
         .collect()

@@ -49,15 +49,11 @@ pub(super) fn remove(
 }
 
 fn plan_of(store: &SqliteStore, address: &str) -> Option<AccountPlan> {
-    let plan: String = store
-        .connection()
-        .query_row(
-            "SELECT plan FROM accounts WHERE address = ?1",
-            [address.to_lowercase()],
-            |r| r.get(0),
-        )
-        .ok()?;
-    serde_json::from_str(&plan).ok()
+    store
+        .account_by_address(&address.to_lowercase())
+        .ok()??
+        .plan
+        .ok()
 }
 
 /// What removing `address`, which holds `held` messages here, would take, and how to go on.

@@ -148,17 +148,8 @@ pub(super) fn held_asking(account: &AccountId, address: &str) -> (String, String
         });
     let incoming = store
         .as_ref()
-        .and_then(|store| {
-            store
-                .connection()
-                .query_row(
-                    "SELECT plan FROM accounts WHERE id = ?1",
-                    [account.to_string()],
-                    |r| r.get::<_, String>(0),
-                )
-                .ok()
-        })
-        .and_then(|plan| serde_json::from_str::<mail_domain::AccountPlan>(&plan).ok())
+        .and_then(|store| store.account(account.clone()).ok().flatten())
+        .and_then(|stored| stored.plan.ok())
         .map(|plan| plan.incoming);
     let asked = words::asking(
         address,

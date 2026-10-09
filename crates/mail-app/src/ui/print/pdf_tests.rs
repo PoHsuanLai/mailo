@@ -52,10 +52,7 @@ fn thread_of(store: &SqliteStore, seeds: Vec<Seed>) -> ThreadId {
                 "From: {}\r\nSubject: {}\r\nMIME-Version: 1.0\r\n{}",
                 seed.from, seed.subject, seed.mime
             );
-            let raw = store
-                .blobs()
-                .put(raw.as_bytes())
-                .unwrap();
+            let raw = store.blobs().put(raw.as_bytes()).unwrap();
             let key = format!("paper{index}.{tag}@example.test");
             let message = Message {
                 id: MessageId::generate(),

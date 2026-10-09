@@ -44,15 +44,7 @@ pub fn receiver(plan: &AccountPlan) -> Receiver {
 
 /// The account's plan, when the store has one that reads.
 fn plan_of(store: &SqliteStore, account: AccountId) -> Option<AccountPlan> {
-    let plan: String = store
-        .connection()
-        .query_row(
-            "SELECT plan FROM accounts WHERE id = ?1",
-            [account.to_string()],
-            |row| row.get(0),
-        )
-        .ok()?;
-    serde_json::from_str(&plan).ok()
+    store.account(account).ok()??.plan.ok()
 }
 
 /// What the receiving server said about `message`'s sender, read from its stored bytes. `None`

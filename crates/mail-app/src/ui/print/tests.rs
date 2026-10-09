@@ -34,10 +34,7 @@ fn conversation() -> (Arc<SqliteStore>, ThreadId, tempfile::TempDir) {
             let raw = format!(
                 "From: Ada <ada@example.test>\r\nSubject: {SUBJECT}\r\nMIME-Version: 1.0\r\n{body}"
             );
-            let raw = store
-                .blobs()
-                .put(raw.as_bytes())
-                .unwrap();
+            let raw = store.blobs().put(raw.as_bytes()).unwrap();
             let message = Message {
                 id: MessageId::generate(),
                 thread,

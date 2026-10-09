@@ -580,9 +580,7 @@ impl<B: Backend> AccountEngine<B> {
             }
         };
         let staged = match &op {
-            ProtoOp::Append { raw, .. } => {
-                Some(self.store.blobs().get(*raw)?)
-            }
+            ProtoOp::Append { raw, .. } => Some(self.store.blobs().get(*raw)?),
             _ => None,
         };
         let Some(reader) = self.graph.as_mut() else {

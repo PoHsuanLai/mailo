@@ -166,27 +166,20 @@ pub(super) fn saved_toast(path: &Path) -> String {
 /// The address an account signs in with.
 pub(super) fn account_address(store: &SqliteStore, account: AccountId) -> String {
     store
-        .connection()
-        .query_row(
-            "SELECT address FROM accounts WHERE id = ?1",
-            [account.to_string()],
-            |r| r.get::<_, String>(0),
-        )
-        .unwrap_or_else(|_| "this account".to_owned())
+        .account(account)
+        .ok()
+        .flatten()
+        .map_or_else(|| "this account".to_owned(), |stored| stored.address)
 }
 
 /// Whether opening a headers-only message of this account should fetch it at once: IMAP and
 /// Graph can; POP3, JMAP and local accounts get their bodies with a sync.
 pub(super) fn fetches_on_open(store: &SqliteStore, account: AccountId) -> bool {
-    let plan: Option<String> = store
-        .connection()
-        .query_row(
-            "SELECT plan FROM accounts WHERE id = ?1",
-            [account.to_string()],
-            |r| r.get(0),
-        )
-        .ok();
-    plan.and_then(|p| serde_json::from_str::<mail_domain::AccountPlan>(&p).ok())
+    store
+        .account(account)
+        .ok()
+        .flatten()
+        .and_then(|stored| stored.plan.ok())
         .is_some_and(|plan| opens_with_fetch(&plan.incoming))
 }
 

@@ -277,10 +277,7 @@ fn schedule(store: &SqliteStore, at: DateTime<Utc>) -> Draft {
         )
         .unwrap();
     let post = posting(&draft, &identity(), None, &[]).unwrap();
-    let raw = store
-        .blobs()
-        .put(&post.message)
-        .unwrap();
+    let raw = store.blobs().put(&post.message).unwrap();
     store
         .enqueue(
             acct_account(),
