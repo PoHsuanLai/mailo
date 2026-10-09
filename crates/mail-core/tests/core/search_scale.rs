@@ -193,14 +193,7 @@ impl Zipf {
 /// A file-backed store in `dir`, the way the window opens one, with one account.
 fn store(dir: &std::path::Path) -> SqliteStore {
     let store = SqliteStore::open(dir.join("mail.db"), dir.join("blobs")).unwrap();
-    store
-        .connection()
-        .execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [acct_account().to_string()],
-        )
-        .unwrap();
+    mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
     store
 }
 

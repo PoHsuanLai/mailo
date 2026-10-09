@@ -321,24 +321,8 @@ fn insert_account(store: &SqliteStore, id: AccountId, address: &str, host: &str,
         },
         identities: Vec::new(),
     };
-    let db = store.connection();
-    db.execute(
-        "INSERT INTO accounts (id, address, plan, created_at) VALUES (?1, ?2, ?3, datetime('now'))",
-        rusqlite::params![
-            id.to_string(),
-            address,
-            serde_json::to_string(&plan).unwrap()
-        ],
-    )
-    .unwrap();
-    db.execute(
-        "INSERT INTO account_caps (account, caps, observed_at) VALUES (?1, ?2, datetime('now'))",
-        rusqlite::params![
-            id.to_string(),
-            serde_json::to_string(&gmail_caps()).unwrap()
-        ],
-    )
-    .unwrap();
+    mail_store::testing::seed_account_plan(&store, id.clone(), &address, &plan, None);
+    mail_store::testing::seed_caps(&store, id.clone(), &gmail_caps(), chrono::Utc::now()).unwrap();
 }
 
 fn at(days: i64, hour: u32, min: u32) -> chrono::DateTime<chrono::Utc> {

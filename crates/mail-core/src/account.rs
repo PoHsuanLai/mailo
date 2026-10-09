@@ -867,13 +867,11 @@ mod tests {
 
         fn id_of(store: &SqliteStore, address: &str) -> String {
             store
-                .connection()
-                .query_row(
-                    "SELECT id FROM accounts WHERE address = ?1",
-                    [address],
-                    |r| r.get(0),
-                )
+                .account_by_address(address)
                 .unwrap()
+                .expect("the account")
+                .id
+                .to_string()
         }
 
         #[test]
@@ -956,16 +954,9 @@ mod tests {
                 )
                 .unwrap();
             }
-            let db = store.connection();
-            let accounts: i64 = db
-                .query_row("SELECT count(*) FROM accounts", [], |r| r.get(0))
-                .unwrap();
-            let identities: i64 = db
-                .query_row("SELECT count(*) FROM identities", [], |r| r.get(0))
-                .unwrap();
-            let caps: i64 = db
-                .query_row("SELECT count(*) FROM account_caps", [], |r| r.get(0))
-                .unwrap();
+            let accounts: i64 = mail_store::testing::count(&store, "accounts");
+            let identities: i64 = mail_store::testing::count(&store, "identities");
+            let caps: i64 = mail_store::testing::count(&store, "account_caps");
             assert_eq!((accounts, identities, caps), (1, 1, 1));
         }
 
@@ -985,13 +976,11 @@ mod tests {
                 now(),
             )
             .unwrap();
-            store
-                .connection()
-                .execute(
-                    "UPDATE identities SET signature = 'Ada, sent from mailo', from_name = 'Ada'",
-                    [],
-                )
-                .unwrap();
+            let account = store.list_accounts().unwrap().remove(0).id;
+            let mut mine = store.identities(account).unwrap().remove(0);
+            mine.signature = Some("Ada, sent from mailo".to_owned());
+            mine.from.name = Some("Ada".to_owned());
+            mail_store::testing::seed_identity(&store, &mine);
 
             add(
                 &store,
@@ -1005,14 +994,10 @@ mod tests {
             )
             .unwrap();
 
-            let (signature, name): (Option<String>, Option<String>) = store
-                .connection()
-                .query_row("SELECT signature, from_name FROM identities", [], |r| {
-                    Ok((r.get(0)?, r.get(1)?))
-                })
-                .unwrap();
-            assert_eq!(signature.as_deref(), Some("Ada, sent from mailo"));
-            assert_eq!(name.as_deref(), Some("Ada"));
+            let account = store.list_accounts().unwrap().remove(0).id;
+            let kept = store.identities(account).unwrap().remove(0);
+            assert_eq!(kept.signature.as_deref(), Some("Ada, sent from mailo"));
+            assert_eq!(kept.from.name.as_deref(), Some("Ada"));
         }
     }
 
@@ -1136,14 +1121,8 @@ mod tests {
             now(),
         )
         .unwrap();
-        let accounts: i64 = store
-            .connection()
-            .query_row("SELECT count(*) FROM accounts", [], |r| r.get(0))
-            .unwrap();
-        let caps: i64 = store
-            .connection()
-            .query_row("SELECT count(*) FROM account_caps", [], |r| r.get(0))
-            .unwrap();
+        let accounts: i64 = mail_store::testing::count(&store, "accounts");
+        let caps: i64 = mail_store::testing::count(&store, "account_caps");
         assert_eq!((accounts, caps), (1, 1));
     }
 

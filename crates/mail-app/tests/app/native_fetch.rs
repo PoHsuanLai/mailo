@@ -39,26 +39,20 @@ fn bare(dir: &std::path::Path) -> Arc<SqliteStore> {
     };
     let preset = presets::manual("me@example.test", &manual, chrono::Utc::now());
     {
-        let db = store.connection();
-        db.execute(
-            "INSERT INTO accounts (id, address, plan, created_at) VALUES (?1, ?2, ?3, ?4)",
-            [
-                acct_account().to_string(),
-                preset.plan.address.clone(),
-                serde_json::to_string(&preset.plan).unwrap(),
-                chrono::Utc::now().to_rfc3339(),
-            ],
-        )
-        .unwrap();
-        db.execute(
-            "INSERT INTO identities (id, account, from_name, from_email, is_default)
-             VALUES (?1, ?2, NULL, 'me@example.test', '\"default\"')",
-            [
-                IdentityId::generate().to_string(),
-                acct_account().to_string(),
-            ],
-        )
-        .unwrap();
+        mail_store::testing::seed_account_plan(
+            &store,
+            acct_account(),
+            &preset.plan.address,
+            &preset.plan,
+            Some(chrono::Utc::now()),
+        );
+        mail_store::testing::seed_identity_for(
+            &store,
+            IdentityId::generate(),
+            acct_account(),
+            "me@example.test",
+            None,
+        );
     }
     store
         .put_caps(acct_account(), &preset.expected_caps, chrono::Utc::now())

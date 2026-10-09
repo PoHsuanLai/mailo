@@ -54,22 +54,14 @@ fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
     std::fs::create_dir_all(dir.join("blobs")).unwrap();
     let store = SqliteStore::open(dir.join("mail.db"), dir.join("blobs")).unwrap();
     {
-        let db = store.connection();
-        db.execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [acct_account().to_string()],
-        )
-        .unwrap();
-        db.execute(
-            "INSERT INTO identities (id, account, from_name, from_email, is_default)
-             VALUES (?1, ?2, NULL, 'me@example.test', '\"default\"')",
-            [
-                IdentityId::generate().to_string(),
-                acct_account().to_string(),
-            ],
-        )
-        .unwrap();
+        mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
+        mail_store::testing::seed_identity_for(
+            &store,
+            IdentityId::generate(),
+            acct_account(),
+            "me@example.test",
+            None,
+        );
         let caps = AccountCaps {
             labels: ServerLabels::Supported,
             threads: ServerThreads::Jwz,
@@ -84,15 +76,7 @@ fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
             connections: ConnectionBudget::default(),
             observed_at: chrono::Utc::now(),
         };
-        db.execute(
-            "INSERT INTO account_caps (account, caps, observed_at)
-             VALUES (?1, ?2, datetime('now'))",
-            rusqlite::params![
-                acct_account().to_string(),
-                serde_json::to_string(&caps).unwrap()
-            ],
-        )
-        .unwrap();
+        mail_store::testing::seed_caps(&store, acct_account(), &caps, chrono::Utc::now()).unwrap();
     }
     let now = chrono::Utc::now();
     for (n, (from, subject)) in INBOX.iter().enumerate() {
@@ -233,27 +217,19 @@ fn row(n: usize) -> String {
 
 /// The reminder on the conversation that holds the message sent from `draft`, if it is here.
 fn follow_up_of(store: &SqliteStore, draft: DraftId) -> Option<(ThreadId, FollowUp)> {
-    let thread: String = store
-        .connection()
-        .query_row(
-            "SELECT thread FROM messages WHERE rfc_message_id LIKE ?1",
-            [format!("{draft}@%")],
-            |r| r.get(0),
-        )
-        .ok()?;
-    let thread = ThreadId::from_uuid(thread.parse().ok()?);
+    let thread = mail_store::testing::thread_with_rfc_prefix(store, &format!("{draft}@"))?;
     Some((thread, store.thread(thread).ok()?.summary.follow_up))
 }
 
 /// The bytes the outbox holds for `draft`: what the server was given, and what its Sent folder
 /// hands back.
 fn sent_bytes(store: &SqliteStore, draft: DraftId) -> Vec<u8> {
-    let op: String = store
-        .connection()
-        .query_row("SELECT op FROM outbox", [], |r| r.get(0))
-        .unwrap();
-    let ProtoOp::Submit { raw, draft: of, .. } = serde_json::from_str(&op).unwrap() else {
-        panic!("the outbox holds no submission: {op}");
+    let op = mail_store::testing::outbox_ops(store)
+        .into_iter()
+        .next()
+        .expect("the outbox holds an operation");
+    let ProtoOp::Submit { raw, draft: of, .. } = op else {
+        panic!("the outbox holds no submission: {op:?}");
     };
     assert_eq!(of, draft);
     store.blobs().get(raw).unwrap()

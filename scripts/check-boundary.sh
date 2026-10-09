@@ -10,7 +10,7 @@ PURE=(mail-domain mail-mime mail-proto mail-pim)
 # E6: nor the desktop's D-Bus link (porter's client and bus vocabulary, quire's capability probe):
 # the sans-I/O crates know nothing of accountd.
 FORBIDDEN=(tokio rusqlite dioxus reqwest keyring-core porter-client porter-dbus ds-desktop zbus)
-# `mail-core` is the I/O-capable core: it may use tokio, rusqlite and the network, which the PURE
+# `mail-core` is the I/O-capable core: it may use tokio and the network, which the PURE
 # crates may not. What it may never reach is anything that draws, the window's toolkit or the
 # renderer under it, so that `mail-app`'s two front-ends (`ui`, `cli`) sit over one core that
 # knows neither.
@@ -145,6 +145,26 @@ if grep -rnE '\b(porter_dbus|ds_desktop)\b' crates --include='*.rs' \
   | grep -vE '^crates/mail-runtime/src/link/dbus\.rs:|^crates/mail-runtime/tests/runtime/link_bus\.rs:|^crates/mail-app/src/accountd(_tests)?\.rs:' \
   | grep -vE '^[^:]+:[0-9]+:[[:space:]]*//'; then
   echo "porter_dbus and ds_desktop belong to the quire-desktop link only: see scripts/check-boundary.sh"
+  fail=1
+fi
+
+# `mail-store` is the only crate that speaks SQL. Above it the store is a typed API (accounts,
+# identities, labels, blobs, lookups by `Message-ID`, ...), and a test that needs a row no path of
+# the program writes asks `mail_store::testing`. So `rusqlite` is not a dependency of `mail-core`,
+# `mail-runtime` or `mail-app` (dev-dependencies included), and the store's connection, which is
+# private to it, is not reached for by name: `.connection()`, `.reader()`, and the test-support
+# `raw_connection` / `raw_accounts` that only `mail-store`'s own tests use. Comment lines are not
+# code and are not counted.
+for crate in mail-core mail-runtime mail-app; do
+  if grep -nE '^[[:space:]]*rusqlite[[:space:]]*=' "crates/$crate/Cargo.toml"; then
+    echo "crates/$crate/Cargo.toml: $crate must not depend on rusqlite: ask the store (mail_store), or mail_store::testing in a test"
+    fail=1
+  fi
+done
+if grep -rnE '\brusqlite\b|\.connection\(\)|\.reader\(\)|\braw_connection\b|\braw_accounts\b' \
+  crates/mail-core crates/mail-runtime crates/mail-app --include='*.rs' \
+  | grep -vE '^[^:]+:[0-9]+:[[:space:]]*//'; then
+  echo "SQL above mail-store: add the typed call to mail_store (or a seeding helper to mail_store::testing) instead"
   fail=1
 fi
 

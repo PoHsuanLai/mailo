@@ -71,34 +71,21 @@ fn seed() {
         observed_at: chrono::Utc::now(),
     };
     {
-        let db = store.connection();
-        db.execute(
-            "INSERT OR REPLACE INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'ada@example.test', ?2, datetime('now'))",
-            rusqlite::params![
-                acct_account().to_string(),
-                serde_json::to_string(&plan).unwrap()
-            ],
-        )
-        .unwrap();
-        db.execute(
-            "INSERT OR REPLACE INTO identities (id, account, from_name, from_email, is_default)
-             VALUES (?1, ?2, NULL, 'ada@example.test', '\"default\"')",
-            [
-                IdentityId::generate().to_string(),
-                acct_account().to_string(),
-            ],
-        )
-        .unwrap();
-        db.execute(
-            "INSERT OR REPLACE INTO account_caps (account, caps, observed_at)
-             VALUES (?1, ?2, datetime('now'))",
-            rusqlite::params![
-                acct_account().to_string(),
-                serde_json::to_string(&caps).unwrap()
-            ],
-        )
-        .unwrap();
+        mail_store::testing::seed_account_plan(
+            &store,
+            acct_account(),
+            "ada@example.test",
+            &plan,
+            None,
+        );
+        mail_store::testing::seed_identity_for(
+            &store,
+            IdentityId::generate(),
+            acct_account(),
+            "ada@example.test",
+            None,
+        );
+        mail_store::testing::seed_caps(&store, acct_account(), &caps, chrono::Utc::now()).unwrap();
     }
     mail_runtime::block_on(platform_secrets().put(
         &SecretKey {

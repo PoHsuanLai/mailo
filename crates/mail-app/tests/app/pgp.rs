@@ -28,23 +28,8 @@ fn now() -> DateTime<Utc> {
 }
 
 fn seed(store: &SqliteStore) {
-    let db = store.connection();
-    db.execute(
-        "INSERT INTO accounts (id, address, plan, created_at)
-         VALUES (?1, ?2, '{}', datetime('now'))",
-        [acct_account().to_string(), ME.to_owned()],
-    )
-    .unwrap();
-    db.execute(
-        "INSERT INTO identities (id, account, from_name, from_email, is_default)
-         VALUES (?1, ?2, 'Me', ?3, '\"default\"')",
-        [
-            IDENTITY.to_string(),
-            acct_account().to_string(),
-            ME.to_owned(),
-        ],
-    )
-    .unwrap();
+    mail_store::testing::seed_account(&store, acct_account(), &ME);
+    mail_store::testing::seed_identity_for(&store, IDENTITY, acct_account(), &ME, Some("Me"));
 }
 
 /// A store with one account that can send, as `me@example.test`.
@@ -305,17 +290,20 @@ mod keys {
         let secrets = MapSigningStore::default();
         let generated = pgp::keys::generate(&store, &secrets, ME, now()).unwrap();
         // And a secret imported with a passphrase, for the address of a second identity.
-        store
-            .connection()
-            .execute(
-                "INSERT INTO identities (id, account, from_name, from_email, is_default)
-                 VALUES (?1, ?2, NULL, 'alias@example.test', '\"alternate\"')",
-                [
-                    IdentityId::generate().to_string(),
-                    acct_account().to_string(),
-                ],
-            )
-            .unwrap();
+        mail_store::testing::seed_identity(
+            &store,
+            &Identity {
+                id: IdentityId::generate(),
+                account: acct_account(),
+                from: Address {
+                    name: None,
+                    email: "alias@example.test".to_owned(),
+                },
+                reply_to: None,
+                signature: None,
+                default: IsDefault::Alternate,
+            },
+        );
         let locked = someone_elses("alias@example.test", 4)
             .with_passphrase("pw", &mut rand::rngs::StdRng::seed_from_u64(5))
             .unwrap();
@@ -407,10 +395,7 @@ mod sending {
         let before = draft(&store, OpenPgp::None, &[BEA], &[]);
         send(&store, &secrets, before.id).unwrap();
         assert!(!String::from_utf8_lossy(&frozen(&store)).contains("Autocrypt:"));
-        store
-            .connection()
-            .execute("DELETE FROM outbox", [])
-            .unwrap();
+        mail_store::testing::clear_outbox(&store);
 
         let key = pgp::keys::generate(&store, &secrets, ME, now()).unwrap();
         let after = draft(&store, OpenPgp::None, &[BEA], &[]);

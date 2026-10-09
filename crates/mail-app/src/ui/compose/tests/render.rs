@@ -101,15 +101,13 @@ pub(super) fn with_identities(built: &crate::ui::fixtures::Work) {
         .map(|row| (row.id.to_string(), row.address))
         .collect();
     for (account, address) in accounts {
-        built
-            .store
-            .connection()
-            .execute(
-                "INSERT INTO identities (id, account, from_name, from_email, is_default)
-                 VALUES (?1, ?2, 'Ada', ?3, '\"default\"')",
-                rusqlite::params![IdentityId::generate().to_string(), account, address],
-            )
-            .unwrap_or_else(|why| panic!("an identity: {why}"));
+        mail_store::testing::seed_identity_for(
+            &built.store,
+            IdentityId::generate(),
+            account.clone(),
+            &address,
+            Some("Ada"),
+        );
     }
 }
 

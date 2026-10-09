@@ -21,18 +21,13 @@ use porter_core::AccountId;
 use std::sync::Arc;
 
 fn configure(store: &SqliteStore, id: AccountId, preset: presets::Preset) {
-    store
-        .connection()
-        .execute(
-            "INSERT INTO accounts (id, address, plan, created_at) VALUES (?1, ?2, ?3, ?4)",
-            [
-                id.to_string(),
-                preset.plan.address.clone(),
-                serde_json::to_string(&preset.plan).unwrap(),
-                Utc::now().to_rfc3339(),
-            ],
-        )
-        .unwrap();
+    mail_store::testing::seed_account_plan(
+        &store,
+        id.clone(),
+        &preset.plan.address,
+        &preset.plan,
+        Some(Utc::now()),
+    );
     store
         .put_caps(id, &preset.expected_caps, Utc::now())
         .unwrap();
@@ -72,17 +67,7 @@ fn imap_store() -> (Arc<SqliteStore>, tempfile::TempDir) {
         .unwrap();
     // Its folders were listed by a pass, so it has been fetched: the list is not waiting for a
     // first mail, which would draw its placeholder rows beside the menus these tests open.
-    store
-        .connection()
-        .execute(
-            "INSERT INTO sync_state (account, mailbox, cursor, synced_at)
-             VALUES (?1, 'INBOX', ?2, datetime('now'))",
-            rusqlite::params![
-                acct_imap().to_string(),
-                serde_json::to_string(&SyncCursor::Pop).unwrap()
-            ],
-        )
-        .unwrap();
+    mail_store::testing::seed_sync_state(&store, acct_imap(), "INBOX", &SyncCursor::Pop, None);
     (store, dir)
 }
 

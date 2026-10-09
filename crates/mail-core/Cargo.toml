@@ -9,7 +9,7 @@ repository = "https://github.com/PoHsuanLai/mailo"
 authors = ["Po Hsuan Lai <pohsuanlai0208@gmail.com>"]
 
 # The I/O-capable core between the pure crates (mail-domain, mail-mime, mail-proto, mail-pim) and
-# the two front-ends in `mail-app` (the window and the command line). It may use tokio, rusqlite
+# the two front-ends in `mail-app` (the window and the command line). It may use tokio
 # and the network; it must never depend on dioxus, ds, ds-settings or ds-blitz, or on anything
 # else that draws. `scripts/check-boundary.sh` enforces that.
 
@@ -31,7 +31,6 @@ mail-mime.workspace = true
 mail-proto.workspace = true
 mail-pim.workspace = true
 mail-runtime.workspace = true
-rusqlite = { version = "0.40", features = ["bundled"] }
 serde.workspace = true
 serde_json = "1"
 tokio = { version = "1", features = ["rt", "macros", "time", "net", "io-util", "sync"] }
@@ -90,6 +89,8 @@ zbus = "5.19"
 rpassword = "7"
 
 [dev-dependencies]
+# Seeding a store without writing SQL (`mail_store::testing`): the program never has it.
+mail-store = { workspace = true, features = ["test-support"] }
 porter-secrets = { workspace = true, features = ["testing"] }
 tempfile = "3"
 # The throwaway certificate authority (`mail-mime/tests/smime_support`). No test in this crate

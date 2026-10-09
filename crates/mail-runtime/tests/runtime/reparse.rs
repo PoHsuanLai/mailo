@@ -58,14 +58,7 @@ fn garbled_messages_held_whole_are_re_read_and_the_rest_are_left_alone() {
     let blobs = dir.path().join("blobs");
     let (garbled, clean, headers_only) = {
         let store = SqliteStore::open(&db_path, &blobs).unwrap();
-        store
-            .connection()
-            .execute(
-                "INSERT INTO accounts (id, address, plan, created_at)
-                 VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-                [acct_account().to_string()],
-            )
-            .unwrap();
+        mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
         let raw = store.blobs().put(GBK_RAW).unwrap();
         let held = || Body::Present {
             text: Some("body".to_owned()),
@@ -98,43 +91,7 @@ fn garbled_messages_held_whole_are_re_read_and_the_rest_are_left_alone() {
     // Un-apply 0012, as a database last opened by the previous build would be — and every
     // migration after it, since the version is the highest one applied and a later one would
     // leave 0012 looking done.
-    {
-        let db = rusqlite::Connection::open(&db_path).unwrap();
-        db.execute_batch(
-            "DROP TABLE messages_to_reparse;
-             DROP TABLE contacts; DROP TABLE contacts_counted; DROP TABLE contacts_sent;
-             DROP TABLE address_books; DROP TABLE contacts_to_backfill;
-             DROP TABLE templates;
-             DROP TABLE invite_answers;
-             DROP TABLE rules; DROP TABLE vacations;
-             DROP TABLE pgp_keys; DROP TABLE autocrypt_peers;
-             ALTER TABLE drafts DROP COLUMN openpgp;
-             DROP TABLE smime_certs;
-             ALTER TABLE drafts DROP COLUMN smime;
-             ALTER TABLE outbox DROP COLUMN messages;
-             DROP TRIGGER unplaced_found_ins;
-             DROP TRIGGER unplaced_found_upd;
-             DROP TABLE unplaced;
-             ALTER TABLE threads DROP COLUMN mute;
-             ALTER TABLE thread_summary DROP COLUMN mute;
-             DROP TABLE contact_groups;
-             DROP TABLE views;
-             DROP TABLE destroyed;
-             DROP INDEX thread_summary_follow_up;
-             ALTER TABLE threads DROP COLUMN follow_up;
-             ALTER TABLE thread_summary DROP COLUMN follow_up;
-             DROP TABLE follow_up_held;
-             DROP TABLE found_on_server;
-             DROP TABLE secrets_adopted;
-             CREATE TABLE views (id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL,
-                 filter TEXT NOT NULL, sort TEXT NOT NULL, group_by TEXT,
-                 threading TEXT NOT NULL, shown TEXT NOT NULL, hover TEXT NOT NULL,
-                 position INTEGER NOT NULL);
-             CREATE INDEX views_position ON views(position);
-             DELETE FROM schema_version WHERE version >= 12;",
-        )
-        .unwrap();
-    }
+    mail_store::testing::downgrade_to_before_reparse(&db_path);
 
     let store = SqliteStore::open(&db_path, &blobs).unwrap();
     assert_eq!(

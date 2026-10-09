@@ -3,7 +3,6 @@
 
 use super::Password;
 use crate::account::{Credentials, add_with_password};
-use mail_domain::id::account_id_from_uuid;
 use mail_runtime::{AccountSecrets, ClientRegistry};
 use mail_store::SqliteStore;
 use porter_core::SecretText;
@@ -47,45 +46,16 @@ fn pop3() -> crate::account::Setup {
 }
 
 fn account_of(store: &SqliteStore, address: &str) -> AccountId {
-    let id: String = store
-        .connection()
-        .query_row(
-            "SELECT id FROM accounts WHERE address = ?1",
-            [address],
-            |r| r.get(0),
-        )
-        .unwrap();
-    account_id_from_uuid(id.parse().unwrap())
+    store
+        .account_by_address(address)
+        .unwrap()
+        .expect("the account")
+        .id
 }
 
 /// Every text column of every table, joined: where a password written to SQLite would be.
 fn everything_in(store: &SqliteStore) -> String {
-    let db = store.connection();
-    let mut tables = db
-        .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
-        .unwrap();
-    let names: Vec<String> = tables
-        .query_map([], |r| r.get(0))
-        .unwrap()
-        .map(Result::unwrap)
-        .collect();
-    let mut all = String::new();
-    for name in names {
-        let Ok(mut rows) = db.prepare(&format!("SELECT * FROM \"{name}\"")) else {
-            continue;
-        };
-        let columns = rows.column_count();
-        let mut query = rows.query([]).unwrap();
-        while let Some(row) = query.next().unwrap() {
-            for at in 0..columns {
-                if let Ok(Some(text)) = row.get::<_, Option<String>>(at) {
-                    all.push_str(&text);
-                    all.push('\n');
-                }
-            }
-        }
-    }
-    all
+    mail_store::testing::all_text(store)
 }
 
 #[test]
@@ -210,15 +180,12 @@ fn a_jmap_bearer_token_goes_where_a_password_would_and_the_plan_says_bearer() {
         kept,
         Credential::Password(SecretText::new(SECRET.to_owned()))
     );
-    let plan: String = store
-        .connection()
-        .query_row(
-            "SELECT plan FROM accounts WHERE id = ?1",
-            [account.to_string()],
-            |r| r.get(0),
-        )
+    let plan: mail_domain::AccountPlan = store
+        .account(account.clone())
+        .unwrap()
+        .expect("the account")
+        .plan
         .unwrap();
-    let plan: mail_domain::AccountPlan = serde_json::from_str(&plan).unwrap();
     assert!(matches!(
         plan.incoming,
         mail_domain::Incoming::Jmap {

@@ -60,22 +60,20 @@ fn seeded() -> (SqliteStore, tempfile::TempDir) {
     plan.identities = vec![identity()];
 
     {
-        let db = store.connection();
-        db.execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'me@example.test', ?2, datetime('now'))",
-            rusqlite::params![
-                acct_account().to_string(),
-                serde_json::to_string(&plan).unwrap()
-            ],
-        )
-        .unwrap();
-        db.execute(
-            "INSERT INTO identities (id, account, from_name, from_email, is_default)
-             VALUES (?1, ?2, NULL, 'me@example.test', '\"default\"')",
-            rusqlite::params![IDENTITY.to_string(), acct_account().to_string()],
-        )
-        .unwrap();
+        mail_store::testing::seed_account_plan(
+            &store,
+            acct_account(),
+            "me@example.test",
+            &plan,
+            None,
+        );
+        mail_store::testing::seed_identity_for(
+            &store,
+            IDENTITY,
+            acct_account(),
+            "me@example.test",
+            None,
+        );
     }
 
     let raw = store.blobs().put(b"raw original").unwrap();
@@ -541,13 +539,7 @@ fn an_account_with_no_identity_says_so_instead_of_inventing_a_sender() {
     // address is how mail goes out under an address the user does not own, so replying must
     // stop and say what is wrong. The message is there, so it is the identity check that fires.
     let (store, _dir) = seeded();
-    store
-        .connection()
-        .execute(
-            "DELETE FROM identities WHERE account = ?1",
-            [acct_account().to_string()],
-        )
-        .unwrap();
+    mail_store::testing::delete_identities(&store, acct_account());
 
     let err = compose::reply(&store, ORIGINAL, ReplyScope::Sender, "hi", at(10))
         .expect_err("no identity to send as");
@@ -564,13 +556,14 @@ fn the_identity_comes_from_the_table_the_foreign_key_enforces() {
     // plan's copy of the same list is written once at account creation and can go stale;
     // reading it instead is how a send fails for an account that is perfectly well configured.
     let (store, _dir) = seeded();
-    store
-        .connection()
-        .execute(
-            "UPDATE accounts SET plan = json_set(plan, '$.identities', json('[]')) WHERE id = ?1",
-            [acct_account().to_string()],
-        )
+    let mut plan = store
+        .account(acct_account())
+        .unwrap()
+        .expect("the account")
+        .plan
         .unwrap();
+    plan.identities.clear();
+    store.set_account_plan(acct_account(), &plan).unwrap();
 
     compose::reply(&store, ORIGINAL, ReplyScope::Sender, "yes", at(10))
         .expect("the identity row is still there");
@@ -1451,13 +1444,7 @@ mod writing_to_someone_new {
     #[test]
     fn the_signature_is_carried_but_nothing_is_quoted() {
         let (store, _dir) = seeded();
-        store
-            .connection()
-            .execute(
-                "UPDATE identities SET signature = 'Ada' WHERE id = ?1",
-                rusqlite::params![IDENTITY.to_string()],
-            )
-            .unwrap();
+        store.set_signature(IDENTITY, Some("Ada")).unwrap();
         let draft = compose::draft_new(
             &store,
             acct_account(),
@@ -1500,22 +1487,20 @@ mod choosing_the_sender {
         )
         .plan;
         plan.address = "work@example.test".to_owned();
-        let db = store.connection();
-        db.execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'work@example.test', ?2, datetime('now', '+1 second'))",
-            rusqlite::params![
-                acct_second().to_string(),
-                serde_json::to_string(&plan).unwrap()
-            ],
-        )
-        .unwrap();
-        db.execute(
-            "INSERT INTO identities (id, account, from_name, from_email, is_default)
-             VALUES (?1, ?2, NULL, 'work@example.test', '\"default\"')",
-            rusqlite::params![SECOND_IDENTITY.to_string(), acct_second().to_string()],
-        )
-        .unwrap();
+        mail_store::testing::seed_account_plan(
+            &store,
+            acct_second(),
+            "work@example.test",
+            &plan,
+            Some(chrono::Utc::now() + chrono::Duration::seconds(1)),
+        );
+        mail_store::testing::seed_identity_for(
+            &store,
+            SECOND_IDENTITY,
+            acct_second(),
+            "work@example.test",
+            None,
+        );
     }
 
     #[test]
@@ -1588,13 +1573,7 @@ mod choosing_the_sender {
     fn moving_to_an_account_with_no_identity_leaves_the_draft_alone() {
         let (store, _dir) = seeded();
         also(&store);
-        store
-            .connection()
-            .execute(
-                "DELETE FROM identities WHERE account = ?1",
-                rusqlite::params![acct_second().to_string()],
-            )
-            .unwrap();
+        mail_store::testing::delete_identities(&store, acct_second());
         let draft = compose::draft_new(&store, acct_account(), &[], "", "", at(10)).unwrap();
 
         compose::move_draft_to(&store, draft.id, acct_second(), at(11))

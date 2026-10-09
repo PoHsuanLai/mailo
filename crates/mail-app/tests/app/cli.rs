@@ -32,14 +32,7 @@ fn acct_account() -> AccountId {
 fn seeded() -> (SqliteStore, tempfile::TempDir, ThreadId) {
     let dir = tempfile::tempdir().unwrap();
     let store = SqliteStore::in_memory(dir.path()).unwrap();
-    store
-        .connection()
-        .execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [acct_account().to_string()],
-        )
-        .unwrap();
+    mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
 
     let mut first = None;
     for (i, subject) in ["lunch on friday", "invoice 2024", "server outage"]
@@ -447,15 +440,12 @@ mod manual_setup {
         .unwrap();
         let _ = exercise(&store, &command, now());
 
-        let plan: String = store
-            .connection()
-            .query_row(
-                "SELECT plan FROM accounts WHERE address = 'someone@example.edu'",
-                [],
-                |r| r.get(0),
-            )
-            .expect("the account was stored");
-        let plan: AccountPlan = serde_json::from_str(&plan).unwrap();
+        let plan: AccountPlan = store
+            .account_by_address("someone@example.edu")
+            .unwrap()
+            .expect("the account was stored")
+            .plan
+            .unwrap();
         match plan.incoming {
             Incoming::Pop3 {
                 host,
@@ -483,15 +473,12 @@ mod manual_setup {
         // than failing — what matters here is the plan it wrote.
         let _ = exercise(&store, &command, now());
 
-        let plan: String = store
-            .connection()
-            .query_row(
-                "SELECT plan FROM accounts WHERE address = 'someone@nowhere.example'",
-                [],
-                |r| r.get(0),
-            )
-            .expect("the account was stored");
-        let plan: AccountPlan = serde_json::from_str(&plan).unwrap();
+        let plan: AccountPlan = store
+            .account_by_address("someone@nowhere.example")
+            .unwrap()
+            .expect("the account was stored")
+            .plan
+            .unwrap();
         match plan.incoming {
             Incoming::Imap { host, port, tls } => {
                 assert_eq!(host, "imap.nowhere.example");
@@ -591,15 +578,12 @@ mod microsoft {
         // plan is written; the advice it prints must reproduce the flag.
         let out = exercise(&store, &command, now()).unwrap();
         assert!(out.contains("--microsoft --send graph"), "{out}");
-        let plan: String = store
-            .connection()
-            .query_row(
-                "SELECT plan FROM accounts WHERE address = 'me@yourcompany.example'",
-                [],
-                |r| r.get(0),
-            )
+        let plan: AccountPlan = store
+            .account_by_address("me@yourcompany.example")
+            .unwrap()
+            .expect("the account was stored")
+            .plan
             .unwrap();
-        let plan: AccountPlan = serde_json::from_str(&plan).unwrap();
         assert_eq!(plan.outgoing, Outgoing::Graph);
     }
 
@@ -1042,15 +1026,12 @@ mod jmap_setup {
         .unwrap();
         let said = exercise(&store, &command, now()).unwrap();
         assert!(said.contains("someone@example.test"), "{said}");
-        let plan: String = store
-            .connection()
-            .query_row(
-                "SELECT plan FROM accounts WHERE address = 'someone@example.test'",
-                [],
-                |r| r.get(0),
-            )
-            .expect("the account was stored");
-        let plan: AccountPlan = serde_json::from_str(&plan).unwrap();
+        let plan: AccountPlan = store
+            .account_by_address("someone@example.test")
+            .unwrap()
+            .expect("the account was stored")
+            .plan
+            .unwrap();
         assert!(matches!(
             plan.incoming,
             Incoming::Jmap { ref session, .. } if session == "https://jmap.example.test/.well-known/jmap"

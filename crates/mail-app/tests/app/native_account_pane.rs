@@ -70,18 +70,7 @@ fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
         },
         identities: Vec::new(),
     };
-    store
-        .connection()
-        .execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, ?2, ?3, datetime('now'))",
-            rusqlite::params![
-                acct_ada().to_string(),
-                ADDRESS,
-                serde_json::to_string(&plan).unwrap()
-            ],
-        )
-        .unwrap();
+    mail_store::testing::seed_account_plan(&store, acct_ada(), &ADDRESS, &plan, None);
     Arc::new(store)
 }
 

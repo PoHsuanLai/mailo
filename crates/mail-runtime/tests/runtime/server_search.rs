@@ -226,14 +226,7 @@ struct Fixture {
 fn fixture(port: u16) -> Fixture {
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(SqliteStore::in_memory(dir.path()).unwrap());
-    store
-        .connection()
-        .execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [acct_account().to_string()],
-        )
-        .unwrap();
+    mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
     store
         .put_folders(
             acct_account(),

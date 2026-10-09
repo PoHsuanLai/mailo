@@ -381,27 +381,9 @@ fn held_row(store: &SqliteStore, address: &str) {
     };
     let now = chrono::Utc::now();
     let preset = mail_domain::presets::manual(address, &manual, now);
-    let id = mail_domain::id::new_account_id().to_string();
-    let db = store.connection();
-    db.execute(
-        "INSERT INTO accounts (id, address, plan, created_at) VALUES (?1, ?2, ?3, ?4)",
-        rusqlite::params![
-            id,
-            address,
-            serde_json::to_string(&preset.plan).unwrap(),
-            now.to_rfc3339()
-        ],
-    )
-    .unwrap();
-    db.execute(
-        "INSERT INTO account_caps (account, caps, observed_at) VALUES (?1, ?2, ?3)",
-        rusqlite::params![
-            id,
-            serde_json::to_string(&preset.expected_caps).unwrap(),
-            now.to_rfc3339()
-        ],
-    )
-    .unwrap();
+    let id = mail_domain::id::new_account_id();
+    mail_store::testing::seed_account_plan(&store, id.clone(), address, &preset.plan, Some(now));
+    mail_store::testing::seed_caps(&store, id.clone(), &preset.expected_caps, now).unwrap();
 }
 
 #[test]

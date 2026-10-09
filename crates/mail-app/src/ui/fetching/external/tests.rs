@@ -35,16 +35,15 @@ async fn settle(dom: &mut VirtualDom) {
     }
 }
 
+/// An account row written through the window's own store.
+fn insert_here(store: &SqliteStore, name: &str) {
+    mail_store::testing::seed_account(store, mail_domain::id::new_account_id(), name);
+}
+
 /// An account row written by its own connection, which is what another process's write is to
 /// the window's.
-fn insert(connection: &rusqlite::Connection, id: &str) {
-    connection
-        .execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, ?1, '{}', datetime('now'))",
-            [id],
-        )
-        .unwrap();
+fn insert_elsewhere(path: &Path, name: &str) {
+    mail_store::testing::seed_account_from_another_connection(path, name);
 }
 
 /// A door in `dir`, never the person's, as this platform makes one: a socket in `dir`, or on
@@ -106,11 +105,11 @@ async fn what_another_connection_stores_moves_the_revision_and_what_the_window_s
     settle(&mut dom).await;
     assert_eq!(revision(&dom), 0, "it moved on its own");
 
-    insert(&store.connection(), "the-window");
+    insert_here(&store, "the-window");
     settle(&mut dom).await;
     assert_eq!(revision(&dom), 0, "the window's own write moved it");
 
-    insert(&rusqlite::Connection::open(&path).unwrap(), "the-watch");
+    insert_elsewhere(&path, "the-watch");
     settle(&mut dom).await;
     assert_eq!(revision(&dom), 1, "a write by another process went unseen");
     settle(&mut dom).await;
@@ -139,13 +138,13 @@ async fn told_while_the_writer_is_busy_it_looks_again_soon_and_not_at_the_next_t
     settle(&mut dom).await;
 
     // The writer held by another thread, as an ingest holds it, while the watch says it stored.
-    insert(&rusqlite::Connection::open(&path).unwrap(), "the-watch");
+    insert_elsewhere(&path, "the-watch");
     let (release, held) = std::sync::mpsc::channel::<()>();
     let (taken, took) = std::sync::mpsc::channel::<()>();
     let writer = {
         let store = store.clone();
         std::thread::spawn(move || {
-            let _writer = store.connection();
+            let _writer = mail_store::testing::hold_writer(&store);
             taken.send(()).unwrap();
             let _ = held.recv();
         })
@@ -193,7 +192,7 @@ async fn a_watch_that_says_it_stored_something_moves_the_revision_within_one_loo
 
     // Stored, and not said: while subscribed the window looks only every `TOLD`, far longer
     // than this, so a move now would be the looking and not the telling.
-    insert(&rusqlite::Connection::open(&path).unwrap(), "the-watch");
+    insert_elsewhere(&path, "the-watch");
     settle(&mut dom).await;
     assert_eq!(revision(&dom), 0, "subscribed, it still looked every LOOK");
 
@@ -220,10 +219,7 @@ async fn a_subscription_that_ends_leaves_the_window_looking_again() {
     dom.rebuild_in_place();
     settle(&mut dom).await;
 
-    insert(
-        &rusqlite::Connection::open(&path).unwrap(),
-        "while-subscribed",
-    );
+    insert_elsewhere(&path, "while-subscribed");
     settle(&mut dom).await;
     assert_eq!(revision(&dom), 0, "subscribed, it still looked every LOOK");
 
@@ -236,7 +232,7 @@ async fn a_subscription_that_ends_leaves_the_window_looking_again() {
         "the end of the subscription was not a reason to look"
     );
 
-    insert(&rusqlite::Connection::open(&path).unwrap(), "after");
+    insert_elsewhere(&path, "after");
     settle(&mut dom).await;
     assert_eq!(
         revision(&dom),
@@ -265,7 +261,7 @@ async fn a_daemon_from_another_build_leaves_the_window_looking() {
     dom.rebuild_in_place();
     settle(&mut dom).await;
 
-    insert(&rusqlite::Connection::open(&path).unwrap(), "the-old-watch");
+    insert_elsewhere(&path, "the-old-watch");
     settle(&mut dom).await;
     assert_eq!(
         revision(&dom),

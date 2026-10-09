@@ -47,17 +47,7 @@ fn seeded() -> (SqliteStore, tempfile::TempDir) {
         at(0),
     )
     .plan;
-    store
-        .connection()
-        .execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'me@example.test', ?2, datetime('now'))",
-            rusqlite::params![
-                acct_account().to_string(),
-                serde_json::to_string(&plan).unwrap()
-            ],
-        )
-        .unwrap();
+    mail_store::testing::seed_account_plan(&store, acct_account(), "me@example.test", &plan, None);
     (store, dir)
 }
 

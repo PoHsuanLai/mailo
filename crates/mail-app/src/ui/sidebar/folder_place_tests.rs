@@ -36,18 +36,13 @@ fn store() -> (Arc<SqliteStore>, tempfile::TempDir, Vec<ThreadId>) {
     };
     let preset = presets::manual("me@nowhere.example", &manual, Utc::now());
     assert_ne!(preset.expected_caps.labels, ServerLabels::Supported);
-    store
-        .connection()
-        .execute(
-            "INSERT INTO accounts (id, address, plan, created_at) VALUES (?1, ?2, ?3, ?4)",
-            [
-                acct_imap().to_string(),
-                preset.plan.address.clone(),
-                serde_json::to_string(&preset.plan).unwrap(),
-                Utc::now().to_rfc3339(),
-            ],
-        )
-        .unwrap();
+    mail_store::testing::seed_account_plan(
+        &store,
+        acct_imap(),
+        &preset.plan.address,
+        &preset.plan,
+        Some(Utc::now()),
+    );
     store
         .put_caps(acct_imap(), &preset.expected_caps, Utc::now())
         .unwrap();

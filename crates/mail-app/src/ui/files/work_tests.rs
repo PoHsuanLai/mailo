@@ -392,18 +392,13 @@ fn the_export_opens_on_the_search_or_the_place_being_shown() {
 fn with_folders() -> (Arc<SqliteStore>, tempfile::TempDir, AccountId) {
     let (store, dir) = fresh_store();
     let add = |id: AccountId, plan: &AccountPlan| {
-        store
-            .connection()
-            .execute(
-                "INSERT INTO accounts (id, address, plan, created_at) VALUES (?1, ?2, ?3, ?4)",
-                [
-                    id.to_string(),
-                    plan.address.clone(),
-                    serde_json::to_string(plan).unwrap(),
-                    now().to_rfc3339(),
-                ],
-            )
-            .unwrap();
+        mail_store::testing::seed_account_plan(
+            &store,
+            id.clone(),
+            &plan.address,
+            plan,
+            Some(now()),
+        );
     };
     let imap = new_account_id();
     let manual = presets::Manual {

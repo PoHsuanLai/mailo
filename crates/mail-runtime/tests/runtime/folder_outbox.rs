@@ -129,14 +129,7 @@ fn caps() -> AccountCaps {
 /// The store on disk under `dir`, so a second call is the same database after a restart.
 fn open(dir: &tempfile::TempDir) -> Arc<SqliteStore> {
     let store = Arc::new(SqliteStore::open(dir.path().join("mail.db"), dir.path()).unwrap());
-    store
-        .connection()
-        .execute(
-            "INSERT OR IGNORE INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [acct_account().to_string()],
-        )
-        .unwrap();
+    mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
     store
 }
 

@@ -61,22 +61,14 @@ fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
     std::fs::create_dir_all(dir.join("blobs")).unwrap();
     let store = SqliteStore::open(dir.join("mail.db"), dir.join("blobs")).unwrap();
     {
-        let db = store.connection();
-        db.execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'me@provider.example', '{}', datetime('now'))",
-            [acct_account().to_string()],
-        )
-        .unwrap();
-        db.execute(
-            "INSERT INTO identities (id, account, from_name, from_email, is_default)
-             VALUES (?1, ?2, NULL, 'me@provider.example', '\"default\"')",
-            [
-                IdentityId::generate().to_string(),
-                acct_account().to_string(),
-            ],
-        )
-        .unwrap();
+        mail_store::testing::seed_account(&store, acct_account(), "me@provider.example");
+        mail_store::testing::seed_identity_for(
+            &store,
+            IdentityId::generate(),
+            acct_account(),
+            "me@provider.example",
+            None,
+        );
     }
     let now = chrono::Utc::now();
     for (n, (from, subject, fields)) in INBOX.iter().enumerate() {

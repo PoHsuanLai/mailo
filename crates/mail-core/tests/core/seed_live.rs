@@ -29,14 +29,7 @@ fn seed() {
     .join("mailo");
     std::fs::create_dir_all(base.join("blobs")).unwrap();
     let store = SqliteStore::open(base.join("mail.db"), base.join("blobs")).unwrap();
-    store
-        .connection()
-        .execute(
-            "INSERT OR IGNORE INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [acct_account().to_string()],
-        )
-        .unwrap();
+    mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
 
     let now = chrono::Utc::now();
     for (n, subject) in ["flight to taipei", "the invoice"].iter().enumerate() {

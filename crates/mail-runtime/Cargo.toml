@@ -27,7 +27,6 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 webpki-roots = "1"
 rustls-pki-types = "1"
 blake3 = "1"
-rusqlite = { version = "0.40", features = ["bundled"] }
 # The PKCE verifier and state of a sign-in (porter-oauth takes its randomness as arguments).
 rand = "0.8"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "charset", "http2"] }
@@ -121,6 +120,8 @@ quire-desktop = ["porter-client/dbus", "dep:porter-dbus", "dep:futures-util"]
 zbus = "5.19"
 
 [dev-dependencies]
+# Seeding a store without writing SQL (`mail_store::testing`): the program never has it.
+mail-store = { workspace = true, features = ["test-support"] }
 porter-proxy.workspace = true
 porter-secrets = { workspace = true, features = ["testing", "keyring"] }
 tokio = { version = "1", features = ["full"] }

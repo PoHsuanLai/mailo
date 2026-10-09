@@ -4,7 +4,7 @@
 use super::{RemoveError, remove};
 use crate::account::{Credentials, add_with_password};
 use crate::password::Password;
-use mail_domain::id::{account_id_from_uuid, new_account_id};
+use mail_domain::id::new_account_id;
 use mail_runtime::{ClientRegistry, block_on};
 use mail_store::SqliteStore;
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
@@ -51,69 +51,23 @@ fn two_accounts(secrets: &MemorySecrets) -> (SqliteStore, tempfile::TempDir) {
         )
         .unwrap();
         store
-            .connection()
-            .execute(
-                "INSERT INTO labels (id, account, name, origin) VALUES (?1, ?2, 'travel', 'user')",
-                [
-                    uuid::Uuid::new_v4().to_string(),
-                    account_of(&store, address).to_string(),
-                ],
-            )
+            .create_label(account_of(&store, address), "travel")
             .unwrap();
     }
     (store, dir)
 }
 
 fn account_of(store: &SqliteStore, address: &str) -> AccountId {
-    let id: String = store
-        .connection()
-        .query_row(
-            "SELECT id FROM accounts WHERE address = ?1",
-            [address],
-            |r| r.get(0),
-        )
-        .unwrap();
-    account_id_from_uuid(id.parse().unwrap())
+    store
+        .account_by_address(address)
+        .unwrap()
+        .expect("the account")
+        .id
 }
 
 /// How many rows name `account`, in every table with an `account` column and in `accounts`.
 fn rows_naming(store: &SqliteStore, account: AccountId) -> i64 {
-    let db = store.connection();
-    let tables: Vec<String> = db
-        .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
-        .unwrap()
-        .query_map([], |r| r.get(0))
-        .unwrap()
-        .map(Result::unwrap)
-        .collect();
-    let id = account.to_string();
-    let mut count: i64 = db
-        .query_row("SELECT count(*) FROM accounts WHERE id = ?1", [&id], |r| {
-            r.get(0)
-        })
-        .unwrap();
-    for table in tables {
-        let has_account: bool = db
-            .query_row(
-                &format!(
-                    "SELECT count(*) FROM pragma_table_info('{table}') WHERE name = 'account'"
-                ),
-                [],
-                |r| r.get::<_, i64>(0),
-            )
-            .unwrap()
-            > 0;
-        if has_account {
-            count += db
-                .query_row(
-                    &format!("SELECT count(*) FROM \"{table}\" WHERE account = ?1"),
-                    [&id],
-                    |r| r.get::<_, i64>(0),
-                )
-                .unwrap();
-        }
-    }
-    count
+    mail_store::testing::rows_naming(store, account)
 }
 
 fn password_of(secrets: &MemorySecrets, account: AccountId) -> Option<Credential> {

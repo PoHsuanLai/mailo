@@ -297,27 +297,14 @@ fn account() -> (Arc<SqliteStore>, tempfile::TempDir) {
         login: None,
     };
     let preset = presets::manual("me@nowhere.example", &manual, Utc::now());
-    let db = store.connection();
-    db.execute(
-        "INSERT INTO accounts (id, address, plan, created_at) VALUES (?1, ?2, ?3, ?4)",
-        [
-            acct_account().to_string(),
-            preset.plan.address.clone(),
-            serde_json::to_string(&preset.plan).unwrap(),
-            Utc::now().to_rfc3339(),
-        ],
-    )
-    .unwrap();
-    db.execute(
-        "INSERT INTO sync_state (account, mailbox, cursor, synced_at)
-         VALUES (?1, 'INBOX', ?2, datetime('now'))",
-        rusqlite::params![
-            acct_account().to_string(),
-            serde_json::to_string(&SyncCursor::Pop).unwrap()
-        ],
-    )
-    .unwrap();
-    drop(db);
+    mail_store::testing::seed_account_plan(
+        &store,
+        acct_account(),
+        &preset.plan.address,
+        &preset.plan,
+        Some(Utc::now()),
+    );
+    mail_store::testing::seed_sync_state(&store, acct_account(), "INBOX", &SyncCursor::Pop, None);
     store
         .put_caps(acct_account(), &preset.expected_caps, Utc::now())
         .unwrap();

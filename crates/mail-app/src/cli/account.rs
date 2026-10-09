@@ -90,10 +90,7 @@ mod tests {
     const ADDRESS: &str = "me@nowhere.example";
 
     fn accounts(store: &SqliteStore) -> i64 {
-        store
-            .connection()
-            .query_row("SELECT count(*) FROM accounts", [], |r| r.get(0))
-            .unwrap()
+        mail_store::testing::count(&store, "accounts")
     }
 
     #[test]
@@ -108,18 +105,13 @@ mod tests {
             login: None,
         };
         let preset = presets::manual(ADDRESS, &manual, chrono::Utc::now());
-        store
-            .connection()
-            .execute(
-                "INSERT INTO accounts (id, address, plan, created_at)
-                 VALUES (?1, ?2, ?3, datetime('now'))",
-                [
-                    mail_domain::id::new_account_id().to_string(),
-                    ADDRESS.to_owned(),
-                    serde_json::to_string(&preset.plan).unwrap(),
-                ],
-            )
-            .unwrap();
+        mail_store::testing::seed_account_plan(
+            &store,
+            mail_domain::id::new_account_id(),
+            &ADDRESS,
+            &preset.plan,
+            None,
+        );
         let secrets = MemorySecrets::default();
 
         let asked = remove(&store, &secrets, None, ADDRESS, Consent::Ask).unwrap_err();

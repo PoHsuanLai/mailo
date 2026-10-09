@@ -267,17 +267,7 @@ fn configured(
         },
         identities: Vec::new(),
     };
-    store
-        .connection()
-        .execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'ada@example.test', ?2, datetime('now'))",
-            rusqlite::params![
-                acct_account().to_string(),
-                serde_json::to_string(&plan).unwrap()
-            ],
-        )
-        .unwrap();
+    mail_store::testing::seed_account_plan(&store, acct_account(), "ada@example.test", &plan, None);
     store.put_caps(acct_account(), &caps, now()).unwrap();
     store.put_folders(acct_account(), folders).unwrap();
     let secrets = Arc::new(MemorySecrets::default());
@@ -363,8 +353,11 @@ fn listed(store: &SqliteStore, filter: Filter) -> Vec<String> {
     subjects
 }
 
-fn count(store: &SqliteStore, sql: &str) -> i64 {
-    store.connection().query_row(sql, [], |r| r.get(0)).unwrap()
+fn without_a_body(store: &SqliteStore) -> usize {
+    mail_store::testing::message_ids(store)
+        .into_iter()
+        .filter(|id| store.message(*id).unwrap().body.raw().is_none())
+        .count()
 }
 
 /// The paths the server was asked to select, in order, decoded.
@@ -391,7 +384,7 @@ fn a_pass_fetches_every_followed_folder_and_lists_each_by_its_path() {
 
     // Five messages: two only in the inbox, one in the inbox and a folder, one in each folder.
     // Not the one in the folder nobody follows.
-    assert_eq!(count(&store, "SELECT count(*) FROM messages"), 5, "{out:?}");
+    assert_eq!(mail_store::testing::count(&store, "messages"), 5, "{out:?}");
     let paths = selected(&seen);
     assert!(paths.iter().any(|p| p == PROJECTS), "{paths:?}");
     assert!(paths.iter().any(|p| p == REPORTS), "{paths:?}");
@@ -433,14 +426,7 @@ fn a_pass_fetches_every_followed_folder_and_lists_each_by_its_path() {
     );
 
     // And every body arrived, each fetched from the mailbox its UID belongs to.
-    assert_eq!(
-        count(
-            &store,
-            "SELECT count(*) FROM messages WHERE body_raw IS NULL"
-        ),
-        0,
-        "{out:?}"
-    );
+    assert_eq!(without_a_body(&store), 0, "{out:?}");
 }
 
 #[test]
@@ -449,18 +435,12 @@ fn a_message_held_in_two_folders_is_one_message_with_two_addresses() {
     let (store, secrets, _dir) = configured(port, caps(ServerLabels::LocalOnly), listing());
     pass(&store, &secrets);
 
-    let ids: Vec<String> = {
-        let db = store.connection();
-        let mut stmt = db
-            .prepare("SELECT id FROM messages WHERE subject = 'in both'")
-            .unwrap();
-        stmt.query_map([], |r| r.get(0))
-            .unwrap()
-            .collect::<Result<_, _>>()
-            .unwrap()
-    };
+    let ids: Vec<MessageId> = mail_store::testing::message_ids(&store)
+        .into_iter()
+        .filter(|id| store.message(*id).unwrap().subject == "in both")
+        .collect();
     assert_eq!(ids.len(), 1, "the copy in the folder was stored again");
-    let id = MessageId::from_uuid(ids[0].parse().unwrap());
+    let id = ids[0];
     let mut remotes = store.remotes_of(id).unwrap();
     remotes.sort_by_key(|r| format!("{r:?}"));
     assert_eq!(
@@ -529,19 +509,15 @@ fn the_inbox_is_brought_up_to_date_before_a_large_folder() {
     // whole account put the new message and the folder's backlog in one fetch, selected the
     // inbox for all of it, and filed the inbox's messages under the folder's addresses.
     let server = server.lock().unwrap().clone();
-    let rows: Vec<(String, i64, String)> = {
-        let db = store.connection();
-        let mut stmt = db
-            .prepare(
-                "SELECT r.mailbox, r.uid, m.rfc_message_id
-                 FROM remote_map r JOIN messages m ON m.id = r.message",
-            )
-            .unwrap();
-        stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
-            .unwrap()
-            .collect::<Result<_, _>>()
-            .unwrap()
-    };
+    let mut rows: Vec<(String, i64, String)> = Vec::new();
+    for message in mail_store::testing::message_ids(&store) {
+        let rfc = store.message(message).unwrap().rfc_message_id;
+        for remote in store.remotes_of(message).unwrap() {
+            if let (RemoteRef::Imap { mailbox, uid, .. }, Some(rfc)) = (remote, rfc.clone()) {
+                rows.push((mailbox, i64::from(uid), rfc));
+            }
+        }
+    }
     let held = rows.len();
     for (mailbox, uid, id) in rows {
         let raw = &server[&mailbox]
@@ -561,13 +537,7 @@ fn the_inbox_is_brought_up_to_date_before_a_large_folder() {
     );
     // A hundred bodies per folder per pass: a third pass holds all of them.
     pass(&store, &secrets);
-    assert_eq!(
-        count(
-            &store,
-            "SELECT count(*) FROM messages WHERE body_raw IS NULL"
-        ),
-        0
-    );
+    assert_eq!(without_a_body(&store), 0);
 }
 
 #[test]
@@ -602,11 +572,7 @@ fn a_folder_nobody_follows_is_fetched_when_asked_for() {
 }
 
 fn first_message(store: &SqliteStore) -> MessageId {
-    let id: String = store
-        .connection()
-        .query_row("SELECT id FROM messages LIMIT 1", [], |r| r.get(0))
-        .unwrap();
-    MessageId::from_uuid(id.parse().unwrap())
+    mail_store::testing::message_ids(store).remove(0)
 }
 
 #[test]

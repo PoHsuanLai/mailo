@@ -36,23 +36,8 @@ fn serial() -> std::sync::MutexGuard<'static, ()> {
 }
 
 fn seed(store: &SqliteStore) {
-    let db = store.connection();
-    db.execute(
-        "INSERT INTO accounts (id, address, plan, created_at)
-         VALUES (?1, ?2, '{}', datetime('now'))",
-        [acct_account().to_string(), ME.to_owned()],
-    )
-    .unwrap();
-    db.execute(
-        "INSERT INTO identities (id, account, from_name, from_email, is_default)
-         VALUES (?1, ?2, 'Me', ?3, '\"default\"')",
-        [
-            IDENTITY.to_string(),
-            acct_account().to_string(),
-            ME.to_owned(),
-        ],
-    )
-    .unwrap();
+    mail_store::testing::seed_account(&store, acct_account(), &ME);
+    mail_store::testing::seed_identity_for(&store, IDENTITY, acct_account(), &ME, Some("Me"));
 }
 
 fn seeded() -> (SqliteStore, tempfile::TempDir) {

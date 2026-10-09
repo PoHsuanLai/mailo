@@ -50,19 +50,14 @@ fn seeded(raw: Option<Vec<u8>>) -> (SqliteStore, tempfile::TempDir, ThreadId) {
     let dir = tempfile::tempdir().unwrap();
     let store = SqliteStore::in_memory(dir.path()).unwrap();
     {
-        let db = store.connection();
-        db.execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [acct_account().to_string()],
-        )
-        .unwrap();
-        db.execute(
-            "INSERT INTO identities (id, account, from_name, from_email, is_default)
-             VALUES (?1, ?2, 'Me', 'me@example.test', '\"default\"')",
-            rusqlite::params![IDENTITY.to_string(), acct_account().to_string()],
-        )
-        .unwrap();
+        mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
+        mail_store::testing::seed_identity_for(
+            &store,
+            IDENTITY,
+            acct_account(),
+            "me@example.test",
+            Some("Me"),
+        );
     }
     let blob = store
         .blobs()

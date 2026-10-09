@@ -32,33 +32,21 @@ pub(in crate::ui) fn seeded() -> (Arc<SqliteStore>, tempfile::TempDir) {
     let store = Arc::new(SqliteStore::in_memory(dir.path()).unwrap());
     let identity = IdentityId::generate();
     {
-        let db = store.connection();
-        db.execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [acct_account().to_string()],
-        )
-        .unwrap();
-        db.execute(
-            "INSERT INTO identities (id, account, from_name, from_email, is_default)
-             VALUES (?1, ?2, NULL, 'me@example.test', '\"default\"')",
-            [identity.to_string(), acct_account().to_string()],
-        )
-        .unwrap();
+        mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
+        mail_store::testing::seed_identity_for(
+            &store,
+            identity,
+            acct_account(),
+            "me@example.test",
+            None,
+        );
         // Capabilities, because `account add` always writes them and a fixture without them
         // is a state the application cannot reach — F133's lesson. Gmail's own, as recorded
         // against the real account: archiving means dropping the inbox label, and labels
         // are the server's. This is what decides whether an operation performed in the
         // window has a server half at all.
-        db.execute(
-            "INSERT INTO account_caps (account, caps, observed_at)
-             VALUES (?1, ?2, datetime('now'))",
-            rusqlite::params![
-                acct_account().to_string(),
-                serde_json::to_string(&gmail_caps()).unwrap()
-            ],
-        )
-        .unwrap();
+        mail_store::testing::seed_caps(&store, acct_account(), &gmail_caps(), chrono::Utc::now())
+            .unwrap();
     }
 
     let raw = store

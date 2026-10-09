@@ -245,14 +245,7 @@ struct Passed {
 async fn one_pass(keep: Keep) -> Passed {
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(SqliteStore::in_memory(dir.path()).unwrap());
-    store
-        .connection()
-        .execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [acct_account().to_string()],
-        )
-        .unwrap();
+    mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
     let port = somewhere_to_connect();
     let plan = AccountPlan {
         address: "me@example.test".to_owned(),
@@ -316,20 +309,9 @@ async fn one_pass(keep: Keep) -> Passed {
 }
 
 fn messages(store: &SqliteStore) -> Vec<Message> {
-    let ids: Vec<String> = {
-        let db = store.connection();
-        let mut stmt = db.prepare("SELECT id FROM messages ORDER BY date").unwrap();
-        stmt.query_map([], |r| r.get(0))
-            .unwrap()
-            .map(Result::unwrap)
-            .collect()
-    };
-    ids.iter()
-        .map(|id| {
-            store
-                .message(MessageId::from_uuid(id.parse().unwrap()))
-                .unwrap()
-        })
+    mail_store::testing::message_ids(store)
+        .into_iter()
+        .map(|id| store.message(id).unwrap())
         .collect()
 }
 

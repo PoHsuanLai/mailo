@@ -103,10 +103,7 @@ fn exit_settles() -> std::time::Duration {
 }
 
 fn changes(store: &SqliteStore) -> i64 {
-    store
-        .connection()
-        .query_row("SELECT total_changes()", [], |row| row.get(0))
-        .unwrap_or(0)
+    mail_store::testing::total_changes(&store)
 }
 
 fn mailboxes(store: &SqliteStore, thread: ThreadId) -> MailboxSet {
@@ -265,13 +262,13 @@ async fn dragging_a_row_onto_archive_archives_it() {
 async fn a_row_dropped_on_a_label_wears_it() {
     let Mounted { mut dom, seen, .. } = mounted_with(|store, dana| {
         let account = store.thread(dana).unwrap().summary.account;
-        store
-            .connection()
-            .execute(
-                "INSERT INTO labels (id, account, name, origin) VALUES (?1, ?2, 'travel', '\"user\"')",
-                rusqlite::params![LabelId::generate().to_string(), account.to_string()],
-            )
-            .unwrap();
+        mail_store::testing::seed_label(
+            &store,
+            LabelId::generate(),
+            account.clone(),
+            "travel",
+            mail_domain::LabelOrigin::User,
+        );
     });
     settle(&mut dom).await;
     let row = seen.one("aria-label", &format!("Open {DANA}"));

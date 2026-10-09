@@ -102,23 +102,14 @@ pub(in crate::ui) fn the_book() -> (Arc<SqliteStore>, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap_or_else(|why| panic!("a temp dir: {why}"));
     let store = SqliteStore::in_memory(dir.path()).unwrap_or_else(|why| panic!("a store: {why}"));
     {
-        let db = store.connection();
-        db.execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, ?2, '{}', datetime('now'))",
-            [acct_account().to_string(), ME.to_owned()],
-        )
-        .unwrap_or_else(|why| panic!("an account: {why}"));
-        db.execute(
-            "INSERT INTO identities (id, account, from_name, from_email, is_default)
-             VALUES (?1, ?2, 'Dave', ?3, '\"default\"')",
-            [
-                IdentityId::generate().to_string(),
-                acct_account().to_string(),
-                ME.to_owned(),
-            ],
-        )
-        .unwrap_or_else(|why| panic!("an identity: {why}"));
+        mail_store::testing::seed_account(&store, acct_account(), &ME);
+        mail_store::testing::seed_identity_for(
+            &store,
+            IdentityId::generate(),
+            acct_account(),
+            &ME,
+            Some("Dave"),
+        );
     }
     let me = || addr(Some("Dave"), ME);
     let sent = |n, day, to: &str, name| {

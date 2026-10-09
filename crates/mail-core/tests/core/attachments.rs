@@ -18,14 +18,7 @@ fn acct_account() -> AccountId {
 fn store() -> (SqliteStore, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let store = SqliteStore::in_memory(dir.path()).unwrap();
-    store
-        .connection()
-        .execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [acct_account().to_string()],
-        )
-        .unwrap();
+    mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
     (store, dir)
 }
 
@@ -101,13 +94,13 @@ fn plain_message(store: &SqliteStore) -> MessageId {
     let id = with_attachment(store, "x.pdf", b"x");
     // Rewritten through the store rather than constructed separately, so the only difference
     // from the fixture above is the thing being tested.
-    store
-        .connection()
-        .execute(
-            "UPDATE messages SET attachments = '[]' WHERE id = ?1",
-            [id.to_string()],
-        )
-        .unwrap();
+    mail_store::testing::edit_messages(store, |message| {
+        if message.id != id {
+            return false;
+        }
+        message.attachments.clear();
+        true
+    });
     id
 }
 
@@ -463,13 +456,21 @@ mod left_on_the_server {
     /// The fixture's message, with its one attachment turned into a part still on the server.
     fn with_remote_part(store: &SqliteStore) -> MessageId {
         let id = with_attachment(store, "report.pdf", b"unused");
-        store
-            .connection()
-            .execute(
-                r#"UPDATE messages SET attachments = '[{"name":"report.pdf","mime":"application/pdf","size":900,"remote_section":"2","inline":{"kind":"attached"}}]' WHERE id = ?1"#,
-                [id.to_string()],
-            )
-            .unwrap();
+        mail_store::testing::edit_messages(store, |message| {
+            if message.id != id {
+                return false;
+            }
+            message.attachments = vec![Attachment {
+                name: "report.pdf".to_owned(),
+                mime: "application/pdf".to_owned(),
+                size: 900,
+                content: PartContent::Remote {
+                    section: "2".to_owned(),
+                },
+                inline: Inline::Attached,
+            }];
+            true
+        });
         id
     }
 

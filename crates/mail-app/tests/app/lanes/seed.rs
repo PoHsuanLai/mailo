@@ -67,23 +67,14 @@ pub fn seeded(dir: &Path) -> Arc<SqliteStore> {
     std::fs::create_dir_all(dir.join("blobs")).expect("a blob directory");
     let store = SqliteStore::open(dir.join("mail.db"), dir.join("blobs")).expect("the store opens");
     {
-        let db = store.connection();
-        db.execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, ?2, '{}', datetime('now'))",
-            [account().to_string(), ME.to_owned()],
-        )
-        .expect("an account");
-        db.execute(
-            "INSERT INTO identities (id, account, from_name, from_email, is_default)
-             VALUES (?1, ?2, 'Me', ?3, '\"default\"')",
-            [
-                IdentityId::generate().to_string(),
-                account().to_string(),
-                ME.to_owned(),
-            ],
-        )
-        .expect("an identity");
+        mail_store::testing::seed_account(&store, account(), &ME);
+        mail_store::testing::seed_identity_for(
+            &store,
+            IdentityId::generate(),
+            account(),
+            &ME,
+            Some("Me"),
+        );
         let caps = AccountCaps {
             labels: ServerLabels::Supported,
             threads: ServerThreads::Jwz,
@@ -98,15 +89,7 @@ pub fn seeded(dir: &Path) -> Arc<SqliteStore> {
             connections: ConnectionBudget::default(),
             observed_at: chrono::Utc::now(),
         };
-        db.execute(
-            "INSERT INTO account_caps (account, caps, observed_at)
-             VALUES (?1, ?2, datetime('now'))",
-            rusqlite::params![
-                account().to_string(),
-                serde_json::to_string(&caps).expect("the caps serialize")
-            ],
-        )
-        .expect("the caps");
+        mail_store::testing::seed_caps(&store, account(), &caps, chrono::Utc::now()).unwrap();
     }
     for (n, (from, subject)) in INBOX.iter().enumerate() {
         let raw = format!(

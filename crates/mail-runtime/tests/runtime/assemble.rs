@@ -23,14 +23,7 @@ fn now() -> DateTime<Utc> {
 fn store() -> (SqliteStore, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let store = SqliteStore::in_memory(dir.path()).unwrap();
-    store
-        .connection()
-        .execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [acct_account().to_string()],
-        )
-        .unwrap();
+    mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
     (store, dir)
 }
 
@@ -119,10 +112,7 @@ fn a_message_fetched_twice_is_stored_once() {
         )
         .unwrap();
     }
-    let count: i64 = store
-        .connection()
-        .query_row("SELECT count(*) FROM messages", [], |r| r.get(0))
-        .unwrap();
+    let count: i64 = mail_store::testing::count(&store, "messages");
     assert_eq!(count, 1, "identity is MessageKey, so a refetch re-maps");
 }
 
@@ -229,10 +219,7 @@ fn messages_with_no_message_id_stay_distinct() {
     )
     .unwrap();
 
-    let count: i64 = store
-        .connection()
-        .query_row("SELECT count(*) FROM messages", [], |r| r.get(0))
-        .unwrap();
+    let count: i64 = mail_store::testing::count(&store, "messages");
     assert_eq!(count, 2, "two arrivals are two messages");
 }
 

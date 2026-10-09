@@ -166,14 +166,7 @@ struct Fixture {
 fn fixture(structure_fails: bool) -> Fixture {
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(SqliteStore::in_memory(dir.path()).unwrap());
-    store
-        .connection()
-        .execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [acct_account().to_string()],
-        )
-        .unwrap();
+    mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
     // What the header pass left: the message listed, with no body yet.
     mail_runtime::absorb(
         &store,
@@ -243,13 +236,8 @@ fn fixture(structure_fails: bool) -> Fixture {
 }
 
 fn the_message(store: &SqliteStore) -> Message {
-    let id: String = store
-        .connection()
-        .query_row("SELECT id FROM messages", [], |r| r.get(0))
-        .unwrap();
-    store
-        .message(MessageId::from_uuid(id.parse().unwrap()))
-        .unwrap()
+    let id = mail_store::testing::message_ids(store).remove(0);
+    store.message(id).unwrap()
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

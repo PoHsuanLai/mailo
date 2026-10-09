@@ -20,14 +20,13 @@ mod naming_a_conversation {
 
     fn a_label(store: &SqliteStore, name: &str) -> LabelId {
         let id = LabelId::generate();
-        store
-            .connection()
-            .execute(
-                "INSERT INTO labels (id, account, name, origin)
-                 VALUES (?1, ?2, ?3, '\"provider\"')",
-                rusqlite::params![id.to_string(), acct_account().to_string(), name],
-            )
-            .unwrap();
+        mail_store::testing::seed_label(
+            &store,
+            id,
+            acct_account(),
+            &name,
+            mail_domain::LabelOrigin::Provider,
+        );
         id
     }
 
@@ -218,14 +217,13 @@ async fn render_the_labels_menu_to_a_file() {
     let account = built.store.thread(built.dana).unwrap().summary.account;
     for (name, worn) in [("travel", true), ("receipts", false)] {
         let id = LabelId::generate();
-        built
-            .store
-            .connection()
-            .execute(
-                "INSERT INTO labels (id, account, name, origin) VALUES (?1, ?2, ?3, '\"user\"')",
-                rusqlite::params![id.to_string(), account.to_string(), name],
-            )
-            .unwrap();
+        mail_store::testing::seed_label(
+            &built.store,
+            id,
+            account.clone(),
+            &name,
+            mail_domain::LabelOrigin::User,
+        );
         if worn {
             apply_label(&built.store, built.dana, id, Membership::In);
         }

@@ -258,15 +258,7 @@ mod tests {
                 archive: ArchiveMeans::LocalOnly,
                 ..gmail_caps()
             };
-            store
-                .connection()
-                .execute(
-                    "UPDATE account_caps SET caps = ?2 WHERE account = ?1",
-                    rusqlite::params![
-                        acct_account().to_string(),
-                        serde_json::to_string(&local_only).unwrap()
-                    ],
-                )
+            mail_store::testing::seed_caps(&store, acct_account(), &local_only, chrono::Utc::now())
                 .unwrap();
             let thread = first_thread(&store);
 
