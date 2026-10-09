@@ -69,6 +69,7 @@ pub(super) fn run(opening: Opening) -> Result<(), ds_blitz::LaunchError> {
         .with_contexts(contexts(store, look, Some(spaces), dirs, start))
         .with_context(original.consent())
         .with_context(original.pill())
+        .with_context(original.menus())
         .with_context(original.images())
         .with_context(icons)
         .with_context(revisions)

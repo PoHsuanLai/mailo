@@ -12,10 +12,16 @@
 //! the anchor's own text and where it goes. mailo reads the two as it reads a Reader view link
 //! ([`mail_core::trust::destination`]: the pill is loud when the text names somewhere else), so the
 //! reader's link pill shows for a frame's links too ([`FramePill`]).
+//!
+//! A context menu asked over a link in a frame (a right click) is reported just before the
+//! reader's own `oncontextmenu` for the same press, with where the link goes and where the
+//! pointer is. It is kept, checked as a click is, until the reader takes it for its Copy Link
+//! menu ([`FrameMenus`]).
 
-use ds_blitz::{FrameLink, FrameLinkHover, FrameLinks, HoverPhase};
+use ds::prelude::Point;
+use ds_blitz::{FrameLink, FrameLinkHover, FrameLinkMenu, FrameLinks, HoverPhase};
 use mail_mime::SafeUrl;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 use tokio::sync::watch;
 
 /// Whatever opens a link: the system browser in the window, a recorder in a test.
@@ -68,11 +74,70 @@ impl FramePill {
     }
 }
 
+/// A link a context menu was asked over in a frame: where it goes, as a click on it would open
+/// it ([`SafeUrl::link`]), and where the pointer is, in the window's coordinates.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct LinkAsked {
+    pub(crate) href: String,
+    pub(crate) at: Point,
+}
+
+/// The last context menu asked over a link in any Original frame, until the reader's own
+/// `oncontextmenu` for the same press takes it, as the window's root context. quire reports it
+/// on the UI thread, outside any component. Taken, not read: a right click that lands on no link
+/// reports nothing, and must not find the last link's menu still waiting. Cloning shares it.
+#[derive(Clone)]
+pub struct FrameMenus {
+    asked: Arc<Mutex<Option<LinkAsked>>>,
+    browse: Arc<dyn Browse>,
+}
+
+impl std::fmt::Debug for FrameMenus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("FrameMenus")
+    }
+}
+
+impl FrameMenus {
+    /// Menus whose Open Link `browse` opens, as a click on the link would.
+    pub(crate) fn new(browse: Arc<dyn Browse>) -> Self {
+        FrameMenus {
+            asked: Arc::default(),
+            browse,
+        }
+    }
+
+    /// The link the press that is opening a context menu was on, if any.
+    pub(crate) fn take(&self) -> Option<LinkAsked> {
+        self.asked
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take()
+    }
+
+    /// A menu asked over `menu`'s link: kept when a click could follow it, else forgotten (a
+    /// `javascript:` or `file:` link has nothing a reader may copy or open).
+    fn ask(&self, menu: FrameLinkMenu) {
+        let asked = SafeUrl::link(&menu.href).map(|url| LinkAsked {
+            href: url.as_str().to_owned(),
+            at: menu.at,
+        });
+        *self.asked.lock().unwrap_or_else(PoisonError::into_inner) = asked;
+    }
+
+    /// Open Link: `href`, already checked when the menu was asked, opened as a click opens it.
+    pub(crate) fn open(&self, href: &str) {
+        self.browse.open(href);
+    }
+}
+
 /// What a click in any frame does: `browse` opens it, if it is a link a reader may follow. A
-/// crossing goes to `pill`: `Enter` names the link, `Leave` clears it.
+/// crossing goes to `pill`: `Enter` names the link, `Leave` clears it. A context menu over a link
+/// goes to `menus`.
 pub(crate) fn frame_links(
     browse: Arc<dyn Browse>,
     pill: watch::Sender<Option<Pointed>>,
+    menus: FrameMenus,
 ) -> FrameLinks {
     FrameLinks::intercept(move |link: FrameLink| {
         if let Some(url) = SafeUrl::link(&link.href) {
@@ -90,4 +155,5 @@ pub(crate) fn frame_links(
         };
         pill.send_replace(pointed);
     })
+    .with_context_menu(move |menu: FrameLinkMenu| menus.ask(menu))
 }

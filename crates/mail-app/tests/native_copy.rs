@@ -1,7 +1,7 @@
 //! Copy, every way the window offers it, in the real window on Blitz (`ds_harness::Harness`):
 //! text selected in a message's body (its own sealed document) and in a plain-text message,
-//! in the composer's body, in a plain field (the subject, the search panel), and the link
-//! pill's "Copy link". Each case selects the way a person does, copies with Ctrl+C (and Super+C,
+//! in the composer's body, in a plain field (the subject, the search panel), and a link's
+//! right-click Copy Link. Each case selects the way a person does, copies with Ctrl+C (and Super+C,
 //! the Command key as a window reports it), and reads what landed on the harness's clipboard,
 //! which is in memory, never the desktop's.
 //!
@@ -9,6 +9,7 @@
 //! `Original` whose fetcher and browser are recorders: nothing here touches the network, the
 //! real store, the real config or the desktop's clipboard.
 
+use ds::base::press::PointerButton;
 use ds::prelude::*;
 use ds_blitz::FocusFallback;
 use ds_harness::{Clock, Driver, Harness, HarnessConfig, Query, Viewport};
@@ -108,10 +109,13 @@ impl Fetch for NoFetch {
     fn get(&self, _: String, _: Box<dyn FnOnce(Vec<u8>) + Send>) {}
 }
 
-/// Opens nothing.
-struct NoBrowse;
-impl Browse for NoBrowse {
-    fn open(&self, _: &str) {}
+/// Opens nothing, and keeps what it was asked to open.
+#[derive(Clone, Default)]
+struct Opened(Arc<std::sync::Mutex<Vec<String>>>);
+impl Browse for Opened {
+    fn open(&self, url: &str) {
+        self.0.lock().unwrap().push(url.to_owned());
+    }
 }
 
 /// The platform's command key, as Blitz's own text actions read it: ⌘ (Super) on a Mac,
@@ -127,8 +131,13 @@ fn ms(n: u64) -> Duration {
 
 /// The window as `launch` wires it (`FocusFallback::Ancestor`), over the seeded store.
 fn open() -> (Harness, tempfile::TempDir) {
+    open_browsing(Opened::default())
+}
+
+/// The same, a link opened from it going to `browse`.
+fn open_browsing(browse: Opened) -> (Harness, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
-    let original = Original::new(Arc::new(NoFetch), Arc::new(NoBrowse));
+    let original = Original::new(Arc::new(NoFetch), Arc::new(browse));
     let contexts = mail_app::ui::native::contexts(
         seeded(dir.path()),
         mail_app::ui::view::Appearance::default(),
@@ -271,25 +280,72 @@ fn the_command_key_copies_what_is_selected_in_a_plain_message() {
     assert!(got.contains("Thursday"), "copied {got:?}");
 }
 
-/// (d) The link pill: hover a link in the frame, press its pill, "Copy link". The pill goes the
-/// moment the pointer leaves the link (`ui/hover/mod.rs`, `use_frame_pill`), so it is gone
-/// before the pointer can reach it at the reader's corner.
-#[test]
-#[ignore = "the pill goes as the pointer leaves the link, before it can be pressed"]
-fn the_link_pill_copies_where_the_link_goes() {
-    let (mut harness, _dir) = letter_open();
+/// (d) A link in the frame: a right click on it offers Open Link and Copy Link at the pointer,
+/// as a browser does. quire reports the link the press was on just before the reader's own
+/// `oncontextmenu` (`FrameLinks::with_context_menu`); the reader opens the menu with it.
+fn right_click_link(harness: &mut Harness) {
     let link = harness
         .frame(FRAME)
         .and_then(|f| f.centre("a"))
         .expect("the link is drawn");
-    harness.pointer_move(link);
-    harness.advance(ms(100));
-    until(&mut harness, "the pill", |h| h.count(".ds-link-pill") == 1);
-    let pill = centre(&harness, ".ds-link-pill");
-    harness.click(pill);
-    harness.advance(ms(100));
-    let got = copied(&harness);
-    assert!(got.starts_with(LINK_TO), "copied {got:?}");
+    harness.press(link, PointerButton::Secondary);
+    until(harness, "the link's menu", |h| h.count(LINK_MENU) == 2);
+}
+
+const LINK_MENU: &str = ".ds-menu .ds-menu-item";
+const OPEN_LINK: &str = ".ds-menu .ds-menu-item:nth-child(1)";
+const COPY_LINK: &str = ".ds-menu .ds-menu-item:nth-child(2)";
+
+#[test]
+fn a_right_click_on_a_link_copies_where_it_goes() {
+    let (mut harness, _dir) = letter_open();
+    right_click_link(&mut harness);
+    let copy = harness.text_of(COPY_LINK).unwrap_or_default();
+    assert!(copy.contains("Copy Link"), "{copy:?}");
+    let at = centre(&harness, COPY_LINK);
+    harness.click(at);
+    // The picked row blinks before the menu closes and the pick lands, as a Mac menu's does.
+    until(&mut harness, "the menu to close", |h| {
+        h.count(LINK_MENU) == 0
+    });
+    assert_eq!(copied(&harness), LINK_TO);
+}
+
+#[test]
+fn a_right_click_on_a_link_opens_it_as_a_click_would() {
+    let opened = Opened::default();
+    let (mut harness, _dir) = open_browsing(opened.clone());
+    open_row(&mut harness, 1);
+    until(&mut harness, "the letter's frame", |h| {
+        h.frame(FRAME).is_some_and(|f| f.text().contains(HEADING))
+    });
+    right_click_link(&mut harness);
+    let open = harness.text_of(OPEN_LINK).unwrap_or_default();
+    assert!(open.contains("Open Link"), "{open:?}");
+    let at = centre(&harness, OPEN_LINK);
+    harness.click(at);
+    until(&mut harness, "the menu to close", |h| {
+        h.count(LINK_MENU) == 0
+    });
+    assert_eq!(*opened.0.lock().unwrap(), vec![LINK_TO.to_owned()]);
+}
+
+#[test]
+fn a_right_click_off_a_link_offers_no_link() {
+    // Not the last link's menu either: what the frames report is taken by the menu it opens.
+    let (mut harness, _dir) = letter_open();
+    right_click_link(&mut harness);
+    harness.key(Key::Escape);
+    until(&mut harness, "the menu to close", |h| {
+        h.count(LINK_MENU) == 0
+    });
+    let heading = harness
+        .frame(FRAME)
+        .and_then(|f| f.centre("h1"))
+        .expect("the heading is drawn");
+    harness.press(heading, PointerButton::Secondary);
+    harness.advance(ms(300));
+    assert_eq!(harness.count(LINK_MENU), 0);
 }
 
 fn type_text(harness: &mut Harness, text: &str) {
