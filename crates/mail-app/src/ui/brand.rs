@@ -11,6 +11,7 @@
 use crate::ui::appearance::WindowDirs;
 use base64::Engine as _;
 use dioxus::prelude::*;
+use ds::components::content::avatar::AvatarSize;
 use mail_core::bimi::{Setting, domain_of};
 use mail_domain::{BlobId, MessageId};
 use mail_runtime::bimi::{Cached, Lookup, cached};
@@ -121,6 +122,23 @@ async fn ask(
     mail_core::bimi::brand_logo(Setting::On, Some(results), from, &lookup, dir).await
 }
 
+/// How many px across an avatar of `size` is: quire's `data-size`, which it keeps to itself. A
+/// logo stands where the avatar would, at the same size.
+fn side_of(size: AvatarSize) -> u8 {
+    match size {
+        AvatarSize::Size16 => 16,
+        AvatarSize::Size18 => 18,
+        AvatarSize::Size20 => 20,
+        AvatarSize::Size22 => 22,
+        AvatarSize::Size26 => 26,
+        AvatarSize::Size28 => 28,
+        AvatarSize::Size30 => 30,
+        AvatarSize::Size34 => 34,
+        AvatarSize::Size48 => 48,
+        AvatarSize::Size64 => 64,
+    }
+}
+
 /// The message header's avatar: the sender's logo when there is one, else quire's avatar with
 /// their initial. Keyed by its parent on the message and its body, as the checks line is.
 #[component]
@@ -134,8 +152,9 @@ pub(in crate::ui) fn ReaderAvatar(
     match logo() {
         Some(src) => {
             let alt = format!("Logo of {}", domain_of(&from).unwrap_or_default());
+            let side = side_of(face.size);
             rsx! {
-                div { class: "reader-av reader-logo",
+                div { class: "reader-av reader-logo", style: "width: {side}px; height: {side}px;",
                     img { src: "{src}", alt: "{alt}" }
                 }
             }

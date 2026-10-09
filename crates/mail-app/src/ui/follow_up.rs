@@ -272,7 +272,7 @@ pub(in crate::ui) fn FollowUpNote(follow_up: FollowUp) -> Element {
     };
     rsx! {
         div { class: "follow-up-note", role: "status",
-            Glyph { icon: Icon::Bell, size: IconSize::Micro }
+            Glyph { icon: Icon::Bell, size: IconSize::Compact }
             span { "{words}" }
         }
     }

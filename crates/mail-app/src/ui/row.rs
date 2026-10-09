@@ -20,7 +20,7 @@ use super::motion::{act_kind, drag, motion};
 use super::move_to::MoveMenu;
 use super::picks::drawn_order;
 use super::text::{draft_state, sender};
-use crate::ui::provider_chip::{ChipPlace, ProvChip};
+use crate::ui::provider_chip::ProvChip;
 use crate::ui::selection::Click;
 use crate::ui::view::Marks;
 use crate::ui::view::{Shell, hover_in};
@@ -199,20 +199,20 @@ pub(super) fn MailRow(
         if muted {
             Tooltip { text: "Muted".to_owned(),
                 span { class: "mute-mark", aria_label: "Muted", "data-muted": "true",
-                    Glyph { icon: Icon::BellOff, size: IconSize::Micro }
+                    Glyph { icon: Icon::BellOff, size: IconSize::Compact }
                 }
             }
         }
         if let Some(words) = no_reply {
             span { class: "no-reply", "data-follow-up": "returned",
-                Glyph { icon: Icon::Bell, size: IconSize::Micro }
+                Glyph { icon: Icon::Bell, size: IconSize::Compact }
                 "{words}"
             }
         }
         if let Some(count) = files {
             span { class: "clip",
-                Glyph { icon: Icon::Paperclip, size: IconSize::Micro }
-                Badge { content: BadgeContent::Number(count), tone: BadgeTone::Quiet, size: ControlSize::Mini }
+                Glyph { icon: Icon::Paperclip, size: IconSize::Compact }
+                Badge { content: BadgeContent::Number(count), tone: BadgeTone::Quiet, size: ControlSize::Small }
             }
         }
     };
@@ -382,7 +382,7 @@ fn ViaChip(via: Provider, marks: Marks) -> Element {
     rsx! {
         Tooltip { text: title,
             span { class: "via",
-                ProvChip { provider: via, marks, place: ChipPlace::Row }
+                ProvChip { provider: via, marks }
                 "{short}"
             }
         }

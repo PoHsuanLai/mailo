@@ -257,7 +257,7 @@ fn PickRemind(page: Signal<Page>) -> Element {
                         _ => {}
                     }
                 },
-                Glyph { icon: Icon::Bell, size: IconSize::Nav }
+                Glyph { icon: Icon::Bell, size: IconSize::Compact }
                 TextField {
                     label: "Remind me at".to_owned(),
                     value: typed.clone(),

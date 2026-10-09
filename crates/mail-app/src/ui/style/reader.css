@@ -21,7 +21,7 @@
 .msg-when { margin-left: auto; flex: none; padding-left: var(--s-8); white-space: nowrap; }
 .reader-who { display: flex; flex-direction: column; gap: var(--s-2); min-width: 0; flex: 1; }
 .reader-av {
-  width: 34px; height: 34px; border-radius: var(--r-pill); display: grid; place-items: center; flex: none;
+  border-radius: var(--r-pill); display: grid; place-items: center; flex: none;
   overflow: hidden;
 }
 .reader-logo { background: var(--paper); overflow: hidden; }

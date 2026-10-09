@@ -129,7 +129,6 @@ pub(in crate::ui) fn DestroySheet(shell: Signal<Shell>, revision: Signal<u64>) -
                     p { class: "destroy-body", "{said.body}" }
                     div { class: "rules-acts",
                         Button {
-                            size: ControlSize::Large,
                             label: said.confirm.clone(),
                             icon: Icon::Trash,
                             common: Common {

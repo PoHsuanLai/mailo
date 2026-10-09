@@ -10,7 +10,6 @@ use std::sync::Arc;
 
 use dioxus::prelude::*;
 use ds::prelude::*;
-use ds::style::tokens::control_size::ControlSize;
 use mail_domain::MessageId;
 use mail_store::{SqliteStore, Store};
 
@@ -149,25 +148,21 @@ pub(in crate::ui) fn AttachmentViewer(shell: Signal<Shell>) -> Element {
                     if let Some(count) = pages {
                         span { class: "viewer-page mono", "Page {viewing.page + 1} of {count}" }
                         Button {
-                            size: ControlSize::Large,
                             label: "Previous page".to_owned(),
                             availability: super::super::press::available(viewing.page > 0),
                             onclick: super::super::press::on_primary(move || turn(shell, -1)),
                         }
                         Button {
-                            size: ControlSize::Large,
                             label: "Next page".to_owned(),
                             availability: super::super::press::available(viewing.page + 1 < count),
                             onclick: super::super::press::on_primary(move || turn(shell, 1)),
                         }
                     }
                     Button {
-                        size: ControlSize::Large,
                         label: "Save".to_owned(),
                         onclick: super::super::press::on_primary(save),
                     }
                     Button {
-                        size: ControlSize::Large,
                         label: "Close".to_owned(),
                         onclick: super::super::press::on_primary(move || close(shell)),
                     }

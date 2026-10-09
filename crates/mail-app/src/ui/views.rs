@@ -17,7 +17,6 @@ use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::root::pass_through::ExtraClass;
-use ds::style::tokens::control_size::ControlSize;
 use mail_domain::{OpKind, SortDir, View};
 use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
@@ -234,7 +233,6 @@ pub(in crate::ui) fn ViewSheet(
                         }
                         if editing {
                             Button {
-                                size: ControlSize::Large,
                                 label: "Delete view".to_owned(),
                                 icon: Icon::Trash,
                                 common: Common {
@@ -245,12 +243,10 @@ pub(in crate::ui) fn ViewSheet(
                             }
                         }
                         Button {
-                            size: ControlSize::Large,
                             label: "Cancel".to_owned(),
                             onclick: on_primary(move || close(shell)),
                         }
                         Button {
-                            size: ControlSize::Large,
                             answers: Answers::Return,
                             label: "Save".to_owned(),
                             common: Common {

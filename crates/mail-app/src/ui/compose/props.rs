@@ -31,7 +31,7 @@ use super::protection::ProtectionRow;
 use super::receipt::{KEY as RECEIPT_KEY, ReceiptRow, item as receipt_item};
 use super::recipients::{commit_typed, people_items, pick_person, pop_last, remove, typed};
 use super::remind::RemindRow;
-use crate::ui::provider_chip::{ChipPlace, ProvChip};
+use crate::ui::provider_chip::ProvChip;
 use crate::ui::view::Shell;
 use mail_core::provider::provider;
 
@@ -172,7 +172,7 @@ fn FromRow(page: Signal<Page>, shell: Signal<Shell>) -> Element {
                 // The provider's mark leads the value, inside it: quire's `ProviderMark` at its
                 // inline size, drawn from the cached icon or the letter.
                 leading: via.map(|via| Leading::Mark(rsx! {
-                    ProvChip { provider: via, marks, place: ChipPlace::Inline }
+                    ProvChip { provider: via, marks }
                 })),
                 trailing: Some(Trailing::Glyph(Icon::ChevronDown)),
                 shown: Some(if open { Shown::Visible } else { Shown::Hidden }),
