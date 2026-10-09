@@ -836,7 +836,7 @@ mod tests {
                 )
                 .unwrap();
         }
-        let loaded = mail_core::provider::icon::Loaded::read(&icons);
+        let loaded = crate::ui::provider_chip::read(&icons);
         if !icons.join("google.png").is_file() {
             println!(
                 "no cached icons in {}; tiles will show letters",

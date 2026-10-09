@@ -91,9 +91,9 @@ fn walk(dir: &Path, root: &Path, hits: &mut Vec<String>) {
 }
 
 #[test]
-fn decode_keeps_the_largest_frame_at_most_64_px() {
-    // A 512 px frame is rejected, not downscaled. A frame between 65 and 256 is
-    // skipped; if it was the only one, there is nothing to draw.
+fn decode_keeps_the_largest_frame_drawn_at_96_px() {
+    // A 512 px frame is rejected, not downscaled. The largest of the rest is kept, so
+    // the 96 px file is drawn from as many of the provider's own pixels as there are.
     let cases: &[(&str, Vec<u8>, DecodeExpect)] = &[
         (
             "ico 16 red, 32 green, 48 blue",
@@ -105,9 +105,9 @@ fn decode_keeps_the_largest_frame_at_most_64_px() {
             DecodeExpect::Blue,
         ),
         (
-            "ico 96 green and 16 red skips the 96",
-            ico(&[(96, [0, 255, 0, 255]), (16, [255, 0, 0, 255])]),
-            DecodeExpect::Red,
+            "ico 256 green and 16 red keeps the 256",
+            ico(&[(256, [0, 255, 0, 255]), (16, [255, 0, 0, 255])]),
+            DecodeExpect::Green,
         ),
         (
             "png 16 red",
@@ -135,9 +135,9 @@ fn decode_keeps_the_largest_frame_at_most_64_px() {
             DecodeExpect::Dimensions,
         ),
         (
-            "80 png has no frame at most 64",
+            "80 png is drawn at 96",
             solid_png(80, 80, [0, 255, 0, 255]),
-            DecodeExpect::NoFrame,
+            DecodeExpect::Green,
         ),
     ];
     for (name, bytes, expect) in cases {
@@ -145,6 +145,9 @@ fn decode_keeps_the_largest_frame_at_most_64_px() {
         match expect {
             DecodeExpect::Red => {
                 assert_channel(name, &got.unwrap_or_else(|err| panic!("{name}: {err}")), 0)
+            }
+            DecodeExpect::Green => {
+                assert_channel(name, &got.unwrap_or_else(|err| panic!("{name}: {err}")), 1)
             }
             DecodeExpect::Blue => {
                 assert_channel(name, &got.unwrap_or_else(|err| panic!("{name}: {err}")), 2)
@@ -173,9 +176,6 @@ fn decode_keeps_the_largest_frame_at_most_64_px() {
                     "{name}: {got:?}"
                 )
             }
-            DecodeExpect::NoFrame => {
-                assert!(matches!(got, Err(IconError::NoFrame)), "{name}: {got:?}")
-            }
         }
     }
 }
@@ -183,11 +183,11 @@ fn decode_keeps_the_largest_frame_at_most_64_px() {
 #[derive(Clone, Copy)]
 enum DecodeExpect {
     Red,
+    Green,
     Blue,
     Unrecognized,
     TooLarge,
     Dimensions,
-    NoFrame,
 }
 
 fn assert_channel(name: &str, png: &[u8], channel: usize) {
@@ -196,9 +196,9 @@ fn assert_channel(name: &str, png: &[u8], channel: usize) {
         "{name} did not come out as a png"
     );
     let decoder = PngDecoder::new(Cursor::new(png)).unwrap_or_else(|err| panic!("{name}: {err}"));
-    assert_eq!(decoder.dimensions(), (32, 32), "{name}");
+    assert_eq!(decoder.dimensions(), (96, 96), "{name}");
     let image = DynamicImage::from_decoder(decoder).unwrap_or_else(|err| panic!("{name}: {err}"));
-    let px = image.get_pixel(16, 16).0;
+    let px = image.get_pixel(48, 48).0;
     assert!(px[3] > 200, "{name} center is transparent: {px:?}");
     assert!(px[channel] > 200, "{name} picked the wrong frame: {px:?}");
     for (index, value) in px.into_iter().take(3).enumerate() {
@@ -264,18 +264,18 @@ fn a_cached_icon_round_trips_and_a_failed_write_leaves_no_partial_file() {
     std::fs::write(dir.path().join(".fastmail.png.part"), &png)
         .unwrap_or_else(|err| panic!("{err}"));
     assert!(cached(dir.path(), Provider::Fastmail).is_none());
-    let loaded = Loaded::read(dir.path());
-    assert!(loaded.uri(Provider::Yahoo).is_some());
-    assert!(loaded.uri(Provider::Fastmail).is_none());
+    let loaded = Loaded::read(dir.path(), &[20, 96]);
+    assert!(loaded.uri(Provider::Yahoo, 20).is_some());
+    assert!(loaded.uri(Provider::Fastmail, 20).is_none());
     assert!(
         !loaded
-            .uri(Provider::Yahoo)
+            .uri(Provider::Yahoo, 20)
             .unwrap_or_default()
             .contains("file:")
     );
     assert!(
         loaded
-            .uri(Provider::Yahoo)
+            .uri(Provider::Yahoo, 20)
             .unwrap_or_default()
             .starts_with("data:image/png;base64,")
     );
@@ -292,6 +292,47 @@ fn a_cached_icon_round_trips_and_a_failed_write_leaves_no_partial_file() {
         !dir.path().join(".google.png.part").exists(),
         "the failed store left its temporary file"
     );
+}
+
+#[test]
+fn a_cached_icon_is_drawn_at_each_side_asked_for_and_an_old_size_is_fetched_again() {
+    let dir = tempfile::tempdir().unwrap_or_else(|err| panic!("{err}"));
+    let png = decode(&solid_png(48, 48, [9, 8, 7, 255])).unwrap_or_else(|err| panic!("{err}"));
+    store(dir.path(), Provider::Google, &png).unwrap_or_else(|err| panic!("{err}"));
+    let loaded = Loaded::read(dir.path(), &[16, 20, 56, 96]);
+    for (asked, drawn) in [(16, 16), (20, 20), (21, 56), (56, 56), (96, 96), (200, 96)] {
+        let uri = loaded
+            .uri(Provider::Google, asked)
+            .unwrap_or_else(|| panic!("{asked}: no uri"));
+        assert_eq!(side_of(&uri), drawn, "asked for {asked}");
+    }
+    // A 32 px file, as the cache held before marks were drawn at the screen's scale, is
+    // not cached: it is fetched again rather than stretched.
+    std::fs::write(
+        dir.path().join("yahoo.png"),
+        solid_png(32, 32, [9, 8, 7, 255]),
+    )
+    .unwrap_or_else(|err| panic!("{err}"));
+    assert!(cached(dir.path(), Provider::Yahoo).is_none());
+    assert!(
+        Loaded::read(dir.path(), &[20])
+            .uri(Provider::Yahoo, 20)
+            .is_none()
+    );
+}
+
+fn side_of(uri: &str) -> u32 {
+    use base64::Engine as _;
+    let data = uri
+        .strip_prefix("data:image/png;base64,")
+        .unwrap_or_else(|| panic!("not a png data uri"));
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(data)
+        .unwrap_or_else(|err| panic!("{err}"));
+    let decoder = PngDecoder::new(Cursor::new(bytes)).unwrap_or_else(|err| panic!("{err}"));
+    let (width, height) = decoder.dimensions();
+    assert_eq!(width, height);
+    width
 }
 
 fn names(dir: &Path) -> Vec<String> {

@@ -41,7 +41,7 @@ pub fn run(
     let cache = mail_core::config::cache_dir();
     let icons = cache
         .as_ref()
-        .map(|dir| Loaded::read(&dir.join("providers")))
+        .map(|dir| super::provider_chip::read(&dir.join("providers")))
         .unwrap_or_default();
     let brand = cache.map(|dir| super::brand::BrandCache(dir.join("bimi")));
     let opening = Opening {

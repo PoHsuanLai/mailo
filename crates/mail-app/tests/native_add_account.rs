@@ -152,6 +152,17 @@ fn open_sized(
     theme: ds::prelude::Theme,
     view: Viewport,
 ) -> Window {
+    open_with(script, prefill, theme, view, None)
+}
+
+/// [`open_sized`], with the provider icons a window would have read from its cache.
+fn open_with(
+    script: Script,
+    prefill: Option<&str>,
+    theme: ds::prelude::Theme,
+    view: Viewport,
+    icons: Option<mail_core::provider::icon::Loaded>,
+) -> Window {
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(SqliteStore::in_memory(dir.path()).unwrap());
     let log = Arc::new(Log::default());
@@ -171,6 +182,10 @@ fn open_sized(
         .with_context(store)
         .with_context(environment(theme))
         .with_context(AddAccountOpened::new(wiring, prefill.map(str::to_owned)));
+    let config = match icons {
+        Some(icons) => config.with_context(icons),
+        None => config,
+    };
     let mut harness = Harness::new(add_account_root, config);
     harness.advance(Duration::from_millis(300));
     Window {
@@ -225,6 +240,65 @@ fn type_text(w: &mut Window, text: &str) {
             .key(if c == ' ' { Key::Space } else { Key::Char(c) });
     }
     w.harness.advance(Duration::from_millis(100));
+}
+
+/// The pixel size of the PNG behind the `data:` URI in an inline style's `url("...")`.
+fn png_size_in(style: &str) -> (u32, u32) {
+    use base64::Engine as _;
+    let at = style
+        .find("data:image/png;base64,")
+        .unwrap_or_else(|| panic!("no png data uri in {style:.80}"));
+    let data = style[at + "data:image/png;base64,".len()..]
+        .split('"')
+        .next()
+        .unwrap();
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(data)
+        .unwrap();
+    let image = image::load_from_memory(&bytes).unwrap();
+    (image.width(), image.height())
+}
+
+#[test]
+fn a_provider_icon_is_a_picture_as_many_pixels_across_as_the_screen_draws_it() {
+    // At scale 2 the list's 28 px favicon covers 56 device pixels and a step's 48 px header 96:
+    // each is handed a picture exactly that size, not one the renderer stretches and softens.
+    let icons = tempfile::tempdir().unwrap();
+    let cached = image::RgbaImage::from_pixel(96, 96, image::Rgba([0x2a, 0x5d, 0xb0, 0xff]));
+    image::DynamicImage::ImageRgba8(cached)
+        .save(icons.path().join("fastmail.png"))
+        .unwrap();
+    let view = Viewport {
+        scale_percent: 200,
+        ..VIEW
+    };
+    let loaded = mail_app::ui::native::read_icons(icons.path());
+    let mut w = open_with(
+        Script::default(),
+        None,
+        ds::prelude::Theme::Light,
+        view,
+        Some(loaded),
+    );
+    on_step(&mut w, "providers");
+    let icon = ".ds-ext-icon[*|data-kind=image]";
+    let check = |w: &Window, place: &str| {
+        let rect = w
+            .harness
+            .rect(icon)
+            .unwrap_or_else(|| panic!("{place}: no favicon is drawn:\n{}", w.harness.html()));
+        let style = w.harness.attr(icon, "style").unwrap();
+        let drawn = (
+            (rect.size.width.0 * 2.0).round() as u32,
+            (rect.size.height.0 * 2.0).round() as u32,
+        );
+        assert_eq!(png_size_in(&style), drawn, "{place}");
+    };
+    check(&w, "the list");
+    type_text(&mut w, "fast");
+    w.harness.key(Key::Enter);
+    on_step(&mut w, "sign-in");
+    check(&w, "the sign-in header");
 }
 
 #[test]

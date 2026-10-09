@@ -1,4 +1,4 @@
-//! ICO and PNG bytes in, a 32×32 PNG out.
+//! ICO and PNG bytes in, a [`SIDE`]-px square PNG out.
 
 use super::{IconError, MAX_BYTES, PNG_MAGIC};
 use image::codecs::ico::IcoDecoder;
@@ -9,15 +9,16 @@ use std::io::Cursor;
 const ICO_MAGIC: [u8; 4] = [0x00, 0x00, 0x01, 0x00];
 /// A frame larger than this is refused, not scaled down.
 const MAX_SIDE: u32 = 256;
-/// The largest frame we are willing to keep. Anything bigger is skipped.
-const FRAME: u32 = 64;
-const OUT: u32 = 32;
 
-/// Decode an ICO or a PNG into a 32×32 PNG.
+/// The side of the cached PNG: the largest a window draws a mark (48 px, Add Account's header) at
+/// scale 2, so a mark is only ever drawn from a larger picture, never a smaller one stretched.
+pub(crate) const SIDE: u32 = 96;
+
+/// Decode an ICO or a PNG into a [`SIDE`]-px square PNG.
 ///
-/// The format is the magic bytes, never the URL. A multi-frame ICO keeps the
-/// largest frame whose sides are both at most 64 px. A frame over 256 px is
-/// refused, not scaled down. More than 256 KiB is refused before decoding.
+/// The format is the magic bytes, never the URL. A multi-frame ICO keeps its
+/// largest frame. A frame over 256 px is refused, not scaled down. More than
+/// 256 KiB is refused before decoding.
 pub(crate) fn decode(bytes: &[u8]) -> Result<Vec<u8>, IconError> {
     if bytes.len() > MAX_BYTES {
         return Err(IconError::TooLarge { bytes: bytes.len() });
@@ -58,7 +59,7 @@ fn decode_ico(bytes: &[u8]) -> Result<Vec<u8>, IconError> {
         if width > MAX_SIDE || height > MAX_SIDE {
             return Err(IconError::Dimensions { width, height });
         }
-        if width == 0 || height == 0 || width > FRAME || height > FRAME {
+        if width == 0 || height == 0 {
             continue;
         }
         let area = width.saturating_mul(height);
@@ -103,11 +104,11 @@ fn resize(decoder: impl ImageDecoder) -> Result<Vec<u8>, IconError> {
     if width > MAX_SIDE || height > MAX_SIDE {
         return Err(IconError::Dimensions { width, height });
     }
-    if width == 0 || height == 0 || width > FRAME || height > FRAME {
+    if width == 0 || height == 0 {
         return Err(IconError::NoFrame);
     }
     let image = DynamicImage::from_decoder(decoder).map_err(as_decode)?;
-    let resized = image.resize_exact(OUT, OUT, image::imageops::FilterType::Triangle);
+    let resized = image.resize_exact(SIDE, SIDE, image::imageops::FilterType::Lanczos3);
     let mut png = Vec::new();
     resized
         .write_with_encoder(PngEncoder::new(&mut png))
