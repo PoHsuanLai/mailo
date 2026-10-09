@@ -12,6 +12,8 @@
 //! (`editor/keys.rs`), not these.
 
 use crate::ui::view::Shortcut;
+/// quire's keys, as a tip draws them: named apart from [`Shortcut`], mailo's actions.
+pub use ds::prelude::{Shortcut as Keys, ShortcutKey as KeyCap};
 use std::path::Path;
 
 /// Where the user's keys are kept, in the config directory.
@@ -246,39 +248,42 @@ pub fn spoken(key: &str) -> String {
     }
 }
 
-/// A key as a tip shows it after the control's name: `M` for "m", `⇧J` for "J", `↓` for
-/// "ArrowDown", `Esc` for "Escape".
-pub fn drawn(key: &str) -> String {
+/// A key as the keymap writes it (`m`, `J` for Shift+J, ` `, `Escape`, `ArrowDown`) as quire's
+/// keys, which a tip draws after the control's name: `M`, `⇧J`, `Space`, `Esc`, `↓`. `None` for a
+/// key with no cap of its own.
+pub fn keys_of(key: &str) -> Option<Keys> {
     let mut chars = key.chars();
-    match (chars.next(), chars.next()) {
-        (Some(' '), None) => "Space".to_owned(),
-        (Some(c), None) if c.is_uppercase() => format!("\u{21e7}{c}"),
-        (Some(c), None) => c.to_uppercase().collect(),
-        _ => match key {
-            "Escape" => "Esc".to_owned(),
-            "ArrowDown" => "\u{2193}".to_owned(),
-            "ArrowUp" => "\u{2191}".to_owned(),
-            "ArrowLeft" => "\u{2190}".to_owned(),
-            "ArrowRight" => "\u{2192}".to_owned(),
-            "Delete" => "\u{2326}".to_owned(),
-            "Backspace" => "\u{232b}".to_owned(),
-            _ => key.to_owned(),
-        },
-    }
+    let one = match (chars.next(), chars.next()) {
+        (Some(' '), None) => vec![KeyCap::Space],
+        (Some(c), None) if c.is_uppercase() => vec![KeyCap::Shift, KeyCap::Char(c)],
+        (Some(c), None) => vec![KeyCap::Char(c)],
+        _ => vec![match key {
+            "Escape" => KeyCap::Escape,
+            "Enter" => KeyCap::Enter,
+            "Tab" => KeyCap::Tab,
+            "ArrowDown" => KeyCap::Down,
+            "ArrowUp" => KeyCap::Up,
+            "ArrowLeft" => KeyCap::Left,
+            "ArrowRight" => KeyCap::Right,
+            "Delete" => KeyCap::Delete,
+            "Backspace" => KeyCap::Backspace,
+            _ => return None,
+        }],
+    };
+    Some(Keys(one))
 }
 
-/// A control's tip: its short name, then the key it answers to, two spaces apart, as a Mac
-/// menu sets a key equivalent off from its title.
-pub fn tip(name: &str, key: &str) -> String {
-    format!("{name}  {key}")
+/// The keys `action` answers to now, for the tip of a control that does what it does: the first
+/// key `map` gives it, or `None` when it has none (the tip is then the name alone).
+pub fn action_keys(map: &Keymap, action: Shortcut) -> Option<Keys> {
+    map.keys(action).first().and_then(|key| keys_of(key))
 }
 
-/// The tip of a control that does what `action` does: its name and the first key `map` gives
-/// the action now, or the name alone when it has none.
-pub fn action_tip(map: &Keymap, name: &str, action: Shortcut) -> String {
-    map.keys(action)
-        .first()
-        .map_or_else(|| name.to_owned(), |key| tip(name, &drawn(key)))
+/// A fixed chord of the window's own, for its tip: `chord(&[KeyCap::Super], 'n')` is ⌘N.
+pub fn chord(held: &[KeyCap], key: char) -> Keys {
+    let mut keys = held.to_vec();
+    keys.push(KeyCap::Char(key));
+    Keys(keys)
 }
 
 /// One changed action, as `keyboard.json` holds it.

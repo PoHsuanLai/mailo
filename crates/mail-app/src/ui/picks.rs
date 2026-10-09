@@ -156,8 +156,8 @@ pub(super) fn PickBar(
         .iter()
         .any(|summary| crate::ui::bin::offered(bin, summary));
     let keys = shell.read().keymap.clone();
-    let tip = |name: &str, action| crate::ui::keymap::action_tip(&keys, name, action);
-    let buttons: Vec<(Shortcut, Icon, &'static str, String)> = [
+    let keys_for = |action| crate::ui::keymap::action_keys(&keys, action);
+    let buttons: Vec<(Shortcut, Icon, &'static str, &'static str)> = [
         (Shortcut::Archive, Icon::Archive, "Archive", "Archive"),
         (
             Shortcut::Trash,
@@ -176,14 +176,13 @@ pub(super) fn PickBar(
     ]
     .into_iter()
     .filter(|(action, _, _, _)| offered(*action).is_some())
-    .map(|(action, icon, name, short)| (action, icon, name, tip(short, action)))
     .collect();
-    let mute_tip = tip(mute, Shortcut::ToggleMute);
+    let mute_keys = keys_for(Shortcut::ToggleMute);
     rsx! {
         span { class: "status", "{count} selected" }
         // The actions wrap within the list column when it is too narrow for one line.
         div { class: "pick-tools",
-            for (action, icon, name, tip) in buttons {
+            for (action, icon, name, short) in buttons {
                 Button {
                     key: "{name}",
                     bezel: Bezel::Toolbar,
@@ -191,7 +190,8 @@ pub(super) fn PickBar(
                     size: ControlSize::Large,
                     label: name.to_owned(),
                     icon,
-                    title: Some(tip),
+                    title: Some(short.to_owned()),
+                    title_shortcut: keys_for(action),
                     common: Common {
                         aria_label: Some(format!("{name} the {count} selected")),
                         ..Common::default()
@@ -208,7 +208,8 @@ pub(super) fn PickBar(
                 size: ControlSize::Large,
                 label: mute.to_owned(),
                 icon: Icon::BellOff,
-                title: Some(mute_tip),
+                title: Some(mute.to_owned()),
+                title_shortcut: mute_keys,
                 common: Common {
                     aria_label: Some(format!("{mute} the {count} selected")),
                     ..Common::default()
@@ -244,7 +245,8 @@ pub(super) fn PickBar(
                 size: ControlSize::Large,
                 label: "Clear the selection".to_owned(),
                 icon: Icon::X,
-                title: Some(crate::ui::keymap::tip("Clear Selection", "Esc")),
+                title: Some("Clear Selection".to_owned()),
+                title_shortcut: Some(crate::ui::keymap::Keys(vec![crate::ui::keymap::KeyCap::Escape])),
                 common: Common {
                     aria_label: Some("Clear the selection".to_owned()),
                     ..Common::default()

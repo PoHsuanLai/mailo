@@ -85,11 +85,8 @@ fn mute_tool(thread: ThreadId, mute: Mute, shell: Signal<Shell>, revision: Signa
         Mute::Muted => ("Unmute this conversation", "Unmute", Check::On),
         Mute::Unmuted => ("Mute this conversation", "Mute", Check::Off),
     };
-    let tip = crate::ui::keymap::action_tip(
-        &shell.read().keymap,
-        short,
-        crate::ui::view::Shortcut::ToggleMute,
-    );
+    let keys =
+        crate::ui::keymap::action_keys(&shell.read().keymap, crate::ui::view::Shortcut::ToggleMute);
     rsx! {
         Button {
             bezel: Bezel::Toolbar,
@@ -97,7 +94,8 @@ fn mute_tool(thread: ThreadId, mute: Mute, shell: Signal<Shell>, revision: Signa
             image: ImagePosition::Only,
             icon: Some(IconSource::Glyph(Icon::BellOff)),
             label: label.to_owned(),
-            title: Some(tip),
+            title: Some(short.to_owned()),
+            title_shortcut: keys,
             value: Some(pressed),
             onclick: move |_| {
                 let store = consume_context::<Arc<SqliteStore>>();

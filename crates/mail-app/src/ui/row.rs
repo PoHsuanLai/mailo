@@ -270,6 +270,10 @@ pub(super) fn MailRow(
                 time,
                 tags,
                 star: Some(star),
+                star_shortcut: crate::ui::keymap::action_keys(
+                    &shell.read().keymap,
+                    crate::ui::view::Shortcut::ToggleStar,
+                ),
                 strip: None,
                 more: Some(more),
                 onclick: move |press: Press| {
