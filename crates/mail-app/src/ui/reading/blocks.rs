@@ -9,8 +9,14 @@ use mail_domain::MessageId;
 #[component]
 pub(super) fn Sandbox(html: String, #[props(default)] tag: Option<String>) -> Element {
     rsx! {
+        // `data-wheel="capture"`: quire's scroll engine scrolls only the app's own document and
+        // takes every wheel it routes, so a wheel over the frame would go to the reader around
+        // it (which does not overflow: the frame fills the pane) and the frame's document, which
+        // scrolls itself, would never hear it. Captured, the window hands the wheel to Blitz,
+        // which forwards it into the frame. gap(quire): the engine does not chain into frames.
         iframe {
             class: "html",
+            "data-wheel": "capture",
             "data-frame-tag": tag,
             "sandbox": "",
             srcdoc: "{html}",
