@@ -405,7 +405,7 @@ pub(super) fn ThreadList(
                                     Label {
                                         text: address,
                                         role: LabelRole::Tertiary,
-                                        style: LabelStyle::Caption,
+                                        style: LabelStyle::Footnote,
                                         common: classed("ds-truncate"),
                                     }
                                 }

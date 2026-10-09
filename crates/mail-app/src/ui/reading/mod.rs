@@ -233,8 +233,23 @@ fn html_frame(html: &str, parsed: &mail_mime::Parsed, policy: SanitizePolicy) ->
 
 /// The type a frame's document is set in, a mail client's own: the system's sans rather than
 /// Blitz's serif.
-const FRAME_FONT: &str =
-    "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, Helvetica, Arial, sans-serif";
+const FRAME_FONT: &str = "\"Inter\", system-ui, sans-serif";
+
+/// The document inside a frame cannot read the window's tokens, so the values the window's rules
+/// name are written here once, as named constants, and the sheets below are built from them: the
+/// message text's size and line height (`--fs-reading`, 1.65), the code face and size
+/// (`--font-code`, `--fs-meta`) and the quote bar (2 px, `--ink-soft`). The light colours are the
+/// light scheme's `--ink`, `--ink-soft` and `--surface`.
+const FRAME_TEXT_SIZE: &str = "14px";
+const FRAME_TEXT_LINE: &str = "1.65";
+const FRAME_CODE_FONT: &str = "\"Space Mono\", \"Inter\", ui-monospace, monospace";
+const FRAME_CODE_SIZE: &str = "12.5px";
+const FRAME_QUOTE_BAR: &str = "2px";
+const FRAME_INK: &str = "#202020";
+const FRAME_INK_SOFT: &str = "#5c5c5c";
+const FRAME_PAPER: &str = "#ffffff";
+const FRAME_CODE_GROUND: &str = "#f5f5f5";
+const FRAME_LINK: &str = "#0066cc";
 
 /// What an HTML message's document starts from before the sender's own sheets: a browser's
 /// defaults, as a mail client's are, with quotes, code and headings drawn as the composer draws
@@ -247,15 +262,17 @@ const FRAME_FONT: &str =
 fn html_sheet() -> String {
     format!(
         ":root {{ color-scheme: light; }} html, body {{ margin: 0; }} \
-         body {{ padding: 16px; font-family: {FRAME_FONT}; font-size: 14px; line-height: 1.5; \
-         color: #1d1d1f; background: #fff; overflow-wrap: anywhere; }} \
+         body {{ padding: 16px; font-family: {FRAME_FONT}; font-size: {FRAME_TEXT_SIZE}; \
+         line-height: {FRAME_TEXT_LINE}; color: {FRAME_INK}; background: {FRAME_PAPER}; \
+         overflow-wrap: anywhere; }} \
          img {{ max-width: 100%; }} table {{ max-width: 100%; }} \
-         blockquote {{ margin: 0 0 1em; padding-left: 12px; border-left: 3px solid #d2d2d7; color: #424245; }} \
-         pre, code {{ font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9em; }} \
-         pre {{ background: #f5f5f7; border-radius: 6px; padding: 10px 12px; white-space: pre-wrap; }} \
+         blockquote {{ margin: 0 0 1em; padding-left: 12px; \
+         border-left: {FRAME_QUOTE_BAR} solid {FRAME_INK_SOFT}; color: {FRAME_INK_SOFT}; }} \
+         pre, code {{ font-family: {FRAME_CODE_FONT}; font-size: {FRAME_CODE_SIZE}; }} \
+         pre {{ background: {FRAME_CODE_GROUND}; border-radius: 6px; padding: 10px 12px; white-space: pre-wrap; }} \
          h2 {{ font-size: 1.3em; line-height: 1.25; margin: .9em 0 .35em; }} \
          h3 {{ font-size: 1.15em; margin: .8em 0 .3em; }} h4 {{ font-size: 1em; margin: .7em 0 .3em; }} \
-         a {{ color: #0066cc; }}"
+         a {{ color: {FRAME_LINK}; }}"
     )
 }
 
@@ -263,8 +280,8 @@ fn html_sheet() -> String {
 fn plain_sheet() -> String {
     format!(
         ":root {{ color-scheme: light dark; }} \
-         body {{ margin: 16px; font-family: {FRAME_FONT}; font-size: 14px; line-height: 1.6; \
-         white-space: pre-wrap; overflow-wrap: anywhere; }}"
+         body {{ margin: 16px; font-family: {FRAME_FONT}; font-size: {FRAME_TEXT_SIZE}; \
+         line-height: {FRAME_TEXT_LINE}; white-space: pre-wrap; overflow-wrap: anywhere; }}"
     )
 }
 
@@ -535,7 +552,7 @@ pub(super) fn Reader(
                     }
                 }
             }
-            h2 { Label { text: subject, style: LabelStyle::Title } }
+            h2 { Label { text: subject, style: LabelStyle::Title, common: crate::ui::common::classed("reader-subject") } }
             if loaded.summary.mute == Mute::Muted {
                 div { class: "muted-note", role: "status",
                     Glyph { icon: Icon::BellOff, size: IconSize::Compact }

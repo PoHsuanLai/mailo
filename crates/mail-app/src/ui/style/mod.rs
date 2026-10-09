@@ -118,8 +118,8 @@ pub(in crate::ui) mod tests {
         );
     }
 
-    /// The declarations of the rule whose selector is exactly `selector`, comments removed.
-    fn rule_body(selector: &str) -> String {
+    /// mailo's stylesheet with its comments removed.
+    fn uncommented() -> String {
         let mut css = String::new();
         let mut rest = STYLE;
         while let Some(start) = rest.find("/*") {
@@ -129,11 +129,151 @@ pub(in crate::ui) mod tests {
                 .map_or("", |(_, after)| after);
         }
         css.push_str(rest);
-        css.split('}')
+        css
+    }
+
+    /// The declarations of the rule whose selector is exactly `selector`, comments removed.
+    fn rule_body(selector: &str) -> String {
+        uncommented()
+            .split('}')
             .filter_map(|rule| rule.split_once('{'))
             .find(|(prelude, _)| prelude.trim() == selector)
             .map(|(_, body)| body.to_owned())
             .unwrap_or_default()
+    }
+
+    /// Every declaration in the sheet as (selector, property, value). The sheet has no at-rules
+    /// and no nesting, so a rule is the text up to its `}`.
+    fn declarations() -> Vec<(String, String, String)> {
+        let css = uncommented();
+        let mut found = Vec::new();
+        for rule in css.split('}') {
+            let Some((selector, body)) = rule.split_once('{') else {
+                continue;
+            };
+            for declaration in body.split(';') {
+                if let Some((property, value)) = declaration.split_once(':') {
+                    found.push((
+                        selector.trim().to_owned(),
+                        property.trim().to_owned(),
+                        value.trim().to_owned(),
+                    ));
+                }
+            }
+        }
+        found
+    }
+
+    /// The values `property` takes in the rule for exactly `selector`.
+    fn values_of(selector: &str, property: &str) -> Vec<String> {
+        declarations()
+            .into_iter()
+            .filter(|(s, p, _)| s == selector && p == property)
+            .map(|(.., value)| value)
+            .collect()
+    }
+
+    /// Type rule: sizes are the scale's tokens, and the scale in use is a closed set. A new size
+    /// is a step added here on purpose, not a token reached for because it was near. The sizes
+    /// mailo's rules once took from beside the scale (`--fs-small`, `--fs-note`, `--fs-eyebrow`,
+    /// `--fs-body`, `--fs-caption`) are metadata, and metadata is `--fs-help`.
+    #[test]
+    fn every_font_size_is_a_step_of_the_scale() {
+        const SCALE: &[&str] = &[
+            "var(--fs-display)",   // a composer's subject, 26
+            "var(--fs-subject)",   // a reader's subject, 20
+            "var(--fs-heading)",   // a heading written in a message
+            "var(--fs-heading-3)", // a sub-heading written in a message
+            "var(--fs-title)",     // a pane's title, 16
+            "var(--fs-base)",      // a small heading written in a message
+            "var(--fs-reading)",   // message text, 14
+            "var(--fs-control)",   // a control's text, 13
+            "var(--fs-meta)",      // code, 12.5
+            "var(--fs-help)",      // metadata (Footnote)
+        ];
+        let off: Vec<_> = declarations()
+            .into_iter()
+            .filter(|(_, property, value)| {
+                property == "font-size" && !SCALE.contains(&value.as_str())
+            })
+            .collect();
+        assert!(off.is_empty(), "font sizes off the scale: {off:#?}");
+    }
+
+    /// Type rule: message text, read or written, is 14 on 1.65 in Inter in `--ink`; the line
+    /// heights in the sheet are that, the reader's subject (1.15) and a written heading (1.25).
+    #[test]
+    fn message_text_is_set_one_way_and_line_heights_are_three() {
+        for selector in [".reader-body", ".c-body"] {
+            for (property, want) in [
+                ("font-size", "var(--fs-reading)"),
+                ("line-height", "1.65"),
+                ("font-family", "var(--font-ui)"),
+                ("color", "var(--ink)"),
+            ] {
+                assert_eq!(
+                    values_of(selector, property),
+                    [want],
+                    "{selector} {property}"
+                );
+            }
+        }
+        let off: Vec<_> = declarations()
+            .into_iter()
+            .filter(|(_, property, value)| {
+                property == "line-height" && !["1.15", "1.25", "1.65"].contains(&value.as_str())
+            })
+            .collect();
+        assert!(off.is_empty(), "line heights off the sheet: {off:#?}");
+    }
+
+    /// Type rule: titles. A pane's title is Title (16/700), a reader's subject 20/700 on 1.15 in
+    /// the display face, a composer's subject 26/700.
+    #[test]
+    fn the_titles_are_set_by_the_rule_sheet() {
+        assert_eq!(values_of(".list-head h2", "font-size"), ["var(--fs-title)"]);
+        assert_eq!(
+            values_of(".reader-subject", "font-size"),
+            ["var(--fs-subject)"]
+        );
+        assert_eq!(values_of(".reader-subject", "line-height"), ["1.15"]);
+        assert_eq!(values_of(".c-title", "font-size"), ["var(--fs-display)"]);
+        assert_eq!(values_of(".c-title", "font-weight"), ["700"]);
+        assert_eq!(
+            values_of(".c-title", "font-family"),
+            ["var(--font-display)"]
+        );
+    }
+
+    /// Type rule: code is `--font-code` at `--fs-meta`, wherever it is drawn.
+    #[test]
+    fn code_is_the_code_face_at_one_size() {
+        for (selector, property, value) in declarations() {
+            if property == "font-family" && value == "var(--font-code)" {
+                assert_eq!(
+                    values_of(&selector, "font-size"),
+                    ["var(--fs-meta)"],
+                    "{selector} draws code"
+                );
+            }
+        }
+    }
+
+    /// Type rule: a quote's bar is two steps wide (`--s-2`) in `--ink-soft`, in the reader, the
+    /// composer and the quoted text of a reply alike.
+    #[test]
+    fn a_quote_bar_is_one_bar() {
+        for selector in [
+            ".reader-body .quote",
+            ".c-body blockquote",
+            ".o-rq .rq-body",
+        ] {
+            assert_eq!(
+                values_of(selector, "border-left"),
+                ["var(--s-2) solid var(--ink-soft)"],
+                "{selector}"
+            );
+        }
     }
 
     /// The `.card` rule's declarations that matter. The window is quire's `SplitView`, whose last

@@ -30,7 +30,7 @@
    server answered. */
 .server-search { display: flex; flex-direction: column; gap: var(--s-8); padding: var(--s-10) var(--s-8); }
 .server-search-one { display: flex; flex-direction: column; align-items: center; gap: var(--s-4); }
-.server-search-one .status { color: var(--ink-soft); font-size: var(--fs-meta); text-align: center; }
+.server-search-one .status { color: var(--ink-faint); font-size: var(--fs-help); text-align: center; }
 .server-search-one .status.bad { color: var(--danger); font-weight: 600; }
 /* What the accounts are doing: a small bar under the title's line while a download counts, the
    placeholder rows before the first mail, the sheet that lists accounts needing attention, and

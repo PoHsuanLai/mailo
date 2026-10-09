@@ -20,7 +20,7 @@
 .c-scroll { flex: 1; overflow-y: auto; scrollbar-width: none; min-height: 0; display: flex; flex-direction: column; }
 /* the head band: `.reader-head`'s, the subject in its title's face (quire's Title label) */
 .c-head { padding: var(--s-6) var(--s-18) var(--s-12); border-bottom: var(--hair) solid var(--line-soft); }
-.c-title { display: flex; width: 100%; font-family: var(--font-display); font-size: var(--fs-title); font-weight: 700; }
+.c-title { display: flex; width: 100%; font-family: var(--font-display); font-size: var(--fs-display); font-weight: 700; }
 
 /* properties: one line each (`props::Line`), as a message's header writes "To: …": a small
    secondary label, then the value, from the header's left edge. No label column: every line
@@ -38,7 +38,7 @@
 .c-main { flex: 1 0 auto; padding: var(--s-16) var(--s-18) var(--s-18); background: var(--surface); }
 .c-edit { position: relative; }
 .c-body {
-  display: block; position: relative; outline: none; font-size: var(--fs-reading); line-height: 1.5; color: var(--ink);
+  display: block; position: relative; outline: none; font-family: var(--font-ui); font-size: var(--fs-reading); line-height: 1.65; color: var(--ink);
   max-width: 66ch; min-height: 180px; padding-left: var(--s-18); margin-left: calc(-1 * var(--s-18)); caret-color: var(--accent-text);
 }
 .c-body > * { margin: 0 0 1em; }
@@ -48,9 +48,9 @@
 .c-body h2 { font-size: var(--fs-heading); line-height: 1.25; margin: .9em 0 .35em; }
 .c-body h3 { font-size: var(--fs-heading-3); margin: .8em 0 .3em; }
 .c-body h4 { font-size: var(--fs-base); margin: .7em 0 .3em; }
-.c-body blockquote { border-left: 3px solid var(--line); padding-left: var(--s-12); margin-left: 0; color: var(--ink-soft); }
+.c-body blockquote { border-left: var(--s-2) solid var(--ink-soft); padding-left: var(--s-12); margin-left: 0; color: var(--ink-soft); }
 .c-body pre {
-  font-family: var(--font-code); font-size: var(--fs-meta); line-height: 1.6; background: var(--surface);
+  font-family: var(--font-code); font-size: var(--fs-meta); line-height: 1.65; background: var(--surface);
   border: var(--hair) solid var(--line-soft); border-radius: var(--r-field) var(--r-field) var(--r-field) var(--r-micro); padding: var(--s-10) var(--s-12); white-space: pre-wrap;
 }
 .c-body ul, .c-body ol { padding-left: var(--s-22); }
@@ -69,13 +69,13 @@
 .c-body .m-s { text-decoration: line-through; }
 .c-body .m-u.m-s { text-decoration: underline line-through; }
 .c-body .m-code {
-  font-family: var(--font-code); font-size: smaller; background: var(--surface); border: var(--hair) solid var(--line-soft);
+  font-family: var(--font-code); font-size: var(--fs-meta); background: var(--surface); border: var(--hair) solid var(--line-soft);
   padding: 0 var(--s-4); border-radius: var(--r-tiny);
 }
 .c-body .m-a { color: var(--accent-text); text-underline-offset: 2px; text-decoration: underline; }
 /* the signature: the marker, and every paragraph after it, quieter */
 .c-body .o-sig { margin: 1.2em 0 .2em; border-top: var(--hair) solid var(--line-soft); height: 0; }
-.c-body .o-sig ~ p { color: var(--ink-faint); font-size: var(--fs-control); }
+.c-body .o-sig ~ p { color: var(--ink-faint); }
 /* On Blitz the page draws its own caret and selection (compose/surface.rs): boxes placed from
    the surface's rects, the selection's layer before the surface (under its text: `.c-body` is
    positioned, and neither sets a z-index) and the caret's after it, `--caret-w` wide */
@@ -100,20 +100,20 @@
 .o-img .imgbox { border-radius: var(--r-field) var(--r-field) var(--r-field) var(--r-micro); overflow: hidden; border: var(--hair) solid var(--line-soft); background: var(--surface); }
 .o-img .imgbox img { display: block; width: 100%; height: auto; }
 .o-img .pick {
-  display: flex; align-items: center; gap: var(--s-10); padding: var(--s-14); color: var(--ink-faint); font-size: var(--fs-control);
+  display: flex; align-items: center; gap: var(--s-10); padding: var(--s-14); color: var(--ink-faint); font-size: var(--fs-help);
   border: var(--hair) dashed var(--line); border-radius: var(--r-field); background: var(--surface);
 }
-.o-img figcaption { font-size: var(--fs-small); color: var(--ink-faint); margin-top: var(--s-5); }
+.o-img figcaption { font-size: var(--fs-help); color: var(--ink-faint); margin-top: var(--s-5); }
 .o-table .tbl { overflow-x: auto; border: var(--hair) solid var(--line-soft); border-radius: var(--r-field); background: var(--surface); }
-.o-table table { border-collapse: collapse; width: 100%; font-size: var(--fs-control); }
+.o-table table { border-collapse: collapse; width: 100%; }
 .o-table td { border: var(--hair) solid var(--line-soft); padding: var(--s-6) var(--s-9); min-width: 80px; vertical-align: top; }
 .o-table tr:first-child td {
-  font-size: var(--fs-caption); color: var(--ink-faint); background: var(--surface-2);
+  font-size: var(--fs-help); color: var(--ink-faint); background: var(--surface-2);
 }
 .o-hr hr { border: 0; border-top: var(--hair) solid var(--line); margin: var(--s-14) 0; }
-.o-att { display: inline-flex; align-items: center; gap: var(--s-6); font-size: var(--fs-control); color: var(--ink-soft); }
+.o-att { display: inline-flex; align-items: center; gap: var(--s-6); color: var(--ink-soft); }
 .o-rq .rq-body {
-  border-left: 2px solid var(--line); padding-left: var(--s-12); color: var(--ink-faint); font-size: var(--fs-body);
+  border-left: var(--s-2) solid var(--ink-soft); padding-left: var(--s-12); color: var(--ink-faint);
   margin-top: var(--s-4); 
 }
 .o-rq .rq-body p { margin: .3em 0; }
@@ -131,7 +131,7 @@
 
 .plain {
   margin-top: var(--s-14); border: var(--hair) solid var(--line-soft); border-radius: var(--r-field); background: var(--surface-2);
-  padding: var(--s-12) var(--s-14); font-family: var(--font-code); line-height: 1.6; white-space: pre-wrap; color: var(--ink-soft);
+  padding: var(--s-12) var(--s-14); font-family: var(--font-code); font-size: var(--fs-meta); line-height: 1.65; white-space: pre-wrap; color: var(--ink-soft);
 }
 .plain .cap { display: block; color: var(--ink-faint); margin-bottom: var(--s-6); }
 

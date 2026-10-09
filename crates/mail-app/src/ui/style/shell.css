@@ -60,9 +60,9 @@
 .list-col { position: relative; display: flex; flex-direction: column; height: 100%; min-width: 0; min-height: 0; background: var(--surface); }
 /* The list's header: quire's `Toolbar` holds it as its centre. */
 .list-head { display: flex; align-items: center; gap: var(--s-8); width: 100%; min-width: 0; }
-.list-head h2 { font-size: var(--fs-heading-3); min-width: 0; flex: 0 1 auto; white-space: nowrap; overflow: hidden; }
+.list-head h2 { font-size: var(--fs-title); min-width: 0; flex: 0 1 auto; white-space: nowrap; overflow: hidden; }
 .list-head .status {
-  font-size: var(--fs-small); color: var(--ink-faint); min-width: 0; flex: 1 1 0;
+  font-size: var(--fs-help); color: var(--ink-faint); min-width: 0; flex: 1 1 0;
   white-space: nowrap; overflow: hidden;
 }
 .list-head .status.bad { color: var(--danger); font-weight: 600; }
