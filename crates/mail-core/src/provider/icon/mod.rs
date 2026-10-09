@@ -5,8 +5,10 @@
 //! what shows until a file is cached, and whenever the setting says letters.
 //!
 //! Cached files live at `<cache>/mailo/providers/<provider>.png` (`<cache>` is `$XDG_CACHE_HOME`
-//! on Linux) and do not expire. The bytes shown in the window are a `data:image/png;base64,` URI read
-//! once at startup: a `file:` URL would be the protocol-handler problem in F42.
+//! on Linux), 96 px square, and do not expire; one of another size was written before marks were
+//! drawn at the screen's scale and counts as not cached, so it is fetched again. The bytes shown in
+//! the window are `data:image/png;base64,` URIs read once at startup, one per size a window draws
+//! the mark at ([`Loaded::read`]): a `file:` URL would be the protocol-handler problem in F42.
 
 mod cache;
 mod decode;
@@ -40,8 +42,8 @@ pub enum IconError {
     /// A frame was over 256 px. It is refused rather than scaled down.
     #[error("a frame is {width} by {height}, and anything over 256 px is refused")]
     Dimensions { width: u32, height: u32 },
-    /// Every frame was larger than 64 px, or the directory was empty of usable ones.
-    #[error("no frame is 64 px or smaller")]
+    /// The image, or every frame in the directory, has no width or no height.
+    #[error("no frame has a size")]
     NoFrame,
     /// The magic matched and the decoder still refused the bytes.
     #[error("{0}")]

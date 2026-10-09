@@ -173,7 +173,7 @@ fn refresh_icons() {
             }
         }
         if let Some(mut icons) = icons {
-            icons.set(mail_core::provider::icon::Loaded::read(&dir));
+            icons.set(crate::ui::provider_chip::read(&dir));
         }
     });
 }

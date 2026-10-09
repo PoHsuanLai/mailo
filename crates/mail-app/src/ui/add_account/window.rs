@@ -13,7 +13,7 @@
 //! window's two notices: the shared revision moves, so every window draws the new account, and the
 //! current Space takes it in when it shows some accounts and not others.
 
-use crate::ui::provider_chip::style_of_mark;
+use crate::ui::provider_chip::{MarkAt, style_of_mark};
 use crate::ui::view::Marks;
 use std::sync::Arc;
 
@@ -291,7 +291,7 @@ fn body(step: Step, send: Callback<Action>, marks: Marks) -> Element {
                     .providers
                     .into_iter()
                     .map(|entry| {
-                        let style = style_of_mark(entry.mark, marks);
+                        let style = style_of_mark(entry.mark, marks, MarkAt::List);
                         entry.styled(style)
                     })
                     .collect::<Vec<_>>(),
@@ -308,7 +308,7 @@ fn body(step: Step, send: Callback<Action>, marks: Marks) -> Element {
             SignInForm {
                 provider: props.provider,
                 mark: props.mark,
-                style: style_of_mark(props.mark, marks),
+                style: style_of_mark(props.mark, marks, MarkAt::Header),
                 fields: props.fields,
                 problem: props.problem,
                 on_input: move |(role, text)| send.call(map::typed(role, text)),
@@ -327,7 +327,7 @@ fn body(step: Step, send: Callback<Action>, marks: Marks) -> Element {
             BrowserWait {
                 provider,
                 mark: Some(mark),
-                style: style_of_mark(mark, marks),
+                style: style_of_mark(mark, marks, MarkAt::Header),
                 url,
                 copied,
                 on_open_again: move |()| send.call(Action::OpenAgain),
@@ -369,7 +369,7 @@ fn body(step: Step, send: Callback<Action>, marks: Marks) -> Element {
             SignInWorking {
                 provider,
                 mark: Some(mark),
-                style: style_of_mark(mark, marks),
+                style: style_of_mark(mark, marks, MarkAt::Header),
                 on_cancel: cancel,
                 title: StepTitle::Own,
             }

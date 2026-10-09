@@ -17,6 +17,67 @@ pub(crate) enum ChipPlace {
     Inline,
 }
 
+/// Where a mark is drawn, which is how many CSS px across its picture is.
+///
+/// quire draws a favicon at a size of its own choosing, and the renderer resamples whatever it is
+/// handed to that size with a bilinear filter. A 96 px file squeezed into a 20 px box that way
+/// comes out soft, and a 32 px file stretched over a 96 px header comes out blurred, so each place
+/// is handed a picture already drawn at its own size on the screen ([`SIDES`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MarkAt {
+    /// quire's `ProviderMark` at `ControlSize::Mini`: the 11 px chip less its 1.5 px padding
+    /// (`ds/src/components/content/provider_mark.css`, `.ds-provider[data-size=mini]` and
+    /// `[data-kind=image]`).
+    Inline,
+    /// `ProviderMark` at `ControlSize::Small`, a row's: the 13 px chip less its padding.
+    Row,
+    /// `ProviderMark` at `ControlSize::Regular`, the badge on a Space tile: 14 px less its padding.
+    Tile,
+    /// A row of Add Account's provider list: quire's `mark_leading` asks for 28 px
+    /// (`ds-shell/src/accounts/adapter.rs`), and the settings-density row's leading box,
+    /// `--row-avatar`, stretches it to 32 (`ds/src/components/lists/row/row.css`).
+    List,
+    /// The header of an Add Account step: quire's `Disc` at `Size48`.
+    Header,
+}
+
+/// The scale the pictures are drawn for: a HiDPI screen's. A screen at 1 shows each at exactly
+/// half, which the renderer's filter averages cleanly.
+const SCALE: u32 = 2;
+
+impl MarkAt {
+    /// The picture's side in CSS px.
+    pub(crate) const fn css(self) -> u32 {
+        match self {
+            MarkAt::Inline => 8,
+            MarkAt::Row => 10,
+            MarkAt::Tile => 11,
+            MarkAt::List => 32,
+            MarkAt::Header => 48,
+        }
+    }
+
+    /// The picture's side on a screen at [`SCALE`], in device px.
+    pub(crate) const fn side(self) -> u32 {
+        self.css() * SCALE
+    }
+}
+
+/// Every side a picture is drawn at, in device px: what [`read`] draws each cached icon at.
+pub(crate) const SIDES: [u32; 5] = [
+    MarkAt::Inline.side(),
+    MarkAt::Row.side(),
+    MarkAt::Tile.side(),
+    MarkAt::List.side(),
+    MarkAt::Header.side(),
+];
+
+/// The cached icons under `dir`, each drawn at every size a window shows it at: what a window's
+/// `Loaded` context holds.
+pub fn read(dir: &std::path::Path) -> Loaded {
+    Loaded::read(dir, &SIDES)
+}
+
 /// The icon the chip should draw, subscribed to the startup load and to a refresh.
 pub(crate) fn current() -> Loaded {
     let live = try_consume_context::<Signal<Loaded>>();
@@ -50,7 +111,7 @@ pub(crate) fn use_fetch_missing(mut icons: Signal<Loaded>) {
                     eprintln!("provider icon: {provider:?}: {err}");
                 }
             }
-            icons.set(Loaded::read(&dir));
+            icons.set(read(&dir));
         });
     });
 }
@@ -83,15 +144,22 @@ pub(crate) fn provider_of_mark(mark: MarkProvider) -> Option<Provider> {
 /// How quire's `mark` is drawn under the provider-marks setting: [`mark_style`] for the provider
 /// behind it, else the letter. For parts that name a mark rather than one of mailo's providers
 /// (Add Account's list and its steps).
-pub(crate) fn style_of_mark(mark: MarkProvider, marks: super::view::Marks) -> MarkStyle {
-    provider_of_mark(mark).map_or(MarkStyle::Letter, |provider| mark_style(provider, marks))
+pub(crate) fn style_of_mark(
+    mark: MarkProvider,
+    marks: super::view::Marks,
+    at: MarkAt,
+) -> MarkStyle {
+    provider_of_mark(mark).map_or(MarkStyle::Letter, |provider| {
+        mark_style(provider, marks, at)
+    })
 }
 
 /// How `provider` is drawn under the provider-marks setting: the cached icon when the setting
-/// says icons and one is held, else the letter. Reads the startup load, so call it in a render.
-pub(crate) fn mark_style(provider: Provider, marks: super::view::Marks) -> MarkStyle {
+/// says icons and one is held, drawn for `at`, else the letter. Reads the startup load, so call it
+/// in a render.
+pub(crate) fn mark_style(provider: Provider, marks: super::view::Marks, at: MarkAt) -> MarkStyle {
     let uri = match marks {
-        super::view::Marks::Icons => current().uri(provider),
+        super::view::Marks::Icons => current().uri(provider, at.side()),
         super::view::Marks::Letters => None,
     };
     uri.map_or(MarkStyle::Letter, |uri| MarkStyle::Image(ImageSource(uri)))
@@ -100,11 +168,11 @@ pub(crate) fn mark_style(provider: Provider, marks: super::view::Marks) -> MarkS
 /// The mark on a tile or a row: the cached icon, or the letter.
 #[component]
 pub(crate) fn ProvChip(provider: Provider, marks: super::view::Marks, place: ChipPlace) -> Element {
-    let style = mark_style(provider, marks);
-    let size = match place {
-        ChipPlace::Row => ControlSize::Small,
-        ChipPlace::Inline => ControlSize::Mini,
+    let (size, at) = match place {
+        ChipPlace::Row => (ControlSize::Small, MarkAt::Row),
+        ChipPlace::Inline => (ControlSize::Mini, MarkAt::Inline),
     };
+    let style = mark_style(provider, marks, at);
     rsx! {
         ProviderMark { provider: mark_of(provider), size, style }
     }
@@ -128,7 +196,7 @@ mod tests {
         }
         assert_eq!(provider_of_mark(MarkProvider::Local), None);
         assert_eq!(
-            style_of_mark(MarkProvider::Imap, Marks::Icons),
+            style_of_mark(MarkProvider::Imap, Marks::Icons, MarkAt::Row),
             MarkStyle::Letter
         );
     }
@@ -136,13 +204,9 @@ mod tests {
     #[tokio::test]
     async fn the_chip_draws_the_cached_icon_or_the_letter() {
         let dir = tempfile::tempdir().unwrap_or_else(|err| panic!("{err}"));
-        // `Loaded::read` takes any file that starts with the PNG signature; the chip never decodes.
-        let png = [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0];
-        std::fs::write(dir.path().join("google.png"), png).unwrap_or_else(|err| panic!("{err}"));
-        let loaded = Loaded::read(dir.path());
-        let uri = loaded
-            .uri(Provider::Google)
-            .unwrap_or_else(|| panic!("no uri"));
+        std::fs::write(dir.path().join("google.png"), cached_png())
+            .unwrap_or_else(|err| panic!("{err}"));
+        let loaded = read(dir.path());
         let cases = [
             (Marks::Icons, true, ChipPlace::Inline, true),
             (Marks::Icons, true, ChipPlace::Row, true),
@@ -160,6 +224,13 @@ mod tests {
                 place,
             );
             let name = format!("{marks:?} file={with_file} {place:?}");
+            let at = match place {
+                ChipPlace::Row => MarkAt::Row,
+                ChipPlace::Inline => MarkAt::Inline,
+            };
+            let uri = loaded
+                .uri(Provider::Google, at.side())
+                .unwrap_or_else(|| panic!("no uri"));
             if image {
                 assert!(html.contains("data-kind=\"image\""), "{name}: {html}");
                 assert!(html.contains(&format!("src=\"{uri}\"")), "{name}: {html}");
@@ -174,6 +245,54 @@ mod tests {
                 assert!(!html.contains("data:image"), "{name}: {html}");
             }
         }
+    }
+
+    #[test]
+    fn each_place_is_handed_a_picture_drawn_at_its_own_size_on_the_screen() {
+        // A picture the renderer resamples comes out soft: each place gets one already as many
+        // pixels across as it covers on a scale-2 screen.
+        let dir = tempfile::tempdir().unwrap_or_else(|err| panic!("{err}"));
+        std::fs::write(dir.path().join("google.png"), cached_png())
+            .unwrap_or_else(|err| panic!("{err}"));
+        let loaded = read(dir.path());
+        for at in [
+            MarkAt::Inline,
+            MarkAt::Row,
+            MarkAt::Tile,
+            MarkAt::List,
+            MarkAt::Header,
+        ] {
+            let uri = loaded
+                .uri(Provider::Google, at.side())
+                .unwrap_or_else(|| panic!("{at:?}: no uri"));
+            let image = decoded(&uri);
+            assert_eq!(
+                (image.width(), image.height()),
+                (at.css() * 2, at.css() * 2),
+                "{at:?}"
+            );
+        }
+    }
+
+    /// A cached icon as `mailo icons refresh` writes one: 96 px square.
+    fn cached_png() -> Vec<u8> {
+        let image = image::RgbaImage::from_pixel(96, 96, image::Rgba([0x1a, 0x73, 0xe8, 0xff]));
+        let mut png = Vec::new();
+        image::DynamicImage::ImageRgba8(image)
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .unwrap_or_else(|err| panic!("{err}"));
+        png
+    }
+
+    fn decoded(uri: &str) -> image::DynamicImage {
+        use base64::Engine as _;
+        let data = uri
+            .strip_prefix("data:image/png;base64,")
+            .unwrap_or_else(|| panic!("not a png data uri"));
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(data)
+            .unwrap_or_else(|err| panic!("{err}"));
+        image::load_from_memory(&bytes).unwrap_or_else(|err| panic!("{err}"))
     }
 
     fn render_chip(marks: Marks, loaded: Loaded, place: ChipPlace) -> String {

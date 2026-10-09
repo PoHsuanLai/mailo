@@ -6,7 +6,7 @@ use super::join::{self, Plus};
 use super::tagged;
 use crate::ui::fetching::{Fetching, Mark, account_mark_local};
 use crate::ui::menu::Floating;
-use crate::ui::provider_chip::{mark_of, mark_style};
+use crate::ui::provider_chip::{MarkAt, mark_of, mark_style};
 use crate::ui::space::{self, Pinned, Space, Spaces};
 use crate::ui::view::{Shell, Source, folder_of, is_label_place, saved_of};
 use dioxus::prelude::*;
@@ -163,7 +163,7 @@ pub(super) fn AccountTiles(
         let (id, address, unread, via) = (row.0.clone(), row.1.clone(), row.2, row.3);
         // Local folders are on no provider: quire's neutral folder mark.
         let (provider, mark) = match via {
-            Some(via) => (mark_of(via), mark_style(via, marks)),
+            Some(via) => (mark_of(via), mark_style(via, marks, MarkAt::Tile)),
             None => (MarkProvider::Local, MarkStyle::Letter),
         };
         let face = PinFace::Account {
