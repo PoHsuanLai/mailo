@@ -4,13 +4,11 @@
 //! and it means a blob's on-disk path is derived entirely from its content — never from a
 //! filename, a `Content-Disposition`, or anything else a stranger wrote.
 
-use crate::StoreError;
+use crate::{SqliteStore, StoreError};
 use mail_domain::BlobId;
 use rusqlite::{Connection, OptionalExtension, params};
 use std::fs;
 use std::path::{Path, PathBuf};
-
-use crate::SqliteStore;
 
 /// The blobs of one [`SqliteStore`]: content-addressed bytes (a raw message, an attachment)
 /// that the store keeps in its database or on disk, whichever suits their size.
