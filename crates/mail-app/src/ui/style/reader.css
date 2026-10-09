@@ -48,7 +48,7 @@ article.frame + article.frame { border-top: var(--hair) solid var(--line-soft); 
 /* Whatever else the reader puts under the messages (the inline reply) is inset as their heads are. */
 .reader-body > :not(.frame):not(.banners):not(.inline-reply) { margin-left: var(--s-18); margin-right: var(--s-18); margin-bottom: var(--s-18); }
 .img-ph {
-  margin-top: var(--s-12); height: 86px; border-radius: var(--r-btn); background: var(--surface-2);
+  margin-top: var(--s-12); height: 86px; border-radius: var(--r-media); background: var(--surface-2);
   border: var(--hair) solid var(--line); display: grid; place-items: center;
    font-size: var(--fs-help); color: var(--ink-faint);
 }
@@ -79,25 +79,25 @@ article.frame + article.frame { border-top: var(--hair) solid var(--line-soft); 
 .att-thumb img { max-width: 100%; max-height: 100%; display: block; }
 .att-note { color: var(--ink-faint); }
 .viewer-wrap {
-  position: absolute; inset: 0; z-index: var(--z-menu); display: grid; place-items: center; padding: var(--s-14);
+  position: absolute; inset: 0; z-index: var(--z-menu); display: grid; place-items: center; padding: var(--s-18);
   background: var(--scrim);
 }
 .viewer {
   width: min(960px, 92%); max-height: 100%; min-height: 0; display: flex; flex-direction: column;
   background: var(--raise); color: var(--ink); border: var(--hair) solid var(--line);
-  border-radius: var(--r-panel); box-shadow: var(--shadow-2);
+  border-radius: var(--r-panel); box-shadow: var(--shadow-sheet);
 }
-.viewer-head { display: flex; align-items: center; gap: var(--s-8); padding: var(--s-10) var(--s-14); }
+.viewer-head { display: flex; align-items: center; gap: var(--s-8); padding: var(--s-10) var(--s-18); }
 .viewer-name { margin: 0; margin-right: auto; min-width: 0; overflow: hidden; white-space: nowrap; }
 .viewer-page { color: var(--ink-faint); }
 .viewer-main {
   flex: 1; min-height: 0; overflow: auto; display: grid; place-items: center;
-  padding: 0 var(--s-14) var(--s-14);
+  padding: 0 var(--s-18) var(--s-18);
 }
 .viewer-picture { max-width: 100%; max-height: 72vh; display: block; }
 .viewer-sheet { background: var(--foreign-ground); border: var(--hair) solid var(--line); }
 .viewer-note { margin: var(--s-22) 0; color: var(--ink-faint); }
-.viewer-said { margin: 0; padding: 0 var(--s-14) var(--s-14); color: var(--ink-soft); }
+.viewer-said { margin: 0; padding: 0 var(--s-18) var(--s-18); color: var(--ink-soft); }
 .reader-empty { flex: 1; display: grid; place-items: center; padding: var(--s-22); }
 
 .bar-tools { display: flex; align-items: center; gap: var(--s-5); position: relative; }
@@ -112,9 +112,9 @@ article.frame + article.frame { border-top: var(--hair) solid var(--line-soft); 
 
 /* ---- leaving a list: the head's button, and the popover that says what it will do ---- */
 .reader-meta .leave { margin-left: auto; position: relative; align-self: flex-start; }
-.leave-ask { display: grid; gap: var(--s-6); width: 300px; }
+.leave-ask { display: grid; gap: var(--s-6); width: 320px; }
 .leave-ask .leave-url {
-  padding: var(--s-6) var(--s-9); border: var(--hair) solid var(--line); border-radius: var(--r-btn);
+  padding: var(--s-6) var(--s-9); border: var(--hair) solid var(--line); border-radius: var(--r-media);
   background: var(--surface-2); font-family: var(--font-code); font-size: var(--fs-meta); line-height: 1.65;
   color: var(--ink); overflow-wrap: anywhere;
 }

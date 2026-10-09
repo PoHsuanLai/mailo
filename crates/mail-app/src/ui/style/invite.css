@@ -3,7 +3,7 @@
    the three answers its SegmentedControl. ---- */
 .invite {
   display: grid; gap: var(--s-10); margin: 0 0 var(--s-14); padding: var(--s-12) var(--s-14);
-  border: var(--hair) solid var(--line); border-radius: var(--r-card); background: var(--surface);
+  border: var(--hair) solid var(--line); border-radius: var(--r-media); background: var(--surface);
   box-shadow: var(--shadow-1);
 }
 .inv-head { display: flex; align-items: center; gap: var(--s-9); flex-wrap: wrap; }

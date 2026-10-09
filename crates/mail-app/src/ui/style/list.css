@@ -39,7 +39,7 @@
 .list-progress > * { width: 100%; }
 .first-sync { display: flex; flex-direction: column; gap: var(--s-2); }
 .first-sync > :first-child { align-self: center; padding: var(--s-10) 0; }
-.doctor { display: flex; flex-direction: column; gap: var(--s-8); padding: var(--s-12); }
+.doctor { display: flex; flex-direction: column; gap: var(--s-12); padding: var(--s-16); }
 .doctor-foot { display: flex; justify-content: flex-end; gap: var(--s-8); }
 .doctor-acts { display: flex; align-items: center; gap: var(--s-4); }
 .account-head { display: flex; align-items: center; min-width: 0; }
