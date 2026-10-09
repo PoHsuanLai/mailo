@@ -368,7 +368,7 @@ fn click_of(press: Press) -> Option<Click> {
     let held = press.modifiers;
     Some(if held.shift() {
         Click::Range
-    } else if held.ctrl() || held.meta() {
+    } else if ds::prelude::is_command(held) {
         Click::Toggle
     } else {
         Click::Plain

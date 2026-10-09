@@ -38,14 +38,17 @@ pub(in crate::ui) enum Chord {
     Settings,
 }
 
-/// Whether ⌘ is held, and only ⌘: Ctrl or Meta alone, no Option.
+/// Whether ⌘ is held, and only ⌘: Ctrl or the command key alone, no Option. The command key
+/// is Meta or Super as the window reports it; quire's `command_keys` folds them into one.
 pub(in crate::ui) fn command(modifiers: Modifiers) -> bool {
-    (modifiers.ctrl() != modifiers.meta()) && !modifiers.alt()
+    let held = ds::prelude::command_keys(modifiers);
+    (held.ctrl() != held.meta()) && !held.alt()
 }
 
 /// Whether ⌃⌘ is held together, no Option.
 pub(in crate::ui) fn control_command(modifiers: Modifiers) -> bool {
-    modifiers.ctrl() && modifiers.meta() && !modifiers.alt()
+    let held = ds::prelude::command_keys(modifiers);
+    held.ctrl() && held.meta() && !held.alt()
 }
 
 /// The chord `key` means with `modifiers` held, if it is one. `key` is the DOM's name for it.
@@ -74,6 +77,15 @@ mod tests {
 
     const CTRL: Modifiers = Modifiers::CONTROL;
     const META: Modifiers = Modifiers::META;
+    const SUPER: Modifiers = Modifiers::SUPER;
+
+    #[test]
+    fn super_is_the_command_key_as_a_window_reports_it() {
+        assert!(command(SUPER));
+        assert!(control_command(CTRL | SUPER));
+        assert_eq!(chord("k", SUPER), Some(Chord::CommandMenu));
+        assert_eq!(chord("s", CTRL | SUPER), Some(Chord::ToggleSidebar));
+    }
 
     #[test]
     fn command_is_ctrl_or_meta_alone_and_control_command_is_both() {

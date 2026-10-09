@@ -103,7 +103,7 @@ pub(super) fn NameField(
             onkey: move |event: KeyboardEvent| {
                 // Ctrl chords are still the window's. Every other key is the field's: a letter
                 // typed into a name is not a shortcut.
-                if event.modifiers().ctrl() || event.modifiers().meta() {
+                if ds::prelude::is_command(event.modifiers()) {
                     return;
                 }
                 event.stop_propagation();
