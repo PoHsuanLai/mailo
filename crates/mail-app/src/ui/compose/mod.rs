@@ -232,7 +232,7 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
             onkeydown: move |event: KeyboardEvent| {
                 let key = event.key().to_string();
                 let modifiers = event.modifiers();
-                let ctrl = modifiers.ctrl() || modifiers.meta();
+                let ctrl = ds::prelude::is_command(modifiers);
                 if ctrl && key == "Enter" {
                     event.prevent_default();
                     event.stop_propagation();

@@ -104,7 +104,7 @@ fn edit(input_type: &str, data: Option<String>, composing: bool) -> Asked {
 /// A key the surface did not turn into text.
 fn key_asked(key: &KeyInput) -> Asked {
     let held = key.modifiers;
-    let command = held.intersects(Modifiers::CONTROL | Modifiers::META);
+    let command = ds::prelude::is_command(held);
     let reach = if held.contains(Modifiers::SHIFT) {
         Reach::Extend
     } else {

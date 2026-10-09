@@ -173,7 +173,7 @@ pub(super) fn key_taken(
     key: &str,
     modifiers: Modifiers,
 ) -> bool {
-    let ctrl = modifiers.ctrl() || modifiers.meta();
+    let ctrl = ds::prelude::is_command(modifiers);
     let float = page.read().float.clone();
     if templates::key(page, shell, key) {
         return true;

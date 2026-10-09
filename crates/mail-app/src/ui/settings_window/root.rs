@@ -113,7 +113,7 @@ fn SettingsShell() -> Element {
             } else {
                 key
             };
-            let chord = held.ctrl() || held.alt() || held.meta();
+            let chord = held.alt() || ds::prelude::is_command(held);
             crate::ui::keyboard::pressed(shell, &key, chord);
             return;
         }

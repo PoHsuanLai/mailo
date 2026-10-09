@@ -36,17 +36,8 @@ async fn the_foot_dots_are_buttons_that_say_which_space_is_on() {
         ["Home Space"],
         "{page}"
     );
-    assert!(
-        dots.iter().enumerate().all(|(index, button)| {
-            // The tip: quire writes it as the description under `Ds`.
-            let tip = match button.attr("aria-description") {
-                "" => button.attr("title"),
-                tip => tip,
-            };
-            tip.ends_with(&format!("(⌘{})", index + 1))
-        }),
-        "a dot does not name its key: {page}"
-    );
+    // Each dot's tip, which names its key, is quire's hover tip: `tests/native_harness.rs`
+    // rests the pointer on one and reads it.
     assert!(page.contains("aria-label=\"New Space\""), "{page}");
     assert!(
         !page.contains("class=\"appearance"),

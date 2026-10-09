@@ -73,13 +73,6 @@ async fn every_icon_button_in_the_composer_has_a_tip() {
     every_tip(&page, 3);
 }
 
-/// quire's own parts that still write a bare `title` (gap(quire)), by their class.
-const QUIRE_TITLED: &[&str] = &[
-    r#"class="ds-provider""#,
-    r#"class="ds-pin-tile""#,
-    r#"class="ds-space-dot""#,
-];
-
 /// Every icon-only button in `page` has one tip, and there are at least `least` of them.
 fn every_tip(page: &str, least: usize) {
     // A tip is quire's: no element carries a bare `title` the browser would draw its own way. An
@@ -89,7 +82,6 @@ fn every_tip(page: &str, least: usize) {
         .split('<')
         .filter_map(|tag| tag.split('>').next())
         .filter(|tag| tag.contains(" title=\"") && !tag.starts_with("iframe"))
-        .filter(|tag| !QUIRE_TITLED.iter().any(|class| tag.contains(class)))
         .collect();
     assert!(
         raw.is_empty(),

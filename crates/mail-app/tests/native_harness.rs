@@ -1301,3 +1301,15 @@ fn a_rested_pointer_shows_each_controls_tip() {
         );
     }
 }
+
+/// A Space dot's tip names the Space and the key that switches to it, shown when the pointer
+/// rests on it.
+#[test]
+fn a_space_dots_tip_names_its_key() {
+    let (mut harness, _dir) = open();
+    let dot = ".ds-space-dot";
+    harness.pointer_move(centre(&harness, dot));
+    harness.advance(ms(1300));
+    let tip = harness.text_of(".ds-tooltip").unwrap_or_default();
+    assert!(tip.ends_with("(\u{2318}1)"), "{tip:?}");
+}
