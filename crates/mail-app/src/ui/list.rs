@@ -391,7 +391,8 @@ pub(super) fn ThreadList(
                                 image: ImagePosition::Only,
                                 label: "Show sidebar",
                                 icon: Some(IconSource::Glyph(Icon::PanelLeft)),
-                                title: Some("Sidebar  \u{2303}\u{2318}S".to_owned()),
+                                title: Some("Sidebar".to_owned()),
+                                title_shortcut: crate::ui::keymap::chord(&[crate::ui::keymap::KeyCap::Ctrl, crate::ui::keymap::KeyCap::Super], 's'),
                                 onclick: on_primary(move || side_hidden.set(false)),
                             }
                         }
@@ -456,7 +457,8 @@ pub(super) fn ThreadList(
                                     image: ImagePosition::Only,
                                     label: "Compose",
                                     icon: Some(IconSource::Glyph(Icon::Pen)),
-                                    title: Some("New Message  \u{2318}N".to_owned()),
+                                    title: Some("New Message".to_owned()),
+                                    title_shortcut: crate::ui::keymap::chord(&[crate::ui::keymap::KeyCap::Super], 'n'),
                                     onclick: on_primary(move || {
                                         let store = consume_context::<Arc<SqliteStore>>();
                                         if compose_new(&store, shell) {

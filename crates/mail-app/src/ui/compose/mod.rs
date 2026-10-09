@@ -37,6 +37,7 @@ mod wire;
 #[cfg(test)]
 mod tests;
 
+use crate::ui::keymap::KeyCap;
 use ds::components::content::label::LabelRole;
 use ds::components::controls::button_model::{Answers, Bezel, ImagePosition};
 use ds::components::overlays::inline_banner::InlineBanner;
@@ -266,7 +267,8 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                         size: ControlSize::Large,
                         icon: Icon::Maximize,
                         label: "Focus".to_owned(),
-                        title: crate::ui::keymap::tip("Focus", "\u{21e7}\u{2318}F"),
+                        title: "Focus".to_owned(),
+                        title_shortcut: crate::ui::keymap::chord(&[KeyCap::Shift, KeyCap::Super], 'f'),
                         onclick: move |_| toggle_focus(page, desk),
                         image: ImagePosition::Only,
                     }
@@ -275,7 +277,8 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                         size: ControlSize::Large,
                         icon: Icon::Archive,
                         label: "Keep for later".to_owned(),
-                        title: crate::ui::keymap::tip("Keep for Later", "Esc"),
+                        title: "Keep for Later".to_owned(),
+                        title_shortcut: crate::ui::keymap::Keys(vec![KeyCap::Escape]),
                         onclick: move |_| desk::park(desk, page, shell),
                         image: ImagePosition::Only,
                     }
@@ -356,6 +359,8 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                 Button {
                     answers: Answers::Return,
                     label: if scheduled { "Schedule" } else { "Send" },
+                    title: (if scheduled { "Schedule" } else { "Send" }).to_owned(),
+                    title_shortcut: crate::ui::keymap::Keys(vec![KeyCap::Super, KeyCap::Enter]),
                     icon: if scheduled { Icon::Clock } else { Icon::Send },
                     onclick: on_primary(move || send(Anyway::No)),
                     common: Common { aria_label: Some(send_label.to_owned()), ..Common::default() },

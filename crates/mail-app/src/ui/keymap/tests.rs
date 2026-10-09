@@ -1,5 +1,5 @@
 use super::{
-    DEFAULTS, FILE_NAME, Keymap, Refused, action_tip, bind, drawn, load, reset, save, spoken,
+    DEFAULTS, FILE_NAME, Keymap, Refused, action_keys, bind, keys_of, load, reset, save, spoken,
 };
 use crate::ui::view::Shortcut;
 
@@ -262,18 +262,18 @@ fn keys_are_spoken_as_their_caps() {
 }
 
 #[test]
-fn a_tip_is_a_name_then_the_key_in_force() {
-    assert_eq!(drawn("m"), "M");
-    assert_eq!(drawn("J"), "\u{21e7}J");
-    assert_eq!(drawn("ArrowDown"), "\u{2193}");
-    assert_eq!(drawn("#"), "#");
+fn a_tip_names_the_key_in_force() {
+    let caps = |key: &str| keys_of(key).map(|keys| keys.glyphs());
+    assert_eq!(caps("m").as_deref(), Some("M"));
+    assert_eq!(caps("J").as_deref(), Some("\u{21e7}J"));
+    assert_eq!(caps("ArrowDown").as_deref(), Some("\u{2193}"));
+    assert_eq!(caps("Escape").as_deref(), Some("Esc"));
+    assert_eq!(caps("#").as_deref(), Some("#"));
     let map = Keymap::default();
-    assert_eq!(action_tip(&map, "Mute", Shortcut::ToggleMute), "Mute  M");
-    assert_eq!(
-        action_tip(&map, "Move to Trash", Shortcut::Trash),
-        "Move to Trash  #"
-    );
+    let now = |map: &Keymap, action| action_keys(map, action).map(|keys| keys.glyphs());
+    assert_eq!(now(&map, Shortcut::ToggleMute).as_deref(), Some("M"));
+    assert_eq!(now(&map, Shortcut::Trash).as_deref(), Some("#"));
     let moved = bind(&map, Shortcut::ToggleMute, "x").expect("x is free");
-    assert_eq!(action_tip(&moved, "Mute", Shortcut::ToggleMute), "Mute  X");
-    assert_eq!(action_tip(&map, "Close", Shortcut::Back), "Close");
+    assert_eq!(now(&moved, Shortcut::ToggleMute).as_deref(), Some("X"));
+    assert_eq!(now(&map, Shortcut::Back), None);
 }
