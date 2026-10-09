@@ -266,7 +266,7 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                         size: ControlSize::Large,
                         icon: Icon::Maximize,
                         label: "Focus".to_owned(),
-                        title: "Focus (\u{21e7}\u{2318}F)".to_owned(),
+                        title: crate::ui::keymap::tip("Focus", "\u{21e7}\u{2318}F"),
                         onclick: move |_| toggle_focus(page, desk),
                         image: ImagePosition::Only,
                     }
@@ -275,7 +275,7 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                         size: ControlSize::Large,
                         icon: Icon::Archive,
                         label: "Keep for later".to_owned(),
-                        title: "Keep for later (Esc)".to_owned(),
+                        title: crate::ui::keymap::tip("Keep for Later", "Esc"),
                         onclick: move |_| desk::park(desk, page, shell),
                         image: ImagePosition::Only,
                     }
@@ -334,7 +334,7 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                         icon: Some(Icon::Paperclip),
                         text: "No file attached",
                         actions: rsx! {
-                            Attach { page, label: "Attach a file", size: ControlSize::Regular }
+                            Attach { page, label: "Attach a file", bezel: Bezel::Push }
                             Button {
                                 label: "Send anyway",
                                 onclick: on_primary(move || send(Anyway::Yes)),
@@ -345,17 +345,16 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                 }
                 SealWarn { bar: seal_bar, on_act: on_seal }
                 Button {
-                    size: ControlSize::Large,
+                    bezel: Bezel::Toolbar,
                     label: "Plain text",
                     value: Some(if plain() == Fold::Open { Check::On } else { Check::Off }),
                     onclick: on_primary(move || plain.set(if plain() == Fold::Open { Fold::Folded } else { Fold::Open })),
                 }
-                Attach { page, label: "Attach", size: ControlSize::Large }
+                Attach { page, label: "Attach", bezel: Bezel::Toolbar }
                 emoji::EmojiButton { page }
                 span { class: "grow" }
                 Button {
                     answers: Answers::Return,
-                    size: ControlSize::Large,
                     label: if scheduled { "Schedule" } else { "Send" },
                     icon: if scheduled { Icon::Clock } else { Icon::Send },
                     onclick: on_primary(move || send(Anyway::No)),

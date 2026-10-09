@@ -7,11 +7,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use dioxus::prelude::*;
+use ds::components::controls::button_model::Bezel;
 use ds::file_drop::drag::FileDrop;
 use ds::file_drop::hook::{FileDropHandle, use_file_drop};
 use ds::prelude::*;
 use ds::root::common::Common;
-use ds::style::tokens::control_size::ControlSize;
 use mail_store::SqliteStore;
 
 use super::life;
@@ -20,13 +20,13 @@ use crate::ui::press::on_primary;
 use mail_core::compose::ATTACHMENT_BUDGET;
 
 /// A file picker, as a button: the native dialog (`ui::pick`). Each file chosen lands on the
-/// draft and in the Attached row. `size` is the bar's it stands in: the composer's own bar, or a
-/// banner's actions.
+/// draft and in the Attached row. `bezel` is the bar's it stands in: the composer's own bar
+/// (`Toolbar`), or a banner's actions (`Push`).
 #[component]
-pub(super) fn Attach(page: Signal<Page>, label: &'static str, size: ControlSize) -> Element {
+pub(super) fn Attach(page: Signal<Page>, label: &'static str, bezel: Bezel) -> Element {
     rsx! {
         Button {
-            size,
+            bezel,
             label,
             icon: Icon::Paperclip,
             onclick: on_primary(move || {

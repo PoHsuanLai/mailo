@@ -93,13 +93,13 @@ pub(in crate::ui) fn SenderChecks(message: MessageId, body: Option<BlobId>) -> E
                 Standing::Passed => rsx! {
                     Tooltip { text: "Verified Sender",
                         span { class: "sender-mark", aria_label: "Verified sender",
-                            Glyph { icon: Icon::Check, size: IconSize::Small }
+                            Glyph { icon: Icon::Check, size: IconSize::Compact }
                         }
                     }
                 },
                 Standing::Failed => rsx! {
                     span { class: "sender-mark",
-                        Glyph { icon: Icon::TriangleAlert, size: IconSize::Small }
+                        Glyph { icon: Icon::TriangleAlert, size: IconSize::Compact }
                     }
                     span { "May not be from this sender" }
                 },

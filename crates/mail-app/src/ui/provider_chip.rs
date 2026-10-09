@@ -8,15 +8,6 @@ use ds::style::tokens::control_size::ControlSize;
 use mail_core::provider::Provider;
 use mail_core::provider::icon::Loaded;
 
-/// Where the chip sits, which is the mark's size.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ChipPlace {
-    /// The provider name on a row.
-    Row,
-    /// Inline in a field: the composer's From.
-    Inline,
-}
-
 /// Where a mark is drawn, which is how many CSS px across its picture is.
 ///
 /// quire draws a favicon at a size of its own choosing, and the renderer resamples whatever it is
@@ -25,11 +16,8 @@ pub(crate) enum ChipPlace {
 /// is handed a picture already drawn at its own size on the screen ([`SIDES`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MarkAt {
-    /// quire's `ProviderMark` at `ControlSize::Mini`: the 11 px chip less its 1.5 px padding
-    /// (`ds/src/components/content/provider_mark.css`, `.ds-provider[data-size=mini]` and
-    /// `[data-kind=image]`).
-    Inline,
-    /// `ProviderMark` at `ControlSize::Small`, a row's: the 13 px chip less its padding.
+    /// quire's `ProviderMark` at `ControlSize::Small`, on a row or in the composer's From: the
+    /// 13 px chip less its padding (`ds/src/components/content/provider_mark.css`).
     Row,
     /// `ProviderMark` at `ControlSize::Regular`, the badge on a Space tile: 14 px less its padding.
     Tile,
@@ -49,7 +37,6 @@ impl MarkAt {
     /// The picture's side in CSS px.
     pub(crate) const fn css(self) -> u32 {
         match self {
-            MarkAt::Inline => 8,
             MarkAt::Row => 10,
             MarkAt::Tile => 11,
             MarkAt::List => 32,
@@ -64,8 +51,7 @@ impl MarkAt {
 }
 
 /// Every side a picture is drawn at, in device px: what [`read`] draws each cached icon at.
-pub(crate) const SIDES: [u32; 5] = [
-    MarkAt::Inline.side(),
+pub(crate) const SIDES: [u32; 4] = [
     MarkAt::Row.side(),
     MarkAt::Tile.side(),
     MarkAt::List.side(),
@@ -165,16 +151,13 @@ pub(crate) fn mark_style(provider: Provider, marks: super::view::Marks, at: Mark
     uri.map_or(MarkStyle::Letter, |uri| MarkStyle::Image(ImageSource(uri)))
 }
 
-/// The mark on a tile or a row: the cached icon, or the letter.
+/// The mark on a row or in a field: the cached icon, or the letter, at a row's size wherever it
+/// stands.
 #[component]
-pub(crate) fn ProvChip(provider: Provider, marks: super::view::Marks, place: ChipPlace) -> Element {
-    let (size, at) = match place {
-        ChipPlace::Row => (ControlSize::Small, MarkAt::Row),
-        ChipPlace::Inline => (ControlSize::Mini, MarkAt::Inline),
-    };
-    let style = mark_style(provider, marks, at);
+pub(crate) fn ProvChip(provider: Provider, marks: super::view::Marks) -> Element {
+    let style = mark_style(provider, marks, MarkAt::Row);
     rsx! {
-        ProviderMark { provider: mark_of(provider), size, style }
+        ProviderMark { provider: mark_of(provider), size: ControlSize::Small, style }
     }
 }
 
@@ -208,12 +191,11 @@ mod tests {
             .unwrap_or_else(|err| panic!("{err}"));
         let loaded = read(dir.path());
         let cases = [
-            (Marks::Icons, true, ChipPlace::Inline, true),
-            (Marks::Icons, true, ChipPlace::Row, true),
-            (Marks::Letters, true, ChipPlace::Inline, false),
-            (Marks::Icons, false, ChipPlace::Inline, false),
+            (Marks::Icons, true, true),
+            (Marks::Letters, true, false),
+            (Marks::Icons, false, false),
         ];
-        for (marks, with_file, place, image) in cases {
+        for (marks, with_file, image) in cases {
             let html = render_chip(
                 marks,
                 if with_file {
@@ -221,15 +203,10 @@ mod tests {
                 } else {
                     Loaded::default()
                 },
-                place,
             );
-            let name = format!("{marks:?} file={with_file} {place:?}");
-            let at = match place {
-                ChipPlace::Row => MarkAt::Row,
-                ChipPlace::Inline => MarkAt::Inline,
-            };
+            let name = format!("{marks:?} file={with_file}");
             let uri = loaded
-                .uri(Provider::Google, at.side())
+                .uri(Provider::Google, MarkAt::Row.side())
                 .unwrap_or_else(|| panic!("no uri"));
             if image {
                 assert!(html.contains("data-kind=\"image\""), "{name}: {html}");
@@ -255,13 +232,7 @@ mod tests {
         std::fs::write(dir.path().join("google.png"), cached_png())
             .unwrap_or_else(|err| panic!("{err}"));
         let loaded = read(dir.path());
-        for at in [
-            MarkAt::Inline,
-            MarkAt::Row,
-            MarkAt::Tile,
-            MarkAt::List,
-            MarkAt::Header,
-        ] {
+        for at in [MarkAt::Row, MarkAt::Tile, MarkAt::List, MarkAt::Header] {
             let uri = loaded
                 .uri(Provider::Google, at.side())
                 .unwrap_or_else(|| panic!("{at:?}: no uri"));
@@ -295,9 +266,9 @@ mod tests {
         image::load_from_memory(&bytes).unwrap_or_else(|err| panic!("{err}"))
     }
 
-    fn render_chip(marks: Marks, loaded: Loaded, place: ChipPlace) -> String {
+    fn render_chip(marks: Marks, loaded: Loaded) -> String {
         let mut dom = VirtualDom::new(ChipHarness)
-            .with_root_context(ChipCase { marks, place })
+            .with_root_context(ChipCase { marks })
             .with_root_context(loaded);
         dom.rebuild_in_place();
         dioxus_ssr::render(&dom)
@@ -306,12 +277,11 @@ mod tests {
     #[derive(Clone)]
     struct ChipCase {
         marks: Marks,
-        place: ChipPlace,
     }
 
     #[component]
     fn ChipHarness() -> Element {
         let case = consume_context::<ChipCase>();
-        rsx! { ProvChip { provider: Provider::Google, marks: case.marks, place: case.place } }
+        rsx! { ProvChip { provider: Provider::Google, marks: case.marks } }
     }
 }

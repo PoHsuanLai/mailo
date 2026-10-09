@@ -200,7 +200,7 @@ pub(super) fn RuleEditor(
                 div { class: "rules-actions",
                     for (at, action) in draft.actions.iter().enumerate() {
                         div { key: "{at}", class: "rules-action",
-                            Glyph { icon: icon_of(action), size: IconSize::Small }
+                            Glyph { icon: icon_of(action), size: IconSize::Compact }
                             Label { text: work::action_words(action) }
                             Button {
                                 bezel: Bezel::Toolbar,

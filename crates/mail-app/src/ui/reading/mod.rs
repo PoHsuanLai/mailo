@@ -535,7 +535,7 @@ pub(super) fn Reader(
             h2 { Label { text: subject, style: LabelStyle::Title } }
             if loaded.summary.mute == Mute::Muted {
                 div { class: "muted-note", role: "status",
-                    Glyph { icon: Icon::BellOff, size: IconSize::Micro }
+                    Glyph { icon: Icon::BellOff, size: IconSize::Compact }
                     span { "Muted — new replies arrive read and skip the inbox" }
                 }
             }

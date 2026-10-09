@@ -276,7 +276,7 @@ fn Obj(n: usize, object: Object, menu: bool, quoted: Fold, page: Signal<Page>) -
                 {grip(n, menu, page, handle)}
                 if src.as_str().is_empty() {
                     div { class: "pick",
-                        Glyph { icon: Icon::Paperclip, size: IconSize::Large }
+                        Glyph { icon: Icon::Paperclip, size: IconSize::Base }
                         span { "Add an image" }
                     }
                 } else {

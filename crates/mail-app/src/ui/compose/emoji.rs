@@ -20,7 +20,6 @@ use ds::prelude::{
     SegmentedControl, Shown as Layer, TextField,
 };
 use ds::root::common::Common;
-use ds::style::tokens::control_size::ControlSize;
 
 use super::super::menu::anchor_at;
 use super::desk::Desk;
@@ -100,11 +99,10 @@ pub(super) fn EmojiButton(page: Signal<Page>) -> Element {
     rsx! {
         Button {
             bezel: Bezel::Toolbar,
-            size: ControlSize::Large,
             image: ImagePosition::Only,
             icon: Icon::Smile,
             label: "Emoji".to_owned(),
-            title: Some("Emoji (or type : and a name)".to_owned()),
+            title: Some("Emoji".to_owned()),
             shown: Some(if open { Layer::Visible } else { Layer::Hidden }),
             common: Common {
                 mounted: Some(EventHandler::new(move |event: MountedEvent| {

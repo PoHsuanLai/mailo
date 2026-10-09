@@ -430,7 +430,7 @@ fn Bubble(page: Signal<Page>, place: Option<String>) -> Element {
                     Button {
                         bezel: Bezel::Toolbar,
                         label: "Link",
-                        title: "Link (\u{2318}K)".to_owned(),
+                        title: crate::ui::keymap::tip("Link", "\u{2318}K"),
                         icon: Icon::Link,
                         image: ImagePosition::Only,
                         onclick: on_primary(move || page.write().float = Float::Link(String::new())),
