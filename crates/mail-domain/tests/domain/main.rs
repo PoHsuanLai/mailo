@@ -7,6 +7,7 @@
 mod filter;
 mod folder;
 mod op;
+mod presets;
 mod serde;
 mod threading;
 

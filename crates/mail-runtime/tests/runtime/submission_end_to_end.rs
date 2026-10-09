@@ -710,15 +710,25 @@ async fn a_pop3_send_is_kept_in_sent_on_its_conversation_and_outlives_the_next_s
     assert_eq!(kept.read, ReadState::Read, "the user wrote it");
     assert_eq!(kept.thread, parent.thread, "the answer joins her question");
     assert_eq!(kept.from.email, "me@example.test");
-    // The copy is the message that went, byte for byte, as the server was handed it.
+    // The copy is the message that went, byte for byte, as the server was handed it, plus the
+    // `Bcc` that the transmitted bytes leave out (RFC 5322 §3.6.3).
     let Body::Present { raw, .. } = kept.body else {
         panic!("the copy holds its body: {:?}", kept.body);
     };
     let bytes = it.store.blobs().get(&it.store.connection(), raw).unwrap();
+    let bytes = String::from_utf8(bytes).unwrap();
+    assert!(
+        bytes.contains("Bcc: dee@example.test\r\n"),
+        "the sender's copy names who was blind-copied:\n{bytes}"
+    );
     assert_eq!(
-        String::from_utf8(bytes).unwrap(),
+        bytes.replace("Bcc: dee@example.test\r\n", ""),
         seen.lock().unwrap().body,
         "the kept copy differs from what was submitted"
+    );
+    assert!(
+        !seen.lock().unwrap().body.to_lowercase().contains("bcc:"),
+        "the transmitted message never carries the Bcc"
     );
     let in_sent = it
         .store

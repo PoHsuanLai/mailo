@@ -14,6 +14,7 @@ mod smime_support;
 
 mod auth;
 mod bimi;
+mod blind;
 mod block_adversarial;
 mod block_heaviness;
 mod block_html;

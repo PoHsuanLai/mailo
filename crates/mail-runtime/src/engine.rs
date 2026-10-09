@@ -181,6 +181,22 @@ pub(crate) fn first_stored(patch: &mail_domain::Patch) -> impl Iterator<Item = M
 }
 
 impl SyncReport {
+    /// Fold in the pass that followed this one, for a drain that queued work for itself.
+    /// What is still queued is the later pass's word, since it saw the queue last.
+    fn absorb(&mut self, later: SyncReport) {
+        self.outbox_settled += later.outbox_settled;
+        self.submitted += later.submitted;
+        self.appended += later.appended;
+        self.needs_attention.extend(later.needs_attention);
+        self.still_queued = later.still_queued;
+        self.needs_reauth |= later.needs_reauth;
+        self.needs_grant |= later.needs_grant;
+        self.hold = match (self.hold, later.hold) {
+            (Some(a), Some(b)) => Some(a.max(b)),
+            (a, b) => a.or(b),
+        };
+    }
+
     /// Fold one operation's verdict into the pass.
     ///
     /// The two facts a caller has to *act* on, gathered in one place so the several sites that
@@ -198,6 +214,17 @@ impl SyncReport {
             Retry::Now | Retry::Fatal(_) => {}
         }
     }
+}
+
+/// Who files the copy of a message an account submits; see `AccountEngine::sent_copy`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum SentCopy {
+    /// The server does, and a sync reads it back.
+    Server,
+    /// This client does, in the local Sent: the account has no mailbox for it.
+    Here,
+    /// This client uploads it to the server's Sent mailbox at this path.
+    Upload(String),
 }
 
 /// How often each part of a sync runs.
@@ -733,21 +760,81 @@ impl<B: Backend> AccountEngine<B> {
         })
     }
 
-    /// Whether a sent message's only copy is the one this client keeps: one submitted over
-    /// SMTP, which files nothing, from an account whose incoming server has no Sent folder. POP3
-    /// is one mailbox, the inbox, and a local account has no server at all. Every other kind has
-    /// a Sent folder a sync reads the copy back from, filed by the server itself (Gmail, Graph,
-    /// JMAP's `EmailSubmission`); keeping one here too would list the message twice.
-    fn keeps_own_sent(&self) -> bool {
-        matches!(self.plan.incoming, Incoming::Pop3 { .. } | Incoming::Local)
-            && matches!(self.plan.outgoing, Outgoing::Smtp { .. })
+    /// Who files the copy of a message this account submits.
+    ///
+    /// SMTP says only that a message was accepted (RFC 6409), so whether a Sent copy exists
+    /// afterwards depends on the pairing of servers, and each has one answer:
+    ///
+    /// - Graph's `sendMail`, JMAP's `EmailSubmission` and a Gmail or Microsoft SMTP server file
+    ///   it themselves, and a sync reads it back from Sent. Keeping one here too would list the
+    ///   message twice.
+    /// - An IMAP account on any other SMTP server has a Sent mailbox and nobody filing into it,
+    ///   so the client uploads the copy there (`APPEND`, RFC 3501 §6.3.11) when the server's
+    ///   `SPECIAL-USE` listing names one (RFC 6154). With none named, uploading to a guessed
+    ///   path is how a message lands somewhere nobody looks, so the copy is kept here.
+    /// - A POP3 or local account has no Sent mailbox at all, whichever server sends for it, so
+    ///   the copy is kept here: Graph's lands in a Sent Items a POP3 sync never reads.
+    fn sent_copy(&self) -> SentCopy {
+        match (&self.plan.incoming, &self.plan.outgoing) {
+            (_, Outgoing::Jmap | Outgoing::Nowhere)
+            | (Incoming::Jmap { .. } | Incoming::Graph, _) => SentCopy::Server,
+            (Incoming::Pop3 { .. } | Incoming::Local, _) => SentCopy::Here,
+            (Incoming::Imap { .. }, Outgoing::Graph) => SentCopy::Server,
+            (Incoming::Imap { .. }, Outgoing::Smtp { host, .. }) => {
+                if mail_domain::presets::files_sent_itself(host) {
+                    SentCopy::Server
+                } else {
+                    match self.folder_for(MailboxRole::Sent) {
+                        Some(path) => SentCopy::Upload(path),
+                        None => SentCopy::Here,
+                    }
+                }
+            }
+        }
     }
 
-    /// Keep what was just submitted as `raw`, dated `at`, in Sent: the copy a POP3 account's
-    /// server never files. See [`crate::assemble::sent`].
-    fn keep_sent(&self, raw: BlobId, at: DateTime<Utc>) -> Result<Option<MessageId>, RuntimeError> {
-        let bytes = self.leaving_bytes(raw, Some(at))?;
-        crate::assemble::sent(&self.store, self.account.clone(), bytes, at)
+    /// Keep what was just submitted as `raw`, dated `at`, as [`Self::sent_copy`] says: kept
+    /// here in Sent (see [`crate::assemble::sent`]), or queued as an upload into the server's
+    /// Sent mailbox so that going offline or a refusal retries it like any other operation.
+    ///
+    /// The copy is the message that went, with the blind recipients named in a `Bcc` field
+    /// (RFC 5322 §3.6.3): the transmitted bytes never had one, and the sender's copy should.
+    /// The stored message when kept here; `None` for an upload, which a sync finds in Sent.
+    fn keep_sent(
+        &self,
+        how: &SentCopy,
+        raw: BlobId,
+        rcpt_to: &[String],
+        at: DateTime<Utc>,
+    ) -> Result<Option<MessageId>, RuntimeError> {
+        let sent = self.leaving_bytes(raw, Some(at))?;
+        let copy = mail_mime::with_blind(&sent, rcpt_to);
+        match how {
+            SentCopy::Server => Ok(None),
+            SentCopy::Here => crate::assemble::sent(&self.store, self.account.clone(), copy, at),
+            SentCopy::Upload(path) => {
+                let raw = self.store.blobs().put(&self.store.connection(), &copy)?;
+                self.store.enqueue(
+                    self.account.clone(),
+                    mail_domain::RemoteIntent::Append {
+                        mailbox: MailboxRef {
+                            account: self.account.clone(),
+                            path: path.clone(),
+                        },
+                        flags: vec![SystemFlag::Seen],
+                        date: Some(at),
+                        raw,
+                    },
+                    // Nothing to undo: an upload changes nothing here until it has happened.
+                    &mail_domain::Patch {
+                        id: mail_domain::ChangeId::generate(),
+                        changes: Vec::new(),
+                    },
+                    at,
+                )?;
+                Ok(None)
+            }
+        }
     }
 
     /// Submit through Microsoft Graph, for an account whose plan says [`Outgoing::Graph`].
@@ -792,6 +879,11 @@ impl<B: Backend> AccountEngine<B> {
         now: DateTime<Utc>,
     ) -> Result<SyncReport, RuntimeError> {
         let mut report = SyncReport::default();
+        // Whether this drain queued an upload of a sent copy, and whether it stopped early: the
+        // copy goes in the same call unless something failed, so the Sent copy of a message is
+        // not left waiting for the next pass.
+        let mut copy_queued = false;
+        let mut halted = false;
         let synced = std::mem::take(&mut self.synced);
         if !synced.is_empty() {
             self.store.unplaced_pass(self.account.clone(), &synced)?;
@@ -809,9 +901,12 @@ impl<B: Backend> AccountEngine<B> {
                 ProtoOp::Submit { draft, .. } => Some(*draft),
                 _ => None,
             };
-            // What a submission sent, for the account that keeps its own copy of it.
+            // What a submission sent, and to whom, for the account that files its own copy of it.
+            let copy = self.sent_copy();
             let submitted = match &entry.op {
-                ProtoOp::Submit { raw, .. } if self.keeps_own_sent() => Some(*raw),
+                ProtoOp::Submit { raw, rcpt_to, .. } if copy != SentCopy::Server => {
+                    Some((*raw, rcpt_to.clone()))
+                }
                 _ => None,
             };
             let upload = match &entry.op {
@@ -862,10 +957,12 @@ impl<B: Backend> AccountEngine<B> {
                     if let Some(draft) = draft {
                         // SMTP reports that the message was accepted, not where a copy was
                         // filed. Gmail files it in Sent itself and a sync finds it there, so
-                        // `message: None` until then. A POP3 account has no Sent folder at all:
-                        // the copy is kept here, now, or nowhere.
+                        // `message: None` until then, and so for a copy this client uploads.
+                        // A POP3 account has no Sent folder at all: the copy is kept here,
+                        // now, or nowhere.
                         let message = match submitted {
-                            Some(raw) => match self.keep_sent(raw, now) {
+                            Some((raw, rcpt_to)) => match self.keep_sent(&copy, raw, &rcpt_to, now)
+                            {
                                 Ok(kept) => kept,
                                 // Sent whatever this says: failing the drain over the copy
                                 // would report as unsent a message the server accepted.
@@ -878,6 +975,7 @@ impl<B: Backend> AccountEngine<B> {
                             },
                             None => None,
                         };
+                        copy_queued |= matches!(copy, SentCopy::Upload(_));
                         self.mark_draft(draft, SendState::Sent { at: now, message }, now);
                         report.submitted += 1;
                     }
@@ -897,6 +995,7 @@ impl<B: Backend> AccountEngine<B> {
                             .needs_attention
                             .push(partial::said(&progress, into.as_deref(), &e));
                         self.store.outbox_settle(id, Settle::InPart { done }, now)?;
+                        halted = true;
                         break;
                     }
                     if retry.needs_person() || matches!(retry, Retry::Fatal(_)) {
@@ -924,9 +1023,15 @@ impl<B: Backend> AccountEngine<B> {
                     )?;
                     // Stop at the first failure rather than racing ahead: a later operation on
                     // the same thread would otherwise overtake the one that just failed.
+                    halted = true;
                     break;
                 }
             }
+        }
+        if copy_queued && !halted {
+            let later = Box::pin(self.drain_outbox(cancel, now)).await?;
+            report.absorb(later);
+            return Ok(report);
         }
         // Whatever is left, however it got there: a failure that backed off, or an entry whose
         // turn had not come. Counted after the loop rather than inside it, so a `break` on the

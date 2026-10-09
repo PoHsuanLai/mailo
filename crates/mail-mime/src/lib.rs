@@ -42,7 +42,7 @@ pub use print::{Options, Pages, Remote, Sheet, print, print_with, remote_images}
 pub use reconstruct::{decode_part, left_on_server, reconstruct, sections_for};
 pub use sanitize::{RemoteImages, SafeHtml, SanitizePolicy, Styles, sanitize};
 pub use script::{Script, script_of};
-pub use stamp::restamp;
+pub use stamp::{restamp, with_blind};
 pub use unsubscribe::{
     HttpsUrl, ListHeaders, ListId, Mailto, ONE_CLICK, Unsubscribe, list_headers,
 };

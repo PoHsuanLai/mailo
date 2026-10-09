@@ -174,6 +174,26 @@ pub fn issuer_for_server(host: &str) -> Option<Issuer> {
     None
 }
 
+/// Whether the submission server at `host` files a copy of what it accepts in the sender's Sent
+/// folder itself.
+///
+/// Gmail and Microsoft's servers do, and a client that uploads a copy as well leaves two. Any
+/// other server is taken not to: SMTP says only that a message was accepted (RFC 6409), and a
+/// plain Dovecot or Postfix files nothing, so the client's own upload is the only copy there will
+/// be. A wrong "no" here costs a duplicate in Sent; a wrong "yes" costs the sender's only record.
+pub fn files_sent_itself(host: &str) -> bool {
+    let host = host.trim().to_ascii_lowercase();
+    [
+        "gmail.com",
+        "googlemail.com",
+        "office365.com",
+        "outlook.office.com",
+        "outlook.com",
+    ]
+    .iter()
+    .any(|domain| under(&host, domain))
+}
+
 /// Hosts where a password will not authenticate, whatever the user types.
 ///
 /// Both of these providers switched off password authentication for IMAP/POP/SMTP, and both fail
