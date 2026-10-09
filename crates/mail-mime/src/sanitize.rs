@@ -45,7 +45,7 @@ impl SanitizePolicy {
     pub const CURRENT: SanitizePolicy = SanitizePolicy {
         remote_images: RemoteImages::Blocked,
         styles: Styles::Dropped,
-        version: 2,
+        version: 3,
     };
 
     /// The reader's frame: remote images blocked until the reader asks, the sender's CSS kept.
@@ -149,6 +149,7 @@ pub fn sanitize(html: &str, policy: SanitizePolicy) -> SafeHtml {
         .link_rel(Some("noopener noreferrer"))
         .set_tag_attribute_value("a", "target", "_blank")
         .strip_comments(true)
+        .add_clean_content_tags(&UNRENDERED)
         .rm_tag_attributes("blockquote", &["cite"])
         .rm_tag_attributes("del", &["cite"])
         .rm_tag_attributes("ins", &["cite"])
@@ -195,6 +196,32 @@ pub fn sanitize(html: &str, policy: SanitizePolicy) -> SafeHtml {
     safe.body_style = body_style;
     safe
 }
+
+/// Elements whose content a browser never draws as text, removed with everything in them.
+///
+/// Ammonia removes a tag it does not allow and keeps the text inside, which is right for a tag
+/// that wraps what the reader sees (`main`, `font` without the style policy) and wrong for one
+/// whose content is never drawn: that content would come out as loose text above or inside the
+/// letter, as a `<title>` with a link written into it did. The rule: what a browser leaves
+/// undrawn, the reader leaves out:
+/// - `title`: it names a window, and is never the page's text;
+/// - `template`: inert markup a page clones from script;
+/// - `xml`: Outlook's and Word's settings (`<xml><o:OfficeDocumentSettings>`);
+/// - `svg`: a drawing, whose `<title>`, `<desc>` and `<text>` are the picture's, not the letter's;
+/// - `iframe`, `noembed`, `noframes`, `audio`, `video`, `canvas`: what each shows only where it
+///   cannot play;
+/// - `select`, `datalist`, `option`: a form's choices, drawn as a control, never as loose words.
+///
+/// `script` and `style` are already ammonia's own (and `style` is kept as a sheet under
+/// [`Styles::Kept`]). Not here, because a mail client does draw their content: `noscript` (no
+/// mail client runs script), `object` and `embed` (whose content is the fallback shown when the
+/// plugin is not), and `textarea`, `button` and `math`. Nor `head`: mail is parsed as a
+/// fragment, where `<head>` is no element and what was in it (a `<style>` kept under
+/// [`Styles::Kept`] among it) stands on its own.
+const UNRENDERED: [&str; 13] = [
+    "title", "template", "xml", "svg", "iframe", "noembed", "noframes", "audio", "video", "canvas",
+    "select", "datalist", "option",
+];
 
 /// The attributes a sender's layout is written in, kept with [`Styles::Kept`]. `background`
 /// is not among them: it is a fetch, and `fetches_on_render` drops it.
