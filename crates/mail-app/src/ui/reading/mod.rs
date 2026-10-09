@@ -332,6 +332,11 @@ pub(super) fn Reader(
     // reader drawn with no window around it (a test's) asks about every image rather than read
     // the person's own `settings.toml`, which is the safe way for a stray reader to be wrong.
     let settings = use_hook(try_consume_context::<Signal<crate::settings::MailSettings>>);
+    // The link a right click in a message's frame was on, which the window's frames report
+    // (`original::FrameMenus`); a reader with no window around it has none. And the Copy Link
+    // menu it opens.
+    let frame_menus = use_signal(try_consume_context::<super::original::FrameMenus>);
+    let mut link_menu = use_signal(|| None::<super::original::LinkAsked>);
     // The window's consent to remote images, and this reader's claim on it; closing the reader
     // takes back what it granted.
     let consent = use_hook(|| {
@@ -592,6 +597,14 @@ pub(super) fn Reader(
             }
             for (at, ((message, body, ..), attached)) in shown.into_iter().zip(attached).enumerate() {
                 article { key: "{message.id}", class: "frame",
+                    oncontextmenu: move |event: MouseEvent| {
+                        let asked = frame_menus.peek().as_ref().and_then(|menus| menus.take());
+                        if let Some(asked) = asked {
+                            event.prevent_default();
+                            event.stop_propagation();
+                            link_menu.set(Some(asked));
+                        }
+                    },
                     header::MessageHead {
                         detail: header::detail_at(at, count),
                         when: (when_short(&message, now), stamp(&message)),
@@ -648,9 +661,75 @@ pub(super) fn Reader(
                     }
                 }
             }
+            if let Some(asked) = link_menu() {
+                LinkMenu { asked, menus: frame_menus, open: link_menu }
+            }
             {children}
         }
     }
+}
+
+/// Copy Link and Open Link, at the pointer, for a link a right click in a message's frame was on.
+#[component]
+fn LinkMenu(
+    asked: super::original::LinkAsked,
+    menus: Signal<Option<super::original::FrameMenus>>,
+    open: Signal<Option<super::original::LinkAsked>>,
+) -> Element {
+    let mut open = open;
+    let at = Rect {
+        origin: asked.at,
+        size: Size {
+            width: Px(0.0),
+            height: Px(0.0),
+        },
+    };
+    let href = asked.href.clone();
+    rsx! {
+        super::menu::Floating {
+            anchor: None,
+            placed: Some(at),
+            title: String::new(),
+            items: link_items(),
+            on_pick: move |key: String| {
+                open.set(None);
+                match key.as_str() {
+                    COPY_LINK => super::host::Host::copy(&href),
+                    OPEN_LINK => {
+                        if let Some(menus) = menus.peek().as_ref() {
+                            menus.open(&href);
+                        }
+                    }
+                    _ => {}
+                }
+            },
+            on_close: move |_| open.set(None),
+        }
+    }
+}
+
+const OPEN_LINK: &str = "open-link";
+const COPY_LINK: &str = "copy-link";
+
+/// The link menu's rows, in the Mac's order.
+fn link_items() -> Vec<super::menu::MenuItem> {
+    [
+        (OPEN_LINK, "Open Link", Icon::Link),
+        (COPY_LINK, "Copy Link", Icon::Copy),
+    ]
+    .into_iter()
+    .map(|(key, name, icon)| super::menu::MenuItem {
+        key: key.to_owned(),
+        tile: super::menu::Tile::Icon(icon),
+        name: name.to_owned(),
+        help: None,
+        right: super::menu::Right::None,
+        group: None,
+        marks: Vec::new(),
+        title: Vec::new(),
+        detail: Vec::new(),
+    })
+    .collect()
 }
 
 /// The Original frame as the reader draws it, in mailo's stylesheet, and nothing else: for the

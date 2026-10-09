@@ -18,7 +18,8 @@ mod net;
 
 pub use consent::Consent;
 pub(crate) use consent::Holder;
-pub use links::{Browse, FramePill};
+pub(in crate::ui) use links::LinkAsked;
+pub use links::{Browse, FrameMenus, FramePill};
 pub(crate) use net::data_uri;
 pub use net::{Fetch, FetchImage, Got};
 
@@ -40,6 +41,7 @@ pub struct Original {
     net: std::sync::Arc<net::MailNet>,
     links: ds_blitz::FrameLinks,
     pill: FramePill,
+    menus: FrameMenus,
     images: ReaderNet,
 }
 
@@ -58,10 +60,12 @@ impl Original {
     pub fn new(fetch: std::sync::Arc<dyn Fetch>, browse: std::sync::Arc<dyn Browse>) -> Self {
         let consent = Consent::new();
         let (pill, hovered) = links::FramePill::new();
+        let menus = FrameMenus::new(browse.clone());
         Original {
             net: std::sync::Arc::new(net::MailNet::new(consent.clone(), fetch)),
-            links: links::frame_links(browse, hovered),
+            links: links::frame_links(browse, hovered, menus.clone()),
             pill,
+            menus,
             images: ReaderNet(std::sync::Arc::new(net::Refuse)),
             consent,
         }
@@ -105,12 +109,19 @@ impl Original {
         self.pill.clone()
     }
 
+    /// The link a context menu was last asked over in a frame, as the window's root context: the
+    /// reader's Copy Link menu takes it.
+    pub fn menus(&self) -> FrameMenus {
+        self.menus.clone()
+    }
+
     /// The root contexts the window's own `launch` gives it beside the net and the links: what
     /// a test's `HarnessConfig` takes through `with_contexts`, with `net()` and `links()`.
     pub fn contexts(&self) -> ds_blitz::RootContexts {
         ds_blitz::RootContexts::new()
             .with(self.consent())
             .with(self.pill())
+            .with(self.menus())
             .with(self.images())
     }
 }
