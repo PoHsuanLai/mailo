@@ -17,12 +17,11 @@ impl Txt for Counting {
 fn results(verdict: Verdict, domain: &str) -> AuthResults {
     AuthResults {
         authserv_id: Some("mx.provider.example".to_owned()),
-        spf: None,
-        dkim: None,
         dmarc: Some(Check {
             verdict,
             domain: Some(domain.to_owned()),
         }),
+        ..AuthResults::default()
     }
 }
 
