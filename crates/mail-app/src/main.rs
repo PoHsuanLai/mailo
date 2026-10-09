@@ -638,13 +638,16 @@ fn main() {
             // The stored Spaces, or a first run over the accounts, written where the window
             // keeps them.
             let spaces = mail_app::ui::space::boot(dirs.as_ref(), &ids, &legacy);
-            mail_app::ui::run(
+            if let Err(why) = mail_app::ui::run(
                 store,
                 look,
                 spaces,
                 dirs,
                 start.unwrap_or(mail_app::ui::Start::Inbox),
-            );
+            ) {
+                eprintln!("mailo: the window could not open: {why}");
+                std::process::exit(1);
+            }
         }
     }
 }

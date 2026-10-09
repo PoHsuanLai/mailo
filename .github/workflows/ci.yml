@@ -78,6 +78,11 @@ jobs:
       - name: The sans-I/O boundary
         run: ./scripts/check-boundary.sh
 
+      # The [patch] block is quire's fork block exactly (vello, anyrender, dioxus): checked against
+      # quire's own docs/fork-patches.toml at the pinned rev, never against a copy kept here.
+      - name: The fork patches are quire's
+        run: ./scripts/check-fork-patches.sh
+
       # The portable core builds without our desktop's extras (design/36 section 4): the proxy,
       # until a macOS and a Windows runner say so themselves, for "no zbus transport needed".
       - name: Portable build (no desktop extras)

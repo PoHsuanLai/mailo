@@ -96,23 +96,24 @@ chrono.workspace = true
 # The renderer is quire's `ds-blitz` (Blitz, drawn with wgpu); dioxus itself brings none.
 dioxus = { version = "0.7" }
 # quire, the shared design system (github.com/PoHsuanLai/quire), pinned as the desktop manifest pins
-# it: the `.git` URL and the release's full rev (v0.2.30). The same spelling as every other consumer
-# (anyview, porter), or cargo holds two quires that no [patch] unifies.
-# To try an unreleased quire, point every quire line at a checkout with a `[patch]` in a local,
-# uncommitted `.cargo/config.toml`, never here.
-ds = { git = "https://github.com/PoHsuanLai/quire.git", rev = "267451763728522f04e23e8fa8564c9f83ffda27" }  # v0.2.33
+# it: the `.git` URL and the release's full rev, the release named after it. The same spelling as
+# every other consumer (anyview, porter), or cargo holds two quires that no [patch] unifies.
+# To try an unreleased quire, put a `[patch]` naming a checkout in a `.cargo/config.toml` in the
+# work directory above the checkouts (cargo reads it from parent directories), never in this repo:
+# its own `.cargo/config.toml`, if any, holds build settings only.
+ds = { git = "https://github.com/PoHsuanLai/quire.git", rev = "960ac8faa0166eba83f5f09a72ba063f79d35c06" }  # v0.3.0
 # Settings I/O: `appearance.toml` (imported once from `appearance.json`), the settings portal.
-ds-settings = { git = "https://github.com/PoHsuanLai/quire.git", rev = "267451763728522f04e23e8fa8564c9f83ffda27", features = ["dioxus"] }  # v0.2.33
+ds-settings = { git = "https://github.com/PoHsuanLai/quire.git", rev = "960ac8faa0166eba83f5f09a72ba063f79d35c06", features = ["dioxus"] }  # v0.3.0
 # The account sheets' views (step E5): `ds_shell::accounts`, the parts `sill` draws the same sheet with.
 # Only the accounts module is used; the shell's own surfaces (bar, dock, lock) are not drawn here.
-ds-shell = { git = "https://github.com/PoHsuanLai/quire.git", rev = "267451763728522f04e23e8fa8564c9f83ffda27" }  # v0.2.33
+ds-shell = { git = "https://github.com/PoHsuanLai/quire.git", rev = "960ac8faa0166eba83f5f09a72ba063f79d35c06" }  # v0.3.0
 # `mailo.toml`, and the `appearance.toml` written once on the first run after the move.
 toml = "1"
 # The window: quire's Blitz host (the window, its fonts, focus, clipboard, PDF output), and
 # `print`: the system's print dialog for a PDF (the desktop portal on Linux, else the PDF opened
 # in the viewer); `spell`: the composer's spelling, against the system's Hunspell dictionaries
 # (none is bundled); `pdf` also rasterises a PDF attachment's first page (`PdfFileThumb`).
-ds-blitz = { git = "https://github.com/PoHsuanLai/quire.git", rev = "267451763728522f04e23e8fa8564c9f83ffda27", features = ["pdf", "print", "spell"] }  # v0.2.33
+ds-blitz = { git = "https://github.com/PoHsuanLai/quire.git", rev = "960ac8faa0166eba83f5f09a72ba063f79d35c06", features = ["pdf", "print", "spell"] }  # v0.3.0
 blitz-dom = { workspace = true }
 dioxus-native-dom = { workspace = true }
 base64 = "0.22"
@@ -135,7 +136,7 @@ url = "2"
 # The capability probe (`Desktop::probe`, `Capability::Accounts`): is accountd on the session bus,
 # or one the bus would start. quire's own crate, at the tag `ds` names; its `dbus` feature is zbus
 # (already in this tree for intents), and without `quire-desktop` it is not here at all.
-ds-desktop = { git = "https://github.com/PoHsuanLai/quire.git", rev = "267451763728522f04e23e8fa8564c9f83ffda27", default-features = false, features = ["dbus"], optional = true }  # v0.2.33
+ds-desktop = { git = "https://github.com/PoHsuanLai/quire.git", rev = "960ac8faa0166eba83f5f09a72ba063f79d35c06", default-features = false, features = ["dbus"], optional = true }  # v0.3.0
 
 [target.'cfg(not(any(target_os = "macos", windows)))'.dependencies]
 rfd = { version = "=0.17.2", default-features = false, features = ["xdg-portal"] }
@@ -194,8 +195,8 @@ proptest = "1"
 # The linter (`lint::assert_clean`, the markup lint) and the test driver (`Harness`, `Driver`,
 # `Query`, `snapshot`; `pdf` is `Harness::pdf` for the print tests): quire's own crates, at the
 # same tag.
-ds-lint = { git = "https://github.com/PoHsuanLai/quire.git", rev = "267451763728522f04e23e8fa8564c9f83ffda27" }  # v0.2.33
-ds-harness = { git = "https://github.com/PoHsuanLai/quire.git", rev = "267451763728522f04e23e8fa8564c9f83ffda27", features = ["pdf"] }  # v0.2.33
+ds-lint = { git = "https://github.com/PoHsuanLai/quire.git", rev = "960ac8faa0166eba83f5f09a72ba063f79d35c06" }  # v0.3.0
+ds-harness = { git = "https://github.com/PoHsuanLai/quire.git", rev = "960ac8faa0166eba83f5f09a72ba063f79d35c06", features = ["pdf"] }  # v0.3.0
 
 [lints]
 workspace = true

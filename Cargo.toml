@@ -77,8 +77,8 @@ thiserror   = "2"
 # copied verbatim: only the lines mailo names itself. The window reaches the Blitz
 # document through these to focus, select or scroll an element found by selector
 # (`ui/host/native.rs`).
-blitz-dom = { git = "https://github.com/PoHsuanLai/blitz", rev = "15ead74d94d7e0680738ab5ab2bff09bb319eeaa", default-features = false, features = ["svg", "system-fonts", "custom-widget", "accessibility"] }
-dioxus-native-dom = { git = "https://github.com/PoHsuanLai/blitz", rev = "15ead74d94d7e0680738ab5ab2bff09bb319eeaa", default-features = false, features = ["svg", "system-fonts", "accessibility"] }
+blitz-dom = { git = "https://github.com/PoHsuanLai/blitz", rev = "70aa1bd8c9e489dd4294dabc58e3157cd718c770", default-features = false, features = ["svg", "system-fonts", "custom-widget", "accessibility"] }
+dioxus-native-dom = { git = "https://github.com/PoHsuanLai/blitz", rev = "70aa1bd8c9e489dd4294dabc58e3157cd718c770", default-features = false, features = ["svg", "system-fonts", "accessibility"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
@@ -165,8 +165,10 @@ opt-level = 2
 opt-level = 2
 
 # vello and anyrender come from quire's forks (github.com/PoHsuanLai/vello and /anyrender, branch
-# quire-filters), and dioxus-core from its dioxus fork, copied verbatim from quire's root manifest: a `[patch]` applies only at a
-# workspace root, and mailo builds the renderer (`ds-blitz`). See quire's CONSUMING.md section 1.
+# quire-filters), and dioxus-core from its dioxus fork: quire's canonical fork block
+# (`docs/fork-patches.toml` at the rev `ds` is pinned to), pasted whole, since a `[patch]` applies
+# only at a workspace root and mailo builds the renderer (`ds-blitz`). Change it only by pasting
+# that file again; `scripts/check-fork-patches.sh` fails CI when the two differ.
 [patch.crates-io]
 vello_common = { git = "https://github.com/PoHsuanLai/vello", rev = "1722f6234e10b95d574d2252698a6cc7cdcadb82" }
 vello_cpu = { git = "https://github.com/PoHsuanLai/vello", rev = "1722f6234e10b95d574d2252698a6cc7cdcadb82" }

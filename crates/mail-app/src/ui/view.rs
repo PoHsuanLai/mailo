@@ -2559,10 +2559,7 @@ mod appearance {
             (Theme::Dark, Scheme::Light, Scheme::Dark),
         ];
         for &(theme, desktop, expect) in CASES {
-            let system = SystemPrefs {
-                scheme: desktop,
-                ..SystemPrefs::default()
-            };
+            let system = SystemPrefs::default().with_scheme(desktop);
             let resolved = resolve(ds::prelude::Appearance::default(), theme, system);
             assert_eq!(
                 resolved.scheme, expect,
