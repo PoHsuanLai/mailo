@@ -26,6 +26,8 @@ mod smime;
 mod sql;
 mod sqlite;
 mod term;
+#[cfg(feature = "test-support")]
+pub mod testing;
 
 pub use account::{NewAccount, StoredAccount};
 pub use blob::Blobs;

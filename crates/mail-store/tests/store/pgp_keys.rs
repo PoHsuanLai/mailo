@@ -212,7 +212,7 @@ fn a_draft_keeps_what_it_asks_openpgp_to_do() {
     let account = new_account_id();
     let identity = IdentityId::generate();
     {
-        let db = store.connection();
+        let db = store.raw_connection();
         db.execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",

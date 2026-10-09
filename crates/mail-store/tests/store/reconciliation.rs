@@ -27,7 +27,7 @@ fn fixture() -> Fixture {
     let dir = tempfile::tempdir().unwrap();
     let store = SqliteStore::in_memory(dir.path()).unwrap();
     store
-        .connection()
+        .raw_connection()
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
@@ -139,14 +139,14 @@ fn one_message_in_two_mailboxes_is_not_duplicated() {
 
     let count: i64 = f
         .store
-        .connection()
+        .raw_connection()
         .query_row("SELECT count(*) FROM messages", [], |r| r.get(0))
         .unwrap();
     assert_eq!(count, 1, "identity is MessageKey, not RemoteRef");
 
     let maps: i64 = f
         .store
-        .connection()
+        .raw_connection()
         .query_row("SELECT count(*) FROM remote_map", [], |r| r.get(0))
         .unwrap();
     assert_eq!(maps, 2, "both addresses must resolve to that one message");
@@ -322,7 +322,7 @@ fn a_fatal_failure_undoes_the_optimistic_change() {
     );
     let left: i64 = f
         .store
-        .connection()
+        .raw_connection()
         .query_row("SELECT count(*) FROM outbox", [], |r| r.get(0))
         .unwrap();
     assert_eq!(left, 0, "a fatal entry must not be retried forever");
@@ -384,7 +384,7 @@ fn a_uidvalidity_reset_invalidates_the_mailbox_mapping() {
 
     let maps: i64 = f
         .store
-        .connection()
+        .raw_connection()
         .query_row(
             "SELECT count(*) FROM remote_map WHERE mailbox = 'INBOX'",
             [],
@@ -618,7 +618,7 @@ mod remote_map_identity {
 
         let rows: i64 = f
             .store
-            .connection()
+            .raw_connection()
             .query_row("SELECT count(*) FROM remote_map", [], |r| r.get(0))
             .unwrap();
         assert_eq!(rows, 1, "one message in one mailbox is one row");
@@ -651,7 +651,7 @@ mod remote_map_identity {
 
         let rows: i64 = f
             .store
-            .connection()
+            .raw_connection()
             .query_row("SELECT count(*) FROM remote_map", [], |r| r.get(0))
             .unwrap();
         assert_eq!(rows, 1);
@@ -680,7 +680,7 @@ mod remote_map_identity {
 
         let rows: i64 = f
             .store
-            .connection()
+            .raw_connection()
             .query_row("SELECT count(*) FROM remote_map", [], |r| r.get(0))
             .unwrap();
         assert_eq!(rows, 2, "the many-to-one mapping was collapsed");

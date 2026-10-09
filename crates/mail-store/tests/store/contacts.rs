@@ -29,7 +29,7 @@ fn sqlite() -> (SqliteStore, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let store = SqliteStore::in_memory(dir.path()).unwrap();
     {
-        let db = store.connection();
+        let db = store.raw_connection();
         db.execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, ?2, '{}', datetime('now'))",

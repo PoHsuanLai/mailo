@@ -166,7 +166,7 @@ fn a_view_is_written_as_its_frozen_row() {
     b.sqlite.put_view(&fixture_view()).unwrap();
     let stored: String = b
         .sqlite
-        .connection()
+        .raw_connection()
         .query_row("SELECT view FROM views", [], |row| row.get(0))
         .unwrap();
     assert_eq!(stored, fixture());
@@ -186,7 +186,7 @@ fn the_frozen_rows_still_read_back() {
     .enumerate()
     {
         b.sqlite
-            .connection()
+            .raw_connection()
             .execute(
                 "INSERT INTO views (id, view, position) VALUES (?1, ?2, ?3)",
                 rusqlite::params![id, text, position as i64],

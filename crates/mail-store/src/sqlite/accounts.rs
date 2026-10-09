@@ -184,28 +184,6 @@ impl SqliteStore {
         stored.map(|text| json("AccountCaps", &text)).transpose()
     }
 
-    /// Record what the server was observed to support at `at`, replacing what was there.
-    /// [`StoreError::NoAccount`] when there is no such account.
-    pub fn set_account_caps(
-        &self,
-        id: AccountId,
-        caps: &AccountCaps,
-        at: DateTime<Utc>,
-    ) -> Result<(), StoreError> {
-        let db = self.connection();
-        let known: Option<i64> = db
-            .query_row(
-                "SELECT 1 FROM accounts WHERE id = ?1",
-                [id.to_string()],
-                |r| r.get(0),
-            )
-            .optional()?;
-        if known.is_none() {
-            return Err(StoreError::NoAccount(id));
-        }
-        write_caps(&db, &id.to_string(), caps, at)
-    }
-
     /// When the last pass of `account` finished, as the store recorded it: the newest of its
     /// mailboxes' stamps, which every ingest that knows where a mailbox got to writes.
     pub fn last_synced(&self, account: AccountId) -> Result<Option<DateTime<Utc>>, StoreError> {
@@ -490,7 +468,8 @@ impl SqliteStore {
     }
 }
 
-/// Write the capabilities of an account, replacing what was observed before.
+/// Write the capabilities of an account, replacing what was observed before. The same row
+/// [`crate::Store::put_caps`] writes, inside the caller's transaction.
 fn write_caps(
     db: &rusqlite::Connection,
     account: &str,

@@ -35,7 +35,7 @@ fn both() -> Both {
     let dir = tempfile::tempdir().unwrap();
     let sqlite = SqliteStore::in_memory(dir.path()).unwrap();
     {
-        let db = sqlite.connection();
+        let db = sqlite.raw_connection();
         db.execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",

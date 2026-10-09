@@ -30,7 +30,7 @@ fn store() -> (SqliteStore, tempfile::TempDir) {
         (acct_kept(), "kept@example.test"),
     ] {
         store
-            .connection()
+            .raw_connection()
             .execute(
                 "INSERT INTO accounts (id, address, plan, created_at)
                  VALUES (?1, ?2, '{}', datetime('now'))",
@@ -159,7 +159,7 @@ fn the_account_s_rows_and_the_blobs_only_it_used_go_and_shared_ones_stay() {
         "the large blob's file is still on disk"
     );
     let left: i64 = store
-        .connection()
+        .raw_connection()
         .query_row(
             "SELECT count(*) FROM messages WHERE account = ?1",
             [acct_gone().to_string()],
@@ -221,7 +221,7 @@ fn a_blob_a_kept_draft_attaches_stays() {
     let (store, _dir) = store();
     let identity = IdentityId::generate();
     store
-        .connection()
+        .raw_connection()
         .execute(
             "INSERT INTO identities (id, account, from_name, from_email, is_default)
              VALUES (?1, ?2, NULL, 'kept@example.test', '\"default\"')",

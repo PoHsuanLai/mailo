@@ -4,6 +4,7 @@
 //! dependency graph again. A file here is a module, so a test's name gains its file's name
 //! as a prefix: `cargo test -p mail-store --test store -- <file>::`.
 
+mod accounts;
 mod concurrency;
 mod contacts;
 mod destroy;

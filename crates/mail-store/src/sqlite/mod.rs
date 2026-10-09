@@ -78,6 +78,9 @@ pub struct SqliteStore {
     blobs: BlobStore,
     /// Held accounts are set aside (see `held.rs`).
     granted_only: std::sync::atomic::AtomicBool,
+    /// The directory a test store's blobs live in, removed with the store.
+    #[cfg(feature = "test-support")]
+    pub(crate) scratch: Option<tempfile::TempDir>,
 }
 
 /// How many read-only connections to open beside the writer.
@@ -152,6 +155,8 @@ impl SqliteStore {
             readers: Vec::new(),
             blobs: BlobStore::new(blob_root.as_ref().to_path_buf()),
             granted_only: std::sync::atomic::AtomicBool::new(false),
+            #[cfg(feature = "test-support")]
+            scratch: None,
         };
         store.refresh_queued_summaries()?;
         store.backfill_contacts()?;
@@ -306,7 +311,7 @@ impl SqliteStore {
     /// Reentrant: taking it twice on one thread is normal here, because a public method opens a
     /// transaction and then calls helpers that each need the connection again. With a plain
     /// mutex that is a deadlock, and a deadlock has no error message.
-    pub fn connection(&self) -> ReentrantMutexGuard<'_, Connection> {
+    pub(crate) fn connection(&self) -> ReentrantMutexGuard<'_, Connection> {
         self.db.lock()
     }
 
@@ -336,7 +341,7 @@ impl SqliteStore {
     /// change it is part of. That is why `summary_of`, `messages_of`, `labels_of` and
     /// `read_message` take a `&Connection` instead of reaching for one: the caller says which
     /// world it means, and the compiler will not let a write path forget.
-    pub fn reader(&self) -> ReentrantMutexGuard<'_, Connection> {
+    pub(crate) fn reader(&self) -> ReentrantMutexGuard<'_, Connection> {
         for reader in &self.readers {
             if let Some(free) = reader.try_lock() {
                 return free;

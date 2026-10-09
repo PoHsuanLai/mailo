@@ -30,7 +30,7 @@ fn store() -> (Arc<SqliteStore>, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(SqliteStore::in_memory(dir.path()).unwrap());
     store
-        .connection()
+        .raw_connection()
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
@@ -229,7 +229,7 @@ fn two_writers_do_not_corrupt_the_mailbox() {
 
     assert_eq!(store.count(&Filter::All, at(0)).unwrap(), 400);
     let rows: i64 = store
-        .connection()
+        .raw_connection()
         .query_row("SELECT count(*) FROM remote_map", [], |r| r.get(0))
         .unwrap();
     assert_eq!(rows, 400, "remote_map disagrees with the mailbox");
@@ -251,7 +251,7 @@ mod a_reader_that_is_not_the_writer {
         let dir = tempfile::tempdir().unwrap();
         let store = Arc::new(SqliteStore::open(dir.path().join("mail.db"), dir.path()).unwrap());
         store
-            .connection()
+            .raw_connection()
             .execute(
                 "INSERT INTO accounts (id, address, plan, created_at)
                  VALUES (?1, 'me@example.test', '{}', datetime('now'))",
@@ -271,7 +271,7 @@ mod a_reader_that_is_not_the_writer {
         let taken = Arc::new(AtomicBool::new(false));
         let announced = taken.clone();
         let writer = std::thread::spawn(move || {
-            let _guard = writing.connection();
+            let _guard = writing.raw_connection();
             announced.store(true, Ordering::SeqCst);
             std::thread::sleep(held);
         });

@@ -31,7 +31,7 @@ fn sqlite() -> (SqliteStore, tempfile::TempDir) {
         (acct_other(), "also@example.test"),
     ] {
         store
-            .connection()
+            .raw_connection()
             .execute(
                 "INSERT INTO accounts (id, address, plan, created_at)
                  VALUES (?1, ?2, '{}', datetime('now'))",

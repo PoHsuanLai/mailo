@@ -39,7 +39,7 @@ impl SqliteStore {
 
     /// What to select accounts `FROM`: the table, or, with held accounts set aside, the table
     /// without them. Parenthesised, so an alias can follow it.
-    pub fn accounts(&self) -> &'static str {
+    pub(crate) fn accounts(&self) -> &'static str {
         if self.granted_only() {
             concat!("(SELECT * FROM accounts WHERE NOT (", held!(), "))")
         } else {

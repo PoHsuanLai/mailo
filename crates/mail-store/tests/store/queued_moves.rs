@@ -26,7 +26,7 @@ fn both<T>(scenario: impl Fn(&dyn Store) -> T) -> (T, T) {
     let dir = tempfile::tempdir().unwrap();
     let sqlite = SqliteStore::in_memory(dir.path()).unwrap();
     sqlite
-        .connection()
+        .raw_connection()
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
@@ -647,7 +647,7 @@ fn how_long_a_message_has_been_looked_for_survives_a_restart() {
     let (m, second) = {
         let store = SqliteStore::open(&path, dir.path()).unwrap();
         store
-            .connection()
+            .raw_connection()
             .execute(
                 "INSERT INTO accounts (id, address, plan, created_at)
                  VALUES (?1, 'me@example.test', '{}', datetime('now'))",

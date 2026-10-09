@@ -35,7 +35,7 @@ fn both() -> Both {
     let dir = tempfile::tempdir().unwrap();
     let sqlite = SqliteStore::in_memory(dir.path()).unwrap();
     {
-        let db = sqlite.connection();
+        let db = sqlite.raw_connection();
         for (account, identity, address) in [
             (acct_account(), IDENTITY, "me@example.test"),
             (acct_other(), OTHER_IDENTITY, "also-me@example.test"),

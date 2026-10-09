@@ -16,7 +16,7 @@ fn acct_account() -> AccountId {
 fn opened(dir: &std::path::Path) -> SqliteStore {
     let store = SqliteStore::open(dir.join("mail.db"), dir).unwrap();
     store
-        .connection()
+        .raw_connection()
         .execute(
             "INSERT OR IGNORE INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
@@ -28,7 +28,7 @@ fn opened(dir: &std::path::Path) -> SqliteStore {
 
 fn pragma(store: &SqliteStore, name: &str) -> String {
     store
-        .connection()
+        .raw_connection()
         .query_row(&format!("PRAGMA {name}"), [], |r| {
             r.get::<_, rusqlite::types::Value>(0)
         })
@@ -75,7 +75,7 @@ fn a_write_held_open_makes_the_other_wait_the_timeout_and_then_say_so() {
     let a = opened(dir.path());
     let b = opened(dir.path());
 
-    let held = a.connection();
+    let held = a.raw_connection();
     held.execute_batch("BEGIN IMMEDIATE").unwrap();
     held.execute(
         "INSERT INTO labels (id, account, name, color, origin)
@@ -85,7 +85,7 @@ fn a_write_held_open_makes_the_other_wait_the_timeout_and_then_say_so() {
     .unwrap();
 
     let started = std::time::Instant::now();
-    let outcome = b.connection().execute(
+    let outcome = b.raw_connection().execute(
         "INSERT INTO labels (id, account, name, color, origin)
          VALUES (?1, ?2, 'other', NULL, '\"provider\"')",
         rusqlite::params![LabelId::generate().to_string(), acct_account().to_string()],
@@ -107,7 +107,7 @@ fn a_commit_by_another_connection_changes_the_data_version() {
     let store = opened(dir.path());
     let before = store.data_version().expect("a free connection answers");
     store
-        .connection()
+        .raw_connection()
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES ('own', 'one@example.test', '{}', datetime('now'))",

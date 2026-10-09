@@ -45,7 +45,7 @@ fn load(mails: &[Mail<'_>]) -> Held {
         if !seen.contains(&mail.account) {
             seen.push(mail.account.clone());
             sqlite
-                .connection()
+                .raw_connection()
                 .execute(
                     "INSERT INTO accounts (id, address, plan, created_at)
                      VALUES (?1, ?2, '{}', datetime('now'))",
@@ -367,7 +367,7 @@ fn a_repeated_subject_term_outranks_one_hit_in_a_long_body() {
     let dir = tempfile::tempdir().unwrap();
     let sqlite = SqliteStore::in_memory(dir.path()).unwrap();
     sqlite
-        .connection()
+        .raw_connection()
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'a@example.test', '{}', datetime('now'))",
@@ -512,7 +512,7 @@ fn terms_are_visible_from_a_read_connection() {
     let dir = tempfile::tempdir().unwrap();
     let sqlite = SqliteStore::open(dir.path().join("mail.db"), dir.path()).unwrap();
     sqlite
-        .connection()
+        .raw_connection()
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'a@example.test', '{}', datetime('now'))",

@@ -28,7 +28,7 @@ fn both<T>(scenario: impl Fn(&dyn Store, BlobId) -> T) -> (T, T) {
         (acct_other(), "also@example.test"),
     ] {
         sqlite
-            .connection()
+            .raw_connection()
             .execute(
                 "INSERT INTO accounts (id, address, plan, created_at)
                  VALUES (?1, ?2, '{}', datetime('now'))",

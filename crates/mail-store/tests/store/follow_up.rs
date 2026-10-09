@@ -62,7 +62,7 @@ fn patch(changes: Vec<Change>) -> Patch {
 fn both(dir: &std::path::Path) -> (SqliteStore, MemoryStore) {
     let sqlite = SqliteStore::open(dir.join("mail.db"), dir.join("blobs")).unwrap();
     sqlite
-        .connection()
+        .raw_connection()
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
@@ -176,7 +176,7 @@ fn both_stores_keep_the_reminder_and_list_the_waiting_in_due_order() {
         waiting(700)
     );
     let row: String = reopened
-        .connection()
+        .raw_connection()
         .query_row(
             "SELECT follow_up FROM threads WHERE id = ?1",
             [thread(4).to_string()],
