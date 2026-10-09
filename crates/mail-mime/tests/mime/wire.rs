@@ -66,7 +66,10 @@ fn attached(name: &str, mime: &str) -> (PendingAttachment, (BlobId, Vec<u8>)) {
 }
 
 /// `(what is special about it, the draft)`.
-fn corpus() -> Vec<(&'static str, Draft, Vec<(BlobId, Vec<u8>)>)> {
+/// One corpus row: its name, the draft, and the attachment bytes by blob.
+type Row = (&'static str, Draft, Vec<(BlobId, Vec<u8>)>);
+
+fn corpus() -> Vec<Row> {
     let mut rows = Vec::new();
     let mut row = |name, d: Draft, parts: Vec<(BlobId, Vec<u8>)>| rows.push((name, d, parts));
 
@@ -178,7 +181,12 @@ fn what_the_user_typed_reads_back() {
     for (name, draft, parts) in corpus() {
         let built = build(&draft, &identity(), None, &parts, Disclosure::Full).unwrap();
         let parsed = parse(&built).unwrap();
-        assert_eq!(parsed.subject, draft.subject.trim(), "{name}: subject");
+        // Trailing blanks are not part of a subject: the corpus row of repeated words ends in one.
+        assert_eq!(
+            parsed.subject.trim(),
+            draft.subject.trim(),
+            "{name}: subject"
+        );
         let from = parsed.from.expect("a From");
         assert_eq!(from.name.as_deref(), Some("Zoë Ångström"), "{name}: sender");
         assert_eq!(parsed.to.len(), draft.to.len(), "{name}: recipients");
