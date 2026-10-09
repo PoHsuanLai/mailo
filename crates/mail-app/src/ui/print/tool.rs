@@ -63,7 +63,7 @@ pub(in crate::ui) fn PrintTool(thread: ThreadId) -> Element {
             size: ControlSize::Large,
             image: ImagePosition::Only,
             label: "Print this conversation",
-            title: Some("Print\u{2026}".to_owned()),
+            title: Some("Print  \u{2318}P".to_owned()),
             icon: Some(IconSource::Glyph(Icon::Printer)),
             shown: Some(open()),
             onclick: move |_| open.set(open().flipped()),

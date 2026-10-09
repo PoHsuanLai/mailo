@@ -39,7 +39,7 @@ pub(in crate::ui) fn affordance(search: &str, bar: &Bar) -> Affordance {
 #[component]
 pub(in crate::ui) fn SearchBox(shell: Signal<Shell>, pages: Signal<u32>) -> Element {
     let shown = affordance(&shell.read().search, &shell.read().bar);
-    let title = "Search mail and commands (\u{2318}K)".to_owned();
+    let title = "Search  \u{2318}K".to_owned();
     rsx! {
         div { class: "bar",
             match shown {

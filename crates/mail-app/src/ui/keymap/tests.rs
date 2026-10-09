@@ -1,4 +1,6 @@
-use super::{DEFAULTS, FILE_NAME, Keymap, Refused, bind, load, reset, save, spoken};
+use super::{
+    DEFAULTS, FILE_NAME, Keymap, Refused, action_tip, bind, drawn, load, reset, save, spoken,
+};
 use crate::ui::view::Shortcut;
 
 /// The keyboard as it was before it became a table: `view::shortcut`'s match, kept here
@@ -257,4 +259,21 @@ fn keys_are_spoken_as_their_caps() {
     for (key, said) in CASES {
         assert_eq!(spoken(key), *said, "{key:?}");
     }
+}
+
+#[test]
+fn a_tip_is_a_name_then_the_key_in_force() {
+    assert_eq!(drawn("m"), "M");
+    assert_eq!(drawn("J"), "\u{21e7}J");
+    assert_eq!(drawn("ArrowDown"), "\u{2193}");
+    assert_eq!(drawn("#"), "#");
+    let map = Keymap::default();
+    assert_eq!(action_tip(&map, "Mute", Shortcut::ToggleMute), "Mute  M");
+    assert_eq!(
+        action_tip(&map, "Move to Trash", Shortcut::Trash),
+        "Move to Trash  #"
+    );
+    let moved = bind(&map, Shortcut::ToggleMute, "x").expect("x is free");
+    assert_eq!(action_tip(&moved, "Mute", Shortcut::ToggleMute), "Mute  X");
+    assert_eq!(action_tip(&map, "Close", Shortcut::Back), "Close");
 }

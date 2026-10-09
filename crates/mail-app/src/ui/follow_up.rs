@@ -225,7 +225,7 @@ pub(in crate::ui) fn FollowUpTool(
             image: ImagePosition::Only,
             icon: Icon::Bell,
             label: "Remind me if no reply".to_owned(),
-            title: Some("Remind me…".to_owned()),
+            title: Some("Reminder".to_owned()),
             value: Some(if current == FollowUp::Inactive { Check::Off } else { Check::On }),
             shown: Some(if open() { Shown::Visible } else { Shown::Hidden }),
             common: Common {

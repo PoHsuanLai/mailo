@@ -233,7 +233,7 @@ pub(super) fn PageMenus(shell: Signal<Shell>) -> Element {
             size: ControlSize::Large,
             image: ImagePosition::Only,
             label: "Group",
-            title: Some("Group the list".to_owned()),
+            title: Some("Group".to_owned()),
             icon: Some(IconSource::Glyph(Icon::Group)),
             shown: shown(PageMenu::Group),
             common: Common {
@@ -257,7 +257,7 @@ pub(super) fn PageMenus(shell: Signal<Shell>) -> Element {
             size: ControlSize::Large,
             image: ImagePosition::Only,
             label: "Properties",
-            title: Some("What each row shows".to_owned()),
+            title: Some("Row Properties".to_owned()),
             icon: Some(IconSource::Glyph(Icon::Columns)),
             shown: shown(PageMenu::Properties),
             common: Common {

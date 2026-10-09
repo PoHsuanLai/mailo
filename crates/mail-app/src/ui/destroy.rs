@@ -160,7 +160,7 @@ pub(in crate::ui) fn EmptyButton(shell: Signal<Shell>) -> Element {
             image: ImagePosition::Only,
             label: name.clone(),
             icon: Icon::Trash,
-            title: Some(format!("{name}\u{2026}")),
+            title: Some(name.clone()),
             common: Common {
                 aria_label: Some(name.clone()),
                 ..Common::default()
