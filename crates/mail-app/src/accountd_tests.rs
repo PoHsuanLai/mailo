@@ -382,8 +382,8 @@ fn held_row(store: &SqliteStore, address: &str) {
     let now = chrono::Utc::now();
     let preset = mail_domain::presets::manual(address, &manual, now);
     let id = mail_domain::id::new_account_id();
-    mail_store::testing::seed_account_plan(&store, id.clone(), address, &preset.plan, Some(now));
-    mail_store::testing::seed_caps(&store, id.clone(), &preset.expected_caps, now).unwrap();
+    mail_store::testing::seed_account_plan(store, id.clone(), address, &preset.plan, Some(now));
+    mail_store::testing::seed_caps(store, id.clone(), &preset.expected_caps, now).unwrap();
 }
 
 #[test]

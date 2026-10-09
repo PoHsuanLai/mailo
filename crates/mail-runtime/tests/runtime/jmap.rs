@@ -49,13 +49,7 @@ async fn setup() -> Setup {
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(SqliteStore::in_memory(dir.path()).unwrap());
     let preset = presets::jmap(USER, &fake.session_url(), HttpAuth::Basic);
-    mail_store::testing::seed_account_plan(
-        &store,
-        acct_account(),
-        &USER,
-        &preset.plan,
-        Some(now()),
-    );
+    mail_store::testing::seed_account_plan(&store, acct_account(), USER, &preset.plan, Some(now()));
     let secrets: Arc<dyn AccountSecrets> = Arc::new(MemorySecrets::default());
     for purpose in [
         SecretPurpose::IncomingPassword,

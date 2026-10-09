@@ -21,10 +21,10 @@ mod naming_a_conversation {
     fn a_label(store: &SqliteStore, name: &str) -> LabelId {
         let id = LabelId::generate();
         mail_store::testing::seed_label(
-            &store,
+            store,
             id,
             acct_account(),
-            &name,
+            name,
             mail_domain::LabelOrigin::Provider,
         );
         id
@@ -221,7 +221,7 @@ async fn render_the_labels_menu_to_a_file() {
             &built.store,
             id,
             account.clone(),
-            &name,
+            name,
             mail_domain::LabelOrigin::User,
         );
         if worn {

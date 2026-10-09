@@ -85,7 +85,7 @@ fn plan_of(store: &SqliteStore, address: &str) -> AccountPlan {
 }
 
 fn rows(store: &SqliteStore) -> i64 {
-    mail_store::testing::count(&store, "accounts")
+    mail_store::testing::count(store, "accounts")
 }
 
 #[test]

@@ -936,7 +936,7 @@ async fn an_unchanged_uidvalidity_does_not_throw_the_mailbox_away() {
 
 /// How many `remote_map` rows exist, which is what a reset clears.
 fn remote_rows(store: &SqliteStore) -> i64 {
-    mail_store::testing::count(&store, "remote_map")
+    mail_store::testing::count(store, "remote_map")
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

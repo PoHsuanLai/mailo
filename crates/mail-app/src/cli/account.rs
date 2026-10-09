@@ -90,7 +90,7 @@ mod tests {
     const ADDRESS: &str = "me@nowhere.example";
 
     fn accounts(store: &SqliteStore) -> i64 {
-        mail_store::testing::count(&store, "accounts")
+        mail_store::testing::count(store, "accounts")
     }
 
     #[test]
@@ -108,7 +108,7 @@ mod tests {
         mail_store::testing::seed_account_plan(
             &store,
             mail_domain::id::new_account_id(),
-            &ADDRESS,
+            ADDRESS,
             &preset.plan,
             None,
         );

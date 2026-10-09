@@ -634,7 +634,7 @@ mod polling {
     fn with_watch(store: &Arc<SqliteStore>, watch: WatchMode) {
         let mut caps = caps();
         caps.watch = watch;
-        mail_store::testing::seed_caps(&store, acct_account(), &caps, chrono::Utc::now()).unwrap();
+        mail_store::testing::seed_caps(store, acct_account(), &caps, chrono::Utc::now()).unwrap();
     }
 
     #[test]

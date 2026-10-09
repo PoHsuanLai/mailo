@@ -29,14 +29,8 @@ fn empty_store() -> (SqliteStore, tempfile::TempDir) {
 
 fn stamped(store: &SqliteStore, account: AccountId, path: &str, at: &str) {
     // The stamp belongs to an account the store has.
-    mail_store::testing::seed_account(&store, account.clone(), "x@example.test");
-    mail_store::testing::seed_sync_state(
-        &store,
-        account.clone(),
-        &path,
-        &SyncCursor::Pop,
-        Some(at),
-    );
+    mail_store::testing::seed_account(store, account.clone(), "x@example.test");
+    mail_store::testing::seed_sync_state(store, account.clone(), path, &SyncCursor::Pop, Some(at));
 }
 
 #[test]

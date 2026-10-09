@@ -73,7 +73,7 @@ fn row(store: &SqliteStore, n: u128, preset: Preset) -> AccountId {
         &preset.plan,
         Some(chrono::TimeZone::with_ymd_and_hms(&chrono::Utc, 2026, 1, n as u32, 0, 0, 0).unwrap()),
     );
-    mail_store::testing::seed_caps(&store, id.clone(), &preset.expected_caps, now()).unwrap();
+    mail_store::testing::seed_caps(store, id.clone(), &preset.expected_caps, now()).unwrap();
     id
 }
 

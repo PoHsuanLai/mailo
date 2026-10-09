@@ -117,8 +117,9 @@ fn an_address_already_here_keeps_its_id_and_its_identity_and_takes_the_new_plan(
 #[test]
 fn an_account_whose_identity_cannot_be_written_is_not_written_at_all() {
     // One transaction: the account row, its identities and its capabilities go together. Here
-    // the address is taken by another account, so the row is updated in place and the identity,
-    // which names an account that does not exist, is refused; the update must not outlive it.
+    // the address is held by an account with another id, so the row is updated in place and the
+    // identity, written under the new id that no account has, is refused; the update must not
+    // outlive it.
     let store = in_memory();
     let held = new_account_id();
     let original = preset("ada@example.test", "example.test");
@@ -127,7 +128,7 @@ fn an_account_whose_identity_cannot_be_written_is_not_written_at_all() {
     let stranger = new_account_id();
     let replacement = preset("ada@example.test", "other.example.test");
     let orphan = identity(&stranger, "ada@example.test", IsDefault::Default);
-    let refused = add(&store, &held, &replacement, &[orphan], 2);
+    let refused = add(&store, &stranger, &replacement, &[orphan], 2);
     assert!(
         matches!(refused, Err(StoreError::Conflict(_))),
         "{refused:?}"

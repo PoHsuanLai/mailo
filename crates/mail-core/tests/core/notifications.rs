@@ -47,7 +47,7 @@ fn open(dir: &std::path::Path) -> SqliteStore {
 }
 
 fn with_account(store: &SqliteStore, plan: &AccountPlan) {
-    mail_store::testing::seed_account_plan(&store, acct_account(), &ME, plan, None);
+    mail_store::testing::seed_account_plan(store, acct_account(), ME, plan, None);
 }
 
 fn plan(port: u16) -> AccountPlan {

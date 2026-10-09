@@ -321,8 +321,8 @@ fn insert_account(store: &SqliteStore, id: AccountId, address: &str, host: &str,
         },
         identities: Vec::new(),
     };
-    mail_store::testing::seed_account_plan(&store, id.clone(), &address, &plan, None);
-    mail_store::testing::seed_caps(&store, id.clone(), &gmail_caps(), chrono::Utc::now()).unwrap();
+    mail_store::testing::seed_account_plan(store, id.clone(), address, &plan, None);
+    mail_store::testing::seed_caps(store, id.clone(), &gmail_caps(), chrono::Utc::now()).unwrap();
 }
 
 fn at(days: i64, hour: u32, min: u32) -> chrono::DateTime<chrono::Utc> {

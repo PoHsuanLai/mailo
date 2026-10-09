@@ -74,7 +74,7 @@ fn ingest(store: &SqliteStore, raw: Vec<u8>) {
 }
 
 fn blob_rows(store: &SqliteStore) -> i64 {
-    mail_store::testing::count(&store, "blobs")
+    mail_store::testing::count(store, "blobs")
 }
 
 #[test]

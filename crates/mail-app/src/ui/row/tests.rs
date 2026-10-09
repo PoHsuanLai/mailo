@@ -43,7 +43,7 @@ fn window() -> Window {
 }
 
 fn changes(store: &SqliteStore) -> i64 {
-    mail_store::testing::total_changes(&store)
+    mail_store::testing::total_changes(store)
 }
 
 #[tokio::test]

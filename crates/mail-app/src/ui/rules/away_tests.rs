@@ -32,7 +32,7 @@ pub(super) fn own_server(store: &SqliteStore) -> AccountRow {
     };
     let preset = presets::manual("me@nowhere.example", &manual, Utc::now());
     mail_store::testing::seed_account_plan(
-        &store,
+        store,
         acct_own(),
         &preset.plan.address,
         &preset.plan,

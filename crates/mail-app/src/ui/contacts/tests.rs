@@ -102,12 +102,12 @@ pub(in crate::ui) fn the_book() -> (Arc<SqliteStore>, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap_or_else(|why| panic!("a temp dir: {why}"));
     let store = SqliteStore::in_memory(dir.path()).unwrap_or_else(|why| panic!("a store: {why}"));
     {
-        mail_store::testing::seed_account(&store, acct_account(), &ME);
+        mail_store::testing::seed_account(&store, acct_account(), ME);
         mail_store::testing::seed_identity_for(
             &store,
             IdentityId::generate(),
             acct_account(),
-            &ME,
+            ME,
             Some("Dave"),
         );
     }

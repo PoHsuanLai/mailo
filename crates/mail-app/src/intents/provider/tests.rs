@@ -600,7 +600,7 @@ fn a_draft_is_saved_and_discarded_by_its_token() {
 }
 
 fn no_drafts(store: &SqliteStore) -> bool {
-    mail_store::testing::count(&store, "drafts") == 0
+    mail_store::testing::count(store, "drafts") == 0
 }
 
 fn sent_args() -> Vec<(&'static str, serde_json::Value)> {

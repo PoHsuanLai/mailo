@@ -103,7 +103,7 @@ fn exit_settles() -> std::time::Duration {
 }
 
 fn changes(store: &SqliteStore) -> i64 {
-    mail_store::testing::total_changes(&store)
+    mail_store::testing::total_changes(store)
 }
 
 fn mailboxes(store: &SqliteStore, thread: ThreadId) -> MailboxSet {
@@ -263,7 +263,7 @@ async fn a_row_dropped_on_a_label_wears_it() {
     let Mounted { mut dom, seen, .. } = mounted_with(|store, dana| {
         let account = store.thread(dana).unwrap().summary.account;
         mail_store::testing::seed_label(
-            &store,
+            store,
             LabelId::generate(),
             account.clone(),
             "travel",

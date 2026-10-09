@@ -23,12 +23,12 @@ fn thread(n: u128) -> ThreadId {
 
 fn store(dir: &std::path::Path) -> SqliteStore {
     let store = SqliteStore::open(dir.join("mail.db"), dir.join("blobs")).unwrap();
-    mail_store::testing::seed_account(&store, acct_account(), &ME);
+    mail_store::testing::seed_account(&store, acct_account(), ME);
     mail_store::testing::seed_identity_for(
         &store,
         mail_domain::IdentityId::generate(),
         acct_account(),
-        &ME,
+        ME,
         None,
     );
     store

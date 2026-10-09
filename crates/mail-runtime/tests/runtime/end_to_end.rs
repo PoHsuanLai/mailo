@@ -451,7 +451,7 @@ mod repeated_passes {
     }
 
     fn remote_rows(store: &SqliteStore) -> i64 {
-        mail_store::testing::count(&store, "remote_map")
+        mail_store::testing::count(store, "remote_map")
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

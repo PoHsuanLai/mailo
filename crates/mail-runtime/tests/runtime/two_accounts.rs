@@ -28,7 +28,7 @@ fn store() -> (SqliteStore, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let store = SqliteStore::in_memory(dir.path()).unwrap();
     for (id, address) in [(acct_a(), "me@example.edu"), (acct_b(), "me@gmail.test")] {
-        mail_store::testing::seed_account(&store, id.clone(), &address);
+        mail_store::testing::seed_account(&store, id.clone(), address);
     }
     (store, dir)
 }
