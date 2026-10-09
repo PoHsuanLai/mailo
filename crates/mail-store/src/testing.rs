@@ -216,8 +216,7 @@ pub fn message_ids(store: &SqliteStore) -> Vec<MessageId> {
     let mut stmt = db
         .prepare("SELECT id FROM messages ORDER BY date, id")
         .expect("list the messages");
-    let ids = stmt
-        .query_map([], |r| r.get::<_, String>(0))
+    stmt.query_map([], |r| r.get::<_, String>(0))
         .expect("list the messages")
         .map(|id| {
             id.expect("a message id")
@@ -225,8 +224,7 @@ pub fn message_ids(store: &SqliteStore) -> Vec<MessageId> {
                 .expect("an id")
         })
         .map(MessageId::from_uuid)
-        .collect();
-    ids
+        .collect()
 }
 
 /// Every account id in the store, oldest first, as a test names them.
@@ -235,13 +233,11 @@ pub fn account_ids(store: &SqliteStore) -> Vec<AccountId> {
     let mut stmt = db
         .prepare("SELECT id FROM accounts ORDER BY created_at")
         .expect("list the accounts");
-    let ids = stmt
-        .query_map([], |r| r.get::<_, String>(0))
+    stmt.query_map([], |r| r.get::<_, String>(0))
         .expect("list the accounts")
         .map(|id| id.expect("an id").parse::<uuid::Uuid>().expect("an id"))
         .map(account_id_from_uuid)
-        .collect();
-    ids
+        .collect()
 }
 
 /// How many rows this connection has changed since it opened. A write that changes nothing
@@ -363,12 +359,10 @@ pub fn outbox_ops(store: &SqliteStore) -> Vec<mail_domain::ProtoOp> {
     let mut stmt = db
         .prepare("SELECT op FROM outbox ORDER BY id")
         .expect("list the outbox");
-    let ops = stmt
-        .query_map([], |r| r.get::<_, String>(0))
+    stmt.query_map([], |r| r.get::<_, String>(0))
         .expect("list the outbox")
         .map(|op| serde_json::from_str(&op.expect("an op")).expect("a queued op decodes"))
-        .collect();
-    ops
+        .collect()
 }
 
 /// Drop everything queued, as if it had all been sent.
@@ -440,12 +434,10 @@ fn table_names(db: &Connection) -> Vec<String> {
     let mut stmt = db
         .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
         .expect("list the tables");
-    let names = stmt
-        .query_map([], |r| r.get(0))
+    stmt.query_map([], |r| r.get(0))
         .expect("list the tables")
         .map(|name| name.expect("a table name"))
-        .collect();
-    names
+        .collect()
 }
 
 /// Un-apply migration 0012, as a database last opened by the build before it would be, and every
