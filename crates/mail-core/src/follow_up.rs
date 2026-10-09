@@ -18,9 +18,9 @@
 //!
 //! A reminder asked for in the composer waits in `follow_up_held` (migration 0027) until its
 //! message has left: a reply joins its conversation once the outbox has sent it, a new message
-//! the conversation its copy lands in when the Sent folder is next synced. A new message from an
-//! account with no Sent folder (POP3) never comes back to be found, and its reminder is let go a
-//! week after it was due.
+//! the conversation its copy lands in when the Sent folder is next synced, or at once on an
+//! account with no Sent folder (POP3), whose copy is kept here as it is sent. One whose copy is
+//! never found is let go a week after it was due.
 
 use crate::notify::{Notification, Notifier, Opens, Own};
 use chrono::{DateTime, TimeDelta, TimeZone, Utc};

@@ -463,3 +463,24 @@ fn a_held_reminder_whose_message_never_comes_back_is_let_go_a_week_after_its_tim
     sweep(&store, day(8)).unwrap();
     assert_eq!(held(&store), Vec::new());
 }
+
+#[test]
+fn a_pop3_message_s_reminder_joins_the_copy_kept_when_it_was_sent() {
+    // POP3 has no Sent folder for the copy to come back from. The outbox keeps one as it sends
+    // (`mail_runtime::assemble::sent`), and that copy is what the held reminder finds: the
+    // reminder goes on at once rather than waiting a week to be let go.
+    let dir = tempfile::tempdir().unwrap();
+    let store = store(dir.path());
+    let draft = queued(&store, None);
+    let raw = raw_with_id("pop.1@example.test");
+    after_queue(&store, &draft, &raw, Some(day(3)), day(0)).unwrap();
+
+    let copy = mail_runtime::assemble::sent(&store, acct_account(), raw, day(0))
+        .unwrap()
+        .expect("the copy is kept");
+    let t = store.message(copy).unwrap().thread;
+    let swept = sweep(&store, day(0)).unwrap();
+    assert_eq!(swept.attached, vec![t]);
+    assert_eq!(state(&store, t), remind_state(day(3), day(0)));
+    assert_eq!(held(&store), Vec::new(), "held no longer");
+}

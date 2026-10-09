@@ -257,6 +257,55 @@ fn compose(smtp_port: u16) -> Sending {
 /// [`compose`], for an account that is the desktop's accountd's when `relays` is given: no
 /// password of its own, and the submission goes through porter's relay.
 fn compose_as(smtp_port: u16, relays: Option<Arc<relay::Relays>>) -> Sending {
+    // The incoming port is closed: if the engine routes a Submit to POP3, the test fails by
+    // connection refused rather than by accident.
+    let it = open(smtp_port, 1, relays);
+    queue(&it.store, &it.draft, None);
+    it
+}
+
+/// Pressing send on `draft`, answering `parent` when it is a reply: build the bytes and the
+/// envelope together, freeze the bytes in the blob store, and queue the submission. Everything
+/// after this point is the outbox's problem, which is what makes sending survive a restart.
+fn queue(store: &SqliteStore, draft: &Draft, parent: Option<&Message>) {
+    store
+        .apply(
+            acct_account(),
+            &Patch {
+                id: ChangeId::generate(),
+                changes: vec![Change::DraftUpsert(Box::new(draft.clone()))],
+            },
+        )
+        .unwrap();
+    let post = posting(draft, &identity(), parent, &[]).expect("the draft has recipients");
+    let raw = store
+        .blobs()
+        .put(&store.connection(), &post.message)
+        .unwrap();
+    store
+        .enqueue(
+            acct_account(),
+            RemoteIntent::Send {
+                draft: draft.id,
+                raw,
+                mail_from: post.mail_from.clone(),
+                rcpt_to: post.rcpt_to.clone(),
+            },
+            &Patch {
+                id: ChangeId::generate(),
+                changes: Vec::new(),
+            },
+            now(),
+        )
+        .unwrap()
+        .expect("a submission is always queued");
+    store
+        .set_send_state(draft.id, &SendState::Queued, now())
+        .unwrap();
+}
+
+/// The account, its store and its engine, with a draft written and nothing queued yet.
+fn open(smtp_port: u16, pop_port: u16, relays: Option<Arc<relay::Relays>>) -> Sending {
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(SqliteStore::in_memory(dir.path()).unwrap());
     {
@@ -286,48 +335,8 @@ fn compose_as(smtp_port: u16, relays: Option<Arc<relay::Relays>>) -> Sending {
     .unwrap();
 
     let draft = draft();
-    store
-        .apply(
-            acct_account(),
-            &Patch {
-                id: ChangeId::generate(),
-                changes: vec![Change::DraftUpsert(Box::new(draft.clone()))],
-            },
-        )
-        .unwrap();
 
-    // Pressing send: build the bytes and the envelope together, freeze the bytes in the blob
-    // store, and queue the submission. Everything after this point is the outbox's problem,
-    // which is what makes sending survive a restart.
-    let post = posting(&draft, &identity(), None, &[]).expect("the draft has recipients");
-    let raw = store
-        .blobs()
-        .put(&store.connection(), &post.message)
-        .unwrap();
-    store
-        .enqueue(
-            acct_account(),
-            RemoteIntent::Send {
-                draft: draft.id,
-                raw,
-                mail_from: post.mail_from.clone(),
-                rcpt_to: post.rcpt_to.clone(),
-            },
-            &Patch {
-                id: ChangeId::generate(),
-                changes: Vec::new(),
-            },
-            now(),
-        )
-        .unwrap()
-        .expect("a submission is always queued");
-    store
-        .set_send_state(draft.id, &SendState::Queued, now())
-        .unwrap();
-
-    // The incoming backend, which must never see the submission. Its port is closed: if the
-    // engine routes a Submit here, the test fails by connection refused rather than by
-    // accident.
+    // The incoming backend, which must never see the submission.
     let backend = Pop3Backend::new(
         acct_account(),
         caps(),
@@ -340,7 +349,7 @@ fn compose_as(smtp_port: u16, relays: Option<Arc<relay::Relays>>) -> Sending {
             Pop3Session::new("me@example.test", PASSWORD, all)
         }),
     );
-    let mut account_plan = plan(smtp_port, 1);
+    let mut account_plan = plan(smtp_port, pop_port);
     let secrets: Arc<dyn AccountSecrets> = match relays {
         None => Arc::new(secrets),
         Some(relays) => {
@@ -500,8 +509,13 @@ async fn the_draft_ends_up_marked_sent() {
     match it.store.draft(it.draft.id).unwrap().state {
         SendState::Sent { at, message } => {
             assert_eq!(at, now());
-            // SMTP reports acceptance, not where a copy was filed.
-            assert_eq!(message, None);
+            // SMTP reports acceptance, not where a copy was filed. A POP3 account has nowhere
+            // for one to be filed, so the copy is the one kept here.
+            let kept = it
+                .store
+                .message(message.expect("a POP3 send keeps its copy"))
+                .unwrap();
+            assert_eq!(kept.mailbox, MailboxRole::Sent);
         }
         other => panic!("draft did not reach Sent: {other:?}"),
     }
@@ -592,4 +606,151 @@ async fn a_granted_account_submits_through_porters_relay_without_authenticating_
     assert!(!app.contains(&PASSWORD.to_uppercase()));
     assert!(app.contains("MAIL FROM:<ME@EXAMPLE.TEST>"), "{app}");
     assert_eq!(relays.opened(), 1);
+}
+
+/// A POP3 server holding one message, `held`, for as long as the test runs: enough of RFC 1939
+/// for a sync, and nothing it does could take away mail this client keeps for itself.
+async fn serve_pop(held: String) -> u16 {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        while let Ok((sock, _)) = listener.accept().await {
+            let held = held.clone();
+            tokio::spawn(async move {
+                let (read, mut write) = sock.into_split();
+                let mut lines = BufReader::new(read).lines();
+                let _ = write.write_all(b"+OK POP3 ready\r\n").await;
+                while let Ok(Some(line)) = lines.next_line().await {
+                    let upper = line.trim_end().to_ascii_uppercase();
+                    let verb = upper.split_whitespace().next().unwrap_or("").to_owned();
+                    let reply = match verb.as_str() {
+                        "CAPA" => "+OK\r\nTOP\r\nUIDL\r\nUSER\r\nSASL PLAIN\r\n.\r\n".to_owned(),
+                        "AUTH" | "USER" | "PASS" => "+OK\r\n".to_owned(),
+                        "STAT" => format!("+OK 1 {}\r\n", held.len()),
+                        "UIDL" => "+OK\r\n1 ask-0001\r\n.\r\n".to_owned(),
+                        "LIST" => format!("+OK\r\n1 {}\r\n.\r\n", held.len()),
+                        "TOP" => {
+                            let head = held.split("\r\n\r\n").next().unwrap_or("");
+                            format!("+OK\r\n{head}\r\n\r\n.\r\n")
+                        }
+                        "RETR" => format!("+OK\r\n{held}.\r\n"),
+                        "QUIT" => {
+                            let _ = write.write_all(b"+OK bye\r\n").await;
+                            return;
+                        }
+                        _ => "-ERR unknown command\r\n".to_owned(),
+                    };
+                    if write.write_all(reply.as_bytes()).await.is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+    port
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_pop3_send_is_kept_in_sent_on_its_conversation_and_outlives_the_next_sync() {
+    // POP3 has no Sent folder. A client that keeps no copy of what it sends leaves the user with
+    // none anywhere: the server accepted it and nobody can read it back.
+    let seen: Shared = Arc::new(Mutex::new(Transcript::default()));
+    let smtp = serve(seen.clone()).await;
+    let pop = serve_pop(
+        "From: Bea <bea@example.test>\r\n\
+         To: me@example.test\r\n\
+         Subject: lunch on friday?\r\n\
+         Date: Tue, 14 Nov 2023 21:00:00 +0000\r\n\
+         Message-ID: <ask@example.test>\r\n\
+         \r\n\
+         Are you free?\r\n"
+            .to_owned(),
+    )
+    .await;
+    let mut it = open(smtp, pop, None);
+    let inbox = MailboxRef {
+        account: acct_account(),
+        path: "INBOX".to_owned(),
+    };
+    let (_tx, mut cancel) = watch::channel(false);
+
+    it.engine
+        .sync(&inbox, &mut cancel, now(), 50)
+        .await
+        .expect("the first sync fetches Bea's question");
+    let in_inbox = it
+        .store
+        .count(&Filter::InMailbox(MailboxRole::Inbox), now())
+        .unwrap();
+    assert_eq!(in_inbox, 1, "precondition: her message arrived");
+    let asked: String = it
+        .store
+        .connection()
+        .query_row(
+            "SELECT id FROM messages WHERE rfc_message_id = 'ask@example.test'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let parent = it
+        .store
+        .message(MessageId::from_uuid(asked.parse().unwrap()))
+        .unwrap();
+
+    // The answer.
+    let answer = Draft {
+        in_reply_to: Some(parent.id),
+        ..it.draft.clone()
+    };
+    queue(&it.store, &answer, Some(&parent));
+    let report = it.engine.drain_outbox(&mut cancel, now()).await.unwrap();
+    assert_eq!(report.submitted, 1, "{report:?}");
+    assert!(
+        report.needs_attention.is_empty(),
+        "{:?}",
+        report.needs_attention
+    );
+
+    let SendState::Sent {
+        message: Some(copy),
+        ..
+    } = it.store.draft(answer.id).unwrap().state
+    else {
+        panic!("a POP3 send must point at the copy it kept");
+    };
+    let kept = it.store.message(copy).unwrap();
+    assert_eq!(kept.mailbox, MailboxRole::Sent);
+    assert_eq!(kept.read, ReadState::Read, "the user wrote it");
+    assert_eq!(kept.thread, parent.thread, "the answer joins her question");
+    assert_eq!(kept.from.email, "me@example.test");
+    // The copy is the message that went, byte for byte, as the server was handed it.
+    let Body::Present { raw, .. } = kept.body else {
+        panic!("the copy holds its body: {:?}", kept.body);
+    };
+    let bytes = it.store.blobs().get(&it.store.connection(), raw).unwrap();
+    assert_eq!(
+        String::from_utf8(bytes).unwrap(),
+        seen.lock().unwrap().body,
+        "the kept copy differs from what was submitted"
+    );
+    let in_sent = it
+        .store
+        .count(&Filter::InMailbox(MailboxRole::Sent), now())
+        .unwrap();
+    assert_eq!(in_sent, 1, "the Sent place lists it");
+
+    // The next sync knows nothing of it, and must not take it away.
+    it.engine
+        .sync(&inbox, &mut cancel, now(), 50)
+        .await
+        .expect("the next sync");
+    let after = it.store.message(copy).expect("the copy outlives the sync");
+    assert_eq!(after.mailbox, MailboxRole::Sent);
+    assert_eq!(after.thread, parent.thread);
+    assert_eq!(
+        it.store
+            .count(&Filter::InMailbox(MailboxRole::Sent), now())
+            .unwrap(),
+        1
+    );
 }
