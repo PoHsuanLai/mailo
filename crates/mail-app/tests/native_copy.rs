@@ -232,10 +232,9 @@ fn the_command_key_copies_what_is_selected_in_a_messages_frame() {
 }
 
 /// (a, e) The same with Super+C: the Command key, as the window reports it since quire v0.2.31.
-/// Blitz copies a page's selection only on its `ACTION_MOD`, which is Ctrl off macOS
-/// (blitz-dom `util.rs`, `events/keyboard.rs`): a quire finding.
+/// Blitz's own copy of a page's selection takes Super as well as Ctrl off macOS since quire
+/// v0.3.0's Blitz.
 #[test]
-#[ignore = "quire: Blitz's copy of a selection answers Ctrl only off macOS, never Super"]
 fn super_c_copies_what_is_selected_in_a_messages_frame() {
     let (mut harness, _dir) = letter_open();
     select_in_frame(&mut harness, "h1");
@@ -359,10 +358,9 @@ fn the_command_key_copies_a_fields_selection() {
     subject_copies_with(COMMAND);
 }
 
-/// Blitz's text input reads its Ctrl chords (select all, copy, cut, paste, undo) on
-/// `ACTION_MOD` too (blitz-dom `node/text.rs`): Super+A selects nothing, Super+C copies nothing.
+/// Blitz's text input takes its select-all, copy, cut and paste chords on Super as well as Ctrl
+/// off macOS since quire v0.3.0's Blitz.
 #[test]
-#[ignore = "quire: Blitz's text input answers Ctrl only off macOS, never Super"]
 fn super_c_copies_a_fields_selection() {
     subject_copies_with(Key::Super);
 }

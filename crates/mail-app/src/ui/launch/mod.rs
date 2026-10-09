@@ -30,14 +30,15 @@ pub(super) struct Opening {
     pub brand: Option<super::brand::BrandCache>,
 }
 
-/// Launch the shell, already wearing `look` and `spaces`, open where `start` says.
+/// Launch the shell, already wearing `look` and `spaces`, open where `start` says. Returns when
+/// the window closes, or at once when it could not open (no runtime, no event loop).
 pub fn run(
     store: Arc<SqliteStore>,
     look: Appearance,
     spaces: Spaces,
     dirs: Option<WindowDirs>,
     start: super::Start,
-) {
+) -> Result<(), ds_blitz::LaunchError> {
     let cache = mail_core::config::cache_dir();
     let icons = cache
         .as_ref()
@@ -53,7 +54,7 @@ pub fn run(
         icons,
         brand,
     };
-    native::run(opening);
+    native::run(opening)
 }
 
 /// Where the launched window reads the desktop's appearance from: the person's own

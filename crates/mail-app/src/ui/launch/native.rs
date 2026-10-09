@@ -29,7 +29,7 @@ pub(in crate::ui) const APP_ID: &str = "mailo";
 /// window's own document keeps its `file:` and `data:` and is refused everything else, so the
 /// Reader view's consented images are fetched by mailo on "Show images" and drawn as `data:`
 /// (`reading/remote.rs`). A link clicked in a frame opens in the browser.
-pub(super) fn run(opening: Opening) {
+pub(super) fn run(opening: Opening) -> Result<(), ds_blitz::LaunchError> {
     let Opening {
         store,
         look,
@@ -99,7 +99,7 @@ pub(super) fn run(opening: Opening) {
         Some(notices) => config.with_context(notices),
         None => config,
     };
-    ds_blitz::launch(ShellRoot, config);
+    ds_blitz::launch(ShellRoot, config)
 }
 
 /// The root contexts the window reads, for `AppConfig` or `HarnessConfig::with_contexts`: the
