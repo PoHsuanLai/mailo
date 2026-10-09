@@ -37,6 +37,7 @@ mod sanitize_unrendered;
 mod smime;
 mod smime_openssl;
 mod unsubscribe;
+mod wire;
 
 /// The tests that keep a binary of their own, each saying why at its top.
 const OWN_BINARY: &[&str] = &[];

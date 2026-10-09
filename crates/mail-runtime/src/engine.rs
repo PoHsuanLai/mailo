@@ -878,10 +878,25 @@ impl<B: Backend> AccountEngine<B> {
         cancel: &mut Cancel,
         now: DateTime<Utc>,
     ) -> Result<SyncReport, RuntimeError> {
+        let (mut report, mut again) = self.drain_pass(cancel, now).await?;
+        // A copy queued by a submission goes in the same call, unless something failed: the Sent
+        // copy of a message is not left waiting for the next pass.
+        while again {
+            let (later, more) = self.drain_pass(cancel, now).await?;
+            report.absorb(later);
+            again = more;
+        }
+        Ok(report)
+    }
+
+    /// One walk through what is due. The flag says a submission in it queued an upload of its
+    /// sent copy and nothing stopped the walk, so another is worth making at once.
+    async fn drain_pass(
+        &mut self,
+        cancel: &mut Cancel,
+        now: DateTime<Utc>,
+    ) -> Result<(SyncReport, bool), RuntimeError> {
         let mut report = SyncReport::default();
-        // Whether this drain queued an upload of a sent copy, and whether it stopped early: the
-        // copy goes in the same call unless something failed, so the Sent copy of a message is
-        // not left waiting for the next pass.
         let mut copy_queued = false;
         let mut halted = false;
         let synced = std::mem::take(&mut self.synced);
@@ -981,7 +996,7 @@ impl<B: Backend> AccountEngine<B> {
                     }
                     report.outbox_settled += 1;
                 }
-                Err(RuntimeError::Cancelled) => return Ok(report),
+                Err(RuntimeError::Cancelled) => return Ok((report, false)),
                 Err(e) => {
                     let retry = e.retry();
                     report.saw(&retry);
@@ -1028,11 +1043,6 @@ impl<B: Backend> AccountEngine<B> {
                 }
             }
         }
-        if copy_queued && !halted {
-            let later = Box::pin(self.drain_outbox(cancel, now)).await?;
-            report.absorb(later);
-            return Ok(report);
-        }
         // Whatever is left, however it got there: a failure that backed off, or an entry whose
         // turn had not come. Counted after the loop rather than inside it, so a `break` on the
         // first failure does not undercount the rest.
@@ -1044,7 +1054,7 @@ impl<B: Backend> AccountEngine<B> {
             )
             .map(|due| due.len())
             .unwrap_or(0);
-        Ok(report)
+        Ok((report, copy_queued && !halted))
     }
 
     /// `entry` pointed at where its messages are now, or `None` when there is nothing to send it

@@ -579,15 +579,28 @@ mod enclosed_message {
     }
 
     #[test]
-    fn a_line_smtp_cannot_carry_is_labelled_binary_rather_than_claimed_to_be_7bit() {
+    fn a_message_smtp_cannot_carry_as_itself_goes_as_a_file_never_as_binary() {
+        // A line over 998 octets (RFC 5322 §2.1.1) and a NUL: both need `binary`, which this
+        // client's submission cannot negotiate, and base64 under message/rfc822 is forbidden.
         let long = format!(
             "From: ada@example.test\r\nSubject: Long\r\n\r\n{}\r\n",
             "x".repeat(1200)
         );
-        let (header, _) = part(&carrying(long.as_bytes()));
-        assert!(
-            header.contains("Content-Transfer-Encoding: binary\r\n"),
-            "{header}"
-        );
+        let nul = b"From: ada@example.test\r\nSubject: Nul\r\n\r\na\0b\r\n".to_vec();
+        for carried in [long.into_bytes(), nul] {
+            let built = carrying(&carried);
+            let text = String::from_utf8_lossy(&built).to_ascii_lowercase();
+            assert!(!text.contains("transfer-encoding: binary"), "{text}");
+            assert!(!text.contains("message/rfc822"), "{text}");
+            let outer = parse(&built).unwrap();
+            assert_eq!(outer.attachments.len(), 1);
+            assert_eq!(outer.attachments[0].mime, "application/octet-stream");
+            assert_eq!(outer.attachments[0].name, "Lunch.eml");
+            // Every byte still arrives, with its line ends made CRLF.
+            assert_eq!(outer.attachments[0].bytes, carried);
+            for line in built.split(|b| *b == b'\n') {
+                assert!(line.len() <= 999, "a line of {} octets", line.len());
+            }
+        }
     }
 }

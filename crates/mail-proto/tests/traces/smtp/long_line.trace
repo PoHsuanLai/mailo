@@ -1,0 +1,9 @@
+# SYNTHETIC. Written from RFC 5321 section 4.5.3.1.6. Not a recording.
+# The message has a line of 999 octets, one past what DATA carries, so the client stops
+# before AUTH with a permanent refusal.
+
+S: 220 smtp.example ESMTP ready
+C: EHLO client.example
+S: 250-smtp.example Hello
+S: 250 AUTH PLAIN
+FAIL Refused
