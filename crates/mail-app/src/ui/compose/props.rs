@@ -5,17 +5,16 @@ use super::super::press::on_primary;
 use ds::components::content::avatar::{
     AvatarFace, AvatarShape, AvatarSize, AvatarTone, person_hue,
 };
+use ds::components::content::label::{LabelRole, LabelStyle};
 use ds::components::controls::button_marks::{Leading, Trailing};
 use ds::components::controls::button_model::Bezel;
 use ds::components::controls::chip::{Chip, ChipVariant};
-use ds::components::fields::field_row::{FieldRow, RowLayout};
 use ds::components::fields::text_field_model::Invalid;
 use ds::host::measure::MountedRef;
 use ds::motion::detail::stamp::EventStamp;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::root::pass_through::ExtraClass;
-use ds::root::pass_through::{DataAttr, DataName};
 use std::sync::Arc;
 
 use dioxus::prelude::*;
@@ -53,10 +52,9 @@ pub(in crate::ui) fn Props(page: Signal<Page>, shell: Signal<Shell>) -> Element 
             if !compact {
                 FromRow { page, shell }
             }
-            FieldRow {
+            Line {
                 label: "To",
-                layout: RowLayout::Form,
-                common: row("to"),
+                row: "to",
                 Recipients { page, list: List::To, refused }
                 if !cc_shown {
                     Button {
@@ -67,10 +65,9 @@ pub(in crate::ui) fn Props(page: Signal<Page>, shell: Signal<Shell>) -> Element 
                 }
             }
             if cc_shown {
-                FieldRow {
+                Line {
                     label: "Cc",
-                    layout: RowLayout::Form,
-                    common: row("cc"),
+                    row: "cc",
                     Recipients { page, list: List::Cc, refused: None }
                 }
             }
@@ -81,10 +78,9 @@ pub(in crate::ui) fn Props(page: Signal<Page>, shell: Signal<Shell>) -> Element 
             ReceiptRow { page }
             RemindRow { page }
             if !attached.is_empty() {
-                FieldRow {
+                Line {
                     label: "Attached",
-                    layout: RowLayout::Form,
-                    common: row("attached"),
+                    row: "attached",
                     for (index, (name, size)) in attached.into_iter().enumerate() {
                         Chip {
                             key: "{index}",
@@ -98,15 +94,29 @@ pub(in crate::ui) fn Props(page: Signal<Page>, shell: Signal<Shell>) -> Element 
     }
 }
 
-/// The `data-row` a property row carries, which the page's tests and its layout find it by.
-pub(super) fn row(name: &str) -> Common {
-    Common {
-        data: DataName::parse("row")
-            .ok()
-            .map(|attribute| DataAttr::new(attribute, name))
-            .into_iter()
-            .collect(),
-        ..Common::default()
+/// One property line, as a message's header writes "To: …" (`reading/header.rs`): its name,
+/// small and secondary, then its value or control, from the header's left edge. Its `data-row`
+/// is what the page's tests and its layout find it by.
+#[component]
+pub(super) fn Line(
+    #[props(into)] label: String,
+    #[props(default)] help: Option<String>,
+    row: &'static str,
+    children: Element,
+) -> Element {
+    rsx! {
+        div { class: "c-line", role: "group", aria_label: "{label}", "data-row": row,
+            Label {
+                text: format!("{label}:"),
+                role: LabelRole::Secondary,
+                style: LabelStyle::Footnote,
+                common: crate::ui::common::classed("c-line-k"),
+            }
+            if let Some(help) = help {
+                Label { text: help, role: LabelRole::Tertiary, style: LabelStyle::Footnote }
+            }
+            div { class: "c-line-v", {children} }
+        }
     }
 }
 
@@ -153,10 +163,9 @@ fn FromRow(page: Signal<Page>, shell: Signal<Shell>) -> Element {
         .collect();
     let mut value = use_signal(|| None::<MountedRef>);
     rsx! {
-        FieldRow {
+        Line {
             label: "From",
-            layout: RowLayout::Form,
-            common: row("from"),
+            row: "from",
             Button {
                 bezel: Bezel::Inline,
                 label: address,
@@ -281,11 +290,10 @@ fn SendsRow(page: Signal<Page>) -> Element {
     let shown = when.shown(now, &chrono::Local);
     let mut value = use_signal(|| None::<MountedRef>);
     rsx! {
-        FieldRow {
+        Line {
             label: "Sends",
-            help: (when != When::Now).then(|| "scheduled".into()),
-            layout: RowLayout::Form,
-            common: row("sends"),
+            help: (when != When::Now).then(|| "scheduled".to_owned()),
+            row: "sends",
             Button {
                 bezel: Bezel::Inline,
                 label: shown,

@@ -12,6 +12,7 @@ use super::super::menu::{Floating, MenuItem, MenuKey, Right, Tile, menu_key};
 use super::super::menus::{snooze_help, when_in_sentence, when_words};
 use super::super::press::on_primary;
 use super::page::{Float, Page};
+use super::props::Line;
 use ds::components::controls::button_marks::Trailing;
 use ds::components::controls::button_model::Bezel;
 use ds::host::measure::MountedRef;
@@ -173,47 +174,46 @@ pub(in crate::ui) fn RemindRow(page: Signal<Page>) -> Element {
     let shown = remind.shown(now, &chrono::Local);
     let mut value = use_signal(|| None::<MountedRef>);
     rsx! {
-        div { class: "prop-row", "data-row": "remind",
-            div { class: "k", Glyph { icon: Icon::Bell, size: IconSize::Compact }, "Remind me" }
-            div { class: "v",
-                Button {
-                    bezel: Bezel::Inline,
-                    label: shown,
-                    trailing: Some(Trailing::Glyph(Icon::ChevronDown)),
-                    shown: Some(if open { Shown::Visible } else { Shown::Hidden }),
-                    common: Common {
-                        aria_label: Some("Remind me if no reply".to_owned()),
-                        mounted: Some(EventHandler::new(move |event: MountedEvent| {
-                            value.set(Some(MountedRef(event.data())));
-                        })),
-                        ..Common::default()
+        Line {
+            label: "Remind me",
+            row: "remind",
+            Button {
+                bezel: Bezel::Inline,
+                label: shown,
+                trailing: Some(Trailing::Glyph(Icon::ChevronDown)),
+                shown: Some(if open { Shown::Visible } else { Shown::Hidden }),
+                common: Common {
+                    aria_label: Some("Remind me if no reply".to_owned()),
+                    mounted: Some(EventHandler::new(move |event: MountedEvent| {
+                        value.set(Some(MountedRef(event.data())));
+                    })),
+                    ..Common::default()
+                },
+                onclick: on_primary(move || {
+                    let next = if open || picking { Float::Closed } else { Float::Remind };
+                    page.write().float = next;
+                }),
+            }
+            if open {
+                Floating {
+                    anchor: value(),
+                    title: "Remind me if no reply".to_owned(),
+                    items,
+                    on_pick: move |key: String| {
+                        pick_remind(&mut page.write(), &key);
+                        if matches!(page.peek().float, Float::PickRemind(_)) {
+                            crate::ui::host::Host::focus_after_task(".remind-field input");
+                        }
                     },
-                    onclick: on_primary(move || {
-                        let next = if open || picking { Float::Closed } else { Float::Remind };
-                        page.write().float = next;
-                    }),
+                    on_close: move |_| {
+                        if page.peek().float == Float::Remind {
+                            page.write().float = Float::Closed;
+                        }
+                    },
                 }
-                if open {
-                    Floating {
-                        anchor: value(),
-                        title: "Remind me if no reply".to_owned(),
-                        items,
-                        on_pick: move |key: String| {
-                            pick_remind(&mut page.write(), &key);
-                            if matches!(page.peek().float, Float::PickRemind(_)) {
-                                crate::ui::host::Host::focus_after_task(".remind-field input");
-                            }
-                        },
-                        on_close: move |_| {
-                            if page.peek().float == Float::Remind {
-                                page.write().float = Float::Closed;
-                            }
-                        },
-                    }
-                }
-                if picking {
-                    div { class: "p-menu", PickRemind { page } }
-                }
+            }
+            if picking {
+                div { class: "p-menu", PickRemind { page } }
             }
         }
     }

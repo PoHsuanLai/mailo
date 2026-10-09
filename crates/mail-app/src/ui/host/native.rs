@@ -17,7 +17,7 @@
 //! - The clipboard: `ds_blitz::clipboard::write_text`.
 
 use super::Ask;
-use blitz_dom::{ScrollBehavior, ScrollLogicalPosition};
+use blitz_dom::{NodeId, ScrollBehavior, ScrollLogicalPosition};
 use dioxus::prelude::*;
 use dioxus_native_dom::NodeHandle;
 use ds::base::time::{FRAME_SLACK, clock::sleep};
@@ -137,6 +137,14 @@ fn scroll_into_view(app: &MountedData, selector: &str) -> Tried {
         },
     };
     let mut doc = handle.doc_mut();
+    // Blitz's own scroll into view moves the window's viewport only: the pane that scrolls the
+    // element (the reader's body, a menu's list) is scrolled first, to centre it in that pane.
+    if let Some((scroller, y)) = centred_in_scroller(&doc, found) {
+        let x = doc
+            .get_node(scroller)
+            .map_or(0.0, |node| node.scroll_offset().x);
+        doc.scroll_to(scroller, x, y, ScrollBehavior::Instant);
+    }
     doc.scroll_into_view(
         found,
         ScrollBehavior::Instant,
@@ -145,4 +153,27 @@ fn scroll_into_view(app: &MountedData, selector: &str) -> Tried {
     );
     doc.shell_provider.request_redraw();
     Tried::Done
+}
+
+/// The nearest box around `node` whose content runs past it (the one a wheel over `node` would
+/// scroll), and the offset that centres `node` in it, as `scrollIntoView` reads a block of
+/// `center`. Blitz clamps the offset to what the box can scroll.
+fn centred_in_scroller(doc: &blitz_dom::BaseDocument, node: NodeId) -> Option<(NodeId, f64)> {
+    let target = doc.get_node(node)?;
+    let height = f64::from(target.final_layout().size.height);
+    let mut at = target.layout_parent.get();
+    while let Some(id) = at {
+        let parent = doc.get_node(id)?;
+        let client = parent.client_height();
+        if parent.scroll_height() > client + 0.5 {
+            // Both read through the same ancestors, so their difference is where `node` sits in
+            // the scroller's content, whatever it is scrolled to now.
+            let top = f64::from(
+                target.absolute_position(0.0, 0.0).y - parent.absolute_position(0.0, 0.0).y,
+            );
+            return Some((id, top - (f64::from(client) - height) / 2.0));
+        }
+        at = parent.layout_parent.get();
+    }
+    None
 }

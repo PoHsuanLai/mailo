@@ -44,13 +44,13 @@ article.frame header { margin-top: var(--s-14); margin-bottom: var(--s-12); }
 article.frame header[*|data-detail="compact"] { margin-top: var(--s-10); margin-bottom: var(--s-10); }
 article.frame + article.frame { border-top: var(--hair) solid var(--line-soft); }
 /* Whatever else the reader puts under the messages (the inline reply) is inset as their heads are. */
-.reader-body > :not(.frame):not(.banners) { margin-left: var(--s-18); margin-right: var(--s-18); margin-bottom: var(--s-18); }
+.reader-body > :not(.frame):not(.banners):not(.inline-reply) { margin-left: var(--s-18); margin-right: var(--s-18); margin-bottom: var(--s-18); }
 .img-ph {
   margin-top: var(--s-12); height: 86px; border-radius: var(--r-btn); background: var(--surface-2);
   border: var(--hair) solid var(--line); display: grid; place-items: center;
    font-size: var(--fs-note); color: var(--ink-faint);
 }
-.reader-body { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; flex: 1; font-size: var(--fs-reading); color: var(--ink-soft);
+.reader-body { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; flex: 1; font-size: var(--fs-reading); color: var(--ink);
   line-height: 1.65; }
 .reader-body p + p { margin-top: var(--s-11); }
 .reader-body .quote {
