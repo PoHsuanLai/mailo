@@ -65,6 +65,13 @@ fn both() -> Both {
     }
 }
 
+impl Both {
+    /// Each store, named for a failure message.
+    fn each(&self) -> [(&'static str, &dyn Store); 2] {
+        [("sqlite", &self.sqlite), ("memory", &self.memory)]
+    }
+}
+
 fn addr(email: &str) -> Address {
     Address {
         name: Some("Someone".to_owned()),
@@ -102,20 +109,15 @@ fn put(b: &Both, template: &Template) {
     b.memory.put_template(template).unwrap();
 }
 
+/// One life of a template list, asked of both stores at each step: templates list by name
+/// whatever the case and only for their own account, keeping one again replaces it, and a
+/// deleted one is gone and a second delete says so.
 #[test]
-fn a_kept_template_reads_back_whole_from_both_stores() {
+fn templates_in_both_stores_list_by_name_replace_and_delete() {
     let b = both();
-    let kept = template("weekly");
-    put(&b, &kept);
-    assert_eq!(b.sqlite.template(kept.id).unwrap(), kept);
-    assert_eq!(b.memory.template(kept.id).unwrap(), kept);
-}
-
-#[test]
-fn templates_list_by_name_whatever_the_case_in_both_stores() {
-    let b = both();
-    let names = ["weekly", "Absence", "birthday", "absence", "Zebra"];
-    for name in names {
+    let mut weekly = template("weekly");
+    put(&b, &weekly);
+    for name in ["Absence", "birthday", "absence", "Zebra"] {
         put(&b, &template(name));
     }
     let mut elsewhere = template("on another account");
@@ -123,50 +125,58 @@ fn templates_list_by_name_whatever_the_case_in_both_stores() {
     elsewhere.identity = OTHER_IDENTITY;
     put(&b, &elsewhere);
 
-    let sqlite = b.sqlite.templates(acct_account()).unwrap();
-    let memory = b.memory.templates(acct_account()).unwrap();
-    assert_eq!(sqlite, memory, "the two stores list templates differently");
-    let listed: Vec<String> = sqlite.iter().map(|t| t.name.to_lowercase()).collect();
-    assert_eq!(
-        listed,
-        ["absence", "absence", "birthday", "weekly", "zebra"],
-        "by name, ignoring case, and only this account's"
+    let listed = |want: &[&str], step: &str| {
+        let sqlite = b.sqlite.templates(acct_account()).unwrap();
+        let memory = b.memory.templates(acct_account()).unwrap();
+        assert_eq!(
+            sqlite, memory,
+            "{step}: the two stores list templates differently"
+        );
+        let names: Vec<String> = sqlite.iter().map(|t| t.name.to_lowercase()).collect();
+        assert_eq!(
+            names, want,
+            "{step}: by name, ignoring case, and only this account's"
+        );
+        sqlite
+    };
+    listed(
+        &["absence", "absence", "birthday", "weekly", "zebra"][..],
+        "listing",
     );
-}
 
-#[test]
-fn keeping_a_template_again_replaces_it() {
-    let b = both();
-    let mut kept = template("weekly");
-    put(&b, &kept);
-    kept.name = "weekly, renamed".to_owned();
-    kept.updated = at(20);
-    put(&b, &kept);
-    for store in [&b.sqlite as &dyn Store, &b.memory] {
-        assert_eq!(store.templates(acct_account()).unwrap(), vec![kept.clone()]);
-    }
-}
+    weekly.name = "weekly, renamed".to_owned();
+    weekly.updated = at(20);
+    put(&b, &weekly);
+    let after = listed(
+        &["absence", "absence", "birthday", "weekly, renamed", "zebra"][..],
+        "keeping again",
+    );
+    assert_eq!(
+        after[3], weekly,
+        "keeping again replaces the template whole"
+    );
 
-#[test]
-fn a_deleted_template_is_gone_and_a_second_delete_says_so() {
-    let b = both();
-    let kept = template("weekly");
-    let stays = template("other");
-    put(&b, &kept);
-    put(&b, &stays);
-    for store in [&b.sqlite as &dyn Store, &b.memory] {
-        store.delete_template(kept.id).unwrap();
-        assert!(matches!(
-            store.template(kept.id),
-            Err(StoreError::NoTemplate(id)) if id == kept.id
-        ));
-        assert!(matches!(
-            store.delete_template(kept.id),
-            Err(StoreError::NoTemplate(_))
-        ));
+    let stays: Vec<Template> = after.into_iter().filter(|t| t.id != weekly.id).collect();
+    for (label, store) in b.each() {
+        store.delete_template(weekly.id).unwrap();
+        assert!(
+            matches!(
+                store.template(weekly.id),
+                Err(StoreError::NoTemplate(id)) if id == weekly.id
+            ),
+            "{label}: a deleted template is gone"
+        );
+        assert!(
+            matches!(
+                store.delete_template(weekly.id),
+                Err(StoreError::NoTemplate(_))
+            ),
+            "{label}: a second delete says so"
+        );
         assert_eq!(
             store.templates(acct_account()).unwrap(),
-            vec![stays.clone()]
+            stays,
+            "{label}: the others stay"
         );
     }
 }

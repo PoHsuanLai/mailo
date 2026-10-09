@@ -47,31 +47,52 @@ fn cjk_delsp_does_not_insert_a_space_and_the_other_way_does() {
     );
 }
 
-#[test]
-fn stuffing_comes_off_and_a_stuffed_quote_is_a_quote() {
-    let raw = " Hello\n > quoted line\n";
-    let doc = text(raw, Flowed::Flowed { delsp: false });
-    let got = sketch(&doc);
-    assert!(
-        got.contains("p ltr Hello\n"),
-        "stuffing space stayed on the paragraph: {got}"
-    );
-    assert!(
-        got.contains("quote\n") && got.contains("quoted line"),
-        "stuffed quote was not unwrapped: {got}"
-    );
-}
+/// One row: its name, the raw text, its mode, what the sketch contains, and what it must not.
+type Case = (
+    &'static str,
+    &'static str,
+    Flowed,
+    &'static [&'static str],
+    &'static [&'static str],
+);
+
+const CASES: &[Case] = &[
+    (
+        "stuffing comes off and a stuffed quote is a quote",
+        " Hello\n > quoted line\n",
+        Flowed::Flowed { delsp: false },
+        &["p ltr Hello\n", "quote\n", "quoted line"],
+        &[],
+    ),
+    (
+        "a depth change ends a flowed paragraph",
+        "still flowing \n> and then quoted\n",
+        Flowed::Flowed { delsp: false },
+        &["p ltr still flowing\n", "and then quoted"],
+        &[],
+    ),
+    (
+        // Fixed lines in one run join with a space, but the trailing flow-space
+        // is not a second space, and nothing is deleted the way delsp would.
+        "fixed text does not flow on a trailing space",
+        "alpha \nbeta\n",
+        Flowed::Fixed,
+        &["alpha", "beta"],
+        &["alphabeta"],
+    ),
+];
 
 #[test]
-fn depth_change_ends_a_flowed_paragraph() {
-    let raw = "still flowing \n> and then quoted\n";
-    let doc = text(raw, Flowed::Flowed { delsp: false });
-    let got = sketch(&doc);
-    assert!(
-        got.contains("p ltr still flowing\n"),
-        "the flowed line ran into the quote: {got}"
-    );
-    assert!(got.contains("and then quoted"), "{got}");
+fn short_texts_sketch_as_expected() {
+    for (name, raw, mode, contains, not_contains) in CASES {
+        let got = sketch(&text(raw, *mode));
+        for want in *contains {
+            assert!(got.contains(want), "{name}: missing {want:?} in {got}");
+        }
+        for unwanted in *not_contains {
+            assert!(!got.contains(unwanted), "{name}: has {unwanted:?} in {got}");
+        }
+    }
 }
 
 #[test]
@@ -178,14 +199,4 @@ fn hebrew_and_english_take_their_own_directions() {
         })
         .collect();
     assert_eq!(dirs, vec![Dir::Rtl, Dir::Ltr], "{}", sketch(&doc));
-}
-
-#[test]
-fn fixed_text_does_not_flow_on_a_trailing_space() {
-    let doc = text("alpha \nbeta\n", Flowed::Fixed);
-    let got = sketch(&doc);
-    assert!(got.contains("alpha") && got.contains("beta"), "{got}");
-    // Fixed lines in one run join with a space, but the trailing flow-space
-    // is not a second space, and nothing is deleted the way delsp would.
-    assert!(!got.contains("alphabeta"), "{got}");
 }

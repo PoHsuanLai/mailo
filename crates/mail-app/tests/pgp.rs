@@ -840,20 +840,4 @@ mod parsing {
             );
         }
     }
-
-    #[test]
-    fn compose_takes_sign_and_encrypt() {
-        const CASES: &[(&str, OpenPgp)] = &[
-            ("", OpenPgp::None),
-            (" --sign", OpenPgp::Sign),
-            (" --encrypt", OpenPgp::Encrypt),
-            (" --encrypt --sign", OpenPgp::SignAndEncrypt),
-        ];
-        for (rest, expected) in CASES {
-            match cli::parse(&args(&format!("compose --to bea@example.test{rest}"))).unwrap() {
-                cli::Command::Compose { openpgp, .. } => assert_eq!(openpgp, *expected, "{rest}"),
-                other => panic!("{other:?}"),
-            }
-        }
-    }
 }

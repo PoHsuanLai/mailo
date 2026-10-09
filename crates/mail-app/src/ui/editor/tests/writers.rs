@@ -204,7 +204,6 @@ fn html_is_escaped_and_carries_no_style() {
          <a href=\"https://example.com/a\"><strong>link</strong></a></p>\
          <pre>a &lt; b\nc</pre><p>line<br>break</p><hr>"
     );
-    assert!(!html.contains("style="));
 }
 
 #[test]

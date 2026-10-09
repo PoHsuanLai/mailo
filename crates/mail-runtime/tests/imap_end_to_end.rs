@@ -1661,8 +1661,10 @@ Subject: half a thought\r\n\
 to be continued\r\n\
 .a line that starts with a dot\r\n";
 
+    /// One upload, and what the server got: one append to the Drafts folder, the literal byte
+    /// for byte, and the flags that keep it a draft and read.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_draft_reaches_the_servers_drafts_folder() {
+    async fn a_draft_is_appended_to_drafts_byte_for_byte_flagged_draft_and_seen() {
         let seen: Shared = Arc::new(Mutex::new(Seen::default()));
         let (port, _v, _p, _f, appended) = serve_appending(seen.clone(), Fault::None).await;
         let mut it = engine_with(port, tempfile::tempdir().unwrap(), caps());
@@ -1678,58 +1680,27 @@ to be continued\r\n\
             .expect("the append succeeds");
         assert!(
             uploaded,
-            "the server named a Drafts folder and nothing used it"
+            "drafts folder: the server named a Drafts folder and nothing used it"
         );
 
         let stored = appended.lock().unwrap().clone();
         assert_eq!(
             stored.len(),
             1,
-            "nothing was appended: {:?}",
+            "drafts folder: nothing was appended: {:?}",
             seen.lock().unwrap().commands
         );
-        assert!(stored[0].contains("half a thought"), "{}", stored[0]);
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn the_literal_arrives_byte_for_byte() {
         // A literal is framed by a byte count, not by a terminator, so a body containing a line
         // that begins with a dot — or a CRLF, or anything else — must survive untouched. A count
         // that disagrees with what follows desynchronises the connection entirely.
-        let seen: Shared = Arc::new(Mutex::new(Seen::default()));
-        let (port, _v, _p, _f, appended) = serve_appending(seen, Fault::None).await;
-        let mut it = engine_with(port, tempfile::tempdir().unwrap(), caps());
-        let (_tx, mut cancel) = watch::channel(false);
-        it.engine.refresh_caps(&mut cancel, now()).await.unwrap();
-
-        it.engine
-            .upload_draft(&draft(), RAW.to_vec(), &mut cancel)
-            .await
-            .unwrap();
-
-        let stored = appended.lock().unwrap().clone();
         assert_eq!(
             stored[0].as_bytes(),
             RAW,
-            "the literal was altered in transit"
+            "byte for byte: the literal was altered in transit"
         );
-    }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn the_draft_is_marked_as_a_draft_and_already_read() {
         // Without \\Draft the message shows up as ordinary mail in the folder; without \\Seen the
         // user's own unfinished note arrives as unread mail on every device they own.
-        let seen: Shared = Arc::new(Mutex::new(Seen::default()));
-        let (port, _v, _p, _f, _a) = serve_appending(seen.clone(), Fault::None).await;
-        let mut it = engine_with(port, tempfile::tempdir().unwrap(), caps());
-        let (_tx, mut cancel) = watch::channel(false);
-        it.engine.refresh_caps(&mut cancel, now()).await.unwrap();
-
-        it.engine
-            .upload_draft(&draft(), RAW.to_vec(), &mut cancel)
-            .await
-            .unwrap();
-
         let append = seen
             .lock()
             .unwrap()
@@ -1738,9 +1709,9 @@ to be continued\r\n\
             .find(|c| c.to_uppercase().starts_with("APPEND"))
             .cloned()
             .expect("an APPEND was sent");
-        assert!(append.contains("\\Draft"), "{append}");
-        assert!(append.contains("\\Seen"), "{append}");
-        assert!(append.contains("Drafts"), "{append}");
+        assert!(append.contains("\\Draft"), "flags: {append}");
+        assert!(append.contains("\\Seen"), "flags: {append}");
+        assert!(append.contains("Drafts"), "drafts folder: {append}");
     }
 
     /// An import's upload: queued in the outbox, sent by the drain with its own flags and date,

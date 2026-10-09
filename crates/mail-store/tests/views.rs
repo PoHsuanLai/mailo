@@ -25,6 +25,13 @@ fn both() -> Both {
     }
 }
 
+impl Both {
+    /// Each store, named for a failure message.
+    fn each(&self) -> [(&'static str, &dyn Store); 2] {
+        [("sqlite", &self.sqlite), ("memory", &self.memory)]
+    }
+}
+
 const FIXTURE_ID: ViewId = ViewId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000c1"));
 const LABEL: LabelId = LabelId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000d1"));
 
@@ -64,75 +71,66 @@ fn names(store: &dyn Store) -> Vec<String> {
         .collect()
 }
 
+/// One life of a view list, asked of both stores at each step: views list in the order they were
+/// first kept, keeping one again edits it in place, a delete removes it and a second delete says
+/// so, and a view kept after a delete still goes last.
 #[test]
-fn a_kept_view_reads_back_whole_from_both_stores() {
-    let b = both();
-    let kept = view("Bills");
-    put(&b, &kept);
-    assert_eq!(b.sqlite.views().unwrap(), vec![kept.clone()]);
-    assert_eq!(b.memory.views().unwrap(), vec![kept]);
-}
-
-#[test]
-fn views_list_in_the_order_they_were_first_kept_in_both_stores() {
-    let b = both();
-    // Not alphabetical, so an ORDER BY name would show.
-    for name in ["Receipts", "Alerts", "Newsletters"] {
-        put(&b, &view(name));
-    }
-    let want = ["Receipts", "Alerts", "Newsletters"];
-    assert_eq!(names(&b.sqlite), want);
-    assert_eq!(names(&b.memory), want);
-}
-
-#[test]
-fn keeping_a_view_again_changes_it_in_place_in_both_stores() {
+fn views_in_both_stores_keep_first_kept_order_edit_in_place_and_delete() {
     let b = both();
     let first = view("Receipts");
     put(&b, &first);
+    // Not alphabetical, so an ORDER BY name would show.
     put(&b, &view("Alerts"));
+    put(&b, &view("Newsletters"));
+    for (label, store) in b.each() {
+        assert_eq!(
+            names(store),
+            ["Receipts", "Alerts", "Newsletters"],
+            "{label}: listed in the order first kept"
+        );
+    }
+
     let mut edited = first.clone();
     edited.name = "Paid".to_owned();
     edited.group_by = Some(GroupKey::Read);
     edited.hover = vec![OpKind::Trash];
     put(&b, &edited);
-    for store in [&b.sqlite as &dyn Store, &b.memory] {
+    for (label, store) in b.each() {
         let views = store.views().unwrap();
-        assert_eq!(views.len(), 2, "an edit is not a second view");
-        assert_eq!(views[0], edited, "an edited view keeps its place");
-        assert_eq!(views[1].name, "Alerts");
+        assert_eq!(views.len(), 3, "{label}: an edit is not a second view");
+        assert_eq!(
+            views[0], edited,
+            "{label}: an edited view keeps its place, whole"
+        );
+        assert_eq!(
+            names(store)[1..],
+            ["Alerts", "Newsletters"],
+            "{label}: after the edit"
+        );
     }
-}
 
-#[test]
-fn a_deleted_view_is_gone_and_a_second_delete_says_so_in_both_stores() {
-    let b = both();
-    let gone = view("Receipts");
-    put(&b, &gone);
-    put(&b, &view("Alerts"));
-    for store in [&b.sqlite as &dyn Store, &b.memory] {
-        store.delete_view(gone.id).unwrap();
-        assert_eq!(names(store), ["Alerts"]);
-        match store.delete_view(gone.id) {
-            Err(StoreError::NoView(id)) => assert_eq!(id, gone.id),
-            other => panic!("a second delete should be NoView, got {other:?}"),
+    for (label, store) in b.each() {
+        store.delete_view(first.id).unwrap();
+        assert_eq!(
+            names(store),
+            ["Alerts", "Newsletters"],
+            "{label}: a deleted view is gone"
+        );
+        match store.delete_view(first.id) {
+            Err(StoreError::NoView(id)) => assert_eq!(id, first.id, "{label}: second delete"),
+            other => panic!("{label}: a second delete should be NoView, got {other:?}"),
         }
     }
-}
 
-#[test]
-fn a_view_kept_after_a_delete_still_goes_last_in_both_stores() {
-    let b = both();
-    let first = view("Receipts");
-    put(&b, &first);
-    put(&b, &view("Alerts"));
-    b.sqlite.delete_view(first.id).unwrap();
-    b.memory.delete_view(first.id).unwrap();
-    put(&b, &view("Newsletters"));
     put(&b, &view("Bills"));
-    let want = ["Alerts", "Newsletters", "Bills"];
-    assert_eq!(names(&b.sqlite), want);
-    assert_eq!(names(&b.memory), want);
+    put(&b, &view("Statements"));
+    for (label, store) in b.each() {
+        assert_eq!(
+            names(store),
+            ["Alerts", "Newsletters", "Bills", "Statements"],
+            "{label}: views kept after a delete still go last"
+        );
+    }
 }
 
 /// The view `tests/fixtures/view_row.json` was written from.

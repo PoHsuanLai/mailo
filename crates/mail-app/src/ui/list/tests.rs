@@ -140,14 +140,21 @@ mod searching_in_the_window {
             .collect()
     }
 
+    /// A label's name finds the conversation that bears it, and the box itself still shows what
+    /// was typed, so this is a search and not a filter that silently rewrites the query.
     #[tokio::test(start_paused = true)]
-    async fn a_label_name_finds_the_conversation_that_bears_it() {
+    async fn a_label_name_finds_the_conversation_that_bears_it_and_the_box_keeps_it() {
         let (store, _dir) = labelled();
         let page = typing(store, "label:travel", |page| listed(page) == ["hi"]).await;
         assert_eq!(
             listed(&page),
             vec!["hi"],
             "the window searched for the words instead of the label"
+        );
+        assert!(
+            page.contains(&format!(r#"aria-label="{}""#, crate::ui::command::LABEL))
+                && page.contains(r#"value="label:travel""#),
+            "the search box lost the text:\n{page}"
         );
     }
 
@@ -161,19 +168,6 @@ mod searching_in_the_window {
             listed(&page).is_empty(),
             "a search that matches nothing still showed {:?}",
             listed(&page)
-        );
-    }
-
-    /// And the box itself still shows what was typed, so this is a search and not a filter
-    /// that silently rewrites the query.
-    #[tokio::test(start_paused = true)]
-    async fn the_box_keeps_what_was_typed() {
-        let (store, _dir) = labelled();
-        let page = typing(store, "label:travel", |page| listed(page) == ["hi"]).await;
-        assert!(
-            page.contains(&format!(r#"aria-label="{}""#, crate::ui::command::LABEL))
-                && page.contains(r#"value="label:travel""#),
-            "the search box lost the text:\n{page}"
         );
     }
 }

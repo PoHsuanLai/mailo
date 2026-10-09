@@ -137,20 +137,38 @@ mod names {
             assert!(safe != ".." && safe != ".", "{hostile:?} -> {safe:?}");
             assert!(!safe.is_empty());
         }
-        // And the names are the ones a person would expect, not mangled beyond recognition.
-        assert_eq!(attach::safe_name("../../etc/passwd"), "passwd");
-        assert_eq!(attach::safe_name("..\\..\\Windows\\evil.dll"), "evil.dll");
-        assert_eq!(attach::safe_name("/etc/passwd"), "passwd");
     }
 
+    /// `(row, claimed name, name written)`.
+    const CASES: &[(&str, &str, &str)] = &[
+        // A climbing name keeps the name a person would expect, not mangled beyond recognition.
+        ("climbs, unix", "../../etc/passwd", "passwd"),
+        ("climbs, windows", "..\\..\\Windows\\evil.dll", "evil.dll"),
+        ("absolute", "/etc/passwd", "passwd"),
+        // Only dots or nothing gets a name.
+        ("empty", "", "attachment"),
+        ("blank", "   ", "attachment"),
+        ("dot", ".", "attachment"),
+        ("dot dot", "..", "attachment"),
+        ("slash", "/", "attachment"),
+        ("backslash", "\\", "attachment"),
+        ("slashes", "///", "attachment"),
+        // The rule must not be so eager that it mangles normal mail.
+        ("ordinary", "report.pdf", "report.pdf"),
+        (
+            "spaces and brackets",
+            "Q3 results (final).xlsx",
+            "Q3 results (final).xlsx",
+        ),
+        ("not latin", "架構圖.png", "架構圖.png"),
+        ("dashes", "notes-2026-09-22.md", "notes-2026-09-22.md"),
+        ("dotfile", ".gitignore", ".gitignore"),
+    ];
+
     #[test]
-    fn a_name_that_is_only_dots_or_nothing_gets_one() {
-        for empty in ["", "   ", ".", "..", "/", "\\", "///"] {
-            assert_eq!(
-                attach::safe_name(empty),
-                "attachment",
-                "{empty:?} produced something else"
-            );
+    fn safe_name_cases() {
+        for &(row, claimed, want) in CASES {
+            assert_eq!(attach::safe_name(claimed), want, "{row}: {claimed:?}");
         }
     }
 
@@ -177,20 +195,6 @@ mod names {
             safe.ends_with(".pdf"),
             "the extension decides which program opens it: {safe:?}"
         );
-    }
-
-    #[test]
-    fn an_ordinary_name_is_left_alone() {
-        // The rule must not be so eager that it mangles normal mail.
-        for ordinary in [
-            "report.pdf",
-            "Q3 results (final).xlsx",
-            "架構圖.png",
-            "notes-2026-09-22.md",
-            ".gitignore",
-        ] {
-            assert_eq!(attach::safe_name(ordinary), ordinary);
-        }
     }
 }
 
@@ -385,59 +389,62 @@ JVBERi0xLjQKMSAwIG9iajw8L1R5cGUvQ2F0YWxvZz4+ZW5kb2JqCg==\r\n\
 mod where_it_goes {
     use super::*;
 
-    fn os(text: &str) -> std::ffi::OsString {
-        std::ffi::OsString::from(text)
-    }
+    /// Absolute as this platform counts it: Windows wants a drive for that.
+    const ELSEWHERE: &str = if cfg!(windows) {
+        r"C:\somewhere-else"
+    } else {
+        "/tmp/somewhere-else"
+    };
+
+    /// `(row, the desktop's setting, home, where it goes)`.
+    const CASES: &[(&str, Option<&str>, Option<&str>, &str)] = &[
+        (
+            "the desktop's own download directory wins",
+            Some(ELSEWHERE),
+            Some("/home/nobody"),
+            ELSEWHERE,
+        ),
+        // A relative setting would put the file wherever the process was started, which for a
+        // desktop launcher is somewhere the user cannot guess and cannot be told afterwards.
+        (
+            "a relative setting is ignored rather than followed",
+            Some("Downloads"),
+            Some("/home/nobody"),
+            "/home/nobody/Downloads",
+        ),
+        (
+            "without a setting it is Downloads under home",
+            None,
+            Some("/home/nobody"),
+            "/home/nobody/Downloads",
+        ),
+        (
+            "with no home at all it is here rather than nowhere",
+            None,
+            None,
+            ".",
+        ),
+    ];
 
     #[test]
-    fn the_desktops_own_download_directory_wins() {
-        // Absolute as this platform counts it: Windows wants a drive for that.
-        let elsewhere = if cfg!(windows) {
-            r"C:\somewhere-else"
-        } else {
-            "/tmp/somewhere-else"
-        };
-        let named = os(elsewhere);
-        let home = os("/home/nobody");
-        assert_eq!(
-            attach::downloads_from(Some(&named), Some(&home)),
-            std::path::PathBuf::from(elsewhere)
-        );
-    }
-
-    #[test]
-    fn a_relative_setting_is_ignored_rather_than_followed() {
-        // It would put the file wherever the process was started, which for a desktop launcher
-        // is somewhere the user cannot guess and cannot be told afterwards.
-        let named = os("Downloads");
-        let home = os("/home/nobody");
-        assert_eq!(
-            attach::downloads_from(Some(&named), Some(&home)),
-            std::path::PathBuf::from("/home/nobody/Downloads")
-        );
-    }
-
-    #[test]
-    fn without_a_setting_it_is_downloads_under_home() {
-        let home = os("/home/nobody");
-        assert_eq!(
-            attach::downloads_from(None, Some(&home)),
-            std::path::PathBuf::from("/home/nobody/Downloads")
-        );
-    }
-
-    #[test]
-    fn with_no_home_at_all_it_is_here_rather_than_nowhere() {
-        assert_eq!(
-            attach::downloads_from(None, None),
-            std::path::PathBuf::from(".")
-        );
+    fn the_download_directory_cases() {
+        for &(row, setting, home, want) in CASES {
+            assert_eq!(
+                attach::downloads_from(
+                    setting.map(std::ffi::OsStr::new),
+                    home.map(std::ffi::OsStr::new)
+                ),
+                std::path::PathBuf::from(want),
+                "{row}"
+            );
+        }
     }
 
     #[test]
     fn saving_twice_keeps_both_rather_than_overwriting() {
         // The reader's Save button is one click and can be clicked again. `free_path` already
-        // refuses to overwrite; this is the property that button depends on.
+        // refuses to overwrite; this is the property that button depends on. Into a directory
+        // not made yet, which saving makes.
         let (store, dir) = store();
         let message = with_attachment(&store, "report.pdf", b"first");
         let into = dir.path().join("saved");

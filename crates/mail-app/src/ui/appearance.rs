@@ -177,10 +177,11 @@ mod tests {
     }
 
     #[test]
-    fn a_partial_file_keeps_the_fields_it_has() {
-        // `sepia` alone matching the default is not enough: a loader that rejects the whole
-        // file also returns the default. The rows that set another field are what show the
-        // bad word was dropped on its own.
+    fn the_old_appearance_json_keeps_each_field_it_can_read() {
+        // The migration table. A field it cannot read is dropped on its own: a bad theme or
+        // marks word, a retired `accent` or `motion`, a field it never knew. Every such row also
+        // sets a theme or marks that is not the default, because a loader that threw the whole
+        // file away would return the default too. Reading never rewrites the JSON.
         let cases: &[(&str, &str, Legacy)] = &[
             (
                 "theme only",
@@ -214,21 +215,6 @@ mod tests {
                     ..Legacy::default()
                 },
             ),
-        ];
-        let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
-        let path = dir.path().join("appearance.json");
-        for &(name, bytes, look) in cases {
-            std::fs::write(&path, bytes).unwrap_or_else(|e| panic!("{name}: {e}"));
-            assert_eq!(legacy(dir.path()), look, "{name}: {bytes}");
-        }
-    }
-
-    #[test]
-    fn the_accent_and_motion_are_dropped_on_read_and_theme_and_marks_are_kept() {
-        // The migration table. Every row names a theme or marks that are not the default, so a
-        // loader that threw the file away on meeting `accent` or `motion` would fail it:
-        // dropping a retired field must not drop the fields beside it.
-        let cases: &[(&str, &str, Legacy)] = &[
             (
                 "an old file with every field",
                 r#"{"theme":"dark","accent":"pine","motion":"calm"}"#,

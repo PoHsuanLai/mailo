@@ -7,37 +7,109 @@
 use mail_proto::machine::{ProtoError, Refusal};
 use mail_proto::{explain, explain_text};
 
-#[test]
-fn a_tenant_with_smtp_auth_disabled_is_named_as_such() {
+/// `(name, refusal text, the fragments its explanation must contain, or None for no explanation)`.
+/// `Some(&[])` means explained, whatever the words.
+const CASES: &[(&str, &str, Option<&[&str]>)] = &[
     // The one a work or school Microsoft 365 mailbox hits, and the reason it matters: it is a
     // tenant setting. No amount of retyping, re-adding the account or re-registering an OAuth
-    // application changes it — an administrator does.
-    let refusal = "535 5.7.139 Authentication unsuccessful, SmtpClientAuthentication is \
-                   disabled for the tenant";
-    let why = explain_text(refusal).expect("5.7.139 is documented");
-    assert!(why.contains("Set-CASMailbox"), "{why}");
-    assert!(
-        why.contains("Nothing about the password is wrong"),
-        "the point of this is that the credential is fine: {why}"
-    );
-}
-
-#[test]
-fn google_two_factor_is_told_apart_from_a_bad_password() {
+    // application changes it — an administrator does. The point is that the credential is fine.
+    (
+        "a tenant with SMTP AUTH disabled is named as such",
+        "535 5.7.139 Authentication unsuccessful, SmtpClientAuthentication is \
+         disabled for the tenant",
+        Some(&["Set-CASMailbox", "Nothing about the password is wrong"]),
+    ),
     // Different remedies, and choosing the wrong one wastes an afternoon: an App Password is
     // made in minutes, and "your password is wrong" sends someone to reset a correct one.
-    let app_password = explain_text("534-5.7.9 Application-specific password required").unwrap();
-    assert!(app_password.contains("App Password"), "{app_password}");
-
-    let rejected =
-        explain_text("535-5.7.8 Username and Password not accepted").expect("documented");
-    assert!(rejected.contains("App Password"), "{rejected}");
-}
+    (
+        "google two-factor asks for an App Password",
+        "534-5.7.9 Application-specific password required",
+        Some(&["App Password"]),
+    ),
+    (
+        "google's rejected password points at an App Password",
+        "535-5.7.8 Username and Password not accepted",
+        Some(&["App Password"]),
+    ),
+    (
+        "a protocol switched off for the mailbox is not a credential problem",
+        "NO IMAP4 access is disabled for this mailbox",
+        Some(&["administrator"]),
+    ),
+    // The common case, and the safe one: the server's own words are shown unchanged. A
+    // confident wrong explanation is worse than the raw text it replaced.
+    (
+        "unrecognised: a generic invalid login",
+        "535 5.7.0 Invalid login or password",
+        None,
+    ),
+    (
+        "unrecognised: IMAP AUTHENTICATIONFAILED",
+        "NO [AUTHENTICATIONFAILED] Authentication failed.",
+        None,
+    ),
+    ("unrecognised: POP3 -ERR", "-ERR authorization failed", None),
+    ("unrecognised: 421", "421 Service not available", None),
+    ("unrecognised: empty", "", None),
+    // Servers are not consistent about case.
+    (
+        "matching ignores case: SMTP",
+        "535 5.7.139 SMTPCLIENTAUTHENTICATION IS DISABLED",
+        Some(&[]),
+    ),
+    (
+        "matching ignores case: IMAP",
+        "no imap4 access is disabled for this mailbox",
+        Some(&[]),
+    ),
+    // K1: `contains("5.7.139")` matches "5.7.1399". The mistake has appeared three times in
+    // this codebase in three different disguises, so each shape is its own row.
+    (
+        "K1 a longer code is not read as a shorter one: 5.7.1399",
+        "5.7.1399",
+        None,
+    ),
+    (
+        "K1 a longer code is not read as a shorter one: 15.7.139",
+        "535 15.7.139 something else",
+        None,
+    ),
+    (
+        "K1 a longer code is not read as a shorter one: 5.7.89",
+        "5.7.89",
+        None,
+    ),
+    // The genuine code, in the shapes providers actually send.
+    (
+        "K1 the genuine 5.7.139 with its text",
+        "535 5.7.139 Authentication unsuccessful",
+        Some(&[]),
+    ),
+    ("K1 the genuine 5.7.139 alone", "535 5.7.139", Some(&[])),
+    (
+        "K1 the genuine 5.7.139 at the start",
+        "5.7.139 at the start",
+        Some(&[]),
+    ),
+];
 
 #[test]
-fn a_protocol_switched_off_for_the_mailbox_is_not_a_credential_problem() {
-    let why = explain_text("NO IMAP4 access is disabled for this mailbox").expect("documented");
-    assert!(why.contains("administrator"), "{why}");
+fn refusal_texts_are_explained_or_left_alone() {
+    for (name, text, want) in CASES {
+        let got = explain_text(text);
+        match want {
+            None => assert_eq!(got, None, "{name}: invented an explanation for {text:?}"),
+            Some(fragments) => {
+                let why = got.unwrap_or_else(|| panic!("{name}: {text:?} is documented"));
+                for fragment in *fragments {
+                    assert!(
+                        why.contains(fragment),
+                        "{name}: missing {fragment:?} in {why}"
+                    );
+                }
+            }
+        }
+    }
 }
 
 #[test]
@@ -60,46 +132,6 @@ fn an_error_that_is_not_a_refusal_is_not_diagnosed() {
     // credential advice for one would send the user in exactly the wrong direction.
     assert_eq!(explain(&ProtoError::UnexpectedEof), None);
     assert_eq!(explain(&ProtoError::Malformed("5.7.139".to_owned())), None);
-}
-
-#[test]
-fn an_unrecognised_refusal_gets_no_invented_explanation() {
-    // The common case, and the safe one: the server's own words are shown unchanged. A confident
-    // wrong explanation is worse than the raw text it replaced.
-    for text in [
-        "535 5.7.0 Invalid login or password",
-        "NO [AUTHENTICATIONFAILED] Authentication failed.",
-        "-ERR authorization failed",
-        "421 Service not available",
-        "",
-        "5.7.1399",
-    ] {
-        assert_eq!(
-            explain_text(text),
-            None,
-            "invented an explanation for {text:?}"
-        );
-    }
-}
-
-#[test]
-fn matching_is_case_insensitive_because_servers_are_not_consistent() {
-    assert!(explain_text("535 5.7.139 SMTPCLIENTAUTHENTICATION IS DISABLED").is_some());
-    assert!(explain_text("no imap4 access is disabled for this mailbox").is_some());
-}
-
-#[test]
-fn a_longer_code_is_not_read_as_a_shorter_one() {
-    // `contains("5.7.139")` matches "5.7.1399". Caught by this file's own unrecognised-refusal
-    // case; kept as its own test because the mistake has now appeared three times in this
-    // codebase in three different disguises.
-    assert_eq!(explain_text("5.7.1399"), None);
-    assert_eq!(explain_text("535 15.7.139 something else"), None);
-    assert_eq!(explain_text("5.7.89"), None);
-    // The genuine code, in the shapes providers actually send.
-    assert!(explain_text("535 5.7.139 Authentication unsuccessful").is_some());
-    assert!(explain_text("535 5.7.139").is_some());
-    assert!(explain_text("5.7.139 at the start").is_some());
 }
 
 /// Honouring `LOGINDISABLED`, which outlook.office365.com really does advertise.

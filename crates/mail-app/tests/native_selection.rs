@@ -218,27 +218,90 @@ fn inbox_count(store: &SqliteStore) -> usize {
         .len()
 }
 
+/// The frame of the open conversation holds `body`.
+fn reader_shows(harness: &Harness, body: &str) -> bool {
+    harness
+        .frame("article.frame iframe.html")
+        .is_some_and(|frame| frame.html().contains(body))
+}
+
+/// Rows are picked by Ctrl+A, Shift-click, Ctrl-click and Shift+J/K, each step starting from what
+/// the one before left: Ctrl+A picks every row and Escape lets them go; the selection does not
+/// follow to another place; Shift-click picks the range from the open row; Ctrl-click adds and
+/// takes away one row at a time and does not open it; Shift+J and Shift+K move the end of the
+/// range and open nothing on the way.
 #[test]
-fn shift_click_picks_the_range_from_the_open_row() {
+fn rows_are_picked_by_ctrl_a_shift_and_ctrl_clicks_and_shift_j_and_k() {
     let (mut harness, _dir, _store) = open();
+
+    // Ctrl+A, then Escape.
+    assert_eq!(
+        selected(&harness),
+        Vec::<usize>::new(),
+        "picked at the start"
+    );
+    harness.chord(&[Key::Ctrl], Key::Char('a'));
+    harness.advance(ms(300));
+    assert_eq!(selected(&harness), vec![1, 2, 3, 4, 5], "Ctrl+A");
+    assert_eq!(said(&harness).as_deref(), Some("5 selected"), "Ctrl+A");
+    harness.key(Key::Escape);
+    harness.advance(ms(300));
+    assert_eq!(selected(&harness), Vec::<usize>::new(), "Escape");
+    assert_eq!(said(&harness), None, "Escape");
+
+    // Ctrl+A, then to Starred and back: the selection does not follow.
+    harness.chord(&[Key::Ctrl], Key::Char('a'));
+    harness.advance(ms(300));
+    assert_eq!(
+        said(&harness).as_deref(),
+        Some("5 selected"),
+        "Ctrl+A again"
+    );
+    let place = |name: &str| format!("[*|data-place=\"{name}\"]");
+    let at = harness
+        .centre(&place("Starred"))
+        .unwrap_or_else(|| panic!("no Starred place:\n{}", harness.html()));
+    harness.click(at);
+    harness.advance(ms(600));
+    let at = harness.centre(&place("Inbox")).expect("the Inbox place");
+    harness.click(at);
+    harness.advance(ms(600));
+    assert_eq!(subjects(&harness).len(), INBOX.len(), "back in the inbox");
+    assert_eq!(
+        selected(&harness),
+        Vec::<usize>::new(),
+        "the selection followed to another place"
+    );
+    assert_eq!(
+        said(&harness),
+        None,
+        "the selection followed to another place"
+    );
+
+    // Shift-click.
     click_row(&mut harness, 2, &[]);
     assert_eq!(selected(&harness), vec![2], "a plain click selects its row");
     assert_eq!(said(&harness), None, "one open row is not a selection");
     click_row(&mut harness, 4, &[Key::Shift]);
-    assert_eq!(selected(&harness), vec![2, 3, 4]);
-    assert_eq!(said(&harness).as_deref(), Some("3 selected"));
+    assert_eq!(selected(&harness), vec![2, 3, 4], "Shift-click down");
+    assert_eq!(
+        said(&harness).as_deref(),
+        Some("3 selected"),
+        "Shift-click down"
+    );
     // Measured again from the same anchor, upward this time.
     click_row(&mut harness, 1, &[Key::Shift]);
-    assert_eq!(selected(&harness), vec![1, 2]);
+    assert_eq!(selected(&harness), vec![1, 2], "Shift-click up");
     // A plain click lets the selection go.
     click_row(&mut harness, 5, &[]);
-    assert_eq!(selected(&harness), vec![5]);
-    assert_eq!(said(&harness), None);
-}
+    assert_eq!(
+        selected(&harness),
+        vec![5],
+        "a plain click after Shift-click"
+    );
+    assert_eq!(said(&harness), None, "a plain click after Shift-click");
 
-#[test]
-fn ctrl_click_adds_and_takes_away_one_row_at_a_time() {
-    let (mut harness, _dir, _store) = open();
+    // Ctrl-click.
     click_row(&mut harness, 1, &[]);
     click_row(&mut harness, 3, &[Key::Ctrl]);
     assert_eq!(
@@ -247,63 +310,36 @@ fn ctrl_click_adds_and_takes_away_one_row_at_a_time() {
         "the open row and the added one"
     );
     click_row(&mut harness, 5, &[Key::Ctrl]);
-    assert_eq!(selected(&harness), vec![1, 3, 5]);
+    assert_eq!(
+        selected(&harness),
+        vec![1, 3, 5],
+        "a second Ctrl-click adds"
+    );
     click_row(&mut harness, 1, &[Key::Ctrl]);
     assert_eq!(
         selected(&harness),
         vec![3, 5],
         "a second Ctrl-click takes it out"
     );
-    assert_eq!(said(&harness).as_deref(), Some("2 selected"));
+    assert_eq!(said(&harness).as_deref(), Some("2 selected"), "Ctrl-click");
     // The reader still shows what was opened: Ctrl-click picks, it does not open.
-    let frame = harness
-        .frame("article.frame iframe.html")
-        .expect("the frame has a document");
-    assert!(
-        frame
-            .html()
-            .contains("The body of Flight to the conference."),
-        "{}",
-        frame.html()
-    );
-}
+    settle_until(&mut harness, |h| {
+        reader_shows(h, "The body of Flight to the conference.")
+    });
 
-#[test]
-fn ctrl_a_picks_every_row_and_escape_lets_them_go() {
-    let (mut harness, _dir, _store) = open();
-    assert_eq!(selected(&harness), Vec::<usize>::new());
-    harness.chord(&[Key::Ctrl], Key::Char('a'));
-    harness.advance(ms(300));
-    assert_eq!(selected(&harness), vec![1, 2, 3, 4, 5]);
-    assert_eq!(said(&harness).as_deref(), Some("5 selected"));
-    harness.key(Key::Escape);
-    harness.advance(ms(300));
-    assert_eq!(selected(&harness), Vec::<usize>::new());
-    assert_eq!(said(&harness), None);
-}
-
-#[test]
-fn shift_j_and_shift_k_move_the_end_of_the_range() {
-    let (mut harness, _dir, _store) = open();
+    // Shift+J and Shift+K.
     click_row(&mut harness, 2, &[]);
     harness.chord(&[Key::Shift], Key::Char('j'));
     harness.chord(&[Key::Shift], Key::Char('j'));
     harness.advance(ms(300));
-    assert_eq!(selected(&harness), vec![2, 3, 4]);
+    assert_eq!(selected(&harness), vec![2, 3, 4], "Shift+J twice");
     harness.chord(&[Key::Shift], Key::Char('k'));
     harness.advance(ms(300));
-    assert_eq!(selected(&harness), vec![2, 3]);
+    assert_eq!(selected(&harness), vec![2, 3], "Shift+K");
     // Nothing was opened on the way: the reader is on the row that was clicked.
-    let frame = harness
-        .frame("article.frame iframe.html")
-        .expect("the frame has a document");
-    assert!(
-        frame
-            .html()
-            .contains("The body of The invoice for September."),
-        "{}",
-        frame.html()
-    );
+    settle_until(&mut harness, |h| {
+        reader_shows(h, "The body of The invoice for September.")
+    });
 }
 
 #[test]
@@ -386,26 +422,6 @@ fn subjects_with(store: &SqliteStore, star: Star) -> Vec<String> {
         .filter(|thread| thread.star == star)
         .map(|thread| thread.subject)
         .collect()
-}
-
-#[test]
-fn the_selection_does_not_follow_to_another_place() {
-    let (mut harness, _dir, _store) = open();
-    harness.chord(&[Key::Ctrl], Key::Char('a'));
-    harness.advance(ms(300));
-    assert_eq!(said(&harness).as_deref(), Some("5 selected"));
-    let place = |name: &str| format!("[*|data-place=\"{name}\"]");
-    let at = harness
-        .centre(&place("Starred"))
-        .unwrap_or_else(|| panic!("no Starred place:\n{}", harness.html()));
-    harness.click(at);
-    harness.advance(ms(600));
-    let at = harness.centre(&place("Inbox")).expect("the Inbox place");
-    harness.click(at);
-    harness.advance(ms(600));
-    assert_eq!(subjects(&harness).len(), INBOX.len(), "back in the inbox");
-    assert_eq!(selected(&harness), Vec::<usize>::new());
-    assert_eq!(said(&harness), None);
 }
 
 /// Every button of the selection's tools, as a selector for it alone. While rows are picked the

@@ -8,10 +8,21 @@ use mail_core::ipc::wire;
 use wire::{Mismatch, Request, Response};
 
 #[test]
-fn a_request_survives_the_round_trip() {
-    let text = wire::line(Request::SyncNow).unwrap();
-    assert!(text.ends_with('\n'), "the framing is the newline");
-    assert_eq!(wire::parse::<Request>(&text).unwrap(), Request::SyncNow);
+fn every_request_and_response_survives_the_round_trip() {
+    for asked in [Request::SyncNow, Request::Subscribe] {
+        let text = wire::line(asked.clone()).unwrap();
+        assert!(
+            text.ends_with('\n'),
+            "{asked:?}: the framing is the newline"
+        );
+        assert_eq!(wire::parse::<Request>(&text).unwrap(), asked, "{asked:?}");
+    }
+    let account = mail_domain::id::new_account_id();
+    for said in [Response::Subscribed, Response::Changed { account }] {
+        let text = wire::line(said.clone()).unwrap();
+        assert!(text.ends_with('\n'), "{said:?}: the framing is the newline");
+        assert_eq!(wire::parse::<Response>(&text).unwrap(), said, "{said:?}");
+    }
 }
 
 #[test]
@@ -58,17 +69,6 @@ fn rubbish_is_an_error_rather_than_a_panic() {
         wire::parse::<Request>("not json at all"),
         Err(Mismatch::Unreadable(_))
     ));
-}
-
-#[test]
-fn a_subscription_and_what_it_hears_survive_the_round_trip() {
-    let text = wire::line(Request::Subscribe).unwrap();
-    assert_eq!(wire::parse::<Request>(&text).unwrap(), Request::Subscribe);
-    let account = mail_domain::id::new_account_id();
-    for said in [Response::Subscribed, Response::Changed { account }] {
-        let text = wire::line(said.clone()).unwrap();
-        assert_eq!(wire::parse::<Response>(&text).unwrap(), said);
-    }
 }
 
 /// A door in `dir`, never the person's, as this platform makes one: a socket in `dir`, or on

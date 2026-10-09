@@ -113,15 +113,16 @@ fn store() -> (SqliteStore, tempfile::TempDir) {
 }
 
 #[test]
-fn by_default_every_account_is_listed() {
+fn granted_only_leaves_held_accounts_out_and_writes_nothing() {
     let (store, _dir) = store();
-    assert!(!store.granted_only());
-    assert_eq!(addresses(&store).len(), 5);
-}
+    assert!(!store.granted_only(), "by default: not granted-only");
+    assert_eq!(
+        addresses(&store).len(),
+        5,
+        "by default: every account is listed"
+    );
 
-#[test]
-fn set_aside_only_accounts_signed_in_by_mailo_are_left_out_and_nothing_is_written() {
-    let (store, _dir) = store();
+    // Set aside, only accounts signed in by mailo are left out.
     store.set_granted_only(true);
     assert_eq!(
         addresses(&store),
@@ -129,7 +130,8 @@ fn set_aside_only_accounts_signed_in_by_mailo_are_left_out_and_nothing_is_writte
             "granted@example.test",
             "local@example.test",
             "unreadable@example.test"
-        ]
+        ],
+        "granted-only: held accounts are left out"
     );
     // Held ones are known, whatever the mode, and still stored as they were.
     assert_eq!(store.held_accounts(), [account(1), account(2)]);
@@ -141,11 +143,11 @@ fn set_aside_only_accounts_signed_in_by_mailo_are_left_out_and_nothing_is_writte
             |r| r.get(0),
         )
         .unwrap();
-    assert_eq!(plan, PASSWORD);
+    assert_eq!(plan, PASSWORD, "granted-only: nothing is written");
 
     // Taken back, they are all there again.
     store.set_granted_only(false);
-    assert_eq!(addresses(&store).len(), 5);
+    assert_eq!(addresses(&store).len(), 5, "taken back: all listed again");
 }
 
 #[test]

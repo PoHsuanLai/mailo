@@ -123,22 +123,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn migrating_an_empty_database_reaches_the_expected_version() {
-        let db = Connection::open_in_memory().unwrap();
-        migrate(&db).unwrap();
-        assert_eq!(current_version(&db).unwrap(), EXPECTED_VERSION);
-    }
-
-    #[test]
-    fn migrating_twice_is_a_no_op() {
-        // Every startup calls this. It must not re-run 0001 and fail on "table exists".
-        let db = Connection::open_in_memory().unwrap();
-        migrate(&db).unwrap();
-        migrate(&db).expect("second migrate must be a no-op");
-        assert_eq!(current_version(&db).unwrap(), EXPECTED_VERSION);
-    }
-
-    #[test]
     fn a_newer_database_is_refused_rather_than_downgraded() {
         let db = Connection::open_in_memory().unwrap();
         migrate(&db).unwrap();

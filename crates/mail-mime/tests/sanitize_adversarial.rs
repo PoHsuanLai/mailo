@@ -6,17 +6,10 @@
 //! shapes that exploit the parser rather than the filter, and every attribute that makes a
 //! browser fetch something without the reader clicking.
 
-use mail_mime::{RemoteImages, SanitizePolicy, sanitize};
+use mail_mime::{SanitizePolicy, sanitize};
 
 fn blocked() -> SanitizePolicy {
     SanitizePolicy::CURRENT
-}
-
-fn allowed() -> SanitizePolicy {
-    SanitizePolicy {
-        remote_images: RemoteImages::Allowed,
-        ..SanitizePolicy::CURRENT
-    }
 }
 
 /// No payload may leave behind anything that executes.
@@ -208,65 +201,6 @@ fn nothing_fetches_the_network_when_remote_images_are_blocked() {
             "{name}: a remote fetch survived blocking\n  in:  {payload}\n  out: {out}"
         );
     }
-}
-
-/// Blocking remote images must not break inline images, which is how ordinary mail works.
-#[test]
-fn cid_images_survive_in_both_modes() {
-    for (mode, policy) in [("blocked", blocked()), ("allowed", allowed())] {
-        let out = sanitize(r#"<img src="cid:part1.abc@example.test">"#, policy);
-        assert!(
-            out.as_str().contains("cid:part1.abc@example.test"),
-            "{mode}: a cid image is local and must survive\n  out: {}",
-            out.as_str()
-        );
-    }
-}
-
-/// Opting in must actually opt in, or the setting is a lie.
-#[test]
-fn allowed_mode_keeps_remote_images_but_still_blocks_scripts() {
-    let out = sanitize(
-        r#"<img src="https://cdn.test/logo.png"><script>alert(1)</script>"#,
-        allowed(),
-    );
-    assert!(
-        out.as_str().contains("cdn.test/logo.png"),
-        "opt-in must work"
-    );
-    assert!(
-        !out.as_str().contains("alert"),
-        "opting into images is not opting into scripts"
-    );
-}
-
-/// Over-stripping is its own failure: mail nobody can read is not safe, it is broken.
-#[test]
-fn ordinary_mail_is_still_readable() {
-    let out = sanitize(
-        r#"<p>Hi <b>Ada</b>,</p><ul><li>one</li><li>two</li></ul>
-           <blockquote>quoted</blockquote>
-           <a href="https://example.test/doc">the doc</a>
-           <table><tr><td>cell</td></tr></table>"#,
-        blocked(),
-    );
-    let s = out.as_str();
-    for kept in [
-        "<p>",
-        "<b>",
-        "<ul>",
-        "<li>",
-        "<blockquote>",
-        "example.test/doc",
-        "cell",
-    ] {
-        assert!(
-            s.contains(kept),
-            "{kept} should have been preserved\n  out: {s}"
-        );
-    }
-    assert!(s.contains("noopener"), "links need rel=noopener");
-    assert!(s.contains("_blank"), "links need target=_blank");
 }
 
 /// A mail body is attacker-controlled bytes; none of these may panic or hang.

@@ -91,110 +91,165 @@ mod parsing {
     use super::*;
 
     #[test]
-    fn send_takes_a_time_in_the_words_snooze_takes() {
-        let id = DraftId::generate();
-        const CASES: &[(&str, Option<&str>)] = &[
-            ("", None),
-            (" --at tomorrow", Some("tomorrow")),
-            (" --at +2h", Some("+2h")),
-            (" --at 2026-09-25 09:00", Some("2026-09-25 09:00")),
+    fn send_and_unsend_parse() {
+        enum Want {
+            Send(Option<&'static str>),
+            Unsend,
+            Refused(&'static str),
+        }
+        // `--at` takes the rest of the line, in the words snooze takes. `{id}` is a draft id.
+        const CASES: &[(&str, &str, Want)] = &[
+            ("send now", "send {id}", Want::Send(None)),
+            (
+                "send at a word",
+                "send {id} --at tomorrow",
+                Want::Send(Some("tomorrow")),
+            ),
+            (
+                "send at an offset",
+                "send {id} --at +2h",
+                Want::Send(Some("+2h")),
+            ),
+            (
+                "send at a date and time",
+                "send {id} --at 2026-09-25 09:00",
+                Want::Send(Some("2026-09-25 09:00")),
+            ),
+            (
+                "no time after --at",
+                "send {id} --at",
+                Want::Refused("--at needs a time: mailo send {id} --at tomorrow"),
+            ),
+            (
+                "a stray option",
+                "send {id} --later",
+                Want::Refused("unknown option \"--later\""),
+            ),
+            ("unsend", "unsend {id}", Want::Unsend),
+            (
+                "unsend with no draft",
+                "unsend",
+                Want::Refused("unsend needs a draft id"),
+            ),
+            (
+                "unsend a bad id",
+                "unsend not-an-id",
+                Want::Refused("\"not-an-id\" is not a draft id"),
+            ),
         ];
-        for (rest, at) in CASES {
-            assert_eq!(
-                cli::parse(&args(&format!("send {id}{rest}"))).unwrap(),
-                cli::Command::Send {
-                    draft: id,
-                    at: at.map(str::to_owned),
-                },
-                "send {id}{rest}"
-            );
+        let id = DraftId::generate();
+        let fill = |text: &str| text.replace("{id}", &id.to_string());
+        for (name, line, want) in CASES {
+            let parsed = cli::parse(&args(&fill(line)));
+            match want {
+                Want::Send(at) => assert_eq!(
+                    parsed,
+                    Ok(cli::Command::Send {
+                        draft: id,
+                        at: at.map(str::to_owned),
+                    }),
+                    "{name}"
+                ),
+                Want::Unsend => {
+                    assert_eq!(parsed, Ok(cli::Command::Unsend { draft: id }), "{name}")
+                }
+                Want::Refused(said) => {
+                    let err = parsed.expect_err(name);
+                    assert!(err.starts_with(&fill(said)), "{name}: {err}");
+                }
+            }
         }
     }
 
     #[test]
-    fn a_send_with_no_time_after_at_or_a_stray_option_is_refused() {
-        let id = DraftId::generate();
-        for line in [format!("send {id} --at"), format!("send {id} --later")] {
-            assert!(cli::parse(&args(&line)).is_err(), "{line}");
-        }
-    }
-
-    #[test]
-    fn unsend_needs_a_draft() {
-        let id = DraftId::generate();
-        assert_eq!(
-            cli::parse(&args(&format!("unsend {id}"))).unwrap(),
-            cli::Command::Unsend { draft: id }
-        );
-        assert!(cli::parse(&args("unsend")).is_err());
-        assert!(cli::parse(&args("unsend not-an-id")).is_err());
-    }
-
-    #[test]
-    fn the_template_verbs() {
+    fn the_template_verbs_parse() {
         let draft = DraftId::generate();
         let kept = TemplateId::generate();
-        let cases: Vec<(String, cli::Command)> = vec![
-            ("template".to_owned(), cli::Command::TemplateList),
-            ("template list".to_owned(), cli::Command::TemplateList),
+        let refused = |said: &str| Err::<cli::Command, _>(said.to_owned());
+        let cases: Vec<(&str, String, Result<cli::Command, String>)> = vec![
             (
+                "list, bare",
+                "template".to_owned(),
+                Ok(cli::Command::TemplateList),
+            ),
+            (
+                "list",
+                "template list".to_owned(),
+                Ok(cli::Command::TemplateList),
+            ),
+            (
+                "save with no name",
                 format!("template save {draft}"),
-                cli::Command::TemplateSave {
+                Ok(cli::Command::TemplateSave {
                     draft,
                     name: String::new(),
-                },
+                }),
             ),
             (
+                "save with a name of several words",
                 format!("template save {draft} weekly report"),
-                cli::Command::TemplateSave {
+                Ok(cli::Command::TemplateSave {
                     draft,
                     name: "weekly report".to_owned(),
-                },
+                }),
             ),
             (
+                "use",
                 format!("template use {kept}"),
-                cli::Command::TemplateUse {
+                Ok(cli::Command::TemplateUse {
                     template: kept,
                     to: Vec::new(),
-                },
+                }),
             ),
             (
+                "use with recipients",
                 format!("template use {kept} --to you@example.test"),
-                cli::Command::TemplateUse {
+                Ok(cli::Command::TemplateUse {
                     template: kept,
                     to: someone(),
-                },
+                }),
             ),
             (
+                "delete",
                 format!("template delete {kept}"),
-                cli::Command::TemplateDelete { template: kept },
+                Ok(cli::Command::TemplateDelete { template: kept }),
+            ),
+            (
+                "save with no draft",
+                "template save".to_owned(),
+                refused("usage: mailo template save <draft-id> [name]"),
+            ),
+            (
+                "save a bad id",
+                "template save not-an-id".to_owned(),
+                refused("\"not-an-id\" is not a draft id"),
+            ),
+            (
+                "use with no address after --to",
+                format!("template use {kept} --to"),
+                refused("usage: mailo template use <template-id> [--to a@b[,c@d]]"),
+            ),
+            (
+                "use with --cc",
+                format!("template use {kept} --cc you@example.test"),
+                refused("usage: mailo template use <template-id> [--to a@b[,c@d]]"),
+            ),
+            (
+                "delete with no template",
+                "template delete".to_owned(),
+                refused("usage: mailo template delete <template-id>"),
+            ),
+            (
+                "an unknown verb",
+                "template rename".to_owned(),
+                refused("unknown template command \"rename\""),
             ),
         ];
-        for (line, expected) in cases {
-            assert_eq!(cli::parse(&args(&line)).unwrap(), expected, "{line}");
-        }
-    }
-
-    #[test]
-    fn a_mistyped_template_command_is_explained() {
-        let kept = TemplateId::generate();
-        for line in [
-            "template save".to_owned(),
-            "template save not-an-id".to_owned(),
-            format!("template use {kept} --to"),
-            format!("template use {kept} --cc you@example.test"),
-            "template delete".to_owned(),
-            "template rename".to_owned(),
-        ] {
-            assert!(cli::parse(&args(&line)).is_err(), "{line}");
-        }
-    }
-
-    #[test]
-    fn usage_names_them() {
-        let text = cli::usage();
-        for needle in ["--at", "unsend", "template save", "template use"] {
-            assert!(text.contains(needle), "usage does not mention {needle}");
+        for (name, line, want) in cases {
+            match (cli::parse(&args(&line)), want) {
+                (Err(err), Err(said)) => assert!(err.starts_with(&said), "{name}: {err}"),
+                (got, want) => assert_eq!(got, want, "{name}"),
+            }
         }
     }
 }

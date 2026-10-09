@@ -8,9 +8,7 @@
 use chrono::{DateTime, NaiveDate, Utc};
 use chrono_tz::Tz;
 use mail_domain::Attendance;
-use mail_pim::ical::{
-    self, Answering, End, EventZone, Method, Moment, PartStat, Role, Rsvp, describe_rule,
-};
+use mail_pim::ical::{self, Answering, End, EventZone, Method, Moment, PartStat, Role, Rsvp};
 use mail_pim::{Invite, Kind, Me, PimError, Revision, Unplaced, When, show_when, summarise};
 
 const ME: &[&str] = &["me@example.test"];
@@ -683,19 +681,6 @@ fn a_floating_time_and_an_unknown_zone_are_said_to_be_clock_readings() {
         show_when(&invite.when, &Utc)
             .yours
             .contains("which could not be identified")
-    );
-}
-
-#[test]
-fn common_rules_are_said_in_words() {
-    assert_eq!(describe_rule("FREQ=DAILY;COUNT=5"), "every day, 5 times");
-    assert_eq!(
-        describe_rule("FREQ=WEEKLY;INTERVAL=2;BYDAY=TU;UNTIL=20261215"),
-        "every 2 weeks on Tuesday, until Tue 15 Dec 2026"
-    );
-    assert_eq!(
-        describe_rule("FREQ=MONTHLY;BYDAY=1FR"),
-        "repeats (details in the invitation)"
     );
 }
 

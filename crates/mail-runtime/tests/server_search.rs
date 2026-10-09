@@ -457,14 +457,14 @@ async fn searches_all_mail_and_keeps_only_what_is_new(esearch: bool) {
     );
 }
 
+/// The same search against a server without ESEARCH and one with it.
 #[tokio::test]
-async fn without_esearch() {
-    searches_all_mail_and_keeps_only_what_is_new(false).await;
-}
-
-#[tokio::test]
-async fn with_esearch() {
-    searches_all_mail_and_keeps_only_what_is_new(true).await;
+async fn searches_all_mail_with_and_without_esearch() {
+    for esearch in [false, true] {
+        // Captured, and printed beside a failure, so the failure names the row.
+        eprintln!("row: esearch = {esearch}");
+        searches_all_mail_and_keeps_only_what_is_new(esearch).await;
+    }
 }
 
 #[tokio::test]

@@ -1929,26 +1929,75 @@ mod tests {
     }
 
     #[test]
-    fn list_defaults_to_the_inbox() {
-        assert_eq!(
-            parse(&args(&["list"])).unwrap(),
-            Command::List {
-                mailbox: MailboxRole::Inbox,
-                limit: 20
-            }
-        );
+    fn the_simple_verbs_parse_to_their_command() {
+        let cases: [(&str, &[&str], Command); 3] = [
+            (
+                "list defaults to the inbox",
+                &["list"],
+                Command::List {
+                    mailbox: MailboxRole::Inbox,
+                    limit: 20,
+                },
+            ),
+            // So `mailo search lunch on friday` is one phrase rather than a parse error.
+            (
+                "search joins its words",
+                &["search", "lunch", "on", "friday"],
+                Command::Search {
+                    needle: "lunch on friday".to_owned(),
+                    limit: 20,
+                },
+            ),
+            (
+                "icons refresh",
+                &["icons", "refresh"],
+                Command::IconsRefresh,
+            ),
+        ];
+        for (name, words, want) in cases {
+            assert_eq!(parse(&args(words)), Ok(want), "{name}");
+        }
     }
 
     #[test]
-    fn search_joins_its_words() {
-        // So `mailo search lunch on friday` is one phrase rather than a parse error.
-        assert_eq!(
-            parse(&args(&["search", "lunch", "on", "friday"])).unwrap(),
-            Command::Search {
-                needle: "lunch on friday".to_owned(),
-                limit: 20
-            }
-        );
+    fn the_usage_names_every_command() {
+        // A command that works but is undocumented is a command nobody uses.
+        const CASES: &[(&str, &str)] = &[
+            (
+                "list",
+                "list [inbox|archive|sent|drafts|trash|spam|snoozed|pinned]",
+            ),
+            ("show", "show <thread-id>"),
+            ("search", "search <words...>"),
+            ("reply", "reply <message-id> [--all]"),
+            ("forward", "forward <message-id> --to"),
+            ("compose", "compose --to"),
+            ("send", "send <draft-id> [--at <when>]"),
+            ("unsend", "unsend <draft-id>"),
+            ("template save", "template save <draft-id>"),
+            ("template use", "template use <template-id>"),
+            ("drafts", "\n  drafts "),
+            ("discard", "discard <draft-id>"),
+            ("status", "\n  status\n"),
+            ("sync", "\n  sync "),
+            ("sync one folder", "sync --folder <account> <path>"),
+            (
+                "folder delete",
+                "folder delete <account> <name> [--with-messages]",
+            ),
+            ("icons", "icons refresh"),
+            ("watch", "watch [--no-notify]"),
+            ("unsubscribe", "unsubscribe <thread-or-message-id>"),
+            ("receipt", "receipt <message-id> [--decline]"),
+            ("jmap", "account add <address> --jmap"),
+        ];
+        let text = usage();
+        for (name, needle) in CASES {
+            assert!(
+                text.contains(needle),
+                "usage does not mention {name} ({needle:?}):\n{text}"
+            );
+        }
     }
 
     #[test]
@@ -1975,7 +2024,6 @@ mod tests {
             let said = parse(&args(wrong)).unwrap_err();
             assert!(said.contains("sync [--folder <account> <path>]"), "{said}");
         }
-        assert!(usage().contains("sync --folder <account> <path>"));
     }
 
     #[test]
@@ -2126,33 +2174,49 @@ mod tests {
             let error = parse(&args(words)).unwrap_err();
             assert!(error.contains(hint), "{words:?}: {error}");
         }
-        assert!(usage().contains("folder delete <account> <name> [--with-messages]"));
-    }
-
-    #[test]
-    fn icons_refresh_is_a_command() {
-        assert_eq!(
-            parse(&args(&["icons", "refresh"])).unwrap(),
-            Command::IconsRefresh
-        );
-        assert!(parse(&args(&["icons"])).is_err());
-        assert!(parse(&args(&["icons", "refresh", "now"])).is_err());
-        assert!(usage().contains("icons refresh"));
     }
 
     #[test]
     fn bad_input_explains_itself_rather_than_panicking() {
-        for bad in [
-            vec![],
-            args(&["wat"]),
-            args(&["list", "nowhere"]),
-            args(&["show"]),
-            args(&["show", "not-a-uuid"]),
-            args(&["list", "inbox", "many"]),
-            args(&["search"]),
-        ] {
-            let err = parse(&bad).expect_err("should be rejected");
-            assert!(!err.is_empty(), "an error must say something");
+        // Each error starts with the sentence that says what was wrong; the usage follows it.
+        const CASES: &[(&str, &[&str], &str)] = &[
+            ("nothing at all", &[], "usage: mailo <command>"),
+            ("an unknown verb", &["wat"], "unknown command \"wat\""),
+            (
+                "an unknown mailbox",
+                &["list", "nowhere"],
+                "unknown mailbox \"nowhere\"",
+            ),
+            ("show with no id", &["show"], "show needs a thread id"),
+            (
+                "show with a bad id",
+                &["show", "not-a-uuid"],
+                "\"not-a-uuid\" is not a thread id",
+            ),
+            (
+                "a limit that is not a number",
+                &["list", "inbox", "many"],
+                "\"many\" is not a number of rows",
+            ),
+            (
+                "search for nothing",
+                &["search"],
+                "search needs something to look for",
+            ),
+            (
+                "icons with no command",
+                &["icons"],
+                "unknown icons command. Use: mailo icons refresh",
+            ),
+            (
+                "icons refresh with an argument",
+                &["icons", "refresh", "now"],
+                "icons refresh takes no arguments",
+            ),
+        ];
+        for (name, words, said) in CASES {
+            let err = parse(&args(words)).expect_err(name);
+            assert!(err.starts_with(said), "{name}: {err}");
         }
     }
 }

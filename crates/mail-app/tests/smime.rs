@@ -495,40 +495,10 @@ mod sending {
         assert!(submissions(&store).is_empty());
     }
 
+    /// The flags that ask for S/MIME are parsed with the other compose flags, in the CLI tests.
     #[test]
-    fn compose_on_the_command_line_takes_smime_and_says_what_stands_in_the_way() {
+    fn a_new_smime_message_says_what_stands_in_the_way() {
         let _serial = serial();
-        const CASES: &[(&str, Smime, OpenPgp)] = &[
-            ("--sign --smime", Smime::Sign, OpenPgp::None),
-            ("--encrypt --smime", Smime::Encrypt, OpenPgp::None),
-            (
-                "--smime --sign --encrypt",
-                Smime::SignAndEncrypt,
-                OpenPgp::None,
-            ),
-            ("--sign", Smime::None, OpenPgp::Sign),
-        ];
-        for (flags, smime_mode, openpgp) in CASES {
-            let mut args: Vec<String> = vec!["compose".into(), "--to".into(), BEA.into()];
-            args.extend(flags.split(' ').map(str::to_owned));
-            match cli::parse(&args).unwrap() {
-                cli::Command::Compose {
-                    smime, openpgp: p, ..
-                } => {
-                    assert_eq!((smime, p), (*smime_mode, *openpgp), "{flags}");
-                }
-                other => panic!("{flags}: {other:?}"),
-            }
-        }
-        let alone = cli::parse(&[
-            "compose".into(),
-            "--to".into(),
-            BEA.into(),
-            "--smime".into(),
-        ])
-        .unwrap_err();
-        assert!(alone.contains("--smime says how"), "{alone}");
-
         let (store, _dir) = seeded();
         let said = compose::new_sealed_message(
             &store,

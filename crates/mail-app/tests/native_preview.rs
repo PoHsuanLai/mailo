@@ -287,16 +287,21 @@ fn head_button(harness: &Harness, label: &str) -> String {
 }
 
 /// A stored PNG leads its row with a thumbnail drawn from its bytes, and a press opens the viewer
-/// on it, larger, with Save; Esc closes the viewer and leaves the conversation open.
+/// on it, larger, with Save; Esc closes the viewer and leaves the conversation open. A stored PDF
+/// in the same conversation leads its row with quire's first-page thumbnail; the viewer shows its
+/// pages one at a time, the arrows turn them, and they stop at the last.
 #[test]
-fn a_stored_picture_shows_a_thumbnail_that_opens_the_viewer() {
+fn a_stored_picture_and_pdf_show_thumbnails_that_open_the_viewer() {
     let mut window = open();
     let harness = &mut window.harness;
     open_row(harness, 1);
     let thumb = format!("{} .att-thumb img", item(1));
     settle_until(harness, |h| h.count(&thumb) == 1);
     let src = harness.attr(&thumb, "src").unwrap();
-    assert!(src.starts_with("data:image/png;base64,"), "{src}");
+    assert!(
+        src.starts_with("data:image/png;base64,"),
+        "the picture's thumbnail: {src}"
+    );
     let rect = harness.rect(&thumb).unwrap();
     // 400 × 200 fitted into 56 × 56 at its own aspect.
     assert!(
@@ -310,10 +315,14 @@ fn a_stored_picture_shows_a_thumbnail_that_opens_the_viewer() {
     settle_until(harness, |h| h.count(PICTURE) == 1);
     assert_eq!(
         harness.attr(".viewer", "aria-label").as_deref(),
-        Some("beach.png")
+        Some("beach.png"),
+        "the picture's viewer"
     );
     let big = harness.attr(PICTURE, "src").unwrap();
-    assert!(big.starts_with("data:image/png;base64,"));
+    assert!(
+        big.starts_with("data:image/png;base64,"),
+        "the picture's viewer: {big}"
+    );
     assert_ne!(big, src, "the viewer drew the thumbnail, not the picture");
     let drawn = harness.rect(PICTURE).unwrap();
     assert!(
@@ -337,25 +346,19 @@ fn a_stored_picture_shows_a_thumbnail_that_opens_the_viewer() {
     );
     assert!(
         window.asked.0.lock().unwrap().is_empty(),
-        "the window asked the network for {:?}",
+        "the picture: the window asked the network for {:?}",
         window.asked.0.lock().unwrap()
     );
-}
 
-/// A stored PDF leads its row with quire's first-page thumbnail; the viewer shows its pages one
-/// at a time, the arrows turn them, and they stop at the last.
-#[test]
-fn a_stored_pdf_shows_its_first_page_and_the_viewer_turns_its_pages() {
-    let mut window = open();
-    let harness = &mut window.harness;
-    open_row(harness, 1);
+    // The PDF, in the same conversation.
     let thumb = format!("{} .att-thumb .ds-pdf-thumb", item(2));
     settle_until(harness, |h| {
         h.attr(&thumb, "data-state").as_deref() == Some("ready")
     });
     assert_eq!(
         harness.attr(&thumb, "aria-label").as_deref(),
-        Some("report.pdf")
+        Some("report.pdf"),
+        "the PDF's thumbnail"
     );
 
     click(harness, &format!("{} .att-thumb", item(2)));
@@ -368,7 +371,11 @@ fn a_stored_pdf_shows_its_first_page_and_the_viewer_turns_its_pages() {
         let r = h.rect(PICTURE).unwrap();
         r.size.width.0 / r.size.height.0
     };
-    assert!((shape(harness) - 2.0).abs() < 0.05, "{}", shape(harness));
+    assert!(
+        (shape(harness) - 2.0).abs() < 0.05,
+        "the first page's shape: {}",
+        shape(harness)
+    );
 
     harness.key(Key::Right);
     settle_until(harness, |h| {
@@ -377,7 +384,7 @@ fn a_stored_pdf_shows_its_first_page_and_the_viewer_turns_its_pages() {
     });
     assert!(
         (shape(harness) - 2.0 / 3.0).abs() < 0.05,
-        "{}",
+        "the second page's shape: {}",
         shape(harness)
     );
     let second = harness.attr(PICTURE, "src").unwrap();
@@ -389,7 +396,11 @@ fn a_stored_pdf_shows_its_first_page_and_the_viewer_turns_its_pages() {
         Some("Page 2 of 2"),
         "the arrow turned past the last page"
     );
-    assert_eq!(harness.attr(PICTURE, "src").unwrap(), second);
+    assert_eq!(
+        harness.attr(PICTURE, "src").unwrap(),
+        second,
+        "the arrow turned past the last page"
+    );
 
     harness.key(Key::Left);
     settle_until(harness, |h| {
@@ -405,25 +416,41 @@ fn a_stored_pdf_shows_its_first_page_and_the_viewer_turns_its_pages() {
 
     harness.key(Key::Escape);
     settle_until(harness, |h| h.count(VIEWER) == 0);
-    assert!(window.asked.0.lock().unwrap().is_empty());
+    assert!(
+        window.asked.0.lock().unwrap().is_empty(),
+        "the PDF: the window asked the network for {:?}",
+        window.asked.0.lock().unwrap()
+    );
 }
 
 /// A picture still on the server shows no preview, and drawing its row fetched nothing: the part
-/// is still on the server and the window asked the network for nothing.
+/// is still on the server and the window asked the network for nothing. A picture whose header
+/// claims 100 000 × 100 000 pixels is refused with a note and never decoded; an SVG is a file,
+/// not a picture.
 #[test]
-fn a_part_still_on_the_server_shows_no_preview_and_fetches_nothing() {
+fn a_remote_part_an_oversized_picture_and_an_svg_draw_no_preview() {
     let mut window = open();
     let remote = window.store.offline(acct_account()).unwrap().parts_remote;
     assert_eq!(remote, 1, "the fixture's photo is not on the server");
     let harness = &mut window.harness;
+
+    // The part still on the server.
     open_row(harness, 3);
     settle_until(harness, |h| h.count(".attachments .ds-list-item") == 1);
     harness.advance(ms(600));
-    assert_eq!(harness.count(".attachments .att-thumb"), 0);
-    assert_eq!(harness.count(".attachments .att-note"), 0);
+    assert_eq!(
+        harness.count(".attachments .att-thumb"),
+        0,
+        "the remote part has a thumbnail"
+    );
+    assert_eq!(
+        harness.count(".attachments .att-note"),
+        0,
+        "the remote part has a note"
+    );
     assert!(
         harness.text_of(&item(1)).unwrap().contains("Download"),
-        "{}",
+        "the remote part's row: {}",
         harness.text_of(&item(1)).unwrap()
     );
     assert_eq!(
@@ -431,34 +458,32 @@ fn a_part_still_on_the_server_shows_no_preview_and_fetches_nothing() {
         remote,
         "drawing the row fetched the part"
     );
-    assert!(
-        window.asked.0.lock().unwrap().is_empty(),
-        "the window asked the network for {:?}",
-        window.asked.0.lock().unwrap()
-    );
-}
 
-/// A picture whose header claims 100 000 × 100 000 pixels is refused with a note and never
-/// decoded; an SVG is a file, not a picture.
-#[test]
-fn an_oversized_picture_is_refused_with_a_note_and_an_svg_is_not_drawn() {
-    let mut window = open();
-    let harness = &mut window.harness;
+    // The oversized picture and the SVG.
     open_row(harness, 2);
     let note = format!("{} .att-note", item(1));
     settle_until(harness, |h| h.count(&note) == 1);
     assert_eq!(
         harness.text_of(&note).as_deref(),
-        Some("Too large to preview (100000 × 100000)")
+        Some("Too large to preview (100000 × 100000)"),
+        "the oversized picture's note"
     );
-    assert_eq!(harness.count(".attachments .att-thumb"), 0);
+    assert_eq!(
+        harness.count(".attachments .att-thumb"),
+        0,
+        "the oversized picture was drawn"
+    );
     harness.advance(ms(300));
     assert_eq!(
         harness.count(&format!("{} .att-thumb", item(2))),
         0,
         "the SVG was drawn"
     );
-    assert_eq!(harness.count(&format!("{} .att-note", item(2))), 0);
+    assert_eq!(
+        harness.count(&format!("{} .att-note", item(2))),
+        0,
+        "the SVG has a note"
+    );
     assert!(
         window.asked.0.lock().unwrap().is_empty(),
         "the window asked the network for {:?}",

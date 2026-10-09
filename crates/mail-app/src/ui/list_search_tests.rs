@@ -128,24 +128,10 @@ const NEWEST_FIRST: &str = r#"class="ds-section-header-title">Newest first<"#;
 const UIDVAL: &str =
     r#"Re: UIDL stability across a <mark class="ds-mark">UIDVAL</mark>IDITY change"#;
 
+/// A keystroke is searched for only once the box is still, and then half a word puts its
+/// thread first with the typed part marked, with no strip repeating the one row.
 #[tokio::test(start_paused = true)]
-async fn half_a_word_puts_its_thread_first_with_the_typed_part_marked() {
-    let mut window = window();
-    let page = window
-        .typed("uidval", |page| {
-            subjects(page).first().map(String::as_str) == Some(UIDVAL)
-        })
-        .await;
-    assert_eq!(
-        subjects(&page),
-        vec![UIDVAL.to_owned()],
-        "one match, and no strip repeating it"
-    );
-    assert!(!page.contains(TOP_RESULTS), "a strip of the one row");
-}
-
-#[tokio::test(start_paused = true)]
-async fn a_keystroke_is_searched_for_only_once_the_box_is_still() {
+async fn half_a_word_once_the_box_is_still_puts_its_thread_first_marked() {
     let mut window = window();
     let place = subjects(&dioxus_ssr::render(&window.dom));
     type_into(&mut window.dom, window.search, "uidval");
@@ -160,7 +146,17 @@ async fn a_keystroke_is_searched_for_only_once_the_box_is_still() {
             subjects(page).first().map(String::as_str) == Some(UIDVAL)
         })
         .await;
-    assert_ne!(subjects(&page), place);
+    assert_ne!(
+        subjects(&page),
+        place,
+        "the box went still and nothing was searched"
+    );
+    assert_eq!(
+        subjects(&page),
+        vec![UIDVAL.to_owned()],
+        "one match, and no strip repeating it"
+    );
+    assert!(!page.contains(TOP_RESULTS), "a strip of the one row");
 }
 
 #[tokio::test(start_paused = true)]

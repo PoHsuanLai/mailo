@@ -702,6 +702,7 @@ async fn the_first_sync_fetches_the_newest_mail_first_within_each_band() {
 
 /// A conversation the window asks for is fetched ahead of the backlog, whatever its age, and a
 /// message the window is fetching for itself is left to it (`mail_runtime::wanted`).
+/// `wanted` is process-global: no second test in this binary may touch it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_body_pass_fetches_what_the_window_is_showing_first() {
     let (port, _, heard) = serve_maildrop(vec![

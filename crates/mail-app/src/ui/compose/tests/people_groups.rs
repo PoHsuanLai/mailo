@@ -14,7 +14,6 @@ fn a_group_is_offered_first_and_choosing_it_puts_each_member_on_once() {
     // Daniel is on the message already: the group adds only who is not.
     typed(&mut page, List::To, "dan".to_owned(), store.as_ref());
     pick_person(&mut page, List::To, WRITTEN);
-    let before = page.to.len();
     let uid = "urn:uuid:5c1f6e1a-0000-4000-8000-00000000d0d0";
     store
         .put_group(&Group {
@@ -49,7 +48,6 @@ fn a_group_is_offered_first_and_choosing_it_puts_each_member_on_once() {
     pick_person(&mut page, List::To, &key);
     let on: Vec<&str> = page.to.iter().map(|p| p.address.as_str()).collect();
     assert_eq!(on, [WRITTEN, ADDED, HEARD]);
-    assert_eq!(page.to.len(), before + 2);
     assert_eq!(page.typed_to, "");
     assert_eq!(page.float, Float::Closed);
 }

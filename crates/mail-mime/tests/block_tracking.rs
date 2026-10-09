@@ -172,6 +172,7 @@ fn a_cleaned_link_is_already_canonical() {
 fn link_refuses_what_parse_refuses() {
     for raw in [
         "javascript:alert(1)?utm_source=x",
+        "JavaScript:alert(1)",
         "data:text/html,hi?utm_source=x",
         "file:///etc/passwd?utm_source=x",
         "https://shop.example.test/\u{202E}?utm_source=x",

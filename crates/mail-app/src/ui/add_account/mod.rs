@@ -28,7 +28,7 @@ use std::cell::RefCell;
 use std::sync::Arc;
 
 use dioxus::prelude::*;
-use ds_blitz::{WindowHandle, WindowLife, WindowSpec};
+use ds_blitz::{WindowHandle, WindowSpec};
 use mail_store::SqliteStore;
 
 /// What the window and its command are called.
@@ -194,15 +194,10 @@ thread_local! {
     static OPEN: RefCell<Option<WindowHandle>> = const { RefCell::new(None) };
 }
 
-/// Whether a window opened earlier is one to raise rather than open again.
-fn raise(life: Option<WindowLife>) -> bool {
-    matches!(life, Some(WindowLife::Opening | WindowLife::Open))
-}
-
 /// Ask quire's event loop for the window, or raise the one already open.
 fn quire(ask: Ask) {
     let existing = OPEN.with(|open| open.borrow().clone());
-    if let Some(handle) = existing.filter(|handle| raise(Some(handle.life()))) {
+    if let Some(handle) = existing.filter(|handle| crate::ui::window::raise(Some(handle.life()))) {
         handle.focus();
         return;
     }

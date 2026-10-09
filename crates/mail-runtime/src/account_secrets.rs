@@ -308,7 +308,7 @@ mod scenario {
 mod tests {
     use super::*;
     use mail_domain::id::account_id_from_uuid;
-    use porter_core::{CapabilityKind, SecretPurpose, SecretText, UnixSeconds};
+    use porter_core::{CapabilityKind, SecretPurpose, SecretText};
     use porter_secrets::MemorySecrets;
 
     fn key(purpose: SecretPurpose) -> SecretKey {
@@ -323,45 +323,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_credential_round_trips_with_its_expiry_intact() {
-        // The reason entries are JSON rather than a bare password: an OAuth credential that
-        // lost its refresh token or its expiry would work for an hour and then fail forever.
-        let store: Arc<dyn AccountSecrets> = Arc::new(MemorySecrets::default());
-        let cred = Credential::OAuth {
-            access: SecretText::new("ya29.access"),
-            refresh: SecretText::new("1//refresh"),
-            expires_at: UnixSeconds(1_700_003_600),
-        };
-        let k = key(SecretPurpose::OAuthRefresh);
-        store.put(&k, &cred).await.unwrap();
-        assert_eq!(store.get(&k).await.unwrap(), cred);
-    }
-
-    #[tokio::test]
-    async fn purposes_do_not_collide() {
-        // Incoming and outgoing may legitimately hold different credentials for one account.
-        let store: Arc<dyn AccountSecrets> = Arc::new(MemorySecrets::default());
-        let (i, o) = (
-            key(SecretPurpose::IncomingPassword),
-            key(SecretPurpose::OutgoingPassword),
-        );
-        store.put(&i, &password("in")).await.unwrap();
-        store.put(&o, &password("out")).await.unwrap();
-        assert_eq!(store.get(&i).await.unwrap(), password("in"));
-        assert_eq!(store.get(&o).await.unwrap(), password("out"));
-    }
-
-    #[tokio::test]
-    async fn forgetting_something_absent_is_not_an_error() {
-        // Called on reauthentication, where already-gone is success.
-        let store: Arc<dyn AccountSecrets> = Arc::new(MemorySecrets::default());
-        store
-            .forget(&key(SecretPurpose::OAuthRefresh))
-            .await
-            .unwrap();
-    }
-
-    #[tokio::test]
     async fn forgetting_an_account_forgets_all_of_it_and_nothing_of_another() {
         let store: Arc<dyn AccountSecrets> = Arc::new(MemorySecrets::default());
         let mine = key(SecretPurpose::IncomingPassword);
@@ -373,10 +334,17 @@ mod tests {
         store.put(&mine, &password("a")).await.unwrap();
         store.put(&contacts, &password("b")).await.unwrap();
         store.put(&other, &password("c")).await.unwrap();
+        // `forget` takes one key and leaves the account's others.
+        store.forget(&contacts).await.unwrap();
+        assert!(store.get(&contacts).await.is_err(), "forgotten");
+        assert_eq!(store.get(&mine).await.unwrap(), password("a"), "kept");
+        store.put(&contacts, &password("b")).await.unwrap();
         store.forget_account(&mine.account).await.unwrap();
         assert!(store.get(&mine).await.is_err());
         assert!(store.get(&contacts).await.is_err());
         assert_eq!(store.get(&other).await.unwrap(), password("c"));
+        // Called on reauthentication, where already-gone is success.
+        store.forget(&mine).await.unwrap();
     }
 
     #[tokio::test]

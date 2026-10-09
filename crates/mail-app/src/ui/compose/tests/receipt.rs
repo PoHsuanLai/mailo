@@ -49,20 +49,6 @@ fn the_sends_menu_item_turns_the_request_on_and_off() {
     assert_eq!(page.when, super::super::page::When::Tomorrow);
 }
 
-#[test]
-fn the_draft_carries_the_request_both_ways() {
-    let mut draft = draft_of("");
-    draft.receipt = ReceiptRequest::Requested;
-    let page = Page::of(&draft, Vec::new(), Vec::new());
-    assert_eq!(page.receipt, ReceiptRequest::Requested);
-    let mut off = page.clone();
-    off.toggle_receipt();
-    assert_eq!(
-        off.apply_to(&draft, at(1)).receipt,
-        ReceiptRequest::Unrequested
-    );
-}
-
 #[tokio::test]
 async fn asking_is_autosaved_shown_as_a_row_and_can_be_taken_back() {
     let (store, _dir) = seeded();

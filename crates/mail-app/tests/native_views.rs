@@ -380,10 +380,19 @@ fn a_search_saved_as_a_view_is_a_place_grouped_and_offered_as_it_was_saved() {
     }
 }
 
+/// Several rows picked in a view are archived as one gesture, and one Ctrl Z puts both back.
+/// Then the view, deleted from its editor, leaves the sidebar and the store.
 #[test]
-fn several_rows_picked_in_a_view_are_archived_as_one_gesture() {
+fn rows_picked_in_a_view_archive_as_one_gesture_and_the_view_deletes_from_its_editor() {
     let (mut harness, _dir, store) = open();
     make_the_view(&mut harness);
+    assert_eq!(
+        store.views().unwrap().len(),
+        1,
+        "make_the_view stored no view"
+    );
+
+    // Two rows picked, archived with `e`, and put back with Ctrl Z.
     press(&mut harness, &place("Mine"));
     let before = lines(&harness).len();
     click_subject(&mut harness, INBOX[1].1, &[]);
@@ -403,8 +412,8 @@ fn several_rows_picked_in_a_view_are_archived_as_one_gesture() {
     harness.key(Key::Char('e'));
     harness.advance(ms(1500));
     let left = lines(&harness);
-    assert!(!left.contains(&INBOX[1].1.to_owned()), "{left:?}");
-    assert!(!left.contains(&INBOX[3].1.to_owned()), "{left:?}");
+    assert!(!left.contains(&INBOX[1].1.to_owned()), "archived: {left:?}");
+    assert!(!left.contains(&INBOX[3].1.to_owned()), "archived: {left:?}");
     let rows_before = before - left.len();
     assert!(rows_before >= 2, "two rows left the view: {left:?}");
     let archived = store
@@ -425,20 +434,18 @@ fn several_rows_picked_in_a_view_are_archived_as_one_gesture() {
         .unwrap()
         .items
         .len();
-    assert_eq!(archived, 2);
+    assert_eq!(archived, 2, "the archive after `e`");
     // One Ctrl Z puts both back in the view.
     harness.chord(&[Key::Ctrl], Key::Char('z'));
     harness.advance(ms(1500));
     let back = lines(&harness);
-    assert!(back.contains(&INBOX[1].1.to_owned()), "{back:?}");
-    assert!(back.contains(&INBOX[3].1.to_owned()), "{back:?}");
-}
+    assert!(back.contains(&INBOX[1].1.to_owned()), "Ctrl Z: {back:?}");
+    assert!(back.contains(&INBOX[3].1.to_owned()), "Ctrl Z: {back:?}");
 
-#[test]
-fn a_view_deleted_from_its_editor_leaves_the_sidebar_and_the_store() {
-    let (mut harness, _dir, store) = open();
-    make_the_view(&mut harness);
-    assert_eq!(store.views().unwrap().len(), 1);
+    // The view deleted from its editor. The two rows are still picked, and while rows are
+    // picked the header is the pick bar: Esc clears the selection, as a person would.
+    harness.key(Key::Escape);
+    harness.advance(ms(300));
     press(&mut harness, &labelled("Edit view"));
     let sheet = labelled("Saved view");
     assert_eq!(harness.count(&sheet), 1, "Edit view opened no sheet");

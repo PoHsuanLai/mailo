@@ -56,6 +56,13 @@ fn both() -> Both {
     }
 }
 
+impl Both {
+    /// Each store, named for a failure message.
+    fn each(&self) -> [(&'static str, &dyn Store); 2] {
+        [("sqlite", &self.sqlite), ("memory", &self.memory)]
+    }
+}
+
 fn addr(email: &str) -> Address {
     Address {
         name: None,
@@ -142,8 +149,10 @@ fn a_reply_keeps_the_message_it_answers() {
     assert_eq!(b.memory.draft(draft.id).unwrap().in_reply_to, Some(message));
 }
 
+/// Drafts list newest first, saving one again updates it in place, and deleting one removes it:
+/// each step asked of both stores.
 #[test]
-fn drafts_list_newest_first_in_both_stores() {
+fn drafts_in_both_stores_list_newest_first_resave_in_place_and_delete() {
     let b = both();
     let mut older = full_draft(None);
     older.updated = at(1);
@@ -152,61 +161,55 @@ fn drafts_list_newest_first_in_both_stores() {
     upsert(&b, &older);
     upsert(&b, &newer);
 
-    let sqlite: Vec<DraftId> = b
-        .sqlite
-        .drafts(acct_account())
-        .unwrap()
-        .iter()
-        .map(|d| d.id)
-        .collect();
-    let memory: Vec<DraftId> = b
-        .memory
-        .drafts(acct_account())
-        .unwrap()
-        .iter()
-        .map(|d| d.id)
-        .collect();
-    assert_eq!(sqlite, vec![newer.id, older.id]);
-    assert_eq!(sqlite, memory, "the two stores must agree on order");
-}
+    fn ids(store: &dyn Store) -> Vec<DraftId> {
+        store
+            .drafts(acct_account())
+            .unwrap()
+            .iter()
+            .map(|d| d.id)
+            .collect()
+    }
+    assert_eq!(
+        ids(&b.sqlite),
+        vec![newer.id, older.id],
+        "listing: newest first"
+    );
+    assert_eq!(
+        ids(&b.sqlite),
+        ids(&b.memory),
+        "listing: the two stores must agree on order"
+    );
 
-#[test]
-fn saving_the_same_draft_again_updates_rather_than_duplicates() {
     // A composer autosaves on a timer. If each save inserted a row, the drafts list would grow
     // one entry per keystroke.
-    let b = both();
-    let mut draft = full_draft(None);
-    upsert(&b, &draft);
-    draft.subject = "edited".to_owned();
-    draft.updated = at(20);
-    upsert(&b, &draft);
+    newer.subject = "edited".to_owned();
+    newer.updated = at(100);
+    upsert(&b, &newer);
+    for (label, store) in b.each() {
+        assert_eq!(
+            ids(store),
+            vec![newer.id, older.id],
+            "{label}: saving again updates rather than duplicates"
+        );
+        assert_eq!(
+            store.draft(newer.id).unwrap().subject,
+            "edited",
+            "{label}: resave"
+        );
+    }
 
-    assert_eq!(b.sqlite.drafts(acct_account()).unwrap().len(), 1);
-    assert_eq!(b.memory.drafts(acct_account()).unwrap().len(), 1);
-    assert_eq!(b.sqlite.draft(draft.id).unwrap().subject, "edited");
-    assert_eq!(b.memory.draft(draft.id).unwrap().subject, "edited");
-}
-
-#[test]
-fn deleting_a_draft_removes_it_from_both() {
-    let b = both();
-    let draft = full_draft(None);
-    upsert(&b, &draft);
     let patch = Patch {
         id: ChangeId::generate(),
-        changes: vec![Change::DraftDelete(draft.id)],
+        changes: vec![Change::DraftDelete(newer.id)],
     };
-    b.sqlite.apply(acct_account(), &patch).unwrap();
-    b.memory.apply(acct_account(), &patch).unwrap();
-
-    assert!(matches!(
-        b.sqlite.draft(draft.id),
-        Err(StoreError::NoDraft(_))
-    ));
-    assert!(matches!(
-        b.memory.draft(draft.id),
-        Err(StoreError::NoDraft(_))
-    ));
+    for (label, store) in b.each() {
+        store.apply(acct_account(), &patch).unwrap();
+        assert!(
+            matches!(store.draft(newer.id), Err(StoreError::NoDraft(_))),
+            "{label}: a deleted draft is gone"
+        );
+        assert_eq!(ids(store), vec![older.id], "{label}: the other stays");
+    }
 }
 
 #[test]

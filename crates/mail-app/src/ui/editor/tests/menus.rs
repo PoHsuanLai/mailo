@@ -135,9 +135,18 @@ fn slash_filter_order() {
             .all(|item| matches!(item.action, Action::Turn(_)))
     );
     assert_eq!(
-        turn.len(),
-        9,
-        "Text, three headings, three lists, quote, code"
+        turn.iter().map(|item| item.name).collect::<Vec<_>>(),
+        [
+            "Text",
+            "Heading 1",
+            "Heading 2",
+            "Heading 3",
+            "Bullet list",
+            "Numbered list",
+            "To-do",
+            "Quote",
+            "Code",
+        ]
     );
     let every_item_is_described = catalog()
         .iter()

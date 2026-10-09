@@ -1258,22 +1258,6 @@ pub fn shifted(key: &str) -> &str {
     }
 }
 
-/// What the snooze menu offers, as `(what the button says, the phrase it means)`.
-///
-/// A subset of the vocabulary `mailo snooze` accepts, not all of it: `+2h` and a date are things
-/// to type, not things to click, and a menu that listed every accepted phrase would be a
-/// reference card rather than a choice. The phrases are the same strings the command line
-/// parses, so the two cannot drift into meaning different times.
-pub fn snooze_choices() -> &'static [(&'static str, &'static str)] {
-    &[
-        ("Later today", "later"),
-        ("This evening", "tonight"),
-        ("Tomorrow", "tomorrow"),
-        ("This weekend", "weekend"),
-        ("Next week", "monday"),
-    ]
-}
-
 /// One row of the label menu: the name, which label it is, and whether this conversation has it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LabelChoice {
@@ -1577,32 +1561,6 @@ mod tests {
     }
 
     #[test]
-    fn searching_replaces_the_place_rather_than_narrowing_it() {
-        // Searching while in Archive must not hide a result that lives in the Inbox.
-        let mut shell = Shell::default();
-        shell.select(1);
-        shell.search = "  lunch  ".to_owned();
-        assert_eq!(
-            shell.query(20).filter,
-            Filter::Text(TextMatch::Contains("lunch".to_owned())),
-            "a search is global, and the box is trimmed"
-        );
-    }
-
-    #[test]
-    fn an_empty_search_box_falls_back_to_the_place() {
-        let mut shell = Shell::default();
-        let sent = shell
-            .places
-            .iter()
-            .position(|place| place.name == "Sent")
-            .expect("there is a Sent place");
-        shell.select(sent);
-        shell.search = "   ".to_owned();
-        assert_eq!(shell.query(20).filter, Filter::InMailbox(MailboxRole::Sent));
-    }
-
-    #[test]
     fn the_sidebar_has_one_selected_row() {
         // The place the list shows, or the Today tab the open thread came from: never both.
         let mut shell = Shell::default();
@@ -1678,14 +1636,6 @@ mod tests {
             s.mailboxes = MailboxSet::only(MailboxRole::Trash)
         }));
         assert!(!trashed.contains(&OpKind::Trash), "{trashed:?}");
-    }
-
-    #[test]
-    fn the_read_and_star_buttons_show_the_opposite_of_the_current_state() {
-        let unread = hover_actions(&summary(|_| {}));
-        assert!(unread.contains(&OpKind::MarkRead));
-        let read = hover_actions(&summary(|s| s.read = ReadState::Read));
-        assert!(read.contains(&OpKind::MarkUnread));
     }
 
     #[test]
@@ -1836,12 +1786,24 @@ mod reply_target_tests {
     }
 
     #[test]
-    fn a_reply_answers_the_newest_message_not_the_first() {
+    fn reply_target_is_the_newest_or_none() {
         // Replying to the root quotes a conversation's opening line back at someone who has
-        // since sent four more, and threads the reply above everything they last read.
-        let messages = vec![message(0), message(300), message(100)];
-        let target = reply_target(&messages).expect("a thread has messages");
-        assert_eq!(target.subject, "subject 300");
+        // since sent four more, and threads the reply above everything they last read. An empty
+        // thread is reachable: the messages are loaded one by one and any of them can fail to
+        // read.
+        let cases: [(&str, &[i64], Option<&str>); 2] = [
+            (
+                "the newest, out of order",
+                &[0, 300, 100],
+                Some("subject 300"),
+            ),
+            ("an empty thread", &[], None),
+        ];
+        for (name, dates, want) in cases {
+            let messages: Vec<Message> = dates.iter().map(|n| message(*n)).collect();
+            let got = reply_target(&messages).map(|target| target.subject.as_str());
+            assert_eq!(got, want, "{name}");
+        }
     }
 
     #[test]
@@ -1854,34 +1816,71 @@ mod reply_target_tests {
             assert_eq!(reply_target(&messages).unwrap().id, first);
         }
     }
-
-    #[test]
-    fn an_empty_thread_has_nothing_to_reply_to() {
-        // Reachable: the messages are loaded one by one and any of them can fail to read.
-        assert!(reply_target(&[]).is_none());
-    }
 }
 
 #[cfg(test)]
 mod listing_tests {
     use super::*;
 
-    fn drafts_index(shell: &Shell) -> usize {
-        shell
-            .places
-            .iter()
-            .position(|p| p.source == Source::Drafts)
-            .expect("there is a Drafts place")
-    }
-
+    /// What the list shows for a place and the words in the search box. A search is global and
+    /// trimmed, and a box holding only whitespace is no search at all.
     #[test]
-    fn the_drafts_place_lists_drafts_and_not_an_empty_mailbox() {
-        // The bug this replaces: Drafts was `Filter::InMailbox(MailboxRole::Drafts)`, and a
-        // draft has no thread and no mailbox, so the pane showed nothing for ever and said
-        // nothing about why.
-        let mut shell = Shell::default();
-        shell.select(drafts_index(&shell));
-        assert_eq!(shell.listing(50), Listing::Drafts);
+    fn the_search_box_over_each_place_lists() {
+        enum Want {
+            Drafts,
+            Threads(Filter),
+        }
+        let text = |words: &str| Filter::Text(TextMatch::Contains(words.to_owned()));
+        let cases = [
+            // Searching while in Archive must not hide a result that lives in the Inbox.
+            (
+                "a search replaces the place",
+                "Archive",
+                "  lunch  ",
+                Want::Threads(text("lunch")),
+            ),
+            (
+                "a blank box falls back to the place",
+                "Sent",
+                "   ",
+                Want::Threads(Filter::InMailbox(MailboxRole::Sent)),
+            ),
+            // The bug this replaces: Drafts was `Filter::InMailbox(MailboxRole::Drafts)`, and a
+            // draft has no thread and no mailbox, so the pane showed nothing for ever and said
+            // nothing about why.
+            ("drafts lists drafts", "Drafts", "", Want::Drafts),
+            // Someone typing in the box is looking for a message, not filtering the handful of
+            // drafts already on screen.
+            (
+                "a search in drafts searches mail",
+                "Drafts",
+                "invoice",
+                Want::Threads(text("invoice")),
+            ),
+            (
+                "a blank box in drafts lists drafts",
+                "Drafts",
+                "   ",
+                Want::Drafts,
+            ),
+        ];
+        for (name, place, search, want) in cases {
+            let mut shell = Shell::default();
+            let index = shell
+                .places
+                .iter()
+                .position(|p| p.name == place)
+                .unwrap_or_else(|| panic!("{name}: there is no {place} place"));
+            shell.select(index);
+            shell.search = search.to_owned();
+            match (want, shell.listing(50)) {
+                (Want::Drafts, Listing::Drafts) => {}
+                (Want::Threads(filter), Listing::Threads(query)) => {
+                    assert_eq!(query.filter, filter, "{name}")
+                }
+                (_, other) => panic!("{name}: listed {other:?}"),
+            }
+        }
     }
 
     #[test]
@@ -1902,23 +1901,6 @@ mod listing_tests {
     }
 
     #[test]
-    fn searching_while_in_drafts_searches_mail() {
-        // Search is global. Someone typing in the box is looking for a message, not filtering
-        // the handful of drafts already on screen.
-        let mut shell = Shell::default();
-        shell.select(drafts_index(&shell));
-        shell.search = "invoice".to_owned();
-
-        match shell.listing(50) {
-            Listing::Threads(query) => assert_eq!(
-                query.filter,
-                Filter::Text(TextMatch::Contains("invoice".to_owned()))
-            ),
-            other => panic!("a search in Drafts must still search mail: {other:?}"),
-        }
-    }
-
-    #[test]
     fn the_inbox_and_the_waiting_place_list_follow_ups_and_a_search_does_not() {
         let mut shell = Shell::default();
         assert!(
@@ -1934,15 +1916,6 @@ mod listing_tests {
         assert_eq!(shell.listing(50), Listing::Waiting { scope: None });
         shell.search = "invoice".to_owned();
         assert!(matches!(shell.listing(50), Listing::Threads(_)));
-    }
-
-    #[test]
-    fn a_blank_search_box_goes_back_to_the_drafts_list() {
-        // Whitespace only is a blank box, not a search for a space.
-        let mut shell = Shell::default();
-        shell.select(drafts_index(&shell));
-        shell.search = "   ".to_owned();
-        assert_eq!(shell.listing(50), Listing::Drafts);
     }
 
     #[test]
@@ -2046,12 +2019,6 @@ mod badge_tests {
     }
 
     #[test]
-    fn drafts_has_no_unread_badge() {
-        // "3 unread drafts" is not a thing: a draft did not arrive and nobody failed to read it.
-        assert_eq!(badge_filter(&Source::Drafts), None);
-    }
-
-    #[test]
     fn every_mail_place_gets_one_including_archive() {
         // A filter rule can file an unread message straight into Archive. A badgeless Archive is
         // then a message the user never finds out about.
@@ -2063,9 +2030,14 @@ mod badge_tests {
                     place.name
                 ),
                 // The user wrote the last word in each of them: nothing there is unread news.
-                Source::Drafts | Source::Waiting => {
-                    assert!(badge_filter(&place.source).is_none())
-                }
+                // "3 unread drafts" is not a thing: a draft did not arrive and nobody failed to
+                // read it.
+                Source::Drafts | Source::Waiting => assert_eq!(
+                    badge_filter(&place.source),
+                    None,
+                    "{} has a badge",
+                    place.name
+                ),
             }
         }
     }
@@ -2106,14 +2078,59 @@ mod keyboard {
     }
 
     #[test]
-    fn a_letter_is_a_shortcut_while_reading_and_a_letter_while_writing() {
-        // The bug this exists to prevent: typing "e" into a reply archiving the conversation
-        // behind it.
-        assert_eq!(shortcut("e", false), Some(Shortcut::Archive));
-        assert_eq!(shortcut("e", true), None);
-        for key in ["j", "k", "s", "u", "r", "a", "#", "ArrowDown", "ArrowUp"] {
-            assert!(shortcut(key, false).is_some(), "{key} does nothing");
-            assert_eq!(shortcut(key, true), None, "{key} fired while typing");
+    fn a_key_and_typing_give_the_shortcut() {
+        // A letter is a shortcut while reading and a letter while writing. The bug this exists
+        // to prevent: typing "e" into a reply archiving the conversation behind it. Escape is
+        // the one exception, and it has to be: closing what you are typing in is not something
+        // you can be asked to reach for the mouse to do.
+        const CASES: &[(&str, &str, bool, Option<Shortcut>)] = &[
+            ("e while reading", "e", false, Some(Shortcut::Archive)),
+            ("e while writing", "e", true, None),
+            ("j while reading", "j", false, Some(Shortcut::Next)),
+            ("j while writing", "j", true, None),
+            ("k while reading", "k", false, Some(Shortcut::Previous)),
+            ("k while writing", "k", true, None),
+            ("s while reading", "s", false, Some(Shortcut::ToggleStar)),
+            ("s while writing", "s", true, None),
+            ("u while reading", "u", false, Some(Shortcut::ToggleRead)),
+            ("u while writing", "u", true, None),
+            ("r while reading", "r", false, Some(Shortcut::Reply)),
+            ("r while writing", "r", true, None),
+            ("a while reading", "a", false, Some(Shortcut::ReplyAll)),
+            ("a while writing", "a", true, None),
+            ("# while reading", "#", false, Some(Shortcut::Trash)),
+            ("# while writing", "#", true, None),
+            (
+                "down while reading",
+                "ArrowDown",
+                false,
+                Some(Shortcut::Next),
+            ),
+            ("down while writing", "ArrowDown", true, None),
+            (
+                "up while reading",
+                "ArrowUp",
+                false,
+                Some(Shortcut::Previous),
+            ),
+            ("up while writing", "ArrowUp", true, None),
+            ("escape while writing", "Escape", true, Some(Shortcut::Back)),
+            (
+                "escape while reading",
+                "Escape",
+                false,
+                Some(Shortcut::Back),
+            ),
+            // A key that is not a shortcut is left alone.
+            ("z", "z", false, None),
+            ("F5", "F5", false, None),
+            ("Tab", "Tab", false, None),
+            ("Shift", "Shift", false, None),
+            ("space", " ", false, None),
+            ("a digit", "1", false, None),
+        ];
+        for (name, key, typing, want) in CASES {
+            assert_eq!(shortcut(key, *typing), *want, "{name}");
         }
     }
 
@@ -2128,23 +2145,7 @@ mod keyboard {
         for key in ["c", "a", "e", "r", "f", "p", "s", "u", "j", "k"] {
             assert_eq!(command_shortcut(key, false), None, "⌘{key} is not ours");
         }
-        assert_eq!(shortcut("Escape", true), Some(Shortcut::Back));
         assert_eq!(command_shortcut("Escape", true), None);
-    }
-
-    #[test]
-    fn escape_works_from_inside_the_thing_it_closes() {
-        // The one exception, and it has to be: closing what you are typing in is not something
-        // you can be asked to reach for the mouse to do.
-        assert_eq!(shortcut("Escape", true), Some(Shortcut::Back));
-        assert_eq!(shortcut("Escape", false), Some(Shortcut::Back));
-    }
-
-    #[test]
-    fn a_key_that_is_not_a_shortcut_is_left_alone() {
-        for key in ["z", "F5", "Tab", "Shift", " ", "1"] {
-            assert_eq!(shortcut(key, false), None, "{key} was swallowed");
-        }
     }
 
     #[test]
@@ -2172,20 +2173,28 @@ mod keyboard {
     }
 
     #[test]
-    fn forward_is_offered_on_every_conversation() {
-        // It does not depend on where the conversation is or what state it is in: a forward
-        // carries the message. It was reachable from nowhere before this.
-        for mailbox in [
-            MailboxRole::Inbox,
-            MailboxRole::Archive,
-            MailboxRole::Trash,
-            MailboxRole::Sent,
-        ] {
-            let summary = summary(ReadState::Read, Star::Unstarred, mailbox);
-            assert!(
-                hover_actions(&summary).contains(&OpKind::Forward),
-                "no Forward on a conversation in {mailbox:?}"
-            );
+    fn forward_mute_and_pin_are_offered_on_every_conversation() {
+        // None of them depends on where the conversation is or what state it is in: a forward
+        // carries the message, a mute is about replies still to come, and a pin is the user's
+        // own ranking. Forward was reachable from nowhere before this.
+        const CASES: &[(&str, OpKind)] = &[
+            ("forward", OpKind::Forward),
+            ("mute", OpKind::Mute),
+            ("pin", OpKind::Pin),
+        ];
+        for (name, kind) in CASES {
+            for mailbox in [
+                MailboxRole::Inbox,
+                MailboxRole::Archive,
+                MailboxRole::Trash,
+                MailboxRole::Sent,
+            ] {
+                let summary = summary(ReadState::Read, Star::Unstarred, mailbox);
+                assert!(
+                    hover_actions(&summary).contains(kind),
+                    "no {name} on a conversation in {mailbox:?}"
+                );
+            }
         }
     }
 
@@ -2256,38 +2265,6 @@ mod keyboard {
     }
 
     #[test]
-    fn mute_is_offered_on_every_conversation() {
-        for mailbox in [
-            MailboxRole::Inbox,
-            MailboxRole::Archive,
-            MailboxRole::Trash,
-            MailboxRole::Sent,
-        ] {
-            let summary = summary(ReadState::Read, Star::Unstarred, mailbox);
-            assert!(
-                offers(&summary, OpKind::Mute),
-                "{mailbox:?}: a mute is about replies still to come"
-            );
-        }
-    }
-
-    #[test]
-    fn pin_is_offered_on_every_conversation() {
-        for mailbox in [
-            MailboxRole::Inbox,
-            MailboxRole::Archive,
-            MailboxRole::Trash,
-            MailboxRole::Sent,
-        ] {
-            let summary = summary(ReadState::Read, Star::Unstarred, mailbox);
-            assert!(
-                hover_actions(&summary).contains(&OpKind::Pin),
-                "{mailbox:?}"
-            );
-        }
-    }
-
-    #[test]
     fn a_shortcut_cannot_reach_what_the_row_would_not_offer() {
         // Archiving something that is not in the inbox. The buttons do not offer it, so neither
         // does the key — one table, not two.
@@ -2305,44 +2282,41 @@ mod keyboard {
     }
 
     #[test]
-    fn moving_stops_at_the_ends_rather_than_wrapping() {
+    fn step_moves_within_the_list() {
         // A list that jumps from the bottom back to the top loses the user's place in a way that
-        // is hard to notice and easy to act on: the next keystroke archives the wrong thing.
-        let ids: Vec<ThreadId> = (0..3).map(|_| ThreadId::generate()).collect();
-        assert_eq!(step(Some(ids[0]), &ids, true), Some(ids[1]));
-        assert_eq!(
-            step(Some(ids[2]), &ids, true),
-            Some(ids[2]),
-            "wrapped forward"
-        );
-        assert_eq!(step(Some(ids[1]), &ids, false), Some(ids[0]));
-        assert_eq!(
-            step(Some(ids[0]), &ids, false),
-            Some(ids[0]),
-            "wrapped back"
-        );
-    }
-
-    #[test]
-    fn moving_with_nothing_open_starts_from_the_end_it_comes_from() {
-        let ids: Vec<ThreadId> = (0..3).map(|_| ThreadId::generate()).collect();
-        assert_eq!(step(None, &ids, true), Some(ids[0]));
-        assert_eq!(step(None, &ids, false), Some(ids[2]));
-        assert_eq!(
-            step(None, &[], true),
-            None,
-            "an empty list has nowhere to go"
-        );
-    }
-
-    #[test]
-    fn a_selection_that_left_the_list_does_not_strand_the_keyboard() {
-        // Archiving the open conversation removes it from an inbox listing while it is still
-        // `Shell::open`. The next keystroke has to go somewhere rather than nowhere.
-        let ids: Vec<ThreadId> = (0..2).map(|_| ThreadId::generate()).collect();
-        let gone = ThreadId::generate();
-        assert_eq!(step(Some(gone), &ids, true), Some(ids[0]));
-        assert_eq!(step(Some(gone), &ids, false), Some(ids[1]));
+        // is hard to notice and easy to act on: the next keystroke archives the wrong thing. So
+        // moving stops at the ends. With nothing open it starts from the end it comes from. And
+        // archiving the open conversation removes it from an inbox listing while it is still
+        // `Shell::open`: the next keystroke has to go somewhere rather than nowhere.
+        enum Open {
+            Nothing,
+            Row(usize),
+            Gone,
+        }
+        const CASES: &[(&str, Open, usize, bool, Option<usize>)] = &[
+            ("forward", Open::Row(0), 3, true, Some(1)),
+            ("forward from the last row", Open::Row(2), 3, true, Some(2)),
+            ("back", Open::Row(1), 3, false, Some(0)),
+            ("back from the first row", Open::Row(0), 3, false, Some(0)),
+            ("forward with nothing open", Open::Nothing, 3, true, Some(0)),
+            ("back with nothing open", Open::Nothing, 3, false, Some(2)),
+            ("an empty list", Open::Nothing, 0, true, None),
+            ("forward from a row that left", Open::Gone, 2, true, Some(0)),
+            ("back from a row that left", Open::Gone, 2, false, Some(1)),
+        ];
+        for (name, from, rows, forward, want) in CASES {
+            let ids: Vec<ThreadId> = (0..*rows).map(|_| ThreadId::generate()).collect();
+            let open = match from {
+                Open::Nothing => None,
+                Open::Row(row) => Some(ids[*row]),
+                Open::Gone => Some(ThreadId::generate()),
+            };
+            assert_eq!(
+                step(open, &ids, *forward),
+                want.map(|row| ids[row]),
+                "{name}"
+            );
+        }
     }
 
     #[test]
@@ -2437,33 +2411,50 @@ mod nothing_tests {
     use super::*;
 
     #[test]
-    fn no_account_beats_every_other_explanation() {
-        // The first thing anyone sees. With no account there is nothing to search, so "nothing
-        // matches" would send a new user hunting for a typo instead of doing the setup step.
-        assert_eq!(nothing_to_show(0, ""), Nothing::NoAccount);
-        assert_eq!(nothing_to_show(0, "invoice"), Nothing::NoAccount);
-    }
-
-    #[test]
-    fn a_search_that_matched_nothing_says_what_was_searched_for() {
-        // The words are the thing most likely to be mistyped, so they go in the message.
-        assert_eq!(
-            nothing_to_show(1, "invoice"),
-            Nothing::NoMatch("invoice".to_owned())
-        );
-        assert!(nothing_to_show(1, "invoice").message().contains("invoice"));
-        assert_eq!(
-            nothing_to_show(1, "  invoice  "),
-            Nothing::NoMatch("invoice".to_owned()),
-            "whitespace is not the search"
-        );
-    }
-
-    #[test]
-    fn an_empty_folder_is_ordinary_and_says_so_briefly() {
-        assert_eq!(nothing_to_show(2, ""), Nothing::EmptyFolder);
-        assert_eq!(nothing_to_show(2, "   "), Nothing::EmptyFolder);
-        assert_eq!(nothing_to_show(2, "").message(), "Empty");
+    fn why_the_list_is_empty() {
+        // No account comes first. It is the first thing anyone sees, and with no account there
+        // is nothing to search, so "nothing matches" would send a new user hunting for a typo
+        // instead of doing the setup step. A search that matched nothing names its words,
+        // trimmed, since they are the thing most likely to be mistyped. An empty folder is
+        // ordinary and says so briefly.
+        let invoice = || Nothing::NoMatch("invoice".to_owned());
+        let cases = [
+            ("no account", 0, "", Nothing::NoAccount, "No account"),
+            (
+                "no account and a search",
+                0,
+                "invoice",
+                Nothing::NoAccount,
+                "No account",
+            ),
+            (
+                "a search",
+                1,
+                "invoice",
+                invoice(),
+                "No results for \u{201c}invoice\u{201d}",
+            ),
+            (
+                "a search with whitespace round it",
+                1,
+                "  invoice  ",
+                invoice(),
+                "No results for \u{201c}invoice\u{201d}",
+            ),
+            ("an empty folder", 2, "", Nothing::EmptyFolder, "Empty"),
+            (
+                "a blank search box",
+                2,
+                "   ",
+                Nothing::EmptyFolder,
+                "Empty",
+            ),
+        ];
+        for (name, accounts, search, want, says) in cases {
+            let got = nothing_to_show(accounts, search);
+            assert_eq!(got, want, "{name}");
+            assert_eq!(got.message(), says, "{name}");
+        }
     }
 }
 
@@ -2488,21 +2479,26 @@ mod discarding {
     }
 
     #[test]
-    fn the_first_click_asks_and_the_second_deletes() {
+    fn discard_click_asks_first_then_deletes() {
         // Discard now removes the draft rather than closing the pane, and it sits beside Close.
-        // One click must not be enough.
-        let mut open = composing();
-        assert_eq!(discard_click(Some(&open)), Some(Discarding::Confirm));
-        open.confirming_discard = true;
-        assert_eq!(
-            discard_click(Some(&open)),
-            Some(Discarding::Delete(open.draft))
-        );
-    }
-
-    #[test]
-    fn a_closed_composer_has_nothing_to_discard() {
-        assert_eq!(discard_click(None), None);
+        // One click must not be enough. A closed composer has nothing to discard.
+        let open = composing();
+        let asked = Composing {
+            confirming_discard: true,
+            ..open.clone()
+        };
+        let cases = [
+            ("the first click", Some(&open), Some(Discarding::Confirm)),
+            (
+                "the second click",
+                Some(&asked),
+                Some(Discarding::Delete(open.draft)),
+            ),
+            ("no composer", None, None),
+        ];
+        for (name, composing, want) in cases {
+            assert_eq!(discard_click(composing), want, "{name}");
+        }
     }
 
     #[test]

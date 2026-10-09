@@ -190,21 +190,51 @@ fn press(harness: &mut Harness, selector: &str) {
     harness.advance(ms(400));
 }
 
+/// A Space's name opens its menu only on a right click. Its Delete Space… asks first; Escape
+/// closes the question and keeps the Space; asked again and confirmed, it removes the Space.
 #[test]
-fn deleting_a_space_asks_first_and_then_removes_it() {
+fn deleting_a_space_from_its_name_s_right_click_asks_first_and_escape_keeps_it() {
     let (mut harness, _dir) = open(1200, spaces(2));
     assert_eq!(harness.count(DOTS), 2, "the fixture is not two Spaces");
+
+    // A plain click opens nothing; a right click opens the menu.
+    press(&mut harness, NAME);
+    assert_eq!(
+        harness.count(MENU),
+        0,
+        "a left click opened the Space's menu"
+    );
     right_press(&mut harness, NAME);
     assert!(
         harness.count(MENU) > 0,
-        "the Space's name did not open its menu"
+        "a right click on the Space's name did not open its menu"
     );
     assert_eq!(
         harness.text_of(LAST_ROW).as_deref().map(str::trim),
-        Some("Delete Space\u{2026}")
+        Some("Delete Space\u{2026}"),
+        "the menu's last row"
     );
+
+    // Delete Space… asks; Escape keeps the Space.
     press(&mut harness, LAST_ROW);
     assert_eq!(harness.count(ASKING), 1, "Delete Space did not ask");
+    harness.key(Key::Escape);
+    harness.advance(ms(400));
+    assert_eq!(harness.count(ASKING), 0, "Esc did not close the question");
+    assert_eq!(
+        harness.count(DOTS),
+        2,
+        "closing the question removed a Space"
+    );
+
+    // Asked again, and confirmed.
+    right_press(&mut harness, NAME);
+    assert!(
+        harness.count(MENU) > 0,
+        "the Space's name did not open its menu again"
+    );
+    press(&mut harness, LAST_ROW);
+    assert_eq!(harness.count(ASKING), 1, "Delete Space did not ask again");
     assert_eq!(harness.count(MENU), 0, "the menu stayed under the question");
     assert_eq!(
         harness.count(DOTS),
@@ -221,35 +251,6 @@ fn deleting_a_space_asks_first_and_then_removes_it() {
         harness.count(ASKING),
         0,
         "the question stayed after confirming"
-    );
-}
-
-#[test]
-fn a_plain_click_on_the_spaces_name_opens_nothing() {
-    let (mut harness, _dir) = open(1200, spaces(2));
-    press(&mut harness, NAME);
-    assert_eq!(
-        harness.count(MENU),
-        0,
-        "a left click opened the Space's menu"
-    );
-    right_press(&mut harness, NAME);
-    assert!(harness.count(MENU) > 0, "a right click did not open it");
-}
-
-#[test]
-fn escape_keeps_the_space() {
-    let (mut harness, _dir) = open(1200, spaces(2));
-    right_press(&mut harness, NAME);
-    press(&mut harness, LAST_ROW);
-    assert_eq!(harness.count(ASKING), 1, "Delete Space did not ask");
-    harness.key(Key::Escape);
-    harness.advance(ms(400));
-    assert_eq!(harness.count(ASKING), 0, "Esc did not close the question");
-    assert_eq!(
-        harness.count(DOTS),
-        2,
-        "closing the question removed a Space"
     );
 }
 

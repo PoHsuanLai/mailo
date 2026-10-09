@@ -22,32 +22,39 @@ fn entry(origin: Option<Origin>) -> Entry {
     }
 }
 
+/// A row's second line: its size, when, and the message it came from; a file the window saved
+/// of its own names no message; and a file no longer there says so.
 #[test]
-fn a_row_says_its_size_when_and_where_it_came_from() {
+fn a_rows_second_line() {
     let origin = Origin {
         thread: ThreadId::generate(),
         subject: "  Minutes of the board ".to_owned(),
     };
-    let said = detail(&entry(Some(origin)), true, at(1));
+    let size = mail_core::attach::human_size(2048);
     let when = crate::ui::menus::when_words(at(0), at(1), &chrono::Local);
-    assert_eq!(
-        said,
-        format!(
-            "{} \u{b7} {when} \u{b7} Minutes of the board",
-            mail_core::attach::human_size(2048)
-        )
-    );
-}
-
-#[test]
-fn a_file_of_the_window_s_own_names_no_message() {
-    let said = detail(&entry(None), true, at(1));
-    assert_eq!(said.matches('\u{b7}').count(), 1, "{said}");
-}
-
-#[test]
-fn a_file_no_longer_there_says_so() {
-    assert_eq!(detail(&entry(None), false, at(1)), "Moved or deleted");
+    let cases = [
+        (
+            "from a message",
+            Some(origin),
+            true,
+            format!("{size} \u{b7} {when} \u{b7} Minutes of the board"),
+        ),
+        (
+            "the window's own",
+            None,
+            true,
+            format!("{size} \u{b7} {when}"),
+        ),
+        (
+            "no longer there",
+            None,
+            false,
+            "Moved or deleted".to_owned(),
+        ),
+    ];
+    for (name, origin, there, want) in cases {
+        assert_eq!(detail(&entry(origin), there, at(1)), want, "{name}");
+    }
 }
 
 #[test]

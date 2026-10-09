@@ -648,14 +648,17 @@ fn an_account_whose_folders_are_labels_is_not_fetched_by_folder() {
     );
 }
 
+/// Which mailboxes a pass fetches, asked through the same function the pass uses rather than a
+/// copy of its rules — the mistake F116 was about.
 #[test]
-fn which_folders_a_pass_fetches() {
+fn which_mailboxes_a_pass_fetches() {
+    let role = |path: &str, role: MailboxRole| (path.to_owned(), role);
     let special = |path: &str, special: SpecialUse| Folder {
         special: Some(special),
         ..folder(path, Subscription::Subscribed)
     };
-    let mut listing = listing();
-    listing.extend([
+    let mut followed = listing();
+    followed.extend([
         special("Drafts", SpecialUse::Drafts),
         special("Junk", SpecialUse::Junk),
         special("Trash", SpecialUse::Trash),
@@ -665,21 +668,69 @@ fn which_folders_a_pass_fetches() {
             ..folder("Projects", Subscription::Subscribed)
         },
     ]);
-    let mut caps = caps(ServerLabels::LocalOnly);
-    caps.folders = FolderRoles(vec![
-        ("Sent".to_owned(), MailboxRole::Sent),
-        ("Drafts".to_owned(), MailboxRole::Drafts),
-        ("Junk".to_owned(), MailboxRole::Spam),
-        ("Trash".to_owned(), MailboxRole::Trash),
-    ]);
-    let (store, _secrets, _dir) = configured(1, caps, listing);
-    let paths = sync::mailboxes_by_account(&store).unwrap().remove(0).1;
-    let mut rest = paths[2..].to_vec();
-    rest.sort();
-    assert_eq!(
-        &paths[..2],
-        ["INBOX", "Sent"],
-        "the inbox, then Sent, first"
+    // `(row, roles, listing, fetched first and in this order, then the rest in any order)`.
+    type Row = (
+        &'static str,
+        Vec<(String, MailboxRole)>,
+        Vec<Folder>,
+        &'static [&'static str],
+        Vec<&'static str>,
     );
-    assert_eq!(rest, vec!["Junk", PROJECTS, "Trash", REPORTS]);
+    let cases: Vec<Row> = vec![
+        // POP3, and any IMAP server that answered no `LIST (SPECIAL-USE)` flags. This is what
+        // happened before more than one mailbox was ever fetched, and it must keep happening.
+        (
+            "no folder roles: the inbox alone",
+            vec![],
+            vec![],
+            &["INBOX"][..],
+            vec![],
+        ),
+        // Archive, Spam and Drafts are deliberately not fetched — see `to_sync`. The inbox is
+        // fetched first and always.
+        (
+            "Sent where the server names one",
+            vec![
+                role("[Gmail]/Sent Mail", MailboxRole::Sent),
+                role("[Gmail]/All Mail", MailboxRole::Archive),
+                role("[Gmail]/Spam", MailboxRole::Spam),
+                role("[Gmail]/Drafts", MailboxRole::Drafts),
+            ],
+            vec![],
+            &["INBOX", "[Gmail]/Sent Mail"][..],
+            vec![],
+        ),
+        // Defensive: a server is free to flag INBOX with a special use, and fetching the same
+        // mailbox twice in one pass would double every count in the report.
+        (
+            "an inbox called Sent is not fetched twice",
+            vec![role("INBOX", MailboxRole::Sent)],
+            vec![],
+            &["INBOX"][..],
+            vec![],
+        ),
+        (
+            "the inbox, then Sent, then every followed folder",
+            vec![
+                role("Sent", MailboxRole::Sent),
+                role("Drafts", MailboxRole::Drafts),
+                role("Junk", MailboxRole::Spam),
+                role("Trash", MailboxRole::Trash),
+            ],
+            followed,
+            &["INBOX", "Sent"][..],
+            vec!["Junk", PROJECTS, "Trash", REPORTS],
+        ),
+    ];
+    for (row, roles, listing, first, rest) in cases {
+        let mut caps = caps(ServerLabels::LocalOnly);
+        caps.folders = FolderRoles(roles);
+        let (store, _secrets, _dir) = configured(1, caps, listing);
+        let paths = sync::mailboxes_by_account(&store).unwrap().remove(0).1;
+        assert!(paths.len() >= first.len(), "{row}: {paths:?}");
+        assert_eq!(&paths[..first.len()], first, "{row}: first, in order");
+        let mut tail = paths[first.len()..].to_vec();
+        tail.sort();
+        assert_eq!(tail, rest, "{row}: the rest");
+    }
 }

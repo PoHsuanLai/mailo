@@ -108,11 +108,68 @@ fn subject_hits(store: &SqliteStore, needle: &str) -> usize {
         .len()
 }
 
+/// Which clause a row asks through.
+#[derive(Clone, Copy)]
+enum By {
+    /// `subject:`, which is `LIKE '%needle%'` on the column.
+    Subject,
+    /// Full text.
+    Text,
+}
+
+/// `(step, clause, needle, threads found)`.
+const CASES: &[(&str, By, &str, usize)] = &[
+    // `LIKE '%needle%'` on the column, so substring matching works and Chinese is findable
+    // through `subject:`, `from:` and `to:`.
+    ("subject: part of the phrase", By::Subject, "校園", 1),
+    ("subject: its end", By::Subject, "維護", 1),
+    ("subject: a longer part", By::Subject, "系統維護", 1),
+    // In the body rather than the subject, so not by this clause, which is correct.
+    ("subject: a body word", By::Subject, "服務", 0),
+    // FINDINGS F125, and the migration that answered it. `unicode61` makes one token of an
+    // unbroken run of ideographs, so the index no longer reads the message columns: it reads a
+    // column Rust fills with overlapping bigrams, and the needle is bigrammed the same way.
+    // These rows used to assert the opposite, and were written to fail the day this changed.
+    (
+        "text: the whole run still matches",
+        By::Text,
+        "校園郵件信箱系統維護",
+        1,
+    ),
+    ("text: part", By::Text, "校園", 1),
+    ("text: part", By::Text, "郵件", 1),
+    ("text: part", By::Text, "維護", 1),
+    ("text: part", By::Text, "系統維護", 1),
+    ("text: part", By::Text, "信箱系統", 1),
+    (
+        "text: in the body rather than the subject",
+        By::Text,
+        "暫停服務",
+        1,
+    ),
+    ("text: the body's start", By::Text, "本週六", 1),
+    // The other half, and the one bigrams could get wrong: `園校` is `校園` backwards, and
+    // `件維` takes one character from each end of the subject. Neither is a bigram of it.
+    ("text: not there", By::Text, "園校", 0),
+    ("text: not there", By::Text, "件維", 0),
+    ("text: not there", By::Text, "維郵件", 0),
+    ("text: not there", By::Text, "臺北", 0),
+    // The tokeniser is right for languages that put spaces between words, which is why it was
+    // chosen. Whatever fixes CJK must not cost this.
+    (
+        "text: english is unaffected, the sender is still a word",
+        By::Text,
+        "noreply",
+        1,
+    ),
+];
+
 #[test]
-fn an_encoded_word_subject_is_decoded_on_the_way_in() {
+fn chinese_mail_is_listed_and_found_by_its_parts() {
+    let (store, _dir) = with_chinese_mail();
+
     // RFC 2047. Stored as the characters, not as `=?UTF-8?B?…?=`, or every Chinese subject in
     // the list would be base64.
-    let (store, _dir) = with_chinese_mail();
     let listed = store
         .threads(
             &Query {
@@ -129,101 +186,16 @@ fn an_encoded_word_subject_is_decoded_on_the_way_in() {
             now(),
         )
         .unwrap();
-    assert_eq!(listed.items[0].subject, "【重要】校園郵件信箱系統維護");
-}
-
-#[test]
-fn a_field_clause_finds_part_of_a_chinese_phrase() {
-    // `LIKE '%needle%'` on the column, so substring matching works and Chinese is findable
-    // through `subject:`, `from:` and `to:` — which is the whole of what works today.
-    let (store, _dir) = with_chinese_mail();
-    assert_eq!(subject_hits(&store, "校園"), 1);
-    assert_eq!(subject_hits(&store, "維護"), 1);
-    assert_eq!(subject_hits(&store, "系統維護"), 1);
-    // In the body rather than the subject, so not by this clause — which is correct.
-    assert_eq!(subject_hits(&store, "服務"), 0);
-}
-
-#[test]
-fn full_text_finds_part_of_a_chinese_phrase() {
-    // FINDINGS F125, and the migration that answered it. `unicode61` makes one token of an
-    // unbroken run of ideographs, so the index no longer reads the message columns: it reads a
-    // column Rust fills with overlapping bigrams, and the needle is bigrammed the same way.
-    //
-    // This test used to assert the opposite, and was written to fail the day this changed.
-    let (store, _dir) = with_chinese_mail();
     assert_eq!(
-        found(&store, "校園郵件信箱系統維護"),
-        1,
-        "the whole run still matches"
+        listed.items[0].subject, "【重要】校園郵件信箱系統維護",
+        "the encoded-word subject is decoded on the way in"
     );
-    for part in ["校園", "郵件", "維護", "系統維護", "信箱系統"] {
-        assert_eq!(found(&store, part), 1, "{part} is not findable");
-    }
-    assert_eq!(
-        found(&store, "暫停服務"),
-        1,
-        "in the body rather than the subject"
-    );
-    assert_eq!(found(&store, "本週六"), 1);
-}
 
-#[test]
-fn a_chinese_phrase_that_is_not_there_is_not_found() {
-    // The other half, and the one bigrams could get wrong: `園校` is `校園` backwards, and
-    // `件維` takes one character from each end of the subject. Neither is a bigram of it.
-    let (store, _dir) = with_chinese_mail();
-    for absent in ["園校", "件維", "維郵件", "臺北"] {
-        assert_eq!(found(&store, absent), 0, "{absent} matched and should not");
-    }
-}
-
-#[test]
-fn english_is_unaffected() {
-    // The tokeniser is right for languages that put spaces between words, which is why it was
-    // chosen. Whatever fixes CJK must not cost this.
-    let (store, _dir) = with_chinese_mail();
-    assert_eq!(found(&store, "noreply"), 1, "the sender is still a word");
-}
-
-#[test]
-#[ignore = "measurement"]
-fn what_can_be_found_in_a_chinese_message() {
-    let (store, _dir) = with_chinese_mail();
-
-    // The field clauses are `LIKE '%needle%'` on a column, not FTS — so they are substring
-    // matching and should not have the tokeniser's problem at all.
-    for needle in ["校園", "維護", "服務"] {
-        let hits = store
-            .threads(
-                &Query {
-                    filter: Filter::Subject(TextMatch::Contains(needle.to_owned())),
-                    sort: Sort {
-                        property: Property::Date,
-                        dir: SortDir::Desc,
-                    },
-                    page: PageReq {
-                        after: None,
-                        limit: 10,
-                    },
-                },
-                now(),
-            )
-            .unwrap()
-            .items
-            .len();
-        eprintln!("  subject:{needle:?} -> {hits} hits");
-    }
-
-    for needle in [
-        "校園郵件信箱系統維護", // the whole subject run
-        "校園",                 // a word inside it
-        "郵件",
-        "維護",
-        "本週六凌晨兩點至六點暫停服務",
-        "暫停服務",
-        "服務",
-    ] {
-        eprintln!("  search {needle:?} -> {} hits", found(&store, needle));
+    for &(step, by, needle, want) in CASES {
+        let got = match by {
+            By::Subject => subject_hits(&store, needle),
+            By::Text => found(&store, needle),
+        };
+        assert_eq!(got, want, "{step}: {needle}");
     }
 }

@@ -357,9 +357,12 @@ fn every_footer_control_stays_inside_the_sidebar_at_its_least_width() {
 }
 
 #[test]
-fn the_list_s_title_gives_way_to_its_tools_in_a_narrow_list() {
+fn the_list_s_title_and_search_give_way_to_its_tools_in_a_narrow_list() {
     // The narrowest window the list keeps its least width in: its header is at its tightest.
-    let (harness, _dir) = open(760, spaces(1));
+    // First the title beside the tools; then the toolbar's search, idle (the magnifier) and with
+    // a search the panel left behind (the search shown and its clear, and Save as view added to
+    // the tools).
+    let (mut harness, _dir) = open(760, spaces(1));
     let column = rect(&harness, ".list-col");
     let title = rect(&harness, ".list-title");
     let tools = rect(&harness, ".bar-tools");
@@ -369,16 +372,8 @@ fn the_list_s_title_gives_way_to_its_tools_in_a_narrow_list() {
     );
     assert!(
         within(&tools, &column),
-        "the tools {tools:?} are clipped by the list {column:?}"
+        "beside the title: the tools {tools:?} are clipped by the list {column:?}"
     );
-}
-
-#[test]
-fn the_toolbars_search_sits_beside_the_tools_in_a_narrow_list() {
-    // The narrowest window the list keeps its least width in, idle (the magnifier) and with a
-    // search the panel left behind (the search shown and its clear, and Save as view added to
-    // the tools).
-    let (mut harness, _dir) = open(760, spaces(1));
     for case in ["idle", "searching"] {
         let column = rect(&harness, ".list-col");
         let toolbar = rect(&harness, ".list-col .ds-toolbar");

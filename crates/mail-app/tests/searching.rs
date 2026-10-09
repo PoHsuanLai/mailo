@@ -29,86 +29,111 @@ fn parse(input: &str) -> Filter {
 mod what_it_builds {
     use super::*;
 
-    #[test]
-    fn a_bare_word_is_still_full_text() {
-        assert_eq!(
-            parse("lunch"),
-            Filter::Text(TextMatch::Contains("lunch".to_owned()))
-        );
-        // Several words are one query, not several — the FTS index answers co-occurrence.
-        assert_eq!(
-            parse("lunch friday"),
-            Filter::Text(TextMatch::Contains("lunch friday".to_owned()))
-        );
+    fn text(word: &str) -> Filter {
+        Filter::Text(TextMatch::Contains(word.to_owned()))
     }
 
-    #[test]
-    fn fields_become_their_clauses() {
-        assert_eq!(
-            parse("from:ada"),
-            Filter::From(TextMatch::Contains("ada".to_owned()))
-        );
-        assert_eq!(
-            parse("to:bob"),
-            Filter::To(TextMatch::Contains("bob".to_owned()))
-        );
-        assert_eq!(
-            parse("subject:lunch"),
-            Filter::Subject(TextMatch::Contains("lunch".to_owned()))
-        );
-        assert_eq!(parse("has:attachment"), Filter::HasAttachment);
-        assert_eq!(parse("is:unread"), Filter::Read(ReadState::Unread));
-        assert_eq!(parse("is:starred"), Filter::Starred(Star::Starred));
-        assert_eq!(parse("is:pinned"), Filter::Pinned);
-        assert_eq!(parse("is:snoozed"), Filter::Snoozed);
-        assert_eq!(parse("in:archive"), Filter::InMailbox(MailboxRole::Archive));
+    fn from(word: &str) -> Filter {
+        Filter::From(TextMatch::Contains(word.to_owned()))
     }
 
+    /// Each line typed into the box, and the filter it builds. Dates are apart, below, because
+    /// what they build depends on the reader's zone.
     #[test]
-    fn terms_narrow_rather_than_widen() {
-        // Every client works this way and everyone expects it: each word you add finds less.
-        assert_eq!(
-            parse("from:ada is:unread"),
-            Filter::And(vec![
-                Filter::From(TextMatch::Contains("ada".to_owned())),
+    fn what_each_term_builds() {
+        let cases: Vec<(&str, &str, Filter)> = vec![
+            ("a bare word is still full text", "lunch", text("lunch")),
+            // Several words are one query, not several: the FTS index answers co-occurrence.
+            (
+                "several words are one query",
+                "lunch friday",
+                text("lunch friday"),
+            ),
+            ("from:", "from:ada", from("ada")),
+            (
+                "to:",
+                "to:bob",
+                Filter::To(TextMatch::Contains("bob".to_owned())),
+            ),
+            (
+                "subject:",
+                "subject:lunch",
+                Filter::Subject(TextMatch::Contains("lunch".to_owned())),
+            ),
+            ("has:attachment", "has:attachment", Filter::HasAttachment),
+            ("is:unread", "is:unread", Filter::Read(ReadState::Unread)),
+            ("is:starred", "is:starred", Filter::Starred(Star::Starred)),
+            ("is:pinned", "is:pinned", Filter::Pinned),
+            ("is:snoozed", "is:snoozed", Filter::Snoozed),
+            (
+                "in:archive",
+                "in:archive",
+                Filter::InMailbox(MailboxRole::Archive),
+            ),
+            // Every client works this way and everyone expects it: each word you add finds less.
+            (
+                "terms narrow rather than widen",
+                "from:ada is:unread",
+                Filter::And(vec![from("ada"), Filter::Read(ReadState::Unread)]),
+            ),
+            // Words and fields together: the words become one text clause at the end.
+            (
+                "words after a field are one text clause",
+                "from:ada lunch friday",
+                Filter::And(vec![from("ada"), text("lunch friday")]),
+            ),
+            (
+                "a minus negates the term it is attached to",
+                "-from:newsletter",
+                Filter::Not(Box::new(from("newsletter"))),
+            ),
+            // A bare `-` is a word, not a negation of nothing.
+            ("a bare minus is a word", "-", text("-")),
+            (
+                "a quoted run is a phrase",
+                "\"lunch on friday\"",
+                Filter::Text(TextMatch::Exact("lunch on friday".to_owned())),
+            ),
+            (
+                "a quoted value stays together",
+                "subject:\"lunch on friday\"",
+                Filter::Subject(TextMatch::Contains("lunch on friday".to_owned())),
+            ),
+            // A box that rejects what is typed while it is being typed is unusable. `frm:` is a
+            // typo, not an error, and the result is a search that finds nothing, which is the
+            // feedback.
+            ("an unknown field is text", "frm:ada", text("frm:ada")),
+            ("an unknown is: is text", "is:sideways", text("is:sideways")),
+            (
+                "a date that is not one is text",
+                "before:not-a-date",
+                text("before:not-a-date"),
+            ),
+            // A field with nothing after it is the word so far, mid-typing.
+            (
+                "a field with nothing after it is text",
+                "from:",
+                text("from:"),
+            ),
+            // `Filter::All`, so the caller can decide what an empty search means, which for the
+            // shell is "the place you were already in".
+            ("an empty box", "", Filter::All),
+            ("a box of spaces", "   ", Filter::All),
+            ("case in a field name: FROM", "FROM:ada", from("ada")),
+            (
+                "case in a value of is:",
+                "is:UNREAD",
                 Filter::Read(ReadState::Unread),
-            ])
-        );
-        // Words and fields together: the words become one text clause at the end.
-        assert_eq!(
-            parse("from:ada lunch friday"),
-            Filter::And(vec![
-                Filter::From(TextMatch::Contains("ada".to_owned())),
-                Filter::Text(TextMatch::Contains("lunch friday".to_owned())),
-            ])
-        );
-    }
-
-    #[test]
-    fn a_minus_negates_the_term_it_is_attached_to() {
-        assert_eq!(
-            parse("-from:newsletter"),
-            Filter::Not(Box::new(Filter::From(TextMatch::Contains(
-                "newsletter".to_owned()
-            ))))
-        );
-        // And a bare `-` is a word, not a negation of nothing.
-        assert_eq!(
-            parse("-"),
-            Filter::Text(TextMatch::Contains("-".to_owned()))
-        );
-    }
-
-    #[test]
-    fn a_quoted_run_is_a_phrase_and_a_quoted_value_stays_together() {
-        assert_eq!(
-            parse("\"lunch on friday\""),
-            Filter::Text(TextMatch::Exact("lunch on friday".to_owned()))
-        );
-        assert_eq!(
-            parse("subject:\"lunch on friday\""),
-            Filter::Subject(TextMatch::Contains("lunch on friday".to_owned()))
-        );
+            ),
+            (
+                "case in a field name and value: In:Archive",
+                "In:Archive",
+                Filter::InMailbox(MailboxRole::Archive),
+            ),
+        ];
+        for (name, typed, want) in cases {
+            assert_eq!(parse(typed), want, "{name}: {typed:?}");
+        }
     }
 
     #[test]
@@ -134,45 +159,6 @@ mod what_it_builds {
             range.to.unwrap().format("%Y-%m-%d %H:%M").to_string(),
             "2026-09-24 16:00"
         );
-    }
-
-    #[test]
-    fn what_it_does_not_recognise_is_searched_for_rather_than_refused() {
-        // A box that rejects what is typed while it is being typed is unusable. `frm:` is a
-        // typo, not an error — and the result is a search that finds nothing, which is the
-        // feedback.
-        assert_eq!(
-            parse("frm:ada"),
-            Filter::Text(TextMatch::Contains("frm:ada".to_owned()))
-        );
-        assert_eq!(
-            parse("is:sideways"),
-            Filter::Text(TextMatch::Contains("is:sideways".to_owned()))
-        );
-        assert_eq!(
-            parse("before:not-a-date"),
-            Filter::Text(TextMatch::Contains("before:not-a-date".to_owned()))
-        );
-        // A field with nothing after it is the word so far, mid-typing.
-        assert_eq!(
-            parse("from:"),
-            Filter::Text(TextMatch::Contains("from:".to_owned()))
-        );
-    }
-
-    #[test]
-    fn an_empty_box_is_not_a_filter_that_matches_nothing() {
-        // `Filter::All`, so the caller can decide what an empty search means — which for the
-        // shell is "the place you were already in".
-        assert_eq!(parse(""), Filter::All);
-        assert_eq!(parse("   "), Filter::All);
-    }
-
-    #[test]
-    fn case_in_a_field_name_is_not_part_of_what_was_meant() {
-        assert_eq!(parse("FROM:ada"), parse("from:ada"));
-        assert_eq!(parse("is:UNREAD"), parse("is:unread"));
-        assert_eq!(parse("In:Archive"), parse("in:archive"));
     }
 }
 
@@ -267,132 +253,74 @@ mod what_the_store_returns {
             .collect()
     }
 
+    /// One store, every question. The rows are in the order the store lists them: newest first.
     #[test]
-    fn a_sender_narrows_to_that_sender() {
+    fn the_store_answers_what_was_parsed() {
+        const LUNCH: &str = "lunch on friday";
+        const INVOICE: &str = "the invoice";
+        const DIGEST: &str = "weekly digest";
+        const CASES: &[(&str, &str, &[&str])] = &[
+            ("a sender narrows to that sender", "from:ada", &[LUNCH]),
+            ("another sender", "from:bob", &[INVOICE]),
+            (
+                "a negated sender removes only that one",
+                "-from:newsletter",
+                &[LUNCH, INVOICE],
+            ),
+            // Both true: one thread. One true, one not: nothing.
+            ("two terms, both true", "from:ada subject:lunch", &[LUNCH]),
+            ("two terms, one true", "from:ada subject:invoice", &[]),
+            // The digest is from last August; the other two are from this September.
+            ("after a date", "after:2026-01-01", &[LUNCH, INVOICE]),
+            ("before a date", "before:2026-01-01", &[DIGEST]),
+            // Exclusive on `before`: the 22nd's mail is not "before the 22nd". Inclusive on
+            // `after`, read in Taipei: the 21st's mail is not "after the 22nd".
+            (
+                "before is exclusive",
+                "before:2026-09-22",
+                &[INVOICE, DIGEST],
+            ),
+            ("after is inclusive", "after:2026-09-22", &[LUNCH]),
+            (
+                "the thing that was the only search still works",
+                "invoice",
+                &[INVOICE],
+            ),
+            // The query this whole parser exists for: "from Bob, about the invoice".
+            (
+                "a field and a word together",
+                "from:bob invoice",
+                &[INVOICE],
+            ),
+            (
+                "a field and a word, the wrong sender",
+                "from:ada invoice",
+                &[],
+            ),
+            // The cost of not refusing an unknown field: it becomes text. What it must not do is
+            // become `All` and show the whole mailbox as if it had matched.
+            (
+                "a typo finds nothing rather than everything",
+                "frm:ada",
+                &[],
+            ),
+        ];
         let (store, _dir) = seeded();
-        assert_eq!(found(&store, "from:ada"), vec!["lunch on friday"]);
-        assert_eq!(found(&store, "from:bob"), vec!["the invoice"]);
-    }
-
-    #[test]
-    fn a_negated_sender_removes_only_that_one() {
-        let (store, _dir) = seeded();
-        let rest = found(&store, "-from:newsletter");
-        assert_eq!(rest.len(), 2, "{rest:?}");
-        assert!(!rest.iter().any(|s| s == "weekly digest"), "{rest:?}");
-    }
-
-    #[test]
-    fn terms_compose_the_way_the_reading_suggests() {
-        let (store, _dir) = seeded();
-        // Both true: one thread.
-        assert_eq!(
-            found(&store, "from:ada subject:lunch"),
-            vec!["lunch on friday"]
-        );
-        // One true, one not: nothing.
-        assert!(found(&store, "from:ada subject:invoice").is_empty());
-    }
-
-    #[test]
-    fn a_date_bound_cuts_where_it_says() {
-        let (store, _dir) = seeded();
-        // The digest is from last August; the other two are from this September.
-        assert_eq!(found(&store, "after:2026-01-01").len(), 2);
-        assert_eq!(found(&store, "before:2026-01-01"), vec!["weekly digest"]);
-        // Exclusive on `before`: the 22nd's mail is not "before the 22nd".
-        assert!(
-            !found(&store, "before:2026-09-22")
-                .iter()
-                .any(|s| s == "lunch on friday")
-        );
-        assert!(
-            found(&store, "after:2026-09-22")
-                .iter()
-                .any(|s| s == "lunch on friday")
-        );
-    }
-
-    #[test]
-    fn the_thing_that_was_the_only_search_still_works() {
-        let (store, _dir) = seeded();
-        assert_eq!(found(&store, "invoice"), vec!["the invoice"]);
-    }
-
-    #[test]
-    fn a_field_and_a_word_together() {
-        // The query this whole parser exists for: "from Bob, about the invoice".
-        let (store, _dir) = seeded();
-        assert_eq!(found(&store, "from:bob invoice"), vec!["the invoice"]);
-        assert!(found(&store, "from:ada invoice").is_empty());
-    }
-
-    #[test]
-    fn a_typo_finds_nothing_rather_than_everything() {
-        // The cost of not refusing an unknown field: it becomes text. What it must not do is
-        // become `All` and show the whole mailbox as if it had matched.
-        let (store, _dir) = seeded();
-        assert!(found(&store, "frm:ada").is_empty());
+        for (name, search, want) in CASES {
+            assert_eq!(found(&store, search), *want, "{name}: {search:?}");
+        }
     }
 }
 
-/// `label:`, which is the one term that needs the world.
-mod labels {
-    use super::*;
-
-    const A: LabelId = LabelId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000e1"));
-    const B: LabelId = LabelId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000e2"));
-
-    fn with(found: Vec<LabelId>) -> impl Fn(&str) -> Vec<LabelId> {
-        move |_| found.clone()
-    }
-
-    #[test]
-    fn one_label_with_that_name_is_one_clause() {
-        assert_eq!(
-            query::parse_with("label:travel", &taipei(), &with(vec![A])),
-            Filter::HasLabel(A)
-        );
-    }
-
-    #[test]
-    fn the_same_name_on_two_accounts_means_either() {
-        // `UNIQUE (account, name)`, so "travel" on the Gmail account and "travel" on the work one
-        // are two labels. Someone typing `label:travel` means the word — taking the first
-        // silently searched one mailbox, which is a wrong answer that looks like an empty one.
-        assert_eq!(
-            query::parse_with("label:travel", &taipei(), &with(vec![A, B])),
-            Filter::Or(vec![Filter::HasLabel(A), Filter::HasLabel(B)])
-        );
-    }
-
-    #[test]
-    fn a_name_nothing_bears_is_searched_for_as_text() {
-        // The same rule as any other unrecognised term. Not `Filter::Nothing`, which would find
-        // nothing and look identical to a label that exists and has no mail.
-        assert_eq!(
-            query::parse_with("label:nosuch", &taipei(), &with(vec![])),
-            Filter::Text(TextMatch::Contains("label:nosuch".to_owned()))
-        );
-    }
-
-    #[test]
-    fn it_still_composes_with_everything_else() {
-        assert_eq!(
-            query::parse_with("label:travel is:unread", &taipei(), &with(vec![A])),
-            Filter::And(vec![Filter::HasLabel(A), Filter::Read(ReadState::Unread)])
-        );
-    }
-}
-
-/// The same search, typed into the window instead of the terminal.
+/// `label:`, which is the one term that needs the world: the same search, typed into the
+/// terminal or into the window.
 ///
-/// `label:` is the one term that needs the store, and it arrives as a resolver so the parser can
-/// stay pure. `mailo search` passes one. The window called `query::parse`, which passes a
-/// resolver that knows no names at all — so every `label:` typed there resolved to nothing,
-/// became text by the unknown-term rule, and full-text searched for the literal string
-/// "label:travel". No results, no error, and the same query working in the terminal.
-mod typed_into_the_window {
+/// `label:` arrives as a resolver so the parser can stay pure. `mailo search` passes one. The
+/// window called `query::parse`, which passes a resolver that knows no names at all, so every
+/// `label:` typed there resolved to nothing, became text by the unknown-term rule, and full-text
+/// searched for the literal string "label:travel". No results, no error, and the same query
+/// working in the terminal.
+mod labels {
     use super::*;
 
     fn label(n: u8) -> LabelId {
@@ -409,63 +337,69 @@ mod typed_into_the_window {
     }
 
     #[test]
-    fn a_label_the_window_knows_about_selects_by_it() {
-        let travel = label(7);
-        let filter = shell_searching("label:travel", vec![("travel".to_owned(), travel)]);
-        assert_eq!(
-            filter,
-            Filter::HasLabel(travel),
-            "the window searched for the words instead of the label"
+    fn a_label_term_resolves_through_the_window() {
+        let (travel, work, home) = (label(7), label(1), label(2));
+        type Row = (
+            &'static str,
+            &'static str,
+            Vec<(&'static str, LabelId)>,
+            Filter,
         );
-    }
-
-    /// The word can name a label on each account, and someone typing it means the word.
-    #[test]
-    fn the_same_word_on_two_accounts_matches_both() {
-        let (work, home) = (label(1), label(2));
-        let filter = shell_searching(
-            "label:travel",
-            vec![
-                ("travel".to_owned(), work),
-                ("travel".to_owned(), home),
-                ("receipts".to_owned(), label(3)),
-            ],
-        );
-        match filter {
-            Filter::Or(any) => assert_eq!(
-                any,
-                vec![Filter::HasLabel(work), Filter::HasLabel(home)],
-                "one account's label was dropped"
+        let cases: Vec<Row> = vec![
+            (
+                "one label with that name is one clause",
+                "label:travel",
+                vec![("travel", travel)],
+                Filter::HasLabel(travel),
             ),
-            other => panic!("{other:?}"),
-        }
-    }
-
-    /// The rule that must survive the fix: a name nothing bears is still text, because a search
-    /// box has to keep working while a word is half-typed.
-    #[test]
-    fn a_name_nothing_bears_is_still_text() {
-        let filter = shell_searching("label:trav", vec![("travel".to_owned(), label(7))]);
-        assert!(
-            !matches!(filter, Filter::HasLabel(_)),
-            "a half-typed name should not select a label: {filter:?}"
-        );
-    }
-
-    /// And the rest of the vocabulary must keep working beside it.
-    #[test]
-    fn a_label_term_composes_with_the_others() {
-        let travel = label(7);
-        let filter = shell_searching(
-            "label:travel is:unread",
-            vec![("travel".to_owned(), travel)],
-        );
-        match filter {
-            Filter::And(all) => assert!(
-                all.contains(&Filter::HasLabel(travel)),
-                "the label was lost once another term joined it: {all:?}"
+            // `UNIQUE (account, name)`, so "travel" on the Gmail account and "travel" on the
+            // work one are two labels. Someone typing `label:travel` means the word: taking the
+            // first silently searched one mailbox, which is a wrong answer that looks like an
+            // empty one.
+            (
+                "the same name on two accounts means either",
+                "label:travel",
+                vec![("travel", work), ("travel", home), ("receipts", label(3))],
+                Filter::Or(vec![Filter::HasLabel(work), Filter::HasLabel(home)]),
             ),
-            other => panic!("{other:?}"),
+            // The same rule as any other unrecognised term. Not `Filter::Nothing`, which would
+            // find nothing and look identical to a label that exists and has no mail.
+            (
+                "a name nothing bears is text",
+                "label:nosuch",
+                vec![],
+                Filter::Text(TextMatch::Contains("label:nosuch".to_owned())),
+            ),
+            // The rule that must survive the window's fix: a search box has to keep working
+            // while a word is half-typed.
+            (
+                "a half-typed name is still text",
+                "label:trav",
+                vec![("travel", travel)],
+                Filter::Text(TextMatch::Contains("label:trav".to_owned())),
+            ),
+            // And the rest of the vocabulary keeps working beside it.
+            (
+                "a label term composes with the others",
+                "label:travel is:unread",
+                vec![("travel", travel)],
+                Filter::And(vec![
+                    Filter::HasLabel(travel),
+                    Filter::Read(ReadState::Unread),
+                ]),
+            ),
+        ];
+        for (name, typed, known, want) in cases {
+            let known: Vec<(String, LabelId)> = known
+                .into_iter()
+                .map(|(word, id)| (word.to_owned(), id))
+                .collect();
+            assert_eq!(
+                query::parse_with(typed, &taipei(), &query::named(&known)),
+                want,
+                "{name}, in the terminal"
+            );
+            assert_eq!(shell_searching(typed, known), want, "{name}, in the window");
         }
     }
 }
@@ -560,21 +494,6 @@ mod a_label_typed_into_the_window_finds_the_mail {
             .into_iter()
             .map(|t| t.subject)
             .collect()
-    }
-
-    #[test]
-    fn it_returns_the_labelled_message_and_only_that_one() {
-        let (store, _dir) = seeded();
-        assert_eq!(subjects(&store, "label:travel"), vec!["flight to taipei"]);
-    }
-
-    /// Not the same as "the query was wrong": a label that exists and has no mail must look
-    /// different from a label nothing knows. Both show nothing, so this pins the one that must
-    /// still find mail.
-    #[test]
-    fn a_name_nothing_bears_finds_nothing_rather_than_everything() {
-        let (store, _dir) = seeded();
-        assert!(subjects(&store, "label:nosuch").is_empty());
     }
 
     /// The index has to survive the sync that creates it, which is the whole point of rebuilding

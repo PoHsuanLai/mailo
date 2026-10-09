@@ -40,7 +40,7 @@ use dioxus::prelude::*;
 use ds::components::chrome::sidebar::Sidebar;
 use ds::components::chrome::sidebar_model::SidebarSection;
 use ds::prelude::*;
-use ds_blitz::{WindowHandle, WindowLife, WindowSpec};
+use ds_blitz::{WindowHandle, WindowSpec};
 use porter_core::AccountId;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -237,16 +237,11 @@ pub(in crate::ui) fn go_to(shell: Signal<Shell>, at: SettingsAt) {
     }
 }
 
-/// Whether a window opened earlier is one to raise rather than open again.
-fn raise(life: Option<WindowLife>) -> bool {
-    matches!(life, Some(WindowLife::Opening | WindowLife::Open))
-}
-
 /// Ask quire's event loop for the window, or raise the one already open.
 fn quire() {
     let opened = try_consume_context::<SettingsOpened>().unwrap_or_default();
     let existing = opened.0.borrow().clone();
-    if let Some(handle) = existing.filter(|handle| raise(Some(handle.life()))) {
+    if let Some(handle) = existing.filter(|handle| crate::ui::window::raise(Some(handle.life()))) {
         handle.focus();
         return;
     }
@@ -312,25 +307,6 @@ pub(in crate::ui) fn SettingsView(shell: Signal<Shell>, revision: Signal<u64>) -
                     SettingsPage::Keyboard => rsx! { crate::ui::keyboard::KeyboardPage { shell } },
                 }
             }
-        }
-    }
-}
-
-#[cfg(test)]
-mod raise_tests {
-    use super::raise;
-    use ds_blitz::WindowLife;
-
-    #[test]
-    fn a_window_still_there_is_raised_and_a_closed_one_opened_again() {
-        const CASES: &[(Option<WindowLife>, bool)] = &[
-            (None, false),
-            (Some(WindowLife::Opening), true),
-            (Some(WindowLife::Open), true),
-            (Some(WindowLife::Closed), false),
-        ];
-        for (life, raised) in CASES {
-            assert_eq!(raise(*life), *raised, "{life:?}");
         }
     }
 }

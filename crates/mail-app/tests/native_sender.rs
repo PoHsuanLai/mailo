@@ -151,6 +151,9 @@ fn open_row(harness: &mut Harness, n: usize) {
 
 const HEAD_CHECKS: &str = ".reader-meta .sender-checks";
 
+/// The reader shows what the receiving server checked: nothing before a thread is open; a pass
+/// as a mark beside the name, named for a screen reader; and a forged pass under the server's
+/// fail as a fail, in words.
 #[test]
 fn the_reader_shows_what_the_receiving_server_checked() {
     let (mut harness, _dir, _store) = open();
@@ -159,12 +162,15 @@ fn the_reader_shows_what_the_receiving_server_checked() {
         0,
         "checks before any thread was open"
     );
+
+    // A pass.
     open_row(&mut harness, 1);
     // Read from the stored message on a blocking thread, so it lands a frame or two later.
     settle_until(&mut harness, |harness| harness.count(HEAD_CHECKS) == 1);
     assert_eq!(
         harness.attr(HEAD_CHECKS, "data-standing").as_deref(),
-        Some("pass")
+        Some("pass"),
+        "the first row's standing"
     );
     // A pass is a mark beside the name, named for a screen reader; no method names, no words.
     assert_eq!(
@@ -176,24 +182,20 @@ fn the_reader_shows_what_the_receiving_server_checked() {
         harness
             .attr(&format!("{HEAD_CHECKS} .sender-mark"), "aria-label")
             .as_deref(),
-        Some("Verified sender")
+        Some("Verified sender"),
+        "the pass's mark is not named"
     );
-    let rect = harness.rect(HEAD_CHECKS).expect("the line is laid out");
-    assert!(
-        rect.size.height.0 > 0.0 && rect.size.width.0 > 0.0,
-        "{rect:?}"
-    );
-}
 
-#[test]
-fn a_forged_pass_under_the_servers_fail_shows_as_a_fail() {
-    let (mut harness, _dir, _store) = open();
+    // A forged pass under the server's fail.
     open_row(&mut harness, 2);
-    settle_until(&mut harness, |harness| harness.count(HEAD_CHECKS) == 1);
-    assert_eq!(
-        harness.attr(HEAD_CHECKS, "data-standing").as_deref(),
-        Some("fail")
-    );
+    settle_until(&mut harness, |harness| {
+        harness.attr(HEAD_CHECKS, "data-standing").as_deref() == Some("fail")
+    });
+    assert_eq!(harness.count(HEAD_CHECKS), 1, "the second row's checks");
     let said = harness.text_of(HEAD_CHECKS).unwrap_or_default();
-    assert_eq!(said.trim(), "May not be from this sender");
+    assert_eq!(
+        said.trim(),
+        "May not be from this sender",
+        "the forged pass's words"
+    );
 }

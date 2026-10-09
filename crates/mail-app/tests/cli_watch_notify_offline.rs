@@ -1,6 +1,5 @@
-//! The words typed after `watch`, `notify` and `offline`, as the commands they run, and what the
-//! usage text says about them. What the commands do is `mail-core`'s
-//! (`notifications.rs`, `offline_sync.rs`, `sync_path.rs`).
+//! The words typed after `watch`, `notify` and `offline`, as the commands they run. What the
+//! commands do is `mail-core`'s (`notifications.rs`, `offline_sync.rs`, `sync_path.rs`).
 
 use mail_core::notify;
 use mail_core::offline::Keep;
@@ -35,7 +34,6 @@ fn the_command_line_can_silence_a_watch_and_change_the_setting() {
     );
     assert_eq!(parse(&args("notify")), Ok(Command::Notify { set: None }));
     assert!(parse(&args("notify loudly")).is_err());
-    assert!(mail_app::cli::usage().contains("--no-notify"));
 }
 
 #[test]
@@ -64,13 +62,4 @@ fn the_command_line_sets_one_account_and_says_where_each_stands() {
         })
     );
     assert!(parse(&args("offline me@example.test always")).is_err());
-}
-
-#[test]
-fn the_command_line_names_watch() {
-    assert!(
-        mail_app::cli::usage().contains("watch"),
-        "{}",
-        mail_app::cli::usage()
-    );
 }

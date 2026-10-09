@@ -79,43 +79,67 @@ mod tests {
     const META: Modifiers = Modifiers::META;
     const SUPER: Modifiers = Modifiers::SUPER;
 
+    /// ⌘ is Ctrl or the command key alone, no Option, and ⌃⌘ is both. Super is the command key
+    /// as a window reports it.
     #[test]
-    fn super_is_the_command_key_as_a_window_reports_it() {
-        assert!(command(SUPER));
-        assert!(control_command(CTRL | SUPER));
-        assert_eq!(chord("k", SUPER), Some(Chord::CommandMenu));
-        assert_eq!(chord("s", CTRL | SUPER), Some(Chord::ToggleSidebar));
-    }
-
-    #[test]
-    fn command_is_ctrl_or_meta_alone_and_control_command_is_both() {
-        assert!(command(CTRL) && command(META));
-        assert!(!command(CTRL | META) && control_command(CTRL | META));
-        assert!(!command(Modifiers::empty()) && !control_command(CTRL));
-        assert!(!command(CTRL | Modifiers::ALT) && !control_command(CTRL | META | Modifiers::ALT));
+    fn which_modifiers_are_command_and_control_command() {
+        const ALT: Modifiers = Modifiers::ALT;
+        const CASES: &[(&str, Modifiers, bool, bool)] = &[
+            ("ctrl", CTRL, true, false),
+            ("meta", META, true, false),
+            ("super", SUPER, true, false),
+            ("ctrl and meta", CTRL.union(META), false, true),
+            ("ctrl and super", CTRL.union(SUPER), false, true),
+            ("nothing", Modifiers::empty(), false, false),
+            ("ctrl and option", CTRL.union(ALT), false, false),
+            (
+                "ctrl, meta and option",
+                CTRL.union(META).union(ALT),
+                false,
+                false,
+            ),
+        ];
+        for (name, held, is_command, is_control_command) in CASES {
+            assert_eq!(command(*held), *is_command, "{name}: command");
+            assert_eq!(
+                control_command(*held),
+                *is_control_command,
+                "{name}: control command"
+            );
+        }
     }
 
     #[test]
     fn the_standard_map_is_what_each_chord_means_under_either_command() {
-        for held in [CTRL, META] {
-            for (key, want) in [
-                ("k", Chord::CommandMenu),
-                ("K", Chord::CommandMenu),
-                ("f", Chord::Find),
-                ("p", Chord::Print),
-                ("z", Chord::Undo),
-                (",", Chord::Settings),
-                ("1", Chord::SwitchSpace(0)),
-                ("9", Chord::SwitchSpace(8)),
-            ] {
-                assert_eq!(chord(key, held), Some(want), "{key}");
+        const CASES: &[(&str, Option<Chord>, &str)] = &[
+            ("k", Some(Chord::CommandMenu), "the search bar"),
+            (
+                "K",
+                Some(Chord::CommandMenu),
+                "the search bar, shifted letter",
+            ),
+            ("f", Some(Chord::Find), "find"),
+            ("p", Some(Chord::Print), "print"),
+            ("z", Some(Chord::Undo), "undo"),
+            (",", Some(Chord::Settings), "settings"),
+            ("1", Some(Chord::SwitchSpace(0)), "the first Space"),
+            ("2", Some(Chord::SwitchSpace(1)), "the second Space"),
+            ("9", Some(Chord::SwitchSpace(8)), "the ninth Space"),
+            ("0", None, "there is no Space 0"),
+            ("10", None, "two digits are not a key"),
+            ("a", None, "a letter is not a Space"),
+            ("", None, "no key"),
+            ("t", None, "⌘T is the Mac's fonts, not ours"),
+            ("s", None, "⌘S is Save"),
+        ];
+        for held in [CTRL, META, SUPER] {
+            for (key, want, name) in CASES {
+                assert_eq!(chord(key, held), *want, "{held:?} {key:?}: {name}");
             }
-            assert_eq!(chord("0", held), None);
-            assert_eq!(chord("t", held), None, "⌘T is the Mac's fonts, not ours");
-            assert_eq!(chord("s", held), None, "⌘S is Save");
             assert_eq!(chord("z", held | Modifiers::SHIFT), None, "⇧⌘Z is redo");
         }
         assert_eq!(chord("s", CTRL | META), Some(Chord::ToggleSidebar));
+        assert_eq!(chord("s", CTRL | SUPER), Some(Chord::ToggleSidebar));
         assert_eq!(chord("k", Modifiers::empty()), None);
     }
 }

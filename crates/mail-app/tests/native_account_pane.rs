@@ -146,12 +146,15 @@ fn push(harness: &mut Harness) {
     settle_until(harness, at_account);
 }
 
+/// The account's row pushes its page; Escape and Command-[ each come back to the list. On the
+/// page, Escape on the remove question answers it and stays on the page.
 #[test]
 fn the_row_pushes_the_page_and_escape_and_command_bracket_come_back_to_it() {
     let (mut harness, _dir) = open();
     assert!(at_root(&harness), "{}", harness.html());
     assert_insets(&harness, &Policy::quire());
 
+    // The row pushes the page.
     push(&mut harness);
     let title = format!("{SHOWN} .ds-page-title");
     assert!(
@@ -159,24 +162,23 @@ fn the_row_pushes_the_page_and_escape_and_command_bracket_come_back_to_it() {
         "the page is not titled with the account:\n{}",
         harness.html()
     );
-    assert_eq!(harness.count(&title), 1);
+    assert_eq!(harness.count(&title), 1, "the page's title");
     settle_until(&mut harness, |harness| harness.is_focused(BACK));
     assert_insets(&harness, &Policy::quire());
 
+    // Escape comes back, the keyboard on the row.
     harness.key(Key::Escape);
     settle_until(&mut harness, at_root);
     let row = row();
     settle_until(&mut harness, |harness| harness.is_focused(&row));
 
+    // Command-[ comes back.
     push(&mut harness);
     settle_until(&mut harness, |harness| harness.is_focused(BACK));
     harness.chord(&[Key::Super], Key::Char('['));
     settle_until(&mut harness, at_root);
-}
 
-#[test]
-fn escape_on_the_remove_question_answers_it_and_stays_on_the_page() {
-    let (mut harness, _dir) = open();
+    // Escape on the remove question answers it and stays on the page.
     push(&mut harness);
     click(
         &mut harness,
@@ -189,7 +191,7 @@ fn escape_on_the_remove_question_answers_it_and_stays_on_the_page() {
     harness.advance(ms(400));
     assert!(
         at_account(&harness),
-        "Escape went back past the page:\n{}",
+        "Escape on the remove question went back past the page:\n{}",
         harness.html()
     );
 }

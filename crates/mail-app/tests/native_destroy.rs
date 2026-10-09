@@ -234,22 +234,6 @@ fn offered(harness: &mut Harness, n: usize) -> Vec<String> {
 }
 
 #[test]
-fn outside_trash_and_spam_nothing_offers_to_delete_forever() {
-    let (mut harness, _dir, _store) = open();
-    assert_eq!(rows(&harness), 1, "the inbox holds one conversation");
-    assert_eq!(harness.count(&labelled("Empty Trash")), 0);
-    let offered = offered(&mut harness, 1);
-    assert!(
-        offered.iter().any(|op| op == "Trash"),
-        "the inbox's delete is a move to Trash: {offered:?}"
-    );
-    assert!(
-        !offered.iter().any(|op| op.starts_with("Delete forever")),
-        "{offered:?}"
-    );
-}
-
-#[test]
 fn empty_trash_asks_naming_the_count_and_then_the_list_empties_with_no_undo() {
     let (mut harness, _dir, store) = open();
     press(&mut harness, &place("Trash"));
@@ -308,14 +292,39 @@ fn empty_trash_asks_naming_the_count_and_then_the_list_empties_with_no_undo() {
     assert_eq!(rows(&harness), 0);
 }
 
+/// Outside Trash and Spam nothing offers to delete forever: the inbox's delete is a move to
+/// Trash. In Trash, a row is deleted forever from its menu once asked, with no Undo.
 #[test]
-fn a_row_in_trash_is_deleted_forever_from_its_menu_once_asked() {
+fn only_in_trash_a_row_is_deleted_forever_from_its_menu_once_asked() {
     let (mut harness, _dir, store) = open();
+
+    // The inbox offers no delete forever.
+    assert_eq!(rows(&harness), 1, "the inbox holds one conversation");
+    assert_eq!(
+        harness.count(&labelled("Empty Trash")),
+        0,
+        "the inbox offers Empty Trash"
+    );
+    let offered_in_the_inbox = offered(&mut harness, 1);
+    assert!(
+        offered_in_the_inbox.iter().any(|op| op == "Trash"),
+        "the inbox's delete is a move to Trash: {offered_in_the_inbox:?}"
+    );
+    assert!(
+        !offered_in_the_inbox
+            .iter()
+            .any(|op| op.starts_with("Delete forever")),
+        "the inbox offers delete forever: {offered_in_the_inbox:?}"
+    );
+    harness.key(Key::Escape);
+    settle_until(&mut harness, |h| h.count(".ds-menu") == 0);
+
+    // In Trash, the second row from its menu.
     press(&mut harness, &place("Trash"));
     let offered = offered(&mut harness, 2);
     assert!(
         offered.iter().any(|op| op == "Delete forever…"),
-        "{offered:?}"
+        "Trash's row offers no delete forever: {offered:?}"
     );
     row_menu::press_menu_item(&mut harness, "Delete forever…");
     harness.advance(ms(600));
@@ -333,7 +342,7 @@ fn a_row_in_trash_is_deleted_forever_from_its_menu_once_asked() {
         &format!("{SHEET} {}", labelled("Delete forever")),
     );
     harness.advance(ms(600));
-    assert_eq!(rows(&harness), 2);
+    assert_eq!(rows(&harness), 2, "Trash's rows after the delete");
     assert_eq!(
         held_in(&store, MailboxRole::Trash),
         vec![MAIL[1].1.to_owned(), MAIL[3].1.to_owned()],

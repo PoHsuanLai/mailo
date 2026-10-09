@@ -140,7 +140,6 @@ fn a_scheduled_send_reads_scheduled_for_with_cancel() {
         )
         .unwrap_or_else(|| panic!("no pill for {when:?}"));
         assert_eq!(got.text, *want, "{when:?}");
-        assert_ne!(got.text, "Waiting in the outbox");
         assert_eq!(
             (got.ring, got.offer),
             (Ring::Full, Offer::Cancel),

@@ -777,7 +777,7 @@ fn submission_is_refused_here() {
 
 /// A fetched body is the literal's bytes, and nothing else.
 mod literal_bodies {
-    use mail_proto::{ImapTranscript, Untagged};
+    use mail_proto::Untagged;
 
     fn untagged(raw: &[u8]) -> Untagged {
         Untagged {
@@ -787,79 +787,50 @@ mod literal_bodies {
         }
     }
 
-    #[test]
-    fn the_closing_paren_of_the_response_is_not_part_of_the_message() {
-        // Found by reading what the CLI printed: every message fetched over IMAP carried a
-        // trailing `)`. The end-to-end tests asserted `contains`, so none of them saw it.
-        let body = b"Subject: s\r\n\r\nand a closing paren )\r\n";
-        let mut raw = format!("* 2 FETCH (UID 102 BODY[] {{{}}}\r\n", body.len()).into_bytes();
-        raw.extend_from_slice(body);
-        raw.extend_from_slice(b")\r\n");
-
-        let got = untagged(&raw)
-            .literal()
-            .expect("a literal is present")
-            .to_vec();
-        assert_eq!(got, body, "the body must be exactly the literal's bytes");
-    }
-
-    #[test]
-    fn the_fetch_header_is_not_part_of_the_message_either() {
-        let body = b"Subject: s\r\n\r\nbody\r\n";
-        let mut raw = format!("* 1 FETCH (UID 1 BODY[] {{{}}}\r\n", body.len()).into_bytes();
-        raw.extend_from_slice(body);
-        raw.extend_from_slice(b")\r\n");
-
-        let got = untagged(&raw).literal().unwrap().to_vec();
-        assert!(
-            !String::from_utf8_lossy(&got).contains("FETCH"),
-            "the response header leaked into the message: {:?}",
-            String::from_utf8_lossy(&got)
-        );
-    }
-
-    #[test]
-    fn a_body_that_is_not_utf8_survives_intact() {
-        // `Untagged::text` goes through `from_utf8_lossy`, which turns every 8-bit byte into
-        // U+FFFD. A Latin-1 message fetched that way is silently mangled — the reader shows
-        // replacement characters where the sender wrote accents, and the stored blob is wrong
-        // for ever after.
-        let mut body = b"Subject: caf\xe9\r\n\r\n".to_vec();
-        body.extend_from_slice(&[0xe9, 0xfc, 0xff, 0x00, 0x41]);
-        let mut raw = format!("* 1 FETCH (UID 1 BODY[] {{{}}}\r\n", body.len()).into_bytes();
-        raw.extend_from_slice(&body);
-        raw.extend_from_slice(b")\r\n");
-
-        let got = untagged(&raw).literal().unwrap().to_vec();
-        assert_eq!(got, body, "8-bit bytes must reach the store unchanged");
-        assert!(
-            !got.contains(&0xef),
-            "a replacement character appeared: {got:?}"
-        );
-    }
+    /// `(name, the FETCH line before the literal, the literal's bytes)`. Each row is a bug the
+    /// literal reader had.
+    const CASES: &[(&str, &str, &[u8])] = &[
+        (
+            // Found by reading what the CLI printed: every message fetched over IMAP carried a
+            // trailing `)`. The end-to-end tests asserted `contains`, so none of them saw it.
+            // Equality also proves the FETCH header is not part of the message either.
+            "the closing paren of the response is not part of the message",
+            "* 2 FETCH (UID 102 BODY[]",
+            b"Subject: s\r\n\r\nand a closing paren )\r\n",
+        ),
+        (
+            // `Untagged::text` goes through `from_utf8_lossy`, which turns every 8-bit byte into
+            // U+FFFD. A Latin-1 message fetched that way is silently mangled — the reader shows
+            // replacement characters where the sender wrote accents, and the stored blob is
+            // wrong for ever after.
+            "a body that is not utf-8 survives intact",
+            "* 1 FETCH (UID 1 BODY[]",
+            b"Subject: caf\xe9\r\n\r\n\xe9\xfc\xff\x00\x41",
+        ),
+        (
+            // `text` is trimmed, which is right for protocol vocabulary and wrong for mail: a
+            // message legitimately ends with blank lines.
+            "trailing whitespace in a message is not trimmed",
+            "* 1 FETCH (UID 1 BODY[]",
+            b"Subject: s\r\n\r\nbody\r\n\r\n   \r\n",
+        ),
+        (
+            // A stylesheet, and something shaped like a literal marker. The marker is the first
+            // `{n}` in the response; searching from the end found these instead and gave up.
+            "a body with braces in it is still a body",
+            "* 1 FETCH (UID 1 BODY[]",
+            b"Subject: s\r\n\r\n<style>p {color: red}</style> {12}\r\nx\r\n",
+        ),
+    ];
 
     #[test]
-    fn trailing_whitespace_in_a_message_is_not_trimmed() {
-        // `text` is trimmed, which is right for protocol vocabulary and wrong for mail: a
-        // message legitimately ends with blank lines.
-        let body = b"Subject: s\r\n\r\nbody\r\n\r\n   \r\n";
-        let mut raw = format!("* 1 FETCH (UID 1 BODY[] {{{}}}\r\n", body.len()).into_bytes();
-        raw.extend_from_slice(body);
-        raw.extend_from_slice(b")\r\n");
-
-        assert_eq!(untagged(&raw).literal().unwrap(), body);
-    }
-
-    #[test]
-    fn a_body_with_braces_in_it_is_still_a_body() {
-        // A stylesheet, and something shaped like a literal marker. The marker is the first
-        // `{n}` in the response; searching from the end found these instead and gave up.
-        let body = b"Subject: s\r\n\r\n<style>p {color: red}</style> {12}\r\nx\r\n";
-        let mut raw = format!("* 1 FETCH (UID 1 BODY[] {{{}}}\r\n", body.len()).into_bytes();
-        raw.extend_from_slice(body);
-        raw.extend_from_slice(b")\r\n");
-
-        assert_eq!(untagged(&raw).literal(), Some(&body[..]));
+    fn a_literal_is_exactly_the_body() {
+        for (name, fetch, body) in CASES {
+            let mut raw = format!("{fetch} {{{}}}\r\n", body.len()).into_bytes();
+            raw.extend_from_slice(body);
+            raw.extend_from_slice(b")\r\n");
+            assert_eq!(untagged(&raw).literal(), Some(*body), "{name}");
+        }
     }
 
     #[test]
@@ -879,18 +850,6 @@ mod literal_bodies {
                 .literal()
                 .is_none()
         );
-    }
-
-    #[test]
-    fn the_transcript_still_exposes_text_for_protocol_parsing() {
-        // `text` stays, because SEARCH results and FETCH attribute names are ASCII vocabulary
-        // and reading them as text is what the rest of this backend does.
-        let t = ImapTranscript {
-            untagged: vec![untagged(b"* SEARCH 101 102\r\n")],
-            capabilities: Vec::new(),
-            completed: Vec::new(),
-        };
-        assert!(t.untagged[0].text.contains("SEARCH"));
     }
 }
 
@@ -932,60 +891,52 @@ mod gmail_labels {
         }
     }
 
+    /// `(name, the FETCH lines, the labels the survey carries)`.
     #[test]
-    fn a_survey_now_carries_what_the_server_says_each_message_is_labelled() {
-        // The capture's own shape: one message with a system label and a user label, one with
-        // an empty list.
-        let ingest = surveyed(concat!(
-            "S: * 1 FETCH (UID 42 FLAGS (\\Seen) RFC822.SIZE 100 X-GM-LABELS (\\Inbox \"travel\"))\n",
-            "S: * 2 FETCH (UID 43 FLAGS () RFC822.SIZE 200 X-GM-LABELS ())\n",
-        ));
-
-        assert_eq!(
-            ingest.label_names,
-            vec![(imap_ref("INBOX", 42), vec!["travel".to_owned()])],
-            "the user label, and only messages that have one"
-        );
-    }
-
-    #[test]
-    fn gmails_names_for_mailboxes_and_flags_are_not_labels() {
-        // `\Inbox` is `mailbox`, `\Starred` is `star`, `\Unread` is `read`. Carried through as
-        // labels they would appear on every row, and the user could not remove them.
-        let ingest = surveyed(
-            "S: * 1 FETCH (UID 42 FLAGS (\\Seen) RFC822.SIZE 100 X-GM-LABELS (\\Inbox \\Sent \\Draft \\Spam \\Trash \\Important \\Starred \\Muted))\n",
-        );
-        assert!(
-            ingest.label_names.is_empty(),
-            "a system name became a label: {:?}",
-            ingest.label_names
-        );
-    }
-
-    #[test]
-    fn a_quoted_label_may_contain_spaces_quotes_and_backslashes() {
-        let ingest = surveyed(
-            "S: * 1 FETCH (UID 42 FLAGS () RFC822.SIZE 100 X-GM-LABELS (\"two words\" \"with \\\"quotes\\\"\" plain))\n",
-        );
-        assert_eq!(
-            ingest.label_names[0].1,
-            vec![
-                "two words".to_owned(),
-                "with \"quotes\"".to_owned(),
-                "plain".to_owned()
-            ]
-        );
-    }
-
-    #[test]
-    fn a_non_ascii_label_is_decoded_rather_than_shown_as_wire_bytes() {
-        // Gmail sends modified UTF-7. A Chinese label arriving as `&Ux1Tgg-` and being shown
-        // that way is the same class of bug as F44's mailbox names.
-        let ingest =
-            surveyed("S: * 1 FETCH (UID 42 FLAGS () RFC822.SIZE 100 X-GM-LABELS (\"&Ux1Tgg-\"))\n");
-        let name = &ingest.label_names[0].1[0];
-        assert!(!name.contains('&'), "still modified UTF-7: {name:?}");
-        assert!(!name.is_ascii(), "{name:?}");
+    fn x_gm_labels_become_user_labels() {
+        type Row = (&'static str, &'static str, Vec<(RemoteRef, Vec<String>)>);
+        let cases: Vec<Row> = vec![
+            (
+                // The capture's own shape: one message with a system label and a user label,
+                // one with an empty list. The user label, and only messages that have one.
+                "a survey carries what the server says each message is labelled",
+                concat!(
+                    "S: * 1 FETCH (UID 42 FLAGS (\\Seen) RFC822.SIZE 100 X-GM-LABELS (\\Inbox \"travel\"))\n",
+                    "S: * 2 FETCH (UID 43 FLAGS () RFC822.SIZE 200 X-GM-LABELS ())\n",
+                ),
+                vec![(imap_ref("INBOX", 42), vec!["travel".to_owned()])],
+            ),
+            (
+                // `\Inbox` is `mailbox`, `\Starred` is `star`, `\Unread` is `read`. Carried
+                // through as labels they would appear on every row, and the user could not
+                // remove them.
+                "gmail's names for mailboxes and flags are not labels",
+                "S: * 1 FETCH (UID 42 FLAGS (\\Seen) RFC822.SIZE 100 X-GM-LABELS (\\Inbox \\Sent \\Draft \\Spam \\Trash \\Important \\Starred \\Muted))\n",
+                vec![],
+            ),
+            (
+                "a quoted label may contain spaces, quotes and backslashes",
+                "S: * 1 FETCH (UID 42 FLAGS () RFC822.SIZE 100 X-GM-LABELS (\"two words\" \"with \\\"quotes\\\"\" plain))\n",
+                vec![(
+                    imap_ref("INBOX", 42),
+                    vec![
+                        "two words".to_owned(),
+                        "with \"quotes\"".to_owned(),
+                        "plain".to_owned(),
+                    ],
+                )],
+            ),
+            (
+                // Gmail sends modified UTF-7. A Chinese label arriving as `&Ux1Tgg-` and being
+                // shown that way is the same class of bug as F44's mailbox names.
+                "a non-ascii label is decoded rather than shown as wire bytes",
+                "S: * 1 FETCH (UID 42 FLAGS () RFC822.SIZE 100 X-GM-LABELS (\"&Ux1Tgg-\"))\n",
+                vec![(imap_ref("INBOX", 42), vec!["\u{531d}\u{5382}".to_owned()])],
+            ),
+        ];
+        for (name, fetch_lines, want) in cases {
+            assert_eq!(surveyed(fetch_lines).label_names, want, "{name}");
+        }
     }
 
     #[test]

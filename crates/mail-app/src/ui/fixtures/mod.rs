@@ -23,7 +23,7 @@ pub(in crate::ui) mod drive;
 pub(in crate::ui) mod smime_support;
 
 pub(in crate::ui) use dom::{
-    FakeKey, INSIDE_THE_SHELL, Seen, click, dispatching, drain, drain_seen, dump, framed, harness,
+    FakeKey, INSIDE_THE_SHELL, Seen, click, dispatching, drain, drain_seen, dump, framed,
     in_scheme, key, later, markup, page, press, reader_markup, rebuild_into, right_click,
     root_attr, thread_like, write_page,
 };

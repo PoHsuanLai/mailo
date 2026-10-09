@@ -149,106 +149,85 @@ mod tests {
             .collect()
     }
 
-    fn grouped(
-        threads: Vec<ThreadSummary>,
-        key: GroupKey,
-        names: &BTreeMap<LabelId, String>,
-    ) -> Vec<(String, Vec<String>)> {
-        titles(&group_list(
-            threads,
-            &Grouping::Saved(key),
-            names,
-            Utc::now(),
-            &Utc,
-        ))
-    }
-
-    fn s(list: &[&str]) -> Vec<String> {
-        list.iter().map(|x| x.to_string()).collect()
-    }
-
+    /// A view groups its rows into named bands, keeping the list's order inside each band. A
+    /// label band is named for the label and its absence, a mailbox band uses the sidebar's
+    /// names, a band with nothing in it is not drawn, and the page menu's grouping is still the
+    /// page menu's.
     #[test]
-    fn a_view_grouped_by_star_or_read_keeps_the_list_order_inside_each_band() {
+    fn a_view_groups_its_rows_into_named_bands() {
         use ReadState::*;
         use Star::*;
-        let threads = || {
+        let travel = LabelId::generate();
+        let work = LabelId::generate();
+        let labels = BTreeMap::from([(travel, "Travel".to_owned()), (work, "Work".to_owned())]);
+        let starred_and_read = || {
             vec![
                 thread("a", Read, Starred, vec![]),
                 thread("b", Unread, Unstarred, vec![]),
                 thread("c", Unread, Starred, vec![]),
             ]
         };
-        let none = BTreeMap::new();
-        assert_eq!(
-            grouped(threads(), GroupKey::Star, &none),
-            vec![
-                ("Starred".into(), s(&["a", "c"])),
-                ("Not starred".into(), s(&["b"]))
-            ]
-        );
-        assert_eq!(
-            grouped(threads(), GroupKey::Read, &none),
-            vec![
-                ("Unread".into(), s(&["b", "c"])),
-                ("Read".into(), s(&["a"]))
-            ]
-        );
-    }
-
-    #[test]
-    fn a_view_grouped_by_a_label_names_it_and_its_absence() {
-        let travel = LabelId::generate();
-        let other = LabelId::generate();
-        let names = BTreeMap::from([(travel, "Travel".to_owned()), (other, "Work".to_owned())]);
-        let threads = vec![
-            thread("flight", ReadState::Read, Star::Unstarred, vec![travel]),
-            thread("report", ReadState::Read, Star::Unstarred, vec![other]),
-        ];
-        assert_eq!(
-            grouped(threads, GroupKey::Label(travel), &names),
-            vec![
-                ("Travel".into(), s(&["flight"])),
-                ("Not Travel".into(), s(&["report"]))
-            ]
-        );
-    }
-
-    #[test]
-    fn a_band_with_nothing_in_it_is_not_drawn() {
-        let threads = vec![thread("a", ReadState::Read, Star::Unstarred, vec![])];
-        assert_eq!(
-            grouped(threads, GroupKey::Read, &BTreeMap::new()),
-            vec![("Read".into(), s(&["a"]))]
-        );
-    }
-
-    #[test]
-    fn a_view_grouped_by_where_it_is_uses_the_sidebars_names() {
-        let mut archived = thread("old", ReadState::Read, Star::Unstarred, vec![]);
+        let mut archived = thread("old", Read, Unstarred, vec![]);
         archived.mailboxes = MailboxSet::only(MailboxRole::Archive);
-        let threads = vec![
-            thread("new", ReadState::Read, Star::Unstarred, vec![]),
-            archived,
+        type Row = (
+            &'static str,
+            Vec<ThreadSummary>,
+            Grouping,
+            &'static [(&'static str, &'static [&'static str])],
+        );
+        let cases: [Row; 6] = [
+            (
+                "by star",
+                starred_and_read(),
+                Grouping::Saved(GroupKey::Star),
+                &[("Starred", &["a", "c"]), ("Not starred", &["b"])],
+            ),
+            (
+                "by read",
+                starred_and_read(),
+                Grouping::Saved(GroupKey::Read),
+                &[("Unread", &["b", "c"]), ("Read", &["a"])],
+            ),
+            (
+                "by a label",
+                vec![
+                    thread("flight", Read, Unstarred, vec![travel]),
+                    thread("report", Read, Unstarred, vec![work]),
+                ],
+                Grouping::Saved(GroupKey::Label(travel)),
+                &[("Travel", &["flight"]), ("Not Travel", &["report"])],
+            ),
+            (
+                "an empty band",
+                vec![thread("a", Read, Unstarred, vec![])],
+                Grouping::Saved(GroupKey::Read),
+                &[("Read", &["a"])],
+            ),
+            (
+                "by where it is",
+                vec![thread("new", Read, Unstarred, vec![]), archived],
+                Grouping::Saved(GroupKey::Mailbox),
+                &[("Inbox", &["new"]), ("Archive", &["old"])],
+            ),
+            (
+                "the page menu's",
+                vec![thread("a", Unread, Unstarred, vec![])],
+                Grouping::Page(PageGroup::Unread),
+                &[("Unread", &["a"])],
+            ),
         ];
-        assert_eq!(
-            grouped(threads, GroupKey::Mailbox, &BTreeMap::new()),
-            vec![
-                ("Inbox".into(), s(&["new"])),
-                ("Archive".into(), s(&["old"]))
-            ]
-        );
-    }
-
-    #[test]
-    fn the_page_menu_grouping_is_still_the_page_menus() {
-        let threads = vec![thread("a", ReadState::Unread, Star::Unstarred, vec![])];
-        let bands = group_list(
-            threads,
-            &Grouping::Page(PageGroup::Unread),
-            &BTreeMap::new(),
-            Utc::now(),
-            &Utc,
-        );
-        assert_eq!(titles(&bands), vec![("Unread".into(), s(&["a"]))]);
+        for (name, threads, grouping, want) in cases {
+            let bands = group_list(threads, &grouping, &labels, Utc::now(), &Utc);
+            let want: Vec<(String, Vec<String>)> = want
+                .iter()
+                .map(|(title, subjects)| {
+                    (
+                        (*title).to_owned(),
+                        subjects.iter().map(|one| (*one).to_owned()).collect(),
+                    )
+                })
+                .collect();
+            assert_eq!(titles(&bands), want, "{name}");
+        }
     }
 }

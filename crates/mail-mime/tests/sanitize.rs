@@ -212,6 +212,51 @@ const CASES: &[Case] = &[
         keep: &["https://cdn.test/a.png"],
         drop: &["javascript", "alert"],
     },
+    // Blocking remote images must not break inline images, which is how ordinary mail works.
+    Case {
+        name: "cid image survives blocked mode",
+        html: r#"<img src="cid:part1.abc@example.test">"#,
+        images: RemoteImages::Blocked,
+        keep: &["cid:part1.abc@example.test"],
+        drop: &[],
+    },
+    Case {
+        name: "cid image survives allowed mode",
+        html: r#"<img src="cid:part1.abc@example.test">"#,
+        images: RemoteImages::Allowed,
+        keep: &["cid:part1.abc@example.test"],
+        drop: &[],
+    },
+    // Opting in must actually opt in, or the setting is a lie; and opting into images is not
+    // opting into scripts.
+    Case {
+        name: "allowed mode keeps remote images but still blocks scripts",
+        html: r#"<img src="https://cdn.test/logo.png"><script>alert(1)</script>"#,
+        images: RemoteImages::Allowed,
+        keep: &["cdn.test/logo.png"],
+        drop: &["alert"],
+    },
+    // Over-stripping is its own failure: mail nobody can read is not safe, it is broken.
+    Case {
+        name: "ordinary mail is still readable",
+        html: r#"<p>Hi <b>Ada</b>,</p><ul><li>one</li><li>two</li></ul>
+           <blockquote>quoted</blockquote>
+           <a href="https://example.test/doc">the doc</a>
+           <table><tr><td>cell</td></tr></table>"#,
+        images: RemoteImages::Blocked,
+        keep: &[
+            "<p>",
+            "<b>",
+            "<ul>",
+            "<li>",
+            "<blockquote>",
+            "example.test/doc",
+            "cell",
+            "noopener",
+            "_blank",
+        ],
+        drop: &[],
+    },
 ];
 
 #[test]
@@ -267,69 +312,72 @@ mod what_was_blocked {
         .blocked_remote()
     }
 
-    #[test]
-    fn a_remote_image_that_was_dropped_is_counted() {
-        assert_eq!(
-            blocked(
-                r#"<p>hi</p><img src="https://tracker.test/pixel.gif">"#,
-                RemoteImages::Blocked
-            ),
-            1
-        );
-        assert_eq!(
-            blocked(
-                r#"<img src="https://a.test/1.png"><img src="http://b.test/2.png">"#,
-                RemoteImages::Blocked
-            ),
-            2
-        );
-    }
-
-    #[test]
-    fn nothing_is_blocked_when_nothing_is_being_blocked() {
-        // Under `Allowed` the URLs are kept, so there is nothing to offer to load.
-        assert_eq!(
-            blocked(
-                r#"<img src="https://tracker.test/pixel.gif">"#,
-                RemoteImages::Allowed
-            ),
-            0
-        );
-    }
-
-    #[test]
-    fn a_message_with_no_remote_images_reports_none() {
-        // The common case, and the one that put the button in front of the user for nothing.
-        assert_eq!(blocked("<p>just words</p>", RemoteImages::Blocked), 0);
-        assert_eq!(
-            blocked(
-                r#"<a href="https://example.test">a link</a>"#,
-                RemoteImages::Blocked
-            ),
+    /// `(name, html, images, count)`. A link is a click, not a fetch; a `cid:` image is this
+    /// message's own bytes; a `javascript:` or `data:` src is dropped too, and offering to load
+    /// it would put a button in front of a user whose only possible answer makes things worse.
+    const CASES: &[(&str, &str, RemoteImages, u32)] = &[
+        (
+            "a dropped remote image is counted",
+            r#"<p>hi</p><img src="https://tracker.test/pixel.gif">"#,
+            RemoteImages::Blocked,
+            1,
+        ),
+        (
+            "each dropped remote image is counted",
+            r#"<img src="https://a.test/1.png"><img src="http://b.test/2.png">"#,
+            RemoteImages::Blocked,
+            2,
+        ),
+        (
+            // Under `Allowed` the URLs are kept, so there is nothing to offer to load.
+            "nothing is blocked when images are allowed",
+            r#"<img src="https://tracker.test/pixel.gif">"#,
+            RemoteImages::Allowed,
             0,
-            "a link is a click, not a fetch"
-        );
-        assert_eq!(
-            blocked(r#"<img src="cid:logo@example">"#, RemoteImages::Blocked),
+        ),
+        (
+            // The common case, and the one that put the button in front of the user for nothing.
+            "just words",
+            "<p>just words</p>",
+            RemoteImages::Blocked,
             0,
-            "an inline part is this message's own bytes and is never blocked"
-        );
-    }
-
-    #[test]
-    fn a_url_the_reader_could_not_choose_to_load_is_not_counted() {
-        // `javascript:` and `data:` srcs are dropped too, and offering to load them would put
-        // a button in front of a user whose only possible answer makes things worse.
-        for hostile in [
+        ),
+        (
+            "a link is a click, not a fetch",
+            r#"<a href="https://example.test">a link</a>"#,
+            RemoteImages::Blocked,
+            0,
+        ),
+        (
+            "an inline part is this message's own bytes and is never blocked",
+            r#"<img src="cid:logo@example">"#,
+            RemoteImages::Blocked,
+            0,
+        ),
+        (
+            "a javascript src is not something the reader could load",
             r#"<img src="javascript:alert(1)">"#,
+            RemoteImages::Blocked,
+            0,
+        ),
+        (
+            "a data src is not something the reader could load",
             r#"<img src="data:text/html,<script>alert(1)</script>">"#,
+            RemoteImages::Blocked,
+            0,
+        ),
+        (
+            "a src that is not a url is not something the reader could load",
             r#"<img src="not a url at all">"#,
-        ] {
-            assert_eq!(
-                blocked(hostile, RemoteImages::Blocked),
-                0,
-                "counted {hostile:?} as something the reader could load"
-            );
+            RemoteImages::Blocked,
+            0,
+        ),
+    ];
+
+    #[test]
+    fn blocked_remote_counts_only_what_a_reader_could_load() {
+        for (name, html, images, count) in CASES {
+            assert_eq!(blocked(html, *images), *count, "{name}");
         }
     }
 }
@@ -361,23 +409,21 @@ mod what_will_be_fetched {
         <img src="javascript:alert(1)"><img src="file:///etc/passwd">"#;
 
     #[test]
-    fn nothing_is_fetched_while_remote_images_are_blocked() {
-        assert!(fetches(BODY, RemoteImages::Blocked).is_empty());
-    }
+    fn remote_fetches_list_the_kept_images_once_and_change_nothing() {
+        assert!(
+            fetches(BODY, RemoteImages::Blocked).is_empty(),
+            "blocked: nothing is fetched while remote images are blocked"
+        );
 
-    #[test]
-    fn allowed_images_are_listed_once_each_and_nothing_else() {
         assert_eq!(
             fetches(BODY, RemoteImages::Allowed),
             vec![
                 "https://cdn.test/a.png".to_owned(),
                 "http://cdn.test/b.png?x=1&y=2".to_owned(),
-            ]
+            ],
+            "allowed: each kept image once, and nothing else"
         );
-    }
 
-    #[test]
-    fn the_list_changes_nothing_in_the_markup() {
         let policy = SanitizePolicy {
             remote_images: RemoteImages::Allowed,
             ..SanitizePolicy::CURRENT
@@ -387,12 +433,15 @@ mod what_will_be_fetched {
             let written = url.replace('&', "&amp;");
             assert!(
                 safe.as_str().contains(&written),
-                "{url} not in {}",
+                "markup: {url} not in {}",
                 safe.as_str()
             );
         }
-        assert!(!safe.as_str().contains("javascript:"));
-        assert!(!safe.as_str().contains("file:"));
+        assert!(
+            !safe.as_str().contains("javascript:"),
+            "markup: javascript:"
+        );
+        assert!(!safe.as_str().contains("file:"), "markup: file:");
     }
 }
 

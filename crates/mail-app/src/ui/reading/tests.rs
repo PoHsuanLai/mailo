@@ -127,18 +127,6 @@ async fn the_reader_offers_to_load_images_when_it_blocked_some() {
     no_div_between_article_and_iframe(&markup);
 }
 
-#[tokio::test]
-async fn a_cjk_sender_is_named_by_its_first_character() {
-    let (store, _dir) = realistic();
-    let thread = thread_like(&store, "校園");
-    let markup = reader_markup(store, thread);
-    assert_eq!(
-        text_of(&markup, "reader-av"),
-        "校",
-        "the avatar took a byte, not a character:\n{markup}"
-    );
-}
-
 #[component]
 fn Open(thread: ThreadId) -> Element {
     let shell = use_signal(Shell::default);

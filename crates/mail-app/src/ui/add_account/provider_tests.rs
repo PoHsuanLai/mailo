@@ -598,28 +598,6 @@ async fn jmap_found_alone_is_added_with_its_session_and_the_autoconfig_wins_when
 }
 
 #[tokio::test]
-async fn a_refused_add_ends_the_sign_in_as_one_that_could_not_be_stored() {
-    let log = Arc::new(Log::default());
-    let script = Script {
-        add: Err("cannot save the account".to_owned()),
-        ..Script::default()
-    };
-    let added = Added::default();
-    let fakes = seams(&script, &log);
-    let mut sign_in = start(&provider("generic-imap", &fakes, &added, None));
-    sign_in.next(SignInInput::Start).await;
-    sign_in
-        .next(SignInInput::Fields(vec![
-            address("ada@example.test"),
-            password("pw"),
-        ]))
-        .await;
-    let step = sign_in.next(SignInInput::Confirm(vec![])).await;
-    assert_eq!(step, SignInStep::Failed(SignInFault::StoreFailed));
-    assert_eq!(added.take(), None);
-}
-
-#[tokio::test]
 async fn a_browser_account_opens_the_browser_then_reviews_and_adds_with_the_credential() {
     let log = Arc::new(Log::default());
     let script = Script::default();

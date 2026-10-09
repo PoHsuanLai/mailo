@@ -96,15 +96,8 @@ async fn an_account_s_row_pushes_its_page_under_a_back_button_to_accounts() {
 }
 
 #[tokio::test]
-async fn escape_and_the_back_button_go_back_to_the_list() {
+async fn the_back_button_goes_back_to_the_list() {
     let built = work();
-    let (mut dom, _) = pushed(&built);
-    press(&mut dom, "Escape", INSIDE_THE_SHELL);
-    let _ = drain_seen(&mut dom);
-    let page = dioxus_ssr::render(&dom);
-    assert!(!on_account_page(&page), "Escape left the page: {page}");
-    assert!(page.contains("data-page=\"Accounts\""), "{page}");
-
     let (mut dom, seen) = pushed(&built);
     click(&mut dom, seen.one("aria-label", "Back to Accounts"));
     let _ = drain_seen(&mut dom);

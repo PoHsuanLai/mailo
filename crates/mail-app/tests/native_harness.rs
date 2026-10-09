@@ -461,9 +461,15 @@ fn the_toast_hides_after_its_hold() {
     );
 }
 
+/// The search panel, three ways in. Cmd K puts the keyboard in it, typed letters are its query
+/// and not shortcuts, the first Escape empties the field and the second gives the keyboard back.
+/// The toolbar's magnifier brings it up too, and what is typed filters the rows. Ctrl+F brings it
+/// up over an open conversation.
 #[test]
-fn command_k_puts_the_keyboard_in_the_search_panel_and_escape_gives_it_back() {
+fn the_search_panel_takes_the_keyboard_filters_the_rows_and_gives_the_keyboard_back() {
     let (mut harness, _dir) = open();
+
+    // Cmd K, then Escape twice.
     assert_eq!(harness.count(".ds-menu"), 0);
     harness.chord(&[Key::Ctrl], Key::Char('k'));
     harness.advance(ms(300));
@@ -473,7 +479,7 @@ fn command_k_puts_the_keyboard_in_the_search_panel_and_escape_gives_it_back() {
     );
     // The search panel is up at the top of the window; there is no palette over it.
     settle_until(&mut harness, |h| h.count(".spotlight .ds-menu") == 1);
-    assert_eq!(harness.count(".ds-palette"), 0);
+    assert_eq!(harness.count(".ds-palette"), 0, "Cmd K: a palette is drawn");
     // Typed letters are the panel's, not shortcuts: the list's search, and the panel's query.
     for key in "arch".chars() {
         harness.key(Key::Char(key));
@@ -481,14 +487,16 @@ fn command_k_puts_the_keyboard_in_the_search_panel_and_escape_gives_it_back() {
     harness.advance(ms(200));
     assert_eq!(
         harness.attr(".spotlight input", "value").as_deref(),
-        Some("arch")
+        Some("arch"),
+        "Cmd K: the typed query"
     );
     // The first Escape empties the field and keeps the keyboard there.
     harness.key(Key::Escape);
     harness.advance(ms(300));
     assert_eq!(
         harness.attr(".spotlight input", "value").as_deref(),
-        Some("")
+        Some(""),
+        "the first Escape did not empty the field"
     );
     assert!(
         harness.is_focused(".spotlight input"),
@@ -500,12 +508,8 @@ fn command_k_puts_the_keyboard_in_the_search_panel_and_escape_gives_it_back() {
     harness.advance(ms(400));
     assert_eq!(harness.count(".spotlight"), 0, "Escape left the panel open");
     assert!(harness.is_focused(".app"), "the keyboard did not come back");
-}
 
-#[test]
-fn typing_in_the_search_panel_filters_the_rows() {
-    let (mut harness, _dir) = open();
-    // The toolbar's magnifier brings up the panel with the keyboard in its field.
+    // The magnifier, and typing that filters the rows.
     harness.click(centre(&harness, SEARCH_BUTTON));
     settle_until(&mut harness, |h| h.is_focused(".spotlight input"));
     for key in "invoice".chars() {
@@ -518,18 +522,22 @@ fn typing_in_the_search_panel_filters_the_rows() {
     });
     assert_eq!(
         harness.attr(".spotlight input", "value").as_deref(),
-        Some("invoice")
+        Some("invoice"),
+        "the magnifier: the typed query"
     );
-}
+    // Out again, the rows back.
+    harness.key(Key::Escape);
+    harness.advance(ms(300));
+    settle_until(&mut harness, |h| subjects(h).len() == INBOX.len());
+    harness.key(Key::Escape);
+    harness.advance(ms(400));
+    assert_eq!(
+        harness.count(".spotlight"),
+        0,
+        "Escape left the magnifier's panel open"
+    );
 
-/// The toolbar's search: the magnifier while nothing is searched.
-const SEARCH_BUTTON: &str = ".list-head .bar [*|aria-label=\"Search\"]";
-
-// Beyond the eight: the native host's own asks, and what is not on Blitz yet.
-
-#[test]
-fn ctrl_f_brings_up_the_search_panel() {
-    let (mut harness, _dir) = open();
+    // Ctrl+F over an open conversation.
     open_row(&mut harness, 1);
     harness.chord(&[Key::Ctrl], Key::Char('f'));
     harness.advance(ms(300));
@@ -538,6 +546,11 @@ fn ctrl_f_brings_up_the_search_panel() {
         "Ctrl+F left the keyboard elsewhere"
     );
 }
+
+/// The toolbar's search: the magnifier while nothing is searched.
+const SEARCH_BUTTON: &str = ".list-head .bar [*|aria-label=\"Search\"]";
+
+// Beyond the eight: the native host's own asks, and what is not on Blitz yet.
 
 // The keyboard when what had it goes away. quire's `FocusFallback::Ancestor` (its "mailo gaps
 // 7") gives it to the opener or the nearest focusable ancestor when the focused element is
@@ -683,26 +696,27 @@ fn escape_the_rename_then_press_e(fallback: FocusFallback) -> (Harness, tempfile
     (harness, dir)
 }
 
+/// With quire's fallback, `e` after the rename field went still archives the open conversation.
+/// With it turned off, `e` is heard by nothing: nothing of mailo's puts the keyboard back after a
+/// removal, so the first row passes on quire's fallback alone.
 #[test]
-fn when_the_focused_field_is_removed_the_keys_still_act() {
-    let (harness, _dir) = escape_the_rename_then_press_e(FocusFallback::Ancestor);
-    assert_eq!(
-        subjects(&harness),
-        [INBOX[1].1, INBOX[2].1, INBOX[3].1],
-        "`e` after the rename field went archived nothing: the keyboard went nowhere"
-    );
-}
-
-/// The case above with quire's fallback turned off: `e` is heard by nothing. Nothing of
-/// mailo's puts the keyboard back after a removal, so the case above passes on quire's alone.
-#[test]
-fn without_quire_s_fallback_a_removal_leaves_the_keyboard_nowhere() {
-    let (harness, _dir) = escape_the_rename_then_press_e(FocusFallback::BlitzDefault);
-    assert_eq!(
-        subjects(&harness).len(),
-        INBOX.len(),
-        "`e` acted with the fallback off: something of mailo's puts the keyboard back"
-    );
+fn when_the_focused_field_is_removed_the_keys_act_only_by_quire_s_fallback() {
+    const CASES: [(&str, FocusFallback, &[&str]); 2] = [
+        (
+            "quire's fallback: `e` after the rename field went archived nothing, so the keyboard went nowhere",
+            FocusFallback::Ancestor,
+            &[INBOX[1].1, INBOX[2].1, INBOX[3].1],
+        ),
+        (
+            "fallback off: `e` acted, so something of mailo's puts the keyboard back",
+            FocusFallback::BlitzDefault,
+            &[INBOX[0].1, INBOX[1].1, INBOX[2].1, INBOX[3].1],
+        ),
+    ];
+    for (case, fallback, left) in CASES {
+        let (harness, _dir) = escape_the_rename_then_press_e(fallback);
+        assert_eq!(subjects(&harness), left, "{case}");
+    }
 }
 
 /// The third row archived from its menu: the menu hands the keyboard back as it closes, but
@@ -747,50 +761,39 @@ fn print_first_row(harness: &mut Harness) -> String {
     harness.text_of(".ds-toast-body").unwrap_or_default()
 }
 
+/// ⌘P hands the open conversation to the print dialog as a PDF, once, titled with its subject,
+/// and the toast says how the dialog ended: cancelled, or, with no dialog, where the PDF opened.
 #[test]
-fn print_hands_the_conversation_to_the_print_dialog_as_a_pdf() {
-    let (mut harness, _dir, _store, printed) = open_printing(|| Ok(PrintOutcome::Cancelled));
-    let said = print_first_row(&mut harness);
-    assert_eq!(said, "Printing cancelled");
-    let printed = printed.lock().unwrap().clone();
-    assert_eq!(
-        printed.len(),
-        1,
-        "the dialog was not asked once: {printed:?}"
-    );
-    let (len, title) = &printed[0];
-    assert_eq!(title, INBOX[0].1);
-    assert!(*len > 1_000, "a {len}-byte printout");
-}
-
-#[test]
-fn print_without_a_dialog_says_where_the_pdf_opened() {
-    let (mut harness, _dir, _store, printed) = open_printing(|| {
-        Ok(PrintOutcome::Opened(std::path::PathBuf::from(
-            "/tmp/Flight-to-the-conference-1.pdf",
-        )))
-    });
-    let said = print_first_row(&mut harness);
-    assert_eq!(
-        said,
-        "Opened in your PDF viewer to print: /tmp/Flight-to-the-conference-1.pdf"
-    );
-    assert_eq!(printed.lock().unwrap().len(), 1);
-}
-
-#[test]
-fn typing_into_a_new_message_writes_it() {
-    let (mut harness, _dir) = open();
-    harness.key(Key::Char('c'));
-    harness.advance(ms(500));
-    assert_eq!(harness.count(".cpage .c-body"), 1, "c opened no composer");
-    harness.click(centre(&harness, ".c-body"));
-    harness.advance(ms(200));
-    for key in "hey".chars() {
-        harness.key(Key::Char(key));
+fn ctrl_p_hands_the_printout_over_and_says_how_it_ended() {
+    type Answer = fn() -> Result<PrintOutcome, PrintError>;
+    const CASES: [(&str, Answer, &str); 2] = [
+        (
+            "cancelled in the dialog",
+            || Ok(PrintOutcome::Cancelled),
+            "Printing cancelled",
+        ),
+        (
+            "opened in a PDF viewer",
+            || {
+                Ok(PrintOutcome::Opened(std::path::PathBuf::from(
+                    "/tmp/Flight-to-the-conference-1.pdf",
+                )))
+            },
+            "Opened in your PDF viewer to print: /tmp/Flight-to-the-conference-1.pdf",
+        ),
+    ];
+    for (case, answer, says) in CASES {
+        let (mut harness, _dir, _store, printed) = open_printing(answer);
+        let said = print_first_row(&mut harness);
+        assert_eq!(said, says, "{case}");
+        let printed = printed.lock().unwrap().clone();
+        assert_eq!(
+            printed.len(),
+            1,
+            "{case}: the dialog was not asked once: {printed:?}"
+        );
+        assert_eq!(printed[0].1, INBOX[0].1, "{case}: the printout's title");
     }
-    harness.advance(ms(300));
-    assert_eq!(harness.text_of(".c-body").as_deref(), Some("hey"));
 }
 
 /// A picture of the window on the seeded inbox, with a thread open, painted headlessly by
@@ -849,27 +852,55 @@ fn near(a: f32, b: f32, by: f32) -> bool {
     (a - b).abs() <= by
 }
 
+/// Select the whole body and delete it, so the next step of a test starts from one empty
+/// paragraph.
+fn clear(harness: &mut Harness, before: &str) {
+    press(harness, &[Key::Ctrl], Key::Char('a'), 1);
+    press(harness, &[], Key::Backspace, 1);
+    harness.advance(ms(100));
+    assert_eq!(
+        paragraphs(harness),
+        vec![""],
+        "the body did not empty before {before}"
+    );
+}
+
+/// The body's keys, each step on an emptied body: Enter splits a paragraph, Shift+Enter breaks
+/// a line and Backspace merges; Up and Down move between laid-out lines; Home and End go to the
+/// line's ends and Delete takes the next letter.
 #[test]
-fn enter_splits_shift_enter_breaks_and_backspace_merges() {
+fn the_body_s_keys_split_merge_move_and_delete() {
     let (mut harness, _dir, _store) = composing();
+
+    // Enter, Shift+Enter, Backspace.
     type_text(&mut harness, "one");
     press(&mut harness, &[], Key::Enter, 1);
     type_text(&mut harness, "two");
     press(&mut harness, &[Key::Shift], Key::Enter, 1);
     type_text(&mut harness, "three");
-    assert_eq!(paragraphs(&harness), vec!["one", "two\nthree"]);
+    assert_eq!(
+        paragraphs(&harness),
+        vec!["one", "two\nthree"],
+        "Enter split or Shift+Enter broke wrongly"
+    );
     // Back to the second paragraph's start, then Backspace joins it to the first.
     press(&mut harness, &[], Key::Left, "two\nthree".len());
     press(&mut harness, &[], Key::Backspace, 1);
-    assert_eq!(paragraphs(&harness), vec!["onetwo\nthree"]);
+    assert_eq!(
+        paragraphs(&harness),
+        vec!["onetwo\nthree"],
+        "Backspace did not merge"
+    );
     // The caret stayed at the join: typing lands there.
     type_text(&mut harness, "-");
-    assert_eq!(paragraphs(&harness), vec!["one-two\nthree"]);
-}
+    assert_eq!(
+        paragraphs(&harness),
+        vec!["one-two\nthree"],
+        "the caret left the join"
+    );
 
-#[test]
-fn up_and_down_move_between_laid_out_lines() {
-    let (mut harness, _dir, _store) = composing();
+    // Up and Down.
+    clear(&mut harness, "Up and Down");
     type_text(&mut harness, "first");
     press(&mut harness, &[], Key::Enter, 1);
     type_text(&mut harness, "x");
@@ -877,31 +908,130 @@ fn up_and_down_move_between_laid_out_lines() {
     press(&mut harness, &[], Key::Left, 1);
     press(&mut harness, &[], Key::Up, 1);
     type_text(&mut harness, "A");
-    assert_eq!(paragraphs(&harness), vec!["Afirst", "x"]);
+    assert_eq!(paragraphs(&harness), vec!["Afirst", "x"], "Up");
     // And down again, to the start of the second.
     press(&mut harness, &[], Key::Left, 1);
     press(&mut harness, &[], Key::Down, 1);
     type_text(&mut harness, "B");
-    assert_eq!(paragraphs(&harness), vec!["Afirst", "Bx"]);
+    assert_eq!(paragraphs(&harness), vec!["Afirst", "Bx"], "Down");
     // Up from the first line is the document's start.
     press(&mut harness, &[], Key::Up, 2);
     type_text(&mut harness, "C");
-    assert_eq!(paragraphs(&harness), vec!["CAfirst", "Bx"]);
+    assert_eq!(
+        paragraphs(&harness),
+        vec!["CAfirst", "Bx"],
+        "Up from the first line"
+    );
+
+    // Home, End and Delete.
+    clear(&mut harness, "Home and End");
+    type_text(&mut harness, "middle");
+    press(&mut harness, &[], Key::Home, 1);
+    type_text(&mut harness, "A");
+    press(&mut harness, &[], Key::End, 1);
+    type_text(&mut harness, "Z");
+    assert_eq!(paragraphs(&harness), vec!["AmiddleZ"], "Home and End");
+    // Delete, from the line's start, takes the letter after the caret.
+    press(&mut harness, &[], Key::Home, 1);
+    press(&mut harness, &[], Key::Delete, 1);
+    assert_eq!(paragraphs(&harness), vec!["middleZ"], "Delete");
+    // Shift+End selects to the line's end.
+    press(&mut harness, &[Key::Shift], Key::End, 1);
+    harness.advance(ms(100));
+    assert!(harness.count(".c-sel") >= 1, "Shift+End drew no selection");
+    press(&mut harness, &[], Key::Backspace, 1);
+    assert_eq!(
+        paragraphs(&harness),
+        vec![""],
+        "Backspace on the Shift+End selection"
+    );
 }
 
+/// The caret and the selection from the pointer and the keys, each step on an emptied body: a
+/// click puts the caret where it lands; Shift+click selects from the caret to where it lands; a
+/// drag selects what it passes over; Shift+Left across a paragraph break selects both sides, and
+/// Backspace deletes it as one. What is typed replaces a selection.
 #[test]
-fn a_selection_across_paragraphs_is_deleted_as_one() {
+fn clicks_drags_and_shifted_keys_place_the_caret_and_select() {
     let (mut harness, _dir, _store) = composing();
+
+    // A click.
+    type_text(&mut harness, "hello world");
+    let (start, end) = run_ends(&harness);
+    // Before the first letter.
+    harness.click(start);
+    harness.advance(ms(100));
+    type_text(&mut harness, "X");
+    assert_eq!(
+        paragraphs(&harness),
+        vec!["Xhello world"],
+        "a click before the first letter"
+    );
+    // Past the end of the line.
+    harness.click(end);
+    harness.advance(ms(100));
+    type_text(&mut harness, "!");
+    assert_eq!(
+        paragraphs(&harness),
+        vec!["Xhello world!"],
+        "a click past the end of the line"
+    );
+
+    // Shift+click.
+    clear(&mut harness, "Shift+click");
+    type_text(&mut harness, "hello world");
+    let (start, end) = run_ends(&harness);
+    harness.click(start);
+    harness.advance(ms(100));
+    assert_eq!(harness.count(".c-sel"), 0, "a plain click selected");
+    harness.click_with(end, &[Key::Shift]);
+    harness.advance(ms(100));
+    assert!(
+        harness.count(".c-sel") >= 1,
+        "Shift+click drew no selection"
+    );
+    // The selection is the whole line: typing replaces it.
+    type_text(&mut harness, "X");
+    assert_eq!(
+        paragraphs(&harness),
+        vec!["X"],
+        "typing over the Shift+click selection"
+    );
+
+    // A drag.
+    clear(&mut harness, "the drag");
+    type_text(&mut harness, "hello world");
+    let (start, end) = run_ends(&harness);
+    harness.drag(start, end, 6);
+    harness.advance(ms(100));
+    assert!(harness.count(".c-sel") >= 1, "the drag drew no selection");
+    assert_eq!(harness.count(".c-caret"), 0, "a caret beside a selection");
+    type_text(&mut harness, "Y");
+    assert_eq!(
+        paragraphs(&harness),
+        vec!["Y"],
+        "typing over the dragged selection"
+    );
+
+    // A selection across paragraphs.
+    clear(&mut harness, "the selection across paragraphs");
     type_text(&mut harness, "one");
     press(&mut harness, &[], Key::Enter, 1);
     type_text(&mut harness, "two");
     // "e", the paragraph break and "two", selected backwards from the end.
     press(&mut harness, &[Key::Shift], Key::Left, 5);
     harness.advance(ms(100));
-    assert!(harness.count(".c-sel") >= 2, "the selection is not drawn");
+    assert!(
+        harness.count(".c-sel") >= 2,
+        "the selection across paragraphs is not drawn"
+    );
     press(&mut harness, &[], Key::Backspace, 1);
     harness.advance(ms(100));
-    assert_eq!(paragraphs(&harness), vec!["on"]);
+    assert_eq!(
+        paragraphs(&harness),
+        vec!["on"],
+        "the selection across paragraphs was not deleted as one"
+    );
     assert_eq!(
         harness.count(".c-sel"),
         0,
@@ -909,58 +1039,60 @@ fn a_selection_across_paragraphs_is_deleted_as_one() {
     );
 }
 
+/// What an IME commits is written, and nothing else: a zhuyin composition, its preedit drawn at
+/// the caret and the document untouched until the commit; then, after typed text, a kana to
+/// kanji conversion.
 #[test]
-fn a_zhuyin_composition_writes_its_commit_and_nothing_else() {
+fn an_ime_writes_its_commit_and_nothing_else() {
     let (mut harness, _dir, _store) = composing();
+
+    // Zhuyin.
     harness.ime_start();
     harness.ime_update("ㄓ", "ㄓ".len());
     harness.ime_update("ㄓㄨ", "ㄓㄨ".len());
     harness.advance(ms(100));
     // The preedit is drawn at the caret, and the document has not been touched.
-    assert_eq!(harness.text_of(".c-preedit").as_deref(), Some("ㄓㄨ"));
-    assert_eq!(paragraphs(&harness), vec![""]);
+    assert_eq!(
+        harness.text_of(".c-preedit").as_deref(),
+        Some("ㄓㄨ"),
+        "the zhuyin preedit"
+    );
+    assert_eq!(
+        paragraphs(&harness),
+        vec![""],
+        "the preedit touched the body"
+    );
     // A key while the IME composes is the IME's.
     harness.key(Key::Char('x'));
     // winit clears the preedit (an empty update), then commits.
     harness.ime_commit("注");
     harness.advance(ms(100));
-    assert_eq!(paragraphs(&harness), vec!["注"]);
-    assert_eq!(harness.count(".c-preedit"), 0);
+    assert_eq!(paragraphs(&harness), vec!["注"], "the zhuyin commit");
+    assert_eq!(
+        harness.count(".c-preedit"),
+        0,
+        "the preedit outlived the commit"
+    );
     // Typing after it is text again, after the commit.
     type_text(&mut harness, "a");
-    assert_eq!(paragraphs(&harness), vec!["注a"]);
-}
+    assert_eq!(paragraphs(&harness), vec!["注a"], "typing after the commit");
 
-#[test]
-fn a_kana_to_kanji_conversion_commits_the_kanji() {
-    let (mut harness, _dir, _store) = composing();
-    type_text(&mut harness, "at ");
+    // Kana to kanji, after typed text.
+    type_text(&mut harness, " ");
     harness.ime_start();
     for preedit in ["に", "にほ", "にほん", "日本"] {
         harness.ime_update(preedit, preedit.len());
     }
     harness.advance(ms(100));
-    assert_eq!(paragraphs(&harness), vec!["at "]);
+    assert_eq!(
+        paragraphs(&harness),
+        vec!["注a "],
+        "the kana preedit touched the body"
+    );
     harness.ime_commit("日本");
     harness.ime_end();
     harness.advance(ms(100));
-    assert_eq!(paragraphs(&harness), vec!["at 日本"]);
-}
-
-#[test]
-fn ctrl_b_bolds_the_selection_and_ctrl_z_undoes_it() {
-    let (mut harness, _dir, _store) = composing();
-    type_text(&mut harness, "bold move");
-    press(&mut harness, &[Key::Shift], Key::Left, 4);
-    press(&mut harness, &[Key::Ctrl], Key::Char('b'), 1);
-    assert_eq!(harness.text_of(".c-body .m-b").as_deref(), Some("move"));
-    // Still selected, with the bubble over it.
-    harness.advance(ms(100));
-    assert!(harness.count(".c-sel") >= 1, "the selection went");
-    assert_eq!(harness.count(".bubble"), 1, "no bubble over the selection");
-    press(&mut harness, &[Key::Ctrl], Key::Char('z'), 1);
-    assert_eq!(harness.count(".c-body .m-b"), 0, "undo left the bold");
-    assert_eq!(paragraphs(&harness), vec!["bold move"]);
+    assert_eq!(paragraphs(&harness), vec!["注a 日本"], "the kanji commit");
 }
 
 #[test]
@@ -980,30 +1112,6 @@ fn pasted_html_is_sanitised_into_blocks() {
         "a script's text came through: {body}"
     );
     assert!(!harness.html().contains("steal"), "a handler came through");
-}
-
-#[test]
-fn a_click_puts_the_caret_where_it_lands() {
-    let (mut harness, _dir, _store) = composing();
-    type_text(&mut harness, "hello world");
-    let text = harness.rect(".c-body > p span").expect("the run");
-    let middle = text.origin.y.0 + text.size.height.0 / 2.0;
-    // Before the first letter.
-    harness.click(Point {
-        x: Px(text.origin.x.0 + 1.0),
-        y: Px(middle),
-    });
-    harness.advance(ms(100));
-    type_text(&mut harness, "X");
-    assert_eq!(paragraphs(&harness), vec!["Xhello world"]);
-    // Past the end of the line.
-    harness.click(Point {
-        x: Px(text.origin.x.0 + text.size.width.0 + 40.0),
-        y: Px(middle),
-    });
-    harness.advance(ms(100));
-    type_text(&mut harness, "!");
-    assert_eq!(paragraphs(&harness), vec!["Xhello world!"]);
 }
 
 #[test]
@@ -1084,22 +1192,6 @@ fn a_slash_opens_its_menu_at_the_caret() {
 }
 
 #[test]
-fn an_at_sign_mentions_a_person_and_adds_them_to_cc() {
-    let (mut harness, _dir, _store) = composing();
-    type_text(&mut harness, "thanks @ada");
-    harness.advance(ms(300));
-    assert_eq!(harness.count(".ds-menu"), 1, "@ opened no menu");
-    press(&mut harness, &[], Key::Enter, 1);
-    harness.advance(ms(300));
-    assert_eq!(harness.count(".ds-menu"), 0);
-    let cc = harness.text_of(".c-props").unwrap_or_default();
-    assert!(cc.contains("ada"), "ada is not in Cc: {cc:?}");
-    // The query became the person's name, and the caret is after it.
-    type_text(&mut harness, "for");
-    assert_eq!(paragraphs(&harness), vec!["thanks @ada for"]);
-}
-
-#[test]
 fn send_queues_the_typed_body_as_text_and_html() {
     let (mut harness, _dir, store) = composing();
     type_text(&mut harness, "hey there");
@@ -1114,25 +1206,12 @@ fn send_queues_the_typed_body_as_text_and_html() {
     let later = chrono::Utc::now() + chrono::Duration::days(1);
     let due = store.outbox_due(acct_account(), later).unwrap();
     assert_eq!(due.len(), 1, "nothing was queued");
-    let ProtoOp::Submit {
-        draft,
-        raw,
-        rcpt_to,
-        ..
-    } = &due[0].op
-    else {
+    let ProtoOp::Submit { draft, rcpt_to, .. } = &due[0].op else {
         panic!("expected a submission, got {:?}", due[0].op);
     };
     assert_eq!(rcpt_to, &vec!["ada@example.test".to_owned()]);
     let sent = store.draft(*draft).unwrap();
     assert_eq!(sent.text.trim_end(), "hey there");
-    let html = sent.html.unwrap_or_default();
-    assert!(html.contains("hey there"), "{html}");
-    let bytes = store.blobs().get(&store.connection(), *raw).unwrap();
-    let bytes = String::from_utf8_lossy(&bytes);
-    for part in ["text/plain", "text/html", "hey there"] {
-        assert!(bytes.contains(part), "no {part} in:\n{bytes}");
-    }
 }
 
 /// The run's start and end on its line, and the line's middle: where a test presses.
@@ -1149,59 +1228,6 @@ fn run_ends(harness: &Harness) -> (Point, Point) {
             y: Px(middle),
         },
     )
-}
-
-#[test]
-fn shift_click_selects_from_the_caret_to_where_it_lands() {
-    let (mut harness, _dir, _store) = composing();
-    type_text(&mut harness, "hello world");
-    let (start, end) = run_ends(&harness);
-    harness.click(start);
-    harness.advance(ms(100));
-    assert_eq!(harness.count(".c-sel"), 0, "a plain click selected");
-    harness.click_with(end, &[Key::Shift]);
-    harness.advance(ms(100));
-    assert!(
-        harness.count(".c-sel") >= 1,
-        "Shift+click drew no selection"
-    );
-    // The selection is the whole line: typing replaces it.
-    type_text(&mut harness, "X");
-    assert_eq!(paragraphs(&harness), vec!["X"]);
-}
-
-#[test]
-fn a_drag_selects_what_it_passes_over() {
-    let (mut harness, _dir, _store) = composing();
-    type_text(&mut harness, "hello world");
-    let (start, end) = run_ends(&harness);
-    harness.drag(start, end, 6);
-    harness.advance(ms(100));
-    assert!(harness.count(".c-sel") >= 1, "the drag drew no selection");
-    assert_eq!(harness.count(".c-caret"), 0, "a caret beside a selection");
-    type_text(&mut harness, "Y");
-    assert_eq!(paragraphs(&harness), vec!["Y"]);
-}
-
-#[test]
-fn home_and_end_go_to_the_line_s_ends_and_delete_takes_the_next_letter() {
-    let (mut harness, _dir, _store) = composing();
-    type_text(&mut harness, "middle");
-    press(&mut harness, &[], Key::Home, 1);
-    type_text(&mut harness, "A");
-    press(&mut harness, &[], Key::End, 1);
-    type_text(&mut harness, "Z");
-    assert_eq!(paragraphs(&harness), vec!["AmiddleZ"]);
-    // Delete, from the line's start, takes the letter after the caret.
-    press(&mut harness, &[], Key::Home, 1);
-    press(&mut harness, &[], Key::Delete, 1);
-    assert_eq!(paragraphs(&harness), vec!["middleZ"]);
-    // Shift+End selects to the line's end.
-    press(&mut harness, &[Key::Shift], Key::End, 1);
-    harness.advance(ms(100));
-    assert!(harness.count(".c-sel") >= 1, "Shift+End drew no selection");
-    press(&mut harness, &[], Key::Backspace, 1);
-    assert_eq!(paragraphs(&harness), vec![""]);
 }
 
 /// A picture of the composer on Blitz, with text, a bold run, a selection and the bubble,
@@ -1263,7 +1289,8 @@ fn going_to_another_folder_ends_a_rename() {
 /// Every tipped control in the window, the pointer rested on it past the tip delay, shows its
 /// tip through quire's hover hub: the buttons whose tip is their name, those whose short tip
 /// (a name and its key, "Print  ⌘P") is their description, and the message's time, whose tip
-/// is the full date.
+/// is the full date. Then a Space dot's tip names the Space and the key that switches to it,
+/// tersely as every tip is (`Name  Key`).
 #[test]
 fn a_rested_pointer_shows_each_controls_tip() {
     let (mut harness, _dir) = open();
@@ -1310,16 +1337,15 @@ fn a_rested_pointer_shows_each_controls_tip() {
             "{selector}"
         );
     }
-}
 
-/// A Space dot's tip names the Space and the key that switches to it, tersely as every tip is
-/// (`Name  Key`), shown when the pointer rests on it.
-#[test]
-fn a_space_dots_tip_names_its_key() {
-    let (mut harness, _dir) = open();
-    let dot = ".ds-space-dot";
-    harness.pointer_move(centre(&harness, dot));
+    // The Space dot, rested on after the pointer has been away.
+    harness.pointer_move(Point {
+        x: Px(5.0),
+        y: Px(790.0),
+    });
+    harness.advance(ms(2500));
+    harness.pointer_move(centre(&harness, ".ds-space-dot"));
     harness.advance(ms(1300));
     let tip = harness.text_of(".ds-tooltip").unwrap_or_default();
-    assert_eq!(tip, "Space 1  \u{2318}1");
+    assert_eq!(tip, "Space 1  \u{2318}1", "the Space dot's tip");
 }

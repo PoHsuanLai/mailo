@@ -10,7 +10,6 @@ use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
-use porter_provider::Issuer;
 
 /// `cli::run`, with no saved OAuth clients.
 fn exercise(
@@ -149,7 +148,7 @@ fn an_empty_mailbox_says_so_instead_of_printing_nothing() {
 }
 
 #[test]
-fn show_prints_the_body_and_says_when_it_is_not_fetched() {
+fn show_prints_the_body_and_says_what_it_cannot_show() {
     let (store, _dir, first) = seeded();
     let out = exercise(&store, &cli::Command::Show { thread: first }, now()).unwrap();
     assert!(out.contains("lunch on friday"));
@@ -167,6 +166,17 @@ fn show_prints_the_body_and_says_when_it_is_not_fetched() {
     )
     .unwrap();
     assert!(out.contains("not fetched yet"), "{out}");
+
+    // A thread that is not there is an error that says so, not a panic.
+    let err = exercise(
+        &store,
+        &cli::Command::Show {
+            thread: ThreadId::generate(),
+        },
+        now(),
+    )
+    .expect_err("no such thread");
+    assert!(err.starts_with("no such thread"), "{err}");
 }
 
 #[test]
@@ -207,20 +217,6 @@ fn status_counts_unread_separately_from_total() {
 }
 
 #[test]
-fn a_missing_thread_is_an_error_not_a_panic() {
-    let (store, _dir, _) = seeded();
-    let err = exercise(
-        &store,
-        &cli::Command::Show {
-            thread: ThreadId::generate(),
-        },
-        now(),
-    )
-    .expect_err("no such thread");
-    assert!(!err.is_empty());
-}
-
-#[test]
 fn the_parser_understands_the_composing_verbs() {
     let args = |s: &str| -> Vec<String> { s.split(' ').map(str::to_owned).collect() };
     let id = MessageId::generate().to_string();
@@ -250,105 +246,191 @@ fn the_parser_understands_the_composing_verbs() {
     assert!(cli::parse(&args(&format!("reply {id} --everyone"))).is_err());
 }
 
-#[test]
-fn usage_mentions_every_verb_the_parser_accepts() {
-    // A command that works but is undocumented is a command nobody uses.
-    let text = cli::usage();
-    for verb in [
-        "list", "show", "search", "reply", "send", "drafts", "status", "sync",
-    ] {
-        assert!(
-            text.contains(verb),
-            "usage does not mention {verb}:\n{text}"
-        );
-    }
-}
-
 /// Manual server configuration: the only way to reach a host the preset table never heard of.
 mod manual_setup {
     use super::*;
+    use mail_core::account::{Receive, Setup};
+    use mail_domain::presets::{Manual, ManualPop3};
 
     fn args(s: &str) -> Vec<String> {
         s.split(' ').map(str::to_owned).collect()
     }
 
+    /// What `account add` builds from the servers it is given. The ports default to implicit
+    /// TLS, because those are the ones that cannot be downgraded.
     #[test]
-    fn naming_both_servers_configures_an_account_the_table_does_not_know() {
-        let parsed = cli::parse(&args(
-            "account add me@example.test --imap imap.example.test --smtp smtp.example.test",
-        ))
-        .expect("manual setup parses");
-        match parsed {
-            cli::Command::AccountAdd {
-                address,
-                manual: Some(mail_core::account::Setup::Imap(manual)),
-                ..
-            } => {
-                assert_eq!(address, "me@example.test");
-                assert_eq!(manual.imap_host, "imap.example.test");
-                assert_eq!(manual.smtp_host, "smtp.example.test");
-                // Implicit-TLS ports, because those are the ones that cannot be downgraded.
-                assert_eq!(manual.imap_port, 993);
-                assert_eq!(manual.smtp_port, 465);
-                assert_eq!(manual.login, None);
-            }
-            other => panic!("{other:?}"),
+    fn account_add_parses_the_servers_it_names() {
+        struct Row {
+            name: &'static str,
+            line: &'static str,
+            pop3: bool,
+            incoming: (&'static str, u16),
+            smtp: (&'static str, u16),
+            login: Option<&'static str>,
+            yes: bool,
+        }
+        const CASES: &[Row] = &[
+            Row {
+                name: "both servers, default ports",
+                line: "account add me@example.test --imap imap.example.test --smtp smtp.example.test",
+                pop3: false,
+                incoming: ("imap.example.test", 993),
+                smtp: ("smtp.example.test", 465),
+                login: None,
+                yes: false,
+            },
+            Row {
+                name: "a port given with each host",
+                line: "account add me@example.test --imap imap.example.test:1993 --smtp smtp.example.test:1465",
+                pop3: false,
+                incoming: ("imap.example.test", 1993),
+                smtp: ("smtp.example.test", 1465),
+                login: None,
+                yes: false,
+            },
+            Row {
+                name: "a login name that is not the address",
+                line: "account add me@example.test --imap i.example.test --smtp s.example.test --login mylogin",
+                pop3: false,
+                incoming: ("i.example.test", 993),
+                smtp: ("s.example.test", 465),
+                login: Some("mylogin"),
+                yes: false,
+            },
+            Row {
+                name: "a server that offers only POP3",
+                line: "account add s1234567@example.edu --pop3 pop.example.edu --smtp smtp.example.edu --login s1234567",
+                pop3: true,
+                incoming: ("pop.example.edu", 995),
+                smtp: ("smtp.example.edu", 465),
+                login: Some("s1234567"),
+                yes: false,
+            },
+            Row {
+                name: "--yes beside the servers",
+                line: "account add me@example.test --imap i.example.test --smtp s.example.test --yes",
+                pop3: false,
+                incoming: ("i.example.test", 993),
+                smtp: ("s.example.test", 465),
+                login: None,
+                yes: true,
+            },
+        ];
+        for row in CASES {
+            let (smtp_host, smtp_port) = (row.smtp.0.to_owned(), row.smtp.1);
+            let login = row.login.map(str::to_owned);
+            let manual = if row.pop3 {
+                Setup::Pop3(ManualPop3 {
+                    pop3_host: row.incoming.0.to_owned(),
+                    pop3_port: row.incoming.1,
+                    smtp_host,
+                    smtp_port,
+                    login,
+                })
+            } else {
+                Setup::Imap(Manual {
+                    imap_host: row.incoming.0.to_owned(),
+                    imap_port: row.incoming.1,
+                    smtp_host,
+                    smtp_port,
+                    login,
+                })
+            };
+            let want = cli::Command::AccountAdd {
+                address: row.line.split(' ').nth(2).unwrap().to_owned(),
+                manual: Some(manual),
+                microsoft: false,
+                graph: false,
+                receive: Receive::Imap,
+                consent: if row.yes {
+                    cli::Consent::Given
+                } else {
+                    cli::Consent::Ask
+                },
+            };
+            assert_eq!(cli::parse(&args(row.line)), Ok(want), "{}", row.name);
         }
     }
 
+    /// A configuration that is half there, contradicts itself, or carries a flag nobody knows is
+    /// refused with the sentence that says why. Every parse error ends with the whole usage text,
+    /// so checking for a flag name alone would pass whatever the sentence said.
     #[test]
-    fn a_port_can_be_given_with_the_host() {
-        let parsed = cli::parse(&args(
-            "account add me@example.test --imap imap.example.test:1993 --smtp smtp.example.test:1465",
-        ))
-        .unwrap();
-        match parsed {
-            cli::Command::AccountAdd {
-                manual: Some(mail_core::account::Setup::Imap(manual)),
-                ..
-            } => {
-                assert_eq!(manual.imap_port, 1993);
-                assert_eq!(manual.smtp_port, 1465);
-            }
-            other => panic!("{other:?}"),
+    fn account_add_refuses_and_says_why() {
+        const CASES: &[(&str, &str, &str)] = &[
+            // Defaulting the missing half to a hostname derived from the domain is how mail goes
+            // to a server the user never named.
+            (
+                "half a configuration",
+                "account add me@example.test --imap imap.example.test",
+                "manual setup needs --smtp and one of --imap or --pop3",
+            ),
+            (
+                "a port that is not a number",
+                "account add me@example.test --imap imap.example.test:notaport --smtp s.example.test",
+                "\"notaport\" is not a port number",
+            ),
+            (
+                "an unknown option",
+                "account add me@example.test --imap i.example.test --smtp s.example.test --tls no",
+                "unknown option \"--tls\"",
+            ),
+            // Two incoming servers is two sources of truth for one mailbox.
+            (
+                "IMAP and POP3 together",
+                "account add me@example.test --imap i.example.test --pop3 p.example.test --smtp s.example.test",
+                "an account reads mail over IMAP or over POP3, not both; pick one",
+            ),
+            // Graph is Microsoft's.
+            (
+                "--send graph without --microsoft",
+                "account add me@gmail.com --send graph",
+                "--send is for a Microsoft 365 account; add --microsoft",
+            ),
+            (
+                "a third way to send",
+                "account add me@x.example --microsoft --send carrier-pigeon",
+                "--send takes smtp or graph, not Some(\"carrier-pigeon\")",
+            ),
+            (
+                "--receive graph without --microsoft",
+                "account add me@gmail.com --receive graph",
+                "--receive is for a Microsoft 365 account; add --microsoft",
+            ),
+            // The one token is Graph's; SMTP would have nothing to sign in with.
+            (
+                "--receive graph with --send smtp",
+                "account add me@yourcompany.example --microsoft --receive graph --send smtp",
+                "--receive graph sends through Graph too; drop --send smtp",
+            ),
+            // Both name the servers. Silently letting one win is how an account ends up pointed
+            // somewhere the user did not intend.
+            (
+                "--microsoft beside manual servers",
+                "account add me@x.example --microsoft --imap i.example --smtp s.example",
+                "--microsoft already knows the servers; drop the other options",
+            ),
+            // One JMAP server does both jobs; naming another is a mistake, not a preference.
+            (
+                "--jmap beside --smtp",
+                "account add me@example.test --jmap https://j.example.test/ --smtp s.example.test",
+                "--jmap names the one server that both receives and sends; \"--smtp\" does",
+            ),
+            (
+                "--jmap with a host instead of a URL",
+                "account add me@example.test --jmap jmap.example.test",
+                "--jmap takes the session URL, e.g. https://jmap.example.com/.well-known/jmap,",
+            ),
+        ];
+        for (name, line, said) in CASES {
+            let err = cli::parse(&args(line)).expect_err(name);
+            assert!(err.starts_with(said), "{name}: {err}");
         }
-    }
-
-    #[test]
-    fn a_login_name_that_is_not_the_address_is_carried_through() {
-        let parsed = cli::parse(&args(
-            "account add me@example.test --imap i.example.test --smtp s.example.test --login mylogin",
-        ))
-        .unwrap();
-        match parsed {
-            cli::Command::AccountAdd {
-                manual: Some(mail_core::account::Setup::Imap(manual)),
-                ..
-            } => assert_eq!(manual.login.as_deref(), Some("mylogin")),
-            other => panic!("{other:?}"),
-        }
-    }
-
-    #[test]
-    fn half_a_configuration_is_refused_rather_than_guessed() {
-        // Defaulting the missing half to a hostname derived from the domain is how mail goes to
-        // a server the user never named.
-        let err = cli::parse(&args(
-            "account add me@example.test --imap imap.example.test",
-        ))
-        .expect_err("one server is not a configuration");
-        assert!(err.contains("--smtp"), "{err}");
     }
 
     #[test]
     fn a_domain_with_no_preset_says_how_to_configure_it() {
-        let err = cli::parse(&args("account add me@nowhere.example"))
-            .ok()
-            .map(|_| String::new())
-            .unwrap_or_default();
         // Parsing succeeds; the explanation comes from `account::add`, which needs a store.
-        assert!(err.is_empty());
-
         let (store, _dir, _thread) = seeded();
         let command = cli::parse(&args("account add me@nowhere.example")).unwrap();
         let err = exercise(&store, &command, now()).expect_err("no preset");
@@ -357,55 +439,6 @@ mod manual_setup {
             "the error must show the way out: {err}"
         );
         assert!(err.contains("--smtp"), "{err}");
-    }
-
-    #[test]
-    fn a_bad_port_is_explained_not_ignored() {
-        let err = cli::parse(&args(
-            "account add me@example.test --imap imap.example.test:notaport --smtp s.example.test",
-        ))
-        .expect_err("ports are numbers");
-        assert!(err.contains("port"), "{err}");
-    }
-
-    #[test]
-    fn an_unknown_option_does_not_pass_silently() {
-        let err = cli::parse(&args(
-            "account add me@example.test --imap i.example.test --smtp s.example.test --tls no",
-        ))
-        .expect_err("unknown flag");
-        assert!(err.contains("--tls"), "{err}");
-    }
-
-    #[test]
-    fn a_server_that_offers_only_pop3_is_named_with_pop3() {
-        let parsed = cli::parse(&args(
-            "account add s1234567@example.edu --pop3 pop.example.edu --smtp smtp.example.edu --login s1234567",
-        ))
-        .unwrap();
-        match parsed {
-            cli::Command::AccountAdd {
-                manual: Some(mail_core::account::Setup::Pop3(manual)),
-                ..
-            } => {
-                assert_eq!(manual.pop3_host, "pop.example.edu");
-                // The implicit-TLS port, as for IMAP.
-                assert_eq!(manual.pop3_port, 995);
-                assert_eq!(manual.smtp_port, 465);
-                assert_eq!(manual.login.as_deref(), Some("s1234567"));
-            }
-            other => panic!("{other:?}"),
-        }
-    }
-
-    #[test]
-    fn imap_and_pop3_together_are_refused() {
-        // Two incoming servers is two sources of truth for one mailbox.
-        let err = cli::parse(&args(
-            "account add me@example.test --imap i.example.test --pop3 p.example.test --smtp s.example.test",
-        ))
-        .expect_err("one incoming server");
-        assert!(err.contains("POP3"), "{err}");
     }
 
     #[test]
@@ -488,25 +521,6 @@ mod microsoft {
     }
 
     #[test]
-    fn a_tenant_fallback_domain_is_recognised_on_its_own() {
-        // `you@contoso.onmicrosoft.com` is the one Microsoft 365 address that names itself.
-        let preset = mail_core::discover::known("me@contoso.onmicrosoft.com", now())
-            .expect("a tenant domain is known");
-        assert!(matches!(
-            preset.plan.auth,
-            AuthPlan::OAuth {
-                issuer: Issuer::Microsoft,
-                ..
-            }
-        ));
-    }
-
-    #[test]
-    fn a_lookalike_tenant_domain_is_not() {
-        assert!(mail_core::discover::known("me@notonmicrosoft.com", now()).is_none());
-    }
-
-    #[test]
     fn a_custom_tenant_domain_needs_to_be_told() {
         // The common case, and the one nothing can infer: a work mailbox on the company's own
         // domain. Guessing would mean autodiscover, and guessing wrong points the client at a
@@ -567,29 +581,6 @@ mod microsoft {
                 ..
             }
         ));
-        // The one token is Graph's; SMTP would have nothing to sign in with.
-        let err = cli::parse(&args(
-            "account add me@yourcompany.example --microsoft --receive graph --send smtp",
-        ))
-        .unwrap_err();
-        assert!(
-            err.contains("--receive graph sends through Graph too"),
-            "{err}"
-        );
-        let err = cli::parse(&args("account add me@gmail.com --receive graph")).unwrap_err();
-        assert!(err.contains("add --microsoft"), "{err}");
-    }
-
-    #[test]
-    fn sending_through_graph_is_only_for_microsoft() {
-        let err = cli::parse(&args("account add me@gmail.com --send graph"))
-            .expect_err("Graph is Microsoft's");
-        assert!(err.contains("--microsoft"), "{err}");
-        let err = cli::parse(&args(
-            "account add me@x.example --microsoft --send carrier-pigeon",
-        ))
-        .expect_err("two ways to send, not three");
-        assert!(err.contains("smtp or graph"), "{err}");
     }
 
     #[test]
@@ -613,17 +604,6 @@ mod microsoft {
             .unwrap();
         let plan: AccountPlan = serde_json::from_str(&plan).unwrap();
         assert_eq!(plan.outgoing, Outgoing::Graph);
-    }
-
-    #[test]
-    fn microsoft_and_manual_servers_together_are_refused() {
-        // Both name the servers. Silently letting one win is how an account ends up pointed
-        // somewhere the user did not intend.
-        let err = cli::parse(&args(
-            "account add me@x.example --microsoft --imap i.example --smtp s.example",
-        ))
-        .expect_err("two sources of truth");
-        assert!(err.contains("--microsoft"), "{err}");
     }
 
     #[test]
@@ -730,12 +710,6 @@ fn discard_is_parsed_and_needs_an_id() {
     );
     assert!(parse(&["discard"]).is_err(), "no id is not a discard");
     assert!(parse(&["discard", "not-a-uuid"]).is_err());
-    // And it is in the usage text, because a command nobody can find is not a command.
-    assert!(
-        parse(&[]).unwrap_err().contains("discard <draft-id>"),
-        "{}",
-        parse(&[]).unwrap_err()
-    );
 }
 
 /// `mailo forward`, and the recipients it insists on.
@@ -752,11 +726,13 @@ mod forwarding {
         // existing draft — so a forward without `--to` is the F99 dead end again: a draft that
         // cannot be sent and cannot be repaired.
         let id = uuid::Uuid::new_v4().to_string();
+        // The message it names is the one asked for.
         let err = parse(&["forward", &id]).unwrap_err();
-        assert!(err.contains("--to"), "{err}");
         assert!(
-            err.contains(&id),
-            "the message it names is the one asked for: {err}"
+            err.starts_with(&format!(
+                "forward needs recipients: mailo forward {id} --to someone@example.com"
+            )),
+            "{err}"
         );
         assert!(
             parse(&["forward", &id, "--to"]).is_err(),
@@ -834,13 +810,6 @@ mod forwarding {
         let id = uuid::Uuid::new_v4().to_string();
         assert!(parse(&["forward", &id, "--to", "not-an-address"]).is_err());
     }
-
-    #[test]
-    fn it_is_in_the_usage_text() {
-        // A command nobody can find is not a command.
-        let usage = parse(&[]).unwrap_err();
-        assert!(usage.contains("forward <message-id> --to"), "{usage}");
-    }
 }
 
 /// `compose` — phase 7a's command line half.
@@ -856,7 +825,10 @@ mod composing {
         // The same F99 dead end `forward` has: no command adds a recipient to an existing draft,
         // so a `compose` without `--to` would leave one that can never be sent.
         let err = parse(&["compose"]).unwrap_err();
-        assert!(err.contains("--to"), "{err}");
+        assert!(
+            err.starts_with("compose needs recipients: mailo compose --to someone@example.com"),
+            "{err}"
+        );
         assert!(
             parse(&["compose", "--to"]).is_err(),
             "no address after --to"
@@ -933,13 +905,103 @@ mod composing {
             "high",
         ])
         .unwrap_err();
-        assert!(err.contains("--priority"), "{err}");
+        assert!(err.starts_with("unknown option \"--priority\""), "{err}");
     }
 
+    /// The flags that ask for a receipt, OpenPGP or S/MIME. A receipt can be asked for in either
+    /// word order: `plan.md` says one and the brief the other, and a flag refused for its word
+    /// order is a flag nobody finds.
     #[test]
-    fn the_usage_mentions_it() {
-        // A command nothing names is one nobody finds.
-        assert!(cli::usage().contains("compose --to"), "{}", cli::usage());
+    fn compose_flags_set_what_they_say() {
+        use ReceiptRequest::{Requested, Unrequested};
+        const CASES: &[(&str, &[&str], ReceiptRequest, OpenPgp, Smime)] = &[
+            (
+                "nothing asked",
+                &[],
+                Unrequested,
+                OpenPgp::None,
+                Smime::None,
+            ),
+            (
+                "--request-receipt",
+                &["--request-receipt"],
+                Requested,
+                OpenPgp::None,
+                Smime::None,
+            ),
+            (
+                "--receipt-request",
+                &["--receipt-request"],
+                Requested,
+                OpenPgp::None,
+                Smime::None,
+            ),
+            (
+                "--sign",
+                &["--sign"],
+                Unrequested,
+                OpenPgp::Sign,
+                Smime::None,
+            ),
+            (
+                "--encrypt",
+                &["--encrypt"],
+                Unrequested,
+                OpenPgp::Encrypt,
+                Smime::None,
+            ),
+            (
+                "--encrypt --sign",
+                &["--encrypt", "--sign"],
+                Unrequested,
+                OpenPgp::SignAndEncrypt,
+                Smime::None,
+            ),
+            (
+                "--sign --smime",
+                &["--sign", "--smime"],
+                Unrequested,
+                OpenPgp::None,
+                Smime::Sign,
+            ),
+            (
+                "--encrypt --smime",
+                &["--encrypt", "--smime"],
+                Unrequested,
+                OpenPgp::None,
+                Smime::Encrypt,
+            ),
+            (
+                "--smime --sign --encrypt",
+                &["--smime", "--sign", "--encrypt"],
+                Unrequested,
+                OpenPgp::None,
+                Smime::SignAndEncrypt,
+            ),
+        ];
+        for (name, flags, want_receipt, want_openpgp, want_smime) in CASES {
+            let mut words = vec!["compose", "--to", "bea@example.test"];
+            words.extend_from_slice(flags);
+            match parse(&words).unwrap() {
+                cli::Command::Compose {
+                    receipt,
+                    openpgp,
+                    smime,
+                    ..
+                } => assert_eq!(
+                    (receipt, openpgp, smime),
+                    (*want_receipt, *want_openpgp, *want_smime),
+                    "{name}"
+                ),
+                other => panic!("{name}: {other:?}"),
+            }
+        }
+        // S/MIME says how to sign or encrypt; on its own it asks for nothing.
+        let alone = parse(&["compose", "--to", "bea@example.test", "--smime"]).unwrap_err();
+        assert!(
+            alone.starts_with("--smime says how to --sign or --encrypt; give one of them too"),
+            "{alone}"
+        );
     }
 }
 
@@ -972,20 +1034,6 @@ mod jmap_setup {
                 ..
             }
         ));
-        // One server does both jobs; naming another is a mistake, not a preference.
-        assert!(
-            cli::parse(&args(
-                "account add me@example.test --jmap https://j.example.test/ --smtp s.example.test"
-            ))
-            .is_err()
-        );
-        assert!(
-            cli::parse(&args(
-                "account add me@example.test --jmap jmap.example.test"
-            ))
-            .is_err()
-        );
-        assert!(cli::usage().contains("--jmap"));
     }
 
     #[test]

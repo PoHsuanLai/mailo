@@ -113,7 +113,7 @@ fn ten_thousand_parts_cost_ten_thousand_blobs_and_no_more() {
 }
 
 #[test]
-fn ten_thousand_identical_parts_cost_one_blob() {
+fn ten_thousand_identical_parts_cost_one_blob_and_each_is_reachable() {
     // The blob store is content-addressed, so the obvious flood — one byte repeated — collapses
     // to a single stored part. Worth pinning: it is the difference between a hostile message
     // costing what it weighs and costing what it claims.
@@ -122,16 +122,11 @@ fn ten_thousand_identical_parts_cost_one_blob() {
     assert_eq!(
         blob_rows(&store),
         2,
-        "the raw message and one shared part, not ten thousand copies"
+        "one blob: the raw message and one shared part, not ten thousand copies"
     );
-}
 
-#[test]
-fn every_part_is_still_reachable_afterwards() {
     // Cheapness must not have cost correctness: each of the ten thousand is a separate
     // attachment with its own name, even where the bytes are shared.
-    let (store, _dir) = seeded();
-    ingest(&store, flood(1_000, false));
     let id: String = store
         .connection()
         .query_row("SELECT id FROM messages", [], |r| r.get(0))
@@ -139,12 +134,15 @@ fn every_part_is_still_reachable_afterwards() {
     let message = store
         .message(id.parse::<uuid::Uuid>().map(MessageId::from_uuid).unwrap())
         .unwrap();
-    assert_eq!(message.attachments.len(), 1_000);
-    assert_eq!(message.attachments[0].name, "f0");
-    assert_eq!(message.attachments[999].name, "f999");
+    assert_eq!(message.attachments.len(), 10_000, "reachable: every part");
+    assert_eq!(message.attachments[0].name, "f0", "reachable: the first");
+    assert_eq!(
+        message.attachments[9_999].name, "f9999",
+        "reachable: the last"
+    );
     assert_eq!(
         message.attachments[0].blob(),
-        message.attachments[999].blob(),
-        "identical bytes share a blob"
+        message.attachments[9_999].blob(),
+        "reachable: identical bytes share a blob"
     );
 }

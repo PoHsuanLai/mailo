@@ -301,12 +301,14 @@ fn a_provider_icon_is_a_picture_as_many_pixels_across_as_the_screen_draws_it() {
     check(&w, "the sign-in header");
 }
 
+/// The window opens on the list of providers with a title of its own, looking nothing up; then
+/// the sign-in form. Both pass the markup lint.
 #[test]
-fn the_window_opens_on_the_list_of_providers_with_round_marks_and_a_title_of_its_own() {
+fn the_window_opens_on_the_list_of_providers_and_passes_the_lint() {
     let mut w = open(Script::default(), None);
     on_step(&mut w, "providers");
-    let html = w.harness.html();
-    assert!(html.contains("Add Account"), "{html}");
+    let providers = w.harness.html();
+    assert!(providers.contains("Add Account"), "{providers}");
     for name in [
         "Google",
         "Microsoft",
@@ -316,13 +318,34 @@ fn the_window_opens_on_the_list_of_providers_with_round_marks_and_a_title_of_its
         "GMX",
         "Other",
     ] {
-        assert!(html.contains(name), "{name} is not offered:\n{html}");
+        assert!(
+            providers.contains(name),
+            "{name} is not offered:\n{providers}"
+        );
     }
     assert!(
-        !html.contains("Email (IMAP)"),
+        !providers.contains("Email (IMAP)"),
         "the generic row is the list's Other…"
     );
-    assert!(w.log.lookups.lock().unwrap().is_empty());
+    assert!(
+        w.log.lookups.lock().unwrap().is_empty(),
+        "the list looked something up"
+    );
+
+    type_text(&mut w, "fast");
+    w.harness.key(Key::Enter);
+    on_step(&mut w, "sign-in");
+    let form = w.harness.html();
+    let css = format!(
+        "{}\n{}",
+        ds_shell::stylesheet(),
+        include_str!("../src/ui/style/accounts.css")
+    );
+    let config = ds_lint::LintConfig::new(&ds_shell::kits());
+    for (name, html) in [("providers", providers), ("sign-in", form)] {
+        let offences = ds_lint::markup(&html, &css, &config);
+        assert!(offences.is_empty(), "the lint on {name}: {offences:#?}");
+    }
 }
 
 #[test]
@@ -546,16 +569,32 @@ fn a_whole_typed_pop3_add_through_the_window() {
     );
 }
 
+/// The form of typed servers, for IMAP and then for JMAP, which drops the outgoing part and asks
+/// a session URL and a token instead. Both pass the markup lint.
 #[test]
-fn jmap_drops_the_outgoing_form_and_asks_a_session_url_and_a_token() {
+fn the_typed_servers_form_drops_the_outgoing_part_for_jmap_and_passes_the_lint() {
     let mut w = open(no_servers(), None);
     to_server_form(&mut w);
+    let imap = w.harness.html();
     pick_protocol(&mut w, 3);
-    let html = w.harness.html();
-    assert!(html.contains("Server web address"), "{html}");
-    assert!(html.contains("Access token"), "{html}");
-    assert!(!html.contains("Outgoing server"), "{html}");
-    assert!(!html.contains("Outgoing"), "no outgoing part:\n{html}");
+    let jmap = w.harness.html();
+    assert!(jmap.contains("Server web address"), "JMAP: {jmap}");
+    assert!(jmap.contains("Access token"), "JMAP: {jmap}");
+    assert!(!jmap.contains("Outgoing server"), "JMAP: {jmap}");
+    assert!(
+        !jmap.contains("Outgoing"),
+        "JMAP has an outgoing part:\n{jmap}"
+    );
+    let css = format!(
+        "{}\n{}",
+        ds_shell::stylesheet(),
+        include_str!("../src/ui/style/accounts.css")
+    );
+    let config = ds_lint::LintConfig::new(&ds_shell::kits());
+    for (name, html) in [("imap", imap), ("jmap", jmap)] {
+        let offences = ds_lint::markup(&html, &css, &config);
+        assert!(offences.is_empty(), "the lint on {name}: {offences:#?}");
+    }
 }
 
 #[test]
@@ -623,46 +662,6 @@ fn the_window_asks_for_the_size_of_each_step() {
     let review = *asked(&w).last().unwrap();
     assert!(review.height < server.height, "{review:?}");
     assert_eq!(review.width, list[0].width);
-}
-
-#[test]
-fn what_the_window_draws_passes_the_markup_lint() {
-    let mut w = open(Script::default(), None);
-    on_step(&mut w, "providers");
-    let providers = w.harness.html();
-    type_text(&mut w, "fast");
-    w.harness.key(Key::Enter);
-    on_step(&mut w, "sign-in");
-    let form = w.harness.html();
-    let css = format!(
-        "{}\n{}",
-        ds_shell::stylesheet(),
-        include_str!("../src/ui/style/accounts.css")
-    );
-    let config = ds_lint::LintConfig::new(&ds_shell::kits());
-    for (name, html) in [("providers", providers), ("sign-in", form)] {
-        let offences = ds_lint::markup(&html, &css, &config);
-        assert!(offences.is_empty(), "{name}: {offences:#?}");
-    }
-}
-
-#[test]
-fn the_typed_servers_form_passes_the_markup_lint() {
-    let mut w = open(no_servers(), None);
-    to_server_form(&mut w);
-    let imap = w.harness.html();
-    pick_protocol(&mut w, 3);
-    let jmap = w.harness.html();
-    let css = format!(
-        "{}\n{}",
-        ds_shell::stylesheet(),
-        include_str!("../src/ui/style/accounts.css")
-    );
-    let config = ds_lint::LintConfig::new(&ds_shell::kits());
-    for (name, html) in [("imap", imap), ("jmap", jmap)] {
-        let offences = ds_lint::markup(&html, &css, &config);
-        assert!(offences.is_empty(), "{name}: {offences:#?}");
-    }
 }
 
 /// A picture of each step, light and dark, painted headlessly by Blitz: set `MAILO_SHOTS` to the

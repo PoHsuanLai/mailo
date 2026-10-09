@@ -161,6 +161,11 @@ mod tests {
         ("INBOX", "INBOX"),
         ("Drafts", "Drafts"),
         ("[Gmail]/All Mail", "[Gmail]/All Mail"),
+        // ASCII passes through untouched. The decoder runs on every name, including from
+        // servers that speak UTF8=ACCEPT.
+        ("[Gmail]/Sent Mail", "[Gmail]/Sent Mail"),
+        ("Work/2024", "Work/2024"),
+        ("a.b.c", "a.b.c"),
         // RFC 3501's own examples.
         ("~peter/mail/台北/日本語", "~peter/mail/&U,BTFw-/&ZeVnLIqe-"),
         ("Hello world!", "Hello world!"),
@@ -208,14 +213,5 @@ mod tests {
         // The alphabet is case-sensitive, so folding corrupts the name rather than normalising
         // it. These two differ only in case and must decode differently.
         assert_ne!(decode("&AEE-"), decode("&aee-"));
-    }
-
-    #[test]
-    fn ascii_passes_through_untouched() {
-        // The decoder runs on every name, including from servers that speak UTF8=ACCEPT.
-        for name in ["INBOX", "[Gmail]/Sent Mail", "Work/2024", "a.b.c"] {
-            assert_eq!(decode(name), name);
-            assert_eq!(encode(name), name);
-        }
     }
 }

@@ -180,16 +180,24 @@ fn open_row(harness: &mut Harness, n: usize) {
 const HEAD_LOGO: &str = ".reader-meta .reader-logo img";
 const HEAD_CHECKS: &str = ".reader-meta .sender-checks";
 
+/// A cached logo takes the initial's place in the reader's head; then a sender DMARC did not pass
+/// for keeps their initial.
 #[test]
-fn a_cached_logo_takes_the_initials_place_in_the_reader_head() {
+fn a_cached_logo_takes_the_initials_place_and_a_sender_dmarc_did_not_pass_for_keeps_it() {
     let Opened { mut harness, _dirs } = open(mail_core::bimi::Setting::On);
+
+    // DMARC passed: the logo.
     open_row(&mut harness, 1);
     settle_until(&mut harness, |harness| harness.count(HEAD_LOGO) == 1);
     let src = harness.attr(HEAD_LOGO, "src").unwrap_or_default();
-    assert!(src.starts_with("data:image/png;base64,"), "{src}");
+    assert!(
+        src.starts_with("data:image/png;base64,"),
+        "the logo's source: {src}"
+    );
     assert_eq!(
         harness.attr(HEAD_LOGO, "alt").as_deref(),
-        Some("Logo of brand.example")
+        Some("Logo of brand.example"),
+        "the logo's alt"
     );
     assert_eq!(
         harness
@@ -202,24 +210,30 @@ fn a_cached_logo_takes_the_initials_place_in_the_reader_head() {
     let rect = harness.rect(HEAD_LOGO).expect("the logo is laid out");
     assert!(
         rect.size.width.0 > 20.0 && rect.size.height.0 > 20.0,
-        "{rect:?}"
+        "the logo's size: {rect:?}"
     );
-}
 
-#[test]
-fn a_sender_dmarc_did_not_pass_for_keeps_the_initial() {
-    let Opened { mut harness, _dirs } = open(mail_core::bimi::Setting::On);
+    // DMARC did not pass: the initial.
     open_row(&mut harness, 2);
-    // The checks line lands once the blob has been read, and so has the logo's answer.
-    settle_until(&mut harness, |harness| harness.count(HEAD_CHECKS) == 1);
+    // The checks line lands once the blob has been read, and so has the logo's answer. The first
+    // row's line was a pass, so wait for the second's.
+    settle_until(&mut harness, |harness| {
+        harness.count(HEAD_CHECKS) == 1
+            && harness.attr(HEAD_CHECKS, "data-standing").as_deref() != Some("pass")
+    });
     harness.advance(ms(300));
-    assert_eq!(harness.count(".reader-logo"), 0);
+    assert_eq!(
+        harness.count(".reader-logo"),
+        0,
+        "a logo for a sender DMARC did not pass for"
+    );
     assert_eq!(
         harness
             .text_of(".reader-meta .reader-av")
             .as_deref()
             .map(str::trim),
-        Some("G")
+        Some("G"),
+        "the initial of a sender DMARC did not pass for"
     );
 }
 

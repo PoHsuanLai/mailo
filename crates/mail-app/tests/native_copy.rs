@@ -230,32 +230,28 @@ fn letter_open() -> (Harness, tempfile::TempDir) {
     (harness, dir)
 }
 
-/// (a) Text selected in an HTML message's body, its own sealed document, then Ctrl+C.
+/// Each copy below lands text other than what the clipboard held, so a chord that copied
+/// nothing fails its step rather than passing on the step before's text.
+///
+/// (a) Text selected in an HTML message's body, its own sealed document, then Ctrl+C. Then a
+/// plain-text message, whose body is a frame of its own as well. Then (a, e) the HTML message
+/// again with Super+C: the Command key, as the window reports it since quire v0.2.31. Blitz's
+/// own copy of a page's selection takes Super as well as Ctrl off macOS since quire v0.3.0's
+/// Blitz.
 #[test]
-fn the_command_key_copies_what_is_selected_in_a_messages_frame() {
+fn the_command_key_and_super_c_copy_a_messages_selection() {
     let (mut harness, _dir) = letter_open();
+
+    // The HTML message, the command key.
     select_in_frame(&mut harness, "h1");
     copy_with(&mut harness, COMMAND);
     let got = copied(&harness);
-    assert!(got.contains("autumn collection"), "copied {got:?}");
-}
+    assert!(
+        got.contains("autumn collection"),
+        "the command key in the HTML message copied {got:?}"
+    );
 
-/// (a, e) The same with Super+C: the Command key, as the window reports it since quire v0.2.31.
-/// Blitz's own copy of a page's selection takes Super as well as Ctrl off macOS since quire
-/// v0.3.0's Blitz.
-#[test]
-fn super_c_copies_what_is_selected_in_a_messages_frame() {
-    let (mut harness, _dir) = letter_open();
-    select_in_frame(&mut harness, "h1");
-    copy_with(&mut harness, Key::Super);
-    let got = copied(&harness);
-    assert!(got.contains("autumn collection"), "copied {got:?}");
-}
-
-/// (a) A plain-text message, whose body is a frame of its own as well: selected, then Ctrl+C.
-#[test]
-fn the_command_key_copies_what_is_selected_in_a_plain_message() {
-    let (mut harness, _dir) = open();
+    // The plain message, the command key.
     open_row(&mut harness, 2);
     until(&mut harness, "the plain body", |h| {
         h.frame(FRAME)
@@ -277,7 +273,23 @@ fn the_command_key_copies_what_is_selected_in_a_plain_message() {
     harness.advance(ms(100));
     copy_with(&mut harness, COMMAND);
     let got = copied(&harness);
-    assert!(got.contains("Thursday"), "copied {got:?}");
+    assert!(
+        got.contains("Thursday"),
+        "the command key in the plain message copied {got:?}"
+    );
+
+    // The HTML message again, Super+C.
+    open_row(&mut harness, 1);
+    until(&mut harness, "the letter's frame again", |h| {
+        h.frame(FRAME).is_some_and(|f| f.text().contains(HEADING))
+    });
+    select_in_frame(&mut harness, "h1");
+    copy_with(&mut harness, Key::Super);
+    let got = copied(&harness);
+    assert!(
+        got.contains("autumn collection"),
+        "Super+C in the HTML message copied {got:?}"
+    );
 }
 
 /// (d) A link in the frame: a right click on it offers Open Link and Copy Link at the pointer,
@@ -296,47 +308,59 @@ const LINK_MENU: &str = ".ds-menu .ds-menu-item";
 const OPEN_LINK: &str = ".ds-menu .ds-menu-item:nth-child(1)";
 const COPY_LINK: &str = ".ds-menu .ds-menu-item:nth-child(2)";
 
+/// A right click on a link: Copy Link copies where it goes, Open Link opens it as a click would,
+/// and a right click off a link then offers no link, not the last link's menu either: what the
+/// frames report is taken by the menu it opens.
 #[test]
-fn a_right_click_on_a_link_copies_where_it_goes() {
-    let (mut harness, _dir) = letter_open();
-    right_click_link(&mut harness);
-    let copy = harness.text_of(COPY_LINK).unwrap_or_default();
-    assert!(copy.contains("Copy Link"), "{copy:?}");
-    let at = centre(&harness, COPY_LINK);
-    harness.click(at);
-    // The picked row blinks before the menu closes and the pick lands, as a Mac menu's does.
-    until(&mut harness, "the menu to close", |h| {
-        h.count(LINK_MENU) == 0
-    });
-    assert_eq!(copied(&harness), LINK_TO);
-}
-
-#[test]
-fn a_right_click_on_a_link_opens_it_as_a_click_would() {
+fn a_right_click_on_a_link_opens_or_copies_it_and_off_a_link_offers_no_link() {
     let opened = Opened::default();
     let (mut harness, _dir) = open_browsing(opened.clone());
     open_row(&mut harness, 1);
     until(&mut harness, "the letter's frame", |h| {
         h.frame(FRAME).is_some_and(|f| f.text().contains(HEADING))
     });
+
+    // Copy Link.
     right_click_link(&mut harness);
-    let open = harness.text_of(OPEN_LINK).unwrap_or_default();
-    assert!(open.contains("Open Link"), "{open:?}");
-    let at = centre(&harness, OPEN_LINK);
+    let copy = harness.text_of(COPY_LINK).unwrap_or_default();
+    assert!(
+        copy.contains("Copy Link"),
+        "Copy Link is not offered: {copy:?}"
+    );
+    let at = centre(&harness, COPY_LINK);
     harness.click(at);
-    until(&mut harness, "the menu to close", |h| {
+    // The picked row blinks before the menu closes and the pick lands, as a Mac menu's does.
+    until(&mut harness, "the menu to close after Copy Link", |h| {
         h.count(LINK_MENU) == 0
     });
-    assert_eq!(*opened.0.lock().unwrap(), vec![LINK_TO.to_owned()]);
-}
+    assert_eq!(copied(&harness), LINK_TO, "Copy Link copied");
+    assert!(
+        opened.0.lock().unwrap().is_empty(),
+        "Copy Link opened the link"
+    );
 
-#[test]
-fn a_right_click_off_a_link_offers_no_link() {
-    // Not the last link's menu either: what the frames report is taken by the menu it opens.
-    let (mut harness, _dir) = letter_open();
+    // Open Link.
+    right_click_link(&mut harness);
+    let open = harness.text_of(OPEN_LINK).unwrap_or_default();
+    assert!(
+        open.contains("Open Link"),
+        "Open Link is not offered: {open:?}"
+    );
+    let at = centre(&harness, OPEN_LINK);
+    harness.click(at);
+    until(&mut harness, "the menu to close after Open Link", |h| {
+        h.count(LINK_MENU) == 0
+    });
+    assert_eq!(
+        *opened.0.lock().unwrap(),
+        vec![LINK_TO.to_owned()],
+        "Open Link opened"
+    );
+
+    // Off a link.
     right_click_link(&mut harness);
     harness.key(Key::Escape);
-    until(&mut harness, "the menu to close", |h| {
+    until(&mut harness, "the menu to close on Escape", |h| {
         h.count(LINK_MENU) == 0
     });
     let heading = harness
@@ -345,7 +369,11 @@ fn a_right_click_off_a_link_offers_no_link() {
         .expect("the heading is drawn");
     harness.press(heading, PointerButton::Secondary);
     harness.advance(ms(300));
-    assert_eq!(harness.count(LINK_MENU), 0);
+    assert_eq!(
+        harness.count(LINK_MENU),
+        0,
+        "a right click off a link offered a link"
+    );
 }
 
 fn type_text(harness: &mut Harness, text: &str) {
@@ -365,60 +393,83 @@ fn composing() -> (Harness, tempfile::TempDir) {
     (harness, dir)
 }
 
-/// (b, e) The composer's body: typed, all selected, Ctrl+C / Super+C.
-fn composer_copies_with(held: Key) {
-    let (mut harness, _dir) = composing();
-    let body = centre(&harness, ".c-body");
-    harness.click(body);
-    until(&mut harness, "the body's keyboard", |h| {
-        h.is_focused(".c-body")
+/// Click `field` and wait for it to have the keyboard.
+fn focus(harness: &mut Harness, field: &str) {
+    let at = centre(harness, field);
+    harness.click(at);
+    until(harness, &format!("{field}'s keyboard"), |h| {
+        h.is_focused(field)
     });
+}
+
+/// Select all of what has the keyboard with `held`+A.
+fn select_all(harness: &mut Harness, held: Key) {
+    harness.chord(&[held], Key::Char('a'));
+    harness.advance(ms(100));
+}
+
+/// In a new message, each step copying text other than the step before's: (b) the composer's
+/// body, typed, all selected, Ctrl+C; (c) a plain field, the subject, with the command key;
+/// (b, e) the body again with Super+C; (c, e) the subject with Super+C, since Blitz's text input
+/// takes its select-all, copy, cut and paste chords on Super as well as Ctrl off macOS since
+/// quire v0.3.0's Blitz; (c) the To field, before its address becomes a chip.
+#[test]
+fn in_a_new_message_ctrl_c_and_super_c_copy_the_body_s_and_each_field_s_selection() {
+    const BODY: &str = ".c-body";
+    const SUBJECT: &str = ".c-title input";
+    const TO: &str = ".c-props [*|data-row=to] input";
+    let (mut harness, _dir) = composing();
+
+    // The body, Ctrl+C.
+    focus(&mut harness, BODY);
     type_text(&mut harness, "see you there");
-    harness.chord(&[held], Key::Char('a'));
-    harness.advance(ms(100));
-    copy_with(&mut harness, held);
-    assert_eq!(copied(&harness), "see you there");
-}
+    select_all(&mut harness, Key::Ctrl);
+    copy_with(&mut harness, Key::Ctrl);
+    assert_eq!(copied(&harness), "see you there", "Ctrl+C in the body");
 
-#[test]
-fn ctrl_c_copies_the_composers_selection() {
-    composer_copies_with(Key::Ctrl);
-}
-
-#[test]
-fn super_c_copies_the_composers_selection() {
-    composer_copies_with(Key::Super);
-}
-
-/// (c, e) A plain field, the subject: typed, all selected, Ctrl+C / Super+C.
-fn subject_copies_with(held: Key) {
-    let (mut harness, _dir) = composing();
-    let subject = ".c-title input";
-    harness.click(centre(&harness, subject));
-    until(&mut harness, "the subject's keyboard", |h| {
-        h.is_focused(subject)
-    });
+    // The subject, the command key.
+    focus(&mut harness, SUBJECT);
     type_text(&mut harness, "Lunch plans");
-    harness.chord(&[held], Key::Char('a'));
-    harness.advance(ms(100));
+    select_all(&mut harness, COMMAND);
     assert_eq!(
-        harness.selected_text(subject).as_deref(),
-        Some("Lunch plans")
+        harness.selected_text(SUBJECT).as_deref(),
+        Some("Lunch plans"),
+        "the command key's select-all in the subject"
     );
-    copy_with(&mut harness, held);
-    assert_eq!(copied(&harness), "Lunch plans");
-}
+    copy_with(&mut harness, COMMAND);
+    assert_eq!(
+        copied(&harness),
+        "Lunch plans",
+        "the command key in the subject"
+    );
 
-#[test]
-fn the_command_key_copies_a_fields_selection() {
-    subject_copies_with(COMMAND);
-}
+    // The body again, Super+C.
+    focus(&mut harness, BODY);
+    select_all(&mut harness, Key::Super);
+    copy_with(&mut harness, Key::Super);
+    assert_eq!(copied(&harness), "see you there", "Super+C in the body");
 
-/// Blitz's text input takes its select-all, copy, cut and paste chords on Super as well as Ctrl
-/// off macOS since quire v0.3.0's Blitz.
-#[test]
-fn super_c_copies_a_fields_selection() {
-    subject_copies_with(Key::Super);
+    // The subject again, Super+C.
+    focus(&mut harness, SUBJECT);
+    select_all(&mut harness, Key::Super);
+    assert_eq!(
+        harness.selected_text(SUBJECT).as_deref(),
+        Some("Lunch plans"),
+        "Super+A in the subject"
+    );
+    copy_with(&mut harness, Key::Super);
+    assert_eq!(copied(&harness), "Lunch plans", "Super+C in the subject");
+
+    // The To field, the command key.
+    focus(&mut harness, TO);
+    type_text(&mut harness, "ada@example.test");
+    select_all(&mut harness, COMMAND);
+    copy_with(&mut harness, COMMAND);
+    assert_eq!(
+        copied(&harness),
+        "ada@example.test",
+        "the command key in To"
+    );
 }
 
 /// (c) The search panel's field: typed, all selected, Ctrl+C.
@@ -434,18 +485,4 @@ fn the_command_key_copies_the_search_fields_selection() {
     harness.advance(ms(100));
     copy_with(&mut harness, COMMAND);
     assert_eq!(copied(&harness), "invoice");
-}
-
-/// (c) The To field, before its address becomes a chip.
-#[test]
-fn the_command_key_copies_the_to_fields_selection() {
-    let (mut harness, _dir) = composing();
-    let to = ".c-props [*|data-row=to] input";
-    harness.click(centre(&harness, to));
-    until(&mut harness, "To's keyboard", |h| h.is_focused(to));
-    type_text(&mut harness, "ada@example.test");
-    harness.chord(&[COMMAND], Key::Char('a'));
-    harness.advance(ms(100));
-    copy_with(&mut harness, COMMAND);
-    assert_eq!(copied(&harness), "ada@example.test");
 }

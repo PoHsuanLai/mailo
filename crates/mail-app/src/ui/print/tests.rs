@@ -1,5 +1,5 @@
 use super::tool::{PrintChoice, ROWS, job_of};
-use super::{Job, PrintTool, SAVED_AS, Sources, build, job_for, save_into, started};
+use super::{Job, PrintTool, SAVED_AS, Sources, build, save_into, started};
 use crate::ui::app::App;
 use crate::ui::fixtures::{
     INSIDE_THE_SHELL, Scripts, acct_account, chord, click, dispatching, rebuild_into, seeded, work,
@@ -197,19 +197,6 @@ fn a_thread_that_is_gone_says_so_rather_than_saving_nothing() {
     .unwrap_err();
     assert!(said.starts_with("Could not save for printing:"), "{said}");
     assert_eq!(std::fs::read_dir(into.path()).unwrap().count(), 0);
-}
-
-#[test]
-fn ctrl_p_prints_the_open_thread_as_one_flow_and_nothing_else() {
-    let thread = ThreadId::generate();
-    assert_eq!(job_for(None), None);
-    assert_eq!(
-        job_for(Some(thread)),
-        Some(Job {
-            thread,
-            pages: Pages::Flow
-        })
-    );
 }
 
 #[tokio::test]

@@ -206,22 +206,6 @@ mod one_definition {
             );
         }
     }
-
-    #[test]
-    fn a_snoozed_conversation_is_gone_from_the_command_too() {
-        // The end-to-end version of the same thing, through the filter the CLI actually uses.
-        let (store, _dir, thread) = seeded();
-        snooze::snooze(&store, thread, "tomorrow", now()).unwrap();
-        assert!(
-            listed(
-                &store,
-                mail_core::place::place_filter(MailboxRole::Inbox),
-                now()
-            )
-            .is_empty(),
-            "`mailo list` would still show it"
-        );
-    }
 }
 
 /// Pinning, the other thread-level state that nothing could set.

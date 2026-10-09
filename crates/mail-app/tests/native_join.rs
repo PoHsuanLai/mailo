@@ -127,14 +127,17 @@ fn menu_placed(harness: &Harness) -> bool {
             .is_some_and(|style| style.contains("visibility:hidden"))
 }
 
+/// Plus offers the account the Space does not show, and picking it brings it in. Then, with
+/// every account shown, Plus goes straight to Add Account.
 #[test]
-fn plus_offers_the_account_the_space_does_not_show_and_picking_it_brings_it_in() {
+fn plus_offers_the_account_the_space_does_not_show_and_then_goes_straight_to_add_account() {
     let (mut harness, _dir, opened) = open();
     assert!(
         !harness.html().contains("me@home.example"),
         "Home is already shown"
     );
 
+    // Plus offers Home; picking it brings it in.
     harness.click(centre(&harness, PLUS));
     settle_until(&mut harness, menu_placed);
     let menu = harness.html();
@@ -142,25 +145,20 @@ fn plus_offers_the_account_the_space_does_not_show_and_picking_it_brings_it_in()
         menu.contains("me@home.example"),
         "Home is not offered:\n{menu}"
     );
-    assert!(menu.contains("Add New Account"), "{menu}");
+    assert!(
+        menu.contains("Add New Account"),
+        "Add New Account is not offered: {menu}"
+    );
 
     harness.click(centre(&harness, ".ds-menu .ds-menu-item"));
     settle_until(&mut harness, |h| h.count(".ds-menu") == 0);
     settle_until(&mut harness, |h| h.html().contains("me@home.example"));
     assert!(
         opened.0.lock().unwrap().is_empty(),
-        "it opened Add account instead"
+        "picking Home opened Add account instead"
     );
-}
 
-#[test]
-fn when_every_account_is_shown_plus_goes_straight_to_add_account() {
-    let (mut harness, _dir, opened) = open();
-    harness.click(centre(&harness, PLUS));
-    settle_until(&mut harness, menu_placed);
-    harness.click(centre(&harness, ".ds-menu .ds-menu-item"));
-    settle_until(&mut harness, |h| h.count(".ds-menu") == 0);
-
+    // Every account shown: Plus goes straight to Add Account.
     harness.click(centre(&harness, PLUS));
     settle_until(&mut harness, |_| opened.0.lock().unwrap().len() == 1);
     assert_eq!(

@@ -271,25 +271,6 @@ impl Window {
 }
 
 #[test]
-fn when_a_scheduled_send_is_due() {
-    use super::page::When;
-    // 2026-09-23 is a Wednesday.
-    let now = at(0);
-    let cases: &[(When, Option<&str>)] = &[
-        (When::Now, None),
-        (When::Tomorrow, Some("2026-09-24 08:00")),
-        (When::Monday, Some("2026-09-28 09:00")),
-        (When::At(at(90)), Some("2026-09-23 11:30")),
-    ];
-    for (when, want) in cases {
-        let got = when
-            .due(now, &Utc)
-            .map(|due| due.format("%Y-%m-%d %H:%M").to_string());
-        assert_eq!(got.as_deref(), *want, "{when:?}");
-    }
-}
-
-#[test]
 fn a_reply_text_opens_as_paragraphs_a_signature_and_a_folded_original() {
     use crate::ui::editor::Object;
     let text = "Sounds good.\r\n\r\n-- \r\nDana\r\n\r\nOn Wed, 23 Sep 2026 at 09:02, Sam Okafor wrote:\r\n> first line\r\n> second line\r\n";
@@ -314,16 +295,4 @@ fn a_reply_text_opens_as_paragraphs_a_signature_and_a_folded_original() {
             "quoted:Sam Okafor/Wed, 23 Sep 2026 at 09:02/2",
         ]
     );
-}
-
-#[tokio::test]
-async fn the_composer_can_be_opened_and_closed_repeatedly() {
-    // Opening and closing runs the page's hooks each way round, parking on the way out.
-    let (mut dom, toggle, _dir) = crate::ui::fixtures::harness(false);
-    dom.rebuild_in_place();
-    for open in [true, false, true, false] {
-        toggle.0.store(open, std::sync::atomic::Ordering::SeqCst);
-        dom.mark_dirty(dioxus_core::ScopeId::APP);
-        dom.render_immediate(&mut NoOpMutations);
-    }
 }

@@ -161,87 +161,101 @@ fn chips(harness: &Harness) -> usize {
     harness.count(".c-props [*|data-row=attached] .ds-chip")
 }
 
+/// Files dragged over the window light the composer, and over it target it; the light goes with
+/// the drag. Two files dropped on the composer are both attached, in order. A folder is refused
+/// with a note. Files dropped outside the composer attach nothing, and the same file let go on
+/// the composer is attached.
 #[test]
-fn two_files_dropped_on_the_composer_are_both_attached_in_order() {
+fn files_dragged_in_light_the_composer_and_only_files_dropped_on_it_are_attached() {
     let (mut harness, dir, store) = composing();
-    let agenda = file(dir.path(), "agenda.txt", "Friday, ten o'clock");
-    let notes = file(dir.path(), "notes.md", "# Notes");
     let before = chips(&harness);
 
-    let at = centre(&harness, ".c-body");
-    let told = drop_at(&mut harness, at, vec![agenda, notes]);
-    assert_eq!(told, DropAcceptance::Copy, "the composer took the drop");
+    // The light, over the list and then over the composer.
+    let agenda = file(dir.path(), "agenda.txt", "Friday, ten o'clock");
+    let drop_attr = |h: &Harness| h.attr(".cpage", "data-drop");
+    assert_eq!(drop_attr(&harness), None, "nothing lit before a drag");
+    let list = centre(&harness, ".list .ds-thread");
+    harness.file_drag(FileDragInput::Entered { point: Some(list) });
+    let over_list = harness.file_drag(FileDragInput::Offered(Offer::Files(vec![agenda.clone()])));
+    assert_eq!(over_list, DropAcceptance::Refuse, "the list takes no files");
+    assert_eq!(
+        drop_attr(&harness).as_deref(),
+        Some("accepts"),
+        "the composer is not lit over the list"
+    );
+    let body = centre(&harness, ".c-body");
+    let over_page = harness.file_drag(FileDragInput::Moved { point: body });
+    assert_eq!(over_page, DropAcceptance::Copy, "the composer takes files");
+    assert_eq!(
+        drop_attr(&harness).as_deref(),
+        Some("target"),
+        "the composer is not the target over it"
+    );
+    harness.file_drag(FileDragInput::Left);
+    assert_eq!(drop_attr(&harness), None, "the light went with the drag");
+    assert_eq!(chips(&harness), before, "a drag that left attached a chip");
 
+    // Two files dropped on the composer.
+    let notes = file(dir.path(), "notes.md", "# Notes");
+    let body = centre(&harness, ".c-body");
+    let told = drop_at(&mut harness, body, vec![agenda, notes]);
+    assert_eq!(told, DropAcceptance::Copy, "the composer took the drop");
     settle_until(&mut harness, |h| chips(h) == before + 2);
     let html = harness.html();
     assert!(
         html.contains("TXT · agenda.txt") && html.contains("MD · notes.md"),
         "the chips name the files:\n{html}"
     );
-    assert_eq!(attached_names(&store), ["agenda.txt", "notes.md"]);
-}
+    assert_eq!(
+        attached_names(&store),
+        ["agenda.txt", "notes.md"],
+        "two files dropped"
+    );
 
-#[test]
-fn a_folder_dropped_on_the_composer_is_refused_with_a_note() {
-    let (mut harness, dir, store) = composing();
+    // A folder.
     let photos = dir.path().join("photos");
     std::fs::create_dir(&photos).unwrap();
     file(&photos, "inside.jpg", "not walked into");
-    let before = chips(&harness);
-
-    let at = centre(&harness, ".c-body");
-    drop_at(&mut harness, at, vec![photos]);
-
+    // The Attached row now sits above the body: find the body again.
+    let body = centre(&harness, ".c-body");
+    drop_at(&mut harness, body, vec![photos]);
     let note = "photos is a folder; attach the files in it instead";
     settle_until(&mut harness, |h| {
         h.text_of(".cpage .ds-inline-banner-body").as_deref() == Some(note)
     });
-    assert_eq!(chips(&harness), before, "nothing was attached");
-    assert!(attached_names(&store).is_empty());
-}
+    assert_eq!(chips(&harness), before + 2, "the folder was attached");
+    assert_eq!(
+        attached_names(&store),
+        ["agenda.txt", "notes.md"],
+        "the folder was attached"
+    );
 
-#[test]
-fn files_dragged_over_the_window_light_the_composer_and_over_it_target_it() {
-    let (mut harness, dir, _store) = composing();
-    let agenda = file(dir.path(), "agenda.txt", "Friday");
-    let drop_attr = |h: &Harness| h.attr(".cpage", "data-drop");
-    assert_eq!(drop_attr(&harness), None, "nothing lit before a drag");
-
+    // Outside the composer, then the same file on it.
+    let minutes = file(dir.path(), "minutes.txt", "Friday");
     let list = centre(&harness, ".list .ds-thread");
-    harness.file_drag(FileDragInput::Entered { point: Some(list) });
-    let over_list = harness.file_drag(FileDragInput::Offered(Offer::Files(vec![agenda])));
-    assert_eq!(over_list, DropAcceptance::Refuse, "the list takes no files");
-    assert_eq!(drop_attr(&harness).as_deref(), Some("accepts"));
-
-    let body = centre(&harness, ".c-body");
-    let over_page = harness.file_drag(FileDragInput::Moved { point: body });
-    assert_eq!(over_page, DropAcceptance::Copy);
-    assert_eq!(drop_attr(&harness).as_deref(), Some("target"));
-
-    harness.file_drag(FileDragInput::Left);
-    assert_eq!(drop_attr(&harness), None, "the light went with the drag");
-}
-
-#[test]
-fn files_dropped_outside_the_composer_attach_nothing() {
-    let (mut harness, dir, store) = composing();
-    let agenda = file(dir.path(), "agenda.txt", "Friday");
-    let before = chips(&harness);
-
-    let list = centre(&harness, ".list .ds-thread");
-    let told = drop_at(&mut harness, list, vec![agenda.clone()]);
+    let told = drop_at(&mut harness, list, vec![minutes.clone()]);
     assert_eq!(
         told,
         DropAcceptance::Refuse,
         "a drop on the list is refused"
     );
     harness.advance(ms(500));
-    assert_eq!(chips(&harness), before, "the list's drop attached a chip");
-    assert!(attached_names(&store).is_empty());
-
-    // The same file is attachable: let go on the composer, it is attached.
+    assert_eq!(
+        chips(&harness),
+        before + 2,
+        "the list's drop attached a chip"
+    );
+    assert_eq!(
+        attached_names(&store),
+        ["agenda.txt", "notes.md"],
+        "the list's drop attached a file"
+    );
     let body = centre(&harness, ".c-body");
-    drop_at(&mut harness, body, vec![agenda]);
-    settle_until(&mut harness, |h| chips(h) == before + 1);
-    assert_eq!(attached_names(&store), ["agenda.txt"]);
+    drop_at(&mut harness, body, vec![minutes]);
+    settle_until(&mut harness, |h| chips(h) == before + 3);
+    assert_eq!(
+        attached_names(&store),
+        ["agenda.txt", "notes.md", "minutes.txt"],
+        "the file let go on the composer"
+    );
 }

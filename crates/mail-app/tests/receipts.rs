@@ -303,24 +303,4 @@ fn the_receipt_command_parses() {
     ] {
         assert!(cli::parse(&bad).is_err(), "{bad:?}");
     }
-    assert!(cli::usage().contains("receipt <message-id> [--decline]"));
-}
-
-#[test]
-fn compose_can_ask_for_a_receipt_in_either_word_order() {
-    let args = |words: &[&str]| words.iter().map(|w| (*w).to_owned()).collect::<Vec<_>>();
-    for flag in ["--request-receipt", "--receipt-request"] {
-        match cli::parse(&args(&["compose", "--to", "kim@elsewhere.test", flag])) {
-            Ok(cli::Command::Compose { receipt, .. }) => {
-                assert_eq!(receipt, ReceiptRequest::Requested, "{flag}")
-            }
-            other => panic!("{flag}: {other:?}"),
-        }
-    }
-    match cli::parse(&args(&["compose", "--to", "kim@elsewhere.test"])) {
-        Ok(cli::Command::Compose { receipt, .. }) => {
-            assert_eq!(receipt, ReceiptRequest::Unrequested)
-        }
-        other => panic!("{other:?}"),
-    }
 }

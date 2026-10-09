@@ -320,70 +320,64 @@ fn hostile_header_values_cannot_inject_a_header() {
 mod blind_copies {
     use super::*;
 
+    /// One draft with To, Cc and Bcc: the wire bytes never name the blind recipient, the
+    /// envelope carries every recipient, and MAIL FROM is the identity. The stored copy built
+    /// with `Disclosure::Full` keeps Bcc, which `build_rejects_unsendable_drafts` checks.
     #[test]
-    fn the_wire_bytes_do_not_name_blind_recipients() {
+    fn a_blind_copy_is_enveloped_and_never_written() {
         let me = identity();
         let draft = draft(None, None);
+
         let raw = build(&draft, &me, None, &[], Disclosure::HideBlind).expect("builds");
         let parsed = parse(&raw).expect("parses");
-
         assert!(
             parsed.bcc.is_empty(),
-            "a Bcc header reached the wire: {:?}",
+            "wire: a Bcc header reached the wire: {:?}",
             parsed.bcc
         );
         // Not merely absent from the parsed struct — absent from the bytes. A header the
         // parser happens not to surface would still be delivered verbatim.
         let text = String::from_utf8_lossy(&raw).to_lowercase();
-        assert!(!text.contains("bcc:"), "raw bytes still carry a Bcc header");
+        assert!(
+            !text.contains("bcc:"),
+            "wire: raw bytes still carry a Bcc header"
+        );
         assert!(
             !text.contains("dee@example.test"),
-            "the blind address appears in the transmitted bytes"
+            "wire: the blind address appears in the transmitted bytes"
         );
-    }
 
-    #[test]
-    fn a_stored_copy_still_records_who_was_blind_copied() {
-        // The other half of `Disclosure`. The sender's own copy must keep the record, or the
-        // Sent folder forgets who actually received the message.
-        let me = identity();
-        let draft = draft(None, None);
-        let raw = build(&draft, &me, None, &[], Disclosure::Full).expect("builds");
-        let parsed = parse(&raw).expect("parses");
-        assert_eq!(parsed.bcc.len(), 1, "the stored copy keeps Bcc");
-    }
-
-    #[test]
-    fn the_envelope_carries_every_recipient_the_headers_hide() {
-        let me = identity();
-        let draft = draft(None, None);
         let post = posting(&draft, &me, None, &[]).expect("has recipients");
-
-        assert_eq!(post.mail_from, "me@example.test");
         // To, Cc and Bcc alike: the envelope is how the blind copy is actually delivered.
-        assert!(post.rcpt_to.contains(&"bea@example.test".to_owned()));
-        assert!(post.rcpt_to.contains(&"cara@example.test".to_owned()));
+        assert!(
+            post.rcpt_to.contains(&"bea@example.test".to_owned()),
+            "envelope: {:?}",
+            post.rcpt_to
+        );
+        assert!(
+            post.rcpt_to.contains(&"cara@example.test".to_owned()),
+            "envelope: {:?}",
+            post.rcpt_to
+        );
         assert!(
             post.rcpt_to.contains(&"dee@example.test".to_owned()),
-            "the blind recipient would never receive this: {:?}",
+            "envelope: the blind recipient would never receive this: {:?}",
             post.rcpt_to
         );
         assert!(
             !String::from_utf8_lossy(&post.message)
                 .to_lowercase()
                 .contains("bcc:"),
-            "posting must build with HideBlind"
+            "envelope: posting must build with HideBlind"
         );
-    }
 
-    #[test]
-    fn mail_from_is_the_identity_not_its_reply_to() {
         // The fixture identity has `reply_to: alias@example.test`. MAIL FROM is the return
         // path for bounces; pointing it at a list alias sends every bounce to the list.
-        let me = identity();
         assert_eq!(me.reply_to.as_ref().unwrap().email, "alias@example.test");
-        let post = posting(&draft(None, None), &me, None, &[]).expect("has recipients");
-        assert_eq!(post.mail_from, "me@example.test");
+        assert_eq!(
+            post.mail_from, "me@example.test",
+            "mail from: the identity, not its reply-to"
+        );
     }
 
     #[test]

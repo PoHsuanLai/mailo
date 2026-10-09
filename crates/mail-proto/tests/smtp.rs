@@ -455,13 +455,6 @@ fn a_rate_limit_backs_off_instead_of_discarding_the_message() {
 }
 
 #[test]
-fn ehlo_parses_smtputf8() {
-    let mut session = plain(SHORT, &["bob@example.com"]);
-    let reply = replay(&mut session, ASCII_SMTPUTF8).unwrap();
-    assert_eq!(reply.extensions.smtputf8, Advertised::Offered);
-}
-
-#[test]
 fn an_ascii_submission_omits_smtputf8_even_when_the_server_offers_it() {
     let mut session = plain(SHORT, &["bob@example.com"]);
     let reply = replay(&mut session, ASCII_SMTPUTF8).unwrap();

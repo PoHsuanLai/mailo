@@ -138,28 +138,51 @@ fn only_the_sections_needed_are_asked_for() {
     );
 }
 
+/// A partial rebuild, with the PDF left on the server: it is listed and the rest reads as
+/// before; it says so to what the source view and forward-as-attachment ask before treating
+/// stored bytes as the message as sent; and ordinary parsing ignores its markers.
 #[test]
-fn an_attachment_left_behind_is_listed_and_the_rest_reads_as_before() {
+fn a_partial_rebuild_lists_marks_and_only_trusts_its_own_marker() {
     let report = Report::new("");
     let rebuilt = reconstruct(&report.tree(), &report.fetch(&not_attachments)).unwrap();
     let whole = parse(&report.original()).unwrap();
     let partial = parse_reconstructed(&rebuilt).unwrap();
 
-    assert_eq!(partial.subject, whole.subject);
-    assert_eq!(partial.text, whole.text);
-    assert_eq!(partial.html, whole.html);
-    assert_eq!(partial.attachments.len(), 1);
+    assert_eq!(partial.subject, whole.subject, "listed: subject");
+    assert_eq!(partial.text, whole.text, "listed: text");
+    assert_eq!(partial.html, whole.html, "listed: html");
+    assert_eq!(partial.attachments.len(), 1, "listed: attachments");
     let pdf = &partial.attachments[0];
-    assert_eq!(pdf.name, "report.pdf");
-    assert_eq!(pdf.mime, "application/pdf");
-    assert!(pdf.bytes.is_empty(), "nothing was downloaded");
+    assert_eq!(pdf.name, "report.pdf", "listed");
+    assert_eq!(pdf.mime, "application/pdf", "listed");
+    assert!(pdf.bytes.is_empty(), "listed: nothing was downloaded");
     let remote = pdf.remote.as_ref().expect("marked as left on the server");
-    assert_eq!(remote.section, "2");
-    assert_eq!(remote.octets, report.pdf.len() as u64);
-
+    assert_eq!(remote.section, "2", "listed");
+    assert_eq!(remote.octets, report.pdf.len() as u64, "listed");
     assert!(
         whole.attachments[0].remote.is_none(),
-        "a whole message has nothing remote"
+        "listed: a whole message has nothing remote"
+    );
+
+    let rebuilt_whole = reconstruct(&report.tree(), &report.fetch(&|_| true)).unwrap();
+    assert!(left_on_server(&rebuilt), "left_on_server: partial");
+    assert!(
+        !left_on_server(&report.original()),
+        "left_on_server: original"
+    );
+    assert!(
+        !left_on_server(&rebuilt_whole),
+        "left_on_server: nothing was left behind"
+    );
+    assert!(
+        !left_on_server(b"not a message"),
+        "left_on_server: not a message"
+    );
+
+    assert_eq!(
+        parse(&rebuilt).unwrap().attachments[0].remote,
+        None,
+        "ordinary parsing ignores the markers"
     );
 }
 
@@ -175,26 +198,6 @@ fn a_marker_in_the_message_itself_is_removed_and_never_believed() {
     let parsed = parse_reconstructed(&rebuilt).unwrap();
     assert_eq!(parsed.attachments[0].remote, None);
     assert!(!parsed.attachments[0].bytes.is_empty());
-}
-
-/// What the source view and forward-as-attachment ask before treating stored bytes as the
-/// message as sent.
-#[test]
-fn a_message_rebuilt_with_a_part_left_behind_says_so_and_a_whole_one_does_not() {
-    let report = Report::new("");
-    let partial = reconstruct(&report.tree(), &report.fetch(&not_attachments)).unwrap();
-    let whole = reconstruct(&report.tree(), &report.fetch(&|_| true)).unwrap();
-    assert!(left_on_server(&partial));
-    assert!(!left_on_server(&report.original()));
-    assert!(!left_on_server(&whole), "nothing was left behind");
-    assert!(!left_on_server(b"not a message"));
-}
-
-#[test]
-fn ordinary_parsing_ignores_the_markers() {
-    let report = Report::new("");
-    let rebuilt = reconstruct(&report.tree(), &report.fetch(&not_attachments)).unwrap();
-    assert_eq!(parse(&rebuilt).unwrap().attachments[0].remote, None);
 }
 
 #[test]

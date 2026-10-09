@@ -155,18 +155,6 @@ fn appearance_json_s_marks_count_when_there_is_no_mailo_toml() {
 }
 
 #[test]
-fn a_change_is_written_and_read_back() {
-    let (_dir, root) = scratch();
-    let written = change(&root, |settings| {
-        settings.reading.brand_logos = BrandLogos::On;
-    })
-    .unwrap();
-    assert_eq!(written.reading.brand_logos, BrandLogos::On);
-    assert_eq!(load(&root), written);
-    assert_eq!(store(root).load::<MailSettings>().value, written);
-}
-
-#[test]
 fn a_bad_value_costs_only_its_own_key() {
     let (dir, root) = scratch();
     write(

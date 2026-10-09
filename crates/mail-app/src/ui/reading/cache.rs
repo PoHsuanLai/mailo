@@ -392,24 +392,27 @@ mod tests {
             .collect()
     }
 
+    /// Which conversations are warmed ahead, by their place in the list: the open one's
+    /// neighbours first, then the top of the list, never the open one, and nothing past either
+    /// end.
     #[test]
-    fn ahead_is_the_neighbours_first_then_the_top_and_never_the_open_one() {
-        let list = ids(6);
-        let order = ahead(Some(list[2]), &list, 3);
-        assert_eq!(order, vec![list[3], list[4], list[1], list[0]]);
-    }
-
-    #[test]
-    fn ahead_with_nothing_open_is_the_top_of_the_list() {
-        let list = ids(6);
-        assert_eq!(ahead(None, &list, 3), list[..3].to_vec());
-    }
-
-    #[test]
-    fn ahead_at_either_end_does_not_reach_past_it() {
-        let list = ids(3);
-        assert_eq!(ahead(Some(list[2]), &list, 0), vec![list[1]]);
-        assert_eq!(ahead(Some(list[0]), &list, 0), vec![list[1], list[2]]);
+    fn ahead_order() {
+        type Row = (&'static str, u128, Option<usize>, usize, &'static [usize]);
+        const CASES: &[Row] = &[
+            ("neighbours, then the top", 6, Some(2), 3, &[3, 4, 1, 0]),
+            ("nothing open is the top", 6, None, 3, &[0, 1, 2]),
+            ("open at the last row", 3, Some(2), 0, &[1]),
+            ("open at the first row", 3, Some(0), 0, &[1, 2]),
+        ];
+        for (name, rows, open, screen, want) in CASES {
+            let list = ids(*rows);
+            let want: Vec<ThreadId> = want.iter().map(|row| list[*row]).collect();
+            assert_eq!(
+                ahead(open.map(|row| list[row]), &list, *screen),
+                want,
+                "{name}"
+            );
+        }
     }
 
     #[test]

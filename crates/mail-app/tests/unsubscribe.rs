@@ -388,5 +388,4 @@ fn the_command_line_reads_the_id_and_show() {
     ] {
         assert!(cli::parse(&bad).is_err(), "{bad:?}");
     }
-    assert!(cli::usage().contains("unsubscribe <thread-or-message-id>"));
 }

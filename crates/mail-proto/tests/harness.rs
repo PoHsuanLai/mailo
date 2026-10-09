@@ -132,9 +132,10 @@ fn must_reject(trace: &'static str, because: &str) {
     );
 }
 
-#[test]
-fn a_wrong_expected_write_is_rejected() {
-    must_reject(
+/// `(name, trace, why the harness must refuse it)`.
+const MUST_REJECT: &[(&str, &str, &str)] = &[
+    (
+        "a wrong expected write",
         concat!(
             "S: +OK server ready\n",
             "C: GOODBYE\n",
@@ -142,20 +143,14 @@ fn a_wrong_expected_write_is_rejected() {
             "DONE\n"
         ),
         "the machine writes HELLO, not GOODBYE",
-    );
-}
-
-#[test]
-fn a_trace_that_ends_early_is_rejected() {
-    must_reject(
+    ),
+    (
+        "a trace that ends early",
         concat!("S: +OK server ready\n", "C: HELLO\n", "DONE\n"),
         "the machine still wants to read",
-    );
-}
-
-#[test]
-fn a_trace_that_runs_past_the_end_is_rejected() {
-    must_reject(
+    ),
+    (
+        "a trace that runs past the end",
         concat!(
             "S: +OK server ready\n",
             "C: HELLO\n",
@@ -164,12 +159,9 @@ fn a_trace_that_runs_past_the_end_is_rejected() {
             "DONE\n"
         ),
         "the machine finished before the trace did",
-    );
-}
-
-#[test]
-fn expecting_success_from_a_failing_machine_is_rejected() {
-    must_reject(
+    ),
+    (
+        "expecting success from a failing machine",
         concat!(
             "S: +OK server ready\n",
             "C: HELLO\n",
@@ -177,12 +169,9 @@ fn expecting_success_from_a_failing_machine_is_rejected() {
             "DONE\n"
         ),
         "the machine failed but the trace said DONE",
-    );
-}
-
-#[test]
-fn the_wrong_failure_variant_is_rejected() {
-    must_reject(
+    ),
+    (
+        "the wrong failure variant",
         concat!(
             "S: +OK server ready\n",
             "C: HELLO\n",
@@ -190,21 +179,22 @@ fn the_wrong_failure_variant_is_rejected() {
             "FAIL AuthRejected\n"
         ),
         "it failed with Refused, not AuthRejected",
-    );
-}
-
-#[test]
-fn a_trace_without_a_terminator_is_rejected() {
-    must_reject(
+    ),
+    (
+        "a trace without a terminator",
         concat!("S: +OK server ready\n", "C: HELLO\n"),
         "no DONE or FAIL line",
-    );
-}
-
-#[test]
-fn an_unknown_directive_is_rejected() {
-    must_reject(
+    ),
+    (
+        "an unknown directive",
         concat!("S: +OK\n", "WIGGLE\n", "DONE\n"),
         "WIGGLE is not a directive",
-    );
+    ),
+];
+
+#[test]
+fn the_harness_rejects_a_trace_that_proves_nothing() {
+    for (name, trace, because) in MUST_REJECT {
+        must_reject(trace, &format!("{name}: {because}"));
+    }
 }

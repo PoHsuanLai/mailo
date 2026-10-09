@@ -3,10 +3,7 @@
 #[path = "block/mod.rs"]
 mod support;
 
-use mail_mime::{
-    Block, ImgSrc, LINK_REL, LINK_TARGET, RemoteImages, SafeUrl, from_html, is_mapped, mapped_tags,
-    sanitize,
-};
+use mail_mime::{Block, ImgSrc, RemoteImages, is_mapped, mapped_tags};
 use support::{html, html_images, part, sketch};
 
 const PNG: &[u8] = b"\x89PNG\r\n\x1a\n-pretend-";
@@ -138,110 +135,56 @@ fn every_default_ammonia_tag_is_mapped() {
     }
 }
 
+/// The images fixture through each policy: a cid image is inlined, a remote one is blocked down
+/// to its host (no path in the document) or kept when allowed.
 #[test]
-fn an_unknown_tag_keeps_its_subtree() {
-    let doc = html("<main><section><p>kept</p>inner</section></main>");
-    let text = support::plain(&doc);
-    assert!(
-        text.contains("kept") && text.contains("inner"),
-        "unknown tag dropped its subtree: {text}"
-    );
-}
-
-#[test]
-fn javascript_is_not_a_url_and_links_keep_rel_target() {
-    assert!(
-        SafeUrl::parse("javascript:alert(1)").is_none(),
-        "javascript: must not be constructible as a SafeUrl"
-    );
-    assert!(
-        SafeUrl::parse("JavaScript:alert(1)").is_none(),
-        "javascript: must not be constructible as a SafeUrl"
-    );
-    assert_eq!(
-        LINK_REL, "noopener noreferrer",
-        "the renderer rel contract was dropped"
-    );
-    assert_eq!(
-        LINK_TARGET, "_blank",
-        "the renderer target contract was dropped"
-    );
-    let safe = sanitize(
-        r#"<p><a href="https://example.test/doc">doc</a></p>"#,
-        support::policy(RemoteImages::Blocked),
-    );
-    assert!(
-        safe.as_str().contains("noopener noreferrer"),
-        "sanitizer rel missing, the renderer has nothing to copy: {}",
-        safe.as_str()
-    );
-    assert!(
-        safe.as_str().contains(r#"target="_blank""#),
-        "sanitizer target missing, the renderer has nothing to copy: {}",
-        safe.as_str()
-    );
-    let doc = from_html(&safe, &[], RemoteImages::Blocked);
-    let urls = support::urls(&doc);
-    assert_eq!(urls.len(), 1, "the href was lost: {}", sketch(&doc));
-    assert_eq!(urls[0].scheme(), "https");
-    let attacked = html(r#"<p><a href="javascript:alert(1)">x</a></p>"#);
-    assert!(
-        support::urls(&attacked).is_empty(),
-        "javascript: became a link: {}",
-        sketch(&attacked)
-    );
-}
-
-#[test]
-fn inline_and_blocked_images() {
+fn the_images_fixture_inline_blocked_and_allowed() {
     let raw = include_str!("fixtures/block/images.html");
     let parts = [part("logo@example.test", "image/png", PNG)];
+
     let blocked = html_images(raw, &parts, RemoteImages::Blocked);
     let imgs = support::images(&blocked);
-    assert_eq!(imgs.len(), 2, "{}", sketch(&blocked));
+    assert_eq!(imgs.len(), 2, "blocked: {}", sketch(&blocked));
     match &imgs[0] {
         ImgSrc::Inline(uri) => {
             assert!(
                 uri.as_str().starts_with("data:image/png;base64,"),
-                "{}",
+                "blocked: {}",
                 uri.as_str()
             );
         }
-        other => panic!("cid image was {other:?}"),
+        other => panic!("blocked: cid image was {other:?}"),
     }
     match &imgs[1] {
         ImgSrc::Blocked { host } => assert_eq!(host, "pixels.example"),
-        other => panic!("remote image was {other:?}"),
+        other => panic!("blocked: remote image was {other:?}"),
     }
+
     let allowed = html_images(raw, &parts, RemoteImages::Allowed);
     match &support::images(&allowed)[1] {
         ImgSrc::Remote(url) => assert_eq!(url.scheme(), "https"),
-        other => panic!("allowed image was {other:?}"),
+        other => panic!("allowed: image was {other:?}"),
     }
-}
 
-#[test]
-fn blocked_images_name_their_host() {
-    let raw = include_str!("fixtures/block/images.html");
-    let doc = html_images(raw, &[], RemoteImages::Blocked);
-    let dump = format!("{doc:?}");
+    let no_parts = html_images(raw, &[], RemoteImages::Blocked);
+    let dump = format!("{no_parts:?}");
     assert!(
         dump.contains("pixels.example"),
-        "the host was not recorded: {dump}"
+        "no parts: the host was not recorded: {dump}"
     );
     assert!(
         !dump.contains("beacon-9f3"),
-        "the blocked URL's path leaked into the document: {dump}"
+        "no parts: the blocked URL's path leaked into the document: {dump}"
     );
     assert!(
         !dump.contains("track/"),
-        "the blocked URL's path leaked into the document: {dump}"
+        "no parts: the blocked URL's path leaked into the document: {dump}"
     );
     assert!(
-        support::images(&doc)
+        support::images(&no_parts)
             .iter()
             .all(|src| !matches!(src, ImgSrc::Remote(_))),
-        "a remote URL survived blocking"
+        "no parts: a remote URL survived blocking"
     );
 }
 

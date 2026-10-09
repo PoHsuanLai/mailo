@@ -194,6 +194,8 @@ async fn cancelling_interrupts_a_parked_machine_and_lets_it_send_done() {
 /// `Tls::Plaintext` — the one setting no real account uses. This asserts the failure is an
 /// ordinary connection error rather than a panic, using a port nothing is listening on: the
 /// provider is installed while building the session, before the socket matters.
+/// Proves nothing once another test in its process has installed a default `CryptoProvider`,
+/// so it stays out of a shared test binary.
 #[tokio::test]
 async fn a_tls_connection_reports_an_error_rather_than_aborting() {
     // The listener must *accept*, or this never reaches rustls at all and proves nothing — the

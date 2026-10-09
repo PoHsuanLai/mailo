@@ -291,46 +291,41 @@ fn asked_for(store: &SqliteStore, subject: &str) -> Vec<Ask> {
     }]
 }
 
+/// Three ways to ask for a conversation in a window of its own, each asking once: a row's context
+/// menu, with nothing open, asks for that row's conversation; the reader's menu asks for the open
+/// one; Shift+Enter asks for the focused one, and Enter alone opens no window.
 #[test]
-fn the_reader_s_menu_asks_for_the_open_conversation_in_a_window_of_its_own() {
+fn a_row_s_menu_the_reader_s_menu_and_shift_enter_ask_for_a_window_of_its_own() {
     let dir = tempfile::tempdir().unwrap();
     let store = seeded(dir.path());
     let (mut harness, recorder) = main_window(&store, &Revisions::new());
-    click_row(&mut harness, 2);
-    assert_eq!(recorder.asked(), Vec::<Ask>::new());
+    let mut want = Vec::<Ask>::new();
 
-    harness.click(centre(&harness, ".reader-head [*|aria-label=\"View\"]"));
-    press_open_in_window(&mut harness);
-    assert_eq!(recorder.asked(), asked_for(&store, INBOX[1].1));
-    assert_eq!(harness.count(".ds-menu"), 0, "the pick left the menu open");
-}
-
-#[test]
-fn a_row_s_context_menu_asks_for_that_conversation_in_a_window_of_its_own() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = seeded(dir.path());
-    let (mut harness, recorder) = main_window(&store, &Revisions::new());
-    // Nothing open: the row right-clicked is the one asked for.
+    // A row's context menu. Nothing open: the row right-clicked is the one asked for.
     let at = on_row(&harness, 3);
     harness.press(at, PointerButton::Secondary);
     press_open_in_window(&mut harness);
-    assert_eq!(recorder.asked(), asked_for(&store, INBOX[2].1));
-}
+    want.extend(asked_for(&store, INBOX[2].1));
+    assert_eq!(recorder.asked(), want, "the row's context menu");
 
-#[test]
-fn shift_enter_asks_for_the_focused_conversation_in_a_window_of_its_own() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = seeded(dir.path());
-    let (mut harness, recorder) = main_window(&store, &Revisions::new());
+    // The reader's menu.
+    click_row(&mut harness, 2);
+    assert_eq!(recorder.asked(), want, "opening a row asked for a window");
+    harness.click(centre(&harness, ".reader-head [*|aria-label=\"View\"]"));
+    press_open_in_window(&mut harness);
+    want.extend(asked_for(&store, INBOX[1].1));
+    assert_eq!(recorder.asked(), want, "the reader's menu");
+    assert_eq!(harness.count(".ds-menu"), 0, "the pick left the menu open");
+
+    // Shift+Enter.
     click_row(&mut harness, 1);
     // Enter alone opens no window.
     harness.key(Key::Enter);
     harness.advance(ms(100));
-    assert_eq!(recorder.asked(), Vec::<Ask>::new());
+    assert_eq!(recorder.asked(), want, "Enter alone asked for a window");
     harness.chord(&[Key::Shift], Key::Enter);
-    settle_until(&mut harness, |_| {
-        recorder.asked() == asked_for(&store, INBOX[0].1)
-    });
+    want.extend(asked_for(&store, INBOX[0].1));
+    settle_until(&mut harness, |_| recorder.asked() == want);
 }
 
 #[test]

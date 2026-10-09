@@ -209,38 +209,58 @@ fn toast(harness: &Harness) -> String {
     harness.text_of(".ds-toast").unwrap_or_default()
 }
 
+/// The row's Mute mutes it and marks it, and Ctrl Z unmutes it. Then the reader mutes the open
+/// conversation and says so, and `m` unmutes it, each its own gesture to take back.
 #[test]
-fn the_row_s_mute_mutes_it_marks_it_and_ctrl_z_unmutes_it() {
+fn the_row_s_menu_and_the_reader_mute_and_ctrl_z_and_m_unmute() {
     let (mut harness, _dir, store) = open();
-    assert_eq!(muted(&store), Vec::<String>::new());
-    assert_eq!(marked(&harness), Vec::<usize>::new());
+    assert_eq!(muted(&store), Vec::<String>::new(), "muted at the start");
+    assert_eq!(marked(&harness), Vec::<usize>::new(), "marked at the start");
 
+    // The row's menu.
     click_row(&mut harness, 1, &[]);
     row_menu::row_action(&mut harness, &row(2), "Mute");
     harness.advance(ms(600));
 
-    assert_eq!(muted(&store), vec![INBOX[1].1.to_owned()]);
+    assert_eq!(muted(&store), vec![INBOX[1].1.to_owned()], "the row's Mute");
     assert_eq!(marked(&harness), vec![2], "the row shows it is muted");
-    assert!(toast(&harness).contains("Muted"), "{}", toast(&harness));
+    assert!(
+        toast(&harness).contains("Muted"),
+        "the row's Mute: {}",
+        toast(&harness)
+    );
     // Muting leaves the conversation where it is: it is about the replies still to come.
-    assert_eq!(harness.count(".list .ds-thread"), INBOX.len());
+    assert_eq!(
+        harness.count(".list .ds-thread"),
+        INBOX.len(),
+        "muting moved the conversation"
+    );
 
     harness.chord(&[Key::Ctrl], Key::Char('z'));
     harness.advance(ms(600));
     assert_eq!(muted(&store), Vec::<String>::new(), "Ctrl Z unmuted it");
-    assert_eq!(marked(&harness), Vec::<usize>::new());
-}
+    assert_eq!(
+        marked(&harness),
+        Vec::<usize>::new(),
+        "the mark outlived Ctrl Z"
+    );
 
-#[test]
-fn the_reader_mutes_the_open_conversation_says_so_and_m_unmutes_it() {
-    let (mut harness, _dir, store) = open();
+    // The reader.
     click_row(&mut harness, 3, &[]);
-    assert_eq!(harness.count(".reader-head .muted-note"), 0);
+    assert_eq!(
+        harness.count(".reader-head .muted-note"),
+        0,
+        "the reader says muted before it is"
+    );
 
     let tool = "[*|aria-label=\"Mute this conversation\"]";
     harness.click(centre(&harness, tool));
     harness.advance(ms(600));
-    assert_eq!(muted(&store), vec![INBOX[2].1.to_owned()]);
+    assert_eq!(
+        muted(&store),
+        vec![INBOX[2].1.to_owned()],
+        "the reader's Mute"
+    );
     let note = harness
         .text_of(".reader-head .muted-note")
         .unwrap_or_default();
@@ -262,47 +282,68 @@ fn the_reader_mutes_the_open_conversation_says_so_and_m_unmutes_it() {
     harness.key(Key::Char('m'));
     harness.advance(ms(600));
     assert_eq!(muted(&store), Vec::<String>::new(), "`m` unmuted it");
-    assert_eq!(harness.count(".reader-head .muted-note"), 0);
+    assert_eq!(
+        harness.count(".reader-head .muted-note"),
+        0,
+        "the reader says muted after `m`"
+    );
 
     // Each was its own gesture: Ctrl Z takes back the unmute, then the mute.
     harness.chord(&[Key::Ctrl], Key::Char('z'));
     harness.advance(ms(600));
-    assert_eq!(muted(&store), vec![INBOX[2].1.to_owned()]);
+    assert_eq!(
+        muted(&store),
+        vec![INBOX[2].1.to_owned()],
+        "Ctrl Z took back the unmute"
+    );
     harness.chord(&[Key::Ctrl], Key::Char('z'));
     harness.advance(ms(600));
-    assert_eq!(muted(&store), Vec::<String>::new());
+    assert_eq!(
+        muted(&store),
+        Vec::<String>::new(),
+        "Ctrl Z took back the mute"
+    );
 }
 
+/// `m` on a selection mutes every picked conversation, and one undo takes all back. Then the
+/// selection bar's Mute, on a selection half muted, mutes the rest, and its undo takes back only
+/// what it did.
 #[test]
-fn m_on_a_selection_mutes_every_picked_conversation_and_one_undo_takes_all_back() {
+fn a_selection_is_muted_as_one_gesture_by_m_and_by_the_bar() {
     let (mut harness, _dir, store) = open();
+
+    // `m` on three picked.
     click_row(&mut harness, 1, &[]);
     click_row(&mut harness, 3, &[Key::Shift]);
     harness.key(Key::Char('m'));
     harness.advance(ms(600));
     let three: Vec<String> = INBOX[..3].iter().map(|(_, s)| s.to_string()).collect();
-    assert_eq!(muted(&store), three);
-    assert_eq!(marked(&harness), vec![1, 2, 3]);
+    assert_eq!(muted(&store), three, "`m` on three picked");
+    assert_eq!(marked(&harness), vec![1, 2, 3], "`m` on three picked");
     assert!(
         toast(&harness).contains("Muted · 3 conversations"),
-        "{}",
+        "`m` on three picked: {}",
         toast(&harness)
     );
 
     harness.chord(&[Key::Ctrl], Key::Char('z'));
     harness.advance(ms(600));
     assert_eq!(muted(&store), Vec::<String>::new(), "one Ctrl Z, all three");
-    assert_eq!(marked(&harness), Vec::<usize>::new());
-}
+    assert_eq!(
+        marked(&harness),
+        Vec::<usize>::new(),
+        "the marks outlived Ctrl Z"
+    );
 
-#[test]
-fn the_selection_bar_s_mute_mutes_the_rest_of_a_half_muted_selection() {
-    let (mut harness, _dir, store) = open();
-    // The second is muted first, on its own.
+    // The bar on a half-muted selection. The second is muted first, on its own.
     click_row(&mut harness, 2, &[]);
     harness.key(Key::Char('m'));
     harness.advance(ms(600));
-    assert_eq!(muted(&store), vec![INBOX[1].1.to_owned()]);
+    assert_eq!(
+        muted(&store),
+        vec![INBOX[1].1.to_owned()],
+        "`m` on the second alone"
+    );
 
     click_row(&mut harness, 1, &[]);
     click_row(&mut harness, 2, &[Key::Ctrl]);
@@ -315,5 +356,9 @@ fn the_selection_bar_s_mute_mutes_the_rest_of_a_half_muted_selection() {
     // Its undo takes back only what it did: the second stays muted.
     harness.chord(&[Key::Ctrl], Key::Char('z'));
     harness.advance(ms(600));
-    assert_eq!(muted(&store), vec![INBOX[1].1.to_owned()]);
+    assert_eq!(
+        muted(&store),
+        vec![INBOX[1].1.to_owned()],
+        "the bar's undo took back more than it did"
+    );
 }

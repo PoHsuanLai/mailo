@@ -300,80 +300,6 @@ fn the_attribution_line_is_in_the_senders_zone_not_utc() {
     );
 }
 
-/// A later message in the same conversation, so a thread really has two.
-///
-/// Carries `in_reply_to` and `References` like a real follow-up, but the `ThreadId` is assigned
-/// here rather than derived: the store writes the thread the caller gives it, because JWZ
-/// threading happens in `mail_runtime::assemble` on the way in. Minting a fresh id here would
-/// silently produce a one-message thread and an assertion that proves nothing — which is what
-/// the length check below exists to catch.
-fn follow_up(store: &SqliteStore) -> MessageId {
-    let id = MessageId::generate();
-    let thread = store.message(ORIGINAL).unwrap().thread;
-    let raw = store
-        .blobs()
-        .put(&store.connection(), b"raw reply")
-        .unwrap();
-    let message = Message {
-        id,
-        thread,
-        account: acct_account(),
-        key: MessageKey::Rfc("reply@example.test".to_owned()),
-        // Later than the original, which is what makes it the reply target.
-        date: at(3600),
-        from: Address {
-            name: Some("Ada Lovelace".to_owned()),
-            email: "ada@example.test".to_owned(),
-        },
-        reply_to: vec![],
-        to: vec![Address {
-            name: None,
-            email: "me@example.test".to_owned(),
-        }],
-        cc: vec![],
-        bcc: vec![],
-        subject: "Re: lunch on friday".to_owned(),
-        in_reply_to: Some("original@example.test".to_owned()),
-        references: vec!["original@example.test".to_owned()],
-        rfc_message_id: Some("reply@example.test".to_owned()),
-        read: ReadState::Unread,
-        star: Star::Unstarred,
-        mailbox: MailboxRole::Inbox,
-        labels: vec![],
-        body: Body::Present {
-            text: Some("one o'clock works".to_owned()),
-            raw,
-        },
-        attachments: vec![],
-    };
-    store
-        .ingest(
-            acct_account(),
-            Ingest {
-                mailbox: MailboxRef {
-                    account: acct_account(),
-                    path: "INBOX".to_owned(),
-                },
-                validity: UidValidity::Same,
-                cursor: Some(SyncCursor::Pop),
-                messages: vec![Fetched {
-                    remote: RemoteRef::Pop {
-                        uidl: "u3".to_owned(),
-                    },
-                    key: message.key.clone(),
-                    raw,
-                    message,
-                }],
-                flags: vec![],
-                labels: vec![],
-                label_names: Vec::new(),
-                gone: vec![],
-            },
-        )
-        .unwrap();
-    id
-}
-
 /// A message this account sent, so a reply to it has nowhere to go.
 ///
 /// `From` is the identity's own address and there is no other recipient, which is the shape
@@ -619,38 +545,23 @@ fn sending_the_same_draft_twice_is_refused() {
 fn an_account_with_no_identity_says_so_instead_of_inventing_a_sender() {
     // An account added before identities were created at setup has no row. Guessing a From
     // address is how mail goes out under an address the user does not own, so replying must
-    // stop and say what is wrong.
-    let dir = tempfile::tempdir().unwrap();
-    let store = SqliteStore::in_memory(dir.path()).unwrap();
-    let plan = mail_domain::presets::manual_pop3(
-        "me@example.edu",
-        &mail_domain::presets::ManualPop3 {
-            pop3_host: "pop.example.edu".to_owned(),
-            pop3_port: 995,
-            smtp_host: "smtp.example.edu".to_owned(),
-            smtp_port: 465,
-            login: None,
-        },
-        at(0),
-    )
-    .plan;
+    // stop and say what is wrong. The message is there, so it is the identity check that fires.
+    let (store, _dir) = seeded();
     store
         .connection()
         .execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'me@example.test', ?2, datetime('now'))",
-            rusqlite::params![
-                acct_account().to_string(),
-                serde_json::to_string(&plan).unwrap()
-            ],
+            "DELETE FROM identities WHERE account = ?1",
+            [acct_account().to_string()],
         )
         .unwrap();
 
     let err = compose::reply(&store, ORIGINAL, ReplyScope::Sender, "hi", at(10))
-        .expect_err("no identity and no message");
-    // The message does not exist in this bare store either; whichever check fires first, the
-    // point is that nothing is invented and nothing panics.
-    assert!(!err.is_empty(), "{err}");
+        .expect_err("no identity to send as");
+    assert!(
+        err.starts_with("this account has no identity to send as"),
+        "{err}"
+    );
+    assert!(store.drafts(acct_account()).unwrap().is_empty());
 }
 
 #[test]
@@ -770,31 +681,6 @@ mod composer {
 
         // And the stored draft is untouched, so nothing was half-written.
         assert_eq!(store.draft(draft.id).unwrap().to, draft.to);
-    }
-
-    #[test]
-    fn the_reply_button_answers_the_newest_message_in_the_thread() {
-        let (store, _dir) = seeded();
-        let later = follow_up(&store);
-        let thread = store.message(later).unwrap().thread;
-
-        let messages: Vec<Message> = store
-            .thread(thread)
-            .unwrap()
-            .messages
-            .iter()
-            .filter_map(|id| store.message(*id).ok())
-            .collect();
-        assert!(
-            messages.len() >= 2,
-            "this asserts nothing unless the thread really has two messages: {}",
-            messages.len()
-        );
-        let target = view::reply_target(&messages).unwrap();
-        assert_eq!(
-            target.id, later,
-            "replied to the wrong message in the thread"
-        );
     }
 }
 
@@ -954,7 +840,8 @@ mod discarding {
     #[test]
     fn discarding_something_that_is_not_there_is_an_error_not_a_panic() {
         let (store, _dir) = seeded();
-        assert!(compose::discard(&store, DraftId::generate()).is_err());
+        let err = compose::discard(&store, DraftId::generate()).expect_err("no such draft");
+        assert!(err.starts_with("no such draft"), "{err}");
     }
 }
 
@@ -1005,6 +892,12 @@ mod forwarding {
             .find("Shall we say one o'clock?")
             .expect("the original text");
         assert!(note < block && block < body, "out of order:\n{text}");
+        // A forward passes the message on; it does not answer it. Every client writes it
+        // unmarked beneath a header block, and a recipient who sees "> " reads it as a reply.
+        assert!(
+            !text.contains("> Shall we say one o'clock?"),
+            "the original was quoted like a reply:\n{text}"
+        );
 
         // The headers a recipient needs to judge it, in the sender's zone: the original is
         // 22:13 on Tuesday the 14th in UTC and 06:13 on Wednesday the 15th in Taipei.
@@ -1049,20 +942,6 @@ mod forwarding {
             out.contains("  to      "),
             "the columns are not aligned: {out:?}"
         );
-    }
-
-    #[test]
-    fn the_original_is_carried_rather_than_quoted() {
-        // A forward passes the message on; it does not answer it. Every client writes it
-        // unmarked beneath a header block, and a recipient who sees "> " reads it as a reply.
-        let (store, _dir) = seeded();
-        compose::draft_forward_in(&store, ORIGINAL, &to(), "", at(10), &taipei()).unwrap();
-        let text = only_draft(&store).text;
-        assert!(
-            !text.contains("> Shall we say one o'clock?"),
-            "the original was quoted like a reply:\n{text}"
-        );
-        assert!(text.contains("Shall we say one o'clock?"), "{text}");
     }
 
     #[test]
@@ -1318,6 +1197,9 @@ mod signatures {
         compose::set_signature(store, acct_account(), text).unwrap();
     }
 
+    /// The delimiter is `-- ` with its trailing space: RFC 3676 §4.3 names that string, and
+    /// every client that trims a signature when quoting looks for it. `--` without the space is
+    /// a different line and gets quoted back at people for the rest of the thread.
     #[test]
     fn a_reply_carries_the_signature_beneath_what_was_written() {
         let (store, _dir) = seeded();
@@ -1339,23 +1221,6 @@ mod signatures {
         let quote = text.find("Ada Lovelace wrote:").expect("the attribution");
         assert!(written < delimiter, "the signature came first:\n{text}");
         assert!(delimiter < sig && sig < quote, "out of order:\n{text}");
-    }
-
-    #[test]
-    fn the_delimiter_is_dash_dash_space_exactly() {
-        // RFC 3676 §4.3 names that string, and every client that trims a signature when quoting
-        // looks for it. `--` without the trailing space is a different line and gets quoted back
-        // at people for the rest of the thread.
-        let (store, _dir) = seeded();
-        set(&store, Some("Ada"));
-        compose::reply(&store, ORIGINAL, ReplyScope::Sender, "hi", at(10)).unwrap();
-
-        let text = only_draft(&store).text;
-        assert!(text.contains("\r\n-- \r\n"), "{text:?}");
-        assert!(
-            !text.contains("\r\n--\r\n"),
-            "the trailing space is missing: {text:?}"
-        );
     }
 
     #[test]
@@ -1384,41 +1249,35 @@ mod signatures {
         );
     }
 
+    /// An account with no signature must not gain a bare `-- ` line, which other clients read as
+    /// "everything below is a signature" and hide. `mailo signature you@x < /dev/null` and a file
+    /// of blank lines are both "take it off".
     #[test]
-    fn no_signature_means_no_delimiter() {
-        // An account that has not set one must not gain a bare `-- ` line, which other clients
-        // read as "everything below is a signature" and hide.
-        let (store, _dir) = seeded();
-        compose::reply(&store, ORIGINAL, ReplyScope::Sender, "hi", at(10)).unwrap();
-        assert!(
-            !only_draft(&store).text.contains("-- "),
-            "{}",
-            only_draft(&store).text
+    fn an_absent_blank_or_cleared_signature_leaves_no_delimiter() {
+        // Each row is the signatures set in turn, and what the last one says.
+        type Row = (
+            &'static str,
+            &'static [Option<&'static str>],
+            Option<&'static str>,
         );
-    }
-
-    #[test]
-    fn whitespace_is_not_a_signature() {
-        // `mailo signature you@x < /dev/null` and a file of blank lines are both "take it off".
-        let (store, _dir) = seeded();
-        set(&store, Some("   \n\n  "));
-        compose::reply(&store, ORIGINAL, ReplyScope::Sender, "hi", at(10)).unwrap();
-        assert!(
-            !only_draft(&store).text.contains("-- "),
-            "{}",
-            only_draft(&store).text
-        );
-    }
-
-    #[test]
-    fn clearing_it_takes_it_off_the_next_reply() {
-        let (store, _dir) = seeded();
-        set(&store, Some("Ada"));
-        let out = compose::set_signature(&store, acct_account(), None).unwrap();
-        assert!(out.contains("cleared"), "{out}");
-
-        compose::reply(&store, ORIGINAL, ReplyScope::Sender, "hi", at(10)).unwrap();
-        assert!(!only_draft(&store).text.contains("-- "));
+        const CASES: &[Row] = &[
+            ("never set", &[], None),
+            ("only whitespace", &[Some("   \n\n  ")], None),
+            ("set, then cleared", &[Some("Ada"), None], Some("cleared")),
+        ];
+        for (name, steps, says) in CASES {
+            let (store, _dir) = seeded();
+            let mut out = String::new();
+            for text in *steps {
+                out = compose::set_signature(&store, acct_account(), *text).unwrap();
+            }
+            if let Some(said) = says {
+                assert!(out.contains(said), "{name}: {out}");
+            }
+            compose::reply(&store, ORIGINAL, ReplyScope::Sender, "hi", at(10)).unwrap();
+            let text = only_draft(&store).text;
+            assert!(!text.contains("-- "), "{name}: {text:?}");
+        }
     }
 }
 

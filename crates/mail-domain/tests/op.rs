@@ -889,7 +889,7 @@ fn a_message_target_snoozes_and_pins_the_whole_thread() {
 // ---------------------------------------------------------------------------------------
 
 #[test]
-fn local_only_capabilities_queue_no_remote_work() {
+fn ops_with_no_server_form_queue_no_remote_work() {
     // These discriminate for real since F12: `Applied::remote` is `Some(RemoteIntent)` under
     // server-backed capabilities, so a `None` here means the capability was honoured rather
     // than that the domain could not address the server. The positive half of the contract is
@@ -924,6 +924,23 @@ fn local_only_capabilities_queue_no_remote_work() {
             Op::Label(LABEL_A, Membership::Out),
             account_caps(ArchiveMeans::DropInbox, ServerLabels::LocalOnly),
         ),
+        // Snooze, pin and mute have no server representation at all, even under server-backed
+        // capabilities.
+        (
+            "snooze under server capabilities",
+            Op::SetSnooze(Snooze::Until(at(900))),
+            server_caps(),
+        ),
+        (
+            "pin under server capabilities",
+            Op::SetPin(Pin::Rank(2)),
+            server_caps(),
+        ),
+        (
+            "mute under server capabilities",
+            Op::SetMute(Mute::Muted),
+            server_caps(),
+        ),
     ];
 
     for (name, op, caps) in cases {
@@ -933,24 +950,6 @@ fn local_only_capabilities_queue_no_remote_work() {
             !applied.forward.changes.is_empty(),
             "{name}: local-only still means local *work*, not a no-op"
         );
-    }
-}
-
-#[test]
-fn snooze_and_pin_never_reach_a_server() {
-    // These two have no server representation at all, under any capabilities.
-    let messages = mixed_thread();
-    let thread = thread_of(&messages, Snooze::Inactive, Pin::Unpinned, Mute::Unmuted);
-    let target = Target::Threads(vec![THREAD]);
-
-    for op in [
-        Op::SetSnooze(Snooze::Until(at(900))),
-        Op::SetPin(Pin::Rank(2)),
-        Op::SetMute(Mute::Muted),
-    ] {
-        let applied = op.apply(&target, &thread, &messages, &server_caps(), now());
-        assert!(applied.remote.is_none(), "{op:?}");
-        assert!(!applied.forward.changes.is_empty(), "{op:?}: local work");
     }
 }
 

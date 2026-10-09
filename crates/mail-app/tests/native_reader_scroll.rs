@@ -226,28 +226,24 @@ fn scrolls(harness: &mut Harness, marker: &str) -> bool {
     after.0 < before.0 - 1.0 || after.1 < before.1 - 1.0
 }
 
-fn case(n: usize, marker: &str) {
-    let (mut harness, _dir) = open();
-    open_row(&mut harness, n, marker);
-    let frame = harness.rect(FRAME);
-    let body = harness.rect(".reader-body");
-    assert!(
-        scrolls(&mut harness, marker),
-        "row {n}: the body did not move under the wheel (frame {frame:?}, reader-body {body:?})"
-    );
-}
-
+/// Each long letter scrolls under the wheel: a plain one, an HTML one, and a thread. Each row
+/// opens in a window of its own, so no row starts where another's wheel left the reader.
 #[test]
-fn a_long_plain_letter_scrolls_under_the_wheel() {
-    case(1, "body");
-}
-
-#[test]
-fn a_long_html_letter_scrolls_under_the_wheel() {
-    case(2, "p");
-}
-
-#[test]
-fn a_long_thread_scrolls_under_the_wheel() {
-    case(3, "body");
+fn each_long_letter_scrolls_under_the_wheel() {
+    // (what, row, a marker in its last frame)
+    const CASES: [(&str, usize, &str); 3] = [
+        ("a long plain letter", 1, "body"),
+        ("a long HTML letter", 2, "p"),
+        ("a long thread", 3, "body"),
+    ];
+    for (what, n, marker) in CASES {
+        let (mut harness, _dir) = open();
+        open_row(&mut harness, n, marker);
+        let frame = harness.rect(FRAME);
+        let body = harness.rect(".reader-body");
+        assert!(
+            scrolls(&mut harness, marker),
+            "{what} (row {n}): the body did not move under the wheel (frame {frame:?}, reader-body {body:?})"
+        );
+    }
 }

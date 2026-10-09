@@ -81,60 +81,59 @@ fn a_request_is_seen_with_where_the_receipt_would_go() {
     );
 }
 
+/// `(name, the header dropped from ASKING, the header added, what the ask reads of the
+/// return path)`.
 #[test]
-fn a_message_that_does_not_ask_is_not_asking() {
-    let plain = with_headers(ASKING, &["Disposition-Notification-To"], "");
-    assert_eq!(receipt_asked(&plain), None);
-    let empty = with_headers(
-        ASKING,
-        &["Disposition-Notification-To"],
-        "Disposition-Notification-To: not an address",
-    );
-    assert_eq!(receipt_asked(&empty), None);
-}
-
-#[test]
-fn a_request_to_another_domain_than_the_return_path_is_flagged() {
-    // RFC 8098 §2.1: anyone can write the header, and a receipt confirms the mailbox is read.
-    let raw = with_headers(
-        ASKING,
-        &["Disposition-Notification-To"],
-        "Disposition-Notification-To: tracker@collector.test",
-    );
-    assert_eq!(
-        receipt_asked(&raw).map(|ask| ask.return_path),
-        Some(ReturnPath::Differs {
-            return_path: "bounce+x1@example.test".to_owned()
-        })
-    );
-}
-
-#[test]
-fn with_no_usable_return_path_there_is_nothing_to_compare() {
-    for (drop, extra) in [
-        (&["Return-Path"][..], ""),
-        (&["Return-Path"][..], "Return-Path: <>"),
-    ] {
-        let raw = with_headers(ASKING, drop, extra);
+fn receipt_asked_reads_the_return_path() {
+    let cases: Vec<(&str, &str, &str, Option<ReturnPath>)> = vec![
+        (
+            "a message that does not ask is not asking",
+            "Disposition-Notification-To",
+            "",
+            None,
+        ),
+        (
+            "a request with no address is not asking",
+            "Disposition-Notification-To",
+            "Disposition-Notification-To: not an address",
+            None,
+        ),
+        (
+            // RFC 8098 §2.1: anyone can write the header, and a receipt confirms the mailbox is read.
+            "a request to another domain than the return path is flagged",
+            "Disposition-Notification-To",
+            "Disposition-Notification-To: tracker@collector.test",
+            Some(ReturnPath::Differs {
+                return_path: "bounce+x1@example.test".to_owned(),
+            }),
+        ),
+        (
+            "with no return path there is nothing to compare",
+            "Return-Path",
+            "",
+            Some(ReturnPath::Unknown),
+        ),
+        (
+            "with an empty return path there is nothing to compare",
+            "Return-Path",
+            "Return-Path: <>",
+            Some(ReturnPath::Unknown),
+        ),
+        (
+            "the domain comparison ignores case",
+            "Return-Path",
+            "Return-Path: <Bounces@EXAMPLE.test>",
+            Some(ReturnPath::Agrees),
+        ),
+    ];
+    for (name, drop, extra, want) in cases {
+        let raw = with_headers(ASKING, &[drop], extra);
         assert_eq!(
             receipt_asked(&raw).map(|ask| ask.return_path),
-            Some(ReturnPath::Unknown),
-            "{extra:?}"
+            want,
+            "{name}"
         );
     }
-}
-
-#[test]
-fn the_domain_comparison_ignores_case() {
-    let raw = with_headers(
-        ASKING,
-        &["Return-Path"],
-        "Return-Path: <Bounces@EXAMPLE.test>",
-    );
-    assert_eq!(
-        receipt_asked(&raw).map(|ask| ask.return_path),
-        Some(ReturnPath::Agrees)
-    );
 }
 
 #[test]

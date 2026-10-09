@@ -382,118 +382,10 @@ fn open(smtp_port: u16, pop_port: u16, relays: Option<Arc<relay::Relays>>) -> Se
     }
 }
 
+/// One queued message, one drain, and each thing worth checking about what the server got:
+/// the report, the envelope (F37), the bytes past a dotted line, and the draft marked sent.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_queued_message_reaches_the_submission_server() {
-    let seen: Shared = Arc::new(Mutex::new(Transcript::default()));
-    let port = serve(seen.clone()).await;
-    let mut it = compose(port);
-    let (_tx, mut cancel) = watch::channel(false);
-
-    let report = it
-        .engine
-        .drain_outbox(&mut cancel, now())
-        .await
-        .expect("the drain reaches the submission server");
-
-    assert_eq!(report.submitted, 1, "nothing was submitted: {report:?}");
-    assert_eq!(report.outbox_settled, 1);
-    assert_eq!(
-        report.still_queued, 0,
-        "a delivered message must not still be reported as waiting"
-    );
-    assert!(
-        report.needs_attention.is_empty(),
-        "{:?}",
-        report.needs_attention
-    );
-
-    let seen = seen.lock().unwrap();
-    assert_eq!(seen.mail_from().as_deref(), Some("me@example.test"));
-    assert!(
-        seen.commands.iter().any(|c| c.starts_with("EHLO")),
-        "no EHLO: {:?}",
-        seen.commands
-    );
-    assert!(
-        seen.commands.iter().any(|c| c == "AUTH PLAIN"),
-        "the session did not authenticate: {:?}",
-        seen.commands
-    );
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_blind_recipient_is_delivered_to_and_named_nowhere_else() {
-    // FINDINGS F37, end to end. Both halves fail silently and in opposite directions, so both
-    // are asserted against what the server actually received.
-    let seen: Shared = Arc::new(Mutex::new(Transcript::default()));
-    let port = serve(seen.clone()).await;
-    let mut it = compose(port);
-    let (_tx, mut cancel) = watch::channel(false);
-
-    it.engine.drain_outbox(&mut cancel, now()).await.unwrap();
-
-    let seen = seen.lock().unwrap();
-    let mut rcpt = seen.rcpt_to();
-    rcpt.sort();
-    assert_eq!(
-        rcpt,
-        vec![
-            "bea@example.test".to_owned(),
-            "cara@example.test".to_owned(),
-            "dee@example.test".to_owned(),
-        ],
-        "the envelope must carry every recipient, blind ones included"
-    );
-
-    let body = seen.body.to_lowercase();
-    assert!(
-        !body.contains("bcc:"),
-        "a Bcc header reached the server:\n{}",
-        seen.body
-    );
-    assert!(
-        !body.contains("dee@example.test"),
-        "the blind address appears in the transmitted message:\n{}",
-        seen.body
-    );
-    // The message really did carry its visible recipients, so the absence above is the header
-    // being omitted rather than the whole envelope being empty.
-    assert!(body.contains("bea@example.test"), "{}", seen.body);
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_message_survives_the_wire_byte_for_byte() {
-    // The body opens a line with a dot, which is the terminator. The client stuffs it and the
-    // server un-stuffs it; get either wrong and the message is silently truncated there.
-    let seen: Shared = Arc::new(Mutex::new(Transcript::default()));
-    let port = serve(seen.clone()).await;
-    let mut it = compose(port);
-    let (_tx, mut cancel) = watch::channel(false);
-
-    it.engine.drain_outbox(&mut cancel, now()).await.unwrap();
-
-    let seen = seen.lock().unwrap();
-    assert!(
-        seen.body.contains(".a line that needs stuffing"),
-        "the dotted line did not survive:\n{}",
-        seen.body
-    );
-    assert!(
-        seen.body.contains("Shall we say one o'clock?"),
-        "the body was truncated at the dotted line:\n{}",
-        seen.body
-    );
-    assert!(
-        seen.body
-            .to_lowercase()
-            .contains("subject: lunch on friday"),
-        "{}",
-        seen.body
-    );
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_draft_ends_up_marked_sent() {
+async fn a_queued_message_is_submitted_whole() {
     let seen: Shared = Arc::new(Mutex::new(Transcript::default()));
     let port = serve(seen.clone()).await;
     let mut it = compose(port);
@@ -502,22 +394,118 @@ async fn the_draft_ends_up_marked_sent() {
     assert_eq!(
         it.store.draft(it.draft.id).unwrap().state,
         SendState::Queued,
-        "precondition"
+        "precondition: the draft is queued"
     );
-    it.engine.drain_outbox(&mut cancel, now()).await.unwrap();
+    let report = it
+        .engine
+        .drain_outbox(&mut cancel, now())
+        .await
+        .expect("the drain reaches the submission server");
 
+    // The report.
+    assert_eq!(
+        report.submitted, 1,
+        "report: nothing was submitted: {report:?}"
+    );
+    assert_eq!(report.outbox_settled, 1, "report: settled");
+    assert_eq!(
+        report.still_queued, 0,
+        "report: a delivered message must not still be reported as waiting"
+    );
+    assert!(
+        report.needs_attention.is_empty(),
+        "report: {:?}",
+        report.needs_attention
+    );
+
+    {
+        let seen = seen.lock().unwrap();
+        // The session.
+        assert_eq!(
+            seen.mail_from().as_deref(),
+            Some("me@example.test"),
+            "session: MAIL FROM"
+        );
+        assert!(
+            seen.commands.iter().any(|c| c.starts_with("EHLO")),
+            "session: no EHLO: {:?}",
+            seen.commands
+        );
+        assert!(
+            seen.commands.iter().any(|c| c == "AUTH PLAIN"),
+            "session: the session did not authenticate: {:?}",
+            seen.commands
+        );
+
+        // The envelope. FINDINGS F37, end to end. Both halves fail silently and in opposite
+        // directions, so both are asserted against what the server actually received.
+        let mut rcpt = seen.rcpt_to();
+        rcpt.sort();
+        assert_eq!(
+            rcpt,
+            vec![
+                "bea@example.test".to_owned(),
+                "cara@example.test".to_owned(),
+                "dee@example.test".to_owned(),
+            ],
+            "envelope: it must carry every recipient, blind ones included"
+        );
+        let body = seen.body.to_lowercase();
+        assert!(
+            !body.contains("bcc:"),
+            "envelope: a Bcc header reached the server:\n{}",
+            seen.body
+        );
+        assert!(
+            !body.contains("dee@example.test"),
+            "envelope: the blind address appears in the transmitted message:\n{}",
+            seen.body
+        );
+        // The message really did carry its visible recipients, so the absence above is the
+        // header being omitted rather than the whole envelope being empty.
+        assert!(
+            body.contains("bea@example.test"),
+            "envelope: visible recipient missing:\n{}",
+            seen.body
+        );
+
+        // Byte for byte. The body opens a line with a dot, which is the terminator. The client
+        // stuffs it and the server un-stuffs it; get either wrong and the message is silently
+        // truncated there.
+        assert!(
+            seen.body.contains(".a line that needs stuffing"),
+            "bytes: the dotted line did not survive:\n{}",
+            seen.body
+        );
+        assert!(
+            seen.body.contains("Shall we say one o'clock?"),
+            "bytes: the body was truncated at the dotted line:\n{}",
+            seen.body
+        );
+        assert!(
+            body.contains("subject: lunch on friday"),
+            "bytes: subject missing:\n{}",
+            seen.body
+        );
+    }
+
+    // The draft.
     match it.store.draft(it.draft.id).unwrap().state {
         SendState::Sent { at, message } => {
-            assert_eq!(at, now());
+            assert_eq!(at, now(), "draft: sent at");
             // SMTP reports acceptance, not where a copy was filed. A POP3 account has nowhere
             // for one to be filed, so the copy is the one kept here.
             let kept = it
                 .store
-                .message(message.expect("a POP3 send keeps its copy"))
+                .message(message.expect("draft: a POP3 send keeps its copy"))
                 .unwrap();
-            assert_eq!(kept.mailbox, MailboxRole::Sent);
+            assert_eq!(
+                kept.mailbox,
+                MailboxRole::Sent,
+                "draft: the copy is in Sent"
+            );
         }
-        other => panic!("draft did not reach Sent: {other:?}"),
+        other => panic!("draft: did not reach Sent: {other:?}"),
     }
 }
 

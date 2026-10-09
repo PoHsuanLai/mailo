@@ -406,10 +406,6 @@ fn held_row(store: &SqliteStore, address: &str) {
 
 #[test]
 fn the_line_is_there_only_when_linked_and_only_when_mail_signed_some_account_in_itself() {
-    assert_eq!(
-        HELD_LINE,
-        "Some accounts were signed in by Mail itself. Add them again to use them here."
-    );
     let accountd: Arc<dyn Accountd> = Daemon::offering(vec![]);
     let linked = Link::Accountd(accountd);
 

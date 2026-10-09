@@ -48,11 +48,44 @@ fn angle_brackets_around_the_id_are_tolerated() {
     assert!(out.contains("data:image/png;base64,"), "{out}");
 }
 
+/// Nothing here can be embedded, so the HTML comes back exactly as it was.
 #[test]
-fn a_reference_with_no_part_is_left_exactly_as_it_was() {
-    // Substituting a placeholder would be the reader inventing content for a message.
-    let html = r#"<img src="cid:missing@example">"#;
-    assert_eq!(embed_inline(html, &[], INLINE_BUDGET), html);
+fn nothing_embeddable_leaves_the_html_as_it_was() {
+    let mut attached = part("a@x", "image/png", PNG);
+    attached.inline = Inline::Attached;
+    let cases: Vec<(&str, &str, Vec<ParsedPart>, usize)> = vec![
+        (
+            // Substituting a placeholder would be the reader inventing content for a message.
+            "a reference with no part",
+            r#"<img src="cid:missing@example">"#,
+            vec![],
+            INLINE_BUDGET,
+        ),
+        (
+            // A `cid` that names an ordinary attachment must not be embedded: it was not
+            // referenced as inline content, and treating it as such renders a document nobody
+            // composed.
+            "an attached part is not an inline one",
+            r#"<img src="cid:a@x">"#,
+            vec![attached],
+            INLINE_BUDGET,
+        ),
+        (
+            "html with no references",
+            "<p>nothing inline here</p>",
+            vec![],
+            INLINE_BUDGET,
+        ),
+        (
+            "a zero budget embeds nothing",
+            r#"<img src="cid:a@x">"#,
+            vec![part("a@x", "image/png", PNG)],
+            0,
+        ),
+    ];
+    for (name, html, parts, budget) in &cases {
+        assert_eq!(embed_inline(html, parts, *budget), *html, "{name}");
+    }
 }
 
 #[test]
@@ -100,16 +133,6 @@ fn a_media_type_with_parameters_still_matches_on_its_essence() {
 }
 
 #[test]
-fn an_attached_part_is_not_an_inline_one() {
-    // A `cid` that names an ordinary attachment must not be embedded: it was not referenced as
-    // inline content, and treating it as such renders a document nobody composed.
-    let mut attached = part("a@x", "image/png", PNG);
-    attached.inline = Inline::Attached;
-    let html = r#"<img src="cid:a@x">"#;
-    assert_eq!(embed_inline(html, &[attached], INLINE_BUDGET), html);
-}
-
-#[test]
 fn the_budget_stops_embedding_rather_than_truncating_an_image() {
     // A half-written data URI is a corrupt document. Past the budget the reference stays a
     // cid:, which is a broken image — exactly what it was before any of this existed.
@@ -127,24 +150,9 @@ fn the_budget_stops_embedding_rather_than_truncating_an_image() {
 }
 
 #[test]
-fn html_with_no_references_is_returned_untouched() {
-    let html = "<p>nothing inline here</p>";
-    assert_eq!(embed_inline(html, &[], INLINE_BUDGET), html);
-}
-
-#[test]
 fn a_bare_cid_with_nothing_after_it_does_not_panic() {
     // Hostile input reaches this directly; the sanitizer does not repair truncated URLs.
     for odd in ["cid:", "cid:<>", "<img src=\"cid:", "cid::::", "cid:a@x"] {
         let _ = embed_inline(odd, &[part("a@x", "image/png", PNG)], INLINE_BUDGET);
     }
-}
-
-#[test]
-fn a_zero_budget_embeds_nothing_and_keeps_the_document_intact() {
-    let html = r#"<img src="cid:a@x">"#;
-    assert_eq!(
-        embed_inline(html, &[part("a@x", "image/png", PNG)], 0),
-        html
-    );
 }

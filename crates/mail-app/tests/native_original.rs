@@ -305,7 +305,8 @@ fn newsletter_original() -> Window {
 
 /// (d) Consent, 0 → N → 0: nothing is fetched until "Show images", exactly the newsletter's two
 /// images then, and nothing more once opening another thread has revoked it, including when the
-/// newsletter is opened again.
+/// newsletter is opened again. Consent is for the thread shown: the other letter's image is never
+/// on the newsletter's list, and closing the reader takes the consent back.
 #[test]
 fn remote_images_are_fetched_only_while_consent_stands() {
     let mut window = newsletter_original();
@@ -343,15 +344,13 @@ fn remote_images_are_fetched_only_while_consent_stands() {
         "the consent came back on its own"
     );
     assert_eq!(frame_width(&window.harness, HERO), 0.0);
-}
 
-/// Consent is for the thread shown: the other letter's image is never on the newsletter's list,
-/// and closing the reader takes the consent back.
-#[test]
-fn consent_covers_the_open_thread_only_and_closing_revokes_it() {
-    let mut window = newsletter_original();
+    // Consented again, then the reader closed.
     click(&mut window.harness, SHOW_IMAGES);
-    assert!(!window.fetched.urls().contains(&OTHER.to_owned()));
+    assert!(
+        !window.fetched.urls().contains(&OTHER.to_owned()),
+        "the other letter's image was fetched for the newsletter"
+    );
     window.harness.key(Key::Escape);
     window.harness.advance(ms(400));
     assert_eq!(
@@ -398,50 +397,55 @@ fn hovering_fetches_nothing() {
     assert_eq!(window.fetched.count(), n, "hovering another row fetched");
 }
 
-/// `cid:` inline images resolve inside the frame, as `data:` in its own markup (F42): shown
-/// before any consent, with no request made for them.
+/// The newsletter's frame at rest. `cid:` inline images resolve inside the frame, as `data:` in
+/// its own markup (F42): shown before any consent, with no request made for them. (a) No shared
+/// DOM in the real window: the sender's elements are found in the frame and never by the
+/// window's queries, and the frame holds none of the window's elements.
 #[test]
-fn the_inline_image_shows_without_a_request() {
+fn the_frame_at_rest_shows_its_inline_image_and_shares_no_nodes_with_the_window() {
     let window = newsletter_original();
-    assert_eq!(frame_width(&window.harness, LOGO), 7.0);
+    // The inline image.
+    assert_eq!(frame_width(&window.harness, LOGO), 7.0, "the inline logo");
     let frame = window.harness.frame(FRAME).expect("a frame document");
     let src = frame.attr(LOGO, "src").unwrap_or_default();
-    assert!(src.starts_with("data:image/png;base64,"), "{src}");
-    assert_eq!(window.fetched.count(), 0);
-}
+    assert!(
+        src.starts_with("data:image/png;base64,"),
+        "the inline logo: {src}"
+    );
+    assert_eq!(window.fetched.count(), 0, "the inline logo was fetched");
 
-/// (e) A link in the frame opens in the browser, through mailo, and the frame stays as it was.
-/// What opens is the link without its tracking parameters, and with its own.
-#[test]
-fn a_link_in_the_frame_opens_in_the_browser_and_the_frame_stays() {
-    let mut window = newsletter_original();
-    let (before, at) = {
-        let frame = window.harness.frame(FRAME).expect("a frame document");
-        (frame.id(), frame.centre(LINK).expect("the link is drawn"))
-    };
-    window.harness.click(at);
-    window.harness.advance(ms(300));
-    let opened = window
-        .opened
-        .0
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .clone();
-    assert_eq!(opened, vec![OFFER.to_owned()]);
-    let frame = window.harness.frame(FRAME).expect("still a frame document");
-    assert_eq!(frame.id(), before, "the frame navigated");
-    assert_eq!(frame.count(HERO), 1);
-    assert_eq!(window.fetched.count(), 0, "the click fetched");
+    // No shared nodes.
+    assert_eq!(frame.count("h3"), 2, "the sender's headings in the frame");
+    assert!(
+        frame.text().contains("Twelve new knits"),
+        "the sender's words in the frame"
+    );
+    assert_eq!(
+        frame.count(".reader, .reader-body, .app, .ds-inline-banner, iframe"),
+        0,
+        "the window's elements in the frame"
+    );
+    // The window's own copy of the words is its blocks (the Reader view, hidden), never the
+    // frame's elements: the window finds one frame and none of the sender's tables.
+    assert_eq!(window.harness.count("iframe"), 1, "the window's frames");
+    assert_eq!(
+        window.harness.count("table table"),
+        0,
+        "the sender's tables in the window"
+    );
 }
 
 /// The link pill shows where a link in the frame goes as the pointer comes onto it, read by the
-/// same honesty check as a Reader view link, and goes as the pointer leaves.
+/// same honesty check as a Reader view link, and goes as the pointer leaves. (e) Then a click on
+/// the link opens it in the browser, through mailo, and the frame stays as it was. What opens is
+/// the link without its tracking parameters, and with its own.
 #[test]
-fn hovering_a_link_in_the_frame_shows_where_it_goes() {
+fn a_link_in_the_frame_shows_where_it_goes_on_hover_and_opens_in_the_browser() {
     let mut window = newsletter_original();
-    let (honest, liar) = {
+    let (before, honest, liar) = {
         let frame = window.harness.frame(FRAME).expect("a frame document");
         (
+            frame.id(),
             frame.centre(LINK).expect("the link is drawn"),
             frame.centre(LIAR).expect("the second link is drawn"),
         )
@@ -486,26 +490,24 @@ fn hovering_a_link_in_the_frame_shows_where_it_goes() {
             .0
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .is_empty()
+            .is_empty(),
+        "hovering opened a link"
     );
-}
 
-/// (a) No shared DOM in the real window: the sender's elements are found in the frame and never
-/// by the window's queries, and the frame holds none of the window's elements.
-#[test]
-fn the_window_and_the_frame_share_no_nodes() {
-    let window = newsletter_original();
-    let frame = window.harness.frame(FRAME).expect("a frame document");
-    assert_eq!(frame.count("h3"), 2);
-    assert!(frame.text().contains("Twelve new knits"));
-    assert_eq!(
-        frame.count(".reader, .reader-body, .app, .ds-inline-banner, iframe"),
-        0
-    );
-    // The window's own copy of the words is its blocks (the Reader view, hidden), never the
-    // frame's elements: the window finds one frame and none of the sender's tables.
-    assert_eq!(window.harness.count("iframe"), 1);
-    assert_eq!(window.harness.count("table table"), 0);
+    // A click on the honest link.
+    window.harness.click(honest);
+    window.harness.advance(ms(300));
+    let opened = window
+        .opened
+        .0
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone();
+    assert_eq!(opened, vec![OFFER.to_owned()], "the click opened");
+    let frame = window.harness.frame(FRAME).expect("still a frame document");
+    assert_eq!(frame.id(), before, "the frame navigated");
+    assert_eq!(frame.count(HERO), 1, "the frame lost its hero");
+    assert_eq!(window.fetched.count(), 0, "the click fetched");
 }
 
 /// Every request any document of the window makes, refused and kept.

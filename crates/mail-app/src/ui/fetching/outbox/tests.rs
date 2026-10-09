@@ -27,31 +27,28 @@ fn running() -> Link {
     }
 }
 
+/// A queued send asks for a pass when its grace period ends and not before, and a scheduled one
+/// when its time comes.
 #[test]
-fn a_send_asks_for_a_pass_when_its_grace_period_ends_and_not_before() {
-    let due = at(5);
+fn a_send_asks_for_a_pass_once_it_is_due() {
+    let link = resting();
     let queued = SendState::Queued;
-    let link = resting();
-    // Table: seconds since it was queued, and whether a pass is wanted.
-    const CASES: &[(i64, bool)] = &[(0, false), (4, false), (5, true), (6, true), (600, true)];
-    for (second, wanted) in CASES {
+    let scheduled = SendState::Scheduled { at: at(3600) };
+    // (row, its state, when it is due, seconds now, whether a pass is wanted)
+    let cases: [(&str, &SendState, i64, i64, bool); 7] = [
+        ("queued, just now", &queued, 5, 0, false),
+        ("queued, still in grace", &queued, 5, 4, false),
+        ("queued, grace ends", &queued, 5, 5, true),
+        ("queued, after grace", &queued, 5, 6, true),
+        ("queued, long after", &queued, 5, 600, true),
+        ("scheduled, a second early", &scheduled, 3600, 3599, false),
+        ("scheduled, its time", &scheduled, 3600, 3600, true),
+    ];
+    for (name, state, due, second, wanted) in cases {
         assert_eq!(
-            wants_a_pass(DRAFT, due, at(*second), Some(&queued), Some(&link), None),
-            *wanted,
-            "{second} s in"
-        );
-    }
-}
-
-#[test]
-fn a_scheduled_send_asks_when_its_time_comes() {
-    let state = SendState::Scheduled { at: at(3600) };
-    let link = resting();
-    for (second, wanted) in [(3599, false), (3600, true)] {
-        assert_eq!(
-            wants_a_pass(DRAFT, at(3600), at(second), Some(&state), Some(&link), None),
+            wants_a_pass(DRAFT, at(due), at(second), Some(state), Some(&link), None),
             wanted,
-            "{second}"
+            "{name}"
         );
     }
 }

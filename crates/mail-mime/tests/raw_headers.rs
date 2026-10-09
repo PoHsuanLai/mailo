@@ -23,27 +23,77 @@ fn with_subject(charset: &'static Encoding, subject: &str, extra: &str) -> Vec<u
     raw
 }
 
+/// `(name, charset, subject, extra headers)`. Every row's field is written in raw bytes of
+/// `charset`, so none of them is UTF-8.
 #[test]
-fn a_big5_subject_is_read_in_the_charset_the_message_declares() {
-    let raw = with_subject(
-        BIG5,
-        "會議記錄與下週行程",
-        "MIME-Version: 1.0\r\nContent-Type: text/plain; charset=big5\r\n",
-    );
-    assert!(
-        std::str::from_utf8(&raw).is_err(),
-        "the fixture must be raw Big5"
-    );
-    assert_eq!(parse(&raw).unwrap().subject, "會議記錄與下週行程");
-}
-
-#[test]
-fn a_gbk_subject_with_no_declaration_is_detected() {
-    let raw = with_subject(GBK, "关于下周项目会议的安排和准备工作", "");
-    assert_eq!(
-        parse(&raw).unwrap().subject,
-        "关于下周项目会议的安排和准备工作"
-    );
+fn a_raw_subject_is_read_in_its_charset() {
+    let cases: &[(&str, &'static Encoding, &str, &str)] = &[
+        (
+            "big5, in the charset the message declares",
+            BIG5,
+            "會議記錄與下週行程",
+            "MIME-Version: 1.0\r\nContent-Type: text/plain; charset=big5\r\n",
+        ),
+        (
+            "gbk with no declaration is detected",
+            GBK,
+            "关于下周项目会议的安排和准备工作",
+            "",
+        ),
+        (
+            "shift_jis with no declaration is detected",
+            SHIFT_JIS,
+            "来週の会議の議事録について",
+            "",
+        ),
+        (
+            "koi8-r",
+            KOI8_R,
+            "Отчёт о встрече на прошлой неделе",
+            "Content-Type: text/plain; charset=\"koi8-r\"\r\n",
+        ),
+        // A field with 8-bit bytes in it cannot be US-ASCII or UTF-8, whatever the part says.
+        // Both mislabels are common: a template declares UTF-8, the server under it writes GBK.
+        (
+            "a us-ascii declaration the raw bytes contradict gives way to the detector",
+            GBK,
+            "关于下周项目会议的安排和准备工作",
+            "Content-Type: text/plain; charset=us-ascii\r\n",
+        ),
+        (
+            "a quoted US-ASCII declaration the raw bytes contradict gives way to the detector",
+            GBK,
+            "关于下周项目会议的安排和准备工作",
+            "Content-Type: text/plain; charset=\"US-ASCII\"\r\n",
+        ),
+        (
+            "a utf-8 declaration the raw bytes contradict gives way to the detector",
+            GBK,
+            "关于下周项目会议的安排和准备工作",
+            "Content-Type: text/plain; charset=utf-8\r\n",
+        ),
+        (
+            "a UTF8 declaration the raw bytes contradict gives way to the detector",
+            GBK,
+            "关于下周项目会议的安排和准备工作",
+            "Content-Type: text/plain; charset=UTF8\r\n",
+        ),
+        (
+            "ascii around the raw bytes is kept",
+            GBK,
+            "Re: [dev-list] 下周会议 agenda (v2)",
+            "Content-Type: text/plain; charset=gb2312\r\n",
+        ),
+    ];
+    for (name, charset, subject, extra) in cases {
+        let raw = with_subject(charset, subject, extra);
+        assert!(
+            std::str::from_utf8(&raw).is_err(),
+            "{name}: the fixture must be raw {}",
+            charset.name()
+        );
+        assert_eq!(parse(&raw).unwrap().subject, *subject, "{name}");
+    }
 }
 
 #[test]
@@ -61,44 +111,6 @@ fn a_shift_jis_subject_is_read() {
           --b\r\nContent-Type: text/html; charset=Shift_JIS\r\n\r\n<p>hi</p>\r\n--b--\r\n",
     );
     assert_eq!(parse(&raw).unwrap().subject, subject);
-}
-
-#[test]
-fn a_shift_jis_subject_with_no_declaration_is_detected() {
-    let raw = with_subject(SHIFT_JIS, "来週の会議の議事録について", "");
-    assert_eq!(parse(&raw).unwrap().subject, "来週の会議の議事録について");
-}
-
-#[test]
-fn a_koi8_r_subject_is_read() {
-    let raw = with_subject(
-        KOI8_R,
-        "Отчёт о встрече на прошлой неделе",
-        "Content-Type: text/plain; charset=\"koi8-r\"\r\n",
-    );
-    assert_eq!(
-        parse(&raw).unwrap().subject,
-        "Отчёт о встрече на прошлой неделе"
-    );
-}
-
-#[test]
-fn a_declaration_the_raw_bytes_contradict_gives_way_to_the_detector() {
-    // A field with 8-bit bytes in it cannot be US-ASCII or UTF-8, whatever the part says. Both
-    // mislabels are common: a template declares UTF-8, the server under it writes GBK.
-    const DECLARED: &[&str] = &["us-ascii", "\"US-ASCII\"", "utf-8", "UTF8"];
-    for charset in DECLARED {
-        let raw = with_subject(
-            GBK,
-            "关于下周项目会议的安排和准备工作",
-            &format!("Content-Type: text/plain; charset={charset}\r\n"),
-        );
-        assert_eq!(
-            parse(&raw).unwrap().subject,
-            "关于下周项目会议的安排和准备工作",
-            "declared {charset}"
-        );
-    }
 }
 
 #[test]
@@ -135,19 +147,6 @@ fn an_encoded_word_in_a_multi_byte_charset_is_decoded() {
         let raw = format!("From: ada@example.test\r\nSubject: {word}\r\n\r\nbody\r\n");
         assert_eq!(parse(raw.as_bytes()).unwrap().subject, *expected, "{word}");
     }
-}
-
-#[test]
-fn ascii_around_the_raw_bytes_is_kept() {
-    let raw = with_subject(
-        GBK,
-        "Re: [dev-list] 下周会议 agenda (v2)",
-        "Content-Type: text/plain; charset=gb2312\r\n",
-    );
-    assert_eq!(
-        parse(&raw).unwrap().subject,
-        "Re: [dev-list] 下周会议 agenda (v2)"
-    );
 }
 
 #[test]

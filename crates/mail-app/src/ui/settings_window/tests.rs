@@ -106,33 +106,44 @@ async fn the_window_has_a_row_per_key() {
     assert!(page.contains("data-page=\"General\""), "{page}");
 }
 
+/// The General page's controls each write `settings.toml`: two switches, then a choice.
 #[tokio::test]
-async fn a_switch_writes_settings_toml() {
+async fn general_controls_write_settings_toml() {
     let built = work();
     let (mut dom, seen) = opened_on(&built, SettingsPage::General);
-    assert_eq!(stored(&built).reading.brand_logos, BrandLogos::Off);
+    assert_eq!(
+        stored(&built).reading.brand_logos,
+        BrandLogos::Off,
+        "before: brand logos"
+    );
     // A row and its switch both carry the key's label: the switch is the checkable one in it.
     click(
         &mut dom,
         seen.after("aria-label", "Brand logos", "aria-checked")[0],
     );
-    assert_eq!(stored(&built).reading.brand_logos, BrandLogos::On);
+    assert_eq!(
+        stored(&built).reading.brand_logos,
+        BrandLogos::On,
+        "the brand logos switch"
+    );
     click(
         &mut dom,
         seen.after("aria-label", "Check spelling", "aria-checked")[0],
     );
-    assert_eq!(stored(&built).compose.spelling, Spelling::Off);
-}
-
-#[tokio::test]
-async fn provider_marks_are_a_choice() {
-    let built = work();
-    let (mut dom, seen) = opened_on(&built, SettingsPage::General);
+    assert_eq!(
+        stored(&built).compose.spelling,
+        Spelling::Off,
+        "the check spelling switch"
+    );
     // Icons, then Letters: the segments after the control's group.
     let segments = seen.after("aria-label", "Provider marks", "aria-checked");
     click(&mut dom, segments[1]);
     let _ = drain_seen(&mut dom);
-    assert_eq!(stored(&built).window.provider_marks, ProviderMarks::Letters);
+    assert_eq!(
+        stored(&built).window.provider_marks,
+        ProviderMarks::Letters,
+        "the provider marks choice"
+    );
 }
 
 /// Each page, by the sidebar's row, and a line only that page draws.

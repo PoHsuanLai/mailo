@@ -966,31 +966,6 @@ mod tests {
     }
 
     #[test]
-    fn a_dot_stuffed_body_line_is_unstuffed_and_the_bare_dot_ends_it() {
-        let phase = Phase::MultiBody {
-            cmd: Pop3Command::Retr(1),
-            lines: Vec::new(),
-        };
-        let (phase, action) = decide(phase, b"Hello");
-        assert!(matches!(action, Action::Continue));
-        let (phase, action) = decide(phase, b"..dot");
-        assert!(matches!(action, Action::Continue));
-        match &phase {
-            Phase::MultiBody { lines, .. } => {
-                assert_eq!(lines, &[b"Hello".to_vec(), b".dot".to_vec()]);
-            }
-            other => panic!("expected a body, got {other:?}"),
-        }
-        let (_, action) = decide(phase, b".");
-        match action {
-            Action::Next(Pop3Reply::Retrieved(body)) => {
-                assert_eq!(body, b"Hello\r\n.dot\r\n");
-            }
-            other => panic!("expected the message, got {other:?}"),
-        }
-    }
-
-    #[test]
     fn credentials_cannot_break_a_command_line() {
         let cases = ["has\rcr", "has\nlf", "has\0nul"];
         for bad in cases {

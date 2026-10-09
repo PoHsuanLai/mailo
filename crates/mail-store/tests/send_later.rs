@@ -123,12 +123,19 @@ impl Both {
     }
 }
 
+/// A scheduled send is not handed out before its time, is handed out from its time on, and its
+/// draft says it is scheduled and when.
 #[test]
-fn a_scheduled_send_is_not_handed_out_before_its_time() {
+fn a_scheduled_send_is_held_until_its_time_and_the_draft_says_when() {
     let b = both();
     let draft = draft();
     for (name, store) in b.each() {
-        schedule(store, &draft, at(LEAVES));
+        let id = schedule(store, &draft, at(LEAVES));
+        assert_eq!(
+            store.draft(draft.id).unwrap().state,
+            SendState::Scheduled { at: at(LEAVES) },
+            "{name}: the draft says it is scheduled and when"
+        );
         for early in [0, 1, LEAVES - 1] {
             assert_eq!(
                 store.outbox_due(acct_account(), at(early)).unwrap(),
@@ -137,15 +144,6 @@ fn a_scheduled_send_is_not_handed_out_before_its_time() {
                 LEAVES - early
             );
         }
-    }
-}
-
-#[test]
-fn and_is_handed_out_from_its_time_on() {
-    let b = both();
-    let draft = draft();
-    for (name, store) in b.each() {
-        let id = schedule(store, &draft, at(LEAVES));
         for late in [LEAVES, LEAVES + 1, LEAVES + 86_400] {
             let due = store.outbox_due(acct_account(), at(late)).unwrap();
             assert_eq!(
@@ -155,20 +153,6 @@ fn and_is_handed_out_from_its_time_on() {
                 late - LEAVES
             );
         }
-    }
-}
-
-#[test]
-fn the_draft_says_it_is_scheduled_and_when() {
-    let b = both();
-    let draft = draft();
-    for (name, store) in b.each() {
-        schedule(store, &draft, at(LEAVES));
-        assert_eq!(
-            store.draft(draft.id).unwrap().state,
-            SendState::Scheduled { at: at(LEAVES) },
-            "{name}"
-        );
     }
 }
 

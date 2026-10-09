@@ -306,16 +306,6 @@ mod tests {
                 ..
             }
         ));
-        assert!(matches!(
-            crate::cli::parse(&args(
-                "account add me@example.test --imap i.example.test --smtp s.example.test --yes"
-            ))
-            .unwrap(),
-            Command::AccountAdd {
-                manual: Some(Setup::Imap(_)),
-                ..
-            }
-        ));
         assert_eq!(
             crate::cli::parse(&args("account discover me@example.test")).unwrap(),
             Command::AccountDiscover {

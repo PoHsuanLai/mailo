@@ -342,51 +342,63 @@ mod uidvalidity_tests {
         }
     }
 
+    /// `(name, the cursor before, the cursor after, what changed)`.
     #[test]
-    fn a_changed_uidvalidity_invalidates_the_mailbox() {
-        // The whole point: every stored UID now addresses a different message, or none.
-        assert_eq!(
-            UidValidity::between(Some(&imap(42)), &imap(43)),
-            UidValidity::Reset
-        );
-    }
-
-    #[test]
-    fn an_unchanged_uidvalidity_keeps_everything() {
-        assert_eq!(
-            UidValidity::between(Some(&imap(42)), &imap(42)),
-            UidValidity::Same
-        );
-    }
-
-    #[test]
-    fn a_first_sync_has_nothing_to_invalidate() {
-        assert_eq!(UidValidity::between(None, &imap(42)), UidValidity::Same);
-    }
-
-    #[test]
-    fn silence_is_not_a_change() {
-        // Zero is what this code records when the server said nothing. Treating that as a reset
-        // would refetch the entire mailbox every time a server omitted the response code.
-        assert_eq!(
-            UidValidity::between(Some(&imap(0)), &imap(42)),
-            UidValidity::Same
-        );
-        assert_eq!(
-            UidValidity::between(Some(&imap(42)), &imap(0)),
-            UidValidity::Same
-        );
-    }
-
-    #[test]
-    fn pop_has_no_uidvalidity_to_compare() {
-        assert_eq!(
-            UidValidity::between(Some(&SyncCursor::Pop), &imap(42)),
-            UidValidity::Same
-        );
-        assert_eq!(
-            UidValidity::between(Some(&imap(42)), &SyncCursor::Pop),
-            UidValidity::Same
-        );
+    fn uidvalidity_between_cases() {
+        let cases: Vec<(&str, Option<SyncCursor>, SyncCursor, UidValidity)> = vec![
+            // The whole point: every stored UID now addresses a different message, or none.
+            (
+                "a changed uidvalidity invalidates the mailbox",
+                Some(imap(42)),
+                imap(43),
+                UidValidity::Reset,
+            ),
+            (
+                "an unchanged uidvalidity keeps everything",
+                Some(imap(42)),
+                imap(42),
+                UidValidity::Same,
+            ),
+            (
+                "a first sync has nothing to invalidate",
+                None,
+                imap(42),
+                UidValidity::Same,
+            ),
+            // Silence is not a change. Zero is what this code records when the server said
+            // nothing. Treating that as a reset would refetch the entire mailbox every time a
+            // server omitted the response code.
+            (
+                "silence before is not a change",
+                Some(imap(0)),
+                imap(42),
+                UidValidity::Same,
+            ),
+            (
+                "silence after is not a change",
+                Some(imap(42)),
+                imap(0),
+                UidValidity::Same,
+            ),
+            (
+                "pop before has no uidvalidity to compare",
+                Some(SyncCursor::Pop),
+                imap(42),
+                UidValidity::Same,
+            ),
+            (
+                "pop after has no uidvalidity to compare",
+                Some(imap(42)),
+                SyncCursor::Pop,
+                UidValidity::Same,
+            ),
+        ];
+        for (name, before, after, want) in &cases {
+            assert_eq!(
+                UidValidity::between(before.as_ref(), after),
+                *want,
+                "{name}"
+            );
+        }
     }
 }
