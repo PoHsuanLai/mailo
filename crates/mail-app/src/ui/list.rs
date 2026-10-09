@@ -391,7 +391,7 @@ pub(super) fn ThreadList(
                                 image: ImagePosition::Only,
                                 label: "Show sidebar",
                                 icon: Some(IconSource::Glyph(Icon::PanelLeft)),
-                                title: Some("Show the sidebar (\u{2303}\u{2318}S)".to_owned()),
+                                title: Some("Sidebar  \u{2303}\u{2318}S".to_owned()),
                                 onclick: on_primary(move || side_hidden.set(false)),
                             }
                         }
@@ -430,7 +430,7 @@ pub(super) fn ThreadList(
                                         image: ImagePosition::Only,
                                         label: "Save as view",
                                         icon: Some(IconSource::Glyph(Icon::Plus)),
-                                        title: Some("Keep this search in the sidebar".to_owned()),
+                                        title: Some("Save as View".to_owned()),
                                         onclick: on_primary(move || {
                                             let search = shell.peek().search.clone();
                                             super::views::open_new(shell, &search);
@@ -443,7 +443,7 @@ pub(super) fn ThreadList(
                                         image: ImagePosition::Only,
                                         label: "Edit view",
                                         icon: Some(IconSource::Glyph(Icon::Settings)),
-                                        title: Some("Change or delete this view".to_owned()),
+                                        title: Some("Edit View".to_owned()),
                                         onclick: on_primary(move || super::views::open_edit(shell, &view)),
                                     }
                                 }
@@ -456,7 +456,7 @@ pub(super) fn ThreadList(
                                     image: ImagePosition::Only,
                                     label: "Compose",
                                     icon: Some(IconSource::Glyph(Icon::Pen)),
-                                    title: Some("New message (\u{2318}N)".to_owned()),
+                                    title: Some("New Message  \u{2318}N".to_owned()),
                                     onclick: on_primary(move || {
                                         let store = consume_context::<Arc<SqliteStore>>();
                                         if compose_new(&store, shell) {

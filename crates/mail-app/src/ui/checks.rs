@@ -91,7 +91,7 @@ pub(in crate::ui) fn SenderChecks(message: MessageId, body: Option<BlobId>) -> E
             "data-standing": standing.word(),
             match standing {
                 Standing::Passed => rsx! {
-                    Tooltip { text: "Verified sender",
+                    Tooltip { text: "Verified Sender",
                         span { class: "sender-mark", aria_label: "Verified sender",
                             Glyph { icon: Icon::Check, size: IconSize::Small }
                         }

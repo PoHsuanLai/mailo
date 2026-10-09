@@ -116,7 +116,7 @@ pub(super) fn Places(
                         image: ImagePosition::Only,
                         icon: Icon::Settings,
                         label: "Settings",
-                        title: "Settings (\u{2318},)".to_owned(),
+                        title: "Settings  \u{2318},".to_owned(),
                         onclick: move |_| crate::ui::settings_window::open(),
                     }
                     Button {
@@ -124,11 +124,7 @@ pub(super) fn Places(
                         image: ImagePosition::Only,
                         icon: Icon::PanelLeft,
                         label: if side_hidden() { "Show sidebar" } else { "Hide sidebar" },
-                        title: if side_hidden() {
-                            "Show the sidebar (\u{2303}\u{2318}S)".to_owned()
-                        } else {
-                            "Hide the sidebar (\u{2303}\u{2318}S)".to_owned()
-                        },
+                        title: "Sidebar  \u{2303}\u{2318}S".to_owned(),
                         onclick: move |_| side_hidden.set(!side_hidden()),
                     }
                 },

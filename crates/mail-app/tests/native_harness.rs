@@ -1261,21 +1261,31 @@ fn going_to_another_folder_ends_a_rename() {
 }
 
 /// Every tipped control in the window, the pointer rested on it past the tip delay, shows its
-/// tip through quire's hover hub: the buttons whose tip is their name, and the message's time,
-/// whose tip is the full date.
+/// tip through quire's hover hub: the buttons whose tip is their name, those whose short tip
+/// (a name and its key, "Print  ⌘P") is their description, and the message's time, whose tip
+/// is the full date.
 #[test]
 fn a_rested_pointer_shows_each_controls_tip() {
     let (mut harness, _dir) = open();
     open_row(&mut harness, 1);
     let html = harness.html();
-    let mut tipped: Vec<(String, String)> = html
-        .split("data-tip=\"")
-        .skip(1)
-        .filter_map(|after| after.split('"').next())
-        .map(|tip| (format!("[data-tip=\"{tip}\"]"), tip.to_owned()))
+    let mut tipped: Vec<(String, String)> = ["data-tip", "aria-description"]
+        .into_iter()
+        .flat_map(|attr| {
+            html.split(&format!("{attr}=\""))
+                .skip(1)
+                .filter_map(|after| after.split('"').next())
+                .map(move |tip| (format!("[{attr}=\"{tip}\"]"), tip.to_owned()))
+                .collect::<Vec<_>>()
+        })
         .collect();
+    tipped.sort();
     tipped.dedup();
     assert!(tipped.len() >= 4, "too few tipped controls: {tipped:?}");
+    assert!(
+        tipped.iter().any(|(_, tip)| tip == "Print  \u{2318}P"),
+        "Print's tip is not its name and key: {tipped:?}"
+    );
     let full = harness
         .attr("time.msg-when", "aria-label")
         .expect("the message's time is drawn");

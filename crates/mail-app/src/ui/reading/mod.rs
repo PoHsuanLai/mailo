@@ -81,10 +81,15 @@ fn always_load_from(email: &str) -> String {
 /// Mute, in the head's tools: pressed while the conversation is muted, and a press mutes or
 /// unmutes it through the same gesture as the row's button, so Ctrl Z and the toast take it back.
 fn mute_tool(thread: ThreadId, mute: Mute, shell: Signal<Shell>, revision: Signal<u64>) -> Element {
-    let (label, pressed) = match mute {
-        Mute::Muted => ("Unmute this conversation", Check::On),
-        Mute::Unmuted => ("Mute this conversation", Check::Off),
+    let (label, short, pressed) = match mute {
+        Mute::Muted => ("Unmute this conversation", "Unmute", Check::On),
+        Mute::Unmuted => ("Mute this conversation", "Mute", Check::Off),
     };
+    let tip = crate::ui::keymap::action_tip(
+        &shell.read().keymap,
+        short,
+        crate::ui::view::Shortcut::ToggleMute,
+    );
     rsx! {
         Button {
             bezel: Bezel::Toolbar,
@@ -92,7 +97,7 @@ fn mute_tool(thread: ThreadId, mute: Mute, shell: Signal<Shell>, revision: Signa
             image: ImagePosition::Only,
             icon: Some(IconSource::Glyph(Icon::BellOff)),
             label: label.to_owned(),
-            title: Some(label.to_owned()),
+            title: Some(tip),
             value: Some(pressed),
             onclick: move |_| {
                 let store = consume_context::<Arc<SqliteStore>>();

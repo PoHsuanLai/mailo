@@ -142,8 +142,8 @@ pub(super) fn PickBar(
         .collect();
     let offered = |action| op_for_selection(action, &summaries);
     let read = match offered(Shortcut::ToggleRead) {
-        Some(OpKind::MarkUnread) => (Icon::Mail, "Mark unread"),
-        _ => (Icon::MailOpen, "Mark read"),
+        Some(OpKind::MarkUnread) => (Icon::Mail, "Mark unread", "Mark as Unread"),
+        _ => (Icon::MailOpen, "Mark read", "Mark as Read"),
     };
     let star = match offered(Shortcut::ToggleStar) {
         Some(OpKind::Unstar) => "Unstar",
@@ -155,21 +155,35 @@ pub(super) fn PickBar(
     let destroyable = summaries
         .iter()
         .any(|summary| crate::ui::bin::offered(bin, summary));
-    let buttons: Vec<(Shortcut, Icon, &'static str)> = [
-        (Shortcut::Archive, Icon::Archive, "Archive"),
-        (Shortcut::Trash, Icon::Trash, "Move to Trash"),
-        (Shortcut::Spam, Icon::OctagonAlert, "Mark as spam"),
-        (Shortcut::ToggleRead, read.0, read.1),
-        (Shortcut::ToggleStar, Icon::Star, star),
+    let keys = shell.read().keymap.clone();
+    let tip = |name: &str, action| crate::ui::keymap::action_tip(&keys, name, action);
+    let buttons: Vec<(Shortcut, Icon, &'static str, String)> = [
+        (Shortcut::Archive, Icon::Archive, "Archive", "Archive"),
+        (
+            Shortcut::Trash,
+            Icon::Trash,
+            "Move to Trash",
+            "Move to Trash",
+        ),
+        (
+            Shortcut::Spam,
+            Icon::OctagonAlert,
+            "Mark as spam",
+            "Mark as Spam",
+        ),
+        (Shortcut::ToggleRead, read.0, read.1, read.2),
+        (Shortcut::ToggleStar, Icon::Star, star, star),
     ]
     .into_iter()
-    .filter(|(action, _, _)| offered(*action).is_some())
+    .filter(|(action, _, _, _)| offered(*action).is_some())
+    .map(|(action, icon, name, short)| (action, icon, name, tip(short, action)))
     .collect();
+    let mute_tip = tip(mute, Shortcut::ToggleMute);
     rsx! {
         span { class: "status", "{count} selected" }
         // The actions wrap within the list column when it is too narrow for one line.
         div { class: "pick-tools",
-            for (action, icon, name) in buttons {
+            for (action, icon, name, tip) in buttons {
                 Button {
                     key: "{name}",
                     bezel: Bezel::Toolbar,
@@ -177,7 +191,7 @@ pub(super) fn PickBar(
                     size: ControlSize::Large,
                     label: name.to_owned(),
                     icon,
-                    title: Some(name.to_owned()),
+                    title: Some(tip),
                     common: Common {
                         aria_label: Some(format!("{name} the {count} selected")),
                         ..Common::default()
@@ -194,7 +208,7 @@ pub(super) fn PickBar(
                 size: ControlSize::Large,
                 label: mute.to_owned(),
                 icon: Icon::BellOff,
-                title: Some(format!("{mute} (m)")),
+                title: Some(mute_tip),
                 common: Common {
                     aria_label: Some(format!("{mute} the {count} selected")),
                     ..Common::default()
@@ -211,7 +225,7 @@ pub(super) fn PickBar(
                     size: ControlSize::Large,
                     label: "Delete forever".to_owned(),
                     icon: Icon::Trash,
-                    title: Some("Delete forever…".to_owned()),
+                    title: Some("Delete Forever".to_owned()),
                     common: Common {
                         aria_label: Some(format!("Delete the {count} selected forever")),
                         ..Common::default()
@@ -230,7 +244,7 @@ pub(super) fn PickBar(
                 size: ControlSize::Large,
                 label: "Clear the selection".to_owned(),
                 icon: Icon::X,
-                title: Some("Clear the selection (Esc)".to_owned()),
+                title: Some(crate::ui::keymap::tip("Clear Selection", "Esc")),
                 common: Common {
                     aria_label: Some("Clear the selection".to_owned()),
                     ..Common::default()

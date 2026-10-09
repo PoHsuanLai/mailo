@@ -79,7 +79,7 @@ pub(in crate::ui) fn DownloadsButton(shell: Signal<Shell>) -> Element {
                 image: ImagePosition::Only,
                 icon: Icon::File,
                 label: "Downloads",
-                title: "Files you saved".to_owned(),
+                title: "Downloads".to_owned(),
                 onclick: move |_| {
                     if *open.peek() {
                         open.set(false);

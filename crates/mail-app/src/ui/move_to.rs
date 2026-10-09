@@ -239,7 +239,7 @@ pub(in crate::ui) fn MoveTool(
             image: ImagePosition::Only,
             icon: Some(IconSource::Glyph(Icon::FolderInput)),
             label: "Move to a folder",
-            title: Some("Move to…".to_owned()),
+            title: Some("Move to Folder".to_owned()),
             shown: open(),
             common: Common {
                 mounted: Some(EventHandler::new(move |event: MountedEvent| {

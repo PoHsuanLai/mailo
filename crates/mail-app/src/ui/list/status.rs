@@ -1,5 +1,5 @@
 //! What the accounts in view are doing. All is well: no words under the title, only the Sync
-//! button's tip, "Updated 3 minutes ago", and its arrows turning while it works. Words appear
+//! button's tip, "Sync · 3 min ago", and its arrows turning while it works. Words appear
 //! when there is something to read: a download that knows how much there is, with its bar, or a
 //! warning, which opens the Connection Doctor.
 //!
@@ -41,12 +41,21 @@ pub(super) fn said(line: &StatusLine) -> Said {
     }
 }
 
-/// The Sync button's tip: what it does, and how fresh the mail is when all is well.
+/// The Sync button's tip: its name, and how fresh the mail is when all is well, in as few
+/// words as say it: "Sync · 3 min ago".
 pub(super) fn sync_tip(line: &StatusLine) -> String {
     match said(line) {
-        Said::InTip => format!("Sync now \u{b7} {}", line.text),
-        Said::Nowhere | Said::OnLine => "Sync now".to_owned(),
+        Said::InTip => format!("Sync \u{b7} {}", fresh(&line.text)),
+        Said::Nowhere | Said::OnLine => "Sync".to_owned(),
     }
+}
+
+/// "Updated 3 minutes ago" as a tip says it: "3 min ago".
+fn fresh(text: &str) -> String {
+    text.strip_prefix("Updated ")
+        .unwrap_or(text)
+        .replace(" minutes ago", " min ago")
+        .replace(" minute ago", " min ago")
 }
 
 /// The line as it stands, read again every [`EVERY`] so "5 minutes ago" moves on.
@@ -67,7 +76,7 @@ fn use_line(shell: Signal<Shell>) -> Option<StatusLine> {
 /// the mail was last fetched.
 #[component]
 pub(super) fn SyncButton(shell: Signal<Shell>, availability: Availability) -> Element {
-    let tip = use_line(shell).map_or_else(|| "Sync now".to_owned(), |line| sync_tip(&line));
+    let tip = use_line(shell).map_or_else(|| "Sync".to_owned(), |line| sync_tip(&line));
     rsx! {
         Button {
             bezel: Bezel::Toolbar,
@@ -111,7 +120,7 @@ pub(super) fn ListStatus(shell: Signal<Shell>) -> Element {
             Button {
                 label: line.text.clone(),
                 bezel: Bezel::Inline,
-                title: Some("Open Connection Doctor".to_owned()),
+                title: Some("Connection Doctor".to_owned()),
                 onclick: on_primary(move || crate::ui::doctor::open(shell)),
                 // `data-opens`: what it opens, for a test to find it by, since its words change.
                 common: Common {
@@ -150,22 +159,22 @@ mod tests {
     #[test]
     fn a_line_is_said_where_it_is_worth_reading() {
         let cases = [
-            (line("", Tone::Plain, None), Said::Nowhere, "Sync now"),
+            (line("", Tone::Plain, None), Said::Nowhere, "Sync"),
             (
                 line("Updated 3 minutes ago", Tone::Plain, None),
                 Said::InTip,
-                "Sync now \u{b7} Updated 3 minutes ago",
+                "Sync \u{b7} 3 min ago",
             ),
             (
                 line("Downloading 3 of 40", Tone::Plain, Some((3, 40))),
                 Said::OnLine,
-                "Sync now",
+                "Sync",
             ),
-            (line("Offline", Tone::Warn, None), Said::OnLine, "Sync now"),
+            (line("Offline", Tone::Warn, None), Said::OnLine, "Sync"),
             (
                 line("Sign-in failed", Tone::Danger, None),
                 Said::OnLine,
-                "Sync now",
+                "Sync",
             ),
         ];
         for (line, where_, tip) in cases {

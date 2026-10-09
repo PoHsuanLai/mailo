@@ -212,7 +212,7 @@ fn AccountRowView(
                 image: ImagePosition::Only,
                 icon: Icon::Settings,
                 label: format!("Account settings for {name}"),
-                title: Some(format!("Account settings for {name}")),
+                title: Some("Account Settings".to_owned()),
                 onclick: on_primary(move || open.call(())),
             }
         }

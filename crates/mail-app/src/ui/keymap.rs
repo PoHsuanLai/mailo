@@ -246,6 +246,41 @@ pub fn spoken(key: &str) -> String {
     }
 }
 
+/// A key as a tip shows it after the control's name: `M` for "m", `⇧J` for "J", `↓` for
+/// "ArrowDown", `Esc` for "Escape".
+pub fn drawn(key: &str) -> String {
+    let mut chars = key.chars();
+    match (chars.next(), chars.next()) {
+        (Some(' '), None) => "Space".to_owned(),
+        (Some(c), None) if c.is_uppercase() => format!("\u{21e7}{c}"),
+        (Some(c), None) => c.to_uppercase().collect(),
+        _ => match key {
+            "Escape" => "Esc".to_owned(),
+            "ArrowDown" => "\u{2193}".to_owned(),
+            "ArrowUp" => "\u{2191}".to_owned(),
+            "ArrowLeft" => "\u{2190}".to_owned(),
+            "ArrowRight" => "\u{2192}".to_owned(),
+            "Delete" => "\u{2326}".to_owned(),
+            "Backspace" => "\u{232b}".to_owned(),
+            _ => key.to_owned(),
+        },
+    }
+}
+
+/// A control's tip: its short name, then the key it answers to, two spaces apart, as a Mac
+/// menu sets a key equivalent off from its title.
+pub fn tip(name: &str, key: &str) -> String {
+    format!("{name}  {key}")
+}
+
+/// The tip of a control that does what `action` does: its name and the first key `map` gives
+/// the action now, or the name alone when it has none.
+pub fn action_tip(map: &Keymap, name: &str, action: Shortcut) -> String {
+    map.keys(action)
+        .first()
+        .map_or_else(|| name.to_owned(), |key| tip(name, &drawn(key)))
+}
+
 /// One changed action, as `keyboard.json` holds it.
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 struct Binding {

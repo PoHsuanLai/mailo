@@ -71,7 +71,7 @@ pub(super) fn ViewMenu(thread: ThreadId, peek: Peek, shell: Signal<Shell>) -> El
             image: ImagePosition::Only,
             icon: Some(IconSource::Glyph(mode_icon(peek))),
             label: "View".to_owned(),
-            title: Some(format!("View: {}", peek.label())),
+            title: Some(format!("View \u{b7} {}", peek.label())),
             common: mounted_into(tool),
             onclick: move |_| open.toggle(),
         }
@@ -127,7 +127,7 @@ pub(super) fn ReaderMore(
             image: ImagePosition::Only,
             icon: Some(IconSource::Glyph(Icon::Ellipsis)),
             label: "More".to_owned(),
-            title: Some("More actions".to_owned()),
+            title: Some("More".to_owned()),
             common: mounted_into(tool),
             onclick: move |_| open.toggle(),
         }
