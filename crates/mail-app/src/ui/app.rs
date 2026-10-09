@@ -16,7 +16,7 @@ use crate::ui::view::{
 };
 use dioxus::prelude::*;
 use ds::components::app::spaces::{Showing, Switched, use_spaces};
-use ds::components::chrome::split_view::model::{Collapsing, PaneSpec, SplitPane};
+use ds::components::chrome::split_view::model::{Collapsing, PaneSize, PaneSpec, SplitPane};
 use ds::components::chrome::split_view::view::SplitView;
 use ds::prelude::*;
 use ds_settings::{Environment, UserStyle};
@@ -750,17 +750,17 @@ pub(super) fn App() -> Element {
 /// The sidebar pane: 232 wide, 212 to 320, and it folds away past half of its least. 212 is
 /// what the foot needs: Downloads, two Space dots, New Space, Settings and the sidebar toggle.
 const SIDEBAR: PaneSpec = PaneSpec {
-    preferred: Px(232.0),
-    min: Px(212.0),
-    max: Px(320.0),
+    preferred: PaneSize::Fixed(Px(232.0)),
+    min: PaneSize::Fixed(Px(212.0)),
+    max: PaneSize::Fixed(Px(320.0)),
     collapsing: Collapsing::Snaps,
 };
 
 /// The list pane: 400 wide, 280 to 640, and it does not fold.
 const LIST: PaneSpec = PaneSpec {
-    preferred: Px(400.0),
-    min: Px(280.0),
-    max: Px(640.0),
+    preferred: PaneSize::Fixed(Px(400.0)),
+    min: PaneSize::Fixed(Px(280.0)),
+    max: PaneSize::Fixed(Px(640.0)),
     collapsing: Collapsing::Never,
 };
 
