@@ -1,33 +1,45 @@
 /* THE COMPOSER — a page, not a panel. Ported from the Spaces mockup's `.cpage`, `.c-props`,
    `.c-body` and the rest; the one departure is that every paragraph is drawn by Rust. */
 /* THE COMPOSER: a page in the reader's column. Its parts are quire's (the title is a plain
-   `TextField`, the property rows are `FieldRow`s, the foot's controls are `Button`s); what is here
+   `TextField`, the property lines quire's `Label`s and controls, the foot's `Button`s); what is here
    places them, and styles the message body, which is the person's text and not chrome. */
+/* The page is set as the reader sets a message (`reader.css`), on the reader's ground and at its
+   inset, `--s-18`, on every edge: the subject in the head band where a message's title is, the
+   property lines where its header is, then the body on white where its frame is. */
 .cpage {
-  display: flex; flex-direction: column; min-height: 0; height: 100%; background: var(--surface); position: relative;
+  display: flex; flex-direction: column; min-height: 0; height: 100%; background: var(--surface-2); position: relative;
 }
 .cpage.sending { opacity: 0; transition: opacity var(--t-quick) var(--e-exit); }
 .cpage.focus { position: absolute; inset: var(--s-8); z-index: var(--z-focus-page); border-radius: var(--r-card); box-shadow: var(--shadow-card); }
-.cpage.focus .c-scroll { padding-inline: max(var(--s-22), calc((100% - 70ch) / 2)); }
-.c-top { display: flex; align-items: center; gap: var(--s-6); padding: var(--s-8) var(--s-14); border-bottom: var(--hair) solid var(--line-soft); }
+.cpage.focus .c-scroll > * { padding-inline: max(var(--s-18), calc((100% - 70ch) / 2)); }
+.c-top { display: flex; align-items: center; gap: var(--s-6); padding: var(--s-10) var(--s-18); }
 .c-top .state { display: flex; align-items: center; gap: var(--s-6); color: var(--ink-faint); }
 .c-top .state .pip { width: 6px; height: 6px; border-radius: var(--r-pill); background: var(--ok); transition: background-color var(--t-quick) var(--e-out); }
 .c-top .state.dirty .pip { background: var(--warn); }
 .c-top .grow, .c-foot .grow { flex: 1; }
-.c-scroll { flex: 1; overflow-y: auto; scrollbar-width: none; padding: var(--s-22) var(--s-26); min-height: 0; }
-.c-title { display: flex; width: 100%; font-size: var(--fs-display); font-weight: 700; }
+.c-scroll { flex: 1; overflow-y: auto; scrollbar-width: none; min-height: 0; display: flex; flex-direction: column; }
+/* the head band: `.reader-head`'s, the subject in its title's face (quire's Title label) */
+.c-head { padding: var(--s-6) var(--s-18) var(--s-12); border-bottom: var(--hair) solid var(--line-soft); }
+.c-title { display: flex; width: 100%; font-family: var(--font-display); font-size: var(--fs-title); font-weight: 700; }
 
-/* properties: quire's `FieldRow`s, one under another */
-.c-props { margin: var(--s-14) 0 var(--s-18); display: grid; gap: var(--s-2); }
+/* properties: one line each (`props::Line`), as a message's header writes "To: …": a small
+   secondary label, then the value, from the header's left edge. No label column: every line
+   starts at the same x. */
+.c-props { padding: var(--s-12) var(--s-18); display: grid; gap: var(--s-2); }
+.c-line { display: flex; align-items: center; gap: var(--s-6); min-height: var(--ctl-h-m); min-width: 0; }
+.c-line-k { flex: none; }
+.c-line-v { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-8); flex: 1 1 0; min-width: 0; }
+.c-line-v > .p-menu { flex-basis: 100%; }
 .c-pin { display: flex; flex: 1; min-width: 120px; position: relative; }
 .pinput { flex: 1; min-width: 120px; }
 
 /* the document: one surface, like writing a letter, set as the reader sets a message (its frame's
    14 px, 1.5 and paragraph gap in `reading::html_sheet`), so what is written is what is read */
+.c-main { flex: 1 0 auto; padding: var(--s-16) var(--s-18) var(--s-18); background: var(--surface); }
 .c-edit { position: relative; }
 .c-body {
   display: block; position: relative; outline: none; font-size: var(--fs-reading); line-height: 1.5; color: var(--ink);
-  max-width: 66ch; min-height: 180px; padding-left: var(--s-22); margin-left: calc(-1 * var(--s-22)); caret-color: var(--accent-text);
+  max-width: 66ch; min-height: 180px; padding-left: var(--s-18); margin-left: calc(-1 * var(--s-18)); caret-color: var(--accent-text);
 }
 .c-body > * { margin: 0 0 1em; }
 .c-body p, .c-body li, .c-body blockquote, .c-body h2, .c-body h3, .c-body h4 { white-space: pre-wrap; word-break: break-word; }
@@ -75,10 +87,10 @@
   text-decoration: underline;
 }
 
-/* objects are the only things with a handle */
+/* objects are the only things with a handle, hung in the page's inset left of the text */
 .obj { position: relative; margin: .6em 0; border-radius: var(--r-field); }
 .ograb {
-  position: absolute; left: calc(-1 * var(--s-22)); top: var(--s-6); display: grid; place-items: center;
+  position: absolute; left: calc(-1 * var(--s-18)); top: var(--s-6); display: grid; place-items: center;
   color: var(--ink-faint); opacity: 0; user-select: none;
   transition: opacity var(--t-quick) var(--e-out);
 }
@@ -125,20 +137,16 @@
 
 /* the foot: a banner when it matters, then the buttons and one Send */
 .c-foot {
-  display: flex; align-items: center; gap: var(--s-8); padding: var(--s-10) var(--s-14); border-top: var(--hair) solid var(--line-soft);
+  display: flex; align-items: center; gap: var(--s-8); padding: var(--s-10) var(--s-18); border-top: var(--hair) solid var(--line-soft);
   flex-wrap: wrap;
 }
 
-/* reply lives under the thread */
-.inline-reply {
-  margin-top: var(--s-16); border: var(--hair) solid var(--line); border-radius: var(--r-panel); background: var(--surface);
-  box-shadow: var(--shadow-1); position: relative;
-}
+/* reply lives under the thread, set as the next message would be: across the reader, a hairline
+   over it, its lines on the header's ground and its body on the frame's white */
+.inline-reply { border-top: var(--hair) solid var(--line-soft); background: var(--surface-2); position: relative; }
 .inline-reply.parking { opacity: 0; transition: opacity var(--t-quick) var(--e-exit); }
-.inline-reply .c-scroll { padding: var(--s-8) var(--s-14) var(--s-4); overflow: visible; }
-.inline-reply .c-props { margin: 0; }
-.inline-reply .c-body { min-height: 90px; padding-left: var(--s-36); }
-.inline-reply .c-foot { border-radius: 0 0 var(--r-panel) var(--r-panel); background: transparent; }
+.inline-reply .c-scroll { overflow: visible; }
+.inline-reply .c-body { min-height: 90px; }
 
 /* files dragged in from a file manager: the page says it takes them, and lights under them */
 .cpage[*|data-drop="accepts"], .inline-reply[*|data-drop="accepts"] { box-shadow: inset 0 0 0 2px var(--accent-soft); }
@@ -159,9 +167,6 @@
 /* send later: the popover that reads a time, and the one that names a template */
 .pick-time, .tpl-save { display: grid; gap: var(--s-6); width: 260px; }
 .pick-field, .tpl-name, .remind-field { min-width: 0; }
-.prop-row { display: flex; align-items: flex-start; gap: var(--s-8); min-width: 0; }
-.prop-row .k { display: flex; align-items: center; gap: var(--s-4); flex: none; color: var(--ink-soft); }
-.prop-row .v { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: var(--s-4); }
 .p-menu { position: relative; }
 .pick-time .g { color: var(--ink-soft); }
 .pick-in { display: flex; align-items: center; gap: var(--s-6); min-width: 0; }

@@ -7,11 +7,11 @@
 //! written from it, one of them always `None` ([`Protection::openpgp`], [`Protection::smime`]).
 //! There is no second row whose choice the first would have to undo.
 
+use super::props::Line;
 use dioxus::prelude::*;
 use ds::base::press::Press;
 use ds::components::controls::button_marks::Trailing;
 use ds::components::controls::button_model::Bezel;
-use ds::components::fields::field_row::{FieldRow, RowLayout};
 use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use ds::root::common::Common;
@@ -189,10 +189,9 @@ pub(in crate::ui) fn ProtectionRow(page: Signal<Page>) -> Element {
     let name = "Protection";
     let mut value = use_signal(|| None::<MountedRef>);
     rsx! {
-        FieldRow {
+        Line {
             label: "Protection",
-            layout: RowLayout::Form,
-            common: super::props::row("protection"),
+            row: "protection",
             Button {
                 bezel: Bezel::Inline,
                 label: shown.to_owned(),

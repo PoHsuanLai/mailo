@@ -5,10 +5,10 @@
 //! a row of its own only while it is on, because most mail never asks and an always-present
 //! "Receipt: no" row would be a question put to every message.
 
+use super::props::Line;
 use dioxus::prelude::*;
 use ds::components::controls::button_model::{Bezel, ImagePosition};
 use ds::components::controls::chip::{Chip, ChipVariant};
-use ds::components::fields::field_row::{FieldRow, RowLayout};
 use ds::prelude::*;
 use mail_domain::ReceiptRequest;
 
@@ -44,10 +44,9 @@ pub(in crate::ui) fn ReceiptRow(page: Signal<Page>) -> Element {
     }
     let stop = "Stop asking for a read receipt";
     rsx! {
-        FieldRow {
+        Line {
             label: "Receipt",
-            layout: RowLayout::Form,
-            common: super::props::row("receipt"),
+            row: "receipt",
             Chip { variant: ChipVariant::Neutral, text: "Asks for a read receipt".to_owned() }
             Button {
                 bezel: Bezel::Toolbar,

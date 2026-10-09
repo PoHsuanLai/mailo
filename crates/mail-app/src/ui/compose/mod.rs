@@ -182,6 +182,13 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
             last = edits;
         }
     });
+    // A reply opens under the thread, which may run past the pane: brought into view, so its
+    // bar and Send are not left under the window's edge.
+    use_hook(|| {
+        if page.peek().kind == PageKind::Reply {
+            super::host::Host::scroll_into_view(".inline-reply .c-foot");
+        }
+    });
     // Files dropped on the page from a file manager are attached as picked ones are.
     let target = attach::use_drop_target(page);
     // Opening another conversation would redraw the reader: park first.
@@ -284,33 +291,39 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                 }
             }
             div { class: "c-scroll",
+                // The head reads as a message's (`reader.css`): the subject where its title is,
+                // on the reader's head band, and the lines under it as its header's.
                 if !reply {
-                    TextField {
-                        label: "Subject".to_owned(),
-                        bezel: FieldBezel::Plain,
-                        placeholder: "Subject".to_owned(),
-                        value: subject,
-                        oninput: move |value: String| {
-                            let mut write = page.write();
-                            write.subject = value;
-                            write.touch();
-                        },
-                        common: Common { extra_class: ExtraClass::parse("c-title").ok(), ..Common::default() },
-                    }
-                }
-                if let Some(notice) = notice {
-                    InlineBanner {
-                        severity: Severity::Info,
-                        text: notice,
-                        onclose: move |()| page.write().notice = None,
+                    div { class: "c-head",
+                        TextField {
+                            label: "Subject".to_owned(),
+                            bezel: FieldBezel::Plain,
+                            placeholder: "Subject".to_owned(),
+                            value: subject,
+                            oninput: move |value: String| {
+                                let mut write = page.write();
+                                write.subject = value;
+                                write.touch();
+                            },
+                            common: Common { extra_class: ExtraClass::parse("c-title").ok(), ..Common::default() },
+                        }
                     }
                 }
                 Props { page, shell }
-                Body { page, shell, on_attach: move |_| page.write().notice = Some("Use Attach below.".to_owned()) }
-                if plain() == Fold::Open {
-                    div { class: "plain",
-                        span { class: "cap", "Plain text" }
-                        "{flowed}"
+                div { class: "c-main",
+                    if let Some(notice) = notice {
+                        InlineBanner {
+                            severity: Severity::Info,
+                            text: notice,
+                            onclose: move |()| page.write().notice = None,
+                        }
+                    }
+                    Body { page, shell, on_attach: move |_| page.write().notice = Some("Use Attach below.".to_owned()) }
+                    if plain() == Fold::Open {
+                        div { class: "plain",
+                            span { class: "cap", "Plain text" }
+                            "{flowed}"
+                        }
                     }
                 }
             }
