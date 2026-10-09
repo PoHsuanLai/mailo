@@ -105,7 +105,8 @@ impl Backend for SmtpBackend {
                 self.draft = None;
                 // `remote: None`: SMTP tells us the message was accepted, not where a copy was
                 // filed. On Gmail the server files it in Sent itself and a client APPEND would
-                // duplicate it; on POP3 accounts there is no Sent folder at all.
+                // duplicate it; on POP3 accounts there is no Sent folder at all, and the runtime
+                // keeps the copy locally.
                 Progress::Done(ProtoOutcome::Submitted { remote: None })
             }
         }

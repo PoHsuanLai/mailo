@@ -45,8 +45,8 @@ pub enum SendState {
     },
     Sent {
         at: DateTime<Utc>,
-        /// The stored copy, once it comes back from the Sent folder. `None` until then, and
-        /// permanently `None` on POP3, which has no Sent folder to read.
+        /// The stored copy, once it comes back from the Sent folder. `None` until then. On POP3,
+        /// which has no Sent folder to read, the copy this client kept when it sent.
         message: Option<MessageId>,
     },
 }

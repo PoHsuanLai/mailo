@@ -694,13 +694,7 @@ impl<B: Backend> AccountEngine<B> {
                 "a JMAP account sends through its JMAP engine".to_owned(),
             ));
         }
-        // The bytes were frozen when the user pressed send, so a draft edited while the outbox
-        // was backed off does not change what goes out.
-        let frozen = self.store.blobs().get(&self.store.connection(), raw)?;
-        let message = match leaving {
-            Some(at) => mail_mime::restamp(&frozen, at),
-            None => frozen,
-        };
+        let message = self.leaving_bytes(raw, leaving)?;
         let Some((host, port, tls)) = self.outgoing() else {
             return self.submit_to_graph(&message, rcpt_to).await;
         };
@@ -722,6 +716,38 @@ impl<B: Backend> AccountEngine<B> {
             op: Some(op),
         };
         drive(&mut step, &mut transport, cancel).await
+    }
+
+    /// The bytes a submission hands the server: frozen when the user pressed send, so a draft
+    /// edited while the outbox was backed off does not change what goes out, and dated `leaving`.
+    /// One place, so the copy [`Self::keep_sent`] keeps is the message that went.
+    fn leaving_bytes(
+        &self,
+        raw: BlobId,
+        leaving: Option<DateTime<Utc>>,
+    ) -> Result<Vec<u8>, RuntimeError> {
+        let frozen = self.store.blobs().get(&self.store.connection(), raw)?;
+        Ok(match leaving {
+            Some(at) => mail_mime::restamp(&frozen, at),
+            None => frozen,
+        })
+    }
+
+    /// Whether a sent message's only copy is the one this client keeps: one submitted over
+    /// SMTP, which files nothing, from an account whose incoming server has no Sent folder. POP3
+    /// is one mailbox, the inbox, and a local account has no server at all. Every other kind has
+    /// a Sent folder a sync reads the copy back from, filed by the server itself (Gmail, Graph,
+    /// JMAP's `EmailSubmission`); keeping one here too would list the message twice.
+    fn keeps_own_sent(&self) -> bool {
+        matches!(self.plan.incoming, Incoming::Pop3 { .. } | Incoming::Local)
+            && matches!(self.plan.outgoing, Outgoing::Smtp { .. })
+    }
+
+    /// Keep what was just submitted as `raw`, dated `at`, in Sent: the copy a POP3 account's
+    /// server never files. See [`crate::assemble::sent`].
+    fn keep_sent(&self, raw: BlobId, at: DateTime<Utc>) -> Result<Option<MessageId>, RuntimeError> {
+        let bytes = self.leaving_bytes(raw, Some(at))?;
+        crate::assemble::sent(&self.store, self.account.clone(), bytes, at)
     }
 
     /// Submit through Microsoft Graph, for an account whose plan says [`Outgoing::Graph`].
@@ -783,6 +809,11 @@ impl<B: Backend> AccountEngine<B> {
                 ProtoOp::Submit { draft, .. } => Some(*draft),
                 _ => None,
             };
+            // What a submission sent, for the account that keeps its own copy of it.
+            let submitted = match &entry.op {
+                ProtoOp::Submit { raw, .. } if self.keeps_own_sent() => Some(*raw),
+                _ => None,
+            };
             let upload = match &entry.op {
                 ProtoOp::Append {
                     mailbox,
@@ -829,17 +860,25 @@ impl<B: Backend> AccountEngine<B> {
                         }
                     }
                     if let Some(draft) = draft {
-                        // `message: None` — SMTP reports that the message was accepted, not
-                        // where a copy was filed. Gmail files it in Sent itself; a POP3 account
-                        // has no Sent folder at all.
-                        self.mark_draft(
-                            draft,
-                            SendState::Sent {
-                                at: now,
-                                message: None,
+                        // SMTP reports that the message was accepted, not where a copy was
+                        // filed. Gmail files it in Sent itself and a sync finds it there, so
+                        // `message: None` until then. A POP3 account has no Sent folder at all:
+                        // the copy is kept here, now, or nowhere.
+                        let message = match submitted {
+                            Some(raw) => match self.keep_sent(raw, now) {
+                                Ok(kept) => kept,
+                                // Sent whatever this says: failing the drain over the copy
+                                // would report as unsent a message the server accepted.
+                                Err(e) => {
+                                    report
+                                        .needs_attention
+                                        .push(format!("sent, but no copy kept in Sent: {e}"));
+                                    None
+                                }
                             },
-                            now,
-                        );
+                            None => None,
+                        };
+                        self.mark_draft(draft, SendState::Sent { at: now, message }, now);
                         report.submitted += 1;
                     }
                     report.outbox_settled += 1;

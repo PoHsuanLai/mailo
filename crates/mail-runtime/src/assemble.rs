@@ -268,12 +268,86 @@ pub fn keep(
     batch: Vec<Keep>,
     fallback_date: DateTime<Utc>,
 ) -> Result<Kept, RuntimeError> {
-    let mut report = Kept::default();
+    let (kept, unreadable) = prepare(store, account.clone(), batch, fallback_date)?;
+    let offered = kept.len();
+    let patch = store
+        .import(account, Import { messages: kept })
+        .map_err(RuntimeError::Store)?;
+    let added = patch
+        .changes
+        .iter()
+        .filter(|c| matches!(c, Change::MessageUpsert(_)))
+        .count();
+    Ok(Kept {
+        added,
+        already: offered - added,
+        unreadable,
+    })
+}
+
+/// Keep the copy of a message this client has just submitted, in Sent, for an account whose
+/// server files none (POP3): the only copy of what the user sent is the one kept here.
+///
+/// `raw` is the bytes the submission server was handed, so the copy is what went, not what the
+/// draft says now. Read, since the user wrote it. Threaded like any arrival, so a reply joins
+/// the conversation it answers. Kept with no server address, so no sync can take it away.
+///
+/// The stored message, or `None` for bytes that do not parse as a message, which a submission
+/// this client built never is.
+pub fn sent(
+    store: &SqliteStore,
+    account: AccountId,
+    raw: Vec<u8>,
+    at: DateTime<Utc>,
+) -> Result<Option<MessageId>, RuntimeError> {
+    let placement =
+        mail_mime::archive::Placement::new(MailboxRole::Sent, vec![SystemFlag::Seen], Vec::new());
+    let (kept, _) = prepare(store, account.clone(), vec![Keep { raw, placement }], at)?;
+    let Some(first) = kept.first() else {
+        return Ok(None);
+    };
+    let (fresh, key) = (first.message.id, first.key.clone());
+    let patch = store
+        .import(account.clone(), Import { messages: kept })
+        .map_err(RuntimeError::Store)?;
+    let added = patch
+        .changes
+        .iter()
+        .any(|c| matches!(c, Change::MessageUpsert(m) if m.id == fresh));
+    if added {
+        return Ok(Some(fresh));
+    }
+    // Already held: the same submission settled twice, or a copy of it already fetched.
+    let MessageKey::Rfc(rfc_id) = key else {
+        return Ok(None);
+    };
+    let found: Option<String> = store
+        .connection()
+        .query_row(
+            "SELECT id FROM messages WHERE account = ?1 AND rfc_message_id = ?2 LIMIT 1",
+            rusqlite::params![account.to_string(), rfc_id],
+            |r| r.get(0),
+        )
+        .ok();
+    Ok(found
+        .and_then(|id| id.parse().ok())
+        .map(MessageId::from_uuid))
+}
+
+/// Parse, store and thread a batch for [`keep`]: what to import, and how many were not
+/// messages at all.
+fn prepare(
+    store: &SqliteStore,
+    account: AccountId,
+    batch: Vec<Keep>,
+    fallback_date: DateTime<Utc>,
+) -> Result<(Vec<mail_domain::Kept>, usize), RuntimeError> {
+    let mut unreadable = 0;
     let mut built = Vec::new();
     let mut placements = Vec::new();
     for item in batch {
         let Ok(fields) = mail_mime::parse(&item.raw) else {
-            report.unreadable += 1;
+            unreadable += 1;
             continue;
         };
         let blob = store
@@ -290,7 +364,7 @@ pub fn keep(
         placements.push(item.placement);
     }
     let blobs: Vec<BlobId> = built.iter().map(|b| b.blob).collect();
-    let kept: Vec<mail_domain::Kept> = build(store, account.clone(), built, fallback_date)?
+    let kept: Vec<mail_domain::Kept> = build(store, account, built, fallback_date)?
         .into_iter()
         .zip(placements.into_iter().zip(blobs))
         .map(|(mut message, (placement, raw))| {
@@ -304,17 +378,7 @@ pub fn keep(
             }
         })
         .collect();
-    let offered = kept.len();
-    let patch = store
-        .import(account, Import { messages: kept })
-        .map_err(RuntimeError::Store)?;
-    report.added = patch
-        .changes
-        .iter()
-        .filter(|c| matches!(c, Change::MessageUpsert(_)))
-        .count();
-    report.already = offered - report.added;
-    Ok(report)
+    Ok((kept, unreadable))
 }
 
 /// Keep a message just uploaded to `into`, at the address the server gave it (`APPENDUID`).
