@@ -270,6 +270,48 @@ fn archiving_takes_the_conversation_out_of_the_inbox_and_the_token_puts_it_back(
     );
 }
 
+/// Make every write to the outbox fail, as a full disk or a locked database would.
+fn refuse_queueing(store: &SqliteStore) {
+    store
+        .connection()
+        .execute_batch(
+            "CREATE TRIGGER refuse BEFORE INSERT ON outbox BEGIN SELECT RAISE(ABORT, 'full'); END;",
+        )
+        .expect("trigger");
+}
+
+#[test]
+fn an_archive_the_server_cannot_be_told_is_not_done_here_either() {
+    // Queued work that failed to be queued is in no outbox: nothing would retry it or say so,
+    // and the next sync would put the conversation back in the inbox without a word.
+    let (provider, store, _dir) = world();
+    refuse_queueing(&store);
+    assert!(
+        provider
+            .perform(&call("mail.thread.archive", threads(&[1]), &[]))
+            .is_err(),
+        "the archive said it was done"
+    );
+    assert!(
+        summary(&store, 1).mailboxes.contains(MailboxRole::Inbox),
+        "archived here, while the server was never told"
+    );
+}
+
+#[test]
+fn an_undo_the_server_cannot_be_told_is_not_done_here_either() {
+    let (provider, store, _dir) = world();
+    let outcome = provider
+        .perform(&call("mail.thread.archive", threads(&[1]), &[]))
+        .expect("archived");
+    refuse_queueing(&store);
+    assert_eq!(provider.undo(&token_of(&outcome)), Err(UndoFault::Conflict));
+    assert!(
+        !summary(&store, 1).mailboxes.contains(MailboxRole::Inbox),
+        "put back here, while the server keeps it archived"
+    );
+}
+
 #[test]
 fn one_gesture_on_several_conversations_is_one_undo() {
     let (provider, store, _dir) = world();

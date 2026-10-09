@@ -14,23 +14,34 @@ use porter_core::AccountId;
 
 /// Take back one operation: its inverse, written like any other patch, and the reverse queued
 /// for the server when the operation had told it anything.
+///
+/// `false` when it could not be taken back, and then nothing changed: a reverse the server
+/// cannot be told is not taken back here either, or the two would disagree until the next sync
+/// put the operation back without a word.
 pub fn take_back(store: &SqliteStore, entry: &Undo) -> bool {
+    let reverse = entry
+        .remote
+        .as_ref()
+        .filter(|_| has_server(store, entry.account.clone()))
+        .and_then(|remote| crate::undo::reverse_intent(remote, &entry.inverse));
     if store.apply(entry.account.clone(), &entry.inverse).is_err() {
         return false;
     }
     withdraw_filing(store, entry);
-    if let Some(reverse) = entry
-        .remote
-        .as_ref()
-        .filter(|_| has_server(store, entry.account.clone()))
-        .and_then(|remote| crate::undo::reverse_intent(remote, &entry.inverse))
+    if let Some(reverse) = reverse
+        && store
+            .enqueue(
+                entry.account.clone(),
+                reverse,
+                &entry.forward,
+                chrono::Utc::now(),
+            )
+            .is_err()
     {
-        let _ = store.enqueue(
-            entry.account.clone(),
-            reverse,
-            &entry.forward,
-            chrono::Utc::now(),
-        );
+        // Put the operation back as it was. Should that fail too, the store is left taken back
+        // here and not there, and the next sync restores the server's state.
+        let _ = store.apply(entry.account.clone(), &entry.forward);
+        return false;
     }
     true
 }
@@ -203,21 +214,27 @@ pub fn perform(store: &SqliteStore, thread: ThreadId, op: Op) -> Option<Undo> {
     // was still in the inbox on the phone, and mail read here was still bold everywhere else.
     // The undo goes with it, because a submission that fails has to put back what it changed.
     //
-    // A failure to enqueue is not a failure of the operation: the local change is real and the
-    // user can see it. It surfaces where every other stalled submission does, in the outbox.
+    // An operation the server cannot be told is not done here either: queued work that failed
+    // to be queued is in no outbox, so nothing would ever retry it or say so, and the next sync
+    // would quietly undo it. It is taken back and refused, as a folder that cannot be queued is
+    // not made (`folder::apply`).
     //
     // Local folders have no server half: their outbox is never drained, so nothing is put in it.
     if let Some(intent) = applied
         .remote
         .clone()
         .filter(|_| has_server(store, account.clone()))
+        && store
+            .enqueue(
+                account.clone(),
+                intent,
+                &applied.inverse,
+                chrono::Utc::now(),
+            )
+            .is_err()
     {
-        let _ = store.enqueue(
-            account.clone(),
-            intent,
-            &applied.inverse,
-            chrono::Utc::now(),
-        );
+        let _ = store.apply(account, &applied.inverse);
+        return None;
     }
     Some(Undo {
         said: crate::undo::said(&op, &chrono::Local),
