@@ -811,7 +811,7 @@ impl<B: Backend> AccountEngine<B> {
             SentCopy::Server => Ok(None),
             SentCopy::Here => crate::assemble::sent(&self.store, self.account.clone(), copy, at),
             SentCopy::Upload(path) => {
-                let raw = self.store.blobs().put(&self.store.connection(), &copy)?;
+                let raw = self.store.blobs().put(&copy)?;
                 self.store.enqueue(
                     self.account.clone(),
                     mail_domain::RemoteIntent::Append {

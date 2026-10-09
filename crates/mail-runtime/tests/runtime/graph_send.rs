@@ -374,7 +374,7 @@ async fn a_queued_message_goes_to_graph_with_the_graph_token() {
             let Body::Present { raw, .. } = kept.body else {
                 panic!("the copy holds its body: {:?}", kept.body);
             };
-            let bytes = it.store.blobs().get(&it.store.connection(), raw).unwrap();
+            let bytes = it.store.blobs().get(raw).unwrap();
             let bytes = String::from_utf8(bytes).unwrap();
             assert!(bytes.contains("Bcc: dee@example.test\r\n"), "{bytes}");
             assert!(bytes.contains("Subject: lunch on friday"), "{bytes}");
