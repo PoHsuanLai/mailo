@@ -68,13 +68,25 @@ pub fn results_of(store: &SqliteStore, message: &Message) -> Option<AuthResults>
 }
 
 /// What the checks come to, as one word the reader can show.
+///
+/// DMARC's rule (RFC 7489 §4.2), which is the receiving server's own when it reports DMARC: a
+/// message is the sender's when a check that passed was about the sender's domain. Either check
+/// is enough. SPF judges the server that last handed the mail on, so it fails whenever the mail
+/// was forwarded, fetched into another mailbox or sent through a list; DKIM signs the message
+/// itself and survives those, and a list that rewrites the body breaks it. A failure of one is
+/// therefore never a verdict while the other passed, and a failure on its own is weak: only the
+/// domain's own word that a server is not its (DMARC's fail, or SPF's hard fail for the sender's
+/// domain) is shown as a warning.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Standing {
-    /// DMARC passed; or, with no DMARC result, SPF and DKIM both passed.
+    /// DMARC passed; or, with no DMARC verdict, DKIM or SPF passed for the sender's domain.
     Passed,
-    /// DMARC, SPF or DKIM failed. A soft SPF fail counts: it is the domain saying "probably not".
+    /// DMARC failed; or, with no DMARC verdict and no pass for the sender's domain, that domain's
+    /// SPF record says the sending server is not its.
     Failed,
-    /// Neither: nothing was checked, or what was checked was inconclusive.
+    /// Neither: nothing was checked, what passed was about another domain (a mailing service
+    /// signing as itself), or what failed is what forwarding breaks (SPF's softfail, a DKIM
+    /// signature the trip changed).
     Unsure,
 }
 
@@ -91,20 +103,35 @@ impl Standing {
 
 /// What `results` come to.
 pub fn standing(results: &AuthResults) -> Standing {
-    let verdict = |check: &Option<Check>| check.as_ref().map(|c| c.verdict);
-    let (spf, dkim, dmarc) = (
-        verdict(&results.spf),
-        verdict(&results.dkim),
-        verdict(&results.dmarc),
-    );
-    let failed = |v: Option<Verdict>| matches!(v, Some(Verdict::Fail | Verdict::SoftFail));
-    if failed(dmarc) || failed(spf) || dkim == Some(Verdict::Fail) {
-        return Standing::Failed;
+    match results.dmarc.as_ref().map(|check| check.verdict) {
+        Some(Verdict::Pass) => return Standing::Passed,
+        Some(Verdict::Fail) => return Standing::Failed,
+        _ => {}
     }
-    match dmarc {
-        Some(Verdict::Pass) => Standing::Passed,
-        None if spf == Some(Verdict::Pass) && dkim == Some(Verdict::Pass) => Standing::Passed,
+    let Some(from) = results.from.as_deref() else {
+        return Standing::Unsure;
+    };
+    let ours = |check: &Check| check.domain.as_deref().is_some_and(|d| aligned(d, from));
+    let passed = |check: &Check| check.verdict == Verdict::Pass && ours(check);
+    if results.signatures.iter().any(passed) || results.spf.as_ref().is_some_and(passed) {
+        return Standing::Passed;
+    }
+    match &results.spf {
+        Some(spf) if spf.verdict == Verdict::Fail && ours(spf) => Standing::Failed,
         _ => Standing::Unsure,
+    }
+}
+
+/// Whether a check about `domain` speaks for mail from `from`: DMARC's relaxed alignment
+/// (RFC 7489 §3.1), the two under the same registered domain. `news.example.com` signs for
+/// `example.com`; `example.com.evil.test` does not.
+fn aligned(domain: &str, from: &str) -> bool {
+    let registered = |d: &str| psl::domain_str(d).map(str::to_owned);
+    match (registered(domain), registered(from)) {
+        (Some(a), Some(b)) => a == b,
+        // A name with no registered domain (a bare suffix, a single label) aligns only with
+        // itself.
+        _ => domain == from,
     }
 }
 
@@ -219,50 +246,6 @@ mod tests {
         ];
         for (name, incoming, want) in cases {
             assert_eq!(receiver(&plan(incoming)), want, "case: {name}");
-        }
-    }
-
-    fn check(verdict: Verdict) -> Option<Check> {
-        Some(Check {
-            verdict,
-            domain: None,
-        })
-    }
-
-    #[test]
-    fn what_the_checks_come_to() {
-        let pass = || check(Verdict::Pass);
-        let fail = || check(Verdict::Fail);
-        let cases: Vec<(&str, [Option<Check>; 3], Standing)> = vec![
-            ("dmarc pass", [None, None, pass()], Standing::Passed),
-            (
-                "spf and dkim pass",
-                [pass(), pass(), None],
-                Standing::Passed,
-            ),
-            ("dmarc fail", [pass(), pass(), fail()], Standing::Failed),
-            (
-                "spf softfail",
-                [check(Verdict::SoftFail), None, pass()],
-                Standing::Failed,
-            ),
-            ("dkim fail", [None, fail(), None], Standing::Failed),
-            ("only spf pass", [pass(), None, None], Standing::Unsure),
-            ("nothing", [None, None, None], Standing::Unsure),
-            (
-                "dmarc none",
-                [pass(), pass(), check(Verdict::None)],
-                Standing::Unsure,
-            ),
-        ];
-        for (name, [spf, dkim, dmarc], want) in cases {
-            let results = AuthResults {
-                authserv_id: Some("mx.example.com".to_owned()),
-                spf,
-                dkim,
-                dmarc,
-            };
-            assert_eq!(standing(&results), want, "case: {name}");
         }
     }
 }

@@ -434,12 +434,11 @@ mod tests {
     fn only_a_dmarc_pass_for_the_from_domain_counts() {
         let results = |verdict, domain: Option<&str>| AuthResults {
             authserv_id: Some("mx.provider.example".to_owned()),
-            spf: None,
-            dkim: None,
             dmarc: Some(Check {
                 verdict,
                 domain: domain.map(str::to_owned),
             }),
+            ..AuthResults::default()
         };
         let cases = [
             ("pass", results(Verdict::Pass, Some("brand.example")), true),
@@ -468,12 +467,7 @@ mod tests {
                 "case: {name}"
             );
         }
-        let unchecked = AuthResults {
-            authserv_id: None,
-            spf: None,
-            dkim: None,
-            dmarc: None,
-        };
+        let unchecked = AuthResults::default();
         assert!(!dmarc_passed_for(&unchecked, "brand.example"));
     }
 }

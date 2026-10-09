@@ -61,15 +61,23 @@ pub struct Check {
 }
 
 /// The trusted field's results. A method it does not mention is `None`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AuthResults {
     /// Who wrote it: the field's authserv-id, lower case. `None` when the field starts with a
     /// result rather than a name, which only [`Receiver::Topmost`] accepts.
     pub authserv_id: Option<String>,
     pub spf: Option<Check>,
-    /// With several signatures, a passing one if there is one, else the first.
+    /// With several signatures, a passing one if there is one, else the first: the one to name.
     pub dkim: Option<Check>,
+    /// Every DKIM result the field gives, in its order. Whether a pass vouches for the sender
+    /// depends on whose domain signed, which [`Self::dkim`] alone cannot say when a mailing
+    /// service signed as itself beside the sender's own signature.
+    pub signatures: Vec<Check>,
     pub dmarc: Option<Check>,
+    /// The domain of the message's `From`, lower case, from the same bytes the field was read
+    /// in: what a check's domain must match (DMARC's alignment, RFC 7489 §3.1) to speak for the
+    /// sender the reader shows. `None` when `From` is missing or names more than one address.
+    pub from: Option<String>,
 }
 
 /// The results of the one field in `raw`'s headers that `receiver` trusts, or `None` when no
@@ -79,6 +87,7 @@ pub fn authentication_results(raw: &[u8], receiver: &Receiver) -> Option<AuthRes
     // would let a value inside a comment or a quoted string turn into `; dkim=pass`.
     let parser = MessageParser::new()
         .header_raw(HeaderName::AuthenticationResults)
+        .header_address(HeaderName::From)
         .default_header_ignore();
     let message = parser.parse_headers(raw)?;
     // In the order they appear: the topmost is the last one added.
@@ -91,7 +100,14 @@ pub fn authentication_results(raw: &[u8], receiver: &Receiver) -> Option<AuthRes
             authserv_id(field).is_some_and(|id| domains.iter().any(|d| under(&id, d)))
         })?,
     };
-    results(&field)
+    let mut out = results(&field)?;
+    out.from = message
+        .from()
+        .filter(|from| from.iter().count() == 1)
+        .and_then(|from| from.first()?.address())
+        .map(domain_of)
+        .filter(|domain| !domain.is_empty());
+    Some(out)
 }
 
 /// Whether `host` is `domain` or a name under it, by whole labels.
@@ -128,12 +144,7 @@ fn results(field: &str) -> Option<AuthResults> {
     let head = parts.next()?;
     let mut words = head.split_whitespace();
     let first = words.next()?;
-    let mut out = AuthResults {
-        authserv_id: None,
-        spf: None,
-        dkim: None,
-        dmarc: None,
-    };
+    let mut out = AuthResults::default();
     if first.contains('=') {
         // No authserv-id: the first part is already a result.
         resinfo(&head, &mut out);
@@ -181,6 +192,9 @@ fn resinfo(part: &str, out: &mut AuthResults) {
         verdict,
         domain: domain.filter(|d| !d.is_empty()),
     };
+    if method == "dkim" {
+        out.signatures.push(check.clone());
+    }
     // A second result for the same method (several DKIM signatures) replaces the first only
     // when it passes and the first did not.
     match slot {
