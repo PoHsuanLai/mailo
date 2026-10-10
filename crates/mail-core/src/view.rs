@@ -5,9 +5,10 @@
 //! button performs, which message a reply answers and how mute turns on a selection are about the
 //! conversation and not about how it is shown, so they live here where a table can test them.
 
+use crate::place::{pending_snooze, place_filter};
 use mail_domain::{
-    LabelId, MailboxRole, Membership, Message, Mute, Op, OpKind, ReadState, Star, ThreadId,
-    ThreadSummary, View,
+    Filter, LabelId, MailboxRef, MailboxRole, Membership, Message, Mute, Op, OpKind, ReadState,
+    Star, ThreadId, ThreadSummary, View,
 };
 
 /// What Mute does to a conversation, given what it is now: mute it, or unmute it if it is muted.
@@ -230,6 +231,186 @@ pub fn reply_target(messages: &[Message]) -> Option<&Message> {
     })
 }
 
+/// An entry in the sidebar.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Place {
+    pub name: String,
+    /// What this place lists. Not a `Filter`: see [`Source`].
+    pub source: Source,
+    /// Shown as a badge. `None` until counted, which is not the same as zero.
+    pub unread: Option<u64>,
+}
+
+/// The default sidebar.
+///
+/// Inbox is `Filter::InMailbox(Inbox)` rather than anything special, which is the plan's claim
+/// that a place is just a saved filter — made true here rather than asserted.
+/// Where a sidebar place gets its rows.
+///
+/// Two variants because drafts are genuinely not mail yet. A draft has no thread, no server
+/// address and no mailbox — it lives in its own table — so there is no `Filter` that selects
+/// one, and a `Drafts` place built from `Filter::InMailbox(MailboxRole::Drafts)` lists nothing,
+/// for ever, with no error. That was the state of this sidebar until the composer gave it
+/// something to show.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Source {
+    /// Threads matching a filter.
+    Mail(Filter),
+    /// The drafts table.
+    Drafts,
+    /// A view the user saved: its filter, and how its list is grouped and what its rows offer.
+    ///
+    /// The whole [`View`] rather than its filter, because the rest of it is what makes it a
+    /// view: `Shell::grouping` and [`hover_in`] read it while it is the place shown.
+    Saved(Box<View>),
+    /// The conversations with a follow-up reminder, soonest due first ([`mail_core::follow_up`]).
+    ///
+    /// Not a `Filter`, for the reason drafts are not: whether a reminder still stands is decided
+    /// on the conversation's messages and the user's own addresses, and the domain's filters see
+    /// only the summary. The store lists them ([`mail_store::Store::follow_ups`]).
+    Waiting,
+}
+
+fn source_for(role: MailboxRole) -> Source {
+    match role {
+        MailboxRole::Drafts => Source::Drafts,
+        other => Source::Mail(place_filter(other)),
+    }
+}
+
+pub fn default_places() -> Vec<Place> {
+    // Starred sits with the places that ask "what is this mail", ahead of the folders.
+    // Snoozed stays with them: a conversation that was put off is looked for there, not beside
+    // Trash. Pinned threads stay a place of their own, distinct from a Space's pinned people.
+    [
+        ("Inbox", source_for(MailboxRole::Inbox)),
+        ("Starred", Source::Mail(Filter::Starred(Star::Starred))),
+        (
+            "Snoozed",
+            // Only the ones still away. A due thread is back in the inbox, and showing it here
+            // as well would make "snoozed" mean two different things in two places.
+            Source::Mail(pending_snooze()),
+        ),
+        ("Archive", source_for(MailboxRole::Archive)),
+        ("Sent", source_for(MailboxRole::Sent)),
+        ("Drafts", source_for(MailboxRole::Drafts)),
+        ("Spam", source_for(MailboxRole::Spam)),
+        ("Trash", source_for(MailboxRole::Trash)),
+        ("Pinned", Source::Mail(Filter::Pinned)),
+        // Last, so every place before it keeps the index it had: conversations the user is
+        // waiting on an answer to, which come back to the inbox if none arrives.
+        ("Waiting", Source::Waiting),
+    ]
+    .into_iter()
+    .map(|(name, source)| Place {
+        name: name.to_owned(),
+        source,
+        unread: None,
+    })
+    .collect()
+}
+
+/// A place that lists one label, as opposed to a mailbox.
+pub fn is_label_place(place: &Place) -> bool {
+    matches!(place.source, Source::Mail(Filter::HasLabel(_)))
+}
+
+/// The filter a server folder's place lists: the account's threads with a message the server
+/// holds at exactly `path`.
+///
+/// For a folder with no role and no label behind it. The inbox and the role places list by
+/// role, and where folders are labels (Gmail) a folder is listed through its label.
+pub fn folder_filter(mailbox: &MailboxRef) -> Filter {
+    Filter::And(vec![
+        Filter::Account(mailbox.account.clone()),
+        Filter::InFolder(mailbox.clone()),
+    ])
+}
+
+/// The folder a place lists, when it is a server folder's place.
+pub fn folder_of(place: &Place) -> Option<&MailboxRef> {
+    match &place.source {
+        Source::Mail(Filter::And(parts)) => match parts.as_slice() {
+            [Filter::Account(account), Filter::InFolder(mailbox)]
+                if *account == mailbox.account =>
+            {
+                Some(mailbox)
+            }
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// The sidebar: the default places, then one per label, then one per server folder, then one
+/// per saved view, in that order — which is also the order the badges are counted in, index for
+/// index.
+///
+/// A folder's place is named by its last level, which is what its row and the list's title say.
+/// Saved views come last so that keeping or forgetting one moves no other place's index.
+pub fn places_with(
+    labels: &[(String, LabelId)],
+    folders: &[(String, MailboxRef)],
+    views: &[View],
+) -> Vec<Place> {
+    let labelled = labels.iter().map(|(name, id)| Place {
+        name: name.clone(),
+        source: Source::Mail(Filter::HasLabel(*id)),
+        unread: None,
+    });
+    let foldered = folders.iter().map(|(name, mailbox)| Place {
+        name: name.clone(),
+        source: Source::Mail(folder_filter(mailbox)),
+        unread: None,
+    });
+    default_places()
+        .into_iter()
+        .chain(labelled)
+        .chain(foldered)
+        .chain(views.iter().map(saved_place))
+        .collect()
+}
+
+/// The sidebar place a saved view is.
+pub fn saved_place(view: &View) -> Place {
+    Place {
+        name: view.name.clone(),
+        source: Source::Saved(Box::new(view.clone())),
+        unread: None,
+    }
+}
+
+/// The saved view a place is, when it is one.
+pub fn saved_of(place: &Place) -> Option<&View> {
+    match &place.source {
+        Source::Saved(view) => Some(view),
+        Source::Mail(_) | Source::Drafts | Source::Waiting => None,
+    }
+}
+
+/// What a place's badge counts, or `None` when it has no badge.
+///
+/// Unread threads, and only for mail: "3 unread drafts" is not a thing, because a draft is not
+/// something that arrives and is not something anyone has failed to read yet.
+///
+/// Sent and Archive get one too. That looks odd until a filter rule files an unread message
+/// straight into Archive, at which point a badgeless Archive is a message the user never learns
+/// about.
+pub fn badge_filter(source: &Source) -> Option<Filter> {
+    match source {
+        Source::Mail(filter) => Some(Filter::And(vec![
+            filter.clone(),
+            Filter::Read(ReadState::Unread),
+        ])),
+        Source::Saved(view) => Some(Filter::And(vec![
+            view.filter.clone(),
+            Filter::Read(ReadState::Unread),
+        ])),
+        // Nothing in it is news: the user wrote the last word and is waiting for someone else's.
+        Source::Drafts | Source::Waiting => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -389,5 +570,60 @@ mod tests {
         let order: Vec<&str> = menu.iter().map(|choice| choice.name.as_str()).collect();
         assert_eq!(order, ["travel", "alpha", "Bills"]);
         assert_eq!(menu[0].toggled(), Membership::Out);
+    }
+
+    #[test]
+    fn the_sidebar_offers_somewhere_to_find_a_snoozed_conversation() {
+        // Otherwise snoozing is a way to lose mail.
+        let places = default_places();
+        let snoozed = places
+            .iter()
+            .find(|p| p.name == "Snoozed")
+            .expect("no Snoozed place");
+        assert_eq!(snoozed.source, Source::Mail(pending_snooze()));
+    }
+}
+
+#[cfg(test)]
+mod badge_tests {
+    use super::*;
+
+    #[test]
+    fn a_mail_place_counts_its_unread_threads() {
+        let inbox = Source::Mail(Filter::InMailbox(MailboxRole::Inbox));
+        match badge_filter(&inbox) {
+            Some(Filter::And(clauses)) => {
+                assert!(clauses.contains(&Filter::InMailbox(MailboxRole::Inbox)));
+                assert!(
+                    clauses.contains(&Filter::Read(ReadState::Unread)),
+                    "the badge counted every thread, not the unread ones: {clauses:?}"
+                );
+            }
+            other => panic!("expected a conjunction, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn every_mail_place_gets_one_including_archive() {
+        // A filter rule can file an unread message straight into Archive. A badgeless Archive is
+        // then a message the user never finds out about.
+        for place in default_places() {
+            match &place.source {
+                Source::Mail(_) | Source::Saved(_) => assert!(
+                    badge_filter(&place.source).is_some(),
+                    "{} has no badge",
+                    place.name
+                ),
+                // The user wrote the last word in each of them: nothing there is unread news.
+                // "3 unread drafts" is not a thing: a draft did not arrive and nobody failed to
+                // read it.
+                Source::Drafts | Source::Waiting => assert_eq!(
+                    badge_filter(&place.source),
+                    None,
+                    "{} has a badge",
+                    place.name
+                ),
+            }
+        }
     }
 }
