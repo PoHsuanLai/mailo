@@ -110,6 +110,7 @@ pub type Party = mail_domain::Address;
 
 /// One `ATTENDEE`.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Attendee {
     pub party: Party,
     pub answer: PartStat,
@@ -154,6 +155,7 @@ pub enum EventStatus {
 
 /// One `VTIMEZONE`: a zone's rules, carried inside the calendar that uses it.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ZoneRules {
     pub tzid: String,
     pub observances: Vec<Observance>,
@@ -163,6 +165,7 @@ pub struct ZoneRules {
 
 /// One `STANDARD` or `DAYLIGHT` period of a [`ZoneRules`].
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Observance {
     pub kind: ObservanceKind,
     /// `DTSTART`: the first onset, as a clock reading in the offset that was in force before it.

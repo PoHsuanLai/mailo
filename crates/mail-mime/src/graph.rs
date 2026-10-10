@@ -32,6 +32,7 @@ pub enum GraphImportance {
 
 /// Everything Graph's message resource is told about one message.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct GraphDraft {
     pub subject: String,
     pub body: GraphBody,

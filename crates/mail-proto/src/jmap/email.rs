@@ -48,6 +48,7 @@ pub enum HasAttachment {
 
 /// One email as `Email/get` described it with [`SUMMARY`].
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct EmailSummary {
     pub id: JmapEmailId,
     /// The raw RFC 5322 message, to download.

@@ -223,6 +223,7 @@ impl SetError {
 
 /// A `/set` answer.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub struct SetResult {
     /// Creation id to the server's record of what it made.
     pub created: Vec<(String, Value)>,

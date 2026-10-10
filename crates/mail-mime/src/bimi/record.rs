@@ -12,6 +12,7 @@ pub use crate::error::RecordError;
 
 /// A domain's BIMI assertion record.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct BimiRecord {
     /// Where the logo is: an `https:` URL. `None` when `l=` is empty or absent.
     pub location: Option<String>,
@@ -103,6 +104,7 @@ pub enum Disposition {
 
 /// A domain's DMARC policy record: the parts BIMI reads.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct DmarcRecord {
     /// `p`: the domain's own policy.
     pub policy: Disposition,

@@ -18,6 +18,7 @@ use mail_domain::{MailboxRole, ReadState, Star, SystemFlag};
 
 /// Where a message sat and what had been done to it, as the file recorded it.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Placement {
     pub role: MailboxRole,
     /// Sorted and without repeats.

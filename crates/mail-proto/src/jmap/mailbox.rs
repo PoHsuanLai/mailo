@@ -70,6 +70,7 @@ impl JmapRole {
 
 /// One mailbox, as `Mailbox/get` described it.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct JmapMailbox {
     pub id: JmapMailboxId,
     pub name: String,

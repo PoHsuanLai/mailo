@@ -109,6 +109,7 @@ pub struct ReplyText {
 
 /// The server accepted the message.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct SmtpReply {
     /// Extensions from the `EHLO` that preceded authentication.
     pub extensions: EhloExtensions,

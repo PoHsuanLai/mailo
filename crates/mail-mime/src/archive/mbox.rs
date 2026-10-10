@@ -27,6 +27,7 @@ use std::io::{self, BufRead, Write};
 
 /// The envelope line's two facts: who the message came from on the wire, and when.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Envelope {
     /// The envelope sender, or `MAILER-DAEMON` where there was none.
     pub sender: String,
@@ -36,6 +37,7 @@ pub struct Envelope {
 
 /// One message out of an mbox, unquoted, without its envelope line or separating blank line.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct MboxMessage {
     pub envelope: Envelope,
     pub raw: Vec<u8>,

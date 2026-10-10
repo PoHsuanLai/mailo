@@ -42,6 +42,7 @@ pub enum GraphQuery {
 
 /// A Graph search: where, and what.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct GraphPlan {
     pub place: GraphPlace,
     pub query: GraphQuery,

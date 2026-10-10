@@ -50,6 +50,7 @@ impl<I> Changes<I> {
 
 /// One page of an `Email/query`.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct QueryPage {
     pub ids: Vec<JmapEmailId>,
     /// Where this page starts in the whole result.

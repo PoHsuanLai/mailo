@@ -9,6 +9,7 @@ use serde_json::{Map, Value, json};
 
 /// One method call: its name, its arguments, and the id its response will carry.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Call {
     pub name: &'static str,
     pub args: Value,

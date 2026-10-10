@@ -191,6 +191,7 @@ pub enum ImapCommand {
 
 /// What a completed session saw.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub struct ImapTranscript {
     /// Every untagged response, in arrival order, with the command it arrived during.
     pub untagged: Vec<Untagged>,

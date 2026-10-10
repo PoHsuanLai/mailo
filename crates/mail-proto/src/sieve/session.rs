@@ -76,6 +76,7 @@ pub enum Takeover {
 
 /// What the server said it can do, from its capability response.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub struct SieveCaps {
     pub implementation: Option<String>,
     /// The Sieve extensions it runs, as tokens: `fileinto`, `vacation`, `date`.
