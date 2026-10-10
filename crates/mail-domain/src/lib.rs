@@ -39,8 +39,8 @@ pub use account::{
     FolderRoles, HttpAuth, Identity, Incoming, LeaveOnServer, MoveExt, Outgoing, SaslMech,
     ServerLabels, ServerThreads, Supported, Tls, Username, WatchMode,
 };
-pub use autocrypt::{AutocryptPeer, PreferEncrypt, Sighting};
 pub use address::Address;
+pub use autocrypt::{AutocryptPeer, PreferEncrypt, Sighting};
 pub use content::{Attachment, Body, Inline, Label, PartContent};
 pub use draft::{Draft, PendingAttachment, ReplyScope, SendState};
 pub use error::{FolderError, ParseAddressError, ParseFingerprintError};

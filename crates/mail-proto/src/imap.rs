@@ -325,6 +325,39 @@ enum Phase {
 }
 
 /// A sans-I/O IMAP client.
+///
+/// It is fed what the server sent and says what it wants done next; nothing here touches a
+/// socket. Asked for one `CAPABILITY`:
+///
+/// ```
+/// use mail_domain::SaslMech;
+/// use mail_proto::machine::{IoNeed, IoReady, Machine, Progress};
+/// use mail_proto::{ImapAuth, ImapCommand, ImapSession, has_capability};
+/// use porter_core::{Credential, SecretText};
+///
+/// let auth = ImapAuth {
+///     username: "me@example.test".to_owned(),
+///     credential: Credential::Password(SecretText::new("secret".to_owned())),
+///     sasl: vec![SaslMech::Plain],
+/// };
+/// let mut session = ImapSession::new(auth, vec![ImapCommand::Capability]).unwrap();
+///
+/// // The server speaks first.
+/// assert!(matches!(session.start(), Progress::Need(needs) if needs == [IoNeed::Read]));
+///
+/// // After its greeting the command goes out, tagged.
+/// let Progress::Need(needs) = session.feed(IoReady::Bytes(b"* OK ready\r\n".to_vec())) else {
+///     panic!("the greeting should be answered with the command");
+/// };
+/// assert!(matches!(&needs[0], IoNeed::Write(line) if line.starts_with(b"a001 CAPABILITY")));
+///
+/// // Its answer ends the session, with what it said.
+/// let reply = b"* CAPABILITY IMAP4rev1 IDLE\r\na001 OK done\r\n".to_vec();
+/// let Progress::Done(transcript) = session.feed(IoReady::Bytes(reply)) else {
+///     panic!("the session should be finished");
+/// };
+/// assert!(has_capability(&transcript.capabilities, "IDLE"));
+/// ```
 pub struct ImapSession {
     auth: ImapAuth,
     commands: Vec<ImapCommand>,

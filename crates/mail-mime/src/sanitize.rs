@@ -118,6 +118,20 @@ impl SafeHtml {
 ///
 /// Total: there is no error case. Anything that cannot be made safe is removed, because the
 /// alternative — showing the user nothing — is worse than showing them the text.
+///
+/// ```
+/// use mail_mime::{SanitizePolicy, sanitize};
+///
+/// let safe = sanitize(
+///     r#"<p>hi</p><script>alert(1)</script><img src="https://tracker.example/p.gif">"#,
+///     SanitizePolicy::CURRENT,
+/// );
+/// assert!(safe.as_str().contains("hi"));
+/// assert!(!safe.as_str().contains("script"));
+/// // A remote image is not fetched unless the reader asks: it is dropped and counted.
+/// assert!(!safe.as_str().contains("tracker.example"));
+/// assert_eq!(safe.blocked_remote(), 1);
+/// ```
 pub fn sanitize(html: &str, policy: SanitizePolicy) -> SafeHtml {
     let remote = policy.remote_images;
     // Ammonia's defaults are an allowlist: script, style, iframe, object, embed, form,

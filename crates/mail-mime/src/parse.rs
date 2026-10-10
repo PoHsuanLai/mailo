@@ -77,6 +77,18 @@ pub struct Parsed {
 /// Must not fail on mail that is merely malformed — a broken `Date`, a missing `Message-ID`,
 /// a mislabelled charset, an 8-bit header. Those are facts to record, not errors. Reserve
 /// [`MimeError::Unparseable`] for bytes that are not a message at all.
+///
+/// ```
+/// let raw = b"From: Ada <ada@example.test>\r\nTo: bob@example.test\r\n\
+///             Subject: Hello\r\nMessage-ID: <1@example.test>\r\n\r\nHi Bob.\r\n";
+/// let parsed = mail_mime::parse(raw).unwrap();
+/// assert_eq!(parsed.subject, "Hello");
+/// assert_eq!(parsed.from.unwrap().email, "ada@example.test");
+/// assert_eq!(parsed.text.as_deref().map(str::trim), Some("Hi Bob."));
+///
+/// // Bytes that are not a message are an error value, never a panic.
+/// assert!(mail_mime::parse(b"\x00\x01\x02").is_err());
+/// ```
 pub fn parse(raw: &[u8]) -> Result<Parsed, MimeError> {
     parse_as(raw, Markers::Ignore)
 }
