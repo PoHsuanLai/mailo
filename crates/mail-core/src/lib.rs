@@ -71,18 +71,18 @@ pub use mail::{
     AccountOps, Clock, ContactOps, CryptoOps, DiscoverOps, FixedClock, Mail, RuleOps, SyncOps,
     SystemClock,
 };
-/// What the window tells the body pass it is reading and fetching, so the pass does not repeat it.
-pub use mail_runtime::wanted;
 /// The doubles at the runtime's seams, for a front end's tests: an in-memory transport, secrets and
 /// signing store, and accountd as a table.
 #[cfg(feature = "testing")]
 pub use mail_runtime::testing;
+/// What the window tells the body pass it is reading and fetching, so the pass does not repeat it.
+pub use mail_runtime::wanted;
 /// The runtime types mail-core's API hands out and takes: re-exported, so a front end goes
 /// through mail-core alone.
 pub use mail_runtime::{
     AccountSecrets, Accountd, Arrival, ClientRegistry, Destination, KeyringSigningStore, Link,
-    Searched, ServerHits, SigningStore, Transport, absorb, absorb_into, assemble,
-    fetch, link, off_runtime, remote_image, schedule, sieve::Pushed,
+    Searched, ServerHits, SigningStore, Transport, absorb, absorb_into, assemble, fetch, link,
+    off_runtime, remote_image, schedule, sieve::Pushed,
 };
 /// The store a front end opens and hands to mail-core.
 pub use mail_store::{SqliteStore, Store, StoreError};
