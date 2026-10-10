@@ -1301,11 +1301,5 @@ fn state_word(state: &SendState) -> &'static str {
 }
 
 fn addresses(list: &[Address]) -> String {
-    list.iter()
-        .map(|a| match &a.name {
-            Some(name) => format!("{name} <{}>", a.email),
-            None => a.email.clone(),
-        })
-        .collect::<Vec<_>>()
-        .join(", ")
+    Address::join(list)
 }

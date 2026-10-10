@@ -7,6 +7,7 @@ use mail_domain::{Retry, Retryable};
 /// Never a panic: a vCard file came from another program and a DAV reply from a server, and
 /// either may be anything.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum PimError {
     /// A DAV reply that is not well-formed XML.
     #[error("the server's reply is not XML: {0}")]

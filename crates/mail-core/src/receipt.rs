@@ -8,7 +8,7 @@
 
 use chrono::{DateTime, Utc};
 use mail_domain::*;
-use mail_mime::{OriginalHeaders, ReceiptAsk, Reporting, ReturnPath};
+use mail_mime::{Human, OriginalHeaders, ReceiptAsk, Reporting, ReturnPath, Words};
 use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
 
@@ -29,6 +29,36 @@ pub enum ReceiptState {
 /// What [`answer`] reports on the `Reporting-UA` line.
 fn agent() -> String {
     format!("mailo; mailo {}", env!("CARGO_PKG_VERSION"))
+}
+
+/// The receipt's sentences. Says what a receipt means and, as plainly, what it does not.
+///
+/// Broken into short lines by hand, so an ordinary receipt stays 7-bit text rather than
+/// quoted-printable that a person reading the source has to decode.
+fn words() -> Words {
+    fn body(human: &Human<'_>) -> String {
+        let mut out = format!(
+            "This is a receipt for the message you sent to {}",
+            human.reader
+        );
+        if let Some(date) = &human.date {
+            out.push_str(&format!("\r\non {date}"));
+        }
+        if human.subject.is_empty() {
+            out.push_str(" with no subject.\r\n");
+        } else {
+            out.push_str(&format!(" with the subject\r\n\"{}\".\r\n", human.subject));
+        }
+        out.push_str(
+            "\r\nIt was displayed on the recipient's screen. That says nothing\r\n\
+             about whether it was read, understood or agreed with.\r\n",
+        );
+        out
+    }
+    Words {
+        subject_prefix: "Read: ",
+        body,
+    }
 }
 
 /// Where `message` stands. Reads the stored raw message, because the request is a header the
@@ -110,6 +140,7 @@ pub fn answer(
                 id,
                 at: now,
                 headers: OriginalHeaders::Included,
+                words: words(),
             },
         )
         .map_err(|e| e.to_string())?;

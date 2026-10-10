@@ -611,6 +611,7 @@ mod reading {
                 recipients: std::slice::from_ref(to_key),
                 gossip: &[],
                 now: now(),
+                boundary_prefix: "mailo",
             },
             &mut rand::rngs::StdRng::seed_from_u64(13),
         )
@@ -723,6 +724,7 @@ mod reading {
                 recipients: &[],
                 gossip: &[],
                 now: now(),
+                boundary_prefix: "mailo",
             },
             &mut rand::rngs::StdRng::seed_from_u64(17),
         )

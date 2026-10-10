@@ -24,6 +24,24 @@ const MAX_DEPTH: usize = 16;
 /// answer it or recognise it again), and one cut off by the end of the text is kept with what it
 /// had. [`PimError::TooLarge`] past [`MAX_CALENDAR_BYTES`]; [`PimError::Unexpected`] when there
 /// is no calendar or event in it at all.
+///
+/// Read into an [`Invite`](crate::Invite) for the person it was sent to:
+///
+/// ```
+/// use mail_pim::{Kind, ical, summarise};
+///
+/// let text = "BEGIN:VCALENDAR\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\n\
+///             UID:review@example.test\r\nSUMMARY:Design review\r\n\
+///             DTSTART:20261002T130000Z\r\nDTEND:20261002T140000Z\r\n\
+///             ORGANIZER;CN=Ada:mailto:ada@example.test\r\n\
+///             ATTENDEE;PARTSTAT=NEEDS-ACTION:mailto:me@example.test\r\n\
+///             END:VEVENT\r\nEND:VCALENDAR\r\n";
+/// let calendar = ical::parse(text).unwrap();
+/// let invite = summarise(&calendar, &["me@example.test"]).unwrap();
+/// assert_eq!(invite.title.as_deref(), Some("Design review"));
+/// assert!(matches!(invite.kind, Kind::Request(_)));
+/// assert_eq!(invite.organiser.unwrap().name.as_deref(), Some("Ada"));
+/// ```
 pub fn parse(text: &str) -> Result<Calendar, PimError> {
     if text.len() > MAX_CALENDAR_BYTES {
         return Err(PimError::TooLarge {

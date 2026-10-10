@@ -136,9 +136,3 @@ fn provider_of(host: &str) -> Option<Issuer> {
         None
     }
 }
-
-/// The name this client's script goes by on the server.
-///
-/// One name, owned by this client: a script with any other name was written by someone else,
-/// and is never replaced, deactivated or deleted without being told to.
-pub const SCRIPT_NAME: &str = "mailo";

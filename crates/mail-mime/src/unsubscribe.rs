@@ -52,17 +52,23 @@ pub enum Unsubscribe {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct HttpsUrl(String);
 
-impl HttpsUrl {
+impl std::str::FromStr for HttpsUrl {
+    type Err = crate::NotHttpsUrl;
+
     /// `raw`, if it is an `https:` URL this client will `POST` to.
-    pub fn parse(raw: &str) -> Option<HttpsUrl> {
-        let url = url::Url::parse(raw).ok()?;
+    fn from_str(raw: &str) -> Result<HttpsUrl, Self::Err> {
+        let url = url::Url::parse(raw).map_err(|_| crate::NotHttpsUrl)?;
         let usable = url.scheme() == "https"
             && url.host_str().is_some_and(|host| !host.is_empty())
             && url.username().is_empty()
             && url.password().is_none();
-        usable.then(|| HttpsUrl(url.into()))
+        usable
+            .then(|| HttpsUrl(url.into()))
+            .ok_or(crate::NotHttpsUrl)
     }
+}
 
+impl HttpsUrl {
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -167,7 +173,7 @@ fn method_of(uri: &str, claimed: &mut bool) -> Option<Unsubscribe> {
     match scheme.to_ascii_lowercase().as_str() {
         "mailto" => mailto(rest).map(Unsubscribe::Mailto),
         "https" => {
-            if !*claimed && let Some(url) = HttpsUrl::parse(uri) {
+            if !*claimed && let Ok(url) = uri.parse::<HttpsUrl>() {
                 *claimed = true;
                 return Some(Unsubscribe::OneClick { url });
             }

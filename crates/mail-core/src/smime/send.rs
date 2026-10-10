@@ -97,6 +97,7 @@ pub fn outgoing(
         signer: signer.as_ref(),
         recipients: &to,
         now,
+        boundary_prefix: "mailo",
     };
     Ok(smime::seal(&frozen, &sealing, &mut rand::rngs::OsRng)?)
 }

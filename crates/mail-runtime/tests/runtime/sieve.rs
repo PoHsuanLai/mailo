@@ -147,6 +147,7 @@ fn auth() -> SieveAuth {
         username: "me@example.test".to_owned(),
         credential: Credential::Password(SecretText::new("s3cret".to_owned())),
         relay: None,
+        script_name: "mailo".to_owned(),
     }
 }
 

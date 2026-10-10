@@ -203,25 +203,28 @@ pub fn files_sent_itself(host: &str) -> bool {
 ///
 /// Advice, not a refusal. A tenant may have re-enabled something, an app password may exist, and
 /// the user knows their own account better than a table does — so this explains and proceeds.
-pub fn password_warning(host: &str) -> Option<&'static str> {
+pub fn password_warning(host: &str) -> Option<PasswordWarning> {
     let host = host.trim().to_ascii_lowercase();
     let host = host.rsplit_once(':').map_or(host.as_str(), |(h, _)| h);
 
     if under(host, "office365.com") || under(host, "outlook.office.com") {
-        return Some(
-            "Microsoft 365 turned off password authentication for IMAP, POP and SMTP, so a \
-             password will be rejected however it is stored. These mailboxes need OAuth, which \
-             is queued in plan.md and not written yet.",
-        );
+        return Some(PasswordWarning::Microsoft365);
     }
     if under(host, "gmail.com") || under(host, "googlemail.com") {
-        return Some(
-            "Google stopped accepting account passwords for IMAP and SMTP. An App Password (which \
-             needs two-factor authentication switched on) still works here; the account's own \
-             password will not.",
-        );
+        return Some(PasswordWarning::Google);
     }
     None
+}
+
+/// Why a password will not authenticate at a host, as far as this table knows. The words for it
+/// are the caller's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PasswordWarning {
+    /// Password authentication for IMAP, POP and SMTP is switched off; the mailbox needs OAuth.
+    Microsoft365,
+    /// Account passwords are refused, but an App Password (which needs two-factor
+    /// authentication) still works.
+    Google,
 }
 
 /// Whether `host` is `domain` or a subdomain of it.
@@ -727,22 +730,24 @@ mod tests {
 mod password_warning_tests {
     use super::*;
 
-    /// `(host, the fragments its warning must contain, or None for no warning)`.
-    /// `Some(&[])` means warned, whatever the words.
-    const CASES: &[(&str, Option<&[&str]>)] = &[
+    /// `(host, the warning it gets, or None for no warning)`.
+    const CASES: &[(&str, Option<PasswordWarning>)] = &[
         // The user has a work Outlook mailbox and a school one, both managed tenants. Storing a
         // password for either produces an authentication failure at the first sync that says
         // nothing about the cause.
-        ("outlook.office365.com", Some(&["OAuth"])),
-        ("smtp.office365.com", Some(&["OAuth"])),
-        ("outlook.office.com", Some(&["OAuth"])),
-        ("OUTLOOK.OFFICE365.COM", Some(&["OAuth"])),
-        ("outlook.office365.com:993", Some(&["OAuth"])),
+        ("outlook.office365.com", Some(PasswordWarning::Microsoft365)),
+        ("smtp.office365.com", Some(PasswordWarning::Microsoft365)),
+        ("outlook.office.com", Some(PasswordWarning::Microsoft365)),
+        ("OUTLOOK.OFFICE365.COM", Some(PasswordWarning::Microsoft365)),
+        (
+            "outlook.office365.com:993",
+            Some(PasswordWarning::Microsoft365),
+        ),
         // Different advice, because the outcome is different: Google still accepts an App
         // Password, so telling the user "use OAuth" would send them to build something they do
         // not need.
-        ("imap.gmail.com", Some(&["App Password"])),
-        ("smtp.googlemail.com", Some(&[])),
+        ("imap.gmail.com", Some(PasswordWarning::Google)),
+        ("smtp.googlemail.com", Some(PasswordWarning::Google)),
         // Advice, not a gate. Anything not known to have switched passwords off gets no warning,
         // because inventing one teaches the user to ignore them.
         ("pop.example.edu", None),
@@ -758,22 +763,13 @@ mod password_warning_tests {
         ("evil-office365.com", None),
         ("notgmail.com", None),
         // And the genuine article still matches bare (`imap.gmail.com` above is a subdomain).
-        ("office365.com", Some(&[])),
+        ("office365.com", Some(PasswordWarning::Microsoft365)),
     ];
 
     #[test]
     fn password_warning_by_host() {
         for (host, want) in CASES {
-            let got = password_warning(host);
-            match want {
-                None => assert_eq!(got, None, "{host:?} was warned about"),
-                Some(fragments) => {
-                    let warning = got.unwrap_or_else(|| panic!("{host:?} not flagged"));
-                    for fragment in *fragments {
-                        assert!(warning.contains(fragment), "{host:?}: {warning}");
-                    }
-                }
-            }
+            assert_eq!(password_warning(host), *want, "{host:?}");
         }
     }
 }

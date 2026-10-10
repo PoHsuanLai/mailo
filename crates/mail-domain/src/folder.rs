@@ -14,7 +14,8 @@ mod plan;
 
 pub use plan::{FolderContents, FolderCtx, plan};
 
-use crate::retry::{Retry, Retryable};
+pub use crate::error::FolderError;
+use crate::state::MailboxRole;
 use porter_core::AccountId;
 use serde::{Deserialize, Serialize};
 
@@ -86,6 +87,36 @@ impl SpecialUse {
             SpecialUse::Trash => "Trash",
         }
     }
+
+    /// The role messages in a mailbox with this use are filed under here, if it files at all.
+    ///
+    /// `\All`, `\Flagged` and `\Important` are views, not places: a message in them is also
+    /// somewhere else.
+    pub fn role(self) -> Option<MailboxRole> {
+        match self {
+            SpecialUse::Inbox => Some(MailboxRole::Inbox),
+            SpecialUse::Archive => Some(MailboxRole::Archive),
+            SpecialUse::Drafts => Some(MailboxRole::Drafts),
+            SpecialUse::Sent => Some(MailboxRole::Sent),
+            SpecialUse::Trash => Some(MailboxRole::Trash),
+            SpecialUse::Junk => Some(MailboxRole::Spam),
+            SpecialUse::All | SpecialUse::Flagged | SpecialUse::Important => None,
+        }
+    }
+}
+
+impl From<MailboxRole> for SpecialUse {
+    /// The special use a mailbox serving `role` carries.
+    fn from(role: MailboxRole) -> SpecialUse {
+        match role {
+            MailboxRole::Inbox => SpecialUse::Inbox,
+            MailboxRole::Archive => SpecialUse::Archive,
+            MailboxRole::Sent => SpecialUse::Sent,
+            MailboxRole::Drafts => SpecialUse::Drafts,
+            MailboxRole::Trash => SpecialUse::Trash,
+            MailboxRole::Spam => SpecialUse::Junk,
+        }
+    }
 }
 
 /// Whether the server lists a mailbox among the ones the user follows (`LSUB`).
@@ -145,39 +176,6 @@ impl FolderWork {
             | FolderWork::Subscribe { path, .. } => path,
             FolderWork::Rename { from, .. } => from,
         }
-    }
-}
-
-/// Why a folder change was refused before anything was sent.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum FolderError {
-    /// POP3 has one mailbox, and nothing to name.
-    #[error(
-        "a POP3 account has exactly one mailbox; there are no folders to create, rename or delete"
-    )]
-    SingleMailbox,
-    /// Mail kept only on this computer has no server to hold folders; its places are labels.
-    #[error("this account's mail is kept on this computer; it has no server folders, only labels")]
-    KeptLocally,
-    /// A special-use mailbox, or the inbox, or a folder holding one.
-    #[error("{path} is the account's {} folder; the server and other clients depend on it", special.name())]
-    Special { path: String, special: SpecialUse },
-    #[error("{path} holds {messages} message(s); say so explicitly to delete it with them")]
-    NotEmpty { path: String, messages: u64 },
-    #[error("there is already a folder called {0}")]
-    Exists(String),
-    #[error("there is no folder called {0}; `mailo sync` refreshes the list")]
-    Unknown(String),
-    #[error("{0} has folders inside it; rename or delete those first")]
-    HasChildren(String),
-    #[error("{name:?} cannot be a folder name: {why}")]
-    BadName { name: String, why: String },
-}
-
-impl Retryable for FolderError {
-    fn retry(&self) -> Retry {
-        // Every one of these is a fact about the request, not the moment.
-        Retry::Fatal(self.to_string())
     }
 }
 

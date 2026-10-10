@@ -28,7 +28,7 @@ pub use changes::{Changes, More, QueryPage, state_of};
 pub use email::{EmailSummary, Filing, HasAttachment, SUMMARY, filing};
 pub use error::MethodError;
 pub use mailbox::{DELIMITER, JmapMailbox, JmapRole, Mailboxes};
-pub use push::{Event, EventStream, StateChange};
+pub use push::{Event, EventKind, EventStream, StateChange};
 pub use request::{
     Call, Ids, blob_ids, email_changes, email_get, email_import, email_query, email_set,
     identity_get, mailbox_changes, mailbox_get, mailbox_set, request, total_query,

@@ -1,15 +1,14 @@
 //! An invitation as the reader shows it: what the calendar object in a message says, reduced to
 //! what a person reading mail needs to decide on it.
 //!
-//! [`summarise`] picks the event a message is about, places its time, puts its repetition into
-//! words and finds the reader among the people it names. [`show_when`] then says the time in the
-//! reader's zone, and in the organiser's when that reads differently.
+//! [`summarise`] picks the event a message is about, places its time, reads its repetition and
+//! finds the reader among the people it names. Saying any of it in words is the caller's.
 
 use crate::ical::{
     Attendee, Calendar, End, EventStatus, EventZone, Method, Moment, PartStat, Party, Placed,
-    describe_rule, place,
+    Repeats, place,
 };
-use chrono::{DateTime, NaiveDate, NaiveDateTime, Offset, TimeDelta, TimeZone, Utc};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeDelta, Utc};
 
 /// What an invitation says, for the reader.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -22,8 +21,8 @@ pub struct Invite {
     pub recurrence_id: Option<Moment>,
     pub title: Option<String>,
     pub when: When,
-    /// The event's repetition in words, when it repeats.
-    pub repeats: Option<String>,
+    /// The event's repetition, when it repeats.
+    pub repeats: Option<Repeats>,
     pub location: Option<String>,
     pub description: Option<String>,
     pub organiser: Option<Party>,
@@ -101,15 +100,6 @@ pub enum Unplaced {
     UnknownZone(String),
 }
 
-/// A time said for the reader.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct WhenShown {
-    /// In the reader's zone.
-    pub yours: String,
-    /// In the organiser's zone, named, when it reads differently from `yours`.
-    pub theirs: Option<String>,
-}
-
 /// The invitation in `calendar`, for a reader whose addresses are `me`.
 ///
 /// `None` when it holds no event, or asks for something that is not an invitation to show
@@ -148,7 +138,7 @@ pub fn summarise(calendar: &Calendar, me: &[&str]) -> Option<Invite> {
         recurrence_id: event.recurrence_id.clone(),
         title: event.summary.clone(),
         when: when(event.start.as_ref(), event.end.as_ref(), calendar),
-        repeats: event.rrule.as_deref().map(describe_rule),
+        repeats: event.rrule.as_deref().map(Repeats::read),
         location: event.location.clone(),
         description: event.description.clone(),
         organiser: event.organizer.clone(),
@@ -207,75 +197,5 @@ fn floating(start: NaiveDateTime, end: Option<Result<Placed, TimeDelta>>, why: U
         start,
         end: end.filter(|end| *end >= start),
         why,
-    }
-}
-
-const DAY: &str = "%a %-d %b %Y";
-
-/// `when` said in the reader's zone, and in the organiser's when that reads differently.
-pub fn show_when<Z: TimeZone>(when: &When, reader: &Z) -> WhenShown {
-    match when {
-        When::Unstated => WhenShown {
-            yours: "no time given".to_owned(),
-            theirs: None,
-        },
-        When::AllDay { first, last } => WhenShown {
-            yours: if first == last {
-                format!("{}, all day", first.format(DAY))
-            } else {
-                format!("{} – {}, all day", first.format(DAY), last.format(DAY))
-            },
-            theirs: None,
-        },
-        When::Timed { start, end, zone } => {
-            let yours = span(
-                start.with_timezone(reader).naive_local(),
-                end.map(|e| e.with_timezone(reader).naive_local()),
-            );
-            let reader_offset = start.with_timezone(reader).offset().fix();
-            let theirs = match zone {
-                EventZone::Utc => None,
-                EventZone::Iana(tz) => {
-                    let at = start.with_timezone(tz);
-                    (at.offset().fix() != reader_offset).then(|| {
-                        let text = span(
-                            at.naive_local(),
-                            end.map(|e| e.with_timezone(tz).naive_local()),
-                        );
-                        format!("{text} ({})", tz.name())
-                    })
-                }
-                EventZone::Rules { tzid, offset } => (*offset != reader_offset).then(|| {
-                    let text = span(
-                        start.with_timezone(offset).naive_local(),
-                        end.map(|e| e.with_timezone(offset).naive_local()),
-                    );
-                    format!("{text} ({tzid})")
-                }),
-            };
-            WhenShown { yours, theirs }
-        }
-        When::Floating { start, end, why } => WhenShown {
-            yours: match why {
-                Unplaced::AsWritten => {
-                    format!("{} (local time, wherever you are)", span(*start, *end))
-                }
-                Unplaced::UnknownZone(tzid) => format!(
-                    "{} (in time zone \"{tzid}\", which could not be identified)",
-                    span(*start, *end)
-                ),
-            },
-            theirs: None,
-        },
-    }
-}
-
-/// "Thu 1 Oct 2026, 09:00–10:00", or with both days when it ends on another.
-fn span(start: NaiveDateTime, end: Option<NaiveDateTime>) -> String {
-    let first = format!("{}, {}", start.format(DAY), start.format("%H:%M"));
-    match end {
-        None => first,
-        Some(end) if end.date() == start.date() => format!("{first}–{}", end.format("%H:%M")),
-        Some(end) => format!("{first} – {}, {}", end.format(DAY), end.format("%H:%M")),
     }
 }

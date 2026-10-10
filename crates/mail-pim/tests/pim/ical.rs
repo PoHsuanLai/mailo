@@ -5,11 +5,12 @@
 //! zone names and `VTIMEZONE` blocks, a phone calendar's IANA zones with `EMAIL` parameters. No
 //! real invitation was copied; every address is under `example.test`.
 
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{DateTime, NaiveDate, Utc, Weekday};
 use chrono_tz::Tz;
 use mail_domain::Attendance;
 use mail_pim::ical::{self, Answering, End, EventZone, Method, Moment, PartStat, Role, Rsvp};
-use mail_pim::{Invite, Kind, Me, PimError, Revision, Unplaced, When, show_when, summarise};
+use mail_pim::ical::{Recurrence, RepeatEnd, RepeatUnit, Repeats};
+use mail_pim::{Invite, Kind, Me, PimError, Revision, Unplaced, When, summarise};
 
 const ME: &[&str] = &["me@example.test"];
 
@@ -249,9 +250,17 @@ fn a_web_calendar_invitation_reads_in_utc_with_its_guests_and_their_answers() {
         }
     );
     // Written in UTC: nothing says where the organiser is, so there is no second reading.
-    let shown = show_when(&invite.when, &tz("Asia/Taipei"));
-    assert_eq!(shown.yours, "Fri 2 Oct 2026, 21:00–22:00");
-    assert_eq!(shown.theirs, None);
+    assert!(
+        matches!(
+            &invite.when,
+            When::Timed {
+                zone: EventZone::Utc,
+                ..
+            }
+        ),
+        "{:?}",
+        invite.when
+    );
 }
 
 #[test]
@@ -282,17 +291,6 @@ fn a_windows_zone_name_is_read_as_its_iana_zone_and_shown_in_both() {
             answer: PartStat::NeedsAction
         }
     );
-
-    let shown = show_when(&invite.when, &tz("Europe/London"));
-    assert_eq!(shown.yours, "Thu 1 Oct 2026, 08:00–09:00");
-    assert_eq!(
-        shown.theirs.as_deref(),
-        Some("Thu 1 Oct 2026, 15:00–16:00 (Asia/Taipei)")
-    );
-    // A reader in the organiser's zone is told once.
-    let shown = show_when(&invite.when, &tz("Asia/Taipei"));
-    assert_eq!(shown.yours, "Thu 1 Oct 2026, 15:00–16:00");
-    assert_eq!(shown.theirs, None);
 }
 
 #[test]
@@ -308,12 +306,6 @@ fn a_zone_known_only_by_its_rules_is_evaluated_from_them() {
         matches!(zone, EventZone::Rules { tzid, offset }
             if tzid == "Customized Time Zone" && offset.local_minus_utc() == -7 * 3600),
         "{zone:?}"
-    );
-    let shown = show_when(&invite.when, &Utc);
-    assert_eq!(shown.yours, "Fri 10 Jul 2026, 16:00–17:30");
-    assert_eq!(
-        shown.theirs.as_deref(),
-        Some("Fri 10 Jul 2026, 09:00–10:30 (Customized Time Zone)")
     );
 }
 
@@ -332,8 +324,13 @@ fn a_phone_invitation_finds_addresses_in_email_parameters_and_says_its_rule() {
     assert_eq!(organiser.email, "charles@example.test");
     assert_eq!(invite.attendees[0].role, Role::Chair);
     assert_eq!(
-        invite.repeats.as_deref(),
-        Some("every week on Monday and Wednesday, 10 times")
+        invite.repeats,
+        Some(Repeats::Every(Recurrence {
+            unit: RepeatUnit::Week,
+            interval: 1,
+            days: vec![Weekday::Mon, Weekday::Wed],
+            end: RepeatEnd::Count(10),
+        }))
     );
 }
 
@@ -352,9 +349,6 @@ fn an_all_day_event_covers_its_days_and_is_in_no_zone() {
             last: day(2026, 10, 2)
         }
     );
-    let shown = show_when(&invite.when, &tz("Pacific/Auckland"));
-    assert_eq!(shown.yours, "Thu 1 Oct 2026 – Fri 2 Oct 2026, all day");
-    assert_eq!(shown.theirs, None);
 
     // One day, by duration, and with no end at all.
     for end in ["DURATION:P1D\r\n", ""] {
@@ -447,8 +441,6 @@ fn a_single_occurrence_says_which_one_it_is() {
         })
     );
     assert_eq!(invite.kind, Kind::Request(Revision::Update { sequence: 1 }));
-    let shown = show_when(&invite.when, &tz("Europe/Berlin"));
-    assert_eq!(shown.yours, "Mon 9 Nov 2026, 14:00–14:30");
 }
 
 #[test]
@@ -462,7 +454,15 @@ fn the_series_is_the_event_a_message_is_about_when_it_carries_exceptions_too() {
     let invite = read_invite(text);
     assert_eq!(invite.title.as_deref(), Some("Series"));
     assert_eq!(invite.recurrence_id, None);
-    assert_eq!(invite.repeats.as_deref(), Some("every day"));
+    assert_eq!(
+        invite.repeats,
+        Some(Repeats::Every(Recurrence {
+            unit: RepeatUnit::Day,
+            interval: 1,
+            days: Vec::new(),
+            end: RepeatEnd::Never,
+        }))
+    );
 }
 
 #[test]
@@ -664,10 +664,6 @@ fn a_floating_time_and_an_unknown_zone_are_said_to_be_clock_readings() {
         "{:?}",
         invite.when
     );
-    assert_eq!(
-        show_when(&invite.when, &Utc).yours,
-        "Thu 1 Oct 2026, 09:00–10:00 (local time, wherever you are)"
-    );
 
     let bogus = floating.replace("DTSTART:", "DTSTART;TZID=Nowhere/Bogus Standard Time:");
     let invite = read_invite(&bogus);
@@ -676,11 +672,6 @@ fn a_floating_time_and_an_unknown_zone_are_said_to_be_clock_readings() {
             if z == "Nowhere/Bogus Standard Time"),
         "{:?}",
         invite.when
-    );
-    assert!(
-        show_when(&invite.when, &Utc)
-            .yours
-            .contains("which could not be identified")
     );
 }
 
@@ -784,10 +775,8 @@ fn nonsense_nesting_and_garbage_do_not_panic() {
          RRULE:FREQ=YEARLY;BYMONTH=13;BYDAY=9SU\r\nEND:STANDARD\r\nEND:VTIMEZONE\r\n\
          BEGIN:VEVENT\r\nUID:l\r\nDTSTART;TZID=Loop:20261001T090000\r\nEND:VEVENT\r\n",
     ] {
-        if let Ok(calendar) = ical::parse(text)
-            && let Some(invite) = summarise(&calendar, ME)
-        {
-            let _ = show_when(&invite.when, &Utc);
+        if let Ok(calendar) = ical::parse(text) {
+            let _ = summarise(&calendar, ME);
         }
     }
 }

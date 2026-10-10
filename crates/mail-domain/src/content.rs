@@ -5,12 +5,7 @@ use crate::state::LabelOrigin;
 use porter_core::AccountId;
 use serde::{Deserialize, Serialize};
 
-/// A mailbox address with its optional display name.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct Address {
-    pub name: Option<String>,
-    pub email: String,
-}
+pub use crate::address::Address;
 
 /// A message body, which may not have been fetched yet.
 ///

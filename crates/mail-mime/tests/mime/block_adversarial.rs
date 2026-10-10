@@ -28,7 +28,7 @@ fn payloads_leave_no_off_scheme_url_and_no_remote_image_when_blocked() {
                     url.scheme()
                 );
                 assert_eq!(
-                    SafeUrl::parse(url.as_str()),
+                    url.as_str().parse::<SafeUrl>().ok(),
                     Some(url.clone()),
                     "{name} URL did not round-trip"
                 );

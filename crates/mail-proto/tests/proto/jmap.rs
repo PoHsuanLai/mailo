@@ -498,8 +498,7 @@ fn folder_work_is_a_mailbox_set_that_never_removes_mail() {
 fn a_send_is_an_import_and_a_submission_with_the_envelope_named() {
     let identity = Identity {
         id: "I1".to_owned(),
-        email: "john@example.com".to_owned(),
-        name: None,
+        address: mail_domain::Address::new("john@example.com"),
     };
     let calls = submission(
         "A1",
@@ -624,7 +623,7 @@ fn the_identity_is_the_sender_or_a_wildcard_for_its_domain_never_another() {
         Some("I2")
     );
     assert_eq!(choose_identity(&identities, "john@example.net"), None);
-    assert_eq!(identities[1].name, None);
+    assert_eq!(identities[1].address.name, None);
 }
 
 #[test]

@@ -371,8 +371,9 @@ pub fn add_receiving(
                     }
                     // Said here rather than at the first sync, where it arrives as an
                     // authentication failure with nothing to say it was never going to work.
-                    if let Some(why) =
-                        incoming_host(&plan).and_then(mail_domain::presets::password_warning)
+                    if let Some(why) = incoming_host(&plan)
+                        .and_then(mail_domain::presets::password_warning)
+                        .map(password_warning_words)
                     {
                         let _ = writeln!(out, "\nwarning: {why}");
                     }
@@ -815,6 +816,26 @@ pub fn no_client_id(issuer: Issuer, address: &str) -> String {
         ),
         issuer, address
     )
+}
+
+/// What to tell someone about to store a password where the host will not take one.
+///
+/// Advice, not a refusal. A tenant may have re-enabled something, an app password may exist, and
+/// the user knows their own account better than a table does, so this explains and proceeds.
+fn password_warning_words(warning: mail_domain::presets::PasswordWarning) -> &'static str {
+    use mail_domain::presets::PasswordWarning;
+    match warning {
+        PasswordWarning::Microsoft365 => {
+            "Microsoft 365 turned off password authentication for IMAP, POP and SMTP, so a \
+             password will be rejected however it is stored. These mailboxes need OAuth, which \
+             is queued in plan.md and not written yet."
+        }
+        PasswordWarning::Google => {
+            "Google stopped accepting account passwords for IMAP and SMTP. An App Password (which \
+             needs two-factor authentication switched on) still works here; the account's own \
+             password will not."
+        }
+    }
 }
 
 #[cfg(test)]

@@ -109,6 +109,7 @@ fn sealing<'a>(mode: OpenPgp, signer: Option<&'a Unlocking>, to: &'a [Cert]) -> 
         recipients: to,
         gossip: &[],
         now: at(),
+        boundary_prefix: "mailo",
     }
 }
 
@@ -616,6 +617,7 @@ fn gossip_travels_inside_the_encryption_and_is_taken_off_what_is_shown() {
             recipients: &to,
             gossip: &gossip,
             now: at(),
+            boundary_prefix: "mailo",
         },
         &mut rng(33),
     )

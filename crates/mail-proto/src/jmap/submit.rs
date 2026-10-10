@@ -11,14 +11,16 @@
 use super::field::{malformed, opt_string, string};
 use super::{Call, MethodError, Responses, SetResult};
 use crate::ProtoError;
+use mail_domain::Address;
 use serde_json::{Map, Value, json};
 
 /// An address this account may send as (RFC 8621 §6).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Identity {
     pub id: String,
-    pub email: String,
-    pub name: Option<String>,
+    /// The address and its display name. The email may be a domain wildcard, `*@example.com`,
+    /// which is why it is not validated as a mailbox.
+    pub address: Address,
 }
 
 impl Identity {
@@ -31,10 +33,12 @@ impl Identity {
             .map(|i| {
                 Ok(Identity {
                     id: string(i, "id")?.to_owned(),
-                    email: string(i, "email")?.to_owned(),
-                    name: opt_string(i, "name")?
-                        .filter(|n| !n.is_empty())
-                        .map(str::to_owned),
+                    address: Address {
+                        email: string(i, "email")?.to_owned(),
+                        name: opt_string(i, "name")?
+                            .filter(|n| !n.is_empty())
+                            .map(str::to_owned),
+                    },
                 })
             })
             .collect()
@@ -49,11 +53,12 @@ impl Identity {
 pub fn choose_identity<'a>(identities: &'a [Identity], mail_from: &str) -> Option<&'a Identity> {
     let exact = identities
         .iter()
-        .find(|i| i.email.eq_ignore_ascii_case(mail_from));
+        .find(|i| i.address.email.eq_ignore_ascii_case(mail_from));
     exact.or_else(|| {
         let (_, domain) = mail_from.rsplit_once('@')?;
         identities.iter().find(|i| {
-            i.email
+            i.address
+                .email
                 .strip_prefix("*@")
                 .is_some_and(|d| d.eq_ignore_ascii_case(domain))
         })

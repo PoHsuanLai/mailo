@@ -1,21 +1,60 @@
-//! `RRULE`s, in words.
+//! `RRULE`s, reduced to the shapes a reader can be told.
 //!
-//! An invitation is shown, not expanded, so a rule only has to be said. The common ones are
-//! said exactly — every day, every two weeks on Monday and Thursday, ten times, until a date —
-//! and everything else (monthly by position, yearly, by hour, by set position) is said to repeat,
-//! with the details left to the invitation, rather than said approximately and wrongly.
+//! An invitation is shown, not expanded, so a rule only has to be understood well enough to be
+//! said. The common ones are read exactly — every day, every two weeks on Monday and Thursday,
+//! ten times, until a date — and everything else (monthly by position, yearly, by hour, by set
+//! position) is [`Repeats::Otherwise`], with the details left to the invitation, rather than
+//! read approximately and wrongly. The words for either are the caller's.
 
 use chrono::{NaiveDate, Weekday};
 
-/// What is said of a rule this module will not put into words.
-pub const REPEATS_OTHERWISE: &str = "repeats (details in the invitation)";
-
-/// `rule` in words: "every week on Monday and Wednesday, 10 times".
-pub fn describe(rule: &str) -> String {
-    said(rule).unwrap_or_else(|| REPEATS_OTHERWISE.to_owned())
+/// What an `RRULE` comes to, for the reader.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Repeats {
+    /// One of the common shapes, read exactly.
+    Every(Recurrence),
+    /// It repeats, in a way this does not put into words: anything else, and anything
+    /// malformed or contradictory.
+    Otherwise,
 }
 
-fn said(rule: &str) -> Option<String> {
+/// A rule of the common shapes: every `interval` days, or weeks on certain days.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Recurrence {
+    pub unit: RepeatUnit,
+    /// Always at least 1.
+    pub interval: u32,
+    /// `BYDAY`, in the order written. Empty for a daily rule, which has none.
+    pub days: Vec<Weekday>,
+    pub end: RepeatEnd,
+}
+
+/// What a rule counts in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RepeatUnit {
+    Day,
+    Week,
+}
+
+/// When a rule stops.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RepeatEnd {
+    /// Neither `COUNT` nor `UNTIL`.
+    Never,
+    /// `COUNT`: how many times in all.
+    Count(u32),
+    /// `UNTIL`, as the day it falls on.
+    Until(NaiveDate),
+}
+
+impl Repeats {
+    /// Read `rule`, the value of an `RRULE`.
+    pub fn read(rule: &str) -> Repeats {
+        recurrence(rule).map_or(Repeats::Otherwise, Repeats::Every)
+    }
+}
+
+fn recurrence(rule: &str) -> Option<Recurrence> {
     let parts = parts(rule);
     let mut freq = None;
     let mut interval = 1u32;
@@ -39,27 +78,24 @@ fn said(rule: &str) -> Option<String> {
             _ => return None,
         }
     }
-    let mut out = match (freq?.as_str(), interval) {
-        ("DAILY", 1) if days.is_empty() => "every day".to_owned(),
-        ("DAILY", n) if days.is_empty() => format!("every {n} days"),
-        ("WEEKLY", 1) => "every week".to_owned(),
-        ("WEEKLY", n) => format!("every {n} weeks"),
+    let unit = match freq?.as_str() {
+        "DAILY" if days.is_empty() => RepeatUnit::Day,
+        "WEEKLY" => RepeatUnit::Week,
         _ => return None,
     };
-    if !days.is_empty() {
-        let names: Vec<&str> = days.iter().map(|d| day_name(*d)).collect();
-        out.push_str(" on ");
-        out.push_str(&list(&names));
-    }
-    match (count, until) {
-        (Some(1), None) => out.push_str(", once"),
-        (Some(n), None) => out.push_str(&format!(", {n} times")),
-        (None, Some(day)) => out.push_str(&format!(", until {}", day.format("%a %-d %b %Y"))),
-        (None, None) => {}
-        // Both is forbidden (RFC 5545 §3.3.10); saying either would be a guess.
+    let end = match (count, until) {
+        (Some(n), None) => RepeatEnd::Count(n),
+        (None, Some(day)) => RepeatEnd::Until(day),
+        (None, None) => RepeatEnd::Never,
+        // Both is forbidden (RFC 5545 §3.3.10); reading either would be a guess.
         (Some(_), Some(_)) => return None,
-    }
-    Some(out)
+    };
+    Some(Recurrence {
+        unit,
+        interval,
+        days,
+        end,
+    })
 }
 
 /// `KEY=value` pairs of a rule, keys upper-cased, in order.
@@ -84,74 +120,78 @@ pub(super) fn weekday(code: &str) -> Option<Weekday> {
     })
 }
 
-fn day_name(day: Weekday) -> &'static str {
-    match day {
-        Weekday::Mon => "Monday",
-        Weekday::Tue => "Tuesday",
-        Weekday::Wed => "Wednesday",
-        Weekday::Thu => "Thursday",
-        Weekday::Fri => "Friday",
-        Weekday::Sat => "Saturday",
-        Weekday::Sun => "Sunday",
-    }
-}
-
 /// The day an `UNTIL` falls on, as written: a date, or the date part of a date-time.
 fn until_day(value: &str) -> Option<NaiveDate> {
     NaiveDate::parse_from_str(value.get(..8)?, "%Y%m%d").ok()
-}
-
-/// "a", "a and b", "a, b and c".
-fn list(items: &[&str]) -> String {
-    match items {
-        [] => String::new(),
-        [one] => (*one).to_owned(),
-        [init @ .., last] => format!("{} and {last}", init.join(", ")),
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn every(unit: RepeatUnit, interval: u32, days: &[Weekday], end: RepeatEnd) -> Repeats {
+        Repeats::Every(Recurrence {
+            unit,
+            interval,
+            days: days.to_vec(),
+            end,
+        })
+    }
+
     #[test]
-    fn common_rules_are_said_in_words_and_others_are_not_guessed() {
-        const CASES: &[(&str, &str)] = &[
-            ("FREQ=DAILY", "every day"),
-            ("FREQ=DAILY;INTERVAL=3", "every 3 days"),
-            ("FREQ=DAILY;COUNT=5", "every day, 5 times"),
-            ("FREQ=DAILY;COUNT=1", "every day, once"),
-            ("FREQ=WEEKLY", "every week"),
-            ("FREQ=WEEKLY;BYDAY=MO", "every week on Monday"),
+    fn common_rules_are_read_and_others_are_not_guessed() {
+        let day = |y, m, d| NaiveDate::from_ymd_opt(y, m, d).unwrap();
+        let cases: Vec<(&str, Repeats)> = vec![
             (
-                "FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,TH;WKST=SU",
-                "every 2 weeks on Monday and Thursday",
+                "FREQ=DAILY",
+                every(RepeatUnit::Day, 1, &[], RepeatEnd::Never),
             ),
             (
-                "FREQ=WEEKLY;BYDAY=MO,WE,FR;UNTIL=20261130T235959Z",
-                "every week on Monday, Wednesday and Friday, until Mon 30 Nov 2026",
+                "FREQ=DAILY;INTERVAL=3",
+                every(RepeatUnit::Day, 3, &[], RepeatEnd::Never),
+            ),
+            (
+                "FREQ=DAILY;COUNT=5",
+                every(RepeatUnit::Day, 1, &[], RepeatEnd::Count(5)),
+            ),
+            (
+                "FREQ=WEEKLY;BYDAY=MO",
+                every(RepeatUnit::Week, 1, &[Weekday::Mon], RepeatEnd::Never),
+            ),
+            (
+                "FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,TH;WKST=SU",
+                every(
+                    RepeatUnit::Week,
+                    2,
+                    &[Weekday::Mon, Weekday::Thu],
+                    RepeatEnd::Never,
+                ),
             ),
             (
                 "freq=weekly;byday=tu;count=10",
-                "every week on Tuesday, 10 times",
+                every(RepeatUnit::Week, 1, &[Weekday::Tue], RepeatEnd::Count(10)),
             ),
             (
                 "FREQ=WEEKLY;INTERVAL=2;BYDAY=TU;UNTIL=20261215",
-                "every 2 weeks on Tuesday, until Tue 15 Dec 2026",
+                every(
+                    RepeatUnit::Week,
+                    2,
+                    &[Weekday::Tue],
+                    RepeatEnd::Until(day(2026, 12, 15)),
+                ),
             ),
-            ("FREQ=MONTHLY;BYDAY=2MO", REPEATS_OTHERWISE),
-            ("FREQ=MONTHLY;BYDAY=1FR", REPEATS_OTHERWISE),
-            ("FREQ=YEARLY", REPEATS_OTHERWISE),
-            ("FREQ=WEEKLY;BYDAY=1MO", REPEATS_OTHERWISE),
-            ("FREQ=DAILY;BYHOUR=9,17", REPEATS_OTHERWISE),
-            ("FREQ=DAILY;BYDAY=MO", REPEATS_OTHERWISE),
-            ("FREQ=DAILY;COUNT=3;UNTIL=20261130", REPEATS_OTHERWISE),
-            ("FREQ=DAILY;INTERVAL=0", REPEATS_OTHERWISE),
-            ("", REPEATS_OTHERWISE),
-            ("garbage", REPEATS_OTHERWISE),
+            ("FREQ=MONTHLY;BYDAY=2MO", Repeats::Otherwise),
+            ("FREQ=YEARLY", Repeats::Otherwise),
+            ("FREQ=WEEKLY;BYDAY=1MO", Repeats::Otherwise),
+            ("FREQ=DAILY;BYHOUR=9,17", Repeats::Otherwise),
+            ("FREQ=DAILY;BYDAY=MO", Repeats::Otherwise),
+            ("FREQ=DAILY;COUNT=3;UNTIL=20261130", Repeats::Otherwise),
+            ("FREQ=DAILY;INTERVAL=0", Repeats::Otherwise),
+            ("", Repeats::Otherwise),
+            ("garbage", Repeats::Otherwise),
         ];
-        for (rule, expected) in CASES {
-            assert_eq!(describe(rule), *expected, "{rule}");
+        for (rule, expected) in cases {
+            assert_eq!(Repeats::read(rule), expected, "{rule}");
         }
     }
 }

@@ -9,6 +9,15 @@ use crate::line::{self, ContentLine, split_escaped, unescape};
 /// `BEGIN:VCARD`…`END:VCARD` pair is ignored, a line that does not parse is skipped, and a card
 /// cut off by the end of the file is kept with what it had. A card nested inside another (a 2.1
 /// `AGENT`) is not a contact of this book and is passed over.
+///
+/// ```
+/// let cards = mail_pim::vcard::parse(
+///     "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Ada Lovelace\r\nEMAIL:ada@example.test\r\nEND:VCARD\r\n",
+/// );
+/// assert_eq!(cards.len(), 1);
+/// assert_eq!(cards[0].formatted_name.as_deref(), Some("Ada Lovelace"));
+/// assert_eq!(cards[0].emails[0].address, "ada@example.test");
+/// ```
 pub fn parse(text: &str) -> Vec<Card> {
     let mut cards = Vec::new();
     let mut current: Option<Card> = None;

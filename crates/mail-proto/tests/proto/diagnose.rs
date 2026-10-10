@@ -5,11 +5,10 @@
 //! runs out, which is the actual cost of an unexplained refusal.
 
 use mail_proto::machine::{ProtoError, Refusal};
-use mail_proto::{explain, explain_text};
+use mail_proto::{Diagnosis, diagnose, diagnose_text};
 
-/// `(name, refusal text, the fragments its explanation must contain, or None for no explanation)`.
-/// `Some(&[])` means explained, whatever the words.
-const CASES: &[(&str, &str, Option<&[&str]>)] = &[
+/// `(name, refusal text, what it is diagnosed as, or None for no diagnosis)`.
+const CASES: &[(&str, &str, Option<Diagnosis>)] = &[
     // The one a work or school Microsoft 365 mailbox hits, and the reason it matters: it is a
     // tenant setting. No amount of retyping, re-adding the account or re-registering an OAuth
     // application changes it — an administrator does. The point is that the credential is fine.
@@ -17,24 +16,24 @@ const CASES: &[(&str, &str, Option<&[&str]>)] = &[
         "a tenant with SMTP AUTH disabled is named as such",
         "535 5.7.139 Authentication unsuccessful, SmtpClientAuthentication is \
          disabled for the tenant",
-        Some(&["Set-CASMailbox", "Nothing about the password is wrong"]),
+        Some(Diagnosis::TenantSmtpAuthOff),
     ),
     // Different remedies, and choosing the wrong one wastes an afternoon: an App Password is
     // made in minutes, and "your password is wrong" sends someone to reset a correct one.
     (
         "google two-factor asks for an App Password",
         "534-5.7.9 Application-specific password required",
-        Some(&["App Password"]),
+        Some(Diagnosis::AppPasswordNeeded),
     ),
     (
         "google's rejected password points at an App Password",
         "535-5.7.8 Username and Password not accepted",
-        Some(&["App Password"]),
+        Some(Diagnosis::GoogleRejectedCredential),
     ),
     (
         "a protocol switched off for the mailbox is not a credential problem",
         "NO IMAP4 access is disabled for this mailbox",
-        Some(&["administrator"]),
+        Some(Diagnosis::ProtocolSwitchedOff),
     ),
     // The common case, and the safe one: the server's own words are shown unchanged. A
     // confident wrong explanation is worse than the raw text it replaced.
@@ -55,12 +54,12 @@ const CASES: &[(&str, &str, Option<&[&str]>)] = &[
     (
         "matching ignores case: SMTP",
         "535 5.7.139 SMTPCLIENTAUTHENTICATION IS DISABLED",
-        Some(&[]),
+        Some(Diagnosis::TenantSmtpAuthOff),
     ),
     (
         "matching ignores case: IMAP",
         "no imap4 access is disabled for this mailbox",
-        Some(&[]),
+        Some(Diagnosis::ProtocolSwitchedOff),
     ),
     // K1: `contains("5.7.139")` matches "5.7.1399". The mistake has appeared three times in
     // this codebase in three different disguises, so each shape is its own row.
@@ -83,32 +82,28 @@ const CASES: &[(&str, &str, Option<&[&str]>)] = &[
     (
         "K1 the genuine 5.7.139 with its text",
         "535 5.7.139 Authentication unsuccessful",
-        Some(&[]),
+        Some(Diagnosis::TenantSmtpAuthOff),
     ),
-    ("K1 the genuine 5.7.139 alone", "535 5.7.139", Some(&[])),
+    (
+        "K1 the genuine 5.7.139 alone",
+        "535 5.7.139",
+        Some(Diagnosis::TenantSmtpAuthOff),
+    ),
     (
         "K1 the genuine 5.7.139 at the start",
         "5.7.139 at the start",
-        Some(&[]),
+        Some(Diagnosis::TenantSmtpAuthOff),
     ),
 ];
 
 #[test]
-fn refusal_texts_are_explained_or_left_alone() {
+fn refusal_texts_are_diagnosed_or_left_alone() {
     for (name, text, want) in CASES {
-        let got = explain_text(text);
-        match want {
-            None => assert_eq!(got, None, "{name}: invented an explanation for {text:?}"),
-            Some(fragments) => {
-                let why = got.unwrap_or_else(|| panic!("{name}: {text:?} is documented"));
-                for fragment in *fragments {
-                    assert!(
-                        why.contains(fragment),
-                        "{name}: missing {fragment:?} in {why}"
-                    );
-                }
-            }
-        }
+        assert_eq!(
+            diagnose_text(text),
+            *want,
+            "{name}: {text:?} is diagnosed wrongly"
+        );
     }
 }
 
@@ -117,21 +112,21 @@ fn it_reads_the_error_as_well_as_the_text() {
     let err = ProtoError::AuthRejected(
         "535 5.7.139 Authentication unsuccessful, SmtpClientAuthentication is disabled".to_owned(),
     );
-    assert!(explain(&err).is_some());
+    assert_eq!(diagnose(&err), Some(Diagnosis::TenantSmtpAuthOff));
 
     let refused = ProtoError::Refused {
         kind: Refusal::Permanent,
         text: "534-5.7.9 Application-specific password required".to_owned(),
     };
-    assert!(explain(&refused).is_some());
+    assert_eq!(diagnose(&refused), Some(Diagnosis::AppPasswordNeeded));
 }
 
 #[test]
 fn an_error_that_is_not_a_refusal_is_not_diagnosed() {
     // A parse failure or a dropped connection has nothing to do with credentials, and offering
     // credential advice for one would send the user in exactly the wrong direction.
-    assert_eq!(explain(&ProtoError::UnexpectedEof), None);
-    assert_eq!(explain(&ProtoError::Malformed("5.7.139".to_owned())), None);
+    assert_eq!(diagnose(&ProtoError::UnexpectedEof), None);
+    assert_eq!(diagnose(&ProtoError::Malformed("5.7.139".to_owned())), None);
 }
 
 /// Honouring `LOGINDISABLED`, which outlook.office365.com really does advertise.
