@@ -235,42 +235,7 @@ fn own_store() -> Arc<dyn AccountSecrets> {
     if let Some(files) = scenario_files() {
         return Arc::new(files);
     }
-    #[cfg(debug_assertions)]
-    guard_real_keyring();
     Arc::new(PlatformSecrets::default())
-}
-
-/// The environment variable that lets a debug build under a test harness reach the person's real
-/// keyring: for the live tests (`scripts/live-tests.sh`), which are run deliberately.
-#[cfg(debug_assertions)]
-const ALLOW_REAL_KEYRING: &str = "MAILO_ALLOW_REAL_KEYRING";
-
-/// A test must never reach the person's real keyring: a test that stored a password there, or
-/// deleted one, did it to somebody's account. In a debug build running under a test harness
-/// (and with no `MAILO_TEST_SECRETS_DIR` to stand in for it) this refuses, loudly, at the point
-/// where the keyring would be opened. Called from every such place: [`own_store`] and the
-/// signing keys' store (`signing_store`).
-///
-/// "Under a test harness" is: this crate's own unit tests (`cfg!(test)`), or an executable that
-/// lives in a cargo `deps` directory, which is where cargo puts every integration test, unit-test
-/// and bench binary, and where it never puts the `mailo` that is run or installed. Not a
-/// guarantee, only a way to be loud about the likely mistake; a release build has none of it.
-#[cfg(debug_assertions)]
-pub(crate) fn guard_real_keyring() {
-    if std::env::var_os(ALLOW_REAL_KEYRING).is_some() {
-        return;
-    }
-    let in_deps = std::env::current_exe().ok().is_some_and(|exe| {
-        exe.parent()
-            .and_then(std::path::Path::file_name)
-            .is_some_and(|dir| dir == "deps")
-    });
-    assert!(
-        !(cfg!(test) || in_deps),
-        "a test reached the real keyring. Give it a store of its own (`MemorySecrets`, \
-         `MapSigningStore`), or point `MAILO_TEST_SECRETS_DIR` at a scratch directory; \
-         `{ALLOW_REAL_KEYRING}=1` is for the live tests, which are run deliberately"
-    );
 }
 
 #[cfg(debug_assertions)]

@@ -239,8 +239,34 @@ pub(crate) mod scenario {
     use crate::RuntimeError;
     use std::path::{Path, PathBuf};
 
+    /// `MAILO_TEST_SECRETS_DIR` when it is set. Otherwise, under a test harness, a directory of
+    /// this process's own: a test never reaches the person's keyring, whether or not it thought
+    /// to ask for a store of its own. `MAILO_ALLOW_REAL_KEYRING` lets the live tests
+    /// (`scripts/live-tests.sh`), which are run deliberately, reach it.
     pub(crate) fn dir() -> Option<PathBuf> {
-        std::env::var_os("MAILO_TEST_SECRETS_DIR").map(PathBuf::from)
+        if let Some(dir) = std::env::var_os("MAILO_TEST_SECRETS_DIR") {
+            return Some(PathBuf::from(dir));
+        }
+        if std::env::var_os("MAILO_ALLOW_REAL_KEYRING").is_some() || !under_test() {
+            return None;
+        }
+        static SCRATCH: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+        let dir = SCRATCH.get_or_init(|| {
+            std::env::temp_dir().join(format!("mailo-test-secrets-{}", std::process::id()))
+        });
+        std::fs::create_dir_all(dir).ok()?;
+        Some(dir.clone())
+    }
+
+    /// This crate's own unit tests, or an executable in a cargo `deps` directory: where cargo
+    /// puts every test and bench binary, and never the `mailo` that is run or installed.
+    fn under_test() -> bool {
+        cfg!(test)
+            || std::env::current_exe().ok().is_some_and(|exe| {
+                exe.parent()
+                    .and_then(Path::file_name)
+                    .is_some_and(|dir| dir == "deps")
+            })
     }
 
     fn file(dir: &Path, name: &str) -> PathBuf {
@@ -290,8 +316,6 @@ fn store() -> Result<Arc<CredentialStore>, RuntimeError> {
     if let Some(store) = opened.as_ref() {
         return Ok(store.clone());
     }
-    #[cfg(debug_assertions)]
-    crate::account_secrets::guard_real_keyring();
     let store = open().map_err(|e| {
         RuntimeError::Secrets(Failure::new("no keyring to keep signing keys in", e))
     })?;

@@ -59,7 +59,7 @@ wait_for "$SMTP_PORT" || exit 1
 wait_for "$POP3_PORT" || exit 1
 
 # A debug build under a test harness refuses to open the person's real keyring
-# (`mail_runtime::account_secrets::guard_real_keyring`). These tests are run deliberately, against
+# (the scratch store in `mail_runtime::signing_store::scenario::dir`). These tests are run deliberately, against
 # servers of their own, so they are let past it.
 export MAILO_ALLOW_REAL_KEYRING=1
 
