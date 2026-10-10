@@ -49,15 +49,11 @@ pub(super) fn remove(
 }
 
 fn plan_of(store: &SqliteStore, address: &str) -> Option<AccountPlan> {
-    let plan: String = store
-        .connection()
-        .query_row(
-            "SELECT plan FROM accounts WHERE address = ?1",
-            [address.to_lowercase()],
-            |r| r.get(0),
-        )
-        .ok()?;
-    serde_json::from_str(&plan).ok()
+    store
+        .account_by_address(&address.to_lowercase())
+        .ok()??
+        .plan
+        .ok()
 }
 
 /// What removing `address`, which holds `held` messages here, would take, and how to go on.
@@ -94,10 +90,7 @@ mod tests {
     const ADDRESS: &str = "me@nowhere.example";
 
     fn accounts(store: &SqliteStore) -> i64 {
-        store
-            .connection()
-            .query_row("SELECT count(*) FROM accounts", [], |r| r.get(0))
-            .unwrap()
+        mail_store::testing::count(store, "accounts")
     }
 
     #[test]
@@ -112,18 +105,13 @@ mod tests {
             login: None,
         };
         let preset = presets::manual(ADDRESS, &manual, chrono::Utc::now());
-        store
-            .connection()
-            .execute(
-                "INSERT INTO accounts (id, address, plan, created_at)
-                 VALUES (?1, ?2, ?3, datetime('now'))",
-                [
-                    mail_domain::id::new_account_id().to_string(),
-                    ADDRESS.to_owned(),
-                    serde_json::to_string(&preset.plan).unwrap(),
-                ],
-            )
-            .unwrap();
+        mail_store::testing::seed_account_plan(
+            &store,
+            mail_domain::id::new_account_id(),
+            ADDRESS,
+            &preset.plan,
+            None,
+        );
         let secrets = MemorySecrets::default();
 
         let asked = remove(&store, &secrets, None, ADDRESS, Consent::Ask).unwrap_err();

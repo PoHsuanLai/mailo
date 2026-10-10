@@ -145,7 +145,7 @@ impl JmapEngine {
         remote: RemoteRef,
         now: DateTime<Utc>,
     ) -> Result<(), RuntimeError> {
-        let bytes = self.store.blobs().get(&self.store.connection(), raw)?;
+        let bytes = self.store.blobs().get(raw)?;
         let role = self
             .mailboxes
             .as_ref()
@@ -239,7 +239,7 @@ impl JmapEngine {
                         )));
                     }
                 };
-                let bytes = self.store.blobs().get(&self.store.connection(), raw)?;
+                let bytes = self.store.blobs().get(raw)?;
                 let blob = client.upload(bytes).await?;
                 let keywords: Vec<&str> = flags.iter().map(keyword_of).collect();
                 let call = jmap::email_import(&account, &blob, &target, &keywords, date, "i");
@@ -392,7 +392,7 @@ impl JmapEngine {
                 "the server lists no identity for {mail_from}, so it would refuse to send as it"
             ))
         })?;
-        let frozen = self.store.blobs().get(&self.store.connection(), raw)?;
+        let frozen = self.store.blobs().get(raw)?;
         let message = match leaving {
             Some(at) => mail_mime::restamp(&frozen, at),
             None => frozen,

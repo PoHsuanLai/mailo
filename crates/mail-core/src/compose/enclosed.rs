@@ -79,10 +79,7 @@ fn sent_bytes(store: &SqliteStore, message: &Message) -> Result<BlobId, String> 
                 .to_owned(),
         );
     };
-    let bytes = store
-        .blobs()
-        .get(&store.connection(), raw)
-        .map_err(|e| e.to_string())?;
+    let bytes = store.blobs().get(raw).map_err(|e| e.to_string())?;
     if rebuilt(message, &bytes) {
         return Err(
             "that message is large, so it was downloaded in parts and its attachments \

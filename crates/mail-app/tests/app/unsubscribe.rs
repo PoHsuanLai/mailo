@@ -52,26 +52,31 @@ fn seeded() -> (SqliteStore, tempfile::TempDir) {
     .plan;
     plan.address = "me@example.test".to_owned();
     {
-        let db = store.connection();
-        db.execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'me@example.test', ?2, datetime('now'))",
-            rusqlite::params![
-                acct_account().to_string(),
-                serde_json::to_string(&plan).unwrap()
-            ],
-        )
-        .unwrap();
+        mail_store::testing::seed_account_plan(
+            &store,
+            acct_account(),
+            "me@example.test",
+            &plan,
+            None,
+        );
         for (id, email, default) in [
-            (DEFAULT_IDENTITY, "me@example.test", "\"default\""),
-            (ALIAS_IDENTITY, "lists@example.test", "\"alternate\""),
+            (DEFAULT_IDENTITY, "me@example.test", IsDefault::Default),
+            (ALIAS_IDENTITY, "lists@example.test", IsDefault::Alternate),
         ] {
-            db.execute(
-                "INSERT INTO identities (id, account, from_name, from_email, is_default)
-                 VALUES (?1, ?2, NULL, ?3, ?4)",
-                rusqlite::params![id.to_string(), acct_account().to_string(), email, default],
-            )
-            .unwrap();
+            mail_store::testing::seed_identity(
+                &store,
+                &Identity {
+                    id,
+                    account: acct_account(),
+                    from: Address {
+                        name: None,
+                        email: email.to_owned(),
+                    },
+                    reply_to: None,
+                    signature: None,
+                    default,
+                },
+            );
         }
     }
     (store, dir)
@@ -91,10 +96,7 @@ fn list_message(
         "From: news@example.test\r\nTo: lists@example.test\r\nSubject: news {n}\r\n\
          Message-ID: <{rfc_id}>\r\n{headers}\r\nthis week's news\r\n"
     );
-    let raw = store
-        .blobs()
-        .put(&store.connection(), raw_bytes.as_bytes())
-        .unwrap();
+    let raw = store.blobs().put(raw_bytes.as_bytes()).unwrap();
     let id = MessageId::generate();
     let message = Message {
         id,
@@ -245,7 +247,7 @@ fn a_mailto_becomes_a_queued_message_from_the_address_the_list_writes_to() {
     };
     assert_eq!(mail_from, "lists@example.test");
     assert_eq!(rcpt_to, &vec!["leave@example.test".to_owned()]);
-    let bytes = store.blobs().get(&store.connection(), *raw).unwrap();
+    let bytes = store.blobs().get(*raw).unwrap();
     let text = String::from_utf8_lossy(&bytes);
     assert!(text.contains("Subject: remove me"), "{text}");
 }

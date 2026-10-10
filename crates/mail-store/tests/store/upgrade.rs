@@ -214,7 +214,7 @@ fn mail_that_predates_the_segmented_index_is_findable_afterwards() {
     // backfill is responsible for is the index.
     let hits = |needle: &str| {
         store
-            .connection()
+            .raw_connection()
             .query_row(
                 "SELECT count(*) FROM messages_fts WHERE messages_fts MATCH ?1",
                 [needle],
@@ -241,7 +241,7 @@ fn mail_that_predates_the_segmented_index_is_findable_afterwards() {
     let again = SqliteStore::open(&path, dir.path()).unwrap();
     assert_eq!(
         again
-            .connection()
+            .raw_connection()
             .query_row(
                 "SELECT count(*) FROM messages WHERE fts_text IS NULL",
                 [],
@@ -301,7 +301,7 @@ fn mail_indexed_before_recipients_were_is_findable_by_them_afterwards() {
     let store = SqliteStore::open(&path, dir.path()).unwrap();
     let hits = |needle: &str| {
         store
-            .connection()
+            .raw_connection()
             .query_row(
                 "SELECT count(*) FROM messages_fts WHERE messages_fts MATCH ?1",
                 [needle],
@@ -311,7 +311,7 @@ fn mail_indexed_before_recipients_were_is_findable_by_them_afterwards() {
     };
     let intact = || {
         store
-            .connection()
+            .raw_connection()
             .execute(
                 "INSERT INTO messages_fts(messages_fts) VALUES ('integrity-check')",
                 [],
@@ -335,7 +335,7 @@ fn mail_indexed_before_recipients_were_is_findable_by_them_afterwards() {
     intact().expect("the index disagrees with the table after the upgrade");
 
     store
-        .connection()
+        .raw_connection()
         .execute(
             "UPDATE messages SET read = '\"unread\"' WHERE id = ?1",
             [&message],
@@ -410,7 +410,7 @@ fn a_summary_that_counted_embedded_images_is_corrected_on_open() {
 
     let store = SqliteStore::open(&path, dir.path()).unwrap();
     let (stored, queued): (String, i64) = store
-        .connection()
+        .raw_connection()
         .query_row(
             "SELECT (SELECT attachments FROM thread_summary),
                     (SELECT count(*) FROM summaries_to_refresh)",
@@ -474,7 +474,10 @@ fn an_undecodable_row_does_not_stop_the_upgrade() {
     }
 
     let store = SqliteStore::open(&path, dir.path()).expect("one bad row must not lock anyone out");
-    assert_eq!(version_of(&store.connection()), migrate::EXPECTED_VERSION);
+    assert_eq!(
+        version_of(&store.raw_connection()),
+        migrate::EXPECTED_VERSION
+    );
 }
 
 /// 0008: every IMAP mapping goes, because any of them may name the wrong message; POP3's stay.
@@ -506,7 +509,7 @@ fn imap_mappings_are_dropped_so_the_header_pass_can_rebuild_them() {
 
     let store = SqliteStore::open(&path, dir.path()).unwrap();
     let left: Vec<(Option<i64>, Option<String>)> = store
-        .connection()
+        .raw_connection()
         .prepare("SELECT uid, uidl FROM remote_map")
         .unwrap()
         .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
@@ -515,7 +518,7 @@ fn imap_mappings_are_dropped_so_the_header_pass_can_rebuild_them() {
         .collect();
     assert_eq!(left, [(None, Some("u1".to_owned()))]);
     let kept: i64 = store
-        .connection()
+        .raw_connection()
         .query_row(
             "SELECT count(*) FROM messages WHERE id = ?1",
             [&message],
@@ -563,7 +566,7 @@ fn an_account_from_before_folders_upgrades_with_an_empty_listing() {
         .unwrap();
     assert_eq!(store.folders(account).unwrap(), vec![inbox]);
     let kept: i64 = store
-        .connection()
+        .raw_connection()
         .query_row(
             "SELECT count(*) FROM messages WHERE id = ?1",
             [&message],
@@ -643,7 +646,10 @@ fn drafts_from_before_receipts_load_without_asking_for_one() {
     };
 
     let store = SqliteStore::open(&path, dir.path()).unwrap();
-    assert_eq!(version_of(&store.connection()), migrate::EXPECTED_VERSION);
+    assert_eq!(
+        version_of(&store.raw_connection()),
+        migrate::EXPECTED_VERSION
+    );
     let loaded = store.draft(draft).expect("the old draft still loads");
     assert_eq!(loaded.subject, "old");
     assert_eq!(loaded.receipt, ReceiptRequest::Unrequested);
@@ -655,11 +661,11 @@ fn drafts_from_before_receipts_load_without_asking_for_one() {
         .answer_receipt(message, ReceiptAnswer::Declined, at)
         .unwrap();
     store
-        .connection()
+        .raw_connection()
         .execute("DELETE FROM messages", [])
         .unwrap();
     let left: i64 = store
-        .connection()
+        .raw_connection()
         .query_row("SELECT count(*) FROM receipt_answers", [], |r| r.get(0))
         .unwrap();
     assert_eq!(left, 0, "an answer does not outlive its message");
@@ -742,7 +748,7 @@ fn mail_held_before_the_address_book_fills_it_on_open() {
         Some(mail_store::Kind::Own)
     );
     let pending: i64 = store
-        .connection()
+        .raw_connection()
         .query_row("SELECT count(*) FROM contacts_to_backfill", [], |r| {
             r.get(0)
         })
@@ -896,7 +902,7 @@ fn addresses_and_bodies_a_mixed_body_batch_damaged_are_cleared_for_refetching() 
     }
 
     let store = SqliteStore::open(&path, dir.path()).unwrap();
-    let db = store.connection();
+    let db = store.raw_connection();
     let rows: Vec<(String, i64, String)> = db
         .prepare("SELECT mailbox, uid, message FROM remote_map ORDER BY mailbox, uid")
         .unwrap()
@@ -969,7 +975,10 @@ fn a_database_from_before_invitation_answers_upgrades_and_keeps_them_per_message
     };
 
     let store = SqliteStore::open(&path, dir.path()).unwrap();
-    assert_eq!(version_of(&store.connection()), migrate::EXPECTED_VERSION);
+    assert_eq!(
+        version_of(&store.raw_connection()),
+        migrate::EXPECTED_VERSION
+    );
     let message = MessageId::from_uuid(message.parse().unwrap());
     assert_eq!(store.invite_answer(message).unwrap(), None);
     let at = chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap();
@@ -989,11 +998,11 @@ fn a_database_from_before_invitation_answers_upgrades_and_keeps_them_per_message
     store.answer_invite(&changed).unwrap();
     assert_eq!(store.invite_answer(message).unwrap(), Some(changed));
     store
-        .connection()
+        .raw_connection()
         .execute("DELETE FROM messages", [])
         .unwrap();
     let left: i64 = store
-        .connection()
+        .raw_connection()
         .query_row("SELECT count(*) FROM invite_answers", [], |r| r.get(0))
         .unwrap();
     assert_eq!(left, 0, "an answer does not outlive its message");
@@ -1026,7 +1035,7 @@ fn a_database_from_before_rules_upgrades_with_none_and_keeps_its_mail() {
     assert_eq!(store.rules(account.clone()).unwrap(), vec![]);
     assert_eq!(store.vacation(account.clone()).unwrap(), None);
     let kept: i64 = store
-        .connection()
+        .raw_connection()
         .query_row(
             "SELECT count(*) FROM messages WHERE id = ?1",
             [&message],
@@ -1092,7 +1101,10 @@ fn a_database_from_before_openpgp_upgrades_with_plain_drafts_and_no_keys() {
     };
 
     let store = SqliteStore::open(&path, dir.path()).unwrap();
-    assert_eq!(version_of(&store.connection()), migrate::EXPECTED_VERSION);
+    assert_eq!(
+        version_of(&store.raw_connection()),
+        migrate::EXPECTED_VERSION
+    );
     assert_eq!(store.draft(draft).unwrap().openpgp, OpenPgp::None);
     assert!(store.pgp_keys().unwrap().is_empty());
     assert_eq!(store.autocrypt_peer("me@example.test").unwrap(), None);
@@ -1171,7 +1183,10 @@ fn a_database_from_before_smime_upgrades_with_plain_drafts_and_no_certificates()
     };
 
     let store = SqliteStore::open(&path, dir.path()).unwrap();
-    assert_eq!(version_of(&store.connection()), migrate::EXPECTED_VERSION);
+    assert_eq!(
+        version_of(&store.raw_connection()),
+        migrate::EXPECTED_VERSION
+    );
     // A key kept before its dates were recorded reads back without them, for the application
     // to fill from the key's bytes.
     let old_key = store.pgp_key(Fingerprint::V4([4; 20])).unwrap().unwrap();
@@ -1269,7 +1284,10 @@ fn operations_queued_before_the_outbox_kept_their_messages_are_addressed_when_se
     };
 
     let store = SqliteStore::open(&path, dir.path()).unwrap();
-    assert_eq!(version_of(&store.connection()), migrate::EXPECTED_VERSION);
+    assert_eq!(
+        version_of(&store.raw_connection()),
+        migrate::EXPECTED_VERSION
+    );
     store
         .remap(account, &imap("INBOX", 10), &imap("Archive", 77))
         .unwrap();
@@ -1345,9 +1363,12 @@ fn a_message_waiting_to_be_found_before_its_wait_was_counted_is_given_up_after_e
     };
 
     let store = SqliteStore::open(&path, dir.path()).unwrap();
-    assert_eq!(version_of(&store.connection()), migrate::EXPECTED_VERSION);
+    assert_eq!(
+        version_of(&store.raw_connection()),
+        migrate::EXPECTED_VERSION
+    );
     let counted: (Option<String>, u32, u32) = store
-        .connection()
+        .raw_connection()
         .query_row(
             "SELECT mailbox, syncs, passes FROM unplaced WHERE message = ?1",
             [&message],
@@ -1434,10 +1455,13 @@ fn a_conversation_from_before_mute_opens_unmuted_and_keeps_a_mute_across_a_reope
     };
 
     let store = SqliteStore::open(&path, dir.path()).unwrap();
-    assert_eq!(version_of(&store.connection()), migrate::EXPECTED_VERSION);
+    assert_eq!(
+        version_of(&store.raw_connection()),
+        migrate::EXPECTED_VERSION
+    );
     assert_eq!(store.thread(thread).unwrap().summary.mute, Mute::Unmuted);
     let row: String = store
-        .connection()
+        .raw_connection()
         .query_row(
             "SELECT mute FROM threads WHERE id = ?1",
             [thread.to_string()],
@@ -1528,7 +1552,10 @@ fn a_conversation_from_before_follow_ups_opens_with_no_reminder_and_keeps_one_ac
     };
 
     let store = SqliteStore::open(&path, dir.path()).unwrap();
-    assert_eq!(version_of(&store.connection()), migrate::EXPECTED_VERSION);
+    assert_eq!(
+        version_of(&store.raw_connection()),
+        migrate::EXPECTED_VERSION
+    );
     let summary = store.thread(thread).unwrap().summary;
     assert_eq!(summary.follow_up, FollowUp::Inactive);
     assert_eq!(
@@ -1538,7 +1565,7 @@ fn a_conversation_from_before_follow_ups_opens_with_no_reminder_and_keeps_one_ac
     );
     assert!(store.follow_ups().unwrap().is_empty());
     let held: i64 = store
-        .connection()
+        .raw_connection()
         .query_row("SELECT count(*) FROM follow_up_held", [], |r| r.get(0))
         .unwrap();
     assert_eq!(held, 0, "the composer's table exists, empty");

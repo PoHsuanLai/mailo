@@ -140,26 +140,8 @@ fn account(port: u16, watch: WatchMode) -> (Arc<SqliteStore>, tempfile::TempDir)
         },
         identities: Vec::new(),
     };
-    let db = store.connection();
-    db.execute(
-        "INSERT INTO accounts (id, address, plan, created_at)
-         VALUES (?1, 'ada@example.test', ?2, datetime('now'))",
-        rusqlite::params![
-            acct_account().to_string(),
-            serde_json::to_string(&plan).unwrap()
-        ],
-    )
-    .unwrap();
-    db.execute(
-        "INSERT INTO account_caps (account, caps, observed_at) VALUES (?1, ?2, ?3)",
-        rusqlite::params![
-            acct_account().to_string(),
-            serde_json::to_string(&caps(watch)).unwrap(),
-            now().to_rfc3339()
-        ],
-    )
-    .unwrap();
-    drop(db);
+    mail_store::testing::seed_account_plan(&store, acct_account(), "ada@example.test", &plan, None);
+    mail_store::testing::seed_caps(&store, acct_account(), &caps(watch), now()).unwrap();
     (store, dir)
 }
 

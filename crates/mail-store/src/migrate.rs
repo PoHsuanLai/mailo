@@ -64,7 +64,7 @@ pub const EXPECTED_VERSION: u32 = 28;
 /// guessing what a future version meant, and guessing wrong silently corrupts the user's mail.
 pub fn migrate(db: &Connection) -> Result<(), StoreError> {
     db.execute_batch("PRAGMA foreign_keys = ON;")
-        .map_err(|e| StoreError::Db(e.to_string()))?;
+        .map_err(StoreError::db)?;
 
     let current = current_version(db)?;
     if current > EXPECTED_VERSION {
@@ -80,20 +80,22 @@ pub fn migrate(db: &Connection) -> Result<(), StoreError> {
         }
         // One transaction per migration: a failure half way leaves the database at the last
         // version that fully applied, rather than in a shape no version describes.
-        let tx = db
-            .unchecked_transaction()
-            .map_err(|e| StoreError::Db(e.to_string()))?;
-        tx.execute_batch(sql)
-            .map_err(|e| StoreError::Db(format!("migration {version}: {e}")))?;
+        let tx = db.unchecked_transaction().map_err(StoreError::db)?;
+        tx.execute_batch(sql).map_err(|e| {
+            StoreError::db(crate::error::Context::new(
+                format!("migration {version}"),
+                e,
+            ))
+        })?;
         // 0001 seeds its own row; later migrations must record themselves.
         if *version > 1 {
             tx.execute(
                 "INSERT INTO schema_version (version, applied_at) VALUES (?1, datetime('now'))",
                 [version],
             )
-            .map_err(|e| StoreError::Db(e.to_string()))?;
+            .map_err(StoreError::db)?;
         }
-        tx.commit().map_err(|e| StoreError::Db(e.to_string()))?;
+        tx.commit().map_err(StoreError::db)?;
     }
     Ok(())
 }
@@ -106,7 +108,7 @@ fn current_version(db: &Connection) -> Result<u32, StoreError> {
             [],
             |r| r.get(0),
         )
-        .map_err(|e| StoreError::Db(e.to_string()))?;
+        .map_err(StoreError::db)?;
     if !exists {
         return Ok(0);
     }
@@ -115,7 +117,7 @@ fn current_version(db: &Connection) -> Result<u32, StoreError> {
         [],
         |r| r.get(0),
     )
-    .map_err(|e| StoreError::Db(e.to_string()))
+    .map_err(StoreError::db)
 }
 
 #[cfg(test)]

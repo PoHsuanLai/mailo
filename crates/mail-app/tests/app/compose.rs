@@ -60,28 +60,23 @@ fn seeded() -> (SqliteStore, tempfile::TempDir) {
     plan.identities = vec![identity()];
 
     {
-        let db = store.connection();
-        db.execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'me@example.test', ?2, datetime('now'))",
-            rusqlite::params![
-                acct_account().to_string(),
-                serde_json::to_string(&plan).unwrap()
-            ],
-        )
-        .unwrap();
-        db.execute(
-            "INSERT INTO identities (id, account, from_name, from_email, is_default)
-             VALUES (?1, ?2, NULL, 'me@example.test', '\"default\"')",
-            rusqlite::params![IDENTITY.to_string(), acct_account().to_string()],
-        )
-        .unwrap();
+        mail_store::testing::seed_account_plan(
+            &store,
+            acct_account(),
+            "me@example.test",
+            &plan,
+            None,
+        );
+        mail_store::testing::seed_identity_for(
+            &store,
+            IDENTITY,
+            acct_account(),
+            "me@example.test",
+            None,
+        );
     }
 
-    let raw = store
-        .blobs()
-        .put(&store.connection(), b"raw original")
-        .unwrap();
+    let raw = store.blobs().put(b"raw original").unwrap();
     let thread = ThreadId::generate();
     let message = Message {
         id: ORIGINAL,
@@ -306,10 +301,7 @@ fn the_attribution_line_is_in_the_senders_zone_not_utc() {
 /// `Draft::reply_to` deliberately empties: replying to yourself addresses nobody.
 fn own_message(store: &SqliteStore) -> MessageId {
     let id = MessageId::generate();
-    let raw = store
-        .blobs()
-        .put(&store.connection(), b"raw to self")
-        .unwrap();
+    let raw = store.blobs().put(b"raw to self").unwrap();
     let message = Message {
         id,
         thread: ThreadId::generate(),
@@ -372,7 +364,7 @@ fn own_message(store: &SqliteStore) -> MessageId {
 /// A second message, headers only — the normal mid-sync state.
 fn headers_only(store: &SqliteStore) -> MessageId {
     let id = MessageId::generate();
-    let raw = store.blobs().put(&store.connection(), b"raw two").unwrap();
+    let raw = store.blobs().put(b"raw two").unwrap();
     let message = Message {
         id,
         thread: ThreadId::generate(),
@@ -511,7 +503,7 @@ fn the_queued_bytes_are_frozen_against_a_later_edit() {
     let ProtoOp::Submit { raw, .. } = &due[0].op else {
         panic!("expected a submission");
     };
-    let bytes = store.blobs().get(&store.connection(), *raw).unwrap();
+    let bytes = store.blobs().get(*raw).unwrap();
     let text = String::from_utf8_lossy(&bytes);
     assert!(
         text.contains("Re: lunch on friday"),
@@ -547,13 +539,7 @@ fn an_account_with_no_identity_says_so_instead_of_inventing_a_sender() {
     // address is how mail goes out under an address the user does not own, so replying must
     // stop and say what is wrong. The message is there, so it is the identity check that fires.
     let (store, _dir) = seeded();
-    store
-        .connection()
-        .execute(
-            "DELETE FROM identities WHERE account = ?1",
-            [acct_account().to_string()],
-        )
-        .unwrap();
+    mail_store::testing::delete_identities(&store, acct_account());
 
     let err = compose::reply(&store, ORIGINAL, ReplyScope::Sender, "hi", at(10))
         .expect_err("no identity to send as");
@@ -570,13 +556,14 @@ fn the_identity_comes_from_the_table_the_foreign_key_enforces() {
     // plan's copy of the same list is written once at account creation and can go stale;
     // reading it instead is how a send fails for an account that is perfectly well configured.
     let (store, _dir) = seeded();
-    store
-        .connection()
-        .execute(
-            "UPDATE accounts SET plan = json_set(plan, '$.identities', json('[]')) WHERE id = ?1",
-            [acct_account().to_string()],
-        )
+    let mut plan = store
+        .account(acct_account())
+        .unwrap()
+        .expect("the account")
+        .plan
         .unwrap();
+    plan.identities.clear();
+    store.set_account_plan(acct_account(), &plan).unwrap();
 
     compose::reply(&store, ORIGINAL, ReplyScope::Sender, "yes", at(10))
         .expect("the identity row is still there");
@@ -1011,7 +998,7 @@ mod forwarding_as_an_attachment {
     /// Store `raw` as a message with `attachments`, and return its id.
     fn stored(store: &SqliteStore, raw: &[u8], attachments: Vec<Attachment>) -> MessageId {
         let id = MessageId::generate();
-        let blob = store.blobs().put(&store.connection(), raw).unwrap();
+        let blob = store.blobs().put(raw).unwrap();
         let key = MessageKey::Rfc(format!("{id}@example.test"));
         let message = Message {
             id,
@@ -1074,7 +1061,7 @@ mod forwarding_as_an_attachment {
         let ProtoOp::Submit { raw, .. } = &due[0].op else {
             panic!("expected a submission");
         };
-        store.blobs().get(&store.connection(), *raw).unwrap()
+        store.blobs().get(*raw).unwrap()
     }
 
     /// The round trip: what goes out carries the stored message, and that part parses back to
@@ -1343,7 +1330,7 @@ mod writing_to_someone_new {
         let ProtoOp::Submit { raw, .. } = &due[0].op else {
             panic!("expected a submission");
         };
-        let bytes = store.blobs().get(&store.connection(), *raw).unwrap();
+        let bytes = store.blobs().get(*raw).unwrap();
         let text = String::from_utf8_lossy(&bytes);
         assert!(
             !text.contains("In-Reply-To:"),
@@ -1457,13 +1444,7 @@ mod writing_to_someone_new {
     #[test]
     fn the_signature_is_carried_but_nothing_is_quoted() {
         let (store, _dir) = seeded();
-        store
-            .connection()
-            .execute(
-                "UPDATE identities SET signature = 'Ada' WHERE id = ?1",
-                rusqlite::params![IDENTITY.to_string()],
-            )
-            .unwrap();
+        store.set_signature(IDENTITY, Some("Ada")).unwrap();
         let draft = compose::draft_new(
             &store,
             acct_account(),
@@ -1506,22 +1487,20 @@ mod choosing_the_sender {
         )
         .plan;
         plan.address = "work@example.test".to_owned();
-        let db = store.connection();
-        db.execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'work@example.test', ?2, datetime('now', '+1 second'))",
-            rusqlite::params![
-                acct_second().to_string(),
-                serde_json::to_string(&plan).unwrap()
-            ],
-        )
-        .unwrap();
-        db.execute(
-            "INSERT INTO identities (id, account, from_name, from_email, is_default)
-             VALUES (?1, ?2, NULL, 'work@example.test', '\"default\"')",
-            rusqlite::params![SECOND_IDENTITY.to_string(), acct_second().to_string()],
-        )
-        .unwrap();
+        mail_store::testing::seed_account_plan(
+            store,
+            acct_second(),
+            "work@example.test",
+            &plan,
+            Some(chrono::Utc::now() + chrono::Duration::seconds(1)),
+        );
+        mail_store::testing::seed_identity_for(
+            store,
+            SECOND_IDENTITY,
+            acct_second(),
+            "work@example.test",
+            None,
+        );
     }
 
     #[test]
@@ -1594,13 +1573,7 @@ mod choosing_the_sender {
     fn moving_to_an_account_with_no_identity_leaves_the_draft_alone() {
         let (store, _dir) = seeded();
         also(&store);
-        store
-            .connection()
-            .execute(
-                "DELETE FROM identities WHERE account = ?1",
-                rusqlite::params![acct_second().to_string()],
-            )
-            .unwrap();
+        mail_store::testing::delete_identities(&store, acct_second());
         let draft = compose::draft_new(&store, acct_account(), &[], "", "", at(10)).unwrap();
 
         compose::move_draft_to(&store, draft.id, acct_second(), at(11))
@@ -1642,7 +1615,7 @@ mod carrying_a_file {
         let ProtoOp::Submit { raw, .. } = &due[0].op else {
             panic!("expected a submission");
         };
-        let bytes = store.blobs().get(&store.connection(), *raw).unwrap();
+        let bytes = store.blobs().get(*raw).unwrap();
         String::from_utf8_lossy(&bytes).into_owned()
     }
 

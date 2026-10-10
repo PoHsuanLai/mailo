@@ -9,7 +9,7 @@ use mail_core::sync;
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_runtime::{AccountSecrets, ClientRegistry};
-use mail_store::SqliteStore;
+use mail_store::{SqliteStore, Store};
 use porter_core::SecretText;
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
 use porter_secrets::MemorySecrets;
@@ -70,25 +70,14 @@ fn account_with_header_only_message(port: u16) -> (Arc<SqliteStore>, MessageId, 
         identities: Vec::new(),
     };
     {
-        let db = store.connection();
-        db.execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'ada@example.test', ?2, datetime('now'))",
-            rusqlite::params![
-                acct_account().to_string(),
-                serde_json::to_string(&plan).unwrap()
-            ],
-        )
-        .unwrap();
-        db.execute(
-            "INSERT INTO account_caps (account, caps, observed_at) VALUES (?1, ?2, ?3)",
-            rusqlite::params![
-                acct_account().to_string(),
-                serde_json::to_string(&caps()).unwrap(),
-                now().to_rfc3339()
-            ],
-        )
-        .unwrap();
+        mail_store::testing::seed_account_plan(
+            &store,
+            acct_account(),
+            "ada@example.test",
+            &plan,
+            None,
+        );
+        mail_store::testing::seed_caps(&store, acct_account(), &caps(), now()).unwrap();
     }
     mail_runtime::absorb(
         &store,
@@ -110,11 +99,7 @@ fn account_with_header_only_message(port: u16) -> (Arc<SqliteStore>, MessageId, 
         now(),
     )
     .unwrap();
-    let id: String = store
-        .connection()
-        .query_row("SELECT id FROM messages", [], |r| r.get(0))
-        .unwrap();
-    let id = MessageId::from_uuid(id.parse().unwrap());
+    let id = mail_store::testing::message_ids(&store).remove(0);
     (store, id, dir)
 }
 
@@ -156,15 +141,7 @@ fn serve_one() -> u16 {
 
 /// The body text the store holds for `id`, if any.
 fn held_body(store: &SqliteStore, id: MessageId) -> Option<String> {
-    let raw: Option<String> = store
-        .connection()
-        .query_row(
-            "SELECT body_text FROM messages WHERE id = ?1",
-            [id.to_string()],
-            |r| r.get(0),
-        )
-        .unwrap();
-    raw
+    store.message(id).unwrap().body.text().map(str::to_owned)
 }
 
 fn with_password(secrets: &MemorySecrets) {

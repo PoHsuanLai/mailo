@@ -16,7 +16,7 @@ use mail_core::{account, sync};
 use mail_domain::id::{account_id_from_uuid, new_account_id};
 use mail_domain::*;
 use mail_runtime::{AccountSecrets, ClientRegistry};
-use mail_store::SqliteStore;
+use mail_store::{SqliteStore, Store};
 use porter_core::SecretText;
 use porter_core::UnixSeconds;
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
@@ -120,25 +120,14 @@ fn configured_with(
         identities: Vec::new(),
     };
     {
-        let db = store.connection();
-        db.execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'ada@example.test', ?2, datetime('now'))",
-            rusqlite::params![
-                acct_account().to_string(),
-                serde_json::to_string(&plan).unwrap()
-            ],
-        )
-        .unwrap();
-        db.execute(
-            "INSERT INTO account_caps (account, caps, observed_at) VALUES (?1, ?2, ?3)",
-            rusqlite::params![
-                acct_account().to_string(),
-                serde_json::to_string(&caps).unwrap(),
-                now().to_rfc3339()
-            ],
-        )
-        .unwrap();
+        mail_store::testing::seed_account_plan(
+            &store,
+            acct_account(),
+            "ada@example.test",
+            &plan,
+            None,
+        );
+        mail_store::testing::seed_caps(&store, acct_account(), &caps, now()).unwrap();
     }
     (store, dir)
 }
@@ -275,10 +264,7 @@ async fn a_whole_pass_against_a_real_server_lands_mail_and_reports_what_it_fetch
         report.counts
     );
     // The fixture serves two messages; they must be in the store afterwards.
-    let count: i64 = store
-        .connection()
-        .query_row("SELECT count(*) FROM messages", [], |r| r.get(0))
-        .unwrap();
+    let count: i64 = mail_store::testing::count(&store, "messages");
     assert_eq!(count, 2, "the pass reported success and stored nothing");
 
     // And the server's flags reached the store.
@@ -289,14 +275,10 @@ async fn a_whole_pass_against_a_real_server_lands_mail_and_reports_what_it_fetch
     // for ever: mail read on a phone stayed bold here, the unread counts were the mailbox size,
     // and on Gmail the labels never appeared either, because they ride the same survey. Found
     // against a real account, where 138 messages the user had *sent* were all marked unread.
-    let unread: i64 = store
-        .connection()
-        .query_row(
-            "SELECT count(*) FROM messages WHERE read = '\"unread\"'",
-            [],
-            |r| r.get(0),
-        )
-        .unwrap();
+    let unread = mail_store::testing::message_ids(&store)
+        .into_iter()
+        .filter(|id| store.message(*id).unwrap().read == ReadState::Unread)
+        .count();
     assert_eq!(
         unread, 0,
         "the server reports both messages \\Seen; the pass never swept for flags"
@@ -394,16 +376,7 @@ mod renewing_an_expired_sign_in {
             },
             identities: Vec::new(),
         };
-        store
-            .connection()
-            .execute(
-                "UPDATE accounts SET plan = ?1 WHERE id = ?2",
-                rusqlite::params![
-                    serde_json::to_string(&plan).unwrap(),
-                    acct_account().to_string()
-                ],
-            )
-            .unwrap();
+        store.set_account_plan(acct_account(), &plan).unwrap();
         (store, dir)
     }
 
@@ -564,16 +537,7 @@ mod renewing_an_expired_sign_in {
             mail_domain::presets::microsoft_preset("ada@example.test", now()),
         )
         .plan;
-        store
-            .connection()
-            .execute(
-                "UPDATE accounts SET plan = ?1 WHERE id = ?2",
-                rusqlite::params![
-                    serde_json::to_string(&plan).unwrap(),
-                    acct_account().to_string()
-                ],
-            )
-            .unwrap();
+        store.set_account_plan(acct_account(), &plan).unwrap();
         let secrets: Arc<dyn AccountSecrets> = Arc::new(MemorySecrets::default());
         mail_runtime::block_on(secrets.put(&key(), &token(-120))).unwrap();
         mail_runtime::block_on(secrets.put(
@@ -670,16 +634,7 @@ mod polling {
     fn with_watch(store: &Arc<SqliteStore>, watch: WatchMode) {
         let mut caps = caps();
         caps.watch = watch;
-        store
-            .connection()
-            .execute(
-                "UPDATE account_caps SET caps = ?1 WHERE account = ?2",
-                rusqlite::params![
-                    serde_json::to_string(&caps).unwrap(),
-                    acct_account().to_string()
-                ],
-            )
-            .unwrap();
+        mail_store::testing::seed_caps(store, acct_account(), &caps, chrono::Utc::now()).unwrap();
     }
 
     #[test]
@@ -1212,23 +1167,14 @@ mod both_accounts_at_once {
             },
             identities: Vec::new(),
         };
-        let db = store.connection();
-        db.execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'bee@example.test', ?2, datetime('now', '+1 second'))",
-            rusqlite::params![other.to_string(), serde_json::to_string(&plan).unwrap()],
-        )
-        .unwrap();
-        db.execute(
-            "INSERT INTO account_caps (account, caps, observed_at) VALUES (?1, ?2, ?3)",
-            rusqlite::params![
-                other.to_string(),
-                serde_json::to_string(&caps()).unwrap(),
-                now().to_rfc3339()
-            ],
-        )
-        .unwrap();
-        drop(db);
+        mail_store::testing::seed_account_plan(
+            &store,
+            other.clone(),
+            "bee@example.test",
+            &plan,
+            Some(chrono::Utc::now() + chrono::Duration::seconds(1)),
+        );
+        mail_store::testing::seed_caps(&store, other.clone(), &caps(), now()).unwrap();
         (store, dir)
     }
 
@@ -1493,24 +1439,14 @@ mod watching {
 fn fetching_a_part_of_a_pop3_message_is_refused_before_anything_is_sent() {
     let (store, _dir) = configured(1, caps());
     // Repoint the account at POP3: the one fact under test.
-    let plan: String = store
-        .connection()
-        .query_row("SELECT plan FROM accounts", [], |r| r.get(0))
-        .unwrap();
-    let mut plan: AccountPlan = serde_json::from_str(&plan).unwrap();
+    let mut plan = store.list_accounts().unwrap().remove(0).plan.unwrap();
     plan.incoming = Incoming::Pop3 {
         host: "127.0.0.1".to_owned(),
         port: 1,
         tls: Tls::Plaintext,
         leave: LeaveOnServer::Keep,
     };
-    store
-        .connection()
-        .execute(
-            "UPDATE accounts SET plan = ?1",
-            [serde_json::to_string(&plan).unwrap()],
-        )
-        .unwrap();
+    store.set_account_plan(acct_account(), &plan).unwrap();
     mail_runtime::absorb(
         &store,
         acct_account(),
@@ -1529,16 +1465,13 @@ fn fetching_a_part_of_a_pop3_message_is_refused_before_anything_is_sent() {
         now(),
     )
     .unwrap();
-    let id: String = store
-        .connection()
-        .query_row("SELECT id FROM messages", [], |r| r.get(0))
-        .unwrap();
+    let id = mail_store::testing::message_ids(&store).remove(0);
 
     let err = sync::fetch_part_with(
         &store,
         Arc::new(MemorySecrets::default()),
         &ClientRegistry::default(),
-        MessageId::from_uuid(id.parse().unwrap()),
+        id,
         "2",
         now(),
     )

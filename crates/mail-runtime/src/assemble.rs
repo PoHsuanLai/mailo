@@ -96,7 +96,7 @@ fn assemble_as(
         }
         let blob = store
             .blobs()
-            .put(&store.connection(), &arrival.raw)
+            .put(&arrival.raw)
             .map_err(RuntimeError::Store)?;
         let key = message_key(&fields, Tiebreak::Remote(&arrival.remote));
         parsed.push((
@@ -194,7 +194,7 @@ fn build(
                         PartContent::Held(
                             store
                                 .blobs()
-                                .put(&store.connection(), &part.bytes)
+                                .put(&part.bytes)
                                 .map_err(RuntimeError::Store)?,
                         ),
                         part.bytes.len() as u64,
@@ -321,17 +321,7 @@ pub fn sent(
     let MessageKey::Rfc(rfc_id) = key else {
         return Ok(None);
     };
-    let found: Option<String> = store
-        .connection()
-        .query_row(
-            "SELECT id FROM messages WHERE account = ?1 AND rfc_message_id = ?2 LIMIT 1",
-            rusqlite::params![account.to_string(), rfc_id],
-            |r| r.get(0),
-        )
-        .ok();
-    Ok(found
-        .and_then(|id| id.parse().ok())
-        .map(MessageId::from_uuid))
+    Ok(store.message_by_rfc_id(account, &rfc_id).ok().flatten())
 }
 
 /// Parse, store and thread a batch for [`keep`]: what to import, and how many were not
@@ -350,10 +340,7 @@ fn prepare(
             unreadable += 1;
             continue;
         };
-        let blob = store
-            .blobs()
-            .put(&store.connection(), &item.raw)
-            .map_err(RuntimeError::Store)?;
+        let blob = store.blobs().put(&item.raw).map_err(RuntimeError::Store)?;
         let key = message_key(&fields, Tiebreak::Bytes(&item.raw));
         built.push(Built {
             fields,
@@ -499,15 +486,7 @@ fn message_key(fields: &mail_mime::Parsed, tiebreak: Tiebreak<'_>) -> MessageKey
 
 /// The thread a stored message with this `Message-ID` already belongs to.
 fn thread_of_rfc_id(store: &SqliteStore, account: AccountId, rfc_id: &str) -> Option<ThreadId> {
-    let db = store.connection();
-    let found: Option<String> = db
-        .query_row(
-            "SELECT thread FROM messages WHERE account = ?1 AND rfc_message_id = ?2 LIMIT 1",
-            rusqlite::params![account.to_string(), rfc_id],
-            |r| r.get(0),
-        )
-        .ok()?;
-    found.and_then(|t| t.parse().ok()).map(ThreadId::from_uuid)
+    store.thread_by_rfc_id(account, rfc_id).ok().flatten()
 }
 
 /// Absorb fetched bytes into the store, returning what changed.

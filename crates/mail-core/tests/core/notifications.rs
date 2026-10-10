@@ -47,18 +47,7 @@ fn open(dir: &std::path::Path) -> SqliteStore {
 }
 
 fn with_account(store: &SqliteStore, plan: &AccountPlan) {
-    store
-        .connection()
-        .execute(
-            "INSERT OR IGNORE INTO accounts (id, address, plan, created_at)
-             VALUES (?1, ?2, ?3, datetime('now'))",
-            rusqlite::params![
-                acct_account().to_string(),
-                ME,
-                serde_json::to_string(plan).unwrap()
-            ],
-        )
-        .unwrap();
+    mail_store::testing::seed_account_plan(store, acct_account(), ME, plan, None);
 }
 
 fn plan(port: u16) -> AccountPlan {

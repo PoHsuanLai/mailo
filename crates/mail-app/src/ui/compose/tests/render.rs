@@ -96,20 +96,15 @@ pub(super) fn window_with(
 
 /// The Work Space's accounts have no identity rows; `account add` writes one for each.
 pub(super) fn with_identities(built: &crate::ui::fixtures::Work) {
-    let accounts: Vec<(String, String)> = crate::ui::data::account_rows(&built.store)
-        .into_iter()
-        .map(|row| (row.id.to_string(), row.address))
-        .collect();
-    for (account, address) in accounts {
-        built
-            .store
-            .connection()
-            .execute(
-                "INSERT INTO identities (id, account, from_name, from_email, is_default)
-                 VALUES (?1, ?2, 'Ada', ?3, '\"default\"')",
-                rusqlite::params![IdentityId::generate().to_string(), account, address],
-            )
-            .unwrap_or_else(|why| panic!("an identity: {why}"));
+    for row in crate::ui::data::account_rows(&built.store) {
+        let (account, address) = (row.id, row.address);
+        mail_store::testing::seed_identity_for(
+            &built.store,
+            IdentityId::generate(),
+            account,
+            &address,
+            Some("Ada"),
+        );
     }
 }
 

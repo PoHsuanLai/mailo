@@ -50,18 +50,7 @@ fn store(dir: &std::path::Path) -> Arc<SqliteStore> {
             login: None,
         };
         let plan = presets::manual(address, &manual, chrono::Utc::now()).plan;
-        store
-            .connection()
-            .execute(
-                "INSERT INTO accounts (id, address, plan, created_at)
-                 VALUES (?1, ?2, ?3, datetime('now'))",
-                [
-                    id.to_string(),
-                    address.to_owned(),
-                    serde_json::to_string(&plan).unwrap(),
-                ],
-            )
-            .unwrap();
+        mail_store::testing::seed_account_plan(&store, id.clone(), address, &plan, None);
     }
     Arc::new(store)
 }

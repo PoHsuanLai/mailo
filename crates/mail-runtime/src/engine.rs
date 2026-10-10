@@ -549,7 +549,7 @@ impl<B: Backend> AccountEngine<B> {
         // attempt, rather than by the caller: a retry after a renewed sign-in runs this again,
         // and bytes staged once would already have been spent by the first attempt.
         if let ProtoOp::Append { raw, .. } = &op {
-            let bytes = self.store.blobs().get(&self.store.connection(), *raw)?;
+            let bytes = self.store.blobs().get(*raw)?;
             self.backend.stage_append(bytes);
         }
         let mut transport = self.connect().await?;
@@ -580,9 +580,7 @@ impl<B: Backend> AccountEngine<B> {
             }
         };
         let staged = match &op {
-            ProtoOp::Append { raw, .. } => {
-                Some(self.store.blobs().get(&self.store.connection(), *raw)?)
-            }
+            ProtoOp::Append { raw, .. } => Some(self.store.blobs().get(*raw)?),
             _ => None,
         };
         let Some(reader) = self.graph.as_mut() else {
@@ -753,7 +751,7 @@ impl<B: Backend> AccountEngine<B> {
         raw: BlobId,
         leaving: Option<DateTime<Utc>>,
     ) -> Result<Vec<u8>, RuntimeError> {
-        let frozen = self.store.blobs().get(&self.store.connection(), raw)?;
+        let frozen = self.store.blobs().get(raw)?;
         Ok(match leaving {
             Some(at) => mail_mime::restamp(&frozen, at),
             None => frozen,
@@ -813,7 +811,7 @@ impl<B: Backend> AccountEngine<B> {
             SentCopy::Server => Ok(None),
             SentCopy::Here => crate::assemble::sent(&self.store, self.account.clone(), copy, at),
             SentCopy::Upload(path) => {
-                let raw = self.store.blobs().put(&self.store.connection(), &copy)?;
+                let raw = self.store.blobs().put(&copy)?;
                 self.store.enqueue(
                     self.account.clone(),
                     mail_domain::RemoteIntent::Append {
@@ -1130,7 +1128,7 @@ impl<B: Backend> AccountEngine<B> {
         remote: Option<RemoteRef>,
         now: DateTime<Utc>,
     ) -> Result<(), RuntimeError> {
-        let bytes = self.store.blobs().get(&self.store.connection(), raw)?;
+        let bytes = self.store.blobs().get(raw)?;
         let role = self.role_of(&mailbox);
         match remote {
             Some(remote) => {
@@ -1268,7 +1266,7 @@ impl<B: Backend> AccountEngine<B> {
         };
         let _ = draft;
         // Stored, so the op names bytes that exist: `run_once` reads them back to stage them.
-        let raw = self.store.blobs().put(&self.store.connection(), &raw)?;
+        let raw = self.store.blobs().put(&raw)?;
         let op = ProtoOp::Append {
             mailbox: MailboxRef {
                 account: self.account.clone(),
@@ -1974,7 +1972,7 @@ impl<B: Backend> AccountEngine<B> {
         let blob = self
             .store
             .blobs()
-            .put(&self.store.connection(), &bytes)
+            .put(&bytes)
             .map_err(RuntimeError::Store)?;
         self.store
             .hold_part(message, section, blob, bytes.len() as u64)?;

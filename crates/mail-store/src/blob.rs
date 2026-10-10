@@ -4,11 +4,50 @@
 //! and it means a blob's on-disk path is derived entirely from its content — never from a
 //! filename, a `Content-Disposition`, or anything else a stranger wrote.
 
-use crate::StoreError;
+use crate::{SqliteStore, StoreError};
 use mail_domain::BlobId;
 use rusqlite::{Connection, OptionalExtension, params};
 use std::fs;
 use std::path::{Path, PathBuf};
+
+/// The blobs of one [`SqliteStore`]: content-addressed bytes (a raw message, an attachment)
+/// that the store keeps in its database or on disk, whichever suits their size.
+///
+/// A handle on the store and nothing else, so a caller names a blob by its id and never by the
+/// connection it is read through: which connection that is, and whether the bytes are in a row
+/// or a file, is the store's.
+#[derive(Debug, Clone, Copy)]
+pub struct Blobs<'a> {
+    store: &'a SqliteStore,
+}
+
+impl<'a> Blobs<'a> {
+    pub(crate) fn of(store: &'a SqliteStore) -> Self {
+        Self { store }
+    }
+
+    /// Store `bytes`, returning the id to reference them by. Identical bytes are stored once
+    /// and share an id.
+    pub fn put(&self, bytes: &[u8]) -> Result<BlobId, StoreError> {
+        self.store.files().put(&self.store.connection(), bytes)
+    }
+
+    /// The bytes behind `id`.
+    pub fn get(&self, id: BlobId) -> Result<Vec<u8>, StoreError> {
+        self.store.files().get(&self.store.reader(), id)
+    }
+
+    /// At most the first `limit` bytes behind `id`: enough of a raw message for its headers,
+    /// without reading a large attachment to find them.
+    pub fn head(&self, id: BlobId, limit: usize) -> Result<Vec<u8>, StoreError> {
+        self.store.files().head(&self.store.reader(), id, limit)
+    }
+
+    /// How many bytes are behind `id`, without reading them.
+    pub fn size(&self, id: BlobId) -> Result<u64, StoreError> {
+        self.store.files().size(&self.store.reader(), id)
+    }
+}
 
 /// Bytes at or below this live in SQLite; larger ones go to a file.
 ///
@@ -19,13 +58,13 @@ const INLINE_MAX: usize = 32 * 1024;
 
 /// The blob store rooted at a directory.
 #[derive(Debug, Clone)]
-pub struct BlobStore {
+pub(crate) struct BlobStore {
     root: PathBuf,
 }
 
 impl BlobStore {
     /// A store under `root`, e.g. `~/.local/share/mailo/blobs`.
-    pub fn new(root: impl Into<PathBuf>) -> Self {
+    pub(crate) fn new(root: impl Into<PathBuf>) -> Self {
         Self { root: root.into() }
     }
 
@@ -33,7 +72,7 @@ impl BlobStore {
     ///
     /// Idempotent: storing identical bytes twice returns the first id and writes nothing, so
     /// re-fetching a message after a `UIDVALIDITY` reset does not duplicate its attachments.
-    pub fn put(&self, db: &Connection, bytes: &[u8]) -> Result<BlobId, StoreError> {
+    pub(crate) fn put(&self, db: &Connection, bytes: &[u8]) -> Result<BlobId, StoreError> {
         let hash = blake3::hash(bytes).to_hex().to_string();
 
         if let Some(existing) = self.lookup(db, &hash)? {
@@ -49,7 +88,7 @@ impl BlobStore {
                  VALUES (?1, ?2, ?3, NULL, ?4, datetime('now'))",
                 params![id.to_string(), hash, size, bytes],
             )
-            .map_err(|e| StoreError::Db(e.to_string()))?;
+            .map_err(StoreError::db)?;
         } else {
             // Two-character fan-out: a flat directory with 100k attachments is slow to list
             // on every filesystem that matters.
@@ -68,13 +107,13 @@ impl BlobStore {
                  VALUES (?1, ?2, ?3, ?4, NULL, datetime('now'))",
                 params![id.to_string(), hash, size, rel],
             )
-            .map_err(|e| StoreError::Db(e.to_string()))?;
+            .map_err(StoreError::db)?;
         }
         Ok(id)
     }
 
     /// Read the bytes behind `id`.
-    pub fn get(&self, db: &Connection, id: BlobId) -> Result<Vec<u8>, StoreError> {
+    pub(crate) fn get(&self, db: &Connection, id: BlobId) -> Result<Vec<u8>, StoreError> {
         let row: Option<(Option<String>, Option<Vec<u8>>)> = db
             .query_row(
                 "SELECT path, inline FROM blobs WHERE id = ?1",
@@ -82,7 +121,7 @@ impl BlobStore {
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .optional()
-            .map_err(|e| StoreError::Db(e.to_string()))?;
+            .map_err(StoreError::db)?;
 
         match row {
             Some((_, Some(inline))) => Ok(inline),
@@ -101,7 +140,12 @@ impl BlobStore {
 
     /// At most the first `limit` bytes behind `id`: enough of a raw message for its headers,
     /// without reading a large attachment to find them.
-    pub fn head(&self, db: &Connection, id: BlobId, limit: usize) -> Result<Vec<u8>, StoreError> {
+    pub(crate) fn head(
+        &self,
+        db: &Connection,
+        id: BlobId,
+        limit: usize,
+    ) -> Result<Vec<u8>, StoreError> {
         let row: Option<(Option<String>, Option<Vec<u8>>)> = db
             .query_row(
                 "SELECT path, substr(inline, 1, ?2) FROM blobs WHERE id = ?1",
@@ -109,7 +153,7 @@ impl BlobStore {
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .optional()
-            .map_err(|e| StoreError::Db(e.to_string()))?;
+            .map_err(StoreError::db)?;
         match row {
             Some((_, Some(inline))) => Ok(inline),
             Some((Some(rel), None)) => {
@@ -134,7 +178,7 @@ impl BlobStore {
     /// The column has been there since migration 0001 and nothing asked for it, so the one
     /// caller that wanted a size read the whole attachment to measure it — which for a list of
     /// what a draft is carrying means loading every file to print its length.
-    pub fn size(&self, db: &Connection, id: BlobId) -> Result<u64, StoreError> {
+    pub(crate) fn size(&self, db: &Connection, id: BlobId) -> Result<u64, StoreError> {
         let found: Option<i64> = db
             .query_row(
                 "SELECT size FROM blobs WHERE id = ?1",
@@ -142,7 +186,7 @@ impl BlobStore {
                 |r| r.get(0),
             )
             .optional()
-            .map_err(|e| StoreError::Db(e.to_string()))?;
+            .map_err(StoreError::db)?;
         found
             .map(|size| size.max(0) as u64)
             .ok_or_else(|| StoreError::Blob(id.to_string(), "no such blob".to_owned()))
@@ -154,7 +198,7 @@ impl BlobStore {
                 r.get(0)
             })
             .optional()
-            .map_err(|e| StoreError::Db(e.to_string()))?;
+            .map_err(StoreError::db)?;
         found
             .map(|text| {
                 text.parse::<uuid::Uuid>()

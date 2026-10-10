@@ -190,10 +190,7 @@ pub fn export(
             done.absent += 1;
             continue;
         };
-        let bytes = store
-            .blobs()
-            .get(&store.connection(), *raw)
-            .map_err(|e| e.to_string())?;
+        let bytes = store.blobs().get(*raw).map_err(|e| e.to_string())?;
         // Read from the bytes as well as the attachments: a part fetched since leaves the
         // attachment held and the stored message as rebuilt, its part still empty in it.
         if crate::compose::rebuilt(&message, &bytes) {

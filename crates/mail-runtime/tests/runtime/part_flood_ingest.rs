@@ -48,14 +48,7 @@ fn flood(parts: usize, unique: bool) -> Vec<u8> {
 fn seeded() -> (SqliteStore, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let store = SqliteStore::in_memory(dir.path()).unwrap();
-    store
-        .connection()
-        .execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [acct_account().to_string()],
-        )
-        .unwrap();
+    mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
     (store, dir)
 }
 
@@ -81,10 +74,7 @@ fn ingest(store: &SqliteStore, raw: Vec<u8>) {
 }
 
 fn blob_rows(store: &SqliteStore) -> i64 {
-    store
-        .connection()
-        .query_row("SELECT count(*) FROM blobs", [], |r| r.get(0))
-        .unwrap()
+    mail_store::testing::count(store, "blobs")
 }
 
 #[test]
@@ -98,10 +88,7 @@ fn ten_thousand_parts_cost_ten_thousand_blobs_and_no_more() {
     ingest(&store, raw);
     let elapsed = started.elapsed();
 
-    let message = store
-        .connection()
-        .query_row("SELECT count(*) FROM messages", [], |r| r.get::<_, i64>(0))
-        .unwrap();
+    let message = mail_store::testing::count(&store, "messages");
     assert_eq!(message, 1, "one message, however many parts it has");
     // One blob per distinct part, plus the raw message.
     assert_eq!(blob_rows(&store), 10_001);
@@ -127,13 +114,8 @@ fn ten_thousand_identical_parts_cost_one_blob_and_each_is_reachable() {
 
     // Cheapness must not have cost correctness: each of the ten thousand is a separate
     // attachment with its own name, even where the bytes are shared.
-    let id: String = store
-        .connection()
-        .query_row("SELECT id FROM messages", [], |r| r.get(0))
-        .unwrap();
-    let message = store
-        .message(id.parse::<uuid::Uuid>().map(MessageId::from_uuid).unwrap())
-        .unwrap();
+    let id = mail_store::testing::message_ids(&store).remove(0);
+    let message = store.message(id).unwrap();
     assert_eq!(message.attachments.len(), 10_000, "reachable: every part");
     assert_eq!(message.attachments[0].name, "f0", "reachable: the first");
     assert_eq!(

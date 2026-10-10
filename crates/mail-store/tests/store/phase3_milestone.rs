@@ -36,7 +36,7 @@ fn ingest_twenty() -> Fixture {
     let dir = tempfile::tempdir().unwrap();
     let store = SqliteStore::in_memory(dir.path()).unwrap();
     store
-        .connection()
+        .raw_connection()
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
@@ -90,7 +90,7 @@ fn ingest_twenty() -> Fixture {
         let id = MessageId::from_uuid(uuid::Uuid::from_u128(0x9000 + i as u128));
         let raw = store
             .blobs()
-            .put(&store.connection(), format!("raw message {i}").as_bytes())
+            .put(format!("raw message {i}").as_bytes())
             .unwrap();
         let message = Message {
             id,

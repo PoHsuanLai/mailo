@@ -74,14 +74,7 @@ fn raw_message(n: i64) -> Vec<u8> {
 fn generated() -> (SqliteStore, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let store = SqliteStore::open(dir.path().join("bench.db"), dir.path()).unwrap();
-    store
-        .connection()
-        .execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [acct_account().to_string()],
-        )
-        .unwrap();
+    mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
 
     // One long conversation, so the reader has something real to open, then the rest as
     // singletons — which is what a mailbox mostly is.
@@ -90,10 +83,7 @@ fn generated() -> (SqliteStore, tempfile::TempDir) {
         let mut messages = Vec::with_capacity(500);
         for i in 0..500 {
             let n = batch * 500 + i;
-            let raw = store
-                .blobs()
-                .put(&store.connection(), &raw_message(n))
-                .unwrap();
+            let raw = store.blobs().put(&raw_message(n)).unwrap();
             let key = format!("m{n}@example.test");
             let message = Message {
                 id: MessageId::generate(),
@@ -170,10 +160,7 @@ fn subject() -> (SqliteStore, Option<tempfile::TempDir>, String) {
                 .unwrap_or(std::path::Path::new("."))
                 .join("blobs");
             let store = SqliteStore::open(&path, blobs).expect("that database opens");
-            let count: i64 = store
-                .connection()
-                .query_row("SELECT count(*) FROM messages", [], |r| r.get(0))
-                .unwrap_or(0);
+            let count: i64 = mail_store::testing::count(&store, "messages");
             (
                 store,
                 None,
@@ -188,15 +175,7 @@ fn subject() -> (SqliteStore, Option<tempfile::TempDir>, String) {
 }
 
 fn accounts(store: &SqliteStore) -> Vec<AccountId> {
-    let db = store.connection();
-    let mut stmt = db
-        .prepare("SELECT id FROM accounts ORDER BY created_at")
-        .unwrap();
-    let rows = stmt.query_map([], |r| r.get::<_, String>(0)).unwrap();
-    rows.filter_map(Result::ok)
-        .filter_map(|id| id.parse().ok())
-        .map(mail_domain::id::account_id_from_uuid)
-        .collect()
+    mail_store::testing::account_ids(store)
 }
 
 fn page(limit: u32, filter: Filter) -> Query {

@@ -49,18 +49,7 @@ async fn setup() -> Setup {
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(SqliteStore::in_memory(dir.path()).unwrap());
     let preset = presets::jmap(USER, &fake.session_url(), HttpAuth::Basic);
-    store
-        .connection()
-        .execute(
-            "INSERT INTO accounts (id, address, plan, created_at) VALUES (?1, ?2, ?3, ?4)",
-            [
-                acct_account().to_string(),
-                USER.to_owned(),
-                serde_json::to_string(&preset.plan).unwrap(),
-                now().to_rfc3339(),
-            ],
-        )
-        .unwrap();
+    mail_store::testing::seed_account_plan(&store, acct_account(), USER, &preset.plan, Some(now()));
     let secrets: Arc<dyn AccountSecrets> = Arc::new(MemorySecrets::default());
     for purpose in [
         SecretPurpose::IncomingPassword,
@@ -98,34 +87,22 @@ fn held(store: &SqliteStore, n: u32) -> Option<Message> {
 
 /// The message with this `Message-ID`, as the store holds it.
 fn by_message_id(store: &SqliteStore, rfc_id: &str) -> Option<Message> {
-    let id: Option<String> = store
-        .connection()
-        .query_row(
-            "SELECT id FROM messages WHERE rfc_message_id = ?1",
-            [rfc_id],
-            |r| r.get(0),
-        )
-        .ok();
-    id.map(|id| {
-        store
-            .message(MessageId::from_uuid(id.parse().unwrap()))
-            .unwrap()
-    })
+    let id = store.message_by_rfc_id(acct_account(), rfc_id).unwrap()?;
+    Some(store.message(id).unwrap())
 }
 
 fn label_names(store: &SqliteStore, message: &Message) -> Vec<String> {
+    let known = store.labels(message.account.clone()).unwrap();
     message
         .labels
         .iter()
         .map(|l| {
-            store
-                .connection()
-                .query_row(
-                    "SELECT name FROM labels WHERE id = ?1",
-                    [l.to_string()],
-                    |r| r.get(0),
-                )
-                .unwrap()
+            known
+                .iter()
+                .find(|label| label.id == *l)
+                .expect("a label of the message")
+                .name
+                .clone()
         })
         .collect()
 }
@@ -311,11 +288,7 @@ async fn a_send_is_imported_submitted_with_every_recipient_and_filed_in_sent() {
         "From: {USER}\r\nTo: ada@example.test\r\nSubject: Minutes\r\n\
          Message-ID: <sent1@example.test>\r\nDate: Mon, 01 Sep 2026 10:00:00 +0000\r\n\r\nhere\r\n"
     );
-    let blob = s
-        .store
-        .blobs()
-        .put(&s.store.connection(), frozen.as_bytes())
-        .unwrap();
+    let blob = s.store.blobs().put(frozen.as_bytes()).unwrap();
     s.store
         .enqueue(
             acct_account(),

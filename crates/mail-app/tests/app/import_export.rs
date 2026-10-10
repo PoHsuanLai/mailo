@@ -141,7 +141,7 @@ fn a_takeout_mbox_lands_in_local_folders_threaded_labelled_and_only_once() {
     let Body::Present { raw, .. } = &lunch.body else {
         panic!("imported with a body")
     };
-    let bytes = store.blobs().get(&store.connection(), *raw).unwrap();
+    let bytes = store.blobs().get(*raw).unwrap();
     let text = String::from_utf8_lossy(&bytes);
     assert!(
         text.contains("\r\nFrom the archive, a quoted line.\r\n"),
@@ -330,14 +330,7 @@ fn everything_exports_to_a_maildir_that_imports_back_as_the_same_mail() {
 fn a_message_with_no_body_yet_is_skipped_and_counted() {
     let (store, _dir) = fresh_store();
     let account = new_account_id();
-    store
-        .connection()
-        .execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'ada@example.test', '{}', datetime('now'))",
-            [account.to_string()],
-        )
-        .unwrap();
+    mail_store::testing::seed_account(&store, account.clone(), "ada@example.test");
     let message = Message {
         id: MessageId::generate(),
         thread: ThreadId::generate(),
@@ -392,14 +385,7 @@ fn a_message_with_no_body_yet_is_skipped_and_counted() {
 fn a_message_rebuilt_from_its_parts_is_not_exported_as_the_message_even_once_its_parts_are_here() {
     let (store, _dir) = fresh_store();
     let account = new_account_id();
-    store
-        .connection()
-        .execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'ada@example.test', '{}', datetime('now'))",
-            [account.to_string()],
-        )
-        .unwrap();
+    mail_store::testing::seed_account(&store, account.clone(), "ada@example.test");
     let rebuilt =
         b"From: a@example.test\r\nSubject: The report\r\nMessage-ID: <r@example.test>\r\n\
         MIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=\"mix\"\r\n\r\n\
@@ -407,8 +393,8 @@ fn a_message_rebuilt_from_its_parts_is_not_exported_as_the_message_even_once_its
         --mix\r\nContent-Type: application/pdf\r\n\
         Content-Disposition: attachment; filename=\"report.pdf\"\r\n\
         X-Mailo-Remote-Section: 2\r\nX-Mailo-Remote-Octets: 2000000\r\n\r\n\r\n--mix--\r\n";
-    let raw = store.blobs().put(&store.connection(), rebuilt).unwrap();
-    let pdf = store.blobs().put(&store.connection(), b"%PDF-1.4").unwrap();
+    let raw = store.blobs().put(rebuilt).unwrap();
+    let pdf = store.blobs().put(b"%PDF-1.4").unwrap();
     let message = Message {
         id: MessageId::generate(),
         thread: ThreadId::generate(),
@@ -516,19 +502,13 @@ fn sync_never_touches_the_local_account() {
     // An identity by hand: the local account has none, which is the point, but a draft row
     // must name one.
     let identity = IdentityId::generate();
-    store
-        .connection()
-        .execute(
-            "INSERT INTO identities (id, account, from_name, from_email, reply_to, signature,
-                 is_default)
-             VALUES (?1, ?2, NULL, 'me@example.test', NULL, NULL, ?3)",
-            rusqlite::params![
-                identity.to_string(),
-                local_account(&store).to_string(),
-                serde_json::to_string(&IsDefault::Default).unwrap()
-            ],
-        )
-        .unwrap();
+    mail_store::testing::seed_identity_for(
+        &store,
+        identity,
+        local_account(&store),
+        "me@example.test",
+        None,
+    );
     let draft = Draft {
         id: DraftId::generate(),
         account: local_account(&store),

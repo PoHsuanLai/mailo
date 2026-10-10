@@ -31,8 +31,8 @@ fn google_account() -> AccountId {
     account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a2"))
 }
 
-fn plan(address: &str, host: &str) -> String {
-    let plan = AccountPlan {
+fn plan(address: &str, host: &str) -> AccountPlan {
+    AccountPlan {
         address: address.to_owned(),
         incoming: Incoming::Imap {
             host: host.to_owned(),
@@ -49,8 +49,7 @@ fn plan(address: &str, host: &str) -> String {
             sasl: vec![SaslMech::Plain],
         },
         identities: Vec::new(),
-    };
-    serde_json::to_string(&plan).unwrap()
+    }
 }
 
 fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
@@ -60,20 +59,17 @@ fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
         (imap_account(), "me@mail.example.test", "mail.example.test"),
         (google_account(), "me@gmail.com", "imap.gmail.com"),
     ];
-    {
-        let db = store.connection();
-        for (n, (id, address, host)) in accounts.iter().enumerate() {
-            db.execute(
-                "INSERT INTO accounts (id, address, plan, created_at) VALUES (?1, ?2, ?3, ?4)",
-                rusqlite::params![
-                    id.to_string(),
-                    address,
-                    plan(address, host),
-                    format!("2026-01-0{}T00:00:00Z", n + 1)
-                ],
-            )
-            .unwrap();
-        }
+    for (n, (id, address, host)) in accounts.iter().enumerate() {
+        mail_store::testing::seed_account_plan(
+            &store,
+            id.clone(),
+            address,
+            &plan(address, host),
+            Some(
+                chrono::TimeZone::with_ymd_and_hms(&chrono::Utc, 2026, 1, n as u32 + 1, 0, 0, 0)
+                    .unwrap(),
+            ),
+        );
     }
     let now = chrono::Utc::now();
     for (n, (id, address, _)) in accounts.iter().enumerate() {

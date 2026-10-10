@@ -28,14 +28,7 @@ fn store() -> (SqliteStore, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let store = SqliteStore::in_memory(dir.path()).unwrap();
     for (id, address) in [(acct_a(), "me@example.edu"), (acct_b(), "me@gmail.test")] {
-        store
-            .connection()
-            .execute(
-                "INSERT INTO accounts (id, address, plan, created_at)
-                 VALUES (?1, ?2, '{}', datetime('now'))",
-                rusqlite::params![id.to_string(), address],
-            )
-            .unwrap();
+        mail_store::testing::seed_account(&store, id.clone(), address);
     }
     (store, dir)
 }

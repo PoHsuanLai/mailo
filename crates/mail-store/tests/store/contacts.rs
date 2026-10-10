@@ -29,7 +29,7 @@ fn sqlite() -> (SqliteStore, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let store = SqliteStore::in_memory(dir.path()).unwrap();
     {
-        let db = store.connection();
+        let db = store.raw_connection();
         db.execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, ?2, '{}', datetime('now'))",
@@ -551,10 +551,7 @@ fn a_sender_whose_mail_came_through_a_list_is_not_offered_until_written_to() {
     let (store, _dir) = sqlite();
     let raw = store
         .blobs()
-        .put(
-            &store.connection(),
-            b"From: Poster <poster@example.test>\r\nList-Id: Talk <talk.example.test>\r\n\r\nhi",
-        )
+        .put(b"From: Poster <poster@example.test>\r\nList-Id: Talk <talk.example.test>\r\n\r\nhi")
         .unwrap();
     let m = received(1, 0, addr(Some("Poster"), "poster@example.test"));
     deliver_at(&store, &m, "INBOX", 1, raw);

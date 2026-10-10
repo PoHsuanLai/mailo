@@ -245,14 +245,7 @@ struct Passed {
 async fn one_pass(keep: Keep) -> Passed {
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(SqliteStore::in_memory(dir.path()).unwrap());
-    store
-        .connection()
-        .execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [acct_account().to_string()],
-        )
-        .unwrap();
+    mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
     let port = somewhere_to_connect();
     let plan = AccountPlan {
         address: "me@example.test".to_owned(),
@@ -316,20 +309,9 @@ async fn one_pass(keep: Keep) -> Passed {
 }
 
 fn messages(store: &SqliteStore) -> Vec<Message> {
-    let ids: Vec<String> = {
-        let db = store.connection();
-        let mut stmt = db.prepare("SELECT id FROM messages ORDER BY date").unwrap();
-        stmt.query_map([], |r| r.get(0))
-            .unwrap()
-            .map(Result::unwrap)
-            .collect()
-    };
-    ids.iter()
-        .map(|id| {
-            store
-                .message(MessageId::from_uuid(id.parse().unwrap()))
-                .unwrap()
-        })
+    mail_store::testing::message_ids(store)
+        .into_iter()
+        .map(|id| store.message(id).unwrap())
         .collect()
 }
 
@@ -358,11 +340,7 @@ async fn kept_offline_every_part_is_fetched_largest_last() {
     // (F165), which export and forward tell from the whole one by its bytes.
     for message in messages(&passed.store) {
         let raw = message.body.raw().expect("a body");
-        let bytes = passed
-            .store
-            .blobs()
-            .get(&passed.store.connection(), raw)
-            .unwrap();
+        let bytes = passed.store.blobs().get(raw).unwrap();
         assert!(mail_mime::left_on_server(&bytes), "{}", message.subject);
         assert!(
             message.attachments.iter().all(|a| a.blob().is_some()),

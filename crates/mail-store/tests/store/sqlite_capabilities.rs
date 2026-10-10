@@ -106,7 +106,7 @@ fn fts5vocab_row_accepts_the_external_content_index() {
     let store = SqliteStore::in_memory(dir.path()).unwrap();
     let account = new_account_id();
     store
-        .connection()
+        .raw_connection()
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
@@ -117,14 +117,14 @@ fn fts5vocab_row_accepts_the_external_content_index() {
     // The exact statement the store runs per connection. `main` because the index lives in
     // the main schema and this table lives in temp, which is not a migration.
     store
-        .connection()
+        .raw_connection()
         .execute_batch(
             "CREATE VIRTUAL TABLE IF NOT EXISTS temp.messages_vocab \
              USING fts5vocab(main, messages_fts, 'row')",
         )
         .expect("fts5vocab must accept the external-content messages_fts");
 
-    let raw = store.blobs().put(&store.connection(), b"raw").unwrap();
+    let raw = store.blobs().put(b"raw").unwrap();
     let message = Message {
         id: MessageId::generate(),
         thread: ThreadId::generate(),
@@ -163,7 +163,7 @@ fn fts5vocab_row_accepts_the_external_content_index() {
         )
         .unwrap();
 
-    let db = store.connection();
+    let db = store.raw_connection();
     let mut stmt = db
         .prepare("SELECT term, doc, cnt FROM temp.messages_vocab WHERE term = 'resume'")
         .expect("vocab columns term, doc, cnt");
@@ -201,7 +201,7 @@ fn nested_connection_access_does_not_deadlock() {
     let store = SqliteStore::in_memory(dir.path()).unwrap();
     let account = new_account_id();
     store
-        .connection()
+        .raw_connection()
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
@@ -209,7 +209,7 @@ fn nested_connection_access_does_not_deadlock() {
         )
         .unwrap();
 
-    let raw = store.blobs().put(&store.connection(), b"raw").unwrap();
+    let raw = store.blobs().put(b"raw").unwrap();
     let thread = ThreadId::generate();
     let message = Message {
         id: MessageId::generate(),
@@ -252,7 +252,7 @@ fn nested_connection_access_does_not_deadlock() {
         .expect("a nested take of the connection must not hang");
 
     // And holding one across a call that takes it again.
-    let held = store.connection();
+    let held = store.raw_connection();
     let count: i64 = held
         .query_row("SELECT count(*) FROM messages", [], |r| r.get(0))
         .unwrap();

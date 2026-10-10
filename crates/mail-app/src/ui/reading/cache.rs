@@ -173,7 +173,7 @@ pub(super) fn on_the_frame(
     if sent.going.contains(&key) {
         return None;
     }
-    let size = store.blobs().size(&store.reader(), key.0).unwrap_or(0);
+    let size = store.blobs().size(key.0).unwrap_or(0);
     if size <= *room || sent.landed.contains(&key) {
         *room = room.saturating_sub(size);
         return Some(rendered(store, message, policy));

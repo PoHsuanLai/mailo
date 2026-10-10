@@ -125,19 +125,9 @@ mod tests {
     fn sqlite_with(rows: &[(&str, &str, i64)]) -> (SqliteStore, tempfile::TempDir) {
         let dir = tempfile::tempdir().expect("tempdir");
         let store = SqliteStore::in_memory(dir.path()).expect("sqlite");
-        store
-            .connection()
-            .execute(
-                "INSERT INTO accounts (id, address, plan, created_at)
-                 VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-                [acct_account().to_string()],
-            )
-            .expect("account");
+        mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
         for (i, (subject, body, secs)) in rows.iter().enumerate() {
-            let raw = store
-                .blobs()
-                .put(&store.connection(), body.as_bytes())
-                .expect("blob");
+            let raw = store.blobs().put(body.as_bytes()).expect("blob");
             let mut message = message(i as u128, subject, body, *secs);
             if let Body::Present { raw: slot, .. } = &mut message.body {
                 *slot = raw;

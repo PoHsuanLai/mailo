@@ -93,30 +93,45 @@ fn seeded(raw: Option<Vec<u8>>) -> (SqliteStore, tempfile::TempDir, ThreadId) {
     let dir = tempfile::tempdir().unwrap();
     let store = SqliteStore::in_memory(dir.path()).unwrap();
     {
-        let db = store.connection();
-        db.execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [acct_account().to_string()],
-        )
-        .unwrap();
-        db.execute(
-            "INSERT INTO identities (id, account, from_name, from_email, reply_to, is_default)
-             VALUES (?1, ?2, 'Me', 'me@example.test',
-                     '{\"name\":null,\"email\":\"me.reply@example.test\"}', '\"default\"')",
-            rusqlite::params![IDENTITY.to_string(), acct_account().to_string()],
-        )
-        .unwrap();
-        db.execute(
-            "INSERT INTO identities (id, account, from_name, from_email, is_default)
-             VALUES (?1, ?2, 'Me (alias)', 'alias@example.test', '\"alternate\"')",
-            rusqlite::params![ALIAS.to_string(), acct_account().to_string()],
-        )
-        .unwrap();
+        mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
+        let identity = |id, name: &str, email: &str, reply_to, default| Identity {
+            id,
+            account: acct_account(),
+            from: Address {
+                name: Some(name.to_owned()),
+                email: email.to_owned(),
+            },
+            reply_to,
+            signature: None,
+            default,
+        };
+        mail_store::testing::seed_identity(
+            &store,
+            &identity(
+                IDENTITY,
+                "Me",
+                "me@example.test",
+                Some(Address {
+                    name: None,
+                    email: "me.reply@example.test".to_owned(),
+                }),
+                IsDefault::Default,
+            ),
+        );
+        mail_store::testing::seed_identity(
+            &store,
+            &identity(
+                ALIAS,
+                "Me (alias)",
+                "alias@example.test",
+                None,
+                IsDefault::Alternate,
+            ),
+        );
     }
     let blob = store
         .blobs()
-        .put(&store.connection(), raw.as_deref().unwrap_or(b"headers"))
+        .put(raw.as_deref().unwrap_or(b"headers"))
         .unwrap();
     let thread = ThreadId::generate();
     let message = Message {
@@ -196,7 +211,7 @@ fn submissions(store: &SqliteStore) -> Vec<(String, Vec<String>, String)> {
                 rcpt_to,
                 ..
             } => {
-                let bytes = store.blobs().get(&store.connection(), raw).unwrap();
+                let bytes = store.blobs().get(raw).unwrap();
                 Some((mail_from, rcpt_to, String::from_utf8(bytes).unwrap()))
             }
             _ => None,

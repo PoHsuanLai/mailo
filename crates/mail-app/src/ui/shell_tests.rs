@@ -205,10 +205,7 @@ async fn closing_a_today_entry_writes_the_file_and_not_the_mail() {
 }
 
 fn changes(store: &SqliteStore) -> i64 {
-    store
-        .connection()
-        .query_row("SELECT total_changes()", [], |row| row.get(0))
-        .unwrap_or(0)
+    mail_store::testing::total_changes(store)
 }
 
 fn paint(dom: &mut VirtualDom) -> super::fixtures::Seen {

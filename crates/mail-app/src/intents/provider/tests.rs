@@ -19,10 +19,7 @@ fn thread_of(n: u128) -> ThreadId {
 }
 
 fn message(store: &SqliteStore, n: u128, subject: &str, body: &str) -> Message {
-    let raw = store
-        .blobs()
-        .put(&store.connection(), body.as_bytes())
-        .expect("blob");
+    let raw = store.blobs().put(body.as_bytes()).expect("blob");
     Message {
         id: MessageId::from_uuid(uuid::Uuid::from_u128(0x9000 + n)),
         thread: thread_of(n),
@@ -91,30 +88,22 @@ fn world_opening(opener: Opener) -> (Provider, Arc<SqliteStore>, tempfile::TempD
     };
     let preset = presets::manual("me@example.test", &manual, Utc::now());
     {
-        let db = store.connection();
-        db.execute(
-            "INSERT INTO accounts (id, address, plan, created_at) VALUES (?1, ?2, ?3, datetime('now'))",
-            [
-                acct_account().to_string(),
-                preset.plan.address.clone(),
-                serde_json::to_string(&preset.plan).expect("plan"),
-            ],
-        )
-        .expect("account");
-        db.execute(
-            "INSERT INTO identities (id, account, from_name, from_email, is_default)
-             VALUES (?1, ?2, NULL, 'me@example.test', '\"default\"')",
-            [
-                IdentityId::generate().to_string(),
-                acct_account().to_string(),
-            ],
-        )
-        .expect("identity");
-        db.execute(
-            "INSERT INTO account_caps (account, caps, observed_at) VALUES (?1, ?2, datetime('now'))",
-            rusqlite::params![acct_account().to_string(), serde_json::to_string(&caps()).expect("caps")],
-        )
-        .expect("caps");
+        mail_store::testing::seed_account_plan(
+            &store,
+            acct_account(),
+            &preset.plan.address,
+            &preset.plan,
+            None,
+        );
+        mail_store::testing::seed_identity_for(
+            &store,
+            IdentityId::generate(),
+            acct_account(),
+            "me@example.test",
+            None,
+        );
+        mail_store::testing::seed_caps(&store, acct_account(), &caps(), chrono::Utc::now())
+            .unwrap();
     }
     for (n, subject, body) in [
         (1, "Lunch on Friday", "Shall we eat at noon?"),
@@ -132,18 +121,13 @@ fn world_opening(opener: Opener) -> (Provider, Arc<SqliteStore>, tempfile::TempD
             )
             .expect("apply");
         // Where the server keeps it, so that what is done here has a server half to queue.
-        store
-            .connection()
-            .execute(
-                "INSERT INTO remote_map (account, mailbox, uidvalidity, uid, message)
-                 VALUES (?1, 'INBOX', 1, ?2, ?3)",
-                rusqlite::params![
-                    acct_account().to_string(),
-                    n as u32,
-                    MessageId::from_uuid(uuid::Uuid::from_u128(0x9000 + n)).to_string()
-                ],
-            )
-            .expect("remote");
+        mail_store::testing::seed_remote_uid(
+            &store,
+            acct_account(),
+            "INBOX",
+            n as u32,
+            MessageId::from_uuid(uuid::Uuid::from_u128(0x9000 + n)),
+        );
     }
     let provider = Provider::new(store.clone(), Arc::new(MapSigningStore::default()), opener);
     (provider, store, dir)
@@ -272,12 +256,7 @@ fn archiving_takes_the_conversation_out_of_the_inbox_and_the_token_puts_it_back(
 
 /// Make every write to the outbox fail, as a full disk or a locked database would.
 fn refuse_queueing(store: &SqliteStore) {
-    store
-        .connection()
-        .execute_batch(
-            "CREATE TRIGGER refuse BEFORE INSERT ON outbox BEGIN SELECT RAISE(ABORT, 'full'); END;",
-        )
-        .expect("trigger");
+    mail_store::testing::refuse_outbox_writes(store);
 }
 
 #[test]
@@ -621,13 +600,7 @@ fn a_draft_is_saved_and_discarded_by_its_token() {
 }
 
 fn no_drafts(store: &SqliteStore) -> bool {
-    store
-        .connection()
-        .query_row("SELECT COUNT(*) FROM drafts", [], |row| {
-            row.get::<_, i64>(0)
-        })
-        .expect("count")
-        == 0
+    mail_store::testing::count(store, "drafts") == 0
 }
 
 fn sent_args() -> Vec<(&'static str, serde_json::Value)> {
@@ -909,12 +882,7 @@ fn the_sending_account_is_asked_for_when_there_is_a_choice() {
     let (provider, store, _dir) = world();
     let other = new_account_id();
     {
-        let db = store.connection();
-        db.execute(
-            "INSERT INTO accounts (id, address, plan, created_at) VALUES (?1, 'two@example.test', '{}', datetime('now'))",
-            [other.to_string()],
-        )
-        .expect("account");
+        mail_store::testing::seed_account(&store, other.clone(), "two@example.test");
     }
     let refused = provider.perform(&call("mail.message.send", Target::Nothing, &sent_args()));
     assert!(

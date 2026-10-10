@@ -21,11 +21,11 @@ const GRANTED: &str = r#"{"auth":{"kind":"granted"},"incoming":{"kind":"imap"}}"
 const LOCAL: &str = r#"{"auth":{"kind":"password"},"incoming":{"kind":"local"}}"#;
 
 fn addresses(store: &SqliteStore) -> Vec<String> {
-    let db = store.connection();
+    let db = store.raw_connection();
     let mut stmt = db
         .prepare(&format!(
             "SELECT address FROM {} ORDER BY address",
-            store.accounts()
+            store.raw_accounts()
         ))
         .unwrap();
     stmt.query_map([], |r| r.get(0))
@@ -35,7 +35,7 @@ fn addresses(store: &SqliteStore) -> Vec<String> {
 }
 
 fn message(store: &SqliteStore, account: AccountId, uid: u32) {
-    let raw = store.blobs().put(&store.connection(), b"raw").unwrap();
+    let raw = store.blobs().put(b"raw").unwrap();
     let message = Message {
         id: MessageId::generate(),
         thread: ThreadId::generate(),
@@ -101,7 +101,7 @@ fn store() -> (SqliteStore, tempfile::TempDir) {
         (5, "unreadable@example.test", "not json"),
     ] {
         store
-            .connection()
+            .raw_connection()
             .execute(
                 "INSERT INTO accounts (id, address, plan, created_at)
                  VALUES (?1, ?2, ?3, datetime('now'))",
@@ -136,7 +136,7 @@ fn granted_only_leaves_held_accounts_out_and_writes_nothing() {
     // Held ones are known, whatever the mode, and still stored as they were.
     assert_eq!(store.held_accounts(), [account(1), account(2)]);
     let plan: String = store
-        .connection()
+        .raw_connection()
         .query_row(
             "SELECT plan FROM accounts WHERE address = 'held-password@example.test'",
             [],

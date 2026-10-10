@@ -43,10 +43,7 @@ fn window() -> Window {
 }
 
 fn changes(store: &SqliteStore) -> i64 {
-    store
-        .connection()
-        .query_row("SELECT total_changes()", [], |row| row.get(0))
-        .unwrap_or(0)
+    mail_store::testing::total_changes(store)
 }
 
 #[tokio::test]

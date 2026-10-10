@@ -53,14 +53,7 @@ fn seeded() -> (SqliteStore, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let store = SqliteStore::in_memory(dir.path()).unwrap();
     for (account, address) in [(acct_work(), "me@work.test"), (acct_home(), "me@home.test")] {
-        store
-            .connection()
-            .execute(
-                "INSERT INTO accounts (id, address, plan, created_at)
-                 VALUES (?1, ?2, '{}', datetime('now'))",
-                [account.to_string(), address.to_owned()],
-            )
-            .unwrap();
+        mail_store::testing::seed_account(&store, account.clone(), address);
     }
     for id in ["w1", "w2", "w3"] {
         arrive(&store, acct_work(), id, "");

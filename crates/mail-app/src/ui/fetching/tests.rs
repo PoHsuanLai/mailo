@@ -34,29 +34,22 @@ pub(super) fn account(fetched: bool) -> (Arc<SqliteStore>, tempfile::TempDir) {
         login: None,
     };
     let preset = presets::manual("me@nowhere.example", &manual, Utc::now());
-    let db = store.connection();
-    db.execute(
-        "INSERT INTO accounts (id, address, plan, created_at) VALUES (?1, ?2, ?3, ?4)",
-        [
-            acct_account().to_string(),
-            preset.plan.address.clone(),
-            serde_json::to_string(&preset.plan).unwrap(),
-            Utc::now().to_rfc3339(),
-        ],
-    )
-    .unwrap();
+    mail_store::testing::seed_account_plan(
+        &store,
+        acct_account(),
+        &preset.plan.address,
+        &preset.plan,
+        Some(Utc::now()),
+    );
     if fetched {
-        db.execute(
-            "INSERT INTO sync_state (account, mailbox, cursor, synced_at)
-             VALUES (?1, 'INBOX', ?2, datetime('now'))",
-            rusqlite::params![
-                acct_account().to_string(),
-                serde_json::to_string(&SyncCursor::Pop).unwrap()
-            ],
-        )
-        .unwrap();
+        mail_store::testing::seed_sync_state(
+            &store,
+            acct_account(),
+            "INBOX",
+            &SyncCursor::Pop,
+            None,
+        );
     }
-    drop(db);
     store
         .put_caps(acct_account(), &preset.expected_caps, Utc::now())
         .unwrap();
@@ -380,18 +373,13 @@ async fn the_accounts_that_come_and_go_get_and_lose_their_link() {
         login: None,
     };
     let preset = presets::manual("two@other.example", &manual, Utc::now());
-    store
-        .connection()
-        .execute(
-            "INSERT INTO accounts (id, address, plan, created_at) VALUES (?1, ?2, ?3, ?4)",
-            [
-                acct_later().to_string(),
-                preset.plan.address.clone(),
-                serde_json::to_string(&preset.plan).unwrap(),
-                Utc::now().to_rfc3339(),
-            ],
-        )
-        .unwrap();
+    mail_store::testing::seed_account_plan(
+        &store,
+        acct_later(),
+        &preset.plan.address,
+        &preset.plan,
+        Some(Utc::now()),
+    );
     store
         .put_caps(acct_later(), &preset.expected_caps, Utc::now())
         .unwrap();
@@ -415,13 +403,7 @@ async fn the_accounts_that_come_and_go_get_and_lose_their_link() {
     );
 
     // Gone: its link goes, and the pass it was running is cancelled and forgotten.
-    store
-        .connection()
-        .execute(
-            "DELETE FROM accounts WHERE id = ?1",
-            [acct_later().to_string()],
-        )
-        .unwrap();
+    mail_store::testing::delete_account_row(&store, acct_later());
     changed(&dom);
     settle(&mut dom).await;
     assert_eq!(

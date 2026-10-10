@@ -30,7 +30,7 @@ fn store() -> (SqliteStore, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let store = SqliteStore::in_memory(dir.path()).unwrap();
     store
-        .connection()
+        .raw_connection()
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
@@ -42,7 +42,7 @@ fn store() -> (SqliteStore, tempfile::TempDir) {
 
 /// One message, already stored and mapped, as a survey would find it.
 fn message(store: &SqliteStore, uid: u32) -> MessageId {
-    let raw = store.blobs().put(&store.connection(), b"raw").unwrap();
+    let raw = store.blobs().put(b"raw").unwrap();
     let id = MessageId::generate();
     let message = Message {
         id,

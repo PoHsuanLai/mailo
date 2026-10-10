@@ -1,5 +1,4 @@
 use crate::ui::view::Listing;
-use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
@@ -60,27 +59,19 @@ pub(super) struct AccountRow {
 /// Every account, oldest first. A plan that does not parse becomes a plain IMAP account so the
 /// tile still has a host to name; `'{}'` is what the oldest fixtures wrote.
 pub(super) fn account_rows(store: &SqliteStore) -> Vec<AccountRow> {
-    let db = store.connection();
-    let Ok(mut stmt) = db.prepare(&format!(
-        "SELECT id, address, plan FROM {} ORDER BY created_at",
-        store.accounts()
-    )) else {
-        return Vec::new();
-    };
-    let Ok(rows) = stmt.query_map([], |row| {
-        Ok((
-            row.get::<_, String>(0)?,
-            row.get::<_, String>(1)?,
-            row.get::<_, String>(2)?,
-        ))
-    }) else {
-        return Vec::new();
-    };
-    rows.filter_map(|row| row.ok())
-        .filter_map(|(id, address, plan)| {
-            let id = account_id_from_uuid(id.parse().ok()?);
-            let plan = serde_json::from_str(&plan).unwrap_or_else(|_| fallback_plan(&address));
-            Some(AccountRow { id, address, plan })
+    store
+        .list_accounts()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|account| {
+            let plan = account
+                .plan
+                .unwrap_or_else(|_| fallback_plan(&account.address));
+            AccountRow {
+                id: account.id,
+                address: account.address,
+                plan,
+            }
         })
         .collect()
 }
@@ -143,33 +134,17 @@ fn fallback_plan(address: &str) -> AccountPlan {
 
 /// Every configured account, or why the store could not say. Where an empty answer would be
 /// acted on (taking accounts out of the Spaces), a failed read must not look like no accounts.
-pub(super) fn known_accounts(store: &SqliteStore) -> Result<Vec<AccountId>, rusqlite::Error> {
-    let db = store.connection();
-    let mut stmt = db.prepare("SELECT id FROM accounts ORDER BY created_at")?;
-    let ids = stmt
-        .query_map([], |r| r.get::<_, String>(0))?
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(ids
+pub(super) fn known_accounts(
+    store: &SqliteStore,
+) -> Result<Vec<AccountId>, mail_store::StoreError> {
+    Ok(store
+        .list_all_accounts()?
         .into_iter()
-        .filter_map(|id| id.parse().ok())
-        .map(mail_domain::id::account_id_from_uuid)
+        .map(|account| account.id)
         .collect())
 }
 
 /// Every configured account, for the places that are not scoped to one.
 pub(super) fn accounts(store: &SqliteStore) -> Vec<AccountId> {
-    let db = store.connection();
-    let Ok(mut stmt) = db.prepare(&format!(
-        "SELECT id FROM {} ORDER BY created_at",
-        store.accounts()
-    )) else {
-        return Vec::new();
-    };
-    let Ok(rows) = stmt.query_map([], |r| r.get::<_, String>(0)) else {
-        return Vec::new();
-    };
-    rows.filter_map(|row| row.ok())
-        .filter_map(|id| id.parse().ok())
-        .map(mail_domain::id::account_id_from_uuid)
-        .collect()
+    account_rows(store).into_iter().map(|row| row.id).collect()
 }

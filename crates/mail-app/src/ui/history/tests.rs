@@ -33,16 +33,23 @@ fn writing_to_someone_is_what_replied_means() {
     let before = history(&built.store);
     assert!(!before.get("dana@example.com").is_some_and(|d| d.replied));
     // One of the fixture's messages, rewritten as sent from the Google account to Dana.
-    built
-        .store
-        .connection()
-        .execute(
-            "UPDATE messages SET from_email = 'poh@acme.example', from_name = NULL,
-                    recipients = '{\"reply_to\":[],\"to\":[{\"name\":null,\"email\":\"Dana@Example.com\"}],\"cc\":[],\"bcc\":[]}'
-              WHERE subject = 'Accepted: Design review, Thursday 14:00'",
-            [],
-        )
-        .unwrap();
+    mail_store::testing::edit_messages(&built.store, |message| {
+        if message.subject != "Accepted: Design review, Thursday 14:00" {
+            return false;
+        }
+        message.from = mail_domain::Address {
+            name: None,
+            email: "poh@acme.example".to_owned(),
+        };
+        message.to = vec![mail_domain::Address {
+            name: None,
+            email: "Dana@Example.com".to_owned(),
+        }];
+        message.reply_to.clear();
+        message.cc.clear();
+        message.bcc.clear();
+        true
+    });
     let after = history(&built.store);
     assert!(
         after.get("dana@example.com").is_some_and(|d| d.replied),

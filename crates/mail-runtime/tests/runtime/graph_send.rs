@@ -239,19 +239,14 @@ fn compose_as(port: u16, message: Option<Vec<u8>>) -> Sending {
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(SqliteStore::in_memory(dir.path()).unwrap());
     {
-        let db = store.connection();
-        db.execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [acct_account().to_string()],
-        )
-        .unwrap();
-        db.execute(
-            "INSERT INTO identities (id, account, from_name, from_email, is_default)
-             VALUES (?1, ?2, 'Me', 'me@example.test', '\"default\"')",
-            [IDENTITY.to_string(), acct_account().to_string()],
-        )
-        .unwrap();
+        mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
+        mail_store::testing::seed_identity_for(
+            &store,
+            IDENTITY,
+            acct_account(),
+            "me@example.test",
+            Some("Me"),
+        );
     }
     let secrets = MemorySecrets::default();
     for (purpose, access) in [
@@ -281,10 +276,7 @@ fn compose_as(port: u16, message: Option<Vec<u8>>) -> Sending {
     let post = posting(&draft, &identity(), None, &[]).expect("the draft has recipients");
     let raw = store
         .blobs()
-        .put(
-            &store.connection(),
-            message.as_deref().unwrap_or(&post.message),
-        )
+        .put(message.as_deref().unwrap_or(&post.message))
         .unwrap();
     store
         .enqueue(
@@ -382,7 +374,7 @@ async fn a_queued_message_goes_to_graph_with_the_graph_token() {
             let Body::Present { raw, .. } = kept.body else {
                 panic!("the copy holds its body: {:?}", kept.body);
             };
-            let bytes = it.store.blobs().get(&it.store.connection(), raw).unwrap();
+            let bytes = it.store.blobs().get(raw).unwrap();
             let bytes = String::from_utf8(bytes).unwrap();
             assert!(bytes.contains("Bcc: dee@example.test\r\n"), "{bytes}");
             assert!(bytes.contains("Subject: lunch on friday"), "{bytes}");

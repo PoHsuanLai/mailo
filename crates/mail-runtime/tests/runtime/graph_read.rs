@@ -270,14 +270,7 @@ struct Account {
 fn account(port: u16) -> Account {
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(SqliteStore::in_memory(dir.path()).unwrap());
-    store
-        .connection()
-        .execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [acct_account().to_string()],
-        )
-        .unwrap();
+    mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
     let secrets: Arc<dyn AccountSecrets> = Arc::new(MemorySecrets::default());
     for purpose in [SecretPurpose::IncomingPassword, SecretPurpose::OAuthRefresh] {
         mail_runtime::block_on(secrets.put(&key(purpose), &token("sign-in"))).unwrap();
@@ -316,15 +309,9 @@ fn cancel() -> (watch::Sender<bool>, mail_runtime::Cancel) {
 
 /// The message whose `Message-ID` is `<m{n}@example.test>`.
 fn held(store: &SqliteStore, n: u32) -> Option<Message> {
-    let id: Option<String> = store
-        .connection()
-        .query_row(
-            "SELECT id FROM messages WHERE rfc_message_id = ?1",
-            [format!("m{n}@example.test")],
-            |r| r.get(0),
-        )
-        .ok();
-    let id = MessageId::from_uuid(id?.parse().unwrap());
+    let id = store
+        .message_by_rfc_id(acct_account(), &format!("m{n}@example.test"))
+        .ok()??;
     store.message(id).ok()
 }
 
@@ -410,17 +397,11 @@ async fn folders_are_listed_with_their_children_and_the_well_known_ones_get_role
     let sent = folders.iter().find(|f| f.path == "Sent Items").unwrap();
     assert_eq!(sent.special, Some(SpecialUse::Sent));
 
-    let caps: AccountCaps = serde_json::from_str(
-        &it.store
-            .connection()
-            .query_row(
-                "SELECT caps FROM account_caps WHERE account = ?1",
-                [acct_account().to_string()],
-                |r| r.get::<_, String>(0),
-            )
-            .unwrap(),
-    )
-    .unwrap();
+    let caps: AccountCaps = it
+        .store
+        .account_caps(acct_account())
+        .unwrap()
+        .expect("capabilities were written");
     assert_eq!(caps.folders.path(MailboxRole::Sent), Some("Sent Items"));
     assert_eq!(caps.folders.path(MailboxRole::Archive), Some("Archive"));
     assert_eq!(

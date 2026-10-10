@@ -41,10 +41,7 @@ fn put(store: &SqliteStore, sender: &str, headers: &str, held: Held) -> ThreadId
         "From: {sender}\r\nTo: me@example.test\r\nSubject: news\r\nMessage-ID: <{rfc}>\r\n\
          {headers}\r\nthis week's news\r\n"
     );
-    let raw = store
-        .blobs()
-        .put(&store.connection(), bytes.as_bytes())
-        .unwrap();
+    let raw = store.blobs().put(bytes.as_bytes()).unwrap();
     let id = MessageId::generate();
     let message = Message {
         id,

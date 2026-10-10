@@ -23,26 +23,14 @@ fn thread(n: u128) -> ThreadId {
 
 fn store(dir: &std::path::Path) -> SqliteStore {
     let store = SqliteStore::open(dir.join("mail.db"), dir.join("blobs")).unwrap();
-    store
-        .connection()
-        .execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, ?2, '{}', datetime('now'))",
-            [acct_account().to_string(), ME.to_owned()],
-        )
-        .unwrap();
-    store
-        .connection()
-        .execute(
-            "INSERT INTO identities (id, account, from_name, from_email, is_default)
-             VALUES (?1, ?2, NULL, ?3, '\"default\"')",
-            [
-                mail_domain::IdentityId::generate().to_string(),
-                acct_account().to_string(),
-                ME.to_owned(),
-            ],
-        )
-        .unwrap();
+    mail_store::testing::seed_account(&store, acct_account(), ME);
+    mail_store::testing::seed_identity_for(
+        &store,
+        mail_domain::IdentityId::generate(),
+        acct_account(),
+        ME,
+        None,
+    );
     store
 }
 

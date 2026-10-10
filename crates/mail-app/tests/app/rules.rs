@@ -44,18 +44,7 @@ const ME: &str = "me@example.test";
 
 /// Write an account as `account add` would, without going near a credential.
 fn configure(store: &SqliteStore, id: AccountId, plan: &AccountPlan, caps: &AccountCaps) {
-    store
-        .connection()
-        .execute(
-            "INSERT INTO accounts (id, address, plan, created_at) VALUES (?1, ?2, ?3, ?4)",
-            [
-                id.to_string(),
-                plan.address.clone(),
-                serde_json::to_string(plan).unwrap(),
-                now().to_rfc3339(),
-            ],
-        )
-        .unwrap();
+    mail_store::testing::seed_account_plan(store, id.clone(), &plan.address, plan, Some(now()));
     store.put_caps(id, caps, now()).unwrap();
 }
 
@@ -180,10 +169,7 @@ fn held(store: &SqliteStore, uid: u32, from: &str) -> MessageId {
     let key = format!("{uid}@example.test");
     let raw = store
         .blobs()
-        .put(
-            &store.connection(),
-            format!("From: {from}\r\n\r\nhi\r\n").as_bytes(),
-        )
+        .put(format!("From: {from}\r\n\r\nhi\r\n").as_bytes())
         .unwrap();
     let message = Message {
         id: MessageId::generate(),

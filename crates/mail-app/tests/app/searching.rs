@@ -173,14 +173,7 @@ mod what_the_store_returns {
     fn seeded() -> (SqliteStore, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
         let store = SqliteStore::in_memory(dir.path()).unwrap();
-        store
-            .connection()
-            .execute(
-                "INSERT INTO accounts (id, address, plan, created_at)
-                 VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-                [acct_account().to_string()],
-            )
-            .unwrap();
+        mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
 
         let mail: [(&str, &str, &str, &str); 3] = [
             (
@@ -420,14 +413,7 @@ mod a_label_typed_into_the_window_finds_the_mail {
     fn seeded() -> (SqliteStore, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
         let store = SqliteStore::in_memory(dir.path()).unwrap();
-        store
-            .connection()
-            .execute(
-                "INSERT INTO accounts (id, address, plan, created_at)
-                 VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-                [acct_account().to_string()],
-            )
-            .unwrap();
+        mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
 
         for (n, subject) in ["flight to taipei", "the invoice"].iter().enumerate() {
             let raw = format!(

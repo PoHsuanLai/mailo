@@ -39,13 +39,13 @@ fn load(mails: &[Mail<'_>]) -> Held {
     let dir = tempfile::tempdir().unwrap();
     let sqlite = SqliteStore::in_memory(dir.path()).unwrap();
     let memory = MemoryStore::new();
-    let raw = sqlite.blobs().put(&sqlite.connection(), b"raw").unwrap();
+    let raw = sqlite.blobs().put(b"raw").unwrap();
     let mut seen = Vec::new();
     for mail in mails {
         if !seen.contains(&mail.account) {
             seen.push(mail.account.clone());
             sqlite
-                .connection()
+                .raw_connection()
                 .execute(
                     "INSERT INTO accounts (id, address, plan, created_at)
                      VALUES (?1, ?2, '{}', datetime('now'))",
@@ -367,14 +367,14 @@ fn a_repeated_subject_term_outranks_one_hit_in_a_long_body() {
     let dir = tempfile::tempdir().unwrap();
     let sqlite = SqliteStore::in_memory(dir.path()).unwrap();
     sqlite
-        .connection()
+        .raw_connection()
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'a@example.test', '{}', datetime('now'))",
             [acct_a().to_string()],
         )
         .unwrap();
-    let raw = sqlite.blobs().put(&sqlite.connection(), b"raw").unwrap();
+    let raw = sqlite.blobs().put(b"raw").unwrap();
     let mut ids = Vec::new();
     for (i, (subject, body, secs)) in [("kite kite", "ok", 1i64), ("hello", long.as_str(), 2)]
         .into_iter()
@@ -512,14 +512,14 @@ fn terms_are_visible_from_a_read_connection() {
     let dir = tempfile::tempdir().unwrap();
     let sqlite = SqliteStore::open(dir.path().join("mail.db"), dir.path()).unwrap();
     sqlite
-        .connection()
+        .raw_connection()
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'a@example.test', '{}', datetime('now'))",
             [acct_a().to_string()],
         )
         .unwrap();
-    let raw = sqlite.blobs().put(&sqlite.connection(), b"raw").unwrap();
+    let raw = sqlite.blobs().put(b"raw").unwrap();
     sqlite
         .apply(
             acct_a(),

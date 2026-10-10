@@ -70,17 +70,13 @@ fn plan() -> AccountPlan {
 fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
     std::fs::create_dir_all(dir.join("blobs")).unwrap();
     let store = SqliteStore::open(dir.join("mail.db"), dir.join("blobs")).unwrap();
-    store
-        .connection()
-        .execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'me@example.test', ?2, datetime('now'))",
-            [
-                acct_account().to_string(),
-                serde_json::to_string(&plan()).unwrap(),
-            ],
-        )
-        .unwrap();
+    mail_store::testing::seed_account_plan(
+        &store,
+        acct_account(),
+        "me@example.test",
+        &plan(),
+        None,
+    );
     let now = chrono::Utc::now();
     let raw = format!(
         "From: ada@example.test\r\nTo: me@example.test\r\nSubject: Flight to the conference\r\n\

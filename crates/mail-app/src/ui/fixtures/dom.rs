@@ -772,18 +772,24 @@ mod tests {
                 },
                 identities: Vec::new(),
             };
-            store
-                .connection()
-                .execute(
-                    "INSERT INTO accounts (id, address, plan, created_at) VALUES (?1, ?2, ?3, ?4)",
-                    rusqlite::params![
-                        mail_domain::id::new_account_id().to_string(),
-                        address,
-                        serde_json::to_string(&plan).unwrap(),
-                        format!("2026-01-0{}T00:00:00Z", n + 1),
-                    ],
-                )
-                .unwrap();
+            mail_store::testing::seed_account_plan(
+                &store,
+                mail_domain::id::new_account_id(),
+                address,
+                &plan,
+                Some(
+                    chrono::TimeZone::with_ymd_and_hms(
+                        &chrono::Utc,
+                        2026,
+                        1,
+                        n as u32 + 1,
+                        0,
+                        0,
+                        0,
+                    )
+                    .unwrap(),
+                ),
+            );
         }
         let loaded = crate::ui::provider_chip::read(&icons);
         if !icons.join("google.png").is_file() {

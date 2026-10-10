@@ -246,14 +246,7 @@ async fn a_whole_sync_over_a_real_socket_lands_mail_in_the_store() {
 
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(SqliteStore::in_memory(dir.path()).unwrap());
-    store
-        .connection()
-        .execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [acct_account().to_string()],
-        )
-        .unwrap();
+    mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
 
     let secrets = MemorySecrets::default();
     mail_runtime::block_on(secrets.put(
@@ -382,10 +375,7 @@ async fn a_whole_sync_over_a_real_socket_lands_mail_in_the_store() {
         "re-syncing must re-map, not re-create: {:?}",
         again.items.iter().map(|t| &t.subject).collect::<Vec<_>>()
     );
-    let messages: i64 = store
-        .connection()
-        .query_row("SELECT count(*) FROM messages", [], |r| r.get(0))
-        .unwrap();
+    let messages: i64 = mail_store::testing::count(&store, "messages");
     assert_eq!(messages, 3);
 }
 
@@ -411,14 +401,7 @@ mod repeated_passes {
     fn fixture(port: u16) -> Fixture {
         let dir = tempfile::tempdir().unwrap();
         let store = Arc::new(SqliteStore::in_memory(dir.path()).unwrap());
-        store
-            .connection()
-            .execute(
-                "INSERT INTO accounts (id, address, plan, created_at)
-                 VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-                [acct_account().to_string()],
-            )
-            .unwrap();
+        mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
 
         let secrets = MemorySecrets::default();
         mail_runtime::block_on(secrets.put(
@@ -468,10 +451,7 @@ mod repeated_passes {
     }
 
     fn remote_rows(store: &SqliteStore) -> i64 {
-        store
-            .connection()
-            .query_row("SELECT count(*) FROM remote_map", [], |r| r.get(0))
-            .unwrap()
+        mail_store::testing::count(store, "remote_map")
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -638,14 +618,7 @@ async fn the_first_sync_fetches_the_newest_mail_first_within_each_band() {
 
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(SqliteStore::in_memory(dir.path()).unwrap());
-    store
-        .connection()
-        .execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [acct_account().to_string()],
-        )
-        .unwrap();
+    mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
     let secrets = MemorySecrets::default();
     mail_runtime::block_on(secrets.put(
         &SecretKey {
@@ -716,14 +689,7 @@ async fn the_body_pass_fetches_what_the_window_is_showing_first() {
 
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(SqliteStore::in_memory(dir.path()).unwrap());
-    store
-        .connection()
-        .execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [acct_account().to_string()],
-        )
-        .unwrap();
+    mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
     let secrets = MemorySecrets::default();
     mail_runtime::block_on(secrets.put(
         &SecretKey {

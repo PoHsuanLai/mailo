@@ -312,7 +312,7 @@ pub(super) fn add_from(
     // and a second message under that key is the same message to the store.
     let mut fetched = Vec::new();
     for (index, (subject, bytes)) in parts.iter().enumerate() {
-        let raw = store.blobs().put(&store.connection(), bytes).unwrap();
+        let raw = store.blobs().put(bytes).unwrap();
         let message = Message {
             id: MessageId::generate(),
             thread,

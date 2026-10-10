@@ -76,22 +76,16 @@ fn store() -> (SqliteStore, tempfile::TempDir) {
 }
 
 fn plan_of(store: &SqliteStore, address: &str) -> AccountPlan {
-    let text: String = store
-        .connection()
-        .query_row(
-            "SELECT plan FROM accounts WHERE address = ?1",
-            [address],
-            |r| r.get(0),
-        )
-        .unwrap();
-    serde_json::from_str(&text).unwrap()
+    store
+        .account_by_address(address)
+        .unwrap()
+        .expect("the account")
+        .plan
+        .unwrap()
 }
 
 fn rows(store: &SqliteStore) -> i64 {
-    store
-        .connection()
-        .query_row("SELECT count(*) FROM accounts", [], |r| r.get(0))
-        .unwrap()
+    mail_store::testing::count(store, "accounts")
 }
 
 #[test]
@@ -207,10 +201,7 @@ fn reading_the_accounts_adds_each_once_and_keeps_what_the_person_set() {
     assert!(uuid::Uuid::parse_str(here.id.as_str()).is_ok(), "{here:?}");
     assert_eq!(here.account.as_str(), "fastmail-me");
     // Expected capabilities were written for the first sync to start from.
-    let caps: i64 = store
-        .connection()
-        .query_row("SELECT count(*) FROM account_caps", [], |r| r.get(0))
-        .unwrap();
+    let caps: i64 = mail_store::testing::count(&store, "account_caps");
     assert_eq!(caps, 1);
 
     // Read again unchanged: nothing is added or updated.
@@ -222,9 +213,10 @@ fn reading_the_accounts_adds_each_once_and_keeps_what_the_person_set() {
 
     // The person sets a signature; accountd then gives Mail a new grant (the account was allowed
     // again). The grant is brought up to date and the signature is still there.
+    let account = store.list_accounts().unwrap().remove(0).id;
+    let mine = store.identities(account.clone()).unwrap().remove(0);
     store
-        .connection()
-        .execute("UPDATE identities SET signature = 'Sent from here'", [])
+        .set_signature(mine.id, Some("Sent from here"))
         .unwrap();
     let again = reconcile(&store, &[fastmail("fastmail-me", "grant-2")], now()).unwrap();
     assert_eq!(again.updated, vec!["me@example.test".to_owned()]);
@@ -232,34 +224,28 @@ fn reading_the_accounts_adds_each_once_and_keeps_what_the_person_set() {
     let plan = plan_of(&store, "me@example.test");
     assert_eq!(plan.grant().unwrap().as_str(), "grant-2");
     assert_eq!(plan.identities.len(), 1);
-    let kept: Option<String> = store
-        .connection()
-        .query_row("SELECT signature FROM identities", [], |r| r.get(0))
-        .unwrap();
+    let kept = store.identities(account).unwrap().remove(0).signature;
     assert_eq!(kept.as_deref(), Some("Sent from here"));
 }
 
 #[test]
 fn an_address_mailo_holds_itself_is_left_as_it_is() {
     let (store, _dir) = store();
-    store
-        .connection()
-        .execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES ('00000000-0000-4000-8000-0000000000a1', 'me@example.test', '{}', datetime('now'))",
-            [],
-        )
-        .unwrap();
+    mail_store::testing::seed_account(
+        &store,
+        porter_core::AccountId::parse("00000000-0000-4000-8000-0000000000a1").unwrap(),
+        "me@example.test",
+    );
     let said = reconcile(&store, &[fastmail("fastmail-me", "grant-1")], now()).unwrap();
     assert!(said.added.is_empty());
     assert_eq!(said.held, vec!["me@example.test".to_owned()]);
     assert_eq!(rows(&store), 1);
-    let plan: String = store
-        .connection()
-        .query_row("SELECT plan FROM accounts", [], |r| r.get(0))
-        .unwrap();
-    assert_eq!(
-        plan, "{}",
+    let stored = store
+        .account_by_address("me@example.test")
+        .unwrap()
+        .expect("the account");
+    assert!(
+        stored.plan.is_err(),
         "the account held with its own sign-in was touched"
     );
 }

@@ -342,10 +342,7 @@ pub fn queue_uploads(
             total.already += 1;
             continue;
         }
-        let raw = store
-            .blobs()
-            .put(&store.connection(), &item.raw)
-            .map_err(|e| e.to_string())?;
+        let raw = store.blobs().put(&item.raw).map_err(|e| e.to_string())?;
         if waiting.contains(&raw) {
             total.already += 1;
             continue;

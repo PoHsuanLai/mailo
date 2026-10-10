@@ -33,17 +33,13 @@ fn seeded(dir: &std::path::Path) -> SqliteStore {
         chrono::Utc::now(),
     )
     .plan;
-    store
-        .connection()
-        .execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'me@provider.example', ?2, datetime('now'))",
-            rusqlite::params![
-                acct_account().to_string(),
-                serde_json::to_string(&plan).unwrap()
-            ],
-        )
-        .unwrap();
+    mail_store::testing::seed_account_plan(
+        &store,
+        acct_account(),
+        "me@provider.example",
+        &plan,
+        None,
+    );
     store
 }
 

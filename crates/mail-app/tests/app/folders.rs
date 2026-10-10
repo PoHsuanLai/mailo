@@ -28,18 +28,13 @@ const POP: &str = "you@nowhere.example";
 
 /// Write an account as `account add` would, without going near a credential.
 fn configure(store: &SqliteStore, id: AccountId, preset: presets::Preset) {
-    store
-        .connection()
-        .execute(
-            "INSERT INTO accounts (id, address, plan, created_at) VALUES (?1, ?2, ?3, ?4)",
-            [
-                id.to_string(),
-                preset.plan.address.clone(),
-                serde_json::to_string(&preset.plan).unwrap(),
-                now().to_rfc3339(),
-            ],
-        )
-        .unwrap();
+    mail_store::testing::seed_account_plan(
+        store,
+        id.clone(),
+        &preset.plan.address,
+        &preset.plan,
+        Some(now()),
+    );
     store.put_caps(id, &preset.expected_caps, now()).unwrap();
 }
 

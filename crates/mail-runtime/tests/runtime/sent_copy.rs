@@ -224,21 +224,14 @@ struct Sending {
 fn compose(smtp: u16, imap: u16, sent_folder: bool) -> Sending {
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(SqliteStore::in_memory(dir.path()).unwrap());
-    {
-        let db = store.connection();
-        db.execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [acct_account().to_string()],
-        )
-        .unwrap();
-        db.execute(
-            "INSERT INTO identities (id, account, from_name, from_email, is_default)
-             VALUES (?1, ?2, 'Me', 'me@example.test', '\"default\"')",
-            [IDENTITY.to_string(), acct_account().to_string()],
-        )
-        .unwrap();
-    }
+    mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
+    mail_store::testing::seed_identity_for(
+        &store,
+        IDENTITY,
+        acct_account(),
+        "me@example.test",
+        Some("Me"),
+    );
     let secrets = MemorySecrets::default();
     mail_runtime::block_on(secrets.put(
         &SecretKey {
@@ -260,10 +253,7 @@ fn compose(smtp: u16, imap: u16, sent_folder: bool) -> Sending {
         )
         .unwrap();
     let post = posting(&draft, &identity(), None, &[]).expect("the draft has recipients");
-    let raw = store
-        .blobs()
-        .put(&store.connection(), &post.message)
-        .unwrap();
+    let raw = store.blobs().put(&post.message).unwrap();
     store
         .enqueue(
             acct_account(),
@@ -481,7 +471,7 @@ async fn an_imap_account_whose_server_names_no_sent_mailbox_keeps_its_copy_here(
     let Body::Present { raw, .. } = kept.body else {
         panic!("{:?}", kept.body);
     };
-    let bytes = it.store.blobs().get(&it.store.connection(), raw).unwrap();
+    let bytes = it.store.blobs().get(raw).unwrap();
     assert!(
         String::from_utf8(bytes)
             .unwrap()

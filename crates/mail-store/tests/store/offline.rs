@@ -38,7 +38,7 @@ fn both<T>(scenario: impl Fn(&dyn Store, &Blobs) -> T) -> (T, T) {
         (acct_other(), "also@example.test"),
     ] {
         sqlite
-            .connection()
+            .raw_connection()
             .execute(
                 "INSERT INTO accounts (id, address, plan, created_at)
                  VALUES (?1, ?2, '{}', datetime('now'))",
@@ -48,12 +48,7 @@ fn both<T>(scenario: impl Fn(&dyn Store, &Blobs) -> T) -> (T, T) {
     }
     let blobs = Blobs {
         raw: (0..8)
-            .map(|n| {
-                sqlite
-                    .blobs()
-                    .put(&sqlite.connection(), format!("raw {n}").as_bytes())
-                    .unwrap()
-            })
+            .map(|n| sqlite.blobs().put(format!("raw {n}").as_bytes()).unwrap())
             .collect(),
     };
     let memory = MemoryStore::new();

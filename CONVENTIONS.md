@@ -22,8 +22,8 @@ a clock or a global cannot.
 
 Push effects to the edges. The layering already encodes this: `mail-domain`, `mail-mime` and
 `mail-proto` are pure and mechanically kept that way by `scripts/check-boundary.sh`;
-`mail-store` may touch the disk; only `mail-runtime` may open a socket, spawn a task or read
-the clock. `mail-core` drives them and may use tokio and rusqlite, but has no window and no
+`mail-store` may touch the disk, and is the only crate that speaks SQL; only `mail-runtime` may open a socket, spawn a task or read
+the clock. `mail-core` drives them and may use tokio, but has no window and no
 terminal in it; `mail-app` draws the window (`ui`) and the terminal (`cli`) over it. When a pure crate seems to need an effect, that is a sign the effect belongs to the
 caller — `Op::apply` returns a `RemoteIntent` rather than performing one, and `Machine::feed`
 returns an `IoNeed` rather than satisfying it.

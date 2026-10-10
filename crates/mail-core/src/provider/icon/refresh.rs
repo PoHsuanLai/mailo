@@ -58,20 +58,9 @@ pub fn report(results: &[(Provider, Result<usize, IconError>)]) -> String {
 /// A plan that does not parse is logged and skipped. The same provider twice is
 /// one fetch.
 pub fn providers_of(store: &mail_store::SqliteStore) -> Result<Vec<Provider>, String> {
-    let db = store.connection();
-    let mut stmt = db
-        .prepare(&format!(
-            "SELECT plan FROM {} ORDER BY created_at",
-            store.accounts()
-        ))
-        .map_err(|err| err.to_string())?;
-    let rows = stmt
-        .query_map([], |row| row.get::<_, String>(0))
-        .map_err(|err| err.to_string())?;
     let mut out = Vec::new();
-    for row in rows {
-        let text = row.map_err(|err| err.to_string())?;
-        let Ok(plan) = serde_json::from_str::<mail_domain::AccountPlan>(&text) else {
+    for account in store.list_accounts().map_err(|err| err.to_string())? {
+        let Ok(plan) = account.plan else {
             eprintln!("provider icon: an account plan could not be read");
             continue;
         };

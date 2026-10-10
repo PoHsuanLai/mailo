@@ -24,14 +24,7 @@ fn now() -> DateTime<Utc> {
 fn store() -> (SqliteStore, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let store = SqliteStore::in_memory(dir.path()).unwrap();
-    store
-        .connection()
-        .execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [acct_account().to_string()],
-        )
-        .unwrap();
+    mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
     (store, dir)
 }
 
@@ -162,10 +155,7 @@ fn a_message_in_two_folders_is_stored_once_and_keeps_the_first_role() {
         .unwrap();
     }
 
-    let count: i64 = store
-        .connection()
-        .query_row("SELECT count(*) FROM messages", [], |r| r.get(0))
-        .unwrap();
+    let count: i64 = mail_store::testing::count(&store, "messages");
     assert_eq!(count, 1, "the same message was stored twice");
     assert_eq!(
         subjects(&store, MailboxRole::Inbox),

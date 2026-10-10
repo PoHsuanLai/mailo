@@ -17,17 +17,14 @@ fn acct_account() -> AccountId {
 
 /// Stored bytes for message `n`, so the body's foreign key holds.
 fn raw(store: &SqliteStore, n: i64) -> BlobId {
-    store
-        .blobs()
-        .put(&store.connection(), format!("raw {n}").as_bytes())
-        .unwrap()
+    store.blobs().put(format!("raw {n}").as_bytes()).unwrap()
 }
 
 fn sqlite() -> (SqliteStore, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let store = SqliteStore::in_memory(dir.path()).unwrap();
     store
-        .connection()
+        .raw_connection()
         .execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'local folders', '{}', datetime('now'))",

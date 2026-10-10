@@ -18,21 +18,14 @@ fn acct_account() -> AccountId {
 fn store() -> (SqliteStore, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let store = SqliteStore::in_memory(dir.path()).unwrap();
-    store
-        .connection()
-        .execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [acct_account().to_string()],
-        )
-        .unwrap();
+    mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
     (store, dir)
 }
 
 /// A message carrying one attachment with the name a sender chose.
 fn with_attachment(store: &SqliteStore, claimed: &str, bytes: &[u8]) -> MessageId {
-    let raw = store.blobs().put(&store.connection(), b"raw").unwrap();
-    let blob = store.blobs().put(&store.connection(), bytes).unwrap();
+    let raw = store.blobs().put(b"raw").unwrap();
+    let blob = store.blobs().put(bytes).unwrap();
     let id = MessageId::generate();
     let message = Message {
         id,
@@ -101,13 +94,13 @@ fn plain_message(store: &SqliteStore) -> MessageId {
     let id = with_attachment(store, "x.pdf", b"x");
     // Rewritten through the store rather than constructed separately, so the only difference
     // from the fixture above is the thing being tested.
-    store
-        .connection()
-        .execute(
-            "UPDATE messages SET attachments = '[]' WHERE id = ?1",
-            [id.to_string()],
-        )
-        .unwrap();
+    mail_store::testing::edit_messages(store, |message| {
+        if message.id != id {
+            return false;
+        }
+        message.attachments.clear();
+        true
+    });
     id
 }
 
@@ -463,13 +456,21 @@ mod left_on_the_server {
     /// The fixture's message, with its one attachment turned into a part still on the server.
     fn with_remote_part(store: &SqliteStore) -> MessageId {
         let id = with_attachment(store, "report.pdf", b"unused");
-        store
-            .connection()
-            .execute(
-                r#"UPDATE messages SET attachments = '[{"name":"report.pdf","mime":"application/pdf","size":900,"remote_section":"2","inline":{"kind":"attached"}}]' WHERE id = ?1"#,
-                [id.to_string()],
-            )
-            .unwrap();
+        mail_store::testing::edit_messages(store, |message| {
+            if message.id != id {
+                return false;
+            }
+            message.attachments = vec![Attachment {
+                name: "report.pdf".to_owned(),
+                mime: "application/pdf".to_owned(),
+                size: 900,
+                content: PartContent::Remote {
+                    section: "2".to_owned(),
+                },
+                inline: Inline::Attached,
+            }];
+            true
+        });
         id
     }
 
@@ -483,10 +484,7 @@ mod left_on_the_server {
         let said = attach::fetch_and_save(&store, id, 0, out.path(), |section| {
             asked.push(section.to_owned());
             // What the network half does: store the bytes, record the part as held.
-            let blob = store
-                .blobs()
-                .put(&store.connection(), b"%PDF-1.4")
-                .map_err(|e| e.to_string())?;
+            let blob = store.blobs().put(b"%PDF-1.4").map_err(|e| e.to_string())?;
             store
                 .hold_part(id, section, blob, 8)
                 .map_err(|e| e.to_string())

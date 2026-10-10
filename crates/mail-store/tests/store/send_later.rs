@@ -25,7 +25,7 @@ const IDENTITY: IdentityId =
 const LEAVES: i64 = 3_600;
 
 fn seed(sqlite: &SqliteStore) {
-    let db = sqlite.connection();
+    let db = sqlite.raw_connection();
     db.execute(
         "INSERT INTO accounts (id, address, plan, created_at)
          VALUES (?1, 'me@example.test', '{}', datetime('now'))",

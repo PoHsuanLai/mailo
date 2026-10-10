@@ -35,7 +35,7 @@ fn both() -> Both {
     let dir = tempfile::tempdir().unwrap();
     let sqlite = SqliteStore::in_memory(dir.path()).unwrap();
     {
-        let db = sqlite.connection();
+        let db = sqlite.raw_connection();
         db.execute(
             "INSERT INTO accounts (id, address, plan, created_at)
              VALUES (?1, 'me@example.test', '{}', datetime('now'))",
@@ -256,11 +256,7 @@ fn advancing_a_draft_that_is_gone_is_an_error_not_a_silent_insert() {
 /// Ingest one message and return its id, so a draft can legally reference it.
 fn ingest_one(b: &Both) -> MessageId {
     let thread = ThreadId::generate();
-    let raw = b
-        .sqlite
-        .blobs()
-        .put(&b.sqlite.connection(), b"raw bytes")
-        .unwrap();
+    let raw = b.sqlite.blobs().put(b"raw bytes").unwrap();
     let message = Message {
         id: MessageId::generate(),
         thread,

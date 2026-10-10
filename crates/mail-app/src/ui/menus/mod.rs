@@ -301,15 +301,7 @@ pub(super) fn LabelMenu(
 /// A label the user just named. The store creates provider labels during ingest; this one is
 /// the user's, so its origin is `user`.
 fn create_label(store: &SqliteStore, account: AccountId, name: &str) -> Option<LabelId> {
-    let id = LabelId::generate();
-    store
-        .connection()
-        .execute(
-            "INSERT INTO labels (id, account, name, origin) VALUES (?1, ?2, ?3, '\"user\"')",
-            rusqlite::params![id.to_string(), account.to_string(), name],
-        )
-        .ok()?;
-    Some(id)
+    store.create_label(account, name).ok()
 }
 
 #[cfg(test)]

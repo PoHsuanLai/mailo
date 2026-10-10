@@ -47,17 +47,7 @@ fn seeded() -> (SqliteStore, tempfile::TempDir) {
         at(0),
     )
     .plan;
-    store
-        .connection()
-        .execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'me@example.test', ?2, datetime('now'))",
-            rusqlite::params![
-                acct_account().to_string(),
-                serde_json::to_string(&plan).unwrap()
-            ],
-        )
-        .unwrap();
+    mail_store::testing::seed_account_plan(&store, acct_account(), "me@example.test", &plan, None);
     (store, dir)
 }
 
@@ -74,10 +64,7 @@ fn stored(
         "From: sender{n}@example.test\r\nTo: me@example.test\r\nSubject: {subject}\r\n\
          Message-ID: <{rfc_id}>\r\n\r\n{text}\r\n"
     );
-    let raw = store
-        .blobs()
-        .put(&store.connection(), raw_bytes.as_bytes())
-        .unwrap();
+    let raw = store.blobs().put(raw_bytes.as_bytes()).unwrap();
     let id = MessageId::generate();
     let message = Message {
         id,

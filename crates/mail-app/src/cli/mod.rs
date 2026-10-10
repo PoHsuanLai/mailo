@@ -1861,20 +1861,14 @@ pub fn sync_folder(
 }
 
 fn account_named(store: &SqliteStore, address: &str) -> Result<AccountId, String> {
-    let db = store.connection();
-    let found: Option<String> = db
-        .query_row(
-            "SELECT id FROM accounts WHERE address = ?1",
-            [address.to_lowercase()],
-            |r| r.get(0),
-        )
-        .ok();
-    let id = found.ok_or_else(|| {
-        format!("no account for {address:?}. `mailo account list` says which there are.")
-    })?;
-    id.parse()
-        .map(mail_domain::id::account_id_from_uuid)
-        .map_err(|_| "that account's id is unreadable".to_owned())
+    store
+        .account_by_address(&address.to_lowercase())
+        .ok()
+        .flatten()
+        .map(|account| account.id)
+        .ok_or_else(|| {
+            format!("no account for {address:?}. `mailo account list` says which there are.")
+        })
 }
 
 /// Every label with this name, across every configured account.

@@ -29,26 +29,8 @@ fn empty_store() -> (SqliteStore, tempfile::TempDir) {
 
 fn stamped(store: &SqliteStore, account: AccountId, path: &str, at: &str) {
     // The stamp belongs to an account the store has.
-    store
-        .connection()
-        .execute(
-            "INSERT OR IGNORE INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'x@example.test', '{}', datetime('now'))",
-            [account.to_string()],
-        )
-        .unwrap();
-    store
-        .connection()
-        .execute(
-            "INSERT INTO sync_state (account, mailbox, cursor, synced_at) VALUES (?1, ?2, ?3, ?4)",
-            rusqlite::params![
-                account.to_string(),
-                path,
-                serde_json::to_string(&SyncCursor::Pop).unwrap(),
-                at
-            ],
-        )
-        .unwrap();
+    mail_store::testing::seed_account(store, account.clone(), "x@example.test");
+    mail_store::testing::seed_sync_state(store, account.clone(), path, &SyncCursor::Pop, Some(at));
 }
 
 #[test]

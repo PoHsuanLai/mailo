@@ -519,14 +519,7 @@ fn engine(port: u16, dir: tempfile::TempDir) -> Fixture {
 
 fn engine_with(port: u16, dir: tempfile::TempDir, caps: AccountCaps) -> Fixture {
     let store = Arc::new(SqliteStore::open(dir.path().join("mail.db"), dir.path()).unwrap());
-    store
-        .connection()
-        .execute(
-            "INSERT OR IGNORE INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [acct_account().to_string()],
-        )
-        .unwrap();
+    mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
 
     let secrets = MemorySecrets::default();
     mail_runtime::block_on(secrets.put(
@@ -703,7 +696,7 @@ async fn a_literal_body_survives_a_line_that_looks_like_a_tagged_response() {
         for id in thread.messages {
             let message = it.store.message(id).unwrap();
             if let Body::Present { raw, .. } = message.body {
-                let bytes = it.store.blobs().get(&it.store.connection(), raw).unwrap();
+                let bytes = it.store.blobs().get(raw).unwrap();
                 let text = String::from_utf8_lossy(&bytes);
                 if text.contains("looks like a tag") {
                     // Exact bytes, not `contains`. This asserted only that the tag-shaped line
@@ -943,10 +936,7 @@ async fn an_unchanged_uidvalidity_does_not_throw_the_mailbox_away() {
 
 /// How many `remote_map` rows exist, which is what a reset clears.
 fn remote_rows(store: &SqliteStore) -> i64 {
-    store
-        .connection()
-        .query_row("SELECT count(*) FROM remote_map", [], |r| r.get(0))
-        .unwrap()
+    mail_store::testing::count(store, "remote_map")
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1222,11 +1212,7 @@ mod round_trip {
         star(&it.store, &caps());
         it.engine.drain_outbox(&mut cancel, now()).await.unwrap();
 
-        let pending: i64 = it
-            .store
-            .connection()
-            .query_row("SELECT count(*) FROM pending_changes", [], |r| r.get(0))
-            .unwrap();
+        let pending: i64 = mail_store::testing::count(&it.store, "pending_changes");
         assert_eq!(pending, 0, "a confirmed change is still pending");
 
         let queued = it.store.outbox_due(acct_account(), now()).unwrap();
@@ -1395,15 +1381,10 @@ mod discovery {
     use super::*;
 
     fn stored_caps(store: &SqliteStore) -> AccountCaps {
-        let text: String = store
-            .connection()
-            .query_row(
-                "SELECT caps FROM account_caps WHERE account = ?1",
-                [acct_account().to_string()],
-                |r| r.get(0),
-            )
-            .expect("capabilities were written");
-        serde_json::from_str(&text).expect("stored capabilities decode")
+        store
+            .account_caps(acct_account())
+            .expect("stored capabilities decode")
+            .expect("capabilities were written")
     }
 
     /// An engine whose stored capabilities claim the server supports nothing.
@@ -1727,11 +1708,7 @@ Message-ID: <imported-1@example.test>\r\n\
 Subject: from the archive\r\n\
 \r\n\
 kept for years\r\n";
-        let raw = it
-            .store
-            .blobs()
-            .put(&it.store.connection(), IMPORTED)
-            .unwrap();
+        let raw = it.store.blobs().put(IMPORTED).unwrap();
         let mailbox = MailboxRef {
             account: acct_account(),
             path: "Archive".to_owned(),
@@ -1818,14 +1795,7 @@ kept for years\r\n";
 fn engine_granted(port: u16, dir: tempfile::TempDir, relays: Arc<relay::Relays>) -> Fixture {
     use porter_core::{EndpointUrl, Family, GrantId, LoginName, ServiceEndpoint};
     let store = Arc::new(SqliteStore::open(dir.path().join("mail.db"), dir.path()).unwrap());
-    store
-        .connection()
-        .execute(
-            "INSERT OR IGNORE INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [acct_account().to_string()],
-        )
-        .unwrap();
+    mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
     let mut plan = plan(port);
     plan.auth = AuthPlan::Granted {
         account: AccountId::parse("fastmail-me").unwrap(),

@@ -66,26 +66,14 @@ fn fastmail() -> Candidate {
 /// A row as an earlier, unlinked start wrote it: its plan, and the capabilities beside it.
 fn row(store: &SqliteStore, n: u128, preset: Preset) -> AccountId {
     let id = mail_domain::id::account_id_from_uuid(uuid::Uuid::from_u128(n));
-    let db = store.connection();
-    db.execute(
-        "INSERT INTO accounts (id, address, plan, created_at) VALUES (?1, ?2, ?3, ?4)",
-        rusqlite::params![
-            id.to_string(),
-            preset.plan.address,
-            serde_json::to_string(&preset.plan).unwrap(),
-            format!("2026-01-0{n}T00:00:00Z"),
-        ],
-    )
-    .unwrap();
-    db.execute(
-        "INSERT INTO account_caps (account, caps, observed_at) VALUES (?1, ?2, ?3)",
-        rusqlite::params![
-            id.to_string(),
-            serde_json::to_string(&preset.expected_caps).unwrap(),
-            now().to_rfc3339(),
-        ],
-    )
-    .unwrap();
+    mail_store::testing::seed_account_plan(
+        store,
+        id.clone(),
+        &preset.plan.address,
+        &preset.plan,
+        Some(chrono::TimeZone::with_ymd_and_hms(&chrono::Utc, 2026, 1, n as u32, 0, 0, 0).unwrap()),
+    );
+    mail_store::testing::seed_caps(store, id.clone(), &preset.expected_caps, now()).unwrap();
     id
 }
 
@@ -108,14 +96,17 @@ fn store() -> (SqliteStore, tempfile::TempDir) {
 }
 
 fn plans(store: &SqliteStore) -> Vec<(String, String)> {
-    let db = store.connection();
-    let mut stmt = db
-        .prepare("SELECT address, plan FROM accounts ORDER BY address")
-        .unwrap();
-    stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+    let mut all: Vec<(String, String)> = store
+        .list_all_accounts()
         .unwrap()
-        .map(Result::unwrap)
-        .collect()
+        .into_iter()
+        .map(|account| {
+            let plan = serde_json::to_string(&account.plan.unwrap()).unwrap();
+            (account.address, plan)
+        })
+        .collect();
+    all.sort();
+    all
 }
 
 fn named(store: &SqliteStore) -> Vec<String> {
@@ -220,16 +211,7 @@ fn removing_a_held_account_frees_its_address_for_accountds_and_touches_no_other(
     let left: Vec<String> = store
         .held_accounts()
         .into_iter()
-        .map(|id| {
-            store
-                .connection()
-                .query_row(
-                    "SELECT address FROM accounts WHERE id = ?1",
-                    [id.to_string()],
-                    |r| r.get(0),
-                )
-                .unwrap()
-        })
+        .map(|id| store.account(id).unwrap().expect("the account").address)
         .collect();
     assert_eq!(left, [PASSWORD]);
 

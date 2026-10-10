@@ -31,18 +31,13 @@ pub(super) fn own_server(store: &SqliteStore) -> AccountRow {
         login: None,
     };
     let preset = presets::manual("me@nowhere.example", &manual, Utc::now());
-    store
-        .connection()
-        .execute(
-            "INSERT INTO accounts (id, address, plan, created_at) VALUES (?1, ?2, ?3, ?4)",
-            [
-                acct_own().to_string(),
-                preset.plan.address.clone(),
-                serde_json::to_string(&preset.plan).unwrap(),
-                Utc::now().to_rfc3339(),
-            ],
-        )
-        .unwrap();
+    mail_store::testing::seed_account_plan(
+        store,
+        acct_own(),
+        &preset.plan.address,
+        &preset.plan,
+        Some(Utc::now()),
+    );
     store
         .put_caps(acct_own(), &preset.expected_caps, Utc::now())
         .unwrap();

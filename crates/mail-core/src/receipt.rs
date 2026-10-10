@@ -48,10 +48,7 @@ pub fn state(store: &SqliteStore, message: &Message) -> Result<ReceiptState, Str
     let Some(raw) = message.body.raw() else {
         return Ok(ReceiptState::Unknown);
     };
-    let bytes = store
-        .blobs()
-        .get(&store.connection(), raw)
-        .map_err(|e| e.to_string())?;
+    let bytes = store.blobs().get(raw).map_err(|e| e.to_string())?;
     Ok(match mail_mime::receipt_asked(&bytes) {
         Some(ask) => ReceiptState::Pending(ask),
         None => ReceiptState::NotAsked,
@@ -96,10 +93,7 @@ pub fn answer(
             .body
             .raw()
             .ok_or_else(|| "the message's body is missing".to_owned())?;
-        let bytes = store
-            .blobs()
-            .get(&store.connection(), raw)
-            .map_err(|e| e.to_string())?;
+        let bytes = store.blobs().get(raw).map_err(|e| e.to_string())?;
         let identity = crate::compose::identity_of(
             store,
             original.account.clone(),
@@ -121,7 +115,7 @@ pub fn answer(
         .map_err(|e| e.to_string())?;
         let frozen = store
             .blobs()
-            .put(&store.connection(), &post.message)
+            .put(&post.message)
             .map_err(|e| e.to_string())?;
         let queued = store
             .enqueue(
@@ -224,17 +218,10 @@ fn addressed_identity(store: &SqliteStore, message: &Message) -> Option<Identity
 }
 
 fn identities(store: &SqliteStore, account: AccountId) -> Vec<(IdentityId, String)> {
-    let db = store.connection();
-    let Ok(mut stmt) = db.prepare("SELECT id, from_email FROM identities WHERE account = ?1")
-    else {
-        return Vec::new();
-    };
-    let Ok(rows) = stmt.query_map([account.to_string()], |r| {
-        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
-    }) else {
-        return Vec::new();
-    };
-    rows.filter_map(Result::ok)
-        .filter_map(|(id, email)| Some((IdentityId::from_uuid(id.parse().ok()?), email)))
+    store
+        .identities(account)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|identity| (identity.id, identity.from.email))
         .collect()
 }

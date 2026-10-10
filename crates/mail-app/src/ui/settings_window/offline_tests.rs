@@ -49,11 +49,7 @@ fn account(built: &Work) -> AccountId {
 
 /// A large message rebuilt from its parts, its 2 MB attachment still on the server.
 fn with_a_part_on_the_server(built: &Work, id: AccountId) {
-    let raw = built
-        .store
-        .blobs()
-        .put(&built.store.connection(), b"rebuilt")
-        .unwrap();
+    let raw = built.store.blobs().put(b"rebuilt").unwrap();
     let message = Message {
         id: MessageId::generate(),
         thread: ThreadId::generate(),

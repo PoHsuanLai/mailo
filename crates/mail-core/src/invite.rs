@@ -159,7 +159,7 @@ pub fn answer(
     .map_err(|e| e.to_string())?;
     let frozen = store
         .blobs()
-        .put(&store.connection(), &post.message)
+        .put(&post.message)
         .map_err(|e| e.to_string())?;
     let queued = store
         .enqueue(
@@ -373,43 +373,17 @@ fn raw_of(store: &SqliteStore, message: &Message) -> Result<Option<Vec<u8>>, Str
     let Some(raw) = message.body.raw() else {
         return Ok(None);
     };
-    store
-        .blobs()
-        .get(&store.connection(), raw)
-        .map(Some)
-        .map_err(|e| e.to_string())
+    store.blobs().get(raw).map(Some).map_err(|e| e.to_string())
 }
 
 /// Every address this account answers to — each identity's own and its reply-to — with the
 /// identity it belongs to. An invitation sent to any of them is to the user.
 pub fn addresses(store: &SqliteStore, account: AccountId) -> Vec<(IdentityId, String)> {
-    let db = store.connection();
-    let Ok(mut stmt) =
-        db.prepare("SELECT id, from_email, reply_to FROM identities WHERE account = ?1")
-    else {
-        return Vec::new();
-    };
-    let Ok(rows) = stmt.query_map([account.to_string()], |r| {
-        Ok((
-            r.get::<_, String>(0)?,
-            r.get::<_, String>(1)?,
-            r.get::<_, Option<String>>(2)?,
-        ))
-    }) else {
-        return Vec::new();
-    };
     let mut out = Vec::new();
-    for (id, email, reply_to) in rows.filter_map(Result::ok) {
-        let Some(id) = id.parse().ok().map(IdentityId::from_uuid) else {
-            continue;
-        };
-        out.push((id, email));
-        let reply_to: Option<Address> = reply_to
-            .as_deref()
-            .and_then(|text| serde_json::from_str(text).ok())
-            .flatten();
-        if let Some(reply_to) = reply_to {
-            out.push((id, reply_to.email));
+    for identity in store.identities(account).unwrap_or_default() {
+        out.push((identity.id, identity.from.email));
+        if let Some(reply_to) = identity.reply_to {
+            out.push((identity.id, reply_to.email));
         }
     }
     out
