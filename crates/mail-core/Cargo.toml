@@ -15,10 +15,17 @@ authors = ["Po Hsuan Lai <pohsuanlai0208@gmail.com>"]
 
 [features]
 # On for a plain `cargo test -p mail-core`; `mail-app` names the ones it wants, and a consumer of
-# the logic alone (`default-features = false`) gets none of the desktop's adapters.
-default = ["quire-desktop", "desktop", "pdf"]
+# the logic alone (`default-features = false`) gets none of the desktop's adapters. Nothing that
+# reaches the platform's keyring or the session bus is default: those are `keyring` and
+# `quire-desktop`, which the program that wants them names.
+default = ["desktop", "pdf"]
 # Desktop extras (design/36): the link to accountd over D-Bus, in mail-runtime.
 quire-desktop = ["mail-runtime/quire-desktop"]
+# The platform's secret stores for account secrets and signing keys, in mail-runtime. Without it
+# the caller hands in its own `AccountSecrets` and `SigningStore`.
+keyring = ["mail-runtime/keyring"]
+# On Linux, the account secrets in the Secret Service through oo7 (`mail-runtime`'s `oo7`).
+oo7 = ["mail-runtime/oo7"]
 # The desktop's notification service and the clicks on what it shows (`notify/desktop.rs`,
 # `notify/click.rs`): notify-rust, and zbus for the signals notify-rust does not surface. Without
 # it a watch announces through whatever `Notifier` it is handed, or nothing.
@@ -26,6 +33,8 @@ desktop = ["dep:notify-rust", "dep:zbus"]
 # A PDF attachment's pages for the preview (`preview.rs`), by pdfrum. Without it a PDF has no
 # preview ("could not be read") and everything else previews as before.
 pdf = ["dep:pdfrum"]
+# The doubles a front end's tests swap in (`mail_core::testing`, mail-runtime's): off in the program.
+testing = ["mail-runtime/testing"]
 
 [dependencies]
 porter-core.workspace = true
@@ -36,7 +45,8 @@ porter-http.workspace = true
 latchkey.workspace = true
 mail-domain.workspace = true
 mail-store.workspace = true
-mail-mime.workspace = true
+# The OpenPGP and S/MIME halves are features of the library; this crate uses both.
+mail-mime = { workspace = true, features = ["openpgp", "smime"] }
 mail-proto.workspace = true
 mail-pim.workspace = true
 mail-runtime.workspace = true
@@ -99,7 +109,9 @@ zbus = { version = "5.19", optional = true }
 
 [dev-dependencies]
 # Seeding a store without writing SQL (`mail_store::testing`): the program never has it.
-mail-store = { workspace = true, features = ["test-support"] }
+mail-store = { workspace = true, features = ["testing"] }
+# The doubles at the runtime's seams (`mail_runtime::testing`): the program never has them.
+mail-runtime = { workspace = true, features = ["testing"] }
 porter-secrets = { workspace = true, features = ["testing"] }
 tempfile = "3"
 # A paused clock, so a test drives a debounce instead of sleeping through it.

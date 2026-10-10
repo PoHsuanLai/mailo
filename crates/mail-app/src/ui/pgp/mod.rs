@@ -35,7 +35,6 @@ pub(in crate::ui) use unlock::{Passphrase, Unlock, WRONG};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use chrono::Utc;
 use mail_core::SigningStore;
 use mail_core::SqliteStore;
 use mail_domain::*;
@@ -62,20 +61,27 @@ impl Seams {
     /// The system keyring, the network and the desktop's dialogs. In this crate's tests, an
     /// empty keyring of its own and nothing else: a window drawn by a test has no business with
     /// the user's keys, the network or a dialog.
+    #[cfg(test)]
     pub(in crate::ui) fn real() -> Seams {
-        if cfg!(test) {
-            return Seams {
-                secrets: Arc::new(mail_runtime::MapSigningStore::default()),
-                lookup: Arc::new(|_, _| Err("no lookups in tests".to_owned())),
-                pick: Arc::new(|| None),
-                save: Arc::new(|_| None),
-            };
+        Seams {
+            secrets: Arc::new(mail_core::testing::MapSigningStore::default()),
+            lookup: Arc::new(|_, _| Err("no lookups in tests".to_owned())),
+            pick: Arc::new(|| None),
+            save: Arc::new(|_| None),
         }
+    }
+
+    #[cfg(not(test))]
+    pub(in crate::ui) fn real() -> Seams {
         Seams {
             secrets: Arc::new(mail_core::KeyringSigningStore::default()),
             lookup: Arc::new(|store, address| {
-                crate::edge::block_on(mail_core::pgp::lookup_address(store, address, Utc::now()))
-                    .map_err(|e| e.to_string())
+                crate::edge::block_on(mail_core::pgp::lookup_address(
+                    store,
+                    address,
+                    chrono::Utc::now(),
+                ))
+                .map_err(|e| e.to_string())
             }),
             pick: Arc::new(|| rfd::FileDialog::new().pick_file()),
             save: Arc::new(|name| rfd::FileDialog::new().set_file_name(name).save_file()),

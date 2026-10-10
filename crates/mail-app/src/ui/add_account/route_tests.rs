@@ -1,51 +1,15 @@
 //! Who draws the add-account sheet: the window, or accountd's shell.
 
 use super::*;
-use mail_core::link::{Answer, Changes, LinkError};
-use mail_core::{Accountd, Link, Transport};
-use porter_core::{AccountId, Audience, Candidate, GrantId, IssuedToken, ServiceEndpoint};
-
-/// An accountd that is never asked anything: only its presence is the test's.
-#[derive(Debug)]
-struct Present;
-
-fn unasked<T>() -> Answer<'static, T> {
-    Box::pin(async { Err(LinkError::Other("not asked".to_owned())) })
-}
-
-impl Accountd for Present {
-    fn candidates(&self) -> Answer<'_, Vec<Candidate>> {
-        unasked()
-    }
-    fn token<'a>(&'a self, _: &'a GrantId, _: &'a Audience) -> Answer<'a, IssuedToken> {
-        unasked()
-    }
-    fn open<'a>(&'a self, _: &'a GrantId, _: &'a ServiceEndpoint) -> Answer<'a, Transport> {
-        unasked()
-    }
-    fn add_account(&self) -> Answer<'_, AccountId> {
-        unasked()
-    }
-    fn reauthenticate<'a>(&'a self, _: &'a AccountId) -> Answer<'a, ()> {
-        unasked()
-    }
-    fn request_grant(&self) -> Answer<'_, Candidate> {
-        unasked()
-    }
-    fn revoke<'a>(&'a self, _: &'a GrantId) -> Answer<'a, ()> {
-        unasked()
-    }
-    fn changes(&self) -> Answer<'_, Option<Box<dyn Changes>>> {
-        Box::pin(async { Ok(None) })
-    }
-}
+use mail_core::Link;
+use mail_core::testing::FakeAccountd;
 
 fn local() -> Link {
     Link::Local
 }
 
 fn linked() -> Link {
-    Link::Accountd(Arc::new(Present))
+    Link::Accountd(Arc::new(FakeAccountd::default()))
 }
 
 /// Without accountd the window draws every sheet. With it, every sheet is accountd's and mailo

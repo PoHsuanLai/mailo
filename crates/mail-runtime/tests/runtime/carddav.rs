@@ -14,14 +14,12 @@
 
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::{Retry, Retryable};
+use mail_runtime::RuntimeError;
 use mail_runtime::carddav::{self, CardDavFailure, Dav, DavAuth, How};
-use mail_runtime::link::{Accountd, Answer, Changes, LinkError};
-use mail_runtime::{RuntimeError, Transport};
+use mail_runtime::link::LinkError;
+use mail_runtime::testing::FakeAccountd;
 use mail_store::{AddressBook, Edit, GroupHome, GroupId, MemoryStore, Origin, Store};
-use porter_core::{
-    AccountId, Audience, Candidate, EndpointUrl, Family, GrantId, IssuedToken, LoginName,
-    ServiceEndpoint,
-};
+use porter_core::{EndpointUrl, Family, GrantId, LoginName, ServiceEndpoint};
 use rustls_pki_types::pem::PemObject;
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use std::collections::BTreeMap;
@@ -1119,55 +1117,15 @@ async fn a_relayed_session_sends_nothing_to_any_server_but_the_accounts() {
     assert!(server.lock().unwrap().seen.is_empty());
 }
 
-/// accountd, when the person has to answer: opening the relay is refused.
-#[derive(Debug)]
-struct Refusing(porter_core::wire::Refusal);
-
-fn nothing<T>() -> Answer<'static, T> {
-    Box::pin(async { Err(LinkError::Other("not part of this test".to_owned())) })
-}
-
-impl Accountd for Refusing {
-    fn candidates(&self) -> Answer<'_, Vec<Candidate>> {
-        nothing()
-    }
-    fn token<'a>(&'a self, _: &'a GrantId, _: &'a Audience) -> Answer<'a, IssuedToken> {
-        nothing()
-    }
-    fn open<'a>(&'a self, _: &'a GrantId, _: &'a ServiceEndpoint) -> Answer<'a, Transport> {
-        nothing()
-    }
-    fn open_stream<'a>(
-        &'a self,
-        _: &'a GrantId,
-        _: &'a ServiceEndpoint,
-    ) -> Answer<'a, porter_client::AuthenticatedStream> {
-        let refusal = self.0;
-        Box::pin(async move { Err(LinkError::Refused(refusal)) })
-    }
-    fn add_account(&self) -> Answer<'_, AccountId> {
-        nothing()
-    }
-    fn reauthenticate<'a>(&'a self, _: &'a AccountId) -> Answer<'a, ()> {
-        nothing()
-    }
-    fn request_grant(&self) -> Answer<'_, Candidate> {
-        nothing()
-    }
-    fn revoke<'a>(&'a self, _: &'a GrantId) -> Answer<'a, ()> {
-        nothing()
-    }
-    fn changes(&self) -> Answer<'_, Option<Box<dyn Changes>>> {
-        Box::pin(async { Ok(None) })
-    }
-}
-
 #[tokio::test]
 async fn a_relay_accountd_refuses_for_the_person_to_answer_is_a_reauth_and_the_book_is_untouched() {
     let addr: SocketAddr = "127.0.0.1:9".parse().unwrap();
     let store = MemoryStore::new();
     let dav = Dav::relayed(
-        Arc::new(Refusing(porter_core::wire::Refusal::NeedsReauth)),
+        Arc::new(
+            FakeAccountd::default()
+                .with_stream_refused(LinkError::Refused(porter_core::wire::Refusal::NeedsReauth)),
+        ),
         grant(),
         endpoint(addr),
     )

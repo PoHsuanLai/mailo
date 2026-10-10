@@ -8,7 +8,7 @@
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
-use mail_core::MapSigningStore;
+use mail_core::testing::MapSigningStore;
 use mail_core::SqliteStore;
 use mail_domain::*;
 use mail_mime::smime::{Cert, Identity, Sealing};
