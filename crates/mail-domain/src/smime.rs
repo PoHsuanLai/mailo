@@ -10,6 +10,7 @@
 //! differ — a certificate is named by its hash, not a key id, and its signature is believed only
 //! when a chain of issuers vouches for it — S/MIME has its own type.
 
+use crate::error::ParseFingerprintError;
 use crate::pgp::{Coverage, KeyTrust, SecretHeld};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -30,7 +31,7 @@ impl fmt::Display for CertFingerprint {
 }
 
 impl FromStr for CertFingerprint {
-    type Err = String;
+    type Err = ParseFingerprintError;
 
     /// Hex in either case, with spaces or colons between the bytes ignored — viewers print it
     /// both ways.
@@ -40,21 +41,23 @@ impl FromStr for CertFingerprint {
             .filter(|b| !b.is_ascii_whitespace() && *b != b':')
             .collect();
         if digits.len() != 64 {
-            return Err(format!(
-                "{text:?} is not a 64-digit certificate fingerprint"
-            ));
+            return Err(ParseFingerprintError::WrongLength {
+                text: text.to_owned(),
+                what: "64-digit certificate fingerprint",
+            });
         }
         let mut out = [0u8; 32];
         for (slot, pair) in out.iter_mut().zip(digits.chunks(2)) {
-            let pair = std::str::from_utf8(pair).map_err(|_| format!("{text:?} is not hex"))?;
-            *slot = u8::from_str_radix(pair, 16).map_err(|_| format!("{text:?} is not hex"))?;
+            let not_hex = || ParseFingerprintError::NotHex(text.to_owned());
+            let pair = std::str::from_utf8(pair).map_err(|_| not_hex())?;
+            *slot = u8::from_str_radix(pair, 16).map_err(|_| not_hex())?;
         }
         Ok(CertFingerprint(out))
     }
 }
 
 impl TryFrom<String> for CertFingerprint {
-    type Error = String;
+    type Error = ParseFingerprintError;
     fn try_from(text: String) -> Result<Self, Self::Error> {
         text.parse()
     }

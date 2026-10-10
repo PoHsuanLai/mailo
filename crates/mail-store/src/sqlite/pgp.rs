@@ -163,7 +163,7 @@ impl SqliteStore {
             text.map(|t| {
                 t.parse::<Fingerprint>().map_err(|why| StoreError::Decode {
                     what: what.to_owned(),
-                    why,
+                    why: why.to_string(),
                 })
             })
             .transpose()
@@ -204,7 +204,7 @@ fn read_key(row: &rusqlite::Row<'_>) -> Result<PgpKey, StoreError> {
     Ok(PgpKey {
         fingerprint: fingerprint.parse().map_err(|why| StoreError::Decode {
             what: "pgp_keys.fingerprint".to_owned(),
-            why,
+            why: why.to_string(),
         })?,
         key_ids: json("PgpKey.key_ids", &row.get::<_, String>(1)?)?,
         user_ids: json("PgpKey.user_ids", &row.get::<_, String>(2)?)?,

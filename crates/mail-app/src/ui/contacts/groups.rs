@@ -315,7 +315,7 @@ pub(in crate::ui) fn member_labels(store: &dyn Store, group: &Group) -> Vec<(Str
             let label = match out.people.as_slice() {
                 [] => format!("{uri} (not found)"),
                 [person] if person.name != person.address => {
-                    format!("{} <{}>", person.name, person.address)
+                    mail_domain::Address::named(&person.name, &person.address).to_string()
                 }
                 people => people
                     .iter()

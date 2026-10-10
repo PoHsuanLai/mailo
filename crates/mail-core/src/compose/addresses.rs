@@ -1,106 +1,18 @@
 //! The recipient box: addresses written as a person types them, and back.
+//!
+//! The grammar lives with the type, in [`Address`]; these keep the box's `String` errors for the
+//! callers that show them.
 
 use mail_domain::Address;
 
 /// Render addresses back into something a text box can hold.
 pub fn join_addresses(list: &[Address]) -> String {
-    list.iter()
-        .map(|a| match &a.name {
-            Some(name) if !name.is_empty() => format!("{name} <{}>", a.email),
-            _ => a.email.clone(),
-        })
-        .collect::<Vec<_>>()
-        .join(", ")
+    Address::join(list)
 }
 
-/// Parse a recipient box into addresses.
-///
-/// Accepts `a@b.test`, `Name <a@b.test>` and `"Name" <a@b.test>`, separated by commas or
-/// semicolons. Empty entries are skipped, because a trailing comma is what typing looks like.
-///
-/// An entry with no `@` is an error rather than a guess. The alternative — dropping it, or
-/// appending a default domain — means the user sees their recipient vanish, or sends to
-/// someone they did not name. Both are silent; an error is not.
+/// Parse a recipient box into addresses. See [`Address::parse_list`] for what it accepts.
 pub fn parse_addresses(input: &str) -> Result<Vec<Address>, String> {
-    let mut out: Vec<Address> = Vec::new();
-    for entry in split_entries(input) {
-        let entry = entry.trim();
-        if entry.is_empty() {
-            continue;
-        }
-        let address = parse_one(entry)?;
-        // First spelling wins, matching `mail_mime::posting`. Two RCPT TO lines for one mailbox
-        // are two deliveries.
-        if !out
-            .iter()
-            .any(|kept| kept.email.eq_ignore_ascii_case(&address.email))
-        {
-            out.push(address);
-        }
-    }
-    Ok(out)
-}
-
-/// Split a recipient box on separators that are not inside a display name or an address.
-///
-/// Not `split([',', ';'])`. `"Lovelace, Ada" <ada@example.test>` is one recipient, and every
-/// other mail client writes a display name containing a comma exactly that way — so a naive
-/// split turns a pasted recipient into two, one of which is not an address at all. The comma
-/// inside quotes is the single most common character this has to *not* split on.
-fn split_entries(input: &str) -> Vec<&str> {
-    let mut out = Vec::new();
-    let (mut start, mut quoted, mut angled) = (0usize, false, false);
-    for (i, ch) in input.char_indices() {
-        match ch {
-            '"' => quoted = !quoted,
-            // An unbalanced '<' would otherwise swallow the rest of the box; '>' only closes
-            // what a '<' opened, so a stray '>' cannot re-enable splitting that was never off.
-            '<' if !quoted => angled = true,
-            '>' if !quoted => angled = false,
-            ',' | ';' if !quoted && !angled => {
-                out.push(&input[start..i]);
-                start = i + ch.len_utf8();
-            }
-            _ => {}
-        }
-    }
-    out.push(&input[start..]);
-    out
-}
-
-fn parse_one(entry: &str) -> Result<Address, String> {
-    let (name, email) = match (entry.rfind('<'), entry.rfind('>')) {
-        (Some(open), Some(close)) if close > open => {
-            let name = entry[..open].trim().trim_matches('"').trim();
-            (
-                if name.is_empty() {
-                    None
-                } else {
-                    Some(name.to_owned())
-                },
-                entry[open + 1..close].trim(),
-            )
-        }
-        _ => (None, entry),
-    };
-    if email.is_empty() {
-        return Err(format!("{entry:?} has no address"));
-    }
-    // One `@`, with something either side. Not a full RFC 5322 validation: that accepts things
-    // no mail server does, and rejecting what a user's own server accepts is worse than letting
-    // the server answer. This catches the mistake people actually make, which is a missing `@`.
-    let mut halves = email.split('@');
-    let (local, domain) = (halves.next().unwrap_or(""), halves.next().unwrap_or(""));
-    if local.is_empty() || domain.is_empty() || halves.next().is_some() {
-        return Err(format!("{email:?} is not an email address"));
-    }
-    if email.contains(char::is_whitespace) {
-        return Err(format!("{email:?} contains a space"));
-    }
-    Ok(Address {
-        name,
-        email: email.to_owned(),
-    })
+    Address::parse_list(input).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

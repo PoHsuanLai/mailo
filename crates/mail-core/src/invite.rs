@@ -269,11 +269,7 @@ pub fn render<Z: TimeZone>(invite: &Invite, answered: Option<&InviteAnswer>, zon
         let _ = writeln!(out, "  where:     {}", one_line(location));
     }
     if let Some(organiser) = &invite.organiser {
-        let _ = writeln!(
-            out,
-            "  organiser: {}",
-            party(&organiser.name, &organiser.email)
-        );
+        let _ = writeln!(out, "  organiser: {}", party(organiser));
     }
     if !invite.attendees.is_empty() {
         let _ = writeln!(out, "  attendees:");
@@ -281,7 +277,7 @@ pub fn render<Z: TimeZone>(invite: &Invite, answered: Option<&InviteAnswer>, zon
             let _ = writeln!(
                 out,
                 "    {}  {}",
-                party(&attendee.party.name, &attendee.party.email),
+                party(&attendee.party),
                 partstat_word(attendee.answer)
             );
         }
@@ -442,10 +438,10 @@ fn partstat_word(answer: PartStat) -> &'static str {
     }
 }
 
-fn party(name: &Option<String>, email: &str) -> String {
-    match name {
-        Some(name) => format!("{} <{email}>", one_line(name)),
-        None => email.to_owned(),
+fn party(who: &mail_pim::ical::Party) -> String {
+    match &who.name {
+        Some(name) => Address::named(one_line(name), &who.email).to_string(),
+        None => who.email.clone(),
     }
 }
 

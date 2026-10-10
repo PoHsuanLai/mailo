@@ -103,13 +103,10 @@ pub enum End {
 }
 
 /// Someone named by a `cal-address`: an organiser or an attendee.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Party {
-    /// The address, less `mailto:`, spelled as the invitation spelled it.
-    pub email: String,
-    /// `CN`.
-    pub name: Option<String>,
-}
+///
+/// The `email` is the address less `mailto:`, spelled as the invitation spelled it, and the
+/// `name` is the `CN`.
+pub type Party = mail_domain::Address;
 
 /// One `ATTENDEE`.
 #[derive(Debug, Clone, PartialEq, Eq)]

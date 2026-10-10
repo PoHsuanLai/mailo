@@ -355,13 +355,7 @@ fn row(out: &mut String, label: &str, value: &str) {
 
 /// `Ada Lovelace <ada@example.org>`, or the bare address when there is no name.
 fn addresses(list: &[Address]) -> String {
-    list.iter()
-        .map(|address| match address.name.as_deref().map(str::trim) {
-            Some(name) if !name.is_empty() => format!("{name} <{}>", address.email),
-            _ => address.email.clone(),
-        })
-        .collect::<Vec<_>>()
-        .join(", ")
+    Address::join(list)
 }
 
 /// A date as a header shows it, in the reader's zone: `Thu, 24 Sep 2026 14:05 +08:00`.

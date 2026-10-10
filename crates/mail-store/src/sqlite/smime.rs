@@ -125,7 +125,7 @@ fn read_cert(row: &rusqlite::Row<'_>) -> Result<SmimeCert, StoreError> {
     Ok(SmimeCert {
         fingerprint: fingerprint.parse().map_err(|why| StoreError::Decode {
             what: "smime_certs.fingerprint".to_owned(),
-            why,
+            why: why.to_string(),
         })?,
         subject: row.get(1)?,
         issuer: row.get(2)?,

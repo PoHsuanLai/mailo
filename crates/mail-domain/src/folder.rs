@@ -14,7 +14,7 @@ mod plan;
 
 pub use plan::{FolderContents, FolderCtx, plan};
 
-use crate::retry::{Retry, Retryable};
+pub use crate::error::FolderError;
 use porter_core::AccountId;
 use serde::{Deserialize, Serialize};
 
@@ -145,39 +145,6 @@ impl FolderWork {
             | FolderWork::Subscribe { path, .. } => path,
             FolderWork::Rename { from, .. } => from,
         }
-    }
-}
-
-/// Why a folder change was refused before anything was sent.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum FolderError {
-    /// POP3 has one mailbox, and nothing to name.
-    #[error(
-        "a POP3 account has exactly one mailbox; there are no folders to create, rename or delete"
-    )]
-    SingleMailbox,
-    /// Mail kept only on this computer has no server to hold folders; its places are labels.
-    #[error("this account's mail is kept on this computer; it has no server folders, only labels")]
-    KeptLocally,
-    /// A special-use mailbox, or the inbox, or a folder holding one.
-    #[error("{path} is the account's {} folder; the server and other clients depend on it", special.name())]
-    Special { path: String, special: SpecialUse },
-    #[error("{path} holds {messages} message(s); say so explicitly to delete it with them")]
-    NotEmpty { path: String, messages: u64 },
-    #[error("there is already a folder called {0}")]
-    Exists(String),
-    #[error("there is no folder called {0}; `mailo sync` refreshes the list")]
-    Unknown(String),
-    #[error("{0} has folders inside it; rename or delete those first")]
-    HasChildren(String),
-    #[error("{name:?} cannot be a folder name: {why}")]
-    BadName { name: String, why: String },
-}
-
-impl Retryable for FolderError {
-    fn retry(&self) -> Retry {
-        // Every one of these is a fact about the request, not the moment.
-        Retry::Fatal(self.to_string())
     }
 }
 

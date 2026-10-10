@@ -498,8 +498,7 @@ fn folder_work_is_a_mailbox_set_that_never_removes_mail() {
 fn a_send_is_an_import_and_a_submission_with_the_envelope_named() {
     let identity = Identity {
         id: "I1".to_owned(),
-        email: "john@example.com".to_owned(),
-        name: None,
+        address: mail_domain::Address::new("john@example.com"),
     };
     let calls = submission(
         "A1",
