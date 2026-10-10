@@ -21,6 +21,7 @@ pub mod link;
 pub mod lookup;
 pub mod pgp;
 pub mod places;
+pub mod remote_image;
 pub mod reparse;
 pub mod schedule;
 pub mod search;
