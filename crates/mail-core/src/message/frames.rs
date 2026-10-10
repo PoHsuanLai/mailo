@@ -318,6 +318,7 @@ impl Frames {
                     continue;
                 };
                 if self.peek(&message, policy).is_none() {
+                    // Not a result: rendering is what fills the cache, and the frame is kept there.
                     let _ = self.rendered(store, &message, policy);
                 }
             }
