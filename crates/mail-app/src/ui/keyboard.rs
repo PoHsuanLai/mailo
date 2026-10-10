@@ -15,7 +15,7 @@ use super::press::{available, on_primary};
 use crate::ui::actions::{chord_of_key, key_of_chord};
 use crate::ui::appearance::WindowDirs;
 use crate::ui::keymap::{self, DEFAULTS, Keymap, Refused};
-use crate::ui::view::{KeySaid, KeyboardPage as Showing, SettingsPage, Shell, Shortcut};
+use crate::ui::view::{KeySaid, KeyboardPage as Showing, Shell, Shortcut};
 use dioxus::prelude::*;
 use ds::components::content::label::LabelRole;
 use ds::components::controls::key_equivalent::{KeyEquivalent, KeyStyle};

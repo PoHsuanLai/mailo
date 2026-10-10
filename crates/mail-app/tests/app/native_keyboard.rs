@@ -423,20 +423,15 @@ fn a_keymap_kept_earlier_is_the_one_settings_shows_and_reset_puts_it_back() {
 
     open_page(&mut settings);
     let row = "[*|data-action=Archive]";
+    // The kept key is what the action's recorder shows.
+    let well = format!("{row} .ds-shortcut-field-well");
     assert_eq!(
-        settings
-            .attr(&format!("{row} .kb-key"), "aria-label")
-            .as_deref(),
+        settings.text_of(&well).as_deref().map(str::trim),
         Some("X"),
         "the page shows the kept key"
     );
     click(&mut settings, "[*|aria-label=\"Reset Archive\"]");
-    assert_eq!(
-        settings
-            .attr(&format!("{row} .kb-key"), "aria-label")
-            .as_deref(),
-        Some("E")
-    );
+    assert_eq!(settings.text_of(&well).as_deref().map(str::trim), Some("E"));
     assert_eq!(
         mail_app::ui::keymap::load(&dirs.config),
         mail_app::ui::keymap::Keymap::default(),
