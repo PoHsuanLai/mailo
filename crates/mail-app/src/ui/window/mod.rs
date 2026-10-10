@@ -139,7 +139,7 @@ pub(in crate::ui) fn menu_item() -> super::menu::MenuItem {
 pub(in crate::ui) const OPEN_KEY: &str = "open-window";
 
 /// The key that opens the focused conversation in its own window, as the menus write it.
-const SHORTCUT: &str = "⇧ Enter";
+const SHORTCUT: &str = crate::ui::hints::OPEN_IN_WINDOW;
 
 #[cfg(test)]
 mod tests {
