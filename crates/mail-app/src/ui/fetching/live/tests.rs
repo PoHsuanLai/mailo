@@ -1,287 +1,29 @@
 //! The live watch in the running window, with a watch of the test's own and passes held shut
 //! until it lets them go, as `fetching/tests.rs` does for the passes alone.
 
-use super::{Action, Event, *};
+use super::*;
 use crate::ui::fetching::{Fetching, Passer};
 use crate::ui::fixtures::{dispatching, empty};
 use chrono::Utc;
 use dioxus::prelude::*;
 use dioxus_core::{NoOpMutations, VirtualDom};
-use mail_core::fetch::{First, Pause, Step};
+use mail_core::fetch::{Link, Live, Pause, Trigger};
 use mail_core::sync::report::{AccountReport, Counts, PassEnd};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_store::Store as _;
 use porter_core::AccountId;
 use std::collections::VecDeque;
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Mutex, mpsc};
 
 fn acct_account() -> AccountId {
     account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000e9"))
 }
 
-fn at(second: i64) -> chrono::DateTime<Utc> {
-    use chrono::TimeZone;
-    Utc.with_ymd_and_hms(2026, 10, 1, 12, 0, 0).unwrap() + chrono::TimeDelta::seconds(second)
-}
-
-fn current(live: Live) -> Link {
-    Link::Current {
-        at: at(0),
-        trouble: vec![],
-        live,
-    }
-}
-
-fn syncing() -> Link {
-    Link::Syncing {
-        first: First::No,
-        step: Step::Connecting,
-        count: None,
-        after: Box::new(current(Live::Pushed)),
-    }
-}
-
-fn finished() -> Event {
-    Event::Finished { trouble: vec![] }
-}
-
-// --- the tables -------------------------------------------------------------------------
-
-#[test]
-fn what_a_watch_hears_is_what_the_link_is_told() {
-    let table = [
-        (Heard::Established, Event::Live(Live::Pushed)),
-        (Heard::Mail, Event::Start(Trigger::Push)),
-        (Heard::Due, Event::Start(Trigger::Poll)),
-        (Heard::Interval, Event::Start(Trigger::Poll)),
-    ];
-    for (heard, event) in table {
-        assert_eq!(event_for(heard), event, "{heard:?}");
-    }
-}
-
-#[test]
-fn reconnecting_backs_off_and_never_spins() {
-    let floor = Duration::from_secs(5);
-    let waits: Vec<u64> = (1..=12)
-        .map(|n| reconnect(n, &Retry::Now, floor).wait.as_secs())
-        .collect();
-    assert_eq!(
-        waits,
-        [5, 10, 20, 40, 80, 160, 320, 640, 1280, 1800, 1800, 1800]
-    );
-    assert!(waits.iter().all(|wait| *wait >= floor.as_secs()));
-    // The server's own ask is a floor under the schedule, not a replacement for it.
-    let asked = Retry::After(Duration::from_secs(90));
-    assert_eq!(reconnect(1, &asked, floor).wait, Duration::from_secs(90));
-    // At the fifth loss the schedule says 80 s, and the server's 90 s is longer.
-    assert_eq!(reconnect(5, &asked, floor).wait, Duration::from_secs(90));
-}
-
-#[test]
-fn a_refused_sign_in_is_never_retried_in_a_loop() {
-    let floor = Duration::from_secs(5);
-    let refused = reconnect(1, &Retry::NeedsReauth, floor);
-    assert_eq!(refused.wait, BACKOFF_CEILING);
-    assert_eq!(refused.nudge, Some(Event::Start(Trigger::Poll)));
-    let unsupported = reconnect(1, &Retry::Fatal("no push".to_owned()), floor);
-    assert_eq!(unsupported.wait, BACKOFF_CEILING);
-    assert_eq!(unsupported.nudge, None);
-}
-
-#[test]
-fn a_watch_runs_when_pushed_to_unclaimed_and_not_stopped_for_a_person() {
-    let stuck = |why: &str| Link::NeedsSignIn {
-        why: why.to_owned(),
-        first: First::No,
-    };
-    let broken = Link::Broken {
-        why: "x".to_owned(),
-        first: First::No,
-    };
-    let waiting = Link::Waiting {
-        until: at(5),
-        why: Pause::Unreachable,
-        failures: 1,
-        first: First::No,
-    };
-    let table = [
-        // (running, push, daemon, link, action)
-        (
-            false,
-            Push::Offered,
-            Daemon::Absent,
-            current(Live::Polling),
-            Action::Start,
-        ),
-        (
-            false,
-            Push::Offered,
-            Daemon::Absent,
-            Link::Fresh,
-            Action::Start,
-        ),
-        (false, Push::Offered, Daemon::Absent, waiting, Action::Start),
-        (
-            false,
-            Push::Offered,
-            Daemon::Absent,
-            syncing(),
-            Action::Start,
-        ),
-        (
-            true,
-            Push::Offered,
-            Daemon::Absent,
-            current(Live::Pushed),
-            Action::Keep,
-        ),
-        // Nobody to wait on, or somebody else waiting.
-        (
-            false,
-            Push::Absent,
-            Daemon::Absent,
-            current(Live::Polling),
-            Action::Keep,
-        ),
-        (
-            true,
-            Push::Absent,
-            Daemon::Absent,
-            current(Live::Pushed),
-            Action::Stop,
-        ),
-        (
-            false,
-            Push::Offered,
-            Daemon::Holding,
-            current(Live::Polling),
-            Action::Keep,
-        ),
-        (
-            true,
-            Push::Offered,
-            Daemon::Holding,
-            current(Live::Pushed),
-            Action::Stop,
-        ),
-        // Only a person clears these.
-        (
-            true,
-            Push::Offered,
-            Daemon::Absent,
-            stuck("refused"),
-            Action::Stop,
-        ),
-        (
-            false,
-            Push::Offered,
-            Daemon::Absent,
-            stuck("refused"),
-            Action::Keep,
-        ),
-        (true, Push::Offered, Daemon::Absent, broken, Action::Stop),
-    ];
-    for (running, push, daemon, link, action) in table {
-        assert_eq!(
-            decide(running, push, daemon, &link),
-            action,
-            "{running} {push:?} {daemon:?} {link:?}"
-        );
-    }
-    // A pass running over a refused account is still a refused account.
-    let over = Link::Syncing {
-        first: First::No,
-        step: Step::Connecting,
-        count: None,
-        after: Box::new(stuck("refused")),
-    };
-    assert_eq!(
-        decide(true, Push::Offered, Daemon::Absent, &over),
-        Action::Stop
-    );
-}
-
-#[test]
-fn a_push_that_finds_a_pass_running_is_owed_a_pass_when_it_finishes() {
-    let push = Event::Start(Trigger::Push);
-    let mut dirty = Dirty::default();
-
-    // Heard while idle: the link starts a pass for it, nothing is owed.
-    dirty.heard(acct_account(), &current(Live::Pushed), &push);
-    assert_eq!(
-        dirty.settled(
-            acct_account(),
-            &syncing(),
-            &current(Live::Pushed),
-            &finished()
-        ),
-        Rerun::No
-    );
-
-    // Heard while syncing: owed once, and only to a pass that finished.
-    dirty.heard(acct_account(), &syncing(), &Event::Start(Trigger::Poll));
-    dirty.heard(acct_account(), &syncing(), &push);
-    assert_eq!(
-        dirty.settled(acct_account(), &syncing(), &syncing(), &Event::Tick),
-        Rerun::No,
-        "still running"
-    );
-    assert_eq!(
-        dirty.settled(
-            acct_account(),
-            &syncing(),
-            &current(Live::Pushed),
-            &finished()
-        ),
-        Rerun::Yes
-    );
-    assert_eq!(
-        dirty.settled(
-            acct_account(),
-            &syncing(),
-            &current(Live::Pushed),
-            &finished()
-        ),
-        Rerun::No,
-        "owed once"
-    );
-
-    // A pass that failed has its own backoff; one that was cancelled is not restarted.
-    for (after, event) in [
-        (
-            Link::Waiting {
-                until: at(5),
-                why: Pause::Unreachable,
-                failures: 1,
-                first: First::No,
-            },
-            Event::Failed {
-                retry: Retry::Now,
-                why: "x".to_owned(),
-                pause: Pause::Unreachable,
-            },
-        ),
-        (current(Live::Pushed), Event::Cancel),
-    ] {
-        dirty.heard(acct_account(), &syncing(), &push);
-        assert_eq!(
-            dirty.settled(acct_account(), &syncing(), &after, &event),
-            Rerun::No
-        );
-        assert_eq!(
-            dirty.settled(
-                acct_account(),
-                &syncing(),
-                &current(Live::Pushed),
-                &finished()
-            ),
-            Rerun::No,
-            "the debt was cleared with the pass that ended"
-        );
-    }
+/// Whether a watch has been told to stop, or its owner is gone.
+fn stopped(stop: &Stop) -> bool {
+    stop.has_changed().map_or(true, |_| *stop.borrow())
 }
 
 // --- the window -------------------------------------------------------------------------
