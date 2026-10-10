@@ -462,7 +462,7 @@ pub async fn add_receiving(
             id: &account,
             address: &address,
             plan: &plan,
-            caps: &preset.expected_caps,
+            caps: &unobserved(&preset.expected_caps),
             identities: &plan.identities,
             at: now,
         })
@@ -639,6 +639,21 @@ pub fn local(
         })
         .map_err(|e| CoreError::cannot("save the local account", e))?;
     Ok(account)
+}
+
+/// A preset's capabilities as an account is stored with them: an expectation, never an
+/// observation.
+///
+/// Stamped as observed at the epoch, so the first pass asks the server (`caps_are_stale`)
+/// instead of believing the preset for a day. Stamped as observed now, a Microsoft 365 account
+/// added this morning kept the preset's empty folder roles and `MOVE` absent until tomorrow, and
+/// one signed in again had the roles its server had already given wiped back to the guess. The
+/// local account is the exception: its capabilities are the truth, with no server to ask.
+pub(crate) fn unobserved(expected: &AccountCaps) -> AccountCaps {
+    AccountCaps {
+        observed_at: chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
+        ..expected.clone()
+    }
 }
 
 /// The OAuth client to sign in with: from the environment, or else the one recorded by an
@@ -1173,5 +1188,36 @@ mod tests {
     fn listing_nothing_is_an_empty_list() {
         let (store, _dir) = store();
         assert!(list(&store).unwrap().is_empty());
+    }
+
+    /// What a preset expects of a server is stored as never observed, so the first pass asks.
+    ///
+    /// Stamped with the moment of adding, a Microsoft 365 account kept the preset's empty folder
+    /// roles for its first day — no Sent, no Drafts — and one added again lost the roles its
+    /// server had already given.
+    #[test]
+    fn an_added_accounts_capabilities_are_asked_for_on_the_first_pass() {
+        let (store, _dir) = store();
+        let address = "someone@contoso.onmicrosoft.com";
+        add(
+            &store,
+            address,
+            None,
+            false,
+            false,
+            crate::account::Receive::Imap,
+            &ClientRegistry::default(),
+            now(),
+        )
+        .unwrap();
+        let id = store
+            .account_by_address(address)
+            .unwrap()
+            .expect("the account")
+            .id;
+        let caps = crate::sync::caps_of(&store, id).expect("capabilities stored");
+        assert_eq!(caps.observed_at, chrono::DateTime::<chrono::Utc>::UNIX_EPOCH);
+        let expected = mail_domain::presets::microsoft_preset(address, now()).expected_caps;
+        assert_eq!(caps, super::unobserved(&expected), "nothing else changed");
     }
 }
