@@ -73,6 +73,8 @@ serde       = { version = "1", features = ["derive"] }
 chrono      = { version = "0.4", features = ["serde"] }
 uuid        = { version = "1", features = ["v4", "serde"] }
 thiserror   = "2"
+# The logging facade the libraries write diagnostics through; mail-app installs the one logger.
+log         = "0.4"
 # From quire's pinned block (`docs/workspace-deps.toml` at the tag `mail-app`'s `ds` names),
 # copied verbatim: only the lines mailo names itself. The window reaches the Blitz
 # document through these to focus, select or scroll an element found by selector

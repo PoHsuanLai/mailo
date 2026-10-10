@@ -1,6 +1,28 @@
 use mail_store::SqliteStore;
 
+/// The one logger. What the libraries warn of (`log::warn!`) goes to stderr as a line, the way
+/// they printed it before they logged: no level, no target, the text is the whole message.
+struct Stderr;
+
+impl log::Log for Stderr {
+    fn enabled(&self, metadata: &log::Metadata<'_>) -> bool {
+        metadata.level() <= log::Level::Warn
+    }
+
+    fn log(&self, record: &log::Record<'_>) {
+        if self.enabled(record.metadata()) {
+            eprintln!("{}", record.args());
+        }
+    }
+
+    fn flush(&self) {}
+}
+
 fn main() {
+    // Already set means a harness got there first; its logger stands.
+    if log::set_logger(&Stderr).is_ok() {
+        log::set_max_level(log::LevelFilter::Warn);
+    }
     let args: Vec<String> = std::env::args().skip(1).collect();
 
     // No arguments opens the window, and `open <thread>` opens it on a conversation; anything

@@ -158,3 +158,37 @@ impl From<mail_proto::jmap::MethodError> for RuntimeError {
         RuntimeError::Proto(error.into())
     }
 }
+
+/// A failure dropped on purpose, and not in silence: it goes to the log with what was being done.
+///
+/// For the places where carrying on is right (a window with an unreadable preference still
+/// opens; a list that cannot be read is empty and says so), but where `.ok()` or
+/// `unwrap_or_default()` would have left nobody any way to learn why.
+pub trait Logged<T> {
+    /// The value, or `None` after saying why there is none.
+    fn or_log(self, doing: &str) -> Option<T>;
+
+    /// The value, or the default after saying why.
+    fn or_log_default(self, doing: &str) -> T
+    where
+        T: Default;
+}
+
+impl<T, E: std::fmt::Display> Logged<T> for Result<T, E> {
+    fn or_log(self, doing: &str) -> Option<T> {
+        match self {
+            Ok(value) => Some(value),
+            Err(why) => {
+                log::warn!("{doing}: {why}");
+                None
+            }
+        }
+    }
+
+    fn or_log_default(self, doing: &str) -> T
+    where
+        T: Default,
+    {
+        self.or_log(doing).unwrap_or_default()
+    }
+}

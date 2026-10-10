@@ -22,7 +22,7 @@
 //! account with no Sent folder (POP3), whose copy is kept here as it is sent. One whose copy is
 //! never found is let go a week after it was due.
 
-use crate::error::{CoreError, TimeError};
+use crate::error::{CoreError, Logged, TimeError};
 use crate::notify::{Notification, Notifier, Opens, Own};
 use chrono::{DateTime, TimeDelta, TimeZone, Utc};
 use mail_domain::{
@@ -109,7 +109,7 @@ pub fn returned(
 ) -> Vec<ThreadSummary> {
     let mut back: Vec<ThreadSummary> = store
         .follow_ups()
-        .unwrap_or_default()
+        .or_log_default("the reminders could not be read")
         .into_iter()
         .filter(|summary| matches!(summary.follow_up, FollowUp::Returned { .. }))
         .filter(|summary| {
@@ -132,7 +132,7 @@ pub fn waiting(
 ) -> Vec<ThreadSummary> {
     store
         .follow_ups()
-        .unwrap_or_default()
+        .or_log_default("the reminders could not be read")
         .into_iter()
         .filter(|summary| in_scope(summary, scope, now))
         .collect()
@@ -240,7 +240,7 @@ pub fn sweep(store: &SqliteStore, now: DateTime<Utc>) -> Result<Swept, CoreError
 pub fn next_due(store: &SqliteStore) -> Option<DateTime<Utc>> {
     store
         .follow_ups()
-        .unwrap_or_default()
+        .or_log_default("the reminders could not be read")
         .into_iter()
         .filter_map(|summary| match summary.follow_up {
             FollowUp::Until { at, .. } => Some(at),

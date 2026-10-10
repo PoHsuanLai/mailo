@@ -1,6 +1,6 @@
 //! A composer's reminder, held in `follow_up_held` (migration 0027) until its message has left.
 
-use crate::error::CoreError;
+use crate::error::{CoreError, Logged};
 use chrono::{DateTime, Utc};
 use mail_domain::{Draft, DraftId, SendState, ThreadId};
 use mail_store::{SqliteStore, Store};
@@ -56,7 +56,9 @@ pub fn release(store: &SqliteStore, draft: DraftId) -> Result<(), CoreError> {
 
 /// Every held reminder. A row that does not read back is skipped: it is a reminder, not mail.
 pub fn held(store: &SqliteStore) -> Vec<Held> {
-    store.follow_up_holds().unwrap_or_default()
+    store
+        .follow_up_holds()
+        .or_log_default("the held reminders could not be read")
 }
 
 /// The conversation a held reminder now belongs on, once its message has left: the one its sent

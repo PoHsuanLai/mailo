@@ -51,6 +51,8 @@ nucleo-matcher = "0.3"
 image = { version = "0.25", default-features = false, features = ["ico", "png", "jpeg", "gif", "webp"] }
 base64 = "0.22"
 thiserror.workspace = true
+# Diagnostics a library has no business writing to a terminal: the binary installs the logger.
+log.workspace = true
 # The registered domain of a host, for the sender card's brand check and the link pill. Chosen
 # over `publicsuffix`, which needs the list shipped and parsed at run time; this one compiles the
 # list in, so a check needs no file and no I/O. MIT/Apache-2.0, with one dependency, `psl-types`.
@@ -93,16 +95,6 @@ rpassword = "7"
 mail-store = { workspace = true, features = ["test-support"] }
 porter-secrets = { workspace = true, features = ["testing"] }
 tempfile = "3"
-# The throwaway certificate authority (`mail-mime/tests/smime_support`). No test in this crate
-# uses it: the S/MIME test that does is `mail-app`'s (`tests/app/smime.rs`). Dropping these seven
-# is a `Cargo.lock` change of its own. All already in the tree through `mail-mime`.
-x509-cert = { version = "0.2", features = ["builder"] }
-der = "0.7"
-spki = "0.7"
-const-oid = "0.9"
-cms = "0.2"
-rsa = "0.9"
-p256 = { version = "0.13", features = ["ecdsa"] }
 # A paused clock, so a test drives a debounce instead of sleeping through it.
 tokio = { version = "1", features = ["test-util"] }
 uuid = { workspace = true }

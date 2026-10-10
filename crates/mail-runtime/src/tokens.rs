@@ -18,6 +18,7 @@ use crate::RuntimeError;
 use crate::authorize::exchange_failure;
 use crate::clients;
 use crate::error::Failure;
+use crate::error::Logged;
 use chrono::{DateTime, Utc};
 use mail_domain::{AccountPlan, AuthPlan, Incoming, Outgoing, Retry, Retryable};
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose, SecretText, UnixSeconds};
@@ -281,7 +282,7 @@ pub async fn graph_token(
             purpose: SecretPurpose::OutgoingPassword,
         })
         .await
-        .ok();
+        .or_log("the kept Graph sign-in could not be read");
     let refresh_token = match held {
         Some(held @ Credential::OAuth { .. }) => match due_refresh(&held, now) {
             None => return Ok(held),
@@ -485,7 +486,11 @@ impl OAuthTokens {
                 self.spent().incoming = access_of(&renewed);
             }
             Token::Sending => {
-                let held = self.secrets.get(&self.sending_key()).await.ok();
+                let held = self
+                    .secrets
+                    .get(&self.sending_key())
+                    .await
+                    .or_log("the kept Graph sign-in could not be read");
                 if let Some(Credential::OAuth { access, .. }) = &held
                     && self.spent().sending.as_deref() == Some(access.expose())
                 {

@@ -422,6 +422,8 @@ impl CoreError {
     }
 }
 
+pub(crate) use mail_runtime::Logged;
+
 impl Retryable for CoreError {
     fn retry(&self) -> Retry {
         match self {

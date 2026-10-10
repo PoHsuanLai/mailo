@@ -19,10 +19,20 @@ pub fn read_json<T>(dir: &Path, file_name: &str) -> T
 where
     T: serde::de::DeserializeOwned + Default,
 {
-    let Ok(bytes) = std::fs::read(dir.join(file_name)) else {
-        return T::default();
+    let path = dir.join(file_name);
+    let bytes = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
+        // No file is the ordinary first run, and not worth a line.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return T::default(),
+        Err(e) => {
+            log::warn!("{}: {e}; using the defaults", path.display());
+            return T::default();
+        }
     };
-    serde_json::from_slice(&bytes).unwrap_or_default()
+    serde_json::from_slice(&bytes).unwrap_or_else(|e| {
+        log::warn!("{}: {e}; using the defaults", path.display());
+        T::default()
+    })
 }
 
 /// Write `value` as JSON to `dir/file_name`, creating `dir` if needed.

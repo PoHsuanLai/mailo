@@ -5,7 +5,7 @@
 //! and queue them", never "open a connection". A send that depended on the network being up at
 //! the moment the user pressed the key would lose the message on a train.
 
-use crate::error::{CoreError, TimeError};
+use crate::error::{CoreError, Logged, TimeError};
 use chrono::{DateTime, Local, Utc};
 use mail_domain::*;
 use mail_mime::posting;
@@ -161,7 +161,10 @@ where
 /// Local folders are not one: they have no server to send through, so they are never offered
 /// as a From, and a new message never starts on them.
 pub fn sending_accounts(store: &SqliteStore) -> Vec<(String, AccountId)> {
-    let Ok(accounts) = store.list_accounts() else {
+    let Some(accounts) = store
+        .list_accounts()
+        .or_log("the accounts to send from could not be read")
+    else {
         return Vec::new();
     };
     // Read row by row rather than through `sync::configured`, which gives up on the whole list

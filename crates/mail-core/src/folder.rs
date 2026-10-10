@@ -5,7 +5,7 @@
 //! the outbox, so a folder made on a train is there immediately and on the server after the
 //! next sync — or put back, if the server refuses it for good.
 
-use crate::error::CoreError;
+use crate::error::{CoreError, Logged};
 use chrono::{DateTime, Utc};
 use mail_domain::folder::{FolderContents, FolderCtx, plan};
 use mail_domain::{
@@ -75,7 +75,9 @@ pub fn change(
         // Unlike a flag change, a folder that exists only here is a folder the server will
         // contradict at the next listing. If it cannot be queued, it is not made at all.
         if let Err(e) = store.enqueue(account.clone(), intent, &applied.inverse, now) {
-            let _ = store.apply(account, &applied.inverse);
+            store
+                .apply(account, &applied.inverse)
+                .or_log("a folder change could not be undone after it failed to queue");
             return Err(failed(e));
         }
     }

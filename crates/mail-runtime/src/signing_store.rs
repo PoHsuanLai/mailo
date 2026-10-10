@@ -290,6 +290,8 @@ fn store() -> Result<Arc<CredentialStore>, RuntimeError> {
     if let Some(store) = opened.as_ref() {
         return Ok(store.clone());
     }
+    #[cfg(debug_assertions)]
+    crate::account_secrets::guard_real_keyring();
     let store = open().map_err(|e| {
         RuntimeError::Secrets(Failure::new("no keyring to keep signing keys in", e))
     })?;

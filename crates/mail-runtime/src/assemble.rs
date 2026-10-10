@@ -7,6 +7,7 @@
 //! `mail-mime` and the id space all exist.
 
 use crate::RuntimeError;
+use crate::error::Logged;
 use chrono::{DateTime, Utc};
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
@@ -82,17 +83,19 @@ fn assemble_as(
         if !matches!(role, MailboxRole::Sent | MailboxRole::Drafts)
             && let Some(from) = &fields.from
         {
-            let _ = crate::pgp::learn_autocrypt(
+            crate::pgp::learn_autocrypt(
                 store,
                 &arrival.raw,
                 &from.email,
                 fields.date,
                 fallback_date,
-            );
+            )
+            .or_log("an Autocrypt key was not kept");
             // An S/MIME signature carries its signer's certificate; keeping it is what lets the
             // user answer encrypted. The same rules: not from our own copies, and a failure is
             // no reason to lose the message.
-            let _ = crate::smime::learn_signer(store, &arrival.raw, &from.email, fallback_date);
+            crate::smime::learn_signer(store, &arrival.raw, &from.email, fallback_date)
+                .or_log("a signer's S/MIME certificate was not kept");
         }
         let blob = store
             .blobs()
@@ -321,7 +324,10 @@ pub fn sent(
     let MessageKey::Rfc(rfc_id) = key else {
         return Ok(None);
     };
-    Ok(store.message_by_rfc_id(account, &rfc_id).ok().flatten())
+    Ok(store
+        .message_by_rfc_id(account, &rfc_id)
+        .or_log("a message could not be looked up by its Message-ID")
+        .flatten())
 }
 
 /// Parse, store and thread a batch for [`keep`]: what to import, and how many were not
@@ -486,7 +492,10 @@ fn message_key(fields: &mail_mime::Parsed, tiebreak: Tiebreak<'_>) -> MessageKey
 
 /// The thread a stored message with this `Message-ID` already belongs to.
 fn thread_of_rfc_id(store: &SqliteStore, account: AccountId, rfc_id: &str) -> Option<ThreadId> {
-    store.thread_by_rfc_id(account, rfc_id).ok().flatten()
+    store
+        .thread_by_rfc_id(account, rfc_id)
+        .or_log("a thread could not be looked up by a Message-ID")
+        .flatten()
 }
 
 /// Absorb fetched bytes into the store, returning what changed.

@@ -62,7 +62,7 @@ pub fn providers_of(store: &mail_store::SqliteStore) -> Result<Vec<Provider>, Co
     let mut out = Vec::new();
     for account in store.list_accounts()? {
         let Ok(plan) = account.plan else {
-            eprintln!("provider icon: an account plan could not be read");
+            log::warn!("provider icon: an account plan could not be read");
             continue;
         };
         let which = crate::provider::provider(&plan);
@@ -109,8 +109,8 @@ pub fn fetch_if_missing(provider: Provider) {
     let handle = std::thread::spawn(move || fetch_one(&dir, provider));
     match handle.join() {
         Ok(Ok(())) => {}
-        Ok(Err(err)) => eprintln!("provider icon: {provider:?}: {err}"),
-        Err(_) => eprintln!("provider icon: {provider:?}: the fetch stopped"),
+        Ok(Err(err)) => log::warn!("provider icon: {provider:?}: {err}"),
+        Err(_) => log::warn!("provider icon: {provider:?}: the fetch stopped"),
     }
 }
 

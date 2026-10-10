@@ -10,7 +10,7 @@
 //! connections halfway through would be two commands in one. The report says how many and that
 //! `mailo sync` fills them in.
 
-use crate::error::CoreError;
+use crate::error::{CoreError, Logged};
 use chrono::{DateTime, Utc};
 use mail_domain::{
     Body, Filter, LabelId, MailboxRole, MatchCtx, Message, MessageId, Mute, PageReq, Pin, Property,
@@ -152,7 +152,9 @@ fn place_named(words: &str) -> Option<Chosen> {
 /// Its own server addresses, for `Filter::InFolder`: a copy of the thread elsewhere does not
 /// put this message in that folder.
 fn fits_alone(store: &SqliteStore, filter: &Filter, message: &Message, now: DateTime<Utc>) -> bool {
-    let folders = store.placed(message.id).unwrap_or_default();
+    let folders = store
+        .placed(message.id)
+        .or_log_default("the folders a message is in could not be read");
     let summary = ThreadSummary::derive(
         message.thread,
         std::slice::from_ref(message),

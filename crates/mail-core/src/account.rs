@@ -4,7 +4,7 @@
 //! a password is read from the environment rather than invented, and an OAuth account says what
 //! it still needs rather than pretending to be configured.
 
-use crate::error::CoreError;
+use crate::error::{CoreError, Logged};
 use mail_domain::id::new_account_id;
 use mail_domain::*;
 use mail_runtime::{AccountSecrets, ClientRegistry, clients, tokens};
@@ -574,7 +574,8 @@ pub fn saved_clients() -> ClientRegistry {
     if cfg!(test) {
         return ClientRegistry::default();
     }
-    mail_runtime::clients::load_default().unwrap_or_default()
+    mail_runtime::clients::load_default()
+        .or_log_default("the recorded OAuth clients could not be read")
 }
 
 /// Exchange the sign-in's refresh token for a Graph token and keep it as the outgoing credential.
@@ -651,8 +652,10 @@ pub fn list(store: &SqliteStore) -> Result<String, CoreError> {
     // Which folders each account fetches, so `account list` can answer "why is my Sent folder
     // empty" without the user having to guess. A store that cannot answer is not an error here:
     // this command's job is to list accounts.
-    let folders = crate::sync::mailboxes_by_account(store).unwrap_or_default();
-    let plans = crate::sync::auth_by_account(store).unwrap_or_default();
+    let folders = crate::sync::mailboxes_by_account(store)
+        .or_log_default("account list: the folders each account fetches could not be read");
+    let plans = crate::sync::auth_by_account(store)
+        .or_log_default("account list: how each account signs in could not be read");
     let local = crate::sync::local_accounts(store);
 
     let secrets = mail_runtime::platform_secrets();

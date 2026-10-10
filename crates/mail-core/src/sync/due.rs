@@ -5,7 +5,7 @@
 //! minute, and the acct_imap() accounts beside it want a pass every five. A pass the user asks for is
 //! not a wake and still syncs them all, through [`super::run`].
 
-use crate::error::CoreError;
+use crate::error::{CoreError, Logged};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -31,7 +31,7 @@ pub fn every(watch: &WatchMode) -> Duration {
 /// An account that keeps its mail here is left out: it has nothing to fetch, so it is never due.
 pub fn intervals(store: &SqliteStore) -> Vec<(AccountId, Duration)> {
     super::configured(store)
-        .unwrap_or_default()
+        .or_log_default("the accounts could not be read")
         .into_iter()
         .filter(|account| !matches!(account.plan.incoming, Incoming::Local))
         .map(|account| (account.id, every(&account.caps.watch)))

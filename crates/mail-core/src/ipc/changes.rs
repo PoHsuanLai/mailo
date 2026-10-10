@@ -98,7 +98,7 @@ pub(crate) fn door(
         let mut stream = match connection {
             Ok(stream) => stream,
             Err(e) => {
-                eprintln!("a client could not be accepted: {e}");
+                log::warn!("a client could not be accepted: {e}");
                 continue;
             }
         };

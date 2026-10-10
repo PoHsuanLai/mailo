@@ -16,6 +16,7 @@
 
 use crate::RuntimeError;
 use crate::error::Failure;
+use crate::error::Logged;
 use porter_core::{EndpointUrl, SecretText};
 use porter_oauth::ClientRegistry;
 use porter_provider::{
@@ -198,7 +199,8 @@ pub fn remember(
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt as _;
-        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+            .or_log("the OAuth client file could not be made owner-only");
     }
     Ok(Some(path.to_owned()))
 }

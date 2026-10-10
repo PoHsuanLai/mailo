@@ -14,7 +14,7 @@ pub use body::{fetch_body, fetch_body_with};
 mod jmap;
 mod search;
 
-use crate::error::CoreError;
+use crate::error::{CoreError, Logged};
 use mail_domain::*;
 use mail_proto::backend::{Authenticate, ImapBackend, Pop3Backend};
 use mail_proto::{ImapAuth, ImapCommand, ImapSession, Pop3Command, Pop3Session};
@@ -117,7 +117,7 @@ pub fn auth_by_account(
 /// Every configured account's id and address, in the order they were added.
 pub fn addresses(store: &SqliteStore) -> Vec<(AccountId, String)> {
     configured(store)
-        .unwrap_or_default()
+        .or_log_default("the accounts could not be read")
         .into_iter()
         .map(|account| (account.id, account.address))
         .collect()
@@ -126,7 +126,7 @@ pub fn addresses(store: &SqliteStore) -> Vec<(AccountId, String)> {
 /// The accounts that keep their mail on this computer ([`Incoming::Local`]).
 pub fn local_accounts(store: &SqliteStore) -> Vec<AccountId> {
     configured(store)
-        .unwrap_or_default()
+        .or_log_default("the accounts could not be read")
         .into_iter()
         .filter(|account| matches!(account.plan.incoming, Incoming::Local))
         .map(|account| account.id)
@@ -141,9 +141,8 @@ pub fn local_accounts(store: &SqliteStore) -> Vec<AccountId> {
 pub fn poll_interval(store: &SqliteStore) -> std::time::Duration {
     let default = std::time::Duration::from_secs(300);
     configured(store)
-        .ok()
+        .or_log_default("the accounts could not be read")
         .into_iter()
-        .flatten()
         // IDLE is a long-lived connection this loop does not hold. Until it does, an account that
         // supports it is polled like any other, at `due::IDLE`.
         .map(|a| due::every(&a.caps.watch))

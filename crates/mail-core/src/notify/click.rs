@@ -138,11 +138,11 @@ impl Clicks {
                         on_click(click);
                     }
                 }) {
-                    eprintln!("notification clicks are not heard: {e}");
+                    log::warn!("notification clicks are not heard: {e}");
                 }
             });
         if let Err(e) = spawned {
-            eprintln!("notification clicks are not heard: {e}");
+            log::warn!("notification clicks are not heard: {e}");
         }
         clicks
     }

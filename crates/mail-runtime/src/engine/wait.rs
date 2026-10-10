@@ -7,6 +7,7 @@
 //! the outbox side is local: a query against the store, never a connection.
 
 use super::AccountEngine;
+use crate::error::Logged;
 use crate::{Cancel, RuntimeError};
 use chrono::{DateTime, Utc};
 use mail_domain::{Incoming, MailboxRef, WatchMode};
@@ -115,7 +116,10 @@ pub(crate) async fn due_alarm(
 ) {
     loop {
         let now = Utc::now();
-        let next = store.outbox_next(account.clone(), after).ok().flatten();
+        let next = store
+            .outbox_next(account.clone(), after)
+            .or_log("the outbox's next attempt could not be read")
+            .flatten();
         if next.is_some_and(|at| at <= now) {
             return;
         }

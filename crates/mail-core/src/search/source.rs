@@ -4,6 +4,7 @@
 //! [`Source`] is the seam so a test can assert against terms and scores it chose, which a real
 //! index would not give it on demand.
 
+use crate::error::Logged;
 use chrono::{DateTime, Utc};
 use mail_domain::{Filter, PageReq, Property, Query, Sort, SortDir, ThreadId, ThreadSummary};
 use mail_store::Store;
@@ -45,7 +46,8 @@ impl<S: Store + ?Sized> Source for S {
         // Every account's vocabulary, on purpose: a term that lives on another account still
         // has to pass the account filter on the results. A store error is an empty suggestion
         // list, and the word falls back to matching as typed.
-        Store::terms_with_prefix(self, prefix, limit).unwrap_or_default()
+        Store::terms_with_prefix(self, prefix, limit)
+            .or_log_default("search: the store could not suggest terms")
     }
 
     fn listed(&self, filter: &Filter, page: PageReq, now: DateTime<Utc>) -> Vec<ThreadSummary> {
@@ -58,10 +60,10 @@ impl<S: Store + ?Sized> Source for S {
             page,
         };
         // A search box that panics because the store missed a row is worse than an empty
-        // list. The error is the store's to log; here there is nothing to show.
+        // list. The error goes to the log; here there is nothing to show.
         Store::threads(self, &query, now)
             .map(|page| page.items)
-            .unwrap_or_default()
+            .or_log_default("search: the store could not list the matches")
     }
 
     fn top(
@@ -71,7 +73,8 @@ impl<S: Store + ?Sized> Source for S {
         window: &[ThreadId],
         now: DateTime<Utc>,
     ) -> Vec<(ThreadSummary, f64)> {
-        Store::top_hits(self, filter, k, window, now).unwrap_or_default()
+        Store::top_hits(self, filter, k, window, now)
+            .or_log_default("search: the store could not rank the matches")
     }
 }
 

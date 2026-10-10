@@ -23,6 +23,7 @@
 use super::report::Failure;
 use super::{Configured, Mode, clock_for, configured, imap_engine, poll_floor, renewal_for};
 use super::{signed_in_typed, to_sync};
+use crate::error::Logged;
 use mail_domain::*;
 use mail_runtime::{AccountEngine, AccountSecrets, Cancel, ClientRegistry, Held, JmapEngine, Woke};
 use mail_runtime::{RuntimeError, platform_secrets};
@@ -104,7 +105,7 @@ pub fn pushes(account: &Configured) -> bool {
 /// Every account that can be waited on, as the store describes them now.
 pub fn pushing(store: &SqliteStore) -> Vec<AccountId> {
     configured(store)
-        .unwrap_or_default()
+        .or_log_default("the accounts could not be read")
         .iter()
         .filter(|account| pushes(account))
         .map(|account| account.id.clone())

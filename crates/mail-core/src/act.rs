@@ -7,6 +7,7 @@
 //! either is archived the same way: the same patch, the same queued work for the server, the
 //! same undo.
 
+use crate::error::Logged;
 use crate::undo::Undo;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
@@ -40,7 +41,9 @@ pub fn take_back(store: &SqliteStore, entry: &Undo) -> bool {
     {
         // Put the operation back as it was. Should that fail too, the store is left taken back
         // here and not there, and the next sync restores the server's state.
-        let _ = store.apply(entry.account.clone(), &entry.forward);
+        store
+            .apply(entry.account.clone(), &entry.forward)
+            .or_log("an undo could not be put back after its reverse failed to queue");
         return false;
     }
     true
@@ -71,7 +74,10 @@ fn withdraw_filing(store: &SqliteStore, entry: &Undo) {
     };
     // The whole queue, not only what is due: a later operation waiting out a retry or a
     // credential is later all the same.
-    let Ok(queued) = store.outbox_due(entry.account.clone(), queue_horizon()) else {
+    let Some(queued) = store
+        .outbox_due(entry.account.clone(), queue_horizon())
+        .or_log("the outbox could not be read to withdraw a taken-back move")
+    else {
         return;
     };
     let Some(filing) = queued.iter().find(|waiting| {
@@ -90,14 +96,16 @@ fn withdraw_filing(store: &SqliteStore, entry: &Undo) {
     {
         return;
     }
-    let _ = store.outbox_settle(
-        filing.id,
-        mail_store::Settle::Failed {
-            reason: "taken back before it was sent".to_owned(),
-            retry: Retry::Fatal("taken back".to_owned()),
-        },
-        chrono::Utc::now(),
-    );
+    store
+        .outbox_settle(
+            filing.id,
+            mail_store::Settle::Failed {
+                reason: "taken back before it was sent".to_owned(),
+                retry: Retry::Fatal("taken back".to_owned()),
+            },
+            chrono::Utc::now(),
+        )
+        .or_log("a taken-back move could not be withdrawn from the outbox");
 }
 
 /// A moment after every queued entry's next attempt, so that `outbox_due` lists the whole queue.
@@ -233,7 +241,9 @@ pub fn perform(store: &SqliteStore, thread: ThreadId, op: Op) -> Option<Undo> {
             )
             .is_err()
     {
-        let _ = store.apply(account, &applied.inverse);
+        store
+            .apply(account, &applied.inverse)
+            .or_log("an operation could not be undone after its server half failed to queue");
         return None;
     }
     Some(Undo {

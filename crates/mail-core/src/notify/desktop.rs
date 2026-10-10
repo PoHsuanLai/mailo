@@ -252,7 +252,7 @@ fn start(launch: Launch, token: Option<&str>) {
     let exe = match std::env::current_exe() {
         Ok(exe) => exe,
         Err(e) => {
-            eprintln!("notification click: cannot find this program to start the window: {e}");
+            log::warn!("notification click: cannot find this program to start the window: {e}");
             return;
         }
     };
@@ -273,7 +273,7 @@ fn start(launch: Launch, token: Option<&str>) {
                 let _ = child.wait();
             });
         }
-        Err(e) => eprintln!("notification click: cannot start the window: {e}"),
+        Err(e) => log::warn!("notification click: cannot start the window: {e}"),
     }
 }
 

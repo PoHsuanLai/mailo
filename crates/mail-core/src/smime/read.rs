@@ -8,7 +8,7 @@
 
 use super::certs::identity_of;
 use super::{SmimeError, epoch};
-use crate::error::CoreError;
+use crate::error::{CoreError, Logged};
 use chrono::{DateTime, Utc};
 use mail_domain::*;
 use mail_mime::Parsed;
@@ -92,7 +92,8 @@ pub fn open_message(
     };
     // What a signature teaches is a convenience; failing to record it is no reason not to show
     // the message.
-    let _ = mail_runtime::smime::keep_signer(store, &opened, &message.from.email, now);
+    mail_runtime::smime::keep_signer(store, &opened, &message.from.email, now)
+        .or_log("the signer's certificate was not kept");
     if matches!(
         protected.encryption,
         SmimeEncryption::Decrypted | SmimeEncryption::NotEncrypted
