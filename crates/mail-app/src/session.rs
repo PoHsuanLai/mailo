@@ -1,7 +1,7 @@
 //! What `mailo watch` does as the session's member, beyond fetching: it keeps the unread count on
 //! the launcher, with the window open or closed.
 //!
-//! The count is every account's unread inbox conversations (`ui::launcher::unread` over no
+//! The count is every account's unread inbox conversations (`launcher::unread` over no
 //! scope), the same question the window asks for the Space it shows. The window, where there is
 //! a watch running, leaves the launcher to this thread (`ui::launch::native`), because a dock
 //! forgets a count when its sender leaves the bus: a window that closed would take the badge with
@@ -13,7 +13,7 @@
 //! to tell this thread. The count is said again every [`REPEAT`] even when it has not changed, so
 //! a dock that started after mailo, or restarted, learns it within that time.
 
-use crate::ui::launcher::{Badge, Unread, unread};
+use crate::launcher::{Badge, Unread, unread};
 use mail_core::Store;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -51,7 +51,7 @@ pub fn keep_the_launchers_badge<S>(store: Arc<S>) -> Option<std::io::Result<()>>
 where
     S: Store + Send + Sync + ?Sized + 'static,
 {
-    let launcher = crate::ui::launcher::platform()?;
+    let launcher = crate::launcher::platform()?;
     Some(keep_the_badge(store, launcher.0, EVERY).map(|_| ()))
 }
 
@@ -73,7 +73,7 @@ where
             loop {
                 if let Ok(count) = unread(
                     store.as_ref(),
-                    &crate::ui::space::Scope::All,
+                    &mail_core::scope::Scope::All,
                     chrono::Utc::now(),
                 ) && beat.due(Instant::now(), count)
                 {

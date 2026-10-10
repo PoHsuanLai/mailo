@@ -96,12 +96,12 @@ pub(super) fn run(opening: Opening) -> Result<(), ds_blitz::LaunchError> {
     // its own recorder or none. With a `mailo watch` running (the session's sync daemon) the
     // watch is the one voice: it counts every account, and it keeps the count when this window
     // closes, which a dock would otherwise forget along with this window's connection.
-    let config = match crate::ui::launcher::platform() {
+    let config = match crate::launcher::platform() {
         Some(launcher) if !mail_core::ipc::watching::running() => config.with_context(launcher),
         _ => config,
     };
     // Another program's ask to open a conversation here (a banner's click, `mailo open`).
-    let config = match crate::ui::handoff::serve() {
+    let config = match crate::handoff::serve() {
         Some(requests) => config.with_context(requests),
         None => config,
     };

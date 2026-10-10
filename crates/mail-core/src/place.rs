@@ -6,6 +6,14 @@
 use chrono::{DateTime, Utc};
 use mail_domain::{Filter, MailboxRole, Op, Pin, ThreadSummary};
 
+/// What a badge counts in `place`: its conversations that are unread.
+///
+/// One definition for the sidebar's badges and the launcher's count, so they cannot disagree about
+/// what "unread in the inbox" means.
+pub fn unread_in(place: Filter) -> Filter {
+    Filter::And(vec![place, Filter::Read(mail_domain::ReadState::Unread)])
+}
+
 /// The filter a mailbox place lists.
 ///
 /// Public and shared, because there were two of these and they disagreed. The shell asked

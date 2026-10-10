@@ -15,7 +15,7 @@ use crate::drive;
 use crate::row_menu;
 use drive::{Drive, PRIMARY};
 use ds_blitz::{NetPolicy, PrintOutcome};
-use mail_app::ui::launcher::{Badge, Launcher, Unread};
+use mail_app::launcher::{Badge, Launcher, Unread};
 use mail_core::SqliteStore;
 use mail_core::{Arrival, absorb};
 use mail_domain::id::account_id_from_uuid;

@@ -47,6 +47,7 @@ pub mod query;
 pub mod receipt;
 pub mod remedy;
 pub mod rules;
+pub mod scope;
 pub mod search;
 pub mod server_search;
 pub mod smime;

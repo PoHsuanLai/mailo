@@ -3,8 +3,8 @@
 //! `launcher/unity.rs`.
 
 use chrono::{DateTime, TimeZone, Utc};
-use mail_app::ui::launcher::{Unread, unread};
-use mail_app::ui::space::Scope;
+use mail_app::launcher::{Unread, unread};
+use mail_core::scope::Scope;
 use mail_core::snooze;
 use mail_core::{Arrival, absorb};
 use mail_core::{SqliteStore, Store};

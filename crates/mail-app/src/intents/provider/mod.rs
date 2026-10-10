@@ -91,7 +91,7 @@ impl Opener {
 /// feature is on (porter-secrets' oo7 turns it on): blocking there panics "Cannot start a runtime
 /// from within a runtime". So the call is made off the runtime.
 fn handed_to_window(thread: ThreadId, token: Option<&str>) -> bool {
-    mail_core::off_runtime(|| crate::ui::handoff::deliver(thread, token))
+    mail_core::off_runtime(|| crate::handoff::deliver(thread, token))
 }
 
 impl std::fmt::Debug for Provider {
