@@ -8,7 +8,7 @@
 use mail_core::CoreError;
 use mail_core::sync::{self, live, report::Hooks, report::PassEnd};
 use mail_domain::MessageId;
-use mail_runtime::{AccountSecrets, ClientRegistry, SyncReport};
+use mail_runtime::{AccountSecrets, ClientRegistry};
 use mail_store::SqliteStore;
 use porter_core::AccountId;
 use std::future::Future;
@@ -59,16 +59,6 @@ pub fn fetch_part_with(
     block_on(sync::fetch_part_with(
         store, secrets, registry, message, section, now,
     ))
-}
-
-pub fn drain_with(
-    store: &Arc<SqliteStore>,
-    secrets: Arc<dyn AccountSecrets>,
-    registry: &ClientRegistry,
-    account: AccountId,
-    now: chrono::DateTime<chrono::Utc>,
-) -> Result<SyncReport, CoreError> {
-    block_on(sync::drain_with(store, secrets, registry, account, now))
 }
 
 pub fn fetch_body_with(
