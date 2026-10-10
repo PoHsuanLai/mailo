@@ -4,7 +4,7 @@
 //! CLI can list, open and reply", and a CLI can be driven from a test where a window cannot.
 //! The UI will call the same `Store` methods.
 
-use chrono::{DateTime, Local, Utc};
+use chrono::Local;
 use mail_core::account::{Receive, Setup};
 use mail_core::when::Stamp;
 use mail_core::{Mail, SqliteStore, Store};

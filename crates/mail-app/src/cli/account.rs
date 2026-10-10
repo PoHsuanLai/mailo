@@ -329,18 +329,20 @@ mod tests {
             &preset.plan,
             None,
         );
-        let secrets = MemorySecrets::default();
+        let store = std::sync::Arc::new(store);
+        let mail =
+            crate::edge::mail(&store).with_secrets(std::sync::Arc::new(MemorySecrets::default()));
 
-        let asked = remove(&store, &secrets, None, ADDRESS, Consent::Ask).unwrap_err();
+        let asked = remove(&mail, None, ADDRESS, Consent::Ask).unwrap_err();
         assert!(asked.contains("Nothing was removed"), "{asked}");
         assert!(asked.contains("its 0 messages"), "{asked}");
         assert_eq!(accounts(&store), 1);
 
-        let said = remove(&store, &secrets, None, ADDRESS, Consent::Given).unwrap();
+        let said = remove(&mail, None, ADDRESS, Consent::Given).unwrap();
         assert!(said.starts_with("removed me@nowhere.example"), "{said}");
         assert_eq!(accounts(&store), 0);
 
-        let again = remove(&store, &secrets, None, ADDRESS, Consent::Given).unwrap_err();
+        let again = remove(&mail, None, ADDRESS, Consent::Given).unwrap_err();
         assert!(again.contains("no account for"), "{again}");
     }
 
