@@ -88,6 +88,7 @@ fn openssl_verifies_and_decrypts_what_this_client_sends() {
             signer: Some(&alice()),
             recipients: &[],
             now: now(),
+            boundary_prefix: "mailo",
         },
         &mut rng(1),
     )
@@ -114,6 +115,7 @@ fn openssl_verifies_and_decrypts_what_this_client_sends() {
             signer: Some(&alice()),
             recipients: &[bob().cert],
             now: now(),
+            boundary_prefix: "mailo",
         },
         &mut rng(2),
     )

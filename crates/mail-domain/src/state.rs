@@ -30,6 +30,30 @@ impl MailboxRole {
     const fn bit(self) -> u8 {
         1 << (self as u8)
     }
+
+    /// The role a folder of this name plays, where the name is one clients agree on.
+    ///
+    /// The one place a folder's name is read for its role, for the places that have no server
+    /// to say (an archive on disk, an import). Only the last segment is read, so
+    /// `[Gmail]/Sent Mail` and `Sent` agree. Case and the difference between a space, a hyphen
+    /// and nothing are ignored: `Junk E-mail`, `junk-email`.
+    pub fn from_folder_name(name: &str) -> Option<MailboxRole> {
+        let last = name.rsplit(['/', '.']).next().unwrap_or(name);
+        let folded: String = last
+            .chars()
+            .filter(|c| c.is_alphanumeric())
+            .flat_map(char::to_lowercase)
+            .collect();
+        Some(match folded.as_str() {
+            "inbox" => MailboxRole::Inbox,
+            "sent" | "sentitems" | "sentmessages" | "sentmail" => MailboxRole::Sent,
+            "drafts" | "draft" => MailboxRole::Drafts,
+            "trash" | "deleted" | "deleteditems" | "deletedmessages" | "bin" => MailboxRole::Trash,
+            "junk" | "spam" | "junkemail" | "junkmail" | "bulkmail" => MailboxRole::Spam,
+            "archive" | "archives" | "allmail" => MailboxRole::Archive,
+            _ => return None,
+        })
+    }
 }
 
 /// The set of roles a thread spans.

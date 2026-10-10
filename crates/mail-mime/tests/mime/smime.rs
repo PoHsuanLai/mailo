@@ -57,6 +57,7 @@ fn sealed(mode: Smime, signer: Option<&Identity>, to: &[Cert], raw: &[u8]) -> Ve
             signer,
             recipients: to,
             now: now(),
+            boundary_prefix: "mailo",
         },
         &mut rng(7),
     )

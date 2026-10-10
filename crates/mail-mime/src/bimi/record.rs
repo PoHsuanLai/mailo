@@ -8,6 +8,7 @@
 //! sp=…; pct=…`.
 
 use crate::auth::{AuthResults, Verdict};
+pub use crate::error::RecordError;
 
 /// A domain's BIMI assertion record.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -17,17 +18,6 @@ pub struct BimiRecord {
     /// Where the evidence document (a Verified Mark Certificate) is: an `https:` URL. `None`
     /// when `a=` is empty or absent, which is a self-asserted logo that nobody vouched for.
     pub evidence: Option<String>,
-}
-
-/// Why a TXT string is not a BIMI record this client will use.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RecordError {
-    /// It does not open with `v=BIMI1`.
-    NotBimi,
-    /// A tag appears twice.
-    Repeated(String),
-    /// `l=` or `a=` is not a single `https:` URL.
-    NotHttps(String),
 }
 
 /// One TXT string, as a BIMI record.

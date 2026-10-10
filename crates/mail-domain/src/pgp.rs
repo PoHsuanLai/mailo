@@ -6,6 +6,7 @@
 //! secret halves ([`crate::signing::SigningKeyRef`]), and these types are what passes between
 //! them.
 
+use crate::error::ParseFingerprintError;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -64,18 +65,20 @@ impl fmt::Display for Fingerprint {
 }
 
 impl FromStr for Fingerprint {
-    type Err = String;
+    type Err = ParseFingerprintError;
 
     /// Hex, in either case, with any spaces removed — GnuPG prints fingerprints in groups.
     fn from_str(text: &str) -> Result<Self, Self::Err> {
         let bytes = unhex(text)?;
-        Fingerprint::from_bytes(&bytes)
-            .ok_or_else(|| format!("{text:?} is not a 40- or 64-digit fingerprint"))
+        Fingerprint::from_bytes(&bytes).ok_or_else(|| ParseFingerprintError::WrongLength {
+            text: text.to_owned(),
+            what: "40- or 64-digit fingerprint",
+        })
     }
 }
 
 impl TryFrom<String> for Fingerprint {
-    type Error = String;
+    type Error = ParseFingerprintError;
     fn try_from(text: String) -> Result<Self, Self::Error> {
         text.parse()
     }
@@ -109,18 +112,21 @@ impl fmt::Display for KeyId {
 }
 
 impl FromStr for KeyId {
-    type Err = String;
+    type Err = ParseFingerprintError;
     fn from_str(text: &str) -> Result<Self, Self::Err> {
         let bytes = unhex(text)?;
         let id: [u8; 8] = bytes
             .try_into()
-            .map_err(|_| format!("{text:?} is not a 16-digit key id"))?;
+            .map_err(|_| ParseFingerprintError::WrongLength {
+                text: text.to_owned(),
+                what: "16-digit key id",
+            })?;
         Ok(KeyId(id))
     }
 }
 
 impl TryFrom<String> for KeyId {
-    type Error = String;
+    type Error = ParseFingerprintError;
     fn try_from(text: String) -> Result<Self, Self::Error> {
         text.parse()
     }
@@ -136,16 +142,17 @@ fn hex(bytes: &[u8], f: &mut fmt::Formatter<'_>) -> fmt::Result {
     bytes.iter().try_for_each(|b| write!(f, "{b:02X}"))
 }
 
-fn unhex(text: &str) -> Result<Vec<u8>, String> {
+fn unhex(text: &str) -> Result<Vec<u8>, ParseFingerprintError> {
     let digits: Vec<u8> = text.bytes().filter(|b| !b.is_ascii_whitespace()).collect();
     if !digits.len().is_multiple_of(2) {
-        return Err(format!("{text:?} has an odd number of hex digits"));
+        return Err(ParseFingerprintError::OddDigits(text.to_owned()));
     }
     digits
         .chunks(2)
         .map(|pair| {
-            let pair = std::str::from_utf8(pair).map_err(|_| format!("{text:?} is not hex"))?;
-            u8::from_str_radix(pair, 16).map_err(|_| format!("{text:?} is not hex"))
+            let not_hex = || ParseFingerprintError::NotHex(text.to_owned());
+            let pair = std::str::from_utf8(pair).map_err(|_| not_hex())?;
+            u8::from_str_radix(pair, 16).map_err(|_| not_hex())
         })
         .collect()
 }

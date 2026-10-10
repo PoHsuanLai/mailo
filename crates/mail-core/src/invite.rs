@@ -11,11 +11,15 @@
 use chrono::{DateTime, Local, TimeZone, Utc};
 use mail_domain::*;
 use mail_pim::ical::{self, Answering, PartStat};
-use mail_pim::{Invite, Kind, Me, Revision, show_when};
+use mail_pim::{Invite, Kind, Me, Revision};
 use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
 use std::fmt::Write as _;
 use std::path::PathBuf;
+
+mod when;
+
+pub use when::{REPEATS_OTHERWISE, WhenShown, repeats_words, show_when};
 
 /// The invitation `raw` carries, as the reader shows it to someone whose addresses are `me`.
 ///
@@ -263,17 +267,13 @@ pub fn render<Z: TimeZone>(invite: &Invite, answered: Option<&InviteAnswer>, zon
         let _ = writeln!(out, "             {theirs}, the organiser's time");
     }
     if let Some(repeats) = &invite.repeats {
-        let _ = writeln!(out, "  repeats:   {repeats}");
+        let _ = writeln!(out, "  repeats:   {}", repeats_words(repeats));
     }
     if let Some(location) = &invite.location {
         let _ = writeln!(out, "  where:     {}", one_line(location));
     }
     if let Some(organiser) = &invite.organiser {
-        let _ = writeln!(
-            out,
-            "  organiser: {}",
-            party(&organiser.name, &organiser.email)
-        );
+        let _ = writeln!(out, "  organiser: {}", party(organiser));
     }
     if !invite.attendees.is_empty() {
         let _ = writeln!(out, "  attendees:");
@@ -281,7 +281,7 @@ pub fn render<Z: TimeZone>(invite: &Invite, answered: Option<&InviteAnswer>, zon
             let _ = writeln!(
                 out,
                 "    {}  {}",
-                party(&attendee.party.name, &attendee.party.email),
+                party(&attendee.party),
                 partstat_word(attendee.answer)
             );
         }
@@ -442,10 +442,10 @@ fn partstat_word(answer: PartStat) -> &'static str {
     }
 }
 
-fn party(name: &Option<String>, email: &str) -> String {
-    match name {
-        Some(name) => format!("{} <{email}>", one_line(name)),
-        None => email.to_owned(),
+fn party(who: &mail_pim::ical::Party) -> String {
+    match &who.name {
+        Some(name) => Address::named(one_line(name), &who.email).to_string(),
+        None => who.email.clone(),
     }
 }
 

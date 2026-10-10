@@ -27,6 +27,11 @@ fn sextet(byte: u8) -> Option<u16> {
 
 /// Encode a mailbox name for the wire.
 ///
+/// ```
+/// assert_eq!(mail_proto::mutf7::encode("Entwürfe"), "Entw&APw-rfe");
+/// assert_eq!(mail_proto::mutf7::decode("Entw&APw-rfe"), "Entwürfe");
+/// ```
+///
 /// Printable ASCII except `&` passes through. Everything else is UTF-16BE in modified base64
 /// between `&` and `-`.
 pub fn encode(name: &str) -> String {

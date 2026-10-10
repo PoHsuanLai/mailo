@@ -87,34 +87,12 @@ pub fn sniff(head: &[u8]) -> Sniffed {
     }
 }
 
-/// The role a folder of this name plays, where the name is one clients agree on.
-///
-/// Only the last segment is read, so `[Gmail]/Sent Mail` and `Sent` agree. Case and the
-/// difference between a space, a hyphen and nothing are ignored: `Junk E-mail`, `junk-email`.
-pub fn role_for_folder(name: &str) -> Option<MailboxRole> {
-    let last = name.rsplit(['/', '.']).next().unwrap_or(name);
-    let folded: String = last
-        .chars()
-        .filter(|c| c.is_alphanumeric())
-        .flat_map(char::to_lowercase)
-        .collect();
-    Some(match folded.as_str() {
-        "inbox" => MailboxRole::Inbox,
-        "sent" | "sentitems" | "sentmessages" | "sentmail" => MailboxRole::Sent,
-        "drafts" | "draft" => MailboxRole::Drafts,
-        "trash" | "deleted" | "deleteditems" | "deletedmessages" | "bin" => MailboxRole::Trash,
-        "junk" | "spam" | "junkemail" | "junkmail" | "bulkmail" => MailboxRole::Spam,
-        "archive" | "archives" | "allmail" => MailboxRole::Archive,
-        _ => return None,
-    })
-}
-
 /// A folder name as a placement: its role where it has one, else archived under a label of
 /// the same name. `None` is the top of a mailbox, which is the inbox.
 pub fn folder_placement(folder: Option<&str>, flags: Vec<SystemFlag>) -> Placement {
     match folder {
         None => Placement::new(MailboxRole::Inbox, flags, Vec::new()),
-        Some(name) => match role_for_folder(name) {
+        Some(name) => match MailboxRole::from_folder_name(name) {
             Some(role) => Placement::new(role, flags, Vec::new()),
             None => Placement::new(MailboxRole::Archive, flags, vec![name.to_owned()]),
         },
@@ -224,9 +202,9 @@ mod tests {
             ("Drafts", MailboxRole::Drafts),
             ("Archive", MailboxRole::Archive),
         ] {
-            assert_eq!(role_for_folder(name), Some(role), "{name}");
+            assert_eq!(MailboxRole::from_folder_name(name), Some(role), "{name}");
         }
-        assert_eq!(role_for_folder("Receipts"), None);
+        assert_eq!(MailboxRole::from_folder_name("Receipts"), None);
     }
 
     #[test]

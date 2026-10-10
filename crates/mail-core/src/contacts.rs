@@ -169,10 +169,11 @@ pub fn find(store: &dyn Store, typed: &str, limit: usize) -> Result<String, Stri
 }
 
 fn shown(contact: &mail_store::Contact) -> String {
-    match &contact.name {
-        Some(name) => format!("{name} <{}>", contact.address),
-        None => contact.address.clone(),
+    mail_domain::Address {
+        name: contact.name.clone(),
+        email: contact.address.clone(),
     }
+    .to_string()
 }
 
 /// Every address on every card in `bytes`, added by hand under the card's name, and every

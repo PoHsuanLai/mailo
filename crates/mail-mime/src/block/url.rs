@@ -22,18 +22,26 @@ pub const LINK_TARGET: &str = "_blank";
 
 /// An `http`, `https`, or `mailto` URL.
 ///
-/// Constructible only through [`SafeUrl::parse`]. The stored string is the
+/// Constructible only by parsing (`str::parse`). The stored string is the
 /// parser's own canonical form, so parsing it again yields the same value.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SafeUrl(String);
 
-impl SafeUrl {
+impl std::str::FromStr for SafeUrl {
+    type Err = crate::UnsafeUrl;
+
     /// Parse `raw` into a URL this crate will keep.
     ///
-    /// `None` when the scheme is not one of the three, the host is missing for
+    /// Refused when the scheme is not one of the three, the host is missing for
     /// `http`/`https`, or the string carries whitespace, a control character,
     /// or a bidi override (those reorder the host a person thinks they see).
-    pub fn parse(raw: &str) -> Option<Self> {
+    fn from_str(raw: &str) -> Result<Self, Self::Err> {
+        Self::read(raw).ok_or(crate::UnsafeUrl)
+    }
+}
+
+impl SafeUrl {
+    fn read(raw: &str) -> Option<Self> {
         if raw.is_empty() || raw.chars().any(forbidden_in_url) {
             return None;
         }
@@ -56,15 +64,15 @@ impl SafeUrl {
         Some(Self(canonical.to_owned()))
     }
 
-    /// Parse `raw` as a link the reader shows and opens: [`SafeUrl::parse`], then without the
+    /// Parse `raw` as a link the reader shows and opens: parsed as usual, then without the
     /// query parameters that only tell the sender who clicked (`utm_*`, `fbclid`, `gclid`,
     /// `mc_eid` and the rest of [`super::tracking::TRACKING`]).
     ///
     /// Only named parameters come off; an unknown one stays. A redirect wrapper is not unwrapped,
     /// so the link goes where the sender pointed it. An image's address is not a link and goes
-    /// through [`SafeUrl::parse`] alone, as does a link the user types into a draft.
+    /// through plain parsing alone, as does a link the user types into a draft.
     pub fn link(raw: &str) -> Option<Self> {
-        let parsed = Self::parse(raw)?;
+        let parsed = Self::read(raw)?;
         let mut url = Url::parse(parsed.as_str()).ok()?;
         tracking::strip(&mut url);
         Some(Self(url.as_str().to_owned()))

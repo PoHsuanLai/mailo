@@ -29,7 +29,7 @@
 //! named, as the document's `<p class="missing">`.
 
 use ds_blitz::{Margins, PageSize, PageSpec};
-use mail_core::print::{Pictures, Printed};
+use mail_core::print::{LABELS, Pictures, Printed};
 use mail_mime::{Options, Script};
 
 /// What the top of a printout says when it names a picture instead of drawing it.
@@ -316,6 +316,7 @@ where
     let style = paper_css(paper.cjk);
     let options = Options {
         pages: job.pages,
+        labels: LABELS,
         style: &style,
         missing_note: Some(PICTURES_NOTE),
     };

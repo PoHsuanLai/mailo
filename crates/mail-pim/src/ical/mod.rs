@@ -17,7 +17,7 @@ mod zone;
 
 pub use read::{MAX_CALENDAR_BYTES, parse};
 pub use reply::{Answering, reply};
-pub use rrule::describe as describe_rule;
+pub use rrule::{Recurrence, RepeatEnd, RepeatUnit, Repeats};
 pub use zone::{EventZone, Placed, place, resolve_iana};
 
 use crate::line::ContentLine;
@@ -68,7 +68,7 @@ pub struct Event {
     pub description: Option<String>,
     pub organizer: Option<Party>,
     pub attendees: Vec<Attendee>,
-    /// `RRULE`, as written. See [`describe_rule`].
+    /// `RRULE`, as written. See [`Repeats::read`].
     pub rrule: Option<String>,
     pub status: Option<EventStatus>,
     /// `RECURRENCE-ID`: which occurrence of a recurring event this object is about, when it is
@@ -103,13 +103,10 @@ pub enum End {
 }
 
 /// Someone named by a `cal-address`: an organiser or an attendee.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Party {
-    /// The address, less `mailto:`, spelled as the invitation spelled it.
-    pub email: String,
-    /// `CN`.
-    pub name: Option<String>,
-}
+///
+/// The `email` is the address less `mailto:`, spelled as the invitation spelled it, and the
+/// `name` is the `CN`.
+pub type Party = mail_domain::Address;
 
 /// One `ATTENDEE`.
 #[derive(Debug, Clone, PartialEq, Eq)]

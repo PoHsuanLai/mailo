@@ -13,7 +13,6 @@
 //! capabilities used afterwards are the ones re-issued inside TLS (RFC 5804 §2.2), never the
 //! plaintext ones.
 
-use super::SCRIPT_NAME;
 use super::wire::{self, Token};
 use crate::machine::{IoNeed, IoReady, Machine, Progress, ProtoError, Refusal};
 use base64::Engine as _;
@@ -36,6 +35,11 @@ pub struct SieveLogin {
     /// no `AUTHENTICATE` of its own, the first thing sent is `LISTSCRIPTS`. `username` and
     /// `credential` are not read.
     pub relayed: bool,
+    /// The name this client's script goes by on the server.
+    ///
+    /// One name, owned by this client: a script with any other name was written by someone
+    /// else, and is never replaced, deactivated or deleted without being told to.
+    pub script_name: String,
 }
 
 /// What the connection is for.
@@ -130,8 +134,9 @@ pub enum Active {
 }
 
 impl ScriptEntry {
-    fn ours(&self) -> bool {
-        self.name == SCRIPT_NAME
+    /// Whether this is the script called `ours`: the client's own.
+    fn is(&self, ours: &str) -> bool {
+        self.name == ours
     }
 }
 
@@ -345,7 +350,7 @@ impl SieveSession {
                 let displaced = self
                     .scripts
                     .iter()
-                    .find(|s| s.active == Active::Yes && !s.ours())
+                    .find(|s| s.active == Active::Yes && !s.is(&self.login.script_name))
                     .map(|s| s.name.clone());
                 self.logout(SieveOutcome::Installed {
                     caps: self.caps.clone(),
@@ -438,12 +443,16 @@ impl SieveSession {
     }
 
     fn after_list(&mut self) -> Step {
-        let ours = self.scripts.iter().find(|s| s.ours()).cloned();
+        let ours = self
+            .scripts
+            .iter()
+            .find(|s| s.is(&self.login.script_name))
+            .cloned();
         match self.job.clone() {
             SieveJob::Status => match ours {
                 Some(_) => {
                     self.phase = Phase::Get;
-                    let line = format!("GETSCRIPT {}\r\n", string(SCRIPT_NAME));
+                    let line = format!("GETSCRIPT {}\r\n", string(&self.login.script_name));
                     Step::Need(vec![IoNeed::Write(line.into_bytes())])
                 }
                 None => self.logout(SieveOutcome::Status {
@@ -456,7 +465,7 @@ impl SieveSession {
                 let theirs = self
                     .scripts
                     .iter()
-                    .find(|s| s.active == Active::Yes && !s.ours());
+                    .find(|s| s.active == Active::Yes && !s.is(&self.login.script_name));
                 if let (Some(theirs), Takeover::Refuse) = (theirs, takeover) {
                     let active = theirs.name.clone();
                     return self.logout(SieveOutcome::Refused {
@@ -470,7 +479,7 @@ impl SieveSession {
                 // written; one that disagrees desynchronises the connection.
                 let mut line = format!(
                     "PUTSCRIPT {} {{{}+}}\r\n",
-                    string(SCRIPT_NAME),
+                    string(&self.login.script_name),
                     script.len()
                 )
                 .into_bytes();
@@ -497,7 +506,7 @@ impl SieveSession {
         let already = self
             .scripts
             .iter()
-            .any(|s| s.ours() && s.active == Active::Yes);
+            .any(|s| s.is(&self.login.script_name) && s.active == Active::Yes);
         if already {
             return self.logout(SieveOutcome::Installed {
                 caps: self.caps.clone(),
@@ -505,13 +514,13 @@ impl SieveSession {
             });
         }
         self.phase = Phase::Activate;
-        let line = format!("SETACTIVE {}\r\n", string(SCRIPT_NAME));
+        let line = format!("SETACTIVE {}\r\n", string(&self.login.script_name));
         Step::Need(vec![IoNeed::Write(line.into_bytes())])
     }
 
     fn delete(&mut self) -> Step {
         self.phase = Phase::Delete;
-        let line = format!("DELETESCRIPT {}\r\n", string(SCRIPT_NAME));
+        let line = format!("DELETESCRIPT {}\r\n", string(&self.login.script_name));
         Step::Need(vec![IoNeed::Write(line.into_bytes())])
     }
 

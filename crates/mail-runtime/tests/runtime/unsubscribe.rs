@@ -130,7 +130,9 @@ fn client(tls: SocketAddr, plain: Option<SocketAddr>) -> reqwest::Client {
 }
 
 fn url(addr: SocketAddr, path: &str) -> HttpsUrl {
-    HttpsUrl::parse(&format!("https://unsubscribe.test:{}{path}", addr.port())).unwrap()
+    format!("https://unsubscribe.test:{}{path}", addr.port())
+        .parse()
+        .unwrap()
 }
 
 #[tokio::test]
@@ -214,7 +216,7 @@ async fn a_redirect_to_plain_http_is_refused_and_nothing_reaches_it() {
 async fn the_client_never_posts_to_plain_http_even_when_asked_directly() {
     // `one_click` takes an `HttpsUrl`, which an `http:` URL cannot become. This is the layer
     // under it: the client itself refuses, so a caller that skipped the type still sends nothing.
-    assert_eq!(HttpsUrl::parse("http://plain.test/u"), None);
+    assert_eq!("http://plain.test/u".parse::<HttpsUrl>().ok(), None);
     let (plain, connections) = plain_server().await;
     let (tls, _) = tls_server(always(OK)).await;
     let sent = client(tls, Some(plain))

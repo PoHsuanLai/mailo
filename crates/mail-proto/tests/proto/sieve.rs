@@ -64,7 +64,14 @@ fn crlf(text: &str) -> String {
 }
 
 fn compiled(rules: &[Rule], vacation: Option<&Vacation>) -> Compiled {
-    compile(rules, vacation, &every_extension(), &places(), at(1))
+    compile(
+        rules,
+        vacation,
+        &every_extension(),
+        &places(),
+        "mailo",
+        at(1),
+    )
 }
 
 #[test]
@@ -241,13 +248,21 @@ fn rules_sieve_cannot_express_stay_local_and_say_why() {
         None,
         &every_extension(),
         &Places::default(),
+        "mailo",
         at(1),
     );
     assert_eq!(
         out.local_only,
         vec![("spam".to_owned(), Unmappable::NoFolder(MailboxRole::Spam))]
     );
-    let out = compile(&[spam], None, &["vacation".to_owned()], &places(), at(1));
+    let out = compile(
+        &[spam],
+        None,
+        &["vacation".to_owned()],
+        &places(),
+        "mailo",
+        at(1),
+    );
     assert_eq!(
         out.local_only,
         vec![("spam".to_owned(), Unmappable::Missing("fileinto"))]
@@ -309,7 +324,7 @@ fn without_the_date_extension_the_reply_is_in_only_while_it_applies() {
         addresses: Vec::new(),
         ..vacation()
     };
-    let out = compile(&[], Some(&open), &no_dates, &places(), at(20));
+    let out = compile(&[], Some(&open), &no_dates, &places(), "mailo", at(20));
     let want = crlf(
         r#"# Written by mailo, and replaced whenever its rules change: edit them there.
 require ["vacation"];
@@ -333,7 +348,7 @@ For \"urgent\" things, call the desk.";
         ),
     ];
     for (now, want) in cases {
-        let out = compile(&[], Some(&vacation()), &no_dates, &places(), now);
+        let out = compile(&[], Some(&vacation()), &no_dates, &places(), "mailo", now);
         assert_eq!(out.vacation, want, "at {now}");
         assert_eq!(
             out.script.contains("vacation :days"),
@@ -346,6 +361,7 @@ For \"urgent\" things, call the desk.";
         Some(&vacation()),
         &["fileinto".to_owned()],
         &places(),
+        "mailo",
         at(2),
     );
     assert_eq!(out.vacation, VacationPlaced::Unsupported);
@@ -364,6 +380,7 @@ fn login(credential: Credential) -> SieveLogin {
         username: "me@example.test".to_owned(),
         credential,
         relayed: false,
+        script_name: "mailo".to_owned(),
     }
 }
 

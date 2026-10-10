@@ -185,6 +185,7 @@ fn from_bea(mode: Smime, to_certs: &[Cert], body: &[u8]) -> Vec<u8> {
             signer: Some(&bea()),
             recipients: to_certs,
             now: now(),
+            boundary_prefix: "mailo",
         },
         &mut rng(9),
     )

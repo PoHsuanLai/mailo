@@ -139,7 +139,7 @@ fn write_object(out: &mut String, object: &Object) {
             out.push_str("<img alt=\"");
             push_text(out, alt, Breaks::Keep);
             out.push('"');
-            if let Some(url) = SafeUrl::parse(src.as_str()) {
+            if let Ok(url) = src.as_str().parse::<SafeUrl>() {
                 out.push_str(" src=\"");
                 push_text(out, url.as_str(), Breaks::Keep);
                 out.push('"');

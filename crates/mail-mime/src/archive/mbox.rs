@@ -20,6 +20,7 @@
 //! LF and CRLF files both read; lines keep whichever ending the file had.
 
 use super::{Placement, folder_placement, header, lines, trim_eol};
+pub use crate::error::MboxError;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use mail_domain::SystemFlag;
 use std::io::{self, BufRead, Write};
@@ -38,15 +39,6 @@ pub struct Envelope {
 pub struct MboxMessage {
     pub envelope: Envelope,
     pub raw: Vec<u8>,
-}
-
-/// Why an mbox could not be read.
-#[derive(Debug, thiserror::Error)]
-pub enum MboxError {
-    #[error("not an mbox: the first line is not a `From ` envelope line")]
-    NotMbox,
-    #[error("reading the mbox: {0}")]
-    Io(#[from] io::Error),
 }
 
 /// Messages from an mbox, one at a time.

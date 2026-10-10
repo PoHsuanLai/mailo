@@ -104,12 +104,7 @@ pub(super) fn settings(plan: &AccountPlan) -> Vec<Line> {
     let addresses: Vec<String> = plan
         .identities
         .iter()
-        .map(|identity| match &identity.from.name {
-            Some(name) if !name.trim().is_empty() => {
-                format!("{} <{}>", name.trim(), identity.from.email)
-            }
-            _ => identity.from.email.clone(),
-        })
+        .map(|identity| identity.from.to_string())
         .collect();
     if !addresses.is_empty() {
         lines.push(line("Sends as", addresses.join(", ")));

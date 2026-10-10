@@ -73,10 +73,13 @@ impl AccountPlan {
     /// The sender's own domain. A client has no reliable way to learn a name that resolves
     /// back to it, and submission servers do not check: they authenticate the session instead.
     /// `localhost` is the one answer some servers actively reject, so it is not the fallback.
-    pub fn ehlo(&self) -> String {
+    ///
+    /// An address with no domain falls back to `fallback`, which the caller picks: a name under
+    /// `.invalid` (RFC 2606) that says whose client this is.
+    pub fn ehlo_or(&self, fallback: &str) -> String {
         match self.address.rsplit_once('@') {
             Some((_, domain)) if !domain.is_empty() => domain.to_owned(),
-            _ => "mailo.invalid".to_owned(),
+            _ => fallback.to_owned(),
         }
     }
 }

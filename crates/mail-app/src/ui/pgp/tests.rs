@@ -76,6 +76,7 @@ pub(super) fn sealed(
             recipients: to,
             gossip: &[],
             now: now(),
+            boundary_prefix: "mailo",
         },
         &mut rand::rngs::StdRng::seed_from_u64(seed),
     )

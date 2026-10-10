@@ -8,9 +8,11 @@
 //! See `plan.md` for the design and `CONVENTIONS.md` for the rules this code follows.
 
 pub mod account;
+pub mod address;
 pub mod autocrypt;
 pub mod content;
 pub mod draft;
+pub mod error;
 pub mod filter;
 pub mod folder;
 pub mod id;
@@ -37,13 +39,14 @@ pub use account::{
     FolderRoles, HttpAuth, Identity, Incoming, LeaveOnServer, MoveExt, Outgoing, SaslMech,
     ServerLabels, ServerThreads, Supported, Tls, Username, WatchMode,
 };
+pub use address::Address;
 pub use autocrypt::{AutocryptPeer, PreferEncrypt, Sighting};
-pub use content::{Address, Attachment, Body, Inline, Label, PartContent};
+pub use content::{Attachment, Body, Inline, Label, PartContent};
 pub use draft::{Draft, PendingAttachment, ReplyScope, SendState};
+pub use error::{FolderError, ParseAddressError, ParseFingerprintError};
 pub use filter::{DateRange, Filed, Filter, Leaving, MatchCtx, Placed, TextMatch};
 pub use folder::{
-    Folder, FolderContents, FolderCtx, FolderError, FolderWork, Holds, NonEmpty, SpecialUse,
-    Subscription,
+    Folder, FolderContents, FolderCtx, FolderWork, Holds, NonEmpty, SpecialUse, Subscription,
 };
 pub use id::{
     BlobId, ChangeId, DraftId, IdentityId, LabelId, MessageId, OutboxId, RuleId, TemplateId,

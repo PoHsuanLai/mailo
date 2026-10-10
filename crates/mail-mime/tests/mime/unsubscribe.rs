@@ -15,7 +15,7 @@ fn message(headers: &str) -> Vec<u8> {
 
 fn one_click(url: &str) -> Unsubscribe {
     Unsubscribe::OneClick {
-        url: HttpsUrl::parse(url).expect("a usable https url"),
+        url: url.parse::<HttpsUrl>().expect("a usable https url"),
     }
 }
 
@@ -271,7 +271,7 @@ fn bytes_that_are_not_a_message_offer_nothing_and_do_not_panic() {
 
 #[test]
 fn only_an_https_url_without_credentials_is_one_to_post_to() {
-    assert!(HttpsUrl::parse("https://example.test/u?x=1").is_some());
+    assert!("https://example.test/u?x=1".parse::<HttpsUrl>().is_ok());
     for refused in [
         "http://example.test/u",
         "HTTP://example.test/u",
@@ -281,6 +281,6 @@ fn only_an_https_url_without_credentials_is_one_to_post_to() {
         "https://",
         "not a url",
     ] {
-        assert_eq!(HttpsUrl::parse(refused), None, "case: {refused}");
+        assert_eq!(refused.parse::<HttpsUrl>().ok(), None, "case: {refused}");
     }
 }

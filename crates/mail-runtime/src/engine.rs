@@ -616,7 +616,7 @@ impl<B: Backend> AccountEngine<B> {
         let (host, port, tls) = self.outgoing().ok_or_else(|| {
             RuntimeError::UnsupportedIo("this account does not submit over SMTP".to_owned())
         })?;
-        let (host, ehlo) = (host.to_owned(), self.plan.ehlo());
+        let (host, ehlo) = (host.to_owned(), self.plan.ehlo_or("mailo.invalid"));
         let (username, sasl) = (self.plan.username(), self.plan.sasl());
         // Most providers authenticate submission with the same secret as retrieval, which is
         // what `AuthPlan` means by covering both directions. A separate outgoing secret is

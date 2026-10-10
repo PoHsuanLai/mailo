@@ -8,10 +8,30 @@
 
 use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::{Message, MessageId, ThreadId};
-use mail_mime::{Options, Pages, Parsed, Remote, Sheet};
+use mail_mime::{Labels, Options, Pages, Parsed, Remote, Sheet};
 use mail_store::{SqliteStore, Store};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+
+/// What a printout says in front of a reader: the header rows, the counts, the notes where a
+/// body or an image is missing. `mail-mime` writes the document and none of these words.
+pub const LABELS: Labels<'static> = Labels {
+    from: "From",
+    to: "To",
+    cc: "Cc",
+    date: "Date",
+    subject: "Subject",
+    printed: "Printed {when}",
+    no_subject: "(no subject)",
+    thread_count: "({n} messages)",
+    image: "[image",
+    image_alt: ": {alt}",
+    image_host: ", from {host}",
+    no_body: "The body of this message has not been downloaded, so only its headers are printed.",
+    cut_off: "This message is longer than can be shown; the rest of it is not printed.",
+    attachments: "Attachments ({n})",
+    unnamed: "(unnamed)",
+};
 
 /// A printable document, and the subject it is named after.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -76,7 +96,14 @@ where
     Tz: TimeZone,
     Tz::Offset: std::fmt::Display,
 {
-    of_messages_with(store, messages, zone, now, &Options::new(pages), None)
+    of_messages_with(
+        store,
+        messages,
+        zone,
+        now,
+        &Options::new(pages, LABELS),
+        None,
+    )
 }
 
 /// Where a printout's consented remote images come from.
