@@ -22,11 +22,13 @@
 
 use crate::RuntimeError;
 use crate::error::Failure;
+use mail_domain::Retry;
 use porter_core::{AccountId, Credential, SecretKey};
 use porter_secrets::{Secrets, SecretsError};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::runtime::Handle;
 
 type Answer<'a, T> = Pin<Box<dyn Future<Output = Result<T, RuntimeError>> + Send + 'a>>;
@@ -54,10 +56,57 @@ pub trait AccountSecrets: Send + Sync {
     }
 }
 
-/// Every secret failure is `Secrets`, which reads as `NeedsReauth`: a missing or locked store is
-/// answered by asking the person to sign in, not by retrying. That is how it always was.
+/// Every secret failure is `Secrets`, with porter's error kept underneath it: what it asks of the
+/// person is [`SecretTrouble::of`]'s to say, not this conversion's.
 fn refused(why: SecretsError) -> RuntimeError {
     RuntimeError::Secrets(Failure::caused(why))
+}
+
+/// What a failure to read an account's secret asks of the person. Decided here and nowhere else:
+/// every caller that reads a credential, and [`RuntimeError`]'s own retry, asks this.
+///
+/// Only a credential that is not there is a sign-in to ask for. A keyring that is locked or does
+/// not answer holds a credential that may be perfectly good, and asking the person to sign in
+/// again because of it sends them to fix the wrong thing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SecretTrouble {
+    /// No credential to use: nothing is filed under the key, or what is filed does not decode
+    /// (signing in again replaces it). Also every failure that is not the store's own, such as
+    /// a linked process, which keeps no secret at all.
+    Absent,
+    /// The store did not answer, in plain words. The read is tried again later; signing in again
+    /// would not help.
+    Unreachable(&'static str),
+}
+
+/// How long a locked or absent keyring is left before the read is tried again: long enough not
+/// to nag a person who is about to unlock it, short enough that mail resumes soon after they do.
+const KEYRING_WAIT: Duration = Duration::from_secs(60);
+
+impl SecretTrouble {
+    /// What `error`, from reading a secret, asks of the person.
+    pub fn of(error: &RuntimeError) -> Self {
+        let RuntimeError::Secrets(failure) = error else {
+            return SecretTrouble::Absent;
+        };
+        let porter = std::error::Error::source(failure)
+            .and_then(|source| source.downcast_ref::<SecretsError>());
+        match porter {
+            Some(SecretsError::Locked) => SecretTrouble::Unreachable("the keyring is locked"),
+            Some(SecretsError::Unavailable) => {
+                SecretTrouble::Unreachable("the keyring is not reachable")
+            }
+            Some(SecretsError::Missing | SecretsError::Unreadable) | None => SecretTrouble::Absent,
+        }
+    }
+
+    /// What is done about it: sign in again, or wait for the keyring.
+    pub fn retry(&self) -> Retry {
+        match self {
+            SecretTrouble::Absent => Retry::NeedsReauth,
+            SecretTrouble::Unreachable(_) => Retry::After(KEYRING_WAIT),
+        }
+    }
 }
 
 impl<S: Secrets> AccountSecrets for S {
@@ -376,6 +425,39 @@ mod tests {
             .unwrap_err();
         // The outbox must prompt rather than retry: no amount of waiting creates a password.
         assert!(matches!(err.retry(), Retry::NeedsReauth), "{err:?}");
+    }
+
+    #[tokio::test]
+    async fn only_a_missing_credential_is_a_sign_in_and_a_locked_keyring_is_a_wait() {
+        use mail_domain::Retryable;
+        let store: Arc<dyn AccountSecrets> = Arc::new(MemorySecrets::default());
+        let missing = store
+            .get(&key(SecretPurpose::IncomingPassword))
+            .await
+            .unwrap_err();
+        assert_eq!(SecretTrouble::of(&missing), SecretTrouble::Absent);
+        assert_eq!(SecretTrouble::of(&missing).retry(), Retry::NeedsReauth);
+        // An item that does not decode is replaced by signing in again.
+        assert_eq!(
+            SecretTrouble::of(&refused(SecretsError::Unreadable)),
+            SecretTrouble::Absent
+        );
+
+        let locked = refused(SecretsError::Locked);
+        assert_eq!(
+            SecretTrouble::of(&locked),
+            SecretTrouble::Unreachable("the keyring is locked")
+        );
+        let unavailable = refused(SecretsError::Unavailable);
+        assert_eq!(
+            SecretTrouble::of(&unavailable),
+            SecretTrouble::Unreachable("the keyring is not reachable")
+        );
+        // The error's own retry asks the same question, so the outbox waits too.
+        for error in [locked, unavailable] {
+            assert_eq!(error.retry(), Retry::After(KEYRING_WAIT), "{error:?}");
+            assert!(!error.retry().needs_person());
+        }
     }
 
     /// The panic this path once had: zbus's blocking API, with its `tokio` feature on (it is, in

@@ -481,7 +481,22 @@ async fn auth_for(
             }
             _ => match secrets.get(&key).await {
                 Ok(Credential::Password(password)) => password.expose().to_owned(),
-                _ => {
+                // A keyring that did not answer may hold the password: it is waited for, not
+                // asked for again.
+                Err(error) => match mail_runtime::SecretTrouble::of(&error) {
+                    mail_runtime::SecretTrouble::Unreachable(why) => {
+                        return Err(CoreError::KeyringUnreachable {
+                            address: login.to_owned(),
+                            why,
+                        });
+                    }
+                    mail_runtime::SecretTrouble::Absent => {
+                        return Err(CoreError::NoServicePassword {
+                            login: login.to_owned(),
+                        });
+                    }
+                },
+                Ok(_) => {
                     return Err(CoreError::NoServicePassword {
                         login: login.to_owned(),
                     });
@@ -501,10 +516,7 @@ async fn auth_for(
             purpose: SecretPurpose::IncomingPassword,
         })
         .await
-        .map_err(|_| CoreError::NoCredential {
-            address: account.address.clone(),
-            auth: account.plan.auth.clone(),
-        })?;
+        .map_err(|e| CoreError::unread_credential(&account.address, &account.plan.auth, &e))?;
     match crate::sync::signed_in(account, stored, secrets, saved, now).await? {
         Credential::OAuth { access, .. } => Ok(DavAuth::Bearer(access.expose().to_owned())),
         // A pasted token is presented as it was given: a bearer, with no username.

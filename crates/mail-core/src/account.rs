@@ -10,7 +10,7 @@ use crate::environment::Environment;
 use crate::error::{CoreError, Logged};
 use mail_domain::id::new_account_id;
 use mail_domain::*;
-use mail_runtime::{AccountSecrets, ClientRegistry, clients, tokens};
+use mail_runtime::{AccountSecrets, ClientRegistry, SecretTrouble, clients, tokens};
 use mail_store::{NewAccount, SqliteStore};
 use porter_core::SecretText;
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
@@ -164,6 +164,11 @@ pub enum Readiness {
     ServiceUnreachable,
     /// A password account with no password stored.
     NoCredential,
+    /// The keyring did not answer (locked, or not reachable), so whether there is a credential
+    /// is not known. `why` says which, in plain words.
+    KeyringUnreachable {
+        why: &'static str,
+    },
 }
 
 impl crate::mail::AccountOps<'_> {
@@ -767,8 +772,12 @@ pub async fn list(
         // An account of the desktop's accountd has no credential here to look for: it is ready
         // when there is a link to it.
         let granted = matches!(plans.get(&address), Some(AuthPlan::Granted { .. }));
-        let has_password = if granted {
-            secrets.link().is_some()
+        let read = if granted {
+            if secrets.link().is_some() {
+                Ok(())
+            } else {
+                Err(SecretTrouble::Absent)
+            }
         } else {
             secrets
                 .get(&SecretKey {
@@ -776,19 +785,21 @@ pub async fn list(
                     purpose: SecretPurpose::IncomingPassword,
                 })
                 .await
-                .is_ok()
+                .map(|_| ())
+                .map_err(|error| SecretTrouble::of(&error))
         };
         // What is missing depends on how the account signs in, and `sync` says so at length.
         // Saying "no credential stored" for an OAuth account reads as "find a password", which
-        // is the one thing that will not work — the same contradiction, one line shorter.
-        let state = if has_password {
-            Readiness::Ready
-        } else {
-            match plans.get(&address) {
+        // is the one thing that will not work — the same contradiction, one line shorter. A
+        // keyring that did not answer is neither: the credential may be there.
+        let state = match read {
+            Ok(()) => Readiness::Ready,
+            Err(SecretTrouble::Unreachable(why)) => Readiness::KeyringUnreachable { why },
+            Err(SecretTrouble::Absent) => match plans.get(&address) {
                 Some(AuthPlan::OAuth { .. }) => Readiness::NotSignedIn,
                 Some(AuthPlan::Granted { .. }) => Readiness::ServiceUnreachable,
                 _ => Readiness::NoCredential,
-            }
+            },
         };
         let syncs = folders
             .iter()

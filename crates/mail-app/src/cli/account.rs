@@ -231,6 +231,7 @@ pub(super) fn listed(accounts: &[Listed]) -> String {
             Readiness::NotSignedIn => "not signed in",
             Readiness::ServiceUnreachable => "the desktop's account service is not reachable",
             Readiness::NoCredential => "no credential stored",
+            Readiness::KeyringUnreachable { why } => *why,
         };
         let _ = writeln!(out, "{address:<28} {waiting}");
         if let Some(paths) = syncs {

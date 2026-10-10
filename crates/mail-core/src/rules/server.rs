@@ -395,10 +395,7 @@ async fn auth(
             purpose: SecretPurpose::IncomingPassword,
         })
         .await
-        .map_err(|_| CoreError::NoCredential {
-            address: account.address.clone(),
-            auth: account.plan.auth.clone(),
-        })?;
+        .map_err(|e| CoreError::unread_credential(&account.address, &account.plan.auth, &e))?;
     let credential = crate::sync::signed_in(account, stored, secrets, saved, now).await?;
     Ok(SieveAuth {
         username: account.plan.username(),

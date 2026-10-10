@@ -138,7 +138,8 @@ impl Retryable for RuntimeError {
             // transient/permanent split and rate limiting.
             RuntimeError::Proto(e) => e.retry(),
             RuntimeError::Store(e) => e.retry(),
-            RuntimeError::Secrets(_) => Retry::NeedsReauth,
+            // Missing is a sign-in to ask for; a locked keyring is a wait (`SecretTrouble`).
+            RuntimeError::Secrets(_) => crate::SecretTrouble::of(self).retry(),
             RuntimeError::UnsupportedIo(why) => Retry::Fatal(why.clone()),
             // Nothing will change: the account has no server and never will.
             RuntimeError::NoServer(_) => Retry::Fatal(self.to_string()),

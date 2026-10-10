@@ -480,12 +480,18 @@ pub(crate) async fn stored_credential(
             purpose: SecretPurpose::IncomingPassword,
         })
         .await
-        // A credential that is not there is one to be asked for again.
-        .map_err(|_| {
-            Failure::reauth(crate::account::no_credential(
+        // A credential that is not there is one to be asked for again; a keyring that did not
+        // answer is waited for, and says so.
+        .map_err(|error| match mail_runtime::SecretTrouble::of(&error) {
+            mail_runtime::SecretTrouble::Absent => Failure::reauth(crate::account::no_credential(
                 &account.address,
                 &account.plan.auth,
-            ))
+            )),
+            trouble @ mail_runtime::SecretTrouble::Unreachable(why) => Failure {
+                retry: trouble.retry(),
+                why: why.to_owned(),
+                pause: crate::fetch::Pause::ServerBusy,
+            },
         })
 }
 
