@@ -1,10 +1,10 @@
 //! The store every lane starts from: one POP3 account with its identity and capabilities, and
 //! an inbox of four conversations from named senders, so the contact book knows them.
 
+use mail_core::SqliteStore;
+use mail_core::{Arrival, absorb};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
-use mail_runtime::{Arrival, absorb};
-use mail_store::SqliteStore;
 use porter_core::AccountId;
 use std::path::Path;
 use std::sync::Arc;
@@ -104,10 +104,10 @@ pub fn seeded(dir: &Path) -> Arc<SqliteStore> {
 
 /// The copy of a sent message in the Sent folder, as the next sync after the send brings it.
 pub fn sent_copy(store: &SqliteStore, uidl: &str, raw: &[u8]) {
-    mail_runtime::absorb_into(
+    mail_core::absorb_into(
         store,
         account(),
-        mail_runtime::Destination {
+        mail_core::Destination {
             mailbox: MailboxRef {
                 account: account(),
                 path: "Sent".to_owned(),

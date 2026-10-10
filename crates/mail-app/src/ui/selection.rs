@@ -106,7 +106,7 @@ impl Picked {
     /// Shift+j or Shift+k: move the range's moving end one row, and pick from the anchor to it.
     ///
     /// The end starts at the open conversation, or, with nothing open, at the end of the list
-    /// the movement comes from, as `j` and `k` do (`view::step`). It stops at the ends of the
+    /// the movement comes from, as `j` and `k` do (`mail_core::view::step`). It stops at the ends of the
     /// list rather than wrapping.
     pub fn extend(&self, toward: Toward, open: Option<ThreadId>, ids: &[ThreadId]) -> Self {
         let here = self
@@ -114,7 +114,7 @@ impl Picked {
             .filter(|id| ids.contains(id))
             .or_else(|| open.filter(|id| ids.contains(id)));
         let forward = toward == Toward::Next;
-        let Some(next) = crate::ui::view::step(here, ids, forward) else {
+        let Some(next) = mail_core::view::step(here, ids, forward) else {
             return Self::none();
         };
         // Starting fresh, the first press picks where it starts and where it lands.

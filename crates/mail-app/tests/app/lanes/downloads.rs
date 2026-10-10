@@ -10,7 +10,7 @@ const BUTTON: &str = ".ds-spaces-foot [*|aria-label=\"Downloads\"]";
 const LIST: &str = ".downloads";
 const DOT: &str = ".downloads-dot";
 
-fn with_notes(store: &mail_store::SqliteStore) {
+fn with_notes(store: &mail_core::SqliteStore) {
     let raw = format!(
         "From: Grace Hopper <grace@example.test>\r\nTo: Me <me@example.test>\r\n\
          Subject: {SUBJECT}\r\nDate: {}\r\nMessage-ID: <notes1@example.test>\r\n\

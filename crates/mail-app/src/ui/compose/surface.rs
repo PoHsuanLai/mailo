@@ -50,9 +50,9 @@ use super::page::Page;
 use super::render;
 use super::wire::{self, Heard};
 use crate::ui::actions;
-use crate::ui::editor::{Caret, Doc, InputEvent, Pos, Range};
 use crate::ui::host::Host;
 use crate::ui::view::Shell;
+use mail_core::editor::{Caret, Doc, InputEvent, Pos, Range};
 
 /// Frames a read of the surface's place waits for the document to be laid out and free.
 const TRIES: usize = 24;
@@ -392,7 +392,7 @@ fn heard(
 /// An editor event, handed to the page: on the page's own selection,
 /// through the IME rule, and the `@` menu asking the contact book what follows it.
 fn edit(mut page: Signal<Page>, event: InputEvent) {
-    let store = try_consume_context::<Arc<mail_store::SqliteStore>>();
+    let store = try_consume_context::<Arc<mail_core::SqliteStore>>();
     let mut write = page.write();
     let caret = write.session.caret.pos;
     let selection = write.selection.unwrap_or(Range {

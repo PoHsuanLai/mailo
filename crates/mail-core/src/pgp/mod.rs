@@ -36,8 +36,7 @@ pub fn no_passphrase(_: Fingerprint) -> Option<String> {
 pub enum PgpError {
     /// Encryption was asked for and these recipients have no key to encrypt to.
     #[error(
-        "no OpenPGP key for {}; nothing was sent. Find one with `mailo pgp lookup <address>`, \
-         import one with `mailo pgp import <file>`, or send without --encrypt",
+        "no OpenPGP key for {}; nothing was sent. Find or import one, or send without encrypting",
         .0.join(", ")
     )]
     NoKeyFor(Vec<String>),
@@ -49,7 +48,7 @@ pub enum PgpError {
     )]
     BlindRecipients(Vec<String>),
     /// Signing or encrypting was asked for from an identity with no key of its own.
-    #[error("{0} has no OpenPGP key; make one with `mailo pgp generate {0}`")]
+    #[error("{0} has no OpenPGP key")]
     NoOwnKey(String),
     /// A protected key's passphrase was not given, or was wrong.
     #[error("the OpenPGP key {0} needs its passphrase; none was given, or it was wrong")]
@@ -80,8 +79,7 @@ pub enum PgpError {
     NoSecret(Fingerprint),
     #[error(
         "the secret half of {0} is in your keyring, and deleting it means mail encrypted to it \
-         can never be read again. Export it first (`mailo pgp export {0} --secret`), then delete \
-         with --with-secret"
+         can never be read again. Export it first, then delete it together with its secret half"
     )]
     SecretWouldBeLost(Fingerprint),
     #[error("{0}")]
@@ -90,6 +88,23 @@ pub enum PgpError {
     Runtime(#[from] RuntimeError),
     #[error("store: {0}")]
     Store(#[from] StoreError),
+}
+
+impl PgpError {
+    /// The step that mends this, when there is one: the front end words it.
+    pub fn remedy(&self) -> Option<crate::Remedy> {
+        use crate::Remedy;
+        match self {
+            PgpError::NoKeyFor(_) => Some(Remedy::FindPgpKey),
+            PgpError::NoOwnKey(address) => Some(Remedy::MakePgpKey {
+                address: address.clone(),
+            }),
+            PgpError::SecretWouldBeLost(fingerprint) => Some(Remedy::ExportPgpSecret {
+                fingerprint: *fingerprint,
+            }),
+            _ => None,
+        }
+    }
 }
 
 impl From<MimeError> for PgpError {

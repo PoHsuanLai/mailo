@@ -7,9 +7,9 @@ use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use dioxus_core::VirtualDom;
 use mail_core::receipt::ReceiptState;
+use mail_core::{SqliteStore, Store};
 use mail_domain::*;
 use mail_mime::{ReceiptAsk, ReturnPath};
-use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
 
 const ASKS: &str = "Disposition-Notification-To: ada@example.test\r\n";

@@ -20,6 +20,9 @@ use mail_mime::{ListHeaders, Mailto, Unsubscribe};
 use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
 
+/// The HTTP client a one-click unsubscribe is made with: HTTPS only, and no redirect off it.
+pub use mail_runtime::unsubscribe::client;
+
 /// A message's way out of its list, with what is needed to take it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Found {

@@ -18,7 +18,7 @@ use ds::root::pass_through::ExtraClass;
 use std::sync::Arc;
 
 use dioxus::prelude::*;
-use mail_store::SqliteStore;
+use mail_core::SqliteStore;
 
 use super::super::data::account_rows;
 use super::super::menu::{

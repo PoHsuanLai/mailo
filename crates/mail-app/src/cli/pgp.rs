@@ -4,10 +4,11 @@
 //! The keys, the lookups and the opening are [`mail_core::pgp`]'s; this is the part that reads
 //! the arguments, asks for a passphrase on the terminal, and says what happened.
 
+use super::usage::UsageError;
 use chrono::{DateTime, Utc};
 use mail_core::Environment;
 use mail_core::SigningStore;
-use mail_core::error::{CoreError, UsageError};
+use mail_core::error::CoreError;
 use mail_core::pgp::keys::{self, WithSecret};
 use mail_core::pgp::{Discovered, Discovery, PgpError, Protected};
 use mail_core::{SqliteStore, Store};
@@ -112,7 +113,7 @@ pub enum Secret {
 }
 
 /// Parse `mailo pgp …`'s arguments.
-pub fn parse(args: &[String]) -> Result<PgpCommand, CoreError> {
+pub fn parse(args: &[String]) -> Result<PgpCommand, UsageError> {
     let usage = "usage: mailo pgp keys | generate <address> | import <file> | \
                  export <fingerprint|address> [--secret] | delete <fingerprint|address> \
                  [--with-secret] | lookup <address> | verify <fingerprint>";
@@ -125,7 +126,7 @@ pub fn parse(args: &[String]) -> Result<PgpCommand, CoreError> {
         })
     };
     let Some(verb) = args.first() else {
-        return Err(UsageError::Synopsis(usage).into());
+        return Err(UsageError::Synopsis(usage));
     };
     let extra = |from: usize, allowed: &[&str]| -> Result<Vec<String>, UsageError> {
         let rest: Vec<String> = args.get(from..).unwrap_or_default().to_vec();
@@ -191,8 +192,7 @@ pub fn parse(args: &[String]) -> Result<PgpCommand, CoreError> {
             command: "pgp",
             verb: other.to_owned(),
             usage,
-        }
-        .into()),
+        }),
     }
 }
 

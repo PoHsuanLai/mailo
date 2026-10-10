@@ -1,6 +1,6 @@
 //! Asking for a read receipt: the Sends menu's item, the row it shows, and the draft it saves.
 
-use mail_store::Store;
+use mail_core::Store;
 
 use super::super::page::{Float, Saved};
 use super::super::props::pick_sends;

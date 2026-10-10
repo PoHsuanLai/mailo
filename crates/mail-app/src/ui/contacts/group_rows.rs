@@ -8,7 +8,8 @@
 use std::sync::Arc;
 
 use dioxus::prelude::*;
-use mail_store::{Edit, Group, GroupHome, GroupId, SqliteStore};
+use mail_core::SqliteStore;
+use mail_core::contacts::{Edit, Group, GroupHome, GroupId};
 
 use super::super::common::{classed, tile};
 use super::super::press::on_primary;

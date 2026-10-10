@@ -8,10 +8,10 @@ use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use mail_core::folder::{Refusal, change};
 use mail_core::undo::{Undo, reverse_folder};
+use mail_core::{SqliteStore, Store};
 use mail_domain::{
     FolderError, FolderWork, Incoming, MailboxRef, NonEmpty, ServerLabels, Subscription,
 };
-use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
 
 /// Every account in `scope` (empty meaning all), with what the section needs of each.

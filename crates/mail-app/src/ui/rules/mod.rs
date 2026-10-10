@@ -18,7 +18,7 @@ use ds::components::fields::field_row::FieldRow;
 use ds::components::menus::item::item::MenuItem;
 use ds::components::menus::pop_up_button::PopUpButton;
 use ds::prelude::*;
-use mail_store::SqliteStore;
+use mail_core::SqliteStore;
 use porter_core::AccountId;
 use std::sync::Arc;
 

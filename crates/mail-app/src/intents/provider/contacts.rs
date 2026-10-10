@@ -7,8 +7,8 @@
 use super::{Provider, outcome};
 use crate::intents::APP;
 use crate::intents::wire::{AppRefusal, EntityId, Invocation, Label, Labelled, Outcome, Output};
+use mail_core::Store;
 use mail_domain::Address;
-use mail_store::Store;
 
 /// The most a contact search answers with.
 const LIMIT: usize = 25;

@@ -12,8 +12,8 @@ use dioxus::prelude::*;
 use ds::components::content::avatar::AvatarSize;
 use ds::host::measure::MountedRef;
 use ds::prelude::*;
+use mail_core::SqliteStore;
 use mail_domain::*;
-use mail_store::SqliteStore;
 use porter_core::AccountId;
 use std::sync::Arc;
 
@@ -121,7 +121,7 @@ pub(super) fn label_items(
     summary: &ThreadSummary,
     typed: &str,
 ) -> Vec<MenuItem> {
-    let mut items: Vec<MenuItem> = crate::ui::view::label_menu(known, summary)
+    let mut items: Vec<MenuItem> = mail_core::view::label_menu(known, summary)
         .into_iter()
         .map(|choice| MenuItem {
             key: choice.id.to_string(),

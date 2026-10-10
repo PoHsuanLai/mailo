@@ -21,9 +21,9 @@ use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
 use mail_core::undo::Undo;
 use mail_core::unsubscribe::{Found, Outcome};
+use mail_core::{SqliteStore, Store};
 use mail_domain::*;
 use mail_mime::Unsubscribe;
-use mail_store::{SqliteStore, Store};
 
 /// A thread's way out of its list, with what the popover says about it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -208,7 +208,7 @@ pub(in crate::ui) fn leave(
 
 /// The client a one-click `POST` is made with.
 pub(in crate::ui) fn client() -> Result<reqwest::Client, String> {
-    mail_runtime::unsubscribe::client().map_err(|e| e.to_string())
+    mail_core::unsubscribe::client().map_err(|e| e.to_string())
 }
 
 /// Archive every conversation in the inbox from `sender`, as ordinary ops with their undos.

@@ -27,8 +27,8 @@ use ds::components::overlays::alert_model::{AlertButton, AlertRole, AlertStyle};
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::icon::family::PlateFamily;
+use mail_core::SqliteStore;
 use mail_domain::Incoming;
-use mail_store::SqliteStore;
 use porter_core::AccountId;
 use std::sync::Arc;
 

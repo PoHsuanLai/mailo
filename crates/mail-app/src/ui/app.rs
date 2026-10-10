@@ -21,8 +21,8 @@ use ds::components::chrome::split_view::model::{Collapsing, PaneSize, PaneSpec, 
 use ds::components::chrome::split_view::view::SplitView;
 use ds::prelude::*;
 use ds_settings::{Environment, UserStyle};
+use mail_core::{SqliteStore, Store};
 use mail_domain::*;
-use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
 
 #[component]
@@ -544,7 +544,7 @@ pub(super) fn App() -> Element {
         match action {
             Shortcut::Next | Shortcut::Previous => {
                 let ids: Vec<ThreadId> = threads().iter().map(|t| t.id).collect();
-                if let Some(id) = crate::ui::view::step(open, &ids, action == Shortcut::Next) {
+                if let Some(id) = mail_core::view::step(open, &ids, action == Shortcut::Next) {
                     shell.write().open(id);
                 }
             }
@@ -826,7 +826,7 @@ mod tests {
     };
     use dioxus::prelude::*;
     use dioxus_core::{NoOpMutations, VirtualDom};
-    use mail_store::Store;
+    use mail_core::Store;
 
     #[tokio::test]
     async fn the_first_run_offers_a_way_to_add_an_account() {

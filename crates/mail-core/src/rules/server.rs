@@ -187,6 +187,25 @@ pub enum SieveDone {
 }
 
 impl crate::mail::RuleOps<'_> {
+    /// Put the account's rules and vacation reply on its server, as `takeover` allows, and say
+    /// what the server did. See [`pushed`].
+    pub async fn push(
+        &self,
+        account: &crate::sync::Configured,
+        takeover: Takeover,
+    ) -> Result<Pushed, CoreError> {
+        let mail = self.0;
+        pushed(
+            mail.store(),
+            mail.secrets().as_ref(),
+            account,
+            takeover,
+            &mail.saved_clients(),
+            mail.now(),
+        )
+        .await
+    }
+
     /// A vacation command, and what it did.
     pub async fn run_vacation(&self, command: &VacationCmd) -> Result<VacationDone, CoreError> {
         let mail = self.0;

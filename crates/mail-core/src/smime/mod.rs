@@ -29,8 +29,7 @@ pub enum SmimeError {
     /// Encryption was asked for and these recipients have no certificate to encrypt to.
     #[error(
         "no S/MIME certificate to encrypt to for {}; nothing was sent. A signed message from \
-         them brings theirs, or import one with `mailo smime import <file>`; or send without \
-         --encrypt",
+         them brings theirs, or import one; or send without encrypting",
         .0.join(", ")
     )]
     NoCertFor(Vec<String>),
@@ -43,10 +42,7 @@ pub enum SmimeError {
     )]
     BlindRecipients(Vec<String>),
     /// Signing or encrypting was asked for from an identity with no current certificate.
-    #[error(
-        "{0} has no current S/MIME certificate of its own; import your identity with \
-         `mailo smime import <file.p12>`"
-    )]
+    #[error("{0} has no current S/MIME certificate of its own; import your identity")]
     NoOwnCert(String),
     /// The user's own certificate has a key mail cannot be encrypted to here.
     #[error(
@@ -89,6 +85,18 @@ pub enum SmimeError {
     Runtime(#[from] RuntimeError),
     #[error("store: {0}")]
     Store(#[from] StoreError),
+}
+
+impl SmimeError {
+    /// The step that mends this, when there is one: the front end words it.
+    pub fn remedy(&self) -> Option<crate::Remedy> {
+        use crate::Remedy;
+        match self {
+            SmimeError::NoCertFor(_) => Some(Remedy::ImportCertificate),
+            SmimeError::NoOwnCert(_) => Some(Remedy::ImportOwnCertificate),
+            _ => None,
+        }
+    }
 }
 
 /// A count that moves whenever the keys or certificates this process holds or trusts change —

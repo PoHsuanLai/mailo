@@ -24,10 +24,10 @@
 use chrono::{DateTime, TimeZone, Utc};
 use mail_app::ui::view;
 use mail_core::query;
+use mail_core::{SqliteStore, Store};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_mime::{RemoteImages, SanitizePolicy};
-use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
 use std::time::{Duration, Instant};
 
@@ -204,6 +204,7 @@ fn timed(times: usize, mut body: impl FnMut()) -> Duration {
 #[test]
 #[ignore = "a measurement, not a check; run with --ignored --nocapture"]
 fn what_one_frame_of_the_window_costs() {
+    let frames = mail_core::message::Frames::plain();
     let (store, _dir, what) = subject();
     let now = Utc::now();
     println!("\n  against {what}\n");
@@ -272,7 +273,7 @@ fn what_one_frame_of_the_window_costs() {
         .collect();
     let reader = timed(5, || {
         for message in &messages {
-            let _ = mail_app::ui::reading::render_message(&store, message, policy());
+            let _ = frames.rendered(&store, message, policy());
         }
     });
 
@@ -336,6 +337,7 @@ fn what_one_frame_of_the_window_costs() {
 #[test]
 #[ignore = "a measurement, not a check; run with --ignored --nocapture"]
 fn rendering_the_same_message_twice_does_not_cost_twice() {
+    let frames = mail_core::message::Frames::plain();
     let (store, _dir, _) = subject();
     let message = store
         .threads(&page(1, Filter::All), Utc::now())
@@ -348,11 +350,11 @@ fn rendering_the_same_message_twice_does_not_cost_twice() {
         .expect("the store has mail");
 
     let once = timed(5, || {
-        let _ = mail_app::ui::reading::render_message(&store, &message, policy());
+        let _ = frames.rendered(&store, &message, policy());
     });
     let twice = timed(5, || {
-        let _ = mail_app::ui::reading::render_message(&store, &message, policy());
-        let _ = mail_app::ui::reading::render_message(&store, &message, policy());
+        let _ = frames.rendered(&store, &message, policy());
+        let _ = frames.rendered(&store, &message, policy());
     });
     println!(
         "\n  one render {:.2} ms, two renders {:.2} ms\n",
@@ -361,7 +363,7 @@ fn rendering_the_same_message_twice_does_not_cost_twice() {
     );
 }
 
-/// The reader's real path for the longest conversation in the store: `render_message` for every
+/// The reader's real path for the longest conversation in the store: `Frames::rendered` for every
 /// message, the way `Reader` draws them, cold and then warm.
 ///
 /// Cold is the first open of a conversation, warm the second. Before the render cache the two are
@@ -370,6 +372,7 @@ fn rendering_the_same_message_twice_does_not_cost_twice() {
 #[test]
 #[ignore = "a measurement, not a check; run with --ignored --nocapture"]
 fn opening_a_long_conversation() {
+    let frames = mail_core::message::Frames::plain();
     let (store, _dir, what) = subject();
     let now = Utc::now();
     let mut candidates = store.threads(&page(500, Filter::All), now).unwrap().items;
@@ -402,13 +405,13 @@ fn opening_a_long_conversation() {
 
     let cold = timed(5, || {
         for message in &messages {
-            let _ = mail_app::ui::reading::render_message_uncached(&store, message, policy());
+            let _ = frames.uncached(&store, message, policy());
         }
     });
     // Everything the cold run produced is in the cache by now, if there is one.
     let warm = timed(5, || {
         for message in &messages {
-            let _ = mail_app::ui::reading::render_message(&store, message, policy());
+            let _ = frames.rendered(&store, message, policy());
         }
     });
     let ms = |d: Duration| d.as_secs_f64() * 1000.0;

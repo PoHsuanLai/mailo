@@ -114,7 +114,7 @@ impl Sheets for WindowSheets {
 }
 
 /// The account service has no secrets of its own to keep: the provider files nothing with it
-/// (mailo keeps its accounts' secrets itself, `mail_runtime::AccountSecrets`).
+/// (mailo keeps its accounts' secrets itself, `mail_core::AccountSecrets`).
 #[derive(Debug, Clone, Copy)]
 pub(super) struct NoSecrets;
 

@@ -15,8 +15,8 @@
 
 use crate::settings::LoadRemoteImages;
 use dioxus::prelude::*;
+use mail_core::SqliteStore;
 use mail_domain::{BlobId, MailboxRole, Message, MessageId};
-use mail_store::SqliteStore;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;

@@ -1,38 +1,39 @@
-//! Mail fetching in the window: every account's [`Link`], and the one loop that moves them.
+//! Mail fetching in the window: every account's [`Link`], as the one scheduler moves them.
 //!
 //! [`Fetching`] is what the window shares, provided once by `App`. It holds a link for each
 //! account that has a server, the [`Operation`] a spinner reads while its pass runs, and where
 //! each folder opened on demand stands. Everything that happens to them is an [`Event`] sent
-//! with [`Fetching::send`]; [`run`] is the only thing that receives them, steps the link with
-//! [`mail_core::fetch::step`] and does what it asks (a pass, a cancel, a timer). What the screen
-//! says is derived from the links and not stored: see [`Fetching::status`].
+//! with [`Fetching::send`]; the scheduler (`mail_core::schedule`, the loop `mailo watch` runs
+//! too) is the only thing that receives them, steps the link and does what it asks (a pass, a
+//! cancel, a timer), and reports each change to [`host`], which writes it into the signals the
+//! window reads. What the screen says is derived from the links and not stored: see
+//! [`Fetching::status`].
 
 mod delegate;
 mod external;
 mod face;
 mod folder;
+mod host;
 mod line;
 mod live;
 mod marks;
 mod outbox;
 mod pass;
-mod run;
 mod scope;
-mod start;
 mod status;
 
 use crate::ui::view::Shell;
 use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
 use ds::motion::detail::operation::Operation;
+use mail_core::SqliteStore;
 use mail_core::fetch::{Event, FolderFetch, Link, Trigger};
-use mail_store::SqliteStore;
+use mail_core::schedule::{self, End, Note, Scheduler};
 use porter_core::AccountId;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 pub(in crate::ui) use delegate::Delegate;
@@ -42,14 +43,6 @@ pub(in crate::ui) use line::{AccountLine, Remedy, Standing, account_line};
 pub(in crate::ui) use marks::{Mark, account_mark_local, folder_mark, sync_availability};
 pub(in crate::ui) use pass::Passer;
 pub(in crate::ui) use status::{StatusLine, Tone, status_line, thousandths};
-
-/// What reaches the runner.
-pub(super) enum Note {
-    /// Something happened to an account's link.
-    Event(AccountId, Event),
-    /// The accounts that have a server, with how often each wants a pass, are these now.
-    Accounts(Vec<(AccountId, Duration)>),
-}
 
 /// The window's mail fetching. Copy, so a handler can take it.
 #[derive(Clone, Copy)]
@@ -174,7 +167,7 @@ pub(in crate::ui) fn use_fetching(revision: Signal<u64>) -> Fetching {
     });
     let links = use_signal({
         let store = store.clone();
-        move || start::initial(&store, &accounts.peek(), Utc::now())
+        move || schedule::initial(&store, &accounts.peek(), Utc::now())
     });
     let delegate = try_consume_context::<Delegate>().unwrap_or_else(Delegate::server);
     let doors = try_consume_context::<external::Doors>().unwrap_or_else(external::Doors::server);
@@ -199,20 +192,26 @@ pub(in crate::ui) fn use_fetching(revision: Signal<u64>) -> Fetching {
     let inbox: Rc<RefCell<Option<UnboundedReceiver<Note>>>> = channel.1.clone();
     let _runner = use_future(move || {
         let received = inbox.borrow_mut().take();
-        let runner = run::Runner {
+        let host = host::WindowHost {
+            store: store.clone(),
+            passer: try_consume_context::<Passer>().unwrap_or_else(Passer::server),
+            listener: try_consume_context::<live::Listener>()
+                .unwrap_or_else(live::Listener::server),
+            delegate: delegate.clone(),
+            clock: try_consume_context::<crate::ui::clock::WallClock>(),
             links,
             ops,
             folders,
             revision,
-            tx: tx.peek().clone(),
-            store: store.clone(),
-            passer: try_consume_context::<Passer>().unwrap_or_else(Passer::server),
-            delegate: delegate.clone(),
-            every: accounts.peek().iter().cloned().collect(),
         };
+        let every = accounts.peek().iter().cloned().collect();
+        let initial = links.peek().clone();
+        let (store, tx) = (store.clone(), tx.peek().clone());
         async move {
             if let Some(received) = received {
-                runner.run(received).await;
+                Scheduler::new(&host, store, initial, every, tx)
+                    .run(received, End::Never)
+                    .await;
             }
         }
     });

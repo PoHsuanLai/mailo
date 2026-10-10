@@ -4,7 +4,8 @@
 use std::sync::Arc;
 
 use dioxus::prelude::*;
-use mail_store::{GroupId, SqliteStore};
+use mail_core::SqliteStore;
+use mail_core::contacts::GroupId;
 
 use super::super::common::{classed, tile};
 use super::super::press::on_primary;

@@ -10,8 +10,8 @@ use std::sync::Arc;
 
 use dioxus::prelude::*;
 use ds::prelude::*;
+use mail_core::{SqliteStore, Store};
 use mail_domain::MessageId;
-use mail_store::{SqliteStore, Store};
 
 use crate::ui::view::{Shell, Viewing};
 use mail_core::preview::{self, Kind, Page, Picture, Unshown};

@@ -9,12 +9,12 @@ use chrono::{DateTime, TimeZone, Utc};
 use mail_app::cli;
 use mail_core::sync;
 use mail_core::sync::report::{AccountReport, PassEnd};
+use mail_core::{SqliteStore, Store};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_proto::backend::{Authenticate, ImapBackend};
 use mail_proto::{ImapAuth, ImapCommand, ImapSession};
 use mail_runtime::AccountEngine;
-use mail_store::{SqliteStore, Store};
 use porter_core::SecretText;
 use porter_core::{AccountId, Credential};
 use porter_secrets::MemorySecrets;
@@ -33,7 +33,7 @@ fn run(store: &SqliteStore, words: &[&str]) -> Result<String, String> {
         store,
         &command,
         now(),
-        &mail_runtime::ClientRegistry::default(),
+        &mail_core::ClientRegistry::default(),
     )
 }
 
@@ -482,18 +482,7 @@ async fn one_pass(port: u16, store: &Arc<SqliteStore>) -> AccountReport {
         path: "INBOX".to_owned(),
     }];
     let (_tx, mut cancel) = tokio::sync::watch::channel(false);
-    match sync::drive(
-        &mut engine,
-        &account,
-        &inbox,
-        &mut cancel,
-        Utc::now(),
-        sync::Mode::Once,
-        sync::Announce::Quietly,
-        None,
-    )
-    .await
-    {
+    match sync::drive(&mut engine, &account, &inbox, &mut cancel, Utc::now()).await {
         PassEnd::Finished(report) => report,
         other => panic!("the pass did not run to its end: {other:?}"),
     }

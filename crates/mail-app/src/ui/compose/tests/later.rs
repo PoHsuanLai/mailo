@@ -1,15 +1,15 @@
 //! Send later in the window: the Sends choice as the outbox reads it, a scheduled send on the
 //! pill and in Today, and Cancel, against a real store.
 
-use mail_store::Store;
+use mail_core::Store;
 
 use super::super::later::{choose_time, leaves, pick_time, waiting};
 use super::super::page::{Float, Phase, When};
 use super::super::props::pick_sends;
 use super::*;
-use crate::ui::editor::{to_flowed, to_html};
 use crate::ui::fixtures::{acct_account, click, seeded};
 use mail_core::compose::Leaves;
+use mail_core::editor::{to_flowed, to_html};
 
 /// 2026-09-23 10:00 UTC, a Wednesday, read in UTC.
 fn wednesday(hour: u32, minute: u32) -> DateTime<Utc> {

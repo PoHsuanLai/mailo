@@ -7,16 +7,16 @@
 //! it can run there too; see [`server`].
 
 pub mod block;
+pub mod manage;
 pub mod server;
 
 use crate::error::CoreError;
 use chrono::{DateTime, Utc};
 use mail_domain::{
-    AccountCaps, AfterMatch, DateRange, Filter, LabelId, MailboxRole, ReadState, Rule, RuleAction,
-    RuleId, RuleState, Star, TextMatch,
+    AfterMatch, DateRange, Filter, LabelId, MailboxRole, ReadState, Rule, RuleAction, RuleId,
+    RuleState, Star, TextMatch,
 };
 use mail_store::{SqliteStore, Store};
-use porter_core::AccountId;
 
 /// What `mailo rules …` asked for.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -226,7 +226,7 @@ pub fn run(
             batch,
         } => {
             let (account, rule) = named_rule(store, name, account.as_deref())?;
-            let caps = caps_or_local(store, account.id, now);
+            let caps = crate::act::caps_here(store, account.id, now);
             let ran = mail_store::rules::run_now(store, &caps, &rule, *batch, now, &mut |b| {
                 progress(RunProgress {
                     examined: b.examined,
@@ -258,27 +258,6 @@ fn named_rule(
             address: account.address.clone(),
         })?;
     Ok((account, rule))
-}
-
-/// What the server was last seen to support, or nothing at all before the first sync — in which
-/// case a rule acts here alone and the server hears nothing, rather than hearing a guess.
-fn caps_or_local(store: &SqliteStore, account: AccountId, now: DateTime<Utc>) -> AccountCaps {
-    crate::sync::caps_of(store, account).unwrap_or(AccountCaps {
-        labels: mail_domain::ServerLabels::LocalOnly,
-        threads: mail_domain::ServerThreads::Jwz,
-        watch: mail_domain::WatchMode::Poll {
-            every: std::time::Duration::from_secs(300),
-        },
-        archive: mail_domain::ArchiveMeans::LocalOnly,
-        folders: mail_domain::FolderRoles::default(),
-        condstore: mail_domain::Condstore::Absent,
-        move_ext: mail_domain::MoveExt::Absent,
-        expunge: mail_domain::ExpungeMeans::Forbidden,
-        top: mail_domain::Supported::Absent,
-        pipelining: mail_domain::Supported::Absent,
-        connections: mail_domain::ConnectionBudget::default(),
-        observed_at: now,
-    })
 }
 
 /// A filter written back in the search language, as near as it goes.

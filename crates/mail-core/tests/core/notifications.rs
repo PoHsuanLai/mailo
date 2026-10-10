@@ -3,7 +3,7 @@
 //! Nothing here raises a desktop notification: every test hands the loop a recorder. The pure
 //! halves — which arrival is announced, how a burst is batched — are tables in `notify.rs`; this
 //! file is what needs a store or a socket: the floor surviving a restart, a first backfill staying
-//! quiet, and `mailo watch`'s own loop fetching new mail from an IMAP server and announcing it.
+//! quiet, and a watch's passes fetching new mail from an IMAP server and announcing it.
 
 use chrono::{DateTime, TimeZone, Utc};
 use mail_core::notify::{self, Notification, Notifier, Opens};
@@ -379,10 +379,13 @@ fn engine(port: u16, store: Arc<SqliteStore>) -> AccountEngine<ImapBackend> {
     )
 }
 
-/// Run `mailo watch`'s loop for one account until `until` says stop, or give up after a while.
+/// Run a watch's passes for one account until `until` says stop, or give up after a while.
 ///
-/// The loop never returns of its own accord — that is what watching is — so it is raced against
-/// `until`, which the test uses to add mail to the server and decide when it has seen enough.
+/// The scheduler (`mail_runtime::schedule`) decides when a watch passes; what is checked here is
+/// what the watch does with each pass that ends, so the passes are run on a short timer and each
+/// is handed to [`sync::watcher::told`], as the watch does. It never returns of its own accord,
+/// so it is raced against `until`, which the test uses to add mail to the server and decide when
+/// it has seen enough.
 async fn watching<F: std::future::Future<Output = ()>>(
     port: u16,
     store: &Arc<SqliteStore>,
@@ -406,16 +409,14 @@ async fn watching<F: std::future::Future<Output = ()>>(
         store,
         notifier: recorder,
     };
-    let loop_ = sync::drive(
-        &mut engine,
-        &account,
-        &inbox,
-        &mut cancel,
-        Utc::now(),
-        sync::Mode::Watch,
-        announce,
-        None,
-    );
+    let loop_ = async {
+        loop {
+            let at = Utc::now();
+            let end = sync::drive(&mut engine, &account, &inbox, &mut cancel, at).await;
+            sync::watcher::told(&end, announce, at, &|_| {});
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+    };
     let raced = tokio::time::timeout(std::time::Duration::from_secs(20), async {
         tokio::select! {
             _ = loop_ => panic!("the watch loop returned on its own"),
@@ -449,8 +450,7 @@ async fn a_watch_announces_what_arrives_and_not_what_was_already_there() {
             vec![],
         ),
     ]));
-    let (port, idling) = serve(drop.clone()).await;
-    let idles = || idling.load(std::sync::atomic::Ordering::SeqCst);
+    let (port, _idling) = serve(drop.clone()).await;
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(open(dir.path()));
     with_account(&store, &plan(port));
@@ -458,8 +458,8 @@ async fn a_watch_announces_what_arrives_and_not_what_was_already_there() {
 
     let count = |store: &SqliteStore| store.count(&Filter::All, Utc::now()).unwrap();
     watching(port, &store, &recorder, async {
-        // The backfill lands, quietly, and the loop settles into watching.
-        eventually(|| count(&store) == 2 && idles() > 0).await;
+        // The backfill lands, quietly.
+        eventually(|| count(&store) == 2).await;
         // Then mail arrives while the loop is watching: one worth announcing, one already read
         // elsewhere, and one this user sent from another device.
         let now = Utc::now() + chrono::Duration::minutes(1);
@@ -499,9 +499,8 @@ async fn a_watch_announces_what_arrives_and_not_what_was_already_there() {
     let store = Arc::new(open(dir.path()));
     let again = Recorder::default();
     watching(port, &store, &again, async {
-        // A pass over what is already held, then IDLE with nothing new.
-        let before = idles();
-        eventually(|| idles() > before).await;
+        // A pass over what is already held, with nothing new.
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         assert!(again.seen().is_empty(), "{:?}", again.seen());
         let now = Utc::now() + chrono::Duration::minutes(1);
         drop.lock().unwrap().push((

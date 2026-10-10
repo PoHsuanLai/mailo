@@ -22,8 +22,8 @@ use super::float::{
 use super::page::{Float, Page};
 use super::templates::{self, TemplateFloat, page_slash_items};
 use crate::ui::actions::{Heard, Own};
-use crate::ui::editor::{InputEvent, Mark, Node, Op, Presence, Range};
 use crate::ui::view::Shell;
+use mail_core::editor::{InputEvent, Mark, Node, Op, Presence, Range};
 
 /// Milliseconds on the wall clock, which is what groups typing into undo steps.
 pub(in crate::ui) fn now_ms() -> u64 {
@@ -323,7 +323,7 @@ pub(in crate::ui) fn covered(page: &Page, range: Range, mark: Mark) -> bool {
             };
             let mut seen = 0usize;
             runs.iter().all(|run| {
-                let len = crate::ui::editor::grapheme_len(&run.text);
+                let len = mail_core::editor::grapheme_len(&run.text);
                 let overlaps = seen < to && seen + len > from;
                 seen += len;
                 !overlaps || run.marks.has(mark)

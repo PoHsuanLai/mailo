@@ -21,8 +21,8 @@ use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::stack::toast_hub::{ToastAction, ToastHub, UndoToken};
 use mail_core::undo::{Undo, UndoHandle};
+use mail_core::{SqliteStore, Store};
 use mail_domain::*;
-use mail_store::{SqliteStore, Store};
 
 /// What the toast says, and which op it belongs to.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -148,7 +148,7 @@ pub(super) fn act_all(
 
 /// Apply what a button means to each of `threads`, as one gesture ([`act_all`]).
 ///
-/// Resolved per conversation, and only where that conversation allows it (`view::offers`):
+/// Resolved per conversation, and only where that conversation allows it (`mail_core::view::offers`):
 /// archiving a selection that holds something already archived archives the rest and leaves
 /// that one be, and its undo does not "restore" what the gesture never moved.
 pub(super) fn act_kind_all(
@@ -162,7 +162,7 @@ pub(super) fn act_kind_all(
         .iter()
         .filter_map(|thread| {
             let loaded = store.thread(*thread).ok()?;
-            crate::ui::view::offers(&loaded.summary, kind)
+            mail_core::view::offers(&loaded.summary, kind)
                 .then(|| resolve(store, *thread, kind))
                 .flatten()
                 .map(|op| (*thread, op))

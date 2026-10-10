@@ -1,4 +1,4 @@
-use mail_store::SqliteStore;
+use mail_core::SqliteStore;
 
 /// The one logger. What the libraries warn of (`log::warn!`) goes to stderr as a line, the way
 /// they printed it before they logged: no level, no target, the text is the whole message.
@@ -53,7 +53,7 @@ fn main() {
     // start below.
     if let Some(mail_app::ui::Start::Thread(thread)) = &start
         && mailto.is_none()
-        && mail_app::ui::handoff::deliver(
+        && mail_app::handoff::deliver(
             *thread,
             std::env::var("XDG_ACTIVATION_TOKEN").ok().as_deref(),
         )

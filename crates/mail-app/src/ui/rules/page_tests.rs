@@ -9,8 +9,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use chrono::Utc;
 use dioxus::prelude::*;
 use dioxus_core::{NoOpMutations, VirtualDom};
+use mail_core::{SqliteStore, Store};
 use mail_domain::*;
-use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
 
 use super::RulesPage;

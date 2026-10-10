@@ -22,8 +22,8 @@ use std::sync::Arc;
 
 use dioxus::prelude::*;
 use mail_core::fetch::{Download, DownloadEffect, DownloadEvent};
+use mail_core::{SqliteStore, Store as _};
 use mail_domain::{BlobId, MessageId, Retry};
-use mail_store::{SqliteStore, Store as _};
 
 use super::super::text::{AttachmentRow, Kept};
 use super::fetch::{self, Again};

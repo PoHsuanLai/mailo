@@ -8,9 +8,9 @@ use ds_blitz::{FocusFallback, NetPolicy};
 use ds_harness::{Clock, Driver, Harness, HarnessConfig, Query, Viewport};
 
 use crate::settle;
+use mail_core::{SqliteStore, Store};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
-use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
 use settle::settle_until;
 use std::sync::Arc;

@@ -5,11 +5,11 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use chrono::{TimeZone, Utc};
+use mail_core::Pushed;
+use mail_core::{SqliteStore, Store};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_proto::sieve::{Compiled, SieveCaps, SieveOutcome, Unmappable, VacationPlaced};
-use mail_runtime::sieve::Pushed;
-use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
 
 use super::away::{self, Away, Reply};
@@ -158,7 +158,7 @@ fn a_reply_that_has_already_ended_is_refused_in_words() {
 
 /// A server that installs what it is sent: one rule it runs, one it cannot, and the reply.
 pub(super) fn answering(calls: Arc<AtomicUsize>) -> Push {
-    Arc::new(move |store: &SqliteStore, account, _now| {
+    Arc::new(move |store: &Arc<SqliteStore>, account, _now| {
         calls.fetch_add(1, Ordering::SeqCst);
         assert!(store.vacation(account.id.clone()).is_ok());
         Ok(Pushed {

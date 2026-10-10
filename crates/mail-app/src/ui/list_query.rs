@@ -10,8 +10,8 @@ use super::debounce::use_debounced;
 use super::list_search::{Listed, Request, listed};
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
+use mail_core::SqliteStore;
 use mail_domain::{ThreadId, ThreadSummary};
-use mail_store::SqliteStore;
 use std::sync::Arc;
 
 /// The list's answer, split into what each part of the pane reads.

@@ -9,7 +9,9 @@
 pub mod accountd;
 pub mod cli;
 pub mod edge;
+pub mod handoff;
 pub mod intents;
+pub mod launcher;
 pub mod said;
 pub mod session;
 pub mod settings;

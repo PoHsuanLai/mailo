@@ -29,7 +29,7 @@ use std::sync::Arc;
 
 use dioxus::prelude::*;
 use ds_blitz::{WindowHandle, WindowSpec};
-use mail_store::SqliteStore;
+use mail_core::SqliteStore;
 
 /// What the window and its command are called.
 pub(in crate::ui) const TITLE: &str = "Add Account";

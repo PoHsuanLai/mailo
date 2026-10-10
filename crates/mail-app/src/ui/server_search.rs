@@ -16,9 +16,9 @@ use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
 use ds::prelude::*;
 use ds::style::tokens::control_size::ControlSize;
+use mail_core::Searched;
+use mail_core::{SqliteStore, Store};
 use mail_domain::ThreadId;
-use mail_runtime::Searched;
-use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
 use std::sync::Arc;
 

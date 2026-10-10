@@ -14,9 +14,9 @@ use crate::intents::wire::{
     AppRefusal, EntityId, Invocation, Label, Labelled, Outcome, Output, Preview, UndoFault,
 };
 use chrono::{Local, Utc};
+use mail_core::Store;
 use mail_core::compose;
 use mail_domain::{Address, Draft, DraftId, MessageId, SendState};
-use mail_store::Store;
 use porter_core::AccountId;
 
 /// The addresses in `text` (a comma-separated list, as a person types it), or why not.

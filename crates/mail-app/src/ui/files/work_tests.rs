@@ -6,17 +6,18 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_core::{SqliteStore, Store};
 use mail_domain::id::new_account_id;
 use mail_domain::*;
 use mail_mime::archive::maildir::INFO;
-use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
 
 use super::work::{
-    self, Counted, Dest, Format, Looked, expand, export_now, import_now, look, prefill, suggested,
+    self, Counted, Dest, Format, Looked, export_now, import_now, look, prefill, suggested,
 };
 use crate::ui::view::Shell;
 use mail_core::import::Source;
+use mail_core::transfer::expand;
 
 fn now() -> DateTime<Utc> {
     Utc.timestamp_opt(1_700_000_000, 0).unwrap()
@@ -231,31 +232,6 @@ fn a_place_exports_in_each_format_and_reads_back_as_as_many_messages() {
         assert_eq!(back.total.read, done.written, "{format:?}");
         assert_eq!(back.total.added, done.written, "{format:?}");
     }
-}
-
-#[test]
-fn an_export_is_never_written_over_an_existing_file() {
-    let out = tempfile::tempdir().unwrap();
-    let first = suggested(out.path(), "from:dana has:attachment", Format::Mbox);
-    assert_eq!(
-        first,
-        out.path().join("mailo-from-dana-has-attachment.mbox")
-    );
-    std::fs::write(&first, b"someone's archive").unwrap();
-    let second = suggested(out.path(), "from:dana has:attachment", Format::Mbox);
-    assert_eq!(
-        second,
-        out.path().join("mailo-from-dana-has-attachment (2).mbox")
-    );
-    std::fs::create_dir(out.path().join("mailo-inbox")).unwrap();
-    assert_eq!(
-        suggested(out.path(), "inbox", Format::Maildir),
-        out.path().join("mailo-inbox (2)")
-    );
-    assert_eq!(
-        suggested(out.path(), "  ", Format::Eml),
-        out.path().join("mailo-mail-eml")
-    );
 }
 
 #[test]

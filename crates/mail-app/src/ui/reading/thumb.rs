@@ -12,8 +12,8 @@ use dioxus::prelude::*;
 use ds::components::content::pdf_thumb::PdfPage;
 use ds::prelude::*;
 use ds::style::icon::render::Glyph;
+use mail_core::SqliteStore;
 use mail_domain::MessageId;
-use mail_store::SqliteStore;
 
 use crate::ui::view::{Shell, Viewing};
 use mail_core::preview::{self, Kind, Picture, Unshown};

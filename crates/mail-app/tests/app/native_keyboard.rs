@@ -22,10 +22,10 @@ use mail_app::ui::native::{Configured, Revisions};
 /// The two counters every window of the app shares: the store's, and the configuration files'.
 type Shared = (Revisions, Configured);
 use mail_app::ui::view::Shortcut;
+use mail_core::{Arrival, absorb};
+use mail_core::{SqliteStore, Store};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
-use mail_runtime::{Arrival, absorb};
-use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
 use std::sync::Arc;
 use std::time::Duration;

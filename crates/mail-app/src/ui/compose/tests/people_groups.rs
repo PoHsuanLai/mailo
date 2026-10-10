@@ -5,7 +5,8 @@ use super::super::page::{Float, List};
 use super::super::recipients::{people_items, pick_person, typed};
 use super::*;
 use crate::ui::contacts::tests::{ADDED, HEARD, WRITTEN, the_book};
-use mail_store::{Group, GroupHome, GroupId, Store};
+use mail_core::Store;
+use mail_core::contacts::{Group, GroupHome, GroupId};
 
 #[test]
 fn a_group_is_offered_first_and_choosing_it_puts_each_member_on_once() {

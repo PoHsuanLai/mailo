@@ -9,8 +9,8 @@ use std::sync::Arc;
 use crate::ui::space::SpaceId;
 use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
+use mail_core::{SqliteStore, Store};
 use mail_domain::DraftId;
-use mail_store::{SqliteStore, Store};
 
 use super::super::motion::{Follow, tell};
 use super::life;

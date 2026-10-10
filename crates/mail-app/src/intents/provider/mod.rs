@@ -17,10 +17,10 @@ use super::wire::{
     Preview, Privacy, SuggestAsk, UndoFault, Undoable, Visible,
 };
 use act::Act;
+use mail_core::SigningStore;
+use mail_core::SqliteStore;
 use mail_core::undo::UndoStack;
 use mail_domain::ThreadId;
-use mail_runtime::SigningStore;
-use mail_store::SqliteStore;
 use std::sync::{Arc, Mutex};
 use token::Token;
 
@@ -91,7 +91,7 @@ impl Opener {
 /// feature is on (porter-secrets' oo7 turns it on): blocking there panics "Cannot start a runtime
 /// from within a runtime". So the call is made off the runtime.
 fn handed_to_window(thread: ThreadId, token: Option<&str>) -> bool {
-    mail_runtime::off_runtime(|| crate::ui::handoff::deliver(thread, token))
+    mail_core::off_runtime(|| crate::handoff::deliver(thread, token))
 }
 
 impl std::fmt::Debug for Provider {

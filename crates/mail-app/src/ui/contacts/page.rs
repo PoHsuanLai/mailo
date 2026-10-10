@@ -17,7 +17,7 @@ use std::sync::Arc;
 
 use super::super::common::{Told, classed, person_tile};
 use dioxus::prelude::*;
-use mail_store::SqliteStore;
+use mail_core::SqliteStore;
 
 use super::super::pick::{Ask, choose, file_name};
 use super::super::press::on_primary;

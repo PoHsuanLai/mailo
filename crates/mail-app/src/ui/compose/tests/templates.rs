@@ -1,6 +1,6 @@
 //! Templates from the composer: saved from `/`, listed, started from on an empty page, deleted.
 
-use mail_store::Store;
+use mail_core::Store;
 
 use super::super::page::Float;
 use super::super::templates::{

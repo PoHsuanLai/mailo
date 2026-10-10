@@ -3,7 +3,7 @@
 
 use ds::file_drop::drag::{DropAcceptance, FileDragInput, Offer};
 use ds_harness::Query;
-use mail_store::Store;
+use mail_core::Store;
 use std::path::PathBuf;
 
 use super::drive::{Drive, Key, PRIMARY};

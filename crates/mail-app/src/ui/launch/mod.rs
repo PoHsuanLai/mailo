@@ -12,8 +12,8 @@ use crate::ui::view::Appearance;
 use dioxus::prelude::*;
 use ds::base::spawner::Spawner;
 use ds_settings::{AppName, ConfigRoot, Store, SystemPrefsSource, UserStyle, use_environment};
+use mail_core::SqliteStore;
 use mail_core::provider::icon::Loaded;
-use mail_store::SqliteStore;
 use std::sync::Arc;
 
 pub(super) mod native;

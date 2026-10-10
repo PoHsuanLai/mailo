@@ -15,13 +15,14 @@
 //! The Reader view's remote images are in the window's own document, so the refusal above holds
 //! them too. mailo fetches those itself instead (`reading/remote.rs`), through [`FetchImage`] on
 //! the same client, and hands the window each as a `data:` URI ([`data_uri`]) only when it is a
-//! raster image of a kind `mail-mime` embeds, by its declared type and by its first bytes.
+//! raster image of a kind `mail-mime` embeds, by its declared type and by its first bytes. The
+//! fetching and that rule are `mail_core::remote_image`'s; this is the window's use of them.
 
 use super::consent::{Consent, Holder};
 use ds_blitz::{AppNet, NetDecision, NetReply, NetRequest};
+use mail_core::remote_image::ImageFetcher;
 use mail_domain::MessageId;
 use std::sync::{Arc, OnceLock};
-use std::time::Duration;
 
 /// Whatever fetches an admitted image: the web in the window, a recorder in a test.
 pub trait Fetch: Send + Sync + 'static {
@@ -31,12 +32,7 @@ pub trait Fetch: Send + Sync + 'static {
 }
 
 /// A fetched image: what the server said it is, and its bytes.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Got {
-    /// The `Content-Type` header, as sent.
-    pub content_type: Option<String>,
-    pub bytes: Vec<u8>,
-}
+pub use mail_core::remote_image::Image as Got;
 
 /// Whatever fetches the Reader view's consented images: the web in the window, a recorder in a
 /// test. mailo asks; no document does.
@@ -53,36 +49,10 @@ impl FetchImage for Refuse {
     fn get(&self, _: String, _: Box<dyn FnOnce(Got) + Send>) {}
 }
 
-/// `got` as a `data:` URI for an `<img>`, or `None` when it is not one to show: past
-/// [`MAX_BYTES`], declared as something `mail-mime` would not embed (`mail_mime::embeddable`:
-/// PNG, JPEG, GIF, WebP; never SVG), or with first bytes that are not one of those. The type
-/// written is the one the bytes are, in the allowlist's spelling, never the server's string.
+/// `got` as a `data:` URI for an `<img>`, or `None` when it is not one to show
+/// ([`Got::data_uri`]).
 pub(crate) fn data_uri(got: &Got) -> Option<String> {
-    use base64::Engine as _;
-    if got.bytes.is_empty() || got.bytes.len() > MAX_BYTES {
-        return None;
-    }
-    mail_mime::embeddable(got.content_type.as_deref()?)?;
-    let kind = mail_mime::embeddable(sniff(&got.bytes)?)?;
-    Some(format!(
-        "data:{kind};base64,{}",
-        base64::engine::general_purpose::STANDARD.encode(&got.bytes)
-    ))
-}
-
-/// The raster type `bytes` begin as, by their magic number.
-fn sniff(bytes: &[u8]) -> Option<&'static str> {
-    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
-        Some("image/png")
-    } else if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
-        Some("image/jpeg")
-    } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
-        Some("image/gif")
-    } else if bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP" {
-        Some("image/webp")
-    } else {
-        None
-    }
+    got.data_uri()
 }
 
 /// mailo's `AppNet`.
@@ -139,43 +109,19 @@ impl AppNet for MailNet {
     }
 }
 
-/// The largest image the frame is handed. A picture in a mail is kilobytes; past this it is
-/// not a picture.
-pub(crate) const MAX_BYTES: usize = 16 * 1024 * 1024;
-
-/// One admitted fetch, for the worker.
-struct Job {
-    url: String,
-    done: Box<dyn FnOnce(Got) + Send>,
-}
-
-/// The web: one worker task on the application's runtime, started by the first admitted image,
-/// fetching each on its own task with one client.
-///
-/// The client sends no cookies (reqwest's `cookies` feature is off) and no `Referer`; it
-/// follows at most three redirects, which reqwest keeps to `http` and `https`; it gives up after
-/// twenty seconds. A failed fetch leaves the image missing and says nothing.
+/// The web: one fetcher, made by the first admitted image, on the application's runtime. See
+/// [`ImageFetcher`] for what its client sends and how it gives up; a failed fetch leaves the
+/// image missing and says nothing.
 #[derive(Default)]
 pub(crate) struct Web {
-    jobs: OnceLock<Option<tokio::sync::mpsc::UnboundedSender<Job>>>,
+    fetcher: OnceLock<Option<ImageFetcher>>,
 }
 
 impl Web {
-    fn worker() -> Option<tokio::sync::mpsc::UnboundedSender<Job>> {
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(20))
-            .connect_timeout(Duration::from_secs(10))
-            .redirect(reqwest::redirect::Policy::limited(3))
-            .referer(false)
-            .build()
-            .ok()?;
-        let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel::<Job>();
-        crate::edge::runtime().spawn(async move {
-            while let Some(job) = receiver.recv().await {
-                tokio::spawn(fetch_one(client.clone(), job));
-            }
-        });
-        Some(sender)
+    fn fetcher(&self) -> Option<&ImageFetcher> {
+        self.fetcher
+            .get_or_init(|| ImageFetcher::new(crate::edge::runtime().handle().clone()).ok())
+            .as_ref()
     }
 }
 
@@ -187,42 +133,8 @@ impl Fetch for Web {
 
 impl FetchImage for Web {
     fn get(&self, url: String, done: Box<dyn FnOnce(Got) + Send>) {
-        if let Some(jobs) = self.jobs.get_or_init(Web::worker) {
-            let _ = jobs.send(Job { url, done });
+        if let Some(fetcher) = self.fetcher() {
+            fetcher.fetch(url, done);
         }
     }
-}
-
-async fn fetch_one(client: reqwest::Client, job: Job) {
-    let Ok(mut response) = client.get(&job.url).send().await else {
-        return;
-    };
-    if !response.status().is_success() {
-        return;
-    }
-    if response
-        .content_length()
-        .is_some_and(|len| len > MAX_BYTES as u64)
-    {
-        return;
-    }
-    let content_type = response
-        .headers()
-        .get(reqwest::header::CONTENT_TYPE)
-        .and_then(|value| value.to_str().ok())
-        .map(str::to_owned);
-    let mut bytes = Vec::new();
-    loop {
-        match response.chunk().await {
-            Ok(Some(chunk)) if bytes.len() + chunk.len() <= MAX_BYTES => {
-                bytes.extend_from_slice(&chunk);
-            }
-            Ok(Some(_)) | Err(_) => return,
-            Ok(None) => break,
-        }
-    }
-    (job.done)(Got {
-        content_type,
-        bytes,
-    });
 }

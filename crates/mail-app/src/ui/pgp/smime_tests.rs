@@ -8,10 +8,10 @@
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
+use mail_core::MapSigningStore;
+use mail_core::SqliteStore;
 use mail_domain::*;
 use mail_mime::smime::{Cert, Identity, Sealing};
-use mail_runtime::MapSigningStore;
-use mail_store::SqliteStore;
 
 use super::tests::{ME, arrive, lines, reader, seals, shows, until};
 use super::{Said, Tone, doubt, said_smime};

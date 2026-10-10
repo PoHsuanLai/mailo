@@ -3,6 +3,7 @@ use mail_core::fetch::Pause;
 use mail_core::sync::report::{AccountReport, Counts};
 use mail_domain::Retry;
 use mail_domain::id::account_id_from_uuid;
+use std::time::Duration;
 
 fn acct_account() -> AccountId {
     account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000d1"))

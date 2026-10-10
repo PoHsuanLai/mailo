@@ -302,7 +302,7 @@ pub(in crate::ui) fn paper_css(default: Cjk) -> String {
 /// note on pictures, and the consented messages' remote images when `pictures` fetches them.
 /// Blocking: it reads the stored mail, and may fetch.
 pub(in crate::ui) fn printed<Tz>(
-    store: &mail_store::SqliteStore,
+    store: &mail_core::SqliteStore,
     job: super::Job,
     paper: &Paper,
     pictures: Option<&Pictures<'_>>,

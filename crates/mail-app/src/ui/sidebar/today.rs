@@ -13,8 +13,8 @@ use ds::components::lists::section_header::HeaderAction;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::tokens::person::PersonSwatch;
+use mail_core::{SqliteStore, Store};
 use mail_domain::ThreadId;
-use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
 
 /// The Today tabs of `space`: each thread opened in it that has not gone idle, with what

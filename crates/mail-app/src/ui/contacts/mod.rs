@@ -14,8 +14,6 @@ mod page;
 pub(in crate::ui) use page::ContactsPage;
 
 #[cfg(test)]
-mod groups_tests;
-#[cfg(test)]
 mod page_tests;
 #[cfg(test)]
 pub(in crate::ui) mod tests;

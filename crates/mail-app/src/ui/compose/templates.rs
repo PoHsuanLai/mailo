@@ -16,8 +16,8 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
+use mail_core::SqliteStore;
 use mail_domain::{Draft, Template, TemplateId};
-use mail_store::SqliteStore;
 
 use super::super::menu::{MenuItem, MenuKey, Right, Tile, anchor_at, menu_key, palette_groups};
 use super::super::motion::{Follow, tell};
@@ -25,8 +25,8 @@ use super::desk::{self, Desk};
 use super::float::{commit, query, slash_items};
 use super::life;
 use super::page::{Float, Page, PageKind, Phase, address};
-use crate::ui::editor::{Caret, Node, Op, Range, runs_text};
 use crate::ui::view::Shell;
+use mail_core::editor::{Caret, Node, Op, Range, runs_text};
 
 /// The `/` row that keeps the message as a template.
 pub(in crate::ui) const SAVE_KEY: &str = "template:save";

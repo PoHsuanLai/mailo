@@ -8,8 +8,8 @@ use super::super::text::label;
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::prelude::*;
+use mail_core::SqliteStore;
 use mail_domain::*;
-use mail_store::SqliteStore;
 use std::sync::Arc;
 
 /// Which of the row's actions was picked from its menu.
@@ -72,7 +72,7 @@ pub(in crate::ui) fn press(
         },
         // A press on a picked row acts on everything picked, as one gesture. An op that needs
         // more than the button (a pin's rank) stays with its own row.
-        None if crate::ui::view::op_for(kind).is_some() => {
+        None if mail_core::view::op_for(kind).is_some() => {
             act_kind_all(&store, shell, revision, &with_selection(shell, id), kind);
         }
         None => {

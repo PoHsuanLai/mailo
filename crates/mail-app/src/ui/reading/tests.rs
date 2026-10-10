@@ -6,8 +6,8 @@ use crate::ui::fixtures::{
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use dioxus_core::VirtualDom;
+use mail_core::{SqliteStore, Store};
 use mail_domain::*;
-use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
 
 #[test]
@@ -394,7 +394,7 @@ async fn a_message_past_the_frames_room_is_rendered_off_the_thread_and_then_draw
     // box first and filled once its rendering lands.
     let long = format!(
         "<p>the long one</p>{}",
-        "<p>quarterly widgets</p>".repeat(super::cache::ON_THE_FRAME as usize / 16)
+        "<p>quarterly widgets</p>".repeat(mail_core::message::ON_THE_FRAME as usize / 16)
     );
     let (store, thread, _dir) = thread_of(&[
         ("short", html_message("short", "<p>the short one</p>")),
@@ -741,26 +741,6 @@ async fn always_load_from_trusts_the_sender_and_shows_the_images() {
     let (mut dom, mut seen, _dir) = open_configured(&dirs, &ada(), pixel_from_ada(true));
     let next = settle(&mut dom, &mut seen).await;
     assert!(loaded_pixel(&next), "her next message still asked:\n{next}");
-}
-
-/// The sender's `<body>` colours reach the frame's own body, after the base sheet, so they win
-/// over its white; and the base sheet leaves an image's size to its attributes.
-#[test]
-fn the_sender_s_body_style_is_the_frame_s_body() {
-    let safe = mail_mime::sanitize(
-        "<body bgcolor=\"#f3f1ec\" style=\"padding:0\"><p>Hi</p></body>",
-        mail_mime::SanitizePolicy::FRAME,
-    );
-    let page = super::frame_document(&super::html_sheet(), safe.body_style(), safe.as_str());
-    assert!(
-        page.contains("<body style=\"background-color:#f3f1ec;padding:0\"><p>Hi</p>"),
-        "{page}"
-    );
-    assert!(
-        !super::html_sheet().contains("height: auto"),
-        "{}",
-        super::html_sheet()
-    );
 }
 
 /// How many times `needle` occurs in `markup`.

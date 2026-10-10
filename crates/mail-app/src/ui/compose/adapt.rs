@@ -21,7 +21,7 @@ use ds::host::pasted::Pasted;
 use ds::host::position::TextPosition;
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::ui::editor::{Doc, InputEvent, Node, Pos, Range, node_len, runs_text};
+use mail_core::editor::{Doc, InputEvent, Node, Pos, Range, node_len, runs_text};
 
 /// What one input asks of the page.
 #[derive(Debug, Clone, PartialEq, Eq)]

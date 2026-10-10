@@ -222,7 +222,7 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) {
         match crate::edge::block_on(mail.sync().run(Default::default())) {
             Ok(ends) => print!("{}", super::sync::run_text(&store, &ends)),
             Err(message) => {
-                eprintln!("{message}");
+                eprintln!("{}", super::remedy::error(message));
                 std::process::exit(1);
             }
         }
@@ -276,7 +276,7 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) {
                                 .collect()
                         }
                         Err(why) => {
-                            eprintln!("{why}");
+                            eprintln!("{}", super::remedy::error(why));
                             Vec::new()
                         }
                     }
@@ -297,7 +297,7 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) {
                     return;
                 }
                 Err(message) => {
-                    eprintln!("{message}");
+                    eprintln!("{}", super::remedy::error(message));
                     std::process::exit(1);
                 }
             }
@@ -344,11 +344,7 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) {
     // A Web Key Directory lookup needs the network: dispatched here with the other commands that
     // do, so `super::run` stays something a test can call without one.
     if let Command::Pgp(super::pgp::PgpCommand::Lookup { address }) = &command {
-        match crate::edge::block_on(mail_core::pgp::lookup_address(
-            &store,
-            address,
-            chrono::Utc::now(),
-        )) {
+        match crate::edge::block_on(crate::edge::mail(&store).crypto().lookup_address(address)) {
             Ok(found) => print!("{}", super::pgp::lookup(found.as_ref(), address)),
             Err(message) => {
                 eprintln!("{message}");
@@ -365,11 +361,7 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) {
         && openpgp.encrypts()
     {
         let addresses: Vec<String> = to.iter().chain(cc).map(|a| a.email.clone()).collect();
-        let found = crate::edge::block_on(mail_core::pgp::discover(
-            &store,
-            &addresses,
-            chrono::Utc::now(),
-        ));
+        let found = crate::edge::block_on(crate::edge::mail(&store).crypto().discover(&addresses));
         eprint!("{}", super::pgp::discovered(&found));
     }
 
@@ -389,7 +381,7 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) {
         match super::export::run(&store, query, target) {
             Ok(said) => print!("{said}"),
             Err(message) => {
-                eprintln!("{message}");
+                eprintln!("{}", super::remedy::error(message));
                 std::process::exit(1);
             }
         }
@@ -417,7 +409,7 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) {
         ) {
             Ok(said) => print!("{said}"),
             Err(message) => {
-                eprintln!("{message}");
+                eprintln!("{}", super::remedy::error(message));
                 std::process::exit(1);
             }
         }
@@ -493,6 +485,9 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) {
                 watching.changed(end.account());
             }
             print!("{}", super::sync::watched_text(&watched));
+            if let mail_core::sync::report::Watched::Pass(end) = &watched {
+                print!("{}", super::sync::sign_in_hint(&store, end));
+            }
             let _ = std::io::stdout().flush();
         };
         let mail = crate::edge::mail(&store);
@@ -515,7 +510,7 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) {
                 std::process::exit(1);
             }
             Err(message) => {
-                eprintln!("{message}");
+                eprintln!("{}", super::remedy::error(message));
                 std::process::exit(1);
             }
         }

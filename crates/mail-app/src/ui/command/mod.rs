@@ -29,7 +29,7 @@ use super::ops::{Composes, compose_new, start_composing};
 use crate::ui::view::{Bar, BarListing, PageMenu, SettingsPage, Shell};
 use dioxus::prelude::*;
 use items::Pick;
-use mail_store::SqliteStore;
+use mail_core::SqliteStore;
 use sections::Choice;
 use spotlight::Ctx;
 use std::sync::Arc;

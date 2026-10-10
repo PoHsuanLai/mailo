@@ -61,7 +61,11 @@ pub fn composed(composed: &Composed) -> String {
         }
     }
     if let Some(why) = &composed.refused {
-        let _ = writeln!(out, "  but it cannot be sent that way yet: {why}");
+        let _ = writeln!(
+            out,
+            "  but it cannot be sent that way yet: {}",
+            super::remedy::told(why)
+        );
     }
     let _ = writeln!(out, "\nsend it with: mailo send {}", draft.id);
     out

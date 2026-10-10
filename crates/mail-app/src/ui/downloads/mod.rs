@@ -20,8 +20,8 @@ pub(in crate::ui) use self::panel::DownloadsButton;
 use self::log::{Entry, Log};
 use crate::ui::appearance::WindowDirs;
 use dioxus::prelude::*;
+use mail_core::{SqliteStore, Store as _};
 use mail_domain::MessageId;
-use mail_store::{SqliteStore, Store as _};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
