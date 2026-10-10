@@ -9,7 +9,7 @@
 use crate::error::CoreError;
 use chrono::{DateTime, Utc};
 use mail_domain::*;
-use mail_mime::{Human, OriginalHeaders, ReceiptAsk, Reporting, ReturnPath, Words};
+use mail_mime::{Human, OriginalHeaders, ReceiptAsk, Reporting, Words};
 use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
 
@@ -21,10 +21,19 @@ pub enum ReceiptState {
     /// Only its headers are here; whether it asks is known once the body arrives.
     Unknown,
     /// It asks, and nobody has answered. Show `ask.to`, and warn when `ask.return_path` is
-    /// [`ReturnPath::Differs`].
+    /// [`mail_mime::ReturnPath::Differs`].
     Pending(ReceiptAsk),
     /// Answered on this machine.
     Answered(ReceiptAnswer),
+}
+
+/// What [`answer`] did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Settled {
+    /// A receipt is queued for these envelope recipients, and leaves on the next sync.
+    Sent { to: Vec<String> },
+    /// The request was declined; no receipt goes to these addresses.
+    Declined { to: Vec<String> },
 }
 
 /// What [`answer`] reports on the `Reporting-UA` line.
@@ -95,7 +104,7 @@ pub fn answer(
     message: MessageId,
     answer: ReceiptAnswer,
     now: DateTime<Utc>,
-) -> Result<String, CoreError> {
+) -> Result<Settled, CoreError> {
     let original = store.message(message)?;
     let ask = match state(store, &original)? {
         ReceiptState::Pending(ask) => ask,
@@ -113,8 +122,7 @@ pub fn answer(
         }
     };
 
-    let mut out = String::new();
-    if answer == ReceiptAnswer::Sent {
+    let settled = if answer == ReceiptAnswer::Sent {
         let raw = original.body.raw().ok_or(CoreError::BodyMissing)?;
         let bytes = store.blobs().get(raw)?;
         let identity = crate::compose::identity_of(
@@ -151,17 +159,12 @@ pub fn answer(
         if queued.is_none() {
             return Err(CoreError::ReceiptNotQueued);
         }
-        out.push_str(&format!(
-            "queued a read receipt to {}\n\ndeliver it with: mailo sync\n",
-            post.rcpt_to.join(", ")
-        ));
+        Settled::Sent { to: post.rcpt_to }
     } else {
-        let to: Vec<&str> = ask.to.iter().map(|a| a.email.as_str()).collect();
-        out.push_str(&format!(
-            "declined: no receipt will go to {}\n",
-            to.join(", ")
-        ));
-    }
+        Settled::Declined {
+            to: ask.to.iter().map(|a| a.email.clone()).collect(),
+        }
+    };
 
     store.answer_receipt(message, answer, now)?;
     // `None` is normal: a POP3 message has no server flags to set.
@@ -174,31 +177,7 @@ pub fn answer(
         &nothing_to_undo(),
         now,
     )?;
-    Ok(out)
-}
-
-/// The lines `mailo show` prints under a message, or nothing.
-pub fn describe(state: &ReceiptState, message: MessageId) -> String {
-    match state {
-        ReceiptState::NotAsked | ReceiptState::Unknown => String::new(),
-        ReceiptState::Answered(ReceiptAnswer::Sent) => "    read receipt sent\n".to_owned(),
-        ReceiptState::Answered(ReceiptAnswer::Declined) => "    read receipt declined\n".to_owned(),
-        ReceiptState::Pending(ask) => {
-            let to: Vec<&str> = ask.to.iter().map(|a| a.email.as_str()).collect();
-            let mut out = format!(
-                "    asks for a read receipt, to {}\n    \
-                 send one with: mailo receipt {message}   or decline: mailo receipt {message} --decline\n",
-                to.join(", ")
-            );
-            if let ReturnPath::Differs { return_path } = &ask.return_path {
-                out.push_str(&format!(
-                    "    careful: the receipt would go to another domain than the message came \
-                     from ({return_path})\n"
-                ));
-            }
-            out
-        }
-    }
+    Ok(settled)
 }
 
 fn nothing_to_undo() -> Patch {

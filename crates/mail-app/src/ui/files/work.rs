@@ -255,7 +255,9 @@ pub(in crate::ui) fn import_now(
             (total, Some(account))
         }
     };
-    let said = import::said(&total, &into.destination()).trim().to_owned();
+    let said = crate::cli::import::said(&total, &into.destination())
+        .trim()
+        .to_owned();
     Ok(Done {
         total,
         said,
@@ -446,7 +448,7 @@ pub(in crate::ui) fn export_now(
         now,
         progress,
     )?;
-    let said = export::said(&done, target)
+    let said = crate::cli::export::said(&done, target)
         .lines()
         .collect::<Vec<_>>()
         .join(" ");

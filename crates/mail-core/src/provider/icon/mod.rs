@@ -17,8 +17,8 @@ mod refresh;
 #[cfg(test)]
 mod tests;
 
-pub use cache::Loaded;
-pub use refresh::{fetch_if_missing, missing, providers_of, refresh, report};
+pub use cache::{Loaded, file_stem};
+pub use refresh::{fetch_if_missing, missing, providers_of, refresh};
 
 use mail_domain::{Retry, Retryable};
 use std::time::Duration;

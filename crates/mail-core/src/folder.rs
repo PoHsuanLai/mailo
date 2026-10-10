@@ -1,6 +1,6 @@
 //! Folders: listing them, and creating, renaming, deleting and following them.
 //!
-//! The same two calls serve `mailo folder` and the window. [`change`] decides with
+//! The same calls serve the command line and the window. [`change`] decides with
 //! [`mail_domain::folder::plan`], writes the local half at once and queues the server's half in
 //! the outbox, so a folder made on a train is there immediately and on the server after the
 //! next sync — or put back, if the server refuses it for good.
@@ -8,12 +8,9 @@
 use crate::error::{CoreError, Logged};
 use chrono::{DateTime, Utc};
 use mail_domain::folder::{FolderContents, FolderCtx, plan};
-use mail_domain::{
-    Applied, Folder, FolderError, FolderWork, Holds, Incoming, MailboxRef, NonEmpty, Subscription,
-};
+use mail_domain::{Applied, Folder, FolderError, FolderWork, Incoming, MailboxRef};
 use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
-use std::fmt::Write as _;
 
 /// Why a folder change did not happen.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -84,82 +81,56 @@ pub fn change(
     Ok(applied)
 }
 
-/// `mailo folder list [account]`: every folder, per account.
-pub fn list(store: &SqliteStore, account: Option<AccountId>) -> Result<String, CoreError> {
+/// What one account's folder listing has to show.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Listing {
+    /// A POP3 account has the one mailbox, and no folders.
+    Pop3,
+    /// A local account is kept on this computer: labels only, no server folders.
+    Local,
+    /// A server account whose folders have not been listed yet.
+    Unlisted,
+    /// The folders the server listed.
+    Folders(Vec<Folder>),
+}
+
+/// One account and its [`Listing`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AccountFolders {
+    pub address: String,
+    pub listing: Listing,
+}
+
+/// Every folder, per account; `account` narrows it to one.
+pub fn list(
+    store: &SqliteStore,
+    account: Option<AccountId>,
+) -> Result<Vec<AccountFolders>, CoreError> {
     let accounts = crate::sync::configured(store)?;
     if accounts.is_empty() {
         return Err(CoreError::NoAccounts);
     }
-    let mut out = String::new();
+    let mut out = Vec::new();
     for configured in accounts
         .iter()
         .filter(|c| account.clone().is_none_or(|a| a == c.id))
     {
-        let _ = writeln!(out, "{}", configured.address);
-        match configured.plan.incoming {
-            Incoming::Pop3 { .. } => {
-                let _ = writeln!(out, "  POP3 has one mailbox, and no folders\n");
-                continue;
+        let listing = match configured.plan.incoming {
+            Incoming::Pop3 { .. } => Listing::Pop3,
+            Incoming::Local => Listing::Local,
+            Incoming::Imap { .. } | Incoming::Graph | Incoming::Jmap { .. } => {
+                let folders = store.folders(configured.id.clone())?;
+                if folders.is_empty() {
+                    Listing::Unlisted
+                } else {
+                    Listing::Folders(folders)
+                }
             }
-            Incoming::Local => {
-                let _ = writeln!(
-                    out,
-                    "  kept on this computer: no server folders, only labels\n"
-                );
-                continue;
-            }
-            Incoming::Imap { .. } | Incoming::Graph | Incoming::Jmap { .. } => {}
-        }
-        let folders = store.folders(configured.id.clone())?;
-        if folders.is_empty() {
-            let _ = writeln!(
-                out,
-                "  no folders listed yet; `mailo sync` asks the server\n"
-            );
-            continue;
-        }
-        for folder in &folders {
-            let _ = writeln!(out, "  {}", line(folder));
-        }
-        out.push('\n');
+        };
+        out.push(AccountFolders {
+            address: configured.address.clone(),
+            listing,
+        });
     }
     Ok(out)
-}
-
-/// One folder, as `list` prints it.
-fn line(folder: &Folder) -> String {
-    let mut notes = Vec::new();
-    if let Some(special) = folder.protected() {
-        notes.push(special.name().to_lowercase());
-    }
-    if folder.holds == Holds::FoldersOnly {
-        notes.push("holds folders only".to_owned());
-    }
-    if folder.subscription == Subscription::Unsubscribed {
-        notes.push("not subscribed".to_owned());
-    }
-    if notes.is_empty() {
-        folder.path.clone()
-    } else {
-        format!("{}  ({})", folder.path, notes.join(", "))
-    }
-}
-
-/// What `mailo folder new|rename|delete|subscribe|unsubscribe` prints once it has happened here.
-pub fn said(work: &FolderWork, address: &str) -> String {
-    let what = match work {
-        FolderWork::Create { path } => format!("created {path}"),
-        FolderWork::Rename { from, to } => format!("renamed {from} to {to}"),
-        FolderWork::Delete {
-            path,
-            non_empty: NonEmpty::Allow,
-        } => format!("deleted {path} and anything in it"),
-        FolderWork::Delete { path, .. } => format!("deleted {path}"),
-        FolderWork::Subscribe {
-            path,
-            subscription: Subscription::Subscribed,
-        } => format!("subscribed to {path}"),
-        FolderWork::Subscribe { path, .. } => format!("unsubscribed from {path}"),
-    };
-    format!("{what} on {address}; the server is told on the next sync\n")
 }

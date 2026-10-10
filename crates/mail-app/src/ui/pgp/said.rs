@@ -1,8 +1,8 @@
 //! What the reader says about a message's protection, a line a fact, for OpenPGP and S/MIME
 //! alike. Pure, so every wording is a table test.
 //!
-//! The facts are the ones `mailo show` prints ([`mail_core::pgp::describe`],
-//! [`mail_core::smime::describe`]); the words are the window's.
+//! The facts are the ones `mailo show` prints (`cli::pgp::describe`,
+//! `cli::smime::describe`); the words are the window's.
 
 use mail_domain::*;
 

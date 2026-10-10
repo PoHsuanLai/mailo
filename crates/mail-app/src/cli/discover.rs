@@ -12,8 +12,114 @@
 
 use super::{Command, Consent};
 use mail_core::account::Setup;
-use mail_core::discover::Found;
-use mail_core::discover::describe;
+use mail_core::discover::{Failed, Found, Gap};
+use mail_domain::presets::Preset;
+use mail_domain::{AuthPlan, Incoming, Outgoing, Tls, Username};
+use porter_provider::Issuer;
+use std::fmt::Write as _;
+
+/// What was found, for the user to judge.
+pub fn describe(address: &str, origin: &str, found: &Preset) -> String {
+    let plan = &found.plan;
+    let mut out = format!("for {address}, {origin}:\n");
+    let incoming = match &plan.incoming {
+        Incoming::Imap { host, port, tls } => format!("IMAP {host}:{port}, {}", tls_said(*tls)),
+        Incoming::Pop3 {
+            host, port, tls, ..
+        } => format!(
+            "POP3 {host}:{port}, {} (mail is left on the server)",
+            tls_said(*tls)
+        ),
+        Incoming::Local => "none".to_owned(),
+        Incoming::Graph => "Microsoft Graph".to_owned(),
+        Incoming::Jmap { session, auth } => format!(
+            "JMAP at {session}, {}",
+            match auth {
+                mail_domain::HttpAuth::Basic => "signing in with a password",
+                mail_domain::HttpAuth::Bearer => "signing in with a token",
+            }
+        ),
+    };
+    let outgoing = match &plan.outgoing {
+        Outgoing::Smtp { host, port, tls } => format!("SMTP {host}:{port}, {}", tls_said(*tls)),
+        Outgoing::Graph => "Microsoft Graph".to_owned(),
+        Outgoing::Jmap => "JMAP submission, on the same server".to_owned(),
+        Outgoing::Nowhere => "none".to_owned(),
+    };
+    let sign_in = match &plan.auth {
+        AuthPlan::Password { username, .. } => format!(
+            "a password, logging in as {:?}{}",
+            username.resolve(address),
+            match username {
+                Username::SameAsAddress => " (the whole address)",
+                Username::LocalPart => " (the part before the @)",
+                Username::Literal(_) => "",
+            }
+        ),
+        AuthPlan::OAuth { issuer, .. } => format!(
+            "OAuth, signing in with {} in a browser; no password is stored",
+            match issuer {
+                Issuer::Google => "Google",
+                Issuer::Microsoft => "Microsoft",
+                _ => "an issuer mailo does not read mail through",
+            }
+        ),
+        AuthPlan::Granted { .. } => {
+            "the desktop's account service signs it in; no password or token is stored here"
+                .to_owned()
+        }
+    };
+    let _ = writeln!(out, "  incoming  {incoming}");
+    let _ = writeln!(out, "  outgoing  {outgoing}");
+    let _ = writeln!(out, "  sign-in   {sign_in}");
+    out
+}
+
+fn tls_said(tls: Tls) -> &'static str {
+    match tls {
+        Tls::Implicit => "TLS from the first byte",
+        Tls::StartTlsRequired => "STARTTLS, required",
+        Tls::Plaintext => "no TLS",
+    }
+}
+
+/// What to say at a terminal when no servers were found: why, and the way to configure the account
+/// by hand.
+pub fn failed(failure: &Failed) -> String {
+    let (address, why, gap) = match failure {
+        Failed::Broken(why) => return why.clone(),
+        Failed::NoServers {
+            address,
+            gap,
+            tried,
+        } => (address, tried, *gap),
+        Failed::Unreachable { address, why, .. } => (address, why, Gap::Nothing),
+    };
+    let mut out = format!("could not find servers for {address}: {why}\n");
+    match gap {
+        Gap::PersonalMicrosoft => return out,
+        Gap::StartTlsOnly => out.push_str(
+            "\nThis domain publishes servers that use STARTTLS, which this client does not \
+             use: the upgrade can be stripped by anyone on the path, and the password then \
+             crosses in the clear. Ask the provider whether it also offers IMAP on port 993 \
+             (or POP3 on 995) and submission on port 465; if it does, name them:\n",
+        ),
+        Gap::Nothing => out.push_str("\nName the servers yourself:\n"),
+    }
+    let _ = write!(
+        out,
+        "\n  mailo account add {address} --imap HOST[:993] --smtp HOST[:465] [--login NAME]\n\
+         \nor --pop3 HOST[:995] in place of --imap for a POP3-only server."
+    );
+    out
+}
+
+/// The servers of `address`, looked up over the network, or what to tell the person when there are
+/// none. The `lookup` of [`show`] and [`before_add`].
+pub fn lookup(address: &str) -> Result<Found, String> {
+    crate::edge::block_on(mail_core::discover::search(address, chrono::Utc::now()))
+        .map_err(|why| failed(&why))
+}
 
 /// Whether anyone can be asked.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -527,5 +633,70 @@ mod jmap_tests {
         )
         .unwrap();
         assert_eq!(out, named);
+    }
+
+    #[test]
+    fn a_pop3_server_is_named_with_its_port() {
+        let preset = mail_domain::presets::manual_pop3(
+            "me@example.test",
+            &mail_domain::presets::ManualPop3 {
+                pop3_host: "pop.example.test".to_owned(),
+                pop3_port: 995,
+                smtp_host: "smtp.example.test".to_owned(),
+                smtp_port: 465,
+                login: None,
+            },
+            now(),
+        );
+        let text = describe("me@example.test", &Source::Autoconfig.to_string(), &preset);
+        assert!(text.contains("POP3 pop.example.test:995"), "{text}");
+    }
+
+    fn no_servers(gap: Gap, tried: &str) -> Failed {
+        Failed::NoServers {
+            address: "me@example.test".to_owned(),
+            gap,
+            tried: tried.to_owned(),
+        }
+    }
+
+    /// A personal Microsoft mailbox no longer takes a password, so it is not told to name servers.
+    #[test]
+    fn a_personal_microsoft_mailbox_is_not_told_to_name_servers() {
+        let said = failed(&no_servers(
+            Gap::PersonalMicrosoft,
+            "this is a personal mailbox",
+        ));
+        assert_eq!(
+            said,
+            "could not find servers for me@example.test: this is a personal mailbox\n"
+        );
+        assert!(!said.contains("mailo account add"), "{said}");
+    }
+
+    #[test]
+    fn a_starttls_only_domain_is_told_how_to_configure_it_by_hand() {
+        let said = failed(&no_servers(
+            Gap::StartTlsOnly,
+            "the servers offered use only STARTTLS or no TLS: imap.example.test:143",
+        ));
+        assert!(said.contains("STARTTLS"), "{said}");
+        assert!(said.contains("imap.example.test:143"), "{said}");
+        assert!(said.contains("--imap HOST[:993]"), "{said}");
+    }
+
+    #[test]
+    fn a_miss_is_told_unchanged_at_the_terminal() {
+        assert_eq!(
+            failed(&no_servers(Gap::Nothing, "nothing")),
+            "could not find servers for me@example.test: nothing\n\nName the servers \
+             yourself:\n\n  mailo account add me@example.test --imap HOST[:993] --smtp \
+             HOST[:465] [--login NAME]\n\nor --pop3 HOST[:995] in place of --imap for a \
+             POP3-only server."
+        );
+        assert_eq!(
+            failed(&Failed::Broken("no runtime".to_owned())),
+            "no runtime"
+        );
     }
 }

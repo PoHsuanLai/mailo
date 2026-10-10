@@ -6,7 +6,7 @@
 
 use chrono::{DateTime, TimeZone, Utc};
 use mail_app::cli;
-use mail_core::invite::{InviteAction, InviteCommand};
+use mail_app::cli::invite::{InviteAction, InviteCommand};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};

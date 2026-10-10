@@ -17,45 +17,33 @@ use mail_domain::{
 };
 use mail_store::{SqliteStore, Store};
 
-/// Put a conversation off until `phrase` names.
+/// Put a conversation off until `phrase` names, and say when that is.
 pub fn snooze(
     store: &SqliteStore,
     thread: ThreadId,
     phrase: &str,
     now: DateTime<Utc>,
-) -> Result<String, CoreError> {
+) -> Result<DateTime<Utc>, CoreError> {
     let at = snooze_until(phrase, now, &Local)?;
     set(store, thread, Snooze::Until(at), now)?;
-    Ok(format!(
-        "snoozed until {}\n",
-        crate::when::stamp(at, &Local, crate::when::Stamp::Full)
-    ))
+    Ok(at)
 }
 
 /// Bring one back now.
-pub fn wake(
-    store: &SqliteStore,
-    thread: ThreadId,
-    now: DateTime<Utc>,
-) -> Result<String, CoreError> {
-    set(store, thread, Snooze::Inactive, now)?;
-    Ok("back in the inbox\n".to_owned())
+pub fn wake(store: &SqliteStore, thread: ThreadId, now: DateTime<Utc>) -> Result<(), CoreError> {
+    set(store, thread, Snooze::Inactive, now)
 }
 
-/// Pin a conversation, or unpin it if it is already pinned.
+/// Pin a conversation, or unpin it if it is already pinned. Says whether it is pinned now.
 ///
 /// Here rather than in a module of its own because pin and snooze are the same shape: thread
 /// level, local by construction, and needing a payload that `op_for` cannot supply.
-pub fn pin(store: &SqliteStore, thread: ThreadId, now: DateTime<Utc>) -> Result<String, CoreError> {
+pub fn pin(store: &SqliteStore, thread: ThreadId, now: DateTime<Utc>) -> Result<bool, CoreError> {
     let loaded = store.thread(thread)?;
     let op = crate::place::pin_op(&loaded.summary, now);
     let pinned = matches!(op, Op::SetPin(mail_domain::Pin::Rank(_)));
     apply(store, thread, op, now)?;
-    Ok(if pinned {
-        "pinned\n".to_owned()
-    } else {
-        "unpinned\n".to_owned()
-    })
+    Ok(pinned)
 }
 
 /// Apply `Op::SetSnooze` to a thread.

@@ -1,14 +1,13 @@
-//! Fetch, decode and store: on `mailo account add`, on an explicit refresh, and once when a window
+//! Fetch, decode and store: when an account is added, on an explicit refresh, and once when a window
 //! opens for the known providers not yet cached ([`missing`]).
 
 use super::IconError;
-use super::cache::{cached, file_stem, store};
+use super::cache::{cached, store};
 use super::decode::decode;
 use super::fetch::{client, fetch, url};
 use crate::environment::Program;
 use crate::error::CoreError;
 use crate::provider::Provider;
-use std::fmt::Write as _;
 use std::path::Path;
 
 /// Re-fetch every provider. One failure does not stop the others.
@@ -31,26 +30,6 @@ pub async fn refresh(
     for provider in providers.iter().copied() {
         let result = fetch_into(&client, dir, provider).await;
         out.push((provider, result));
-    }
-    out
-}
-
-/// What `mailo icons refresh` prints. Failures are a line here; the caller logs them.
-pub fn report(results: &[(Provider, Result<usize, IconError>)]) -> String {
-    let mut out = String::new();
-    for (provider, result) in results {
-        let stem = file_stem(*provider);
-        match result {
-            Ok(bytes) => {
-                let _ = writeln!(out, "{stem}: wrote {bytes} bytes");
-            }
-            Err(IconError::Unmapped) => {
-                let _ = writeln!(out, "{stem}: letters only");
-            }
-            Err(_) => {
-                let _ = writeln!(out, "{stem}: not updated");
-            }
-        }
     }
     out
 }
@@ -93,8 +72,8 @@ pub fn missing(dir: &Path, program: Program) -> Vec<Provider> {
 /// file is not already there.
 ///
 /// Tests execute from `deps/<crate>-<hash>` and must not open a socket or write
-/// `~/.cache/mailo`. Awaited, because `mailo account add` returns immediately afterwards, and a
-/// process exit kills a fetch nobody waits for. A failure is logged and is not an error for the
+/// `~/.cache/mailo`. Awaited, because a command line that adds an account returns immediately afterwards, and
+/// a process exit kills a fetch nobody waits for. A failure is logged and is not an error for the
 /// caller.
 pub async fn fetch_if_missing(provider: Provider, program: Program) {
     if url(provider).is_none() || program != Program::Installed {

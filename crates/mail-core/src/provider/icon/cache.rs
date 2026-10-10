@@ -114,7 +114,8 @@ pub(crate) fn store(dir: &Path, provider: Provider, png: &[u8]) -> Result<(), Ic
     Ok(())
 }
 
-pub(super) fn file_stem(provider: Provider) -> &'static str {
+/// The name a provider's file and its report line go by.
+pub fn file_stem(provider: Provider) -> &'static str {
     match provider {
         Provider::Google => "google",
         Provider::Microsoft => "microsoft",

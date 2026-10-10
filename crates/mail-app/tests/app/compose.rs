@@ -6,6 +6,7 @@
 //! into the outbox — was missing at every one of those three points.
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_app::cli::compose as words;
 use mail_app::ui::view;
 use mail_core::compose;
 use mail_domain::id::account_id_from_uuid;
@@ -156,14 +157,16 @@ fn only_draft(store: &SqliteStore) -> Draft {
 #[test]
 fn replying_creates_a_draft_addressed_to_the_sender() {
     let (store, _dir) = seeded();
-    let out = compose::reply(
-        &store,
-        ORIGINAL,
-        ReplyScope::Sender,
-        "one o'clock suits",
-        at(10),
-    )
-    .expect("reply succeeds");
+    let out = words::replied(
+        &compose::draft_reply(
+            &store,
+            ORIGINAL,
+            ReplyScope::Sender,
+            "one o'clock suits",
+            at(10),
+        )
+        .expect("reply succeeds"),
+    );
 
     let draft = only_draft(&store);
     assert_eq!(draft.subject, "Re: lunch on friday");
@@ -180,7 +183,7 @@ fn replying_creates_a_draft_addressed_to_the_sender() {
 #[test]
 fn replying_to_all_keeps_everyone_but_us() {
     let (store, _dir) = seeded();
-    compose::reply(&store, ORIGINAL, ReplyScope::All, "sounds good", at(10)).unwrap();
+    compose::draft_reply(&store, ORIGINAL, ReplyScope::All, "sounds good", at(10)).unwrap();
 
     let draft = only_draft(&store);
     let to: Vec<&str> = draft.to.iter().map(|a| a.email.as_str()).collect();
@@ -204,7 +207,7 @@ fn replying_to_all_keeps_everyone_but_us() {
 #[test]
 fn the_reply_body_quotes_the_original_beneath_what_was_written() {
     let (store, _dir) = seeded();
-    compose::reply(
+    compose::draft_reply(
         &store,
         ORIGINAL,
         ReplyScope::Sender,
@@ -239,7 +242,9 @@ fn a_reply_with_nobody_to_send_it_to_says_so_rather_than_offering_to_send_it() {
     let (store, _dir) = seeded();
     let own = own_message(&store);
 
-    let out = compose::reply(&store, own, ReplyScope::Sender, "to myself", at(10)).unwrap();
+    let out = words::replied(
+        &compose::draft_reply(&store, own, ReplyScope::Sender, "to myself", at(10)).unwrap(),
+    );
 
     assert!(out.contains("nobody to send this to"), "{out}");
     assert!(
@@ -424,7 +429,7 @@ fn a_reply_to_a_message_with_no_body_quotes_nothing_rather_than_the_word_none() 
     // renders the absent body into the quote sends that text to the recipient.
     let (store, _dir) = seeded();
     let id = headers_only(&store);
-    compose::reply(&store, id, ReplyScope::Sender, "later", at(10)).unwrap();
+    compose::draft_reply(&store, id, ReplyScope::Sender, "later", at(10)).unwrap();
 
     let text = only_draft(&store).text;
     assert!(text.contains("later"), "{text}");
@@ -439,7 +444,7 @@ fn a_reply_to_a_message_with_no_body_quotes_nothing_rather_than_the_word_none() 
 #[test]
 fn sending_queues_the_draft_without_touching_the_network() {
     let (store, _dir) = seeded();
-    compose::reply(
+    compose::draft_reply(
         &store,
         ORIGINAL,
         ReplyScope::Sender,
@@ -449,7 +454,8 @@ fn sending_queues_the_draft_without_touching_the_network() {
     .unwrap();
     let draft = only_draft(&store);
 
-    let out = compose::send(&store, draft.id, at(20)).expect("send queues");
+    let (queued, post) = compose::send(&store, draft.id, at(20)).expect("send queues");
+    let out = words::queued(&queued, &post);
     assert!(out.contains("mailo sync"), "{out}");
 
     // The submission is in the outbox, with its envelope frozen beside the bytes.
@@ -476,7 +482,7 @@ fn the_queued_bytes_are_frozen_against_a_later_edit() {
     // The user pressed send on a particular version. A draft edited afterwards — by an autosave
     // that had not yet fired, or by a second window — must not change what goes out.
     let (store, _dir) = seeded();
-    compose::reply(
+    compose::draft_reply(
         &store,
         ORIGINAL,
         ReplyScope::Sender,
@@ -515,7 +521,7 @@ fn the_queued_bytes_are_frozen_against_a_later_edit() {
 #[test]
 fn sending_the_same_draft_twice_is_refused() {
     let (store, _dir) = seeded();
-    compose::reply(&store, ORIGINAL, ReplyScope::Sender, "yes", at(10)).unwrap();
+    compose::draft_reply(&store, ORIGINAL, ReplyScope::Sender, "yes", at(10)).unwrap();
     let draft = only_draft(&store);
     compose::send(&store, draft.id, at(20)).unwrap();
     store
@@ -543,7 +549,7 @@ fn an_account_with_no_identity_says_so_instead_of_inventing_a_sender() {
     let (store, _dir) = seeded();
     mail_store::testing::delete_identities(&store, acct_account());
 
-    let err = compose::reply(&store, ORIGINAL, ReplyScope::Sender, "hi", at(10))
+    let err = compose::draft_reply(&store, ORIGINAL, ReplyScope::Sender, "hi", at(10))
         .expect_err("no identity to send as")
         .to_string();
     assert!(
@@ -568,26 +574,27 @@ fn the_identity_comes_from_the_table_the_foreign_key_enforces() {
     plan.identities.clear();
     store.set_account_plan(acct_account(), &plan).unwrap();
 
-    compose::reply(&store, ORIGINAL, ReplyScope::Sender, "yes", at(10))
+    compose::draft_reply(&store, ORIGINAL, ReplyScope::Sender, "yes", at(10))
         .expect("the identity row is still there");
     let draft = only_draft(&store);
-    let out = compose::send(&store, draft.id, at(20)).expect("and sending still works");
+    let (queued, post) = compose::send(&store, draft.id, at(20)).expect("and sending still works");
+    let out = words::queued(&queued, &post);
     assert!(out.contains("me@example.test"), "{out}");
 }
 
 #[test]
 fn drafts_reports_what_is_waiting() {
     let (store, _dir) = seeded();
-    assert!(compose::drafts(&store).unwrap().contains("no drafts"));
+    assert!(words::drafts(&compose::drafts(&store).unwrap()).contains("no drafts"));
 
-    compose::reply(&store, ORIGINAL, ReplyScope::Sender, "yes", at(10)).unwrap();
-    let listed = compose::drafts(&store).unwrap();
+    compose::draft_reply(&store, ORIGINAL, ReplyScope::Sender, "yes", at(10)).unwrap();
+    let listed = words::drafts(&compose::drafts(&store).unwrap());
     assert!(listed.contains("editing"), "{listed}");
     assert!(listed.contains("Re: lunch on friday"), "{listed}");
 
     let draft = only_draft(&store);
     compose::send(&store, draft.id, at(20)).unwrap();
-    assert!(compose::drafts(&store).unwrap().contains("queued"));
+    assert!(words::drafts(&compose::drafts(&store).unwrap()).contains("queued"));
 }
 
 /// The composer's round trip, without a window.
@@ -911,15 +918,17 @@ mod forwarding {
         // The CLI-facing half, which is also the one that decides the zone: `forward` defaults
         // to `Local` where `draft_forward_in` is told. Asserted on the text a person reads.
         let (store, _dir) = seeded();
-        let out = compose::forward(
-            &store,
-            ORIGINAL,
-            &to(),
-            "fyi",
-            compose::Carry::Inline,
-            at(10),
-        )
-        .unwrap();
+        let out = words::forwarded(
+            &compose::forward(
+                &store,
+                ORIGINAL,
+                &to(),
+                "fyi",
+                compose::Carry::Inline,
+                at(10),
+            )
+            .unwrap(),
+        );
 
         assert!(out.contains("Fwd: lunch on friday"), "{out}");
         assert!(out.contains("Bea <bea@example.test>"), "{out}");
@@ -1120,8 +1129,9 @@ mod forwarding_as_an_attachment {
     fn the_command_line_says_what_is_attached() {
         let (store, _dir) = seeded();
         let id = stored(&store, SENT.as_bytes(), vec![]);
-        let out =
-            compose::forward(&store, id, &bea(), "", compose::Carry::Attached, at(10)).unwrap();
+        let out = words::forwarded(
+            &compose::forward(&store, id, &bea(), "", compose::Carry::Attached, at(10)).unwrap(),
+        );
         assert!(out.contains("  attached The engine notes.eml"), "{out}");
     }
 
@@ -1200,7 +1210,7 @@ mod signatures {
         let (store, _dir) = seeded();
         set(&store, Some("Ada Lovelace\nAnalytical Engines Ltd"));
 
-        compose::reply(
+        compose::draft_reply(
             &store,
             ORIGINAL,
             ReplyScope::Sender,
@@ -1264,12 +1274,14 @@ mod signatures {
             let (store, _dir) = seeded();
             let mut out = String::new();
             for text in *steps {
-                out = compose::set_signature(&store, acct_account(), *text).unwrap();
+                out = words::signature(
+                    &compose::set_signature(&store, acct_account(), *text).unwrap(),
+                );
             }
             if let Some(said) = says {
                 assert!(out.contains(said), "{name}: {out}");
             }
-            compose::reply(&store, ORIGINAL, ReplyScope::Sender, "hi", at(10)).unwrap();
+            compose::draft_reply(&store, ORIGINAL, ReplyScope::Sender, "hi", at(10)).unwrap();
             let text = only_draft(&store).text;
             assert!(!text.contains("-- "), "{name}: {text:?}");
         }
@@ -1366,16 +1378,18 @@ mod writing_to_someone_new {
     fn what_the_command_prints_names_the_draft_and_how_to_send_it() {
         // The F99 rule: a command that leaves a draft behind has to say what will finish it.
         let (store, _dir) = seeded();
-        let out = compose::new_message(
-            &store,
-            None,
-            [&stranger(), &[], &[]],
-            "dinner on saturday",
-            "are you free?",
-            ReceiptRequest::Unrequested,
-            at(10),
-        )
-        .expect("one account needs no --from");
+        let out = words::composed(
+            &compose::new_message(
+                &store,
+                None,
+                [&stranger(), &[], &[]],
+                "dinner on saturday",
+                "are you free?",
+                ReceiptRequest::Unrequested,
+                at(10),
+            )
+            .expect("one account needs no --from"),
+        );
         let draft = only_draft(&store);
         assert!(out.contains(&draft.id.to_string()), "{out}");
         assert!(out.contains("kim@elsewhere.test"), "{out}");
@@ -1390,16 +1404,18 @@ mod writing_to_someone_new {
             name: None,
             email: "lee@elsewhere.test".to_owned(),
         }];
-        let out = compose::new_message(
-            &store,
-            None,
-            [&stranger(), &[], &blind],
-            "s",
-            "",
-            ReceiptRequest::Unrequested,
-            at(10),
-        )
-        .unwrap();
+        let out = words::composed(
+            &compose::new_message(
+                &store,
+                None,
+                [&stranger(), &[], &blind],
+                "s",
+                "",
+                ReceiptRequest::Unrequested,
+                at(10),
+            )
+            .unwrap(),
+        );
         assert!(out.contains("bcc     lee@elsewhere.test"), "{out}");
         assert_eq!(only_draft(&store).bcc, blind);
     }
@@ -1407,32 +1423,36 @@ mod writing_to_someone_new {
     #[test]
     fn a_message_with_no_subject_says_so_rather_than_printing_a_blank() {
         let (store, _dir) = seeded();
-        let out = compose::new_message(
-            &store,
-            None,
-            [&stranger(), &[], &[]],
-            "",
-            "",
-            ReceiptRequest::Unrequested,
-            at(10),
-        )
-        .unwrap();
+        let out = words::composed(
+            &compose::new_message(
+                &store,
+                None,
+                [&stranger(), &[], &[]],
+                "",
+                "",
+                ReceiptRequest::Unrequested,
+                at(10),
+            )
+            .unwrap(),
+        );
         assert!(out.contains("(none)"), "{out}");
     }
 
     #[test]
     fn a_message_can_ask_for_a_read_receipt() {
         let (store, _dir) = seeded();
-        let out = compose::new_message(
-            &store,
-            None,
-            [&stranger(), &[], &[]],
-            "figures",
-            "",
-            ReceiptRequest::Requested,
-            at(10),
-        )
-        .unwrap();
+        let out = words::composed(
+            &compose::new_message(
+                &store,
+                None,
+                [&stranger(), &[], &[]],
+                "figures",
+                "",
+                ReceiptRequest::Requested,
+                at(10),
+            )
+            .unwrap(),
+        );
         assert!(out.contains("asks for a read receipt"), "{out}");
         // Kept on the stored draft, so a send tomorrow still asks.
         assert_eq!(only_draft(&store).receipt, ReceiptRequest::Requested);
@@ -1802,13 +1822,12 @@ mod carrying_a_file {
         let (store, _dir) = seeded();
         let draft = a_draft(&store);
         assert!(
-            compose::attachments_of(&store, draft)
-                .unwrap()
+            words::attached(&compose::attachments_of(&store, draft).unwrap())
                 .contains("nothing attached")
         );
 
         compose::attach_bytes(&store, draft, "report.txt", b"0123456789", at(20)).unwrap();
-        let listed = compose::attachments_of(&store, draft).unwrap();
+        let listed = words::attached(&compose::attachments_of(&store, draft).unwrap());
         assert!(listed.contains("report.txt"), "{listed}");
         assert!(listed.contains("10 B"), "{listed}");
 

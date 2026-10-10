@@ -110,7 +110,9 @@ fn frozen(store: &SqliteStore) -> Vec<u8> {
 }
 
 fn send(store: &SqliteStore, secrets: &MapSigningStore, draft: DraftId) -> Result<String, String> {
-    compose::send_with(store, secrets, &pgp::no_passphrase, draft, now()).map_err(|e| e.to_string())
+    compose::send_with(store, secrets, &pgp::no_passphrase, draft, now())
+        .map(|(draft, post)| cli::compose::queued(&draft, &post))
+        .map_err(|e| e.to_string())
 }
 
 /// Store `raw` as a message that arrived in the inbox, the way a sync does, and return it.
@@ -179,18 +181,18 @@ mod keys {
     #[test]
     fn an_exported_key_imports_into_another_client_as_itself() {
         let (store, _dir, secrets, key) = with_key();
-        let public = pgp::run(
+        let public = cli::pgp::run(
             &store,
             &secrets,
-            &pgp::parse(&["export".to_owned(), ME.to_owned()]).unwrap(),
+            &cli::pgp::parse(&["export".to_owned(), ME.to_owned()]).unwrap(),
             now(),
         )
         .unwrap();
         assert!(public.starts_with("-----BEGIN PGP PUBLIC KEY BLOCK-----"));
-        let secret = pgp::run(
+        let secret = cli::pgp::run(
             &store,
             &secrets,
-            &pgp::parse(&[
+            &cli::pgp::parse(&[
                 "export".to_owned(),
                 key.fingerprint.to_string(),
                 "--secret".to_owned(),
@@ -262,10 +264,10 @@ mod keys {
         let bea = someone_elses(BEA, 3);
         import_public(&store, &secrets, &bea);
         let before = store.pgp_key(bea.fingerprint()).unwrap().unwrap().trust;
-        let said = pgp::run(
+        let said = cli::pgp::run(
             &store,
             &secrets,
-            &pgp::parse(&["verify".to_owned(), bea.fingerprint().to_string()]).unwrap(),
+            &cli::pgp::parse(&["verify".to_owned(), bea.fingerprint().to_string()]).unwrap(),
             now(),
         )
         .unwrap();
@@ -275,7 +277,7 @@ mod keys {
             store.pgp_key(bea.fingerprint()).unwrap().unwrap().trust,
             KeyTrust::Verified
         );
-        let listing = pgp::run(&store, &secrets, &pgp::PgpCommand::Keys, now()).unwrap();
+        let listing = cli::pgp::run(&store, &secrets, &cli::pgp::PgpCommand::Keys, now()).unwrap();
         assert!(listing.contains("verified") && listing.contains(BEA) && listing.contains("yours"));
     }
 
@@ -566,20 +568,22 @@ mod sending {
     #[test]
     fn a_draft_that_cannot_be_sent_as_it_asks_says_so_when_it_is_made() {
         let (store, _dir) = seeded();
-        let said = compose::new_sealed_message(
-            &store,
-            None,
-            [&to(&[BEA]), &[], &[]],
-            "hi",
-            "body",
-            (
-                ReceiptRequest::Unrequested,
-                OpenPgp::SignAndEncrypt,
-                Smime::None,
-            ),
-            now(),
-        )
-        .unwrap();
+        let said = cli::compose::composed(
+            &compose::new_sealed_message(
+                &store,
+                None,
+                [&to(&[BEA]), &[], &[]],
+                "hi",
+                "body",
+                (
+                    ReceiptRequest::Unrequested,
+                    OpenPgp::SignAndEncrypt,
+                    Smime::None,
+                ),
+                now(),
+            )
+            .unwrap(),
+        );
         assert!(said.contains("signed and encrypted with OpenPGP"), "{said}");
         assert!(
             said.contains("has no OpenPGP key; make one with `mailo pgp generate"),
@@ -684,7 +688,7 @@ mod reading {
             "{:?}",
             again.verification
         );
-        let said = pgp::describe(&again);
+        let said = cli::pgp::describe(&again);
         assert!(
             said.contains("decrypted") && said.contains("good signature by bea@example.test"),
             "{said}"
@@ -704,7 +708,7 @@ mod reading {
             .unwrap();
         assert!(matches!(&opened.encryption, Encryption::CannotDecrypt { to } if !to.is_empty()));
         assert!(opened.shown.is_none());
-        assert!(pgp::describe(&opened).contains("keys you do not hold"));
+        assert!(cli::pgp::describe(&opened).contains("keys you do not hold"));
     }
 
     #[test]
@@ -762,49 +766,49 @@ mod parsing {
     fn the_pgp_commands_parse() {
         let fp: Fingerprint = "0123456789ABCDEF0123456789ABCDEF01234567".parse().unwrap();
         const_cases(&[
-            ("pgp keys", pgp::PgpCommand::Keys),
+            ("pgp keys", cli::pgp::PgpCommand::Keys),
             (
                 "pgp generate me@example.test",
-                pgp::PgpCommand::Generate {
+                cli::pgp::PgpCommand::Generate {
                     address: ME.to_owned(),
                 },
             ),
             (
                 "pgp import keys.asc",
-                pgp::PgpCommand::Import {
+                cli::pgp::PgpCommand::Import {
                     path: "keys.asc".into(),
                 },
             ),
             (
                 "pgp export me@example.test",
-                pgp::PgpCommand::Export {
+                cli::pgp::PgpCommand::Export {
                     named: ME.to_owned(),
-                    secret: pgp::Secret::Public,
+                    secret: cli::pgp::Secret::Public,
                 },
             ),
             (
                 "pgp export me@example.test --secret",
-                pgp::PgpCommand::Export {
+                cli::pgp::PgpCommand::Export {
                     named: ME.to_owned(),
-                    secret: pgp::Secret::Included,
+                    secret: cli::pgp::Secret::Included,
                 },
             ),
             (
                 "pgp delete me@example.test --with-secret",
-                pgp::PgpCommand::Delete {
+                cli::pgp::PgpCommand::Delete {
                     named: ME.to_owned(),
                     with_secret: pgp::WithSecret::Confirmed,
                 },
             ),
             (
                 "pgp lookup bea@example.test",
-                pgp::PgpCommand::Lookup {
+                cli::pgp::PgpCommand::Lookup {
                     address: BEA.to_owned(),
                 },
             ),
             (
                 "pgp verify 0123456789ABCDEF0123456789ABCDEF01234567",
-                pgp::PgpCommand::Verify { fingerprint: fp },
+                cli::pgp::PgpCommand::Verify { fingerprint: fp },
             ),
         ]);
         for bad in [
@@ -818,7 +822,7 @@ mod parsing {
         }
     }
 
-    fn const_cases(cases: &[(&str, pgp::PgpCommand)]) {
+    fn const_cases(cases: &[(&str, cli::pgp::PgpCommand)]) {
         for (line, expected) in cases {
             assert_eq!(
                 cli::parse(&args(line)).unwrap(),

@@ -1,13 +1,12 @@
-//! `account add` for a domain the built-in table does not know, and `account discover`.
+//! Finding the servers of an address the built-in table does not know.
 //!
 //! What a domain's servers are, and where to look, is `porter-discover`'s, and which provider an
 //! address belongs to is porter's provider files' (`matching`): [`providers`] ships them. The
 //! lookup runs over mailo's own resolver and HTTP client (`mail_runtime::lookup`, which
 //! implements the two seams `porter-discover` asks through). This is the part between porter's
 //! answer and the account: [`map`] turns it into mailo's [`Found`] (an account plan and where it
-//! came from), and what was found is said as words ([`describe`]) and a miss as a typed
-//! [`Failed`]. Getting a yes before any of it is used is the front-end's: at the terminal,
-//! `mail_app::cli::discover`.
+//! came from), and a miss into a typed [`Failed`]. Saying what was found, and getting a yes before
+//! any of it is used, is the front-end's: at the terminal, `mail_app::cli::discover`.
 //!
 //! What stays here, because a provider file or a discovery answer has no place for it: the OAuth
 //! preset an issuer's mail servers take ([`mail_domain::presets::preset_for_issuer`], found from
@@ -21,7 +20,7 @@ use crate::error::CoreError;
 use chrono::{DateTime, Utc};
 pub use jmap::find as find_jmap;
 use mail_domain::presets::{self, Manual, ManualPop3, Preset};
-use mail_domain::{AuthPlan, Incoming, Outgoing, Retry, SaslMech, Tls, Username};
+use mail_domain::{AuthPlan, Outgoing, Retry, SaslMech, Tls, Username};
 use porter_core::{Family, ServiceEndpoint, Tls as Wire, UrlScheme};
 use porter_discover::{
     Dns, Found as Servers, NotFound, OAuthOnly, Outcome, Pop3, ProviderLead, SearchOptions,
@@ -29,7 +28,6 @@ use porter_discover::{
 };
 use porter_http::Http;
 use porter_provider::{DomainMatch, DomainName, Issuer, ProviderSpec};
-use std::fmt::Write as _;
 
 /// Where a configuration came from, which is what the user is asked to trust.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -79,71 +77,6 @@ pub struct Found {
     pub preset: Preset,
 }
 
-/// What was found, for the user to judge.
-pub fn describe(address: &str, origin: &str, found: &Preset) -> String {
-    let plan = &found.plan;
-    let mut out = format!("for {address}, {origin}:\n");
-    let incoming = match &plan.incoming {
-        Incoming::Imap { host, port, tls } => format!("IMAP {host}:{port}, {}", tls_said(*tls)),
-        Incoming::Pop3 {
-            host, port, tls, ..
-        } => format!(
-            "POP3 {host}:{port}, {} (mail is left on the server)",
-            tls_said(*tls)
-        ),
-        Incoming::Local => "none".to_owned(),
-        Incoming::Graph => "Microsoft Graph".to_owned(),
-        Incoming::Jmap { session, auth } => format!(
-            "JMAP at {session}, {}",
-            match auth {
-                mail_domain::HttpAuth::Basic => "signing in with a password",
-                mail_domain::HttpAuth::Bearer => "signing in with a token",
-            }
-        ),
-    };
-    let outgoing = match &plan.outgoing {
-        Outgoing::Smtp { host, port, tls } => format!("SMTP {host}:{port}, {}", tls_said(*tls)),
-        Outgoing::Graph => "Microsoft Graph".to_owned(),
-        Outgoing::Jmap => "JMAP submission, on the same server".to_owned(),
-        Outgoing::Nowhere => "none".to_owned(),
-    };
-    let sign_in = match &plan.auth {
-        AuthPlan::Password { username, .. } => format!(
-            "a password, logging in as {:?}{}",
-            username.resolve(address),
-            match username {
-                Username::SameAsAddress => " (the whole address)",
-                Username::LocalPart => " (the part before the @)",
-                Username::Literal(_) => "",
-            }
-        ),
-        AuthPlan::OAuth { issuer, .. } => format!(
-            "OAuth, signing in with {} in a browser; no password is stored",
-            match issuer {
-                Issuer::Google => "Google",
-                Issuer::Microsoft => "Microsoft",
-                _ => "an issuer mailo does not read mail through",
-            }
-        ),
-        AuthPlan::Granted { .. } => {
-            "the desktop's account service signs it in; no password or token is stored here"
-                .to_owned()
-        }
-    };
-    let _ = writeln!(out, "  incoming  {incoming}");
-    let _ = writeln!(out, "  outgoing  {outgoing}");
-    let _ = writeln!(out, "  sign-in   {sign_in}");
-    out
-}
-
-fn tls_said(tls: Tls) -> &'static str {
-    match tls {
-        Tls::Implicit => "TLS from the first byte",
-        Tls::StartTlsRequired => "STARTTLS, required",
-        Tls::Plaintext => "no TLS",
-    }
-}
-
 /// What a domain's servers were missing, as far as the search could tell.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Gap {
@@ -158,7 +91,8 @@ pub enum Gap {
 
 /// Why a lookup found no servers: what a caller can act on, before any wording.
 ///
-/// [`Failed::said`] is the command line's prose; a window matches on the variants instead.
+/// A front-end words it for itself: the window matches on the variants, and the command line adds
+/// how to name the servers by hand.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Failed {
     /// The sources answered, and none named servers this client can use.
@@ -181,43 +115,19 @@ pub enum Failed {
 
 impl std::fmt::Display for Failed {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.said())
+        match self {
+            Failed::Broken(why) => f.write_str(why),
+            Failed::NoServers { address, tried, .. } => {
+                write!(f, "could not find servers for {address}: {tried}")
+            }
+            Failed::Unreachable { address, why, .. } => {
+                write!(f, "could not find servers for {address}: {why}")
+            }
+        }
     }
 }
 
 impl std::error::Error for Failed {}
-
-impl Failed {
-    /// What to say at a terminal: why, and the way to configure the account by hand.
-    pub fn said(&self) -> String {
-        let (address, why, gap) = match self {
-            Failed::Broken(why) => return why.clone(),
-            Failed::NoServers {
-                address,
-                gap,
-                tried,
-            } => (address, tried, *gap),
-            Failed::Unreachable { address, why, .. } => (address, why, Gap::Nothing),
-        };
-        let mut out = format!("could not find servers for {address}: {why}\n");
-        match gap {
-            Gap::PersonalMicrosoft => return out,
-            Gap::StartTlsOnly => out.push_str(
-                "\nThis domain publishes servers that use STARTTLS, which this client does not \
-                 use: the upgrade can be stripped by anyone on the path, and the password then \
-                 crosses in the clear. Ask the provider whether it also offers IMAP on port 993 \
-                 (or POP3 on 995) and submission on port 465; if it does, name them:\n",
-            ),
-            Gap::Nothing => out.push_str("\nName the servers yourself:\n"),
-        }
-        let _ = write!(
-            out,
-            "\n  mailo account add {address} --imap HOST[:993] --smtp HOST[:465] [--login NAME]\n\
-             \nor --pop3 HOST[:995] in place of --imap for a POP3-only server."
-        );
-        out
-    }
-}
 
 /// What a personal Microsoft mailbox is told: it no longer takes a password, and the client
 /// supports work and school Microsoft 365 mailboxes only.
@@ -692,6 +602,7 @@ async fn find<H: Http, D: Dns>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mail_domain::Incoming;
     use porter_core::{EndpointUrl, LoginName};
     use porter_discover::{
         DnsFault, Miss, MxRecord, SrvRecord, Tried, parse_autoconfig, parse_autoconfig_with,
@@ -1123,7 +1034,6 @@ mod tests {
                 panic!("{address}: {failed:?}")
             };
             assert_eq!(*gap, Gap::PersonalMicrosoft, "{address}");
-            assert!(!failed.said().contains("mailo account add"), "{address}");
         }
         let tenant = Net::default()
             .found("me@contoso.onmicrosoft.com")
@@ -1243,7 +1153,7 @@ mod tests {
     }
 
     #[test]
-    fn a_starttls_only_domain_is_told_how_to_configure_it_by_hand() {
+    fn a_starttls_only_domain_is_named_a_starttls_gap() {
         let xml = imap_smtp(
             ("imap.example.test", 143, "STARTTLS"),
             ("smtp.example.test", 587, "STARTTLS"),
@@ -1258,10 +1168,9 @@ mod tests {
                 ..
             }
         ));
-        let said = failed.said();
+        let said = failed.to_string();
         assert!(said.contains("STARTTLS"), "{said}");
         assert!(said.contains("imap.example.test:143"), "{said}");
-        assert!(said.contains("--imap HOST[:993]"), "{said}");
     }
 
     #[test]
@@ -1647,8 +1556,6 @@ mod tests {
             found.preset.plan.incoming,
             Incoming::Pop3 { port: 995, .. }
         ));
-        let text = describe("me@example.test", &found.source.to_string(), &found.preset);
-        assert!(text.contains("POP3 pop.example.test:995"), "{text}");
     }
 
     /// F201 diff 3: a STARTTLS-only document is a miss, the later sources are still asked, and a
@@ -1673,11 +1580,6 @@ mod tests {
         };
         assert_eq!(*gap, Gap::StartTlsOnly);
         assert!(tried.contains("STARTTLS"), "{tried}");
-        assert!(
-            failed.said().contains("--imap HOST[:993]"),
-            "{}",
-            failed.said()
-        );
         let asked = net.asked.lock().unwrap().clone();
         // The ISPDB, and the MX's operator, were still asked.
         assert!(
@@ -1711,7 +1613,7 @@ mod tests {
     // ---- a miss ----------------------------------------------------------------------------------
 
     #[test]
-    fn a_miss_is_typed_for_the_window_and_unchanged_at_the_terminal() {
+    fn a_miss_is_typed_and_says_what_the_search_found() {
         let tried = |miss| Tried {
             what: "https://example.test/".to_owned(),
             miss,
@@ -1738,13 +1640,8 @@ mod tests {
             }
         ));
         assert_eq!(
-            failed.said(),
-            format!(
-                "could not find servers for me@example.test: {nothing}\n\nName the servers \
-                 yourself:\n\n  mailo account add me@example.test --imap HOST[:993] --smtp \
-                 HOST[:465] [--login NAME]\n\nor --pop3 HOST[:995] in place of --imap for a \
-                 POP3-only server."
-            )
+            failed.to_string(),
+            format!("could not find servers for me@example.test: {nothing}")
         );
     }
 }
