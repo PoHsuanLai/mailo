@@ -234,31 +234,6 @@ fn a_place_exports_in_each_format_and_reads_back_as_as_many_messages() {
 }
 
 #[test]
-fn an_export_is_never_written_over_an_existing_file() {
-    let out = tempfile::tempdir().unwrap();
-    let first = suggested(out.path(), "from:dana has:attachment", Format::Mbox);
-    assert_eq!(
-        first,
-        out.path().join("mailo-from-dana-has-attachment.mbox")
-    );
-    std::fs::write(&first, b"someone's archive").unwrap();
-    let second = suggested(out.path(), "from:dana has:attachment", Format::Mbox);
-    assert_eq!(
-        second,
-        out.path().join("mailo-from-dana-has-attachment (2).mbox")
-    );
-    std::fs::create_dir(out.path().join("mailo-inbox")).unwrap();
-    assert_eq!(
-        suggested(out.path(), "inbox", Format::Maildir),
-        out.path().join("mailo-inbox (2)")
-    );
-    assert_eq!(
-        suggested(out.path(), "  ", Format::Eml),
-        out.path().join("mailo-mail-eml")
-    );
-}
-
-#[test]
 fn what_cannot_be_read_is_said_in_words() {
     let dir = tempfile::tempdir().unwrap();
     let missing = dir.path().join("nowhere.mbox");

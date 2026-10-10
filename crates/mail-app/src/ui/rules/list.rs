@@ -159,7 +159,10 @@ fn RuleRow(
             title: Some("Edit Rule".to_owned()),
             onclick: on_primary(move || {
                 let mut editing = editing;
-                editing.set(Some(Draft::of(&edit)));
+                editing.set(Some(Draft::of(&mail_core::rules::ListedRule {
+                    rule: edit.rule.clone(),
+                    condition: edit.when.clone(),
+                })));
             }),
         }
         Button {

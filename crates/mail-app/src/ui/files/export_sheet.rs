@@ -80,7 +80,7 @@ pub(super) fn ExportSheet(shell: Signal<Shell>) -> Element {
     let can_run = count.is_some() && !busy && !target_path.trim().is_empty();
     let formats: Vec<Choice<Format>> = Format::ALL
         .iter()
-        .map(|one| Choice::new(*one, one.label()))
+        .map(|one| Choice::new(*one, work::format_label(*one)))
         .collect();
     let what = if format().is_file() {
         "One mbox file"

@@ -5,45 +5,21 @@
 //! `mailo export` run; this adds the words a person reads while choosing, and the one step the
 //! command line takes after an upload — sending it — is [`import_then_send`].
 
-use std::ffi::OsStr;
 use std::io::ErrorKind;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
-use mail_core::{SqliteStore, Store};
-use mail_domain::{Filter, Incoming};
+use mail_core::SqliteStore;
+use mail_core::transfer::{self, IoCause, Refusal, Seen};
+use mail_domain::Filter;
 use porter_core::AccountId;
 
 use crate::ui::view::{Shell, Source as Listed};
 use mail_core::export::{self, Exported, Target};
-use mail_core::import::{self, Destination, Imported, Source};
+use mail_core::import::{Destination, Imported, Source};
 
-/// A typed path, with a leading `~` meaning `home`. Surrounding space is not part of a name
-/// anybody types on purpose, so it is dropped.
-pub(in crate::ui) fn expand(typed: &str, home: Option<&OsStr>) -> PathBuf {
-    let typed = typed.trim();
-    match (typed, home) {
-        ("~", Some(home)) => PathBuf::from(home),
-        // `~/`, and on Windows `~\` too: whatever this platform takes as a separator.
-        (_, Some(home))
-            if typed.starts_with('~') && typed[1..].starts_with(std::path::is_separator) =>
-        {
-            PathBuf::from(home).join(&typed[2..])
-        }
-        _ => PathBuf::from(typed),
-    }
-}
-
-/// [`expand`] against this user's home directory.
-pub(in crate::ui) fn expand_here(typed: &str) -> PathBuf {
-    expand(
-        typed,
-        mail_core::config::home_dir()
-            .as_deref()
-            .map(std::path::Path::as_os_str),
-    )
-}
+pub(in crate::ui) use mail_core::transfer::{Format, expand, expand_here, suggested};
 
 /// What a typed path holds, as the sheet says it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -64,58 +40,48 @@ pub(in crate::ui) enum Looked {
 ///
 /// Blocking and as slow as reading the source: an mbox is read to its end to count it.
 pub(in crate::ui) fn look(path: &Path) -> Looked {
-    if path.as_os_str().is_empty() {
-        return Looked::Blank;
+    match transfer::look(path) {
+        Seen::Blank => Looked::Blank,
+        Seen::Mail { source, count } => {
+            let kind = match source {
+                Source::Mbox(_) => "mbox",
+                Source::Maildir(_) => "Maildir",
+                Source::Eml(_) => "One message file",
+            };
+            let said = format!("{kind}, {}", messages(count));
+            Looked::Mail {
+                source,
+                count,
+                said,
+            }
+        }
+        Seen::Refused(why) => Looked::Refused(refused(path, &why)),
     }
+}
+
+/// Why a path cannot be imported, in words.
+fn refused(path: &Path, why: &Refusal) -> String {
     let shown = path.display();
-    let meta = match std::fs::metadata(path) {
-        Ok(meta) => meta,
-        Err(e) if e.kind() == ErrorKind::NotFound => {
-            return Looked::Refused(format!("There is nothing at {shown}."));
+    match why {
+        Refusal::NothingThere => format!("There is nothing at {shown}."),
+        Refusal::CannotReach(cause) => {
+            format!("{shown} cannot be reached: {}.", plain(cause))
         }
-        Err(e) => return Looked::Refused(format!("{shown} cannot be reached: {}.", plain(&e))),
-    };
-    if meta.is_file() {
-        if let Err(e) = std::fs::File::open(path) {
-            return Looked::Refused(format!("{shown} cannot be opened: {}.", plain(&e)));
-        }
-        if meta.len() == 0 {
-            return Looked::Refused(format!("{shown} is empty: there is no mail in it."));
-        }
-    }
-    let source = match import::detect(path) {
-        Ok(source) => source,
-        Err(why) => return Looked::Refused(sentence(&why)),
-    };
-    let count = match import::items(&source) {
-        Ok(items) => items.count(),
-        Err(why) => return Looked::Refused(sentence(&why)),
-    };
-    let kind = match source {
-        Source::Mbox(_) => "mbox",
-        Source::Maildir(_) => "Maildir",
-        Source::Eml(_) => "One message file",
-    };
-    let said = format!("{kind}, {}", messages(count));
-    Looked::Mail {
-        source,
-        count,
-        said,
+        Refusal::CannotOpen(cause) => format!("{shown} cannot be opened: {}.", plain(cause)),
+        Refusal::Empty => format!("{shown} is empty: there is no mail in it."),
+        Refusal::Unreadable(said) => sentence(said),
     }
 }
 
 /// An I/O error as a person reads it: no `os error 13`.
-fn plain(e: &std::io::Error) -> String {
-    match e.kind() {
+fn plain(cause: &IoCause) -> String {
+    match cause.kind {
         ErrorKind::PermissionDenied => "you do not have permission to read it".to_owned(),
         ErrorKind::NotFound => "it is not there".to_owned(),
-        _ => {
-            let text = e.to_string();
-            match text.split_once(" (os error") {
-                Some((words, _)) => words.to_lowercase(),
-                None => text,
-            }
-        }
+        _ => match cause.text.split_once(" (os error") {
+            Some((words, _)) => words.to_lowercase(),
+            None => cause.text.clone(),
+        },
     }
 }
 
@@ -203,25 +169,17 @@ impl Dest {
 /// Every place imported mail can go: local folders first, then each IMAP account's folders as
 /// the store lists them, accounts oldest first. POP3 has no folders to upload into.
 pub(in crate::ui) fn destinations(store: &SqliteStore) -> Vec<Dest> {
-    let mut out = vec![Dest::Local];
-    for row in super::super::data::account_rows(store) {
-        if !matches!(row.plan.incoming, Incoming::Imap { .. }) {
-            continue;
-        }
-        let mut folders: Vec<String> = store
-            .folders(row.id.clone())
-            .unwrap_or_default()
-            .into_iter()
-            .map(|folder| folder.path)
-            .collect();
-        folders.sort();
-        out.extend(folders.into_iter().map(|folder| Dest::Folder {
-            account: row.id.clone(),
-            address: row.address.clone(),
-            folder,
-        }));
-    }
-    out
+    std::iter::once(Dest::Local)
+        .chain(
+            transfer::upload_folders(store)
+                .into_iter()
+                .map(|upload| Dest::Folder {
+                    account: upload.account,
+                    address: upload.address,
+                    folder: upload.folder,
+                }),
+        )
+        .collect()
 }
 
 /// What an import did, and whether an upload now waits in an account's outbox.
@@ -245,16 +203,8 @@ pub(in crate::ui) fn import_now(
     now: DateTime<Utc>,
     progress: &mut dyn FnMut(&Imported),
 ) -> Result<Done, String> {
-    let (total, queued) = match into {
-        Dest::Local => (import::into_local(store, source, now, progress)?, None),
-        Dest::Folder {
-            address, folder, ..
-        } => {
-            let (account, total) =
-                import::queue_uploads(store, address, folder, source, now, progress)?;
-            (total, Some(account))
-        }
-    };
+    let (total, queued) = transfer::import_into(store, source, &into.destination(), now, progress)
+        .map_err(|why| why.to_string())?;
     let said = crate::said::import::said(&total, &into.destination())
         .trim()
         .to_owned();
@@ -302,39 +252,12 @@ pub(in crate::ui) fn import_then_send(
     Ok(sent)
 }
 
-/// The three ways an export is written.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub(in crate::ui) enum Format {
-    #[default]
-    Mbox,
-    Maildir,
-    Eml,
-}
-
-impl Format {
-    pub(in crate::ui) const ALL: [Format; 3] = [Format::Mbox, Format::Maildir, Format::Eml];
-
-    /// The segment's name.
-    pub(in crate::ui) fn label(self) -> &'static str {
-        match self {
-            Format::Mbox => "Mbox",
-            Format::Maildir => "Maildir",
-            Format::Eml => ".eml",
-        }
-    }
-
-    /// The export target at `path`.
-    pub(in crate::ui) fn target(self, path: PathBuf) -> Target {
-        match self {
-            Format::Mbox => Target::Mbox(path),
-            Format::Maildir => Target::Maildir(path),
-            Format::Eml => Target::Eml(path),
-        }
-    }
-
-    /// Whether the target is one file, rather than a directory.
-    pub(in crate::ui) fn is_file(self) -> bool {
-        self == Format::Mbox
+/// The segment's name for a way of writing an export.
+pub(in crate::ui) fn format_label(format: Format) -> &'static str {
+    match format {
+        Format::Mbox => "Mbox",
+        Format::Maildir => "Maildir",
+        Format::Eml => ".eml",
     }
 }
 
@@ -376,46 +299,13 @@ pub(in crate::ui) fn prefill(shell: &Shell) -> String {
     }
 }
 
-/// A name for the export in `dir` that nothing uses yet, from the query and the format:
-/// `mailo-inbox.mbox`, `mailo-inbox` for a Maildir, `mailo-inbox-eml` for a directory of files.
-pub(in crate::ui) fn suggested(dir: &Path, query: &str, format: Format) -> PathBuf {
-    let slug = slug(query);
-    let name = match format {
-        Format::Mbox => format!("mailo-{slug}.mbox"),
-        Format::Maildir => format!("mailo-{slug}"),
-        Format::Eml => format!("mailo-{slug}-eml"),
-    };
-    mail_core::attach::free_path(dir, &name)
-}
-
-/// The query as a file name: letters and digits, the rest one dash, at most forty characters.
-fn slug(query: &str) -> String {
-    let mut out = String::new();
-    for ch in query.trim().chars().flat_map(char::to_lowercase) {
-        if ch.is_alphanumeric() {
-            out.push(ch);
-        } else if !out.is_empty() && !out.ends_with('-') {
-            out.push('-');
-        }
-        if out.chars().count() >= 40 {
-            break;
-        }
-    }
-    let out = out.trim_end_matches('-');
-    if out.is_empty() {
-        "mail".to_owned()
-    } else {
-        out.to_owned()
-    }
-}
-
 /// How many messages `query` means, as the sheet says it, or why it means none.
 pub(in crate::ui) fn counted(store: &SqliteStore, query: &str, now: DateTime<Utc>) -> Counted {
     if query.trim().is_empty() {
         return Counted::Blank;
     }
-    match export::select(store, query, now) {
-        Ok(ids) => Counted::Some(ids.len()),
+    match transfer::selection_size(store, query, now) {
+        Ok(count) => Counted::Some(count),
         Err(why) => Counted::Refused(sentence(&why)),
     }
 }
