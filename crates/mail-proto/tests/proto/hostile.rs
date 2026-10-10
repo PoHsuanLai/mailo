@@ -19,7 +19,7 @@
 
 use mail_domain::SaslMech;
 use mail_proto::machine::{IoReady, Machine, Progress};
-use mail_proto::{ImapAuth, ImapCommand, ImapSession, Pop3Command, Pop3Session};
+use mail_proto::{Access, ImapAuth, ImapCommand, ImapSession, Pop3Command, Pop3Session};
 use porter_core::Credential;
 use porter_core::SecretText;
 use proptest::prelude::*;
@@ -100,7 +100,7 @@ proptest! {
     ) {
         let mut session = imap_session(vec![
             ImapCommand::Capability,
-            ImapCommand::Select { mailbox: "INBOX".to_owned(), read_only: true, qresync: None },
+            ImapCommand::Select { mailbox: "INBOX".to_owned(), access: Access::ReadOnly, qresync: None },
             ImapCommand::UidFetch { set: "1:*".to_owned(), items: "(UID)".to_owned() },
         ]);
         prop_assert!(drive_to_rest(&mut session, chunks), "the session neither finished nor failed");

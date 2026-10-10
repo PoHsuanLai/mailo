@@ -1,7 +1,7 @@
 //! Which tag becomes which frame. A name with no role is transparent: the day
 //! ammonia's allowlist grows, that tag's text is still mail.
 
-use crate::block::kind::{Block, Dir, Span};
+use crate::block::kind::{Block, Dir, ListKind, Span};
 use crate::block::limits::{Limits, Reached};
 use crate::block::url::SafeUrl;
 use html5ever::tokenizer::Tag;
@@ -341,7 +341,7 @@ pub(super) struct Frame {
     pub(super) items: Vec<Vec<Block>>,
     pub(super) rows: Vec<Row>,
     pub(super) cells: Vec<Cell>,
-    pub(super) ordered: bool,
+    pub(super) list: ListKind,
     pub(super) layout: bool,
     pub(super) in_head: bool,
     pub(super) link: Option<SafeUrl>,
@@ -376,7 +376,7 @@ impl Frame {
             items: Vec::new(),
             rows: Vec::new(),
             cells: Vec::new(),
-            ordered: false,
+            list: ListKind::Bulleted,
             layout: false,
             in_head: false,
             link: None,

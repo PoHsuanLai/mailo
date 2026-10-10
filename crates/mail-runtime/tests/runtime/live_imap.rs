@@ -14,7 +14,7 @@
 //! ```
 
 use mail_domain::{SaslMech, Tls};
-use mail_proto::{ImapAuth, ImapCommand, ImapSession};
+use mail_proto::{Access, ImapAuth, ImapCommand, ImapSession};
 use mail_runtime::{Transport, drive};
 use porter_core::Credential;
 use porter_core::SecretText;
@@ -55,7 +55,7 @@ async fn a_real_server_accepts_login_select_and_fetch() {
         ImapCommand::Login,
         ImapCommand::Select {
             mailbox: "INBOX".to_owned(),
-            read_only: true,
+            access: Access::ReadOnly,
             qresync: None,
         },
         ImapCommand::UidFetch {
@@ -96,7 +96,7 @@ async fn a_literal_body_survives_a_server_that_frames_it_its_own_way() {
         ImapCommand::Login,
         ImapCommand::Select {
             mailbox: "INBOX".to_owned(),
-            read_only: true,
+            access: Access::ReadOnly,
             qresync: None,
         },
         ImapCommand::UidFetch {

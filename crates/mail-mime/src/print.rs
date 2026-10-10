@@ -30,7 +30,8 @@
 //! Pure: the time zone and "now" are arguments, and nothing here reads the clock or the disk.
 
 use crate::block::{
-    Block, Dir, Document, ImgSrc, Reached, Span, from_html_describing, from_text_keeping_lines,
+    Block, Dir, Document, ImgSrc, ListKind, Reached, Span, from_html_describing,
+    from_text_keeping_lines,
 };
 use crate::parse::Parsed;
 use crate::sanitize::{RemoteImages, SanitizePolicy, sanitize};
@@ -481,8 +482,11 @@ fn one_block(out: &mut String, block: &Block, remote: Remote<'_>, labels: &Label
             inline(out, spans);
             out.push_str("</p>\n");
         }
-        Block::List { ordered, items } => {
-            let tag = if *ordered { "ol" } else { "ul" };
+        Block::List { kind, items } => {
+            let tag = match kind {
+                ListKind::Numbered => "ol",
+                ListKind::Bulleted => "ul",
+            };
             let _ = writeln!(out, "<{tag}>");
             for item in items {
                 out.push_str("<li>");

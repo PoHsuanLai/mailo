@@ -3,7 +3,7 @@
 //! [`mail_mime::from_html`] speaks [`Block`]. The composer speaks [`Node`]. This is the
 //! lossy direction used when the clipboard is HTML and when a written document is read back.
 
-use mail_mime::{Block, Span};
+use mail_mime::{Block, ListKind, Span};
 
 use crate::ui::editor::doc::{
     Check, ImageRef, Level, Mark, Marks, Node, Object, ParaKind, Presence, Run, Table,
@@ -45,11 +45,10 @@ fn push_blocks(blocks: &[Block], out: &mut Vec<Node>) {
                     .unwrap_or(ParaKind::Heading(Level::Three));
                 out.push(Node::para(kind, runs_from_spans(spans)));
             }
-            Block::List { ordered, items } => {
-                let kind = if *ordered {
-                    ParaKind::Numbered
-                } else {
-                    ParaKind::Bullet
+            Block::List { kind: list, items } => {
+                let kind = match list {
+                    ListKind::Numbered => ParaKind::Numbered,
+                    ListKind::Bulleted => ParaKind::Bullet,
                 };
                 for item in items {
                     let mut nodes = Vec::new();

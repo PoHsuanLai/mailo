@@ -49,10 +49,29 @@ pub enum Flowed {
     Fixed,
     /// `format=flowed`. A trailing space joins the next line, except on `-- `.
     Flowed {
-        /// When set, the trailing space is a marker and is deleted on join.
-        /// When clear, the space is a real space that also marks the join.
-        delsp: bool,
+        /// Whether the trailing space is a marker to delete on join, or a real space that also
+        /// marks the join.
+        delsp: Delsp,
     },
+}
+
+/// The `delsp` parameter of `format=flowed` (RFC 3676 section 4.2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Delsp {
+    /// `delsp=yes`: the trailing space is a marker and is deleted on join.
+    Yes,
+    /// Absent or `no`: the space is real, and also marks the join.
+    No,
+}
+
+/// Whether a list counts its items.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ListKind {
+    /// `ul`.
+    #[default]
+    Bulleted,
+    /// `ol`.
+    Numbered,
 }
 
 /// One block in reading order.
@@ -64,7 +83,7 @@ pub enum Block {
     Paragraph { spans: Vec<Span>, dir: Dir },
     /// A list. Items are blocks, so a list can hold a paragraph, a quote, or another list.
     List {
-        ordered: bool,
+        kind: ListKind,
         items: Vec<Vec<Block>>,
     },
     /// A quotation. `attribution` is the line that introduced it, when one did.

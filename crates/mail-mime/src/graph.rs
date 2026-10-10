@@ -12,7 +12,7 @@
 //! becomes an ordinary `.ics` attachment.
 
 use crate::{MimeError, ParsedPart};
-use mail_domain::Address;
+use mail_domain::{Address, ReceiptRequest};
 use mail_parser::MessageParser;
 
 /// The body Graph shows. One of the two: a message resource has a single `body`.
@@ -50,7 +50,7 @@ pub struct GraphDraft {
     pub references: Option<String>,
     pub importance: Option<GraphImportance>,
     /// `Disposition-Notification-To` was present: Graph's `isReadReceiptRequested`.
-    pub read_receipt: bool,
+    pub read_receipt: ReceiptRequest,
     /// `X-` fields, name and unfolded value, in the order they appear.
     pub custom_headers: Vec<(String, String)>,
     /// Every attachment, and every image the HTML references by `cid:`.
@@ -142,7 +142,11 @@ pub fn graph_draft(message: &[u8], rcpt_to: &[String]) -> Result<GraphDraft, Mim
         in_reply_to: field("In-Reply-To"),
         references: field("References"),
         importance,
-        read_receipt: field("Disposition-Notification-To").is_some(),
+        read_receipt: if field("Disposition-Notification-To").is_some() {
+            ReceiptRequest::Requested
+        } else {
+            ReceiptRequest::Unrequested
+        },
         custom_headers,
         attachments: parsed.attachments,
     })
@@ -235,7 +239,7 @@ iVBORw0K\r\n\
             Some("<Root@example.test> <Parent@example.test>")
         );
         assert_eq!(draft.importance, Some(GraphImportance::High));
-        assert!(draft.read_receipt);
+        assert_eq!(draft.read_receipt, ReceiptRequest::Requested);
         assert_eq!(
             draft.custom_headers,
             [
@@ -264,7 +268,7 @@ iVBORw0K\r\n\
         assert!(matches!(draft.body, GraphBody::Text(ref t) if t.starts_with("hello")));
         assert!(draft.bcc.is_empty());
         assert_eq!(draft.importance, Some(GraphImportance::Low));
-        assert!(!draft.read_receipt);
+        assert_eq!(draft.read_receipt, ReceiptRequest::Unrequested);
         assert_eq!(draft.message_id, None);
     }
 }

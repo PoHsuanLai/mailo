@@ -81,7 +81,7 @@ impl<'a> Builder<'a> {
                         let mut blocks = frame.blocks;
                         if !frame.items.is_empty() {
                             blocks.push(Block::List {
-                                ordered: frame.ordered,
+                                kind: frame.list,
                                 items: frame.items,
                             });
                         }

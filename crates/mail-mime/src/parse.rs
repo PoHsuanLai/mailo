@@ -1,7 +1,7 @@
 //! RFC 5322 / MIME bytes to domain values.
 
 use crate::MimeError;
-use crate::block::Flowed;
+use crate::block::{Delsp, Flowed};
 use chrono::{DateTime, Utc};
 use mail_domain::{Address, Inline, normalize_id};
 use mail_parser::{HeaderName, Message, MessageParser, MimeHeaders, PartType};
@@ -348,9 +348,14 @@ fn flowed_of(part: &mail_parser::MessagePart<'_>) -> Flowed {
     if !format.eq_ignore_ascii_case("flowed") {
         return Flowed::Fixed;
     }
-    let delsp = ct
+    let delsp = if ct
         .attribute("delsp")
-        .is_some_and(|value| value.eq_ignore_ascii_case("yes"));
+        .is_some_and(|value| value.eq_ignore_ascii_case("yes"))
+    {
+        Delsp::Yes
+    } else {
+        Delsp::No
+    };
     Flowed::Flowed { delsp }
 }
 

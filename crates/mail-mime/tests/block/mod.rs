@@ -5,7 +5,7 @@
 
 use mail_domain::Inline;
 use mail_mime::{
-    Block, Dir, Document, Flowed, ImgSrc, ParsedPart, Reached, RemoteImages, SafeUrl,
+    Block, Dir, Document, Flowed, ImgSrc, ListKind, ParsedPart, Reached, RemoteImages, SafeUrl,
     SanitizePolicy, Shape, Span, from_html, from_text, sanitize,
 };
 
@@ -87,8 +87,11 @@ fn sketch_blocks(out: &mut String, blocks: &[Block], indent: usize) {
             Block::Heading { level, spans } => {
                 out.push_str(&format!("h{level} {}\n", spans_text(spans)));
             }
-            Block::List { ordered, items } => {
-                out.push_str(if *ordered { "ol\n" } else { "ul\n" });
+            Block::List { kind, items } => {
+                out.push_str(match kind {
+                    ListKind::Numbered => "ol\n",
+                    ListKind::Bulleted => "ul\n",
+                });
                 for item in items {
                     pad(out, indent + 2);
                     out.push_str("item\n");

@@ -740,7 +740,7 @@ fn decide(
         Phase::Data => on_data(reply, sub),
         Phase::Body => on_body(reply),
         Phase::Bdat => on_bdat(reply),
-        Phase::Quit(accepted) => on_quit(accepted, reply, ext, mech, sub.auth.is_relayed()),
+        Phase::Quit(accepted) => on_quit(accepted, reply, ext, mech, &sub.auth),
         Phase::Finished => Err(ProtoError::Malformed(
             "reply after the session finished".into(),
         )),
@@ -932,9 +932,9 @@ fn on_quit(
     reply: &ServerReply,
     ext: &EhloExtensions,
     mech: Option<SaslMech>,
-    relayed: bool,
+    auth: &Authentication,
 ) -> Result<Outcome, ProtoError> {
-    if mech.is_none() && !relayed {
+    if mech.is_none() && !auth.is_relayed() {
         return Err(ProtoError::Malformed(
             "finished without authenticating".into(),
         ));

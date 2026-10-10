@@ -357,7 +357,7 @@ fn bytes_that_are_not_a_message_are_unparseable() {
 /// earlier text/plain in the tree says something else.
 #[test]
 fn flowed_is_read_from_the_text_part_that_text_came_from() {
-    use mail_mime::Flowed;
+    use mail_mime::{Delsp, Flowed};
 
     let cases: &[(&str, &[u8], &str, Flowed)] = &[
         (
@@ -370,7 +370,7 @@ fn flowed_is_read_from_the_text_part_that_text_came_from() {
               hello \r\n\
               there\r\n",
             "hello",
-            Flowed::Flowed { delsp: true },
+            Flowed::Flowed { delsp: Delsp::Yes },
         ),
         (
             "flowed without delsp keeps the parameter false",
@@ -382,7 +382,7 @@ fn flowed_is_read_from_the_text_part_that_text_came_from() {
               hello \r\n\
               there\r\n",
             "hello",
-            Flowed::Flowed { delsp: false },
+            Flowed::Flowed { delsp: Delsp::No },
         ),
         (
             "absent format is fixed",
@@ -428,7 +428,7 @@ fn flowed_is_read_from_the_text_part_that_text_came_from() {
               body flowed\r\n\
               --mix--\r\n",
             "body flowed",
-            Flowed::Flowed { delsp: true },
+            Flowed::Flowed { delsp: Delsp::Yes },
         ),
     ];
 
@@ -451,7 +451,7 @@ fn flowed_is_read_from_the_text_part_that_text_came_from() {
 #[test]
 fn a_reconstructed_text_part_keeps_its_flowed_parameters() {
     use mail_domain::PartTree;
-    use mail_mime::{Flowed, parse_reconstructed, reconstruct};
+    use mail_mime::{Delsp, Flowed, parse_reconstructed, reconstruct};
     use std::collections::HashMap;
 
     let header = "From: ada@example.test\r\n\
@@ -501,5 +501,5 @@ fn a_reconstructed_text_part_keeps_its_flowed_parameters() {
         text.contains("hello") && !text.contains("attachment"),
         "text came from the attachment, not the body: {text:?}"
     );
-    assert_eq!(parsed.flowed, Flowed::Flowed { delsp: true });
+    assert_eq!(parsed.flowed, Flowed::Flowed { delsp: Delsp::Yes });
 }

@@ -4,7 +4,7 @@ use crate::common;
 
 use common::replay;
 use mail_domain::SaslMech;
-use mail_proto::{ImapAuth, ImapCommand, ImapSession, ProtoError, Refusal};
+use mail_proto::{Access, ImapAuth, ImapCommand, ImapSession, ProtoError, Refusal};
 use porter_core::Credential;
 use porter_core::SecretText;
 use porter_core::UnixSeconds;
@@ -165,7 +165,7 @@ fn a_watch_that_selects_past_what_was_synced_does_not_idle() {
         session(vec![
             ImapCommand::Select {
                 mailbox: "INBOX".to_owned(),
-                read_only: true,
+                access: Access::ReadOnly,
                 qresync: None,
             },
             ImapCommand::IdleAfter { uidnext },
@@ -417,7 +417,7 @@ mod a_refused_login {
                 ImapCommand::Login,
                 ImapCommand::Select {
                     mailbox: "Archive".to_owned(),
-                    read_only: false,
+                    access: Access::ReadWrite,
                     qresync: None,
                 },
             ],
