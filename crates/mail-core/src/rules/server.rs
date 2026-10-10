@@ -18,6 +18,12 @@ use porter_core::{Credential, SecretKey, SecretPurpose};
 use std::fmt::Write as _;
 use std::path::PathBuf;
 
+/// The name this client's script goes by on a server, and who the script says wrote it.
+///
+/// One name, owned by this client: a script with any other name was written by someone else,
+/// and is never replaced, deactivated or deleted without being told to.
+const SCRIPT_NAME: &str = "mailo";
+
 /// What `mailo sieve …` asked for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SieveCmd {
@@ -260,6 +266,7 @@ async fn auth(
                 grant: grant.clone(),
                 endpoint: endpoint.clone(),
             }),
+            script_name: SCRIPT_NAME.to_owned(),
         });
     }
     let stored: Credential = secrets
@@ -274,6 +281,7 @@ async fn auth(
         username: account.plan.username(),
         credential,
         relay: None,
+        script_name: SCRIPT_NAME.to_owned(),
     })
 }
 
@@ -438,6 +446,7 @@ fn status(
         vacation.as_ref(),
         &caps.sieve,
         &Places::from_caps(&account.caps),
+        SCRIPT_NAME,
         now,
     );
     let current = match (&ours, compiled.is_empty()) {

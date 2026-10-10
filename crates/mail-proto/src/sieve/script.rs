@@ -120,7 +120,8 @@ impl Compiled {
 ///
 /// Rules run in their order, disabled ones are left out, and the vacation reply comes last, so
 /// a rule that stops also keeps the reply from going to what it stopped. `now` decides whether a
-/// dated reply goes in when the server cannot test dates itself.
+/// dated reply goes in when the server cannot test dates itself. `client` is what the script's
+/// opening comment says wrote it.
 ///
 /// Line endings are CRLF throughout, strings included, as RFC 5228's grammar has them.
 pub fn compile(
@@ -128,6 +129,7 @@ pub fn compile(
     vacation: Option<&Vacation>,
     extensions: &[String],
     places: &Places,
+    client: &str,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Compiled {
     let has = |name: &str| extensions.iter().any(|e| e.eq_ignore_ascii_case(name));
@@ -172,8 +174,8 @@ pub fn compile(
         }
     };
 
-    let mut script = String::from(
-        "# Written by mailo, and replaced whenever its rules change: edit them there.\r\n",
+    let mut script = format!(
+        "# Written by {client}, and replaced whenever its rules change: edit them there.\r\n"
     );
     if !require.is_empty() {
         let names: Vec<String> = require.iter().map(|n| quoted(n)).collect();

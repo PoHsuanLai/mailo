@@ -18,56 +18,63 @@
 
 use crate::machine::ProtoError;
 
+/// What a refusal turned out to be, when it is one we recognise.
+///
+/// The words for each are the caller's: this crate names the cause and no front-end's wording.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Diagnosis {
+    /// A Microsoft 365 tenant with SMTP client authentication switched off (`5.7.139`): an
+    /// administrator's setting, and nothing about the password.
+    TenantSmtpAuthOff,
+    /// The server wants `STARTTLS` before it will authenticate (`5.7.3`).
+    StartTlsFirst,
+    /// A Google account with two-factor authentication needs an App Password (`5.7.9`).
+    AppPasswordNeeded,
+    /// Google refused the credential: account passwords no longer work for IMAP or SMTP, and an
+    /// App Password does (`5.7.8`).
+    GoogleRejectedCredential,
+    /// The protocol is switched off for this mailbox, which is not the credential being wrong
+    /// and is fixed by someone else.
+    ProtocolSwitchedOff,
+}
+
 /// What a refusal means, when it is one we recognise.
 ///
 /// `None` is the common case and the safe one: the server's own words are shown unchanged.
-pub fn explain(error: &ProtoError) -> Option<&'static str> {
+pub fn diagnose(error: &ProtoError) -> Option<Diagnosis> {
     let text = match error {
         ProtoError::AuthRejected(text) => text,
         ProtoError::Refused { text, .. } => text,
         _ => return None,
     };
-    explain_text(text)
+    diagnose_text(text)
 }
 
 /// The same, for a reply that was not turned into a `ProtoError`.
-pub fn explain_text(text: &str) -> Option<&'static str> {
+pub fn diagnose_text(text: &str) -> Option<Diagnosis> {
     let upper = text.to_uppercase();
 
     // Microsoft publishes these as enhanced status codes. `5.7.139` in particular is the one a
     // work or school mailbox hits, and it is a tenant setting rather than anything about the
     // account: `Set-CASMailbox -SmtpClientAuthenticationDisabled $false` is what changes it.
     if has_code(&upper, "5.7.139") {
-        return Some(
-            "the tenant has SMTP client authentication switched off. An administrator enables it \
-             per mailbox with Set-CASMailbox -SmtpClientAuthenticationDisabled $false. Nothing \
-             about the password is wrong.",
-        );
+        return Some(Diagnosis::TenantSmtpAuthOff);
     }
     if has_code(&upper, "5.7.3") && upper.contains("STARTTLS") {
-        return Some("the server requires STARTTLS before authenticating.");
+        return Some(Diagnosis::StartTlsFirst);
     }
     // Google's two: an account with 2FA needs an App Password, and one without it can no longer
     // use the account password at all.
     if has_code(&upper, "5.7.9") || upper.contains("APPLICATION-SPECIFIC PASSWORD") {
-        return Some(
-            "this account has two-factor authentication, so it needs an App Password rather than \
-             the account password.",
-        );
+        return Some(Diagnosis::AppPasswordNeeded);
     }
     if has_code(&upper, "5.7.8") && upper.contains("USERNAME AND PASSWORD NOT ACCEPTED") {
-        return Some(
-            "Google rejected the credential. Account passwords no longer work for IMAP or SMTP; \
-             an App Password does.",
-        );
+        return Some(Diagnosis::GoogleRejectedCredential);
     }
     // Exchange Online and Dovecot both say this when the protocol is disabled for the mailbox,
     // which is not the same as the credential being wrong and is fixed by someone else.
     if upper.contains("IMAP4 ACCESS IS DISABLED") || upper.contains("POP3 ACCESS IS DISABLED") {
-        return Some(
-            "the protocol is switched off for this mailbox. An administrator enables it; the \
-             credential is not the problem.",
-        );
+        return Some(Diagnosis::ProtocolSwitchedOff);
     }
     None
 }

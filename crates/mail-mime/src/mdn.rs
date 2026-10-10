@@ -68,6 +68,32 @@ pub struct Reporting<'a> {
     /// When the receipt was written.
     pub at: DateTime<Utc>,
     pub headers: OriginalHeaders,
+    /// The receipt's prose. This crate writes no sentence a person reads; the caller words it.
+    pub words: Words,
+}
+
+/// The sentences of a receipt, worded by the caller.
+#[derive(Debug, Clone, Copy)]
+pub struct Words {
+    /// What the `Subject` opens with, before the original's: `"Read: "`.
+    pub subject_prefix: &'static str,
+    /// The part a person reads. It should say what a receipt means and, as plainly, what it
+    /// does not: that the message was displayed, not that it was read or agreed with.
+    ///
+    /// Broken into short lines by hand with `\r\n`, so an ordinary receipt stays 7-bit text
+    /// rather than quoted-printable that a person reading the source has to decode.
+    pub body: fn(&Human<'_>) -> String,
+}
+
+/// What the receipt's prose may say about the message it answers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Human<'a> {
+    /// The address that displayed the message.
+    pub reader: &'a str,
+    /// The original's subject, trimmed. Empty when it had none.
+    pub subject: &'a str,
+    /// The original's `Date` in RFC 5322 form, when it had a valid one.
+    pub date: Option<String>,
 }
 
 /// Whether `raw` asks for a read receipt, and to where.
@@ -121,7 +147,17 @@ pub fn receipt(original: &[u8], reporting: &Reporting<'_>) -> Result<Posting, Mi
     let id = format!("{}@{domain}", reporting.id).to_ascii_lowercase();
 
     let mut parts = vec![
-        MimePart::new("text/plain", human_text(reader, subject, &message)),
+        MimePart::new(
+            "text/plain",
+            (reporting.words.body)(&Human {
+                reader: &reader.email,
+                subject,
+                date: message
+                    .date()
+                    .filter(|date| date.is_valid())
+                    .map(|date| date.to_rfc822()),
+            }),
+        ),
         MimePart::new(
             "message/disposition-notification",
             BodyPart::Binary(
@@ -151,7 +187,7 @@ pub fn receipt(original: &[u8], reporting: &Reporting<'_>) -> Result<Posting, Mi
         .to(MailAddress::new_list(
             ask.to.iter().map(crate::build::mail_addr).collect(),
         ))
-        .subject(format!("Read: {subject}"))
+        .subject(format!("{}{subject}", reporting.words.subject_prefix))
         .date(reporting.at.timestamp())
         .message_id(id)
         // RFC 3834: generated in answer to a message rather than written as one. Keeps a
@@ -175,30 +211,6 @@ pub fn receipt(original: &[u8], reporting: &Reporting<'_>) -> Result<Posting, Mi
         rcpt_to,
         message: bytes,
     })
-}
-
-/// The part a person reads. Says what a receipt means and, as plainly, what it does not.
-///
-/// Broken into short lines by hand, so an ordinary receipt stays 7-bit text rather than
-/// quoted-printable that a person reading the source has to decode.
-fn human_text(reader: &Address, subject: &str, original: &Message<'_>) -> String {
-    let mut out = format!(
-        "This is a receipt for the message you sent to {}",
-        reader.email
-    );
-    if let Some(date) = original.date().filter(|date| date.is_valid()) {
-        let _ = write!(out, "\r\non {}", date.to_rfc822());
-    }
-    if subject.is_empty() {
-        out.push_str(" with no subject.\r\n");
-    } else {
-        let _ = write!(out, " with the subject\r\n\"{subject}\".\r\n");
-    }
-    out.push_str(
-        "\r\nIt was displayed on the recipient's screen. That says nothing\r\n\
-         about whether it was read, understood or agreed with.\r\n",
-    );
-    out
 }
 
 /// The `message/disposition-notification` fields, RFC 8098 §3.1.

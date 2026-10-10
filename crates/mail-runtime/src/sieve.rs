@@ -25,6 +25,8 @@ pub struct SieveAuth {
     /// connection comes from the daemon already upgraded and signed in, and `username` and
     /// `credential` are not read.
     pub relay: Option<Relay>,
+    /// The name this client's script goes by on the server, and who the script says wrote it.
+    pub script_name: String,
 }
 
 /// accountd's relay to one server of a granted account.
@@ -54,6 +56,7 @@ pub async fn manage(
             username: auth.username.clone(),
             credential: auth.credential.clone(),
             relayed: auth.relay.is_some(),
+            script_name: auth.script_name.clone(),
         },
         job,
     );
@@ -95,7 +98,7 @@ pub async fn push(
             )));
         }
     };
-    let compiled = compile(rules, vacation, &caps.sieve, places, now);
+    let compiled = compile(rules, vacation, &caps.sieve, places, &auth.script_name, now);
     let job = if compiled.is_empty() {
         SieveJob::Remove
     } else {

@@ -2,9 +2,10 @@
 //! table test away, and the time zone is an argument so a test can name one.
 
 use chrono::TimeZone;
+use mail_core::invite::{repeats_words, show_when};
 use mail_domain::{Attendance, InviteAnswer, MessageId};
 use mail_pim::ical::{PartStat, Party};
-use mail_pim::{Invite, Kind, Me, Revision, show_when};
+use mail_pim::{Invite, Kind, Me, Revision};
 
 /// How many attendees the card names before folding the rest into "+N".
 pub(in crate::ui) const CHIPS: usize = 6;
@@ -126,7 +127,7 @@ pub(in crate::ui) fn card_of<Z: TimeZone>(
             .recurrence_id
             .is_some()
             .then_some("One occurrence of a series"),
-        repeats: invite.repeats.clone(),
+        repeats: invite.repeats.as_ref().map(repeats_words),
         location: invite.location.as_deref().map(one_line),
         organiser: invite.organiser.as_ref().map(name_of),
         attendees: invite

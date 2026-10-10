@@ -11,7 +11,7 @@ use html5ever::tokenizer::{
 };
 use mail_domain::id::new_account_id;
 use mail_domain::*;
-use mail_mime::{Options, Pages, Remote, Script, Sheet, parse, print, print_with, remote_images};
+use mail_mime::{Labels, Options, Pages, Remote, Script, Sheet, parse, print_with, remote_images};
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 
@@ -54,6 +54,34 @@ fn message(subject: &str, date: DateTime<Utc>, body: Body) -> Message {
         body,
         attachments: Vec::new(),
     }
+}
+
+/// The words a front-end would supply; written out here so the document can be compared.
+const LABELS: Labels<'static> = Labels {
+    from: "From",
+    to: "To",
+    cc: "Cc",
+    date: "Date",
+    subject: "Subject",
+    printed: "Printed {when}",
+    no_subject: "(no subject)",
+    thread_count: "({n} messages)",
+    image: "[image",
+    image_alt: ": {alt}",
+    image_host: ", from {host}",
+    no_body: "The body of this message has not been downloaded, so only its headers are printed.",
+    cut_off: "This message is longer than can be shown; the rest of it is not printed.",
+    attachments: "Attachments ({n})",
+    unnamed: "(unnamed)",
+};
+
+/// A printout with the test wording.
+fn print<Tz>(sheets: &[Sheet<'_>], zone: &Tz, now: DateTime<Utc>, pages: Pages) -> String
+where
+    Tz: TimeZone,
+    Tz::Offset: std::fmt::Display,
+{
+    print_with(sheets, zone, now, &Options::new(pages, LABELS))
 }
 
 fn fetched(text: Option<&str>) -> Body {
@@ -873,7 +901,7 @@ fn with_consent_the_fetched_images_are_drawn_and_the_rest_named() {
     let options = Options {
         style: ".x { color: red; }",
         missing_note: Some("Some pictures are named, not drawn."),
-        ..Options::new(Pages::Flow)
+        ..Options::new(Pages::Flow, LABELS)
     };
     let html = print_with(&[sheet], &zone(), at(0), &options);
     assert_inert(&html);
@@ -909,7 +937,7 @@ fn the_note_is_written_only_when_an_image_is_named() {
     };
     let options = Options {
         missing_note: Some("NOTE"),
-        ..Options::new(Pages::Flow)
+        ..Options::new(Pages::Flow, LABELS)
     };
     let html = print_with(&[sheet], &zone(), at(0), &options);
     assert!(!html.contains("NOTE"), "{html}");

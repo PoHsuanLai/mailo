@@ -47,6 +47,9 @@ pub struct Sealing<'a> {
     pub recipients: &'a [Cert],
     /// The signing time.
     pub now: DateTime<Utc>,
+    /// What the MIME boundary opens with, before `-smime-` and the random part: the caller's own
+    /// product token, so this crate names no product.
+    pub boundary_prefix: &'a str,
 }
 
 /// `frozen` — a whole message as `crate::build` writes it — signed, encrypted, or both, as
@@ -68,7 +71,7 @@ pub fn seal(frozen: &[u8], how: &Sealing<'_>, rng: &mut impl Rng) -> Result<Vec<
         let signer = how.signer.ok_or_else(|| {
             MimeError::Smime("there is no S/MIME identity to sign with".to_owned())
         })?;
-        entity = signed(&entity, signer, how.now, rng)?;
+        entity = signed(&entity, signer, how.now, how.boundary_prefix, rng)?;
     }
     if how.mode.encrypts() {
         if how.recipients.is_empty() {
@@ -85,11 +88,11 @@ pub fn seal(frozen: &[u8], how: &Sealing<'_>, rng: &mut impl Rng) -> Result<Vec<
 }
 
 /// A boundary no content will contain: 128 random bits, hex.
-fn boundary(rng: &mut impl Rng) -> String {
+fn boundary(prefix: &str, rng: &mut impl Rng) -> String {
     let mut bytes = [0u8; 16];
     rng.fill_bytes(&mut bytes);
     let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
-    format!("mailo-smime-{hex}")
+    format!("{prefix}-smime-{hex}")
 }
 
 /// `bytes` as base64 in lines of 76, CRLF-ended.
@@ -109,11 +112,12 @@ fn signed(
     entity: &[u8],
     signer: &Identity,
     now: DateTime<Utc>,
+    boundary_prefix: &str,
     rng: &mut impl Rng,
 ) -> Result<Vec<u8>, MimeError> {
     let digest = signer.key.digest();
     let signature = signed_data(entity, signer, digest, now)?;
-    let boundary = boundary(rng);
+    let boundary = boundary(boundary_prefix, rng);
     let mut out = format!(
         "Content-Type: multipart/signed; protocol=\"application/pkcs7-signature\";\r\n \
          micalg={}; boundary=\"{boundary}\"\r\n\r\n\

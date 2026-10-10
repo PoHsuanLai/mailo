@@ -3,7 +3,9 @@
 use chrono::{DateTime, Utc};
 use mail_domain::id::new_account_id;
 use mail_domain::{Address, DraftId, Identity, IdentityId, IsDefault};
-use mail_mime::{OriginalHeaders, ReceiptAsk, Reporting, ReturnPath, receipt, receipt_asked};
+use mail_mime::{
+    Human, OriginalHeaders, ReceiptAsk, Reporting, ReturnPath, Words, receipt, receipt_asked,
+};
 use mail_parser::{MessageParser, MimeHeaders};
 use uuid::Uuid;
 
@@ -43,6 +45,33 @@ fn reader() -> Identity {
     }
 }
 
+/// The sentences a front-end would word; written out here so the bytes can be compared.
+fn words() -> Words {
+    fn body(human: &Human<'_>) -> String {
+        let mut out = format!(
+            "This is a receipt for the message you sent to {}",
+            human.reader
+        );
+        if let Some(date) = &human.date {
+            out.push_str(&format!("\r\non {date}"));
+        }
+        if human.subject.is_empty() {
+            out.push_str(" with no subject.\r\n");
+        } else {
+            out.push_str(&format!(" with the subject\r\n\"{}\".\r\n", human.subject));
+        }
+        out.push_str(
+            "\r\nIt was displayed on the recipient's screen. That says nothing\r\n\
+             about whether it was read, understood or agreed with.\r\n",
+        );
+        out
+    }
+    Words {
+        subject_prefix: "Read: ",
+        body,
+    }
+}
+
 fn reporting(reader: &Identity, headers: OriginalHeaders) -> Reporting<'_> {
     Reporting {
         reader,
@@ -50,6 +79,7 @@ fn reporting(reader: &Identity, headers: OriginalHeaders) -> Reporting<'_> {
         id: DraftId::from_uuid(Uuid::from_u128(0x5eed)),
         at: at(),
         headers,
+        words: words(),
     }
 }
 

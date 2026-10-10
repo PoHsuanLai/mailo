@@ -41,6 +41,9 @@ pub struct Sealing<'a> {
     pub gossip: &'a [(String, Cert)],
     /// The signature's creation time.
     pub now: DateTime<Utc>,
+    /// What the MIME boundary opens with, before `-pgp-` and the random part: the caller's own
+    /// product token, so this crate names no product.
+    pub boundary_prefix: &'a str,
 }
 
 /// The fields copied into the encrypted part as protected headers. `Bcc` never: those
@@ -67,7 +70,7 @@ pub fn seal(frozen: &[u8], how: &Sealing<'_>, rng: &mut impl Rng) -> Result<Vec<
         .into_iter()
         .filter(|field| !field_name(field).eq_ignore_ascii_case(b"MIME-Version"))
         .collect();
-    let boundary = boundary(rng);
+    let boundary = boundary(how.boundary_prefix, rng);
     match how.mode {
         OpenPgp::None => Ok(frozen.to_vec()),
         OpenPgp::Sign => {
@@ -94,11 +97,11 @@ pub fn seal(frozen: &[u8], how: &Sealing<'_>, rng: &mut impl Rng) -> Result<Vec<
 }
 
 /// A boundary no content will contain: 128 random bits, hex.
-fn boundary(rng: &mut impl Rng) -> String {
+fn boundary(prefix: &str, rng: &mut impl Rng) -> String {
     let mut bytes = [0u8; 16];
     rng.fill_bytes(&mut bytes);
     let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
-    format!("mailo-pgp-{hex}")
+    format!("{prefix}-pgp-{hex}")
 }
 
 /// The multipart/signed message: the outer fields, the entity as it was signed, the signature.

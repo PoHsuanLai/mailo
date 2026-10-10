@@ -81,6 +81,7 @@ fn sealed(raw: &str, mode: Smime, signer: &Identity, to: &[Cert]) -> Vec<u8> {
             signer: Some(signer),
             recipients: to,
             now: Utc::now(),
+            boundary_prefix: "mailo",
         },
         &mut rng(9),
     )

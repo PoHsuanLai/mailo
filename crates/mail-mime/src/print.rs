@@ -72,6 +72,8 @@ pub enum Remote<'a> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Options<'a> {
     pub pages: Pages,
+    /// The words the document says. This crate writes none of its own.
+    pub labels: Labels<'a>,
     /// Rules written after the document's own stylesheet: a renderer's named faces, say. The
     /// caller's, written as given, and never anything a message said.
     pub style: &'a str,
@@ -80,15 +82,52 @@ pub struct Options<'a> {
     pub missing_note: Option<&'a str>,
 }
 
-impl Options<'_> {
-    /// `pages`, and nothing more: the document's own stylesheet and no note.
-    pub fn new(pages: Pages) -> Options<'static> {
+impl<'a> Options<'a> {
+    /// `pages` and `labels`, and nothing more: the document's own stylesheet and no note.
+    pub fn new(pages: Pages, labels: Labels<'a>) -> Options<'a> {
         Options {
             pages,
+            labels,
             style: "",
             missing_note: None,
         }
     }
+}
+
+/// Every phrase the document puts in front of a reader, worded by the caller.
+///
+/// A few take a value: `{when}`, `{n}`, `{alt}` and `{host}` stand where it goes, so a language
+/// that orders the words differently is a different string and not different code. The values
+/// are escaped like every other text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Labels<'a> {
+    /// The header table's row names.
+    pub from: &'a str,
+    pub to: &'a str,
+    pub cc: &'a str,
+    pub date: &'a str,
+    pub subject: &'a str,
+    /// The line at the top: `Printed {when}`.
+    pub printed: &'a str,
+    /// A message with no subject.
+    pub no_subject: &'a str,
+    /// After a thread's title: `({n} messages)`.
+    pub thread_count: &'a str,
+    /// Where an image is named rather than drawn, it reads `[image: alt, from host]`: this is
+    /// `[image`, and the closing `]` is the document's own.
+    pub image: &'a str,
+    /// Follows `image` when the image has a description: `: {alt}`.
+    pub image_alt: &'a str,
+    /// Follows when the image's host is known: `, from {host}`.
+    pub image_host: &'a str,
+    /// A message whose body has not been fetched, so only its headers are printed.
+    pub no_body: &'a str,
+    /// A body too long to show whole.
+    pub cut_off: &'a str,
+    /// Above the attachment list: `Attachments ({n})`.
+    pub attachments: &'a str,
+    /// An attachment with no name.
+    pub unnamed: &'a str,
 }
 
 /// Whether each message of a thread starts on a new page.
@@ -100,20 +139,11 @@ pub enum Pages {
     PerMessage,
 }
 
-/// The printable document for `sheets`, in the order given.
+/// The printable document for `sheets`, in the order given, made as `options` say: the pages,
+/// the words, rules after the stylesheet, and a note when an image is named rather than drawn.
 ///
 /// The caller orders a thread (oldest first reads as a conversation). Dates are shown in
 /// `zone`; `now` is the "printed" line at the top. The title is the first message's subject.
-pub fn print<Tz>(sheets: &[Sheet<'_>], zone: &Tz, now: DateTime<Utc>, pages: Pages) -> String
-where
-    Tz: TimeZone,
-    Tz::Offset: Display,
-{
-    print_with(sheets, zone, now, &Options::new(pages))
-}
-
-/// [`print`], made as `options` say: the pages, rules after the stylesheet, and a note when an
-/// image is named rather than drawn.
 pub fn print_with<Tz>(
     sheets: &[Sheet<'_>],
     zone: &Tz,
@@ -124,6 +154,7 @@ where
     Tz: TimeZone,
     Tz::Offset: Display,
 {
+    let labels = &options.labels;
     // The messages first, so the top can say whether an image in them was left out.
     let mut messages = String::new();
     let mut first_script = None;
@@ -138,9 +169,9 @@ where
         }
         let script = marker(said);
         let _ = writeln!(messages, "<article class=\"{class}\"{starts_page}{script}>");
-        header(&mut messages, sheet.message, zone);
-        body(&mut messages, sheet);
-        attachments(&mut messages, sheet.message);
+        header(&mut messages, sheet.message, zone, labels);
+        body(&mut messages, sheet, labels);
+        attachments(&mut messages, sheet.message, labels);
         messages.push_str("</article>\n");
     }
     // Every text is escaped, so this element can only be one `missing` wrote.
@@ -149,7 +180,7 @@ where
         .first()
         .map(|sheet| sheet.message.subject.trim())
         .filter(|subject| !subject.is_empty())
-        .unwrap_or("(no subject)");
+        .unwrap_or(labels.no_subject);
     let mut out = String::new();
     out.push_str("<!DOCTYPE html>\n<html>\n<head>\n<meta charset=\"utf-8\">\n");
     // A second line of defence behind "we emit nothing that loads": should a future edit let
@@ -172,8 +203,8 @@ where
     let _ = writeln!(out, "</style>\n</head>\n<body{}>", marker(first_script));
     let _ = writeln!(
         out,
-        "<p class=\"printed\">Printed {}</p>",
-        escape(&when(now, zone))
+        "<p class=\"printed\">{}</p>",
+        escape(labels.printed).replace("{when}", &escape(&when(now, zone)))
     );
     if left_out && let Some(note) = options.missing_note {
         let _ = writeln!(out, "<p class=\"paper-note\">{}</p>", escape(note));
@@ -181,9 +212,13 @@ where
     if sheets.len() > 1 {
         let _ = writeln!(
             out,
-            "<h1 class=\"thread\">{} <span class=\"count\">({} messages)</span></h1>",
+            "<h1 class=\"thread\">{} <span class=\"count\">{}</span></h1>",
             escape(title),
-            sheets.len()
+            escape(
+                &labels
+                    .thread_count
+                    .replace("{n}", &sheets.len().to_string())
+            )
         );
     }
     out.push_str(&messages);
@@ -318,7 +353,7 @@ border-top: 1px solid #ccc; margin-top: 1em; padding-top: .5em; }
 .attachments .size { color: #555; }
 ";
 
-fn header<Tz>(out: &mut String, message: &Message, zone: &Tz)
+fn header<Tz>(out: &mut String, message: &Message, zone: &Tz, labels: &Labels<'_>)
 where
     Tz: TimeZone,
     Tz::Offset: Display,
@@ -326,21 +361,25 @@ where
     let _ = writeln!(out, "<header class=\"headers\"{KEEP}>");
     let subject = message.subject.trim();
     let subject = if subject.is_empty() {
-        "(no subject)"
+        labels.no_subject
     } else {
         subject
     };
     let _ = writeln!(out, "<h2>{}</h2>", escape(subject));
     out.push_str("<table>\n");
-    row(out, "From", &addresses(std::slice::from_ref(&message.from)));
+    row(
+        out,
+        labels.from,
+        &addresses(std::slice::from_ref(&message.from)),
+    );
     if !message.to.is_empty() {
-        row(out, "To", &addresses(&message.to));
+        row(out, labels.to, &addresses(&message.to));
     }
     if !message.cc.is_empty() {
-        row(out, "Cc", &addresses(&message.cc));
+        row(out, labels.cc, &addresses(&message.cc));
     }
-    row(out, "Date", &when(message.date, zone));
-    row(out, "Subject", subject);
+    row(out, labels.date, &when(message.date, zone));
+    row(out, labels.subject, subject);
     out.push_str("</table>\n</header>\n");
 }
 
@@ -403,38 +442,32 @@ fn document(sheet: &Sheet<'_>) -> Option<Document> {
     })
 }
 
-fn body(out: &mut String, sheet: &Sheet<'_>) {
+fn body(out: &mut String, sheet: &Sheet<'_>, labels: &Labels<'_>) {
     let Some(document) = document(sheet) else {
-        out.push_str(
-            "<p class=\"note\">The body of this message has not been downloaded, \
-             so only its headers are printed.</p>\n",
-        );
+        let _ = writeln!(out, "<p class=\"note\">{}</p>", escape(labels.no_body));
         return;
     };
     out.push_str("<div class=\"body\">\n");
     if let Some(action) = &document.primary {
         button(out, &action.label, action.url.as_str());
     }
-    blocks(out, &document.blocks, sheet.remote);
+    blocks(out, &document.blocks, sheet.remote, labels);
     out.push_str("</div>\n");
     if document.reached != Reached::Nothing {
-        out.push_str(
-            "<p class=\"note\">This message is longer than can be shown; \
-             the rest of it is not printed.</p>\n",
-        );
+        let _ = writeln!(out, "<p class=\"note\">{}</p>", escape(labels.cut_off));
     }
 }
 
 /// What a paginating renderer should not cut in two: see the module notes.
 const KEEP: &str = " data-break-inside=\"avoid\"";
 
-fn blocks(out: &mut String, list: &[Block], remote: Remote<'_>) {
+fn blocks(out: &mut String, list: &[Block], remote: Remote<'_>, labels: &Labels<'_>) {
     for block in list {
-        one_block(out, block, remote);
+        one_block(out, block, remote, labels);
     }
 }
 
-fn one_block(out: &mut String, block: &Block, remote: Remote<'_>) {
+fn one_block(out: &mut String, block: &Block, remote: Remote<'_>, labels: &Labels<'_>) {
     match block {
         Block::Heading { level, spans } => {
             // Message headings sit under the message's own `h2`.
@@ -453,7 +486,7 @@ fn one_block(out: &mut String, block: &Block, remote: Remote<'_>) {
             let _ = writeln!(out, "<{tag}>");
             for item in items {
                 out.push_str("<li>");
-                blocks(out, item, remote);
+                blocks(out, item, remote, labels);
                 out.push_str("</li>\n");
             }
             let _ = writeln!(out, "</{tag}>");
@@ -468,7 +501,7 @@ fn one_block(out: &mut String, block: &Block, remote: Remote<'_>) {
                 out.push_str("</p>\n");
             }
             let _ = writeln!(out, "<blockquote{KEEP}>");
-            blocks(out, inner, remote);
+            blocks(out, inner, remote, labels);
             out.push_str("</blockquote>\n");
         }
         Block::Code { text, .. } => {
@@ -513,11 +546,11 @@ fn one_block(out: &mut String, block: &Block, remote: Remote<'_>) {
             alt,
             width,
             height,
-        } => image(out, src, alt, (*width, *height), remote),
+        } => image(out, src, alt, (*width, *height), remote, labels),
         Block::Button { label, url } => button(out, label, url.as_str()),
         Block::Signature(inner) => {
             out.push_str("<div class=\"signature\">\n");
-            blocks(out, inner, remote);
+            blocks(out, inner, remote, labels);
             out.push_str("</div>\n");
         }
         Block::Rule => out.push_str("<hr>\n"),
@@ -545,6 +578,7 @@ fn image(
     alt: &str,
     size: (Option<u32>, Option<u32>),
     remote: Remote<'_>,
+    labels: &Labels<'_>,
 ) {
     let (width, height) = size;
     let alt = alt.trim();
@@ -567,11 +601,11 @@ fn image(
                     let host = url::Url::parse(url.as_str())
                         .ok()
                         .and_then(|url| url.host_str().map(str::to_owned));
-                    missing(out, alt, host.as_deref());
+                    missing(out, alt, host.as_deref(), labels);
                 }
             }
         }
-        ImgSrc::Blocked { host } => missing(out, alt, Some(host)),
+        ImgSrc::Blocked { host } => missing(out, alt, Some(host), labels),
     }
 }
 
@@ -598,14 +632,13 @@ fn is_spacer(width: Option<u32>, height: Option<u32>) -> bool {
     width.is_some_and(|w| w <= 1) || height.is_some_and(|h| h <= 1)
 }
 
-fn missing(out: &mut String, alt: &str, host: Option<&str>) {
-    let what = if alt.is_empty() {
-        "[image".to_owned()
-    } else {
-        format!("[image: {alt}")
-    };
+fn missing(out: &mut String, alt: &str, host: Option<&str>, labels: &Labels<'_>) {
+    let mut what = labels.image.to_owned();
+    if !alt.is_empty() {
+        what.push_str(&labels.image_alt.replace("{alt}", alt));
+    }
     let from = host
-        .map(|host| format!(", from {host}"))
+        .map(|host| labels.image_host.replace("{host}", host))
         .unwrap_or_default();
     let _ = writeln!(out, "{MISSING}{}{}]</p>", escape(&what), escape(&from));
 }
@@ -648,7 +681,7 @@ fn inline(out: &mut String, spans: &[Span]) {
     }
 }
 
-fn attachments(out: &mut String, message: &Message) {
+fn attachments(out: &mut String, message: &Message, labels: &Labels<'_>) {
     let listed: Vec<_> = message
         .attachments
         .iter()
@@ -659,12 +692,16 @@ fn attachments(out: &mut String, message: &Message) {
     }
     let _ = writeln!(
         out,
-        "<section class=\"attachments\"{KEEP}>\n<strong>Attachments ({})</strong>\n<ul>",
-        listed.len()
+        "<section class=\"attachments\"{KEEP}>\n<strong>{}</strong>\n<ul>",
+        escape(&labels.attachments.replace("{n}", &listed.len().to_string()))
     );
     for part in listed {
         let name = part.name.trim();
-        let name = if name.is_empty() { "(unnamed)" } else { name };
+        let name = if name.is_empty() {
+            labels.unnamed
+        } else {
+            name
+        };
         let _ = writeln!(
             out,
             "<li>{} <span class=\"size\">({})</span></li>",

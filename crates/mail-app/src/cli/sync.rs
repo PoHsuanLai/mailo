@@ -94,11 +94,36 @@ fn line(name: &str, report: &AccountReport) -> String {
     for note in report.trouble.iter().filter_map(|t| t.why.as_deref()) {
         let _ = writeln!(out, "  needs attention: {note}");
         // The server's words stay; this adds what they mean, where we know.
-        if let Some(why) = mail_proto::explain_text(note) {
+        if let Some(why) = mail_proto::diagnose_text(note).map(meaning) {
             let _ = writeln!(out, "    → {why}");
         }
     }
     out
+}
+
+/// What a diagnosed refusal means, in words a person can act on.
+fn meaning(diagnosis: mail_proto::Diagnosis) -> &'static str {
+    use mail_proto::Diagnosis;
+    match diagnosis {
+        Diagnosis::TenantSmtpAuthOff => {
+            "the tenant has SMTP client authentication switched off. An administrator enables it \
+             per mailbox with Set-CASMailbox -SmtpClientAuthenticationDisabled $false. Nothing \
+             about the password is wrong."
+        }
+        Diagnosis::StartTlsFirst => "the server requires STARTTLS before authenticating.",
+        Diagnosis::AppPasswordNeeded => {
+            "this account has two-factor authentication, so it needs an App Password rather than \
+             the account password."
+        }
+        Diagnosis::GoogleRejectedCredential => {
+            "Google rejected the credential. Account passwords no longer work for IMAP or SMTP; \
+             an App Password does."
+        }
+        Diagnosis::ProtocolSwitchedOff => {
+            "the protocol is switched off for this mailbox. An administrator enables it; the \
+             credential is not the problem."
+        }
+    }
 }
 
 #[cfg(test)]

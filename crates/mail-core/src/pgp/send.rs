@@ -123,6 +123,7 @@ pub fn outgoing(
         recipients: &to,
         gossip: &gossip,
         now,
+        boundary_prefix: "mailo",
     };
     openpgp::seal(&bytes, &sealing, &mut rand::rngs::OsRng).map_err(PgpError::from)
 }

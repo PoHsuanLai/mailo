@@ -18,7 +18,7 @@ pub mod search;
 pub mod sieve;
 pub mod smtp;
 
-pub use diagnose::{explain, explain_text};
+pub use diagnose::{Diagnosis, diagnose, diagnose_text};
 pub use error::{ProtoError, Refusal};
 pub use imap::{
     Completed, ImapAuth, ImapCommand, ImapSession, ImapTranscript, Untagged, has_capability,

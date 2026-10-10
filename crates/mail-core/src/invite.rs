@@ -11,11 +11,15 @@
 use chrono::{DateTime, Local, TimeZone, Utc};
 use mail_domain::*;
 use mail_pim::ical::{self, Answering, PartStat};
-use mail_pim::{Invite, Kind, Me, Revision, show_when};
+use mail_pim::{Invite, Kind, Me, Revision};
 use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
 use std::fmt::Write as _;
 use std::path::PathBuf;
+
+mod when;
+
+pub use when::{REPEATS_OTHERWISE, WhenShown, repeats_words, show_when};
 
 /// The invitation `raw` carries, as the reader shows it to someone whose addresses are `me`.
 ///
@@ -263,7 +267,7 @@ pub fn render<Z: TimeZone>(invite: &Invite, answered: Option<&InviteAnswer>, zon
         let _ = writeln!(out, "             {theirs}, the organiser's time");
     }
     if let Some(repeats) = &invite.repeats {
-        let _ = writeln!(out, "  repeats:   {repeats}");
+        let _ = writeln!(out, "  repeats:   {}", repeats_words(repeats));
     }
     if let Some(location) = &invite.location {
         let _ = writeln!(out, "  where:     {}", one_line(location));
