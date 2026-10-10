@@ -117,8 +117,8 @@ pub(super) async fn run(mut running: Running) {
     );
     let this_account = account.clone();
     let blocking = async move {
-        // `spawn_blocking`, not this task: a pass opens sockets and builds a runtime of its own,
-        // and `Runtime::block_on` inside an async context panics.
+        // `spawn_blocking`, not this task: a pass waits on the application's runtime
+        // (`edge::block_on`), and `Runtime::block_on` inside an async context panics.
         let done = tokio::task::spawn_blocking(move || {
             let progress = |_: AccountId, progress: Progress| {
                 let _ = ptx.send(progress);
