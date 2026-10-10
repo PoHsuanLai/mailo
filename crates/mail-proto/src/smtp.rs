@@ -985,7 +985,26 @@ fn require_envelope(envelope: Option<&PreparedEnvelope>) -> Result<&PreparedEnve
         .ok_or_else(|| ProtoError::Malformed("envelope was not prepared before MAIL FROM".into()))
 }
 
+/// The longest line the DATA path carries, excluding its CRLF (RFC 5321 §4.5.3.1.6 allows 1000
+/// octets with it). Longer lines are what `BINARYMIME` exists for, which this client does not
+/// negotiate; sent anyway, servers truncate or reject them, and a truncated message is worse
+/// than one that says it cannot go.
+const MAX_LINE: usize = 998;
+
 fn check_transfer(ext: &EhloExtensions, message: &[u8]) -> Result<(), ProtoError> {
+    let longest = message
+        .split(|byte| *byte == b'\n')
+        .map(|line| line.strip_suffix(b"\r").unwrap_or(line).len())
+        .max()
+        .unwrap_or(0);
+    if longest > MAX_LINE {
+        return Err(ProtoError::Refused {
+            kind: Refusal::Permanent,
+            text: format!(
+                "message has a line of {longest} octets, above the {MAX_LINE} SMTP carries"
+            ),
+        });
+    }
     if let SizeLimit::Limited(max) = ext.size {
         let size = transfer_octets(ext, message);
         if size > max {
@@ -1643,6 +1662,17 @@ mod tests {
 
     fn session(message: &str) -> SmtpSession {
         SmtpSession::new(submission(message))
+    }
+
+    #[test]
+    fn a_line_is_carried_up_to_998_octets_and_no_further() {
+        let ext = EhloExtensions::default();
+        let with = |n: usize| format!("Subject: x\r\n\r\n{}\r\n", "a".repeat(n));
+        assert!(check_transfer(&ext, with(998).as_bytes()).is_ok());
+        assert!(check_transfer(&ext, with(999).as_bytes()).is_err());
+        // A bare LF ends a line too, so it cannot hide a long one.
+        let err = check_transfer(&ext, format!("a\n{}\n", "b".repeat(1000)).as_bytes());
+        assert!(err.is_err());
     }
 
     #[test]

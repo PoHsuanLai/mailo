@@ -40,6 +40,70 @@ pub fn restamp(message: &[u8], at: DateTime<Utc>) -> Vec<u8> {
     out
 }
 
+/// `message` as its sender keeps it: the blind recipients named in a `Bcc` field.
+///
+/// RFC 5322 §3.6.3 lets the sender's own copy carry the `Bcc` that the transmitted messages
+/// omit, and a copy that forgets whom the user blind-copied has lost something they will want
+/// to look up. `rcpt_to` is the envelope; those of its addresses the message does not already
+/// name in `To`, `Cc` or `Bcc` are the blind ones, which is how the envelope and the headers
+/// come apart (`Posting::rcpt_to`). Compared case-insensitively, so an address spelled two ways
+/// is not counted blind. A message with none, or one that is not a message, comes back as it
+/// was; every other byte always does.
+pub fn with_blind(message: &[u8], rcpt_to: &[String]) -> Vec<u8> {
+    let Ok(parsed) = crate::parse::parse(message) else {
+        return message.to_vec();
+    };
+    let named: Vec<&str> = parsed
+        .to
+        .iter()
+        .chain(&parsed.cc)
+        .chain(&parsed.bcc)
+        .map(|a| a.email.as_str())
+        .collect();
+    let mut blind: Vec<&str> = Vec::new();
+    for rcpt in rcpt_to.iter().map(|r| r.trim()).filter(|r| !r.is_empty()) {
+        let known = named
+            .iter()
+            .chain(&blind)
+            .any(|have| have.eq_ignore_ascii_case(rcpt));
+        if !known {
+            blind.push(rcpt);
+        }
+    }
+    if blind.is_empty() {
+        return message.to_vec();
+    }
+
+    // Folded before 78 columns (RFC 5322 §2.2.3), at the commas between addresses.
+    let mut field = String::from("Bcc:");
+    let mut line = field.len();
+    for (at, address) in blind.iter().enumerate() {
+        let item = if at + 1 < blind.len() {
+            format!("{address},")
+        } else {
+            (*address).to_owned()
+        };
+        if at > 0 && line + 1 + item.len() > 76 {
+            field.push_str("\r\n");
+            line = 0;
+        }
+        field.push(' ');
+        line += 1 + item.len();
+        field.push_str(&item);
+    }
+    field.push_str("\r\n");
+
+    let (head, body) = split_head(message);
+    let mut out = Vec::with_capacity(message.len() + field.len() + 2);
+    out.extend_from_slice(head);
+    if !head.is_empty() && !head.ends_with(b"\n") {
+        out.extend_from_slice(b"\r\n");
+    }
+    out.extend_from_slice(field.as_bytes());
+    out.extend_from_slice(body);
+    out
+}
+
 /// The header block, and everything from the blank line that ends it.
 ///
 /// A message with no blank line is all header, which is what a reader would make of it too.

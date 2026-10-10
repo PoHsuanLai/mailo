@@ -333,12 +333,11 @@ async fn a_scheduled_send_waits_for_its_time_and_then_goes() {
     let due = it.engine.drain_outbox(&mut cancel, leaves()).await.unwrap();
     assert_eq!(due.submitted, 1, "{due:?}");
     assert_eq!(it.delivered.lock().unwrap().len(), 1);
-    assert_eq!(
-        it.store.draft(draft.id).unwrap().state,
-        SendState::Sent {
-            at: leaves(),
-            message: None
-        }
+    // The fixture's server names no Sent mailbox, so the copy is kept here, as a message.
+    let state = it.store.draft(draft.id).unwrap().state;
+    assert!(
+        matches!(state, SendState::Sent { at, message: Some(_) } if at == leaves()),
+        "{state:?}"
     );
 }
 

@@ -374,6 +374,20 @@ fn eight_bit_messages_require_the_extension_and_declare_it() {
 }
 
 #[test]
+fn a_line_over_998_octets_is_refused_permanently_before_anything_is_sent() {
+    // RFC 5321 §4.5.3.1.6: 1000 octets with the CRLF. Past it a server truncates or rejects, and
+    // retrying cannot help, so the refusal is permanent and arrives before AUTH.
+    let long = format!("Subject: hi\r\n\r\n{}\r\n", "x".repeat(999));
+    let mut session = plain(&long, &["bob@example.com"]);
+    let err = replay(&mut session, include_str!("../traces/smtp/long_line.trace")).unwrap_err();
+    let ProtoError::Refused { kind, text } = &err else {
+        panic!("expected a refusal: {err:?}");
+    };
+    assert_eq!(*kind, Refusal::Permanent);
+    assert!(text.contains("999"), "{text}");
+}
+
+#[test]
 fn starttls_required_does_not_authenticate_in_cleartext() {
     let mut session = build(
         Tls::StartTlsRequired,

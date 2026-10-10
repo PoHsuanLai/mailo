@@ -370,9 +370,24 @@ async fn a_queued_message_goes_to_graph_with_the_graph_token() {
         mime.starts_with("Bcc: dee@example.test\r\n"),
         "Graph reads recipients from the headers, so the blind one must be there: {mime}"
     );
+    // Graph files its copy in Sent Items, which a POP3 sync never reads, so the copy is the one
+    // kept here: the message that went, with the blind recipient named in it (RFC 5322 §3.6.3).
     match it.store.draft(it.draft.id).unwrap().state {
-        SendState::Sent { message, .. } => assert_eq!(message, None),
-        other => panic!("{other:?}"),
+        SendState::Sent {
+            message: Some(copy),
+            ..
+        } => {
+            let kept = it.store.message(copy).unwrap();
+            assert_eq!(kept.mailbox, MailboxRole::Sent);
+            let Body::Present { raw, .. } = kept.body else {
+                panic!("the copy holds its body: {:?}", kept.body);
+            };
+            let bytes = it.store.blobs().get(&it.store.connection(), raw).unwrap();
+            let bytes = String::from_utf8(bytes).unwrap();
+            assert!(bytes.contains("Bcc: dee@example.test\r\n"), "{bytes}");
+            assert!(bytes.contains("Subject: lunch on friday"), "{bytes}");
+        }
+        other => panic!("a POP3 account sending through Graph keeps its copy: {other:?}"),
     }
 }
 

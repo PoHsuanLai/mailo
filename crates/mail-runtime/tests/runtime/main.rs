@@ -37,6 +37,7 @@ mod pgp_learn;
 mod queued_moves;
 mod reparse;
 mod send_later;
+mod sent_copy;
 mod server_search;
 mod sieve;
 mod sign_in;

@@ -1,0 +1,35 @@
+# Protocol compliance findings
+
+One row per finding. "Test" names a test that proves the behaviour against the in-repo fake
+servers (or the pure function), or says "open" with the reason. Rows are ordered as the audit was.
+
+| Protocol | RFC § | What mailo did | What it does now | Test |
+|---|---|---|---|---|
+| IMAP + SMTP | 6409; 3501 §6.3.11; 6154 | A message sent from an IMAP account on a server that files nothing (plain Dovecot, Postfix) left no Sent copy: SMTP only says "accepted". | After the submission the message is queued as an `APPEND` to the `\Sent` mailbox the server named, flagged `\Seen`, dated when it left. It rides the outbox, so offline or a refused connection retries it, and the drain makes the attempt in the same call. With no `\Sent` named it is kept locally instead of guessing a path. | `sent_copy::an_imap_send_on_a_server_that_files_nothing_uploads_a_seen_copy_to_sent_with_the_bcc`, `sent_copy::a_copy_that_could_not_be_uploaded_waits_in_the_outbox_and_is_never_sent_twice`, `sent_copy::an_imap_account_whose_server_names_no_sent_mailbox_keeps_its_copy_here` |
+| IMAP + SMTP | 6409 | (Gmail, Microsoft) file Sent themselves; an upload would double it. | Not uploaded when the submission host is under gmail.com, googlemail.com, office365.com, outlook.office.com or outlook.com (`presets::files_sent_itself`). Graph and JMAP submission are never uploaded. A wrong "no" costs a duplicate, a wrong "yes" the only copy, so anything unknown is "no". | `presets::only_servers_known_to_file_the_copy_are_taken_to` |
+| Sent copy | 5322 §3.6.3 | The kept copy was the transmitted bytes, which omit `Bcc`: nothing recorded who was blind-copied. | Every kept or uploaded copy gains a folded `Bcc:` field naming the envelope recipients the headers do not (`mail_mime::with_blind`). The transmitted bytes are unchanged. | `blind::*`, `submission_end_to_end::a_pop3_send_is_kept_in_sent_on_its_conversation_and_outlives_the_next_sync` (copy has Bcc, wire has none), `sent_copy::an_imap_send_...` (wire has no `bcc:` nor the address) |
+| POP3 + Graph | 5322 | Graph files its copy in Sent Items, which a POP3 sync never reads, so the sent message was kept nowhere. | Same rule as POP3 + SMTP: kept locally in Sent, with the Bcc, no server address. | `graph_send::a_queued_message_goes_to_graph_with_the_graph_token` |
+| SMTP | 5321 §4.5.2 | Dot-stuffing, bare LF to CRLF, missing final CRLF. | Already correct; unchanged. | `smtp::submit_plain_stuffs_a_leading_dot_and_records_extensions`, `smtp::without_chunking_a_leading_dot_is_still_stuffed_after_data`, `submission_end_to_end::a_queued_message_is_submitted_whole` |
+| SMTP | 5321 §4.5.3.1.6 | A line over 998 octets was sent as is; servers truncate or reject it. | Refused before AUTH, permanently (retrying cannot help). | `smtp::a_line_over_998_octets_is_refused_permanently_before_anything_is_sent`, `smtp::tests::a_line_is_carried_up_to_998_octets_and_no_further` |
+| SMTP | 6152, 6531 | 8BITMIME and SMTPUTF8 negotiated; A-label downgrade of the domain. | Already correct; unchanged. | `smtp::eight_bit_messages_require_the_extension_and_declare_it`, `smtp::a_utf8_address_is_sent_raw_when_smtputf8_is_offered` |
+| SMTP | 5321 §3.3, 5322 §3.6.3 | Blind recipients are envelope-only. | Already correct (F37); unchanged. | `submission_end_to_end::a_queued_message_is_submitted_whole` |
+| SMTP | 5321 §4.2.1, 3463 | 4xx transient, 5xx permanent, 421 throttled. | Already correct; unchanged. | `smtp::refusals_distinguish_transient_from_permanent`, `smtp::a_rate_limit_backs_off_instead_of_discarding_the_message` |
+| SMTP | 5321 §3.3 | One rejected `RCPT` fails the whole submission rather than sending to the accepted ones. | Unchanged, by choice: a mail that reaches some of its recipients while the sender is told it failed is worse than a loud failure. | open (design) |
+| SMTP | 6152 | A message with 8-bit octets to a server without `8BITMIME` fails (`Unsupported`); it is not downgraded to 7-bit. | Unchanged. The composer encodes everything it writes, so only an enclosed 8-bit `message/rfc822` can reach this. | open (needs a re-encoder for enclosed messages) |
+| MIME | 2046 §5.2.1, 3030 | An enclosed `message/rfc822` with a NUL or a line over 998 octets was labelled `Content-Transfer-Encoding: binary`, which SMTP here cannot carry. | Attached as `application/octet-stream` (base64) instead; every byte still arrives. | `build::enclosed_message::a_message_smtp_cannot_carry_as_itself_goes_as_a_file_never_as_binary` |
+| MIME | 5322 §2.1.1, 2047, 2231, 2045 | Header folding, encoded-words in subject and display names, RFC 2231 file names, base64/QP line length: delegated to mail-builder and never checked as a whole. | Checked over a corpus: every octet ASCII, every line CRLF-ended and at most 78 octets, subject, names, file names and bytes read back. | `wire::every_message_is_ascii_with_lines_inside_the_limits`, `wire::what_the_user_typed_reads_back` |
+| MIME | 2046 §5.1.1 | Boundary uniqueness. | 200 builds, no repeat, within 70 characters, appearing exactly as delimiters. | `wire::boundaries_are_never_reused_between_messages` |
+| MIME | 5322 §3.3, §3.6.4 | Date and Message-ID format; In-Reply-To and References on replies. | `Date` with the right weekday and `+0000`; `<uuid@sender-domain>`; a 30-id References list folds and reads back, parent last. | `wire::date_and_message_id_are_in_the_forms_rfc_5322_gives_them`, `wire::a_long_references_list_folds_and_keeps_every_id`, `build::reply_round_trips_threading_headers` |
+| IMAP | 3501 §2.3.1.1, 4466 | UIDVALIDITY change drops stored UIDs; literals counted by length; mailbox names modified UTF-7 and quoted. | Audited and already covered; unchanged. | `imap_end_to_end::a_mailbox_recreated_on_the_server_invalidates_the_uids_we_stored`, `imap_end_to_end::a_literal_body_survives_a_line_that_looks_like_a_tagged_response`, `mutf7` unit tests |
+| IMAP | 9051 `UTF8=ACCEPT` | Not negotiated: names always go as modified UTF-7, which every server accepts. | Unchanged. | open (not needed for interop) |
+| JMAP | 8621 §7 | The Sent copy the server files is the transmitted bytes, so it has no Bcc. | Unchanged: putting a `Bcc` header into the uploaded email relies on every server removing it from the transmitted message, which RFC 8621 does not make certain. | open (needs a server that can be checked) |
+| POP3 | 1939, 2449 | Not audited beyond the existing trace tests. | Unchanged. | open (best-effort scope) |
+
+## Rules this pass enforces
+
+1. A message sent from any account has exactly one copy in Sent: the server's where the pairing
+   is known to file one (`SentCopy::Server`), the client's upload where the account has a Sent
+   mailbox and nobody files into it (`SentCopy::Upload`), and the client's local copy where there
+   is no mailbox to put it in (`SentCopy::Here`).
+2. The sender's copy names its blind recipients; no byte on the wire does.
+3. Nothing is written that the submission cannot carry: no line over 998 octets, no `binary`.

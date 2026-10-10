@@ -149,12 +149,22 @@ pub fn build(
     }
     for (attachment, bytes) in resolved {
         let mime = media_type(&attachment.mime);
-        if is_enclosed_message(mime) {
+        let enclosed = is_enclosed_message(mime);
+        if enclosed && enclosed_encoding(&crlf_lines(bytes)) != "binary" {
             builder
                 .attachments
                 .get_or_insert_with(Vec::new)
                 .push(enclosed_message(mime, filename(&attachment.name), bytes));
         } else {
+            // A message SMTP cannot carry as itself goes as a file. `binary` is not an
+            // encoding submission can negotiate here (RFC 3030 BINARYMIME), and base64 under
+            // `message/rfc822` is forbidden (RFC 2046 §5.2.1), so the honest label is the
+            // opaque one; the reader still gets every byte, to save and open.
+            let mime = if enclosed {
+                "application/octet-stream"
+            } else {
+                mime
+            };
             builder = builder.attachment(mime, filename(&attachment.name), bytes);
         }
     }
@@ -264,8 +274,8 @@ fn is_enclosed_message(mime: &str) -> bool {
 /// CRLF, and a bare LF from an mbox import would otherwise be a line break the wire does not
 /// have). The label is the least the content needs: `7bit` for short ASCII lines, `8bit` when
 /// there are 8-bit bytes (the submission then asks for `BODY=8BITMIME`, or is refused where the
-/// server cannot carry it), and `binary` for a NUL or a line over 998 octets, which SMTP cannot
-/// carry at all and which says so rather than claiming to be something it is not.
+/// server cannot carry it). A NUL or a line over 998 octets needs `binary`, which SMTP cannot
+/// carry, so such a message is not enclosed this way at all (see [`build`]).
 fn enclosed_message<'x>(mime: &'x str, name: String, bytes: &[u8]) -> MimePart<'x> {
     let body = crlf_lines(bytes);
     let encoding = enclosed_encoding(&body);
