@@ -220,7 +220,8 @@ fn move_to(mut page: Signal<Page>, key: &str) {
         return;
     };
     let moved = super::life::save(&store, &mut write, now).and_then(|draft| {
-        mail_core::compose::move_draft_to(&store, draft.id, account, now).map_err(String::from)
+        mail_core::compose::move_draft_to(&store, draft.id, account, now)
+            .map_err(crate::ui::remedy::told)
     });
     match moved {
         Ok(draft) => write.from = draft.account,

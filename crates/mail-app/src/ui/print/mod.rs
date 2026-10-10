@@ -67,7 +67,7 @@ where
     Tz::Offset: std::fmt::Display,
 {
     mail_core::print::document(store, *job.thread.as_uuid(), zone, now, job.pages)
-        .map_err(String::from)
+        .map_err(crate::ui::remedy::told)
 }
 
 /// The file Save for printing writes ends in this.

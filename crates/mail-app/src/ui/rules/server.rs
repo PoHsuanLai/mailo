@@ -40,7 +40,7 @@ impl Pusher {
                     .rules()
                     .push(account, mail_proto::sieve::Takeover::Refuse),
             )
-            .map_err(String::from)
+            .map_err(crate::ui::remedy::told)
         }))
     }
 

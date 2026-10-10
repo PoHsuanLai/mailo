@@ -2,7 +2,8 @@
 //!
 //! A failure's `Display` says what went wrong in words that fit any front end. What to *do*
 //! about it differs: the command line names a command to type, the window names a button.
-//! So core says which remedy applies and the front end words it (`mail-app`'s `said::remedy`).
+//! So core says which remedy applies and the front end words it (`mail-app`'s `cli::remedy` and
+//! `ui::remedy`).
 //! `mail-core` never names a command.
 
 use mail_domain::Fingerprint;

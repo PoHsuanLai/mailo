@@ -46,7 +46,7 @@ impl ServerSearcher {
         Self(Arc::new(|store, account, input, _now| {
             let mail = crate::edge::mail(&store);
             crate::edge::block_on(mail_core::server_search::search(&mail, account, input))
-                .map_err(String::from)
+                .map_err(crate::ui::remedy::told)
         }))
     }
 

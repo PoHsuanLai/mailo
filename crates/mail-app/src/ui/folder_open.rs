@@ -29,7 +29,8 @@ impl Fetcher {
     pub(in crate::ui) fn server() -> Self {
         Self(Arc::new(|store, account, path, _now| {
             let mail = crate::edge::mail(&store);
-            crate::edge::block_on(mail.sync().folder_now(account, path)).map_err(String::from)
+            crate::edge::block_on(mail.sync().folder_now(account, path))
+                .map_err(crate::ui::remedy::told)
         }))
     }
 

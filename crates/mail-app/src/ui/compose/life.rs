@@ -164,7 +164,7 @@ where
         remind,
         now,
     )
-    .map_err(|refused| refused.to_string())?;
+    .map_err(crate::ui::remedy::told)?;
     Ok(folded(page, due))
 }
 
@@ -239,5 +239,5 @@ pub(in crate::ui) fn unsend(
     draft: DraftId,
     now: DateTime<Utc>,
 ) -> Result<Draft, String> {
-    mail_core::compose::unsend(store, draft, now).map_err(String::from)
+    mail_core::compose::unsend(store, draft, now).map_err(crate::ui::remedy::told)
 }
