@@ -9,6 +9,7 @@ pub use crate::notify::Announce;
 pub mod due;
 pub mod live;
 pub mod report;
+pub mod watcher;
 
 mod body;
 pub use body::fetch_body_with;
@@ -28,7 +29,7 @@ use mail_runtime::{
 };
 use mail_store::SqliteStore;
 use porter_core::{AccountId, Credential, Family, SecretKey, SecretPurpose, SecretText};
-use report::{Done, Emit, Failure, Hooks, PassEnd, Progress, Told, Watched};
+use report::{Done, Emit, Failure, Hooks, PassEnd, Progress};
 pub use search::search_server_with;
 use std::sync::Arc;
 use tokio::sync::watch;
@@ -152,51 +153,6 @@ pub fn poll_interval(store: &SqliteStore) -> std::time::Duration {
 }
 
 impl crate::mail::SyncOps<'_> {
-    /// Keep syncing until the process is stopped — `mailo watch`, and `plan.md` phase 8g.
-    ///
-    /// Where `AccountEngine::watch` finally has a caller outside a test. IDLE is a connection held
-    /// open for as long as the server allows, so it needs a process whose job is to stay open; the
-    /// window was meant to be that and F140 says it is not, so this is.
-    ///
-    /// `notifier` is where what each pass fetches is announced (`plan.md` 10.6): the desktop's
-    /// service in the binary, `None` for a watch that says nothing aloud.
-    ///
-    /// A watch has no end to return a report at, so each thing it would say is handed to `tell` as
-    /// it happens ([`Watched`]) and the caller words it. It returns only once every account has
-    /// stopped for a reason worth stopping for, with how each ended.
-    pub async fn watch(
-        &self,
-        notifier: Option<&dyn crate::notify::Notifier>,
-        tell: &dyn Fn(Watched),
-    ) -> Result<Vec<PassEnd>, CoreError> {
-        let mail = self.0;
-        let registry = mail.clients()?;
-        let announce = match notifier {
-            Some(notifier) => Announce::To {
-                store: mail.store(),
-                notifier,
-            },
-            None => Announce::Quietly,
-        };
-        run_all(
-            mail.store().clone(),
-            mail.secrets(),
-            &registry,
-            mail.now(),
-            Mode::Watch,
-            announce,
-            &Scope {
-                due: &|_| true,
-                kept: &crate::offline::load_default(),
-            },
-            Hooks {
-                told: Some(tell),
-                ..Hooks::default()
-            },
-        )
-        .await
-    }
-
     /// Sync every configured account that has a credential, how each ended kept as data.
     ///
     /// Accounts without one end as [`PassEnd::Failed`] rather than failing the run: having one
@@ -215,7 +171,6 @@ impl crate::mail::SyncOps<'_> {
             &registry,
             mail.now(),
             Mode::Once,
-            Announce::Quietly,
             &Scope {
                 due: &|_| true,
                 kept: &crate::offline::load_default(),
@@ -304,7 +259,6 @@ pub async fn run_with(
         registry,
         now,
         Mode::Once,
-        Announce::Quietly,
         &Scope {
             due: &|_| true,
             kept: &crate::offline::Kept::default(),
@@ -330,15 +284,11 @@ async fn run_all(
     registry: &ClientRegistry,
     now: chrono::DateTime<chrono::Utc>,
     mode: Mode,
-    announce: Announce<'_>,
     scope: &Scope<'_>,
     hooks: Hooks<'_>,
 ) -> Result<Vec<PassEnd>, CoreError> {
     let accounts = pick(&store, scope)?;
-    pass_over(
-        &store, secrets, registry, now, mode, announce, accounts, hooks,
-    )
-    .await
+    pass_over(&store, secrets, registry, now, mode, accounts, hooks).await
 }
 
 /// The accounts a run is to sync.
@@ -365,7 +315,6 @@ async fn pass_over(
     registry: &ClientRegistry,
     now: chrono::DateTime<chrono::Utc>,
     mode: Mode,
-    announce: Announce<'_>,
     accounts: Vec<Configured>,
     hooks: Hooks<'_>,
 ) -> Result<Vec<PassEnd>, CoreError> {
@@ -405,10 +354,8 @@ async fn pass_over(
                 registry,
                 now,
                 mode,
-                announce,
                 cancel,
                 Some(&emit),
-                hooks.told,
             )
             .await;
             ended(account, result, cancelled)
@@ -584,10 +531,8 @@ async fn one(
     registry: &ClientRegistry,
     now: chrono::DateTime<chrono::Utc>,
     mode: Mode,
-    announce: Announce<'_>,
     cancel: Option<watch::Receiver<bool>>,
     emit: Emit<'_>,
-    told: Told<'_>,
 ) -> Result<Done, Failure> {
     say(emit, Progress::Connecting);
     let stored = stored_credential(account, secrets.as_ref()).await?;
@@ -653,16 +598,13 @@ async fn one(
             if let Some(source) = renewal {
                 engine = engine.with_tokens(source);
             }
-            follow(
+            pass(
                 &mut engine,
-                account,
                 &mailboxes,
+                account.keep,
                 &mut cancel,
                 now,
-                mode,
-                announce,
                 emit,
-                told,
             )
             .await
         }
@@ -671,16 +613,13 @@ async fn one(
             if let Some(source) = renewal {
                 engine = engine.with_tokens(source);
             }
-            follow(
+            pass(
                 &mut engine,
-                account,
                 &mailboxes,
+                account.keep,
                 &mut cancel,
                 now,
-                mode,
-                announce,
                 emit,
-                told,
             )
             .await
         }
@@ -690,16 +629,13 @@ async fn one(
             if let Some(source) = renewal {
                 engine = engine.with_tokens(source);
             }
-            follow(
+            pass(
                 &mut engine,
-                account,
                 &mailboxes,
+                account.keep,
                 &mut cancel,
                 now,
-                mode,
-                announce,
                 emit,
-                told,
             )
             .await
         }
@@ -712,17 +648,7 @@ async fn one(
                 secrets,
             )
             .map_err(|e| Failure::of("", &e))?;
-            jmap::drive(
-                &mut engine,
-                account,
-                &mut cancel,
-                now,
-                mode,
-                announce,
-                emit,
-                told,
-            )
-            .await
+            jmap::drive(&mut engine, &mut cancel, now, emit).await
         }
     };
     report.map(|mut done| {
@@ -924,100 +850,34 @@ pub async fn drain_with(
     Ok(engine.drain_outbox(&mut cancel, now).await?)
 }
 
-/// One pass, or passes until the process is stopped.
+/// How long the caller's `now` is good for.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Mode {
-    /// `mailo sync`: one pass per account, then return.
+    /// `mailo sync`, and each pass of the scheduler: one pass, so `now` is the whole of it.
     Once,
-    /// `mailo watch`: keep going, waiting the way each server prefers to be waited on.
+    /// A connection held for as long as the process lives ([`live`]): it outlives any `now` it
+    /// could be handed, so it reads the wall clock.
     Watch,
 }
 
-/// How long to wait after a pass that failed, before trying again.
+/// Drive one account through a single pass.
 ///
-/// A watch that retried immediately against a server that is down is a client hammering someone
-/// else's machine, and the credential rule from F128 applies here too: a rejected sign-in must
-/// not be retried in a loop. `Retryable` already decides that per error; this is the floor for
-/// everything else.
-const AFTER_A_FAILURE: std::time::Duration = std::time::Duration::from_secs(60);
-
-/// Drive one account: a single pass, or a loop that never returns of its own accord.
-///
-/// The loop is where `AccountEngine::watch` finally gets a caller. It has handled IDLE since
-/// phase 3 — and every caller was a test, which F128 found and the window's poll loop was meant
-/// to answer. F140 then established that the window's loop never runs, so this is the first
-/// place IDLE is actually reachable by a user: a process whose whole job is to stay open.
-///
-/// How the pass ended is the return; what a watch does between passes goes to `told`.
-#[allow(clippy::too_many_arguments)]
+/// How the pass ended is the return. Passes over time are the scheduler's
+/// (`mail_runtime::schedule`), which `mailo watch` and the window share; what a watch says
+/// between them is [`watcher::told`].
 pub async fn drive<B: mail_proto::Backend>(
     engine: &mut AccountEngine<B>,
     account: &Configured,
     mailboxes: &[MailboxRef],
     cancel: &mut mail_runtime::Cancel,
     now: chrono::DateTime<chrono::Utc>,
-    mode: Mode,
-    announce: Announce<'_>,
-    told: Told<'_>,
 ) -> PassEnd {
-    let result = follow(
-        engine, account, mailboxes, cancel, now, mode, announce, None, told,
-    )
-    .await;
+    let result = pass(engine, mailboxes, account.keep, cancel, now, None).await;
     ended(account, result, None)
 }
 
-/// [`drive`], with a failure's classification kept and progress reported.
-#[allow(clippy::too_many_arguments)]
-async fn follow<B: mail_proto::Backend>(
-    engine: &mut AccountEngine<B>,
-    account: &Configured,
-    mailboxes: &[MailboxRef],
-    cancel: &mut mail_runtime::Cancel,
-    now: chrono::DateTime<chrono::Utc>,
-    mode: Mode,
-    announce: Announce<'_>,
-    emit: Emit<'_>,
-    told: Told<'_>,
-) -> Result<Done, Failure> {
-    if mode == Mode::Once {
-        return pass(engine, mailboxes, account.keep, cancel, now, emit).await;
-    }
-
-    let poll_every = poll_floor(&account.caps.watch);
-    // The inbox only. `IDLE` holds one selected mailbox per connection, and new mail in a
-    // followed folder — usually filed there by a server-side rule — waits for the next pass,
-    // which every wake-up and every interval runs over all of them.
-    let inbox = mailboxes
-        .first()
-        .cloned()
-        .ok_or_else(|| Failure::fatal("nothing to watch"))?;
-
-    loop {
-        let at = chrono::Utc::now();
-        let report = pass(engine, mailboxes, account.keep, cancel, at, emit).await;
-        match after_pass(account, &report, at, announce, told) {
-            AfterPass::Stop => return report,
-            AfterPass::Hold(wait) => {
-                tokio::time::sleep(wait).await;
-                continue;
-            }
-            AfterPass::Wait => {}
-        }
-
-        // Then wait the way this server prefers — IDLE, or the poll interval, which is the whole
-        // of the waiting for a POP3 account and a safety floor for an IMAP one — or until a send
-        // in the outbox comes due, so one scheduled for nine leaves at nine and not whenever the
-        // server next has news.
-        match engine.wait(&inbox, cancel, poll_every).await {
-            Ok(_) => continue,
-            Err(e) => waited_in_vain(account, &e, told).await,
-        }
-    }
-}
-
-/// How long a watch sleeps between waits on a server that cannot be waited on, and the floor
-/// under one that can: shared by `mailo watch` and the window's live watch ([`live`]).
+/// How long a live watch sleeps between waits on a server that cannot be waited on, and the
+/// floor under one that can ([`live`]).
 fn poll_floor(watch: &WatchMode) -> std::time::Duration {
     match watch {
         WatchMode::Poll { every } => *every,
@@ -1025,99 +885,6 @@ fn poll_floor(watch: &WatchMode) -> std::time::Duration {
         // anything, and a mailbox that is busy would otherwise pass in a tight loop.
         WatchMode::Idle => std::time::Duration::from_secs(30),
     }
-}
-
-/// What a watch does once a pass has been reported.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum AfterPass {
-    /// The credential was refused: stop, and wait for the user.
-    Stop,
-    /// Sleep this long before the next pass, without waiting on the server.
-    Hold(std::time::Duration),
-    /// Wait the way the server prefers.
-    Wait,
-}
-
-/// Tell the watch's caller, if there is one, what it did.
-fn relay(told: Told<'_>, watched: Watched) {
-    if let Some(sink) = told {
-        sink(watched);
-    }
-}
-
-/// Report one pass of a watch, announce what it fetched, and say what to do next.
-///
-/// Shared by every protocol's loop, so a JMAP watch stops on a refused password and honours a
-/// rate limit exactly as an IMAP one does.
-fn after_pass(
-    account: &Configured,
-    report: &Result<Done, Failure>,
-    at: chrono::DateTime<chrono::Utc>,
-    announce: Announce<'_>,
-    told: Told<'_>,
-) -> AfterPass {
-    relay(told, Watched::Pass(ended(account, report.clone(), None)));
-    let done = match report {
-        Ok(done) => done,
-        Err(_) => return AfterPass::Hold(AFTER_A_FAILURE),
-    };
-    // After the pass is told, so a notification never announces mail the caller has not yet
-    // heard was fetched. A failure here is told and does not stop the watch: mail that cannot be
-    // announced is still mail worth fetching.
-    if let Announce::To { store, notifier } = announce
-        && let Err(why) = crate::notify::announce(
-            store,
-            account.id.clone(),
-            &done.counts.arrived,
-            notifier,
-            at,
-        )
-    {
-        relay(
-            told,
-            Watched::AnnounceFailed {
-                address: account.address.clone(),
-                why: why.to_string(),
-            },
-        );
-    }
-    // Then the follow-up reminders (`crate::follow_up`): what this pass fetched may be the reply
-    // one was waiting for, or the Sent copy a composer's reminder was waiting to join, and one
-    // may simply have come due. Only a watch that announces sweeps, so that a reminder coming
-    // back is said by whoever brings it back: a quiet watch leaves it to the window.
-    if let Announce::To { store, notifier } = announce
-        && let Err(why) = crate::follow_up::sweep_and_announce(store, Some(notifier), at)
-    {
-        relay(
-            told,
-            Watched::RemindersFailed {
-                why: why.to_string(),
-            },
-        );
-    }
-    // The rule F128 built its loop on, and the reason this one is not a bare sleep: a credential
-    // the server has already refused must stop the loop rather than slow it. Sixty seconds of
-    // wrong passwords is still a locked account by morning.
-    if report::needs_person(&done.trouble) {
-        return AfterPass::Stop;
-    }
-    // The server asked. Honour it before doing anything else (F130).
-    match report::hold(&done.trouble) {
-        Some(wait) => AfterPass::Hold(wait),
-        None => AfterPass::Wait,
-    }
-}
-
-/// A wait that failed is told, and the watch gives the server a minute before it passes again.
-async fn waited_in_vain(account: &Configured, e: &impl std::fmt::Display, told: Told<'_>) {
-    relay(
-        told,
-        Watched::WaitFailed {
-            address: account.address.clone(),
-            why: e.to_string(),
-        },
-    );
-    tokio::time::sleep(AFTER_A_FAILURE).await;
 }
 
 /// One whole sync pass, whatever the protocol underneath.

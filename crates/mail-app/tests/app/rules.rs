@@ -482,18 +482,7 @@ async fn one_pass(port: u16, store: &Arc<SqliteStore>) -> AccountReport {
         path: "INBOX".to_owned(),
     }];
     let (_tx, mut cancel) = tokio::sync::watch::channel(false);
-    match sync::drive(
-        &mut engine,
-        &account,
-        &inbox,
-        &mut cancel,
-        Utc::now(),
-        sync::Mode::Once,
-        sync::Announce::Quietly,
-        None,
-    )
-    .await
-    {
+    match sync::drive(&mut engine, &account, &inbox, &mut cancel, Utc::now()).await {
         PassEnd::Finished(report) => report,
         other => panic!("the pass did not run to its end: {other:?}"),
     }

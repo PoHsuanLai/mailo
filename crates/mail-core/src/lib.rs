@@ -28,7 +28,6 @@ pub mod discover;
 pub mod environment;
 pub mod error;
 pub mod export;
-pub mod fetch;
 pub mod folder;
 pub mod follow_up;
 pub mod import;
@@ -66,7 +65,8 @@ pub use mail::{
 /// The runtime types mail-core's API hands out and takes: re-exported, so a front end goes
 /// through mail-core alone.
 pub use mail_runtime::{
-    AccountSecrets, ClientRegistry, KeyringSigningStore, SigningStore, sieve::Pushed,
+    AccountSecrets, ClientRegistry, KeyringSigningStore, SigningStore, fetch, schedule,
+    sieve::Pushed,
 };
 /// The store a front end opens and hands to mail-core.
 pub use mail_store::{SqliteStore, Store};

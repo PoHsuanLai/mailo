@@ -1,9 +1,9 @@
 //! The daemon end: bind the socket, answer clients, tidy up on the way out.
 //!
 //! What runs behind the door is still `sync::run`. Holding IDLE connections here — which is the
-//! point of having a daemon at all — is the next step, and it is `sync::drive` in `Mode::Watch`
-//! with its output going to clients instead of to a terminal. Until then a `mailo watch` holds
-//! them, and keeps a door of its own for the window to listen at (`super::watching`).
+//! point of having a daemon at all — is the next step, and it is `sync::watcher` with its output
+//! going to clients instead of to a terminal. Until then a `mailo watch` holds them, and keeps a
+//! door of its own for the window to listen at (`super::watching`).
 
 use super::changes::{self, Answer, Subscribers};
 use super::wire::{Request, Response};

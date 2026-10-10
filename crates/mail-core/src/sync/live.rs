@@ -1,11 +1,11 @@
 //! Waiting for the server to say something, as data.
 //!
-//! `mailo watch` waits inside [`super::drive`], between passes it runs itself. The window runs
-//! its passes elsewhere and wants only the waiting: one connection kept open, and a typed
-//! [`Heard`] each time the server, the outbox or the interval has something to say.
-//! [`SyncOps::listen`](crate::SyncOps) is that, built from the same engine calls `drive` makes (`AccountEngine::wait`,
-//! `JmapEngine::wait`) and the same floor under them ([`super::poll_floor`]), so the two cannot
-//! disagree about how a server is waited on.
+//! The scheduler (`mail_runtime::schedule`) runs the passes, and wants only the waiting from
+//! here: one connection kept open, and a typed [`Heard`] each time the server, the outbox or the
+//! interval has something to say. [`SyncOps::listen`](crate::SyncOps) is that, built from the
+//! engine calls a pass makes (`AccountEngine::wait`, `JmapEngine::wait`) and the floor under
+//! them ([`super::poll_floor`]), so the window and `mailo watch` cannot disagree about how a
+//! server is waited on.
 //!
 //! It runs no pass and holds no lock on the store: [`mail_runtime::AccountEngine::wait`] looks
 //! at the outbox with one short query every few seconds and otherwise only sleeps on a socket.
@@ -45,28 +45,7 @@ pub const GRACE: Duration = Duration::from_secs(2);
 /// See [`Hold`]. A caller that never answers must not stop the watch for ever.
 pub const ACT_CEILING: Duration = Duration::from_secs(10 * 60);
 
-/// What the server, the outbox or the clock said.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Heard {
-    /// The connection is held and the server is being waited on.
-    Established,
-    /// The server said something changed.
-    Mail,
-    /// Something in the outbox came due.
-    Due,
-    /// The server ended its wait without news, or the interval ran out. Mail may have arrived
-    /// in the gap between one wait and the next, so this is when a quiet account is looked at.
-    Interval,
-}
-
-/// Why the watch is over, when nobody asked it to be.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Lost {
-    /// What to do about it: wait, ask for a sign-in, or give up.
-    pub retry: Retry,
-    /// What to tell a person.
-    pub why: String,
-}
+pub use mail_runtime::schedule::{Heard, Lost};
 
 impl From<Failure> for Lost {
     fn from(failure: Failure) -> Self {
@@ -77,23 +56,17 @@ impl From<Failure> for Lost {
     }
 }
 
-impl Lost {
-    fn of(e: &RuntimeError) -> Self {
-        Failure::of("", e).into()
-    }
-
-    fn unsupported(why: &str) -> Self {
-        Failure::fatal(why).into()
-    }
+/// Why waiting on the server failed, as the scheduler hears it.
+fn lost(e: &RuntimeError) -> Lost {
+    Failure::of("", e).into()
 }
 
-/// How the caller lets the watch know it has finished reacting to a wake.
-///
-/// After [`Heard::Mail`] the stored cursor is out of date until the caller's pass has run, so
-/// waiting again at once would be told about the same mail again, in a loop. The caller bumps
-/// this channel when its reaction is over; the watch waits for that, for at most
-/// [`ACT_CEILING`], before it listens again.
-pub type Hold = watch::Receiver<u64>;
+/// Why this account cannot be waited on at all.
+fn unsupported(why: &str) -> Lost {
+    Failure::fatal(why).into()
+}
+
+pub use mail_runtime::schedule::Hold;
 
 /// Whether the account's stored plan and capabilities can be waited on: see the table above.
 pub fn pushes(account: &Configured) -> bool {
@@ -127,9 +100,7 @@ impl crate::mail::SyncOps<'_> {
         heard: &dyn Fn(Heard),
     ) -> Result<(), Lost> {
         let mail = self.0;
-        let registry = mail
-            .clients()
-            .map_err(|e| Lost::unsupported(&e.to_string()))?;
+        let registry = mail.clients().map_err(|e| unsupported(&e.to_string()))?;
         listen_with(
             mail.store().clone(),
             mail.secrets(),
@@ -157,10 +128,10 @@ pub async fn listen_with(
     heard: &dyn Fn(Heard),
 ) -> Result<(), Lost> {
     let account = configured(&store)
-        .map_err(|why| Lost::unsupported(&why.to_string()))?
+        .map_err(|why| unsupported(&why.to_string()))?
         .into_iter()
         .find(|one| one.id == account)
-        .ok_or_else(|| Lost::unsupported("that account is no longer configured"))?;
+        .ok_or_else(|| unsupported("that account is no longer configured"))?;
     let mut waiting = Waiter::open(&store, &account, secrets, registry).await?;
     let mut cancel = cancel;
     hearing(&mut waiting, &mut cancel, hold, grace, heard).await
@@ -188,7 +159,7 @@ impl Waiter {
         registry: &ClientRegistry,
     ) -> Result<Self, Lost> {
         if !pushes(account) {
-            return Err(Lost::unsupported("this account has no push to wait on"));
+            return Err(unsupported("this account has no push to wait on"));
         }
         let stored = super::stored_credential(account, secrets.as_ref()).await?;
         // The wall clock, because a watch outlives any `now` it could be handed.
@@ -212,7 +183,7 @@ impl Waiter {
                 let inbox = to_sync(account, &[])
                     .into_iter()
                     .next()
-                    .ok_or_else(|| Lost::unsupported("nothing to watch"))?;
+                    .ok_or_else(|| unsupported("nothing to watch"))?;
                 Ok(Waiter::Imap {
                     engine: Box::new(engine),
                     inbox,
@@ -226,11 +197,11 @@ impl Waiter {
                     store.clone(),
                     secrets,
                 )
-                .map_err(|e| Lost::of(&e))?;
-                engine.connect().await.map_err(|e| Lost::of(&e))?;
+                .map_err(|e| lost(&e))?;
+                engine.connect().await.map_err(|e| lost(&e))?;
                 // The stored capabilities said push; the server's own session is the authority.
                 if !engine.pushes() {
-                    return Err(Lost::unsupported("the server offers no event source"));
+                    return Err(unsupported("the server offers no event source"));
                 }
                 Ok(Waiter::Jmap {
                     engine: Box::new(engine),
@@ -238,7 +209,7 @@ impl Waiter {
                 })
             }
             Incoming::Pop3 { .. } | Incoming::Graph | Incoming::Local => {
-                Err(Lost::unsupported("this account has no push to wait on"))
+                Err(unsupported("this account has no push to wait on"))
             }
         }
     }
@@ -290,18 +261,14 @@ async fn hearing(
                 }
             }
             Err(RuntimeError::Cancelled) => return Ok(()),
-            Err(e) => return Err(Lost::of(&e)),
+            Err(e) => return Err(lost(&e)),
         }
     }
 }
 
 /// What a wake is told as.
 pub fn said(woke: Woke) -> Heard {
-    match woke {
-        Woke::Mail => Heard::Mail,
-        Woke::Due => Heard::Due,
-        Woke::Interval => Heard::Interval,
-    }
+    Heard::from(woke)
 }
 
 /// After a wake for mail: wait until the caller has reacted, the ceiling, or cancellation.

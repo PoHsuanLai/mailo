@@ -150,24 +150,22 @@ pub(crate) type Emit<'a> = Option<&'a dyn Fn(Progress)>;
 pub enum Watched {
     /// One account's pass ended.
     Pass(PassEnd),
-    /// Waiting on the server failed. The watch sleeps a minute and goes on.
+    /// Waiting on the server failed. The watch connects again, further apart each time.
     WaitFailed { address: String, why: String },
+    /// A pass could not start at all, for a reason that is not an account's (no client registry,
+    /// a task that stopped). It is tried again at the account's interval, doubling.
+    RunFailed { why: String },
     /// What a pass fetched could not be announced on the desktop.
     AnnounceFailed { address: String, why: String },
     /// The follow-up reminders could not be swept.
     RemindersFailed { why: String },
 }
 
-/// Where a watch reports what it has [`Watched`].
-pub type Told<'a> = Option<&'a dyn Fn(Watched)>;
-
 /// What a caller can hand a pass beyond the accounts it is to run.
 #[derive(Default)]
 pub struct Hooks<'a> {
     /// Told of each account's progress as the pass goes.
     pub progress: Option<&'a dyn Fn(AccountId, Progress)>,
-    /// Told of what a watch does between passes. A single pass has nothing to tell.
-    pub told: Told<'a>,
     /// A signal per account that ends its pass. An account with none runs to the end.
     pub cancel: BTreeMap<AccountId, watch::Receiver<bool>>,
 }
@@ -176,7 +174,6 @@ impl std::fmt::Debug for Hooks<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Hooks")
             .field("progress", &self.progress.map(|_| "a sink"))
-            .field("told", &self.told.map(|_| "a sink"))
             .field("cancel", &self.cancel.keys().collect::<Vec<_>>())
             .finish()
     }
