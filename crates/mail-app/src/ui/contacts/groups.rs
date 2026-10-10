@@ -5,7 +5,7 @@
 //! sheet and labels a group's members.
 
 use mail_core::Store;
-use mail_core::contacts::groups::{self as core, GroupError, Labelled};
+use mail_core::contacts::groups::{self as shared, GroupError, Labelled};
 use mail_core::contacts::{Group, GroupId};
 
 pub(in crate::ui) use mail_core::contacts::groups::{Expanded, OFFERED, Offer, expand, offers};
@@ -24,39 +24,39 @@ fn refused(why: GroupError) -> String {
 
 /// Every group, with a word of its name beginning each word of `filter`, for the sheet.
 pub(in crate::ui) fn listed(store: &dyn Store, filter: &str) -> Result<Vec<Group>, String> {
-    core::listed(store, filter).map_err(|e| e.to_string())
+    shared::listed(store, filter).map_err(|e| e.to_string())
 }
 
 /// A new group of nobody, made here, called `name`.
 pub(in crate::ui) fn create(store: &dyn Store, name: &str) -> Result<Group, String> {
-    core::create(store, name).map_err(refused)
+    shared::create(store, name).map_err(refused)
 }
 
 /// Call the group `id` `name`.
 pub(in crate::ui) fn rename(store: &dyn Store, id: &GroupId, name: &str) -> Result<Group, String> {
-    core::rename(store, id, name).map_err(refused)
+    shared::rename(store, id, name).map_err(refused)
 }
 
 /// Add `typed`, one address or several, to the group `id`, each as a `mailto:` member. An
 /// address already in it is not added twice.
 pub(in crate::ui) fn add(store: &dyn Store, id: &GroupId, typed: &str) -> Result<Group, String> {
-    core::add(store, id, typed).map_err(refused)
+    shared::add(store, id, typed).map_err(refused)
 }
 
 /// Take the member written `uri` out of the group `id`.
 pub(in crate::ui) fn remove(store: &dyn Store, id: &GroupId, uri: &str) -> Result<Group, String> {
-    core::remove(store, id, uri).map_err(refused)
+    shared::remove(store, id, uri).map_err(refused)
 }
 
 /// Forget a group made here. A synced group is its address book's to delete.
 pub(in crate::ui) fn forget(store: &dyn Store, id: &GroupId) -> Result<(), String> {
-    core::forget(store, id).map_err(refused)
+    shared::forget(store, id).map_err(refused)
 }
 
 /// Each member of `group` as written, with what the sheet shows for it: the person it names,
 /// or the URI when it names nobody known.
 pub(in crate::ui) fn member_labels(store: &dyn Store, group: &Group) -> Vec<(String, String)> {
-    core::members(store, group)
+    shared::members(store, group)
         .into_iter()
         .map(|(uri, labelled)| {
             let label = match labelled {
