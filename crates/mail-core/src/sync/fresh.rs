@@ -82,11 +82,11 @@ impl Pace {
             .or_log("what the account's server can do could not be read")
             .flatten()
             .map_or(
-            WatchMode::Poll {
-                every: super::due::IDLE,
-            },
-            |caps| caps.watch,
-        );
+                WatchMode::Poll {
+                    every: super::due::IDLE,
+                },
+                |caps| caps.watch,
+            );
         Pace {
             recorded,
             ..Pace::of_watch(&watch)
