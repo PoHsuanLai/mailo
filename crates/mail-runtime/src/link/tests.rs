@@ -150,11 +150,11 @@ fn each_refusal_is_told_to_the_person_or_waited_out() {
 }
 
 fn token(value: &str, expires: i64) -> IssuedToken {
-    IssuedToken {
-        kind: TokenKind::Bearer,
-        value: SecretText::new(value),
-        expires: UnixSeconds(expires),
-    }
+    IssuedToken::new(
+        TokenKind::Bearer,
+        SecretText::new(value),
+        UnixSeconds(expires),
+    )
 }
 
 const NOON: i64 = 1_700_000_000;

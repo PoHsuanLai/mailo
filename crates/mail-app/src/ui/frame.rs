@@ -73,12 +73,23 @@ pub(super) fn keep(spaces: &Spaces) {
 /// writes `settings.toml`, `keyboard.json` or `spaces.json`, read them again into the window's
 /// settings, `shell` and `spaces`. The main window's Spaces go through `handle`, which leaves
 /// them alone while a part of a Space's menu is open, whose close writes them; another window's
-/// only wear them.
+/// only wear them. A keymap that differs from the one the window's `keys` hold, whether this
+/// window's Keyboard page changed it or another's did, is handed to `keys` at once, so a
+/// rebinding or a reset applies without reopening anything.
 pub(super) fn use_followed_configuration(
     mut shell: Signal<crate::ui::view::Shell>,
     mut spaces: Signal<Spaces>,
     handle: Option<crate::ui::space::Handle>,
+    keys: ds::prelude::Keys,
 ) {
+    let mut applied = use_hook(|| CopyValue::new(shell.peek().keymap.overrides()));
+    use_effect(move || {
+        let overrides = shell.read().keymap.overrides();
+        if *applied.peek() != overrides {
+            applied.set(overrides.clone());
+            keys.set_overrides(overrides);
+        }
+    });
     let configured = use_signal(|| 0u64);
     crate::ui::revisions::use_shared_configuration(configured);
     use_effect(move || {

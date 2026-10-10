@@ -8,12 +8,10 @@
    shown and its clear. The words give way to the tools, cut at the end of the button. */
 .list-head .bar { display: flex; align-items: center; flex: 0 1 auto; min-width: 0; }
 .list-head .bar .search-shown { min-width: 0; max-width: 168px; overflow: hidden; }
-/* The search panel: quire's popover hangs from a line across the window a little way down from
-   its top, centred under it, as Spotlight sits on the screen. The card is the field over the
-   rows; the rows sit inset as a menu's do, and scroll past a glance's worth. */
+/* The search panel: quire's search card hangs from a line across the window a little way down from
+   its top, centred under it, as Spotlight sits on the screen. The card and its rows are quire's
+   (`.ds-search-card`); this is only the line. */
 .spotlight-line { position: absolute; left: 0; right: 0; top: 14%; height: var(--hair); pointer-events: none; }
-.spotlight { display: flex; flex-direction: column; width: 600px; }
-.spotlight-rows { padding: var(--s-5); max-height: 440px; overflow-y: auto; }
 /* The box around quire's list. The list scrolls itself (`VirtualList` holds the scroller), so this
    does not, and its padding goes to the sides of each item: at the top or bottom it would shift
    every row off the offsets the window is computed from. Each item is held to its slot. */

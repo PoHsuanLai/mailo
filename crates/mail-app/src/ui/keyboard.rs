@@ -171,7 +171,7 @@ pub(in crate::ui) fn KeyboardPage(shell: Signal<Shell>) -> Element {
         FormSection {
             title: Some("Shortcuts".to_owned()),
             footer: Some(
-                "Letters work while you read, never while you type. A changed key is used the next time mailo opens."
+                "Letters work while you read, never while you type."
                     .to_owned(),
             ),
             FieldRow {

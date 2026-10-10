@@ -34,33 +34,33 @@ fn endpoint(family: Family, url: &str, tls: porter_core::Tls) -> ServiceEndpoint
 }
 
 fn fastmail() -> Candidate {
-    Candidate {
-        account: AccountId::parse("fastmail-me").unwrap(),
-        label: AccountLabel(GRANTED.to_owned()),
-        provider: ProviderId::parse("fastmail").unwrap(),
-        subject: Subject::Account,
-        capability: Capability::Mail(MailCap {
+    Candidate::new(
+        AccountId::parse("fastmail-me").unwrap(),
+        AccountLabel(GRANTED.to_owned()),
+        ProviderId::parse("fastmail").unwrap(),
+        Subject::Account,
+        Capability::Mail(MailCap {
             access: Access::ReadWrite,
             send: Offered::Present,
             delta: Delta::Push,
             transport: MailTransport::Imap,
             labels: LabelModel::Folders,
         }),
-        restriction: Restriction::none(),
-        grant: GrantId::parse("grant-1").unwrap(),
-        endpoints: vec![
-            endpoint(
-                Family::Imap,
-                "imaps://imap.fastmail.test:993",
-                porter_core::Tls::Implicit,
-            ),
-            endpoint(
-                Family::Smtp,
-                "smtp://smtp.fastmail.test:587",
-                porter_core::Tls::StartTls,
-            ),
-        ],
-    }
+        Restriction::none(),
+        GrantId::parse("grant-1").unwrap(),
+    )
+    .with_endpoints(vec![
+        endpoint(
+            Family::Imap,
+            "imaps://imap.fastmail.test:993",
+            porter_core::Tls::Implicit,
+        ),
+        endpoint(
+            Family::Smtp,
+            "smtp://smtp.fastmail.test:587",
+            porter_core::Tls::StartTls,
+        ),
+    ])
 }
 
 /// A row as an earlier, unlinked start wrote it: its plan, and the capabilities beside it.

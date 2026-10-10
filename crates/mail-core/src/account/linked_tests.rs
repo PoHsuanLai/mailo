@@ -33,22 +33,22 @@ fn endpoint(family: Family, url: &str, tls: porter_core::Tls) -> ServiceEndpoint
 }
 
 fn candidate(account: &str, grant: &str, endpoints: Vec<ServiceEndpoint>) -> Candidate {
-    Candidate {
-        account: AccountId::parse(account).unwrap(),
-        label: AccountLabel("me@example.test".to_owned()),
-        provider: ProviderId::parse("fastmail").unwrap(),
-        subject: Subject::Account,
-        capability: Capability::Mail(MailCap {
+    Candidate::new(
+        AccountId::parse(account).unwrap(),
+        AccountLabel("me@example.test".to_owned()),
+        ProviderId::parse("fastmail").unwrap(),
+        Subject::Account,
+        Capability::Mail(MailCap {
             access: Access::ReadWrite,
             send: Offered::Present,
             delta: Delta::Push,
             transport: MailTransport::Imap,
             labels: LabelModel::Folders,
         }),
-        restriction: Restriction::none(),
-        grant: GrantId::parse(grant).unwrap(),
-        endpoints,
-    }
+        Restriction::none(),
+        GrantId::parse(grant).unwrap(),
+    )
+    .with_endpoints(endpoints)
 }
 
 fn fastmail(account: &str, grant: &str) -> Candidate {

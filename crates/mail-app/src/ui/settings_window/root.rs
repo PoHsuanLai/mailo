@@ -98,11 +98,10 @@ fn SettingsShell() -> Element {
     let _ = crate::ui::prefs::use_prefs(dirs.as_ref());
     crate::ui::hover::use_hover();
     crate::ui::motion::use_motion();
+    let keys = crate::ui::actions::use_window_keys();
     // Key bindings and Spaces another window writes; this one tells them its own through
     // `frame::keep` and the Keyboard page. Settings are watched by the root.
-    crate::ui::frame::use_followed_configuration(shell, spaces, None);
-
-    let keys = crate::ui::actions::use_window_keys();
+    crate::ui::frame::use_followed_configuration(shell, spaces, None, keys);
     let on_key = move |event: Event<KeyboardData>| {
         let key = event.key().to_string();
         // The Keyboard page takes every key while an action waits for one: the key pressed to be

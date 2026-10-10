@@ -474,7 +474,7 @@ fn the_command_key_copies_the_search_fields_selection() {
     let (mut harness, _dir) = open();
     harness.chord(&[PRIMARY], Key::Char('k'));
     until(&mut harness, "the search field", |h| {
-        h.is_focused(".spotlight input")
+        h.is_focused(".ds-search-card input")
     });
     type_text(&mut harness, "invoice");
     harness.chord(&[COMMAND], Key::Char('a'));

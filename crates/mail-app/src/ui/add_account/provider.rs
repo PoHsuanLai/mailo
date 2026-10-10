@@ -275,6 +275,8 @@ impl Provider for MailProvider {
                 state: State::Fresh,
             }),
             SignInMode::Reauthenticate { .. } => Err(ProviderError::Unreadable),
+            // A mode newer than this build: refuse it as unreadable rather than guess.
+            _ => Err(ProviderError::Unreadable),
         }
     }
 
@@ -674,13 +676,13 @@ impl MailSignIn {
             Ok(Ok(_)) => {
                 self.added.record(address.clone());
                 self.state = State::Ended;
-                SignInStep::Done(Signed {
-                    label: AccountLabel(address),
-                    credentials: Vec::new(),
-                    claims: mail_claims(&self.spec),
-                    endpoints: Vec::new(),
-                    restriction: Restriction::none(),
-                })
+                SignInStep::Done(Signed::new(
+                    AccountLabel(address),
+                    Vec::new(),
+                    mail_claims(&self.spec),
+                    Vec::new(),
+                    Restriction::none(),
+                ))
             }
             Ok(Err(_)) | Err(_) => self.failed(SignInFault::StoreFailed),
         }

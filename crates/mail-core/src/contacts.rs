@@ -632,16 +632,16 @@ mod tests {
         capability: Capability,
         endpoints: Vec<ServiceEndpoint>,
     ) -> Candidate {
-        Candidate {
-            account: AccountId::parse(account).unwrap(),
-            label: AccountLabel(ME.to_owned()),
-            provider: ProviderId::parse("fastmail").unwrap(),
-            subject: Subject::Account,
+        Candidate::new(
+            AccountId::parse(account).unwrap(),
+            AccountLabel(ME.to_owned()),
+            ProviderId::parse("fastmail").unwrap(),
+            Subject::Account,
             capability,
-            restriction: Restriction::none(),
-            grant: GrantId::parse(grant).unwrap(),
-            endpoints,
-        }
+            Restriction::none(),
+            GrantId::parse(grant).unwrap(),
+        )
+        .with_endpoints(endpoints)
     }
 
     /// What accountd lists for Mail's mail grant on the account.

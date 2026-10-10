@@ -269,7 +269,7 @@ pub(super) fn App() -> Element {
 
     // Another window (Settings) may have written a key binding or the Spaces: read them again.
     // `settings.toml` needs nothing here: the window's root watches it.
-    super::frame::use_followed_configuration(shell, spaces, Some(handle));
+    super::frame::use_followed_configuration(shell, spaces, Some(handle), keys);
 
     // An account removed, here or from a terminal, leaves every Space, and the tile pressed. Not
     // while a part of the Space's menu is open: its close writes the Spaces. Run again when the

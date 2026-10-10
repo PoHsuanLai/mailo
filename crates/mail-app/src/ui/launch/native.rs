@@ -62,10 +62,9 @@ pub(super) fn run(opening: Opening) -> Result<(), ds_blitz::LaunchError> {
     crate::accountd::follow(&store, &crate::edge::link(), move |_| {
         following.bump();
     });
-    // The keys the person chose, read once like the above: quire lays them over the system's
-    // keymap for every window, so they are the keymap's own chords. A change made in Settings is
-    // read the next time mailo opens, for quire has no way yet to change a running keymap's
-    // overrides.
+    // The keys the person chose, as the windows open: quire lays them over the system's keymap
+    // for every window, so they are the keymap's own chords. A change made in Settings reaches
+    // the running windows through `Keys::set_overrides` (`frame::use_followed_configuration`).
     let chosen = dirs
         .as_ref()
         .map(|dirs| crate::ui::keymap::load(&dirs.config).overrides());

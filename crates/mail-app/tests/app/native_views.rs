@@ -147,7 +147,7 @@ fn labelled(label: &str) -> String {
 fn summon(harness: &mut Harness) {
     harness.chord(&[PRIMARY], Key::Char('k'));
     let started = std::time::Instant::now();
-    while !harness.is_focused(".spotlight input") {
+    while !harness.is_focused(".ds-search-card input") {
         assert!(
             started.elapsed() < Duration::from_secs(30),
             "⌘K brought up no search panel:\n{}",
@@ -164,7 +164,7 @@ fn put_away(harness: &mut Harness) {
         y: ds::prelude::Px(4.0),
     });
     let started = std::time::Instant::now();
-    while harness.count(".spotlight") > 0 {
+    while harness.count(".ds-search-card") > 0 {
         assert!(
             started.elapsed() < Duration::from_secs(30),
             "the search panel stayed up:\n{}",

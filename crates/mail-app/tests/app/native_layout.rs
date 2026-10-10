@@ -381,7 +381,7 @@ fn the_list_s_title_and_search_give_way_to_its_tools_in_a_narrow_list() {
             // Idle, the toolbar has no field: the magnifier alone.
             assert_eq!(harness.count(".list-head input"), 0);
             harness.chord(&[drive::PRIMARY], drive::Key::Char('k'));
-            settle_until(&mut harness, |h| h.is_focused(".spotlight input"));
+            settle_until(&mut harness, |h| h.is_focused(".ds-search-card input"));
             for key in "zz".chars() {
                 harness.key(drive::Key::Char(key));
             }
@@ -393,7 +393,7 @@ fn the_list_s_title_and_search_give_way_to_its_tools_in_a_narrow_list() {
                 y: Px(column.origin.y.0 + column.size.height.0 - 40.0),
             });
             settle_until(&mut harness, |h| {
-                h.count(".spotlight") == 0 && h.count(".list-head .search-shown") == 1
+                h.count(".ds-search-card") == 0 && h.count(".list-head .search-shown") == 1
             });
         }
     }
@@ -405,10 +405,10 @@ fn the_search_panel_sits_at_the_top_centre_of_the_window() {
         let (mut harness, _dir) = open(width, spaces(1));
         harness.chord(&[drive::PRIMARY], drive::Key::Char('k'));
         settle_until(&mut harness, |h| {
-            h.is_focused(".spotlight input") && h.count(".spotlight .ds-menu-item") > 0
+            h.is_focused(".ds-search-card input") && h.count(".ds-search-card .ds-menu-item") > 0
         });
         harness.advance(ms(300));
-        let panel = rect(&harness, ".spotlight");
+        let panel = rect(&harness, ".ds-search-card");
         let middle = panel.origin.x.0 + panel.size.width.0 / 2.0;
         assert!(
             (middle - width as f32 / 2.0).abs() <= 1.0,
