@@ -268,13 +268,15 @@ const SCRIPTS: [Script; 4] = [
 /// locale's; a message the builder marked with its script leads with that script's face, and
 /// so do the document's own lines when `<body>` carries the first message's mark.
 pub(in crate::ui) fn paper_css(default: Cjk) -> String {
+    /// A printout is paper, not the window: its note's grey is a literal, named here.
+    const NOTE_INK: &str = "#555";
     let Families { serif, sans, mono } = Families::led_by(default);
     let mut css = format!(
         "body {{ font-family: {serif}; }}\n\
          .printed, .paper-note, h1.thread, .headers, .headers h2, .note, .attachments \
          {{ font-family: {sans}; }}\n\
          .body pre, .body code {{ font-family: {mono}; }}\n\
-         .paper-note {{ font-size: 8pt; color: #555; margin: 0 0 1em; }}\n"
+         .paper-note {{ font-size: 8pt; color: {NOTE_INK}; margin: 0 0 1em; }}\n"
     );
     for script in SCRIPTS {
         let cjk = Cjk::for_script(script, default);

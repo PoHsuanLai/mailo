@@ -1,5 +1,6 @@
 //! The composer is set as the reader sets a message, on Blitz (`native`), in the real window: a
-//! new message's subject sits where a message's title does, at its size and weight; its address
+//! new message's subject sits where a message's title does (larger: the composer's subject is
+//! 26, a reader's 20), at its weight; its address
 //! lines start at the reader's left edge, as a message's header does; and its body starts where
 //! the reader's body does, at the reader's size. A reply under the thread lines up the same way,
 //! and its bar of buttons is drawn inside the window.
@@ -251,7 +252,9 @@ fn a_new_message_is_set_as_the_reader_sets_a_message() {
 
     let (subject_left, subject_font) = text_box(&harness, ".cpage .c-title input");
     near("the subject", subject_left, model.title_left);
-    assert_eq!(subject_font, model.title_font, "the subject's size");
+    // The rule sheet sets the two subjects apart: a message's is 20, a new message's 26.
+    assert_eq!(model.title_font, 20.0, "the reader's subject size");
+    assert_eq!(subject_font, 26.0, "the composer's subject size");
     assert_lines(
         &harness,
         ".cpage",

@@ -128,7 +128,7 @@ fn SettingsShell() -> Element {
     rsx! {
         Frame { spaces,
             style { {STYLE} }
-            div { class: "app settings-window",
+            div { class: "app",
                 tabindex: "0",
                 onmounted: crate::ui::host::Host::app_mounted,
                 onkeydown: on_key,

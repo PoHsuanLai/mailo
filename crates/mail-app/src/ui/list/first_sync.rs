@@ -13,7 +13,7 @@ const ROWS: usize = 8;
 pub(super) fn FirstSyncRows() -> Element {
     rsx! {
         div { class: "first-sync",
-            Label { text: FIRST_SYNC, role: LabelRole::Tertiary, style: LabelStyle::Caption }
+            Label { text: FIRST_SYNC, role: LabelRole::Tertiary, style: LabelStyle::Footnote }
             for n in 0..ROWS {
                 SkeletonRow {
                     key: "{n}",

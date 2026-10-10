@@ -1,5 +1,6 @@
-/* The frame. Two gradient layers, the sidebar on the colour, the card on paper.
-   Focusable for the keyboard, without a ring around the entire window. */
+/* The frame, flush as a standard Mac window is: the sidebar on the Space's tint and the card on
+   paper side by side, with no inset, no rounded card and no shadow around either. Focusable for
+   the keyboard, without a ring around the entire window. */
 .app:focus { outline: none; }
 .app {
   position: relative;
@@ -7,12 +8,9 @@
   box-sizing: border-box;
   height: 100vh;
   min-height: 0;
-  padding: var(--s-8) var(--s-8) var(--s-8) 0;
   color: var(--f-ink);
   background: transparent;
-  transition: padding var(--t-move) var(--e-out);
 }
-.app.no-side { padding-left: var(--s-8); }
 /* The window is quire's `SplitView`: the sidebar pane, then the card. Hidden, the sidebar's edge
    and its peek live in a zero-width host at the window's left edge, which the peek floats from. */
 .edge-host { position: absolute; left: 0; top: 0; bottom: 0; width: 0; }
@@ -30,28 +28,28 @@
 .slide { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: none; display: flex; flex-direction: column; gap: var(--s-4); }
 /* The accounts: quire's `PinTile`s, four to a row. */
 /* A folder the person does not follow is drawn quieter. */
-.dim { opacity: .62; }
+.dim:not([*|aria-selected="true"]) { color: var(--ink-faint); }
 /* The sidebar's head and foot are quire's Spaces kit (`SpaceHead`, `SpacesFoot`). */
 /* Downloads: the button's hold carries the dot that says a file is being saved, or one was
    saved since the list was last opened. */
 .downloads-hold { position: relative; display: flex; }
 .downloads-dot {
-  position: absolute; top: var(--s-3); right: var(--s-3); width: 6px; height: 6px;
-  border-radius: var(--r-pill); background: var(--accent-text); pointer-events: none;
+  position: absolute; top: var(--s-3); right: var(--s-3); width: var(--s-6); height: var(--s-6);
+  border-radius: var(--r-pill); background: var(--ok); pointer-events: none;
 }
-.downloads-dot.going { background: var(--f-ink); opacity: .62; }
-.downloads { display: flex; flex-direction: column; gap: var(--s-4); width: 320px; max-height: 420px; overflow-y: auto; scrollbar-width: none; padding: var(--s-5); }
+.downloads-dot.going { background: var(--ink-faint); }
+.downloads { display: flex; flex-direction: column; gap: var(--s-4); width: 320px; max-height: 420px; overflow-y: auto; scrollbar-width: none; padding: var(--s-8); }
 .downloads-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s-8); padding: 0 var(--s-6); }
 .downloads-empty { margin: 0; padding: var(--s-10) var(--s-6); color: var(--ink-soft); }
-.downloads .gone { opacity: .62; }
+.downloads .gone { color: var(--ink-faint); }
 .downloads-row { display: block; }
 .card {
   height: 100%; box-sizing: border-box;
   min-width: 0; min-height: 0; background: var(--surface); color: var(--ink);
-  border-radius: var(--r-card); overflow: hidden; box-shadow: var(--shadow-card);
+  overflow: hidden;
 }
 .app[*|data-peek="center"] .card, .app[*|data-peek="full"] .card { overflow: visible; }
-.app.message-window { grid-template-columns: minmax(0, 1fr); padding: var(--s-8); }
+.app.message-window { grid-template-columns: minmax(0, 1fr); }
 .message-window .card { grid-template-columns: minmax(0, 1fr); }
 .message-window .left-note {
   padding: var(--s-8) var(--s-18); border-bottom: var(--hair) solid var(--line-soft);
@@ -60,9 +58,9 @@
 .list-col { position: relative; display: flex; flex-direction: column; height: 100%; min-width: 0; min-height: 0; background: var(--surface); }
 /* The list's header: quire's `Toolbar` holds it as its centre. */
 .list-head { display: flex; align-items: center; gap: var(--s-8); width: 100%; min-width: 0; }
-.list-head h2 { font-size: var(--fs-heading-3); min-width: 0; flex: 0 1 auto; white-space: nowrap; overflow: hidden; }
+.list-head h2 { font-size: var(--fs-title); min-width: 0; flex: 0 1 auto; white-space: nowrap; overflow: hidden; }
 .list-head .status {
-  font-size: var(--fs-small); color: var(--ink-faint); min-width: 0; flex: 1 1 0;
+  font-size: var(--fs-help); color: var(--ink-faint); min-width: 0; flex: 1 1 0;
   white-space: nowrap; overflow: hidden;
 }
 .list-head .status.bad { color: var(--danger); font-weight: 600; }
@@ -76,6 +74,5 @@
 }
 .bar-tools { display: flex; gap: var(--s-6); align-items: center; margin-left: auto; position: relative; flex: none; }
 
-/* A sheet hangs from the card's top edge, not the window's: the frame insets the card by
-   `--s-8`. */
-.in-card { top: var(--s-8); }
+/* A sheet hangs from the card's top edge, which is the window's: the window is flush. */
+.in-card { top: 0; }
