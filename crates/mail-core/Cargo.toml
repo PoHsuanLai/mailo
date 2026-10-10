@@ -72,9 +72,9 @@ zeroize = "1"
 # sealing (`smime/`). rPGP's own `rand` generation; already in the tree. For every target: it had
 # been listed under Linux alone, where `pgp/` would not have built anywhere else.
 rand = "0.8"
-# A PDF attachment's pages (`preview.rs`): quire rasterises only a first page. The same pin quire
-# names (`docs/workspace-deps.toml` at v0.2.2), so the tree holds one pdfrum.
-pdfrum = { git = "https://github.com/PoHsuanLai/pdfrum", rev = "e21b9352e0e070e4572ad67d16a309c570df2b83", default-features = false, features = ["vello-cpu"] }
+# A PDF attachment's pages (`preview.rs`): quire rasterises only a first page. The same version
+# quire names, so the tree holds one pdfrum.
+pdfrum = { version = "0.5", default-features = false, features = ["vello-cpu"] }
 
 # The notification server's `ActivationToken`, `ActionInvoked` and `NotificationClosed` signals
 # (`notify/click.rs`), which `notify-rust` does not surface. Blocking, on a thread of its own, and
