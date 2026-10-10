@@ -383,10 +383,8 @@ fn look(typed: &str, seams: &Seams, now: DateTime<Utc>) -> Looked {
     let (found, jmap) = std::thread::scope(|scope| {
         let jmap = scope.spawn(|| (seams.jmap)(&well_known));
         let found = (seams.lookup)(&address);
-        let jmap = jmap
-            .join()
-            .unwrap_or_else(|_| Err("the search stopped before it finished".to_owned()));
-        (found, jmap)
+        // A search that panicked found nothing.
+        (found, jmap.join().ok().and_then(Result::ok))
     });
     match mail_core::discover::settle(found, jmap) {
         Resolved::Found(found) => Looked::Found(Proposal::discovered(&address, found.preset)),

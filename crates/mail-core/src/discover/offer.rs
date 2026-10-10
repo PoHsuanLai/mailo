@@ -42,15 +42,15 @@ pub fn typed_domain(typed: &str) -> Option<String> {
 
 /// The two searches' answers read together. When both answer, what the autoconfig named is the
 /// offer, as it was the first of the two the old sheet showed.
-pub fn settle(found: Result<Found, Failed>, jmap: Result<String, String>) -> Looked {
+pub fn settle(found: Result<Found, Failed>, jmap: Option<String>) -> Looked {
     match (found, jmap) {
         (Ok(found), _) => Looked::Found(found),
-        (Err(_), Ok(session)) => Looked::Jmap(session),
-        (Err(failed @ Failed::NoServers { gap, .. }), Err(_)) => match gap {
+        (Err(_), Some(session)) => Looked::Jmap(session),
+        (Err(failed @ Failed::NoServers { gap, .. }), None) => match gap {
             Gap::PersonalMicrosoft => Looked::PersonalMicrosoft(failed),
             Gap::Nothing | Gap::StartTlsOnly => Looked::Ask(failed),
         },
-        (Err(failed @ (Failed::Unreachable { .. } | Failed::Broken(_))), Err(_)) => {
+        (Err(failed @ (Failed::Unreachable { .. } | Failed::Broken(_))), None) => {
             Looked::Unreachable(failed)
         }
     }
@@ -62,8 +62,8 @@ pub fn settle(found: Result<Found, Failed>, jmap: Result<String, String>) -> Loo
 pub async fn resolve(address: &str, now: DateTime<Utc>) -> Looked {
     let jmap = async {
         match presets::well_known(address) {
-            Some(url) => find_jmap(&url).await.map_err(|why| why.to_string()),
-            None => Err("no domain to look for a JMAP server on".to_owned()),
+            Some(url) => find_jmap(&url).await.ok(),
+            None => None,
         }
     };
     let (found, jmap) = tokio::join!(search(address, now), jmap);
@@ -174,8 +174,8 @@ mod tests {
 
     #[test]
     fn a_missing_search_falls_back_to_jmap_and_then_to_what_the_miss_was() {
-        let session = || Ok("https://jmap.example.test/session".to_owned());
-        let no = || Err("no jmap".to_owned());
+        let session = || Some("https://jmap.example.test/session".to_owned());
+        let no = || None;
         assert_eq!(
             settle(Err(nothing(Gap::Nothing)), session()),
             Looked::Jmap("https://jmap.example.test/session".to_owned())
