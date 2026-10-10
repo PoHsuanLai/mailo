@@ -18,7 +18,7 @@ mod bar;
 pub(super) use bar::Receipts;
 
 use chrono::{DateTime, Utc};
-use mail_core::receipt::ReceiptState;
+use mail_core::receipt::{ReceiptState, Settled};
 use mail_domain::*;
 use mail_mime::ReturnPath;
 use mail_store::{SqliteStore, Store};
@@ -163,31 +163,25 @@ pub(in crate::ui) fn lookup(store: &SqliteStore, key: &Bodies) -> Vec<Standing> 
 /// standing so the bar settles without reading the store again. Blocking: the window calls it
 /// on a blocking thread, and only from a button.
 ///
-/// Returns what the toast says: the first line of the command's answer, which names where the
-/// receipt went. The rest of that answer tells a terminal to run `mailo sync`, which the window
-/// does itself.
+/// Returns what the toast says: where the receipt went, or that none will. The command line
+/// adds a line telling a terminal to run `mailo sync`, which the window does itself.
 pub(in crate::ui) fn answer(
     store: &SqliteStore,
     message: MessageId,
     answer: ReceiptAnswer,
     now: DateTime<Utc>,
 ) -> Result<String, String> {
-    let said = mail_core::receipt::answer(store, message, answer, now)?;
+    let settled = mail_core::receipt::answer(store, message, answer, now)?;
     // Read back rather than assumed: the store's answer is the one the command will show too.
     if let Ok(stored) = store.message(message) {
         keep(message, stored.body.raw(), look(store, message));
     }
-    Ok(toast_text(&said))
-}
-
-/// The first line of `said`, starting with a capital.
-fn toast_text(said: &str) -> String {
-    let first = said.lines().next().unwrap_or_default().trim();
-    let mut chars = first.chars();
-    match chars.next() {
-        Some(head) => head.to_uppercase().chain(chars).collect(),
-        None => String::new(),
-    }
+    Ok(match settled {
+        Settled::Sent { to } => format!("Queued a read receipt to {}", to.join(", ")),
+        Settled::Declined { to } => {
+            format!("Declined: no receipt will go to {}", to.join(", "))
+        }
+    })
 }
 
 #[cfg(test)]

@@ -1010,10 +1010,11 @@ mod an_account_with_nothing_stored {
             },
         );
         let listed = crate::blocking::block_on(account::list(&oauth, &secrets)).unwrap();
-        assert!(
-            listed.contains("not signed in"),
+        assert_eq!(
+            listed.iter().map(|l| l.state).collect::<Vec<_>>(),
+            [account::Readiness::NotSignedIn],
             "an OAuth account was told a credential was missing, which reads as \"find a \
-             password\": {listed}"
+             password\": {listed:?}"
         );
 
         let (password, _b) = configured_with(
@@ -1025,7 +1026,11 @@ mod an_account_with_nothing_stored {
             },
         );
         let listed = crate::blocking::block_on(account::list(&password, &secrets)).unwrap();
-        assert!(listed.contains("no credential stored"), "{listed}");
+        assert_eq!(
+            listed.iter().map(|l| l.state).collect::<Vec<_>>(),
+            [account::Readiness::NoCredential],
+            "{listed:?}"
+        );
     }
 
     /// Microsoft needs `--microsoft` to reproduce the account, and an instruction that does not

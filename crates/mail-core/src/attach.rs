@@ -13,7 +13,6 @@
 use crate::error::CoreError;
 use mail_domain::{Attachment, MessageId};
 use mail_store::{SqliteStore, Store};
-use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 /// The longest file name to write.
@@ -77,29 +76,29 @@ fn truncate_keeping_extension(name: &str) -> String {
     format!("{stem}{extension}")
 }
 
-/// The attachments on a message, as the CLI prints them.
-pub fn list(store: &SqliteStore, message: MessageId) -> Result<String, CoreError> {
+/// One attachment of a received message, as [`list`] shows it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Listed {
+    /// What it will be written as, not what it claims: the difference is the whole point, and a
+    /// listing that showed the claim would mislead about what happens next.
+    pub name: String,
+    /// The declared media type, untrusted.
+    pub mime: String,
+    pub size: u64,
+}
+
+/// The attachments on a message, in the order [`save`] numbers them.
+pub fn list(store: &SqliteStore, message: MessageId) -> Result<Vec<Listed>, CoreError> {
     let message = store.message(message)?;
-    if message.attachments.is_empty() {
-        return Ok("no attachments on that message\n".to_owned());
-    }
-    let mut out = String::new();
-    for (index, attachment) in message.attachments.iter().enumerate() {
-        let _ = writeln!(
-            out,
-            "{index}  {:>9}  {:<24}  {}",
-            human_size(attachment.size),
-            attachment.mime,
-            // What it will be written as, not what it claims: the difference is the whole
-            // point, and a listing that shows the claim would mislead about what happens next.
-            safe_name(&attachment.name)
-        );
-    }
-    let _ = writeln!(
-        out,
-        "\nsave one with: mailo save <message-id> <number> [dir]"
-    );
-    Ok(out)
+    Ok(message
+        .attachments
+        .iter()
+        .map(|attachment| Listed {
+            name: safe_name(&attachment.name),
+            mime: attachment.mime.clone(),
+            size: attachment.size,
+        })
+        .collect())
 }
 
 /// Where the window puts a file it has been asked to save.
@@ -229,14 +228,14 @@ pub fn write_new(dir: &Path, name: &str, bytes: &[u8]) -> Result<PathBuf, CoreEr
 /// without a server.
 ///
 /// Blocking and network-bound for a part that is still remote, so the UI calls it off the
-/// render thread. The answer is a sentence, shown to the user as it is.
+/// render thread. Returns the path written.
 pub fn fetch_and_save(
     store: &SqliteStore,
     message: MessageId,
     index: usize,
     dir: &Path,
     download: impl FnOnce(&str) -> Result<(), CoreError>,
-) -> Result<String, CoreError> {
+) -> Result<PathBuf, CoreError> {
     let stored = store.message(message)?;
     let attachment = stored
         .attachments
@@ -248,8 +247,7 @@ pub fn fetch_and_save(
     if let mail_domain::PartContent::Remote { section } = &attachment.content {
         download(section)?;
     }
-    let path = save(store, message, index, dir)?;
-    Ok(format!("Saved to {}", path.display()))
+    save(store, message, index, dir)
 }
 
 /// A path in `dir` that nothing is using yet: `name`, or `name (2)` and so on. A file and a

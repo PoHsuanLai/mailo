@@ -3,7 +3,7 @@
 
 use super::Password;
 use crate::Environment;
-use crate::account::{Credentials, add_with_password};
+use crate::account::{Credentials, Outcome, add_with_password};
 use mail_runtime::{AccountSecrets, ClientRegistry};
 use mail_store::SqliteStore;
 use porter_core::SecretText;
@@ -82,8 +82,17 @@ fn add_with_password_keeps_the_password_in_the_store_it_is_handed_and_nowhere_el
         },
     ))
     .unwrap();
-    assert!(said.contains("password stored"), "{said}");
-    assert!(!said.contains(SECRET), "the password was in what add said");
+    assert!(
+        matches!(
+            &said.outcome,
+            Outcome::PasswordStored { bearer: false, login, .. } if login == "s1234567"
+        ),
+        "{said:?}"
+    );
+    assert!(
+        !format!("{said:?}").contains(SECRET),
+        "the password was in what add said"
+    );
 
     let account = account_of(&store, "s1234567@example.edu");
     for purpose in [
@@ -131,7 +140,10 @@ fn no_password_stores_nothing_and_says_so() {
             },
         ))
         .unwrap();
-        assert!(said.contains("no password stored"), "{said}");
+        assert!(
+            matches!(&said.outcome, Outcome::PasswordMissing { .. }),
+            "{said:?}"
+        );
     }
     let account = account_of(&store, "s1234567@example.edu");
     assert!(
@@ -172,8 +184,11 @@ fn a_jmap_bearer_token_goes_where_a_password_would_and_the_plan_says_bearer() {
         },
     ))
     .unwrap();
-    assert!(said.contains("token stored"), "{said}");
-    assert!(!said.contains(SECRET));
+    assert!(
+        matches!(&said.outcome, Outcome::PasswordStored { bearer: true, .. }),
+        "{said:?}"
+    );
+    assert!(!format!("{said:?}").contains(SECRET));
     let account = account_of(&store, "me@example.test");
     let kept = mail_runtime::block_on(secrets.get(&SecretKey {
         account: account.clone(),
@@ -231,7 +246,10 @@ fn a_credential_a_sign_in_already_made_is_filed_without_asking_for_a_browser_aga
         },
     ))
     .unwrap();
-    assert!(said.contains("signed in"), "{said}");
+    assert!(
+        matches!(&said.outcome, Outcome::SignedIn { .. }),
+        "{said:?}"
+    );
     let account = account_of(&store, "ada@gmail.com");
     let kept = mail_runtime::block_on(secrets.get(&SecretKey {
         account,

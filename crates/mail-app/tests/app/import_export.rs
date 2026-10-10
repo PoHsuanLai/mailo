@@ -387,7 +387,7 @@ fn a_message_with_no_body_yet_is_skipped_and_counted() {
     )
     .unwrap();
     assert_eq!((done.written, done.absent), (0, 1));
-    assert!(export::said(&done, &target).contains("mailo sync"));
+    assert!(mail_app::said::export::said(&done, &target).contains("mailo sync"));
 }
 
 /// A large IMAP message is stored rebuilt from its parts, with each attachment left on the

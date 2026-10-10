@@ -3,6 +3,8 @@
 //! This is where the pieces meet a real server, so it is also where the honest boundaries are:
 //! a password is read from the environment rather than invented, and an OAuth account says what
 //! it still needs rather than pretending to be configured.
+//!
+//! What was done comes back as values ([`Added`], [`Listed`]); the words for it are the front-end's.
 
 use crate::environment::Environment;
 use crate::error::{CoreError, Logged};
@@ -14,11 +16,12 @@ use porter_core::SecretText;
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
 use porter_provider::ClientEntry;
 use porter_provider::Issuer;
-use std::fmt::Write as _;
 
+mod advice;
 mod linked;
 mod remove;
 
+pub use advice::{no_client_id, no_credential};
 pub use linked::{
     Linked, Reconciled, find as find_linked, forget, linked as linked_accounts, named_by_segment,
     preset_of, reconcile,
@@ -58,6 +61,110 @@ pub enum Receive {
     Graph,
 }
 
+/// What adding an account did, for a front-end to word.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Added {
+    /// The address as stored: lowercased.
+    pub address: String,
+    pub account: AccountId,
+    /// The address was already here, and kept its account id.
+    pub updated: bool,
+    pub outcome: Outcome,
+}
+
+/// Where the account's credential stands once it is added.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Outcome {
+    /// The password, or a JMAP bearer token, is in the keyring.
+    PasswordStored {
+        /// It is a token, not a password.
+        bearer: bool,
+        /// The name the server is logged in with.
+        login: String,
+        /// Why the host will probably not take it, when the table knows.
+        warning: Option<mail_domain::presets::PasswordWarning>,
+    },
+    /// No password was given; the account is configured and waits for one.
+    PasswordMissing {
+        /// A JMAP account, which can also be given a token.
+        jmap: bool,
+        login: String,
+        sasl: Vec<SaslMech>,
+    },
+    /// The browser sign-in is done and its token is in the keyring.
+    SignedIn {
+        /// What minting a Graph token for sending came to, for an account that goes through Graph.
+        graph: Option<GraphSetup>,
+        client: ClientRecord,
+    },
+    /// The issuer's sign-in cannot start: this installation has no OAuth client id for it.
+    NeedsClientId {
+        issuer: Issuer,
+        scopes: Vec<String>,
+        /// The flags that make the same address find the same account again.
+        route: MicrosoftRoute,
+    },
+}
+
+/// What minting an account's Graph token came to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GraphSetup {
+    /// Reading and sending both go through Graph.
+    ReadAndSend,
+    /// Sending goes through Graph; reading does not.
+    SendOnly,
+    /// Graph would not issue a token. Mail is received; sending needs a permission consented to.
+    Refused(String),
+}
+
+/// Whether the OAuth client of a sign-in was written down for renewing it later.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ClientRecord {
+    /// Nothing was recorded: the client was already known, or there is nowhere to write one.
+    NotRecorded,
+    /// The client id was written to this file.
+    Recorded(std::path::PathBuf),
+    /// It could not be written, so renewing the sign-in will need the client id given again.
+    Failed(String),
+}
+
+/// How the address was added, as far as the Microsoft flags go. The address alone does not
+/// reproduce a managed-tenant account, so a front-end that suggests the command to run again
+/// needs these.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MicrosoftRoute {
+    /// Not a Microsoft 365 account named as such.
+    Other,
+    Microsoft,
+    /// `--microsoft --send graph`.
+    SendThroughGraph,
+    /// `--microsoft --receive graph`.
+    ReceiveThroughGraph,
+}
+
+/// One account of the list, with what it still needs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Listed {
+    pub address: String,
+    pub state: Readiness,
+    /// The folders it fetches, where the store could say.
+    pub syncs: Option<Vec<String>>,
+}
+
+/// Whether an account can sync, and what it waits for if not.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Readiness {
+    /// Kept on this computer: nothing to sync, no credential to have.
+    Local,
+    Ready,
+    /// An OAuth account that has not signed in.
+    NotSignedIn,
+    /// An account of the desktop's account service, which is not reachable.
+    ServiceUnreachable,
+    /// A password account with no password stored.
+    NoCredential,
+}
+
 impl crate::mail::AccountOps<'_> {
     /// Configure an account from its address, with the password or token the environment gave.
     /// See [`add`].
@@ -68,7 +175,8 @@ impl crate::mail::AccountOps<'_> {
         microsoft: bool,
         graph: bool,
         receive: crate::account::Receive,
-    ) -> Result<String, CoreError> {
+        on_url: &dyn Fn(&str),
+    ) -> Result<Added, CoreError> {
         let mail = self.0;
         add(
             mail.store(),
@@ -80,13 +188,14 @@ impl crate::mail::AccountOps<'_> {
             mail.environment(),
             mail.secrets().as_ref(),
             &mail.saved_clients(),
+            on_url,
             mail.now(),
         )
         .await
     }
 
     /// Every account, with what each one still needs. See [`list`].
-    pub async fn list(&self) -> Result<String, CoreError> {
+    pub async fn list(&self) -> Result<Vec<Listed>, CoreError> {
         list(self.0.store(), self.0.secrets().as_ref()).await
     }
 
@@ -113,8 +222,9 @@ pub async fn add(
     env: &Environment,
     secrets: &dyn AccountSecrets,
     saved: &ClientRegistry,
+    on_url: &dyn Fn(&str),
     now: chrono::DateTime<chrono::Utc>,
-) -> Result<String, CoreError> {
+) -> Result<Added, CoreError> {
     // A JMAP account given `MAILO_JMAP_TOKEN` signs in with that token as a bearer; the token
     // then travels where a password would, through `Credentials`, so the window can do the same
     // by naming `HttpAuth::Bearer` itself.
@@ -145,21 +255,11 @@ pub async fn add(
             saved,
             secrets,
             environment: env,
-            on_url: &|url| {
-                // As `println!` would, but a closed stdout is not worth a panic mid-sign-in.
-                let _ = print_signin(url, &mut std::io::stdout().lock());
-            },
+            on_url,
             signed: None,
         },
     )
     .await
-}
-
-/// What the command line says when a sign-in needs a browser: the address to open, then that it
-/// is waiting. Written to `out` so a test can read it; [`add`] hands it stdout.
-fn print_signin(url: &str, out: &mut dyn std::io::Write) -> std::io::Result<()> {
-    writeln!(out, "Open this in a browser to sign in:\n\n  {url}\n")?;
-    writeln!(out, "Waiting for the redirect…")
 }
 
 /// Where [`add_with_password`] gets a credential, and where it keeps one.
@@ -196,8 +296,8 @@ impl std::fmt::Debug for Credentials<'_> {
 ///
 /// The window's Add account sheet calls this: setting `MAILO_PASSWORD` from a running window
 /// would mean writing the environment while other threads read it. `add` calls it with the
-/// environment's value and the platform keyring, so the command line behaves exactly as before.
-/// The password goes to `secrets` and nowhere else — not SQLite, not a file, not the text this
+/// environment's value and the platform keyring.
+/// The password goes to `secrets` and nowhere else — not SQLite, not a file, not the value this
 /// returns. (Minting a Graph token for `--send graph` goes through the same `secrets`.)
 pub async fn add_with_password(
     store: &SqliteStore,
@@ -207,7 +307,7 @@ pub async fn add_with_password(
     graph: bool,
     now: chrono::DateTime<chrono::Utc>,
     credentials: Credentials<'_>,
-) -> Result<String, CoreError> {
+) -> Result<Added, CoreError> {
     add_receiving(
         store,
         address,
@@ -233,7 +333,7 @@ pub async fn add_receiving(
     receive: crate::account::Receive,
     now: chrono::DateTime<chrono::Utc>,
     credentials: Credentials<'_>,
-) -> Result<String, CoreError> {
+) -> Result<Added, CoreError> {
     let Credentials {
         password,
         saved,
@@ -358,14 +458,7 @@ pub async fn add_receiving(
         })
         .map_err(|e| CoreError::cannot("save the account", e))?;
 
-    let mut out = format!(
-        "{} {address} as {account}\n",
-        if existing.is_some() {
-            "updated"
-        } else {
-            "added"
-        }
-    );
+    let updated = existing.is_some();
     // A JMAP bearer token is kept where a password would be.
     let bearer = matches!(
         plan.incoming,
@@ -374,7 +467,7 @@ pub async fn add_receiving(
             ..
         }
     );
-    match &plan.auth {
+    let outcome = match &plan.auth {
         // Presets make no such plan: an account of the desktop's accountd is read from it
         // (`linked::reconcile`), never typed in here.
         AuthPlan::Granted { .. } => {
@@ -399,37 +492,22 @@ pub async fn add_receiving(
                             .await
                             .map_err(|e| CoreError::cannot("save the password", e))?;
                     }
-                    if bearer {
-                        let _ = writeln!(out, "token stored in the keyring");
-                    } else {
-                        let _ = writeln!(out, "password stored in the keyring for login {login:?}");
-                    }
-                    // Said here rather than at the first sync, where it arrives as an
-                    // authentication failure with nothing to say it was never going to work.
-                    if let Some(why) = incoming_host(&plan)
-                        .and_then(mail_domain::presets::password_warning)
-                        .map(password_warning_words)
-                    {
-                        let _ = writeln!(out, "\nwarning: {why}");
+                    Outcome::PasswordStored {
+                        bearer,
+                        login,
+                        // Said here rather than at the first sync, where it arrives as an
+                        // authentication failure with nothing to say it was never going to work.
+                        warning: incoming_host(&plan)
+                            .and_then(mail_domain::presets::password_warning),
                     }
                 }
-                _ => {
-                    // Saying what is missing beats a half-configured account that fails later
-                    // with a less obvious message.
-                    if matches!(plan.incoming, Incoming::Jmap { .. }) {
-                        let _ = writeln!(
-                            out,
-                            "no password stored. Re-run with MAILO_PASSWORD set (the login name \
-                             will be {login:?}), or with MAILO_JMAP_TOKEN for a bearer token."
-                        );
-                    } else {
-                        let _ = writeln!(
-                            out,
-                            "no password stored. Re-run with MAILO_PASSWORD set; \
-                             the login name will be {login:?} and the server offers {sasl:?}."
-                        );
-                    }
-                }
+                // Saying what is missing beats a half-configured account that fails later
+                // with a less obvious message.
+                _ => Outcome::PasswordMissing {
+                    jmap: matches!(plan.incoming, Incoming::Jmap { .. }),
+                    login,
+                    sasl: sasl.clone(),
+                },
             }
         }
         AuthPlan::OAuth { issuer, scopes } => match client_for(*issuer, environment, saved) {
@@ -463,94 +541,64 @@ pub async fn add_receiving(
                 // Minted now rather than at the first send, so a permission the tenant withheld
                 // is reported while the user is still at the setup command — not hours later as
                 // a draft that will not leave.
-                if plan.outgoing == Outgoing::Graph {
+                let graph = if plan.outgoing == Outgoing::Graph {
                     let reach = tokens::GraphReach::of(&plan);
-                    match graph_token(account, &client, reach, secrets, now).await {
-                        Ok(()) if reach == tokens::GraphReach::ReadAndSend => {
-                            let _ = writeln!(out, "reading and sending go through Microsoft Graph");
-                        }
-                        Ok(()) => {
-                            let _ = writeln!(out, "sending goes through Microsoft Graph");
-                        }
-                        Err(why) => {
-                            let _ = writeln!(
-                                out,
-                                "warning: signed in, but Graph would not issue a token for \
-                                 sending ({why}). Mail will be received; sending needs Graph's \
-                                 Mail.Send permission on the app registration, consented to."
-                            );
-                        }
-                    }
-                }
+                    Some(
+                        match graph_token(account.clone(), &client, reach, secrets, now).await {
+                            Ok(()) if reach == tokens::GraphReach::ReadAndSend => {
+                                GraphSetup::ReadAndSend
+                            }
+                            Ok(()) => GraphSetup::SendOnly,
+                            Err(why) => GraphSetup::Refused(why.to_string()),
+                        },
+                    )
+                } else {
+                    None
+                };
                 // A client the registry already has is not recorded again. One typed in the
                 // environment is remembered, because renewing an access token an hour from now
                 // needs the same client id and nothing else will have it. Without this the
                 // account signs in, works, expires, and cannot be renewed — the environment
                 // variable that configured it is long gone by then.
-                match remember(typed.then_some(&client)) {
-                    Ok(None) if !typed => {
-                        let _ = writeln!(out, "signed in; token stored in the keyring");
-                    }
-                    Ok(Some(path)) => {
-                        let _ = writeln!(
-                            out,
-                            "signed in; token stored in the keyring, client id in {}",
-                            path.display()
-                        );
-                    }
-                    Ok(None) => {
-                        let _ = writeln!(out, "signed in; token stored in the keyring");
-                    }
+                let client = match remember(typed.then_some(&client)) {
+                    Ok(Some(path)) => ClientRecord::Recorded(path),
+                    Ok(None) => ClientRecord::NotRecorded,
                     // Not fatal: the account works until the token expires, and saying so is
                     // better than discarding a sign-in the user just completed in a browser.
-                    Err(why) => {
-                        let _ = writeln!(
-                            out,
-                            "signed in; token stored in the keyring\n\
-                             warning: could not record the client id ({why}), so renewing this \
-                             sign-in will need MAILO_OAUTH_CLIENT_ID set again"
-                        );
-                    }
-                }
-            }
-            _ => {
-                // Carrying the flags into the suggested command, because the address alone does
-                // not reproduce this account: `--microsoft` is precisely the information the
-                // preset table does not have, and a re-run without it fails to find any preset
-                // at all. Advice that does not work when followed is worse than none.
-                let flags = match (microsoft, graph, receive) {
-                    (true, _, crate::account::Receive::Graph) => " --microsoft --receive graph",
-                    (true, true, _) => " --microsoft --send graph",
-                    (true, false, _) => " --microsoft",
-                    _ => "",
+                    Err(why) => ClientRecord::Failed(why.to_string()),
                 };
-                // The client id is deployment configuration and cannot be shipped in a source
-                // tree, so the honest thing is to say exactly what is missing and how to
-                // supply it — not to look configured and fail at first connect.
-                let _ = writeln!(
-                    out,
-                    "this account uses OAuth ({issuer:?}) and needs a client id.\n\
-                     \n{where}\n\
-                     \nThen re-run:\n\
-                     \n  MAILO_OAUTH_CLIENT_ID=… {secret}mailo account add {address}{flags}\n\
-                     \nThey are recorded after the first sign-in, so the variables are needed \
-                     once.\n\
-                     \nScopes it will request: {scopes:?}",
-                    // Named, because two bare `{}` fill in source order and these two read
-                    // perfectly plausibly the wrong way round.
-                    where = where_to_get_one(*issuer),
-                    secret = if matches!(issuer, Issuer::Google) {
-                        "MAILO_OAUTH_CLIENT_SECRET=… "
-                    } else {
-                        ""
-                    },
-                );
+                Outcome::SignedIn { graph, client }
             }
+            // Carrying the flags into the suggested command, because the address alone does
+            // not reproduce this account: `--microsoft` is precisely the information the
+            // preset table does not have, and a re-run without it fails to find any preset
+            // at all. Advice that does not work when followed is worse than none.
+            //
+            // The client id is deployment configuration and cannot be shipped in a source
+            // tree, so the honest thing is to say exactly what is missing — not to look
+            // configured and fail at first connect.
+            _ => Outcome::NeedsClientId {
+                issuer: *issuer,
+                scopes: scopes.clone(),
+                route: match (microsoft, graph, receive) {
+                    (true, _, crate::account::Receive::Graph) => {
+                        MicrosoftRoute::ReceiveThroughGraph
+                    }
+                    (true, true, _) => MicrosoftRoute::SendThroughGraph,
+                    (true, false, _) => MicrosoftRoute::Microsoft,
+                    _ => MicrosoftRoute::Other,
+                },
+            },
         },
-    }
+    };
     crate::provider::icon::fetch_if_missing(crate::provider::provider(&plan), environment.program)
         .await;
-    Ok(out)
+    Ok(Added {
+        address,
+        account,
+        updated,
+        outcome,
+    })
 }
 
 /// The local-only account, created the first time something is kept in it.
@@ -682,10 +730,13 @@ async fn authorize(
 }
 
 /// Accounts, with what each one still needs.
-pub async fn list(store: &SqliteStore, secrets: &dyn AccountSecrets) -> Result<String, CoreError> {
+pub async fn list(
+    store: &SqliteStore,
+    secrets: &dyn AccountSecrets,
+) -> Result<Vec<Listed>, CoreError> {
     let accounts = store.list_accounts()?;
 
-    // Which folders each account fetches, so `account list` can answer "why is my Sent folder
+    // Which folders each account fetches, so a listing can answer "why is my Sent folder
     // empty" without the user having to guess. A store that cannot answer is not an error here:
     // this command's job is to list accounts.
     let folders = crate::sync::mailboxes_by_account(store)
@@ -694,12 +745,16 @@ pub async fn list(store: &SqliteStore, secrets: &dyn AccountSecrets) -> Result<S
         .or_log_default("account list: how each account signs in could not be read");
     let local = crate::sync::local_accounts(store);
 
-    let mut out = String::new();
+    let mut out = Vec::new();
     for stored in accounts {
         let (account, address) = (stored.id, stored.address);
         // Asked of the keyring for no reason otherwise: there is no credential to have.
         if local.contains(&account) {
-            let _ = writeln!(out, "{address:<28} kept on this computer; nothing to sync");
+            out.push(Listed {
+                address,
+                state: Readiness::Local,
+                syncs: None,
+            });
             continue;
         }
         // An account of the desktop's accountd has no credential here to look for: it is ready
@@ -719,58 +774,26 @@ pub async fn list(store: &SqliteStore, secrets: &dyn AccountSecrets) -> Result<S
         // What is missing depends on how the account signs in, and `sync` says so at length.
         // Saying "no credential stored" for an OAuth account reads as "find a password", which
         // is the one thing that will not work — the same contradiction, one line shorter.
-        let waiting_on = match plans.get(&address) {
-            Some(AuthPlan::OAuth { .. }) => "not signed in",
-            Some(AuthPlan::Granted { .. }) => "the desktop's account service is not reachable",
-            _ => "no credential stored",
+        let state = if has_password {
+            Readiness::Ready
+        } else {
+            match plans.get(&address) {
+                Some(AuthPlan::OAuth { .. }) => Readiness::NotSignedIn,
+                Some(AuthPlan::Granted { .. }) => Readiness::ServiceUnreachable,
+                _ => Readiness::NoCredential,
+            }
         };
-        let _ = writeln!(
-            out,
-            "{address:<28} {}",
-            if has_password { "ready" } else { waiting_on }
-        );
-        if let Some((_, paths)) = folders.iter().find(|(a, _)| *a == address) {
-            let _ = writeln!(out, "{:<28} syncs {}", "", paths.join(", "));
-        }
-    }
-    if out.is_empty() {
-        out.push_str("no accounts. Add one with: mailo account add <address>\n");
+        let syncs = folders
+            .iter()
+            .find(|(a, _)| *a == address)
+            .map(|(_, paths)| paths.clone());
+        out.push(Listed {
+            address,
+            state,
+            syncs,
+        });
     }
     Ok(out)
-}
-
-/// Where an installed-application client id comes from, per issuer.
-///
-/// Named rather than left as "register an installed application with the issuer", which is a
-/// research task standing between someone and their own mail. A client id is the one thing this
-/// program cannot supply — it is registered against the user's account with the issuer, and
-/// shipping one in a source tree would mean every user of this client shared an identity and a
-/// quota.
-///
-/// Deliberately names the durable things — the product, the credential type, the consent
-/// requirement — and not a path through a menu, because console navigation is rewritten far more
-/// often than any of those.
-fn where_to_get_one(issuer: Issuer) -> &'static str {
-    match issuer {
-        Issuer::Google => concat!(
-            "Create one in the Google Cloud console (console.cloud.google.com) as an OAuth ",
-            "client ID of application type \"Desktop app\", and download its JSON. While the ",
-            "consent screen is still in Testing, the address above has to be listed as a test ",
-            "user or the sign-in is refused — that is the step most people miss.\n",
-            "\nGoogle issues a client *secret* with that client and will not exchange a code ",
-            "without it, PKCE or no PKCE, so set MAILO_OAUTH_CLIENT_SECRET as well. Both are ",
-            "in the downloaded JSON, as client_id and client_secret."
-        ),
-        Issuer::Microsoft => concat!(
-            "Register an application in the Microsoft Entra admin centre (entra.microsoft.com) ",
-            "under App registrations, with a redirect URI of type \"Public client/native\". A ",
-            "managed tenant may also require an administrator to consent to the scopes below ",
-            "before any sign-in succeeds."
-        ),
-        // porter names more issuers than mailo reads mail from, and nothing here creates an
-        // account that signs in with one.
-        _ => "mailo has no mail sign-in through this issuer.",
-    }
 }
 
 /// The account's default identity, as stored.
@@ -788,88 +811,6 @@ fn incoming_host(plan: &AccountPlan) -> Option<&str> {
         // A URL, not a host; and a JMAP sign-in is HTTP authentication, which none of the
         // password warnings (all about IMAP app passwords) are about.
         Incoming::Local | Incoming::Graph | Incoming::Jmap { .. } => None,
-    }
-}
-
-/// What to tell someone whose account has no credential stored yet.
-///
-/// Per account, because the answer differs and getting it wrong is not a matter of tone. Every
-/// account used to be told to set `MAILO_PASSWORD`. For a password account that is right. For a
-/// Google one it is advice that cannot work — Google stopped accepting passwords for IMAP in May
-/// 2022 — and following it means a failed sign-in against Google with a credential that was
-/// never going to be accepted, which is the hazard this whole project has been careful about.
-/// `mailo account add` already said the right thing; `mailo sync` contradicted it, and sync is
-/// the command someone runs second.
-///
-/// `microsoft` carries `--microsoft` into the command, because the address alone does not
-/// reproduce a managed-tenant account: that flag is exactly what the preset table cannot work
-/// out, and a re-run without it finds no preset at all.
-pub fn no_credential(address: &str, auth: &AuthPlan) -> String {
-    match auth {
-        AuthPlan::OAuth { issuer, .. } => {
-            let flag = match issuer {
-                Issuer::Microsoft => " --microsoft",
-                _ => "",
-            };
-            format!(
-                concat!(
-                    "not signed in yet. This account uses OAuth ({issuer:?}), which needs a ",
-                    "client id registered with the issuer — a password will not work. Run:\n",
-                    "    MAILO_OAUTH_CLIENT_ID=… {secret}mailo account add {address}{flag}"
-                ),
-                issuer = issuer,
-                address = address,
-                flag = flag,
-                // Google will not exchange a code without the application secret it issued.
-                secret = match issuer {
-                    Issuer::Google => "MAILO_OAUTH_CLIENT_SECRET=… ",
-                    _ => "",
-                },
-            )
-        }
-        AuthPlan::Password { .. } => {
-            format!("no credential stored. Run:\n    MAILO_PASSWORD=… mailo account add {address}")
-        }
-        // Not a credential of ours to be missing: the grant is what is wanted.
-        AuthPlan::Granted { .. } => format!(
-            "the desktop's account service does not let Mail use {address} (any more). Allow it \
-             again in Add Account"
-        ),
-    }
-}
-
-/// What an OAuth account that has expired is told when this installation has no client id for
-/// its issuer, and so cannot renew it.
-///
-/// Beside [`no_credential`], which says the same kind of thing about an account that never
-/// signed in: the remedy is the same, and so is who needs to read it.
-pub fn no_client_id(issuer: Issuer, address: &str) -> String {
-    format!(
-        concat!(
-            "the sign-in has expired and no OAuth client id is configured ",
-            "for {:?}. Re-run: MAILO_OAUTH_CLIENT_ID=… mailo account add {}",
-        ),
-        issuer, address
-    )
-}
-
-/// What to tell someone about to store a password where the host will not take one.
-///
-/// Advice, not a refusal. A tenant may have re-enabled something, an app password may exist, and
-/// the user knows their own account better than a table does, so this explains and proceeds.
-fn password_warning_words(warning: mail_domain::presets::PasswordWarning) -> &'static str {
-    use mail_domain::presets::PasswordWarning;
-    match warning {
-        PasswordWarning::Microsoft365 => {
-            "Microsoft 365 turned off password authentication for IMAP, POP and SMTP, so a \
-             password will be rejected however it is stored. These mailboxes need OAuth, which \
-             is queued in plan.md and not written yet."
-        }
-        PasswordWarning::Google => {
-            "Google stopped accepting account passwords for IMAP and SMTP. An App Password (which \
-             needs two-factor authentication switched on) still works here; the account's own \
-             password will not."
-        }
     }
 }
 
@@ -898,7 +839,7 @@ mod tests {
         receive: crate::account::Receive,
         saved: &ClientRegistry,
         now: chrono::DateTime<chrono::Utc>,
-    ) -> Result<String, CoreError> {
+    ) -> Result<Added, CoreError> {
         mail_runtime::block_on(super::add(
             store,
             address,
@@ -909,30 +850,16 @@ mod tests {
             &Environment::default(),
             &porter_secrets::MemorySecrets::default(),
             saved,
+            &|url| panic!("a sign-in asked for a browser: {url}"),
             now,
         ))
     }
 
-    fn list(store: &SqliteStore) -> Result<String, CoreError> {
+    fn list(store: &SqliteStore) -> Result<Vec<Listed>, CoreError> {
         mail_runtime::block_on(super::list(
             store,
             &porter_secrets::MemorySecrets::default(),
         ))
-    }
-
-    /// The command line's sign-in prompt is byte for byte what `authorize` printed itself before
-    /// the address went through `on_url`: scripts that read it keep working.
-    #[test]
-    fn the_command_line_prints_the_sign_in_address_as_it_always_has() {
-        let url = "https://accounts.example.test/o/oauth2/auth?client_id=abc&state=xyz";
-        let mut out = Vec::new();
-        print_signin(url, &mut out).unwrap();
-        assert_eq!(
-            String::from_utf8(out).unwrap(),
-            "Open this in a browser to sign in:\n\n  \
-             https://accounts.example.test/o/oauth2/auth?client_id=abc&state=xyz\n\n\
-             Waiting for the redirect…\n"
-        );
     }
 
     /// A campus server that offers only POP3, and logs in with a student number.
@@ -988,11 +915,8 @@ mod tests {
                 now(),
             )
             .expect("re-running is what every message tells the user to do");
-            assert!(
-                !out.contains("UNIQUE constraint"),
-                "a database error reached the user: {out}"
-            );
-            assert!(out.contains("someone@gmail.com"), "{out}");
+            assert!(out.updated, "{out:?}");
+            assert_eq!(out.address, "someone@gmail.com");
         }
 
         /// The account id is the keyring key. Minting a fresh one would orphan a credential the
@@ -1167,24 +1091,17 @@ mod tests {
             now(),
         )
         .unwrap();
-        assert!(out.contains("client id"), "{out}");
         assert!(
-            out.contains(
-                "MAILO_OAUTH_CLIENT_ID=… MAILO_OAUTH_CLIENT_SECRET=… \
-                 mailo account add someone@gmail.com"
+            matches!(
+                &out.outcome,
+                Outcome::NeedsClientId {
+                    issuer: Issuer::Google,
+                    scopes,
+                    route: MicrosoftRoute::Other,
+                } if scopes.iter().any(|scope| scope == "https://mail.google.com/")
             ),
-            "it should print the command to re-run: {out}"
-        );
-        // Google issues a secret with every Desktop-app client and refuses the exchange without
-        // it. Naming only the client id is what sent the first real sign-in into
-        // `invalid_request: client_secret is missing`.
-        assert!(
-            out.contains("client_secret"),
-            "it should say where the secret comes from: {out}"
-        );
-        assert!(
-            out.contains("https://mail.google.com/"),
-            "and the scopes: {out}"
+            "it should carry what the command line needs to print the command to re-run, and \
+             the scopes: {out:?}"
         );
     }
 
@@ -1205,10 +1122,12 @@ mod tests {
             now(),
         )
         .unwrap();
-        assert!(out.contains("s1234567"), "{out}");
         assert!(
-            !out.contains("s1234567@example.edu\""),
-            "the login is the one named: {out}"
+            matches!(
+                &out.outcome,
+                Outcome::PasswordMissing { login, .. } if login == "s1234567"
+            ),
+            "the login is the one named: {out:?}"
         );
     }
 
@@ -1232,8 +1151,8 @@ mod tests {
     }
 
     #[test]
-    fn listing_nothing_explains_how_to_add_one() {
+    fn listing_nothing_is_an_empty_list() {
         let (store, _dir) = store();
-        assert!(list(&store).unwrap().contains("mailo account add"));
+        assert!(list(&store).unwrap().is_empty());
     }
 }

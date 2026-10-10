@@ -1,10 +1,19 @@
 //! `mailo rules`, `mailo sieve` and `mailo vacation`: the words typed after them, as the commands
 //! [`mail_core::rules`] runs.
 
-use mail_core::rules::RulesCmd;
-use mail_core::rules::server::{SieveCmd, VacationCmd};
-use mail_domain::{AfterMatch, RuleAction, RuleState, Vacation};
+use crate::said::rules::said;
+use chrono::{DateTime, Utc};
+use mail_core::SqliteStore;
+use mail_core::error::CoreError;
+use mail_core::rules::server::{
+    KeptVacation, PushDone, ScriptState, SieveCmd, SieveDone, SieveStatus, VacationCmd,
+    VacationDone,
+};
+use mail_core::rules::{AccountRules, RulesCmd, RulesDone, RunProgress};
+use mail_core::{AccountSecrets, ClientRegistry};
+use mail_domain::{AfterMatch, Rule, RuleAction, RuleState, Vacation};
 use mail_proto::sieve::Takeover;
+use std::fmt::Write as _;
 use std::path::PathBuf;
 
 /// How many conversations `rules run` takes at a time.
@@ -213,10 +222,278 @@ pub fn parse_vacation(args: &[String]) -> Result<VacationCmd, String> {
     }
 }
 
+/// `rules …`: run it, and say what it did. A `rules run` reports each batch on stderr as it goes.
+pub fn run(
+    store: &SqliteStore,
+    command: &RulesCmd,
+    now: DateTime<Utc>,
+) -> Result<String, CoreError> {
+    let done = mail_core::rules::run(store, command, now, &mut |batch: RunProgress| {
+        eprintln!("  {} looked at, {} matched", batch.examined, batch.matched);
+    })?;
+    Ok(rules_text(&done))
+}
+
+/// What a rules command did, for the terminal.
+pub fn rules_text(done: &RulesDone) -> String {
+    match done {
+        RulesDone::Listed(accounts) => listing(accounts),
+        RulesDone::Added {
+            name,
+            address,
+            server_can_run,
+        } => {
+            let mut out = format!("added rule {name:?} on {address}\n");
+            if *server_can_run {
+                out.push_str(
+                    "  it runs here on each sync; `mailo sieve push` also puts it on the server\n",
+                );
+            }
+            out
+        }
+        RulesDone::Removed { name, address } => {
+            format!("removed rule {name:?} from {address}\n")
+        }
+        RulesDone::Set { name, state } => format!(
+            "rule {name:?} {}\n",
+            match state {
+                RuleState::Enabled => "enabled",
+                RuleState::Disabled => "disabled",
+            }
+        ),
+        RulesDone::Ran {
+            name,
+            examined,
+            matched,
+            queued,
+        } => {
+            let mut out = format!(
+                "rule {name:?}: {examined} message(s) looked at, {matched} matched, {queued} change(s) queued for the server\n"
+            );
+            if *queued > 0 {
+                out.push_str("  they reach the server on the next `mailo sync`\n");
+            }
+            out
+        }
+    }
+}
+
+fn listing(accounts: &[AccountRules]) -> String {
+    if accounts.is_empty() {
+        return "no rules. Add one with: mailo rules add NAME <search> --archive\n".to_owned();
+    }
+    let mut out = String::new();
+    for account in accounts {
+        let _ = writeln!(out, "{}:", account.address);
+        for listed in &account.rules {
+            let _ = writeln!(out, "{}", line(&listed.rule, &listed.condition));
+        }
+    }
+    out
+}
+
+/// One rule as `rules list` prints it.
+fn line(rule: &Rule, condition: &str) -> String {
+    let state = match rule.state {
+        RuleState::Enabled => "",
+        RuleState::Disabled => " (disabled)",
+    };
+    let mut actions: Vec<String> = rule.actions.iter().map(action).collect();
+    if rule.after == AfterMatch::Stop {
+        actions.push("stop".to_owned());
+    }
+    format!(
+        "  {}. {}{state}: {condition} → {}",
+        rule.position,
+        rule.name,
+        actions.join(", ")
+    )
+}
+
+fn action(action: &RuleAction) -> String {
+    match action {
+        RuleAction::Label(name) => format!("label {name}"),
+        RuleAction::File(path) => format!("move to {path}"),
+        RuleAction::Archive => "archive".to_owned(),
+        RuleAction::Trash => "trash".to_owned(),
+        RuleAction::Spam => "spam".to_owned(),
+        RuleAction::MarkRead => "mark read".to_owned(),
+        RuleAction::Star => "star".to_owned(),
+    }
+}
+
+/// `vacation …`: run it, and say what it did.
+pub async fn run_vacation(
+    store: &SqliteStore,
+    secrets: &dyn AccountSecrets,
+    command: &VacationCmd,
+    saved: &ClientRegistry,
+    now: DateTime<Utc>,
+) -> Result<String, CoreError> {
+    mail_core::rules::server::run_vacation(store, secrets, command, saved, now)
+        .await
+        .map(|done| vacation_text(&done))
+}
+
+/// `sieve …`: run it, and say what it did.
+pub async fn run_sieve(
+    store: &SqliteStore,
+    secrets: &dyn AccountSecrets,
+    command: &SieveCmd,
+    saved: &ClientRegistry,
+    now: DateTime<Utc>,
+) -> Result<String, CoreError> {
+    mail_core::rules::server::run_sieve(store, secrets, command, saved, now)
+        .await
+        .map(|done| sieve_text(&done))
+}
+
+/// What a vacation command did, for the terminal.
+pub fn vacation_text(done: &VacationDone) -> String {
+    match done {
+        VacationDone::Show { address, vacation } => match vacation {
+            None => format!("{address}: no vacation reply\n"),
+            Some(kept) => shown(kept),
+        },
+        VacationDone::On { kept, pushed } => {
+            let mut out = shown(kept);
+            out.push_str(&push_text(pushed));
+            out
+        }
+        VacationDone::Off { address, pushed } => {
+            let mut out = format!("{address}: vacation reply off\n");
+            if let Some(pushed) = pushed {
+                out.push_str(&push_text(pushed));
+            }
+            out
+        }
+    }
+}
+
+fn shown(kept: &KeptVacation) -> String {
+    let v = &kept.vacation;
+    let mut out = format!("{}: vacation reply {:?}", kept.address, v.subject);
+    let when = |t: DateTime<Utc>| {
+        t.with_timezone(&chrono::Local)
+            .format("%Y-%m-%d %H:%M")
+            .to_string()
+    };
+    match (v.during.from, v.during.to) {
+        (None, None) => out.push_str(", from now until turned off"),
+        (Some(a), None) => out.push_str(&format!(", from {}", when(a))),
+        (None, Some(b)) => out.push_str(&format!(", until {}", when(b))),
+        (Some(a), Some(b)) => out.push_str(&format!(", {} to {}", when(a), when(b))),
+    }
+    let _ = write!(out, ", once every {} day(s) per sender", v.days);
+    if !kept.in_effect {
+        out.push_str(" (not in effect now)");
+    }
+    out.push('\n');
+    out
+}
+
+/// A push after a change, said either way: kept here is not the same as running there.
+fn push_text(pushed: &PushDone) -> String {
+    match pushed {
+        PushDone::Pushed { address, pushed } => said(address, pushed),
+        PushDone::NotPushed(why) => format!(
+            "  kept here, but not on the server yet: {why}\n  `mailo sieve push` tries again\n"
+        ),
+    }
+}
+
+/// What a sieve command did, for the terminal.
+pub fn sieve_text(done: &SieveDone) -> String {
+    match done {
+        SieveDone::Pushed { address, pushed } => said(address, pushed),
+        SieveDone::Status(status) => status_text(status),
+    }
+}
+
+fn status_text(status: &SieveStatus) -> String {
+    let mut out = format!(
+        "{}: ManageSieve at {}:{}{}\n  extensions: {}\n",
+        status.address,
+        status.host,
+        status.port,
+        status
+            .implementation
+            .as_ref()
+            .map(|i| format!(" ({i})"))
+            .unwrap_or_default(),
+        status.extensions.join(" ")
+    );
+    if status.scripts.is_empty() {
+        out.push_str("  no scripts\n");
+    }
+    for script in &status.scripts {
+        let _ = writeln!(
+            out,
+            "  script {:?}{}",
+            script.name,
+            if script.active { " (active)" } else { "" }
+        );
+    }
+    let current = match status.script {
+        ScriptState::UpToDate => "up to date",
+        ScriptState::NothingToRun => "up to date: nothing to run there",
+        ScriptState::OutOfDate => {
+            "out of date: `mailo sieve push` installs the rules as they are now"
+        }
+    };
+    let _ = writeln!(out, "  this client's script: {current}");
+    for (name, why) in &status.local_only {
+        let _ = writeln!(out, "  {name:?} runs in this client only: {why}");
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use mail_domain::{AfterMatch, RuleAction, RuleState};
+
+    #[test]
+    fn what_a_rules_command_did_is_said_in_the_words_it_always_was() {
+        assert_eq!(
+            rules_text(&RulesDone::Listed(Vec::new())),
+            "no rules. Add one with: mailo rules add NAME <search> --archive\n"
+        );
+        assert_eq!(
+            rules_text(&RulesDone::Added {
+                name: "Bills".into(),
+                address: "me@example.test".into(),
+                server_can_run: true,
+            }),
+            "added rule \"Bills\" on me@example.test\n  it runs here on each sync; \
+             `mailo sieve push` also puts it on the server\n"
+        );
+        assert_eq!(
+            rules_text(&RulesDone::Ran {
+                name: "News".into(),
+                examined: 2,
+                matched: 1,
+                queued: 2,
+            }),
+            "rule \"News\": 2 message(s) looked at, 1 matched, 2 change(s) queued for the server\n  \
+             they reach the server on the next `mailo sync`\n"
+        );
+        assert_eq!(
+            status_text(&SieveStatus {
+                address: "me@example.test".into(),
+                host: "sieve.example.test".into(),
+                port: 4190,
+                implementation: Some("Dovecot".into()),
+                extensions: vec!["fileinto".into(), "vacation".into()],
+                scripts: Vec::new(),
+                script: ScriptState::NothingToRun,
+                local_only: Vec::new(),
+            }),
+            "me@example.test: ManageSieve at sieve.example.test:4190 (Dovecot)\n  \
+             extensions: fileinto vacation\n  no scripts\n  \
+             this client's script: up to date: nothing to run there\n"
+        );
+    }
 
     fn args(line: &str) -> Vec<String> {
         line.split_whitespace().map(str::to_owned).collect()

@@ -63,3 +63,10 @@ pub use mail::{
     AccountOps, Clock, ContactOps, CryptoOps, DiscoverOps, FixedClock, Mail, RuleOps, SyncOps,
     SystemClock,
 };
+/// The runtime types mail-core's API hands out and takes: re-exported, so a front end goes
+/// through mail-core alone.
+pub use mail_runtime::{
+    AccountSecrets, ClientRegistry, KeyringSigningStore, SigningStore, sieve::Pushed,
+};
+/// The store a front end opens and hands to mail-core.
+pub use mail_store::{SqliteStore, Store};

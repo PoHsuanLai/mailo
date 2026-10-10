@@ -8,22 +8,10 @@
 # on a listed file that no longer has one.
 #
 # One repository-relative path per line.
-crates/mail-core/src/account.rs
-crates/mail-core/src/attach.rs
-crates/mail-core/src/compose.rs
-crates/mail-core/src/contacts.rs
-crates/mail-core/src/discover.rs
-crates/mail-core/src/export.rs
-crates/mail-core/src/folder.rs
-crates/mail-core/src/invite.rs
-crates/mail-core/src/offline.rs
-crates/mail-core/src/pgp/mod.rs
-crates/mail-core/src/pgp/read.rs
-crates/mail-core/src/receipt.rs
-crates/mail-core/src/rules/mod.rs
-crates/mail-core/src/rules/server.rs
-crates/mail-core/src/smime/mod.rs
-crates/mail-core/src/smime/read.rs
-crates/mail-core/src/template.rs
-crates/mail-core/src/unsubscribe.rs
+# What is left is the Display of error types: `#[error("... mailo sync ...")]` hints that every front
+# of the library shows today. Wording an error for a front-end means mapping `CoreError` in
+# mail-app's cli (it is converted to a `String` with `?` in many places), which is its own lane.
+crates/mail-core/src/account/advice.rs
 crates/mail-core/src/error.rs
+crates/mail-core/src/pgp/mod.rs
+crates/mail-core/src/smime/mod.rs

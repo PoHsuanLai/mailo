@@ -10,13 +10,12 @@ use crate::error::{CoreError, TimeError};
 use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone, Utc};
 use mail_domain::{DateRange, IsDefault, Vacation};
 use mail_proto::sieve::{
-    Active, Deleted, Places, SieveJob, SieveOutcome, Takeover, VacationPlaced, compile, endpoint,
+    Active, Places, SieveJob, SieveOutcome, Takeover, Unmappable, compile, endpoint,
 };
 use mail_runtime::sieve::{Pushed, SieveAuth};
 use mail_runtime::{AccountSecrets, ClientRegistry};
 use mail_store::{SqliteStore, Store};
 use porter_core::{Credential, SecretKey, SecretPurpose};
-use std::fmt::Write as _;
 use std::path::PathBuf;
 
 /// The name this client's script goes by on a server, and who the script says wrote it.
@@ -110,9 +109,86 @@ pub fn vacation_for(
     }
 }
 
+/// A vacation reply as kept, and whether it is being sent now.
+#[derive(Debug, Clone, PartialEq)]
+pub struct KeptVacation {
+    pub address: String,
+    pub vacation: Vacation,
+    pub in_effect: bool,
+}
+
+/// What pushing to the server came to, after a change that was kept here either way: kept here
+/// is not the same as running there.
+#[derive(Debug)]
+pub enum PushDone {
+    Pushed {
+        address: String,
+        pushed: Pushed,
+    },
+    /// The change is kept here; the server did not take it, for this reason.
+    NotPushed(CoreError),
+}
+
+/// What a vacation command did.
+#[derive(Debug)]
+pub enum VacationDone {
+    Show {
+        address: String,
+        /// `None` when the account has no reply.
+        vacation: Option<KeptVacation>,
+    },
+    On {
+        kept: KeptVacation,
+        pushed: PushDone,
+    },
+    Off {
+        address: String,
+        /// `None` when the account's server takes no Sieve, so there was nothing to push.
+        pushed: Option<PushDone>,
+    },
+}
+
+/// Where the server's copy of this client's script stands against what would be installed now.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScriptState {
+    UpToDate,
+    /// Nothing is installed and nothing would be.
+    NothingToRun,
+    OutOfDate,
+}
+
+/// One script on the server.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScriptSeen {
+    pub name: String,
+    pub active: bool,
+}
+
+/// What the server runs, and how it compares with this client's rules.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SieveStatus {
+    pub address: String,
+    pub host: String,
+    pub port: u16,
+    /// The server's own name for itself, when it gave one.
+    pub implementation: Option<String>,
+    pub extensions: Vec<String>,
+    pub scripts: Vec<ScriptSeen>,
+    pub script: ScriptState,
+    /// Enabled rules left to this client, by name, with why.
+    pub local_only: Vec<(String, Unmappable)>,
+}
+
+/// What a sieve command did.
+#[derive(Debug)]
+pub enum SieveDone {
+    Pushed { address: String, pushed: Pushed },
+    Status(SieveStatus),
+}
+
 impl crate::mail::RuleOps<'_> {
-    /// `mailo vacation …`, returning what to print.
-    pub async fn run_vacation(&self, command: &VacationCmd) -> Result<String, CoreError> {
+    /// A vacation command, and what it did.
+    pub async fn run_vacation(&self, command: &VacationCmd) -> Result<VacationDone, CoreError> {
         let mail = self.0;
         run_vacation(
             mail.store(),
@@ -124,8 +200,8 @@ impl crate::mail::RuleOps<'_> {
         .await
     }
 
-    /// `mailo sieve …`, returning what to print.
-    pub async fn run_sieve(&self, command: &SieveCmd) -> Result<String, CoreError> {
+    /// A sieve command, and what it did.
+    pub async fn run_sieve(&self, command: &SieveCmd) -> Result<SieveDone, CoreError> {
         let mail = self.0;
         run_sieve(
             mail.store(),
@@ -138,20 +214,22 @@ impl crate::mail::RuleOps<'_> {
     }
 }
 
-/// `mailo vacation …` over `store`, signing in through `secrets`, returning what to print.
+/// A vacation command over `store`, signing in through `secrets`.
 pub async fn run_vacation(
     store: &SqliteStore,
     secrets: &dyn AccountSecrets,
     command: &VacationCmd,
     saved: &ClientRegistry,
     now: DateTime<Utc>,
-) -> Result<String, CoreError> {
+) -> Result<VacationDone, CoreError> {
     match command {
         VacationCmd::Show { account } => {
             let account = super::pick(store, account.as_deref())?;
-            Ok(match store.vacation(account.id)? {
-                None => format!("{}: no vacation reply\n", account.address),
-                Some(v) => shown(&account.address, &v, now),
+            Ok(VacationDone::Show {
+                vacation: store
+                    .vacation(account.id)?
+                    .map(|v| kept(&account.address, v, now)),
+                address: account.address,
             })
         }
         VacationCmd::On {
@@ -188,20 +266,22 @@ pub async fn run_vacation(
             }
             let vacation = vacation_for(&account, subject, &body, *days, during);
             store.put_vacation(account.id.clone(), Some(&vacation), now)?;
-            let mut out = shown(&account.address, &vacation, now);
-            out.push_str(&push_now(store, secrets, &account, Takeover::Refuse, saved, now).await);
-            Ok(out)
+            let kept = kept(&account.address, vacation, now);
+            let pushed = push_now(store, secrets, &account, Takeover::Refuse, saved, now).await;
+            Ok(VacationDone::On { kept, pushed })
         }
         VacationCmd::Off { account } => {
             let account = super::pick(store, account.as_deref())?;
             store.put_vacation(account.id.clone(), None, now)?;
-            let mut out = format!("{}: vacation reply off\n", account.address);
-            if endpoint(&account.plan).is_ok() {
-                out.push_str(
-                    &push_now(store, secrets, &account, Takeover::Refuse, saved, now).await,
-                );
-            }
-            Ok(out)
+            let pushed = if endpoint(&account.plan).is_ok() {
+                Some(push_now(store, secrets, &account, Takeover::Refuse, saved, now).await)
+            } else {
+                None
+            };
+            Ok(VacationDone::Off {
+                address: account.address,
+                pushed,
+            })
         }
     }
 }
@@ -214,52 +294,46 @@ async fn push_now(
     takeover: Takeover,
     saved: &ClientRegistry,
     now: DateTime<Utc>,
-) -> String {
-    match push(store, secrets, account, takeover, saved, now).await {
-        Ok(said) => said,
-        Err(why) => format!(
-            "  kept here, but not on the server yet: {why}\n  `mailo sieve push` tries again\n"
-        ),
+) -> PushDone {
+    match pushed(store, secrets, account, takeover, saved, now).await {
+        Ok(pushed) => PushDone::Pushed {
+            address: account.address.clone(),
+            pushed,
+        },
+        Err(why) => PushDone::NotPushed(why),
     }
 }
 
-fn shown(address: &str, v: &Vacation, now: DateTime<Utc>) -> String {
-    let mut out = format!("{address}: vacation reply {:?}", v.subject);
-    let when = |t: DateTime<Utc>| {
-        t.with_timezone(&chrono::Local)
-            .format("%Y-%m-%d %H:%M")
-            .to_string()
-    };
-    match (v.during.from, v.during.to) {
-        (None, None) => out.push_str(", from now until turned off"),
-        (Some(a), None) => out.push_str(&format!(", from {}", when(a))),
-        (None, Some(b)) => out.push_str(&format!(", until {}", when(b))),
-        (Some(a), Some(b)) => out.push_str(&format!(", {} to {}", when(a), when(b))),
+fn kept(address: &str, vacation: Vacation, now: DateTime<Utc>) -> KeptVacation {
+    KeptVacation {
+        address: address.to_owned(),
+        in_effect: vacation.active_at(now),
+        vacation,
     }
-    let _ = write!(out, ", once every {} day(s) per sender", v.days);
-    if !v.active_at(now) {
-        out.push_str(" (not in effect now)");
-    }
-    out.push('\n');
-    out
 }
 
-/// `mailo sieve …` over `store`, signing in through `secrets`, returning what to print.
+/// A sieve command over `store`, signing in through `secrets`.
 pub async fn run_sieve(
     store: &SqliteStore,
     secrets: &dyn AccountSecrets,
     command: &SieveCmd,
     saved: &ClientRegistry,
     now: DateTime<Utc>,
-) -> Result<String, CoreError> {
+) -> Result<SieveDone, CoreError> {
     match command {
         SieveCmd::Push { account, takeover } => {
             let account = super::pick(store, account.as_deref())?;
-            push(store, secrets, &account, *takeover, saved, now).await
+            let pushed = pushed(store, secrets, &account, *takeover, saved, now).await?;
+            Ok(SieveDone::Pushed {
+                address: account.address,
+                pushed,
+            })
         }
         SieveCmd::Status { account } => {
             let account = super::pick(store, account.as_deref())?;
-            status(store, secrets, &account, saved, now).await
+            status(store, secrets, &account, saved, now)
+                .await
+                .map(SieveDone::Status)
         }
     }
 }
@@ -315,22 +389,9 @@ async fn auth(
     })
 }
 
-async fn push(
-    store: &SqliteStore,
-    secrets: &dyn AccountSecrets,
-    account: &crate::sync::Configured,
-    takeover: Takeover,
-    saved: &ClientRegistry,
-    now: DateTime<Utc>,
-) -> Result<String, CoreError> {
-    pushed(store, secrets, account, takeover, saved, now)
-        .await
-        .map(|pushed| said(&account.address, &pushed))
-}
-
 /// Compile the account's rules and vacation reply and install them, with the account's own
 /// sign-in, returning what the server did rather than words about it: the window says it its
-/// own way. What `mailo sieve push` runs, over the secret store it is given.
+/// own way. What a sieve push runs, over the secret store it is given.
 pub async fn pushed(
     store: &SqliteStore,
     secrets: &dyn AccountSecrets,
@@ -362,74 +423,13 @@ pub async fn pushed(
     .map_err(|e| CoreError::context(format!("{}:{}", at.host, at.port), e))
 }
 
-/// What a push did, for a person.
-pub fn said(address: &str, pushed: &Pushed) -> String {
-    let mut out = String::new();
-    match &pushed.outcome {
-        SieveOutcome::Installed { displaced, .. } => {
-            let _ = writeln!(
-                out,
-                "{address}: the server now runs {} rule(s){}",
-                pushed.compiled.mapped.len(),
-                match pushed.compiled.vacation {
-                    VacationPlaced::Dated | VacationPlaced::Undated => " and the vacation reply",
-                    _ => "",
-                }
-            );
-            if let Some(theirs) = displaced {
-                let _ = writeln!(
-                    out,
-                    "  {theirs:?} is no longer active; it is still on the server"
-                );
-            }
-        }
-        SieveOutcome::Refused { active, .. } => {
-            let _ = writeln!(
-                out,
-                "{address}: nothing installed. The server runs a script called {active:?}, made \
-                 elsewhere, and a server runs one script at a time. Merge its rules into \
-                 `mailo rules`, then `mailo sieve push --replace-active`"
-            );
-        }
-        SieveOutcome::Removed { deleted, .. } => {
-            let _ = writeln!(
-                out,
-                "{address}: nothing here for the server to run{}",
-                match deleted {
-                    Deleted::Ours => "; this client's script is taken down",
-                    Deleted::NothingThere => "",
-                }
-            );
-        }
-        SieveOutcome::Status { .. } => {}
-    }
-    for (name, why) in &pushed.compiled.local_only {
-        let _ = writeln!(out, "  {name:?} runs in this client only: {why}");
-    }
-    match pushed.compiled.vacation {
-        VacationPlaced::Undated => out.push_str(
-            "  the server cannot test dates, so the reply is on until a push after its end \
-             (`mailo sieve push`, or `vacation off`)\n",
-        ),
-        VacationPlaced::Outside => out.push_str(
-            "  the reply is outside its dates and the server cannot test them: it is left out, \
-             and a push during them puts it in\n",
-        ),
-        VacationPlaced::Unsupported => {
-            out.push_str("  the server's Sieve has no vacation extension: no reply is sent\n");
-        }
-        VacationPlaced::Absent | VacationPlaced::Dated => {}
-    }
-    out
-}
-
 async fn status(
     store: &SqliteStore,
     secrets: &dyn AccountSecrets,
     account: &crate::sync::Configured,
     saved: &ClientRegistry,
     now: DateTime<Utc>,
-) -> Result<String, CoreError> {
+) -> Result<SieveStatus, CoreError> {
     let at = endpoint(&account.plan).map_err(|why| CoreError::NoSieve {
         address: account.address.clone(),
         why,
@@ -447,31 +447,13 @@ async fn status(
     else {
         return Err(CoreError::StatusExpected);
     };
-    let mut out = format!(
-        "{}: ManageSieve at {}:{}{}\n  extensions: {}\n",
-        account.address,
-        at.host,
-        at.port,
-        caps.implementation
-            .map(|i| format!(" ({i})"))
-            .unwrap_or_default(),
-        caps.sieve.join(" ")
-    );
-    if scripts.is_empty() {
-        out.push_str("  no scripts\n");
-    }
-    for script in &scripts {
-        let _ = writeln!(
-            out,
-            "  script {:?}{}",
-            script.name,
-            if script.active == Active::Yes {
-                " (active)"
-            } else {
-                ""
-            }
-        );
-    }
+    let scripts = scripts
+        .iter()
+        .map(|script| ScriptSeen {
+            name: script.name.clone(),
+            active: script.active == Active::Yes,
+        })
+        .collect();
     let rules = store.rules(account.id.clone())?;
     let vacation = store.vacation(account.id.clone())?;
     let compiled = compile(
@@ -482,16 +464,19 @@ async fn status(
         SCRIPT_NAME,
         now,
     );
-    let current = match (&ours, compiled.is_empty()) {
-        (Some(held), _) if *held == compiled.script => "up to date",
-        (None, true) => "up to date: nothing to run there",
-        (Some(_), _) | (None, false) => {
-            "out of date: `mailo sieve push` installs the rules as they are now"
-        }
+    let script = match (&ours, compiled.is_empty()) {
+        (Some(held), _) if *held == compiled.script => ScriptState::UpToDate,
+        (None, true) => ScriptState::NothingToRun,
+        (Some(_), _) | (None, false) => ScriptState::OutOfDate,
     };
-    let _ = writeln!(out, "  this client's script: {current}");
-    for (name, why) in &compiled.local_only {
-        let _ = writeln!(out, "  {name:?} runs in this client only: {why}");
-    }
-    Ok(out)
+    Ok(SieveStatus {
+        address: account.address.clone(),
+        host: at.host.clone(),
+        port: at.port,
+        implementation: caps.implementation,
+        extensions: caps.sieve,
+        scripts,
+        script,
+        local_only: compiled.local_only,
+    })
 }

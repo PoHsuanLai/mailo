@@ -19,7 +19,6 @@ use mail_domain::*;
 use mail_mime::{ListHeaders, Mailto, Unsubscribe};
 use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
-use std::fmt::Write as _;
 
 /// A message's way out of its list, with what is needed to take it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -150,71 +149,5 @@ pub async fn perform(
             Ok(Outcome::Queued { draft: draft.id })
         }
         Some(Unsubscribe::Web { url }) => Ok(Outcome::Page { url: url.clone() }),
-    }
-}
-
-fn nothing_offered() -> String {
-    CoreError::NothingOffered.to_string()
-}
-
-/// Every way out the message offers, and which one `mailo unsubscribe` would take.
-pub fn describe(found: &Found) -> String {
-    let mut out = String::new();
-    if let Some(id) = &found.list.id {
-        match &id.description {
-            Some(description) => {
-                let _ = writeln!(out, "list    {description} <{}>", id.id);
-            }
-            None => {
-                let _ = writeln!(out, "list    <{}>", id.id);
-            }
-        }
-    }
-    let _ = writeln!(out, "message {}", found.message);
-    if found.list.unsubscribe.is_empty() {
-        let _ = writeln!(out, "\n{}", nothing_offered());
-        return out;
-    }
-    let preferred = found.list.preferred();
-    out.push('\n');
-    for method in &found.list.unsubscribe {
-        let mark = if Some(method) == preferred { "*" } else { " " };
-        let _ = writeln!(out, "{mark} {}", method_line(method));
-    }
-    let _ = writeln!(
-        out,
-        "\n* is what `mailo unsubscribe {}` does",
-        found.message
-    );
-    out
-}
-
-fn method_line(method: &Unsubscribe) -> String {
-    match method {
-        Unsubscribe::OneClick { url } => format!("one-click  POST {url}"),
-        Unsubscribe::Mailto(mailto) => {
-            let to: Vec<&str> = mailto.to.iter().map(|a| a.email.as_str()).collect();
-            let mut line = format!("mail       to {}", to.join(", "));
-            if !mailto.subject.is_empty() {
-                let _ = write!(line, ", subject {:?}", mailto.subject);
-            }
-            line
-        }
-        Unsubscribe::Web { url } => format!("web page   {url} (shown, never opened)"),
-    }
-}
-
-/// What [`perform`] did, as the CLI says it.
-pub fn report(outcome: &Outcome) -> String {
-    match outcome {
-        Outcome::Unsubscribed { url } => {
-            format!("unsubscribed: the list's server at {url} accepted it\n")
-        }
-        Outcome::Queued { draft } => {
-            format!("queued an unsubscribe message ({draft}); it leaves on the next `mailo sync`\n")
-        }
-        Outcome::Page { url } => format!(
-            "this list can only be left on its web page, which mailo does not open:\n  {url}\n"
-        ),
     }
 }

@@ -7,7 +7,6 @@ use crate::error::CoreError;
 use chrono::{DateTime, Utc};
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
-use std::fmt::Write as _;
 
 /// Keep `draft` as a template called `name`, returning it. The draft is left where it was.
 pub fn save(
@@ -57,77 +56,4 @@ pub fn all(store: &SqliteStore) -> Result<Vec<(String, Template)>, CoreError> {
         }
     }
     Ok(out)
-}
-
-/// `mailo template save`, as the CLI reports it.
-pub fn save_report(
-    store: &SqliteStore,
-    draft: DraftId,
-    name: &str,
-    now: DateTime<Utc>,
-) -> Result<String, CoreError> {
-    let kept = save(store, draft, name, now)?;
-    Ok(format!(
-        "template {}\n  name    {}\n\nstart a message from it with: mailo template use {}\n",
-        kept.id, kept.name, kept.id
-    ))
-}
-
-/// `mailo template use`, as the CLI reports it: the new draft's id first, on a line of its own.
-pub fn start_report(
-    store: &SqliteStore,
-    template: TemplateId,
-    to: &[Address],
-    now: DateTime<Utc>,
-) -> Result<String, CoreError> {
-    let draft = start(store, template, to, now)?;
-    let mut out = format!("draft {}\n", draft.id);
-    let _ = writeln!(out, "  to      {}", addresses(&draft.to));
-    let _ = writeln!(out, "  subject {}", or_none(&draft.subject));
-    if draft.to.is_empty() && draft.cc.is_empty() && draft.bcc.is_empty() {
-        let _ = writeln!(
-            out,
-            "\nthe template names nobody to send to: start it again with --to someone@example.com"
-        );
-    } else {
-        let _ = writeln!(out, "\nsend it with: mailo send {}", draft.id);
-    }
-    Ok(out)
-}
-
-/// `mailo template list`.
-pub fn list(store: &SqliteStore) -> Result<String, CoreError> {
-    let all = all(store)?;
-    if all.is_empty() {
-        return Ok(
-            "no templates. Keep a draft as one with: mailo template save <draft-id>\n".to_owned(),
-        );
-    }
-    let mut out = String::new();
-    for (address, template) in all {
-        let _ = writeln!(
-            out,
-            "{}  {}  ({}) {}",
-            template.id,
-            template.name,
-            address,
-            or_none(&template.subject)
-        );
-    }
-    Ok(out)
-}
-
-fn or_none(subject: &str) -> &str {
-    if subject.is_empty() {
-        "(no subject)"
-    } else {
-        subject
-    }
-}
-
-fn addresses(list: &[Address]) -> String {
-    list.iter()
-        .map(|a| a.email.as_str())
-        .collect::<Vec<_>>()
-        .join(", ")
 }

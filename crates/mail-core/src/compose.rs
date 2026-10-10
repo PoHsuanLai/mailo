@@ -496,26 +496,27 @@ pub fn attached_to(store: &SqliteStore, draft: &Draft) -> Vec<(String, String)> 
         .collect()
 }
 
-/// What a draft is carrying, as the CLI prints it.
-pub fn attachments_of(store: &SqliteStore, draft: DraftId) -> Result<String, CoreError> {
+/// One file on a draft, as [`attachments_of`] lists it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AttachedFile {
+    pub name: String,
+    pub mime: String,
+    /// `None` when the store no longer has the bytes, which a listing says rather than hides.
+    pub size: Option<u64>,
+}
+
+/// What a draft is carrying, in the order they are numbered for [`detach`].
+pub fn attachments_of(store: &SqliteStore, draft: DraftId) -> Result<Vec<AttachedFile>, CoreError> {
     let draft = store.draft(draft)?;
-    if draft.attachments.is_empty() {
-        return Ok("nothing attached to that draft\n".to_owned());
-    }
-    let mut out = String::new();
-    for (index, attachment) in draft.attachments.iter().enumerate() {
-        let size = store
-            .blobs()
-            .size(attachment.blob)
-            .map(crate::attach::human_size)
-            .unwrap_or_else(|_| "missing".to_owned());
-        let _ = writeln!(
-            out,
-            "  {index}  {:>9}  {}  {}",
-            size, attachment.mime, attachment.name
-        );
-    }
-    Ok(out)
+    Ok(draft
+        .attachments
+        .iter()
+        .map(|attachment| AttachedFile {
+            name: attachment.name.clone(),
+            mime: attachment.mime.clone(),
+            size: store.blobs().size(attachment.blob).ok(),
+        })
+        .collect())
 }
 
 /// Send this draft from a different account.
@@ -543,7 +544,17 @@ pub fn move_draft_to(
     Ok(draft)
 }
 
-/// Start a new message to `[to, cc, bcc]`, as the CLI reports it.
+/// A message just started with [`new_sealed_message`]: the draft, and what would stop it going.
+#[derive(Debug)]
+pub struct Composed {
+    pub draft: Draft,
+    /// Why it cannot be sent the way it asks, when it cannot: no key of the sender's own, a
+    /// recipient with no key, a blind recipient on an encrypted message. Known straight away
+    /// rather than found at Send; the draft is kept either way, as it is the user's to fix.
+    pub refused: Option<CoreError>,
+}
+
+/// Start a new message to `[to, cc, bcc]`.
 ///
 /// `receipt` is whether it asks its recipients for a read receipt.
 pub fn new_message(
@@ -554,7 +565,7 @@ pub fn new_message(
     body: &str,
     receipt: ReceiptRequest,
     now: DateTime<Utc>,
-) -> Result<String, CoreError> {
+) -> Result<Composed, CoreError> {
     new_sealed_message(
         store,
         from,
@@ -568,9 +579,8 @@ pub fn new_message(
 
 /// [`new_message`], asking OpenPGP or S/MIME to sign, encrypt, or both when it is sent.
 ///
-/// Says straight away what would stop an OpenPGP or S/MIME send — no key of the sender's own, a recipient
-/// with no key, a blind recipient on an encrypted message — rather than leaving it to be found at
-/// Send. The draft is kept either way: it is the user's to fix.
+/// Says straight away what would stop an OpenPGP or S/MIME send, in [`Composed::refused`],
+/// rather than leaving it to be found at Send.
 pub fn new_sealed_message(
     store: &SqliteStore,
     from: Option<&str>,
@@ -579,7 +589,7 @@ pub fn new_sealed_message(
     body: &str,
     (receipt, openpgp, smime): (ReceiptRequest, OpenPgp, Smime),
     now: DateTime<Utc>,
-) -> Result<String, CoreError> {
+) -> Result<Composed, CoreError> {
     let account = account_for(store, from)?;
     let mut draft = draft_new(store, account, to, subject, body, now)?;
     if !cc.is_empty()
@@ -595,63 +605,17 @@ pub fn new_sealed_message(
         draft.smime = smime;
         save(store, &draft)?;
     }
-    let mut out = format!("draft {}\n", draft.id);
-    let _ = writeln!(out, "  to      {}", addresses(&draft.to));
-    if !draft.cc.is_empty() {
-        let _ = writeln!(out, "  cc      {}", addresses(&draft.cc));
-    }
-    if !draft.bcc.is_empty() {
-        let _ = writeln!(out, "  bcc     {}", addresses(&draft.bcc));
-    }
-    let _ = writeln!(
-        out,
-        "  subject {}",
-        if draft.subject.is_empty() {
-            "(none)"
-        } else {
-            &draft.subject
-        }
-    );
-    if draft.receipt == ReceiptRequest::Requested {
-        let _ = writeln!(out, "  asks for a read receipt");
-    }
-    match draft.openpgp {
-        OpenPgp::None => {}
-        OpenPgp::Sign => {
-            let _ = writeln!(out, "  signed with OpenPGP when it is sent");
-        }
-        OpenPgp::Encrypt => {
-            let _ = writeln!(out, "  encrypted with OpenPGP when it is sent");
-        }
-        OpenPgp::SignAndEncrypt => {
-            let _ = writeln!(out, "  signed and encrypted with OpenPGP when it is sent");
-        }
-    }
-    match draft.smime {
-        Smime::None => {}
-        Smime::Sign => {
-            let _ = writeln!(out, "  signed with S/MIME when it is sent");
-        }
-        Smime::Encrypt => {
-            let _ = writeln!(out, "  encrypted with S/MIME when it is sent");
-        }
-        Smime::SignAndEncrypt => {
-            let _ = writeln!(out, "  signed and encrypted with S/MIME when it is sent");
-        }
-    }
+    let mut refused = None;
     if draft.openpgp != OpenPgp::None || draft.smime != Smime::None {
         let identity = identity_of(store, draft.account.clone(), Some(draft.identity))?;
-        let refused = crate::pgp::check(store, &draft, &identity, now)
+        refused = crate::pgp::check(store, &draft, &identity, now)
             .map_err(CoreError::from)
             .and_then(|()| {
                 crate::smime::check(store, &draft, &identity, now).map_err(CoreError::from)
-            });
-        if let Err(e) = refused {
-            let _ = writeln!(out, "  but it cannot be sent that way yet: {e}");
-        }
+            })
+            .err();
     }
-    let _ = writeln!(out, "\nsend it with: mailo send {}", draft.id);
-    Ok(out)
+    Ok(Composed { draft, refused })
 }
 
 /// The line a forward's header block starts with. What follows it is the original's, not the
@@ -705,7 +669,7 @@ where
     out
 }
 
-/// Forward a message, as the CLI reports it.
+/// Forward a message, carrying it `carry`-wise, and return the draft.
 pub fn forward(
     store: &SqliteStore,
     message: MessageId,
@@ -713,19 +677,11 @@ pub fn forward(
     body: &str,
     carry: Carry,
     now: DateTime<Utc>,
-) -> Result<String, CoreError> {
-    let draft = match carry {
-        Carry::Inline => draft_forward(store, message, to, body, now)?,
-        Carry::Attached => draft_forward_attached(store, message, to, body, now)?,
-    };
-    let mut out = format!("draft {}\n", draft.id);
-    let _ = writeln!(out, "  to      {}", addresses(&draft.to));
-    let _ = writeln!(out, "  subject {}", draft.subject);
-    for attachment in &draft.attachments {
-        let _ = writeln!(out, "  attached {}", attachment.name);
+) -> Result<Draft, CoreError> {
+    match carry {
+        Carry::Inline => draft_forward(store, message, to, body, now),
+        Carry::Attached => draft_forward_attached(store, message, to, body, now),
     }
-    let _ = writeln!(out, "\nsend it with: mailo send {}", draft.id);
-    Ok(out)
 }
 
 /// Write a draft back to the store.
@@ -770,38 +726,6 @@ pub fn discard(store: &SqliteStore, draft: DraftId) -> Result<String, CoreError>
     Ok(draft.subject)
 }
 
-/// Start a reply to `message`, with `body` as its text.
-pub fn reply(
-    store: &SqliteStore,
-    message: MessageId,
-    scope: ReplyScope,
-    body: &str,
-    now: DateTime<Utc>,
-) -> Result<String, CoreError> {
-    let draft = draft_reply(store, message, scope, body, now)?;
-
-    let mut out = format!("draft {}\n", draft.id);
-    let _ = writeln!(out, "  to      {}", addresses(&draft.to));
-    if !draft.cc.is_empty() {
-        let _ = writeln!(out, "  cc      {}", addresses(&draft.cc));
-    }
-    let _ = writeln!(out, "  subject {}", draft.subject);
-    if draft.to.is_empty() && draft.cc.is_empty() {
-        // `Draft::reply_to` drops your own address from the recipients, which is right — a reply
-        // to something you sent has nobody left to go to. Saying "send it with: …" anyway meant
-        // the next command failed with "cannot build a message with no recipients", and the CLI
-        // has no way to add one, so the advice was not merely useless but unfollowable.
-        let _ = writeln!(
-            out,
-            "\nnobody to send this to: the only address on the original was your own. \
-             Open it in the composer to add a recipient."
-        );
-    } else {
-        let _ = writeln!(out, "\nsend it with: mailo send {}", draft.id);
-    }
-    Ok(out)
-}
-
 /// Put the identity's signature beneath what was written.
 ///
 /// `Identity.signature` has been a column since phase 1 and nothing has ever read it: no sending
@@ -836,20 +760,29 @@ fn signed(body: &str, identity: &Identity) -> String {
     out
 }
 
+/// What [`set_signature`] did, and to whose signature.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SignatureChange {
+    /// The address of the identity it was set on.
+    pub email: String,
+    /// Whether the identity now has a signature: `false` when it was cleared.
+    pub set: bool,
+}
+
 /// Set or clear the signature on an account's default identity.
 pub fn set_signature(
     store: &SqliteStore,
     account: AccountId,
     signature: Option<&str>,
-) -> Result<String, CoreError> {
+) -> Result<SignatureChange, CoreError> {
     let identity = identity_of(store, account, None)?;
     // An empty string is not a signature: stored as NULL, so "has one" is a single question
     // rather than two that can disagree.
     let trimmed = signature.map(str::trim_end).filter(|s| !s.is_empty());
     store.set_signature(identity.id, trimmed)?;
-    Ok(match trimmed {
-        Some(_) => format!("signature set for {}\n", identity.from.email),
-        None => format!("signature cleared for {}\n", identity.from.email),
+    Ok(SignatureChange {
+        email: identity.from.email,
+        set: trimmed.is_some(),
     })
 }
 
@@ -908,12 +841,16 @@ pub enum Leaves {
     At(DateTime<Utc>),
 }
 
-/// Queue a draft for delivery.
+/// Queue a draft for delivery, returning it and what was queued.
 ///
 /// Builds the bytes and the envelope together, freezes the bytes in the blob store, and puts a
-/// submission in the outbox. Nothing here touches the network: the next `mailo sync` delivers
-/// it, and until it does the message is safe across a restart.
-pub fn send(store: &SqliteStore, draft: DraftId, now: DateTime<Utc>) -> Result<String, CoreError> {
+/// submission in the outbox. Nothing here touches the network: the next sync delivers it, and
+/// until it does the message is safe across a restart.
+pub fn send(
+    store: &SqliteStore,
+    draft: DraftId,
+    now: DateTime<Utc>,
+) -> Result<(Draft, mail_mime::Posting), CoreError> {
     Ok(send_with(
         store,
         &mail_runtime::KeyringSigningStore::default(),
@@ -989,24 +926,26 @@ pub fn send_with(
     ask: crate::pgp::Ask<'_>,
     draft: DraftId,
     now: DateTime<Utc>,
-) -> Result<String, SendError> {
-    let (draft, post) = queue_with(store, secrets, ask, draft, Leaves::Now, now)?;
-    let mut out = format!("queued {} for delivery\n", draft.id);
-    let _ = writeln!(out, "  from    {}", post.mail_from);
-    let _ = writeln!(out, "  to      {}", post.rcpt_to.join(", "));
-    let _ = writeln!(out, "  subject {}", draft.subject);
-    let _ = writeln!(out, "\ndeliver it with: mailo sync");
-    Ok(out)
+) -> Result<(Draft, mail_mime::Posting), SendError> {
+    queue_with(store, secrets, ask, draft, Leaves::Now, now)
 }
 
-/// Queue a draft to leave at `phrase` — the words `mailo snooze` takes: `tomorrow`, `tonight`,
-/// `+2h`, `2026-09-25 09:00` — as the CLI reports it.
+/// A send held for later: what was queued, and when it may leave.
+#[derive(Debug)]
+pub struct Scheduled {
+    pub draft: Draft,
+    pub post: mail_mime::Posting,
+    pub at: DateTime<Utc>,
+}
+
+/// Queue a draft to leave at `phrase`, in the words [`crate::snooze::snooze_until`] takes:
+/// `tomorrow`, `tonight`, `+2h`, `2026-09-25 09:00`.
 pub fn send_later(
     store: &SqliteStore,
     draft: DraftId,
     phrase: &str,
     now: DateTime<Utc>,
-) -> Result<String, CoreError> {
+) -> Result<Scheduled, CoreError> {
     send_later_in(store, draft, phrase, now, &Local)
 }
 
@@ -1018,50 +957,26 @@ pub fn send_later_with(
     draft: DraftId,
     phrase: &str,
     now: DateTime<Utc>,
-) -> Result<String, SendError> {
+) -> Result<Scheduled, SendError> {
     let at = crate::snooze::snooze_until(phrase, now, &Local)?;
     let (draft, post) = queue_with(store, secrets, ask, draft, Leaves::At(at), now)?;
-    Ok(said_later(&draft, &post, at, &Local))
+    Ok(Scheduled { draft, post, at })
 }
 
-/// The same, with the zone `phrase` is read in and the answer written in named.
+/// The same, with the zone `phrase` is read in named.
 pub fn send_later_in<Tz: chrono::TimeZone>(
     store: &SqliteStore,
     draft: DraftId,
     phrase: &str,
     now: DateTime<Utc>,
     zone: &Tz,
-) -> Result<String, CoreError>
+) -> Result<Scheduled, CoreError>
 where
     Tz::Offset: std::fmt::Display,
 {
     let at = crate::snooze::snooze_until(phrase, now, zone)?;
     let (draft, post) = queue(store, draft, Leaves::At(at), now)?;
-    Ok(said_later(&draft, &post, at, zone))
-}
-
-/// What a scheduled send reports.
-fn said_later<Tz: chrono::TimeZone>(
-    draft: &Draft,
-    post: &mail_mime::Posting,
-    at: DateTime<Utc>,
-    zone: &Tz,
-) -> String
-where
-    Tz::Offset: std::fmt::Display,
-{
-    let when = crate::when::stamp(at, zone, crate::when::Stamp::Full);
-    let mut out = format!("{} will leave at {when}\n", draft.id);
-    let _ = writeln!(out, "  from    {}", post.mail_from);
-    let _ = writeln!(out, "  to      {}", post.rcpt_to.join(", "));
-    let _ = writeln!(out, "  subject {}", draft.subject);
-    let _ = writeln!(
-        out,
-        "\nit goes with the first `mailo sync` after then, or on the minute from a running \
-         `mailo watch`.\ntake it back before then with: mailo unsend {}",
-        draft.id
-    );
-    out
+    Ok(Scheduled { draft, post, at })
 }
 
 /// Freeze a draft's bytes and put its submission in the outbox, to leave as `leaves` says.
@@ -1196,19 +1111,6 @@ fn queue_inner(
     ))
 }
 
-/// Take back a send that has not left, as the CLI reports it.
-pub fn unsend_report(
-    store: &SqliteStore,
-    draft: DraftId,
-    now: DateTime<Utc>,
-) -> Result<String, CoreError> {
-    let back = unsend(store, draft, now)?;
-    Ok(format!(
-        "{} is a draft again and will not be sent.\nsend it with: mailo send {}\n",
-        back.id, back.id
-    ))
-}
-
 /// Take back a send that has not left: the queued submission goes, the draft is editable again.
 ///
 /// One write of two changes. Deleting the draft withdraws its outbox entry (334b758), and the
@@ -1244,61 +1146,13 @@ pub fn unsend(store: &SqliteStore, draft: DraftId, now: DateTime<Utc>) -> Result
     Ok(back)
 }
 
-/// Every draft, and where it got to.
-pub fn drafts(store: &SqliteStore) -> Result<String, CoreError> {
-    drafts_in(store, &Local)
-}
-
-/// The same, with the zone a scheduled send's time is written in named.
-pub fn drafts_in<Tz: chrono::TimeZone>(store: &SqliteStore, zone: &Tz) -> Result<String, CoreError>
-where
-    Tz::Offset: std::fmt::Display,
-{
-    let accounts: Vec<AccountId> = store
-        .list_accounts()?
-        .into_iter()
-        .map(|account| account.id)
-        .collect();
-
-    let mut out = String::new();
-    for account in accounts {
-        for draft in store.drafts(account)? {
-            let _ = write!(
-                out,
-                "{}  {:<9}  {}",
-                draft.id,
-                state_word(&draft.state),
-                if draft.subject.is_empty() {
-                    "(no subject)"
-                } else {
-                    &draft.subject
-                }
-            );
-            if let SendState::Scheduled { at } = draft.state {
-                let _ = write!(
-                    out,
-                    "  (leaves {})",
-                    crate::when::stamp(at, zone, crate::when::Stamp::Full)
-                );
-            }
-            out.push('\n');
-        }
+/// Every draft of every account, oldest account first, each with the state it got to.
+pub fn drafts(store: &SqliteStore) -> Result<Vec<Draft>, CoreError> {
+    let mut all = Vec::new();
+    for account in store.list_accounts()? {
+        all.extend(store.drafts(account.id)?);
     }
-    if out.is_empty() {
-        out.push_str("no drafts.\n");
-    }
-    Ok(out)
-}
-
-fn state_word(state: &SendState) -> &'static str {
-    match state {
-        SendState::Editing => "editing",
-        SendState::Queued => "queued",
-        SendState::Scheduled { .. } => "scheduled",
-        SendState::Sending => "sending",
-        SendState::Failed { .. } => "failed",
-        SendState::Sent { .. } => "sent",
-    }
+    Ok(all)
 }
 
 fn addresses(list: &[Address]) -> String {

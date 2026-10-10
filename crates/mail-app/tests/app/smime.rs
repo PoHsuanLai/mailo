@@ -148,6 +148,7 @@ fn frozen(store: &SqliteStore) -> Vec<u8> {
 
 fn send(store: &SqliteStore, secrets: &MapSigningStore, draft: DraftId) -> Result<String, String> {
     compose::send_with(store, secrets, &mail_core::pgp::no_passphrase, draft, now())
+        .map(|(draft, post)| cli::compose::queued(&draft, &post))
         .map_err(|e| e.to_string())
 }
 
@@ -485,16 +486,18 @@ mod sending {
     fn a_new_smime_message_says_what_stands_in_the_way() {
         let _serial = serial();
         let (store, _dir) = seeded();
-        let said = compose::new_sealed_message(
-            &store,
-            None,
-            [&to(&[BEA]), &[], &[]],
-            "hi",
-            "body",
-            (ReceiptRequest::Unrequested, OpenPgp::None, Smime::Encrypt),
-            now(),
-        )
-        .unwrap();
+        let said = cli::compose::composed(
+            &compose::new_sealed_message(
+                &store,
+                None,
+                [&to(&[BEA]), &[], &[]],
+                "hi",
+                "body",
+                (ReceiptRequest::Unrequested, OpenPgp::None, Smime::Encrypt),
+                now(),
+            )
+            .unwrap(),
+        );
         assert!(said.contains("encrypted with S/MIME"), "{said}");
         assert!(said.contains("no current S/MIME certificate"), "{said}");
     }
@@ -589,7 +592,7 @@ mod reading {
                 coverage: Coverage::Whole,
             }
         );
-        let said = smime::describe(&opened);
+        let said = cli::smime::describe(&opened);
         assert!(said.contains("S/MIME encrypted; decrypted"), "{said}");
         assert!(
             said.contains("good S/MIME signature by bea@example.test"),
@@ -620,8 +623,8 @@ mod reading {
             SmimeEncryption::CannotDecrypt { .. }
         ));
         assert!(opened.shown.is_none());
-        let command = smime::parse(&["show".into(), message.id.to_string()]).unwrap();
-        let said = smime::run(&store, &secrets, &|| None, &command, now()).unwrap();
+        let command = cli::smime::parse(&["show".into(), message.id.to_string()]).unwrap();
+        let said = cli::smime::run(&store, &secrets, &|| None, &command, now()).unwrap();
         assert!(said.contains("hold no key for"), "{said}");
     }
 }
@@ -633,23 +636,23 @@ mod command_line {
     fn the_smime_verbs_parse_as_the_usage_says() {
         let _serial = serial();
         let fp = me().cert.fingerprint();
-        let cases: Vec<(Vec<&str>, smime::SmimeCommand)> = vec![
-            (vec!["list"], smime::SmimeCommand::List),
+        let cases: Vec<(Vec<&str>, cli::smime::SmimeCommand)> = vec![
+            (vec!["list"], cli::smime::SmimeCommand::List),
             (
                 vec!["import", "me.p12"],
-                smime::SmimeCommand::Import {
+                cli::smime::SmimeCommand::Import {
                     path: "me.p12".into(),
                 },
             ),
             (
                 vec!["export", ME],
-                smime::SmimeCommand::Export {
+                cli::smime::SmimeCommand::Export {
                     named: ME.to_owned(),
                 },
             ),
             (
                 vec!["delete", ME, "--with-secret"],
-                smime::SmimeCommand::Delete {
+                cli::smime::SmimeCommand::Delete {
                     named: ME.to_owned(),
                     with_secret: WithSecret::Confirmed,
                 },
@@ -657,21 +660,21 @@ mod command_line {
         ];
         for (args, expected) in cases {
             let owned: Vec<String> = args.iter().map(|a| (*a).to_owned()).collect();
-            assert_eq!(smime::parse(&owned).unwrap(), expected, "{args:?}");
+            assert_eq!(cli::smime::parse(&owned).unwrap(), expected, "{args:?}");
         }
-        let trust = smime::parse(&["untrust".into(), fp.to_string()]).unwrap();
+        let trust = cli::smime::parse(&["untrust".into(), fp.to_string()]).unwrap();
         assert_eq!(
             trust,
-            smime::SmimeCommand::Trust {
+            cli::smime::SmimeCommand::Trust {
                 fingerprint: fp,
                 trust: KeyTrust::Unverified
             }
         );
-        assert!(smime::parse(&["trust".into(), "abc".into()]).is_err());
-        assert!(smime::parse(&["delete".into(), ME.into(), "--force".into()]).is_err());
+        assert!(cli::smime::parse(&["trust".into(), "abc".into()]).is_err());
+        assert!(cli::smime::parse(&["delete".into(), ME.into(), "--force".into()]).is_err());
         assert!(matches!(
             cli::parse(&["smime".into(), "list".into()]).unwrap(),
-            cli::Command::Smime(smime::SmimeCommand::List)
+            cli::Command::Smime(cli::smime::SmimeCommand::List)
         ));
     }
 
@@ -682,7 +685,7 @@ mod command_line {
         import_bea(&store, &secrets);
         let said = cli::run(
             &store,
-            &cli::Command::Smime(smime::SmimeCommand::List),
+            &cli::Command::Smime(cli::smime::SmimeCommand::List),
             now(),
         )
         .unwrap();

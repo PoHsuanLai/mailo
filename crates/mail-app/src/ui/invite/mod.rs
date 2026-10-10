@@ -109,7 +109,8 @@ pub(in crate::ui) fn answer(
     note: Option<&str>,
     now: DateTime<Utc>,
 ) -> Result<(String, Option<Card>), String> {
-    let said = mail_core::invite::answer(store, message, attendance, note, now)?;
+    let answered = mail_core::invite::answer(store, message, attendance, note, now)?;
+    let said = crate::said::invite::said(&answered);
     let card = look(store, message);
     if let Ok(stored) = store.message(message) {
         keep(message, stored.body.raw(), card.clone());

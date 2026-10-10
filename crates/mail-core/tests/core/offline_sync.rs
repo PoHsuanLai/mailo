@@ -380,7 +380,7 @@ fn the_offline_command_sets_one_account_and_says_where_each_stands() {
         mail_core::offline::load(config.path()).of(acct_account()),
         Keep::Bodies
     );
-    let said = mail_core::offline::command(
+    let standing = mail_core::offline::standing(
         Some(config.path()),
         &store,
         &accounts,
@@ -389,14 +389,18 @@ fn the_offline_command_sets_one_account_and_says_where_each_stands() {
     )
     .unwrap();
     assert_eq!(
-        said,
-        "me@example.test: all mail kept offline; 0 of 0 messages offline\n"
+        standing,
+        vec![mail_core::offline::Standing {
+            address: "me@example.test".to_owned(),
+            keep: Keep::Everything,
+            counted: Default::default(),
+        }]
     );
     assert_eq!(
         mail_core::offline::load(config.path()).of(acct_account()),
         Keep::Everything
     );
-    let nobody = mail_core::offline::command(
+    let nobody = mail_core::offline::standing(
         Some(config.path()),
         &store,
         &accounts,

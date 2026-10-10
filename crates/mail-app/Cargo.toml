@@ -156,6 +156,11 @@ zbus = "5.19"
 # The unread count on the Dock tile (`launcher/dock.rs`), through AppKit's own bindings, whose
 # calls used there are safe. Already in the lock through winit and rfd; the features add only the
 # Dock tile's bindings. Zlib OR Apache-2.0 OR MIT.
+# A passphrase asked on the Windows console with echo off (`cli/pgp.rs`, `ask_tty`), where there is
+# no `/dev/tty` and no `stty` to do it with. Apache-2.0.
+[target.'cfg(windows)'.dependencies]
+rpassword = "7"
+
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString"] }

@@ -10,6 +10,7 @@ use super::wire::{Request, Response};
 use crate::error::CoreError;
 use mail_store::SqliteStore;
 use porter_core::AccountId;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 /// What to do when a client asks for a pass, returning the accounts whose pass may have stored
@@ -20,10 +21,33 @@ use std::sync::Arc;
 /// engine in order to knock.
 pub type Pass = Arc<dyn Fn(Arc<SqliteStore>) -> Vec<AccountId> + Send + Sync>;
 
-/// Serve clients until told to stop — `mailo daemon`.
+/// Where the daemon is listening, said once the door is bound and before the first client.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Listening {
+    /// A socket in the filesystem.
+    Socket(PathBuf),
+    /// Anywhere else a latchkey address can name, as its endpoint reads.
+    Endpoint(String),
+}
+
+/// Why `serve` returned.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Ended {
+    /// A client asked it to stop.
+    Stopped,
+    /// The door closed without being asked to.
+    Closed,
+}
+
+/// Serve clients until told to stop — `mailo daemon`. `announce` is told where the daemon
+/// listens once it does, so whatever started it can say so.
 ///
 /// One connection at a time; see [`changes::door`] for why that is enough.
-pub fn serve(store: Arc<SqliteStore>, pass: Pass) -> Result<String, CoreError> {
+pub fn serve(
+    store: Arc<SqliteStore>,
+    pass: Pass,
+    announce: impl FnOnce(&Listening),
+) -> Result<Ended, CoreError> {
     let agent = crate::ipc::agent()?;
     // The lock inside this value is what makes "one daemon per user" true, and dropping it is
     // what removes the socket, so it is held for the whole of `serve`. `Err(AlreadyRunning)` is
@@ -35,10 +59,10 @@ pub fn serve(store: Arc<SqliteStore>, pass: Pass) -> Result<String, CoreError> {
         latchkey::Error::AlreadyRunning => CoreError::DaemonRunning,
         other => CoreError::from(other),
     })?;
-    match agent.socket() {
-        Some(path) => println!("listening on {}", path.display()),
-        None => println!("listening on {}", agent.address().endpoint),
-    }
+    announce(&match agent.socket() {
+        Some(path) => Listening::Socket(path.to_path_buf()),
+        None => Listening::Endpoint(agent.address().endpoint.to_string()),
+    });
 
     let subscribers = Subscribers::default();
     let mut stopped = false;
@@ -66,8 +90,8 @@ pub fn serve(store: Arc<SqliteStore>, pass: Pass) -> Result<String, CoreError> {
         }
     });
     Ok(if stopped {
-        "stopped\n".to_owned()
+        Ended::Stopped
     } else {
-        String::new()
+        Ended::Closed
     })
 }

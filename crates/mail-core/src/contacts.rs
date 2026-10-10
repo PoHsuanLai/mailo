@@ -1,134 +1,36 @@
-//! `mailo contacts`: the address book from the command line.
-//!
-//! The window asks the store the same question with `Store::contacts_matching`; this module is
-//! the CLI's side of it, plus the things only a command line does — importing and exporting
-//! `.vcf` files and syncing a CardDAV address book.
+//! The address book beyond what the window asks of the store with `Store::contacts_matching`:
+//! importing and exporting `.vcf` files, and syncing a CardDAV address book.
 
 use crate::environment::Environment;
-use crate::error::{CoreError, UsageError};
+use crate::error::CoreError;
 use chrono::{DateTime, Utc};
 use mail_domain::AuthPlan;
 use mail_pim::vcard::{self, Card, Email};
-use mail_runtime::carddav::{self, Dav, DavAuth, How};
+use mail_runtime::carddav::{self, Dav, DavAuth};
 use mail_runtime::link::LinkError;
 use mail_runtime::{AccountSecrets, ClientRegistry};
 use mail_store::{AddressBook, Edit, Group, GroupHome, GroupId, Kind, Origin, SqliteStore, Store};
 use porter_core::{CapabilityKind, Credential, Family, SecretKey, SecretPurpose, SecretText};
 use std::collections::BTreeSet;
-use std::fmt::Write as _;
-use std::path::PathBuf;
 
-/// What `mailo contacts …` asked for.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Contacts {
-    /// Autocomplete: the best matches for what was typed, or the top of the book.
-    Find {
-        typed: String,
-        limit: usize,
-    },
-    /// Add or rename a contact by hand.
-    Add {
-        address: String,
-        name: Option<String>,
-    },
-    Remove {
-        address: String,
-    },
-    /// Read a `.vcf` file of any version into the book.
-    Import {
-        path: PathBuf,
-    },
-    /// Write the book as vCard 4.0, to a file or to standard output.
-    Export {
-        path: Option<PathBuf>,
-    },
-    /// Sync a CardDAV address book, or every one synced before when no URL is given.
-    Sync {
-        url: Option<String>,
-        /// The account it belongs to, by address. The only one, when there is only one.
-        account: Option<String>,
-        /// The address book's own login; its password comes from `MAILO_PASSWORD` and is kept
-        /// in the keyring. Without one, the account's own sign-in is presented.
-        user: Option<String>,
-    },
-}
-
-/// Parse what follows `contacts`.
-pub fn parse(args: &[String]) -> Result<Contacts, CoreError> {
-    let rest = |from: usize| args.get(from..).unwrap_or_default().join(" ");
-    match args.first().map(String::as_str) {
-        Some("add") => {
-            let address = args.get(1).ok_or(UsageError::ContactsAdd)?;
-            let name = rest(2);
-            Ok(Contacts::Add {
-                address: address.clone(),
-                name: (!name.trim().is_empty()).then(|| name.trim().to_owned()),
-            })
-        }
-        Some("remove") => Ok(Contacts::Remove {
-            address: args.get(1).ok_or(UsageError::ContactsRemove)?.clone(),
-        }),
-        Some("import") => Ok(Contacts::Import {
-            path: args
-                .get(1)
-                .map(PathBuf::from)
-                .ok_or(UsageError::ContactsImport)?,
-        }),
-        Some("export") => Ok(Contacts::Export {
-            path: args.get(1).map(PathBuf::from),
-        }),
-        Some("sync") => {
-            let (mut url, mut account, mut user) = (None, None, None);
-            let mut words = args[1..].iter();
-            while let Some(word) = words.next() {
-                match word.as_str() {
-                    "--account" => {
-                        account = Some(
-                            words
-                                .next()
-                                .ok_or(UsageError::FlagNeeds {
-                                    flag: "--account",
-                                    what: "an address",
-                                })?
-                                .clone(),
-                        );
-                    }
-                    "--user" => {
-                        user = Some(
-                            words
-                                .next()
-                                .ok_or(UsageError::FlagNeeds {
-                                    flag: "--user",
-                                    what: "a login",
-                                })?
-                                .clone(),
-                        );
-                    }
-                    flag if flag.starts_with("--") => {
-                        return Err(UsageError::UnknownFlag(flag.to_owned()).into());
-                    }
-                    _ if url.is_none() => url = Some(word.clone()),
-                    other => return Err(UsageError::Unexpected(other.to_owned()).into()),
-                }
-            }
-            Ok(Contacts::Sync { url, account, user })
-        }
-        _ => Ok(Contacts::Find {
-            typed: rest(0),
-            limit: 20,
-        }),
-    }
-}
+pub use mail_runtime::carddav::How;
 
 impl crate::mail::ContactOps<'_> {
-    /// Run a contacts command, returning what to print.
-    pub async fn run(&self, command: &Contacts) -> Result<String, CoreError> {
+    /// Sync a CardDAV address book (see [`sync`]).
+    pub async fn sync(
+        &self,
+        url: Option<&str>,
+        account: Option<&str>,
+        user: Option<&str>,
+    ) -> Result<Synced, CoreError> {
         let mail = self.0;
-        run(
+        sync(
             mail.store(),
+            url,
+            account,
+            user,
             mail.secrets().as_ref(),
             mail.environment(),
-            command,
             &mail.saved_clients(),
             mail.now(),
         )
@@ -136,78 +38,49 @@ impl crate::mail::ContactOps<'_> {
     }
 }
 
-/// Run a contacts command over `store`, signing in through `secrets`, returning what to print.
-pub async fn run(
-    store: &SqliteStore,
-    secrets: &dyn AccountSecrets,
-    env: &Environment,
-    command: &Contacts,
-    saved: &ClientRegistry,
-    now: DateTime<Utc>,
-) -> Result<String, CoreError> {
-    match command {
-        Contacts::Find { typed, limit } => find(store, typed, *limit),
-        Contacts::Add { address, name } => {
-            let contact = store.put_contact(address, name.as_deref(), &Origin::Manual)?;
-            Ok(format!("added {}\n", shown(&contact)))
-        }
-        Contacts::Remove { address } => match store.delete_contact(address) {
-            Ok(true) => Ok(format!("removed {address}\n")),
-            Ok(false) => Err(CoreError::NoContact(address.clone())),
-            Err(e) => Err(e.into()),
-        },
-        Contacts::Import { path } => {
-            let bytes = std::fs::read(path)
-                .map_err(|e| CoreError::cannot(format!("read {}", path.display()), e))?;
-            import(store, &bytes)
-        }
-        Contacts::Export { path } => {
-            let text = export(store)?;
-            match path {
-                None => Ok(text),
-                Some(path) => {
-                    std::fs::write(path, &text)
-                        .map_err(|e| CoreError::cannot(format!("write {}", path.display()), e))?;
-                    Ok(format!("wrote {}\n", path.display()))
-                }
-            }
-        }
-        Contacts::Sync { url, account, user } => {
-            sync_with(
-                store,
-                url.as_deref(),
-                account.as_deref(),
-                user.as_deref(),
-                secrets,
-                env,
-                saved,
-                now,
-            )
-            .await
-        }
+/// The contacts that best match what was typed, best first, or the top of the book.
+pub fn find(
+    store: &dyn Store,
+    typed: &str,
+    limit: usize,
+) -> Result<Vec<mail_store::Contact>, CoreError> {
+    Ok(store.contacts_matching(typed, limit)?)
+}
+
+/// Add a contact by hand, or give an address already in the book this name.
+pub fn add(
+    store: &dyn Store,
+    address: &str,
+    name: Option<&str>,
+) -> Result<mail_store::Contact, CoreError> {
+    Ok(store.put_contact(address, name, &Origin::Manual)?)
+}
+
+/// Take `address` out of the book.
+pub fn remove(store: &dyn Store, address: &str) -> Result<(), CoreError> {
+    if store.delete_contact(address)? {
+        Ok(())
+    } else {
+        Err(CoreError::NoContact(address.to_owned()))
     }
 }
 
-/// One line per match, best first: `Name <address>`, or the address alone.
-pub fn find(store: &dyn Store, typed: &str, limit: usize) -> Result<String, CoreError> {
-    let found = store.contacts_matching(typed, limit)?;
-    if found.is_empty() {
-        return Ok("no contacts match\n".to_owned());
-    }
-    Ok(found.iter().map(|c| format!("{}\n", shown(c))).collect())
-}
-
-fn shown(contact: &mail_store::Contact) -> String {
-    mail_domain::Address {
-        name: contact.name.clone(),
-        email: contact.address.clone(),
-    }
-    .to_string()
+/// What reading a `.vcf` file did.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Imported {
+    /// Cards in the file.
+    pub cards: usize,
+    /// Addresses added to the book.
+    pub addresses: usize,
+    /// Cards of kind group, each now a group of this book.
+    pub groups: usize,
+    /// Cards that are not groups and carried no email address.
+    pub empty: usize,
 }
 
 /// Every address on every card in `bytes`, added by hand under the card's name, and every
 /// `KIND:group` card as a group of this book ([`import_group`]).
-pub fn import(store: &dyn Store, bytes: &[u8]) -> Result<String, CoreError> {
+pub fn import(store: &dyn Store, bytes: &[u8]) -> Result<Imported, CoreError> {
     let cards = vcard::parse_bytes(bytes);
     let (mut added, mut empty, mut groups) = (0, 0, 0);
     for card in &cards {
@@ -233,18 +106,12 @@ pub fn import(store: &dyn Store, bytes: &[u8]) -> Result<String, CoreError> {
             }
         }
     }
-    let mut out = format!("imported {added} addresses from {} cards\n", cards.len());
-    if groups > 0 {
-        let _ = writeln!(
-            out,
-            "imported {groups} {}",
-            if groups == 1 { "group" } else { "groups" }
-        );
-    }
-    if empty > 0 {
-        let _ = writeln!(out, "{empty} cards had no email address and were skipped");
-    }
-    Ok(out)
+    Ok(Imported {
+        cards: cards.len(),
+        addresses: added,
+        groups,
+        empty,
+    })
 }
 
 /// `card`, a `KIND:group`, as a group made here, replacing one imported before with its `UID`.
@@ -338,9 +205,28 @@ pub fn export(store: &dyn Store) -> Result<String, CoreError> {
     Ok(vcard::write_all(&cards))
 }
 
-/// The sync over the secrets (and so the link) it is given: the handle's, or a test's.
+/// One address book after a sync.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BookSync {
+    /// The collection's own name, when the server gave one.
+    pub name: Option<String>,
+    pub url: String,
+    pub done: carddav::Synced,
+}
+
+/// What a sync of address books came to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Synced {
+    /// No URL was given and none was synced before, so there is nothing to go on.
+    NothingYet,
+    /// Each address book synced, in order.
+    Books(Vec<BookSync>),
+}
+
+/// Sync the address book at `url`, or every one synced before when there is none, over the
+/// secrets (and so the link) it is given: the handle's, or a test's.
 #[allow(clippy::too_many_arguments)]
-async fn sync_with(
+pub async fn sync(
     store: &SqliteStore,
     url: Option<&str>,
     account: Option<&str>,
@@ -349,10 +235,10 @@ async fn sync_with(
     env: &Environment,
     saved: &ClientRegistry,
     now: DateTime<Utc>,
-) -> Result<String, CoreError> {
+) -> Result<Synced, CoreError> {
     let accounts = crate::sync::configured(store)?;
     let http = carddav::client()?;
-    let mut out = String::new();
+    let mut synced = Vec::new();
 
     if url.is_none() {
         let books = store.address_books()?;
@@ -376,9 +262,9 @@ async fn sync_with(
                     now,
                 )
                 .await?;
-                out.push_str(&sync_one(&dav, store, book, None).await?);
+                synced.push(sync_one(&dav, store, book, None).await?);
             }
-            return Ok(out);
+            return Ok(Synced::Books(synced));
         }
         // Nothing synced yet and no address given: an account of the desktop's accountd names its
         // own address book server (its grant lists it), so the first sync needs no URL. Any other
@@ -387,7 +273,7 @@ async fn sync_with(
             .ok()
             .filter(|owner| user.is_none() && owner.plan.grant().is_some());
         if named.is_none() {
-            return Ok("no address book has been synced yet: mailo contacts sync <url>\n".into());
+            return Ok(Synced::NothingYet);
         }
     }
 
@@ -404,9 +290,9 @@ async fn sync_with(
         });
         book.account = Some(owner.id.clone());
         book.login = user.map(str::to_owned);
-        out.push_str(&sync_one(&dav, store, book, collection.name).await?);
+        synced.push(sync_one(&dav, store, book, collection.name).await?);
     }
-    Ok(out)
+    Ok(Synced::Books(synced))
 }
 
 /// The account an address book is kept under: the one named, or the only one.
@@ -538,33 +424,12 @@ async fn sync_one(
     store: &SqliteStore,
     book: AddressBook,
     name: Option<String>,
-) -> Result<String, CoreError> {
+) -> Result<BookSync, CoreError> {
     let url = book.url.clone();
     let done = carddav::sync(dav, store, book)
         .await
         .map_err(|e| CoreError::context(url.clone(), e))?;
-    let how = match done.how {
-        How::Incremental => "changes since last time",
-        How::Full => "everything",
-        How::Etags => "everything, compared by etag",
-    };
-    let mut out = format!(
-        "{} ({url}): {} changed, {} removed — {how}\n",
-        name.as_deref().unwrap_or("address book"),
-        done.changed,
-        done.removed
-    );
-    if done.written > 0 {
-        let _ = writeln!(out, "  {} edited groups written back", done.written);
-    }
-    for unwritten in &done.unwritten {
-        let _ = writeln!(
-            out,
-            "  {} not written back: {}",
-            unwritten.name, unwritten.why
-        );
-    }
-    Ok(out)
+    Ok(BookSync { name, url, done })
 }
 
 fn parse_url(text: &str) -> Result<url::Url, CoreError> {
@@ -652,119 +517,33 @@ async fn auth_for(
 mod tests {
     use super::*;
 
-    fn args(line: &str) -> Vec<String> {
-        line.split_whitespace().map(str::to_owned).collect()
-    }
-
-    #[test]
-    fn every_form_parses_to_what_it_says() {
-        let cases: Vec<(&str, Contacts)> = vec![
-            (
-                "",
-                Contacts::Find {
-                    typed: String::new(),
-                    limit: 20,
-                },
-            ),
-            (
-                "ada love",
-                Contacts::Find {
-                    typed: "ada love".into(),
-                    limit: 20,
-                },
-            ),
-            (
-                "add ada@example.test Ada Lovelace",
-                Contacts::Add {
-                    address: "ada@example.test".into(),
-                    name: Some("Ada Lovelace".into()),
-                },
-            ),
-            (
-                "add ada@example.test",
-                Contacts::Add {
-                    address: "ada@example.test".into(),
-                    name: None,
-                },
-            ),
-            (
-                "remove ada@example.test",
-                Contacts::Remove {
-                    address: "ada@example.test".into(),
-                },
-            ),
-            (
-                "import cards.vcf",
-                Contacts::Import {
-                    path: "cards.vcf".into(),
-                },
-            ),
-            ("export", Contacts::Export { path: None }),
-            (
-                "export out.vcf",
-                Contacts::Export {
-                    path: Some("out.vcf".into()),
-                },
-            ),
-            (
-                "sync",
-                Contacts::Sync {
-                    url: None,
-                    account: None,
-                    user: None,
-                },
-            ),
-            (
-                "sync https://dav.example.test/ --user ada --account me@example.test",
-                Contacts::Sync {
-                    url: Some("https://dav.example.test/".into()),
-                    account: Some("me@example.test".into()),
-                    user: Some("ada".into()),
-                },
-            ),
-        ];
-        for (line, expected) in cases {
-            assert_eq!(parse(&args(line)).unwrap(), expected, "{line:?}");
-        }
-    }
-
-    #[test]
-    fn a_malformed_form_says_what_is_missing() {
-        for line in [
-            "add",
-            "remove",
-            "import",
-            "sync --user",
-            "sync a b",
-            "sync --bogus",
-        ] {
-            assert!(parse(&args(line)).is_err(), "{line:?}");
-        }
-    }
-
     #[test]
     fn an_imported_file_is_offered_and_exported_back_as_4_0() {
         let store = mail_store::MemoryStore::new();
         let file = "BEGIN:VCARD\r\nVERSION:2.1\r\nFN;CHARSET=UTF-8;ENCODING=QUOTED-PRINTABLE:Ren=C3=A9e\r\n\
                     EMAIL;INTERNET:Renee@example.test\r\nEND:VCARD\r\n\
                     BEGIN:VCARD\r\nVERSION:3.0\r\nFN:No Mail\r\nTEL:1\r\nEND:VCARD\r\n";
-        let said = import(&store, file.as_bytes()).unwrap();
-        assert!(
-            said.starts_with("imported 1 addresses from 2 cards"),
-            "{said}"
-        );
-        assert!(said.contains("1 cards had no email address"), "{said}");
+        let imported = import(&store, file.as_bytes()).unwrap();
         assert_eq!(
-            find(&store, "ren", 5).unwrap(),
-            "Renée <renee@example.test>\n"
+            imported,
+            Imported {
+                cards: 2,
+                addresses: 1,
+                groups: 0,
+                empty: 1,
+            }
         );
+        let found = find(&store, "ren", 5).unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].name.as_deref(), Some("Renée"));
+        assert_eq!(found[0].address, "renee@example.test");
         let exported = export(&store).unwrap();
         let back = vcard::parse(&exported);
         assert_eq!(back.len(), 1);
         assert_eq!(back[0].formatted_name.as_deref(), Some("Renée"));
         assert_eq!(back[0].emails[0].address, "renee@example.test");
         assert!(exported.contains("VERSION:4.0"));
-        assert_eq!(find(&store, "zzz", 5).unwrap(), "no contacts match\n");
+        assert!(find(&store, "zzz", 5).unwrap().is_empty());
     }
 
     #[test]
@@ -785,8 +564,8 @@ mod tests {
                     MEMBER:urn:uuid:ffffffff-0000-4000-8000-000000000000\r\nEND:VCARD\r\n";
         let store = mail_store::MemoryStore::new();
         let before = store.groups().unwrap().len();
-        let said = import(&store, file.as_bytes()).unwrap();
-        assert!(said.contains("imported 1 group"), "{said}");
+        let imported = import(&store, file.as_bytes()).unwrap();
+        assert_eq!((imported.groups, imported.cards), (1, 2));
         let groups = store.groups().unwrap();
         assert_eq!(groups.len(), before + 1);
         assert_eq!(groups[0].id, GroupId::local("team-1"));
@@ -1095,7 +874,7 @@ mod tests {
 
         // No account at all: the old answer.
         let none = Daemon::new(Vec::new(), nothing_asked());
-        let said = sync_with(
+        let said = sync(
             &store,
             None,
             None,
@@ -1107,16 +886,13 @@ mod tests {
         )
         .await
         .unwrap();
-        assert!(
-            said.starts_with("no address book has been synced yet"),
-            "{said}"
-        );
+        assert_eq!(said, Synced::NothingYet);
 
         // accountd's account: the first sync asks accountd for its contacts and goes on to its
         // server (here Google's, which is not CardDAV) with no address given.
         crate::account::reconcile(&store, &[mail()], now()).unwrap();
         let daemon = Daemon::new(vec![people_grant()], nothing_asked());
-        let why = sync_with(
+        let why = sync(
             &store,
             None,
             None,
@@ -1131,7 +907,7 @@ mod tests {
         .to_string();
         assert!(why.contains("People"), "{why}");
         // A login of its own is the address book's own sign-in: not the relay's, and not asked.
-        let said = sync_with(
+        let said = sync(
             &store,
             None,
             None,
@@ -1143,9 +919,6 @@ mod tests {
         )
         .await
         .unwrap();
-        assert!(
-            said.starts_with("no address book has been synced yet"),
-            "{said}"
-        );
+        assert_eq!(said, Synced::NothingYet);
     }
 }

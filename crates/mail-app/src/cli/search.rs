@@ -6,8 +6,8 @@
 
 use super::render_list;
 use chrono::{DateTime, Utc};
+use mail_core::SqliteStore;
 use mail_domain::{LabelId, ThreadSummary};
-use mail_store::SqliteStore;
 
 /// The column a top result is marked in. Every other line has as many spaces there, so the
 /// rows stay aligned.

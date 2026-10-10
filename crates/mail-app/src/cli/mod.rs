@@ -7,18 +7,33 @@
 use chrono::{DateTime, Local, Utc};
 use mail_core::account::{Receive, Setup};
 use mail_core::when::Stamp;
+use mail_core::{SqliteStore, Store};
 use mail_domain::*;
-use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
 use std::fmt::Write as _;
 
 mod account;
+pub mod attach;
+pub mod compose;
+pub mod contacts;
 pub mod discover;
-mod invite;
-mod rules;
+pub mod exec;
+pub mod export;
+mod folder;
+mod icons;
+pub mod import;
+pub mod invite;
+pub mod offline;
+pub mod pgp;
+pub mod receipt;
+pub mod rules;
 mod search;
 pub mod settings;
+pub mod smime;
+pub mod snooze;
 pub mod sync;
+pub mod template;
+pub mod unsubscribe;
 
 /// What the user asked for.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -172,9 +187,9 @@ pub enum Command {
         smime: Smime,
     },
     /// S/MIME certificates: list, import, export, delete, trust, and one message's status.
-    Smime(mail_core::smime::SmimeCommand),
+    Smime(smime::SmimeCommand),
     /// OpenPGP keys: list, make, import, export, delete, look up, verify.
-    Pgp(mail_core::pgp::PgpCommand),
+    Pgp(pgp::PgpCommand),
     /// Answer a message's request for a read receipt: send one, or decline.
     Receipt {
         message: MessageId,
@@ -189,9 +204,9 @@ pub enum Command {
         step: UnsubscribeStep,
     },
     /// The address book: autocomplete, hand edits, vCard files and CardDAV.
-    Contacts(mail_core::contacts::Contacts),
+    Contacts(contacts::Contacts),
     /// A calendar invitation: show it, answer it, or save it as an `.ics` file.
-    Invite(mail_core::invite::InviteCommand),
+    Invite(invite::InviteCommand),
     /// Mail from an mbox, a Maildir or an `.eml`, kept locally or uploaded into a mailbox.
     Import {
         path: std::path::PathBuf,
@@ -455,18 +470,16 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
             };
             Ok(Command::Unsubscribe { target, step })
         }
-        "contacts" => mail_core::contacts::parse(&args[1..])
-            .map(Command::Contacts)
-            .map_err(String::from),
+        "contacts" => contacts::parse(&args[1..]).map(Command::Contacts),
         "print" => parse_print(&args[1..]),
         "invite" => invite::parse(&args[1..]).map(Command::Invite),
         "rules" => rules::parse(&args[1..]).map(Command::Rules),
         "vacation" => rules::parse_vacation(&args[1..]).map(Command::Vacation),
         "sieve" => rules::parse_sieve(&args[1..]).map(Command::Sieve),
-        "pgp" => mail_core::pgp::parse(&args[1..])
+        "pgp" => pgp::parse(&args[1..])
             .map(Command::Pgp)
             .map_err(String::from),
-        "smime" => mail_core::smime::parse(&args[1..])
+        "smime" => smime::parse(&args[1..])
             .map(Command::Smime)
             .map_err(String::from),
         "watch" => match args.get(1).map(String::as_str) {
@@ -1472,24 +1485,24 @@ pub fn run_with_clients(
                 // Asked here rather than only in a window, so a request is never answered by
                 // default: whoever reads the message is told it asks and how to answer.
                 if let Ok(state) = mail_core::receipt::state(store, &message) {
-                    out.push_str(&mail_core::receipt::describe(&state, message.id));
+                    out.push_str(&receipt::describe(&state, message.id));
                 }
                 // Likewise an invitation: said, with how to answer, and never answered for them.
                 if let Ok(state) = mail_core::invite::state(store, &message) {
-                    out.push_str(&mail_core::invite::describe(&state, message.id));
+                    out.push_str(&invite::describe(&state, message.id));
                 }
                 // OpenPGP: the signature checked and the encryption opened now, as it is shown,
                 // never before. The decrypted text is printed and kept nowhere.
                 let protected = mail_core::pgp::open_message(
                     store,
-                    &mail_runtime::KeyringSigningStore::default(),
+                    &mail_core::KeyringSigningStore::default(),
                     &message,
-                    &|fingerprint| mail_core::pgp::terminal_passphrase(&env, fingerprint),
+                    &|fingerprint| pgp::terminal_passphrase(&env, fingerprint),
                     now,
                 );
                 let opened_text = match protected {
                     Ok(Some(protected)) => {
-                        out.push_str(&mail_core::pgp::describe(&protected));
+                        out.push_str(&pgp::describe(&protected));
                         protected.shown.and_then(|parsed| parsed.text)
                     }
                     Ok(None) => None,
@@ -1503,12 +1516,12 @@ pub fn run_with_clients(
                     Some(text) => Some(text),
                     None => match mail_core::smime::open_message(
                         store,
-                        &mail_runtime::KeyringSigningStore::default(),
+                        &mail_core::KeyringSigningStore::default(),
                         &message,
                         now,
                     ) {
                         Ok(Some(protected)) => {
-                            out.push_str(&mail_core::smime::describe(&protected));
+                            out.push_str(&smime::describe(&protected));
                             protected.shown.and_then(|parsed| parsed.text)
                         }
                         Ok(None) => None,
@@ -1569,43 +1582,55 @@ pub fn run_with_clients(
             message,
             scope,
             body,
-        } => mail_core::compose::reply(store, *message, *scope, body, now).map_err(String::from),
+        } => mail_core::compose::draft_reply(store, *message, *scope, body, now)
+            .map(|draft| compose::replied(&draft))
+            .map_err(String::from),
         // The terminal is asked for a passphrase only if the draft is signed or encrypted with a
         // protected key.
         Command::Send { draft, at: None } => mail_core::compose::send_with(
             store,
-            &mail_runtime::KeyringSigningStore::default(),
-            &|fingerprint| mail_core::pgp::terminal_passphrase(&env, fingerprint),
+            &mail_core::KeyringSigningStore::default(),
+            &|fingerprint| pgp::terminal_passphrase(&env, fingerprint),
             *draft,
             now,
         )
+        .map(|(draft, post)| compose::queued(&draft, &post))
         .map_err(|e| e.to_string()),
         Command::Send {
             draft,
             at: Some(when),
         } => mail_core::compose::send_later_with(
             store,
-            &mail_runtime::KeyringSigningStore::default(),
-            &|fingerprint| mail_core::pgp::terminal_passphrase(&env, fingerprint),
+            &mail_core::KeyringSigningStore::default(),
+            &|fingerprint| pgp::terminal_passphrase(&env, fingerprint),
             *draft,
             when,
             now,
         )
+        .map(|held| compose::scheduled(&held, &Local))
         .map_err(|e| e.to_string()),
-        Command::Unsend { draft } => {
-            mail_core::compose::unsend_report(store, *draft, now).map_err(String::from)
-        }
+        Command::Unsend { draft } => mail_core::compose::unsend(store, *draft, now)
+            .map(|back| compose::unsent(&back))
+            .map_err(String::from),
         Command::TemplateSave { draft, name } => {
-            mail_core::template::save_report(store, *draft, name, now).map_err(String::from)
+            mail_core::template::save(store, *draft, name, now)
+                .map(|kept| template::saved(&kept))
+                .map_err(String::from)
         }
-        Command::TemplateList => mail_core::template::list(store).map_err(String::from),
+        Command::TemplateList => mail_core::template::all(store)
+            .map(|all| template::listed(&all))
+            .map_err(String::from),
         Command::TemplateUse { template, to } => {
-            mail_core::template::start_report(store, *template, to, now).map_err(String::from)
+            mail_core::template::start(store, *template, to, now)
+                .map(|draft| template::started(&draft))
+                .map_err(String::from)
         }
         Command::TemplateDelete { template } => mail_core::template::delete(store, *template)
             .map(|name| format!("deleted template {name:?}\n"))
             .map_err(String::from),
-        Command::Drafts => mail_core::compose::drafts(store).map_err(String::from),
+        Command::Drafts => mail_core::compose::drafts(store)
+            .map(|all| compose::drafts(&all))
+            .map_err(String::from),
         Command::ListSnoozed { limit } => {
             let page = store
                 .threads(&list_query(mail_core::place::pending_snooze(), *limit), now)
@@ -1624,18 +1649,18 @@ pub fn run_with_clients(
             }
             Ok(render_list(&page.items))
         }
-        Command::Pin { thread } => {
-            mail_core::snooze::pin(store, *thread, now).map_err(String::from)
-        }
-        Command::Snooze { thread, when } => {
-            mail_core::snooze::snooze(store, *thread, when, now).map_err(String::from)
-        }
-        Command::Wake { thread } => {
-            mail_core::snooze::wake(store, *thread, now).map_err(String::from)
-        }
-        Command::Attachments { message } => {
-            mail_core::attach::list(store, *message).map_err(String::from)
-        }
+        Command::Pin { thread } => mail_core::snooze::pin(store, *thread, now)
+            .map(snooze::pinned)
+            .map_err(String::from),
+        Command::Snooze { thread, when } => mail_core::snooze::snooze(store, *thread, when, now)
+            .map(snooze::snoozed)
+            .map_err(String::from),
+        Command::Wake { thread } => mail_core::snooze::wake(store, *thread, now)
+            .map(|()| snooze::woke())
+            .map_err(String::from),
+        Command::Attachments { message } => mail_core::attach::list(store, *message)
+            .map(|listed| attach::listing(&listed))
+            .map_err(String::from),
         Command::Save {
             message,
             index,
@@ -1649,6 +1674,7 @@ pub fn run_with_clients(
             body,
             carry,
         } => mail_core::compose::forward(store, *message, to, body, *carry, now)
+            .map(|draft| compose::forwarded(&draft))
             .map_err(String::from),
         Command::Attach { draft, path } => {
             mail_core::compose::attach_file(store, *draft, path, now)
@@ -1671,9 +1697,9 @@ pub fn run_with_clients(
                 )
             })
             .map_err(String::from),
-        Command::Attached { draft } => {
-            mail_core::compose::attachments_of(store, *draft).map_err(String::from)
-        }
+        Command::Attached { draft } => mail_core::compose::attachments_of(store, *draft)
+            .map(|files| compose::attached(&files))
+            .map_err(String::from),
         Command::Compose {
             from,
             to,
@@ -1693,47 +1719,47 @@ pub fn run_with_clients(
             (*receipt, *openpgp, *smime),
             now,
         )
+        .map(|made| compose::composed(&made))
         .map_err(String::from),
-        Command::Smime(smime) => mail_core::smime::run(
+        Command::Smime(command) => smime::run(
             store,
-            &mail_runtime::KeyringSigningStore::default(),
-            &|| mail_core::smime::terminal_password(&env),
-            smime,
+            &mail_core::KeyringSigningStore::default(),
+            &|| smime::terminal_password(&env),
+            command,
             now,
         )
         .map_err(String::from),
-        Command::Pgp(mail_core::pgp::PgpCommand::Lookup { .. }) => {
+        Command::Pgp(pgp::PgpCommand::Lookup { .. }) => {
             Err("pgp lookup is dispatched before this point".to_owned())
         }
-        Command::Pgp(pgp) => mail_core::pgp::run(
+        Command::Pgp(command) => pgp::run(
             store,
-            &mail_runtime::KeyringSigningStore::default(),
-            pgp,
+            &mail_core::KeyringSigningStore::default(),
+            command,
             now,
         )
         .map_err(String::from),
         Command::Receipt { message, answer } => {
-            mail_core::receipt::answer(store, *message, *answer, now).map_err(String::from)
+            mail_core::receipt::answer(store, *message, *answer, now)
+                .map(|settled| receipt::answered(&settled))
+                .map_err(String::from)
         }
         Command::Unsubscribe { target, step } => {
             let found = mail_core::unsubscribe::find(store, *target)?;
-            let described = mail_core::unsubscribe::describe(&found);
+            let described = unsubscribe::describe(&found);
             if *step == UnsubscribeStep::Show {
                 return Ok(described);
             }
             let http = mail_runtime::unsubscribe::client().map_err(|e| e.to_string())?;
             let outcome =
                 crate::edge::block_on(mail_core::unsubscribe::perform(store, &found, &http, now))?;
-            Ok(format!(
-                "{described}\n{}",
-                mail_core::unsubscribe::report(&outcome)
-            ))
+            Ok(format!("{described}\n{}", unsubscribe::report(&outcome)))
         }
-        Command::Contacts(contacts) => crate::edge::block_on(mail_core::contacts::run(
+        Command::Contacts(command) => crate::edge::block_on(contacts::run(
             store,
             crate::edge::secrets().as_ref(),
             &env,
-            contacts,
+            command,
             saved,
             now,
         ))
@@ -1750,19 +1776,17 @@ pub fn run_with_clients(
                     .map_err(String::from),
             }
         }
-        Command::Invite(invite) => mail_core::invite::run(store, invite, now).map_err(String::from),
-        Command::Rules(rules) => mail_core::rules::run(store, rules, now).map_err(String::from),
-        Command::Vacation(vacation) => {
-            crate::edge::block_on(mail_core::rules::server::run_vacation(
-                store,
-                crate::edge::secrets().as_ref(),
-                vacation,
-                saved,
-                now,
-            ))
-            .map_err(String::from)
-        }
-        Command::Sieve(sieve) => crate::edge::block_on(mail_core::rules::server::run_sieve(
+        Command::Invite(command) => invite::run(store, command, now).map_err(String::from),
+        Command::Rules(rules) => rules::run(store, rules, now).map_err(String::from),
+        Command::Vacation(vacation) => crate::edge::block_on(rules::run_vacation(
+            store,
+            crate::edge::secrets().as_ref(),
+            vacation,
+            saved,
+            now,
+        ))
+        .map_err(String::from),
+        Command::Sieve(sieve) => crate::edge::block_on(rules::run_sieve(
             store,
             crate::edge::secrets().as_ref(),
             sieve,
@@ -1790,13 +1814,16 @@ pub fn run_with_clients(
             &env,
             crate::edge::secrets().as_ref(),
             saved,
+            &account::announce_sign_in,
             now,
         ))
+        .map(|added| account::added(&added))
         .map_err(String::from),
         Command::AccountList => crate::edge::block_on(mail_core::account::list(
             store,
             crate::edge::secrets().as_ref(),
         ))
+        .map(|accounts| account::listed(&accounts))
         .map_err(String::from),
         Command::AccountRemove { address, consent } => account::remove(
             store,
@@ -1810,12 +1837,14 @@ pub fn run_with_clients(
                 .as_deref()
                 .map(|address| account_named(store, address))
                 .transpose()?;
-            mail_core::folder::list(store, id).map_err(String::from)
+            mail_core::folder::list(store, id)
+                .map(|accounts| folder::listing(&accounts))
+                .map_err(String::from)
         }
         Command::Folder { account, work } => {
             let id = account_named(store, account)?;
             mail_core::folder::change(store, id, work.clone(), now)
-                .map(|_| mail_core::folder::said(work, account))
+                .map(|_| folder::said(work, account))
                 .map_err(|e| e.to_string())
         }
         Command::IconsRefresh => {
@@ -1837,7 +1866,7 @@ pub fn run_with_clients(
                     eprintln!("provider icon: {provider:?}: {err}");
                 }
             }
-            Ok(mail_core::provider::icon::report(&results))
+            Ok(icons::report(&results))
         }
         Command::Signature {
             address,
@@ -1850,6 +1879,7 @@ pub fn run_with_clients(
                 account,
                 if *clear { None } else { Some(text.as_str()) },
             )
+            .map(|change| compose::signature(&change))
             .map_err(String::from)
         }
         Command::Status => {

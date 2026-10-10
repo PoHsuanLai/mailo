@@ -250,10 +250,9 @@ mod saving {
         let (store, _dir) = store();
         let id = with_attachment(&store, "../../escape.pdf", b"x");
         let out = attach::list(&store, id).unwrap();
-        assert!(out.contains("escape.pdf"), "{out}");
-        assert!(!out.contains(".."), "{out}");
-        assert!(out.contains("application/pdf"), "{out}");
-        assert!(out.contains("mailo save"), "it says how to get one: {out}");
+        assert_eq!(out.len(), 1, "{out:?}");
+        assert_eq!(out[0].name, "escape.pdf", "{out:?}");
+        assert_eq!(out[0].mime, "application/pdf", "{out:?}");
     }
 
     #[test]
@@ -265,8 +264,7 @@ mod saving {
         let (store, _dir) = store();
         let id = plain_message(&store);
         let out = attach::list(&store, id).unwrap();
-        assert!(out.contains("no attachments"), "{out}");
-        assert!(!out.contains("mailo save"), "nothing to save: {out}");
+        assert!(out.is_empty(), "{out:?}");
     }
 }
 
@@ -357,12 +355,12 @@ JVBERi0xLjQKMSAwIG9iajw8L1R5cGUvQ2F0YWxvZz4+ZW5kb2JqCg==\r\n\
         // The parser found it, the runtime stored its bytes, and the listing names what will be
         // written rather than what the sender asked for.
         let listed = attach::list(&store, message_id).unwrap();
-        assert!(listed.contains("invoice.pdf"), "{listed}");
-        assert!(
-            !listed.contains(".."),
-            "the claim reached the listing: {listed}"
+        assert_eq!(listed.len(), 1, "{listed:?}");
+        assert_eq!(
+            listed[0].name, "invoice.pdf",
+            "the claim reached the listing: {listed:?}"
         );
-        assert!(listed.contains("application/pdf"), "{listed}");
+        assert_eq!(listed[0].mime, "application/pdf", "{listed:?}");
 
         let out = tempfile::tempdir().unwrap();
         let path = attach::save(&store, message_id, 0, out.path()).unwrap();
@@ -484,7 +482,7 @@ mod left_on_the_server {
         let out = tempfile::tempdir().unwrap();
 
         let mut asked = Vec::new();
-        let said = attach::fetch_and_save(&store, id, 0, out.path(), |section| {
+        let saved = attach::fetch_and_save(&store, id, 0, out.path(), |section| {
             asked.push(section.to_owned());
             // What the network half does: store the bytes, record the part as held.
             let blob = store.blobs().put(b"%PDF-1.4")?;
@@ -494,7 +492,7 @@ mod left_on_the_server {
 
         assert_eq!(asked, ["2"]);
         let path = out.path().join("report.pdf");
-        assert_eq!(said, format!("Saved to {}", path.display()));
+        assert_eq!(saved, path);
         assert_eq!(std::fs::read(&path).unwrap(), b"%PDF-1.4");
     }
 

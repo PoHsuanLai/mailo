@@ -1,7 +1,7 @@
 use super::cache::{Loaded, cached, file_stem, store};
 use super::decode::decode;
 use super::fetch::{client, fetch, url};
-use super::refresh::{missing, providers_of, report};
+use super::refresh::{missing, providers_of};
 use super::{IconError, PNG_MAGIC};
 use crate::environment::Program;
 use crate::provider::Provider;
@@ -352,19 +352,6 @@ fn names(dir: &Path) -> Vec<String> {
 }
 
 #[test]
-fn the_refresh_report_names_what_landed() {
-    let lines = report(&[
-        (Provider::Google, Ok(12)),
-        (Provider::Imap, Err(IconError::Unmapped)),
-        (Provider::Yahoo, Err(IconError::NotHttps)),
-    ]);
-    assert_eq!(
-        lines,
-        "google: wrote 12 bytes\nimap: letters only\nyahoo: not updated\n"
-    );
-}
-
-#[test]
 fn configured_accounts_contribute_their_provider_once() {
     let dir = tempfile::tempdir().unwrap_or_else(|err| panic!("{err}"));
     let store =
@@ -462,6 +449,12 @@ async fn an_http_server_is_not_contacted() {
     assert!(hit.is_err(), "the client connected to a cleartext server");
 }
 
+/// The probe below is read by eye, so its lines go to stderr as they happen.
+fn say(line: String) {
+    use std::io::Write as _;
+    let _ = std::io::stderr().write_all(format!("{line}\n").as_bytes());
+}
+
 #[tokio::test]
 #[ignore = "fetches the five provider icons; run with --ignored --nocapture"]
 async fn fetch_the_provider_icons() {
@@ -478,18 +471,18 @@ async fn fetch_the_provider_icons() {
         let address = url(provider).unwrap_or_else(|| panic!("{provider:?}"));
         match fetch(&http, provider).await {
             Ok(bytes) => {
-                println!("{provider:?} {address} bytes={}", bytes.len());
+                say(format!("{provider:?} {address} bytes={}", bytes.len()));
                 match decode(&bytes) {
                     Ok(png) => {
-                        println!("  decoded png {}", png.len());
+                        say(format!("  decoded png {}", png.len()));
                         let path = out.join(format!("{}.png", file_stem(provider)));
                         std::fs::write(&path, &png).unwrap_or_else(|err| panic!("{err}"));
-                        println!("  wrote {}", path.display());
+                        say(format!("  wrote {}", path.display()));
                     }
-                    Err(err) => println!("  decode failed: {err}"),
+                    Err(err) => say(format!("  decode failed: {err}")),
                 }
             }
-            Err(err) => println!("{provider:?} {address} FAILED {err}"),
+            Err(err) => say(format!("{provider:?} {address} FAILED {err}")),
         }
     }
 }

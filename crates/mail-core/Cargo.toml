@@ -94,11 +94,6 @@ pdfrum = { version = "0.5", default-features = false, features = ["vello-cpu"], 
 [target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
 zbus = { version = "5.19", optional = true }
 
-# A passphrase asked on the Windows console with echo off (`pgp/mod.rs`, `ask_tty`), where there is
-# no `/dev/tty` and no `stty` to do it with. Apache-2.0.
-[target.'cfg(windows)'.dependencies]
-rpassword = "7"
-
 [dev-dependencies]
 # Seeding a store without writing SQL (`mail_store::testing`): the program never has it.
 mail-store = { workspace = true, features = ["test-support"] }

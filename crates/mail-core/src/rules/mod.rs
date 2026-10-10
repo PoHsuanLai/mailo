@@ -17,7 +17,6 @@ use mail_domain::{
 };
 use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
-use std::fmt::Write as _;
 
 /// What `mailo rules …` asked for.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -71,19 +70,69 @@ pub(crate) fn pick(
     }
 }
 
-/// Run a rules command, returning what to print.
+/// One rule of a listing, with its condition written back in the search language.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ListedRule {
+    pub rule: Rule,
+    pub condition: String,
+}
+
+/// An account's rules, in the order they run.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AccountRules {
+    pub address: String,
+    pub rules: Vec<ListedRule>,
+}
+
+/// How far a `Run` has got: one batch of conversations looked at.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RunProgress {
+    pub examined: usize,
+    pub matched: usize,
+}
+
+/// What a rules command did.
+#[derive(Debug, Clone, PartialEq)]
+pub enum RulesDone {
+    /// The accounts that have rules; none at all when no account has any.
+    Listed(Vec<AccountRules>),
+    Added {
+        name: String,
+        address: String,
+        /// Whether the account's server takes Sieve, so the rule could also run there.
+        server_can_run: bool,
+    },
+    Removed {
+        name: String,
+        address: String,
+    },
+    Set {
+        name: String,
+        state: RuleState,
+    },
+    Ran {
+        name: String,
+        examined: usize,
+        matched: usize,
+        /// Changes queued for the server.
+        queued: usize,
+    },
+}
+
+/// Run a rules command. `progress` hears of each batch a `Run` looks at, as it goes.
 pub fn run(
     store: &SqliteStore,
     command: &RulesCmd,
     now: DateTime<Utc>,
-) -> Result<String, CoreError> {
+    progress: &mut dyn FnMut(RunProgress),
+) -> Result<RulesDone, CoreError> {
     match command {
         RulesCmd::List { account } => {
             let accounts = match account {
                 Some(_) => vec![pick(store, account.as_deref())?],
                 None => crate::sync::configured(store)?,
             };
-            let mut out = String::new();
+            let mut listed = Vec::new();
             for account in accounts {
                 let rules = store.rules(account.id.clone())?;
                 if rules.is_empty() {
@@ -97,15 +146,18 @@ pub fn run(
                         .map(|l| l.name.clone())
                         .unwrap_or_else(|| "(deleted)".to_owned())
                 };
-                let _ = writeln!(out, "{}:", account.address);
-                for rule in &rules {
-                    let _ = writeln!(out, "{}", line(rule, &label));
-                }
+                listed.push(AccountRules {
+                    address: account.address,
+                    rules: rules
+                        .into_iter()
+                        .map(|rule| ListedRule {
+                            condition: condition(&rule.filter, &label),
+                            rule,
+                        })
+                        .collect(),
+                });
             }
-            if out.is_empty() {
-                out.push_str("no rules. Add one with: mailo rules add NAME <search> --archive\n");
-            }
-            Ok(out)
+            Ok(RulesDone::Listed(listed))
         }
         RulesCmd::Add {
             name,
@@ -139,18 +191,19 @@ pub fn run(
                 after: *after,
             };
             store.put_rule(&rule)?;
-            let mut out = format!("added rule {name:?} on {}\n", account.address);
-            if mail_proto::sieve::endpoint(&account.plan).is_ok() {
-                out.push_str(
-                    "  it runs here on each sync; `mailo sieve push` also puts it on the server\n",
-                );
-            }
-            Ok(out)
+            Ok(RulesDone::Added {
+                name: name.clone(),
+                server_can_run: mail_proto::sieve::endpoint(&account.plan).is_ok(),
+                address: account.address,
+            })
         }
         RulesCmd::Remove { name, account } => {
             let (account, rule) = named_rule(store, name, account.as_deref())?;
             store.delete_rule(rule.id)?;
-            Ok(format!("removed rule {name:?} from {}\n", account.address))
+            Ok(RulesDone::Removed {
+                name: name.clone(),
+                address: account.address,
+            })
         }
         RulesCmd::Set {
             name,
@@ -162,13 +215,10 @@ pub fn run(
                 state: *state,
                 ..rule
             })?;
-            Ok(format!(
-                "rule {name:?} {}\n",
-                match state {
-                    RuleState::Enabled => "enabled",
-                    RuleState::Disabled => "disabled",
-                }
-            ))
+            Ok(RulesDone::Set {
+                name: name.clone(),
+                state: *state,
+            })
         }
         RulesCmd::Run {
             name,
@@ -178,18 +228,17 @@ pub fn run(
             let (account, rule) = named_rule(store, name, account.as_deref())?;
             let caps = caps_or_local(store, account.id, now);
             let ran = mail_store::rules::run_now(store, &caps, &rule, *batch, now, &mut |b| {
-                eprintln!("  {} looked at, {} matched", b.examined, b.acted.len());
+                progress(RunProgress {
+                    examined: b.examined,
+                    matched: b.acted.len(),
+                });
             })?;
-            let mut out = format!(
-                "rule {name:?}: {} message(s) looked at, {} matched, {} change(s) queued for the server\n",
-                ran.examined,
-                ran.acted.len(),
-                ran.queued
-            );
-            if ran.queued > 0 {
-                out.push_str("  they reach the server on the next `mailo sync`\n");
-            }
-            Ok(out)
+            Ok(RulesDone::Ran {
+                name: name.clone(),
+                examined: ran.examined,
+                matched: ran.acted.len(),
+                queued: ran.queued,
+            })
         }
     }
 }
@@ -230,37 +279,6 @@ fn caps_or_local(store: &SqliteStore, account: AccountId, now: DateTime<Utc>) ->
         connections: mail_domain::ConnectionBudget::default(),
         observed_at: now,
     })
-}
-
-/// One rule as `rules list` prints it.
-fn line(rule: &Rule, label: &dyn Fn(LabelId) -> String) -> String {
-    let state = match rule.state {
-        RuleState::Enabled => "",
-        RuleState::Disabled => " (disabled)",
-    };
-    let mut actions: Vec<String> = rule.actions.iter().map(action).collect();
-    if rule.after == AfterMatch::Stop {
-        actions.push("stop".to_owned());
-    }
-    format!(
-        "  {}. {}{state}: {} → {}",
-        rule.position,
-        rule.name,
-        condition(&rule.filter, label),
-        actions.join(", ")
-    )
-}
-
-fn action(action: &RuleAction) -> String {
-    match action {
-        RuleAction::Label(name) => format!("label {name}"),
-        RuleAction::File(path) => format!("move to {path}"),
-        RuleAction::Archive => "archive".to_owned(),
-        RuleAction::Trash => "trash".to_owned(),
-        RuleAction::Spam => "spam".to_owned(),
-        RuleAction::MarkRead => "mark read".to_owned(),
-        RuleAction::Star => "star".to_owned(),
-    }
 }
 
 /// A filter written back in the search language, as near as it goes.

@@ -134,6 +134,19 @@ if library_code crates/mail-core/src | grep -vE '^crates/mail-core/src/notify/de
   echo "mail-core reads the environment: take it from mail_core::Environment, which mail-app builds in main"
   fail=1
 fi
+# And no terminal: the command line is `mail-app`'s `cli`. `mail-core` returns typed outcomes
+# that the cli words, takes a credential as a parameter or a callback instead of asking a person
+# at a tty, and prints nothing (it logs with `log::`). So no `print!`/`println!`/`eprint!`/
+# `eprintln!`, no `writeln!`/`write!` to stdout or stderr, no `rpassword`, no `/dev/tty`.
+if library_code crates/mail-core/src \
+  | grep -E '\b(e?print(ln)?!)\(|std::io::(stdout|stderr)\(|io::(stdout|stderr)\(|rpassword|/dev/tty'; then
+  echo "mail-core touches the terminal: return a typed outcome and let mail-app's cli word and print it (log:: is fine)"
+  fail=1
+fi
+if grep -nE '^[[:space:]]*rpassword' crates/mail-core/Cargo.toml; then
+  echo "mail-core depends on rpassword: prompting a person is mail-app's cli"
+  fail=1
+fi
 if library_code crates/mail-runtime/src | grep -E 'link::(install|current)\(|static CURRENT: OnceLock<Link>'; then
   echo "the link to accountd is a global again: hand it to mail_core::Mail::new (mail-app's edge::install_link keeps it for the process)"
   fail=1

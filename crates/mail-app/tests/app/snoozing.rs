@@ -6,6 +6,7 @@
 //! whole of what snoozing means and the part a pure predicate test cannot show.
 
 use chrono::{DateTime, TimeDelta, TimeZone, Utc};
+use mail_app::cli;
 use mail_app::ui::view;
 use mail_core::snooze;
 use mail_domain::id::account_id_from_uuid;
@@ -134,7 +135,7 @@ fn waking_one_brings_it_back_before_its_hour() {
 fn what_it_says_names_the_hour_it_chose() {
     // The one thing the user checks: that "tomorrow" meant what they thought.
     let (store, _dir, thread) = seeded();
-    let out = snooze::snooze(&store, thread, "tomorrow", now()).unwrap();
+    let out = cli::snooze::snoozed(snooze::snooze(&store, thread, "tomorrow", now()).unwrap());
     assert!(out.starts_with("snoozed until "), "{out}");
     assert!(out.contains("2026-09-23"), "{out}");
 }
@@ -210,7 +211,10 @@ mod pinning {
     #[test]
     fn pinning_is_a_toggle_and_the_rank_is_when() {
         let (store, _dir, thread) = seeded();
-        assert_eq!(snooze::pin(&store, thread, now()).unwrap(), "pinned\n");
+        assert_eq!(
+            cli::snooze::pinned(snooze::pin(&store, thread, now()).unwrap()),
+            "pinned\n"
+        );
         assert_eq!(listed(&store, Filter::Pinned, now()), vec![thread]);
 
         let summary = store.thread(thread).unwrap().summary;
@@ -220,7 +224,10 @@ mod pinning {
             "the rank is the moment it was pinned, so the newest sorts first"
         );
 
-        assert_eq!(snooze::pin(&store, thread, now()).unwrap(), "unpinned\n");
+        assert_eq!(
+            cli::snooze::pinned(snooze::pin(&store, thread, now()).unwrap()),
+            "unpinned\n"
+        );
         assert!(listed(&store, Filter::Pinned, now()).is_empty());
     }
 

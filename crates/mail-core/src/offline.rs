@@ -110,17 +110,26 @@ fn grouped(n: u64) -> String {
     out
 }
 
-/// `mailo offline [<address> [on|off]]`: set one account, or say where each stands.
+/// Where one account stands: what it keeps, and how much of it is here.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Standing {
+    pub address: String,
+    pub keep: Keep,
+    pub counted: Offline,
+}
+
+/// Set what one account keeps (when `set` is given), then say where each stands: the account
+/// whose address is `address` (any case), or every one when there is none.
 ///
 /// `dir` is `None` when there is no home directory to keep the setting in; then only a request
 /// to change it fails.
-pub fn command(
+pub fn standing(
     dir: Option<&Path>,
     store: &dyn Store,
     accounts: &[(AccountId, String)],
     address: Option<&str>,
     set: Option<Keep>,
-) -> Result<String, CoreError> {
+) -> Result<Vec<Standing>, CoreError> {
     let chosen: Vec<&(AccountId, String)> = match address {
         None => accounts.iter().collect(),
         Some(address) => {
@@ -143,17 +152,13 @@ pub fn command(
         }
     }
     let kept = dir.map(load).unwrap_or_default();
-    let mut out = String::new();
+    let mut out = Vec::new();
     for (id, address) in chosen {
-        let counted = store.offline(id.clone())?;
-        let keeps = match kept.of(id.clone()) {
-            Keep::Everything => "all mail kept offline",
-            Keep::Bodies => "large attachments left on the server until opened",
-        };
-        let _ = writeln!(out, "{address}: {keeps}; {}", said(&counted));
-    }
-    if out.is_empty() {
-        out.push_str("no accounts. Add one with: mailo account add <address>\n");
+        out.push(Standing {
+            address: address.clone(),
+            keep: kept.of(id.clone()),
+            counted: store.offline(id.clone())?,
+        });
     }
     Ok(out)
 }
