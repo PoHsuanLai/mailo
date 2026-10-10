@@ -290,8 +290,20 @@ async fn a_row_dropped_on_a_label_wears_it() {
 /// The foot menu's rows, after opening it from the button the first paint gave out.
 async fn foot_menu(dom: &mut VirtualDom, seen: &Seen) -> (Seen, Vec<String>) {
     let asked = click(dom, seen.one("aria-label", "Sidebar menu"));
-    settle(dom).await;
-    let opened = crate::ui::fixtures::settle(dom, asked);
+    // The renders that draw the menu are kept, so a pick can find its items by id: `settle`
+    // above throws them away.
+    let mut opened = crate::ui::fixtures::settle(dom, asked);
+    for _ in 0..8 {
+        if tokio::time::timeout(std::time::Duration::from_millis(40), dom.wait_for_work())
+            .await
+            .is_err()
+        {
+            break;
+        }
+        let mut more = Seen::default();
+        dom.render_immediate(&mut more);
+        opened = opened.merge(more);
+    }
     let names = crate::ui::fixtures::menu_names(&dioxus_ssr::render(dom));
     (opened, names)
 }
