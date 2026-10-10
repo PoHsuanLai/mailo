@@ -109,11 +109,12 @@ pub struct ReplyText {
 
 /// The server accepted the message.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct SmtpReply {
     /// Extensions from the `EHLO` that preceded authentication.
     pub extensions: EhloExtensions,
     /// The mechanism the server accepted. `None` on a porter relay's connection
-    /// ([`Submission::relayed`]), which signed in before the session began.
+    /// ([`Authentication::Relayed`]), which signed in before the session began.
     pub mechanism: Option<SaslMech>,
     /// The positive reply to the terminating dot. This is the acceptance.
     pub accepted: ReplyText,
@@ -122,9 +123,41 @@ pub struct SmtpReply {
     pub closing: Option<ReplyText>,
 }
 
+/// How a submission is authenticated: by this session, or by a relay before it began.
+///
+/// An enum so that a relayed submission cannot carry a credential it would never read, and a
+/// signed-in one cannot lack one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Authentication {
+    /// The session signs in itself, after `STARTTLS` when the plan requires it.
+    SignIn(SignIn),
+    /// The connection is a porter relay's: already authenticated, and as secure as the relay
+    /// made it, so the session offers no `STARTTLS` and no `AUTH` of its own and goes from the
+    /// `EHLO` reply to `MAIL FROM`.
+    Relayed,
+}
+
+impl Authentication {
+    /// Whether a relay signed in before the session began.
+    pub fn is_relayed(&self) -> bool {
+        matches!(self, Authentication::Relayed)
+    }
+}
+
+/// What the session signs in with.
+///
+/// `Debug` is derived: [`Credential`]'s own `Debug` redacts the secret.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SignIn {
+    /// The login name already resolved from [`mail_domain::Username`].
+    pub username: String,
+    pub credential: Credential,
+    /// Mechanisms this account will use, most preferred first.
+    pub sasl: Vec<SaslMech>,
+}
+
 /// One message to submit.
 ///
-/// `username` is the login name already resolved from [`mail_domain::Username`].
 /// The message is the RFC 5322 content, not yet dot-stuffed.
 #[derive(Clone, PartialEq, Eq)]
 pub struct Submission {
@@ -134,14 +167,7 @@ pub struct Submission {
     pub host: String,
     pub port: u16,
     pub tls: Tls,
-    pub username: String,
-    pub credential: Credential,
-    /// Mechanisms this account will use, most preferred first.
-    pub sasl: Vec<SaslMech>,
-    /// The connection is a porter relay's: already authenticated, and as secure as the relay made
-    /// it, so the session offers no `STARTTLS` and no `AUTH` of its own and goes from the `EHLO`
-    /// reply to `MAIL FROM`. `credential`, `username` and `sasl` are not read.
-    pub relayed: bool,
+    pub auth: Authentication,
     pub mail_from: String,
     pub recipients: Vec<String>,
     /// Delivery status to request. `None` leaves the envelope commands unchanged.
@@ -149,8 +175,8 @@ pub struct Submission {
     pub message: Vec<u8>,
 }
 
-// Hand-written: `credential` would otherwise ride along inside a derived `Debug`, and the
-// message body is omitted so a secret pasted into it cannot leak through a log of the session.
+// Hand-written: the message body is omitted so a secret pasted into it cannot leak through a
+// log of the session. The credential is redacted by its own `Debug`.
 impl fmt::Debug for Submission {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Submission")
@@ -158,10 +184,7 @@ impl fmt::Debug for Submission {
             .field("host", &self.host)
             .field("port", &self.port)
             .field("tls", &self.tls)
-            .field("username", &self.username)
-            .field("credential", &self.credential)
-            .field("sasl", &self.sasl)
-            .field("relayed", &self.relayed)
+            .field("auth", &self.auth)
             .field("mail_from", &self.mail_from)
             .field("recipients", &self.recipients)
             .field("receipt", &self.receipt)
@@ -353,7 +376,7 @@ impl SmtpSession {
         closing: Option<ReplyText>,
     ) -> Progress<SmtpReply> {
         let mechanism = self.mechanism;
-        if mechanism.is_none() && !self.submission.relayed {
+        if mechanism.is_none() && !self.submission.auth.is_relayed() {
             return self.fail(ProtoError::Malformed(
                 "finished without authenticating".into(),
             ));
@@ -718,7 +741,7 @@ fn decide(
         Phase::Data => on_data(reply, sub),
         Phase::Body => on_body(reply),
         Phase::Bdat => on_bdat(reply),
-        Phase::Quit(accepted) => on_quit(accepted, reply, ext, mech, sub.relayed),
+        Phase::Quit(accepted) => on_quit(accepted, reply, ext, mech, &sub.auth),
         Phase::Finished => Err(ProtoError::Malformed(
             "reply after the session finished".into(),
         )),
@@ -738,7 +761,7 @@ fn on_ehlo(
 ) -> Result<Outcome, ProtoError> {
     expect_success(reply)?;
     let after_tls = matches!(phase, Phase::EhloAfterTls);
-    if sub.tls == Tls::StartTlsRequired && !after_tls && !sub.relayed {
+    if sub.tls == Tls::StartTlsRequired && !after_tls && !sub.auth.is_relayed() {
         if ext.starttls != Advertised::Offered {
             return Err(ProtoError::Unsupported("STARTTLS".into()));
         }
@@ -750,26 +773,29 @@ fn on_ehlo(
     // DSN and CHUNKING are decided here too, from this EHLO and not the one
     // that preceded STARTTLS.
     let envelope = prepare_envelope(ext, &sub.mail_from, &sub.recipients, sub.receipt.as_ref())?;
-    if sub.relayed {
+    let sign_in = match &sub.auth {
+        Authentication::SignIn(sign_in) => sign_in,
         // The relay signed in before the app saw its greeting: nothing to authenticate, so the
         // envelope goes ahead and `MAIL FROM` is the next command.
-        return match send_mail_from(sub, Some(&envelope))? {
-            Outcome::Continue {
-                next,
-                mechanism,
-                needs,
-                ..
-            } => Ok(Outcome::Continue {
-                next,
-                mechanism,
-                needs,
-                envelope: Some(envelope),
-            }),
-            done => Ok(done),
-        };
-    }
-    let mech = choose_mech(&ext.auth, &sub.sasl, &sub.credential)?;
-    let (next, command) = auth_command(mech, sub)?;
+        Authentication::Relayed => {
+            return match send_mail_from(sub, Some(&envelope))? {
+                Outcome::Continue {
+                    next,
+                    mechanism,
+                    needs,
+                    ..
+                } => Ok(Outcome::Continue {
+                    next,
+                    mechanism,
+                    needs,
+                    envelope: Some(envelope),
+                }),
+                done => Ok(done),
+            };
+        }
+    };
+    let mech = choose_mech(&ext.auth, &sign_in.sasl, &sign_in.credential)?;
+    let (next, command) = auth_command(mech, sign_in)?;
     Ok(continue_with_envelope(
         next,
         vec![command],
@@ -798,11 +824,16 @@ fn on_auth(
     sub: &Submission,
     envelope: Option<&PreparedEnvelope>,
 ) -> Result<Outcome, ProtoError> {
+    let Authentication::SignIn(sign_in) = &sub.auth else {
+        return Err(ProtoError::Malformed(
+            "authentication reply on a relayed session".into(),
+        ));
+    };
     match phase {
         Phase::AuthPlain => {
             if reply.code == 334 {
-                let pass = password(&sub.credential)?;
-                let line = cmd(&b64(&plain_raw(&sub.username, pass)));
+                let pass = password(&sign_in.credential)?;
+                let line = cmd(&b64(&plain_raw(&sign_in.username, pass)));
                 return Ok(continue_with(Phase::AuthPlainSent, vec![line], None));
             }
             finish_auth(reply, sub, envelope)
@@ -822,14 +853,14 @@ fn on_auth(
             if reply.code != 334 {
                 return Err(auth_negative(reply));
             }
-            let line = cmd(&b64(sub.username.as_bytes()));
+            let line = cmd(&b64(sign_in.username.as_bytes()));
             Ok(continue_with(Phase::AuthLoginPass, vec![line], None))
         }
         Phase::AuthLoginPass => {
             if reply.code != 334 {
                 return Err(auth_negative(reply));
             }
-            let pass = password(&sub.credential)?;
+            let pass = password(&sign_in.credential)?;
             let line = cmd(&b64(pass.as_bytes()));
             Ok(continue_with(Phase::AuthLoginSent, vec![line], None))
         }
@@ -902,9 +933,9 @@ fn on_quit(
     reply: &ServerReply,
     ext: &EhloExtensions,
     mech: Option<SaslMech>,
-    relayed: bool,
+    auth: &Authentication,
 ) -> Result<Outcome, ProtoError> {
-    if mech.is_none() && !relayed {
+    if mech.is_none() && !auth.is_relayed() {
         return Err(ProtoError::Malformed(
             "finished without authenticating".into(),
         ));
@@ -1315,22 +1346,22 @@ fn mech_label(mech: SaslMech) -> &'static str {
     }
 }
 
-fn auth_command(mech: SaslMech, sub: &Submission) -> Result<(Phase, Vec<u8>), ProtoError> {
+fn auth_command(mech: SaslMech, sign_in: &SignIn) -> Result<(Phase, Vec<u8>), ProtoError> {
     match mech {
         SaslMech::Plain => {
-            let pass = password(&sub.credential)?;
+            let pass = password(&sign_in.credential)?;
             let line = cmd(&format!(
                 "AUTH PLAIN {}",
-                b64(&plain_raw(&sub.username, pass))
+                b64(&plain_raw(&sign_in.username, pass))
             ));
             Ok((Phase::AuthPlain, line))
         }
         SaslMech::Login => Ok((Phase::AuthLoginUser, cmd("AUTH LOGIN"))),
         SaslMech::XOauth2 => {
-            let token = access_token(&sub.credential)?;
+            let token = access_token(&sign_in.credential)?;
             let line = cmd(&format!(
                 "AUTH XOAUTH2 {}",
-                b64(&xoauth2_raw(&sub.username, token))
+                b64(&xoauth2_raw(&sign_in.username, token))
             ));
             Ok((Phase::AuthXoauth2, line))
         }
@@ -1503,10 +1534,13 @@ fn validate(sub: &Submission) -> Result<(), ProtoError> {
     if sub.recipients.iter().any(|addr| !is_mailbox(addr)) {
         return Err(invalid("a recipient is empty or contains a line break"));
     }
-    if sub.username.is_empty() || has_break(&sub.username) {
+    let Authentication::SignIn(sign_in) = &sub.auth else {
+        return Ok(());
+    };
+    if sign_in.username.is_empty() || has_break(&sign_in.username) {
         return Err(invalid("username is empty or contains a line break"));
     }
-    match &sub.credential {
+    match &sign_in.credential {
         Credential::Password(pass) if pass.expose().as_bytes().contains(&0) => {
             Err(invalid("password contains NUL"))
         }
@@ -1596,12 +1630,15 @@ fn scrub_text(text: String, sub: &Submission) -> String {
 
 fn secret_strings(sub: &Submission) -> Vec<String> {
     let mut out = Vec::new();
-    match &sub.credential {
+    let Authentication::SignIn(sign_in) = &sub.auth else {
+        return out;
+    };
+    match &sign_in.credential {
         Credential::Password(pass) => {
             let pass = pass.expose();
             push_secret(&mut out, pass);
             if !pass.is_empty() {
-                out.push(b64(&plain_raw(&sub.username, pass)));
+                out.push(b64(&plain_raw(&sign_in.username, pass)));
                 out.push(b64(pass.as_bytes()));
             }
         }
@@ -1612,7 +1649,7 @@ fn secret_strings(sub: &Submission) -> Vec<String> {
             push_secret(&mut out, access);
             push_secret(&mut out, refresh);
             if !access.is_empty() {
-                out.push(b64(&xoauth2_raw(&sub.username, access)));
+                out.push(b64(&xoauth2_raw(&sign_in.username, access)));
                 out.push(b64(access.as_bytes()));
             }
             if !refresh.is_empty() {
@@ -1649,10 +1686,11 @@ mod tests {
             host: "smtp.example".into(),
             port: 465,
             tls: Tls::Implicit,
-            username: "ada@example.com".into(),
-            credential: Credential::Password(SecretText::new(PASSWORD)),
-            sasl: vec![SaslMech::Plain, SaslMech::Login],
-            relayed: false,
+            auth: Authentication::SignIn(SignIn {
+                username: "ada@example.com".into(),
+                credential: Credential::Password(SecretText::new(PASSWORD)),
+                sasl: vec![SaslMech::Plain, SaslMech::Login],
+            }),
             mail_from: "ada@example.com".into(),
             recipients: vec!["bob@example.com".into()],
             receipt: None,
@@ -1684,7 +1722,11 @@ mod tests {
             Err(ProtoError::Unsupported(_))
         ));
         let sub = Submission {
-            credential: token,
+            auth: Authentication::SignIn(SignIn {
+                username: "ada@example.com".into(),
+                credential: token,
+                sasl: vec![SaslMech::Plain],
+            }),
             ..submission("Subject: x\r\n\r\nhi\r\n")
         };
         assert_eq!(
@@ -2191,12 +2233,15 @@ mod tests {
     #[test]
     fn xoauth2_challenge_is_answered_with_an_empty_line() {
         let mut sub = submission("hi\r\n");
-        sub.credential = Credential::OAuth {
-            access: SecretText::new("tok"),
-            refresh: SecretText::new("ref"),
-            expires_at: UnixSeconds((chrono_expiry()).timestamp()),
-        };
-        sub.sasl = vec![SaslMech::XOauth2];
+        sub.auth = Authentication::SignIn(SignIn {
+            username: "ada@example.com".into(),
+            credential: Credential::OAuth {
+                access: SecretText::new("tok"),
+                refresh: SecretText::new("ref"),
+                expires_at: UnixSeconds((chrono_expiry()).timestamp()),
+            },
+            sasl: vec![SaslMech::XOauth2],
+        });
         let reply = ServerReply {
             code: 334,
             lines: vec!["eyJzdGF0dXMiOiI0MDAifQ==".into()],

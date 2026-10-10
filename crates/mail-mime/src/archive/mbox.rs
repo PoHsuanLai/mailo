@@ -27,6 +27,7 @@ use std::io::{self, BufRead, Write};
 
 /// The envelope line's two facts: who the message came from on the wire, and when.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Envelope {
     /// The envelope sender, or `MAILER-DAEMON` where there was none.
     pub sender: String,
@@ -36,6 +37,7 @@ pub struct Envelope {
 
 /// One message out of an mbox, unquoted, without its envelope line or separating blank line.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct MboxMessage {
     pub envelope: Envelope,
     pub raw: Vec<u8>,
@@ -271,7 +273,10 @@ pub fn write<W: Write>(out: &mut W, envelope: &Envelope, raw: &[u8]) -> io::Resu
 /// address, and `date`.
 pub fn envelope_of(raw: &[u8], date: Option<DateTime<Utc>>) -> Envelope {
     let sender = header(raw, "Return-Path")
-        .map(|v| v.trim_matches(['<', '>', ' ']).to_owned())
+        .map(|v| match mail_domain::Address::split_angled(&v) {
+            Some((_, inside)) => inside.trim().to_owned(),
+            None => v.trim_matches(['<', '>', ' ']).to_owned(),
+        })
         .filter(|v| !v.is_empty())
         .or_else(|| header(raw, "From").and_then(|v| address_in(&v)))
         .unwrap_or_else(|| "MAILER-DAEMON".to_owned());
@@ -327,10 +332,8 @@ pub fn placement(raw: &[u8], file_folder: Option<&str>) -> Placement {
 /// The address in a `From` value: inside angle brackets if there are any, else the first word
 /// with an `@`.
 fn address_in(value: &str) -> Option<String> {
-    if let (Some(open), Some(close)) = (value.rfind('<'), value.rfind('>'))
-        && open < close
-    {
-        let inner = value[open + 1..close].trim();
+    if let Some((_, inside)) = mail_domain::Address::split_angled(value) {
+        let inner = inside.trim();
         return (!inner.is_empty()).then(|| inner.to_owned());
     }
     value

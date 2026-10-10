@@ -16,6 +16,7 @@
 /// on `;` before it unescapes, `NOTE` does not split at all, and a property this module has
 /// never heard of must survive being written back unchanged.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ContentLine {
     /// The grouping prefix some exporters put on related lines (`item1.EMAIL`, `item1.X-ABLabel`).
     pub group: Option<String>,

@@ -229,7 +229,7 @@ impl crate::mail::SyncOps<'_> {
     pub async fn fetch_part(
         &self,
         message: mail_domain::MessageId,
-        section: &str,
+        section: &mail_domain::Section,
     ) -> Result<(), CoreError> {
         let mail = self.0;
         let registry = mail.clients()?;
@@ -856,7 +856,7 @@ pub async fn fetch_part_with(
     secrets: Arc<dyn AccountSecrets>,
     registry: &ClientRegistry,
     message: mail_domain::MessageId,
-    section: &str,
+    section: &mail_domain::Section,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<(), CoreError> {
     use mail_store::Store as _;

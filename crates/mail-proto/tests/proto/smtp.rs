@@ -5,7 +5,10 @@ use crate::common;
 use common::replay;
 use mail_domain::{SaslMech, Tls};
 use mail_proto::smtp::{Notify, Receipt, Return};
-use mail_proto::{Advertised, EhloExtensions, ProtoError, Refusal, SmtpSession, Submission};
+use mail_proto::{
+    Advertised, Authentication, EhloExtensions, ProtoError, Refusal, SignIn, SmtpSession,
+    Submission,
+};
 use porter_core::Credential;
 use porter_core::SecretText;
 use porter_core::UnixSeconds;
@@ -45,10 +48,11 @@ fn build(
         host: "smtp.example".into(),
         port,
         tls,
-        username: USER.into(),
-        credential,
-        sasl,
-        relayed: false,
+        auth: Authentication::SignIn(SignIn {
+            username: USER.into(),
+            credential,
+            sasl,
+        }),
         mail_from: USER.into(),
         recipients: recipients.iter().map(|addr| (*addr).to_owned()).collect(),
         receipt: None,
@@ -90,10 +94,11 @@ fn envelope(mail_from: &str, recipients: &[&str], message: &str) -> SmtpSession 
         host: "smtp.example".into(),
         port: 465,
         tls: Tls::Implicit,
-        username: USER.into(),
-        credential: password(),
-        sasl: vec![SaslMech::Plain],
-        relayed: false,
+        auth: Authentication::SignIn(SignIn {
+            username: USER.into(),
+            credential: password(),
+            sasl: vec![SaslMech::Plain],
+        }),
         mail_from: mail_from.into(),
         recipients: recipients.iter().map(|addr| (*addr).to_owned()).collect(),
         receipt: None,
@@ -112,10 +117,11 @@ fn with_receipt(
         host: "smtp.example".into(),
         port: 465,
         tls: Tls::Implicit,
-        username: USER.into(),
-        credential: password(),
-        sasl: vec![SaslMech::Plain],
-        relayed: false,
+        auth: Authentication::SignIn(SignIn {
+            username: USER.into(),
+            credential: password(),
+            sasl: vec![SaslMech::Plain],
+        }),
         mail_from: mail_from.into(),
         recipients: recipients.iter().map(|addr| (*addr).to_owned()).collect(),
         receipt,
@@ -189,7 +195,7 @@ fn submit_plain_stuffs_a_leading_dot_and_records_extensions() {
 }
 
 /// On a porter relay's connection the session never authenticates, and does not ask for
-/// `STARTTLS` the plan says the real server wants: the relay owns both (`Submission::relayed`).
+/// `STARTTLS` the plan says the real server wants: the relay owns both (`Authentication::Relayed`).
 #[test]
 fn a_relayed_session_goes_from_ehlo_to_mail_from_without_auth_or_starttls() {
     let mut session = SmtpSession::new(Submission {
@@ -197,10 +203,7 @@ fn a_relayed_session_goes_from_ehlo_to_mail_from_without_auth_or_starttls() {
         host: "smtp.example".into(),
         port: 587,
         tls: Tls::StartTlsRequired,
-        username: USER.into(),
-        credential: password(),
-        sasl: vec![],
-        relayed: true,
+        auth: Authentication::Relayed,
         mail_from: USER.into(),
         recipients: vec!["bob@example.com".to_owned()],
         receipt: None,

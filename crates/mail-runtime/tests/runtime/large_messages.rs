@@ -51,18 +51,18 @@ fn inbox() -> MailboxRef {
 
 fn tree() -> PartTree {
     PartTree::Multipart {
-        section: String::new(),
+        section: mail_domain::Section::root(),
         subtype: "mixed".to_owned(),
         boundary: "mix".to_owned(),
         parts: vec![
             PartTree::Leaf {
-                section: "1".to_owned(),
+                section: "1".parse().unwrap(),
                 mime: "text/plain".to_owned(),
                 octets: TEXT.len() as u64,
                 attachment: false,
             },
             PartTree::Leaf {
-                section: "2".to_owned(),
+                section: "2".parse().unwrap(),
                 mime: "application/pdf".to_owned(),
                 octets: 9_000_000,
                 attachment: true,
@@ -110,11 +110,18 @@ impl Backend for Scripted {
                 Progress::Done(ProtoOutcome::Structures(vec![(remote(), tree())]))
             }
             ProtoOp::FetchSections { remote, sections } => {
-                self.asked
-                    .lock()
-                    .unwrap()
-                    .push(format!("sections {}", sections.join(" ")));
-                let parts = sections.iter().map(|s| (s.clone(), section(s))).collect();
+                self.asked.lock().unwrap().push(format!(
+                    "sections {}",
+                    sections
+                        .iter()
+                        .map(|s| s.as_str())
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                ));
+                let parts = sections
+                    .iter()
+                    .map(|s| (s.to_string(), section(s.as_str())))
+                    .collect();
                 Progress::Done(ProtoOutcome::Sections { remote, parts })
             }
             ProtoOp::FetchBody { remotes } => {
@@ -264,7 +271,7 @@ async fn a_large_message_arrives_without_its_attachment() {
     assert_eq!(
         message.attachments[0].content,
         PartContent::Remote {
-            section: "2".to_owned()
+            section: "2".parse().unwrap()
         }
     );
     assert_eq!(message.attachments[0].size, 9_000_000);
@@ -281,7 +288,11 @@ async fn opening_the_attachment_downloads_and_decodes_it() {
     it.asked.lock().unwrap().clear();
     let id = the_message(&it.store).id;
 
-    let blob = it.engine.fetch_part(id, "2", &mut cancel).await.unwrap();
+    let blob = it
+        .engine
+        .fetch_part(id, &"2".parse().unwrap(), &mut cancel)
+        .await
+        .unwrap();
 
     assert_eq!(*it.asked.lock().unwrap(), ["sections 2.MIME 2"]);
     let bytes = it.store.blobs().get(blob).unwrap();

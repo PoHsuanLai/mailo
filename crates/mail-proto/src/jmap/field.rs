@@ -54,6 +54,16 @@ pub(super) fn strings(value: &Value, key: &str) -> Result<Vec<String>, ProtoErro
     }
 }
 
+/// A list of ids, each as the type of the record it names. Absence and `null` are the empty list.
+pub(super) fn ids<I: From<String>>(value: &Value, key: &str) -> Result<Vec<I>, ProtoError> {
+    Ok(strings(value, key)?.into_iter().map(I::from).collect())
+}
+
+/// [`true_keys`], for a map keyed by ids: `mailboxIds`.
+pub(super) fn true_ids<I: From<String>>(value: &Value, key: &str) -> Result<Vec<I>, ProtoError> {
+    Ok(true_keys(value, key)?.into_iter().map(I::from).collect())
+}
+
 /// The keys of a `String[Boolean]` map whose value is `true`: `mailboxIds`, `keywords`.
 ///
 /// RFC 8621 says the values are always `true`; a `false` is read as absence rather than

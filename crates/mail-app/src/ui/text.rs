@@ -155,7 +155,7 @@ mod tests {
                     content: match stored {
                         Stored::Held => PartContent::Held(BlobId::generate()),
                         Stored::Remote => PartContent::Remote {
-                            section: "2".to_owned(),
+                            section: "2".parse().unwrap(),
                         },
                     },
                     inline: Inline::Attached,

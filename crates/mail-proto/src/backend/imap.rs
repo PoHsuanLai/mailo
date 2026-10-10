@@ -8,7 +8,7 @@ mod search;
 pub use search::{Found, Searching};
 
 use super::folders::{already_so, folder_commands};
-use crate::imap::{ImapCommand, ImapSession};
+use crate::imap::{Access, ImapCommand, ImapSession};
 use crate::machine::{Backend, IoReady, Machine, Moved, Progress, ProtoError, ProtoOutcome};
 use crate::mutf7;
 use mail_domain::{
@@ -138,10 +138,10 @@ impl ImapBackend {
     ///
     /// `EXAMINE` rather than `SELECT` wherever possible: a read-only selection cannot set
     /// `\Recent` or implicitly expunge, and fetching should never have a side effect.
-    fn select(mailbox: &MailboxRef, read_only: bool) -> ImapCommand {
+    fn select(mailbox: &MailboxRef, access: Access) -> ImapCommand {
         ImapCommand::Select {
             mailbox: mailbox.path.clone(),
-            read_only,
+            access,
             qresync: None,
         }
     }
@@ -196,7 +196,7 @@ impl ImapBackend {
                 mailbox: target,
             },
         };
-        self.queue(vec![Self::select(source, false), action])
+        self.queue(vec![Self::select(source, Access::ReadWrite), action])
     }
 
     /// Delete `remotes` for good: the user's "Delete forever", from Trash or Spam.
@@ -262,7 +262,7 @@ impl ImapBackend {
         self.job = Job::Applied;
         self.queue(vec![
             ImapCommand::Capability,
-            Self::select(&mailbox, false),
+            Self::select(&mailbox, Access::ReadWrite),
             ImapCommand::RequireUidValidity(uidvalidity),
             ImapCommand::RequireCapability(vec!["UIDPLUS".to_owned(), "IMAP4rev2".to_owned()]),
             ImapCommand::UidStore {
@@ -286,7 +286,7 @@ impl ImapBackend {
         let mailbox = mailbox_of(&remotes, self.account.clone());
         self.job = Job::Fetch { remotes };
         self.queue(vec![
-            Self::select(&mailbox, true),
+            Self::select(&mailbox, Access::ReadOnly),
             ImapCommand::UidFetch {
                 set,
                 items: items.to_owned(),
@@ -361,7 +361,7 @@ impl Backend for ImapBackend {
                     "(UID FLAGS RFC822.SIZE)"
                 };
                 self.queue(vec![
-                    Self::select(&mailbox, true),
+                    Self::select(&mailbox, Access::ReadOnly),
                     ImapCommand::UidFetch {
                         set,
                         items: items.to_owned(),
@@ -383,7 +383,7 @@ impl Backend for ImapBackend {
             ProtoOp::FetchSections { remote, sections } => {
                 // Each name goes into the command line, so each is checked against the grammar
                 // rather than trusted: they come from a stored row, which came from a server.
-                if sections.is_empty() || !sections.iter().all(|s| is_section(s)) {
+                if sections.is_empty() || !sections.iter().all(|s| is_section(s.as_str())) {
                     return Progress::Failed(ProtoError::Malformed(format!(
                         "not a section list: {sections:?}"
                     )));
@@ -418,7 +418,7 @@ impl Backend for ImapBackend {
                     None => {}
                 }
                 let mailbox = mailbox_of(&remotes, self.account.clone());
-                let mut commands = vec![Self::select(&mailbox, false)];
+                let mut commands = vec![Self::select(&mailbox, Access::ReadWrite)];
                 if !add.is_empty() {
                     commands.push(ImapCommand::UidStore {
                         set: set.clone(),
@@ -445,7 +445,7 @@ impl Backend for ImapBackend {
                 // the server's choice to make; the answer is already recorded locally, so the
                 // worst case is another client asking its user again.
                 self.queue(vec![
-                    Self::select(&mailbox, false),
+                    Self::select(&mailbox, Access::ReadWrite),
                     ImapCommand::UidStore {
                         set,
                         what: format!("+FLAGS ({})", keyword_atom(keyword)),
@@ -464,7 +464,7 @@ impl Backend for ImapBackend {
                     return Progress::Done(ProtoOutcome::Applied);
                 };
                 let mailbox = mailbox_of(&remotes, self.account.clone());
-                let mut commands = vec![Self::select(&mailbox, false)];
+                let mut commands = vec![Self::select(&mailbox, Access::ReadWrite)];
                 if !add.is_empty() {
                     commands.push(ImapCommand::UidStore {
                         set: set.clone(),
@@ -493,7 +493,7 @@ impl Backend for ImapBackend {
                         let label = gmail_label(role);
                         self.job = Job::Applied;
                         let mut commands = vec![
-                            Self::select(&source, false),
+                            Self::select(&source, Access::ReadWrite),
                             ImapCommand::UidStore {
                                 set: set.clone(),
                                 what: format!("+X-GM-LABELS ({label})"),
@@ -534,7 +534,7 @@ impl Backend for ImapBackend {
                     ArchiveMeans::DropInbox => {
                         self.job = Job::Applied;
                         self.queue(vec![
-                            Self::select(&source, false),
+                            Self::select(&source, Access::ReadWrite),
                             ImapCommand::UidStore {
                                 set: set.clone(),
                                 what: format!("+X-GM-LABELS ({})", quoted_labels(&[folder])),
@@ -566,7 +566,7 @@ impl Backend for ImapBackend {
                     _ => "(UID FLAGS)".to_owned(),
                 };
                 self.queue(vec![
-                    Self::select(&mailbox, true),
+                    Self::select(&mailbox, Access::ReadOnly),
                     ImapCommand::UidFetch {
                         set: "1:*".to_owned(),
                         items,
@@ -588,7 +588,7 @@ impl Backend for ImapBackend {
                     ImapCommand::Enable("QRESYNC".to_owned()),
                     ImapCommand::Select {
                         mailbox: mailbox.path.clone(),
-                        read_only: true,
+                        access: Access::ReadOnly,
                         qresync: Some(since),
                     },
                 ])
@@ -600,7 +600,7 @@ impl Backend for ImapBackend {
                 // Without QRESYNC — which Gmail does not offer — this is the only way to find
                 // what was expunged elsewhere. RFC 7162 says so outright.
                 self.queue(vec![
-                    Self::select(&mailbox, true),
+                    Self::select(&mailbox, Access::ReadOnly),
                     ImapCommand::UidSearch {
                         criteria: "ALL".to_owned(),
                     },
@@ -612,7 +612,7 @@ impl Backend for ImapBackend {
                     Some(uidnext) => ImapCommand::IdleAfter { uidnext },
                     None => ImapCommand::Idle,
                 };
-                self.queue(vec![Self::select(&mailbox, true), idle])
+                self.queue(vec![Self::select(&mailbox, Access::ReadOnly), idle])
             }
             ProtoOp::Expunge { .. } => Progress::Failed(ProtoError::Unsupported(
                 "expunging is forbidden: Gmail may be configured to delete permanently, and \
@@ -1167,16 +1167,8 @@ fn uid_of(remote: &RemoteRef) -> Option<u32> {
 /// a root that is not multipart is section `1` (RFC 3501 §6.4.5).
 fn part_tree(body: &imap_proto::BodyStructure<'_>, path: &[u32]) -> Option<PartTree> {
     use imap_proto::BodyStructure as B;
-    let section = |path: &[u32]| {
-        if path.is_empty() {
-            "1".to_owned()
-        } else {
-            path.iter()
-                .map(u32::to_string)
-                .collect::<Vec<_>>()
-                .join(".")
-        }
-    };
+    let section =
+        |path: &[u32]| mail_domain::Section::of(if path.is_empty() { &[1u32][..] } else { path });
     match body {
         B::Multipart { common, bodies, .. } => {
             // Without its boundary a multipart cannot be written back out, and one that is
@@ -1199,9 +1191,9 @@ fn part_tree(body: &imap_proto::BodyStructure<'_>, path: &[u32]) -> Option<PartT
                 .collect::<Option<Vec<_>>>()?;
             Some(PartTree::Multipart {
                 section: if path.is_empty() {
-                    String::new()
+                    mail_domain::Section::root()
                 } else {
-                    section(path)
+                    section(path)?
                 },
                 subtype: common.ty.subtype.to_ascii_lowercase(),
                 boundary,
@@ -1211,7 +1203,7 @@ fn part_tree(body: &imap_proto::BodyStructure<'_>, path: &[u32]) -> Option<PartT
         B::Basic { common, other, .. }
         | B::Text { common, other, .. }
         | B::Message { common, other, .. } => Some(PartTree::Leaf {
-            section: section(path),
+            section: section(path)?,
             mime: format!("{}/{}", common.ty.ty, common.ty.subtype).to_ascii_lowercase(),
             octets: u64::from(other.octets),
             attachment: common

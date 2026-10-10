@@ -11,7 +11,7 @@
 //! shape. Prose is a veto, and a flowed line is never code: the sender said
 //! it may be rewrapped, which is a fact rather than a guess.
 
-use super::kind::{Block, Flowed, Span, first_strong, strip_overrides};
+use super::kind::{Block, Delsp, Flowed, Span, first_strong, strip_overrides};
 use super::limits::{Limits, Reached};
 use super::quote::is_attribution;
 
@@ -93,7 +93,7 @@ fn decode_line(mut raw: &str, mode: Flowed) -> Line {
     }
     let signature = depth == 0 && raw == "-- ";
     let flowed = matches!(mode, Flowed::Flowed { .. }) && !signature && raw.ends_with(' ');
-    if flowed && matches!(mode, Flowed::Flowed { delsp: true }) {
+    if flowed && matches!(mode, Flowed::Flowed { delsp: Delsp::Yes }) {
         raw = &raw[..raw.len() - 1];
     }
     Line {

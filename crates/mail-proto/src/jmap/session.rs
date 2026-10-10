@@ -3,6 +3,7 @@
 use super::field::{malformed, object, opt_string, string, unsigned};
 use super::{MAIL, SUBMISSION};
 use crate::ProtoError;
+use mail_domain::JmapAccountId;
 use serde_json::Value;
 
 /// What a JMAP session resource said, reduced to what this client uses.
@@ -18,7 +19,7 @@ pub struct Session {
     /// push, and then the account is polled.
     pub event_source_url: Option<String>,
     /// The account holding the user's mail: the primary account for the mail capability.
-    pub account: String,
+    pub account: JmapAccountId,
     /// Whether that account may send (`urn:ietf:params:jmap:submission`).
     pub submission: Submission,
     pub limits: Limits,
@@ -57,21 +58,22 @@ impl Session {
         let value: Value = serde_json::from_slice(bytes)
             .map_err(|e| malformed(format!("the session is not JSON: {e}")))?;
         object(&value, "the session")?;
-        let account = value
-            .get("primaryAccounts")
-            .and_then(|p| p.get(MAIL))
-            .and_then(Value::as_str)
-            .ok_or_else(|| {
-                ProtoError::Unsupported(
-                    "JMAP mail: the session names no account for mail (no primary account for \
-                     urn:ietf:params:jmap:mail)"
-                        .to_owned(),
-                )
-            })?
-            .to_owned();
+        let account = JmapAccountId::from(
+            value
+                .get("primaryAccounts")
+                .and_then(|p| p.get(MAIL))
+                .and_then(Value::as_str)
+                .ok_or_else(|| {
+                    ProtoError::Unsupported(
+                        "JMAP mail: the session names no account for mail (no primary account \
+                         for urn:ietf:params:jmap:mail)"
+                            .to_owned(),
+                    )
+                })?,
+        );
         let account_caps = value
             .get("accounts")
-            .and_then(|a| a.get(&account))
+            .and_then(|a| a.get(account.as_str()))
             .and_then(|a| a.get("accountCapabilities"));
         let submission = match account_caps.and_then(|c| c.get(SUBMISSION)) {
             Some(_) => Submission::Offered,

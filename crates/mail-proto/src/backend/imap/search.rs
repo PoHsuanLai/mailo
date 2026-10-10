@@ -9,7 +9,7 @@
 //! read-only, so searching never sets `\Recent` or expunges anything.
 
 use super::{Authenticate, ImapBackend, mailbox_state};
-use crate::imap::{ImapCommand, ImapSession, ImapTranscript, Untagged};
+use crate::imap::{Access, ImapCommand, ImapSession, ImapTranscript, Untagged};
 use crate::machine::{IoReady, Machine, Progress, ProtoError};
 use crate::search::imap::{ImapPlan, hits};
 
@@ -105,7 +105,7 @@ impl Machine for Searching<'_> {
         for mailbox in &self.plan.mailboxes {
             commands.push(ImapCommand::Select {
                 mailbox: mailbox.clone(),
-                read_only: true,
+                access: Access::ReadOnly,
                 qresync: None,
             });
             commands.push(ImapCommand::Search {

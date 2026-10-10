@@ -13,7 +13,7 @@
 
 use super::{Asked, Unsaid, describe, each, kept_here, on_account, words};
 use crate::jmap::{Call, Mailboxes};
-use mail_domain::{Filter, LabelId, ReadState, Star, TextMatch};
+use mail_domain::{Filter, JmapAccountId, JmapMailboxId, LabelId, ReadState, Star, TextMatch};
 use porter_core::AccountId;
 use serde_json::{Value, json};
 
@@ -46,7 +46,7 @@ fn condition(filter: &Filter, ctx: &JmapCtx<'_>) -> Result<Value, Unsaid> {
             describe(filter)
         ))),
     };
-    let inside = |id: Option<&str>, what: String| match id {
+    let inside = |id: Option<&JmapMailboxId>, what: String| match id {
         Some(id) => Ok(json!({ "inMailbox": id })),
         None => Err(Unsaid::one(what)),
     };
@@ -109,7 +109,13 @@ fn condition(filter: &Filter, ctx: &JmapCtx<'_>) -> Result<Value, Unsaid> {
 
 /// `Email/query` for `filter`, newest first, at most `limit`, counting every match; kept, as a
 /// sync is, to emails in some mailbox other than `unfollowed`.
-pub fn query(account: &str, filter: Value, unfollowed: &[String], limit: u64, id: &str) -> Call {
+pub fn query(
+    account: &JmapAccountId,
+    filter: Value,
+    unfollowed: &[JmapMailboxId],
+    limit: u64,
+    id: &str,
+) -> Call {
     let filter = if unfollowed.is_empty() {
         filter
     } else {

@@ -42,7 +42,7 @@ fn all() -> MailboxRef {
 
 fn jmap(id: &str) -> RemoteRef {
     RemoteRef::Jmap {
-        email_id: id.to_owned(),
+        email_id: id.into(),
     }
 }
 

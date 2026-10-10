@@ -604,7 +604,13 @@ fn jmap_carries_the_query_whole_as_a_filter_tree() {
 
 #[test]
 fn the_jmap_query_keeps_to_what_a_sync_follows_and_counts() {
-    let call = jmap::query("A1", json!({ "from": "ada" }), &["mbD".to_owned()], 50, "q");
+    let call = jmap::query(
+        &"A1".into(),
+        json!({ "from": "ada" }),
+        &["mbD".into()],
+        50,
+        "q",
+    );
     assert_eq!(call.name, "Email/query");
     assert_eq!(
         call.args,

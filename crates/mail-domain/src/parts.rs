@@ -1,5 +1,6 @@
 //! A message's MIME tree, as a server describes it before sending any of it.
 
+use crate::section::Section;
 use serde::{Deserialize, Serialize};
 
 /// One node of a message's MIME structure: IMAP's `BODYSTRUCTURE`, reduced to what deciding
@@ -14,7 +15,7 @@ pub enum PartTree {
     /// A part with content of its own. A `message/rfc822` part is one of these too: it is
     /// fetched or left whole, never taken apart.
     Leaf {
-        section: String,
+        section: Section,
         /// `type/subtype`, lowercase. Declared by the sender, so untrusted.
         mime: String,
         /// The size on the wire, before any content transfer decoding.
@@ -25,7 +26,7 @@ pub enum PartTree {
     },
     /// `multipart/<subtype>`.
     Multipart {
-        section: String,
+        section: Section,
         /// Lowercase: `mixed`, `alternative`, `related`.
         subtype: String,
         /// The delimiter between children, as the part's own `Content-Type` declares it.
@@ -35,7 +36,7 @@ pub enum PartTree {
 }
 
 impl PartTree {
-    pub fn section(&self) -> &str {
+    pub fn section(&self) -> &Section {
         match self {
             PartTree::Leaf { section, .. } | PartTree::Multipart { section, .. } => section,
         }

@@ -247,8 +247,9 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) {
     } = &command
     {
         let mail = crate::edge::mail(&store);
-        let download =
-            |section: &str| crate::edge::block_on(mail.sync().fetch_part(*message, section));
+        let download = |section: &mail_domain::Section| {
+            crate::edge::block_on(mail.sync().fetch_part(*message, section))
+        };
         match mail_core::attach::fetch_and_save(&store, *message, *index, dir, download) {
             Ok(path) => println!("{}", super::attach::saved(&path)),
             Err(message) => {

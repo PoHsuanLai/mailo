@@ -9,7 +9,8 @@ use crate::{Cancel, RuntimeError, Transport, drive};
 use chrono::{DateTime, Utc};
 use mail_domain::{Rule, Vacation};
 use mail_proto::sieve::{
-    Compiled, Endpoint, Places, SieveJob, SieveLogin, SieveOutcome, SieveSession, Takeover, compile,
+    Compiled, Endpoint, Places, SieveAuthentication, SieveJob, SieveLogin, SieveOutcome,
+    SieveSession, Takeover, compile,
 };
 use porter_core::{Credential, GrantId, ServiceEndpoint};
 use std::sync::Arc;
@@ -53,9 +54,14 @@ pub async fn manage(
             host: endpoint.host.clone(),
             port: endpoint.port,
             tls: endpoint.tls,
-            username: auth.username.clone(),
-            credential: auth.credential.clone(),
-            relayed: auth.relay.is_some(),
+            auth: if auth.relay.is_some() {
+                SieveAuthentication::Relayed
+            } else {
+                SieveAuthentication::SignIn {
+                    username: auth.username.clone(),
+                    credential: auth.credential.clone(),
+                }
+            },
             script_name: auth.script_name.clone(),
         },
         job,

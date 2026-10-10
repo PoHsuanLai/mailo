@@ -1,7 +1,8 @@
 //! What changed since a state (RFC 8620 §5.2), and one page of a query (§5.5).
 
-use super::field::{malformed, string, strings, unsigned};
+use super::field::{ids, malformed, string, unsigned};
 use crate::ProtoError;
+use mail_domain::JmapEmailId;
 use serde_json::Value;
 
 /// Whether a changes call reported everything, or stopped at `maxChanges`.
@@ -12,20 +13,20 @@ pub enum More {
     No,
 }
 
-/// A `/changes` answer.
+/// A `/changes` answer, listing the ids of `I`: the kind of record that was asked about.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Changes {
+pub struct Changes<I> {
     pub old_state: String,
     pub new_state: String,
     pub more: More,
-    pub created: Vec<String>,
-    pub updated: Vec<String>,
-    pub destroyed: Vec<String>,
+    pub created: Vec<I>,
+    pub updated: Vec<I>,
+    pub destroyed: Vec<I>,
 }
 
-impl Changes {
+impl<I: From<String>> Changes<I> {
     /// Parse the arguments of a `Foo/changes` answer.
-    pub fn parse(args: &Value) -> Result<Changes, ProtoError> {
+    pub fn parse(args: &Value) -> Result<Changes<I>, ProtoError> {
         Ok(Changes {
             old_state: string(args, "oldState")?.to_owned(),
             new_state: string(args, "newState")?.to_owned(),
@@ -33,12 +34,14 @@ impl Changes {
                 Some(true) => More::Yes,
                 _ => More::No,
             },
-            created: strings(args, "created")?,
-            updated: strings(args, "updated")?,
-            destroyed: strings(args, "destroyed")?,
+            created: ids(args, "created")?,
+            updated: ids(args, "updated")?,
+            destroyed: ids(args, "destroyed")?,
         })
     }
+}
 
+impl<I> Changes<I> {
     /// Whether nothing changed at all.
     pub fn is_empty(&self) -> bool {
         self.created.is_empty() && self.updated.is_empty() && self.destroyed.is_empty()
@@ -47,8 +50,9 @@ impl Changes {
 
 /// One page of an `Email/query`.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct QueryPage {
-    pub ids: Vec<String>,
+    pub ids: Vec<JmapEmailId>,
     /// Where this page starts in the whole result.
     pub position: u64,
     /// How many match in all, when the server calculated it.
@@ -60,7 +64,7 @@ impl QueryPage {
     /// Parse the arguments of an `Email/query` answer.
     pub fn parse(args: &Value) -> Result<QueryPage, ProtoError> {
         Ok(QueryPage {
-            ids: strings(args, "ids")?,
+            ids: ids(args, "ids")?,
             position: unsigned(args, "position", 0)?,
             total: match args.get("total") {
                 None | Some(Value::Null) => None,

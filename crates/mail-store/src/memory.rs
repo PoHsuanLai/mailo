@@ -395,7 +395,7 @@ impl Store for MemoryStore {
     fn hold_part(
         &self,
         message: MessageId,
-        section: &str,
+        section: &mail_domain::Section,
         blob: mail_domain::BlobId,
         size: u64,
     ) -> Result<(), StoreError> {

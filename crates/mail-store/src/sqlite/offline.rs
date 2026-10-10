@@ -52,7 +52,12 @@ impl SqliteStore {
             let (id, section, size) = row?;
             Ok(RemotePart {
                 message: MessageId::from_uuid(uuid("RemotePart.message", &id)?),
-                section,
+                section: section
+                    .parse()
+                    .map_err(|e: mail_domain::ParseSectionError| StoreError::Decode {
+                        what: "RemotePart.section".to_owned(),
+                        why: e.to_string(),
+                    })?,
                 size: u64::try_from(size).unwrap_or(0),
             })
         })

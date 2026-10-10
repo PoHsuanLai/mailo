@@ -16,9 +16,9 @@ use mail_domain::{
 };
 use mail_mime::Posting;
 use mail_proto::backend::SmtpBackend;
-use mail_proto::{Backend, Moved, ProtoOutcome, Submission};
+use mail_proto::{Authentication, Backend, Moved, ProtoOutcome, SignIn, Submission};
 use mail_store::{Dispatch, OutboxEntry, Settle, SqliteStore, Store};
-use porter_core::{AccountId, Credential, Family, SecretKey, SecretPurpose, SecretText};
+use porter_core::{AccountId, Credential, Family, SecretKey, SecretPurpose};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -631,18 +631,22 @@ impl<B: Backend> AccountEngine<B> {
         // Most providers authenticate submission with the same secret as retrieval, which is
         // what `AuthPlan` means by covering both directions. A separate outgoing secret is
         // preferred where one was stored, because a few hosts really do differ.
-        let relayed = self.plan.grant().is_some();
-        let credential = if relayed {
+        let auth = if self.plan.grant().is_some() {
             // The relay signs in: nothing to present, and nothing of the account's in this process.
-            Credential::Password(SecretText::new(""))
+            Authentication::Relayed
         } else {
-            match &self.tokens {
+            let credential = match &self.tokens {
                 Some(tokens) => tokens.current(Token::Sending).await?,
                 None => match self.secret(SecretPurpose::OutgoingPassword).await {
                     Ok(credential) => credential,
                     Err(_) => self.secret(SecretPurpose::IncomingPassword).await?,
                 },
-            }
+            };
+            Authentication::SignIn(SignIn {
+                username,
+                credential,
+                sasl,
+            })
         };
         // The incoming backend's capabilities. They describe the *account*, not the socket:
         // `SmtpBackend` reads none of the IMAP-shaped fields, and giving it a second, emptier
@@ -657,10 +661,7 @@ impl<B: Backend> AccountEngine<B> {
                     host: host.clone(),
                     port,
                     tls,
-                    username: username.clone(),
-                    credential: credential.clone(),
-                    sasl: sasl.clone(),
-                    relayed,
+                    auth: auth.clone(),
                     // Straight from the Posting. Re-deriving either of these from `message`
                     // is FINDINGS F37.
                     mail_from: posting.mail_from,
@@ -1939,7 +1940,7 @@ impl<B: Backend> AccountEngine<B> {
     pub async fn fetch_part(
         &mut self,
         message: MessageId,
-        section: &str,
+        section: &mail_domain::Section,
         cancel: &mut Cancel,
     ) -> Result<BlobId, RuntimeError> {
         let remote = self
@@ -1952,12 +1953,19 @@ impl<B: Backend> AccountEngine<B> {
                     "fetching part of a message that has no IMAP address".to_owned(),
                 ))
             })?;
-        let header = format!("{section}.MIME");
+        let Some(header) = section.mime() else {
+            return Err(RuntimeError::Proto(mail_proto::ProtoError::Malformed(
+                format!(
+                    "{:?} is not a part with headers of its own",
+                    section.as_str()
+                ),
+            )));
+        };
         let outcome = self
             .run(
                 ProtoOp::FetchSections {
                     remote,
-                    sections: vec![header.clone(), section.to_owned()],
+                    sections: vec![header.clone(), section.clone()],
                 },
                 cancel,
             )
@@ -1973,7 +1981,7 @@ impl<B: Backend> AccountEngine<B> {
                 .find(|(s, _)| s == name)
                 .map(|(_, bytes)| bytes.as_slice())
         };
-        let (Some(mime), Some(content)) = (find(&header), find(section)) else {
+        let (Some(mime), Some(content)) = (find(header.as_str()), find(section.as_str())) else {
             return Err(RuntimeError::Proto(mail_proto::ProtoError::Malformed(
                 format!("the server did not send section {section} and its headers"),
             )));
@@ -2375,7 +2383,7 @@ mod tests {
     fn a_part_budget_stops_at_its_count_or_its_bytes_and_always_takes_one() {
         let part = |n: u128, size: u64| mail_store::RemotePart {
             message: MessageId::from_uuid(uuid::Uuid::from_u128(n)),
-            section: "2".to_owned(),
+            section: "2".parse().unwrap(),
             size,
         };
         let sizes = |parts: Vec<mail_store::RemotePart>| -> Vec<u64> {

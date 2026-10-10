@@ -21,12 +21,13 @@ pub mod smtp;
 pub use diagnose::{Diagnosis, diagnose, diagnose_text};
 pub use error::{ProtoError, Refusal};
 pub use imap::{
-    Completed, ImapAuth, ImapCommand, ImapSession, ImapTranscript, Untagged, has_capability,
+    Access, Completed, ImapAuth, ImapCommand, ImapSession, ImapTranscript, Untagged, has_capability,
 };
 pub use machine::{Backend, IoNeed, IoReady, Machine, Moved, Progress, ProtoOutcome};
 pub use pop3::{ListEntry, Pop3Command, Pop3Reply, Pop3Session, UidlEntry};
 pub use smtp::{
-    Advertised, EhloExtensions, ReplyText, SizeLimit, SmtpReply, SmtpSession, Submission,
+    Advertised, Authentication, EhloExtensions, ReplyText, SignIn, SizeLimit, SmtpReply,
+    SmtpSession, Submission,
 };
 
 #[cfg(test)]
