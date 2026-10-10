@@ -3,7 +3,7 @@
 //! the popover.
 
 use super::head::{Confirm, Phase};
-use super::{Ask, Offer, archive_from, ask, leave, offer_of};
+use super::{Ask, Offer, archive_from, ask, leave};
 use crate::ui::app::App;
 use crate::ui::fixtures::{acct_account, dispatching, rebuild_into, seeded};
 use crate::ui::reading::Reader;
@@ -11,6 +11,7 @@ use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use dioxus_core::{NoOpMutations, VirtualDom};
 use ds::prelude::*;
+use mail_core::message::offer_of;
 use mail_core::message::{Looks, Read};
 use mail_core::unsubscribe::{Found, Outcome};
 use mail_core::{SqliteStore, Store};

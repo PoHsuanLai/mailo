@@ -73,11 +73,14 @@ pub struct Receipt {
     pub state: ReceiptState,
 }
 
+/// What a lookup found for a message, and the body it was found in: a new body asks again.
+type Found<T> = Mutex<Recent<MessageId, (Option<BlobId>, Option<T>)>>;
+
 /// The reader's per-message lookups and what they found. One for the whole app.
 pub struct Looks {
     checks: Mutex<Recent<MessageId, (BlobId, Option<AuthResults>)>>,
-    invites: Mutex<Recent<MessageId, (Option<BlobId>, Option<Invited>)>>,
-    receipts: Mutex<Recent<MessageId, (Option<BlobId>, Option<Receipt>)>>,
+    invites: Found<Invited>,
+    receipts: Found<Receipt>,
     lists: Mutex<Recent<ThreadId, (Bodies, Option<Offer>)>>,
     pub(super) seals: Mutex<Recent<MessageId, Kept>>,
     reads: [AtomicUsize; READS],
@@ -87,6 +90,12 @@ pub struct Looks {
 /// ever a whole answer.
 pub(super) fn held<T>(lock: &Mutex<T>) -> MutexGuard<'_, T> {
     lock.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+impl std::fmt::Debug for Looks {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Looks").finish_non_exhaustive()
+    }
 }
 
 impl Default for Looks {

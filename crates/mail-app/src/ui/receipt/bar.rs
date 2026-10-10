@@ -97,7 +97,7 @@ pub(in crate::ui) fn Bar(
                         Button {
                             label: decline.to_string(),
                             availability: available(!working),
-                            onclick: on_primary(move || give(looks.clone(), message, ReceiptAnswer::Declined, phase, known)),
+                            onclick: on_primary({ let looks = looks.clone(); move || give(looks.clone(), message, ReceiptAnswer::Declined, phase, known) }),
                             common: Common { aria_label: Some(decline.to_string()), ..Common::default() },
                         }
                         Button {

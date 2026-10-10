@@ -68,8 +68,6 @@ impl Ask {
     }
 }
 
-pub(in crate::ui) use mail_core::message::offer_of;
-
 /// What the popover says for `offer`.
 pub(in crate::ui) fn ask(offer: &Offer) -> Option<Ask> {
     let list = offer.list.clone();
