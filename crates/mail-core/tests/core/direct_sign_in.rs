@@ -120,7 +120,7 @@ fn param(url: &str, name: &str) -> String {
 fn browser(
     opened: Arc<Mutex<Vec<String>>>,
     back: Option<&'static str>,
-) -> impl Fn(&str) -> Result<(), String> {
+) -> impl Fn(&str) -> std::io::Result<()> {
     move |url: &str| {
         opened.lock().unwrap().push(url.to_owned());
         if let Some(back) = back {

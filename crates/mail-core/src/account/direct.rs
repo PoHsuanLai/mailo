@@ -107,7 +107,7 @@ pub struct Direct<'a> {
     /// What the program was started with: an OAuth client typed there wins.
     pub environment: &'a Environment,
     /// Open the sign-in page in the person's browser.
-    pub browse: &'a dyn Fn(&str) -> Result<(), String>,
+    pub browse: &'a dyn Fn(&str) -> std::io::Result<()>,
     /// Where the issuer is asked whose account signed in.
     pub profiles: &'a Profiles,
     /// How long the browser has to come back ([`WAIT`]).
@@ -169,7 +169,7 @@ pub async fn sign_in_with(
     let (unopened, mut refused) = tokio::sync::mpsc::unbounded_channel::<String>();
     let on_url = move |url: &str| {
         if let Err(why) = browse(url) {
-            let _ = unopened.send(why);
+            let _ = unopened.send(why.to_string());
         }
     };
     let at = porter_core::UnixSeconds(now.timestamp());

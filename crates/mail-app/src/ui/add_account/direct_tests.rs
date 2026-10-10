@@ -211,6 +211,30 @@ impl SignInDirectly for Fake {
     }
 }
 
+/// Keep `address` as a Google account, as the sign-in's add does (here with no sign-in to keep).
+async fn keep_account(store: &mail_core::SqliteStore, address: &str) {
+    let now = chrono::Utc::now();
+    let preset = mail_domain::presets::preset_for_issuer(Issuer::Google, address, now).unwrap();
+    mail_core::account::add_with_password(
+        store,
+        address,
+        Some(&mail_core::account::Setup::Discovered(Box::new(preset))),
+        false,
+        false,
+        now,
+        mail_core::account::Credentials {
+            password: None,
+            saved: &mail_core::ClientRegistry::default(),
+            secrets: &porter_secrets::MemorySecrets::default(),
+            environment: &mail_core::Environment::default(),
+            on_url: &|_| {},
+            signed: None,
+        },
+    )
+    .await
+    .expect("the account is kept");
+}
+
 /// What asked for the add-account window.
 #[derive(Clone, Default)]
 struct Windows(Arc<Mutex<Vec<Ask>>>);
@@ -287,8 +311,7 @@ async fn google_from_the_plus_menu_signs_in_in_the_browser_with_no_window() {
     );
 
     // The browser comes back: the account is in the store, the toast says so, the tile draws it.
-    let account = mail_domain::id::account_id_from_uuid(uuid::Uuid::from_u128(7));
-    mail_store::testing::seed_account(&store, account, "you@example.test");
+    keep_account(&store, "you@example.test").await;
     let end = fake.end.lock().unwrap().take().expect("the sign-in waits");
     end.send(Ok("you@example.test".to_owned())).unwrap();
     let mut page = String::new();

@@ -161,8 +161,7 @@ impl SignInDirectly for Real {
                         let saved = mail_core::account::saved_clients();
                         let environment = crate::edge::environment();
                         let secrets = crate::edge::secrets();
-                        let browse =
-                            |url: &str| webbrowser::open(url).map_err(|why| why.to_string());
+                        let browse = |url: &str| webbrowser::open(url);
                         let profiles = mail_core::account::direct::Profiles::default();
                         mail_core::account::sign_in_with(
                             issuer,
