@@ -19,6 +19,6 @@ pub use body::{Body, BodyEffect, BodyEvent};
 pub use download::{Download, DownloadEffect, DownloadEvent};
 pub use folder::{AGAIN, FolderEffect, FolderEvent, FolderFetch};
 pub use link::{
-    BACKOFF_CEILING, Count, Effect, Event, First, Link, Live, Pause, RETRY_NOW, Step, Trigger,
-    Trouble, backoff, step,
+    BACKOFF_CEILING, Count, Effect, Event, First, Link, Live, PUSH_SILENCE, Pause, RETRY_NOW, Step,
+    Trigger, Trouble, backoff, step,
 };

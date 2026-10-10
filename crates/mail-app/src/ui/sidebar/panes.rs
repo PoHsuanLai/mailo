@@ -4,7 +4,7 @@ use super::super::data::account_rows;
 use super::super::motion::{drag, motion};
 use super::join::{self, Plus};
 use super::tagged;
-use crate::ui::fetching::{Fetching, Mark, account_mark_local};
+use crate::ui::fetching::{Fetching, Mark};
 use crate::ui::menu::Floating;
 use crate::ui::provider_chip::{MarkAt, mark_of, mark_style};
 use crate::ui::space::{self, Pinned, Space, Spaces};
@@ -266,10 +266,7 @@ fn status_of(account: AccountId) -> PinStatus {
     let Some(fetching) = try_consume_context::<Fetching>() else {
         return PinStatus::Quiet;
     };
-    match fetching
-        .link(account.clone())
-        .map(|link| account_mark_local(&link))
-    {
+    match fetching.mark(account) {
         // A sync shows as the toolbar's turning Sync icon, as Mail's does: no spinner on the tile.
         None | Some(Mark::Quiet | Mark::Busy) => PinStatus::Quiet,
         Some(Mark::Warn(why) | Mark::Offline(why)) => PinStatus::Attention { why },

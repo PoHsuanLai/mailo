@@ -4,9 +4,11 @@
 //! Pure, like [`super::status`]: a [`Link`] and the time in, words out. No line tells the person
 //! to type a command; every remedy is a button in the sheet.
 
-use super::status::{ago, clock};
+use super::status::{ago, clock, not_updated_since};
 use chrono::{DateTime, TimeZone, Utc};
 use mail_core::fetch::{Link, Live, Pause, Trouble};
+use mail_core::sync::fresh::{self, Freshness};
+use std::time::Duration;
 
 /// The glyph at the start of an account's line.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,11 +54,24 @@ fn said(standing: Standing, text: impl Into<String>, remedy: Option<Remedy>) -> 
     }
 }
 
-/// How `link` stands at `now`.
-pub fn account_line<Tz: TimeZone>(link: &Link, now: DateTime<Utc>, zone: &Tz) -> AccountLine
+/// How `link` stands at `now`, for an account that wants a pass every `every`.
+pub fn account_line<Tz: TimeZone>(
+    link: &Link,
+    every: Duration,
+    now: DateTime<Utc>,
+    zone: &Tz,
+) -> AccountLine
 where
     Tz::Offset: std::fmt::Display,
 {
+    // Said before "Connected": a watch that went quiet still reads as connected to the link.
+    if let Freshness::Stale { since } = fresh::of_link(link, every, now) {
+        return said(
+            Standing::Warn,
+            not_updated_since(since, now, zone),
+            Some(Remedy::TryAgain),
+        );
+    }
     match link {
         Link::Fresh => said(Standing::Fine, "Not checked yet", Some(Remedy::TryAgain)),
         Link::Syncing { .. } => said(Standing::Working, "Checking\u{2026}", None),
@@ -124,8 +139,10 @@ mod tests {
     }
 
     fn line(link: &Link) -> AccountLine {
-        account_line(link, at() + chrono::TimeDelta::minutes(5), &Utc)
+        account_line(link, EVERY, at() + chrono::TimeDelta::minutes(5), &Utc)
     }
+
+    const EVERY: Duration = Duration::from_secs(300);
 
     fn waiting(why: Pause) -> Link {
         Link::Waiting {
@@ -232,6 +249,30 @@ mod tests {
         for (link, standing, text, remedy) in cases {
             assert_eq!(line(&link), said(standing, text, remedy), "{link:?}");
         }
+    }
+
+    /// "Connected" is what the link says; how long since a pass finished is what the person
+    /// needs. Past its schedule an account says since when, and offers to try again.
+    #[test]
+    fn an_account_past_its_schedule_says_since_when_and_offers_a_try() {
+        let later = |minutes| at() + chrono::TimeDelta::minutes(minutes);
+        let pushed = current(Live::Pushed, vec![]);
+        assert_eq!(
+            account_line(&pushed, EVERY, later(36), &Utc),
+            said(
+                Standing::Warn,
+                "Not updated since 14:05",
+                Some(Remedy::TryAgain)
+            )
+        );
+        assert_eq!(
+            account_line(&current(Live::Polling, vec![]), EVERY, later(16), &Utc),
+            said(
+                Standing::Warn,
+                "Not updated since 14:05",
+                Some(Remedy::TryAgain)
+            )
+        );
     }
 
     #[test]

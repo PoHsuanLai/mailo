@@ -2,6 +2,8 @@
 
 use chrono::{DateTime, TimeZone, Utc};
 use mail_core::fetch::{Count, Link, Live, Pause, Step};
+use mail_core::sync::fresh::{self, Freshness};
+use std::time::Duration;
 
 /// How much the line should draw the eye.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -38,23 +40,61 @@ fn line(text: impl Into<String>, tone: Tone) -> StatusLine {
     }
 }
 
-/// What to say about `links`, the accounts in scope.
+/// What to say about `links`, the accounts in scope, each with how often it wants a pass.
 ///
 /// Busy wins, because it is what is happening now; then the worst problem, because it is what
-/// needs a person; then how long ago the least recently updated account was, because the line
-/// is only as fresh as its stalest part.
-pub fn status_line<Tz: TimeZone>(links: &[&Link], now: DateTime<Utc>, zone: &Tz) -> StatusLine
+/// needs a person; then an account that has not been updated for longer than its schedule
+/// allows (`mail_core::sync::fresh`), because "up to date" would be a lie; then how long ago
+/// the least recently updated account was, because the line is only as fresh as its stalest
+/// part.
+pub fn status_line<Tz: TimeZone>(
+    paced: &[(&Link, Duration)],
+    now: DateTime<Utc>,
+    zone: &Tz,
+) -> StatusLine
 where
     Tz::Offset: std::fmt::Display,
 {
-    if let Some(busy) = busy(links) {
+    let links: Vec<&Link> = paced.iter().map(|(link, _)| *link).collect();
+    if let Some(busy) = busy(&links) {
         return busy;
     }
     if let Some(worst) = links.iter().filter_map(|link| trouble_rank(link)).max() {
         let worst = links.iter().find(|link| trouble_rank(link) == Some(worst));
         return worst.map_or_else(|| line("", Tone::Plain), |link| trouble(link, zone));
     }
-    updated(links, now, zone)
+    if let Some(since) = stalest(paced, now) {
+        return line(not_updated_since(since, now, zone), Tone::Warn);
+    }
+    updated(&links, now, zone)
+}
+
+/// The oldest finished pass among `paced` that is older than its schedule allows.
+pub(super) fn stalest(paced: &[(&Link, Duration)], now: DateTime<Utc>) -> Option<DateTime<Utc>> {
+    paced
+        .iter()
+        .filter_map(|(link, every)| match fresh::of_link(link, *every, now) {
+            Freshness::Stale { since } => Some(since),
+            Freshness::Current | Freshness::Unknown => None,
+        })
+        .min()
+}
+
+/// "Not updated since 15:12", with the day when it was not today.
+pub(super) fn not_updated_since<Tz: TimeZone>(
+    since: DateTime<Utc>,
+    now: DateTime<Utc>,
+    zone: &Tz,
+) -> String
+where
+    Tz::Offset: std::fmt::Display,
+{
+    let (then, today) = (since.with_timezone(zone), now.with_timezone(zone));
+    if then.date_naive() == today.date_naive() {
+        format!("Not updated since {}", clock(since, zone))
+    } else {
+        format!("Not updated since {}", then.format("%b %-d, %H:%M"))
+    }
 }
 
 fn busy(links: &[&Link]) -> Option<StatusLine> {
@@ -207,9 +247,13 @@ mod tests {
             + TimeDelta::seconds(second)
     }
 
+    /// Every account polled hourly, so that an age reads as an age here; when an account is
+    /// too old for its schedule has rows of its own, at the five minutes most accounts poll at.
+    const EVERY: Duration = Duration::from_secs(3600);
+
     fn say(links: &[Link], now: DateTime<Utc>) -> StatusLine {
-        let refs: Vec<&Link> = links.iter().collect();
-        status_line(&refs, now, &Utc)
+        let paced: Vec<(&Link, Duration)> = links.iter().map(|link| (link, EVERY)).collect();
+        status_line(&paced, now, &Utc)
     }
 
     fn current(at: DateTime<Utc>, live: Live, folders: usize) -> Link {
@@ -375,7 +419,7 @@ mod tests {
             (
                 "pushed",
                 vec![current(t(0, 0), Live::Pushed, 0)],
-                t(50, 0),
+                t(30, 0),
                 "Up to date",
                 None,
             ),
@@ -404,6 +448,65 @@ mod tests {
             if let Some(tone) = tone {
                 assert_eq!(got.tone, tone, "{name}");
             }
+        }
+    }
+
+    /// An account that has not finished a pass for longer than its schedule allows says since
+    /// when, as a warning: a pushed account whose IDLE a NAT forgot said "Up to date" for forty
+    /// hours.
+    #[test]
+    fn an_account_past_its_schedule_says_since_when() {
+        let five = Duration::from_secs(300);
+        let pushed = current(t(0, 0), Live::Pushed, 0);
+        let polled = current(t(0, 0), Live::Polling, 0);
+        let recent = current(t(50, 0), Live::Polling, 0);
+        let cases: Vec<(&str, Vec<(&Link, Duration)>, DateTime<Utc>, &str, Tone)> = vec![
+            (
+                "pushed, within one re-issue",
+                vec![(&pushed, five)],
+                t(35, 0),
+                "Up to date",
+                Tone::Plain,
+            ),
+            (
+                "pushed, past it",
+                vec![(&pushed, five)],
+                t(36, 0),
+                "Not updated since 12:00",
+                Tone::Warn,
+            ),
+            (
+                "polled, three intervals",
+                vec![(&polled, five)],
+                t(15, 0),
+                "Updated 15 minutes ago",
+                Tone::Plain,
+            ),
+            (
+                "polled, past three",
+                vec![(&polled, five)],
+                t(16, 0),
+                "Not updated since 12:00",
+                Tone::Warn,
+            ),
+            (
+                "one stale account among fresh ones",
+                vec![(&recent, five), (&pushed, five)],
+                t(51, 0),
+                "Not updated since 12:00",
+                Tone::Warn,
+            ),
+            (
+                "forty hours: the day is said",
+                vec![(&pushed, five)],
+                t(40 * 60, 0),
+                "Not updated since Oct 1, 12:00",
+                Tone::Warn,
+            ),
+        ];
+        for (name, links, now, text, tone) in cases {
+            let got = status_line(&links, now, &Utc);
+            assert_eq!((got.text.as_str(), got.tone), (text, tone), "{name}");
         }
     }
 

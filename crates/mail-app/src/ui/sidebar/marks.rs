@@ -5,7 +5,7 @@
 //! One component per mark, each reading the fetching state itself, so a pass moving along
 //! draws that mark and not the whole sidebar.
 
-use crate::ui::fetching::{Fetching, Mark, account_mark_local, folder_mark};
+use crate::ui::fetching::{Fetching, Mark, folder_mark};
 use crate::ui::press::on_primary;
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
@@ -21,9 +21,7 @@ pub(super) fn LinkMark(shell: Signal<Shell>, account: AccountId) -> Element {
     let Some(fetching) = try_consume_context::<Fetching>() else {
         return rsx! {};
     };
-    let mark = fetching
-        .link(account)
-        .map_or(Mark::Quiet, |link| account_mark_local(&link));
+    let mark = fetching.mark(account).unwrap_or(Mark::Quiet);
     drawn(shell, mark)
 }
 

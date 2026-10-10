@@ -1,10 +1,12 @@
 //! What a row, a button and a face show of the links behind them: pure mappings from fetch
 //! state to the small marks quire draws, so each can be tested with a table.
 
-use super::status::clock;
-use chrono::TimeZone;
+use super::status::{clock, not_updated_since};
+use chrono::{DateTime, TimeZone, Utc};
 use ds::prelude::Availability;
 use mail_core::fetch::{FolderFetch, Link, Pause};
+use mail_core::sync::fresh::{self, Freshness};
+use std::time::Duration;
 
 /// What a row carries at its end for the work or the trouble behind it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -29,11 +31,20 @@ pub fn sync_availability(links: &[&Link]) -> Availability {
 }
 
 /// An account's mark: the spinner while its pass runs, else a warning with the reason when it
-/// needs the person or could not update everything.
-pub fn account_mark<Tz: TimeZone>(link: &Link, zone: &Tz) -> Mark
+/// needs the person, could not update everything, or has not been updated for longer than its
+/// schedule (`every`) allows.
+pub fn account_mark<Tz: TimeZone>(
+    link: &Link,
+    every: Duration,
+    now: DateTime<Utc>,
+    zone: &Tz,
+) -> Mark
 where
     Tz::Offset: std::fmt::Display,
 {
+    if let Freshness::Stale { since } = fresh::of_link(link, every, now) {
+        return Mark::Warn(format!("{}.", not_updated_since(since, now, zone)));
+    }
     match link {
         Link::Syncing { .. } => Mark::Busy,
         Link::Fresh => Mark::Quiet,
@@ -77,11 +88,6 @@ pub fn folder_mark(fetch: &FolderFetch) -> Mark {
     }
 }
 
-/// [`account_mark`] in the person's time zone.
-pub fn account_mark_local(link: &Link) -> Mark {
-    account_mark(link, &chrono::Local)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -92,6 +98,8 @@ mod tests {
     fn at() -> chrono::DateTime<Utc> {
         Utc.with_ymd_and_hms(2026, 10, 1, 12, 30, 0).unwrap()
     }
+
+    const FIVE: Duration = Duration::from_secs(300);
 
     fn syncing() -> Link {
         Link::Syncing {
@@ -127,7 +135,7 @@ mod tests {
 
     #[test]
     fn an_account_shows_work_before_trouble_and_trouble_with_its_reason() {
-        let said = |link: &Link| account_mark(link, &Utc);
+        let said = |link: &Link| account_mark(link, FIVE, at(), &Utc);
         assert_eq!(said(&syncing()), Mark::Busy);
         assert_eq!(said(&Link::Fresh), Mark::Quiet);
         assert_eq!(said(&current(&[])), Mark::Quiet);
@@ -155,7 +163,7 @@ mod tests {
 
     #[test]
     fn current_with_trouble_names_the_folder_or_counts_them() {
-        let said = |link: &Link| account_mark(link, &Utc);
+        let said = |link: &Link| account_mark(link, FIVE, at(), &Utc);
         assert_eq!(
             said(&current(&[Some("Work")])),
             Mark::Warn("Work couldn\u{2019}t update: no room".into())
@@ -163,6 +171,27 @@ mod tests {
         assert_eq!(
             said(&current(&[Some("A"), None])),
             Mark::Warn("2 folders couldn\u{2019}t update.".into())
+        );
+    }
+
+    /// The same rule as the status line's: an account resting at "current" for longer than its
+    /// schedule allows is marked, with since when.
+    #[test]
+    fn an_account_past_its_schedule_is_marked_with_since_when() {
+        let pushed = Link::Current {
+            at: at(),
+            live: Live::Pushed,
+            trouble: vec![],
+        };
+        let after = |minutes| at() + chrono::TimeDelta::minutes(minutes);
+        assert_eq!(account_mark(&pushed, FIVE, after(30), &Utc), Mark::Quiet);
+        assert_eq!(
+            account_mark(&pushed, FIVE, after(36), &Utc),
+            Mark::Warn("Not updated since 12:30.".into())
+        );
+        assert_eq!(
+            account_mark(&current(&[]), FIVE, after(16), &Utc),
+            Mark::Warn("Not updated since 12:30.".into())
         );
     }
 

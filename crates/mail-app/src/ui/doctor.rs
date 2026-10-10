@@ -151,7 +151,7 @@ pub(in crate::ui) fn DoctorView(shell: Signal<Shell>, revision: Signal<u64>) -> 
                     AccountRowView {
                         key: "{account}",
                         name: name.clone(),
-                        line: account_line(&link, now, &chrono::Local),
+                        line: account_line(&link, fetching.every(&account), now, &chrono::Local),
                         act: {
                             let account = account.clone();
                             move |remedy| act.call((account.clone(), name.clone(), remedy))

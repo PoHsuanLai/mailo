@@ -7,6 +7,7 @@
 
 pub use crate::notify::Announce;
 pub mod due;
+pub mod fresh;
 pub mod live;
 pub mod report;
 pub mod watcher;
@@ -377,10 +378,24 @@ async fn pass_over(
                 Some(&emit),
             )
             .await;
-            ended(account, result, cancelled)
+            let end = ended(account, result, cancelled);
+            remember(store, &end, now);
+            end
         }))
         .await,
     )
+}
+
+/// Keep how `end` went, so a window opened later can tell an account that is quiet from one
+/// that has not been fetched in days ([`fresh`]). `at` is when the pass began: its mail is as
+/// current as that. A cancelled pass says nothing either way and is not kept.
+fn remember(store: &SqliteStore, end: &PassEnd, at: chrono::DateTime<chrono::Utc>) {
+    let kept = match end {
+        PassEnd::Finished(report) => store.pass_finished(report.account.clone(), at),
+        PassEnd::Failed { account, why, .. } => store.pass_failed(account.clone(), at, why),
+        PassEnd::Cancelled { .. } => return,
+    };
+    let _ = kept.or_log("how a pass ended could not be kept");
 }
 
 /// How an account's pass ended, given what it returned and the signal it was given.

@@ -117,6 +117,33 @@ async fn an_unreachable_server_fails_the_account_with_a_wait() {
     );
 }
 
+/// How each pass ended is kept, so a window opened later can say since when an account has not
+/// been fetched: a failure is recorded without forgetting the last finish, and a finish clears it.
+#[tokio::test]
+async fn how_a_pass_ended_is_kept_in_the_store() {
+    let (store, _dir) = store_at(1);
+    let secrets = Arc::new(MemorySecrets::default());
+    with_password(&secrets);
+    store.pass_finished(acct_account(), now()).unwrap();
+    let later = now() + chrono::TimeDelta::minutes(40);
+    let ends = run_with(
+        store.clone(),
+        secrets,
+        &ClientRegistry::default(),
+        later,
+        Hooks::default(),
+    )
+    .await
+    .unwrap();
+    assert!(
+        matches!(ends.as_slice(), [PassEnd::Failed { .. }]),
+        "{ends:?}"
+    );
+    let passes = store.passes(acct_account()).unwrap();
+    assert_eq!(passes.finished, Some(now()), "the last finish is kept");
+    assert_eq!(passes.failed.map(|failed| failed.at), Some(later));
+}
+
 #[tokio::test]
 async fn a_mailbox_that_fails_lands_in_trouble_with_its_decision() {
     // A server that accepts the connection and hangs up on everything after it: the account is
