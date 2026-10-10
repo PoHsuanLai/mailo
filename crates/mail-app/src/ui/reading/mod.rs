@@ -85,8 +85,7 @@ fn mute_tool(thread: ThreadId, mute: Mute, shell: Signal<Shell>, revision: Signa
         Mute::Muted => ("Unmute this conversation", "Unmute", Check::On),
         Mute::Unmuted => ("Mute this conversation", "Mute", Check::Off),
     };
-    let keys =
-        crate::ui::keymap::action_keys(&shell.read().keymap, crate::ui::view::Shortcut::ToggleMute);
+    let keys = crate::ui::actions::tip(&shell.read().keymap, crate::ui::view::Shortcut::ToggleMute);
     rsx! {
         Button {
             bezel: Bezel::Toolbar,

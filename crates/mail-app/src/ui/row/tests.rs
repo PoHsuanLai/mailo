@@ -97,7 +97,7 @@ async fn mark_as_read_from_the_menu_is_undone_like_any_op() {
     chord(
         &mut dom,
         "z",
-        Modifiers::CONTROL,
+        crate::ui::fixtures::PRIMARY,
         ElementId(INSIDE_THE_SHELL as usize),
     );
     assert_eq!(
@@ -153,57 +153,84 @@ async fn snooze_from_the_menu_opens_the_snooze_menu() {
 #[test]
 fn only_the_primary_button_opens_or_picks_a_row() {
     use crate::ui::selection::Click;
+    use chordkit::{Desktop, Platform};
     use ds::base::press::{PointerButton, Press};
+    let ours = Platform::Linux {
+        desktop: Desktop::Ours,
+    };
+    // The key that toggles is the platform's primary one: Command on a Mac and our desktop,
+    // Ctrl on Windows and other Linux. The other is not.
     let cases = [
         (
             "a plain click",
+            ours,
             PointerButton::Primary,
             Modifiers::empty(),
             Some(Click::Plain),
         ),
         (
             "shift",
+            ours,
             PointerButton::Primary,
             Modifiers::SHIFT,
             Some(Click::Range),
         ),
         (
-            "ctrl",
+            "command on our desktop",
+            ours,
             PointerButton::Primary,
-            Modifiers::CONTROL,
+            Modifiers::SUPER,
             Some(Click::Toggle),
         ),
         (
-            "cmd",
+            "command, as a window may report it",
+            ours,
             PointerButton::Primary,
             Modifiers::META,
             Some(Click::Toggle),
         ),
         (
-            "shift wins over ctrl",
+            "ctrl is not the primary key on our desktop",
+            ours,
             PointerButton::Primary,
-            Modifiers::SHIFT | Modifiers::CONTROL,
+            Modifiers::CONTROL,
+            Some(Click::Plain),
+        ),
+        (
+            "ctrl on Windows",
+            Platform::Windows,
+            PointerButton::Primary,
+            Modifiers::CONTROL,
+            Some(Click::Toggle),
+        ),
+        (
+            "shift wins over the primary key",
+            ours,
+            PointerButton::Primary,
+            Modifiers::SHIFT | Modifiers::SUPER,
             Some(Click::Range),
         ),
         (
             "a right click",
+            ours,
             PointerButton::Secondary,
             Modifiers::empty(),
             None,
         ),
         (
             "a middle click",
+            ours,
             PointerButton::Middle,
             Modifiers::empty(),
             None,
         ),
     ];
-    for (case, button, modifiers, want) in cases {
+    for (case, platform, button, modifiers, want) in cases {
         let press = Press {
             button,
             modifiers,
             ..Press::primary()
         };
-        assert_eq!(super::click_of(press), want, "{case}");
+        assert_eq!(super::click_of(press, platform), want, "{case}");
     }
 }

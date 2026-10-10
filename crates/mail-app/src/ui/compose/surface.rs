@@ -5,7 +5,7 @@
 //! draws a caret. Each input goes, in order:
 //!
 //! 1. through `body::key_taken`: an open menu's arrows,
-//!    Enter and Escape, and the Ctrl chords (bold, italic, underline, undo, redo…);
+//!    Enter and Escape, and the editor's actions (bold, italic, underline, undo, redo…);
 //! 2. through [`adapt::asked`], to an editor event, a caret move or a clipboard gesture;
 //! 3. an editor event into `wire::hear`: the IME rule, the
 //!    page's own selection as the range, the `/` and `@` menus following.
@@ -30,6 +30,7 @@ use std::cell::Cell;
 use std::rc::Rc;
 use std::sync::Arc;
 
+use chordkit::StandardAction;
 use dioxus::prelude::*;
 use ds::edit::caret::use_caret_rect;
 use ds::edit::handle::{EditHandle, use_edit_handle};
@@ -48,6 +49,7 @@ use super::float::{self, suggest_mention};
 use super::page::Page;
 use super::render;
 use super::wire::{self, Heard};
+use crate::ui::actions;
 use crate::ui::editor::{Caret, Doc, InputEvent, Pos, Range};
 use crate::ui::host::Host;
 use crate::ui::view::Shell;
@@ -148,6 +150,7 @@ pub(super) fn Surface(
     marks: Signal<Marks>,
 ) -> Element {
     let handle = use_edit_handle();
+    let window_keys = use_keys();
     let mut focus = use_signal(|| EditFocus::Out);
     // A reply, or an addressed message, opens with the keyboard in its body
     // (`super::opening`). Once, after the surface has mounted: the page is peeked, not read.
@@ -222,7 +225,7 @@ pub(super) fn Surface(
                 handle,
                 ime_area: shown.at,
                 on_input: move |input: EditInput| {
-                    heard(page, shell, on_attach, handle, preedit, &taken, input);
+                    heard(page, shell, window_keys, on_attach, handle, preedit, &taken, input);
                 },
                 on_pointer: move |pointer: EditPointer| pointed(page, &pointer),
                 on_focus: move |now: EditFocus| focus.set(now),
@@ -326,17 +329,22 @@ fn marks_of(place: Option<Place>, caret: Option<Rect>, selection: &[Rect]) -> Ma
 fn heard(
     page: Signal<Page>,
     shell: Signal<Shell>,
+    keys: Keys,
     on_attach: EventHandler<()>,
     handle: EditHandle,
     mut preedit: Signal<Option<String>>,
     taken: &Cell<bool>,
     input: EditInput,
 ) {
-    if let EditInput::Key(key) = &input
-        && key_taken(page, shell, on_attach, &key.key.to_string(), key.modifiers)
-    {
-        taken.set(true);
-        return;
+    // What a key asks of the window, in a text field: the actions the editor answers, and
+    // select all, which the keymap names and the editor core has no key for.
+    let mut said = None;
+    if let EditInput::Key(key) = &input {
+        said = actions::heard_key(keys, &shell.peek().keymap, &key.key, key.modifiers, true);
+        if key_taken(page, shell, on_attach, &key.key.to_string(), said) {
+            taken.set(true);
+            return;
+        }
     }
     match &input {
         EditInput::Composition(Composition::Update { text, .. }) => {
@@ -345,7 +353,13 @@ fn heard(
         EditInput::Composition(_) => preedit.set(None),
         _ => {}
     }
-    match adapt::asked(&input) {
+    let select_all = said == Some(actions::Heard::Standard(StandardAction::SelectAll));
+    let asked = if select_all {
+        Asked::SelectAll
+    } else {
+        adapt::asked(&input, keys.platform())
+    };
+    match asked {
         Asked::Edit(event) => edit(page, event),
         Asked::Move(step, reach) => move_caret(page, handle, step, reach),
         Asked::SelectAll => {

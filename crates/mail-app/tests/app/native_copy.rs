@@ -23,7 +23,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::drive;
-use drive::{Drive, Key};
+use drive::{Drive, Key, PRIMARY};
 
 fn acct_account() -> AccountId {
     account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000c3"))
@@ -467,7 +467,7 @@ fn in_a_new_message_ctrl_c_and_super_c_copy_the_body_s_and_each_field_s_selectio
 #[test]
 fn the_command_key_copies_the_search_fields_selection() {
     let (mut harness, _dir) = open();
-    harness.chord(&[COMMAND], Key::Char('k'));
+    harness.chord(&[PRIMARY], Key::Char('k'));
     until(&mut harness, "the search field", |h| {
         h.is_focused(".spotlight input")
     });

@@ -5,7 +5,7 @@
 use ds_harness::Query;
 use mail_domain::{Snooze, Star};
 
-use super::drive::{Drive, Key};
+use super::drive::{Drive, Key, PRIMARY};
 use super::look::{conversation, inbox_at};
 use super::row_menu::{open_row_menu, press_menu_item, row_action};
 use super::window::{INBOX, Window, row_of};
@@ -46,7 +46,7 @@ fn j_k_star_archive_trash_and_undo_walk_and_sort_the_inbox() {
     // e archives it; Ctrl-Z brings it back.
     window.press(&[], Key::Char('e'), 1);
     window.until("e archives it", |h| row_of(h, second).is_none());
-    window.press(&[Key::Ctrl], Key::Char('z'), 1);
+    window.press(&[PRIMARY], Key::Char('z'), 1);
     window.until("Ctrl-Z brings it back", |h| row_of(h, second).is_some());
     assert_eq!(window.subjects(), [first, second, third, fourth]);
 
@@ -54,7 +54,7 @@ fn j_k_star_archive_trash_and_undo_walk_and_sort_the_inbox() {
     window.open_subject(third);
     window.press(&[], Key::Char('#'), 1);
     window.until("# trashes it", |h| row_of(h, third).is_none());
-    window.press(&[Key::Ctrl], Key::Char('z'), 1);
+    window.press(&[PRIMARY], Key::Char('z'), 1);
     window.until("Ctrl-Z brings it back", |h| row_of(h, third).is_some());
     assert_eq!(window.subjects(), [first, second, third, fourth]);
 }

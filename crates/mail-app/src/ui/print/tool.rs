@@ -64,7 +64,7 @@ pub(in crate::ui) fn PrintTool(thread: ThreadId) -> Element {
             image: ImagePosition::Only,
             label: "Print this conversation",
             title: Some("Print".to_owned()),
-            title_shortcut: crate::ui::keymap::chord(&[crate::ui::keymap::KeyCap::Super], 'p'),
+            title_shortcut: crate::ui::actions::tip_standard(chordkit::StandardAction::Print),
             icon: Some(IconSource::Glyph(Icon::Printer)),
             shown: Some(open()),
             onclick: move |_| open.set(open().flipped()),

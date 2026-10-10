@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use crate::drive;
 use crate::row_menu;
-use drive::{Drive, Key};
+use drive::{Drive, Key, PRIMARY};
 
 fn acct_account() -> AccountId {
     account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
@@ -282,7 +282,7 @@ fn screens() {
 
         // The search bar's panel (⌘K), then the Add Account sheet from it.
         let (mut h, _d) = open(dark);
-        h.chord(&[Key::Ctrl], Key::Char('k'));
+        h.chord(&[PRIMARY], Key::Char('k'));
         h.advance(ms(400));
         for c in "ar".chars() {
             h.key(Key::Char(c));
@@ -290,7 +290,7 @@ fn screens() {
         shot(&mut h, &out, "command-menu", dark);
         h.key(Key::Escape);
         h.advance(ms(400));
-        h.chord(&[Key::Ctrl], Key::Char('k'));
+        h.chord(&[PRIMARY], Key::Char('k'));
         h.advance(ms(400));
         for c in "add acc".chars() {
             h.key(if c == ' ' { Key::Space } else { Key::Char(c) });

@@ -1225,26 +1225,13 @@ pub enum Shortcut {
 }
 
 /// The shortcut a key press means with the keys the window ships with, or `None` for a key that
-/// is not one. The window asks its [`crate::ui::keymap::Keymap`] instead, which may hold the user's
-/// own keys.
+/// is not one: the table alone, as the settings read it. The window asks chordkit instead
+/// (`ui::actions::heard`), with the user's own keys over these.
 ///
 /// Keys are named as the DOM names them, so the caller does not have to invent a second
 /// vocabulary for the same events.
 pub fn shortcut(key: &str, typing: bool) -> Option<Shortcut> {
     crate::ui::keymap::Keymap::default().action(key, typing)
-}
-
-/// What ⌘ does on its own, when it is held (`ui::chord::command`).
-///
-/// ⌘N writes a message wherever the caret is and ⌘⌫ trashes while reading. Every other key is
-/// the Mac's or the field's — ⌘C is copy, ⌘A is select all — so the caller does not also ask
-/// the keymap, which does not own chords. Esc is not here: the caller leaves it to close.
-pub fn command_shortcut(key: &str, typing: bool) -> Option<Shortcut> {
-    match key {
-        "n" | "N" => Some(Shortcut::Compose),
-        "Delete" | "Backspace" if !typing => Some(Shortcut::Trash),
-        _ => None,
-    }
 }
 
 /// The key a press means with Shift held: "J" and "K" whether the keyboard reported the
@@ -2132,20 +2119,6 @@ mod keyboard {
         for (name, key, typing, want) in CASES {
             assert_eq!(shortcut(key, *typing), *want, "{name}");
         }
-    }
-
-    #[test]
-    fn command_held_is_the_macs_and_never_a_bare_letter() {
-        // ⌘N writes a message from anywhere, ⌘⌫ trashes while reading, and ⌘C, ⌘A and the
-        // rest are the field's and the Mac's: none of them archives, replies or forwards.
-        assert_eq!(command_shortcut("n", false), Some(Shortcut::Compose));
-        assert_eq!(command_shortcut("N", true), Some(Shortcut::Compose));
-        assert_eq!(command_shortcut("Backspace", false), Some(Shortcut::Trash));
-        assert_eq!(command_shortcut("Backspace", true), None);
-        for key in ["c", "a", "e", "r", "f", "p", "s", "u", "j", "k"] {
-            assert_eq!(command_shortcut(key, false), None, "⌘{key} is not ours");
-        }
-        assert_eq!(command_shortcut("Escape", true), None);
     }
 
     #[test]

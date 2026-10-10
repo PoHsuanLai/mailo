@@ -156,7 +156,7 @@ pub(super) fn PickBar(
         .iter()
         .any(|summary| crate::ui::bin::offered(bin, summary));
     let keys = shell.read().keymap.clone();
-    let keys_for = |action| crate::ui::keymap::action_keys(&keys, action);
+    let keys_for = |action| crate::ui::actions::tip(&keys, action);
     let buttons: Vec<(Shortcut, Icon, &'static str, &'static str)> = [
         (Shortcut::Archive, Icon::Archive, "Archive", "Archive"),
         (
@@ -246,7 +246,7 @@ pub(super) fn PickBar(
                 label: "Clear the selection".to_owned(),
                 icon: Icon::X,
                 title: Some("Clear Selection".to_owned()),
-                title_shortcut: Some(crate::ui::keymap::Keys(vec![crate::ui::keymap::KeyCap::Escape])),
+                title_shortcut: Some(crate::ui::actions::escape()),
                 common: Common {
                     aria_label: Some("Clear the selection".to_owned()),
                     ..Common::default()

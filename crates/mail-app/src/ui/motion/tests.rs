@@ -213,7 +213,7 @@ async fn undo_restores_the_mailboxes_exactly() {
     chord(
         &mut dom,
         "z",
-        Modifiers::CONTROL,
+        crate::ui::fixtures::PRIMARY,
         ElementId(INSIDE_THE_SHELL as usize),
     );
 
@@ -490,7 +490,7 @@ async fn an_undo_mid_exit_keeps_the_row_once_and_heals_nothing() {
     chord(
         &mut dom,
         "z",
-        Modifiers::CONTROL,
+        crate::ui::fixtures::PRIMARY,
         ElementId(INSIDE_THE_SHELL as usize),
     );
     let heal = anim_settle(Anim::Heal, MotionLevel::Standard);

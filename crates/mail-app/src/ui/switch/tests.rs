@@ -5,7 +5,6 @@ use crate::ui::fixtures::{
 };
 use crate::ui::space::{self, Mail, Scope, SpaceId};
 use crate::ui::view::Shell;
-use dioxus::html::input_data::keyboard_types::Modifiers;
 use dioxus::prelude::*;
 use dioxus_core::{ElementId, VirtualDom};
 use ds::prelude::{Scheme, SpaceLook, Theme, Word};
@@ -123,7 +122,7 @@ async fn ctrl_2_repaints_the_frame_and_scopes_the_list() {
     let _ = chord(
         &mut dom,
         "2",
-        Modifiers::CONTROL,
+        crate::ui::fixtures::PRIMARY,
         ElementId(INSIDE_THE_SHELL as usize),
     );
     // The list keeps what it drew until the new Space's query, on its blocking thread, lands:
@@ -185,12 +184,12 @@ fn app_on(built: &Work) -> VirtualDom {
     dom
 }
 
-/// Ctrl+`digit`, as a person switches Space.
+/// ⌘`digit`, as a person switches Space.
 fn switch_to(dom: &mut VirtualDom, digit: &'static str) -> String {
     let _ = chord(
         dom,
         digit,
-        Modifiers::CONTROL,
+        crate::ui::fixtures::PRIMARY,
         ElementId(INSIDE_THE_SHELL as usize),
     );
     dioxus_ssr::render(dom)

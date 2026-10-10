@@ -1,5 +1,6 @@
 //! The adapter's tables: every input it reads, and positions both ways.
 
+use chordkit::{Desktop, Platform};
 use dioxus::prelude::{Key, Modifiers};
 use ds::edit::clicks::Clicks;
 use ds::edit::input::{Composition, EditInput, KeyInput};
@@ -14,6 +15,13 @@ use super::{
     text_position, word_at,
 };
 use crate::ui::editor::{Doc, InputEvent, Node, Object, ParaKind, Pos, Range};
+
+/// Our desktop's keymap, the one the window's tests are read on.
+fn ours() -> Platform {
+    Platform::Linux {
+        desktop: Desktop::Ours,
+    }
+}
 
 fn key(key: Key, modifiers: Modifiers) -> EditInput {
     EditInput::Key(KeyInput { key, modifiers })
@@ -31,7 +39,9 @@ fn event(input_type: &str, data: Option<&str>, composing: bool) -> Asked {
 #[test]
 fn every_input_reads_as_the_event_the_glue_would_have_sent() {
     let none = Modifiers::empty();
-    let ctrl = Modifiers::CONTROL;
+    // The primary key of the platform the cases are read on: Command, which our desktop delivers
+    // as Super. The word moves are Alt on any platform and the primary key on this one.
+    let primary = Modifiers::SUPER;
     let shift = Modifiers::SHIFT;
     let mut html = InputEvent::new(
         "insertFromPaste",
@@ -50,13 +60,13 @@ fn every_input_reads_as_the_event_the_glue_would_have_sent() {
             key(Key::Enter, shift),
             event("insertLineBreak", None, false),
         ),
-        (key(Key::Enter, ctrl), Asked::Nothing),
+        (key(Key::Enter, primary), Asked::Nothing),
         (
             key(Key::Backspace, none),
             event("deleteContentBackward", None, false),
         ),
         (
-            key(Key::Backspace, ctrl),
+            key(Key::Backspace, primary),
             event("deleteWordBackward", None, false),
         ),
         (
@@ -76,7 +86,7 @@ fn every_input_reads_as_the_event_the_glue_would_have_sent() {
             Asked::Move(Step::Right, Reach::Extend),
         ),
         (
-            key(Key::ArrowLeft, ctrl),
+            key(Key::ArrowLeft, primary),
             Asked::Move(Step::WordLeft, Reach::Collapse),
         ),
         (
@@ -96,10 +106,9 @@ fn every_input_reads_as_the_event_the_glue_would_have_sent() {
             Asked::Move(Step::LineEnd, Reach::Extend),
         ),
         (
-            key(Key::Home, ctrl),
+            key(Key::Home, primary),
             Asked::Move(Step::DocStart, Reach::Collapse),
         ),
-        (key(Key::Character("a".to_owned()), ctrl), Asked::SelectAll),
         (key(Key::Tab, none), Asked::Nothing),
         (
             EditInput::Composition(Composition::Start),
@@ -133,7 +142,7 @@ fn every_input_reads_as_the_event_the_glue_would_have_sent() {
         (EditInput::Copy, Asked::Copy),
     ];
     for (input, expected) in cases {
-        assert_eq!(asked(&input), expected, "{input:?}");
+        assert_eq!(asked(&input, ours()), expected, "{input:?}");
     }
 }
 

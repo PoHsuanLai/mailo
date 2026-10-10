@@ -290,7 +290,7 @@ async fn command_k_in_the_panel_selects_what_is_typed() {
     let recorder = Recorder::default();
     let mut bar = alone(&recorder);
     bar.typed("sync", |page| has(page, "Sync now")).await;
-    chord(&mut bar.dom, "k", Modifiers::CONTROL, bar.field);
+    chord(&mut bar.dom, "k", crate::ui::fixtures::PRIMARY, bar.field);
     assert!(
         recorder.asked().contains(&Ask::FocusAll(FIELD)),
         "{:?}",

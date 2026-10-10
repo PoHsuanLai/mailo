@@ -14,7 +14,7 @@ use settle::settle_until;
 
 use crate::drive;
 use crate::row_menu;
-use drive::Drive;
+use drive::{Drive, PRIMARY};
 use ds_blitz::{NetPolicy, PrintOutcome};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
@@ -275,7 +275,7 @@ fn empty_trash_asks_naming_the_count_and_then_the_list_empties_with_no_undo() {
     assert!(toast.contains("Deleted forever"), "{toast}");
     assert_eq!(harness.count(".ds-toast-tab"), 0, "no Undo is offered");
     // And Ctrl Z has nothing of it to take back.
-    harness.chord(&[Key::Ctrl], Key::Char('z'));
+    harness.chord(&[PRIMARY], Key::Char('z'));
     harness.advance(ms(600));
     assert_eq!(held_in(&store, MailboxRole::Trash), Vec::<String>::new());
     assert_eq!(rows(&harness), 0);

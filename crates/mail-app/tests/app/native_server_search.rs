@@ -15,7 +15,7 @@ use crate::settle;
 use settle::settle_until;
 
 use crate::drive;
-use drive::Drive;
+use drive::{Drive, PRIMARY};
 use ds_blitz::{NetPolicy, PrintOutcome};
 use mail_app::ui::native::ServerSearcher;
 use mail_domain::id::account_id_from_uuid;
@@ -224,7 +224,7 @@ fn press(harness: &mut Harness, selector: &str) {
 
 /// ⌘K: the search panel up, with the keyboard in its field.
 fn summon(harness: &mut Harness) {
-    harness.chord(&[Key::Ctrl], Key::Char('k'));
+    harness.chord(&[PRIMARY], Key::Char('k'));
     let started = std::time::Instant::now();
     while !harness.is_focused(".spotlight input") {
         assert!(

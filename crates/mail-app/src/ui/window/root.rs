@@ -7,6 +7,7 @@
 //! a composer desk for a reply.
 
 use super::note::left;
+use crate::ui::actions::{self, Heard};
 use crate::ui::app::Frame;
 use crate::ui::compose::{self, ComposerPage, PageKind, SendPill};
 use crate::ui::ops::{Composes, apply_op, start_composing};
@@ -14,6 +15,7 @@ use crate::ui::reading::{Reader, ReaderIn};
 use crate::ui::space::Spaces;
 use crate::ui::style::STYLE;
 use crate::ui::view::{Shell, Shortcut};
+use chordkit::StandardAction;
 use dioxus::prelude::*;
 use ds::base::spawner::Spawner;
 use ds_settings::use_environment;
@@ -59,6 +61,8 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
     let _ = crate::ui::prefs::use_prefs(
         try_consume_context::<crate::ui::appearance::WindowDirs>().as_ref(),
     );
+    // The window's keymap, with mailo's actions in it: this window is its own root.
+    let keys = actions::use_registered();
     let mut shell = use_signal(|| {
         let store = consume_context::<Arc<SqliteStore>>();
         let mut shell = Shell {
@@ -114,23 +118,25 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
             crate::ui::reading::viewer_key(shell, &key);
             return;
         }
-        let ctrl = event.modifiers().ctrl();
         let typing = shell.read().composing.is_some();
-        if crate::ui::motion::key(&key, ctrl, typing, shell, revision) {
+        let heard = actions::heard(keys, &shell.read().keymap, &event, typing);
+        if crate::ui::motion::key(
+            &key,
+            heard == Some(Heard::Standard(StandardAction::Undo)),
+            typing,
+            shell,
+            revision,
+        ) {
             return;
         }
-        if ctrl && (key == "p" || key == "P") {
+        if heard == Some(Heard::Standard(StandardAction::Print)) {
             if let Some(job) = crate::ui::print::job_for(Some(thread)) {
                 crate::ui::print::print(job);
             }
             return;
         }
-        let key = if event.modifiers().shift() {
-            crate::ui::view::shifted(&key).to_owned()
-        } else {
-            key
-        };
-        let Some(action) = shell.read().keymap.action(&key, typing) else {
+        // The mail keys and Esc; a chord of the main window's (search, Spaces) is not this one's.
+        let Some(Heard::Mail(action)) = heard else {
             return;
         };
         let store = consume_context::<Arc<SqliteStore>>();

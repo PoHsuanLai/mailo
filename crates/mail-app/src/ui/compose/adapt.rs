@@ -1,7 +1,7 @@
 //! The adapter between quire's `EditSurface` and the editor core, as pure functions.
 //!
 //! - [`asked`] reads one [`EditInput`] as what it asks of the page: an editor [`InputEvent`],
-//!   a caret move, or a clipboard gesture. The `/` and `@` menus' keys and the Ctrl chords
+//!   a caret move, or a clipboard gesture. The `/` and `@` menus' keys and the editor's actions
 //!   (bold, undo…) are read before it (`body::key_taken`).
 //! - [`pos_of`] and [`text_position`] convert positions both ways. quire counts UTF-8 bytes into
 //!   a paragraph's own text; the editor counts grapheme clusters. A paragraph's text on the
@@ -11,7 +11,9 @@
 //!   selections the browser used to make, over the document alone. Up, Down, Home and End need
 //!   the laid-out lines and are the surface's (`surface.rs`).
 
+use chordkit::Platform;
 use dioxus::prelude::{Key, Modifiers};
+use ds::base::command::holds_primary;
 use ds::edit::input::{Composition, EditInput, KeyInput};
 use ds::edit::pointer::{EditPointer, Extend};
 use ds::host::captured::PointerPhase;
@@ -74,10 +76,10 @@ pub(super) enum Step {
 }
 
 /// What `input` asks of the page. `ranges` is left empty: the page supplies its own selection.
-pub(super) fn asked(input: &EditInput) -> Asked {
+pub(super) fn asked(input: &EditInput, platform: Platform) -> Asked {
     match input {
         EditInput::Text(text) => edit("insertText", Some(text.clone()), false),
-        EditInput::Key(key) => key_asked(key),
+        EditInput::Key(key) => key_asked(key, platform),
         EditInput::Composition(Composition::Start) => edit("compositionstart", None, true),
         EditInput::Composition(Composition::Update { text, .. }) => {
             edit("insertCompositionText", Some(text.clone()), true)
@@ -102,9 +104,14 @@ fn edit(input_type: &str, data: Option<String>, composing: bool) -> Asked {
 }
 
 /// A key the surface did not turn into text.
-fn key_asked(key: &KeyInput) -> Asked {
+///
+/// Select all is not here: the keymap names it (`Standard(SelectAll)`) and the surface asks for
+/// it before this. Word and document moves have no action in chordkit, so they stay a modifier
+/// rule: the platform's primary key (Command on a Mac and our desktop, Ctrl elsewhere) or Alt
+/// takes the step by a word, and the primary key takes Home and End to the document's ends.
+fn key_asked(key: &KeyInput, platform: Platform) -> Asked {
     let held = key.modifiers;
-    let command = ds::prelude::is_command(held);
+    let command = holds_primary(platform, held);
     let reach = if held.contains(Modifiers::SHIFT) {
         Reach::Extend
     } else {
@@ -112,7 +119,7 @@ fn key_asked(key: &KeyInput) -> Asked {
     };
     let word = command || held.contains(Modifiers::ALT);
     match &key.key {
-        // Ctrl Enter is Send, the page's.
+        // The primary key with Enter is Send, the page's.
         Key::Enter if command => Asked::Nothing,
         Key::Enter if held.contains(Modifiers::SHIFT) => edit("insertLineBreak", None, false),
         Key::Enter => edit("insertParagraph", None, false),
@@ -129,7 +136,6 @@ fn key_asked(key: &KeyInput) -> Asked {
         Key::End if command => Asked::Move(Step::DocEnd, reach),
         Key::Home => Asked::Move(Step::LineStart, reach),
         Key::End => Asked::Move(Step::LineEnd, reach),
-        Key::Character(letter) if command && letter.eq_ignore_ascii_case("a") => Asked::SelectAll,
         _ => Asked::Nothing,
     }
 }

@@ -20,6 +20,11 @@ use std::time::Duration;
 /// A key the tests press: the words the window's own shortcuts are written in.
 pub use ds::prelude::ShortcutKey as Key;
 
+/// The platform's primary key as the harness's windows have it: their keymap is our desktop's
+/// (the harness's default), where Command is the primary modifier and arrives as Super. A test
+/// that presses a chord of the window holds this, never Ctrl: Ctrl+Z is not undo there.
+pub const PRIMARY: Key = Key::Super;
+
 /// Sending input the way a person gives it.
 pub trait Drive {
     /// Click the primary button at `at`.

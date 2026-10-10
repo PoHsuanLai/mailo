@@ -25,8 +25,10 @@ use crate::ui::selection::Click;
 use crate::ui::view::Marks;
 use crate::ui::view::{Shell, hover_in};
 use act::{Pressed, press};
+use chordkit::Platform;
 use chrono::Local;
 use dioxus::prelude::*;
+use ds::base::command::holds_primary;
 use ds::base::press::{PointerButton, Press};
 use ds::base::vocab::RowState;
 use ds::components::app::row_more::RowMore;
@@ -152,6 +154,8 @@ pub(super) fn MailRow(
     );
     let filing = shell.read().filing == Some(id);
     // Where the menus a pick opens float: where the row's menu stood, else against the row.
+    let keys = use_keys();
+    let platform = use_platform();
     let mut snooze_at = use_signal(|| None::<Rect>);
     let mut label_at = use_signal(|| None::<Rect>);
     let mut move_at = use_signal(|| None::<Rect>);
@@ -256,7 +260,9 @@ pub(super) fn MailRow(
             // Shift+Enter on the focused row opens it in a window of its own. Stopped here, so
             // the window's own Shift+Enter does not open the open conversation as well.
             onkeydown: move |event: KeyboardEvent| {
-                if event.key().to_string() == "Enter" && event.modifiers().shift() {
+                let opens = crate::ui::actions::heard(keys, &shell.peek().keymap, &event, false)
+                    == Some(crate::ui::actions::Heard::Own(crate::ui::actions::Own::OpenInWindow));
+                if opens {
                     event.stop_propagation();
                     super::window::open_in_window(id);
                 }
@@ -270,14 +276,14 @@ pub(super) fn MailRow(
                 time,
                 tags,
                 star: Some(star),
-                star_shortcut: crate::ui::keymap::action_keys(
+                star_shortcut: crate::ui::actions::tip(
                     &shell.read().keymap,
                     crate::ui::view::Shortcut::ToggleStar,
                 ),
                 strip: None,
                 more: Some(more),
                 onclick: move |press: Press| {
-                    if let Some(click) = click_of(press) {
+                    if let Some(click) = click_of(press, platform) {
                         shell.write().click(id, click, &drawn_order());
                     }
                 },
@@ -364,15 +370,16 @@ fn point_rect(at: dioxus::html::geometry::ClientPoint) -> Rect {
 
 /// What a click on a row asks for, from its button and the keys held with it. Only the primary
 /// button opens or picks: a right click is the row's menu, and opens nothing by itself. Shift
-/// wins over Ctrl, as a range is the larger thing to have asked for; Cmd is a Mac's Ctrl.
-fn click_of(press: Press) -> Option<Click> {
+/// wins over the platform's primary key (Command, or Ctrl), as a range is the larger thing to have
+/// asked for.
+fn click_of(press: Press, platform: Platform) -> Option<Click> {
     if press.button != PointerButton::Primary {
         return None;
     }
     let held = press.modifiers;
     Some(if held.shift() {
         Click::Range
-    } else if ds::prelude::is_command(held) {
+    } else if holds_primary(platform, held) {
         Click::Toggle
     } else {
         Click::Plain

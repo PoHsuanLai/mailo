@@ -102,6 +102,7 @@ fn SettingsShell() -> Element {
     // `frame::keep` and the Keyboard page. Settings are watched by the root.
     crate::ui::frame::use_followed_configuration(shell, spaces, None);
 
+    let keys = crate::ui::actions::use_window_keys();
     let on_key = move |event: Event<KeyboardData>| {
         let key = event.key().to_string();
         // The Keyboard page takes every key while an action waits for one: the key pressed to be
@@ -113,7 +114,7 @@ fn SettingsShell() -> Element {
             } else {
                 key
             };
-            let chord = held.alt() || ds::prelude::is_command(held);
+            let chord = crate::ui::actions::is_chord(keys, &event.key(), held);
             crate::ui::keyboard::pressed(shell, &key, chord);
             return;
         }

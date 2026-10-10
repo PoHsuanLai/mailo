@@ -28,7 +28,7 @@ use crate::latency_inbox as inbox;
 use crate::settle;
 use crate::typing;
 
-use drive::{Drive, Key};
+use drive::{Drive, Key, PRIMARY};
 use ds::prelude::{Point, Px};
 use ds_harness::{Driver, Harness, Query as Read};
 use inbox::{THREADS, TOPICS, VIEW, config, seeded};
@@ -205,7 +205,7 @@ fn from_a_key_to_its_frame() {
     let mut searched = Vec::new();
     for topic in TOPICS {
         // ⌘K: the search panel, its text selected, so the topic replaces the last one.
-        harness.chord(&[Key::Ctrl], Key::Char('k'));
+        harness.chord(&[PRIMARY], Key::Char('k'));
         settle_until(&mut harness, |h| h.is_focused(".spotlight input"));
         let (typed, last) = topic.split_at(topic.len() - 1);
         for key in typed.chars() {

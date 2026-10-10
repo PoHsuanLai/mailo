@@ -27,7 +27,7 @@ pub(in crate::ui) use dom::{
     in_scheme, key, later, markup, page, press, reader_markup, rebuild_into, right_click,
     root_attr, thread_like, write_page,
 };
-pub(in crate::ui) use events::{FakePointer, Scripts, chord, pointer, type_into};
+pub(in crate::ui) use events::{FakePointer, PRIMARY, Scripts, chord, pointer, type_into};
 pub(in crate::ui) use reference::{Work, work};
 pub(in crate::ui) use row_menu::{
     listed_subjects, menu_names, open_row_menu, pick_named, pick_until, row_action, row_named,

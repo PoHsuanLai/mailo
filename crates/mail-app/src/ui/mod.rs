@@ -18,11 +18,11 @@ pub mod spelling;
 pub mod today;
 pub mod view;
 
+mod actions;
 mod add_account;
 mod app;
 mod brand;
 mod checks;
-mod chord;
 mod clock;
 mod command;
 mod common;

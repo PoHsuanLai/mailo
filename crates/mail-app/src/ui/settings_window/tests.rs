@@ -11,7 +11,6 @@ use crate::ui::fixtures::{
 };
 use crate::ui::view::SettingsPage;
 use dioxus::dioxus_core::{self, VirtualDom};
-use dioxus::prelude::Modifiers;
 use std::sync::{Arc, Mutex};
 
 /// The Settings window over `built`, on `page`.
@@ -76,7 +75,7 @@ async fn command_comma_and_the_gear_ask_for_the_settings_window() {
     let _ = chord(
         &mut dom,
         ",",
-        Modifiers::CONTROL,
+        crate::ui::fixtures::PRIMARY,
         dioxus_core::ElementId(INSIDE_THE_SHELL as usize),
     );
     assert_eq!(asked.asks(), [None], "⌘, asked for nothing");

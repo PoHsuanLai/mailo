@@ -315,7 +315,7 @@ async fn moving_to_a_folder_files_it_there_and_undo_brings_it_back() {
     chord(
         &mut dom,
         "z",
-        Modifiers::CONTROL,
+        crate::ui::fixtures::PRIMARY,
         dioxus_core::ElementId(INSIDE_THE_SHELL as usize),
     );
     settle(&mut dom).await;

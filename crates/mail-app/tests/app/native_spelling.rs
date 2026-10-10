@@ -21,7 +21,7 @@ use crate::settle;
 use settle::settle_until;
 
 use crate::drive;
-use drive::Drive;
+use drive::{Drive, PRIMARY};
 use mail_app::ui::native::{Configured, Dictionaries, Revisions};
 use mail_domain::id::account_id_from_uuid;
 
@@ -266,7 +266,7 @@ fn a_picked_suggestion_is_one_undo_step() {
     settle_until(&mut harness, |h| body(h) == "the cat");
     settle_until(&mut harness, |h| marks(h) == 0 && h.is_focused(".c-body"));
     // One step back is the word as it was typed, and nothing before it.
-    harness.chord(&[Key::Ctrl], Key::Char('z'));
+    harness.chord(&[PRIMARY], Key::Char('z'));
     settle_until(&mut harness, |h| body(h) == "teh cat");
     // The caret is back at the end of the word it restored, so the word waits for it to leave.
     harness.key(Key::End);

@@ -32,7 +32,7 @@ async fn command_k_brings_up_the_panel_with_the_keyboard_in_its_field() {
     chord(
         &mut dom,
         "k",
-        Modifiers::CONTROL,
+        crate::ui::fixtures::PRIMARY,
         ElementId(INSIDE_THE_SHELL as usize),
     );
     assert!(
@@ -103,7 +103,7 @@ async fn opening_a_mail_keeps_its_search_shown_in_the_toolbar_until_it_is_cleare
     chord(
         &mut dom,
         "k",
-        Modifiers::CONTROL,
+        crate::ui::fixtures::PRIMARY,
         ElementId(INSIDE_THE_SHELL as usize),
     );
     let seen = drain_seen(&mut dom);

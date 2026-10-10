@@ -4,7 +4,7 @@
 use ds_harness::{Driver, Query};
 
 use super::body::{composing, outline, run_is, select_back};
-use super::drive::{Drive, Key};
+use super::drive::{Drive, Key, PRIMARY};
 use super::window::{Window, parsed, queued};
 
 /// The bubble's mark segments, in order: Bold, Italic, Underline, Strike, Code.
@@ -65,11 +65,11 @@ fn a_selection_made_with_shift_arrows_or_a_drag_takes_bold_italic_and_underline_
     let mut window = composing();
     window.type_text("a bold move");
     select_back(&mut window, 4);
-    window.press(&[Key::Ctrl], Key::Char('b'), 1);
+    window.press(&[PRIMARY], Key::Char('b'), 1);
     window.until("Ctrl-B bolds it", |h| run_is(h, ".m-b", "move"));
-    window.press(&[Key::Ctrl], Key::Char('i'), 1);
+    window.press(&[PRIMARY], Key::Char('i'), 1);
     window.until("Ctrl-I italicises it", |h| run_is(h, ".m-b.m-i", "move"));
-    window.press(&[Key::Ctrl], Key::Char('u'), 1);
+    window.press(&[PRIMARY], Key::Char('u'), 1);
     window.until("Ctrl-U underlines it", |h| {
         run_is(h, ".m-b.m-i.m-u", "move")
     });
@@ -79,7 +79,7 @@ fn a_selection_made_with_shift_arrows_or_a_drag_takes_bold_italic_and_underline_
     let (start, end) = word_ends(&window, "bold");
     window.harness.drag(start, end, 6);
     window.harness.advance(super::window::ms(100));
-    window.press(&[Key::Ctrl], Key::Char('b'), 1);
+    window.press(&[PRIMARY], Key::Char('b'), 1);
     window.until("the dragged word is bold", |h| {
         h.text_of(".c-body .m-b")
             .is_some_and(|run| run.starts_with("bold"))
@@ -100,7 +100,7 @@ fn a_selection_bolded_from_the_bubble_keeps_the_keyboard_for_ctrl_i() {
         window.harness.is_focused(".c-body"),
         "the bubble took the keyboard from the body"
     );
-    window.press(&[Key::Ctrl], Key::Char('i'), 1);
+    window.press(&[PRIMARY], Key::Char('i'), 1);
     window.until("Ctrl-I italicises it", |h| run_is(h, ".m-b.m-i", "move"));
 }
 
@@ -230,7 +230,7 @@ fn undo_walks_the_whole_session_back_and_redo_walks_it_forward() {
     let mut window = composing();
     type_blocks(&mut window);
     select_back(&mut window, 5);
-    window.press(&[Key::Ctrl], Key::Char('b'), 1);
+    window.press(&[PRIMARY], Key::Char('b'), 1);
     assert!(run_is(&window.harness, ".m-b", "after"));
     let done = outline(&window.harness);
 
@@ -239,7 +239,7 @@ fn undo_walks_the_whole_session_back_and_redo_walks_it_forward() {
         if outline(&window.harness) == ["p"] {
             break;
         }
-        window.press(&[Key::Ctrl], Key::Char('z'), 1);
+        window.press(&[PRIMARY], Key::Char('z'), 1);
     }
     assert_eq!(
         outline(&window.harness),
@@ -250,28 +250,28 @@ fn undo_walks_the_whole_session_back_and_redo_walks_it_forward() {
         if outline(&window.harness) == done && run_is(&window.harness, ".m-b", "after") {
             break;
         }
-        window.press(&[Key::Ctrl, Key::Shift], Key::Char('z'), 1);
+        window.press(&[PRIMARY, Key::Shift], Key::Char('z'), 1);
     }
     assert_eq!(
         outline(&window.harness),
         done,
-        "Ctrl-Shift-Z did not redo it all"
+        "the redo chord did not redo it all"
     );
     assert!(
         run_is(&window.harness, ".m-b", "after"),
         "the bold was not redone"
     );
 
-    window.press(&[Key::Ctrl], Key::Char('z'), 1);
+    window.press(&[PRIMARY], Key::Char('z'), 1);
     assert_eq!(
         window.harness.count(".c-body .m-b"),
         0,
         "undo left the bold"
     );
-    window.press(&[Key::Ctrl], Key::Char('y'), 1);
+    window.press(&[PRIMARY, Key::Shift], Key::Char('z'), 1);
     assert!(
         run_is(&window.harness, ".m-b", "after"),
-        "Ctrl-Y did not redo"
+        "the platform's redo did not redo"
     );
 }
 
@@ -326,7 +326,7 @@ fn a_formatted_message_goes_out_as_html_and_as_text_that_reads_naturally() {
     window.type_text(" with **bold**, _soft_, `code`");
     window.type_text("\nunder");
     select_back(&mut window, 5);
-    window.press(&[Key::Ctrl], Key::Char('u'), 1);
+    window.press(&[PRIMARY], Key::Char('u'), 1);
     window.press(&[], Key::End, 1);
     window.click(".c-props [*|data-row=to] .c-pin input");
     window.type_text("ada@example.test\n");

@@ -37,7 +37,7 @@ mod wire;
 #[cfg(test)]
 mod tests;
 
-use crate::ui::keymap::KeyCap;
+use crate::ui::actions::{self, Heard, Own};
 use ds::components::content::label::LabelRole;
 use ds::components::controls::button_model::{Answers, Bezel, ImagePosition};
 use ds::components::overlays::inline_banner::InlineBanner;
@@ -141,6 +141,7 @@ pub(super) fn opening(page: &Page) -> Opening {
 #[component]
 fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Element {
     let mut desk = use_context::<Desk>();
+    let keys = use_keys();
     let mut page = use_signal(|| initial.clone());
     let mut plain = use_signal(|| Fold::Folded);
     let folding = Folding {
@@ -239,13 +240,13 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
             onmounted: move |event| target.mounted(event),
             onkeydown: move |event: KeyboardEvent| {
                 let key = event.key().to_string();
-                let modifiers = event.modifiers();
-                let ctrl = ds::prelude::is_command(modifiers);
-                if ctrl && key == "Enter" {
+                // The page is a text surface: the chords that reach it are the ones a field leaves.
+                let heard = actions::heard(keys, &shell.peek().keymap, &event, true);
+                if heard == Some(Heard::Own(Own::Send)) {
                     event.prevent_default();
                     event.stop_propagation();
                     send(Anyway::No);
-                } else if ctrl && modifiers.shift() && key.eq_ignore_ascii_case("f") {
+                } else if heard == Some(Heard::Own(Own::Focus)) {
                     event.prevent_default();
                     event.stop_propagation();
                     toggle_focus(page, desk);
@@ -268,7 +269,7 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                         icon: Icon::Maximize,
                         label: "Focus".to_owned(),
                         title: "Focus".to_owned(),
-                        title_shortcut: crate::ui::keymap::chord(&[KeyCap::Shift, KeyCap::Super], 'f'),
+                        title_shortcut: actions::tip_own(Own::Focus),
                         onclick: move |_| toggle_focus(page, desk),
                         image: ImagePosition::Only,
                     }
@@ -278,7 +279,7 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                         icon: Icon::Archive,
                         label: "Keep for later".to_owned(),
                         title: "Keep for Later".to_owned(),
-                        title_shortcut: crate::ui::keymap::Keys(vec![KeyCap::Escape]),
+                        title_shortcut: actions::escape(),
                         onclick: move |_| desk::park(desk, page, shell),
                         image: ImagePosition::Only,
                     }
@@ -360,7 +361,7 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                     answers: Answers::Return,
                     label: if scheduled { "Schedule" } else { "Send" },
                     title: (if scheduled { "Schedule" } else { "Send" }).to_owned(),
-                    title_shortcut: crate::ui::keymap::Keys(vec![KeyCap::Super, KeyCap::Enter]),
+                    title_shortcut: actions::tip_own(Own::Send),
                     icon: if scheduled { Icon::Clock } else { Icon::Send },
                     onclick: on_primary(move || send(Anyway::No)),
                     common: Common { aria_label: Some(send_label.to_owned()), ..Common::default() },
