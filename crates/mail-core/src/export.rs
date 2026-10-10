@@ -306,7 +306,7 @@ impl Sink {
                     micros: now.timestamp_subsec_micros(),
                     pid: std::process::id(),
                     count: *count,
-                    host,
+                    host: host.as_str(),
                 });
                 let name = maildir::name(&unique, &maildir::flags_of(&flags_of(message)));
                 // Written in `tmp` and renamed into `cur`, as the spec says: a reader never sees
