@@ -22,6 +22,7 @@ use std::sync::Arc;
 
 use dioxus::prelude::*;
 use mail_core::fetch::{Download, DownloadEffect, DownloadEvent};
+use mail_core::message::Looks;
 use mail_core::{SqliteStore, Store as _};
 use mail_domain::{BlobId, MessageId, Retry};
 
@@ -43,6 +44,7 @@ pub(super) fn Attachments(
     let downloads: Downloads = use_signal(HashMap::new);
     let toasts = use_hook(try_consume_context::<ds::stack::toast_hub::ToastHub>);
     let store = use_context::<Arc<SqliteStore>>();
+    let looks = super::use_looks();
     let account = use_hook(|| {
         store
             .message(message)
@@ -64,13 +66,15 @@ pub(super) fn Attachments(
             let here = kept == Kept::Here;
             let saved_name = name.clone();
             let again_name = name.clone();
+            let saved_looks = looks.clone();
+            let again_looks = looks.clone();
             let button = rsx! {
                 Button {
                     label,
                     common: Common { aria_label: Some(format!("{label} {name}")), ..Common::default() },
                     availability: if busy { Availability::Busy } else { Availability::Enabled },
                     onclick: super::super::press::on_primary(move || {
-                        start(message, body, index, kept, &saved_name, downloads, toasts);
+                        start(&saved_looks, message, body, index, kept, &saved_name, downloads, toasts);
                     }),
                 }
             };
@@ -116,7 +120,7 @@ pub(super) fn Attachments(
                                         label: "Try Again",
                                         common: Common { aria_label: Some(format!("Try again to download {name}")), ..Common::default() },
                                         onclick: super::super::press::on_primary(move || {
-                                            start(message, body, index, kept, &again_name, downloads, toasts);
+                                            start(&again_looks, message, body, index, kept, &again_name, downloads, toasts);
                                         }),
                                     }
                                 }),
@@ -153,7 +157,9 @@ fn send(mut downloads: Downloads, index: usize, event: DownloadEvent) -> Option<
 type Toasts = Option<ds::stack::toast_hub::ToastHub>;
 
 /// Begin saving one row: from a press, which is where a task is polled (F140).
+#[allow(clippy::too_many_arguments)]
 fn start(
+    looks: &Arc<Looks>,
     message: MessageId,
     body: Option<BlobId>,
     index: usize,
@@ -171,6 +177,7 @@ fn start(
         Kept::Here | Kept::Opened => crate::ui::downloads::Saving::quick(),
     };
     let store = consume_context::<Arc<SqliteStore>>();
+    let looks = looks.clone();
     let fetchers = fetch::fetchers();
     let dir = crate::ui::files::save_dir();
     spawn(async move {
@@ -181,7 +188,9 @@ fn start(
                 Kept::Here => {
                     mail_core::attach::save(&store, message, index, &dir).map_err(String::from)
                 }
-                Kept::Opened => super::super::pgp::save_attachment(message, body, index, &dir),
+                Kept::Opened => {
+                    super::super::pgp::save_attachment(&looks, message, body, index, &dir)
+                }
                 Kept::OnServer => fetch::fetch_then_save(&store, &fetchers, message, index, &dir),
             };
             (saved, crate::ui::downloads::origin(&store, message))

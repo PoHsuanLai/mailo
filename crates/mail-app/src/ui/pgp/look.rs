@@ -1,23 +1,22 @@
-//! Opening a message the reader shows, and keeping what that found.
+//! Opening a message the reader shows, in the window's words.
 //!
-//! A message is asked of OpenPGP first and of S/MIME when OpenPGP finds none. What was found is
-//! kept per message and body, with the count of key changes it was found under
-//! ([`mail_core::pgp::epoch`], which S/MIME's moves too): once the keys or certificates change —
-//! from the sheet, the command line, or a certificate learnt from arriving mail — the next
-//! opening asks again, and nothing has to remember to clear it.
+//! A message is asked of OpenPGP first and of S/MIME when OpenPGP finds none, and what was found
+//! is kept per message and body: all of that is [`mail_core::message::Looks`]'s. This module turns
+//! what it found into what the reader draws: the lines said about the protection, and the
+//! attachments inside an opened message.
 
 use std::path::{Path, PathBuf};
 
 use chrono::Utc;
 use mail_core::SigningStore;
-use mail_core::{SqliteStore, Store};
+use mail_core::SqliteStore;
+use mail_core::message::{Looks, Opening, Protection, Sealed};
 use mail_domain::*;
 use mail_mime::Parsed;
 
 use super::super::text::{AttachmentRow, Kept as Where};
 use super::{Said, Scheme, Tried, said, said_smime};
 use mail_core::password::Password;
-use mail_core::pgp::Ask;
 
 /// A message opened: what to say about it, and the body to show in place of the stored one.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,195 +44,77 @@ pub(in crate::ui) enum Look {
     Failed(String),
 }
 
-#[cfg(test)]
-static LOOKED: std::sync::Mutex<Vec<MessageId>> = std::sync::Mutex::new(Vec::new());
-
-/// How many times [`look`] has opened `message` in this test process.
-#[cfg(test)]
-pub(in crate::ui) fn looks_at(message: MessageId) -> usize {
-    LOOKED
-        .lock()
-        .unwrap_or_else(|held| held.into_inner())
-        .iter()
-        .filter(|had| **had == message)
-        .count()
-}
-
-/// Whether [`look`] has opened `message` in this test process.
-#[cfg(test)]
-pub(in crate::ui) fn looked_at(message: MessageId) -> bool {
-    looks_at(message) > 0
-}
-
-/// Open `message` with `ask` for a passphrase. `tried` is what a key still locked means. This
-/// decrypts and may read the keyring: it runs on a blocking thread, for a message the reader
-/// has open, and nowhere else.
-fn look(
-    store: &SqliteStore,
-    secrets: &dyn SigningStore,
-    message: MessageId,
-    ask: Ask<'_>,
-    tried: Tried,
-) -> Look {
-    #[cfg(test)]
-    LOOKED
-        .lock()
-        .unwrap_or_else(|held| held.into_inner())
-        .push(message);
-    let Ok(stored) = store.message(message) else {
-        return Look::Plain;
-    };
-    match mail_core::pgp::open_message(store, secrets, &stored, ask, Utc::now()) {
-        Ok(None) => {}
-        Ok(Some(protected)) => {
-            return match protected.encryption {
-                Encryption::Locked { key } => Look::Locked { key, tried },
-                _ => Look::Opened(Box::new(opened(
-                    &stored,
-                    Scheme::OpenPgp,
-                    said(&protected),
-                    protected.shown,
-                ))),
+/// What the reader draws for `opening`.
+fn look_of(opening: Opening) -> Look {
+    match opening {
+        Opening::Plain => Look::Plain,
+        Opening::Locked { key, tried } => Look::Locked { key, tried },
+        Opening::Failed { scheme, why } => Look::Failed(format!(
+            "Can\u{2019}t open {}: {why}",
+            scheme_of(scheme).name()
+        )),
+        Opening::Opened(sealed) => {
+            let Sealed { protection, shown } = *sealed;
+            let (scheme, said) = match protection {
+                Protection::OpenPgp(protected) => (Scheme::OpenPgp, said(&protected)),
+                Protection::Smime(protected) => (Scheme::Smime, said_smime(&protected)),
             };
+            Look::Opened(Box::new(Opened {
+                scheme,
+                said,
+                shown,
+            }))
         }
-        Err(e) => return Look::Failed(format!("Can\u{2019}t open OpenPGP: {e}")),
-    }
-    match mail_core::smime::open_message(store, secrets, &stored, Utc::now()) {
-        Ok(None) => Look::Plain,
-        Ok(Some(protected)) => Look::Opened(Box::new(opened(
-            &stored,
-            Scheme::Smime,
-            said_smime(&protected),
-            protected.shown,
-        ))),
-        Err(e) => Look::Failed(format!("Can\u{2019}t open S/MIME: {e}")),
     }
 }
 
-fn opened(_message: &Message, scheme: Scheme, said: Vec<Said>, shown: Option<Parsed>) -> Opened {
-    Opened {
-        scheme,
-        said,
-        shown: shown.map(Box::new),
+fn scheme_of(scheme: mail_core::message::Scheme) -> Scheme {
+    match scheme {
+        mail_core::message::Scheme::OpenPgp => Scheme::OpenPgp,
+        mail_core::message::Scheme::Smime => Scheme::Smime,
     }
-}
-
-/// How many messages' looks to keep. A decrypted message is its whole body, so few.
-const KEPT: usize = 32;
-
-/// One message's look, and the count of key changes it was found under.
-struct Kept {
-    message: MessageId,
-    body: Option<BlobId>,
-    epoch: u64,
-    look: Look,
-}
-
-static CACHE: std::sync::Mutex<Vec<Kept>> = std::sync::Mutex::new(Vec::new());
-
-fn held() -> std::sync::MutexGuard<'static, Vec<Kept>> {
-    CACHE.lock().unwrap_or_else(|held| held.into_inner())
 }
 
 /// What was found for `message` holding `body`, if it was opened under the keys held now.
-pub(in crate::ui) fn cached(message: MessageId, body: Option<BlobId>) -> Option<Look> {
-    let now = mail_core::pgp::epoch();
-    held()
-        .iter()
-        .find(|kept| kept.message == message && kept.body == body && kept.epoch == now)
-        .map(|kept| kept.look.clone())
+pub(in crate::ui) fn cached(
+    looks: &Looks,
+    message: MessageId,
+    body: Option<BlobId>,
+) -> Option<Look> {
+    looks.sealed_cached(message, body).map(look_of)
 }
 
-/// What was last found for `message` holding `body`, under whichever keys. What the reader
-/// draws until the message is opened again: the body and the words stay together.
-fn last(message: MessageId, body: Option<BlobId>) -> Option<Look> {
-    held()
-        .iter()
-        .find(|kept| kept.message == message && kept.body == body)
-        .map(|kept| kept.look.clone())
-}
-
-/// Keep `look`, under the count as it stands once the look is done: opening a signed message
-/// may itself teach a certificate, and what it found already knows it.
-fn keep(message: MessageId, body: Option<BlobId>, look: &Look) {
-    let epoch = mail_core::pgp::epoch();
-    let mut cache = held();
-    cache.retain(|kept| kept.message != message);
-    cache.push(Kept {
-        message,
-        body,
-        epoch,
-        look: look.clone(),
-    });
-    if cache.len() > KEPT {
-        cache.remove(0);
-    }
-}
-
-/// [`cached`], else [`look`] with no passphrase, remembered. Runs on a blocking thread.
+/// [`cached`], else the message opened with no passphrase, remembered. This decrypts and may
+/// read the keyring: it runs on a blocking thread, for a message the reader has open, and
+/// nowhere else.
 pub(in crate::ui) fn lookup(
+    looks: &Looks,
     store: &SqliteStore,
     secrets: &dyn SigningStore,
     message: MessageId,
     body: Option<BlobId>,
 ) -> Look {
-    if let Some(had) = cached(message, body) {
-        return had;
-    }
-    let found = look(
-        store,
-        secrets,
-        message,
-        &mail_core::pgp::no_passphrase,
-        Tried::Nothing,
-    );
-    keep(message, body, &found);
-    found
+    look_of(looks.sealed(store, secrets, message, body, Utc::now()))
 }
 
 /// Open `message` again with the passphrase typed for it, and keep what that found. The
 /// passphrase is dropped when this returns. Runs on a blocking thread, and only from Unlock.
 pub(in crate::ui) fn unlock(
+    looks: &Looks,
     store: &SqliteStore,
     secrets: &dyn SigningStore,
     message: MessageId,
     body: Option<BlobId>,
     passphrase: Password,
 ) -> Look {
-    let ask = |_: Fingerprint| Some(passphrase.expose().to_owned());
-    let found = look(store, secrets, message, &ask, Tried::Wrong);
-    drop(passphrase);
-    keep(message, body, &found);
-    found
-}
-
-/// The parsed body for `message` when it was opened and has a body of its own.
-/// `None` shows what is stored. No decryption here: only what [`lookup`] already found.
-pub(in crate::ui) fn parsed(message: &Message) -> Option<Parsed> {
-    shown(message).map(|p| *p)
-}
-
-/// The body `message` was opened to, when it has one of its own.
-fn shown(message: &Message) -> Option<Box<Parsed>> {
-    match last(message.id, message.body.raw())? {
-        Look::Opened(opened) => opened.shown,
-        _ => None,
-    }
-}
-
-/// The subject `message` was opened to, when that differs from the stored one: an encrypted
-/// message's real subject travels inside it, and the outside says `...`.
-pub(in crate::ui) fn subject(message: &Message) -> Option<String> {
-    shown(message)
-        .map(|parsed| parsed.subject)
-        .filter(|subject| !subject.trim().is_empty() && *subject != message.subject)
+    look_of(looks.unlocked(store, secrets, message, body, passphrase, Utc::now()))
 }
 
 /// The attachments to list for `message` when it was opened to a body of its own: those inside
 /// it. Its stored parts are then its wrapping — the signature, the ciphertext — and not
 /// attachments anyone sent. `None` lists what is stored.
-pub(in crate::ui) fn attachments(message: &Message) -> Option<Vec<AttachmentRow>> {
-    let parsed = shown(message)?;
+pub(in crate::ui) fn attachments(looks: &Looks, message: &Message) -> Option<Vec<AttachmentRow>> {
+    let parsed = looks.opened_body(message)?;
     Some(
         parsed
             .attachments
@@ -252,12 +133,13 @@ pub(in crate::ui) fn attachments(message: &Message) -> Option<Vec<AttachmentRow>
 /// Save attachment `index` of what `message` holding `body` was opened to into `dir`, numbered
 /// as [`attachments`] lists them. Writes a file: run it off the thread that draws.
 pub(in crate::ui) fn save_attachment(
+    looks: &Looks,
     message: MessageId,
     body: Option<BlobId>,
     index: usize,
     dir: &Path,
 ) -> Result<PathBuf, String> {
-    let Some(Look::Opened(opened)) = last(message, body) else {
+    let Some(Opening::Opened(opened)) = looks.sealed_last(message, body) else {
         return Err("The message is closed. Open it again.".to_owned());
     };
     let shown = opened.shown.ok_or("Can\u{2019}t read the attachments.")?;

@@ -2,9 +2,9 @@
 //! it will do, and taking it.
 //!
 //! The way out is in the stored raw message, so finding it reads a blob. That is done once per
-//! thread, off the thread that draws, and only for the thread the reader has open: [`look`] is
+//! thread, off the thread that draws, and only for the thread the reader has open: the lookup is
 //! reached from [`head::Leave`] and from nowhere on the list's or the hover cards' paths, and a
-//! test counts its calls to keep it that way. A thread whose body has not been fetched offers
+//! test counts the reads of the app's [`Looks`] to keep it that way. A thread whose body has not been fetched offers
 //! nothing here — fetching it to find out would be a POP3 `RETR`, which marks it read.
 //!
 //! What each way out does is [`mail_core::unsubscribe`]'s, the module `mailo unsubscribe` uses, so
@@ -19,23 +19,15 @@ use super::ops;
 use crate::ui::view::Shell;
 use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
+use mail_core::message::Looks;
 use mail_core::undo::Undo;
 use mail_core::unsubscribe::{Found, Outcome};
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
 use mail_mime::Unsubscribe;
 
-/// A thread's way out of its list, with what the popover says about it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(in crate::ui) struct Offer {
-    pub found: Found,
-    /// The list's name, as the popover and the toast say it.
-    pub list: String,
-    /// Who the list's mail comes from, for "Archive all from this list".
-    pub sender: Address,
-    /// The address a `mailto:` unsubscribe leaves from.
-    pub from: Address,
-}
+// A thread's way out of its list, with the name the popover and the toast call the list by.
+pub(in crate::ui) use mail_core::message::Offer;
 
 /// What the confirm popover says will happen, from the preferred way out.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -76,28 +68,7 @@ impl Ask {
     }
 }
 
-/// The name a list goes by: its `List-Id` description, its id, else whoever sends it.
-fn list_name(found: &Found, sender: &Address) -> String {
-    match &found.list.id {
-        Some(id) => id.description.clone().unwrap_or_else(|| id.id.clone()),
-        None => sender
-            .name
-            .clone()
-            .filter(|name| !name.trim().is_empty())
-            .unwrap_or_else(|| sender.email.clone()),
-    }
-}
-
-/// The offer for `found`, or `None` when it has no way out this client can use.
-pub(in crate::ui) fn offer_of(found: Found, sender: Address, from: Address) -> Option<Offer> {
-    found.list.preferred()?;
-    Some(Offer {
-        list: list_name(&found, &sender),
-        found,
-        sender,
-        from,
-    })
-}
+pub(in crate::ui) use mail_core::message::offer_of;
 
 /// What the popover says for `offer`.
 pub(in crate::ui) fn ask(offer: &Offer) -> Option<Ask> {
@@ -118,70 +89,28 @@ pub(in crate::ui) fn ask(offer: &Offer) -> Option<Ask> {
     })
 }
 
-#[cfg(test)]
-static LOOKED: std::sync::Mutex<Vec<ThreadId>> = std::sync::Mutex::new(Vec::new());
-
-/// Every thread [`look`] has read a blob for, in this test process. Thread ids are fresh in each
-/// fixture, so a test asks about its own and is not confused by another running beside it.
-#[cfg(test)]
-pub(in crate::ui) fn looked_at(thread: ThreadId) -> bool {
-    LOOKED
-        .lock()
-        .unwrap_or_else(|held| held.into_inner())
-        .contains(&thread)
-}
-
-/// Read the thread's way out of its list from the stored mail. This reads a blob: it runs on a
-/// blocking thread, for the thread the reader has open, and nowhere else.
-pub(in crate::ui) fn look(store: &SqliteStore, thread: ThreadId) -> Option<Offer> {
-    #[cfg(test)]
-    LOOKED
-        .lock()
-        .unwrap_or_else(|held| held.into_inner())
-        .push(thread);
-    // Only stored bytes are read: a message whose body is not here is skipped, never fetched.
-    let found = mail_core::unsubscribe::find(store, *thread.as_uuid()).ok()?;
-    let sender = store.message(found.message).ok()?.from;
-    let from =
-        mail_core::compose::address_addressed(store, found.account.clone(), &found.addressed)
-            .ok()?;
-    offer_of(found, sender, from)
-}
-
-/// What an answer is a function of: the thread's messages and the bytes each one has. A body
-/// that arrives, or a message that joins the thread, is a new key; nothing else changes it,
-/// because a blob is content-addressed.
-pub(in crate::ui) type Bodies = Vec<(MessageId, Option<BlobId>)>;
-
-/// How many threads' answers to keep. An answer is a few short strings.
-const KEPT: usize = 64;
-
-static CACHE: std::sync::Mutex<Vec<(ThreadId, Bodies, Option<Offer>)>> =
-    std::sync::Mutex::new(Vec::new());
+// What a thread's answer is a function of: its messages and the bytes each one has.
+pub(in crate::ui) use mail_core::message::Bodies;
 
 /// The answer already found for `thread` at `key`, if one has been. `Some(None)` is a thread
 /// that was looked at and offers nothing.
-pub(in crate::ui) fn cached(thread: ThreadId, key: &Bodies) -> Option<Option<Offer>> {
-    let cache = CACHE.lock().unwrap_or_else(|held| held.into_inner());
-    cache
-        .iter()
-        .find(|(had, at, _)| *had == thread && at == key)
-        .map(|(_, _, offer)| offer.clone())
+pub(in crate::ui) fn cached(
+    looks: &Looks,
+    thread: ThreadId,
+    key: &Bodies,
+) -> Option<Option<Offer>> {
+    looks.offer_cached(thread, key)
 }
 
-/// [`cached`], else [`look`], remembered. Runs on a blocking thread.
-pub(in crate::ui) fn lookup(store: &SqliteStore, thread: ThreadId, key: &Bodies) -> Option<Offer> {
-    if let Some(had) = cached(thread, key) {
-        return had;
-    }
-    let offer = look(store, thread);
-    let mut cache = CACHE.lock().unwrap_or_else(|held| held.into_inner());
-    cache.retain(|(had, _, _)| *had != thread);
-    cache.push((thread, key.clone(), offer.clone()));
-    if cache.len() > KEPT {
-        cache.remove(0);
-    }
-    offer
+/// [`cached`], else read from the stored mail and remembered. This reads a blob: it runs on a
+/// blocking thread, for the thread the reader has open, and nowhere else.
+pub(in crate::ui) fn lookup(
+    looks: &Looks,
+    store: &SqliteStore,
+    thread: ThreadId,
+    key: &Bodies,
+) -> Option<Offer> {
+    looks.offer(store, thread, key)
 }
 
 /// Take the preferred way out, through [`mail_core::unsubscribe::perform`]. Blocking: the window

@@ -129,12 +129,15 @@ pub fn contexts(
     dirs: Option<WindowDirs>,
     start: crate::ui::Start,
 ) -> RootContexts {
+    let looks = crate::ui::reading::looks();
     let mut contexts = RootContexts::new()
         .with(store)
         .with(look)
         .with(start)
-        // The one cache of rendered bodies every reader and the warming share.
-        .with(crate::ui::reading::frames());
+        // The one cache of rendered bodies every reader and the warming share, and the one set
+        // of per-message lookups they and the opened bodies come from.
+        .with(crate::ui::reading::frames(looks.clone()))
+        .with(looks);
     if let Some(spaces) = spaces {
         contexts = contexts.with(spaces);
     }

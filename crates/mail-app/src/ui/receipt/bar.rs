@@ -10,6 +10,7 @@ use ds::components::overlays::inline_banner::InlineBanner;
 use ds::prelude::*;
 use ds::root::common::Common;
 use mail_core::SqliteStore;
+use mail_core::message::Looks;
 use mail_core::receipt::ReceiptState;
 use mail_domain::{MessageId, ReceiptAnswer};
 use std::sync::Arc;
@@ -32,18 +33,20 @@ pub(in crate::ui) enum Phase {
 /// drawn, or acted on, under another.
 #[component]
 pub(in crate::ui) fn Receipts(bodies: Bodies) -> Element {
+    let looks = crate::ui::reading::use_looks();
     let mut known = use_signal({
-        let bodies = bodies.clone();
-        move || cached(&bodies)
+        let (looks, bodies) = (looks.clone(), bodies.clone());
+        move || cached(&looks, &bodies)
     });
     let _look = use_resource(move || {
         let bodies = bodies.clone();
+        let looks = looks.clone();
         let store = consume_context::<Arc<SqliteStore>>();
         async move {
             if known.peek().is_some() {
                 return;
             }
-            let found = tokio::task::spawn_blocking(move || lookup(&store, &bodies))
+            let found = tokio::task::spawn_blocking(move || lookup(&looks, &store, &bodies))
                 .await
                 .unwrap_or_default();
             known.set(Some(found));
@@ -69,6 +72,7 @@ pub(in crate::ui) fn Bar(
     known: Signal<Option<Vec<Standing>>>,
 ) -> Element {
     let phase = use_signal(|| Phase::Asking);
+    let looks = crate::ui::reading::use_looks();
     match said {
         Line::Settled(note) => rsx! {
             Label { text: note, role: LabelRole::Tertiary, style: LabelStyle::Footnote }
@@ -93,14 +97,14 @@ pub(in crate::ui) fn Bar(
                         Button {
                             label: decline.to_string(),
                             availability: available(!working),
-                            onclick: on_primary(move || give(message, ReceiptAnswer::Declined, phase, known)),
+                            onclick: on_primary(move || give(looks.clone(), message, ReceiptAnswer::Declined, phase, known)),
                             common: Common { aria_label: Some(decline.to_string()), ..Common::default() },
                         }
                         Button {
                             answers: Answers::Return,
                             label: if working { "Working…".to_owned() } else { send.to_string() },
                             availability: available(!working),
-                            onclick: on_primary(move || give(message, ReceiptAnswer::Sent, phase, known)),
+                            onclick: on_primary(move || give(looks.clone(), message, ReceiptAnswer::Sent, phase, known)),
                             common: Common { aria_label: Some(send.to_string()), ..Common::default() },
                         }
                     },
@@ -116,6 +120,7 @@ pub(in crate::ui) fn Bar(
 
 /// Give `given` on a blocking thread, then say so in the toast and settle the bar.
 fn give(
+    looks: Arc<Looks>,
     message: MessageId,
     given: ReceiptAnswer,
     mut phase: Signal<Phase>,
@@ -129,9 +134,10 @@ fn give(
     // Spawned from a click, which is where a task is polled (F140): a future started from a
     // component body is the one thing that may never run.
     spawn(async move {
-        let done =
-            tokio::task::spawn_blocking(move || answer(&store, message, given, chrono::Utc::now()))
-                .await;
+        let done = tokio::task::spawn_blocking(move || {
+            answer(&looks, &store, message, given, chrono::Utc::now())
+        })
+        .await;
         match done {
             Ok(Ok(said)) => {
                 if let Some(all) = known.write().as_mut()

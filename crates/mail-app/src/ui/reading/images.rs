@@ -16,6 +16,7 @@
 use crate::settings::LoadRemoteImages;
 use dioxus::prelude::*;
 use mail_core::SqliteStore;
+use mail_core::message::Looks;
 use mail_domain::{BlobId, MailboxRole, Message, MessageId};
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -76,7 +77,7 @@ pub(super) struct Checked {
     /// Being read on a blocking thread: asked for again by nobody until it lands.
     going: Vec<Wanted>,
     /// Read, and whether DMARC passed for the sender's domain. Kept here as well as in
-    /// `ui/checks`' cache, which holds only the last few: an answer that cache dropped before
+    /// the [`Looks`], which hold only the last few: an answer that cache dropped before
     /// the reader drew again would otherwise be sent for again, for ever.
     landed: Vec<(Wanted, bool)>,
 }
@@ -85,10 +86,11 @@ pub(super) struct Checked {
 /// as the reader's checks line and the brand logo read it (`ui/checks`, `ui/brand`), if that is
 /// known yet. No body here, or an address with no domain: known, and not passed.
 ///
-/// Never reads the store: only what this reader already looked up, and `ui/checks`' cache. When
+/// Never reads the store: only what this reader already looked up, and the app's [`Looks`]. When
 /// neither knows, `None`, and the message is put in `wanted` for [`look_later`]: opening a
 /// conversation must not wait on reading and parsing its raw bytes.
 pub(super) fn dmarc_known(
+    looks: &Looks,
     checked: &Checked,
     message: &Message,
     wanted: &mut Vec<Wanted>,
@@ -103,7 +105,7 @@ pub(super) fn dmarc_known(
     if let Some((_, passed)) = checked.landed.iter().find(|(had, _)| *had == key) {
         return Some(*passed);
     }
-    if let Some(results) = crate::ui::checks::cached(message.id, raw) {
+    if let Some(results) = looks.checks_cached(message.id, raw) {
         return Some(passed(results.as_ref(), domain));
     }
     if !wanted.contains(&key) {
@@ -117,6 +119,7 @@ pub(super) fn dmarc_known(
 /// `wanted`, and the reader decides again once they land.
 pub(super) fn auto_allow_message(
     reading: &crate::settings::ReadingSettings,
+    looks: &Looks,
     checked: &Checked,
     message: &Message,
     wanted: &mut Vec<Wanted>,
@@ -126,7 +129,7 @@ pub(super) fn auto_allow_message(
         &reading.trusted_image_senders,
         &message.from.email,
         message.from.name.as_deref(),
-        || dmarc_known(checked, message, wanted).unwrap_or(false),
+        || dmarc_known(looks, checked, message, wanted).unwrap_or(false),
         message.mailbox == MailboxRole::Spam,
     )
 }
@@ -134,6 +137,7 @@ pub(super) fn auto_allow_message(
 /// Read `wanted`'s checks on a blocking thread, as the checks line does (`ui/checks`), then move
 /// `landed` so the reader decides again with them. What is already being read is not sent twice.
 pub(super) fn look_later(
+    looks: Arc<Looks>,
     store: Arc<SqliteStore>,
     messages: Vec<Message>,
     wanted: Vec<Wanted>,
@@ -168,7 +172,7 @@ pub(super) fn look_later(
                 .filter_map(|message| {
                     let raw = message.body.raw()?;
                     let domain = mail_core::bimi::domain_of(&message.from.email)?;
-                    let results = crate::ui::checks::lookup(&store, message.id, raw);
+                    let results = looks.checks(&store, message.id, raw);
                     Some(((message.id, raw), passed(results.as_ref(), domain)))
                 })
                 .collect::<Vec<_>>()

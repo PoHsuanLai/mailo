@@ -7,9 +7,10 @@ use mail_core::MapSigningStore;
 use mail_domain::*;
 use mail_mime::openpgp::Cert;
 
-use super::tests::{ME, arrive, own_key, reader, sealed, someone_elses, until};
-use super::{Look, looks_at, lookup, save_attachment};
+use super::tests::{ME, arrive, own_key, reader_looking, sealed, someone_elses, until};
+use super::{Look, lookup, save_attachment};
 use crate::ui::fixtures::seeded;
+use mail_core::message::{Looks, Read};
 
 /// A message to me saying `text`, with `map.bin` attached, unique by `word`.
 fn letter(word: &str, text: &str) -> String {
@@ -37,7 +38,7 @@ async fn an_openpgp_message_opened_lists_what_is_attached_inside_and_saves_it_wh
         &store,
         sealed(&raw, OpenPgp::SignAndEncrypt, Some(&bea), &[to], 112),
     );
-    let (mut dom, mut seen) = reader(store, secrets, message.thread);
+    let (mut dom, mut seen, looks) = reader_looking(store, secrets, message.thread);
     let page = until(&mut dom, &mut seen, |page| {
         page.contains("the otter map is attached") && page.contains("map.bin")
     })
@@ -48,8 +49,14 @@ async fn an_openpgp_message_opened_lists_what_is_attached_inside_and_saves_it_wh
         !super::tests::without_leaving(&page).contains("encrypted.asc"),
         "{page}"
     );
-    let saved =
-        save_attachment(message.id, message.body.raw(), 0, &dir.path().join("out")).unwrap();
+    let saved = save_attachment(
+        &looks,
+        message.id,
+        message.body.raw(),
+        0,
+        &dir.path().join("out"),
+    )
+    .unwrap();
     assert_eq!(saved.file_name().unwrap(), "map.bin");
     assert_eq!(std::fs::read(saved).unwrap(), [0, 1, 2, 3, 4, 5, 6, 7]);
 }
@@ -66,11 +73,12 @@ fn a_key_arriving_by_any_road_opens_a_message_again_without_the_sheet() {
         sealed(&raw, OpenPgp::Encrypt, None, &[key.public()], 122),
     );
     let body = message.body.raw();
-    let Look::Opened(first) = lookup(&store, &secrets, message.id, body) else {
+    let looks = Looks::new();
+    let Look::Opened(first) = lookup(&looks, &store, &secrets, message.id, body) else {
         panic!("not opened");
     };
     assert!(first.shown.is_none(), "read without the key");
-    let before = looks_at(message.id);
+    let before = looks.reads(Read::Seal);
 
     // Imported straight through the data side, as `mailo pgp import` would: nothing tells the
     // window, and nothing has to.
@@ -81,10 +89,10 @@ fn a_key_arriving_by_any_road_opens_a_message_again_without_the_sheet() {
         chrono::Utc::now(),
     )
     .unwrap();
-    let Look::Opened(second) = lookup(&store, &secrets, message.id, body) else {
+    let Look::Opened(second) = lookup(&looks, &store, &secrets, message.id, body) else {
         panic!("not opened");
     };
-    assert!(looks_at(message.id) > before, "the old look was kept");
+    assert!(looks.reads(Read::Seal) > before, "the old look was kept");
     let text = second
         .shown
         .and_then(|shown| shown.text)

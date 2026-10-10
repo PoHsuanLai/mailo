@@ -46,6 +46,7 @@ pub mod print;
 pub mod provider;
 pub mod query;
 pub mod receipt;
+pub mod recent;
 pub mod remedy;
 pub mod rules;
 pub mod scope;
