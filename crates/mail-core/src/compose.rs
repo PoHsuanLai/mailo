@@ -11,7 +11,6 @@ use mail_domain::*;
 use mail_mime::posting;
 use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
-use std::fmt::Write as _;
 
 pub mod addresses;
 mod enclosed;
@@ -314,7 +313,7 @@ pub fn identity_addressed(
 ) -> Option<IdentityId> {
     store
         .identities(account)
-        .ok()?
+        .or_log("the account's identities could not be read")?
         .into_iter()
         .find(|identity| {
             addressed
@@ -473,7 +472,12 @@ fn attached_size(store: &SqliteStore, draft: &Draft) -> u64 {
     draft
         .attachments
         .iter()
-        .filter_map(|a| store.blobs().size(a.blob).ok())
+        .filter_map(|a| {
+            store
+                .blobs()
+                .size(a.blob)
+                .or_log("an attachment's size could not be read")
+        })
         .sum()
 }
 
@@ -514,7 +518,10 @@ pub fn attachments_of(store: &SqliteStore, draft: DraftId) -> Result<Vec<Attache
         .map(|attachment| AttachedFile {
             name: attachment.name.clone(),
             mime: attachment.mime.clone(),
-            size: store.blobs().size(attachment.blob).ok(),
+            size: store
+                .blobs()
+                .size(attachment.blob)
+                .or_log("an attachment's size could not be read"),
         })
         .collect())
 }
@@ -636,25 +643,23 @@ where
         out.push_str(body.trim_end());
         out.push_str("\r\n");
     }
-    let _ = write!(out, "\r\n{FORWARDED}\r\n");
-    let _ = write!(
-        out,
+    out.push_str(&format!("\r\n{FORWARDED}\r\n"));
+    out.push_str(&format!(
         "From: {}\r\n",
         addresses(std::slice::from_ref(&original.from))
-    );
-    let _ = write!(
-        out,
+    ));
+    out.push_str(&format!(
         "Date: {}\r\n",
         crate::when::stamp(original.date, zone, crate::when::Stamp::Quote)
-    );
-    let _ = write!(out, "Subject: {}\r\n", original.subject);
+    ));
+    out.push_str(&format!("Subject: {}\r\n", original.subject));
     // `To` and `Cc` as they were. Omitted when empty rather than written as a blank header,
     // which is what a header block copied from a message with no recipients would otherwise say.
     if !original.to.is_empty() {
-        let _ = write!(out, "To: {}\r\n", addresses(&original.to));
+        out.push_str(&format!("To: {}\r\n", addresses(&original.to)));
     }
     if !original.cc.is_empty() {
-        let _ = write!(out, "Cc: {}\r\n", addresses(&original.cc));
+        out.push_str(&format!("Cc: {}\r\n", addresses(&original.cc)));
     }
     out.push_str("\r\n");
     if let Body::Present {
@@ -808,7 +813,7 @@ where
         out.push_str("\r\n");
     }
     out.push_str("\r\n");
-    let _ = write!(out, "On {when}, {who} wrote:\r\n");
+    out.push_str(&format!("On {when}, {who} wrote:\r\n"));
     // The text part, when there is one. A message whose body was never fetched quotes nothing
     // rather than quoting the word "None".
     if let Body::Present {
@@ -816,7 +821,7 @@ where
     } = &original.body
     {
         for line in text.lines() {
-            let _ = write!(out, "> {line}\r\n");
+            out.push_str(&format!("> {line}\r\n"));
         }
     }
     out
@@ -1050,7 +1055,9 @@ fn queue_inner(
         return Err(mail_runtime::RuntimeError::NoServer("send from").into());
     }
     let identity = identity_of(store, draft.account.clone(), Some(draft.identity))?;
-    let parent = draft.in_reply_to.and_then(|id| store.message(id).ok());
+    let parent = draft
+        .in_reply_to
+        .and_then(|id| store.message(id).or_log("a message could not be read"));
 
     // Attachment bytes come from the blob store, because `posting` is pure and takes them as
     // an argument rather than reading anything.

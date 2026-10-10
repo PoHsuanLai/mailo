@@ -10,6 +10,7 @@
 //! the raw blob already holds the field, and a column would need a migration and a change to
 //! the frozen `Message` to cache something shown for one message at a time.
 
+use crate::error::Logged;
 use mail_domain::{AccountPlan, Incoming, Message};
 use mail_mime::{AuthResults, Check, Receiver, Verdict};
 use mail_store::SqliteStore;
@@ -44,7 +45,11 @@ pub fn receiver(plan: &AccountPlan) -> Receiver {
 
 /// The account's plan, when the store has one that reads.
 fn plan_of(store: &SqliteStore, account: AccountId) -> Option<AccountPlan> {
-    store.account(account).ok()??.plan.ok()
+    store
+        .account(account)
+        .or_log("an account could not be read")??
+        .plan
+        .or_log("an account's plan could not be read")
 }
 
 /// What the receiving server said about `message`'s sender, read from its stored bytes. `None`
@@ -52,7 +57,10 @@ fn plan_of(store: &SqliteStore, account: AccountId) -> Option<AccountPlan> {
 /// no field is believed. Reads a blob: call it off the thread that draws.
 pub fn results_of(store: &SqliteStore, message: &Message) -> Option<AuthResults> {
     let raw = message.body.raw()?;
-    let bytes = store.blobs().get(raw).ok()?;
+    let bytes = store
+        .blobs()
+        .get(raw)
+        .or_log("a message's bytes could not be read")?;
     let receiver = plan_of(store, message.account.clone())
         .as_ref()
         .map_or(Receiver::Topmost, receiver);

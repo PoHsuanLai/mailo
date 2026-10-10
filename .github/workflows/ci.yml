@@ -78,6 +78,12 @@ jobs:
       - name: The sans-I/O boundary
         run: ./scripts/check-boundary.sh
 
+      # A failure in a library crate is propagated, shown, logged or deliberately ignored with a
+      # comment saying why, never dropped in silence: held by a ratchet on the uncommented
+      # `let _ =`, `.ok()` and `unwrap_or_default()` lines (scripts/discards.txt).
+      - name: No silent discards
+        run: ./scripts/check-discards.sh
+
       # The [patch] block is quire's fork block exactly (vello, anyrender, dioxus): checked against
       # quire's own docs/fork-patches.toml at the pinned rev, never against a copy kept here.
       - name: The fork patches are quire's

@@ -1,5 +1,6 @@
 //! Where each account's link begins, and how the set of links follows the set of accounts.
 
+use crate::Logged;
 use crate::fetch::{Link, Live};
 use chrono::{DateTime, Utc};
 use mail_domain::{Filter, JMAP_ALL, MailboxRef};
@@ -10,7 +11,10 @@ use std::time::Duration;
 
 /// When the last pass of `account` finished, as the store recorded it.
 pub fn last_synced(store: &SqliteStore, account: AccountId) -> Option<DateTime<Utc>> {
-    store.last_synced(account).ok().flatten()
+    store
+        .last_synced(account)
+        .or_log("when the account last synced could not be read")
+        .flatten()
 }
 
 /// Whether the store holds anything of `account`'s: a cursor, or mail that an import left
@@ -22,7 +26,7 @@ fn has_mail(store: &SqliteStore, account: AccountId, now: DateTime<Utc>) -> bool
                 account: account.clone(),
                 path: path.to_owned(),
             })
-            .ok()
+            .or_log("a mailbox's sync cursor could not be read")
             .flatten()
             .is_some()
     };
@@ -30,7 +34,8 @@ fn has_mail(store: &SqliteStore, account: AccountId, now: DateTime<Utc>) -> bool
         || cursor(JMAP_ALL)
         || store
             .count(&Filter::Account(account), now)
-            .is_ok_and(|threads| threads > 0)
+            .or_log("the account's mail could not be counted")
+            .is_some_and(|threads| threads > 0)
 }
 
 /// The link an account begins at: knowing nothing, or resting after an earlier window's pass.

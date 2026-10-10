@@ -121,6 +121,7 @@ macro_rules! wait_on {
         // Past the bound the notification is still shown; only its click opens nothing.
         if let Some(_place) = $waiting.enter() {
             let mut clicked = None;
+            // A notification closed without an answer is a click nobody made.
             let _ = $shown.wait_for_response(|response: &NotificationResponse| {
                 clicked = answer(response, $opens);
             });
@@ -152,6 +153,7 @@ impl Notifier for Desktop {
             wait_on!(shown, notification.opens, hearing);
             // On macOS a click is not heard (the module's notes say why), so nothing waits.
             #[cfg(target_os = "macos")]
+            // Not a result: the two are only kept alive until here.
             let _ = (shown, hearing);
         });
     }
@@ -270,6 +272,7 @@ fn start(launch: Launch, token: Option<&str>) {
     match command.spawn() {
         Ok(mut child) => {
             std::thread::spawn(move || {
+                // Reaped so it leaves no zombie; how the opened program exits is its own affair.
                 let _ = child.wait();
             });
         }

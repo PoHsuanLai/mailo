@@ -248,6 +248,7 @@ async fn refusal(response: reqwest::Response, what: &str) -> RuntimeError {
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.trim().parse::<u64>().ok())
         .map(Duration::from_secs);
+    // A refusal's body is only its words: one that does not arrive leaves the status to speak.
     let body = response.text().await.unwrap_or_default();
     RuntimeError::Proto(classify(status, &body, after, what))
 }

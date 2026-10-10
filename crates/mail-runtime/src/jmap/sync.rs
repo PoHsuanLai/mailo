@@ -8,7 +8,7 @@
 //! bodies behind them, as on every protocol.
 
 use super::{Client, JmapEngine, Whole, email_ids};
-use crate::assemble::{Arrival, Destination, absorb_into};
+use crate::assemble::{Arrival, Destination, absorb_counted};
 use crate::{RuntimeError, SyncReport};
 use chrono::{DateTime, Utc};
 use mail_domain::{
@@ -349,7 +349,7 @@ impl JmapEngine {
             }
             for (role, arrivals, headers_only) in by_role {
                 report.headers_fetched += arrivals.len();
-                let stored = absorb_into(
+                let stored = absorb_counted(
                     &self.store,
                     self.account.clone(),
                     Destination {
@@ -361,7 +361,10 @@ impl JmapEngine {
                     headers_only,
                     now,
                 )?;
-                report.arrived.extend(crate::engine::first_stored(&stored));
+                report.unreadable(&self.mailbox(), stored.unreadable);
+                report
+                    .arrived
+                    .extend(crate::engine::first_stored(&stored.patch));
             }
             // Flags and labels after the messages they sit on exist.
             truth.gone.clear();
@@ -402,7 +405,7 @@ impl JmapEngine {
                 });
             }
             report.bodies_fetched += arrivals.len();
-            absorb_into(
+            let stored = absorb_counted(
                 &self.store,
                 self.account.clone(),
                 // Every one of these is already held and keeps its role: a body arriving says
@@ -418,6 +421,7 @@ impl JmapEngine {
                 false,
                 now,
             )?;
+            report.unreadable(&self.mailbox(), stored.unreadable);
         }
         Ok(())
     }

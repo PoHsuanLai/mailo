@@ -43,6 +43,13 @@ pub fn assemble(
         Provenance::Wire,
         fallback_date,
     )
+    .map(|assembled| assembled.ingest)
+}
+
+/// What [`assemble_as`] made of a batch: the ingest, and how many arrivals were not messages.
+struct Assembled {
+    ingest: Ingest,
+    unreadable: usize,
 }
 
 /// Where a batch of bytes came from, which decides what in them may be believed.
@@ -63,18 +70,28 @@ fn assemble_as(
     arrivals: Vec<Arrival>,
     provenance: Provenance,
     fallback_date: DateTime<Utc>,
-) -> Result<Ingest, RuntimeError> {
+) -> Result<Assembled, RuntimeError> {
     let Destination { mailbox, role } = into;
     let mut parsed = Vec::new();
+    let mut unreadable = 0;
     for arrival in arrivals {
         let fields = match provenance {
             Provenance::Wire => mail_mime::parse(&arrival.raw),
             Provenance::Rebuilt => mail_mime::parse_reconstructed(&arrival.raw),
         };
         // A message we cannot parse is skipped, not fatal. One malformed message in a maildrop
-        // of two thousand must not stop the other 1999 arriving.
-        let Ok(fields) = fields else {
-            continue;
+        // of two thousand must not stop the other 1999 arriving. It is counted and said, though:
+        // the pass's cursor moves past it, so nothing will fetch it again.
+        let fields = match fields {
+            Ok(fields) => fields,
+            Err(why) => {
+                log::warn!(
+                    "a message in {} could not be read and was skipped: {why}",
+                    mailbox.path
+                );
+                unreadable += 1;
+                continue;
+            }
         };
         // Autocrypt keys ride in on the header of mail their owners send. Read here, where every
         // message arrives, from the header alone; nothing is decrypted. Not from our own sent
@@ -125,15 +142,18 @@ fn assemble_as(
         })
         .collect();
 
-    Ok(Ingest {
-        mailbox,
-        validity: UidValidity::Same,
-        cursor,
-        messages,
-        flags: Vec::new(),
-        labels: Vec::new(),
-        label_names: Vec::new(),
-        gone: Vec::new(),
+    Ok(Assembled {
+        ingest: Ingest {
+            mailbox,
+            validity: UidValidity::Same,
+            cursor,
+            messages,
+            flags: Vec::new(),
+            labels: Vec::new(),
+            label_names: Vec::new(),
+            gone: Vec::new(),
+        },
+        unreadable,
     })
 }
 
@@ -396,7 +416,8 @@ pub fn appended(
         vec![Arrival { remote, raw }],
         Provenance::Wire,
         fallback_date,
-    )?;
+    )?
+    .ingest;
     for fetched in &mut ingest.messages {
         if flags.contains(&SystemFlag::Seen) {
             fetched.message.read = ReadState::Read;
@@ -421,19 +442,39 @@ pub fn assemble_headers(
     arrivals: Vec<Arrival>,
     fallback_date: DateTime<Utc>,
 ) -> Result<Ingest, RuntimeError> {
-    let mut ingest = assemble(
+    assemble_headers_counted(
         store,
         account,
-        mailbox,
-        role,
+        Destination { mailbox, role },
         cursor,
         arrivals,
         fallback_date,
+    )
+    .map(|assembled| assembled.ingest)
+}
+
+/// [`assemble_headers`], counting what was not a message.
+fn assemble_headers_counted(
+    store: &SqliteStore,
+    account: AccountId,
+    into: Destination,
+    cursor: Option<SyncCursor>,
+    arrivals: Vec<Arrival>,
+    fallback_date: DateTime<Utc>,
+) -> Result<Assembled, RuntimeError> {
+    let mut assembled = assemble_as(
+        store,
+        account,
+        into,
+        cursor,
+        arrivals,
+        Provenance::Wire,
+        fallback_date,
     )?;
-    for fetched in &mut ingest.messages {
+    for fetched in &mut assembled.ingest.messages {
         fetched.message.body = Body::Absent;
     }
-    Ok(ingest)
+    Ok(assembled)
 }
 
 /// The identity [`keep`] gives a message: what an import asks the store about before it
@@ -549,29 +590,61 @@ pub fn absorb_into(
     headers_only: bool,
     fallback_date: DateTime<Utc>,
 ) -> Result<Patch, RuntimeError> {
-    let Destination { mailbox, role } = into;
-    let ingest = if headers_only {
-        assemble_headers(
+    absorb_counted(
+        store,
+        account,
+        into,
+        cursor,
+        arrivals,
+        headers_only,
+        fallback_date,
+    )
+    .map(|absorbed| absorbed.patch)
+}
+
+/// What [`absorb_counted`] did with a batch.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Absorbed {
+    /// What changed in the store.
+    pub patch: Patch,
+    /// Arrivals that could not be read as messages, and were skipped (and logged). A pass says
+    /// how many, because its cursor has moved past them and nothing will fetch them again.
+    pub unreadable: usize,
+}
+
+/// [`absorb_into`], saying how many arrivals were not messages: what a pass absorbs through,
+/// so the count reaches the person and not only the log.
+pub fn absorb_counted(
+    store: &SqliteStore,
+    account: AccountId,
+    into: Destination,
+    cursor: Option<SyncCursor>,
+    arrivals: Vec<Arrival>,
+    headers_only: bool,
+    fallback_date: DateTime<Utc>,
+) -> Result<Absorbed, RuntimeError> {
+    let Assembled { ingest, unreadable } = if headers_only {
+        assemble_headers_counted(
             store,
             account.clone(),
-            mailbox,
-            role,
+            into,
             cursor,
             arrivals,
             fallback_date,
         )?
     } else {
-        assemble(
+        assemble_as(
             store,
             account.clone(),
-            mailbox,
-            role,
+            into,
             cursor,
             arrivals,
+            Provenance::Wire,
             fallback_date,
         )?
     };
-    store.ingest(account, ingest).map_err(RuntimeError::Store)
+    let patch = store.ingest(account, ingest).map_err(RuntimeError::Store)?;
+    Ok(Absorbed { patch, unreadable })
 }
 
 /// Absorb messages rebuilt from their sections, reading which parts were left on the server.
@@ -593,6 +666,7 @@ pub fn absorb_rebuilt_into(
         arrivals,
         Provenance::Rebuilt,
         fallback_date,
-    )?;
+    )?
+    .ingest;
     store.ingest(account, ingest).map_err(RuntimeError::Store)
 }

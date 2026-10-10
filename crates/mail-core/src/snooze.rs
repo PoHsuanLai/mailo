@@ -9,11 +9,12 @@
 //! `now` at query time, so a conversation returns to the inbox on the stroke whether the client
 //! was running or not — which is the right design for something that may be asleep for a week.
 
+use crate::error::Logged;
 use crate::error::{CoreError, TimeError};
 use chrono::{DateTime, Datelike, Local, TimeDelta, TimeZone, Timelike, Utc, Weekday};
 use mail_domain::{
-    AccountCaps, ArchiveMeans, ChangeId, Condstore, ExpungeMeans, FolderRoles, Message, MoveExt,
-    Op, ServerLabels, ServerThreads, Snooze, Supported, Target, ThreadId, WatchMode,
+    AccountCaps, ArchiveMeans, Condstore, ExpungeMeans, FolderRoles, Message, MoveExt, Op,
+    ServerLabels, ServerThreads, Snooze, Supported, Target, ThreadId, WatchMode,
 };
 use mail_store::{SqliteStore, Store};
 
@@ -73,7 +74,7 @@ pub(crate) fn apply(
     let messages: Vec<Message> = loaded
         .messages
         .iter()
-        .filter_map(|id| store.message(*id).ok())
+        .filter_map(|id| store.message(*id).or_log("a message could not be read"))
         .collect();
     let account = messages
         .first()
@@ -88,7 +89,6 @@ pub(crate) fn apply(
         now,
     );
     store.apply(account, &applied.forward)?;
-    let _ = ChangeId::generate();
     Ok(())
 }
 

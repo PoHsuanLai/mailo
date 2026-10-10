@@ -140,6 +140,10 @@ pub enum CoreError {
         address: String,
         auth: mail_domain::AuthPlan,
     },
+    /// The keyring that holds the account's credential did not answer: it is locked, or not
+    /// reachable. The credential may be perfectly good, so this is a wait, not a sign-in.
+    #[error("{address}: {why}")]
+    KeyringUnreachable { address: String, why: &'static str },
     #[error("the server answered a status request with something else")]
     StatusExpected,
     /// An account has no ManageSieve server to speak to, and the reason why.
@@ -439,6 +443,25 @@ impl CoreError {
         }
     }
 
+    /// A credential of `address` that could not be read: a sign-in to ask for when it is not
+    /// there, a wait when the keyring did not answer ([`mail_runtime::SecretTrouble`] decides).
+    pub(crate) fn unread_credential(
+        address: &str,
+        auth: &mail_domain::AuthPlan,
+        error: &mail_runtime::RuntimeError,
+    ) -> Self {
+        match mail_runtime::SecretTrouble::of(error) {
+            mail_runtime::SecretTrouble::Absent => CoreError::NoCredential {
+                address: address.to_owned(),
+                auth: auth.clone(),
+            },
+            mail_runtime::SecretTrouble::Unreachable(why) => CoreError::KeyringUnreachable {
+                address: address.to_owned(),
+                why,
+            },
+        }
+    }
+
     /// For `map_err` on a file operation: `{path}: {error}`.
     pub fn at(path: impl AsRef<Path>) -> impl FnOnce(std::io::Error) -> CoreError {
         let path = path.as_ref().to_path_buf();
@@ -456,6 +479,9 @@ impl Retryable for CoreError {
             CoreError::Mime(e) => e.retry(),
             CoreError::Proto(e) => e.retry(),
             CoreError::PassFailed { retry, .. } => retry.clone(),
+            CoreError::KeyringUnreachable { why, .. } => {
+                mail_runtime::SecretTrouble::Unreachable(why).retry()
+            }
             // A refusal of ours, or a fact about bytes already in hand: asking again gets the
             // same answer.
             _ => Retry::Fatal(self.to_string()),
@@ -514,4 +540,56 @@ pub enum TimeError {
     NotADate { text: String },
     #[error("{text} does not exist in this time zone")]
     NoSuchInstant { text: String },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mail_runtime::{Failure, RuntimeError};
+    use porter_secrets::SecretsError;
+
+    fn read_failed(why: SecretsError) -> RuntimeError {
+        RuntimeError::Secrets(Failure::caused(why))
+    }
+
+    /// A locked keyring asked the person to sign in again, which fixed nothing: only a missing
+    /// credential is a sign-in, and a keyring that did not answer is waited for, in its own words.
+    #[test]
+    fn a_locked_keyring_is_a_wait_and_only_a_missing_credential_is_a_sign_in() {
+        let auth = mail_domain::AuthPlan::OAuth {
+            issuer: porter_provider::Issuer::Google,
+            scopes: Vec::new(),
+        };
+        let missing = CoreError::unread_credential(
+            "a@example.test",
+            &auth,
+            &read_failed(SecretsError::Missing),
+        );
+        assert!(
+            matches!(missing, CoreError::NoCredential { .. }),
+            "{missing:?}"
+        );
+        // A missing credential keeps the answer it had: no waiting, the sign-in is the way on.
+        assert!(!matches!(missing.retry(), Retry::After(_)), "{missing:?}");
+
+        let locked = CoreError::unread_credential(
+            "a@example.test",
+            &auth,
+            &read_failed(SecretsError::Locked),
+        );
+        assert_eq!(locked.to_string(), "a@example.test: the keyring is locked");
+        assert!(matches!(locked.retry(), Retry::After(_)), "{locked:?}");
+        assert_eq!(locked.remedy(), None);
+
+        let unavailable = CoreError::unread_credential(
+            "a@example.test",
+            &auth,
+            &read_failed(SecretsError::Unavailable),
+        );
+        assert_eq!(
+            unavailable.to_string(),
+            "a@example.test: the keyring is not reachable"
+        );
+        assert!(matches!(unavailable.retry(), Retry::After(_)));
+    }
 }

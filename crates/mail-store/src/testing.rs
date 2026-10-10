@@ -325,6 +325,17 @@ pub fn refuse_outbox_writes(store: &SqliteStore) {
         .expect("refuse outbox writes");
 }
 
+/// Make every write to the address book fail, as a full disk or a locked database would.
+pub fn refuse_contact_writes(store: &SqliteStore) {
+    store
+        .connection()
+        .execute_batch(
+            "CREATE TRIGGER refuse_contacts BEFORE INSERT ON contacts \
+             BEGIN SELECT RAISE(ABORT, 'full'); END;",
+        )
+        .expect("refuse contact writes");
+}
+
 /// Remove every identity of `account`, which is how an account added before identities were
 /// created at setup looks.
 pub fn delete_identities(store: &SqliteStore, account: AccountId) {

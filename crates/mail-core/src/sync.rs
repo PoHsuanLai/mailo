@@ -54,7 +54,10 @@ pub struct Configured {
 /// than as an error: the window can be opened before the first sync, and refusing to act at all
 /// would be worse than acting locally.
 pub fn caps_of(store: &SqliteStore, account: AccountId) -> Option<AccountCaps> {
-    store.account_caps(account).ok().flatten()
+    store
+        .account_caps(account)
+        .or_log("the account's capabilities could not be read")
+        .flatten()
 }
 
 /// Read the accounts back out of the store.
@@ -130,7 +133,7 @@ pub fn addresses(store: &SqliteStore) -> Vec<(AccountId, String)> {
 /// does not know, or a plan it cannot read, is asked to sign in without saying how.
 pub fn sign_in_remedy(store: &SqliteStore, address: &str) -> crate::Remedy {
     let with = configured(store)
-        .ok()
+        .or_log("the accounts could not be read to say how to sign in")
         .and_then(|all| all.into_iter().find(|account| account.address == address))
         .map_or(crate::SignInWith::Unknown, |account| {
             crate::SignInWith::of(&account.plan.auth)
@@ -480,12 +483,18 @@ pub(crate) async fn stored_credential(
             purpose: SecretPurpose::IncomingPassword,
         })
         .await
-        // A credential that is not there is one to be asked for again.
-        .map_err(|_| {
-            Failure::reauth(crate::account::no_credential(
+        // A credential that is not there is one to be asked for again; a keyring that did not
+        // answer is waited for, and says so.
+        .map_err(|error| match mail_runtime::SecretTrouble::of(&error) {
+            mail_runtime::SecretTrouble::Absent => Failure::reauth(crate::account::no_credential(
                 &account.address,
                 &account.plan.auth,
-            ))
+            )),
+            trouble @ mail_runtime::SecretTrouble::Unreachable(why) => Failure {
+                retry: trouble.retry(),
+                why: why.to_owned(),
+                pause: crate::fetch::Pause::ServerBusy,
+            },
         })
 }
 

@@ -213,7 +213,7 @@ pub fn sweep(store: &SqliteStore, now: DateTime<Utc>) -> Result<Swept, CoreError
         let messages: Vec<Message> = loaded
             .messages
             .iter()
-            .filter_map(|id| store.message(*id).ok())
+            .filter_map(|id| store.message(*id).or_log("a message could not be read"))
             .collect();
         let next = match summary.follow_up {
             _ if replied(&messages, &own, set) => FollowUp::Inactive,

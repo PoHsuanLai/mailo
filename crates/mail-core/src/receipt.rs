@@ -7,6 +7,7 @@
 //! [`answer`] with [`ReceiptAnswer::Sent`], which a person asked for by name.
 
 use crate::error::CoreError;
+use crate::error::Logged;
 use chrono::{DateTime, Utc};
 use mail_domain::*;
 use mail_mime::{Human, OriginalHeaders, ReceiptAsk, Reporting, Words};
@@ -213,7 +214,7 @@ fn addressed_identity(store: &SqliteStore, message: &Message) -> Option<Identity
 fn identities(store: &SqliteStore, account: AccountId) -> Vec<(IdentityId, String)> {
     store
         .identities(account)
-        .unwrap_or_default()
+        .or_log_default("the account's identities could not be read")
         .into_iter()
         .map(|identity| (identity.id, identity.from.email))
         .collect()

@@ -8,6 +8,7 @@
 //! with it — and a group of nobody is still a group.
 
 use crate::error::CoreError;
+use crate::error::Logged;
 use mail_domain::filter::search_tokens;
 use mail_pim::vcard::{self, Member};
 use mail_store::{Contact, Edit, Group, GroupHome, GroupId, Store};
@@ -102,7 +103,10 @@ struct Index {
 impl Index {
     fn of(store: &dyn Store) -> Self {
         let mut cards = Vec::new();
-        for book in store.address_books().unwrap_or_default() {
+        for book in store
+            .address_books()
+            .or_log_default("the address books could not be read")
+        {
             for held in book.cards.values() {
                 // A card stored before its `UID` was kept still says it in its text.
                 let parsed = || vcard::parse(&held.vcard).into_iter().next();
@@ -122,7 +126,9 @@ impl Index {
         }
         Self {
             cards,
-            groups: store.groups().unwrap_or_default(),
+            groups: store
+                .groups()
+                .or_log_default("the groups could not be read"),
         }
     }
 }
@@ -193,15 +199,21 @@ fn join(out: &mut Expanded, person: Person) {
 /// something that is not an address.
 fn person(store: &dyn Store, address: &str, card_name: Option<&str>) -> Option<Person> {
     let address = mail_store::contact::normalise(address)?;
-    Some(match store.contact(&address).ok().flatten() {
-        Some(contact) if contact.name.is_some() || card_name.is_none() => person_of(&contact),
-        _ => Person {
-            name: card_name
-                .map(str::to_owned)
-                .unwrap_or_else(|| address.split('@').next().unwrap_or(&address).to_owned()),
-            address,
+    Some(
+        match store
+            .contact(&address)
+            .or_log("a contact could not be read")
+            .flatten()
+        {
+            Some(contact) if contact.name.is_some() || card_name.is_none() => person_of(&contact),
+            _ => Person {
+                name: card_name
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| address.split('@').next().unwrap_or(&address).to_owned()),
+                address,
+            },
         },
-    })
+    )
 }
 
 /// Whether every word of `wanted` begins a word of `name`, the way the book matches people.
@@ -220,7 +232,7 @@ pub fn offers(store: &dyn Store, typed: &str) -> Vec<Offer> {
     if wanted.is_empty() {
         return Vec::new();
     }
-    let Ok(groups) = store.groups() else {
+    let Some(groups) = store.groups().or_log("the groups could not be read") else {
         return Vec::new();
     };
     groups

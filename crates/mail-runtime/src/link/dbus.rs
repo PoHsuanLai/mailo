@@ -7,6 +7,7 @@
 
 use super::client::Client;
 use super::{Accountd, Change, Changes};
+use crate::error::Logged;
 use futures_util::StreamExt;
 use porter_client::{Accounts, DbusTransport};
 use porter_core::consent::Usage;
@@ -20,6 +21,7 @@ use std::sync::Arc;
 /// Opened on whichever runtime this is awaited on, which for the process's link is the long-lived
 /// one ([`super::start`]).
 pub async fn session(usage: Usage) -> Option<Arc<dyn Accountd>> {
+    // No session bus is an ordinary start (a headless one, a test): `None` says so.
     let connection = BusConnection::session().await.ok()?;
     Some(over(connection, usage))
 }
@@ -36,10 +38,11 @@ pub fn over(connection: BusConnection, usage: Usage) -> Arc<dyn Accountd> {
 
 /// `AccountAdded`, `AccountRemoved` and `GrantChanged` on `connection`, as [`Change`]s.
 async fn follow(connection: &BusConnection) -> Option<Box<dyn Changes>> {
-    let manager = ManagerProxy::new(connection).await.ok()?;
-    let added = manager.receive_account_added().await.ok()?;
-    let removed = manager.receive_account_removed().await.ok()?;
-    let granted = manager.receive_grant_changed().await.ok()?;
+    let following = "the desktop's accounts could not be followed";
+    let manager = ManagerProxy::new(connection).await.or_log(following)?;
+    let added = manager.receive_account_added().await.or_log(following)?;
+    let removed = manager.receive_account_removed().await.or_log(following)?;
+    let granted = manager.receive_grant_changed().await.or_log(following)?;
     let streams: Vec<Feed> = vec![
         Box::pin(added.map(|_| Change::Added)),
         Box::pin(removed.map(|signal| {

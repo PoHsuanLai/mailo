@@ -7,6 +7,7 @@
 //! reader consented to, those images ([`Pictures`]).
 
 use crate::error::CoreError;
+use crate::error::Logged;
 use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::{Message, MessageId, ThreadId};
 use mail_mime::{Labels, Options, Pages, Parsed, Remote, Sheet};
@@ -57,7 +58,7 @@ pub fn messages(store: &SqliteStore, id: uuid::Uuid) -> Result<Vec<Message>, Cor
     let mut messages = thread
         .messages
         .iter()
-        .filter_map(|id| store.message(*id).ok())
+        .filter_map(|id| store.message(*id).or_log("a message could not be read"))
         .collect::<Vec<_>>();
     // A conversation reads in the order it was written.
     messages.sort_by_key(|message| message.date);
@@ -221,7 +222,10 @@ where
 /// The message's stored bytes, parsed; `None` for the cases the reader also falls back on.
 fn parse_body(store: &SqliteStore, message: &Message) -> Option<Parsed> {
     let raw = message.body.raw()?;
-    let bytes = store.blobs().get(raw).ok()?;
+    let bytes = store
+        .blobs()
+        .get(raw)
+        .or_log("a message's bytes could not be read")?;
     mail_mime::parse(&bytes).ok()
 }
 

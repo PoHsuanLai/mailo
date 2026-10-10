@@ -9,13 +9,13 @@
 //! would tell every sender that this mailbox reads its mail.
 
 use crate::error::CoreError;
+use crate::error::Logged;
 use chrono::{DateTime, Utc};
 use mail_domain::*;
 use mail_pim::ical::{self, Answering};
 use mail_pim::{Invite, Kind, Me};
 use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
-use std::fmt::Write as _;
 
 mod when;
 
@@ -211,7 +211,10 @@ fn raw_of(store: &SqliteStore, message: &Message) -> Result<Option<Vec<u8>>, Cor
 /// identity it belongs to. An invitation sent to any of them is to the user.
 pub fn addresses(store: &SqliteStore, account: AccountId) -> Vec<(IdentityId, String)> {
     let mut out = Vec::new();
-    for identity in store.identities(account).unwrap_or_default() {
+    for identity in store
+        .identities(account)
+        .or_log_default("the account's identities could not be read")
+    {
         out.push((identity.id, identity.from.email));
         if let Some(reply_to) = identity.reply_to {
             out.push((identity.id, reply_to.email));
@@ -239,9 +242,12 @@ fn human_text(
         },
         one_line(title)
     );
-    let _ = write!(out, "\r\nWhen: {}\r\n", when.theirs.unwrap_or(when.yours));
+    out.push_str(&format!(
+        "\r\nWhen: {}\r\n",
+        when.theirs.unwrap_or(when.yours)
+    ));
     if let Some(comment) = comment {
-        let _ = write!(out, "\r\n{}\r\n", comment.replace('\n', "\r\n"));
+        out.push_str(&format!("\r\n{}\r\n", comment.replace('\n', "\r\n")));
     }
     out
 }

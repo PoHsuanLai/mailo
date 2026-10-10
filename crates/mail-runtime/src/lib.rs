@@ -37,9 +37,9 @@ pub mod wanted;
 pub mod wkd;
 
 pub use account_secrets::{
-    AccountSecrets, PlatformSecrets, block_on, own_secrets, platform_secrets,
+    AccountSecrets, PlatformSecrets, SecretTrouble, block_on, own_secrets, platform_secrets,
 };
-pub use assemble::{Arrival, Destination, absorb, absorb_into, assemble};
+pub use assemble::{Absorbed, Arrival, Destination, absorb, absorb_counted, absorb_into, assemble};
 pub use drive::{Cancel, drive};
 pub use engine::{AccountEngine, PartBudget, SyncReport, Woke};
 pub use error::{Failure, Logged, RuntimeError, Source};

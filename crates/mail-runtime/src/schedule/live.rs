@@ -218,6 +218,7 @@ struct Watch {
 
 impl Drop for Watch {
     fn drop(&mut self) {
+        // A watch that already ended has nobody listening: nothing to stop.
         let _ = self.stop.send(true);
     }
 }
@@ -346,7 +347,7 @@ async fn rest(wait: Duration, stop: &mut Stop) -> bool {
 pub(super) async fn keep(mut k: Keeping<'_>) {
     let account = k.account.clone();
     let send = |event: Event| {
-        let _ = k.tx.send(Note::Event(account.clone(), event));
+        super::tell(&k.tx, Note::Event(account.clone(), event));
     };
     if !rest(k.first, &mut k.stop).await {
         return;
@@ -360,7 +361,7 @@ pub(super) async fn keep(mut k: Keeping<'_>) {
                 if heard == Heard::Established {
                     up.store(true, Ordering::SeqCst);
                 }
-                let _ = tx.send(Note::Event(account.clone(), event_for(heard)));
+                super::tell(&tx, Note::Event(account.clone(), event_for(heard)));
             })
         };
         let ended = k

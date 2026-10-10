@@ -103,12 +103,13 @@ pub fn import(store: &dyn Store, bytes: &[u8]) -> Result<Imported, CoreError> {
         }
         let name = card.display_name();
         for address in addresses {
-            // One malformed address on a card does not stop the rest of the file.
-            if store
-                .put_contact(address, name.as_deref(), &Origin::Manual)
-                .is_ok()
-            {
-                added += 1;
+            // One malformed address on a card does not stop the rest of the file. A store that
+            // will not write does: counting it as a bad address would report an import that
+            // saved nothing as one that worked.
+            match store.put_contact(address, name.as_deref(), &Origin::Manual) {
+                Ok(_) => added += 1,
+                Err(mail_store::StoreError::BadAddress(_)) => {}
+                Err(error) => return Err(error.into()),
             }
         }
     }
@@ -481,7 +482,22 @@ async fn auth_for(
             }
             _ => match secrets.get(&key).await {
                 Ok(Credential::Password(password)) => password.expose().to_owned(),
-                _ => {
+                // A keyring that did not answer may hold the password: it is waited for, not
+                // asked for again.
+                Err(error) => match mail_runtime::SecretTrouble::of(&error) {
+                    mail_runtime::SecretTrouble::Unreachable(why) => {
+                        return Err(CoreError::KeyringUnreachable {
+                            address: login.to_owned(),
+                            why,
+                        });
+                    }
+                    mail_runtime::SecretTrouble::Absent => {
+                        return Err(CoreError::NoServicePassword {
+                            login: login.to_owned(),
+                        });
+                    }
+                },
+                Ok(_) => {
                     return Err(CoreError::NoServicePassword {
                         login: login.to_owned(),
                     });
@@ -501,10 +517,7 @@ async fn auth_for(
             purpose: SecretPurpose::IncomingPassword,
         })
         .await
-        .map_err(|_| CoreError::NoCredential {
-            address: account.address.clone(),
-            auth: account.plan.auth.clone(),
-        })?;
+        .map_err(|e| CoreError::unread_credential(&account.address, &account.plan.auth, &e))?;
     match crate::sync::signed_in(account, stored, secrets, saved, now).await? {
         Credential::OAuth { access, .. } => Ok(DavAuth::Bearer(access.expose().to_owned())),
         // A pasted token is presented as it was given: a bearer, with no username.
@@ -522,6 +535,25 @@ async fn auth_for(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A store that will not write used to be counted as a malformed address, and the import
+    /// reported success with nothing saved.
+    #[test]
+    fn an_import_the_store_refuses_fails_and_a_malformed_address_does_not() {
+        let card =
+            "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Ren\r\nEMAIL:ren@example.test\r\nEND:VCARD\r\n";
+        let refusing = mail_store::testing::in_memory();
+        mail_store::testing::refuse_contact_writes(&refusing);
+        let failed = import(&refusing, card.as_bytes());
+        assert!(matches!(failed, Err(CoreError::Store(_))), "{failed:?}");
+
+        let malformed =
+            "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Nobody\r\nEMAIL:not an address\r\nEND:VCARD\r\n";
+        let store = mail_store::testing::in_memory();
+        let imported = import(&store, malformed.as_bytes()).unwrap();
+        assert_eq!(imported.addresses, 0);
+        assert_eq!(imported.cards, 1);
+    }
 
     #[test]
     fn an_imported_file_is_offered_and_exported_back_as_4_0() {

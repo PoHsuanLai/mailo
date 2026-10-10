@@ -104,10 +104,12 @@ pub(crate) fn store(dir: &Path, provider: Provider, png: &[u8]) -> Result<(), Ic
     let dest = dir.join(&name);
     let part = dir.join(format!(".{name}.part"));
     if let Err(err) = std::fs::write(&part, png) {
+        // Best-effort cleanup: the write's own error is what is reported.
         let _ = std::fs::remove_file(&part);
         return Err(IconError::Store(format!("{}: {err}", part.display())));
     }
     if let Err(err) = std::fs::rename(&part, &dest) {
+        // Best-effort cleanup: the rename's own error is what is reported.
         let _ = std::fs::remove_file(&part);
         return Err(IconError::Store(format!("{}: {err}", dest.display())));
     }
