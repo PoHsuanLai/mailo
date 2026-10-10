@@ -37,7 +37,7 @@ impl<'a> Tasks<'a> {
             let mut index = 0;
             while index < self.0.len() {
                 if self.0[index].as_mut().poll(cx).is_ready() {
-                    self.0.swap_remove(index);
+                    drop(self.0.swap_remove(index));
                     return Poll::Ready(());
                 }
                 index += 1;
