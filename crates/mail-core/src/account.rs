@@ -1216,7 +1216,10 @@ mod tests {
             .expect("the account")
             .id;
         let caps = crate::sync::caps_of(&store, id).expect("capabilities stored");
-        assert_eq!(caps.observed_at, chrono::DateTime::<chrono::Utc>::UNIX_EPOCH);
+        assert_eq!(
+            caps.observed_at,
+            chrono::DateTime::<chrono::Utc>::UNIX_EPOCH
+        );
         let expected = mail_domain::presets::microsoft_preset(address, now()).expected_caps;
         assert_eq!(caps, super::unobserved(&expected), "nothing else changed");
     }
