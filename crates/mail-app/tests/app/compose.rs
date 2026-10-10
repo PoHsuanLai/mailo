@@ -1488,14 +1488,14 @@ mod choosing_the_sender {
         .plan;
         plan.address = "work@example.test".to_owned();
         mail_store::testing::seed_account_plan(
-            &store,
+            store,
             acct_second(),
             "work@example.test",
             &plan,
             Some(chrono::Utc::now() + chrono::Duration::seconds(1)),
         );
         mail_store::testing::seed_identity_for(
-            &store,
+            store,
             SECOND_IDENTITY,
             acct_second(),
             "work@example.test",

@@ -50,7 +50,7 @@ fn store(dir: &std::path::Path) -> Arc<SqliteStore> {
             login: None,
         };
         let plan = presets::manual(address, &manual, chrono::Utc::now()).plan;
-        mail_store::testing::seed_account_plan(&store, id.clone(), &address, &plan, None);
+        mail_store::testing::seed_account_plan(&store, id.clone(), address, &plan, None);
     }
     Arc::new(store)
 }

@@ -67,12 +67,12 @@ pub fn seeded(dir: &Path) -> Arc<SqliteStore> {
     std::fs::create_dir_all(dir.join("blobs")).expect("a blob directory");
     let store = SqliteStore::open(dir.join("mail.db"), dir.join("blobs")).expect("the store opens");
     {
-        mail_store::testing::seed_account(&store, account(), &ME);
+        mail_store::testing::seed_account(&store, account(), ME);
         mail_store::testing::seed_identity_for(
             &store,
             IdentityId::generate(),
             account(),
-            &ME,
+            ME,
             Some("Me"),
         );
         let caps = AccountCaps {

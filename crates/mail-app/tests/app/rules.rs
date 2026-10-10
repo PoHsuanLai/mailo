@@ -44,7 +44,7 @@ const ME: &str = "me@example.test";
 
 /// Write an account as `account add` would, without going near a credential.
 fn configure(store: &SqliteStore, id: AccountId, plan: &AccountPlan, caps: &AccountCaps) {
-    mail_store::testing::seed_account_plan(&store, id.clone(), &plan.address, plan, Some(now()));
+    mail_store::testing::seed_account_plan(store, id.clone(), &plan.address, plan, Some(now()));
     store.put_caps(id, caps, now()).unwrap();
 }
 

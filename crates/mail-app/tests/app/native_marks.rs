@@ -32,7 +32,7 @@ fn google_account() -> AccountId {
 }
 
 fn plan(address: &str, host: &str) -> AccountPlan {
-    let plan = AccountPlan {
+    AccountPlan {
         address: address.to_owned(),
         incoming: Incoming::Imap {
             host: host.to_owned(),
@@ -49,8 +49,7 @@ fn plan(address: &str, host: &str) -> AccountPlan {
             sasl: vec![SaslMech::Plain],
         },
         identities: Vec::new(),
-    };
-    plan
+    }
 }
 
 fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {

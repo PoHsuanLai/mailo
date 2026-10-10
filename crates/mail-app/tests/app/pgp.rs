@@ -28,8 +28,8 @@ fn now() -> DateTime<Utc> {
 }
 
 fn seed(store: &SqliteStore) {
-    mail_store::testing::seed_account(&store, acct_account(), &ME);
-    mail_store::testing::seed_identity_for(&store, IDENTITY, acct_account(), &ME, Some("Me"));
+    mail_store::testing::seed_account(store, acct_account(), ME);
+    mail_store::testing::seed_identity_for(store, IDENTITY, acct_account(), ME, Some("Me"));
 }
 
 /// A store with one account that can send, as `me@example.test`.

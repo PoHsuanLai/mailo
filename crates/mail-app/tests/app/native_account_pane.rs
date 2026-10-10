@@ -70,7 +70,7 @@ fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
         },
         identities: Vec::new(),
     };
-    mail_store::testing::seed_account_plan(&store, acct_ada(), &ADDRESS, &plan, None);
+    mail_store::testing::seed_account_plan(&store, acct_ada(), ADDRESS, &plan, None);
     Arc::new(store)
 }
 

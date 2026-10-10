@@ -152,7 +152,7 @@ fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
                 &store,
                 LabelId::generate(),
                 acct_account(),
-                &name,
+                name,
                 mail_domain::LabelOrigin::User,
             );
         }
