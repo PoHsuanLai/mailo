@@ -61,20 +61,17 @@ impl<T: Carrier + 'static> Client<T> {
     /// What Mail needs of an account: to read and write its mail. Sending is not required, so an
     /// account that only receives is one (the engine says so when it is asked to send).
     fn need() -> Need {
-        Need::Mail(MailNeed {
-            access: Access::ReadWrite,
-            send: Offered::Absent,
-            delta: Delta::None,
-        })
+        Need::Mail(MailNeed::new(
+            Access::ReadWrite,
+            Offered::Absent,
+            Delta::None,
+        ))
     }
 
     /// What Mail needs of an account to read its address books: reading them. Writing a group back
     /// is tried when a group was edited, and a server that refuses it says so then.
     fn contacts_need() -> Need {
-        Need::Contacts(PimNeed {
-            access: Access::Read,
-            delta: Delta::None,
-        })
+        Need::Contacts(PimNeed::new(Access::Read, Delta::None))
     }
 
     fn remember(&self, candidates: &[Candidate]) {

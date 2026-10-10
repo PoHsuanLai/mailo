@@ -136,11 +136,7 @@ pub(super) fn provider(
 }
 
 fn start(provider: &MailProvider) -> super::provider::MailSignIn {
-    provider
-        .sign_in(SignInStart {
-            mode: SignInMode::Add,
-        })
-        .unwrap()
+    provider.sign_in(SignInStart::new(SignInMode::Add)).unwrap()
 }
 
 fn answer(kind: FieldKind, value: FieldValue) -> FieldAnswer {

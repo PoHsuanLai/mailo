@@ -480,6 +480,8 @@ pub(super) fn fault_of(fault: SignInFault) -> ShellFault {
         SignInFault::NotRunning => ShellFault::NotRunning,
         SignInFault::SignedOut => ShellFault::SignedOut,
         SignInFault::NotAllowed => ShellFault::NotAllowed,
+        // A fault newer than this build: the sheet says it could not read the answer.
+        _ => ShellFault::Unreadable,
     }
 }
 

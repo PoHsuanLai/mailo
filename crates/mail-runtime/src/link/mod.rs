@@ -82,6 +82,8 @@ fn words(refusal: &Refusal) -> &'static str {
         Refusal::Unavailable => "the account or its secret store cannot be reached",
         Refusal::EndpointNotGranted => "that server is not one of the account's",
         Refusal::NoLauncher => "only a coding agent signs itself in, and none is registered",
+        // A refusal newer than this build: fail closed, saying only that it was refused.
+        _ => "the daemon refused it",
     }
 }
 
@@ -106,6 +108,8 @@ impl LinkError {
             LinkError::Refused(Refusal::EndpointNotGranted | Refusal::NoLauncher)
             | LinkError::AlreadyAdded(_)
             | LinkError::Other(_) => Retry::Fatal(self.to_string()),
+            // A refusal newer than this build: nothing to wait for or ask, so it stops.
+            LinkError::Refused(_) => Retry::Fatal(self.to_string()),
         }
     }
 

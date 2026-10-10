@@ -22,33 +22,33 @@ fn candidate(account: &str, address: &str, grant: &str) -> Candidate {
         tls,
         login: LoginName(address.to_owned()),
     };
-    Candidate {
-        account: AccountId::parse(account).unwrap(),
-        label: AccountLabel(address.to_owned()),
-        provider: ProviderId::parse("fastmail").unwrap(),
-        subject: Subject::Account,
-        capability: Capability::Mail(MailCap {
+    Candidate::new(
+        AccountId::parse(account).unwrap(),
+        AccountLabel(address.to_owned()),
+        ProviderId::parse("fastmail").unwrap(),
+        Subject::Account,
+        Capability::Mail(MailCap {
             access: Access::ReadWrite,
             send: Offered::Present,
             delta: Delta::Push,
             transport: MailTransport::Imap,
             labels: LabelModel::Folders,
         }),
-        restriction: Restriction::none(),
-        grant: GrantId::parse(grant).unwrap(),
-        endpoints: vec![
-            endpoint(
-                Family::Imap,
-                "imaps://imap.example.test:993",
-                porter_core::Tls::Implicit,
-            ),
-            endpoint(
-                Family::Smtp,
-                "smtps://smtp.example.test:465",
-                porter_core::Tls::Implicit,
-            ),
-        ],
-    }
+        Restriction::none(),
+        GrantId::parse(grant).unwrap(),
+    )
+    .with_endpoints(vec![
+        endpoint(
+            Family::Imap,
+            "imaps://imap.example.test:993",
+            porter_core::Tls::Implicit,
+        ),
+        endpoint(
+            Family::Smtp,
+            "smtps://smtp.example.test:465",
+            porter_core::Tls::Implicit,
+        ),
+    ])
 }
 
 /// What the add-account sheet answers with: the account it made, and the candidate Mail is offered

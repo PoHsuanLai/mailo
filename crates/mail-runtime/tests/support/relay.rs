@@ -75,14 +75,14 @@ impl Relays {
         // app <-> tap <-> relay
         let (app, near) = duplex(64 * 1024);
         let (far, relay_end) = duplex(64 * 1024);
-        let plan = RelayPlan {
-            endpoint: endpoint.clone(),
-            kind: match endpoint.family {
+        let plan = RelayPlan::new(
+            endpoint.clone(),
+            match endpoint.family {
                 Family::CardDav => CapabilityKind::Contacts,
                 _ => CapabilityKind::Mail,
             },
-            auth: RelayAuth::Password(SecretText::new(self.password.clone())),
-        };
+            RelayAuth::Password(SecretText::new(self.password.clone())),
+        );
         tokio::spawn(async move {
             let _ = relay(plan, relay_end, &Loopback).await;
         });
