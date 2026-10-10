@@ -128,8 +128,13 @@ mod tests {
         assert!(out.contains("MAILO_OAUTH_CLIENT_SECRET"), "{out}");
         assert!(out.contains("mailo account add ada@example.test"), "{out}");
         // Read by a person, and `cargo fmt` collapses a `\`-continuation in a literal into a run
-        // of spaces in the middle of the sentence.
-        assert!(!out.contains("  "), "a run of spaces in a message: {out:?}");
+        // of spaces in the middle of the sentence. The indented command is the one place a run
+        // of spaces is meant.
+        let sentence = out.split_once(";").map_or(out.as_str(), |(head, _)| head);
+        assert!(
+            !sentence.contains("  "),
+            "a run of spaces in a message: {out:?}"
+        );
     }
 
     /// Microsoft needs `--microsoft` to reproduce the account, and an instruction that does not

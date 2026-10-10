@@ -19,10 +19,11 @@ use super::super::data::AccountRow;
 use super::super::press::{available, on_primary};
 use mail_core::sync::Configured;
 
-/// Install an account's script: the signature of [`mail_core::rules::server::pushed`], with the
-/// takeover and the saved sign-in clients decided.
-pub(in crate::ui) type Push =
-    Arc<dyn Fn(&SqliteStore, &Configured, DateTime<Utc>) -> Result<Pushed, String> + Send + Sync>;
+/// Install an account's script: [`mail_core::RuleOps::push`], with the takeover decided. Given the
+/// store by `Arc`, which is what a `Mail` is made over.
+pub(in crate::ui) type Push = Arc<
+    dyn Fn(&Arc<SqliteStore>, &Configured, DateTime<Utc>) -> Result<Pushed, String> + Send + Sync,
+>;
 
 /// What puts rules on a server. The real one unless a test provided its own.
 #[derive(Clone)]
@@ -33,15 +34,12 @@ impl Pusher {
     /// else made: the refusal says so, and the command line is where that is chosen.
     #[cfg(not(test))]
     pub(in crate::ui) fn server() -> Self {
-        Self(Arc::new(|store, account, now| {
-            crate::edge::block_on(mail_core::rules::server::pushed(
-                store,
-                crate::edge::secrets().as_ref(),
-                account,
-                mail_proto::sieve::Takeover::Refuse,
-                &mail_core::account::saved_clients(),
-                now,
-            ))
+        Self(Arc::new(|store, account, _now| {
+            crate::edge::block_on(
+                crate::edge::mail(store)
+                    .rules()
+                    .push(account, mail_proto::sieve::Takeover::Refuse),
+            )
             .map_err(String::from)
         }))
     }
@@ -83,7 +81,7 @@ pub(in crate::ui) fn configured(
 
 /// Push `row`'s rules and reply through `push`, and say what the server did. Blocking.
 pub(in crate::ui) fn put(
-    store: &SqliteStore,
+    store: &Arc<SqliteStore>,
     row: &AccountRow,
     push: &Push,
     now: DateTime<Utc>,

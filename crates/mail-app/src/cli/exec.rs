@@ -344,11 +344,7 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) {
     // A Web Key Directory lookup needs the network: dispatched here with the other commands that
     // do, so `super::run` stays something a test can call without one.
     if let Command::Pgp(super::pgp::PgpCommand::Lookup { address }) = &command {
-        match crate::edge::block_on(mail_core::pgp::lookup_address(
-            &store,
-            address,
-            chrono::Utc::now(),
-        )) {
+        match crate::edge::block_on(crate::edge::mail(&store).crypto().lookup_address(address)) {
             Ok(found) => print!("{}", super::pgp::lookup(found.as_ref(), address)),
             Err(message) => {
                 eprintln!("{message}");
@@ -365,11 +361,7 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) {
         && openpgp.encrypts()
     {
         let addresses: Vec<String> = to.iter().chain(cc).map(|a| a.email.clone()).collect();
-        let found = crate::edge::block_on(mail_core::pgp::discover(
-            &store,
-            &addresses,
-            chrono::Utc::now(),
-        ));
+        let found = crate::edge::block_on(crate::edge::mail(&store).crypto().discover(&addresses));
         eprint!("{}", super::pgp::discovered(&found));
     }
 

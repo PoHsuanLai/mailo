@@ -2,4 +2,4 @@
 # through mail_core. A ratchet (scripts/check-boundary.sh): it fails when the count rises, and
 # when it falls until this file says so. Format: "<crate as written in Rust> <lines>".
 mail_runtime 40
-mail_store 171
+mail_store 160

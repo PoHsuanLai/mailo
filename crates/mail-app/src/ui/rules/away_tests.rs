@@ -158,7 +158,7 @@ fn a_reply_that_has_already_ended_is_refused_in_words() {
 
 /// A server that installs what it is sent: one rule it runs, one it cannot, and the reply.
 pub(super) fn answering(calls: Arc<AtomicUsize>) -> Push {
-    Arc::new(move |store: &SqliteStore, account, _now| {
+    Arc::new(move |store: &Arc<SqliteStore>, account, _now| {
         calls.fetch_add(1, Ordering::SeqCst);
         assert!(store.vacation(account.id.clone()).is_ok());
         Ok(Pushed {
