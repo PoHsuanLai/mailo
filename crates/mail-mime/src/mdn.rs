@@ -87,6 +87,7 @@ pub struct Words {
 
 /// What the receipt's prose may say about the message it answers.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Human<'a> {
     /// The address that displayed the message.
     pub reader: &'a str,

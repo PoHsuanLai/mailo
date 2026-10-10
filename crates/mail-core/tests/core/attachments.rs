@@ -466,7 +466,7 @@ mod left_on_the_server {
                 mime: "application/pdf".to_owned(),
                 size: 900,
                 content: PartContent::Remote {
-                    section: "2".to_owned(),
+                    section: "2".parse().unwrap(),
                 },
                 inline: Inline::Attached,
             }];
@@ -483,7 +483,7 @@ mod left_on_the_server {
 
         let mut asked = Vec::new();
         let saved = attach::fetch_and_save(&store, id, 0, out.path(), |section| {
-            asked.push(section.to_owned());
+            asked.push(section.to_string());
             // What the network half does: store the bytes, record the part as held.
             let blob = store.blobs().put(b"%PDF-1.4")?;
             Ok(store.hold_part(id, section, blob, 8)?)

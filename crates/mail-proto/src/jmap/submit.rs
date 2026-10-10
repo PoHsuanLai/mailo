@@ -11,13 +11,13 @@
 use super::field::{malformed, opt_string, string};
 use super::{Call, MethodError, Responses, SetResult};
 use crate::ProtoError;
-use mail_domain::Address;
+use mail_domain::{Address, JmapAccountId, JmapBlobId, JmapEmailId, JmapIdentityId, JmapMailboxId};
 use serde_json::{Map, Value, json};
 
 /// An address this account may send as (RFC 8621 §6).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Identity {
-    pub id: String,
+    pub id: JmapIdentityId,
     /// The address and its display name. The email may be a domain wildcard, `*@example.com`,
     /// which is why it is not validated as a mailbox.
     pub address: Address,
@@ -32,7 +32,7 @@ impl Identity {
             .iter()
             .map(|i| {
                 Ok(Identity {
-                    id: string(i, "id")?.to_owned(),
+                    id: string(i, "id")?.into(),
                     address: Address {
                         email: string(i, "email")?.to_owned(),
                         name: opt_string(i, "name")?
@@ -68,8 +68,8 @@ pub fn choose_identity<'a>(identities: &'a [Identity], mail_from: &str) -> Optio
 /// Where the imported copy goes, and where it moves on success.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Filed {
-    pub drafts: Option<String>,
-    pub sent: Option<String>,
+    pub drafts: Option<JmapMailboxId>,
+    pub sent: Option<JmapMailboxId>,
 }
 
 /// The two calls that send `blob`: import it, then submit it. Ids `import` and `send`.
@@ -77,8 +77,8 @@ pub struct Filed {
 /// Refused before anything is sent when the server lists neither a Drafts nor a Sent mailbox,
 /// since an imported email must be filed somewhere.
 pub fn submission(
-    account: &str,
-    blob: &str,
+    account: &JmapAccountId,
+    blob: &JmapBlobId,
     identity: &Identity,
     mail_from: &str,
     rcpt_to: &[String],
@@ -86,8 +86,8 @@ pub fn submission(
 ) -> Result<Vec<Call>, ProtoError> {
     let into = filed
         .drafts
-        .as_deref()
-        .or(filed.sent.as_deref())
+        .as_ref()
+        .or(filed.sent.as_ref())
         .ok_or_else(|| {
             ProtoError::Unsupported(
                 "sending over JMAP: the server lists no Drafts or Sent mailbox to file the \
@@ -96,7 +96,7 @@ pub fn submission(
             )
         })?;
     let mut mailbox_ids = Map::new();
-    mailbox_ids.insert(into.to_owned(), json!(true));
+    mailbox_ids.insert(into.as_str().to_owned(), json!(true));
     let import = Call {
         name: "Email/import",
         args: json!({
@@ -147,7 +147,7 @@ pub fn submission(
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Sent {
     /// The email the server now holds, filed in Sent.
-    pub email_id: String,
+    pub email_id: JmapEmailId,
     pub submission_id: String,
 }
 
@@ -160,7 +160,7 @@ pub fn submitted(responses: &Responses) -> Result<Sent, ProtoError> {
     if let Some(e) = imported.first_refusal("importing the message") {
         return Err(e);
     }
-    let email_id = created_id(&imported, "draft")?;
+    let email_id = JmapEmailId::from(created_id(&imported, "draft")?);
     let sent = SetResult::parse(responses.answer("send", "EmailSubmission/set")?)?;
     if let Some(e) = sent.first_refusal("submitting the message") {
         return Err(e);

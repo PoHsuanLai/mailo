@@ -2,7 +2,10 @@
 //! own examples where they give one and this client's own where they do not.
 
 use mail_domain::id::new_account_id;
-use mail_domain::{FolderWork, MailboxRole, NonEmpty, ReadState, SpecialUse, Star, Subscription};
+use mail_domain::{
+    FolderWork, JmapEmailId, JmapMailboxId, MailboxRole, NonEmpty, ReadState, SpecialUse, Star,
+    Subscription,
+};
 use mail_proto::jmap::{self, *};
 use mail_proto::{ProtoError, Refusal};
 use serde_json::{Value, json};
@@ -123,9 +126,9 @@ fn the_download_url_is_expanded_from_the_session_template() {
 #[test]
 fn a_query_and_its_get_go_in_one_request_by_back_reference() {
     let calls = [
-        email_query("A1", &["mbDrafts".to_owned()], 0, 50, "q"),
+        email_query(&"A1".into(), &["mbDrafts".into()], 0, 50, "q"),
         email_get(
-            "A1",
+            &"A1".into(),
             Ids::ResultOf {
                 call: "q".to_owned(),
                 name: "Email/query",
@@ -159,15 +162,15 @@ fn a_query_and_its_get_go_in_one_request_by_back_reference() {
 #[test]
 fn changes_and_mailboxes_are_asked_for_as_the_rfc_spells_them() {
     assert_eq!(
-        email_changes("A1", "s41", 256, "c").args,
+        email_changes(&"A1".into(), "s41", 256, "c").args,
         json!({ "accountId": "A1", "sinceState": "s41", "maxChanges": 256 })
     );
     assert_eq!(
-        mailbox_changes("A1", "m7", "m").args,
+        mailbox_changes(&"A1".into(), "m7", "m").args,
         json!({ "accountId": "A1", "sinceState": "m7" })
     );
     assert_eq!(
-        mailbox_get("A1", "m").args,
+        mailbox_get(&"A1".into(), "m").args,
         json!({
             "accountId": "A1",
             "ids": null,
@@ -175,7 +178,12 @@ fn changes_and_mailboxes_are_asked_for_as_the_rfc_spells_them() {
         })
     );
     // With nothing to leave out there is no filter at all, not an empty one.
-    assert!(total_query("A1", &[], "t").args.get("filter").is_none());
+    assert!(
+        total_query(&"A1".into(), &[], "t")
+            .args
+            .get("filter")
+            .is_none()
+    );
 }
 
 fn mailboxes() -> Mailboxes {
@@ -201,10 +209,16 @@ fn mailboxes() -> Mailboxes {
 fn mailboxes_become_folders_with_paths_and_roles() {
     let m = mailboxes();
     assert_eq!(m.state, "m1");
-    assert_eq!(m.path("mbP").as_deref(), Some("Work/2026"));
-    assert_eq!(m.id_for_path("Work/2026"), Some("mbP"));
-    assert_eq!(m.id_for_role(MailboxRole::Spam), Some("mbJ"));
-    assert_eq!(m.unfollowed(), vec!["mbD".to_owned(), "mbJ".to_owned()]);
+    assert_eq!(m.path(&"mbP".into()).as_deref(), Some("Work/2026"));
+    assert_eq!(m.id_for_path("Work/2026").map(|i| i.as_str()), Some("mbP"));
+    assert_eq!(
+        m.id_for_role(MailboxRole::Spam).map(|i| i.as_str()),
+        Some("mbJ")
+    );
+    assert_eq!(
+        m.unfollowed(),
+        vec![JmapMailboxId::from("mbD"), JmapMailboxId::from("mbJ")]
+    );
     let roles = m.roles();
     assert_eq!(roles.path(MailboxRole::Sent), Some("Sent"));
     assert_eq!(roles.path(MailboxRole::Archive), Some("Archive"));
@@ -226,13 +240,17 @@ fn a_loop_of_parents_ends_the_walk_not_the_program() {
         ]
     }))
     .unwrap();
-    assert!(m.path("a").is_some());
+    assert!(m.path(&"a".into()).is_some());
 }
 
 #[test]
 fn an_email_is_filed_by_the_mailboxes_it_is_in() {
     let m = mailboxes();
-    let ids = |list: &[&str]| list.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
+    let ids = |list: &[&str]| {
+        list.iter()
+            .map(|s| JmapMailboxId::from(*s))
+            .collect::<Vec<_>>()
+    };
     let cases: &[(&[&str], Filing)] = &[
         (
             &["mbI"],
@@ -338,7 +356,7 @@ fn an_email_summary_parses_and_rebuilds_its_own_header_block() {
     let email = &emails[0];
     assert_eq!(email.id, "Mf40b5f831");
     assert_eq!(email.blob_id, "Gd2f81008");
-    assert_eq!(email.mailbox_ids, vec!["mbI".to_owned()]);
+    assert_eq!(email.mailbox_ids, vec![JmapMailboxId::from("mbI")]);
     // Keywords compare without case, and `false` is not membership.
     assert_eq!(email.read(), ReadState::Read);
     assert_eq!(email.star(), Star::Starred);
@@ -377,7 +395,7 @@ fn a_field_of_the_wrong_type_is_malformed_not_a_panic() {
 #[test]
 fn changes_and_query_pages_parse() {
     // RFC 8620 §5.2's shape.
-    let changes = Changes::parse(&json!({
+    let changes = Changes::<JmapEmailId>::parse(&json!({
         "accountId": "A1",
         "oldState": "e41",
         "newState": "e42",
@@ -497,12 +515,12 @@ fn folder_work_is_a_mailbox_set_that_never_removes_mail() {
 #[test]
 fn a_send_is_an_import_and_a_submission_with_the_envelope_named() {
     let identity = Identity {
-        id: "I1".to_owned(),
+        id: "I1".into(),
         address: mail_domain::Address::new("john@example.com"),
     };
     let calls = submission(
-        "A1",
-        "Gblob",
+        &"A1".into(),
+        &"Gblob".into(),
         &identity,
         "john@example.com",
         &[
@@ -510,8 +528,8 @@ fn a_send_is_an_import_and_a_submission_with_the_envelope_named() {
             "blind@example.test".to_owned(),
         ],
         &Filed {
-            drafts: Some("mbD".to_owned()),
-            sent: Some("mbS".to_owned()),
+            drafts: Some("mbD".into()),
+            sent: Some("mbS".into()),
         },
     )
     .unwrap();
@@ -550,8 +568,8 @@ fn a_send_is_an_import_and_a_submission_with_the_envelope_named() {
     // Nowhere to file it: refused before anything is sent.
     assert!(
         submission(
-            "A1",
-            "G",
+            &"A1".into(),
+            &"G".into(),
             &identity,
             "john@example.com",
             &[],
@@ -577,7 +595,7 @@ fn a_submission_answer_says_what_was_sent_or_why_not() {
     assert_eq!(
         submitted(&ok).unwrap(),
         Sent {
-            email_id: "M77".to_owned(),
+            email_id: "M77".into(),
             submission_id: "S1".to_owned()
         }
     );

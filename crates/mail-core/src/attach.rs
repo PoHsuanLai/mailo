@@ -234,7 +234,7 @@ pub fn fetch_and_save(
     message: MessageId,
     index: usize,
     dir: &Path,
-    download: impl FnOnce(&str) -> Result<(), CoreError>,
+    download: impl FnOnce(&mail_domain::Section) -> Result<(), CoreError>,
 ) -> Result<PathBuf, CoreError> {
     let stored = store.message(message)?;
     let attachment = stored

@@ -53,7 +53,7 @@ pub fn fetch_part_with(
     secrets: Arc<dyn AccountSecrets>,
     registry: &ClientRegistry,
     message: MessageId,
-    section: &str,
+    section: &mail_domain::Section,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<(), CoreError> {
     block_on(sync::fetch_part_with(

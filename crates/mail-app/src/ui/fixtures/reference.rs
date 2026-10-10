@@ -432,7 +432,7 @@ fn build(store: &SqliteStore, batch: &[&Mail]) -> BuiltMail {
                     mime: "text/calendar".to_owned(),
                     size: 2048,
                     content: PartContent::Remote {
-                        section: "2".to_owned(),
+                        section: "2".parse().unwrap(),
                     },
                     inline: Inline::Attached,
                 }]

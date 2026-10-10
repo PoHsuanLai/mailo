@@ -15,6 +15,7 @@ use mail_parser::{HeaderName, HeaderValue, MessageParser, MimeHeaders, PartType}
 
 /// The calendar object a message carries.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct CalendarPart {
     /// The part's `method` parameter (RFC 6047 §2.4), as written. The object's own `METHOD` is
     /// the one to believe; this is what a program that only read the MIME headers would see.

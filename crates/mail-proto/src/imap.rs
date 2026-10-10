@@ -31,6 +31,15 @@ use mail_domain::SaslMech;
 use porter_core::Credential;
 use std::fmt;
 
+/// How a mailbox is opened (RFC 3501 sections 6.3.1 and 6.3.2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Access {
+    /// `SELECT`: the session may change flags and expunge.
+    ReadWrite,
+    /// `EXAMINE`: the session cannot, and so cannot set `\Recent` or expunge by accident.
+    ReadOnly,
+}
+
 /// One command to run, in order.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ImapCommand {
@@ -47,7 +56,7 @@ pub enum ImapCommand {
     /// `SELECT`, or `EXAMINE` when read-only.
     Select {
         mailbox: String,
-        read_only: bool,
+        access: Access,
         /// `(QRESYNC (<uidvalidity> <modseq>))`, only after `ENABLE QRESYNC` succeeded.
         qresync: Option<mail_domain::Resync>,
     },
@@ -182,6 +191,7 @@ pub enum ImapCommand {
 
 /// What a completed session saw.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub struct ImapTranscript {
     /// Every untagged response, in arrival order, with the command it arrived during.
     pub untagged: Vec<Untagged>,
@@ -562,10 +572,13 @@ impl ImapSession {
             ImapCommand::Enable(capability) => format!("ENABLE {capability}"),
             ImapCommand::Select {
                 mailbox,
-                read_only,
+                access,
                 qresync,
             } => {
-                let verb = if *read_only { "EXAMINE" } else { "SELECT" };
+                let verb = match access {
+                    Access::ReadOnly => "EXAMINE",
+                    Access::ReadWrite => "SELECT",
+                };
                 // The wire name is modified UTF-7, and it is the identity: decode only for
                 // display, never for addressing.
                 let name = quoted(&mutf7::encode(mailbox));

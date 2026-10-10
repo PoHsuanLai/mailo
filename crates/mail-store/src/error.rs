@@ -54,7 +54,10 @@ pub enum StoreError {
     #[error("malformed pagination cursor")]
     BadCursor,
     #[error("message {message} has no part {section} still on the server")]
-    NoPart { message: MessageId, section: String },
+    NoPart {
+        message: MessageId,
+        section: mail_domain::Section,
+    },
     /// A contact was asked for under something that is not an address.
     #[error("{0:?} is not an email address")]
     BadAddress(String),

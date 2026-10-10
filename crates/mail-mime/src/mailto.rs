@@ -14,6 +14,7 @@ use mail_domain::Address;
 /// Any field may be empty: `mailto:?subject=hello` is a well-formed link that names nobody, and
 /// the person fills in the rest.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub struct MailtoUri {
     /// The URI's path, then every `to` field, in order.
     pub to: Vec<Address>,

@@ -518,7 +518,7 @@ fn a_subject_cannot_escape_its_element() {
         mime: "application/pdf".to_owned(),
         size: 1,
         content: PartContent::Remote {
-            section: "2".to_owned(),
+            section: "2".parse().unwrap(),
         },
         inline: Inline::Attached,
     }];
@@ -652,7 +652,7 @@ fn inline_images_are_not_listed_as_attachments() {
             mime: "application/zip".to_owned(),
             size: 3 * 1024 * 1024,
             content: PartContent::Remote {
-                section: "3".to_owned(),
+                section: "3".parse().unwrap(),
             },
             inline: Inline::Attached,
         },

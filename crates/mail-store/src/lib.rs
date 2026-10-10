@@ -444,7 +444,7 @@ pub trait Store {
     fn hold_part(
         &self,
         message: MessageId,
-        section: &str,
+        section: &mail_domain::Section,
         blob: BlobId,
         size: u64,
     ) -> Result<(), StoreError>;

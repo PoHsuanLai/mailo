@@ -342,7 +342,7 @@ pub(in crate::ui) fn held_and_remote() -> (Arc<SqliteStore>, tempfile::TempDir) 
                 mime: "application/pdf".to_owned(),
                 size: 5 * 1024 * 1024,
                 content: PartContent::Remote {
-                    section: "2".to_owned(),
+                    section: "2".parse().unwrap(),
                 },
                 inline: Inline::Attached,
             },

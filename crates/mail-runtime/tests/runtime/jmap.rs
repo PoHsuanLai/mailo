@@ -473,7 +473,9 @@ async fn deleting_forever_from_trash_destroys_the_email_on_the_server() {
         !s.store
             .remote_refs(&all())
             .unwrap()
-            .contains(&RemoteRef::Jmap { email_id: trashed })
+            .contains(&RemoteRef::Jmap {
+                email_id: trashed.into()
+            })
     );
 }
 

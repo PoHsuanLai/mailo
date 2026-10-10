@@ -38,7 +38,7 @@ pub mod read;
 use crate::RuntimeError;
 use crate::error::Failure;
 use base64::Engine as _;
-use mail_domain::{Address, Inline, Retry};
+use mail_domain::{Address, Inline, ReceiptRequest, Retry};
 use mail_mime::{GraphBody, GraphDraft, GraphImportance, ParsedPart};
 use serde_json::{Value, json};
 use std::time::Duration;
@@ -396,7 +396,7 @@ fn message_json(draft: &GraphDraft) -> Value {
             GraphImportance::High => "high",
         });
     }
-    if draft.read_receipt {
+    if draft.read_receipt == ReceiptRequest::Requested {
         message["isReadReceiptRequested"] = json!(true);
     }
     // Writable while the message is a draft, and the id the local copy is threaded by.

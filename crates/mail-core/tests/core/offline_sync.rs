@@ -76,7 +76,7 @@ const TEXT: &str = "The numbers are attached.";
 
 fn tree(uid: u32) -> PartTree {
     let mut parts = vec![PartTree::Leaf {
-        section: "1".to_owned(),
+        section: "1".parse().unwrap(),
         mime: "text/plain".to_owned(),
         octets: TEXT.len() as u64,
         attachment: false,
@@ -85,14 +85,14 @@ fn tree(uid: u32) -> PartTree {
         parts_of(uid)
             .iter()
             .map(|(section, mime, octets)| PartTree::Leaf {
-                section: (*section).to_owned(),
+                section: section.parse().unwrap(),
                 mime: (*mime).to_owned(),
                 octets: *octets,
                 attachment: true,
             }),
     );
     PartTree::Multipart {
-        section: String::new(),
+        section: mail_domain::Section::root(),
         subtype: "mixed".to_owned(),
         boundary: "mix".to_owned(),
         parts,
@@ -171,13 +171,13 @@ impl Backend for Scripted {
                 // A part on its own is its header and its content and nothing else; the first
                 // fetch of a large message always asks for the message's own header too.
                 if let [mime, content] = sections.as_slice()
-                    && *mime == format!("{content}.MIME")
+                    && mime.as_str() == format!("{content}.MIME")
                 {
                     self.parts.lock().unwrap().push(format!("{n}:{content}"));
                 }
                 let parts = sections
                     .iter()
-                    .map(|s| (s.clone(), section(n, s)))
+                    .map(|s| (s.to_string(), section(n, s.as_str())))
                     .collect();
                 ProtoOutcome::Sections { remote, parts }
             }

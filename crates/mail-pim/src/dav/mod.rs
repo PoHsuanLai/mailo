@@ -23,6 +23,7 @@ pub const CARDDAV: &str = "urn:ietf:params:xml:ns:carddav";
 
 /// A `207 Multi-Status` reply.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub struct Multistatus {
     pub responses: Vec<Response>,
     /// The token a `sync-collection` report ends with: where the next sync starts from.

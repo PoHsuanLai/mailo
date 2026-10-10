@@ -41,6 +41,7 @@ pub struct Keys<'a> {
 /// The certificate a signature was made with, and the issuers the message carried beside it:
 /// what the client keeps of a correspondent's signed mail.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Signer {
     pub cert: Cert,
     pub chain: Vec<Cert>,

@@ -347,8 +347,8 @@ fn fetch_headers_uses_top_and_returns_raw_bytes() {
 #[test]
 fn smtp_backend_submits_and_reports_no_remote_copy() {
     use mail_mime::Posting;
-    use mail_proto::Submission;
     use mail_proto::backend::SmtpBackend;
+    use mail_proto::{Authentication, SignIn, Submission};
 
     let mut backend = SmtpBackend::new(
         acct_account(),
@@ -361,10 +361,11 @@ fn smtp_backend_submits_and_reports_no_remote_copy() {
                 host: "smtp.example".to_owned(),
                 port: 465,
                 tls: Tls::Implicit,
-                username: "ada@example.com".to_owned(),
-                credential: Credential::Password(SecretText::new("s3cr3t-password".to_owned())),
-                sasl: vec![SaslMech::Plain],
-                relayed: false,
+                auth: Authentication::SignIn(SignIn {
+                    username: "ada@example.com".to_owned(),
+                    credential: Credential::Password(SecretText::new("s3cr3t-password".to_owned())),
+                    sasl: vec![SaslMech::Plain],
+                }),
                 mail_from: posting.mail_from,
                 recipients: posting.rcpt_to,
                 receipt: None,

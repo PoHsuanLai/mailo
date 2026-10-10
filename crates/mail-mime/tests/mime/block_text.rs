@@ -2,7 +2,7 @@
 
 use crate::block as support;
 
-use mail_mime::{Block, Dir, Flowed};
+use mail_mime::{Block, Delsp, Dir, Flowed};
 use support::{sketch, text};
 
 const LISTPOST: &str = include_str!("../fixtures/block/listpost.txt");
@@ -12,12 +12,12 @@ fn flowed_delsp_joins_or_keeps_the_space() {
     let cases: &[(&str, Flowed, &str)] = &[
         (
             "delsp no keeps the flow space",
-            Flowed::Flowed { delsp: false },
+            Flowed::Flowed { delsp: Delsp::No },
             "This is a flowed paragraph that continues on the next line.",
         ),
         (
             "delsp yes deletes the flow space",
-            Flowed::Flowed { delsp: true },
+            Flowed::Flowed { delsp: Delsp::Yes },
             "This is a flowed paragraph thatcontinues on the next line.",
         ),
     ];
@@ -31,8 +31,8 @@ fn flowed_delsp_joins_or_keeps_the_space() {
 #[test]
 fn cjk_delsp_does_not_insert_a_space_and_the_other_way_does() {
     let raw = include_str!("../fixtures/block/cjk.txt");
-    let yes = text(raw, Flowed::Flowed { delsp: true });
-    let no = text(raw, Flowed::Flowed { delsp: false });
+    let yes = text(raw, Flowed::Flowed { delsp: Delsp::Yes });
+    let no = text(raw, Flowed::Flowed { delsp: Delsp::No });
     let yes = sketch(&yes);
     let no = sketch(&no);
     assert!(
@@ -59,14 +59,14 @@ const CASES: &[Case] = &[
     (
         "stuffing comes off and a stuffed quote is a quote",
         " Hello\n > quoted line\n",
-        Flowed::Flowed { delsp: false },
+        Flowed::Flowed { delsp: Delsp::No },
         &["p ltr Hello\n", "quote\n", "quoted line"],
         &[],
     ),
     (
         "a depth change ends a flowed paragraph",
         "still flowing \n> and then quoted\n",
-        Flowed::Flowed { delsp: false },
+        Flowed::Flowed { delsp: Delsp::No },
         &["p ltr still flowing\n", "and then quoted"],
         &[],
     ),
@@ -154,7 +154,7 @@ Real Name
 
 #[test]
 fn an_ascii_table_becomes_code_and_a_justified_note_does_not() {
-    let doc = text(LISTPOST, Flowed::Flowed { delsp: false });
+    let doc = text(LISTPOST, Flowed::Flowed { delsp: Delsp::No });
     let got = sketch(&doc);
     assert!(
         got.contains("code ") && got.contains("apples") && got.contains("pears"),
@@ -179,7 +179,7 @@ fn an_ascii_table_becomes_code_and_a_justified_note_does_not() {
 
 #[test]
 fn a_rust_block_is_code_with_its_language() {
-    let doc = text(LISTPOST, Flowed::Flowed { delsp: false });
+    let doc = text(LISTPOST, Flowed::Flowed { delsp: Delsp::No });
     let code = doc.blocks.iter().find_map(|block| match block {
         Block::Code { lang, text } if text.contains("fn main") => Some((lang, text)),
         _ => None,

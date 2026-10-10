@@ -1,7 +1,7 @@
 //! RFC 5322 / MIME bytes to domain values.
 
 use crate::MimeError;
-use crate::block::Flowed;
+use crate::block::{Delsp, Flowed};
 use chrono::{DateTime, Utc};
 use mail_domain::{Address, Inline, normalize_id};
 use mail_parser::{HeaderName, Message, MessageParser, MimeHeaders, PartType};
@@ -24,7 +24,7 @@ pub struct ParsedPart {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RemotePart {
     /// The IMAP section: `"2"`, `"1.3"`.
-    pub section: String,
+    pub section: mail_domain::Section,
     /// Size on the server, before transfer decoding.
     pub octets: u64,
 }
@@ -348,9 +348,14 @@ fn flowed_of(part: &mail_parser::MessagePart<'_>) -> Flowed {
     if !format.eq_ignore_ascii_case("flowed") {
         return Flowed::Fixed;
     }
-    let delsp = ct
+    let delsp = if ct
         .attribute("delsp")
-        .is_some_and(|value| value.eq_ignore_ascii_case("yes"));
+        .is_some_and(|value| value.eq_ignore_ascii_case("yes"))
+    {
+        Delsp::Yes
+    } else {
+        Delsp::No
+    };
     Flowed::Flowed { delsp }
 }
 
@@ -364,7 +369,7 @@ fn remote_part(part: &mail_parser::MessagePart<'_>) -> Option<RemotePart> {
             .map(|v| v.trim().to_owned())
     };
     Some(RemotePart {
-        section: field(crate::reconstruct::REMOTE_SECTION)?,
+        section: field(crate::reconstruct::REMOTE_SECTION)?.parse().ok()?,
         octets: field(crate::reconstruct::REMOTE_OCTETS)?.parse().ok()?,
     })
 }

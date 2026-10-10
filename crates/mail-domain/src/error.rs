@@ -24,7 +24,7 @@ pub enum FolderError {
     NotEmpty { path: String, messages: u64 },
     #[error("there is already a folder called {0}")]
     Exists(String),
-    #[error("there is no folder called {0}; `mailo sync` refreshes the list")]
+    #[error("there is no folder called {0}")]
     Unknown(String),
     #[error("{0} has folders inside it; rename or delete those first")]
     HasChildren(String),
@@ -83,6 +83,17 @@ pub enum ParseAddressError {
 }
 
 impl Retryable for ParseAddressError {
+    fn retry(&self) -> Retry {
+        Retry::Fatal(self.to_string())
+    }
+}
+
+/// Why text is not an IMAP body section (RFC 3501 section 6.4.5).
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{0:?} is not an IMAP body section")]
+pub struct ParseSectionError(pub String);
+
+impl Retryable for ParseSectionError {
     fn retry(&self) -> Retry {
         Retry::Fatal(self.to_string())
     }

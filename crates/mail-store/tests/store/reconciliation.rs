@@ -867,7 +867,7 @@ mod remote_parts {
             mime: "application/pdf".into(),
             size: 12_000_000,
             content: PartContent::Remote {
-                section: "2".into(),
+                section: "2".parse().unwrap(),
             },
             inline: Inline::Attached,
         }];
@@ -894,7 +894,9 @@ mod remote_parts {
         let f = fixture();
         let m = with_remote_pdf(&f);
         let pdf = blob(&f, b"%PDF-1.4");
-        f.store.hold_part(m.id, "2", pdf, 8).unwrap();
+        f.store
+            .hold_part(m.id, &"2".parse().unwrap(), pdf, 8)
+            .unwrap();
 
         let stored = f.store.message(m.id).unwrap();
         assert_eq!(stored.attachments[0].content, PartContent::Held(pdf));
@@ -909,13 +911,22 @@ mod remote_parts {
         let f = fixture();
         let m = with_remote_pdf(&f);
         let pdf = blob(&f, b"%PDF-1.4");
-        let err = f.store.hold_part(m.id, "3", pdf, 8).unwrap_err();
+        let err = f
+            .store
+            .hold_part(m.id, &"3".parse().unwrap(), pdf, 8)
+            .unwrap_err();
         assert!(
             matches!(err, mail_store::StoreError::NoPart { .. }),
             "{err}"
         );
         // And a part already held is not held twice.
-        f.store.hold_part(m.id, "2", pdf, 8).unwrap();
-        assert!(f.store.hold_part(m.id, "2", pdf, 8).is_err());
+        f.store
+            .hold_part(m.id, &"2".parse().unwrap(), pdf, 8)
+            .unwrap();
+        assert!(
+            f.store
+                .hold_part(m.id, &"2".parse().unwrap(), pdf, 8)
+                .is_err()
+        );
     }
 }

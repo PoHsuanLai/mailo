@@ -81,7 +81,7 @@ fn with_a_part_on_the_server(built: &Work, id: AccountId) {
             mime: "application/pdf".to_owned(),
             size: 2 * 1024 * 1024,
             content: PartContent::Remote {
-                section: "2".to_owned(),
+                section: "2".parse().unwrap(),
             },
             inline: Inline::Attached,
         }],

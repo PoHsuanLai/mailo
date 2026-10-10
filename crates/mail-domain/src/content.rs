@@ -1,6 +1,7 @@
 //! Message content: who, what, and the bytes behind it.
 
 use crate::id::{BlobId, LabelId};
+use crate::section::Section;
 use crate::state::LabelOrigin;
 use porter_core::AccountId;
 use serde::{Deserialize, Serialize};
@@ -104,7 +105,7 @@ pub enum PartContent {
     Held(BlobId),
     /// Still on the server, as this IMAP section of the message (`"2"`, `"1.3"`). Fetched when
     /// it is opened or saved, and by a sync only for an account kept offline (FINDINGS F174).
-    Remote { section: String },
+    Remote { section: Section },
 }
 
 /// [`Attachment`] as a stored JSON row.
@@ -127,11 +128,15 @@ impl From<AttachmentRow> for Attachment {
     fn from(row: AttachmentRow) -> Self {
         let content = match (row.blob, row.remote_section) {
             (Some(blob), _) => PartContent::Held(blob),
-            (None, Some(section)) => PartContent::Remote { section },
+            // A section that is not one is read as the empty one, like a row with neither: a
+            // row that no longer parses would take its whole message with it.
+            (None, Some(section)) => PartContent::Remote {
+                section: section.parse().unwrap_or_default(),
+            },
             // Neither: not a row this code ever wrote. An empty section fetches nothing and
             // fails loudly when asked to, which beats inventing a blob id that names nothing.
             (None, None) => PartContent::Remote {
-                section: String::new(),
+                section: Section::root(),
             },
         };
         Attachment {
@@ -148,7 +153,7 @@ impl From<Attachment> for AttachmentRow {
     fn from(a: Attachment) -> Self {
         let (blob, remote_section) = match a.content {
             PartContent::Held(blob) => (Some(blob), None),
-            PartContent::Remote { section } => (None, Some(section)),
+            PartContent::Remote { section } => (None, Some(section.into())),
         };
         AttachmentRow {
             name: a.name,

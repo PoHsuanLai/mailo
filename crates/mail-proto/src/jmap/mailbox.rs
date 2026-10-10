@@ -2,7 +2,9 @@
 
 use super::field::{malformed, opt_string, string, unsigned};
 use crate::ProtoError;
-use mail_domain::{Folder, FolderRoles, Holds, MailboxRole, SpecialUse, Subscription};
+use mail_domain::{
+    Folder, FolderRoles, Holds, JmapMailboxId, MailboxRole, SpecialUse, Subscription,
+};
 use porter_core::AccountId;
 use serde_json::Value;
 
@@ -68,10 +70,11 @@ impl JmapRole {
 
 /// One mailbox, as `Mailbox/get` described it.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct JmapMailbox {
-    pub id: String,
+    pub id: JmapMailboxId,
     pub name: String,
-    pub parent: Option<String>,
+    pub parent: Option<JmapMailboxId>,
     pub role: Option<JmapRole>,
     pub sort_order: u64,
     pub subscription: Subscription,
@@ -94,9 +97,9 @@ impl Mailboxes {
             .iter()
             .map(|m| {
                 Ok(JmapMailbox {
-                    id: string(m, "id")?.to_owned(),
+                    id: string(m, "id")?.into(),
                     name: string(m, "name")?.to_owned(),
-                    parent: opt_string(m, "parentId")?.map(str::to_owned),
+                    parent: opt_string(m, "parentId")?.map(JmapMailboxId::from),
                     role: opt_string(m, "role")?.map(JmapRole::parse),
                     sort_order: unsigned(m, "sortOrder", 0)?,
                     // Required by RFC 8621; a server that leaves it out is taken to mean the
@@ -114,18 +117,18 @@ impl Mailboxes {
         })
     }
 
-    fn by_id(&self, id: &str) -> Option<&JmapMailbox> {
-        self.list.iter().find(|m| m.id == id)
+    fn by_id(&self, id: &JmapMailboxId) -> Option<&JmapMailbox> {
+        self.list.iter().find(|m| &m.id == id)
     }
 
     /// The path this client spells a mailbox by: its ancestors' names and its own, joined by
     /// [`DELIMITER`]. A parent the server did not list, or a loop of parents, ends the walk
     /// rather than the program.
-    pub fn path(&self, id: &str) -> Option<String> {
+    pub fn path(&self, id: &JmapMailboxId) -> Option<String> {
         let mut names = Vec::new();
         let mut at = self.by_id(id)?;
         names.push(at.name.as_str());
-        while let Some(parent) = at.parent.as_deref().and_then(|p| self.by_id(p)) {
+        while let Some(parent) = at.parent.as_ref().and_then(|p| self.by_id(p)) {
             if names.len() > self.list.len() {
                 break;
             }
@@ -137,26 +140,26 @@ impl Mailboxes {
     }
 
     /// The mailbox this client spells `path`, if the server lists one.
-    pub fn id_for_path(&self, path: &str) -> Option<&str> {
+    pub fn id_for_path(&self, path: &str) -> Option<&JmapMailboxId> {
         self.list
             .iter()
             .find(|m| self.path(&m.id).as_deref() == Some(path))
-            .map(|m| m.id.as_str())
+            .map(|m| &m.id)
     }
 
     /// The mailbox that files as `role`, if there is one. The first by sort order when the
     /// server marks several, which RFC 8621 allows only for roles this client does not file by.
-    pub fn id_for_role(&self, role: MailboxRole) -> Option<&str> {
+    pub fn id_for_role(&self, role: MailboxRole) -> Option<&JmapMailboxId> {
         self.list
             .iter()
             .filter(|m| m.role.as_ref().and_then(JmapRole::filed_as) == Some(role))
             .min_by_key(|m| m.sort_order)
-            .map(|m| m.id.as_str())
+            .map(|m| &m.id)
     }
 
     /// The mailboxes whose mail is not synced: Drafts, which holds this and other clients'
     /// unfinished mail, and Junk. The same two an IMAP account leaves alone.
-    pub fn unfollowed(&self) -> Vec<String> {
+    pub fn unfollowed(&self) -> Vec<JmapMailboxId> {
         self.list
             .iter()
             .filter(|m| matches!(m.role, Some(JmapRole::Drafts | JmapRole::Junk)))
@@ -198,7 +201,7 @@ impl Mailboxes {
     }
 
     /// The names an email in `ids` carries as labels: every mailbox it is in that has no role.
-    pub fn labels(&self, ids: &[String]) -> Vec<String> {
+    pub fn labels(&self, ids: &[JmapMailboxId]) -> Vec<String> {
         let mut labels: Vec<String> = ids
             .iter()
             .filter_map(|id| self.by_id(id))
@@ -210,7 +213,7 @@ impl Mailboxes {
     }
 
     /// The roles of the mailboxes in `ids` that file.
-    pub(super) fn filing_roles(&self, ids: &[String]) -> Vec<MailboxRole> {
+    pub(super) fn filing_roles(&self, ids: &[JmapMailboxId]) -> Vec<MailboxRole> {
         ids.iter()
             .filter_map(|id| self.by_id(id))
             .filter_map(|m| m.role.as_ref().and_then(JmapRole::filed_as))
@@ -218,7 +221,7 @@ impl Mailboxes {
     }
 
     /// Whether any mailbox in `ids` is one without a role: a label.
-    pub(super) fn any_label(&self, ids: &[String]) -> bool {
+    pub(super) fn any_label(&self, ids: &[JmapMailboxId]) -> bool {
         ids.iter()
             .filter_map(|id| self.by_id(id))
             .any(|m| m.role.is_none())

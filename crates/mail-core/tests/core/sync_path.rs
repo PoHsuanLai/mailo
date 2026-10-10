@@ -1453,7 +1453,7 @@ fn fetching_a_part_of_a_pop3_message_is_refused_before_anything_is_sent() {
         Arc::new(MemorySecrets::default()),
         &ClientRegistry::default(),
         id,
-        "2",
+        &"2".parse().unwrap(),
         now(),
     )
     .unwrap_err()

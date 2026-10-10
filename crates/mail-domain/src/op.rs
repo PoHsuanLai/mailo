@@ -254,6 +254,7 @@ pub enum RemoteIntent {
 
 /// The result of applying an [`Op`], or of planning a folder change with [`crate::folder::plan`].
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Applied {
     /// What to write locally, right now.
     pub forward: Patch,

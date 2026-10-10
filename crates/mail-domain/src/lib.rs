@@ -18,6 +18,7 @@ pub mod folder;
 pub mod id;
 pub mod ingest;
 pub mod invite;
+pub mod jmap_id;
 pub mod message;
 pub mod op;
 pub mod parts;
@@ -27,6 +28,7 @@ pub mod receipt;
 pub mod remote;
 pub mod retry;
 pub mod rule;
+pub mod section;
 pub mod signing;
 pub mod smime;
 pub mod state;
@@ -43,7 +45,7 @@ pub use address::Address;
 pub use autocrypt::{AutocryptPeer, PreferEncrypt, Sighting};
 pub use content::{Attachment, Body, Inline, Label, PartContent};
 pub use draft::{Draft, PendingAttachment, ReplyScope, SendState};
-pub use error::{FolderError, ParseAddressError, ParseFingerprintError};
+pub use error::{FolderError, ParseAddressError, ParseFingerprintError, ParseSectionError};
 pub use filter::{DateRange, Filed, Filter, Leaving, MatchCtx, Placed, TextMatch};
 pub use folder::{
     Folder, FolderContents, FolderCtx, FolderWork, Holds, NonEmpty, SpecialUse, Subscription,
@@ -54,6 +56,9 @@ pub use id::{
 };
 pub use ingest::{Fetched, Import, Ingest, Kept};
 pub use invite::{Attendance, InviteAnswer};
+pub use jmap_id::{
+    JmapAccountId, JmapBlobId, JmapEmailId, JmapIdentityId, JmapMailboxId, JmapThreadId,
+};
 pub use message::{Message, MessageKey, Thread, ThreadSummary};
 pub use op::{Action, Applied, Change, Op, OpKind, Patch, RemoteIntent, Target};
 pub use parts::PartTree;
@@ -68,6 +73,7 @@ pub use remote::{
 };
 pub use retry::{Retry, Retryable};
 pub use rule::{AfterMatch, Rule, RuleAction, RuleState, Vacation};
+pub use section::Section;
 pub use smime::{
     BadSignature, CertFingerprint, CertProblem, CertSource, Smime, SmimeCert, SmimeEncryption,
     SmimeVerification,

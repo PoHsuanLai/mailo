@@ -12,8 +12,8 @@ mod wire;
 
 pub use script::{Compiled, Places, Unmappable, VacationPlaced, compile, quoted};
 pub use session::{
-    Active, Deleted, Offered, ScriptEntry, SieveCaps, SieveJob, SieveLogin, SieveOutcome,
-    SieveSession, Takeover,
+    Active, Deleted, Offered, ScriptEntry, SieveAuthentication, SieveCaps, SieveJob, SieveLogin,
+    SieveOutcome, SieveSession, Takeover,
 };
 
 use mail_domain::{AccountPlan, AuthPlan, Incoming, Tls};

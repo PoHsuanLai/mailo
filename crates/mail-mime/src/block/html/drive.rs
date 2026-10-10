@@ -3,7 +3,7 @@
 use super::tags::{Frame, Kind, attr, code_lang, dir_attr, flush_buf, parse_px};
 use super::{Builder, Unheld};
 use crate::block::image::{is_spacer, resolve};
-use crate::block::kind::{Block, Dir, Span, first_strong, span_text, strip_overrides};
+use crate::block::kind::{Block, Dir, ListKind, Span, first_strong, span_text, strip_overrides};
 use crate::block::limits::Limits;
 use crate::block::limits::Reached;
 use crate::block::url::SafeUrl;
@@ -69,7 +69,11 @@ impl<'a> Builder<'a> {
             }
         }
         let mut frame = Frame::new(kind, name, forced);
-        frame.ordered = name == "ol";
+        frame.list = if name == "ol" {
+            ListKind::Numbered
+        } else {
+            ListKind::Bulleted
+        };
         frame.header = name == "th";
         frame.raw = kind == Kind::Pre;
         if kind == Kind::Anchor {
