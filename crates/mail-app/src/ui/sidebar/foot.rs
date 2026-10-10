@@ -16,11 +16,9 @@ use crate::ui::text::sender;
 use crate::ui::today::Today;
 use crate::ui::view::{Shell, Source};
 use dioxus::prelude::*;
-use ds::base::press::Press;
 use ds::components::app::spaces::Epoch;
 use ds::components::content::avatar::{AvatarFace, AvatarShape, AvatarSize, AvatarTone};
-use ds::components::controls::button_model::{Bezel, ImagePosition};
-use ds::host::measure::MountedRef;
+use ds::host::measure::{MountedRef, client_rect};
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::tokens::person::PersonSwatch;
@@ -213,8 +211,8 @@ fn save(dirs: &Option<WindowDirs>, today: &Today) {
     }
 }
 
-/// The chevron at the foot's right and the menu it opens. `on_new_space` hears where the button
-/// was pressed, for the name field to open at.
+/// The chevron at the foot's right and the menu it opens: quire's pull-down in its chevron face.
+/// `on_new_space` hears where the button stands, for the name field to open at.
 #[component]
 pub(in crate::ui) fn MoreMenu(
     shell: Signal<Shell>,
@@ -225,11 +223,10 @@ pub(in crate::ui) fn MoreMenu(
     side_hidden: Signal<bool>,
     on_new_space: EventHandler<Point>,
 ) -> Element {
-    let mut open = use_signal(|| false);
-    let mut pressed_at = use_signal(Point::default);
+    let mut open = use_signal(|| Shown::Hidden);
     let mut tool = use_signal(|| None::<MountedRef>);
     let desk = try_use_context::<Desk>();
-    let items = if open() {
+    let items = if open() == Shown::Visible {
         // Read so a send scheduled or taken back is in the list the next time it opens.
         if let Some(desk) = desk {
             let _ = desk.outbox.read();
@@ -245,67 +242,65 @@ pub(in crate::ui) fn MoreMenu(
         Vec::new()
     };
     rsx! {
-        Button {
-            bezel: Bezel::Toolbar,
-            image: ImagePosition::Only,
-            icon: Icon::ChevronDown,
-            label: "Sidebar menu",
-            title: "More".to_owned(),
-            shown: Some(if open() { Shown::Visible } else { Shown::Hidden }),
+        PullDownButton::<Pick> {
+            face: PullDownFace::Chevron,
+            items,
+            open: Some(open()),
+            on_open_change: move |to: Shown| open.set(to),
+            // A window with no renderer (the tests) has no rect to hang the menu from.
+            anchor: Some(crate::ui::menu::anchor_at(tool())),
             common: Common {
+                aria_label: Some("Sidebar menu".to_owned()),
                 mounted: Some(EventHandler::new(move |event: MountedEvent| {
                     tool.set(Some(MountedRef(event.data())));
                 })),
                 ..Common::default()
             },
-            onclick: move |press: Press| {
-                pressed_at.set(press.at);
-                open.toggle();
+            onpick: move |pick: Pick| match pick {
+                Pick::Thread(thread) => shell.write().open_from_today(thread),
+                Pick::ClearToday => {
+                    today.write().clear(space);
+                    save(&dirs, &today.read());
+                }
+                Pick::Draft(draft) => {
+                    if let Some(desk) = desk {
+                        reopen(desk, shell, draft);
+                    }
+                }
+                Pick::CancelSend(draft) => {
+                    if let Some(desk) = desk {
+                        // A refusal is said in the toast; the message stays as it was.
+                        let _ = cancel_waiting(desk, shell, draft);
+                    }
+                }
+                Pick::History => {
+                    let place = shell
+                        .read()
+                        .places
+                        .iter()
+                        .position(|place| place.source == Source::History);
+                    if let Some(index) = place {
+                        shell.write().select(index);
+                        pages.set(1);
+                    }
+                }
+                Pick::NewSpace => {
+                    // The name field opens at the chevron, read once the menu has gone.
+                    let button = tool();
+                    spawn(async move {
+                        let at = match button {
+                            Some(button) => client_rect(&button.0)
+                                .await
+                                .map(|rect| rect.origin)
+                                .unwrap_or_default(),
+                            None => Point::default(),
+                        };
+                        on_new_space.call(at);
+                    });
+                }
+                Pick::Settings => crate::ui::settings_window::open(),
+                Pick::ToggleSidebar => side_hidden.set(!side_hidden()),
             },
-        }
-        if open() {
-            Menu::<Pick> {
-                placement: MenuPlacement::Popup,
-                anchor: crate::ui::menu::anchor_at(tool()),
-                items,
-                common: Common {
-                    aria_label: Some("Sidebar menu".to_owned()),
-                    ..Common::default()
-                },
-                onpick: move |pick: Pick| match pick {
-                    Pick::Thread(thread) => shell.write().open_from_today(thread),
-                    Pick::ClearToday => {
-                        today.write().clear(space);
-                        save(&dirs, &today.read());
-                    }
-                    Pick::Draft(draft) => {
-                        if let Some(desk) = desk {
-                            reopen(desk, shell, draft);
-                        }
-                    }
-                    Pick::CancelSend(draft) => {
-                        if let Some(desk) = desk {
-                            // A refusal is said in the toast; the message stays as it was.
-                            let _ = cancel_waiting(desk, shell, draft);
-                        }
-                    }
-                    Pick::History => {
-                        let place = shell
-                            .read()
-                            .places
-                            .iter()
-                            .position(|place| place.source == Source::History);
-                        if let Some(index) = place {
-                            shell.write().select(index);
-                            pages.set(1);
-                        }
-                    }
-                    Pick::NewSpace => on_new_space.call(pressed_at()),
-                    Pick::Settings => crate::ui::settings_window::open(),
-                    Pick::ToggleSidebar => side_hidden.set(!side_hidden()),
-                },
-                onclose: move |()| open.set(false),
-            }
         }
     }
 }
