@@ -11,7 +11,7 @@ use super::JmapEngine;
 use crate::engine::wait::due_alarm;
 use crate::{Cancel, RuntimeError, Woke};
 use chrono::Utc;
-use mail_proto::jmap::{EventStream, StateChange};
+use mail_proto::jmap::{EventKind, EventStream, StateChange};
 use std::time::Duration;
 
 /// How often the server is asked to ping. Also how silence is judged: three missed pings and
@@ -106,12 +106,12 @@ impl JmapEngine {
                 return Ok(false);
             };
             for event in stream.feed(&bytes) {
-                if event.kind != "state" {
+                if event.kind != EventKind::State {
                     continue;
                 }
                 // A push that does not parse is a push; the pass that follows will say whether
                 // anything changed.
-                let Ok(change) = StateChange::parse(&event.data) else {
+                let Ok(change) = event.data.parse::<StateChange>() else {
                     return Ok(true);
                 };
                 if news(&change, account, synced.as_ref()) {

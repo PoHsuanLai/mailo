@@ -162,7 +162,11 @@ fn a_cleaned_link_is_already_canonical() {
     for (case, sent, _) in CASES {
         let once = SafeUrl::link(sent).expect("every case is a link");
         assert_eq!(SafeUrl::link(once.as_str()), Some(once.clone()), "{case}");
-        assert_eq!(SafeUrl::parse(once.as_str()), Some(once.clone()), "{case}");
+        assert_eq!(
+            once.as_str().parse::<SafeUrl>().ok(),
+            Some(once.clone()),
+            "{case}"
+        );
     }
 }
 
@@ -178,7 +182,7 @@ fn link_refuses_what_parse_refuses() {
         "https://?utm_source=x",
         "",
     ] {
-        assert_eq!(SafeUrl::parse(raw), None, "{raw:?}");
+        assert_eq!(raw.parse::<SafeUrl>().ok(), None, "{raw:?}");
         assert_eq!(SafeUrl::link(raw), None, "{raw:?}");
     }
 }

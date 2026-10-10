@@ -46,7 +46,7 @@ pub fn start_of(args: &[String]) -> Option<Result<Start, String>> {
 /// arguments to [`start_of`] and the CLI.
 pub fn mailto_of(args: &[String]) -> Option<MailtoUri> {
     match args {
-        [uri] => MailtoUri::parse(uri),
+        [uri] => uri.parse().ok(),
         _ => None,
     }
 }

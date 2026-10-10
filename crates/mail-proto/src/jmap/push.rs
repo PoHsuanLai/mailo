@@ -11,10 +11,34 @@ use serde_json::Value;
 /// One dispatched event.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Event {
-    /// The `event:` field: `state` or `ping` from a JMAP server. `message` when absent.
-    pub kind: String,
+    /// The `event:` field.
+    pub kind: EventKind,
     /// Every `data:` line, joined by line feeds.
     pub data: String,
+}
+
+/// What an event is, from its `event:` field.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EventKind {
+    /// `state`: a [`StateChange`] in the data.
+    State,
+    /// `ping`: the server keeping the stream open.
+    Ping,
+    /// No `event:` field at all, which the standard calls `message`.
+    Message,
+    /// Any other name.
+    Other(String),
+}
+
+impl EventKind {
+    fn named(name: &str) -> EventKind {
+        match name {
+            "" | "message" => EventKind::Message,
+            "state" => EventKind::State,
+            "ping" => EventKind::Ping,
+            other => EventKind::Other(other.to_owned()),
+        }
+    }
 }
 
 /// An event stream being read.
@@ -70,11 +94,7 @@ impl EventStream {
             }
             let kind = std::mem::take(&mut self.kind);
             return Some(Event {
-                kind: if kind.is_empty() {
-                    "message".to_owned()
-                } else {
-                    kind
-                },
+                kind: EventKind::named(&kind),
                 data: std::mem::take(&mut self.data).join("\n"),
             });
         }
@@ -102,9 +122,11 @@ pub struct StateChange {
     pub changed: Vec<(String, Vec<(String, String)>)>,
 }
 
-impl StateChange {
+impl std::str::FromStr for StateChange {
+    type Err = ProtoError;
+
     /// Parse the data of a `state` event.
-    pub fn parse(data: &str) -> Result<StateChange, ProtoError> {
+    fn from_str(data: &str) -> Result<StateChange, ProtoError> {
         let value: Value = serde_json::from_str(data)
             .map_err(|e| malformed(format!("a push is not JSON: {e}")))?;
         if value.get("@type").and_then(Value::as_str) != Some("StateChange") {
@@ -131,7 +153,9 @@ impl StateChange {
             .collect();
         Ok(StateChange { changed })
     }
+}
 
+impl StateChange {
     /// The new state of `kind` (`Email`, `Mailbox`) on `account`, if this change names one.
     pub fn state(&self, account: &str, kind: &str) -> Option<&str> {
         self.changed
@@ -160,11 +184,11 @@ mod tests {
                 events,
                 vec![
                     Event {
-                        kind: "state".to_owned(),
+                        kind: EventKind::State,
                         data: "{\"a\":1}".to_owned()
                     },
                     Event {
-                        kind: "ping".to_owned(),
+                        kind: EventKind::Ping,
                         data: "{\"interval\":300}".to_owned()
                     },
                 ],
@@ -176,15 +200,14 @@ mod tests {
     #[test]
     fn a_state_change_names_what_changed_per_account() {
         // RFC 8620 §7.1's example.
-        let change = StateChange::parse(
-            r#"{"@type":"StateChange","changed":{
+        let change: StateChange = r#"{"@type":"StateChange","changed":{
                 "a456":{"Email":"d35ecb040aab","EmailDelivery":"428d565f2440","CalendarEvent":"87accfac587a"},
-                "a901":{"Mailbox":"993f41b78d7e"}}}"#,
-        )
-        .unwrap();
+                "a901":{"Mailbox":"993f41b78d7e"}}}"#
+            .parse()
+            .unwrap();
         assert_eq!(change.state("a456", "Email"), Some("d35ecb040aab"));
         assert_eq!(change.state("a901", "Mailbox"), Some("993f41b78d7e"));
         assert_eq!(change.state("a901", "Email"), None);
-        assert!(StateChange::parse(r#"{"@type":"Other"}"#).is_err());
+        assert!(r#"{"@type":"Other"}"#.parse::<StateChange>().is_err());
     }
 }

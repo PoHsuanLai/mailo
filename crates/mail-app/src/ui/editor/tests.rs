@@ -84,7 +84,9 @@ fn caret_event(input_type: &str, data: Option<&str>, caret: Pos, composing: bool
 }
 
 fn url() -> SafeUrl {
-    SafeUrl::parse("https://example.com/a").expect("a fixed https URL parses")
+    "https://example.com/a"
+        .parse()
+        .expect("a fixed https URL parses")
 }
 
 fn marks_of(list: &[Mark]) -> Marks {

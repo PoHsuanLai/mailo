@@ -29,7 +29,7 @@ pub(crate) fn resolve(
     }
     match images {
         RemoteImages::Blocked => image_host(src).map(|host| ImgSrc::Blocked { host }),
-        RemoteImages::Allowed => SafeUrl::parse(src).map(ImgSrc::Remote),
+        RemoteImages::Allowed => src.parse::<SafeUrl>().ok().map(ImgSrc::Remote),
     }
 }
 

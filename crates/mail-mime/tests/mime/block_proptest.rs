@@ -28,7 +28,7 @@ proptest! {
         let safe = sanitize(&fragment, support::policy(mail_mime::RemoteImages::Allowed));
         let doc = from_html(&safe, &[], mail_mime::RemoteImages::Allowed);
         for url in support::urls(&doc) {
-            prop_assert_eq!(SafeUrl::parse(url.as_str()), Some(url.clone()));
+            prop_assert_eq!(url.as_str().parse::<SafeUrl>().ok(), Some(url.clone()));
         }
     }
 }

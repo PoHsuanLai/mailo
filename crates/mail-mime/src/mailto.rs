@@ -25,16 +25,21 @@ pub struct MailtoUri {
     pub body: String,
 }
 
-impl MailtoUri {
-    /// Read `uri`, which must start with the `mailto:` scheme (in any case). `None` when it is
+impl std::str::FromStr for MailtoUri {
+    type Err = crate::NotMailto;
+
+    /// Read `uri`, which must start with the `mailto:` scheme (in any case). Refused when it is
     /// some other scheme or no URI at all.
-    pub fn parse(uri: &str) -> Option<Self> {
-        let (scheme, rest) = uri.trim().split_once(':')?;
+    fn from_str(uri: &str) -> Result<Self, Self::Err> {
+        let (scheme, rest) = uri.trim().split_once(':').ok_or(crate::NotMailto)?;
         scheme
             .eq_ignore_ascii_case("mailto")
             .then(|| Self::after_scheme(rest))
+            .ok_or(crate::NotMailto)
     }
+}
 
+impl MailtoUri {
     /// Read the part of a `mailto:` URI after the scheme (RFC 6068 §2).
     ///
     /// A field that appears twice: the address lists gather every occurrence, the subject and
@@ -303,7 +308,10 @@ mod tests {
     #[test]
     fn a_mailto_uri_reads_as_the_message_it_asks_for() {
         for case in CASES {
-            let got = MailtoUri::parse(case.uri).unwrap_or_else(|| panic!("{}: refused", case.uri));
+            let got = case
+                .uri
+                .parse::<MailtoUri>()
+                .unwrap_or_else(|_| panic!("{}: refused", case.uri));
             let want = MailtoUri {
                 to: to(case.to),
                 cc: to(case.cc),
@@ -323,7 +331,7 @@ mod tests {
             "a@example.org",
             "",
         ] {
-            assert_eq!(MailtoUri::parse(uri), None, "case {uri:?}");
+            assert_eq!(uri.parse::<MailtoUri>().ok(), None, "case {uri:?}");
         }
     }
 

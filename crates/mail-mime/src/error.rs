@@ -87,3 +87,18 @@ impl Retryable for MboxError {
         Retry::Fatal(self.to_string())
     }
 }
+
+/// Text that is not a `mailto:` URI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("not a mailto: URI")]
+pub struct NotMailto;
+
+/// Text that is not a link this crate will keep: see [`SafeUrl`](crate::SafeUrl).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("not an http, https or mailto link that is safe to show")]
+pub struct UnsafeUrl;
+
+/// Text that is not an `https:` URL a one-click unsubscribe may `POST` to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("not an https URL without credentials")]
+pub struct NotHttpsUrl;
