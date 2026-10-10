@@ -6,8 +6,9 @@
 //! rather than a `Clock` trait, per `CONVENTIONS.md` §6.
 
 use crate::error::Failure;
+use crate::error::within;
 use crate::tokens::{AfterRefusal, Token, TokenSource};
-use crate::{AccountSecrets, Cancel, RuntimeError, Transport, drive};
+use crate::{AccountSecrets, Cancel, RuntimeError, Transport, drive, drive_within};
 use chrono::{DateTime, Utc};
 use mail_domain::{
     AccountCaps, AccountPlan, BlobId, Condstore, FetchSince, Incoming, MailboxRef, MailboxRole,
@@ -456,7 +457,12 @@ impl<B: Backend> AccountEngine<B> {
                 retry: Retry::Fatal(format!("no {} server granted", family.slug())),
             });
         };
-        Ok(Some(link.open(grant, endpoint).await?))
+        // accountd dials, secures and signs in before it answers, so this is an exchange's
+        // patience rather than a handshake's.
+        let opened = within(crate::drive::QUIET, "opening a relay", async {
+            link.open(grant, endpoint).await.map_err(RuntimeError::from)
+        });
+        Ok(Some(opened.await?))
     }
 
     /// Run one operation, with a token that is fresh — and, if the server refuses a token that
@@ -574,12 +580,19 @@ impl<B: Backend> AccountEngine<B> {
             let bytes = self.store.blobs().get(*raw)?;
             self.backend.stage_append(bytes);
         }
+        // A watch is quiet by design, parked in IDLE until there is news, and `wait` ends it at
+        // `IDLE_REARM`; this is only the floor under that. Anything else that goes this quiet
+        // is a connection that is gone.
+        let quiet = match op {
+            ProtoOp::Watch { .. } => wait::IDLE_REARM + crate::drive::QUIET,
+            _ => crate::drive::QUIET,
+        };
         let mut transport = self.connect().await?;
         let mut step = BackendMachine {
             backend: &mut self.backend,
             op: Some(op),
         };
-        drive(&mut step, &mut transport, cancel).await
+        drive_within(&mut step, &mut transport, cancel, quiet).await
     }
 
     /// Run one operation through Microsoft Graph, and remap whatever it moved.

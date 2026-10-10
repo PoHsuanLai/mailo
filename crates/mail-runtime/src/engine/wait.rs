@@ -18,6 +18,14 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::watch;
 
+/// The longest one IMAP `IDLE` is held before it is ended and issued again.
+///
+/// RFC 2177 has a server drop an idle client after thirty minutes, and asks the client to
+/// re-issue IDLE within twenty-nine. Twenty-five leaves room for a slow `DONE` and matches the
+/// JMAP event stream's hold (`jmap::push`). It is also the longest a connection a NAT forgot can
+/// go unnoticed while it is parked: the exchange that ends it fails, or the pass after it does.
+pub const IDLE_REARM: Duration = Duration::from_secs(25 * 60);
+
 /// What ended a wait.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Woke {

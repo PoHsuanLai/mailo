@@ -1,12 +1,16 @@
-//! The drive loop against a real socket.
+//! The drive loop against a real socket, and against a silent one in memory.
 //!
 //! A loopback `TcpListener` rather than a mock: the thing most likely to be wrong here is how
 //! the loop behaves when bytes arrive in pieces or a peer hangs up, and a mock transport would
 //! only assert my own assumptions back at me.
 
-use mail_domain::Tls;
+use mail_domain::{Retry, Retryable, Tls};
 use mail_proto::{IoNeed, IoReady, Machine, Progress, ProtoError, Refusal};
-use mail_runtime::{Transport, drive};
+use mail_runtime::drive::{QUIET, WIND_DOWN};
+use mail_runtime::{RuntimeError, Transport, drive};
+use porter_client::AuthenticatedStream;
+use porter_core::stream::{ByteStream, DuplexEnd, duplex};
+use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::watch;
@@ -180,5 +184,104 @@ async fn cancelling_interrupts_a_parked_machine_and_lets_it_send_done() {
         String::from_utf8_lossy(&server.await.unwrap()).trim_end(),
         "DONE",
         "the machine must wind down in protocol before the loop gives up"
+    );
+}
+
+/// A connection held in memory, and the server's end of it for the test to speak through.
+///
+/// On a paused clock, which a loopback socket does not mix with: nothing here waits on the
+/// kernel, so the only thing that moves time is the deadline under test.
+fn in_memory(capacity: usize) -> (Transport, DuplexEnd) {
+    let (ours, theirs) = duplex(capacity);
+    let transport = Transport::relayed(AuthenticatedStream::Memory(ours)).expect("in memory");
+    (transport, theirs)
+}
+
+/// A server that greets and then never says another word: a NAT that forgot the connection, or
+/// a provider that dropped it without a reset. Nothing tells that apart from a slow server but
+/// the clock, so after [`QUIET`] the exchange is called stalled, as an error a reconnect answers,
+/// rather than parked on for ever.
+#[tokio::test(start_paused = true)]
+async fn a_server_gone_silent_is_stalled_not_waited_on() {
+    let (mut transport, mut server) = in_memory(64 * 1024);
+    ByteStream::write_all(&mut server, b"+OK ready\r\n")
+        .await
+        .unwrap();
+    let (_tx, mut cancel) = watch::channel(false);
+    let began = tokio::time::Instant::now();
+
+    let err = drive(&mut Echo::default(), &mut transport, &mut cancel)
+        .await
+        .expect_err("a server that never answers does not complete a session");
+
+    assert!(
+        matches!(err, RuntimeError::Stalled { after, .. } if after == QUIET),
+        "{err:?}"
+    );
+    let waited = began.elapsed();
+    assert!(
+        waited >= QUIET && waited < QUIET + Duration::from_secs(1),
+        "{waited:?}"
+    );
+    assert!(
+        matches!(err.retry(), Retry::After(_)),
+        "a stalled connection is answered by a new one: {:?}",
+        err.retry()
+    );
+    // Kept open to the end: a dropped end is an EOF, which is the other failure.
+    drop(server);
+}
+
+/// The wait the deadline is given back to: a server that speaks, however slowly, is not
+/// stalled. Silence just short of [`QUIET`] between each line still completes.
+#[tokio::test(start_paused = true)]
+async fn a_slow_server_is_not_a_stalled_one() {
+    let (mut transport, mut server) = in_memory(64 * 1024);
+    let speaking = tokio::spawn(async move {
+        let nearly = QUIET - Duration::from_secs(1);
+        tokio::time::sleep(nearly).await;
+        ByteStream::write_all(&mut server, b"+OK ready\r\n")
+            .await
+            .unwrap();
+        tokio::time::sleep(nearly).await;
+        ByteStream::write_all(&mut server, b"+OK done\r\n")
+            .await
+            .unwrap();
+        server
+    });
+    let (_tx, mut cancel) = watch::channel(false);
+    let out = drive(&mut Echo::default(), &mut transport, &mut cancel)
+        .await
+        .expect("a slow server is still a server");
+    assert_eq!(out, "+OK done");
+    drop(speaking.await.unwrap());
+}
+
+/// The wind-down after an interrupt is bounded too. A peer that stopped reading leaves `DONE`
+/// stuck behind a full buffer, and a cancellation that waited on it would be a hang of its own.
+#[tokio::test(start_paused = true)]
+async fn the_wind_down_after_an_interrupt_is_bounded() {
+    // Room for one byte: `DONE` cannot be written unless the server reads, and it never does.
+    let (mut transport, mut server) = in_memory(1);
+    tokio::spawn(async move {
+        ByteStream::write_all(&mut server, b"+OK IDLE\r\n")
+            .await
+            .unwrap();
+        // Holds its end open and reads nothing, for ever.
+        std::future::pending::<()>().await;
+        drop(server);
+    });
+    let (tx, mut cancel) = watch::channel(false);
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let _ = tx.send(true);
+    });
+
+    let err = drive(&mut Echo::default(), &mut transport, &mut cancel)
+        .await
+        .expect_err("a wind-down that cannot be written does not complete");
+    assert!(
+        matches!(err, RuntimeError::Stalled { after, .. } if after == WIND_DOWN),
+        "{err:?}"
     );
 }

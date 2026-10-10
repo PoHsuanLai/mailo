@@ -5,6 +5,7 @@
 //! connections a push needs — one to learn what the server's Sieve can do, one to install a
 //! script written for exactly that.
 
+use crate::error::within;
 use crate::{Cancel, RuntimeError, Transport, drive};
 use chrono::{DateTime, Utc};
 use mail_domain::{Rule, Vacation};
@@ -46,7 +47,17 @@ pub async fn manage(
     cancel: &mut Cancel,
 ) -> Result<SieveOutcome, RuntimeError> {
     let mut transport = match &auth.relay {
-        Some(relay) => relay.link.open(&relay.grant, &relay.endpoint).await?,
+        // Bounded as the engines' relays are (`AccountEngine::connect`): accountd signs in first.
+        Some(relay) => {
+            within(crate::drive::QUIET, "opening a relay", async {
+                relay
+                    .link
+                    .open(&relay.grant, &relay.endpoint)
+                    .await
+                    .map_err(RuntimeError::from)
+            })
+            .await?
+        }
         None => Transport::connect(&endpoint.host, endpoint.port, endpoint.tls).await?,
     };
     let mut session = SieveSession::new(

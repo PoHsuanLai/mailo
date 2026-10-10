@@ -106,6 +106,14 @@ pub enum RuntimeError {
     /// The engine was asked to stop.
     #[error("cancelled")]
     Cancelled,
+    /// The other end went quiet for longer than `doing` may take: no byte, no acknowledgement,
+    /// no close. A NAT or a provider that drops a connection without a word leaves exactly
+    /// this, a socket that looks open and never speaks again, so waiting on is only a hang.
+    #[error("no answer from the server for {}s while {doing}", .after.as_secs())]
+    Stalled {
+        doing: &'static str,
+        after: Duration,
+    },
     /// Microsoft Graph answered, and not with acceptance. Classified where the status is read.
     #[error("{why}")]
     Graph { why: String, retry: Retry },
@@ -126,7 +134,11 @@ impl Retryable for RuntimeError {
         match self {
             // A dropped connection or a name that did not resolve this second. Reconnecting is
             // the whole remedy, and the cost is one round trip.
-            RuntimeError::Connect(_) | RuntimeError::Io(_) => Retry::After(Duration::from_secs(5)),
+            // A connection that went silent is one that is gone, whatever the socket says: the
+            // same remedy, a new one.
+            RuntimeError::Connect(_) | RuntimeError::Io(_) | RuntimeError::Stalled { .. } => {
+                Retry::After(Duration::from_secs(5))
+            }
             // Either the clock is wrong, the network is hostile, or the server really did
             // present a bad chain. None of those is fixed by trying again in a loop, and
             // retrying a rejected certificate is how a client teaches its user to ignore it.
@@ -150,6 +162,23 @@ impl Retryable for RuntimeError {
             RuntimeError::CardDav(failure) => failure.retry(),
         }
     }
+}
+
+/// `work`, or [`RuntimeError::Stalled`] once `limit` has passed without it finishing.
+///
+/// The one way a network await in this crate is bounded, so that running out of time is always
+/// the same typed error, which [`Retryable::retry`] answers with a reconnect.
+pub(crate) async fn within<T>(
+    limit: Duration,
+    doing: &'static str,
+    work: impl std::future::Future<Output = Result<T, RuntimeError>>,
+) -> Result<T, RuntimeError> {
+    tokio::time::timeout(limit, work).await.unwrap_or_else(|_| {
+        Err(RuntimeError::Stalled {
+            doing,
+            after: limit,
+        })
+    })
 }
 
 /// A JMAP method's refusal is a protocol failure like any other, classified where its type is

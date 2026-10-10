@@ -210,6 +210,14 @@ fn each_failure_says_what_kind_of_wait_it_asks_for() {
             Pause::Unreachable,
         ),
         (
+            "a connection gone silent",
+            RuntimeError::Stalled {
+                doing: "waiting for its answer",
+                after: Duration::from_secs(240),
+            },
+            Pause::Unreachable,
+        ),
+        (
             "rate limit, with a named wait",
             proto(ProtoError::Throttled {
                 reason: "slow down".into(),
@@ -250,6 +258,49 @@ fn each_failure_says_what_kind_of_wait_it_asks_for() {
             "{name}: the decision is unchanged"
         );
     }
+}
+
+/// A pass stopped by a silent connection leaves its account waiting to try again, on a timer,
+/// never syncing for ever: the 40 hours an IDLE account sat on a socket a NAT had forgotten.
+#[test]
+fn a_stalled_pass_leaves_the_account_waiting_with_a_wake() {
+    use crate::fetch::{Effect, Event, First, Link, Step, step};
+    let error = RuntimeError::Stalled {
+        doing: "waiting for its answer",
+        after: std::time::Duration::from_secs(240),
+    };
+    let failure = Failure::of("", &error);
+    let syncing = Link::Syncing {
+        first: First::No,
+        step: Step::Headers {
+            mailbox: "INBOX".to_owned(),
+        },
+        count: None,
+        after: Box::new(Link::Fresh),
+    };
+    let event = Event::Failed {
+        retry: failure.retry,
+        why: failure.why,
+        pause: failure.pause,
+    };
+    let every = std::time::Duration::from_secs(300);
+    let (next, effects) = step(&syncing, event, now(), every);
+    assert!(
+        matches!(
+            next,
+            Link::Waiting {
+                why: Pause::Unreachable,
+                ..
+            }
+        ),
+        "{next:?}"
+    );
+    assert!(
+        effects
+            .iter()
+            .any(|e| matches!(e, Effect::WakeAt(at) if *at > now())),
+        "nothing will wake it: {effects:?}"
+    );
 }
 
 #[test]
