@@ -17,9 +17,9 @@ use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::icon::render::Glyph;
 use ds::style::tokens::control_size::ControlSize;
+use mail_core::SqliteStore;
 use mail_core::notify::Notifier;
 use mail_domain::{FollowUp, Op, ThreadId};
-use mail_store::SqliteStore;
 use std::sync::Arc;
 use std::time::Duration;
 

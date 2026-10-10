@@ -10,8 +10,8 @@ use dioxus::prelude::*;
 use ds::prelude::*;
 use ds::root::common::Common;
 use mail_core::fetch::{Body as BodyState, BodyEffect, BodyEvent};
+use mail_core::{SqliteStore, Store as _};
 use mail_domain::{Incoming, MessageId, Retry};
-use mail_store::{SqliteStore, Store as _};
 use porter_core::AccountId;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -237,7 +237,7 @@ pub(super) fn BodyPane(message: MessageId, account: AccountId, mut landed: Signa
             // `spawn_blocking`: the fetch waits on the application's runtime (`edge::block_on`).
             // Claimed for as long as it runs, so a body pass that starts meanwhile leaves it to us.
             let done = tokio::task::spawn_blocking(move || {
-                let _claim = mail_runtime::wanted::claim(message);
+                let _claim = mail_core::wanted::claim(message);
                 fetch(store, message)
             })
             .await;

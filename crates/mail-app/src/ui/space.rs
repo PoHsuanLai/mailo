@@ -14,7 +14,6 @@ use ds::components::app::spaces;
 use ds::prelude::SpaceLook;
 use ds::style::tokens::person::PersonSwatch;
 use ds_settings::{Fixup, SpacesStorage};
-use mail_domain::Filter;
 use porter_core::AccountId;
 use serde::de::Deserializer;
 use serde::{Deserialize, Serialize};
@@ -26,6 +25,7 @@ mod recall;
 
 pub use ds::components::app::spaces::SpaceId;
 pub use forget::{Forgot, forget_account, forget_unknown};
+pub use mail_core::scope::Scope;
 pub use member::{Member, with_member};
 pub use recall::Recall;
 
@@ -37,48 +37,6 @@ pub type Spaces = spaces::Spaces<Mail, Recall>;
 
 /// The window's Spaces as quire's controller drives them: switching, the menu, and writing.
 pub type Handle = spaces::SpacesHandle<Mail, Recall>;
-
-/// Which accounts a Space shows.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(tag = "kind", content = "v", rename_all = "snake_case")]
-pub enum Scope {
-    /// Every account, in one list.
-    #[default]
-    All,
-    /// These accounts and no others. None at all is a Space that shows nothing, which is what
-    /// a Space whose accounts were all removed is until one is added to it.
-    Accounts(Vec<AccountId>),
-}
-
-impl Scope {
-    /// Whether `account`'s mail is in it.
-    pub fn shows(&self, account: AccountId) -> bool {
-        match self {
-            Scope::All => true,
-            Scope::Accounts(ids) => ids.contains(&account),
-        }
-    }
-
-    /// Only `pressed`, when an account tile is pressed; else this.
-    pub fn narrowed(&self, pressed: Option<AccountId>) -> Scope {
-        match pressed {
-            Some(id) => Scope::Accounts(vec![id]),
-            None => self.clone(),
-        }
-    }
-
-    /// As a store filter. `None` is every account, and no accounts is [`Filter::Nothing`].
-    pub fn filter(&self) -> Option<Filter> {
-        match self {
-            Scope::All => None,
-            Scope::Accounts(ids) => Some(match ids.as_slice() {
-                [] => Filter::Nothing,
-                [one] => Filter::Account(one.clone()),
-                many => Filter::Or(many.iter().cloned().map(Filter::Account).collect()),
-            }),
-        }
-    }
-}
 
 /// A shortcut that stays in the sidebar.
 ///

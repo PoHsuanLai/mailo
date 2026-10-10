@@ -19,9 +19,9 @@ pub(super) use bar::Receipts;
 
 use chrono::{DateTime, Utc};
 use mail_core::receipt::{ReceiptState, Settled};
+use mail_core::{SqliteStore, Store};
 use mail_domain::*;
 use mail_mime::ReturnPath;
-use mail_store::{SqliteStore, Store};
 
 /// One message's standing, with the name the bar calls its sender by.
 #[derive(Debug, Clone, PartialEq, Eq)]

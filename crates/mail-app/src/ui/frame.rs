@@ -6,7 +6,7 @@ use crate::ui::appearance::WindowDirs;
 use crate::ui::space::{self, Spaces};
 use crate::ui::today::{self, Today};
 use dioxus::prelude::*;
-use mail_store::SqliteStore;
+use mail_core::SqliteStore;
 use std::sync::Arc;
 
 /// What the first render needs, and nothing it has to ask the disk for again.

@@ -12,7 +12,7 @@ use ds::file_drop::drag::FileDrop;
 use ds::file_drop::hook::{FileDropHandle, use_file_drop};
 use ds::prelude::*;
 use ds::root::common::Common;
-use mail_store::SqliteStore;
+use mail_core::SqliteStore;
 
 use super::life;
 use super::page::{Guard, Page};

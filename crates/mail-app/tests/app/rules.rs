@@ -9,12 +9,12 @@ use chrono::{DateTime, TimeZone, Utc};
 use mail_app::cli;
 use mail_core::sync;
 use mail_core::sync::report::{AccountReport, PassEnd};
+use mail_core::{SqliteStore, Store};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_proto::backend::{Authenticate, ImapBackend};
 use mail_proto::{ImapAuth, ImapCommand, ImapSession};
 use mail_runtime::AccountEngine;
-use mail_store::{SqliteStore, Store};
 use porter_core::SecretText;
 use porter_core::{AccountId, Credential};
 use porter_secrets::MemorySecrets;
@@ -33,7 +33,7 @@ fn run(store: &SqliteStore, words: &[&str]) -> Result<String, String> {
         store,
         &command,
         now(),
-        &mail_runtime::ClientRegistry::default(),
+        &mail_core::ClientRegistry::default(),
     )
 }
 

@@ -18,12 +18,12 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Utc};
+use mail_core::SqliteStore;
 use mail_core::account::Setup;
 use mail_core::discover::{Failed, Found, Looked as Resolved};
 use mail_core::password::Password;
 use mail_domain::presets::{self, Preset};
 use mail_domain::{AuthPlan, HttpAuth};
-use mail_store::SqliteStore;
 use porter_core::sheet::{
     Entry, FieldAnswer, FieldKind, FieldSpec, FieldValue, Manual as Typed, Presence, Protocol,
     SignInFault, SignInInput, manual_form, parse_manual,

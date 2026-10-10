@@ -5,13 +5,13 @@
 //! a removal into a success. The words are the window's sheet's, said for a terminal.
 
 use super::{Consent, account_named};
+use mail_core::AccountSecrets;
 use mail_core::account::{
     Added, ClientRecord, GraphSetup, Listed, MicrosoftRoute, Outcome, Readiness,
 };
 use mail_core::{SqliteStore, Store};
 use mail_domain::presets::PasswordWarning;
 use mail_domain::{AccountPlan, Incoming, LeaveOnServer};
-use mail_runtime::AccountSecrets;
 use porter_provider::Issuer;
 use std::fmt::Write as _;
 use std::path::Path;
@@ -299,8 +299,8 @@ fn password_warning_words(warning: PasswordWarning) -> &'static str {
 mod tests {
     use super::{asking, remove};
     use crate::cli::Consent;
+    use mail_core::SqliteStore;
     use mail_domain::{Incoming, LeaveOnServer, Tls, presets};
-    use mail_store::SqliteStore;
     use porter_secrets::MemorySecrets;
 
     const ADDRESS: &str = "me@nowhere.example";

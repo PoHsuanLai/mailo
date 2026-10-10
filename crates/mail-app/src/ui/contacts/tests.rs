@@ -4,8 +4,9 @@
 use std::sync::Arc;
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_core::contacts::Origin;
+use mail_core::{SqliteStore, Store};
 use mail_domain::*;
-use mail_store::{Origin, SqliteStore, Store};
 
 use super::book;
 use crate::ui::fixtures::acct_account;

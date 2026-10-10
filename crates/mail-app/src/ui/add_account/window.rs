@@ -24,7 +24,7 @@ use ds_shell::accounts::model::StepTitle;
 use ds_shell::prelude::{
     BrowserWait, ProviderList, ReviewServices, ShowCode, SignInFailed, SignInForm, SignInWorking,
 };
-use mail_store::SqliteStore;
+use mail_core::SqliteStore;
 use porter_core::AccountId;
 
 use super::host::{self, Ended, Shown};

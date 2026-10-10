@@ -2,10 +2,6 @@
 //! calling it from `mailo open`.
 
 use super::{ActivationToken, NAME, PATH, Request, requests_of, uri_of};
-use crate::ui::open_thread;
-use crate::ui::view::Shell;
-use dioxus::prelude::*;
-use ds_blitz::use_window_handle;
 use mail_domain::ThreadId;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -38,7 +34,8 @@ impl Requests {
         (requests, sender)
     }
 
-    fn take(&self) -> Option<UnboundedReceiver<Request>> {
+    /// The queue, once: the window reads it on the thread that draws.
+    pub fn take(&self) -> Option<UnboundedReceiver<Request>> {
         self.queue
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -123,41 +120,6 @@ pub fn deliver(thread: ThreadId, token: Option<&str>) -> bool {
             &(vec![uri_of(thread)], platform_data),
         )
         .is_ok()
-}
-
-/// Read what the running window is asked, on the thread that draws: open each conversation in
-/// this window (`shell`, as a click on its row would) and raise the window with the request's
-/// activation token. Called once, from `App`; a window with no [`Requests`] reads nothing.
-pub(in crate::ui) fn use_handoff(shell: Signal<Shell>) {
-    let Some(requests) = try_consume_context::<Requests>() else {
-        return;
-    };
-    let window = use_window_handle();
-    use_future(move || {
-        let requests = requests.clone();
-        let window = window.clone();
-        let mut shell = shell;
-        async move {
-            let Some(mut queue) = requests.take() else {
-                return;
-            };
-            while let Some(request) = queue.recv().await {
-                let token = match request {
-                    Request::Thread { thread, token } => {
-                        // Said on stderr, which the session's journal keeps: the one trace of what
-                        // a click did to a window with no other way to ask it.
-                        eprintln!("opened conversation {thread}");
-                        open_thread(&mut shell.write(), thread);
-                        token
-                    }
-                    Request::Activate { token } => token,
-                };
-                if let Some(window) = &window {
-                    window.focus_with_token(token.map(ActivationToken::into_string));
-                }
-            }
-        }
-    });
 }
 
 #[cfg(test)]

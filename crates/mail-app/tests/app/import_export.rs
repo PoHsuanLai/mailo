@@ -4,17 +4,17 @@
 
 use chrono::{DateTime, TimeZone, Utc};
 use mail_app::cli;
+use mail_core::ClientRegistry;
 use mail_core::Environment;
 use mail_core::compose;
 use mail_core::export;
 use mail_core::import;
 use mail_core::sync;
+use mail_core::{SqliteStore, Store};
 use mail_domain::id::new_account_id;
 use mail_domain::*;
 use mail_mime::archive::maildir::INFO;
 use mail_mime::archive::mbox;
-use mail_runtime::ClientRegistry;
-use mail_store::{SqliteStore, Store};
 use porter_core::{AccountId, Credential, SecretKey};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};

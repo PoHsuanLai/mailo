@@ -61,7 +61,7 @@ pub(super) fn Places(
     let space = spaces.read().current().clone();
     let counted = use_memo(move || {
         let _ = revision();
-        let store = consume_context::<std::sync::Arc<mail_store::SqliteStore>>();
+        let store = consume_context::<std::sync::Arc<mail_core::SqliteStore>>();
         counts(&store, spaces.read().current())
     });
     // The accounts the Folders section is for. A memo, so a keystroke in the search box — a
@@ -70,7 +70,7 @@ pub(super) fn Places(
     let show = use_signal(|| Show::Followed);
     let folders = use_memo(move || {
         let _ = revision();
-        let store = consume_context::<std::sync::Arc<mail_store::SqliteStore>>();
+        let store = consume_context::<std::sync::Arc<mail_core::SqliteStore>>();
         arrange(&folder_act::load(&store, &in_scope()), show())
     });
     let folded = folders

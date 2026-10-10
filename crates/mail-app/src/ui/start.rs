@@ -9,9 +9,9 @@
 //! command line is the CLI's, and [`start_of`] says so by answering `None`.
 
 use crate::ui::view::Shell;
+use mail_core::SqliteStore;
 use mail_domain::{DraftId, ThreadId};
 use mail_mime::MailtoUri;
-use mail_store::SqliteStore;
 
 /// Where the window opens.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

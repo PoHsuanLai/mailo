@@ -167,7 +167,8 @@ fn with_password(store_secrets: &MemorySecrets, password: &str) {
 #[test]
 fn an_account_with_no_credential_is_skipped_with_a_reason() {
     // One account needing attention must not stop the others fetching mail, and the reason has
-    // to name the command that fixes it — this is the first thing a new user sees.
+    // to say what is missing — this is the first thing a new user sees. The command that fixes it
+    // is the front end's to word (`Remedy::SignIn`).
     let (store, _dir) = configured(1, caps());
     let out = crate::blocking::run_with(
         store,
@@ -181,10 +182,7 @@ fn an_account_with_no_credential_is_skipped_with_a_reason() {
 
     assert!(out.contains("ada@example.test"), "{out}");
     assert!(out.contains("no credential stored"), "{out}");
-    assert!(
-        out.contains("mailo account add"),
-        "the way out is named: {out}"
-    );
+    assert!(!out.contains("mailo "), "core names no command: {out}");
 }
 
 #[test]
@@ -622,7 +620,7 @@ mod renewing_an_expired_sign_in {
         // Read by a person, and `cargo fmt` collapses a `\`-continuation in a literal into a
         // run of spaces in the middle of the sentence.
         assert!(!out.contains("  "), "a run of spaces in a message: {out:?}");
-        assert!(out.contains("MAILO_OAUTH_CLIENT_ID"), "{out}");
+        assert!(!out.contains("mailo "), "core names no command: {out}");
         assert!(out.contains("ada@example.test"), "{out}");
     }
 }
@@ -942,14 +940,15 @@ mod a_server_asking_to_be_left_alone {
     }
 }
 
-/// What an account with no credential is told to do about it.
+/// What an account with no credential is told, and which step is its remedy.
 ///
 /// This is the first thing a new user reads, and it was one sentence for every account: "Run:
 /// MAILO_PASSWORD=… mailo account add <address>". For a password account that is exactly right. For
 /// a Gmail account it is advice that cannot work — Google turned off password authentication for
 /// IMAP in May 2022 — and following it means a failed sign-in against Google with a password
-/// that was never going to be accepted. `mailo account add` prints the right thing for that
-/// account; `mailo sync` contradicted it, and sync is the command someone runs second.
+/// that was never going to be accepted. So core says what is wrong in words that name no command,
+/// and `sign_in_remedy` says how that account signs in; the front end words the command
+/// (`mail-app`'s `cli::remedy`).
 mod an_account_with_nothing_stored {
     use super::*;
 
@@ -972,10 +971,8 @@ mod an_account_with_nothing_stored {
             username: Username::SameAsAddress,
             sasl: vec![SaslMech::Plain],
         });
-        assert!(out.contains("MAILO_PASSWORD"), "{out}");
-        // The address, not the word "<address>": advice that has to be edited before it can be
-        // run is advice someone gets wrong at the point they are least able to tell.
-        assert!(out.contains("mailo account add ada@example.test"), "{out}");
+        assert!(out.contains("no credential stored"), "{out}");
+        assert!(!out.contains("mailo "), "core names no command: {out}");
         assert!(!out.contains("<address>"), "{out}");
     }
 
@@ -986,12 +983,52 @@ mod an_account_with_nothing_stored {
             scopes: vec!["https://mail.google.com/".to_owned()],
         });
         assert!(
-            !out.contains("MAILO_PASSWORD"),
+            !out.contains("password will work") && !out.contains("MAILO_PASSWORD"),
             "a Google account was told to set a password, which Google has not accepted since \
              2022: {out}"
         );
-        assert!(out.contains("MAILO_OAUTH_CLIENT_ID"), "{out}");
-        assert!(out.contains("mailo account add ada@example.test"), "{out}");
+        assert!(out.contains("OAuth"), "{out}");
+        assert!(out.contains("client id"), "{out}");
+        assert!(!out.contains("mailo "), "core names no command: {out}");
+    }
+
+    /// How the account signs in is what the front end needs to word the command, and it is read
+    /// from the stored plan, not guessed from the address.
+    #[test]
+    fn the_remedy_for_a_refused_sign_in_follows_the_stored_plan() {
+        use mail_core::{Remedy, SignInWith};
+        let remedy = |auth: AuthPlan| {
+            let (store, _dir) = configured_with(1, caps(), auth);
+            sync::sign_in_remedy(&store, "ada@example.test")
+        };
+        let signs_in = |with| Remedy::SignIn {
+            address: "ada@example.test".to_owned(),
+            with,
+        };
+        assert_eq!(
+            remedy(AuthPlan::Password {
+                username: Username::SameAsAddress,
+                sasl: vec![SaslMech::Plain],
+            }),
+            signs_in(SignInWith::Password)
+        );
+        for issuer in [Issuer::Google, Issuer::Microsoft] {
+            assert_eq!(
+                remedy(AuthPlan::OAuth {
+                    issuer,
+                    scopes: Vec::new(),
+                }),
+                signs_in(SignInWith::OAuth { issuer })
+            );
+        }
+        let (store, _dir) = configured(1, caps());
+        assert_eq!(
+            sync::sign_in_remedy(&store, "nobody@example.test"),
+            Remedy::SignIn {
+                address: "nobody@example.test".to_owned(),
+                with: SignInWith::Unknown
+            }
+        );
     }
 
     /// `mailo account list` is the third surface, and it has to agree with the other two.
@@ -1030,20 +1067,6 @@ mod an_account_with_nothing_stored {
             listed.iter().map(|l| l.state).collect::<Vec<_>>(),
             [account::Readiness::NoCredential],
             "{listed:?}"
-        );
-    }
-
-    /// Microsoft needs `--microsoft` to reproduce the account, and an instruction that does not
-    /// work when followed is worse than none.
-    #[test]
-    fn a_microsoft_account_keeps_the_flag_that_makes_the_command_work() {
-        let out = told(AuthPlan::OAuth {
-            issuer: Issuer::Microsoft,
-            scopes: vec!["https://outlook.office.com/IMAP.AccessAsUser.All".to_owned()],
-        });
-        assert!(
-            out.contains("mailo account add ada@example.test --microsoft"),
-            "{out}"
         );
     }
 }

@@ -12,8 +12,8 @@ use dioxus::prelude::*;
 use ds::components::fields::field_row::FieldRow;
 use ds::prelude::*;
 use mail_core::offline::{self, Keep, Kept};
+use mail_core::{SqliteStore, Store as _};
 use mail_domain::Incoming;
-use mail_store::{SqliteStore, Store as _};
 use std::sync::Arc;
 
 /// What turning a switch on adds, said under the group, since it is the same for every account.

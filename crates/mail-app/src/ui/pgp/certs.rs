@@ -17,9 +17,9 @@ use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
+use mail_core::SigningStore;
+use mail_core::SqliteStore;
 use mail_domain::{CertFingerprint, CertSource, KeyTrust, SecretHeld, SmimeCert};
-use mail_runtime::SigningStore;
-use mail_store::SqliteStore;
 
 use super::super::common::tile;
 use super::super::press::{available, on_primary};

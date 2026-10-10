@@ -7,8 +7,8 @@
 
 use crate::ui::view::{Shell, folder_of};
 use chrono::{DateTime, Utc};
+use mail_core::SqliteStore;
 use mail_core::sync::report::PassEnd;
-use mail_store::SqliteStore;
 use porter_core::AccountId;
 use std::sync::Arc;
 

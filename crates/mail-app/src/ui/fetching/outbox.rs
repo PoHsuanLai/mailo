@@ -7,8 +7,8 @@
 use super::Fetching;
 use chrono::{DateTime, Utc};
 use mail_core::fetch::{Event, Link, Trigger};
+use mail_core::{SqliteStore, Store};
 use mail_domain::{DraftId, SendState};
-use mail_store::{SqliteStore, Store};
 
 /// Whether the pill should ask for a pass for the send of `draft`.
 ///

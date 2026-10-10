@@ -1,7 +1,7 @@
 //! The page against a real store: the guards, autosave, Esc, and Send then Undo.
 
 use ds::prelude::*;
-use mail_store::Store;
+use mail_core::Store;
 
 use super::super::desk::reopen;
 use super::super::page::{Guard, Phase};

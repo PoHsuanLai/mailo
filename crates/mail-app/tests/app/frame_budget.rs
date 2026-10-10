@@ -24,10 +24,10 @@
 use chrono::{DateTime, TimeZone, Utc};
 use mail_app::ui::view;
 use mail_core::query;
+use mail_core::{SqliteStore, Store};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_mime::{RemoteImages, SanitizePolicy};
-use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
 use std::time::{Duration, Instant};
 

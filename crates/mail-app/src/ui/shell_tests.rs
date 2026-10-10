@@ -4,7 +4,7 @@ use super::app::App;
 use super::fixtures::{dispatching, rebuild_into, seeded, work};
 use dioxus::prelude::*;
 use ds::prelude::*;
-use mail_store::SqliteStore;
+use mail_core::SqliteStore;
 use std::sync::Arc;
 
 fn page_of(store: Arc<SqliteStore>, dirs: Option<crate::ui::appearance::WindowDirs>) -> String {

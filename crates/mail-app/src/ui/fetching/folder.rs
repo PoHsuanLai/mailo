@@ -4,10 +4,10 @@ use super::Fetching;
 use crate::ui::folder_open::Fetcher;
 use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
+use mail_core::SqliteStore;
 use mail_core::fetch::{Event, FolderEffect, FolderEvent, FolderFetch};
 use mail_core::sync::report::PassEnd;
 use mail_domain::{MailboxRef, Retry};
-use mail_store::SqliteStore;
 use porter_core::AccountId;
 use std::sync::Arc;
 

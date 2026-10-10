@@ -10,10 +10,10 @@
 use dioxus::prelude::Modifiers;
 use ds::prelude::*;
 use ds_harness::{Clock, Driver, Harness, HarnessConfig, Input, Query, Viewport};
+use mail_core::SqliteStore;
+use mail_core::{Arrival, absorb};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
-use mail_runtime::{Arrival, absorb};
-use mail_store::SqliteStore;
 use porter_core::AccountId;
 use std::sync::Arc;
 use std::time::Duration;

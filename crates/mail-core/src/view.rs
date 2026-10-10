@@ -398,14 +398,8 @@ pub fn saved_of(place: &Place) -> Option<&View> {
 /// about.
 pub fn badge_filter(source: &Source) -> Option<Filter> {
     match source {
-        Source::Mail(filter) => Some(Filter::And(vec![
-            filter.clone(),
-            Filter::Read(ReadState::Unread),
-        ])),
-        Source::Saved(view) => Some(Filter::And(vec![
-            view.filter.clone(),
-            Filter::Read(ReadState::Unread),
-        ])),
+        Source::Mail(filter) => Some(crate::place::unread_in(filter.clone())),
+        Source::Saved(view) => Some(crate::place::unread_in(view.filter.clone())),
         // Nothing in it is news: the user wrote the last word and is waiting for someone else's.
         Source::Drafts | Source::Waiting => None,
     }

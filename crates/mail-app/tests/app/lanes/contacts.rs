@@ -4,7 +4,7 @@
 
 use ds_harness::{Harness, Query};
 use mail_app::ui::native::DialogAsk;
-use mail_store::{SqliteStore, Store};
+use mail_core::{SqliteStore, Store};
 use std::sync::Arc;
 
 use super::drive::{Drive, Key};

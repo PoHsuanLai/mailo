@@ -130,7 +130,7 @@ pub(in crate::ui) fn query(page: &Page) -> Option<String> {
 /// While the `@` menu is open, ask the contact book for what follows the `@`: the same
 /// question, and so the same people in the same order, as the To and Cc fields. The whole book's
 /// top when nothing follows it yet.
-pub(in crate::ui) fn suggest_mention(page: &mut Page, store: &dyn mail_store::Store) {
+pub(in crate::ui) fn suggest_mention(page: &mut Page, store: &dyn mail_core::Store) {
     if !matches!(page.float, Float::Mention { .. }) {
         return;
     }

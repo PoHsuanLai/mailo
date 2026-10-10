@@ -16,11 +16,11 @@ use settle::settle_until;
 
 use crate::drive;
 use drive::Drive;
+use mail_core::{Arrival, Destination, absorb};
+use mail_core::{SqliteStore, Store};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_runtime::assemble::absorb_rebuilt_into;
-use mail_runtime::{Arrival, Destination, absorb};
-use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
 use std::io::Cursor;
 use std::sync::{Arc, Mutex};

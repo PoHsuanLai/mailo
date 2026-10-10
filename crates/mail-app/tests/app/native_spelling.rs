@@ -27,8 +27,8 @@ use mail_domain::id::account_id_from_uuid;
 
 /// The two counters every window of the app shares: the store's, and the configuration files'.
 type Shared = (Revisions, Configured);
+use mail_core::SqliteStore;
 use mail_domain::*;
-use mail_store::SqliteStore;
 use porter_core::AccountId;
 use std::path::Path;
 use std::sync::Arc;

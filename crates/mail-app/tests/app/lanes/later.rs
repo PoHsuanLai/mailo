@@ -3,8 +3,8 @@
 //! comes back saying so.
 
 use ds_harness::Query;
+use mail_core::Store;
 use mail_domain::{FollowUp, SendState};
-use mail_store::Store;
 
 use super::drive::{Drive, Key};
 use super::look::conversation;

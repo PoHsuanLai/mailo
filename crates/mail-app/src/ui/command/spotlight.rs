@@ -27,7 +27,7 @@ use ds::components::overlays::popover::Arrow;
 use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use ds::style::tokens::control_size::ControlSize;
-use mail_store::SqliteStore;
+use mail_core::SqliteStore;
 use std::sync::Arc;
 
 /// What the panel's field is called, to a screen reader and to a test.

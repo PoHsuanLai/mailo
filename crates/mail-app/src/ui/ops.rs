@@ -1,8 +1,8 @@
 use crate::ui::view::Shell;
 use dioxus::prelude::{ReadableExt, Signal, WritableExt};
 use mail_core::view::{mute_op, op_for, reply_target};
+use mail_core::{SqliteStore, Store};
 use mail_domain::*;
-use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
 
 /// The composer pane.
@@ -182,8 +182,8 @@ pub(super) use mail_core::act::{caps_here, destroy, perform, take_back};
 mod tests {
     use super::apply_op;
     use crate::ui::fixtures::{acct_account, gmail_caps, inbox_query, realistic};
+    use mail_core::{SqliteStore, Store};
     use mail_domain::*;
-    use mail_store::{SqliteStore, Store};
 
     /// What the server is told when the window acts — F139.
     ///

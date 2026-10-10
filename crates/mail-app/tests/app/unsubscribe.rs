@@ -8,9 +8,9 @@
 
 use chrono::{DateTime, TimeZone, Utc};
 use mail_app::cli::{self, Command, UnsubscribeStep};
+use mail_core::{SqliteStore, Store};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
-use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
 
 fn acct_account() -> AccountId {
@@ -30,7 +30,7 @@ fn exercise(store: &SqliteStore, command: &Command) -> Result<String, String> {
         store,
         command,
         at(100),
-        &mail_runtime::ClientRegistry::default(),
+        &mail_core::ClientRegistry::default(),
     )
 }
 

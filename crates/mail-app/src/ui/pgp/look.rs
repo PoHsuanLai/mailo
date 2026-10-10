@@ -9,10 +9,10 @@
 use std::path::{Path, PathBuf};
 
 use chrono::Utc;
+use mail_core::SigningStore;
+use mail_core::{SqliteStore, Store};
 use mail_domain::*;
 use mail_mime::Parsed;
-use mail_runtime::SigningStore;
-use mail_store::{SqliteStore, Store};
 
 use super::super::text::{AttachmentRow, Kept as Where};
 use super::{Said, Scheme, Tried, said, said_smime};

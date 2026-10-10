@@ -15,9 +15,9 @@ use crate::drive;
 use drive::{Drive, Key};
 
 use mail_app::ui::appearance::WindowDirs;
+use mail_core::SqliteStore;
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::{AccountPlan, AuthPlan, Incoming, Outgoing, SaslMech, Tls, Username};
-use mail_store::SqliteStore;
 use porter_core::AccountId;
 use std::sync::Arc;
 use std::time::Duration;

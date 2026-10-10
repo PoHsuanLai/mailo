@@ -17,20 +17,23 @@ pub fn run(
     into: &Destination,
 ) -> Result<String, String> {
     let now = chrono::Utc::now();
-    let source = import::detect(path)?;
+    let source = import::detect(path).map_err(super::remedy::error)?;
     let mut tell = |so_far: &Imported| eprintln!("{}", progress(so_far));
     match into {
         Destination::Local => {
-            let total = import::into_local(store, &source, now, &mut tell)?;
+            let total =
+                import::into_local(store, &source, now, &mut tell).map_err(super::remedy::error)?;
             Ok(said(&total, into))
         }
         Destination::Mailbox { account, folder } => {
             let (id, total) =
-                import::queue_uploads(store, account, folder, &source, now, &mut tell)?;
+                import::queue_uploads(store, account, folder, &source, now, &mut tell)
+                    .map_err(super::remedy::error)?;
             let mut out = said(&total, into);
             // Sent now, so the user sees it go; whatever fails stays queued for the next sync.
             let mail = crate::edge::mail(store);
-            let report = crate::edge::block_on(mail.sync().drain(id))?;
+            let report =
+                crate::edge::block_on(mail.sync().drain(id)).map_err(super::remedy::error)?;
             out.push_str(&format!("{} uploaded\n", report.appended));
             if report.still_queued > 0 {
                 out.push_str(&format!(

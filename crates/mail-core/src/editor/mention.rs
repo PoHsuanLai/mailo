@@ -6,13 +6,7 @@ use crate::editor::doc::{Doc, Node, Object};
 use crate::editor::text::runs_text;
 
 /// Someone the composer can add to Cc.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Person {
-    /// The name shown on the chip.
-    pub name: String,
-    /// The mailbox.
-    pub address: String,
-}
+pub use crate::contacts::groups::Person;
 
 /// People whose name, then address, starts with `query`.
 ///

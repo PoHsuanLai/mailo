@@ -18,8 +18,8 @@ use std::sync::Arc;
 
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
+use mail_core::{SqliteStore, Store};
 use mail_domain::{DraftId, SendState};
-use mail_store::{SqliteStore, Store};
 
 use super::super::menu::{MenuKey, menu_key};
 use super::super::menus::{when_in_sentence, when_words};

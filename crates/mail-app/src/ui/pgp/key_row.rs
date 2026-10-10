@@ -22,9 +22,9 @@ use super::super::sidebar::tagged;
 use super::certs::CertJob;
 use super::keys::Job;
 use super::{Busy, Passphrase, cert_short, short, who};
+use mail_core::Store;
 use mail_core::password::Password;
 use mail_core::pgp::WithSecret;
-use mail_store::Store;
 
 /// A question the page is asking before it acts.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -187,7 +187,7 @@ pub(in crate::ui) fn KeyRow(
 #[component]
 pub(in crate::ui) fn Asking(confirm: Signal<Confirm>, run: Callback<Job>, busy: Busy) -> Element {
     let mut confirm = confirm;
-    let store = consume_context::<std::sync::Arc<mail_store::SqliteStore>>();
+    let store = consume_context::<std::sync::Arc<mail_core::SqliteStore>>();
     let cancel = move || {
         AlertButton::new(
             "Cancel",

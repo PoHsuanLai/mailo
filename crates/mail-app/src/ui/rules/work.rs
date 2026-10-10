@@ -1,18 +1,19 @@
 //! Every question the Rules sheet asks and every rule it writes, as functions of a store.
 //!
 //! What `mailo rules` does, reached from the window: the same `Rule` rows, the condition in the
-//! same search language (`mail_core::query`), and the same `mail_store::rules::run_now`. The sheet
-//! only draws what these answer, so the tests drive these and not the markup.
+//! same search language (`mail_core::query`), and the same `mail_store::rules::run_now`. The
+//! doing is `mail_core::rules::manage`; this is the words the sheet says about it. The sheet only
+//! draws what these answer, so the tests drive these and not the markup.
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_core::SqliteStore;
+use mail_core::rules::manage::{self, ConditionError, SaveError};
 use mail_domain::{AfterMatch, Filter, LabelId, Rule, RuleAction, RuleId, RuleState};
-use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
 
 use super::super::files::work::{grouped, messages};
 
-/// How many conversations "Run on existing mail" takes at a time: `mailo rules run`'s batch.
-const BATCH: u32 = 200;
+pub(in crate::ui) use mail_core::rules::manage::{Draft, Step, conversations, labels};
 
 /// The search words a rule's condition may use, as the refusal lists them.
 const KNOWN: &str = "from:, to:, subject:, is:, in:, has:, label:, before: and after:";
@@ -27,93 +28,18 @@ pub(in crate::ui) struct Listed {
     pub does: String,
 }
 
-/// A rule being written: what the editor's fields hold.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(in crate::ui) struct Draft {
-    /// The rule being edited, or `None` for a new one.
-    pub id: Option<RuleId>,
-    pub name: String,
-    /// The condition as typed.
-    pub query: String,
-    pub actions: Vec<RuleAction>,
-    pub after: AfterMatch,
-}
-
-impl Draft {
-    /// A new rule, with nothing in it yet.
-    pub(in crate::ui) fn blank() -> Self {
-        Self {
-            id: None,
-            name: String::new(),
-            query: String::new(),
-            actions: Vec::new(),
-            after: AfterMatch::Continue,
-        }
-    }
-
-    /// `listed`, opened for editing: its condition as the list shows it.
-    pub(in crate::ui) fn of(listed: &Listed) -> Self {
-        Self {
-            id: Some(listed.rule.id),
-            name: listed.rule.name.clone(),
-            query: listed.when.clone(),
-            actions: listed.rule.actions.clone(),
-            after: listed.rule.after,
-        }
-    }
-}
-
-/// Which way a rule moves in the order.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(in crate::ui) enum Step {
-    Up,
-    Down,
-}
-
-fn failed(error: mail_store::StoreError) -> String {
-    error.to_string()
-}
-
-/// The account's labels by name, which `label:` in a condition resolves against.
-pub(in crate::ui) fn labels(store: &SqliteStore, account: AccountId) -> Vec<(String, LabelId)> {
-    store
-        .labels(account)
-        .unwrap_or_default()
-        .into_iter()
-        .map(|label| (label.name, label.id))
-        .collect()
-}
-
-/// A label's name, for writing a condition back; one since deleted says so.
-fn name_of(index: &[(String, LabelId)]) -> impl Fn(LabelId) -> String + '_ {
-    move |id| {
-        index
-            .iter()
-            .find(|(_, known)| *known == id)
-            .map(|(name, _)| name.clone())
-            .unwrap_or_else(|| "(deleted)".to_owned())
-    }
-}
-
 /// The account's rules in the order they run: by position, then by name.
 pub(in crate::ui) fn listed(
     store: &SqliteStore,
     account: AccountId,
 ) -> Result<Vec<Listed>, String> {
-    let index = labels(store, account.clone());
-    let name = name_of(&index);
-    let mut rules = store.rules(account).map_err(failed)?;
-    rules.sort_by(|a, b| {
-        a.position
-            .cmp(&b.position)
-            .then_with(|| a.name.cmp(&b.name))
-    });
+    let rules = manage::listed(store, account).map_err(|e| e.to_string())?;
     Ok(rules
         .into_iter()
-        .map(|rule| Listed {
-            when: mail_core::rules::condition(&rule.filter, &name),
-            does: does(&rule),
-            rule,
+        .map(|listed| Listed {
+            when: listed.condition,
+            does: does(&listed.rule),
+            rule: listed.rule,
         })
         .collect())
 }
@@ -144,51 +70,34 @@ pub(in crate::ui) fn does(rule: &Rule) -> String {
     }
 }
 
-/// The condition `text` means, or why a rule cannot use it.
-///
-/// A search box reads a word it does not know as text, so as not to refuse what is being
-/// typed. A rule is different: it runs unseen on every message that arrives, and `frm:bank` read
-/// as the text "frm:bank" is a rule that silently never fires. So every `word:` term is read on
-/// its own through the same parser, and one the parser did not take as that term is refused here,
-/// in words, before it is kept.
+/// The condition `text` means, or why a rule cannot use it, in words.
 pub(in crate::ui) fn read_condition<Tz: TimeZone>(
     text: &str,
     labels: &[(String, LabelId)],
     zone: &Tz,
 ) -> Result<Filter, String> {
-    if text.trim().is_empty() {
-        return Err("Add a condition, like from:news@example.com".to_owned());
-    }
-    let named = mail_core::query::named(labels);
-    for word in text.split_whitespace() {
-        let bare = word.strip_prefix('-').unwrap_or(word);
-        if bare.starts_with('"') {
-            continue;
-        }
-        let Some((field, value)) = bare.split_once(':') else {
-            continue;
-        };
-        let alone = mail_core::query::parse_with(bare, zone, &named);
-        if !matches!(alone, Filter::Text(_)) {
-            continue;
-        }
-        return Err(refusal(bare, &field.to_ascii_lowercase(), value));
-    }
-    Ok(mail_core::query::parse_with(text, zone, &named))
+    manage::read_condition(text, labels, zone).map_err(|why| refusal(&why))
 }
 
-/// Why `word`, whose field is `field`, is not a term.
-fn refusal(word: &str, field: &str, value: &str) -> String {
-    if value.is_empty() {
-        return format!("“{field}:” needs something after the colon.");
-    }
-    match field {
-        "before" | "after" => format!("“{word}” needs a date, like {field}:2026-10-08."),
-        "label" => format!("No label “{value}” on this account."),
-        "is" => "is: takes unread, read, starred, unstarred, pinned or snoozed.".to_owned(),
-        "in" => "in: takes inbox, archive, sent, drafts, spam or trash.".to_owned(),
-        "has" => "has: takes attachment.".to_owned(),
-        _ => format!("“{field}:” is not a word a rule knows. It knows {KNOWN}."),
+/// Why a condition is refused, as the sheet says it.
+fn refusal(why: &ConditionError) -> String {
+    match why {
+        ConditionError::Blank => "Add a condition, like from:news@example.com".to_owned(),
+        ConditionError::NoValue { field } => format!("“{field}:” needs something after the colon."),
+        ConditionError::NotADate { word, field } => {
+            format!("“{word}” needs a date, like {field}:2026-10-08.")
+        }
+        ConditionError::NoLabel { value } => format!("No label “{value}” on this account."),
+        ConditionError::BadIs => {
+            "is: takes unread, read, starred, unstarred, pinned or snoozed.".to_owned()
+        }
+        ConditionError::BadIn => {
+            "in: takes inbox, archive, sent, drafts, spam or trash.".to_owned()
+        }
+        ConditionError::BadHas => "has: takes attachment.".to_owned(),
+        ConditionError::UnknownField { field } => {
+            format!("“{field}:” is not a word a rule knows. It knows {KNOWN}.")
+        }
     }
 }
 
@@ -199,9 +108,7 @@ pub(in crate::ui) fn matching(
     filter: Filter,
     now: DateTime<Utc>,
 ) -> Result<u64, String> {
-    store
-        .count(&Filter::And(vec![Filter::Account(account), filter]), now)
-        .map_err(failed)
+    manage::matching(store, account, filter, now).map_err(|e| e.to_string())
 }
 
 /// What the live count under the condition says.
@@ -216,52 +123,20 @@ pub(in crate::ui) fn matching_words(count: u64) -> String {
     }
 }
 
-/// Keep `draft` as a rule on `account`, or say why not. A new rule goes last and starts on; an
-/// edited one keeps its place and its switch.
+/// Keep `draft` as a rule on `account`, or say why not.
 pub(in crate::ui) fn save<Tz: TimeZone>(
     store: &SqliteStore,
     account: AccountId,
     draft: &Draft,
     zone: &Tz,
 ) -> Result<Rule, String> {
-    let name = draft.name.trim();
-    if name.is_empty() {
-        return Err("A rule needs a name.".to_owned());
-    }
-    let existing = store.rules(account.clone()).map_err(failed)?;
-    if existing
-        .iter()
-        .any(|rule| rule.name == name && Some(rule.id) != draft.id)
-    {
-        return Err(format!("A rule called “{name}” already exists."));
-    }
-    let filter = read_condition(&draft.query, &labels(store, account.clone()), zone)?;
-    if draft.actions.is_empty() && draft.after == AfterMatch::Continue {
-        return Err("Add an action.".to_owned());
-    }
-    let kept = draft
-        .id
-        .and_then(|id| existing.iter().find(|rule| rule.id == id));
-    let (id, position, state) = match kept {
-        Some(rule) => (rule.id, rule.position, rule.state),
-        None => (
-            RuleId::generate(),
-            existing.iter().map(|r| r.position + 1).max().unwrap_or(1),
-            RuleState::Enabled,
-        ),
-    };
-    let rule = Rule {
-        id,
-        account,
-        name: name.to_owned(),
-        position,
-        state,
-        filter,
-        actions: draft.actions.clone(),
-        after: draft.after,
-    };
-    store.put_rule(&rule).map_err(failed)?;
-    Ok(rule)
+    manage::save(store, account, draft, zone).map_err(|why| match why {
+        SaveError::NoName => "A rule needs a name.".to_owned(),
+        SaveError::Taken { name } => format!("A rule called “{name}” already exists."),
+        SaveError::Condition(why) => refusal(&why),
+        SaveError::NoAction => "Add an action.".to_owned(),
+        SaveError::Store(why) => why.to_string(),
+    })
 }
 
 /// Move the rule `id` one place up or down, and number the account's rules 1, 2, 3… again.
@@ -271,28 +146,7 @@ pub(in crate::ui) fn reorder(
     id: RuleId,
     step: Step,
 ) -> Result<(), String> {
-    let mut rules: Vec<Rule> = listed(store, account)?
-        .into_iter()
-        .map(|l| l.rule)
-        .collect();
-    let Some(at) = rules.iter().position(|rule| rule.id == id) else {
-        return Ok(());
-    };
-    let to = match step {
-        Step::Up => at.checked_sub(1),
-        Step::Down => Some(at + 1).filter(|to| *to < rules.len()),
-    };
-    let Some(to) = to else {
-        return Ok(());
-    };
-    rules.swap(at, to);
-    for (index, rule) in rules.into_iter().enumerate() {
-        let position = u32::try_from(index + 1).unwrap_or(u32::MAX);
-        if rule.position != position {
-            store.put_rule(&Rule { position, ..rule }).map_err(failed)?;
-        }
-    }
-    Ok(())
+    manage::reorder(store, account, id, step).map_err(|e| e.to_string())
 }
 
 /// Turn a rule on or off. Off, it is kept and skipped, here and in the server's script.
@@ -301,31 +155,13 @@ pub(in crate::ui) fn switch(
     rule: &Rule,
     state: RuleState,
 ) -> Result<(), String> {
-    store
-        .put_rule(&Rule {
-            state,
-            ..rule.clone()
-        })
-        .map_err(failed)
+    manage::switch(store, rule, state).map_err(|e| e.to_string())
 }
 
 /// Forget a rule, returning what the toast says.
 pub(in crate::ui) fn delete(store: &SqliteStore, rule: &Rule) -> Result<String, String> {
-    store.delete_rule(rule.id).map_err(failed)?;
+    manage::delete(store, rule).map_err(|e| e.to_string())?;
     Ok(format!("Deleted the rule “{}”", rule.name))
-}
-
-/// The conversations "Run on existing mail" goes through: every one on the account.
-pub(in crate::ui) fn conversations(
-    store: &SqliteStore,
-    account: AccountId,
-    now: DateTime<Utc>,
-) -> usize {
-    store
-        .count(&Filter::Account(account), now)
-        .ok()
-        .and_then(|n| usize::try_from(n).ok())
-        .unwrap_or(0)
 }
 
 /// Run `rule` over the mail already here, as `mailo rules run` does, reporting how many
@@ -339,14 +175,7 @@ pub(in crate::ui) fn run(
     now: DateTime<Utc>,
     report: &(dyn Fn(usize) + Sync),
 ) -> Result<String, String> {
-    let caps = super::super::ops::caps_here(store, rule.account.clone(), now);
-    let total = conversations(store, rule.account.clone(), now);
-    let mut pages = 0usize;
-    let ran = mail_store::rules::run_now(store, &caps, rule, BATCH, now, &mut |_| {
-        pages += 1;
-        report((pages * BATCH as usize).min(total));
-    })
-    .map_err(failed)?;
+    let ran = manage::run(store, rule, now, report).map_err(|e| e.to_string())?;
     let mut said = format!(
         "“{}” looked at {} and acted on {}.",
         rule.name,

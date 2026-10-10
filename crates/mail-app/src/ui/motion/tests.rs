@@ -12,8 +12,8 @@ use dioxus::prelude::*;
 use dioxus_core::{ElementId, NoOpMutations, VirtualDom};
 use ds::motion::settle::settle as anim_settle;
 use ds::prelude::*;
+use mail_core::{SqliteStore, Store};
 use mail_domain::*;
-use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
 
 const DANA: &str = "Re: UIDL stability across a UIDVALIDITY change";

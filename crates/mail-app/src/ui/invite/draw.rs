@@ -17,8 +17,8 @@ use ds::components::overlays::inline_banner::InlineBanner;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::root::pass_through::ExtraClass;
+use mail_core::SqliteStore;
 use mail_domain::{Attendance, BlobId, MessageId};
-use mail_store::SqliteStore;
 use std::sync::Arc;
 
 /// A description longer than this many lines or characters is folded, with More.

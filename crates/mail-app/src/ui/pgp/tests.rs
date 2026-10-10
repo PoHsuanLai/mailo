@@ -10,10 +10,10 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
 use dioxus_core::VirtualDom;
+use mail_core::{Arrival, MapSigningStore};
+use mail_core::{SqliteStore, Store};
 use mail_domain::*;
 use mail_mime::openpgp::{self, Cert, SecretCert, Unlocking};
-use mail_runtime::{Arrival, MapSigningStore};
-use mail_store::{SqliteStore, Store};
 use rand::SeedableRng;
 
 use super::{Said, Seams, Tone, looked_at, said};
@@ -95,7 +95,7 @@ fn letter(word: &str, text: &str) -> String {
 
 /// Store `raw` as a message that arrived in the inbox, the way a sync does.
 pub(super) fn arrive(store: &SqliteStore, raw: Vec<u8>) -> Message {
-    let ingest = mail_runtime::assemble(
+    let ingest = mail_core::assemble(
         store,
         acct_account(),
         MailboxRef {

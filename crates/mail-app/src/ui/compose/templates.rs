@@ -16,8 +16,8 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
+use mail_core::SqliteStore;
 use mail_domain::{Draft, Template, TemplateId};
-use mail_store::SqliteStore;
 
 use super::super::menu::{MenuItem, MenuKey, Right, Tile, anchor_at, menu_key, palette_groups};
 use super::super::motion::{Follow, tell};

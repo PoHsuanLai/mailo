@@ -5,8 +5,8 @@
 use std::sync::Mutex;
 
 use chrono::Utc;
+use mail_core::Store;
 use mail_domain::*;
-use mail_store::Store;
 
 use super::work::{self, Draft, Step};
 use crate::ui::fixtures::{acct_account, realistic, seeded};
@@ -20,7 +20,7 @@ fn draft(name: &str, query: &str, actions: Vec<RuleAction>) -> Draft {
     }
 }
 
-fn names(store: &mail_store::SqliteStore) -> Vec<String> {
+fn names(store: &mail_core::SqliteStore) -> Vec<String> {
     work::listed(store, acct_account())
         .unwrap()
         .into_iter()
@@ -85,7 +85,10 @@ fn a_rule_made_in_the_sheet_is_listed_moved_switched_and_deleted() {
 
     // Edited, it keeps its place and its id.
     let listed = work::listed(&store, acct_account()).unwrap();
-    let mut edit = Draft::of(&listed[1]);
+    let mut edit = Draft::of(&mail_core::rules::ListedRule {
+        rule: listed[1].rule.clone(),
+        condition: listed[1].when.clone(),
+    });
     assert_eq!(edit.query, "from:bank.example subject:statement");
     edit.query = "from:bank.example".to_owned();
     let edited = work::save(&store, acct_account(), &edit, &Utc).unwrap();

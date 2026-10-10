@@ -7,7 +7,6 @@
 
 use mail_core::fetch::RETRY_NOW;
 use mail_core::schedule::{Daemon, Heard, Hold, Lost, Stop};
-use mail_store::SqliteStore;
 use porter_core::AccountId;
 use std::sync::Arc;
 use std::time::Duration;

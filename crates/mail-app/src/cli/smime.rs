@@ -4,10 +4,11 @@
 //! The certificates and the opening are [`mail_core::smime`]'s; this is the part that reads the
 //! arguments, asks for a PKCS#12 password on the terminal, and says what happened.
 
+use super::usage::UsageError;
 use chrono::{DateTime, Utc};
 use mail_core::Environment;
 use mail_core::SigningStore;
-use mail_core::error::{CoreError, UsageError};
+use mail_core::error::CoreError;
 use mail_core::pgp::WithSecret;
 use mail_core::smime::{Protected, SmimeError, certs, read};
 use mail_core::{SqliteStore, Store};
@@ -50,12 +51,12 @@ pub enum SmimeCommand {
 }
 
 /// Parse `mailo smime …`'s arguments.
-pub fn parse(args: &[String]) -> Result<SmimeCommand, CoreError> {
+pub fn parse(args: &[String]) -> Result<SmimeCommand, UsageError> {
     let usage = "usage: mailo smime list | import <file> | export <fingerprint|address> | \
                  delete <fingerprint|address> [--with-secret] | trust <fingerprint> | \
                  untrust <fingerprint> | show <message-id>";
     let Some(verb) = args.first() else {
-        return Err(UsageError::Synopsis(usage).into());
+        return Err(UsageError::Synopsis(usage));
     };
     let arg = |i: usize, what: &'static str| {
         args.get(i).cloned().ok_or_else(|| UsageError::Missing {
@@ -134,8 +135,7 @@ pub fn parse(args: &[String]) -> Result<SmimeCommand, CoreError> {
             command: "smime",
             verb: other.to_owned(),
             usage,
-        }
-        .into()),
+        }),
     }
 }
 

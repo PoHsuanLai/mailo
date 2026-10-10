@@ -26,8 +26,8 @@
 //! [`OWED`] until it can, rather than leaving what it was told about to the next [`TOLD`].
 
 use dioxus::prelude::*;
+use mail_core::SqliteStore;
 use mail_core::ipc::client::Changes;
-use mail_store::SqliteStore;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};

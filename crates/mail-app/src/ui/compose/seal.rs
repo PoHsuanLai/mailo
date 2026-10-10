@@ -14,8 +14,8 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
+use mail_core::SqliteStore;
 use mail_domain::{Draft, Fingerprint};
-use mail_store::SqliteStore;
 
 use super::super::pgp::{Busy, Passphrase, Scheme, Tried, WRONG, seams, short};
 use super::super::press::on_primary;

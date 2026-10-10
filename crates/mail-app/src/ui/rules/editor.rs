@@ -13,8 +13,8 @@ use ds::motion::detail::stamp::EventStamp;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::icon::render::Glyph;
+use mail_core::SqliteStore;
 use mail_domain::{AfterMatch, RuleAction};
-use mail_store::SqliteStore;
 use porter_core::AccountId;
 use std::sync::Arc;
 

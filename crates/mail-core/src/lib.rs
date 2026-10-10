@@ -46,30 +46,38 @@ pub mod print;
 pub mod provider;
 pub mod query;
 pub mod receipt;
+pub mod remedy;
 pub mod rules;
+pub mod scope;
 pub mod search;
 pub mod server_search;
 pub mod smime;
 pub mod snooze;
 pub mod sync;
 pub mod template;
+pub mod transfer;
 pub mod trust;
 pub mod undo;
 pub mod unsubscribe;
 pub mod view;
+pub mod views;
 pub mod when;
 
 pub use environment::{Environment, Program};
-pub use error::{CoreError, TimeError, UsageError};
+pub use error::{CoreError, TimeError};
 pub use mail::{
     AccountOps, Clock, ContactOps, CryptoOps, DiscoverOps, FixedClock, Mail, RuleOps, SyncOps,
     SystemClock,
 };
+/// What the window tells the body pass it is reading and fetching, so the pass does not repeat it.
+pub use mail_runtime::wanted;
 /// The runtime types mail-core's API hands out and takes: re-exported, so a front end goes
 /// through mail-core alone.
 pub use mail_runtime::{
-    AccountSecrets, ClientRegistry, KeyringSigningStore, SigningStore, fetch, remote_image,
-    schedule, sieve::Pushed,
+    AccountSecrets, Arrival, ClientRegistry, Destination, KeyringSigningStore, MapSigningStore,
+    Searched, ServerHits, SigningStore, absorb, absorb_into, assemble, fetch, off_runtime,
+    remote_image, schedule, sieve::Pushed,
 };
 /// The store a front end opens and hands to mail-core.
-pub use mail_store::{SqliteStore, Store};
+pub use mail_store::{SqliteStore, Store, StoreError};
+pub use remedy::{Remedy, SignInWith};

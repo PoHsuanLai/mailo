@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 
 use chrono::Utc;
-use mail_store::Store;
+use mail_core::Store;
 
 use super::super::contacts::book::suggest;
 use super::super::history::History;

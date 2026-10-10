@@ -9,7 +9,7 @@ use ds::components::lists::row::size::RowSize;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::icon::family::PlateFamily;
-use mail_store::{SqliteStore, Store};
+use mail_core::{SqliteStore, Store};
 use std::sync::Arc;
 
 use super::super::common::{Told, tile};

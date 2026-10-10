@@ -15,8 +15,8 @@ use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::tokens::control_size::ControlSize;
 use mail_core::view::mute_for_all;
+use mail_core::{SqliteStore, Store};
 use mail_domain::*;
-use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
 
 /// The ids the list drew last, in order: what a click on a row measures a range over.

@@ -10,8 +10,8 @@ use ds::components::controls::progress::view::ProgressIndicator;
 use ds::components::fields::field_row::FieldRow;
 use ds::prelude::*;
 use ds::root::common::Common;
+use mail_core::SqliteStore;
 use mail_domain::RuleState;
-use mail_store::SqliteStore;
 use porter_core::AccountId;
 use std::sync::Arc;
 
@@ -159,7 +159,10 @@ fn RuleRow(
             title: Some("Edit Rule".to_owned()),
             onclick: on_primary(move || {
                 let mut editing = editing;
-                editing.set(Some(Draft::of(&edit)));
+                editing.set(Some(Draft::of(&mail_core::rules::ListedRule {
+                    rule: edit.rule.clone(),
+                    condition: edit.when.clone(),
+                })));
             }),
         }
         Button {

@@ -1,13 +1,13 @@
-//! The window's unread count, handed to the launcher (`crate::ui::launcher`).
+//! The window's unread count, handed to the launcher (`crate::launcher`).
 //!
 //! Counted when the window's revision moves (any write, a sync's included) or the Space changes,
 //! on a blocking thread as the sidebar's badges are, and handed on only when the number changed,
 //! so a write that leaves it alone sends the dock nothing.
 
-use crate::ui::launcher::{self, Launcher, Unread};
+use crate::launcher::{self, Launcher, Unread};
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
-use mail_store::SqliteStore;
+use mail_core::SqliteStore;
 use std::sync::Arc;
 
 /// Keep the launcher's count. Does nothing in a window with no [`Launcher`], which is every test

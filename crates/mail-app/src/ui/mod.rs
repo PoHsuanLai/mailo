@@ -9,7 +9,6 @@ pub mod bin;
 pub mod emoji;
 pub mod handoff;
 pub mod keymap;
-pub mod launcher;
 pub mod saved;
 pub mod selection;
 pub mod space;
@@ -103,7 +102,6 @@ pub mod native {
     pub use super::downloads::Opener as FileOpener;
     pub use super::files::SaveDir;
     pub use super::follow_up::Notices;
-    pub use super::handoff::{ActivationToken, Request, Requests};
     pub use super::launch::DesktopSettings;
     pub use super::launch::native::{contexts, live_root, root};
     pub use super::original::{Browse, Consent, Fetch, FetchImage, Got, Original};
@@ -117,6 +115,7 @@ pub mod native {
         OpenSettings, SettingsAsked, SettingsAt, SettingsWindows, settings_root,
     };
     pub use super::window::{Ask, MessageOpen, OpenWindow, Windows, message_root};
+    pub use crate::handoff::{ActivationToken, Request, Requests};
 }
 
 pub use start::{Start, mailto_of, open_thread, start_mailto, start_of};

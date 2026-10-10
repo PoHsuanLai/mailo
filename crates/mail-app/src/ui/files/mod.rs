@@ -183,7 +183,7 @@ pub(in crate::ui) fn tilde(path: &std::path::Path, home: Option<&std::ffi::OsStr
 pub(in crate::ui) fn tilde_here(path: &std::path::Path) -> String {
     tilde(
         path,
-        mail_runtime::places::home()
+        mail_core::config::home_dir()
             .as_deref()
             .map(std::path::Path::as_os_str),
     )

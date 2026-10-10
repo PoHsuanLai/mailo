@@ -8,8 +8,8 @@ use super::super::text::label;
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::prelude::*;
+use mail_core::SqliteStore;
 use mail_domain::*;
-use mail_store::SqliteStore;
 use std::sync::Arc;
 
 /// Which of the row's actions was picked from its menu.

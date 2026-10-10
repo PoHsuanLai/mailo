@@ -10,8 +10,8 @@ use crate::ui::fixtures::{
 use dioxus::html::input_data::keyboard_types::Modifiers;
 use dioxus::prelude::*;
 use dioxus_core::{ElementId, VirtualDom};
+use mail_core::{SqliteStore, Store};
 use mail_domain::*;
-use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
 
 struct Window {

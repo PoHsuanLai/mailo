@@ -11,8 +11,8 @@ use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::prelude::*;
 use ds::stack::toast_hub::UndoToken;
+use mail_core::SqliteStore;
 use mail_core::undo::UndoHandle;
-use mail_store::SqliteStore;
 use std::sync::Arc;
 
 #[component]

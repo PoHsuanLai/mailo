@@ -48,8 +48,8 @@ use ds::style::tokens::control_size::ControlSize;
 use std::sync::Arc;
 
 use dioxus::prelude::*;
+use mail_core::{SqliteStore, Store};
 use mail_domain::DraftId;
-use mail_store::{SqliteStore, Store};
 
 use attach::Attach;
 use body::Body;

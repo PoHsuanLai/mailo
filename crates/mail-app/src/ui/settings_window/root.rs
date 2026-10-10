@@ -16,7 +16,7 @@ use crate::ui::view::{SettingsPage, Shell};
 use dioxus::prelude::*;
 use ds::base::spawner::Spawner;
 use ds_settings::use_environment;
-use mail_store::SqliteStore;
+use mail_core::SqliteStore;
 use std::sync::Arc;
 
 /// The window as quire opens it: the desktop's settings and mailo's own watched as the first

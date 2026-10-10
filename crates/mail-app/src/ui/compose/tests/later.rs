@@ -1,7 +1,7 @@
 //! Send later in the window: the Sends choice as the outbox reads it, a scheduled send on the
 //! pill and in Today, and Cancel, against a real store.
 
-use mail_store::Store;
+use mail_core::Store;
 
 use super::super::later::{choose_time, leaves, pick_time, waiting};
 use super::super::page::{Float, Phase, When};

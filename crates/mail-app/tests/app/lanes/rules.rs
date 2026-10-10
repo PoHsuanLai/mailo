@@ -2,7 +2,7 @@
 //! running the rule on existing mail files it, and the main window's inbox follows.
 
 use ds_harness::{Harness, Query};
-use mail_store::SqliteStore;
+use mail_core::SqliteStore;
 use std::sync::Arc;
 
 use super::hands::{click, scroll_to, type_text, until};

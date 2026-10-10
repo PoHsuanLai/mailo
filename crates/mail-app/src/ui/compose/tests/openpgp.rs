@@ -1,8 +1,8 @@
 //! OpenPGP from the composer: the row writes the draft, what stands in the way is said in the
 //! warning bar before anything is queued, and a locked key is asked for there.
 
-use mail_runtime::MapSigningStore;
-use mail_store::Store;
+use mail_core::MapSigningStore;
+use mail_core::Store;
 use rand::SeedableRng;
 
 use super::super::page::Float;

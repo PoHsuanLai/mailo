@@ -5,8 +5,8 @@ use crate::ui::app::App;
 use crate::ui::fixtures::{realistic, thread_like};
 use crate::ui::view::Shell;
 use dioxus::dioxus_core::VirtualDom;
+use mail_core::Store as _;
 use mail_domain::ThreadId;
-use mail_store::Store as _;
 
 fn args(words: &[&str]) -> Vec<String> {
     words.iter().map(|word| (*word).to_owned()).collect()

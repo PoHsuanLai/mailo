@@ -72,8 +72,8 @@ pub(super) fn search(
 mod tests {
     use chrono::{DateTime, TimeZone, Utc};
     use mail_core::search::Affinity;
+    use mail_core::{SqliteStore, Store};
     use mail_domain::*;
-    use mail_store::{SqliteStore, Store};
     use porter_core::AccountId;
 
     fn acct_account() -> AccountId {

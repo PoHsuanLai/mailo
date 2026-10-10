@@ -7,9 +7,9 @@ use crate::ui::fixtures::{
 use chrono::TimeZone;
 use dioxus::prelude::*;
 use dioxus_core::{ElementId, VirtualDom};
+use mail_core::{SqliteStore, Store};
 use mail_domain::*;
 use mail_mime::Pages;
-use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
 
 const SUBJECT: &str = "Quarterly figures, and what they mean";
