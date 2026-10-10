@@ -7,6 +7,7 @@ use crate::ui::fixtures::{dispatching, empty};
 use chrono::Utc;
 use dioxus::prelude::*;
 use dioxus_core::{NoOpMutations, VirtualDom};
+use mail_core::SqliteStore;
 use mail_core::Store as _;
 use mail_core::fetch::{Link, Live, Pause, Trigger};
 use mail_core::sync::report::{AccountReport, Counts, PassEnd};

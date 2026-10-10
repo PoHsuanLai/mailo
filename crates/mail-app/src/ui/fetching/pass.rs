@@ -4,6 +4,7 @@
 //! ended; this is the call it makes to the servers.
 
 use chrono::{DateTime, Utc};
+use mail_core::SqliteStore;
 use mail_core::sync::report::{Hooks, PassEnd};
 use porter_core::AccountId;
 use std::sync::Arc;

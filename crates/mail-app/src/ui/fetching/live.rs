@@ -5,6 +5,7 @@
 //! it is lent is [`Listener`], the one place the window reaches a server to wait on it and the
 //! lock that says whether anyone else already does. A test provides its own.
 
+use mail_core::SqliteStore;
 use mail_core::fetch::RETRY_NOW;
 use mail_core::schedule::{Daemon, Heard, Hold, Lost, Stop};
 use porter_core::AccountId;
