@@ -501,7 +501,9 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) {
             }
             mail_core::notify::Setting::Off => None,
         };
-        match crate::edge::block_on(mail.sync().watch(notifier, &say)) {
+        // A Sync asked for at the watch's door (`ipc::watching`) is a pass now, here.
+        let asked = Some(watching.asked());
+        match crate::edge::block_on(mail.sync().watch(notifier, &say, asked)) {
             // Only reached when every account has stopped for a reason worth stopping for — a
             // credential the server refused, which no amount of retrying fixes.
             Ok(ends) => {

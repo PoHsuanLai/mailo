@@ -15,13 +15,21 @@
 //! The watch is the process that stores pushed mail while a window is open, so it is the one
 //! that can say the moment it has. It listens behind its lock, as the daemon does behind its
 //! own, and answers [`Request::Ping`] and [`Request::Subscribe`]; [`Watching::changed`] is how
-//! its passes say what they ran. The rest is the daemon's to do and is refused here: a watch
-//! fetches on its own schedule, and is stopped by its unit or by Ctrl-C.
+//! its passes say what they ran. [`Request::SyncNow`] is a person asking for their mail now,
+//! and is answered with a pass of every account on the watch's own scheduler
+//! ([`Watching::asked`]): a request that is refused, or heard and dropped, is a Sync button that
+//! does nothing. [`Request::Shutdown`] is refused: a watch is stopped by its unit or by Ctrl-C.
 
 use super::changes::{self, Answer, Subscribers};
 use super::wire::{Request, Response};
 use crate::error::CoreError;
 use porter_core::AccountId;
+use std::sync::Arc;
+use tokio::sync::watch;
+
+/// What a watch's scheduler listens on for a pass someone asked for at the door: it moves once
+/// for each [`Request::SyncNow`].
+pub type Asked = watch::Receiver<u64>;
 
 /// The name the watch's lock and door live under, beside the daemon's.
 const NAME: &str = "mailo-watch";
@@ -35,6 +43,8 @@ pub struct Watching {
     changes: Subscribers,
     /// Why there is no door, when it could not be opened.
     doorless: Option<String>,
+    /// Moved by the door each time a pass is asked for.
+    asks: Arc<watch::Sender<u64>>,
 }
 
 impl Watching {
@@ -53,6 +63,12 @@ impl Watching {
     /// at the store for what it stores rather than being told.
     pub fn doorless(&self) -> Option<&str> {
         self.doorless.as_deref()
+    }
+
+    /// The passes asked for at the door, for the watch's scheduler to start
+    /// (`SyncOps::watch`). Without a door it never moves.
+    pub fn asked(&self) -> Asked {
+        self.asks.subscribe()
     }
 }
 
@@ -83,6 +99,7 @@ pub fn claim() -> Result<Watching, Refused> {
 /// [`Watching::doorless`], rather than ending it — under its unit that would be a restart loop.
 pub fn claim_at(agent: &latchkey::Agent) -> Result<Watching, Refused> {
     let changes = Subscribers::default();
+    let asks = Arc::new(watch::channel(0u64).0);
     let listening = match agent.listen() {
         Ok(listening) => listening,
         Err(latchkey::Error::AlreadyRunning) => return Err(Refused::AlreadyWatching),
@@ -96,22 +113,26 @@ pub fn claim_at(agent: &latchkey::Agent) -> Result<Watching, Refused> {
             return Ok(Watching {
                 changes,
                 doorless: Some(door.to_string()),
+                asks,
             });
         }
     };
     // Leaked, so that the lock inside it lives as long as the process even if the thread serving
     // the door ends early: a door that stopped answering must not let a second watch in.
     let listening: &'static latchkey::Listening = Box::leak(Box::new(listening));
-    let serving = changes.clone();
+    let (serving, asking) = (changes.clone(), asks.clone());
     std::thread::Builder::new()
         .name("mailo-watch-door".to_owned())
         .spawn(move || {
             changes::door(listening, &serving, |request| match request {
                 Request::Ping => Answer::Say(changes::pong()),
                 Request::Subscribe => Answer::Subscribe,
-                Request::SyncNow => Answer::Say(Response::Refused(
-                    "a watch fetches on its own and runs no pass on request".to_owned(),
-                )),
+                // Started, not finished: the pass runs on the scheduler, as the daemon's does on
+                // its thread, and the answer goes back before it ends.
+                Request::SyncNow => {
+                    asking.send_modify(|asked| *asked = asked.wrapping_add(1));
+                    Answer::Say(Response::Started)
+                }
                 Request::Shutdown => Answer::Say(Response::Refused(
                     "a watch is stopped where it was started, not through its door".to_owned(),
                 )),
@@ -121,6 +142,7 @@ pub fn claim_at(agent: &latchkey::Agent) -> Result<Watching, Refused> {
     Ok(Watching {
         changes,
         doorless: None,
+        asks,
     })
 }
 

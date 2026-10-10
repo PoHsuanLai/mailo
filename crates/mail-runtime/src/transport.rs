@@ -5,12 +5,13 @@
 //! carry the complexity precisely so that this does not have to.
 
 use crate::RuntimeError;
-use crate::error::Failure;
+use crate::error::{Failure, within};
 use mail_domain::Tls;
 use mail_proto::{IoNeed, IoReady};
 use porter_client::AuthenticatedStream;
 use porter_core::stream::{ByteStream, DuplexEnd};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio_rustls::TlsConnector;
@@ -21,6 +22,20 @@ use tokio_rustls::client::TlsStream;
 /// A whole IMAP `FETCH` of a large message arrives across many reads regardless, so this trades
 /// syscalls against a per-connection buffer rather than trying to read a response in one go.
 const READ_CHUNK: usize = 16 * 1024;
+
+/// The longest a connection may take to open: the TCP handshake, and the TLS one after it, each.
+///
+/// A server that is up answers both in well under a second; one that has not answered in this
+/// long is not there, and the attempt fails as [`RuntimeError::Stalled`] rather than waiting on
+/// the kernel's own limit, which is minutes.
+pub const OPENING: Duration = Duration::from_secs(30);
+
+/// How long a connection sits quiet before the kernel checks that the other end is still there.
+///
+/// A held IDLE says nothing for many minutes by design, and a NAT that forgets a quiet mapping,
+/// or a provider that drops one without a word, leaves a socket that looks open and never
+/// speaks again. A probe a minute keeps the mapping warm and finds a dead end within a few.
+const KEEPALIVE_IDLE: Duration = Duration::from_secs(60);
 
 /// An open connection, plaintext or TLS, or a porter relay's stream.
 ///
@@ -132,6 +147,28 @@ fn install_crypto_provider() {
     });
 }
 
+/// Have the kernel probe `tcp` when it has been quiet for [`KEEPALIVE_IDLE`].
+///
+/// Best effort: a system that refuses the option still has the read deadlines in
+/// [`crate::drive`], so the failure is only logged.
+fn keep_alive(tcp: &TcpStream) {
+    let probes = socket2::TcpKeepalive::new().with_time(KEEPALIVE_IDLE);
+    // Fifteen seconds between probes once probing has begun. Not settable everywhere; where it
+    // is not, the system's own applies.
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "android",
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "freebsd",
+        target_os = "windows",
+    ))]
+    let probes = probes.with_interval(Duration::from_secs(15));
+    if let Err(e) = socket2::SockRef::from(tcp).set_tcp_keepalive(&probes) {
+        log::debug!("TCP keepalive could not be set: {e}");
+    }
+}
+
 impl Transport {
     /// Connect, applying `tls` before returning.
     ///
@@ -140,12 +177,16 @@ impl Transport {
     /// opportunistic mode — an upgrade that may silently not happen is one an attacker chooses
     /// for you.
     pub async fn connect(host: &str, port: u16, tls: Tls) -> Result<Self, RuntimeError> {
-        let tcp = TcpStream::connect((host, port))
-            .await
-            .map_err(|e| RuntimeError::Connect(Failure::new(format!("{host}:{port}"), e)))?;
+        let tcp = within(OPENING, "connecting", async {
+            TcpStream::connect((host, port))
+                .await
+                .map_err(|e| RuntimeError::Connect(Failure::new(format!("{host}:{port}"), e)))
+        })
+        .await?;
         // Mail is request/response and latency-sensitive; waiting to coalesce a 20-byte command
         // with nothing else just adds a round trip.
         let _ = tcp.set_nodelay(true);
+        keep_alive(&tcp);
 
         let stream = match tls {
             Tls::Implicit => Stream::Tls(Box::new(Self::wrap(tcp, host).await?)),
@@ -217,10 +258,13 @@ impl Transport {
         let name = rustls_pki_types::ServerName::try_from(host.to_owned()).map_err(|_| {
             RuntimeError::Tls(Failure::said(format!("{host} is not a valid server name")))
         })?;
-        TlsConnector::from(Arc::new(config))
-            .connect(name, tcp)
-            .await
-            .map_err(|e| RuntimeError::Tls(Failure::new(host.to_string(), e)))
+        within(OPENING, "securing the connection", async {
+            TlsConnector::from(Arc::new(config))
+                .connect(name, tcp)
+                .await
+                .map_err(|e| RuntimeError::Tls(Failure::new(host.to_string(), e)))
+        })
+        .await
     }
 
     /// Satisfy one [`IoNeed`].

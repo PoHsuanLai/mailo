@@ -18,6 +18,14 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::watch;
 
+/// The longest one IMAP `IDLE` is held before it is ended and issued again.
+///
+/// RFC 2177 has a server drop an idle client after thirty minutes, and asks the client to
+/// re-issue IDLE within twenty-nine. Twenty-five leaves room for a slow `DONE` and matches the
+/// JMAP event stream's hold (`jmap::push`). It is also the longest a connection a NAT forgot can
+/// go unnoticed while it is parked: the exchange that ends it fails, or the pass after it does.
+pub const IDLE_REARM: Duration = Duration::from_secs(25 * 60);
+
 /// What ended a wait.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Woke {
@@ -25,16 +33,29 @@ pub enum Woke {
     Mail,
     /// Something in the outbox came due: a scheduled send, or one whose grace for Undo ran out.
     Due,
-    /// The interval ran out, or the server ended its IDLE without news.
+    /// The interval ran out, the server ended its IDLE without news, or the IDLE was held for
+    /// [`IDLE_REARM`].
     Interval,
+}
+
+/// Why a held IDLE was ended from this side.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Ended {
+    /// The outbox has something due.
+    Due,
+    /// It was held for [`IDLE_REARM`].
+    Rearm,
+    /// The caller asked the wait to stop.
+    Cancelled,
 }
 
 impl<B: Backend> AccountEngine<B> {
     /// Wait for new mail, the way the server prefers, or until the outbox has something due.
     ///
-    /// IDLE where the server offers it, raced against the outbox; `poll` otherwise, and after an
-    /// IDLE that ended without news. When the outbox wins an IDLE, the session is interrupted in
-    /// protocol — `DONE` rather than a dropped socket — through the same path as cancellation.
+    /// IDLE where the server offers it, raced against the outbox and held for at most
+    /// [`IDLE_REARM`]; `poll` otherwise, and after an IDLE the server ended without news. When the
+    /// outbox or the re-arm wins an IDLE, the session is interrupted in protocol — `DONE` rather
+    /// than a dropped socket — through the same path as cancellation.
     ///
     /// Only sends queued before the wait began are known by time; one queued later, by another
     /// process, is noticed within [`super::Schedule::outbox`]. Reads the wall clock, as a watch
@@ -58,30 +79,44 @@ impl<B: Backend> AccountEngine<B> {
         let server = !matches!(self.plan.incoming, Incoming::Local);
         if server && matches!(self.caps().watch, WatchMode::Idle) {
             let alarm = alarm();
+            // IDLE is not held for ever: past `IDLE_REARM` it is ended in protocol and the wait
+            // returns, so the next one issues it again on a fresh connection, and the pass in
+            // between proves the account is reachable rather than assuming it.
+            let rearm = tokio::time::sleep(IDLE_REARM);
             let (tx, mut inner) = watch::channel(false);
             let watched = self.watch(mailbox, &mut inner);
-            tokio::pin!(watched, alarm);
-            let mut woke = None;
+            tokio::pin!(watched, alarm, rearm);
+            let mut ended = None;
             let result = loop {
                 tokio::select! {
                     result = &mut watched => break result,
-                    () = &mut alarm, if woke.is_none() => {
-                        woke = Some(Woke::Due);
+                    () = &mut alarm, if ended.is_none() => {
+                        ended = Some(Ended::Due);
                         let _ = tx.send(true);
                     }
-                    changed = cancel.changed(), if woke.is_none() => {
+                    () = &mut rearm, if ended.is_none() => {
+                        ended = Some(Ended::Rearm);
+                        // The watch ends on its own once it is gone; nothing waits on this send.
+                        let _ = tx.send(true);
+                    }
+                    changed = cancel.changed(), if ended.is_none() => {
                         if changed.is_err() || *cancel.borrow() {
-                            woke = Some(Woke::Interval);
+                            ended = Some(Ended::Cancelled);
                             let _ = tx.send(true);
                         }
                     }
                 }
             };
-            match (woke, result) {
+            match (ended, result) {
                 // Interrupted for the outbox. However the session wound down — a clean `DONE`, or
                 // abandoned after one more exchange — the send is what matters now.
-                (Some(Woke::Due), Ok(_) | Err(RuntimeError::Cancelled)) => return Ok(Woke::Due),
-                (Some(_), Ok(_)) => return Err(RuntimeError::Cancelled),
+                (Some(Ended::Due), Ok(_) | Err(RuntimeError::Cancelled)) => return Ok(Woke::Due),
+                // Held as long as IDLE should be, and ended for it: a look at the account, as a
+                // JMAP stream that reaches its hold is. No floor: this is not a busy mailbox.
+                (Some(Ended::Rearm), Ok(_) | Err(RuntimeError::Cancelled)) => {
+                    return Ok(Woke::Interval);
+                }
+                (Some(Ended::Cancelled), Ok(_)) => return Err(RuntimeError::Cancelled),
                 (_, Err(e)) => return Err(e),
                 (None, Ok(true)) => return Ok(Woke::Mail),
                 // IDLE ended without news: the poll interval below is the floor.

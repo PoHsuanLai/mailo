@@ -10,6 +10,8 @@
 use super::report::{Hooks, PassEnd, Progress, Watched, outcome};
 use super::{Announce, configured, live};
 use crate::error::CoreError;
+use crate::fetch::{Event, Trigger};
+use crate::ipc::watching::Asked;
 use crate::mail::{Mail, SyncOps};
 use crate::notify::Notifier;
 use chrono::{DateTime, Utc};
@@ -17,9 +19,11 @@ use mail_runtime::schedule::{
     Change, Daemon, End, Host, ListenCall, Local, Lost, Note, PassCall, Passed, Schedule,
     Scheduler, Stored,
 };
+use mail_store::SqliteStore;
 use porter_core::AccountId;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
+use tokio::sync::mpsc::UnboundedSender;
 
 /// What a watch says of a pass that has ended, and what it announces of it.
 ///
@@ -70,10 +74,14 @@ impl SyncOps<'_> {
     /// A watch has no end to return a report at, so each thing it would say is handed to `tell`
     /// as it happens ([`Watched`]) and the caller words it. It returns only once every account
     /// has stopped, with how each last ended.
+    ///
+    /// `asked` is the watch's door ([`crate::ipc::watching::Watching::asked`]): each time it
+    /// moves, every account is asked for a pass now, as the window's Sync asks its own.
     pub async fn watch(
         &self,
         notifier: Option<&dyn Notifier>,
         tell: &dyn Fn(Watched),
+        asked: Option<Asked>,
     ) -> Result<Vec<PassEnd>, CoreError> {
         let mail = self.0;
         // Read once up front: an unreadable registry is a reason not to start, where it would
@@ -103,7 +111,10 @@ impl SyncOps<'_> {
         // The accounts are read once, as they always were: one made since is the window's to
         // tell the next watch about.
         let _ = tx.send(Note::Accounts(super::due::intervals(mail.store())));
-        scheduler.run(inbox, End::WhenStuck).await;
+        tokio::select! {
+            _ = scheduler.run(inbox, End::WhenStuck) => {}
+            () = answer(asked, mail.store(), tx) => {}
+        }
         let mut ends = host.ends.into_inner();
         // In the order the accounts are configured.
         Ok(configured(mail.store())?
@@ -111,6 +122,22 @@ impl SyncOps<'_> {
             .filter_map(|account| ends.remove(&account.id))
             .collect())
     }
+}
+
+/// Ask every account for a pass each time `asked` moves, as a person's Sync does: a pass starts
+/// at once on a link at rest (a parked IDLE holds a connection of its own and is not in the
+/// way), and a link already in a pass is in the middle of what was asked for. Never returns: the
+/// scheduler's end is the watch's.
+pub async fn answer(asked: Option<Asked>, store: &SqliteStore, tx: UnboundedSender<Note>) {
+    if let Some(mut asked) = asked {
+        while asked.changed().await.is_ok() {
+            for (account, _) in super::due::intervals(store) {
+                // The send fails only once the scheduler has stopped, and then nobody is left to ask.
+                let _ = tx.send(Note::Event(account, Event::Start(Trigger::Manual)));
+            }
+        }
+    }
+    std::future::pending::<()>().await;
 }
 
 /// What the scheduler is lent by a watch.
@@ -204,4 +231,91 @@ impl Host for Watching<'_> {
     }
 
     fn changed(&self, _: Change) {}
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::TimeZone;
+    use mail_domain::id::account_id_from_uuid;
+    use mail_domain::*;
+
+    fn acct_imap() -> AccountId {
+        account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000d4"))
+    }
+
+    /// A store with one IMAP account, which is what a pass can be asked of.
+    fn store() -> (SqliteStore, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let store = SqliteStore::in_memory(dir.path()).unwrap();
+        let plan = AccountPlan {
+            address: "ada@example.test".to_owned(),
+            incoming: Incoming::Imap {
+                host: "imap.example.test".to_owned(),
+                port: 993,
+                tls: Tls::Implicit,
+            },
+            outgoing: Outgoing::Nowhere,
+            auth: AuthPlan::Password {
+                username: Username::SameAsAddress,
+                sasl: vec![SaslMech::Plain],
+            },
+            identities: Vec::new(),
+        };
+        let caps = AccountCaps {
+            labels: ServerLabels::LocalOnly,
+            threads: ServerThreads::Jwz,
+            watch: WatchMode::Idle,
+            archive: ArchiveMeans::LocalOnly,
+            folders: FolderRoles(Vec::new()),
+            condstore: Condstore::Absent,
+            move_ext: MoveExt::Absent,
+            expunge: ExpungeMeans::Forbidden,
+            top: Supported::Absent,
+            pipelining: Supported::Absent,
+            connections: ConnectionBudget { max: 1 },
+            observed_at: Utc.timestamp_opt(1_700_000_000, 0).unwrap(),
+        };
+        mail_store::testing::seed_account_plan(
+            &store,
+            acct_imap(),
+            "ada@example.test",
+            &plan,
+            None,
+        );
+        mail_store::testing::seed_caps(&store, acct_imap(), &caps, caps.observed_at).unwrap();
+        (store, dir)
+    }
+
+    /// A Sync asked for at the watch's door was refused, so a window that left fetching to the
+    /// watch had a button that did nothing. Now each ask is a manual pass of every account, on
+    /// the watch's own scheduler.
+    #[tokio::test]
+    async fn an_ask_at_the_door_starts_a_pass_of_every_account() {
+        let (store, _dir) = store();
+        let (asks, asked) = tokio::sync::watch::channel(0u64);
+        let (tx, mut notes) = tokio::sync::mpsc::unbounded_channel();
+        let answering = answer(Some(asked), &store, tx);
+        tokio::pin!(answering);
+
+        // Nothing is started before anyone asks.
+        tokio::select! {
+            biased;
+            () = &mut answering => panic!("the answer ended"),
+            () = tokio::task::yield_now() => {}
+        }
+        assert!(notes.try_recv().is_err(), "a pass nobody asked for");
+
+        asks.send_modify(|n| *n += 1);
+        let note = tokio::select! {
+            () = &mut answering => panic!("the answer ended"),
+            note = notes.recv() => note,
+        };
+        match note {
+            Some(Note::Event(account, Event::Start(Trigger::Manual))) => {
+                assert_eq!(account, acct_imap());
+            }
+            other => panic!("not a manual pass: {other:?}"),
+        }
+    }
 }

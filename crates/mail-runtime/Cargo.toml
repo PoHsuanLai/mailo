@@ -27,6 +27,9 @@ thiserror.workspace = true
 log.workspace = true
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "time", "sync"] }
 tokio-rustls = "0.26"
+# TCP keepalive on the sockets this crate opens (`transport.rs`): tokio has no setter for it.
+# MIT OR Apache-2.0, already in the tree through tokio, at its version.
+socket2 = "0.6"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 webpki-roots = "1"
 rustls-pki-types = "1"
@@ -145,7 +148,8 @@ mail-store = { workspace = true, features = ["testing"] }
 mail-runtime = { path = ".", features = ["testing"] }
 porter-proxy.workspace = true
 porter-secrets = { workspace = true, features = ["testing", "keyring"] }
-tokio = { version = "1", features = ["full"] }
+# `test-util` for the tests that wait out a deadline on a paused clock (`tests/runtime/drive.rs`).
+tokio = { version = "1", features = ["full", "test-util"] }
 tempfile = "3"
 # The WKD hash the OpenPGP tests check a request path by, already in the tree through rPGP.
 sha1 = "0.10"

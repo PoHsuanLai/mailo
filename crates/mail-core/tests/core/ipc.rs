@@ -161,20 +161,36 @@ fn a_watch_tells_whoever_subscribed_of_each_pass_in_order() {
     );
 }
 
+/// A pass asked for at the watch's door is started, on the watch's scheduler, rather than
+/// refused: the watch is the process that is fetching, so it is the one a Sync must reach.
+/// Stopping is still refused there.
 #[test]
-fn a_watch_refuses_the_daemons_work() {
+fn a_watch_starts_a_pass_when_asked_and_is_not_stopped_through_its_door() {
     use mail_core::ipc::{client, watching};
     let dir = tempfile::tempdir().unwrap();
-    let agent = scratch(dir.path(), "mailo-watch-test-refuses");
-    let _watching = watching::claim_at(&agent).unwrap();
-    for request in [Request::SyncNow, Request::Shutdown] {
-        let said = client::connect_at(&agent)
-            .unwrap()
-            .unwrap()
-            .ask(request)
-            .unwrap();
-        assert!(matches!(said, Response::Refused(_)), "{said:?}");
-    }
+    let agent = scratch(dir.path(), "mailo-watch-test-asked");
+    let watching = watching::claim_at(&agent).unwrap();
+    let asked = watching.asked();
+    assert!(!asked.has_changed().unwrap(), "asked before anyone asked");
+
+    let said = client::connect_at(&agent)
+        .unwrap()
+        .unwrap()
+        .ask(Request::SyncNow)
+        .unwrap();
+    assert_eq!(said, Response::Started);
+    // Moved before the answer went back, so it is already there to be read.
+    assert!(
+        asked.has_changed().unwrap(),
+        "the ask never reached the watch's scheduler"
+    );
+
+    let said = client::connect_at(&agent)
+        .unwrap()
+        .unwrap()
+        .ask(Request::Shutdown)
+        .unwrap();
+    assert!(matches!(said, Response::Refused(_)), "{said:?}");
 }
 
 #[test]

@@ -29,6 +29,7 @@ use ds::motion::detail::operation::Operation;
 use mail_core::SqliteStore;
 use mail_core::fetch::{Event, FolderFetch, Link, Trigger};
 use mail_core::schedule::{self, End, Note, Scheduler};
+use mail_core::sync::fresh::Pace;
 use porter_core::AccountId;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
@@ -40,7 +41,7 @@ pub(in crate::ui) use delegate::Delegate;
 pub(in crate::ui) use face::{CANNOT_LOAD, FIRST_SYNC, HasRows, ListFace, list_face};
 pub(in crate::ui) use folder::opened;
 pub(in crate::ui) use line::{AccountLine, Remedy, Standing, account_line};
-pub(in crate::ui) use marks::{Mark, account_mark_local, folder_mark, sync_availability};
+pub(in crate::ui) use marks::{Mark, folder_mark, sync_availability};
 pub(in crate::ui) use pass::Passer;
 pub(in crate::ui) use status::{StatusLine, Tone, status_line, thousandths};
 
@@ -129,26 +130,55 @@ impl Fetching {
             .unwrap_or_default()
     }
 
+    /// What `account`'s freshness is judged by besides its link: when the store last recorded a
+    /// finished pass of it, by this window or by a watch beside it, and what its server allows.
+    /// Read from the store each time, as cheap as two lookups by key: a watch's passes move
+    /// nothing in this window's links.
+    pub(in crate::ui) fn pace(&self, account: &AccountId) -> Pace {
+        match try_consume_context::<Arc<SqliteStore>>() {
+            Some(store) => Pace::of(&store, account.clone()),
+            None => Pace::of_watch(&mail_domain::WatchMode::Poll {
+                every: mail_core::sync::due::IDLE,
+            }),
+        }
+    }
+
+    /// `account`'s mark for a row or a tile, now.
+    pub(in crate::ui) fn mark(&self, account: AccountId) -> Option<Mark> {
+        let pace = self.pace(&account);
+        let now = crate::ui::clock::now();
+        self.link(account)
+            .map(|link| marks::account_mark(&link, pace, now, &chrono::Local))
+    }
+
     pub(in crate::ui) fn status(&self, shell: &Shell, now: DateTime<Utc>) -> StatusLine {
         let links = self.links.read();
-        let shown: Vec<&Link> = self
+        let shown: Vec<(&Link, Pace)> = self
             .in_view(shell)
             .iter()
-            .filter_map(|id| links.get(id))
+            .filter_map(|id| links.get(id).map(|link| (link, self.pace(id))))
             .collect();
         status_line(&shown, now, &chrono::Local)
     }
 }
 
+/// What Sync says when what it would fetch is already being fetched.
+pub(in crate::ui) const ALREADY_SYNCING: &str = "Already checking for mail.";
+
 /// Sync what `shell` is showing, from the toolbar button and the command menu alike.
 ///
-/// Does nothing while any of it is already fetching: a second press is the same request. Every
+/// While any of it is already fetching a second press is the same request, and starts nothing;
+/// it says so, because a press that does nothing visible reads as a button that is broken. Every
 /// folder fetched on opening is fetched again the next time it is opened.
 pub(in crate::ui) fn sync_now(shell: &Shell) {
     let Some(fetching) = try_consume_context::<Fetching>() else {
         return;
     };
     if fetching.busy_in(shell) {
+        crate::ui::motion::tell(
+            ALREADY_SYNCING.to_owned(),
+            crate::ui::motion::Follow::Nothing,
+        );
         return;
     }
     fetching.forget_folders();

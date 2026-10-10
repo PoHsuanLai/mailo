@@ -14,6 +14,7 @@ mod invite;
 mod offline;
 mod opened;
 mod outbox;
+mod passes;
 mod pgp;
 mod placed;
 mod read;

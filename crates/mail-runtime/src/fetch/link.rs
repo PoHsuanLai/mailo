@@ -20,6 +20,14 @@ pub const BACKOFF_CEILING: Duration = Duration::from_secs(30 * 60);
 /// packet, and a loop with no wait is a loop that hammers.
 pub const RETRY_NOW: Duration = Duration::from_secs(5);
 
+/// The longest a pushed account goes without a pass before the link starts one itself.
+///
+/// A watch ends each IMAP `IDLE` at [`crate::IDLE_REARM`] (a JMAP stream at its hold) and a pass
+/// follows, so a pushed account that has not passed in this long has a watch that went quiet
+/// without saying so. Push saves polling; it must not also be the only way the account is looked
+/// at, or a watch that hangs takes the account with it.
+pub const PUSH_SILENCE: Duration = Duration::from_secs(crate::IDLE_REARM.as_secs() + 5 * 60);
+
 /// Where an account's mail fetching stands.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Link {
@@ -242,14 +250,11 @@ pub fn step(link: &Link, event: Event, now: DateTime<Utc>, every: Duration) -> (
         (Link::Syncing { .. }, event) => running(link, event, now, every),
         (Link::Fresh | Link::Current { .. } | Link::Waiting { .. }, Event::Start(_)) => begin(link),
         (Link::Broken { .. }, Event::Start(Trigger::Manual)) => begin(link),
-        (
-            Link::Current {
-                at,
-                live: Live::Polling,
-                ..
-            },
-            Event::Tick,
-        ) if now >= later(*at, every) => begin(link),
+        (Link::Current { at, live, .. }, Event::Tick)
+            if now >= later(*at, between(*live, every)) =>
+        {
+            begin(link)
+        }
         (Link::Waiting { until, .. }, Event::Tick) if now >= *until => begin(link),
         (Link::NeedsSignIn { .. } | Link::NeedsAllow { .. }, Event::SignedIn) => begin(link),
         (Link::Current { at, trouble, live }, Event::Live(now_live)) if *live != now_live => {
@@ -258,12 +263,10 @@ pub fn step(link: &Link, event: Event, now: DateTime<Utc>, every: Duration) -> (
                 trouble: trouble.clone(),
                 live: now_live,
             };
-            // Leaving push for polling puts the timer back; nothing else would wake the link.
-            let wake = match now_live {
-                Live::Polling => vec![Effect::WakeAt(later(*at, every).max(now))],
-                Live::Pushed => vec![],
-            };
-            (current, wake)
+            // The timer follows how the account is kept up: the interval when polled, the
+            // silence a watch may keep when pushed. Nothing else would wake the link.
+            let wake = later(*at, between(now_live, every)).max(now);
+            (current, vec![Effect::WakeAt(wake)])
         }
         _ => unchanged(link),
     }
@@ -301,17 +304,13 @@ fn running(link: &Link, event: Event, now: DateTime<Utc>, every: Duration) -> (L
         }
         Event::Finished { trouble } => {
             let live = live_of(after);
-            let wake = match live {
-                Live::Polling => vec![Effect::WakeAt(later(now, every))],
-                Live::Pushed => vec![],
-            };
             (
                 Link::Current {
                     at: now,
                     trouble,
                     live,
                 },
-                wake,
+                vec![Effect::WakeAt(later(now, between(live, every)))],
             )
         }
         Event::Failed { retry, why, pause } => failed(*first, after, retry, why, pause, now, every),
@@ -381,6 +380,15 @@ fn failed(
             },
             vec![],
         ),
+    }
+}
+
+/// The longest a current link rests before it starts a pass itself: the poll interval, or for a
+/// pushed account the [`PUSH_SILENCE`] its watch should never reach.
+fn between(live: Live, every: Duration) -> Duration {
+    match live {
+        Live::Polling => every,
+        Live::Pushed => PUSH_SILENCE,
     }
 }
 

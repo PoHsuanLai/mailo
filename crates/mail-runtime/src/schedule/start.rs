@@ -9,12 +9,21 @@ use porter_core::AccountId;
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
 
-/// When the last pass of `account` finished, as the store recorded it.
+/// When the last pass of `account` finished, as the store recorded it: the pass's own record
+/// (`SqliteStore::passes`), or where there is none yet the newest mailbox stamp, which is all a
+/// store from before that record has. The stamp moves as a pass ingests, so it says progress
+/// rather than a pass that ran to its end, and is only the fallback.
 pub fn last_synced(store: &SqliteStore, account: AccountId) -> Option<DateTime<Utc>> {
-    store
-        .last_synced(account)
-        .or_log("when the account last synced could not be read")
-        .flatten()
+    let finished = store
+        .passes(account.clone())
+        .or_log("how the account's last pass ended could not be read")
+        .and_then(|passes| passes.finished);
+    finished.or_else(|| {
+        store
+            .last_synced(account)
+            .or_log("when the account last synced could not be read")
+            .flatten()
+    })
 }
 
 /// Whether the store holds anything of `account`'s: a cursor, or mail that an import left

@@ -117,6 +117,33 @@ async fn an_unreachable_server_fails_the_account_with_a_wait() {
     );
 }
 
+/// How each pass ended is kept, so a window opened later can say since when an account has not
+/// been fetched: a failure is recorded without forgetting the last finish, and a finish clears it.
+#[tokio::test]
+async fn how_a_pass_ended_is_kept_in_the_store() {
+    let (store, _dir) = store_at(1);
+    let secrets = Arc::new(MemorySecrets::default());
+    with_password(&secrets);
+    store.pass_finished(acct_account(), now()).unwrap();
+    let later = now() + chrono::TimeDelta::minutes(40);
+    let ends = run_with(
+        store.clone(),
+        secrets,
+        &ClientRegistry::default(),
+        later,
+        Hooks::default(),
+    )
+    .await
+    .unwrap();
+    assert!(
+        matches!(ends.as_slice(), [PassEnd::Failed { .. }]),
+        "{ends:?}"
+    );
+    let passes = store.passes(acct_account()).unwrap();
+    assert_eq!(passes.finished, Some(now()), "the last finish is kept");
+    assert_eq!(passes.failed.map(|failed| failed.at), Some(later));
+}
+
 #[tokio::test]
 async fn a_mailbox_that_fails_lands_in_trouble_with_its_decision() {
     // A server that accepts the connection and hangs up on everything after it: the account is
@@ -210,6 +237,14 @@ fn each_failure_says_what_kind_of_wait_it_asks_for() {
             Pause::Unreachable,
         ),
         (
+            "a connection gone silent",
+            RuntimeError::Stalled {
+                doing: "waiting for its answer",
+                after: Duration::from_secs(240),
+            },
+            Pause::Unreachable,
+        ),
+        (
             "rate limit, with a named wait",
             proto(ProtoError::Throttled {
                 reason: "slow down".into(),
@@ -250,6 +285,49 @@ fn each_failure_says_what_kind_of_wait_it_asks_for() {
             "{name}: the decision is unchanged"
         );
     }
+}
+
+/// A pass stopped by a silent connection leaves its account waiting to try again, on a timer,
+/// never syncing for ever: the 40 hours an IDLE account sat on a socket a NAT had forgotten.
+#[test]
+fn a_stalled_pass_leaves_the_account_waiting_with_a_wake() {
+    use crate::fetch::{Effect, Event, First, Link, Step, step};
+    let error = RuntimeError::Stalled {
+        doing: "waiting for its answer",
+        after: std::time::Duration::from_secs(240),
+    };
+    let failure = Failure::of("", &error);
+    let syncing = Link::Syncing {
+        first: First::No,
+        step: Step::Headers {
+            mailbox: "INBOX".to_owned(),
+        },
+        count: None,
+        after: Box::new(Link::Fresh),
+    };
+    let event = Event::Failed {
+        retry: failure.retry,
+        why: failure.why,
+        pause: failure.pause,
+    };
+    let every = std::time::Duration::from_secs(300);
+    let (next, effects) = step(&syncing, event, now(), every);
+    assert!(
+        matches!(
+            next,
+            Link::Waiting {
+                why: Pause::Unreachable,
+                ..
+            }
+        ),
+        "{next:?}"
+    );
+    assert!(
+        effects
+            .iter()
+            .any(|e| matches!(e, Effect::WakeAt(at) if *at > now())),
+        "nothing will wake it: {effects:?}"
+    );
 }
 
 #[test]

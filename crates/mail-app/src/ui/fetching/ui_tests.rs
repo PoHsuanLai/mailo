@@ -252,3 +252,39 @@ async fn an_account_removed_in_settings_leaves_the_links_and_the_doctor() {
     assert!(page.contains("No accounts to check."), "{page}");
     assert!(!page.contains("me@nowhere.example"), "{page}");
 }
+
+/// Sync pressed while a pass runs starts no second one, and says so: a press that does nothing
+/// visible reads as a broken button, which is what a pass stuck on a silent server looked like.
+#[tokio::test]
+async fn sync_while_a_pass_runs_says_it_is_already_checking() {
+    let (store, _dir) = account(true);
+    let (passer, script) = passer();
+    let (mut dom, _seen) = window(store, passer);
+    super::tests::fetching(&dom).sync_all(Trigger::Manual);
+    settle(&mut dom).await;
+    assert!(link(&dom).is_busy(), "no pass running: {:?}", link(&dom));
+    let page = dioxus_ssr::render(&dom);
+    assert!(!page.contains(super::ALREADY_SYNCING), "said unasked");
+
+    dom.in_scope(ScopeId::APP, || {
+        super::sync_now(&crate::ui::view::Shell::default());
+    });
+    // The toast is quire's, and its host lays it out a frame after the push.
+    let mut page = String::new();
+    for _ in 0..8 {
+        settle(&mut dom).await;
+        page = dioxus_ssr::render(&dom);
+        if page.contains(super::ALREADY_SYNCING) {
+            break;
+        }
+    }
+    assert!(
+        page.contains(super::ALREADY_SYNCING),
+        "the press said nothing: {page}"
+    );
+    assert_eq!(
+        script.runs.load(Ordering::SeqCst),
+        1,
+        "a second pass was started"
+    );
+}

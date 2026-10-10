@@ -23,6 +23,7 @@ mod labels;
 mod offline;
 mod opened;
 mod parity;
+mod passes;
 mod pgp_keys;
 mod phase3_milestone;
 mod queued_moves;

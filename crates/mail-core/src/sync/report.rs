@@ -99,6 +99,7 @@ impl Pauses for RuntimeError {
         match self {
             RuntimeError::Connect(_)
             | RuntimeError::Io(_)
+            | RuntimeError::Stalled { .. }
             | RuntimeError::Tls(_)
             | RuntimeError::Proto(ProtoError::UnexpectedEof) => Pause::Unreachable,
             RuntimeError::Proto(ProtoError::Throttled { .. }) => Pause::Throttled,
