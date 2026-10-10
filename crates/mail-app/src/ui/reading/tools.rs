@@ -115,7 +115,7 @@ pub(super) fn ReaderMore(
     let mut further = use_signal(|| Further::None);
     let tool = use_signal(|| None::<MountedRef>);
     let id = summary.id;
-    let offered = crate::ui::view::hover_in(shell.read().saved_view(), &summary);
+    let offered = mail_core::view::hover_in(shell.read().saved_view(), &summary);
     let muted = match summary.mute {
         Mute::Muted => Muted::Yes,
         Mute::Unmuted => Muted::No,

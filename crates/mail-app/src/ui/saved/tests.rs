@@ -1,6 +1,7 @@
 use super::*;
-use crate::ui::view::{Grouping, PageGroup, Source, hover_actions, hover_in, places_with};
+use crate::ui::view::{Grouping, PageGroup, Source, places_with};
 use chrono::Utc;
+use mail_core::view::{hover_actions, hover_in};
 use mail_domain::id::new_account_id;
 use mail_domain::*;
 

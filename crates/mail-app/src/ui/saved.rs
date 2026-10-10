@@ -184,7 +184,7 @@ pub fn written<Tz: TimeZone>(
 /// The actions a view's rows can be given, in the order the editor offers them.
 ///
 /// Star is not here: every row draws its own star. Mark read stands for the pair, and is drawn
-/// as whichever the conversation needs ([`crate::ui::view::hover_in`]).
+/// as whichever the conversation needs ([`mail_core::view::hover_in`]).
 pub const HOVER_CHOICES: [OpKind; 10] = [
     OpKind::Archive,
     OpKind::Trash,
