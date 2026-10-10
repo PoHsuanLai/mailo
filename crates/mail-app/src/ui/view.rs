@@ -8,7 +8,7 @@ use crate::ui::selection::{Click, Picked, Toward};
 use ds::prelude::*;
 use ds::style::appearance::peek::PeekMode;
 use mail_core::compose::addresses::{join_addresses, parse_addresses};
-use mail_core::place::{pending_snooze, place_filter};
+use mail_core::place::place_filter;
 use mail_core::view::{mute_for_all, offers};
 use mail_domain::*;
 use mail_mime::{RemoteImages, SanitizePolicy};
@@ -1044,6 +1044,7 @@ pub enum Listing {
 mod tests {
     use super::*;
     use chrono::{DateTime, TimeZone, Utc};
+    use mail_core::place::pending_snooze;
     use mail_domain::id::new_account_id;
 
     fn summary(tweak: impl FnOnce(&mut ThreadSummary)) -> ThreadSummary {
