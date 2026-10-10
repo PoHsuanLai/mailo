@@ -279,9 +279,9 @@ pub(in crate::ui) fn avatar_color(email: &str) -> String {
 
 fn action_item(hit: &ActionHit, group: &str) -> MenuItem {
     let shortcut = match hit.command.label.as_str() {
-        "Compose" => Some("\u{2318}N".to_owned()),
-        "Hide sidebar" => Some("\u{2303}\u{2318}S".to_owned()),
-        "Print conversation" => Some("\u{2318}P".to_owned()),
+        "Compose" => Some(crate::ui::hints::COMPOSE.to_owned()),
+        "Hide sidebar" => Some(crate::ui::hints::HIDE_SIDEBAR.to_owned()),
+        "Print conversation" => Some(crate::ui::hints::PRINT.to_owned()),
         _ => None,
     };
     MenuItem {

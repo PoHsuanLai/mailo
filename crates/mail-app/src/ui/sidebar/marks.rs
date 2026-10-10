@@ -49,17 +49,17 @@ fn drawn(shell: Signal<Shell>, mark: Mark) -> Element {
 fn glyph(shell: Signal<Shell>, why: String, icon: Icon) -> Element {
     rsx! {
         span { class: "fetch-mark",
-            Tooltip { text: why.clone(),
-                Button {
-                    label: why,
-                    icon: IconSource::Glyph(icon),
-                    image: ImagePosition::Only,
-                    bezel: Bezel::Toolbar,
-                    size: ControlSize::Small,
-                    // Inside a row: pressing the mark is not pressing the row.
-                    propagation: Propagation::Stop,
-                    onclick: on_primary(move || crate::ui::doctor::open(shell)),
-                }
+            // The button's own title is quire's tip; nothing wraps it.
+            Button {
+                label: why.clone(),
+                title: Some(why),
+                icon: IconSource::Glyph(icon),
+                image: ImagePosition::Only,
+                bezel: Bezel::Toolbar,
+                size: ControlSize::Small,
+                // Inside a row: pressing the mark is not pressing the row.
+                propagation: Propagation::Stop,
+                onclick: on_primary(move || crate::ui::doctor::open(shell)),
             }
         }
     }

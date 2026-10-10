@@ -38,6 +38,7 @@ mod files;
 mod folder_open;
 mod follow_up;
 mod frame;
+mod hints;
 mod history;
 mod host;
 mod hover;
