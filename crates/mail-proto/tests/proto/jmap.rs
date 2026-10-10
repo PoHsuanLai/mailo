@@ -623,7 +623,7 @@ fn the_identity_is_the_sender_or_a_wildcard_for_its_domain_never_another() {
         Some("I2")
     );
     assert_eq!(choose_identity(&identities, "john@example.net"), None);
-    assert_eq!(identities[1].name, None);
+    assert_eq!(identities[1].address.name, None);
 }
 
 #[test]
