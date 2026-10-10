@@ -11,8 +11,8 @@ use mail_domain::{
 };
 use mail_proto::ProtoError;
 use mail_proto::sieve::{
-    Active, Compiled, Deleted, Places, ScriptEntry, SieveJob, SieveLogin, SieveOutcome,
-    SieveSession, Takeover, Unmappable, VacationPlaced, compile, quoted,
+    Active, Compiled, Deleted, Places, ScriptEntry, SieveAuthentication, SieveJob, SieveLogin,
+    SieveOutcome, SieveSession, Takeover, Unmappable, VacationPlaced, compile, quoted,
 };
 use porter_core::SecretText;
 use porter_core::UnixSeconds;
@@ -377,9 +377,10 @@ fn login(credential: Credential) -> SieveLogin {
         host: "sieve.example.test".to_owned(),
         port: 4190,
         tls: Tls::StartTlsRequired,
-        username: "me@example.test".to_owned(),
-        credential,
-        relayed: false,
+        auth: SieveAuthentication::SignIn {
+            username: "me@example.test".to_owned(),
+            credential,
+        },
         script_name: "mailo".to_owned(),
     }
 }
@@ -441,7 +442,7 @@ fn status_upgrades_first_then_lists_and_fetches_our_script() {
 fn a_relayed_session_lists_scripts_with_no_starttls_and_no_authenticate() {
     let mut relayed = SieveSession::new(
         SieveLogin {
-            relayed: true,
+            auth: SieveAuthentication::Relayed,
             ..login(password())
         },
         SieveJob::Status,

@@ -26,7 +26,8 @@ pub use imap::{
 pub use machine::{Backend, IoNeed, IoReady, Machine, Moved, Progress, ProtoOutcome};
 pub use pop3::{ListEntry, Pop3Command, Pop3Reply, Pop3Session, UidlEntry};
 pub use smtp::{
-    Advertised, EhloExtensions, ReplyText, SizeLimit, SmtpReply, SmtpSession, Submission,
+    Advertised, Authentication, EhloExtensions, ReplyText, SignIn, SizeLimit, SmtpReply,
+    SmtpSession, Submission,
 };
 
 #[cfg(test)]

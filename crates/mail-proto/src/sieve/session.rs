@@ -20,6 +20,20 @@ use base64::engine::general_purpose::STANDARD;
 use mail_domain::Tls;
 use porter_core::Credential;
 
+/// Who the session signs in as, or that a relay already did.
+///
+/// `Debug` is derived: [`Credential`]'s own `Debug` redacts the secret.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SieveAuthentication {
+    SignIn {
+        username: String,
+        credential: Credential,
+    },
+    /// The connection is a porter relay's, signed in before the session began: no `STARTTLS` and
+    /// no `AUTHENTICATE` of its own, the first thing sent is `LISTSCRIPTS`.
+    Relayed,
+}
+
 /// Where to connect and who to be.
 ///
 /// `Debug` is derived: [`Credential`]'s own `Debug` redacts the secret.
@@ -29,12 +43,7 @@ pub struct SieveLogin {
     pub host: String,
     pub port: u16,
     pub tls: Tls,
-    pub username: String,
-    pub credential: Credential,
-    /// The connection is a porter relay's, signed in before the session began: no `STARTTLS` and
-    /// no `AUTHENTICATE` of its own, the first thing sent is `LISTSCRIPTS`. `username` and
-    /// `credential` are not read.
-    pub relayed: bool,
+    pub auth: SieveAuthentication,
     /// The name this client's script goes by on the server.
     ///
     /// One name, owned by this client: a script with any other name was written by someone
@@ -387,7 +396,7 @@ impl SieveSession {
 
     /// Upgrade first when the upgrade is required and has not happened; then sign in.
     fn after_capabilities(&mut self) -> Step {
-        if self.login.relayed {
+        if self.login.auth == SieveAuthentication::Relayed {
             return self.list();
         }
         if self.login.tls == Tls::StartTlsRequired && self.phase == Phase::Greeting {
@@ -405,13 +414,16 @@ impl SieveSession {
     }
 
     fn authenticate(&mut self) -> Step {
-        let (mechanism, raw) = match &self.login.credential {
-            Credential::Password(password) => {
-                ("PLAIN", plain(&self.login.username, password.expose()))
-            }
-            Credential::OAuth { access, .. } => {
-                ("XOAUTH2", xoauth2(&self.login.username, access.expose()))
-            }
+        let SieveAuthentication::SignIn {
+            username,
+            credential,
+        } = &self.login.auth
+        else {
+            return self.list();
+        };
+        let (mechanism, raw) = match credential {
+            Credential::Password(password) => ("PLAIN", plain(username, password.expose())),
+            Credential::OAuth { access, .. } => ("XOAUTH2", xoauth2(username, access.expose())),
             Credential::ApiKey(_) | Credential::KeyPair { .. } => {
                 return Step::Fail(ProtoError::Unsupported(
                     "an API key is not a sign-in credential".to_owned(),

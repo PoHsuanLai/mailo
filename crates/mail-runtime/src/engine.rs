@@ -16,9 +16,9 @@ use mail_domain::{
 };
 use mail_mime::Posting;
 use mail_proto::backend::SmtpBackend;
-use mail_proto::{Backend, Moved, ProtoOutcome, Submission};
+use mail_proto::{Authentication, Backend, Moved, ProtoOutcome, SignIn, Submission};
 use mail_store::{Dispatch, OutboxEntry, Settle, SqliteStore, Store};
-use porter_core::{AccountId, Credential, Family, SecretKey, SecretPurpose, SecretText};
+use porter_core::{AccountId, Credential, Family, SecretKey, SecretPurpose};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -631,18 +631,22 @@ impl<B: Backend> AccountEngine<B> {
         // Most providers authenticate submission with the same secret as retrieval, which is
         // what `AuthPlan` means by covering both directions. A separate outgoing secret is
         // preferred where one was stored, because a few hosts really do differ.
-        let relayed = self.plan.grant().is_some();
-        let credential = if relayed {
+        let auth = if self.plan.grant().is_some() {
             // The relay signs in: nothing to present, and nothing of the account's in this process.
-            Credential::Password(SecretText::new(""))
+            Authentication::Relayed
         } else {
-            match &self.tokens {
+            let credential = match &self.tokens {
                 Some(tokens) => tokens.current(Token::Sending).await?,
                 None => match self.secret(SecretPurpose::OutgoingPassword).await {
                     Ok(credential) => credential,
                     Err(_) => self.secret(SecretPurpose::IncomingPassword).await?,
                 },
-            }
+            };
+            Authentication::SignIn(SignIn {
+                username,
+                credential,
+                sasl,
+            })
         };
         // The incoming backend's capabilities. They describe the *account*, not the socket:
         // `SmtpBackend` reads none of the IMAP-shaped fields, and giving it a second, emptier
@@ -657,10 +661,7 @@ impl<B: Backend> AccountEngine<B> {
                     host: host.clone(),
                     port,
                     tls,
-                    username: username.clone(),
-                    credential: credential.clone(),
-                    sasl: sasl.clone(),
-                    relayed,
+                    auth: auth.clone(),
                     // Straight from the Posting. Re-deriving either of these from `message`
                     // is FINDINGS F37.
                     mail_from: posting.mail_from,
