@@ -12,10 +12,10 @@
 //! (`editor/keys.rs`), not these.
 //!
 //! This table is what a person can change, and the defaults it holds are what mailo declares to
-//! chordkit as its actions (`ui::actions`), which resolves every press. A key the person gave an
-//! action is laid over that resolution by `actions::heard`: quire's `Keys` has no place for a
-//! person's changes to an app's actions (its keymap comes from the system's source), so the
-//! file is read here and its keys win in `actions`.
+//! chordkit as its actions (`ui::actions`), which resolves every press. The keys the person
+//! chose reach it as chordkit `Overrides` ([`Keymap::overrides`]), which the launch lays over
+//! the system's keymap (`AppConfig::with_keymap_overrides`), so they are read once, as mailo
+//! opens.
 
 use crate::ui::view::Shortcut;
 use std::path::Path;
@@ -93,6 +93,12 @@ impl Keymap {
         }
     }
 
+    /// The keys the user chose, as chordkit's changes to its keymap: what the launch gives quire
+    /// so the keymap holds them.
+    pub fn overrides(&self) -> chordkit::Overrides {
+        crate::ui::actions::overrides_of(self)
+    }
+
     /// Whether the user gave `action` a key of its own.
     pub fn is_changed(&self, action: Shortcut) -> bool {
         self.changed.iter().any(|(one, _)| *one == action)
@@ -114,15 +120,6 @@ impl Keymap {
             .map(|(action, _)| *action)
             .filter(|action| *action != besides)
             .find(|action| self.keys(*action).iter().any(|held| held == key))
-    }
-
-    /// The action the user gave `key` of their own, if one. The defaults are chordkit's to
-    /// resolve; only a key the person chose is this map's to answer.
-    pub fn changed_holder(&self, key: &str) -> Option<Shortcut> {
-        self.changed
-            .iter()
-            .find(|(_, held)| held == key)
-            .map(|(action, _)| *action)
     }
 
     /// The shortcut a key press means, or `None` for a key that is not one.

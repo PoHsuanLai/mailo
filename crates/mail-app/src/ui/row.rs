@@ -260,7 +260,7 @@ pub(super) fn MailRow(
             // Shift+Enter on the focused row opens it in a window of its own. Stopped here, so
             // the window's own Shift+Enter does not open the open conversation as well.
             onkeydown: move |event: KeyboardEvent| {
-                let opens = crate::ui::actions::heard(keys, &shell.peek().keymap, &event, false)
+                let opens = crate::ui::actions::heard(keys, &event, false)
                     == Some(crate::ui::actions::Heard::Own(crate::ui::actions::Own::OpenInWindow));
                 if opens {
                     event.stop_propagation();
@@ -276,10 +276,7 @@ pub(super) fn MailRow(
                 time,
                 tags,
                 star: Some(star),
-                star_shortcut: crate::ui::actions::tip(
-                    &shell.read().keymap,
-                    crate::ui::view::Shortcut::ToggleStar,
-                ),
+                star_shortcut: crate::ui::actions::tip(crate::ui::view::Shortcut::ToggleStar),
                 strip: None,
                 more: Some(more),
                 onclick: move |press: Press| {

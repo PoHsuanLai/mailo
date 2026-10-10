@@ -20,6 +20,8 @@ pub(super) struct World<'a> {
     pub shell: &'a Shell,
     pub spaces: &'a Spaces,
     pub store: &'a SqliteStore,
+    /// The window's keymap, for the hints beside the commands.
+    pub keymap: &'a chordkit::Keymap,
 }
 
 /// The panel's rows for what it lists.
@@ -33,6 +35,7 @@ pub(super) fn panel_rows(
         shell,
         spaces,
         store,
+        keymap,
     } = world;
     match listing {
         BarListing::Templates(typed) => super::templates::rows(store, typed)
@@ -45,7 +48,7 @@ pub(super) fn panel_rows(
             .collect(),
         BarListing::Search => {
             let query = drawn.settled.text.as_str();
-            let rows: Vec<MenuItem> = rows_of(&drawn.results, &drawn.names, query)
+            let rows: Vec<MenuItem> = rows_of(&drawn.results, &drawn.names, query, keymap)
                 .into_iter()
                 .map(|row| restate_sidebar(row, sidebar, query))
                 .collect();

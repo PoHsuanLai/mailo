@@ -155,8 +155,7 @@ pub(super) fn PickBar(
     let destroyable = summaries
         .iter()
         .any(|summary| crate::ui::bin::offered(bin, summary));
-    let keys = shell.read().keymap.clone();
-    let keys_for = |action| crate::ui::actions::tip(&keys, action);
+    let keys_for = crate::ui::actions::tip;
     let buttons: Vec<(Shortcut, Icon, &'static str, &'static str)> = [
         (Shortcut::Archive, Icon::Archive, "Archive", "Archive"),
         (

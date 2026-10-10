@@ -10,6 +10,8 @@ use ds::prelude::*;
 use std::collections::HashMap;
 
 use super::super::menu::{MenuItem, Right, Run, Tile, Tone};
+use crate::ui::actions;
+use chordkit::{Keymap, StandardAction};
 use chrono::{DateTime, Utc};
 use mail_core::search::{self, ActionHit, Command, MailHit, PersonHit, Results, Top};
 use mail_domain::ThreadId;
@@ -101,10 +103,11 @@ pub(in crate::ui) fn rows_of(
     results: &Results,
     names: &HashMap<String, String>,
     query: &str,
+    keymap: &Keymap,
 ) -> Vec<MenuItem> {
     let mut out = Vec::new();
     if let Some(top) = &results.top {
-        out.push(top_item(top, names, query));
+        out.push(top_item(top, names, query, keymap));
     }
     let mail_group = if query.trim().is_empty() {
         "Recent"
@@ -118,16 +121,16 @@ pub(in crate::ui) fn rows_of(
         out.push(person_item(hit, names, query, "People"));
     }
     for hit in &results.actions {
-        out.push(action_item(hit, "Actions"));
+        out.push(action_item(hit, "Actions", keymap));
     }
     out
 }
 
-fn top_item(top: &Top, names: &HashMap<String, String>, query: &str) -> MenuItem {
+fn top_item(top: &Top, names: &HashMap<String, String>, query: &str, keymap: &Keymap) -> MenuItem {
     match top {
         Top::Mail(hit) => mail_item(hit, "Top hit", query),
         Top::Person(hit) => person_item(hit, names, query, "Top hit"),
-        Top::Action(hit) => action_item(hit, "Top hit"),
+        Top::Action(hit) => action_item(hit, "Top hit", keymap),
     }
 }
 
@@ -277,13 +280,16 @@ pub(in crate::ui) fn avatar_color(email: &str) -> String {
         .css()
 }
 
-fn action_item(hit: &ActionHit, group: &str) -> MenuItem {
-    let shortcut = match hit.command.label.as_str() {
-        "Compose" => Some(crate::ui::hints::COMPOSE.to_owned()),
-        "Hide sidebar" => Some(crate::ui::hints::HIDE_SIDEBAR.to_owned()),
-        "Print conversation" => Some(crate::ui::hints::PRINT.to_owned()),
+/// A command row, with the chord of the standard action it is drawn from `keymap`: its first
+/// chord, in the platform's own order and words (`Ctrl+N` on Windows, ⌘N on a Mac).
+fn action_item(hit: &ActionHit, group: &str, keymap: &Keymap) -> MenuItem {
+    let standard = match hit.command.label.as_str() {
+        "Compose" => Some(StandardAction::New),
+        "Hide sidebar" => Some(StandardAction::ToggleSidebar),
+        "Print conversation" => Some(StandardAction::Print),
         _ => None,
     };
+    let shortcut = standard.and_then(|action| actions::hint_standard(keymap, action));
     MenuItem {
         key: format!("action:{}", hit.command.label),
         tile: Tile::Icon(action_icon(&hit.command.label)),

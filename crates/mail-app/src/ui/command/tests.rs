@@ -5,12 +5,19 @@ use super::super::app::App;
 use super::items::{Pick, interpret, rows_of, search_now, tokens};
 use super::*;
 use crate::ui::fixtures::work;
+use crate::ui::menu::Right;
 use crate::ui::view::Shell;
+use chordkit::Platform;
 use chrono::Utc;
 use dioxus_core::VirtualDom;
 use ds::prelude::*;
 use mail_core::search::{Results, Top};
 use std::collections::HashMap;
+
+/// `platform`'s conventions as a window's keymap, for the hints beside the commands.
+fn conventional(platform: Platform) -> chordkit::Keymap {
+    chordkit::Keymap::conventional(platform)
+}
 
 fn at_dana(store: &SqliteStore) -> (Results, HashMap<String, String>) {
     search_now(store, "dana", Utc::now())
@@ -19,7 +26,7 @@ fn at_dana(store: &SqliteStore) -> (Results, HashMap<String, String>) {
 /// The addresses the ⌘K menu's person rows name for `query`, top hit first, as drawn.
 pub(in crate::ui) fn people_for(store: &SqliteStore, query: &str) -> Vec<String> {
     let (results, names) = search_now(store, query, Utc::now());
-    rows_of(&results, &names, query)
+    rows_of(&results, &names, query, &conventional(Platform::MacOs))
         .into_iter()
         .filter_map(|item| item.key.strip_prefix("person:").map(str::to_owned))
         .collect()
@@ -63,7 +70,7 @@ fn the_sidebar_row_names_what_a_pick_does() {
     use super::items::{SIDEBAR_KEY, restate_sidebar};
     let built = work();
     let (results, names) = search_now(&built.store, "", Utc::now());
-    let items = rows_of(&results, &names, "");
+    let items = rows_of(&results, &names, "", &conventional(Platform::MacOs));
     let wording = |sidebar: Shown, query: &str| -> Vec<(String, String)> {
         items
             .iter()
@@ -101,7 +108,7 @@ fn the_renamed_sidebar_row_is_marked_for_its_own_wording() {
     use super::items::{SIDEBAR_KEY, restate_sidebar};
     let built = work();
     let (results, names) = search_now(&built.store, "sidebar", Utc::now());
-    let items = rows_of(&results, &names, "sidebar");
+    let items = rows_of(&results, &names, "sidebar", &conventional(Platform::MacOs));
     let row = items
         .into_iter()
         .find(|item| item.key == SIDEBAR_KEY)
@@ -129,7 +136,7 @@ fn from_dana_is_a_chip() {
 fn dana_is_marked_in_the_persons_name() {
     let built = work();
     let (results, names) = at_dana(&built.store);
-    let person = rows_of(&results, &names, "dana")
+    let person = rows_of(&results, &names, "dana", &conventional(Platform::MacOs))
         .into_iter()
         .find(|item| item.key.starts_with("person:"))
         .expect("a person for dana");
@@ -294,6 +301,40 @@ async fn each_settings_entry_opens_the_settings_window_on_its_page() {
             asked.asks(),
             [Some(crate::ui::settings_window::SettingsAt::Page(page))],
             "{label:?}"
+        );
+    }
+}
+
+/// The chord beside a command is the one the keymap binds, in the platform's own words: a Mac
+/// draws glyphs, Windows draws Ctrl and its own key for the sidebar.
+#[test]
+fn a_command_s_hint_is_drawn_for_the_platform() {
+    let built = work();
+    let (results, names) = search_now(&built.store, "", Utc::now());
+    let hint = |platform: Platform, key: &str| -> Option<String> {
+        rows_of(&results, &names, "", &conventional(platform))
+            .into_iter()
+            .find(|item| item.key == key)
+            .and_then(|item| match item.right {
+                Right::Shortcut(text) => Some(text),
+                _ => None,
+            })
+    };
+    const CASES: &[(&str, &str, &str)] = &[
+        ("action:Compose", "\u{2318}N", "Ctrl+N"),
+        ("action:Print conversation", "\u{2318}P", "Ctrl+P"),
+        ("action:Hide sidebar", "\u{2303}\u{2318}S", "F9"),
+    ];
+    for (key, mac, windows) in CASES {
+        assert_eq!(
+            hint(Platform::MacOs, key).as_deref(),
+            Some(*mac),
+            "{key} on a Mac"
+        );
+        assert_eq!(
+            hint(Platform::Windows, key).as_deref(),
+            Some(*windows),
+            "{key} on Windows"
         );
     }
 }

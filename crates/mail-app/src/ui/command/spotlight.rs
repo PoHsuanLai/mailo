@@ -60,12 +60,15 @@ pub(in crate::ui) fn Spotlight(
         Shown::Visible
     };
     let rows = open.as_ref().map_or_else(Vec::new, |open| {
-        let world = World {
-            shell: &shell.read(),
-            spaces: &spaces.read(),
-            store: &store,
-        };
-        panel_rows(&world, &drawn.read(), &open.listing, sidebar)
+        keys.with_keymap(|keymap| {
+            let world = World {
+                shell: &shell.read(),
+                spaces: &spaces.read(),
+                store: &store,
+                keymap,
+            };
+            panel_rows(&world, &drawn.read(), &open.listing, sidebar)
+        })
     });
     let ctx = Ctx {
         shell,
@@ -149,7 +152,7 @@ fn on_key(ctx: Ctx, keys: Keys, rows: &[crate::ui::menu::MenuItem], event: Keybo
     let shell = ctx.shell;
     // ⌘K again: the panel's field is in quire's overlay, outside the window's own keys, so it
     // answers the chord itself, selecting what is typed so the next key replaces it.
-    let heard = actions::heard(keys, &shell.peek().keymap, &event, true);
+    let heard = actions::heard(keys, &event, true);
     if heard == Some(Heard::Own(Own::Search)) {
         event.prevent_default();
         event.stop_propagation();

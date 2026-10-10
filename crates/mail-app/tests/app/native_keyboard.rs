@@ -1,7 +1,8 @@
 //! Custom keyboard shortcuts, driven the way their user drives them in the real window on Blitz
 //! (`ds_harness::Harness`): the Settings window's Keyboard page, Change on Archive, a key that
 //! another action holds refused by that action's name, a free key taken, and then, in the main
-//! window, which hears the shared revision, the new key archiving and the old one doing nothing.
+//! window, opened afterwards as mailo reads the keys when it opens, the new key archiving and the
+//! old one doing nothing.
 //!
 //! The window is handed a pair of `TempDir` directories, so the keymap it keeps lands there and
 //! nowhere else; the store is seeded in a `TempDir` too.
@@ -130,6 +131,11 @@ fn contexts(
         None,
         Some(dirs.clone()),
         mail_app::ui::Start::Inbox,
+    )
+    // The keys kept in the directory, as the launch lays them over the keymap as mailo opens.
+    .with(
+        ds::prelude::KeySource::default()
+            .with_overrides(mail_app::ui::keymap::load(&dirs.config).overrides()),
     )
     .with(printer)
     .with(revisions.0.clone())
@@ -279,7 +285,7 @@ fn open_page(settings: &mut Harness) {
 }
 
 #[test]
-fn archive_rebound_in_settings_archives_on_its_new_key_in_the_main_window() {
+fn archive_rebound_in_settings_archives_on_its_new_key_in_the_next_main_window() {
     let dir = tempfile::tempdir().unwrap();
     let store = seeded(dir.path());
     let dirs = WindowDirs {
@@ -287,7 +293,6 @@ fn archive_rebound_in_settings_archives_on_its_new_key_in_the_main_window() {
         state: dir.path().join("state"),
     };
     let revisions = (Revisions::new(), Configured::default());
-    let mut main = main_window(&store, &dirs, &revisions);
 
     // The Settings window, on a thread of its own as quire gives each window its own: a window's
     // host (its focus and keyboard) is per thread.
@@ -322,8 +327,10 @@ fn archive_rebound_in_settings_archives_on_its_new_key_in_the_main_window() {
         });
     });
 
-    // The main window hears the shared revision move and reads the keymap again. Open the newest
-    // conversation, then press the old key: nothing moves.
+    // The keys are read as mailo opens (quire cannot change a running keymap's overrides yet), so
+    // the main window opens after the change. Open the newest conversation, then press the old
+    // key: nothing moves.
+    let mut main = main_window(&store, &dirs, &revisions);
     main.advance(ms(300));
     let first = ".list .ds-list-item[*|aria-posinset=\"1\"] .ds-thread-sub";
     let rect = main

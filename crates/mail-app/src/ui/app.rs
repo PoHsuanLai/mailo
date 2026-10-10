@@ -436,7 +436,7 @@ pub(super) fn App() -> Element {
         let typing_now = in_a_field() || shell.read().composing.is_some();
         // What the press asks, from chordkit's keymap with the user's keys over it: a standard
         // action (⌘F, ⌘P, ⌘Z), one of mailo's chords (⌘K, ⌘1), or a mail key (j, e, #).
-        let heard = actions::heard(keys, &shell.read().keymap, &event, typing_now);
+        let heard = actions::heard(keys, &event, typing_now);
         if super::motion::key(
             &key,
             heard == Some(Heard::Standard(StandardAction::Undo)),

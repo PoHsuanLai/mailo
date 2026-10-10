@@ -10,9 +10,9 @@
 //!   Standard actions are never declared: ⌘N is `StandardAction::New`, ⌘F `Find`, ⌘P `Print`,
 //!   ⌘Z `Undo`, ⌘, `Settings`, ⌃⌘S `ToggleSidebar`, ⌘A `SelectAll`, ⌘B, ⌘I, ⌘U the editor's.
 //!   ⌘1 to ⌘9 are quire's: the Spaces kit reads `SwitchChord::Primary` itself.
-//! - [`heard`], which names what a press asks of mailo, with the keys the person chose in
-//!   `keyboard.json` laid over the defaults (see [`crate::ui::keymap`] for why that file stays
-//!   mailo's).
+//! - [`heard`], which names what a press asks of mailo. The keys the person chose in
+//!   `keyboard.json` are chordkit `Overrides` ([`overrides_of`]) that the launch lays over the
+//!   keymap, so they are the keymap's own chords and nothing here looks at that file.
 //! - the tips: [`tip`], [`tip_own`] and `Shortcut::standard`, which a control draws after its
 //!   name through chordkit's display, so a rebinding shows in the tip.
 //!
@@ -23,13 +23,13 @@ use crate::ui::keymap::{DEFAULTS, Keymap};
 use crate::ui::view::Shortcut;
 use chordkit::{
     Action, AppAction, AppId, Chord, Context, DefaultChord, Key as ChordKey, Modifier,
-    Modifiers as Mods, NamedKey, Platform, StandardAction,
+    Modifiers as Mods, NamedKey, OverrideEntry, Overrides, Platform, Registration, StandardAction,
 };
 use dioxus::prelude::{
     Key, KeyboardEvent, Modifiers, ModifiersInteraction, try_consume_context, use_hook,
 };
-use ds::base::command::{chord_of, resolve};
-use ds::prelude::{Keys, Shortcut as Tip, ShortcutKey};
+use ds::base::command::{chord_of, resolve, shortcut_text_for};
+use ds::prelude::{Keys, Shortcut as Tip, ShortcutKey, use_keys_provider};
 
 /// mailo's name to chordkit: the first part of every action id.
 const APP: &str = "mail";
@@ -91,9 +91,9 @@ const OWN: &[(Own, &str, &[&str])] = &[
     (
         Own::Strikethrough,
         "mail.strikethrough",
-        &["Primary+Shift+X"],
+        &["Primary+Shift+S"],
     ),
-    (Own::Code, "mail.code", &["Primary+Shift+E"]),
+    (Own::Code, "mail.code", &["Primary+E"]),
     (Own::Send, "mail.send", &["Primary+Enter"]),
     (Own::Focus, "mail.focus", &["Primary+Shift+F"]),
     (Own::OpenInWindow, "mail.open-in-window", &["Shift+Enter"]),
@@ -236,21 +236,37 @@ fn singles() -> Vec<(AppAction, DefaultChord)> {
     rows_of
 }
 
-/// Everything mailo declares, in groups registered one at a time. A registration is all or
-/// nothing and is refused whole when one chord is taken (the system's own settings can give
-/// ⌘K to something), so the single keys are one group and each chord of [`Own`] is its own:
-/// a clash costs that action alone.
-fn groups() -> Vec<Vec<(AppAction, DefaultChord)>> {
+/// One registration's worth of actions: the rows of a group.
+type Group = Vec<(AppAction, DefaultChord)>;
+
+/// Everything mailo declares, in groups. The keymap takes one registration per app and refuses
+/// it whole when one chord is taken (the system's own settings can give ⌘K to something), so
+/// [`register`] adds the groups one at a time and drops the group that is refused: the single
+/// keys are one group and each chord of [`Own`] is its own, so a clash costs that action alone.
+fn groups() -> Vec<Group> {
     std::iter::once(singles())
         .chain(OWN.iter().map(|(_, id, chords)| rows(id, chords)))
         .filter(|group| !group.is_empty())
         .collect()
 }
 
-/// Every action mailo declares, for a keymap that is not a window's (the tests').
+/// The registration of `groups`: their actions, and the two standard actions whose chords mailo
+/// takes for the composer's formatting, which it does not offer (it has no Save As, and Use
+/// Selection for Find is not a thing in a mail window), so strikethrough is ⇧⌘S and code is ⌘E.
+fn registration(app: &AppId, groups: &[Group]) -> Registration {
+    groups.iter().flatten().fold(
+        Registration::new(app)
+            .forgo(StandardAction::SaveAs)
+            .forgo(StandardAction::UseSelectionForFind),
+        |registration, (action, chord)| registration.action(action.clone(), *chord),
+    )
+}
+
+/// Every action mailo declares, as one registration, for a keymap that is not a window's (the
+/// tests').
 #[cfg(test)]
-pub(in crate::ui) fn declared() -> Vec<Vec<(AppAction, DefaultChord)>> {
-    groups()
+pub(in crate::ui) fn declared(app: &AppId) -> Registration {
+    registration(app, &groups())
 }
 
 /// mailo's name as chordkit takes it.
@@ -258,12 +274,37 @@ pub(in crate::ui) fn app_id() -> Option<AppId> {
     AppId::new(APP).ok()
 }
 
+/// The keys the person chose, as the changes to the keymap chordkit lays over a platform's:
+/// each changed action answers to its one key, and its defaults are gone. Nothing for an action
+/// left as it ships.
+pub(in crate::ui) fn overrides_of(user: &Keymap) -> Overrides {
+    let entries = DEFAULTS
+        .iter()
+        .map(|(shortcut, _)| *shortcut)
+        .filter(|shortcut| user.is_changed(*shortcut))
+        .filter_map(|shortcut| {
+            let action = Action::App(app_action(shortcut)?);
+            let chords = user
+                .keys(shortcut)
+                .iter()
+                .flat_map(|key| chords_of_key(key))
+                .collect();
+            Some(OverrideEntry {
+                line: 0,
+                action,
+                chords,
+            })
+        });
+    Overrides::from_entries(entries)
+}
+
 /// The window's keymap, made here because mailo's root sits above its `Ds`: the keymap is the
-/// root context's `KeySource` (the system's own shortcut settings; the platform's conventions
-/// without any), and quire's `Ds` adopts the one already provided. Call it first in the root of
-/// every window that reads keys, before anything (`use_spaces`) that would take a default one.
+/// root context's `KeySource` (the system's own shortcut settings with the person's keys laid
+/// over them; the platform's conventions without any), and quire's `Ds` adopts the one already
+/// provided. Call it first in the root of every window that reads keys, before anything
+/// (`use_spaces`) that would take a default one.
 pub(in crate::ui) fn use_window_keys() -> Keys {
-    ds::keys::use_keys_provider()
+    use_keys_provider()
 }
 
 /// [`use_window_keys`] with mailo's actions registered in it, once, at the first render. Call it
@@ -274,38 +315,37 @@ pub(in crate::ui) fn use_registered() -> Keys {
     keys
 }
 
-/// Declare mailo's actions on `keys`, and say on the terminal which were refused and why.
+/// Declare mailo's actions on `keys`, and say on the terminal which were refused and why. A
+/// refused registration leaves the earlier one standing, so each group is tried on top of those
+/// already taken.
 fn register(keys: &Keys) {
     let Some(app) = app_id() else {
         return;
     };
+    let mut taken: Vec<Group> = Vec::new();
     for group in groups() {
-        if let Err(conflict) = keys.register_actions(&app, &group) {
+        taken.push(group);
+        if let Err(conflict) = keys.register(&app, &registration(&app, &taken)) {
             eprintln!("keys: {conflict}");
+            taken.pop();
         }
     }
 }
 
 /// What a key press asks of the window, if anything: `typing` is whether a text field has the
-/// keyboard, and `user` the keys the person chose.
-pub(in crate::ui) fn heard(
-    keys: Keys,
-    user: &Keymap,
-    event: &KeyboardEvent,
-    typing: bool,
-) -> Option<Heard> {
-    heard_key(keys, user, &event.key(), event.modifiers(), typing)
+/// keyboard.
+pub(in crate::ui) fn heard(keys: Keys, event: &KeyboardEvent, typing: bool) -> Option<Heard> {
+    heard_key(keys, &event.key(), event.modifiers(), typing)
 }
 
 /// [`heard`] for a key and modifiers from any source (the composer's surface gives its own).
 pub(in crate::ui) fn heard_key(
     keys: Keys,
-    user: &Keymap,
     key: &Key,
     modifiers: Modifiers,
     typing: bool,
 ) -> Option<Heard> {
-    keys.with_keymap(|chords| heard_in(chords, user, key, modifiers, typing))
+    keys.with_keymap(|chords| heard_in(chords, key, modifiers, typing))
 }
 
 /// Whether the press holds nothing but Shift: a key of the keymap's table is such a press, and
@@ -324,28 +364,15 @@ pub(in crate::ui) fn is_chord(keys: Keys, key: &Key, modifiers: Modifiers) -> bo
 /// What `key` with `modifiers` asks of a window whose keymap is `chords`.
 ///
 /// Esc is always [`Shortcut::Back`], even while typing: closing what you are typing in is the one
-/// thing a field cannot own. A key the person gave an action wins over chordkit's defaults, and
-/// takes that action's own defaults away (the action answers to one key then).
+/// thing a field cannot own.
 pub(in crate::ui) fn heard_in(
     chords: &chordkit::Keymap,
-    user: &Keymap,
     key: &Key,
     modifiers: Modifiers,
     typing: bool,
 ) -> Option<Heard> {
     if *key == Key::Escape {
         return Some(Heard::Mail(Shortcut::Back));
-    }
-    if !typing && is_plain(chords.platform(), key, modifiers) {
-        let name = key.to_string();
-        let name = if modifiers.shift() {
-            crate::ui::view::shifted(&name).to_owned()
-        } else {
-            name
-        };
-        if let Some(held) = user.changed_holder(&name) {
-            return Some(Heard::Mail(held));
-        }
     }
     let context = if typing {
         Context::TextEntry
@@ -356,23 +383,11 @@ pub(in crate::ui) fn heard_in(
         Action::Standard(StandardAction::Cancel) => Some(Heard::Mail(Shortcut::Back)),
         Action::Standard(action) => Some(Heard::Standard(action)),
         Action::App(action) => match shortcut_of(&action) {
-            Some(shortcut) => (!user.is_changed(shortcut)).then_some(Heard::Mail(shortcut)),
+            Some(shortcut) => Some(Heard::Mail(shortcut)),
             None => own_of(&action).map(Heard::Own),
         },
         _ => None,
     }
-}
-
-/// The chord `shortcut` is pressed with now: the person's key if they chose one, else the first
-/// of `live`, chordkit's chords for the action.
-fn chord_for(live: &[Chord], user: &Keymap, shortcut: Shortcut) -> Option<Chord> {
-    if user.is_changed(shortcut) {
-        return user
-            .keys(shortcut)
-            .first()
-            .and_then(|key| chord_of_key(key));
-    }
-    live.first().copied()
 }
 
 /// A chord as a tip draws it. Drawn by quire through chordkit's display, in the platform's own
@@ -381,15 +396,31 @@ fn tip_of(chord: Chord) -> Option<Tip> {
     Tip::from_default_chord(DefaultChord::from(chord))
 }
 
-/// The tip of a single-key action: the chord the window resolves it from now, so a key the
-/// person chose is the one shown. `None` for Esc's action, a window with no keymap, and an
-/// action with no chord.
-pub(in crate::ui) fn tip(user: &Keymap, shortcut: Shortcut) -> Option<Tip> {
+/// The tip of a single-key action: the chord the window resolves it from, so a key the person
+/// chose is the one shown. `None` for Esc's action, a window with no keymap, and an action with
+/// no chord.
+pub(in crate::ui) fn tip(shortcut: Shortcut) -> Option<Tip> {
     let keys = try_consume_context::<Keys>()?;
-    let live = app_action(shortcut)
-        .map(|action| keys.chords_of(&Action::App(action)))
-        .unwrap_or_default();
-    chord_for(&live, user, shortcut).and_then(tip_of)
+    let action = app_action(shortcut)?;
+    keys.chords_of(&Action::App(action))
+        .first()
+        .copied()
+        .and_then(tip_of)
+}
+
+/// The hint beside a command that is a standard action: its first chord in `keymap`, in the
+/// words of `keymap`'s platform (`Ctrl+N` on Windows, ⌘N on a Mac). Pure, for the rows that are
+/// built without a runtime. `None` when the keymap binds the action to nothing.
+pub(in crate::ui) fn hint_standard(
+    keymap: &chordkit::Keymap,
+    action: StandardAction,
+) -> Option<String> {
+    shortcut_text_for(keymap, &Action::Standard(action))
+}
+
+/// [`hint_standard`] for one of mailo's chords.
+pub(in crate::ui) fn hint_own(keymap: &chordkit::Keymap, own: Own) -> Option<String> {
+    shortcut_text_for(keymap, &Action::App(own_action(own)?))
 }
 
 /// The tip of one of mailo's chords, as the window's keymap has it now.

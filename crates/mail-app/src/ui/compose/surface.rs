@@ -341,7 +341,7 @@ fn heard(
     // select all, which the keymap names and the editor core has no key for.
     let mut said = None;
     if let EditInput::Key(key) = &input {
-        said = actions::heard_key(keys, &shell.peek().keymap, &key.key, key.modifiers, true);
+        said = actions::heard_key(keys, &key.key, key.modifiers, true);
         if key_taken(page, shell, on_attach, &key.key.to_string(), said) {
             taken.set(true);
             return;

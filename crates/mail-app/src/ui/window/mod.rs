@@ -120,14 +120,19 @@ fn quire(ask: Ask) {
     }
 }
 
-/// The menu row that opens a conversation in its own window, with the key that does it.
-pub(in crate::ui) fn menu_item() -> super::menu::MenuItem {
+/// What the menu row that opens a conversation in its own window is called.
+pub(in crate::ui) const OPEN_NAME: &str = "Open in new window";
+
+/// The menu row that opens a conversation in its own window, with the key that does it as
+/// `keymap` has it (no key beside it when the keymap binds none).
+pub(in crate::ui) fn menu_item(keymap: &chordkit::Keymap) -> super::menu::MenuItem {
+    let shortcut = super::actions::hint_own(keymap, super::actions::Own::OpenInWindow);
     super::menu::MenuItem {
         key: OPEN_KEY.to_owned(),
         tile: super::menu::Tile::Icon(Icon::Window),
-        name: "Open in new window".to_owned(),
+        name: OPEN_NAME.to_owned(),
         help: None,
-        right: super::menu::Right::Shortcut(SHORTCUT.to_owned()),
+        right: shortcut.map_or(super::menu::Right::None, super::menu::Right::Shortcut),
         group: None,
         marks: Vec::new(),
         title: Vec::new(),
@@ -137,9 +142,6 @@ pub(in crate::ui) fn menu_item() -> super::menu::MenuItem {
 
 /// The menu row's key.
 pub(in crate::ui) const OPEN_KEY: &str = "open-window";
-
-/// The key that opens the focused conversation in its own window, as the menus write it.
-const SHORTCUT: &str = crate::ui::hints::OPEN_IN_WINDOW;
 
 #[cfg(test)]
 mod tests {
