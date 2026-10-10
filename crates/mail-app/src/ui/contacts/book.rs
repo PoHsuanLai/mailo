@@ -8,10 +8,12 @@
 
 use std::path::{Path, PathBuf};
 
+use mail_core::Store;
+use mail_core::contacts::{Contact, Kind, Origin};
 use mail_domain::filter::search_tokens;
-use mail_store::{Contact, Kind, Origin, Store};
 
 use crate::ui::editor::Person;
+use mail_core::contacts::groups::person_of;
 
 /// How many people a suggestion menu offers.
 pub(in crate::ui) const SUGGESTED: usize = 8;
@@ -29,22 +31,6 @@ pub(in crate::ui) fn suggest(store: &dyn Store, typed: &str) -> Vec<Person> {
         .iter()
         .map(person_of)
         .collect()
-}
-
-/// A contact as a chip names it: their name, else the local part of the address.
-pub(in crate::ui) fn person_of(contact: &Contact) -> Person {
-    let name = match contact.name.as_deref().map(str::trim) {
-        Some(name) if !name.is_empty() => name.to_owned(),
-        _ => local_part(&contact.address).to_owned(),
-    };
-    Person {
-        name,
-        address: contact.address.clone(),
-    }
-}
-
-fn local_part(address: &str) -> &str {
-    address.split('@').next().unwrap_or(address)
 }
 
 /// Where an entry came from, as the sheet and the sender card say it.

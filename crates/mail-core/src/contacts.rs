@@ -9,11 +9,17 @@ use mail_pim::vcard::{self, Card, Email};
 use mail_runtime::carddav::{self, Dav, DavAuth};
 use mail_runtime::link::LinkError;
 use mail_runtime::{AccountSecrets, ClientRegistry};
-use mail_store::{AddressBook, Edit, Group, GroupHome, GroupId, Kind, Origin, SqliteStore, Store};
+use mail_store::{SqliteStore, Store};
 use porter_core::{CapabilityKind, Credential, Family, SecretKey, SecretPurpose, SecretText};
 use std::collections::BTreeSet;
 
+pub mod groups;
+
 pub use mail_runtime::carddav::How;
+/// The address book's own types, which a front end names to read and edit it.
+pub use mail_store::{
+    AddressBook, BookCard, Contact, Edit, Group, GroupHome, GroupId, Kind, Origin,
+};
 
 impl crate::mail::ContactOps<'_> {
     /// Sync a CardDAV address book (see [`sync`]).

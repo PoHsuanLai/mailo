@@ -223,7 +223,7 @@ async fn render_the_contacts_page_to_a_file() {
         .put_contact(
             "mei.lin@example.com",
             Some("林美"),
-            &mail_store::Origin::Manual,
+            &mail_core::contacts::Origin::Manual,
         )
         .unwrap_or_else(|why| panic!("a contact: {why}"));
     let mut frame = VirtualDom::new(crate::ui::app::App)

@@ -1,15 +1,28 @@
-//! Contact groups in the window, against a real store: who a group expands to, which groups To
-//! offers, and the sheet's edits — a synced group's marked for writing back.
+//! Contact groups against a real store: who a group expands to, which groups To offers, and the
+//! edits — a synced group's marked for writing back.
 
-use mail_store::{AddressBook, BookCard, Edit, Group, GroupHome, GroupId, Origin, Store};
-
-use super::groups::{self, expand, offers};
-use super::tests::{ADDED, WRITTEN, the_book};
-use crate::ui::editor::Person;
+use super::*;
+use mail_store::{AddressBook, BookCard, Origin, SqliteStore};
 
 const BOOK: &str = "https://dav.example.test/book/";
 const GRACE_UID: &str = "urn:uuid:4fbe8971-0bc3-424c-9c26-36c3e1eff6b1";
 const NOBODY: &str = "urn:uuid:ffffffff-0000-4000-8000-000000000000";
+/// Added by hand and never written to.
+const ADDED: &str = "dara.quinn@example.test";
+const WRITTEN: &str = "daniel@example.test";
+
+/// A store whose book holds two people by hand.
+fn the_book() -> (SqliteStore, tempfile::TempDir) {
+    let dir = tempfile::tempdir().unwrap();
+    let store = SqliteStore::in_memory(dir.path()).unwrap();
+    store
+        .put_contact(ADDED, Some("Dara Quinn"), &Origin::Manual)
+        .unwrap();
+    store
+        .put_contact(WRITTEN, Some("Daniel Brook"), &Origin::Manual)
+        .unwrap();
+    (store, dir)
+}
 
 /// A synced book holding Grace's card, whose `UID` a member names. Stored the way a sync before
 /// `BookCard::uid` existed stored it, so only the card's text says the `UID`.
@@ -63,7 +76,7 @@ fn addresses(people: &[Person]) -> Vec<&str> {
 #[test]
 fn a_group_expands_by_address_by_card_and_by_nested_group_and_keeps_what_it_cannot_find() {
     let (store, _dir) = the_book();
-    with_grace(store.as_ref());
+    with_grace(&store);
     let inner = group(
         "inner-1",
         "Inner",
@@ -87,7 +100,7 @@ fn a_group_expands_by_address_by_card_and_by_nested_group_and_keeps_what_it_cann
     store.put_group(&inner).unwrap();
     store.put_group(&outer).unwrap();
 
-    let expanded = expand(store.as_ref(), &outer);
+    let expanded = expand(&store, &outer);
     assert_eq!(
         addresses(&expanded.people),
         [ADDED, "grace@example.test", WRITTEN],
@@ -102,7 +115,7 @@ fn a_group_expands_by_address_by_card_and_by_nested_group_and_keeps_what_it_cann
 #[test]
 fn to_offers_a_group_by_a_word_of_its_name_and_not_one_of_nobody() {
     let (store, _dir) = the_book();
-    let before = offers(store.as_ref(), "fam");
+    let before = offers(&store, "fam");
     let family = group(
         "fam-1",
         "The Family",
@@ -121,16 +134,21 @@ fn to_offers_a_group_by_a_word_of_its_name_and_not_one_of_nobody() {
             GroupHome::Local,
         ))
         .unwrap();
-    let after = offers(store.as_ref(), "fam");
+    let after = offers(&store, "fam");
     assert!(before.is_empty());
     assert_eq!(after.len(), 1, "{after:?}");
     assert_eq!(after[0].id, family.id);
     assert_eq!(addresses(&after[0].expanded.people), [WRITTEN, ADDED]);
     assert!(
-        offers(store.as_ref(), "amily").is_empty(),
+        offers(&store, "amily").is_empty(),
         "a word's start, not its middle"
     );
-    assert_eq!(offers(store.as_ref(), "the fam").len(), 1);
+    assert_eq!(offers(&store, "the fam").len(), 1);
+    assert_eq!(
+        listed(&store, "fam").unwrap().len(),
+        3,
+        "the sheet lists them all"
+    );
 }
 
 #[test]
@@ -148,16 +166,12 @@ fn an_edit_to_a_synced_group_is_marked_for_the_next_sync_and_a_local_one_is_just
         },
     );
     store.put_group(&synced).unwrap();
-    let local = groups::create(store.as_ref(), "  Lunch  ").unwrap();
+    let local = create(&store, "  Lunch  ").unwrap();
     assert_eq!(local.name, "Lunch");
     assert!(local.members.is_empty(), "a new group has nobody yet");
+    assert!(matches!(create(&store, "  "), Err(GroupError::NoName)));
 
-    let added = groups::add(
-        store.as_ref(),
-        &synced.id,
-        &format!("{ADDED}, Daniel <{WRITTEN}>"),
-    )
-    .unwrap();
+    let added = add(&store, &synced.id, &format!("{ADDED}, Daniel <{WRITTEN}>")).unwrap();
     assert_eq!(
         added.members,
         [
@@ -175,42 +189,58 @@ fn an_edit_to_a_synced_group_is_marked_for_the_next_sync_and_a_local_one_is_just
             edit: Edit::Edited
         }
     );
-    let twice = groups::add(store.as_ref(), &synced.id, ADDED).unwrap();
+    let twice = add(&store, &synced.id, ADDED).unwrap();
     assert_eq!(
         twice.members.len(),
         3,
         "an address already in it is not added again"
     );
-    let removed = groups::remove(store.as_ref(), &synced.id, &format!("mailto:{ADDED}")).unwrap();
+    let removed = remove(&store, &synced.id, &format!("mailto:{ADDED}")).unwrap();
     assert_eq!(removed.members.len(), 2);
-    let renamed = groups::rename(store.as_ref(), &local.id, "Lunch club").unwrap();
+    let renamed = rename(&store, &local.id, "Lunch club").unwrap();
     assert_eq!(renamed.home, GroupHome::Local);
-    assert!(groups::rename(store.as_ref(), &local.id, "  ").is_err());
+    assert!(matches!(
+        rename(&store, &local.id, "  "),
+        Err(GroupError::NoName)
+    ));
+    assert!(matches!(
+        rename(&store, &GroupId::local("urn:uuid:none"), "Nobody"),
+        Err(GroupError::Gone)
+    ));
 
     assert!(
-        groups::forget(store.as_ref(), &synced.id).is_err(),
+        matches!(forget(&store, &synced.id), Err(GroupError::InBook { name }) if name == "Team"),
         "a synced group is its book's to delete"
     );
     let before = store.groups().unwrap().len();
-    groups::forget(store.as_ref(), &local.id).unwrap();
+    forget(&store, &local.id).unwrap();
     assert_eq!(store.groups().unwrap().len(), before - 1);
 }
 
 #[test]
 fn a_member_is_labelled_by_whom_it_names() {
     let (store, _dir) = the_book();
-    with_grace(store.as_ref());
+    with_grace(&store);
     let g = group(
         "g",
         "G",
         &[GRACE_UID, NOBODY, &format!("mailto:{ADDED}")],
         GroupHome::Local,
     );
-    let labels: Vec<String> = groups::member_labels(store.as_ref(), &g)
+    let labels: Vec<Labelled> = members(&store, &g)
         .into_iter()
         .map(|(_, label)| label)
         .collect();
-    assert_eq!(labels[0], "Grace Hopper <grace@example.test>");
-    assert_eq!(labels[1], format!("{NOBODY} (not found)"));
-    assert!(labels[2].ends_with(&format!("<{ADDED}>")), "{labels:?}");
+    assert_eq!(
+        labels[0],
+        Labelled::Named(Person {
+            name: "Grace Hopper".to_owned(),
+            address: "grace@example.test".to_owned()
+        })
+    );
+    assert_eq!(labels[1], Labelled::NotFound);
+    assert!(
+        matches!(&labels[2], Labelled::Named(person) if person.address == ADDED),
+        "{labels:?}"
+    );
 }
