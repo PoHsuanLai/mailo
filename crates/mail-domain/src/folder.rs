@@ -15,6 +15,7 @@ mod plan;
 pub use plan::{FolderContents, FolderCtx, plan};
 
 pub use crate::error::FolderError;
+use crate::state::MailboxRole;
 use porter_core::AccountId;
 use serde::{Deserialize, Serialize};
 
@@ -84,6 +85,36 @@ impl SpecialUse {
             SpecialUse::Junk => "Junk",
             SpecialUse::Sent => "Sent",
             SpecialUse::Trash => "Trash",
+        }
+    }
+
+    /// The role messages in a mailbox with this use are filed under here, if it files at all.
+    ///
+    /// `\All`, `\Flagged` and `\Important` are views, not places: a message in them is also
+    /// somewhere else.
+    pub fn role(self) -> Option<MailboxRole> {
+        match self {
+            SpecialUse::Inbox => Some(MailboxRole::Inbox),
+            SpecialUse::Archive => Some(MailboxRole::Archive),
+            SpecialUse::Drafts => Some(MailboxRole::Drafts),
+            SpecialUse::Sent => Some(MailboxRole::Sent),
+            SpecialUse::Trash => Some(MailboxRole::Trash),
+            SpecialUse::Junk => Some(MailboxRole::Spam),
+            SpecialUse::All | SpecialUse::Flagged | SpecialUse::Important => None,
+        }
+    }
+}
+
+impl From<MailboxRole> for SpecialUse {
+    /// The special use a mailbox serving `role` carries.
+    fn from(role: MailboxRole) -> SpecialUse {
+        match role {
+            MailboxRole::Inbox => SpecialUse::Inbox,
+            MailboxRole::Archive => SpecialUse::Archive,
+            MailboxRole::Sent => SpecialUse::Sent,
+            MailboxRole::Drafts => SpecialUse::Drafts,
+            MailboxRole::Trash => SpecialUse::Trash,
+            MailboxRole::Spam => SpecialUse::Junk,
         }
     }
 }

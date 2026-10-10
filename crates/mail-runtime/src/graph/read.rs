@@ -799,14 +799,7 @@ fn well_known(role: MailboxRole) -> &'static str {
 }
 
 fn special(role: MailboxRole) -> SpecialUse {
-    match role {
-        MailboxRole::Inbox => SpecialUse::Inbox,
-        MailboxRole::Archive => SpecialUse::Archive,
-        MailboxRole::Sent => SpecialUse::Sent,
-        MailboxRole::Drafts => SpecialUse::Drafts,
-        MailboxRole::Trash => SpecialUse::Trash,
-        MailboxRole::Spam => SpecialUse::Junk,
-    }
+    SpecialUse::from(role)
 }
 
 /// `Projects/2026` as its parent and its own name.

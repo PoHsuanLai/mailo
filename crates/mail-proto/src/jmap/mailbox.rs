@@ -47,15 +47,7 @@ impl JmapRole {
 
     /// Where an email in a mailbox with this role is filed here, if the role files at all.
     pub fn filed_as(&self) -> Option<MailboxRole> {
-        match self {
-            JmapRole::Inbox => Some(MailboxRole::Inbox),
-            JmapRole::Archive => Some(MailboxRole::Archive),
-            JmapRole::Drafts => Some(MailboxRole::Drafts),
-            JmapRole::Sent => Some(MailboxRole::Sent),
-            JmapRole::Trash => Some(MailboxRole::Trash),
-            JmapRole::Junk => Some(MailboxRole::Spam),
-            JmapRole::All | JmapRole::Flagged | JmapRole::Important | JmapRole::Other(_) => None,
-        }
+        self.special().and_then(SpecialUse::role)
     }
 
     fn special(&self) -> Option<SpecialUse> {
