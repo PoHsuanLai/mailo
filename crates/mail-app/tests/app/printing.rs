@@ -10,6 +10,7 @@ use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_mime::Pages;
 use porter_core::AccountId;
+use std::sync::Arc;
 
 fn acct_account() -> AccountId {
     account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
@@ -23,16 +24,11 @@ fn args(words: &[&str]) -> Vec<String> {
     words.iter().map(|word| (*word).to_owned()).collect()
 }
 
-fn exercise(store: &SqliteStore, command: &Command) -> Result<String, String> {
-    cli::run_with_clients(
-        store,
-        command,
-        at(10_000),
-        &mail_core::ClientRegistry::default(),
-    )
+fn exercise(store: &Arc<SqliteStore>, command: &Command) -> Result<String, String> {
+    cli::run(&crate::cli_mail::mail_at(store, at(10_000)), command)
 }
 
-fn seeded() -> (SqliteStore, tempfile::TempDir) {
+fn seeded() -> (Arc<SqliteStore>, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let store = SqliteStore::in_memory(dir.path()).unwrap();
     let plan = mail_domain::presets::manual_pop3(
@@ -48,7 +44,7 @@ fn seeded() -> (SqliteStore, tempfile::TempDir) {
     )
     .plan;
     mail_store::testing::seed_account_plan(&store, acct_account(), "me@example.test", &plan, None);
-    (store, dir)
+    (Arc::new(store), dir)
 }
 
 /// Store a message saying `text`, in `thread` or a new one. Returns its id and thread.

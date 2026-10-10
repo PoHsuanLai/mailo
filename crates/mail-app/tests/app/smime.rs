@@ -17,6 +17,7 @@ use mail_domain::*;
 use mail_mime::smime::{self as cms_smime, Cert, Sealing};
 use porter_core::AccountId;
 use smime_support::*;
+use std::sync::Arc;
 
 fn acct_account() -> AccountId {
     account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a2"))
@@ -76,8 +77,9 @@ fn password() -> Option<String> {
 
 /// The user's identity imported from a PKCS#12 file, and the test root trusted, as a user of
 /// this authority would have it.
-fn with_identity() -> (SqliteStore, tempfile::TempDir, MapSigningStore) {
+fn with_identity() -> (Arc<SqliteStore>, tempfile::TempDir, MapSigningStore) {
     let (store, dir) = seeded();
+    let store = Arc::new(store);
     let secrets = MapSigningStore::default();
     let file = cms_smime::write_pkcs12(&me(), PASSWORD, &mut rng(1)).unwrap();
     smime::certs::import(&store, &secrets, &file, &password, now()).unwrap();
@@ -684,9 +686,8 @@ mod command_line {
         let (store, _dir, secrets) = with_identity();
         import_bea(&store, &secrets);
         let said = cli::run(
-            &store,
+            &crate::cli_mail::mail_at(&store, now()),
             &cli::Command::Smime(cli::smime::SmimeCommand::List),
-            now(),
         )
         .unwrap();
         assert!(said.contains("your identity") && said.contains("private key in keyring"));

@@ -7,20 +7,16 @@ use mail_core::{SqliteStore, Store};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use porter_core::AccountId;
+use std::sync::Arc;
 
 fn now() -> DateTime<Utc> {
     Utc.timestamp_opt(1_700_000_000, 0).unwrap()
 }
 
-fn run(store: &SqliteStore, words: &str) -> Result<String, String> {
+fn run(store: &Arc<SqliteStore>, words: &str) -> Result<String, String> {
     let args: Vec<String> = words.split(' ').map(str::to_owned).collect();
     let command = cli::parse(&args)?;
-    cli::run_with_clients(
-        store,
-        &command,
-        now(),
-        &mail_core::ClientRegistry::default(),
-    )
+    cli::run(&crate::cli_mail::mail_at(store, now()), &command)
 }
 
 const IMAP: &str = "me@nowhere.example";
@@ -39,7 +35,7 @@ fn configure(store: &SqliteStore, id: AccountId, preset: presets::Preset) {
 }
 
 /// A store with one IMAP account whose folders have been listed, and one POP3 account.
-fn store() -> (SqliteStore, tempfile::TempDir, AccountId) {
+fn store() -> (Arc<SqliteStore>, tempfile::TempDir, AccountId) {
     let dir = tempfile::tempdir().unwrap();
     let store = SqliteStore::in_memory(dir.path()).unwrap();
     let account = account_id_from_uuid(uuid::Uuid::from_u128(0xa1));
@@ -91,7 +87,7 @@ fn store() -> (SqliteStore, tempfile::TempDir, AccountId) {
             ],
         )
         .unwrap();
-    (store, dir, account)
+    (Arc::new(store), dir, account)
 }
 
 fn queued(store: &SqliteStore, account: AccountId) -> Vec<ProtoOp> {

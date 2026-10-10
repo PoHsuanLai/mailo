@@ -516,7 +516,7 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) {
         }
     }
 
-    match super::run(&store, &command, chrono::Utc::now()) {
+    match super::run(&crate::edge::mail(&store), &command) {
         Ok(output) => print!("{output}"),
         Err(message) => {
             eprintln!("{message}");

@@ -518,7 +518,11 @@ fn sync_never_touches_the_local_account() {
     assert_eq!(every_message(&store, local_account(&store)), before);
 
     // No folder work, and no sending.
-    let listed = cli::run(&store, &cli::Command::FolderList { account: None }, now()).unwrap();
+    let listed = cli::run(
+        &crate::cli_mail::mail_at(&store, now()),
+        &cli::Command::FolderList { account: None },
+    )
+    .unwrap();
     assert!(listed.contains("only labels"), "{listed}");
     // An identity by hand: the local account has none, which is the point, but a draft row
     // must name one.

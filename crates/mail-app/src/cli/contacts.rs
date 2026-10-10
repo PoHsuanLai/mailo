@@ -7,11 +7,9 @@
 
 use super::SqliteStore;
 use crate::said::contacts::imported;
-use chrono::{DateTime, Utc};
-use mail_core::Environment;
+use mail_core::Mail;
 use mail_core::contacts::{self, BookSync, How, Synced};
 use mail_core::error::CoreError;
-use mail_core::{AccountSecrets, ClientRegistry};
 use std::fmt::Write as _;
 use std::path::PathBuf;
 
@@ -106,15 +104,9 @@ pub fn parse(args: &[String]) -> Result<Contacts, String> {
     }
 }
 
-/// Run a contacts command over `store`, signing in through `secrets`, returning what to print.
-pub async fn run(
-    store: &SqliteStore,
-    secrets: &dyn AccountSecrets,
-    env: &Environment,
-    command: &Contacts,
-    saved: &ClientRegistry,
-    now: DateTime<Utc>,
-) -> Result<String, CoreError> {
+/// Run a contacts command over `mail`, returning what to print.
+pub async fn run(mail: &Mail, command: &Contacts) -> Result<String, CoreError> {
+    let store: &SqliteStore = mail.store();
     match command {
         Contacts::Find { typed, limit } => {
             let found = contacts::find(store, typed, *limit)?;
@@ -154,17 +146,10 @@ pub async fn run(
             }
         }
         Contacts::Sync { url, account, user } => {
-            let done = contacts::sync(
-                store,
-                url.as_deref(),
-                account.as_deref(),
-                user.as_deref(),
-                secrets,
-                env,
-                saved,
-                now,
-            )
-            .await?;
+            let done = mail
+                .contacts()
+                .sync(url.as_deref(), account.as_deref(), user.as_deref())
+                .await?;
             Ok(synced(&done))
         }
     }

@@ -26,15 +26,10 @@ fn now() -> DateTime<Utc> {
     Utc.timestamp_opt(1_700_000_000, 0).unwrap()
 }
 
-fn run(store: &SqliteStore, words: &[&str]) -> Result<String, String> {
+fn run(store: &Arc<SqliteStore>, words: &[&str]) -> Result<String, String> {
     let args: Vec<String> = words.iter().map(|w| (*w).to_owned()).collect();
     let command = cli::parse(&args)?;
-    cli::run_with_clients(
-        store,
-        &command,
-        now(),
-        &mail_core::ClientRegistry::default(),
-    )
+    cli::run(&crate::cli_mail::mail_at(store, now()), &command)
 }
 
 fn acct_account() -> AccountId {
@@ -90,11 +85,11 @@ fn caps() -> AccountCaps {
     }
 }
 
-fn store() -> (SqliteStore, tempfile::TempDir) {
+fn store() -> (Arc<SqliteStore>, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let store = SqliteStore::in_memory(dir.path()).unwrap();
     configure(&store, acct_account(), &plan(1), &caps());
-    (store, dir)
+    (Arc::new(store), dir)
 }
 
 #[test]
@@ -293,7 +288,7 @@ fn rules_run_reaches_the_mail_already_here_and_queues_what_the_user_would() {
 #[test]
 fn server_side_rules_and_vacation_are_refused_where_the_provider_has_no_managesieve() {
     let dir = tempfile::tempdir().unwrap();
-    let store = SqliteStore::in_memory(dir.path()).unwrap();
+    let store = Arc::new(SqliteStore::in_memory(dir.path()).unwrap());
     let gmail =
         presets::preset_for_issuer(porter_provider::Issuer::Google, "someone@gmail.com", now())
             .expect("gmail preset");

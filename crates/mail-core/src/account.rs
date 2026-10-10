@@ -199,6 +199,11 @@ impl crate::mail::AccountOps<'_> {
         list(self.0.store(), self.0.secrets().as_ref()).await
     }
 
+    /// Remove `account` and everything kept of it here. See [`remove`].
+    pub async fn remove(&self, account: AccountId) -> Result<Removed, RemoveError> {
+        remove(self.0.store(), self.0.secrets().as_ref(), account).await
+    }
+
     /// The local-only account, created the first time something is kept in it.
     pub fn local(&self) -> Result<AccountId, CoreError> {
         local(self.0.store(), self.0.now())
@@ -667,7 +672,7 @@ pub fn oauth_client(
 /// The OAuth clients earlier sign-ins recorded, for [`add`] to fall back on.
 ///
 /// Empty in this crate's unit tests. Integration tests link the ordinary library, so this
-/// guard does not apply to them; they pass an empty registry to [`crate::cli::run_with_clients`].
+/// guard does not apply to them; they hand `Mail::with_clients` an empty registry.
 /// A test that found a real client id here would open a sign-in and wait on it.
 pub fn saved_clients() -> ClientRegistry {
     if cfg!(test) {

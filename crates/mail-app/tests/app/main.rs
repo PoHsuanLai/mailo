@@ -5,6 +5,8 @@
 //! as a prefix: `cargo test -p mail-app --test app -- <file>::`.
 
 // The helpers the tests share, declared once.
+#[path = "../support/cli_mail.rs"]
+mod cli_mail;
 #[path = "../support/drive.rs"]
 mod drive;
 #[path = "../support/latency_inbox.rs"]

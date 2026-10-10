@@ -5,11 +5,10 @@
 //! a removal into a success. The words are the window's sheet's, said for a terminal.
 
 use super::{Consent, account_named};
-use mail_core::AccountSecrets;
 use mail_core::account::{
     Added, ClientRecord, GraphSetup, Listed, MicrosoftRoute, Outcome, Readiness,
 };
-use mail_core::{SqliteStore, Store};
+use mail_core::{Mail, SqliteStore, Store};
 use mail_domain::presets::PasswordWarning;
 use mail_domain::{AccountPlan, Incoming, LeaveOnServer};
 use porter_provider::Issuer;
@@ -19,12 +18,12 @@ use std::path::Path;
 /// Remove the account at `address`, or say what removing it would take. `config` is where the
 /// offline setting is kept, when there is a config directory.
 pub(super) fn remove(
-    store: &SqliteStore,
-    secrets: &dyn AccountSecrets,
+    mail: &Mail,
     config: Option<&Path>,
     address: &str,
     consent: Consent,
 ) -> Result<String, String> {
+    let store: &SqliteStore = mail.store();
     let id = account_named(store, address)?;
     match consent {
         Consent::Ask => {
@@ -37,10 +36,12 @@ pub(super) fn remove(
             // in mailo's own store, which the linked secrets do not reach: forget it from there.
             let own = (store.granted_only() && store.held_accounts().contains(&id))
                 .then(crate::edge::own_secrets);
-            let secrets = own.as_deref().unwrap_or(secrets);
-            let removed =
-                crate::edge::block_on(mail_core::account::remove(store, secrets, id.clone()))
-                    .map_err(|e| e.to_string())?;
+            let mail = match own {
+                Some(own) => mail.clone().with_secrets(own),
+                None => mail.clone(),
+            };
+            let removed = crate::edge::block_on(mail.accounts().remove(id.clone()))
+                .map_err(|e| e.to_string())?;
             if let Some(config) = config {
                 let _ = mail_core::offline::save(config, id, mail_core::offline::Keep::Bodies);
             }

@@ -1,7 +1,7 @@
 //! The CLI against a real store, which is `plan.md` phase 4's "a tiny CLI can list and open".
 //!
-//! Driven through `cli::run_with_clients` rather than by spawning the binary, so the assertions
-//! are about what the user sees rather than about process plumbing. The registry is empty: this
+//! Driven through `cli::run` rather than by spawning the binary, so the assertions are about what
+//! the user sees rather than about process plumbing. The handle has no saved OAuth clients: this
 //! links the ordinary library, and a saved client id would open a real sign-in.
 
 use chrono::{DateTime, TimeZone, Utc};
@@ -10,21 +10,22 @@ use mail_core::{SqliteStore, Store};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use porter_core::AccountId;
+use std::sync::Arc;
 
-/// `cli::run`, with no saved OAuth clients.
+/// `cli::run`, at `now`, with no saved OAuth clients.
 fn exercise(
-    store: &SqliteStore,
+    store: &Arc<SqliteStore>,
     command: &cli::Command,
     now: DateTime<Utc>,
 ) -> Result<String, String> {
-    cli::run_with_clients(store, command, now, &mail_core::ClientRegistry::default())
+    cli::run(&crate::cli_mail::mail_at(store, now), command)
 }
 
 fn acct_account() -> AccountId {
     account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
 }
 
-fn seeded() -> (SqliteStore, tempfile::TempDir, ThreadId) {
+fn seeded() -> (Arc<SqliteStore>, tempfile::TempDir, ThreadId) {
     let dir = tempfile::tempdir().unwrap();
     let store = SqliteStore::in_memory(dir.path()).unwrap();
     mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
@@ -89,7 +90,7 @@ fn seeded() -> (SqliteStore, tempfile::TempDir, ThreadId) {
             )
             .unwrap();
     }
-    (store, dir, first.unwrap())
+    (Arc::new(store), dir, first.unwrap())
 }
 
 fn now() -> chrono::DateTime<Utc> {
