@@ -11,3 +11,6 @@ MimeType=x-scheme-handler/mailto;
 Keywords=mail;email;imap;pop3;smtp;
 StartupNotify=true
 StartupWMClass=mailo
+# mailo resolves keys to actions itself (chordkit, through quire), so the desktop's key remapper
+# passes ⌘ through as Super rather than rewriting it as Ctrl for this window.
+X-Keycap-Profile=keymap-aware
