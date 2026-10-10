@@ -40,7 +40,8 @@ pub use account::{
     ServerLabels, ServerThreads, Supported, Tls, Username, WatchMode,
 };
 pub use autocrypt::{AutocryptPeer, PreferEncrypt, Sighting};
-pub use content::{Address, Attachment, Body, Inline, Label, PartContent};
+pub use address::Address;
+pub use content::{Attachment, Body, Inline, Label, PartContent};
 pub use draft::{Draft, PendingAttachment, ReplyScope, SendState};
 pub use error::{FolderError, ParseAddressError, ParseFingerprintError};
 pub use filter::{DateRange, Filed, Filter, Leaving, MatchCtx, Placed, TextMatch};

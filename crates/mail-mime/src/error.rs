@@ -10,6 +10,7 @@ use std::io;
 ///
 /// Never a panic: every byte reaching this crate came off a network a stranger controls.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum MimeError {
     #[error("message could not be parsed: {0}")]
     Unparseable(String),
@@ -54,6 +55,7 @@ impl Retryable for MimeError {
 
 /// Why a TXT string is not a BIMI record this client will use.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum RecordError {
     /// It does not open with `v=BIMI1`.
     #[error("not a BIMI record")]
@@ -74,6 +76,7 @@ impl Retryable for RecordError {
 
 /// Why an mbox could not be read.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum MboxError {
     #[error("not an mbox: the first line is not a `From ` envelope line")]
     NotMbox,

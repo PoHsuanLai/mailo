@@ -223,13 +223,30 @@ representation is a migration, not a refactor.
 
 ## 4. `#[non_exhaustive]`
 
-On nothing, for now. This is a single-binary workspace with no external consumers, so
-`non_exhaustive` buys no compatibility and costs exhaustive matching — which is the whole
-reason the vocabulary is enums. Revisit only if a crate is ever published.
+On public enums and structs that will grow, in the crates a caller uses as a library
+(`mail-domain`, `mail-mime`, `mail-proto`, `mail-pim`). Owner decision, 2026-10-09: each crate is
+a library used through its API, and a library may add a variant or a field without that being a
+break for the crate above it.
+
+- **Enums**: error enums first (a new failure is a new variant), then vocabularies a protocol
+  keeps extending. A caller matching one outside its crate ends with a `_` arm. Say in the arm what
+  it means to a variant that does not exist yet.
+- **Structs**: a `non_exhaustive` struct cannot be built with a literal outside its crate, so it
+  carries a constructor (`new`, or a builder when there are many optional fields) and callers
+  update with `..` from it. Do not mark a struct that callers build field by field everywhere
+  (`Address`, `Draft`): give it the constructor first, and mark it when the callers are moved.
+- **Never** on a persisted type (§3): its shape is its serde form, and a new field is a migration,
+  not a compatible addition.
+- Exhaustive matching is still what the closed vocabularies are for (`Op`, `Filter`, `RemoteRef`,
+  `MailboxRole`): do not mark an enum whose point is that adding a variant lists every site.
 
 ## 5. Errors
 
-One error enum per crate, in `error.rs`, built with `thiserror`.
+One `error.rs` per crate, built with `thiserror`: the crate's failures as typed values, with the
+cause a caller can act on as a field and not as text. Where a crate has a second kind of failure
+that is not the first one's variant (`MboxError` beside `MimeError`, a `FromStr` error beside
+both), it lives in the same file. Parsing text into a value is `FromStr`, with its own error type;
+there is no inherent `parse(&str)` that returns `Option`.
 
 ```rust
 #[derive(Debug, thiserror::Error)]

@@ -19,6 +19,7 @@ pub struct Event {
 
 /// What an event is, from its `event:` field.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum EventKind {
     /// `state`: a [`StateChange`] in the data.
     State,

@@ -9,6 +9,7 @@ use std::time::Duration;
 /// A request succeeds or fails as a whole only at the HTTP level; inside it each call answers
 /// for itself, and one refused call leaves the others' results standing.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum MethodError {
     /// `cannotCalculateChanges`: the state we hold is older than the server remembers. Not a
     /// failure — the caller starts again from a full listing.
