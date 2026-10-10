@@ -742,7 +742,7 @@ pub(super) fn App() -> Element {
 }
 
 /// The sidebar pane: 232 wide, 212 to 320, and it folds away past half of its least. 212 is
-/// what the foot needs: Downloads, two Space dots, New Space, Settings and the sidebar toggle.
+/// what the sidebar's rows need; the foot (Downloads, the Space dots, one chevron) needs less.
 const SIDEBAR: PaneSpec = PaneSpec {
     preferred: PaneSize::Fixed(Px(232.0)),
     min: PaneSize::Fixed(Px(212.0)),
