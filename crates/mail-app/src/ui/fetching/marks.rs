@@ -5,8 +5,7 @@ use super::status::{clock, not_updated_since};
 use chrono::{DateTime, TimeZone, Utc};
 use ds::prelude::Availability;
 use mail_core::fetch::{FolderFetch, Link, Pause};
-use mail_core::sync::fresh::{self, Freshness};
-use std::time::Duration;
+use mail_core::sync::fresh::{self, Freshness, Pace};
 
 /// What a row carries at its end for the work or the trouble behind it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -32,17 +31,12 @@ pub fn sync_availability(links: &[&Link]) -> Availability {
 
 /// An account's mark: the spinner while its pass runs, else a warning with the reason when it
 /// needs the person, could not update everything, or has not been updated for longer than its
-/// schedule (`every`) allows.
-pub fn account_mark<Tz: TimeZone>(
-    link: &Link,
-    every: Duration,
-    now: DateTime<Utc>,
-    zone: &Tz,
-) -> Mark
+/// `pace` allows.
+pub fn account_mark<Tz: TimeZone>(link: &Link, pace: Pace, now: DateTime<Utc>, zone: &Tz) -> Mark
 where
     Tz::Offset: std::fmt::Display,
 {
-    if let Freshness::Stale { since } = fresh::of_link(link, every, now) {
+    if let Freshness::Stale { since } = fresh::of_link(link, pace, now) {
         return Mark::Warn(format!("{}.", not_updated_since(since, now, zone)));
     }
     match link {
@@ -99,7 +93,11 @@ mod tests {
         Utc.with_ymd_and_hms(2026, 10, 1, 12, 30, 0).unwrap()
     }
 
-    const FIVE: Duration = Duration::from_secs(300);
+    fn five() -> Pace {
+        Pace::of_watch(&mail_domain::WatchMode::Poll {
+            every: std::time::Duration::from_secs(300),
+        })
+    }
 
     fn syncing() -> Link {
         Link::Syncing {
@@ -135,7 +133,7 @@ mod tests {
 
     #[test]
     fn an_account_shows_work_before_trouble_and_trouble_with_its_reason() {
-        let said = |link: &Link| account_mark(link, FIVE, at(), &Utc);
+        let said = |link: &Link| account_mark(link, five(), at(), &Utc);
         assert_eq!(said(&syncing()), Mark::Busy);
         assert_eq!(said(&Link::Fresh), Mark::Quiet);
         assert_eq!(said(&current(&[])), Mark::Quiet);
@@ -163,7 +161,7 @@ mod tests {
 
     #[test]
     fn current_with_trouble_names_the_folder_or_counts_them() {
-        let said = |link: &Link| account_mark(link, FIVE, at(), &Utc);
+        let said = |link: &Link| account_mark(link, five(), at(), &Utc);
         assert_eq!(
             said(&current(&[Some("Work")])),
             Mark::Warn("Work couldn\u{2019}t update: no room".into())
@@ -184,13 +182,14 @@ mod tests {
             trouble: vec![],
         };
         let after = |minutes| at() + chrono::TimeDelta::minutes(minutes);
-        assert_eq!(account_mark(&pushed, FIVE, after(30), &Utc), Mark::Quiet);
+        let idle = Pace::of_watch(&mail_domain::WatchMode::Idle);
+        assert_eq!(account_mark(&pushed, idle, after(30), &Utc), Mark::Quiet);
         assert_eq!(
-            account_mark(&pushed, FIVE, after(36), &Utc),
+            account_mark(&pushed, idle, after(36), &Utc),
             Mark::Warn("Not updated since 12:30.".into())
         );
         assert_eq!(
-            account_mark(&current(&[]), FIVE, after(16), &Utc),
+            account_mark(&current(&[]), five(), after(16), &Utc),
             Mark::Warn("Not updated since 12:30.".into())
         );
     }

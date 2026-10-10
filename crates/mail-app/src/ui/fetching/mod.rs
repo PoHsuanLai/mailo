@@ -29,12 +29,12 @@ use ds::motion::detail::operation::Operation;
 use mail_core::SqliteStore;
 use mail_core::fetch::{Event, FolderFetch, Link, Trigger};
 use mail_core::schedule::{self, End, Note, Scheduler};
+use mail_core::sync::fresh::Pace;
 use porter_core::AccountId;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 pub(in crate::ui) use delegate::Delegate;
@@ -53,9 +53,6 @@ pub(in crate::ui) struct Fetching {
     ops: Signal<BTreeMap<AccountId, Operation>>,
     folders: Signal<BTreeMap<(AccountId, String), FolderFetch>>,
     tx: Signal<UnboundedSender<Note>>,
-    /// Each account with a server and how often it wants a pass: what its freshness is judged
-    /// against (`mail_core::sync::fresh`).
-    every: Memo<Vec<(AccountId, Duration)>>,
 }
 
 impl Fetching {
@@ -133,28 +130,33 @@ impl Fetching {
             .unwrap_or_default()
     }
 
-    /// How often `account` wants a pass, which is what its freshness is judged against.
-    pub(in crate::ui) fn every(&self, account: &AccountId) -> Duration {
-        self.every
-            .peek()
-            .iter()
-            .find(|(id, _)| id == account)
-            .map_or(mail_core::sync::due::IDLE, |(_, every)| *every)
+    /// What `account`'s freshness is judged by besides its link: when the store last recorded a
+    /// finished pass of it, by this window or by a watch beside it, and what its server allows.
+    /// Read from the store each time, as cheap as two lookups by key: a watch's passes move
+    /// nothing in this window's links.
+    pub(in crate::ui) fn pace(&self, account: &AccountId) -> Pace {
+        match try_consume_context::<Arc<SqliteStore>>() {
+            Some(store) => Pace::of(&store, account.clone()),
+            None => Pace::of_watch(&mail_domain::WatchMode::Poll {
+                every: mail_core::sync::due::IDLE,
+            }),
+        }
     }
 
     /// `account`'s mark for a row or a tile, now.
     pub(in crate::ui) fn mark(&self, account: AccountId) -> Option<Mark> {
-        let every = self.every(&account);
+        let pace = self.pace(&account);
+        let now = crate::ui::clock::now();
         self.link(account)
-            .map(|link| marks::account_mark(&link, every, crate::ui::clock::now(), &chrono::Local))
+            .map(|link| marks::account_mark(&link, pace, now, &chrono::Local))
     }
 
     pub(in crate::ui) fn status(&self, shell: &Shell, now: DateTime<Utc>) -> StatusLine {
         let links = self.links.read();
-        let shown: Vec<(&Link, Duration)> = self
+        let shown: Vec<(&Link, Pace)> = self
             .in_view(shell)
             .iter()
-            .filter_map(|id| links.get(id).map(|link| (link, self.every(id))))
+            .filter_map(|id| links.get(id).map(|link| (link, self.pace(id))))
             .collect();
         status_line(&shown, now, &chrono::Local)
     }
@@ -212,7 +214,6 @@ pub(in crate::ui) fn use_fetching(revision: Signal<u64>) -> Fetching {
         ops,
         folders,
         tx,
-        every: accounts,
     });
     // The accounts changing is the runner's to hear, since it owns what to do about it.
     use_effect(move || {

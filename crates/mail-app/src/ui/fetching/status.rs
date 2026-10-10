@@ -2,8 +2,7 @@
 
 use chrono::{DateTime, TimeZone, Utc};
 use mail_core::fetch::{Count, Link, Live, Pause, Step};
-use mail_core::sync::fresh::{self, Freshness};
-use std::time::Duration;
+use mail_core::sync::fresh::{self, Freshness, Pace};
 
 /// How much the line should draw the eye.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -40,7 +39,7 @@ fn line(text: impl Into<String>, tone: Tone) -> StatusLine {
     }
 }
 
-/// What to say about `links`, the accounts in scope, each with how often it wants a pass.
+/// What to say about `paced`, the accounts in scope, each with what its freshness is judged by.
 ///
 /// Busy wins, because it is what is happening now; then the worst problem, because it is what
 /// needs a person; then an account that has not been updated for longer than its schedule
@@ -48,7 +47,7 @@ fn line(text: impl Into<String>, tone: Tone) -> StatusLine {
 /// the least recently updated account was, because the line is only as fresh as its stalest
 /// part.
 pub fn status_line<Tz: TimeZone>(
-    paced: &[(&Link, Duration)],
+    paced: &[(&Link, Pace)],
     now: DateTime<Utc>,
     zone: &Tz,
 ) -> StatusLine
@@ -66,14 +65,14 @@ where
     if let Some(since) = stalest(paced, now) {
         return line(not_updated_since(since, now, zone), Tone::Warn);
     }
-    updated(&links, now, zone)
+    updated(paced, now, zone)
 }
 
 /// The oldest finished pass among `paced` that is older than its schedule allows.
-pub(super) fn stalest(paced: &[(&Link, Duration)], now: DateTime<Utc>) -> Option<DateTime<Utc>> {
+fn stalest(paced: &[(&Link, Pace)], now: DateTime<Utc>) -> Option<DateTime<Utc>> {
     paced
         .iter()
-        .filter_map(|(link, every)| match fresh::of_link(link, *every, now) {
+        .filter_map(|(link, pace)| match fresh::of_link(link, *pace, now) {
             Freshness::Stale { since } => Some(since),
             Freshness::Current | Freshness::Unknown => None,
         })
@@ -175,19 +174,23 @@ where
     }
 }
 
-fn updated<Tz: TimeZone>(links: &[&Link], now: DateTime<Utc>, zone: &Tz) -> StatusLine
+/// How long ago the least recently updated account finished a pass: by its own link, or by a
+/// pass another process recorded since (`Pace::finished`).
+fn updated<Tz: TimeZone>(paced: &[(&Link, Pace)], now: DateTime<Utc>, zone: &Tz) -> StatusLine
 where
     Tz::Offset: std::fmt::Display,
 {
-    let currents: Vec<(DateTime<Utc>, usize, Live)> = links
+    let currents: Vec<(DateTime<Utc>, usize, Live)> = paced
         .iter()
-        .filter_map(|link| match link {
-            Link::Current { at, trouble, live } => Some((*at, trouble.len(), *live)),
+        .filter_map(|(link, pace)| match link {
+            Link::Current { at, trouble, live } => {
+                Some((pace.finished(link).unwrap_or(*at), trouble.len(), *live))
+            }
             _ => None,
         })
         .collect();
     let Some(&(oldest, _, live)) = currents.iter().min_by_key(|(at, _, _)| *at) else {
-        return match links.is_empty() {
+        return match paced.is_empty() {
             true => line("", Tone::Plain),
             false => line("Not checked yet", Tone::Plain),
         };
@@ -239,7 +242,8 @@ mod tests {
     use super::*;
     use chrono::TimeDelta;
     use mail_core::fetch::{First, Trouble};
-    use mail_domain::Retry;
+    use mail_domain::{Retry, WatchMode};
+    use std::time::Duration;
 
     fn t(minute: i64, second: i64) -> DateTime<Utc> {
         Utc.with_ymd_and_hms(2026, 10, 1, 12, 0, 0).unwrap()
@@ -249,10 +253,14 @@ mod tests {
 
     /// Every account polled hourly, so that an age reads as an age here; when an account is
     /// too old for its schedule has rows of its own, at the five minutes most accounts poll at.
-    const EVERY: Duration = Duration::from_secs(3600);
+    fn hourly() -> Pace {
+        Pace::of_watch(&WatchMode::Poll {
+            every: Duration::from_secs(3600),
+        })
+    }
 
     fn say(links: &[Link], now: DateTime<Utc>) -> StatusLine {
-        let paced: Vec<(&Link, Duration)> = links.iter().map(|link| (link, EVERY)).collect();
+        let paced: Vec<(&Link, Pace)> = links.iter().map(|link| (link, hourly())).collect();
         status_line(&paced, now, &Utc)
     }
 
@@ -419,7 +427,7 @@ mod tests {
             (
                 "pushed",
                 vec![current(t(0, 0), Live::Pushed, 0)],
-                t(30, 0),
+                t(50, 0),
                 "Up to date",
                 None,
             ),
@@ -456,52 +464,75 @@ mod tests {
     /// hours.
     #[test]
     fn an_account_past_its_schedule_says_since_when() {
-        let five = Duration::from_secs(300);
+        let polled = Pace::of_watch(&WatchMode::Poll {
+            every: Duration::from_secs(300),
+        });
+        let idle = Pace::of_watch(&WatchMode::Idle);
         let pushed = current(t(0, 0), Live::Pushed, 0);
-        let polled = current(t(0, 0), Live::Polling, 0);
+        let quiet = current(t(0, 0), Live::Polling, 0);
         let recent = current(t(50, 0), Live::Polling, 0);
-        let cases: Vec<(&str, Vec<(&Link, Duration)>, DateTime<Utc>, &str, Tone)> = vec![
+        // A window that leaves fetching to a watch: its own link is old, the watch's last pass
+        // is in the store.
+        let told = Pace {
+            recorded: Some(t(40, 0)),
+            ..idle
+        };
+        type Row<'a> = (
+            &'static str,
+            Vec<(&'a Link, Pace)>,
+            DateTime<Utc>,
+            &'static str,
+            Tone,
+        );
+        let cases: Vec<Row> = vec![
             (
                 "pushed, within one re-issue",
-                vec![(&pushed, five)],
+                vec![(&pushed, idle)],
                 t(35, 0),
                 "Up to date",
                 Tone::Plain,
             ),
             (
                 "pushed, past it",
-                vec![(&pushed, five)],
+                vec![(&pushed, idle)],
                 t(36, 0),
                 "Not updated since 12:00",
                 Tone::Warn,
             ),
             (
                 "polled, three intervals",
-                vec![(&polled, five)],
+                vec![(&quiet, polled)],
                 t(15, 0),
                 "Updated 15 minutes ago",
                 Tone::Plain,
             ),
             (
                 "polled, past three",
-                vec![(&polled, five)],
+                vec![(&quiet, polled)],
                 t(16, 0),
                 "Not updated since 12:00",
                 Tone::Warn,
             ),
             (
                 "one stale account among fresh ones",
-                vec![(&recent, five), (&pushed, five)],
+                vec![(&recent, polled), (&pushed, idle)],
                 t(51, 0),
                 "Not updated since 12:00",
                 Tone::Warn,
             ),
             (
                 "forty hours: the day is said",
-                vec![(&pushed, five)],
+                vec![(&pushed, idle)],
                 t(40 * 60, 0),
                 "Not updated since Oct 1, 12:00",
                 Tone::Warn,
+            ),
+            (
+                "the watch's pass counts, and its age is said",
+                vec![(&quiet, told)],
+                t(50, 0),
+                "Updated 10 minutes ago",
+                Tone::Plain,
             ),
         ];
         for (name, links, now, text, tone) in cases {

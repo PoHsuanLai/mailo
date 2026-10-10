@@ -7,8 +7,7 @@
 use super::status::{ago, clock, not_updated_since};
 use chrono::{DateTime, TimeZone, Utc};
 use mail_core::fetch::{Link, Live, Pause, Trouble};
-use mail_core::sync::fresh::{self, Freshness};
-use std::time::Duration;
+use mail_core::sync::fresh::{self, Freshness, Pace};
 
 /// The glyph at the start of an account's line.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,10 +53,10 @@ fn said(standing: Standing, text: impl Into<String>, remedy: Option<Remedy>) -> 
     }
 }
 
-/// How `link` stands at `now`, for an account that wants a pass every `every`.
+/// How `link` stands at `now`, for an account kept up at `pace`.
 pub fn account_line<Tz: TimeZone>(
     link: &Link,
-    every: Duration,
+    pace: Pace,
     now: DateTime<Utc>,
     zone: &Tz,
 ) -> AccountLine
@@ -65,7 +64,7 @@ where
     Tz::Offset: std::fmt::Display,
 {
     // Said before "Connected": a watch that went quiet still reads as connected to the link.
-    if let Freshness::Stale { since } = fresh::of_link(link, every, now) {
+    if let Freshness::Stale { since } = fresh::of_link(link, pace, now) {
         return said(
             Standing::Warn,
             not_updated_since(since, now, zone),
@@ -99,7 +98,8 @@ where
             Standing::Fine,
             match live {
                 Live::Pushed => "Connected".to_owned(),
-                Live::Polling => ago(*at, now, zone),
+                // A pass another process recorded since counts: a watch's, beside this window.
+                Live::Polling => ago(pace.finished(link).unwrap_or(*at), now, zone),
             },
             None,
         ),
@@ -139,10 +139,14 @@ mod tests {
     }
 
     fn line(link: &Link) -> AccountLine {
-        account_line(link, EVERY, at() + chrono::TimeDelta::minutes(5), &Utc)
+        account_line(link, five(), at() + chrono::TimeDelta::minutes(5), &Utc)
     }
 
-    const EVERY: Duration = Duration::from_secs(300);
+    fn five() -> Pace {
+        Pace::of_watch(&mail_domain::WatchMode::Poll {
+            every: std::time::Duration::from_secs(300),
+        })
+    }
 
     fn waiting(why: Pause) -> Link {
         Link::Waiting {
@@ -258,7 +262,12 @@ mod tests {
         let later = |minutes| at() + chrono::TimeDelta::minutes(minutes);
         let pushed = current(Live::Pushed, vec![]);
         assert_eq!(
-            account_line(&pushed, EVERY, later(36), &Utc),
+            account_line(
+                &pushed,
+                Pace::of_watch(&mail_domain::WatchMode::Idle),
+                later(36),
+                &Utc
+            ),
             said(
                 Standing::Warn,
                 "Not updated since 14:05",
@@ -266,7 +275,7 @@ mod tests {
             )
         );
         assert_eq!(
-            account_line(&current(Live::Polling, vec![]), EVERY, later(16), &Utc),
+            account_line(&current(Live::Polling, vec![]), five(), later(16), &Utc),
             said(
                 Standing::Warn,
                 "Not updated since 14:05",
