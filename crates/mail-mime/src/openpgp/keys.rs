@@ -387,10 +387,7 @@ fn fingerprint_of(fp: &pgp::types::Fingerprint) -> Fingerprint {
 /// The address in a user id: inside the last `<…>`, or the whole id when it is a bare address.
 /// Lower-cased. `None` when there is no `@`.
 fn address_in(user_id: &str) -> Option<String> {
-    let inner = match (user_id.rfind('<'), user_id.rfind('>')) {
-        (Some(open), Some(close)) if open < close => &user_id[open + 1..close],
-        _ => user_id,
-    };
+    let inner = mail_domain::Address::split_angled(user_id).map_or(user_id, |(_, inside)| inside);
     let inner = inner.trim();
     (inner.contains('@') && !inner.contains(char::is_whitespace))
         .then(|| inner.to_ascii_lowercase())

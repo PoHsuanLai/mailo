@@ -62,10 +62,7 @@ pub fn generate(
             fingerprint: held.fingerprint,
         });
     }
-    let user_id = match identity.from.name.as_deref().map(str::trim) {
-        Some(name) if !name.is_empty() => format!("{name} <{}>", identity.from.email),
-        _ => format!("<{}>", identity.from.email),
-    };
+    let user_id = identity.from.user_id();
     let secret = openpgp::generate(&user_id, now, &mut rand::rngs::OsRng)?;
     mail_runtime::pgp::keep_secret_key(secrets, identity.account, &secret)?;
     let mut record = secret

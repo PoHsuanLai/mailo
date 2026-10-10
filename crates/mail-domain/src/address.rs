@@ -56,6 +56,27 @@ impl Address {
             .filter(|name| !name.is_empty())
     }
 
+    /// `text` split at its last angle brackets: what comes before them, and what is inside.
+    /// `None` when there is no `<` followed by a `>`.
+    ///
+    /// Only the shape is looked at, so this is for the callers whose input is deliberately read
+    /// leniently (a `From:` value in an old mbox, a key's user id): they judge the inside
+    /// themselves. [`FromStr`] reads the same shape and then judges it strictly.
+    pub fn split_angled(text: &str) -> Option<(&str, &str)> {
+        let (open, close) = (text.rfind('<')?, text.rfind('>')?);
+        (open < close).then(|| (&text[..open], &text[open + 1..close]))
+    }
+
+    /// The address the way an OpenPGP user id spells it: `Name <a@b.test>`, or `<a@b.test>`
+    /// with no name. The name is written as it is, not quoted: a user id is one string, not an
+    /// entry in a list that a comma could cut.
+    pub fn user_id(&self) -> String {
+        match self.display_name() {
+            Some(name) => format!("{name} <{}>", self.email),
+            None => format!("<{}>", self.email),
+        }
+    }
+
     /// Several addresses as one line, the way a recipient box holds them.
     pub fn join(list: &[Address]) -> String {
         list.iter()
@@ -119,15 +140,12 @@ impl FromStr for Address {
     /// which is a missing `@`.
     fn from_str(entry: &str) -> Result<Self, Self::Err> {
         let entry = entry.trim();
-        let (name, email) = match (entry.rfind('<'), entry.rfind('>')) {
-            (Some(open), Some(close)) if close > open => {
-                let name = entry[..open].trim().trim_matches('"').trim();
-                (
-                    (!name.is_empty()).then(|| name.to_owned()),
-                    entry[open + 1..close].trim(),
-                )
+        let (name, email) = match Address::split_angled(entry) {
+            Some((before, inside)) => {
+                let name = before.trim().trim_matches('"').trim();
+                ((!name.is_empty()).then(|| name.to_owned()), inside.trim())
             }
-            _ => (None, entry),
+            None => (None, entry),
         };
         if email.is_empty() {
             return Err(ParseAddressError::Empty(entry.to_owned()));
@@ -210,6 +228,40 @@ mod tests {
         assert_eq!(
             "a b@c.test".parse::<Address>(),
             Err(ParseAddressError::Whitespace("a b@c.test".to_owned()))
+        );
+    }
+
+    #[test]
+    fn the_angle_brackets_are_split_without_judging_what_is_inside() {
+        assert_eq!(
+            Address::split_angled("Ada <ada@example.test>"),
+            Some(("Ada ", "ada@example.test"))
+        );
+        // The last pair, as the lenient readers of old mail and key user ids always took it.
+        assert_eq!(Address::split_angled("a <b> <c>"), Some(("a <b> ", "c")));
+        assert_eq!(Address::split_angled("<>"), Some(("", "")));
+        for none in ["ada@example.test", "Ada <ada@example.test", "> <", ""] {
+            assert_eq!(Address::split_angled(none), None, "{none:?}");
+        }
+    }
+
+    #[test]
+    fn a_user_id_is_the_name_then_the_angled_address() {
+        assert_eq!(
+            Address::named(" Ada ", "ada@example.test").user_id(),
+            "Ada <ada@example.test>"
+        );
+        assert_eq!(
+            Address::named("Lovelace, Ada", "ada@example.test").user_id(),
+            "Lovelace, Ada <ada@example.test>"
+        );
+        assert_eq!(
+            Address::new("ada@example.test").user_id(),
+            "<ada@example.test>"
+        );
+        assert_eq!(
+            Address::named("  ", "ada@example.test").user_id(),
+            "<ada@example.test>"
         );
     }
 }

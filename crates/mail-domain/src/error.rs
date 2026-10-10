@@ -24,7 +24,7 @@ pub enum FolderError {
     NotEmpty { path: String, messages: u64 },
     #[error("there is already a folder called {0}")]
     Exists(String),
-    #[error("there is no folder called {0}; `mailo sync` refreshes the list")]
+    #[error("there is no folder called {0}")]
     Unknown(String),
     #[error("{0} has folders inside it; rename or delete those first")]
     HasChildren(String),
