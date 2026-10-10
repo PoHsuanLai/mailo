@@ -269,6 +269,11 @@ pub enum Source {
     /// on the conversation's messages and the user's own addresses, and the domain's filters see
     /// only the summary. The store lists them ([`mail_store::Store::follow_ups`]).
     Waiting,
+    /// Every conversation the person opened, newest open first ([`crate::history`]).
+    ///
+    /// Not a `Filter` either: what was opened and when is the store's own record
+    /// ([`mail_store::Store::opened`]), which no summary carries.
+    History,
 }
 
 fn source_for(role: MailboxRole) -> Source {
@@ -300,6 +305,8 @@ pub fn default_places() -> Vec<Place> {
         // Last, so every place before it keeps the index it had: conversations the user is
         // waiting on an answer to, which come back to the inbox if none arrives.
         ("Waiting", Source::Waiting),
+        // After Waiting, for the same reason: the places before it keep their index.
+        ("History", Source::History),
     ]
     .into_iter()
     .map(|(name, source)| Place {
@@ -384,7 +391,7 @@ pub fn saved_place(view: &View) -> Place {
 pub fn saved_of(place: &Place) -> Option<&View> {
     match &place.source {
         Source::Saved(view) => Some(view),
-        Source::Mail(_) | Source::Drafts | Source::Waiting => None,
+        Source::Mail(_) | Source::Drafts | Source::Waiting | Source::History => None,
     }
 }
 
@@ -401,7 +408,7 @@ pub fn badge_filter(source: &Source) -> Option<Filter> {
         Source::Mail(filter) => Some(crate::place::unread_in(filter.clone())),
         Source::Saved(view) => Some(crate::place::unread_in(view.filter.clone())),
         // Nothing in it is news: the user wrote the last word and is waiting for someone else's.
-        Source::Drafts | Source::Waiting => None,
+        Source::Drafts | Source::Waiting | Source::History => None,
     }
 }
 
@@ -611,7 +618,7 @@ mod badge_tests {
                 // The user wrote the last word in each of them: nothing there is unread news.
                 // "3 unread drafts" is not a thing: a draft did not arrive and nobody failed to
                 // read it.
-                Source::Drafts | Source::Waiting => assert_eq!(
+                Source::Drafts | Source::Waiting | Source::History => assert_eq!(
                     badge_filter(&place.source),
                     None,
                     "{} has a badge",

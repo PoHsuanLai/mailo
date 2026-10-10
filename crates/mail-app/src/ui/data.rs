@@ -28,6 +28,7 @@ pub(super) fn list_for(
             rows(&query),
         ),
         Listing::Waiting { scope } => mail_core::follow_up::waiting(store, scope.as_ref(), now),
+        Listing::History { scope } => mail_core::history::listed(store, scope.as_ref(), now),
         Listing::Drafts => Vec::new(),
     }
 }
@@ -145,4 +146,33 @@ pub(super) fn known_accounts(store: &SqliteStore) -> Result<Vec<AccountId>, mail
 /// Every configured account, for the places that are not scoped to one.
 pub(super) fn accounts(store: &SqliteStore) -> Vec<AccountId> {
     account_rows(store).into_iter().map(|row| row.id).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ui::fixtures::{seeded, thread_like};
+    use crate::ui::view::Shell;
+
+    #[test]
+    fn the_history_place_lists_what_was_opened_and_nothing_before() {
+        let (store, _dir) = seeded();
+        let mut shell = Shell::default();
+        let history = shell
+            .places
+            .iter()
+            .position(|place| place.name == "History")
+            .expect("there is a History place");
+        shell.select(history);
+        let now = chrono::Utc::now();
+        assert!(list_for(&store, shell.listing(PAGE), now).is_empty());
+
+        let hi = thread_like(&store, "hi");
+        mail_core::history::record(&store, hi, now);
+        let listed = list_for(&store, shell.listing(PAGE), now);
+        assert_eq!(
+            listed.iter().map(|summary| summary.id).collect::<Vec<_>>(),
+            [hi]
+        );
+    }
 }

@@ -123,6 +123,7 @@ fn place_icon(name: &str) -> Icon {
         "Spam" => Icon::OctagonAlert,
         "Pinned" => Icon::Pin,
         "Waiting" => Icon::Bell,
+        "History" => Icon::RotateLeft,
         _ => Icon::Tag,
     }
 }

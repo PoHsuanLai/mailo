@@ -52,7 +52,7 @@ impl Request {
         }
         let page = match place.listing(limit) {
             Listing::Threads(query) | Listing::Inbox { query, .. } => Some(query),
-            Listing::Drafts | Listing::Waiting { .. } => None,
+            Listing::Drafts | Listing::Waiting { .. } | Listing::History { .. } => None,
         };
         Self::Search(Search {
             input: text.to_owned(),
