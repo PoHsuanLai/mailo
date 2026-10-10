@@ -717,8 +717,9 @@ fn remember(typed: Option<&ClientEntry>) -> Result<Option<std::path::PathBuf>, C
 /// Run the browser sign-in and return the resulting credential.
 ///
 /// Waits for the person, and deliberately so: this is a one-shot setup command, the user is
-/// watching, and there is nothing else for the process to do while they sign in.
-async fn authorize(
+/// watching, and there is nothing else for the process to do while they sign in. The window's
+/// sheet waits on it too, on a thread of its own.
+pub async fn authorize(
     client: &ClientEntry,
     scopes: &[String],
     on_url: &dyn Fn(&str),

@@ -11,7 +11,7 @@
 //! quire's parts (`map`). `window` is the window, [`Ask`] and [`AddAccountWindows`] the way it is
 //! opened.
 //!
-//! **Who draws** ([`Route`]). With the desktop's accountd linked (step E6, `mail_runtime::link`)
+//! **Who draws** ([`Route`]). With the desktop's accountd linked (step E6, `mail_core::link`)
 //! mailo asks it to run the sheet and sill draws it (`Accounts::add_account`), and the window is
 //! not opened at all. Otherwise the window is the host, on every platform, as before.
 
@@ -64,15 +64,15 @@ enum Route {
     OwnWindow,
     /// The desktop's accountd runs the sheet and its shell draws it (`Accounts::add_account`, and
     /// `Accounts::reauthenticate` for an account being signed in again): mailo opens no window.
-    Accountd(Arc<dyn mail_runtime::Accountd>),
+    Accountd(Arc<dyn mail_core::Accountd>),
 }
 
-/// Who draws the sheet, given the link this process chose (`mail_runtime::link`).
+/// Who draws the sheet, given the link this process chose (`mail_core::link`).
 ///
 /// With accountd linked every sheet is accountd's, a new account or one signed in again: accountd
 /// holds every account, and mailo opens no window and keeps no sign-in of its own. Without
 /// accountd it is the window's.
-fn route_of(link: &mail_runtime::Link) -> Route {
+fn route_of(link: &mail_core::Link) -> Route {
     match link.accountd() {
         Some(accountd) => Route::Accountd(accountd.clone()),
         None => Route::OwnWindow,
@@ -139,11 +139,11 @@ fn request(ask: Ask) {
 /// said on stderr and in the notice of the window that asked, which hears it back on its own
 /// thread.
 fn through_accountd(
-    accountd: Arc<dyn mail_runtime::Accountd>,
+    accountd: Arc<dyn mail_core::Accountd>,
     store: Arc<SqliteStore>,
     sheet: impl FnOnce(
         &SqliteStore,
-        &Arc<dyn mail_runtime::Accountd>,
+        &Arc<dyn mail_core::Accountd>,
     ) -> Result<crate::accountd::Added, String>
     + Send
     + 'static,

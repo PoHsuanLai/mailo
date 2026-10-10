@@ -74,9 +74,9 @@ pub use mail_runtime::wanted;
 /// The runtime types mail-core's API hands out and takes: re-exported, so a front end goes
 /// through mail-core alone.
 pub use mail_runtime::{
-    AccountSecrets, Arrival, ClientRegistry, Destination, KeyringSigningStore, MapSigningStore,
-    Searched, ServerHits, SigningStore, absorb, absorb_into, assemble, fetch, off_runtime,
-    remote_image, schedule, sieve::Pushed,
+    AccountSecrets, Accountd, Arrival, ClientRegistry, Destination, KeyringSigningStore, Link,
+    MapSigningStore, Searched, ServerHits, SigningStore, Transport, absorb, absorb_into, assemble,
+    fetch, link, off_runtime, remote_image, schedule, sieve::Pushed,
 };
 /// The store a front end opens and hands to mail-core.
 pub use mail_store::{SqliteStore, Store, StoreError};
