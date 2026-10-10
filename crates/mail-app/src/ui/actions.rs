@@ -25,7 +25,9 @@ use chordkit::{
     Action, AppAction, AppId, Chord, Context, DefaultChord, Key as ChordKey, Modifier,
     Modifiers as Mods, NamedKey, Platform, StandardAction,
 };
-use dioxus::prelude::{Key, KeyboardEvent, Modifiers, try_consume_context, use_hook};
+use dioxus::prelude::{
+    Key, KeyboardEvent, Modifiers, ModifiersInteraction, try_consume_context, use_hook,
+};
 use ds::base::command::{chord_of, resolve};
 use ds::prelude::{Keys, Shortcut as Tip, ShortcutKey};
 
