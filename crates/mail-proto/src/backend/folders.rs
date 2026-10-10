@@ -131,20 +131,24 @@ pub(crate) fn listing(untagged: &[crate::Untagged], account: AccountId) -> Vec<F
 ///
 /// [`ProtoOutcome::Folders`]: crate::ProtoOutcome::Folders
 pub(crate) fn roles(listed: &[Folder]) -> FolderRoles {
-    let role = |folder: &Folder| match folder.special? {
-        SpecialUse::All => Some(MailboxRole::Archive),
-        // Not filed by role: an `\Archive` folder is reached through `ArchiveMeans`, and
-        // only `\All` has ever named the archive role here.
-        SpecialUse::Archive => None,
-        other => other.role(),
-    };
     FolderRoles(
         listed
             .iter()
             .filter(|f| f.holds == Holds::Mail)
-            .filter_map(|f| Some((f.path.clone(), role(f)?)))
+            .filter_map(|f| Some((f.path.clone(), role_of(f.special?)?)))
             .collect(),
     )
+}
+
+/// The role a mailbox with this special use plays in the capabilities.
+fn role_of(special: SpecialUse) -> Option<MailboxRole> {
+    match special {
+        SpecialUse::All => Some(MailboxRole::Archive),
+        // Not filed by role: an `\Archive` folder is reached through `ArchiveMeans`, and only
+        // `\All` has ever named the archive role here.
+        SpecialUse::Archive => None,
+        other => other.role(),
+    }
 }
 
 /// What an attribute says a mailbox is for, if it says anything.
