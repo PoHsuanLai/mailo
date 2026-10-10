@@ -110,7 +110,8 @@ pub(crate) fn door(
             Ok(request) => request,
             Err(Mismatch::Version { theirs, ours }) => {
                 // Answered rather than dropped: a client from a different build needs to be told
-                // which way round the mismatch is, and silence would look like a dead daemon.
+                // which way round the mismatch is, and silence would look like a dead daemon. A
+                // client that has gone before the answer reaches it has nobody to tell.
                 let _ = say(
                     &mut stream,
                     Response::WrongVersion {
@@ -121,16 +122,19 @@ pub(crate) fn door(
                 continue;
             }
             Err(other) => {
+                // A client gone before its refusal reaches it has nobody to tell.
                 let _ = say(&mut stream, Response::Refused(other.to_string()));
                 continue;
             }
         };
         match on(request) {
             Answer::Say(reply) => {
+                // A client gone before its answer reaches it has nobody to tell.
                 let _ = say(&mut stream, reply);
             }
             Answer::Subscribe => subscribers.add(stream),
             Answer::Last(reply) => {
+                // A client gone before its answer reaches it has nobody to tell.
                 let _ = say(&mut stream, reply);
                 return;
             }

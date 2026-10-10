@@ -13,8 +13,8 @@ use crate::error::Logged;
 use crate::error::{CoreError, TimeError};
 use chrono::{DateTime, Datelike, Local, TimeDelta, TimeZone, Timelike, Utc, Weekday};
 use mail_domain::{
-    AccountCaps, ArchiveMeans, ChangeId, Condstore, ExpungeMeans, FolderRoles, Message, MoveExt,
-    Op, ServerLabels, ServerThreads, Snooze, Supported, Target, ThreadId, WatchMode,
+    AccountCaps, ArchiveMeans, Condstore, ExpungeMeans, FolderRoles, Message, MoveExt, Op,
+    ServerLabels, ServerThreads, Snooze, Supported, Target, ThreadId, WatchMode,
 };
 use mail_store::{SqliteStore, Store};
 
@@ -89,7 +89,6 @@ pub(crate) fn apply(
         now,
     );
     store.apply(account, &applied.forward)?;
-    let _ = ChangeId::generate();
     Ok(())
 }
 

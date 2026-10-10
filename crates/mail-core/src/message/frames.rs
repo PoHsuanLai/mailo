@@ -284,9 +284,11 @@ impl Frames {
         let frames = Arc::clone(self);
         let current = move || frames.warming.load(Ordering::Relaxed) == generation;
         let frames = Arc::clone(self);
-        let _ = std::thread::Builder::new()
+        // Warming is ahead of need: without the thread, a conversation is drawn when opened.
+        std::thread::Builder::new()
             .name("reader-warm".to_owned())
-            .spawn(move || frames.warm_now(&store, &threads, policy, current));
+            .spawn(move || frames.warm_now(&store, &threads, policy, current))
+            .or_log("the reader could not start warming conversations");
     }
 
     /// [`Frames::warm`]'s work, on the calling thread. `still_wanted` is asked before each
@@ -299,14 +301,20 @@ impl Frames {
         still_wanted: impl Fn() -> bool,
     ) {
         for thread in threads {
-            let Ok(loaded) = store.thread(*thread) else {
+            let Some(loaded) = store
+                .thread(*thread)
+                .or_log("a conversation could not be read to warm it")
+            else {
                 continue;
             };
             for id in &loaded.messages {
                 if !still_wanted() {
                     return;
                 }
-                let Ok(message) = store.message(*id) else {
+                let Some(message) = store
+                    .message(*id)
+                    .or_log("a message could not be read to warm it")
+                else {
                     continue;
                 };
                 if self.peek(&message, policy).is_none() {

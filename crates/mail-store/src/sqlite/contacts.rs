@@ -75,7 +75,12 @@ impl SqliteStore {
         rcpt_to: &[String],
         at: chrono::DateTime<chrono::Utc>,
     ) -> Result<(), StoreError> {
-        let draft = self.load_draft(draft).ok();
+        // A draft gone since it was sent has nothing more to teach; any other failure is one.
+        let draft = match self.load_draft(draft) {
+            Ok(draft) => Some(draft),
+            Err(StoreError::NoDraft(_)) => None,
+            Err(error) => return Err(error),
+        };
         let db = self.connection();
         learn_sent(&db, account, draft.as_ref(), mail_from, rcpt_to, at)
     }

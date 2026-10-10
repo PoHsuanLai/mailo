@@ -60,7 +60,9 @@ impl SqliteStore {
         let db = self.connection();
         let mut stmt = db.prepare_cached("SELECT name FROM labels WHERE id = ?1")?;
         for id in labels {
-            let name: Option<String> = stmt.query_row(params![id.to_string()], |r| r.get(0)).ok();
+            let name: Option<String> = stmt
+                .query_row(params![id.to_string()], |r| r.get(0))
+                .optional()?;
             // A label we do not know is not an error: it may have been deleted between the
             // user's click and the outbox draining. Sending an unknown name would be worse.
             if let Some(name) = name {

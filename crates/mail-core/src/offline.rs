@@ -14,7 +14,6 @@ use crate::error::CoreError;
 use mail_store::{Offline, Store};
 use porter_core::AccountId;
 use std::collections::BTreeSet;
-use std::fmt::Write as _;
 use std::path::Path;
 
 /// How much of an account a sync keeps here.
@@ -82,8 +81,7 @@ pub fn said(offline: &Offline) -> String {
         grouped(offline.messages)
     );
     if offline.parts_remote > 0 {
-        let _ = write!(
-            out,
+        out.push_str(&format!(
             "; {} {} ({}) on the server",
             grouped(offline.parts_remote),
             if offline.parts_remote == 1 {
@@ -92,7 +90,7 @@ pub fn said(offline: &Offline) -> String {
                 "attachments"
             },
             crate::attach::human_size(offline.remote_bytes)
-        );
+        ));
     }
     out
 }

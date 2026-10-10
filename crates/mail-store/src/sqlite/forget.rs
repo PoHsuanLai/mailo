@@ -106,12 +106,14 @@ impl SqliteStore {
             Ok(()) => {
                 // A file left behind costs disk, not mail: the row that named it is gone.
                 for path in &aside {
+                    // Best-effort, as said above.
                     let _ = self.blobs.drop_aside(path);
                 }
                 Ok(Some(freed))
             }
             Err(error) => {
                 for path in &aside {
+                    // Best-effort: the commit's own error is what is reported.
                     let _ = self.blobs.bring_back(path);
                 }
                 Err(error.into())

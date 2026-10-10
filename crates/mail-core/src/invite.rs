@@ -16,7 +16,6 @@ use mail_pim::ical::{self, Answering};
 use mail_pim::{Invite, Kind, Me};
 use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
-use std::fmt::Write as _;
 
 mod when;
 
@@ -243,9 +242,12 @@ fn human_text(
         },
         one_line(title)
     );
-    let _ = write!(out, "\r\nWhen: {}\r\n", when.theirs.unwrap_or(when.yours));
+    out.push_str(&format!(
+        "\r\nWhen: {}\r\n",
+        when.theirs.unwrap_or(when.yours)
+    ));
     if let Some(comment) = comment {
-        let _ = write!(out, "\r\n{}\r\n", comment.replace('\n', "\r\n"));
+        out.push_str(&format!("\r\n{}\r\n", comment.replace('\n', "\r\n")));
     }
     out
 }

@@ -154,6 +154,7 @@ impl Host for Watching<'_> {
                 progress,
             } = call;
             let say = |_: AccountId, step: Progress| {
+                // Nobody listening for progress any more is not the pass's concern.
                 let _ = progress.send(step.event());
             };
             let hooks = Hooks {
