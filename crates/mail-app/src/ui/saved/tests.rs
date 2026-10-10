@@ -111,21 +111,18 @@ fn a_filter_the_search_language_cannot_say_is_kept_as_it_was() {
 
 #[test]
 fn written_words_are_only_offered_when_they_read_back_the_same() {
-    let cases: &[(&str, bool)] = &[
-        ("from:ada subject:lunch", true),
-        ("is:unread -in:spam has:attachment", true),
-        ("label:travel", true),
-        ("\"due date\"", true),
+    const CASES: &[&str] = &[
+        "from:ada subject:lunch",
+        "is:unread -in:spam has:attachment",
+        "label:travel",
+        "\"due date\"",
     ];
-    for (typed, round) in cases {
+    for typed in CASES {
         let filter = mail_core::query::parse_with(typed, &Utc, &mail_core::query::named(&labels()));
-        let words = written(&filter, &labels(), &Utc);
-        assert_eq!(words.is_some(), *round, "{typed}");
-        if let Some(words) = words {
-            let again =
-                mail_core::query::parse_with(&words, &Utc, &mail_core::query::named(&labels()));
-            assert_eq!(again, filter, "{typed} -> {words}");
-        }
+        let words = written(&filter, &labels(), &Utc)
+            .unwrap_or_else(|| panic!("{typed} is not offered as words"));
+        let again = mail_core::query::parse_with(&words, &Utc, &mail_core::query::named(&labels()));
+        assert_eq!(again, filter, "{typed} -> {words}");
     }
     // A label nothing knows by name any more cannot be written back.
     let gone = Filter::HasLabel(LabelId::from_uuid(uuid::Uuid::from_u128(99)));

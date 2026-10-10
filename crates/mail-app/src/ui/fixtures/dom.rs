@@ -1,8 +1,6 @@
 use super::super::app::App;
-use super::super::compose::{ComposerPage, use_desk};
 use super::super::reading::Reader;
 use super::super::style::STYLE;
-use super::store::{acct_account, seeded};
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use dioxus_core::{NoOpMutations, VirtualDom};
@@ -675,55 +673,6 @@ pub(in crate::ui) fn press(dom: &mut VirtualDom, key: &'static str, element: u32
 /// event dispatched there reaches nothing. 6 is `.app` itself (the element that carries
 /// `data-peek`), found by reading the ids the first render hands out.
 pub(in crate::ui) const INSIDE_THE_SHELL: u32 = 6;
-
-/// Whether the harness should have a composer open on this render.
-///
-/// Shared through the root context rather than a prop, so the test can flip it *between*
-/// renders of the same scope — which is the only way the hook-order mistake shows itself.
-#[derive(Clone)]
-pub(in crate::ui) struct Toggle(pub(in crate::ui) Arc<std::sync::atomic::AtomicBool>);
-
-/// Renders the composer page, opening or closing it according to [`Toggle`] on every render.
-#[component]
-fn ComposerHarness() -> Element {
-    let store = use_context::<Arc<SqliteStore>>();
-    let toggle = use_context::<Toggle>();
-    let mut shell = use_signal(Shell::default);
-    let revision = use_signal(|| 0u64);
-    let today = use_signal(crate::ui::today::Today::default);
-    let spaces = use_signal(|| crate::ui::space::first_run(&[]));
-    let side = use_signal(|| false);
-    use_desk(today, spaces, None, side);
-
-    let want_open = toggle.0.load(std::sync::atomic::Ordering::SeqCst);
-    let is_open = shell.read().composing.is_some();
-    if want_open && !is_open {
-        if let Some(draft) = store
-            .drafts(acct_account())
-            .ok()
-            .and_then(|d| d.into_iter().next())
-        {
-            shell.write().compose(&draft);
-        }
-    } else if !want_open && is_open {
-        shell.write().close_composer();
-    }
-    let draft = shell.read().composing.as_ref().map(|c| c.draft);
-    rsx! {
-        if let Some(draft) = draft {
-            ComposerPage { key: "{draft}", draft, shell, revision }
-        }
-    }
-}
-
-pub(in crate::ui) fn harness(open: bool) -> (VirtualDom, Toggle, tempfile::TempDir) {
-    let (store, dir) = seeded();
-    let toggle = Toggle(Arc::new(std::sync::atomic::AtomicBool::new(open)));
-    let dom = VirtualDom::new(ComposerHarness)
-        .with_root_context(store)
-        .with_root_context(toggle.clone());
-    (dom, toggle, dir)
-}
 
 /// What the window draws over the next moments: a picked menu item blinks, then closes, then
 /// acts, on quire's clock.

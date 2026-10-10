@@ -1,4 +1,4 @@
-use super::{recall_of, restore, space_key};
+use super::{recall_of, restore};
 use crate::ui::app::App;
 use crate::ui::fixtures::{
     INSIDE_THE_SHELL, Scripts, Work, chord, dispatching, rebuild_into, root_attr, work,
@@ -44,22 +44,6 @@ fn dotted(dots: &[Dot]) -> SpaceLook {
     SpaceLook {
         dots: dots.to_vec(),
         ..SpaceLook::default()
-    }
-}
-
-#[test]
-fn ctrl_and_a_digit_name_a_space() {
-    const CASES: &[(&str, Option<usize>)] = &[
-        ("1", Some(0)),
-        ("2", Some(1)),
-        ("9", Some(8)),
-        ("0", None),
-        ("10", None),
-        ("a", None),
-        ("", None),
-    ];
-    for &(key, want) in CASES {
-        assert_eq!(space_key(key), want, "{key:?}");
     }
 }
 

@@ -309,29 +309,102 @@ mod tests {
         assert_eq!(say(&links, t(0, 0)).progress, Some((3, 15)));
     }
 
+    /// What the line says when nothing is wrong: an account's age, read from the oldest one,
+    /// "Up to date" for one the server pushes to, and "Not checked yet" before any fetch.
     #[test]
-    fn current_reads_its_age() {
-        let cases = [
-            (0, "Updated just now"),
-            (59, "Updated just now"),
-            (60, "Updated 1 minute ago"),
-            (5 * 60, "Updated 5 minutes ago"),
-            (59 * 60 + 59, "Updated 59 minutes ago"),
-            (3600, "Updated at 12:00"),
-            (-30, "Updated just now"),
-        ];
-        for (age, text) in cases {
-            let got = say(&[current(t(0, 0), Live::Polling, 0)], t(0, age));
-            assert_eq!((got.text.as_str(), got.tone), (text, Tone::Plain), "{age}s");
-        }
-    }
-
-    #[test]
-    fn pushed_is_up_to_date() {
-        assert_eq!(
-            say(&[current(t(0, 0), Live::Pushed, 0)], t(50, 0)).text,
-            "Up to date"
+    fn the_status_line_says() {
+        let polled = || vec![current(t(0, 0), Live::Polling, 0)];
+        // (row, the links, now, what it says, its tone where the row is about the tone too)
+        type Row = (
+            &'static str,
+            Vec<Link>,
+            DateTime<Utc>,
+            &'static str,
+            Option<Tone>,
         );
+        let cases: Vec<Row> = vec![
+            (
+                "0 s old",
+                polled(),
+                t(0, 0),
+                "Updated just now",
+                Some(Tone::Plain),
+            ),
+            (
+                "59 s old",
+                polled(),
+                t(0, 59),
+                "Updated just now",
+                Some(Tone::Plain),
+            ),
+            (
+                "60 s old",
+                polled(),
+                t(0, 60),
+                "Updated 1 minute ago",
+                Some(Tone::Plain),
+            ),
+            (
+                "5 min old",
+                polled(),
+                t(0, 5 * 60),
+                "Updated 5 minutes ago",
+                Some(Tone::Plain),
+            ),
+            (
+                "59 min 59 s old",
+                polled(),
+                t(0, 59 * 60 + 59),
+                "Updated 59 minutes ago",
+                Some(Tone::Plain),
+            ),
+            (
+                "an hour old",
+                polled(),
+                t(0, 3600),
+                "Updated at 12:00",
+                Some(Tone::Plain),
+            ),
+            (
+                "from the future",
+                polled(),
+                t(0, -30),
+                "Updated just now",
+                Some(Tone::Plain),
+            ),
+            (
+                "pushed",
+                vec![current(t(0, 0), Live::Pushed, 0)],
+                t(50, 0),
+                "Up to date",
+                None,
+            ),
+            (
+                "the oldest account sets the age",
+                vec![
+                    current(t(9, 0), Live::Polling, 0),
+                    current(t(0, 0), Live::Polling, 0),
+                ],
+                t(10, 0),
+                "Updated 10 minutes ago",
+                None,
+            ),
+            (
+                "nothing fetched yet",
+                vec![Link::Fresh],
+                t(0, 0),
+                "Not checked yet",
+                None,
+            ),
+            ("no accounts", vec![], t(0, 0), "", None),
+        ];
+        for (name, links, now, text, tone) in cases {
+            let got = say(&links, now);
+            assert_eq!(got.text, text, "{name}");
+            if let Some(tone) = tone {
+                assert_eq!(got.tone, tone, "{name}");
+            }
+        }
     }
 
     #[test]
@@ -347,15 +420,6 @@ mod tests {
             two.text,
             "Up to date \u{b7} 2 folders couldn\u{2019}t update"
         );
-    }
-
-    #[test]
-    fn the_oldest_account_sets_the_age() {
-        let links = [
-            current(t(9, 0), Live::Polling, 0),
-            current(t(0, 0), Live::Polling, 0),
-        ];
-        assert_eq!(say(&links, t(10, 0)).text, "Updated 10 minutes ago");
     }
 
     #[test]
@@ -410,11 +474,5 @@ mod tests {
             },
         ];
         assert_eq!(say(&links, t(0, 0)).tone, Tone::Danger);
-    }
-
-    #[test]
-    fn nothing_fetched_yet() {
-        assert_eq!(say(&[Link::Fresh], t(0, 0)).text, "Not checked yet");
-        assert_eq!(say(&[], t(0, 0)).text, "");
     }
 }

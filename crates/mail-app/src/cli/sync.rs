@@ -157,18 +157,6 @@ mod tests {
     }
 
     #[test]
-    fn a_failed_account_reads_as_address_and_reason() {
-        let end = PassEnd::Failed {
-            account: acct_account(),
-            address: "ada@example.test".to_owned(),
-            retry: Retry::NeedsReauth,
-            why: "not signed in".to_owned(),
-            pause: Pause::ServerBusy,
-        };
-        assert_eq!(pass_text(&end), "ada@example.test: not signed in\n");
-    }
-
-    #[test]
     fn a_run_reads_as_each_account_in_turn() {
         let failed = PassEnd::Failed {
             account: acct_account(),

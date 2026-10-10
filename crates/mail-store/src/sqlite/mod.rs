@@ -37,7 +37,7 @@ use std::path::Path;
 /// a pool would buy parallel reads at the cost of having to reason about a writer and a reader
 /// disagreeing about what a thread's summary says. Revisit when a profile says to.
 ///
-/// **The profile, since it now exists** (`tests/concurrency.rs`): a reader looping on the list
+/// **The profile, since it now exists** (`tests/store/concurrency.rs`): a reader looping on the list
 /// query alongside a sync writing nine 200-message batches completed 23 reads — roughly ten
 /// repaints a second while mail is absorbing. Reads and writes take turns for the length of a
 /// batch, which is visible as a list that updates in steps during a sync rather than smoothly.

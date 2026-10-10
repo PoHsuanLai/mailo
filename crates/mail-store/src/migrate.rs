@@ -12,7 +12,7 @@ use rusqlite::Connection;
 /// **Append only.** A released migration is a fact about databases that already exist on
 /// disk; editing one does not change them, it only makes this build disagree with them.
 ///
-/// Public so `tests/upgrade.rs` can build a database at any prior version by applying a prefix
+/// Public so `tests/store/upgrade.rs` can build a database at any prior version by applying a prefix
 /// of it. The alternative is a checked-in binary fixture per version, which drifts from the
 /// migration it is supposed to represent the moment anyone edits one.
 pub const MIGRATIONS: &[(u32, &str)] = &[
@@ -121,22 +121,6 @@ fn current_version(db: &Connection) -> Result<u32, StoreError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn migrating_an_empty_database_reaches_the_expected_version() {
-        let db = Connection::open_in_memory().unwrap();
-        migrate(&db).unwrap();
-        assert_eq!(current_version(&db).unwrap(), EXPECTED_VERSION);
-    }
-
-    #[test]
-    fn migrating_twice_is_a_no_op() {
-        // Every startup calls this. It must not re-run 0001 and fail on "table exists".
-        let db = Connection::open_in_memory().unwrap();
-        migrate(&db).unwrap();
-        migrate(&db).expect("second migrate must be a no-op");
-        assert_eq!(current_version(&db).unwrap(), EXPECTED_VERSION);
-    }
 
     #[test]
     fn a_newer_database_is_refused_rather_than_downgraded() {

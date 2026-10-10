@@ -6,7 +6,7 @@ by people who were not thinking about this client.
 
     python3 -m venv venv && ./venv/bin/pip install aiosmtpd
     ./venv/bin/python scripts/live-smtpd.py 12525 /tmp/received.eml
-    cargo test -p mail-runtime --test live_smtp -- --ignored --nocapture
+    cargo test -p mail-runtime --test runtime -- --ignored --nocapture live_smtp::
 
 Then read /tmp/received.eml with `cat -A`: dot-stuffing bugs are visible there and nowhere else.
 """

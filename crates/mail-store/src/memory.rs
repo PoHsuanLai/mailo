@@ -1752,7 +1752,7 @@ impl Inner {
 
 /// Plain text of every message that has one, oldest first.
 ///
-/// Kept in step with `thread_body` in `tests/parity.rs`. A newline is only a separator:
+/// Kept in step with `thread_body` in `tests/store/parity.rs`. A newline is only a separator:
 /// it adds no token, and it does not stop two tokens from being adjacent.
 /// The full searchable text of a thread, as `messages_fts` indexes it.
 ///

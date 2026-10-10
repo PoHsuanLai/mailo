@@ -92,8 +92,9 @@ rpassword = "7"
 [dev-dependencies]
 porter-secrets = { workspace = true, features = ["testing"] }
 tempfile = "3"
-# The throwaway certificate authority `tests/smime.rs` builds its fixtures with
-# (`mail-mime/tests/smime_support`). All already in the tree through `mail-mime`.
+# The throwaway certificate authority (`mail-mime/tests/smime_support`). No test in this crate
+# uses it: the S/MIME test that does is `mail-app`'s (`tests/app/smime.rs`). Dropping these seven
+# is a `Cargo.lock` change of its own. All already in the tree through `mail-mime`.
 x509-cert = { version = "0.2", features = ["builder"] }
 der = "0.7"
 spki = "0.7"

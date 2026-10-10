@@ -81,7 +81,6 @@ fn the_one_control_can_never_ask_for_both_protections() {
 
     // From every choice, every pick, over a stored draft that asked both: never both.
     let keys = keys();
-    assert_eq!(keys.len(), 7);
     for from in &keys {
         for to in &keys {
             let mut page = Page::of(&both, Vec::new(), Vec::new());

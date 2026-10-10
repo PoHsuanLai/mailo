@@ -135,7 +135,12 @@ mod tests {
                 "freq=weekly;byday=tu;count=10",
                 "every week on Tuesday, 10 times",
             ),
+            (
+                "FREQ=WEEKLY;INTERVAL=2;BYDAY=TU;UNTIL=20261215",
+                "every 2 weeks on Tuesday, until Tue 15 Dec 2026",
+            ),
             ("FREQ=MONTHLY;BYDAY=2MO", REPEATS_OTHERWISE),
+            ("FREQ=MONTHLY;BYDAY=1FR", REPEATS_OTHERWISE),
             ("FREQ=YEARLY", REPEATS_OTHERWISE),
             ("FREQ=WEEKLY;BYDAY=1MO", REPEATS_OTHERWISE),
             ("FREQ=DAILY;BYHOUR=9,17", REPEATS_OTHERWISE),

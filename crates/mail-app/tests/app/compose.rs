@@ -1,0 +1,1830 @@
+//! Replying and sending from the command line: `plan.md` phase 4's third verb.
+//!
+//! Phase 4 asks that "a tiny CLI can list, open and reply". The first two had tests from the
+//! start. Reply had no implementation at all until this file's subject existed, because the
+//! path it needs — a draft that persists, an identity to send as, an envelope that survives
+//! into the outbox — was missing at every one of those three points.
+
+use chrono::{DateTime, TimeZone, Utc};
+use mail_app::ui::view;
+use mail_core::compose;
+use mail_domain::id::account_id_from_uuid;
+use mail_domain::*;
+use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
+
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
+const IDENTITY: IdentityId =
+    IdentityId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b1"));
+const ORIGINAL: MessageId =
+    MessageId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000c1"));
+
+fn at(n: i64) -> DateTime<Utc> {
+    Utc.timestamp_opt(1_700_000_000 + n, 0).unwrap()
+}
+
+fn identity() -> Identity {
+    Identity {
+        id: IDENTITY,
+        account: acct_account(),
+        from: Address {
+            name: None,
+            email: "me@example.test".to_owned(),
+        },
+        reply_to: None,
+        signature: None,
+        default: IsDefault::Default,
+    }
+}
+
+/// A store with one account that can actually send, and one message to reply to.
+fn seeded() -> (SqliteStore, tempfile::TempDir) {
+    let dir = tempfile::tempdir().unwrap();
+    let store = SqliteStore::in_memory(dir.path()).unwrap();
+
+    let mut plan = mail_domain::presets::manual_pop3(
+        "me@example.edu",
+        &mail_domain::presets::ManualPop3 {
+            pop3_host: "pop.example.edu".to_owned(),
+            pop3_port: 995,
+            smtp_host: "smtp.example.edu".to_owned(),
+            smtp_port: 465,
+            login: None,
+        },
+        at(0),
+    )
+    .plan;
+    plan.address = "me@example.test".to_owned();
+    plan.identities = vec![identity()];
+
+    {
+        let db = store.connection();
+        db.execute(
+            "INSERT INTO accounts (id, address, plan, created_at)
+             VALUES (?1, 'me@example.test', ?2, datetime('now'))",
+            rusqlite::params![
+                acct_account().to_string(),
+                serde_json::to_string(&plan).unwrap()
+            ],
+        )
+        .unwrap();
+        db.execute(
+            "INSERT INTO identities (id, account, from_name, from_email, is_default)
+             VALUES (?1, ?2, NULL, 'me@example.test', '\"default\"')",
+            rusqlite::params![IDENTITY.to_string(), acct_account().to_string()],
+        )
+        .unwrap();
+    }
+
+    let raw = store
+        .blobs()
+        .put(&store.connection(), b"raw original")
+        .unwrap();
+    let thread = ThreadId::generate();
+    let message = Message {
+        id: ORIGINAL,
+        thread,
+        account: acct_account(),
+        key: MessageKey::Rfc("original@example.test".to_owned()),
+        date: at(0),
+        from: Address {
+            name: Some("Ada Lovelace".to_owned()),
+            email: "ada@example.test".to_owned(),
+        },
+        reply_to: vec![],
+        to: vec![
+            Address {
+                name: None,
+                email: "me@example.test".to_owned(),
+            },
+            Address {
+                name: None,
+                email: "bea@example.test".to_owned(),
+            },
+        ],
+        cc: vec![Address {
+            name: None,
+            email: "cara@example.test".to_owned(),
+        }],
+        bcc: vec![],
+        subject: "lunch on friday".to_owned(),
+        in_reply_to: None,
+        references: vec![],
+        rfc_message_id: Some("original@example.test".to_owned()),
+        read: ReadState::Unread,
+        star: Star::Unstarred,
+        mailbox: MailboxRole::Inbox,
+        labels: vec![],
+        body: Body::Present {
+            text: Some("Shall we say one o'clock?".to_owned()),
+            raw,
+        },
+        attachments: vec![],
+    };
+    store
+        .ingest(
+            acct_account(),
+            Ingest {
+                mailbox: MailboxRef {
+                    account: acct_account(),
+                    path: "INBOX".to_owned(),
+                },
+                validity: UidValidity::Same,
+                cursor: Some(SyncCursor::Pop),
+                messages: vec![Fetched {
+                    remote: RemoteRef::Pop {
+                        uidl: "u1".to_owned(),
+                    },
+                    key: message.key.clone(),
+                    raw,
+                    message,
+                }],
+                flags: vec![],
+                labels: vec![],
+                label_names: Vec::new(),
+                gone: vec![],
+            },
+        )
+        .unwrap();
+    (store, dir)
+}
+
+/// The draft a reply produced, read back from the store.
+fn only_draft(store: &SqliteStore) -> Draft {
+    let drafts = store.drafts(acct_account()).unwrap();
+    assert_eq!(drafts.len(), 1, "expected exactly one draft");
+    drafts.into_iter().next().unwrap()
+}
+
+#[test]
+fn replying_creates_a_draft_addressed_to_the_sender() {
+    let (store, _dir) = seeded();
+    let out = compose::reply(
+        &store,
+        ORIGINAL,
+        ReplyScope::Sender,
+        "one o'clock suits",
+        at(10),
+    )
+    .expect("reply succeeds");
+
+    let draft = only_draft(&store);
+    assert_eq!(draft.subject, "Re: lunch on friday");
+    assert_eq!(draft.to.len(), 1);
+    assert_eq!(draft.to[0].email, "ada@example.test");
+    assert!(draft.cc.is_empty(), "a plain reply does not copy anyone");
+    assert_eq!(draft.in_reply_to, Some(ORIGINAL));
+    assert_eq!(draft.identity, IDENTITY);
+    // The id is printed because the next command needs it.
+    assert!(out.contains(&draft.id.to_string()), "{out}");
+    assert!(out.contains("mailo send"), "{out}");
+}
+
+#[test]
+fn replying_to_all_keeps_everyone_but_us() {
+    let (store, _dir) = seeded();
+    compose::reply(&store, ORIGINAL, ReplyScope::All, "sounds good", at(10)).unwrap();
+
+    let draft = only_draft(&store);
+    let to: Vec<&str> = draft.to.iter().map(|a| a.email.as_str()).collect();
+    assert!(to.contains(&"ada@example.test"), "{to:?}");
+    assert!(to.contains(&"bea@example.test"), "{to:?}");
+    assert!(
+        !to.contains(&"me@example.test") && !draft.cc.iter().any(|a| a.email == "me@example.test"),
+        "a reply-all that mails ourselves: {draft:?}"
+    );
+    assert_eq!(
+        draft
+            .cc
+            .iter()
+            .map(|a| a.email.as_str())
+            .collect::<Vec<_>>(),
+        vec!["cara@example.test"],
+        "the original Cc stays Cc"
+    );
+}
+
+#[test]
+fn the_reply_body_quotes_the_original_beneath_what_was_written() {
+    let (store, _dir) = seeded();
+    compose::reply(
+        &store,
+        ORIGINAL,
+        ReplyScope::Sender,
+        "one o'clock suits",
+        at(10),
+    )
+    .unwrap();
+
+    let text = only_draft(&store).text;
+    let written = text
+        .find("one o'clock suits")
+        .expect("the new text is there");
+    let quoted = text
+        .find("> Shall we say one o'clock?")
+        .expect("the original is quoted");
+    assert!(
+        written < quoted,
+        "the quote must come after the reply:\n{text}"
+    );
+    assert!(
+        text.contains("Ada Lovelace wrote:"),
+        "no attribution line:\n{text}"
+    );
+}
+
+#[test]
+fn a_reply_with_nobody_to_send_it_to_says_so_rather_than_offering_to_send_it() {
+    // Replying to something you sent yourself. `Draft::reply_to` drops your own address, which
+    // is right, and the command then printed "send it with: mailo send <id>" for a draft whose
+    // send fails with "cannot build a message with no recipients" — and the CLI has no command
+    // that adds one, so the advice could not be followed at all.
+    let (store, _dir) = seeded();
+    let own = own_message(&store);
+
+    let out = compose::reply(&store, own, ReplyScope::Sender, "to myself", at(10)).unwrap();
+
+    assert!(out.contains("nobody to send this to"), "{out}");
+    assert!(
+        !out.contains("mailo send"),
+        "it still offers a send that cannot work: {out}"
+    );
+}
+
+#[test]
+fn the_attribution_line_is_in_the_senders_zone_not_utc() {
+    // This line leaves the machine. It is written into the body of a reply, so a wrong time is
+    // wrong in the recipient's mailbox permanently and no later fix reaches it — and it was
+    // wrong, because every date in this application was rendered straight off its `DateTime
+    // <Utc>`. The original here is 22:13 UTC on Tuesday the 14th, which in Taipei is 06:13 on
+    // Wednesday the 15th: a different hour, a different day and a different weekday, so an
+    // assertion on it cannot pass by accident.
+    let (store, _dir) = seeded();
+    let taipei = chrono::FixedOffset::east_opt(8 * 3600).unwrap();
+    compose::draft_reply_in(
+        &store,
+        ORIGINAL,
+        ReplyScope::Sender,
+        "one o'clock suits",
+        at(10),
+        &taipei,
+    )
+    .unwrap();
+
+    let text = only_draft(&store).text;
+    assert!(
+        text.contains("On Wed, 15 Nov 2023 at 06:13, Ada Lovelace wrote:"),
+        "the attribution line is not in the sender's zone:\n{text}"
+    );
+
+    // And the same reply written by someone on UTC says what UTC says, so this is a conversion
+    // and not eight hours added somewhere.
+    let (store, _dir) = seeded();
+    compose::draft_reply_in(
+        &store,
+        ORIGINAL,
+        ReplyScope::Sender,
+        "one o'clock suits",
+        at(10),
+        &Utc,
+    )
+    .unwrap();
+    assert!(
+        only_draft(&store)
+            .text
+            .contains("On Tue, 14 Nov 2023 at 22:13, Ada Lovelace wrote:"),
+        "{}",
+        only_draft(&store).text
+    );
+}
+
+/// A message this account sent, so a reply to it has nowhere to go.
+///
+/// `From` is the identity's own address and there is no other recipient, which is the shape
+/// `Draft::reply_to` deliberately empties: replying to yourself addresses nobody.
+fn own_message(store: &SqliteStore) -> MessageId {
+    let id = MessageId::generate();
+    let raw = store
+        .blobs()
+        .put(&store.connection(), b"raw to self")
+        .unwrap();
+    let message = Message {
+        id,
+        thread: ThreadId::generate(),
+        account: acct_account(),
+        key: MessageKey::Rfc("mine@example.test".to_owned()),
+        date: at(7),
+        from: Address {
+            name: None,
+            email: "me@example.test".to_owned(),
+        },
+        reply_to: vec![],
+        to: vec![Address {
+            name: None,
+            email: "me@example.test".to_owned(),
+        }],
+        cc: vec![],
+        bcc: vec![],
+        subject: "a note to myself".to_owned(),
+        in_reply_to: None,
+        references: vec![],
+        rfc_message_id: Some("mine@example.test".to_owned()),
+        read: ReadState::Read,
+        star: Star::Unstarred,
+        mailbox: MailboxRole::Inbox,
+        labels: vec![],
+        body: Body::Present {
+            text: Some("remember the milk".to_owned()),
+            raw,
+        },
+        attachments: vec![],
+    };
+    store
+        .ingest(
+            acct_account(),
+            Ingest {
+                mailbox: MailboxRef {
+                    account: acct_account(),
+                    path: "INBOX".to_owned(),
+                },
+                validity: UidValidity::Same,
+                cursor: Some(SyncCursor::Pop),
+                messages: vec![Fetched {
+                    remote: RemoteRef::Pop {
+                        uidl: "u-self".to_owned(),
+                    },
+                    key: message.key.clone(),
+                    raw,
+                    message,
+                }],
+                flags: vec![],
+                labels: vec![],
+                label_names: Vec::new(),
+                gone: vec![],
+            },
+        )
+        .unwrap();
+    id
+}
+
+/// A second message, headers only — the normal mid-sync state.
+fn headers_only(store: &SqliteStore) -> MessageId {
+    let id = MessageId::generate();
+    let raw = store.blobs().put(&store.connection(), b"raw two").unwrap();
+    let message = Message {
+        id,
+        thread: ThreadId::generate(),
+        account: acct_account(),
+        key: MessageKey::Rfc("second@example.test".to_owned()),
+        date: at(5),
+        from: Address {
+            name: Some("Bob".to_owned()),
+            email: "bob@example.test".to_owned(),
+        },
+        reply_to: vec![],
+        to: vec![],
+        cc: vec![],
+        bcc: vec![],
+        subject: "no body yet".to_owned(),
+        in_reply_to: None,
+        references: vec![],
+        rfc_message_id: Some("second@example.test".to_owned()),
+        read: ReadState::Unread,
+        star: Star::Unstarred,
+        mailbox: MailboxRole::Inbox,
+        labels: vec![],
+        body: Body::Absent,
+        attachments: vec![],
+    };
+    store
+        .ingest(
+            acct_account(),
+            Ingest {
+                mailbox: MailboxRef {
+                    account: acct_account(),
+                    path: "INBOX".to_owned(),
+                },
+                validity: UidValidity::Same,
+                cursor: Some(SyncCursor::Pop),
+                messages: vec![Fetched {
+                    remote: RemoteRef::Pop {
+                        uidl: "u2".to_owned(),
+                    },
+                    key: message.key.clone(),
+                    raw,
+                    message,
+                }],
+                flags: vec![],
+                labels: vec![],
+                label_names: Vec::new(),
+                gone: vec![],
+            },
+        )
+        .unwrap();
+    id
+}
+
+#[test]
+fn a_reply_to_a_message_with_no_body_quotes_nothing_rather_than_the_word_none() {
+    // Mid-sync, headers arrive before bodies, and replying then is normal. A client that
+    // renders the absent body into the quote sends that text to the recipient.
+    let (store, _dir) = seeded();
+    let id = headers_only(&store);
+    compose::reply(&store, id, ReplyScope::Sender, "later", at(10)).unwrap();
+
+    let text = only_draft(&store).text;
+    assert!(text.contains("later"), "{text}");
+    assert!(
+        text.contains("Bob wrote:"),
+        "the attribution still stands:\n{text}"
+    );
+    assert!(!text.to_lowercase().contains("none"), "{text}");
+    assert!(!text.contains('>'), "nothing should be quoted:\n{text}");
+}
+
+#[test]
+fn sending_queues_the_draft_without_touching_the_network() {
+    let (store, _dir) = seeded();
+    compose::reply(
+        &store,
+        ORIGINAL,
+        ReplyScope::Sender,
+        "one o'clock suits",
+        at(10),
+    )
+    .unwrap();
+    let draft = only_draft(&store);
+
+    let out = compose::send(&store, draft.id, at(20)).expect("send queues");
+    assert!(out.contains("mailo sync"), "{out}");
+
+    // The submission is in the outbox, with its envelope frozen beside the bytes.
+    let due = store.outbox_due(acct_account(), at(30)).unwrap();
+    assert_eq!(due.len(), 1, "nothing was queued");
+    match &due[0].op {
+        ProtoOp::Submit {
+            draft: queued,
+            mail_from,
+            rcpt_to,
+            ..
+        } => {
+            assert_eq!(*queued, draft.id);
+            assert_eq!(mail_from, "me@example.test");
+            assert_eq!(rcpt_to, &vec!["ada@example.test".to_owned()]);
+        }
+        other => panic!("expected a submission, got {other:?}"),
+    }
+    assert_eq!(store.draft(draft.id).unwrap().state, SendState::Queued);
+}
+
+#[test]
+fn the_queued_bytes_are_frozen_against_a_later_edit() {
+    // The user pressed send on a particular version. A draft edited afterwards — by an autosave
+    // that had not yet fired, or by a second window — must not change what goes out.
+    let (store, _dir) = seeded();
+    compose::reply(
+        &store,
+        ORIGINAL,
+        ReplyScope::Sender,
+        "one o'clock suits",
+        at(10),
+    )
+    .unwrap();
+    let mut draft = only_draft(&store);
+    compose::send(&store, draft.id, at(20)).unwrap();
+
+    draft.subject = "something else entirely".to_owned();
+    draft.updated = at(25);
+    store
+        .apply(
+            acct_account(),
+            &Patch {
+                id: ChangeId::generate(),
+                changes: vec![Change::DraftUpsert(Box::new(draft.clone()))],
+            },
+        )
+        .unwrap();
+
+    let due = store.outbox_due(acct_account(), at(30)).unwrap();
+    let ProtoOp::Submit { raw, .. } = &due[0].op else {
+        panic!("expected a submission");
+    };
+    let bytes = store.blobs().get(&store.connection(), *raw).unwrap();
+    let text = String::from_utf8_lossy(&bytes);
+    assert!(
+        text.contains("Re: lunch on friday"),
+        "the frozen bytes changed under the edit:\n{text}"
+    );
+    assert!(!text.contains("something else entirely"), "{text}");
+}
+
+#[test]
+fn sending_the_same_draft_twice_is_refused() {
+    let (store, _dir) = seeded();
+    compose::reply(&store, ORIGINAL, ReplyScope::Sender, "yes", at(10)).unwrap();
+    let draft = only_draft(&store);
+    compose::send(&store, draft.id, at(20)).unwrap();
+    store
+        .set_send_state(
+            draft.id,
+            &SendState::Sent {
+                at: at(21),
+                message: None,
+            },
+            at(21),
+        )
+        .unwrap();
+
+    let err = compose::send(&store, draft.id, at(22)).expect_err("already sent");
+    assert!(err.contains("already sent"), "{err}");
+}
+
+#[test]
+fn an_account_with_no_identity_says_so_instead_of_inventing_a_sender() {
+    // An account added before identities were created at setup has no row. Guessing a From
+    // address is how mail goes out under an address the user does not own, so replying must
+    // stop and say what is wrong. The message is there, so it is the identity check that fires.
+    let (store, _dir) = seeded();
+    store
+        .connection()
+        .execute(
+            "DELETE FROM identities WHERE account = ?1",
+            [acct_account().to_string()],
+        )
+        .unwrap();
+
+    let err = compose::reply(&store, ORIGINAL, ReplyScope::Sender, "hi", at(10))
+        .expect_err("no identity to send as");
+    assert!(
+        err.starts_with("this account has no identity to send as"),
+        "{err}"
+    );
+    assert!(store.drafts(acct_account()).unwrap().is_empty());
+}
+
+#[test]
+fn the_identity_comes_from_the_table_the_foreign_key_enforces() {
+    // `drafts.identity` references `identities(id)`, so any draft that exists has a row. The
+    // plan's copy of the same list is written once at account creation and can go stale;
+    // reading it instead is how a send fails for an account that is perfectly well configured.
+    let (store, _dir) = seeded();
+    store
+        .connection()
+        .execute(
+            "UPDATE accounts SET plan = json_set(plan, '$.identities', json('[]')) WHERE id = ?1",
+            [acct_account().to_string()],
+        )
+        .unwrap();
+
+    compose::reply(&store, ORIGINAL, ReplyScope::Sender, "yes", at(10))
+        .expect("the identity row is still there");
+    let draft = only_draft(&store);
+    let out = compose::send(&store, draft.id, at(20)).expect("and sending still works");
+    assert!(out.contains("me@example.test"), "{out}");
+}
+
+#[test]
+fn drafts_reports_what_is_waiting() {
+    let (store, _dir) = seeded();
+    assert!(compose::drafts(&store).unwrap().contains("no drafts"));
+
+    compose::reply(&store, ORIGINAL, ReplyScope::Sender, "yes", at(10)).unwrap();
+    let listed = compose::drafts(&store).unwrap();
+    assert!(listed.contains("editing"), "{listed}");
+    assert!(listed.contains("Re: lunch on friday"), "{listed}");
+
+    let draft = only_draft(&store);
+    compose::send(&store, draft.id, at(20)).unwrap();
+    assert!(compose::drafts(&store).unwrap().contains("queued"));
+}
+
+/// The composer's round trip, without a window.
+///
+/// The shell's `Composer` component is thin by construction — every decision it makes lives in
+/// `view.rs` and every write goes through `compose.rs`. These drive that pair the way the
+/// component does, so the part of the shell that can be wrong is covered even though the
+/// widgets are not.
+mod composer {
+    use super::*;
+    use view::Composing;
+
+    #[test]
+    fn opening_a_reply_then_editing_and_saving_keeps_everything_unshown() {
+        let (store, _dir) = seeded();
+        let draft = compose::draft_reply(&store, ORIGINAL, ReplyScope::All, "", at(10)).unwrap();
+
+        // What the composer shows, edited the way a user would.
+        let mut editing = Composing::of(&draft);
+        assert!(editing.to.contains("ada@example.test"), "{}", editing.to);
+        editing.body = format!("one o'clock suits\r\n{}", editing.body);
+        editing.subject = "Re: lunch on friday (moved)".to_owned();
+
+        let base = store.draft(editing.draft).unwrap();
+        let edited = editing.apply_to(&base, at(11)).unwrap();
+        compose::save(&store, &edited).unwrap();
+
+        let reloaded = store.draft(draft.id).unwrap();
+        assert_eq!(reloaded.subject, "Re: lunch on friday (moved)");
+        assert!(reloaded.text.starts_with("one o'clock suits"));
+        // Not shown by the composer, and therefore the things an edit most easily destroys.
+        assert_eq!(reloaded.identity, draft.identity);
+        assert_eq!(reloaded.in_reply_to, Some(ORIGINAL));
+        assert_eq!(
+            store.drafts(acct_account()).unwrap().len(),
+            1,
+            "a second draft was made"
+        );
+    }
+
+    #[test]
+    fn a_composed_reply_can_be_sent_and_arrives_in_the_outbox() {
+        let (store, _dir) = seeded();
+        let draft = compose::draft_reply(&store, ORIGINAL, ReplyScope::Sender, "", at(10)).unwrap();
+        let mut editing = Composing::of(&draft);
+        editing.body = "yes".to_owned();
+        // A recipient added by hand, the way the To box is actually used.
+        editing.cc = "Bea <bea@example.test>".to_owned();
+
+        let base = store.draft(editing.draft).unwrap();
+        let edited = editing.apply_to(&base, at(11)).unwrap();
+        compose::save(&store, &edited).unwrap();
+        compose::send(&store, edited.id, at(12)).unwrap();
+
+        let due = store.outbox_due(acct_account(), at(20)).unwrap();
+        assert_eq!(due.len(), 1);
+        let ProtoOp::Submit { rcpt_to, .. } = &due[0].op else {
+            panic!("expected a submission");
+        };
+        let mut rcpt = rcpt_to.clone();
+        rcpt.sort();
+        assert_eq!(
+            rcpt,
+            vec!["ada@example.test".to_owned(), "bea@example.test".to_owned()],
+            "the hand-typed Cc did not reach the envelope"
+        );
+    }
+
+    #[test]
+    fn a_mistyped_recipient_stops_the_save_instead_of_dropping_them() {
+        let (store, _dir) = seeded();
+        let draft = compose::draft_reply(&store, ORIGINAL, ReplyScope::Sender, "", at(10)).unwrap();
+        let mut editing = Composing::of(&draft);
+        editing.to = "ada@example.test, bea".to_owned();
+
+        let base = store.draft(editing.draft).unwrap();
+        let err = editing
+            .apply_to(&base, at(11))
+            .expect_err("\"bea\" is not an address");
+        assert!(err.starts_with("To:"), "{err}");
+
+        // And the stored draft is untouched, so nothing was half-written.
+        assert_eq!(store.draft(draft.id).unwrap().to, draft.to);
+    }
+}
+
+/// Closing the composer must not cost the user what they typed.
+mod closing {
+    use super::*;
+    use view::Composing;
+
+    /// What the Close button does: save, and only then drop the widgets.
+    fn close(store: &SqliteStore, editing: &Composing, now: DateTime<Utc>) -> Result<(), String> {
+        let base = store.draft(editing.draft).map_err(|e| e.to_string())?;
+        let edited = editing.apply_to(&base, now)?;
+        compose::save(store, &edited)
+    }
+
+    #[test]
+    fn closing_saves_what_was_typed() {
+        // The bug: Close called close_composer directly and threw away everything since the
+        // last Save, behind a comment saying that could not happen.
+        let (store, _dir) = seeded();
+        let draft = compose::draft_reply(&store, ORIGINAL, ReplyScope::Sender, "", at(10)).unwrap();
+        let mut editing = Composing::of(&draft);
+        editing.body = "a paragraph nobody clicked Save on".to_owned();
+
+        close(&store, &editing, at(11)).expect("closing saves");
+        assert!(
+            store
+                .draft(draft.id)
+                .unwrap()
+                .text
+                .contains("a paragraph nobody clicked Save on"),
+            "closing the composer lost the text"
+        );
+    }
+
+    #[test]
+    fn a_recipient_that_does_not_parse_refuses_the_close_rather_than_the_text() {
+        // Staying open is the point: a typo in the To box must not cost the paragraph.
+        let (store, _dir) = seeded();
+        let draft = compose::draft_reply(&store, ORIGINAL, ReplyScope::Sender, "", at(10)).unwrap();
+        let mut editing = Composing::of(&draft);
+        editing.body = "worth keeping".to_owned();
+        editing.to = "nonsense".to_owned();
+
+        assert!(close(&store, &editing, at(11)).is_err());
+        // Nothing was written, and the composer stays open holding the text.
+        assert_eq!(store.draft(draft.id).unwrap().text, draft.text);
+        assert_eq!(editing.body, "worth keeping");
+    }
+}
+
+/// Discarding a draft, which nothing in the application could do.
+///
+/// The composer's "Discard" closed the pane without saving. For a draft that had never been
+/// saved that is the same thing; for every other draft it is not, and `Composing`'s own doc
+/// comment says which case is real: "the draft this edits — it already exists in the store
+/// before the composer opens". A reply is written to the store the moment it is created and a
+/// draft opened from the drafts list came off disk, so the discarded draft was still in Drafts
+/// afterwards, for ever. Drafts could be made and never unmade.
+mod discarding {
+    use super::*;
+
+    fn a_draft(store: &SqliteStore) -> DraftId {
+        compose::draft_reply(store, ORIGINAL, ReplyScope::Sender, "never mind", at(10))
+            .unwrap()
+            .id
+    }
+
+    #[test]
+    fn a_discarded_draft_is_gone_from_the_store() {
+        let (store, _dir) = seeded();
+        let id = a_draft(&store);
+        assert_eq!(
+            store.drafts(acct_account()).unwrap().len(),
+            1,
+            "it was saved"
+        );
+
+        let subject = compose::discard(&store, id).unwrap();
+
+        assert_eq!(subject, "Re: lunch on friday", "it names what went");
+        assert!(
+            store.drafts(acct_account()).unwrap().is_empty(),
+            "the draft outlived being discarded"
+        );
+        assert!(store.draft(id).is_err(), "and cannot be fetched by id");
+    }
+
+    #[test]
+    fn a_draft_that_is_already_on_its_way_is_not_deleted_underneath_the_outbox() {
+        // `Queued` means the next sync will pick it up, and `Sending` may already be on the
+        // wire. Deleting either leaves the outbox draining something that is not there.
+        for state in [SendState::Queued, SendState::Sending] {
+            let (store, _dir) = seeded();
+            let id = a_draft(&store);
+            let mut draft = store.draft(id).unwrap();
+            draft.state = state.clone();
+            compose::save(&store, &draft).unwrap();
+
+            let why = compose::discard(&store, id).unwrap_err();
+            assert!(why.contains("queued for delivery"), "{why}");
+            assert_eq!(
+                store.drafts(acct_account()).unwrap().len(),
+                1,
+                "it was deleted anyway from {state:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_failed_send_waiting_to_retry_is_withdrawn_with_its_draft() {
+        // Found against a real account: a send refused by the server backs off for a day, still
+        // queued, while the draft reads `Failed`. Discarding it deleted the draft and left the
+        // outbox to send the message anyway the next day.
+        let (store, _dir) = seeded();
+        let id = a_draft(&store);
+        compose::send(&store, id, at(20)).unwrap();
+        let mut draft = store.draft(id).unwrap();
+        draft.state = SendState::Failed {
+            reason: "535 5.7.139".to_owned(),
+            retry: Retry::NeedsReauth,
+        };
+        compose::save(&store, &draft).unwrap();
+        let far = at(20) + chrono::TimeDelta::try_days(365).unwrap();
+        assert_eq!(
+            store.outbox_due(acct_account(), far).unwrap().len(),
+            1,
+            "precondition"
+        );
+
+        compose::discard(&store, id).unwrap();
+
+        assert!(
+            store.outbox_due(acct_account(), far).unwrap().is_empty(),
+            "the discarded message would still have been sent"
+        );
+    }
+
+    #[test]
+    fn a_draft_that_was_already_sent_can_still_be_cleared_away() {
+        // A `Sent` draft is a record of something that happened, not work in progress, and the
+        // drafts list is the only place it shows up. Refusing to remove it would make the list
+        // unclearable.
+        let (store, _dir) = seeded();
+        let id = a_draft(&store);
+        let mut draft = store.draft(id).unwrap();
+        draft.state = SendState::Sent {
+            at: at(20),
+            message: None,
+        };
+        compose::save(&store, &draft).unwrap();
+
+        compose::discard(&store, id).unwrap();
+        assert!(store.drafts(acct_account()).unwrap().is_empty());
+    }
+
+    #[test]
+    fn discarding_something_that_is_not_there_is_an_error_not_a_panic() {
+        let (store, _dir) = seeded();
+        let err = compose::discard(&store, DraftId::generate()).expect_err("no such draft");
+        assert!(err.starts_with("no such draft"), "{err}");
+    }
+}
+
+/// Forwarding, which the domain modelled and nothing could reach.
+///
+/// `Draft::forward_of` has existed and been tested in `mail-domain` since phase 1, and no surface
+/// in the application called it. A mail client that cannot forward is not one.
+mod forwarding {
+    use super::*;
+
+    fn taipei() -> chrono::FixedOffset {
+        chrono::FixedOffset::east_opt(8 * 3600).unwrap()
+    }
+
+    fn to() -> Vec<Address> {
+        vec![Address {
+            name: Some("Bea".to_owned()),
+            email: "bea@example.test".to_owned(),
+        }]
+    }
+
+    #[test]
+    fn a_forward_carries_the_original_beneath_a_header_block() {
+        let (store, _dir) = seeded();
+        compose::draft_forward_in(
+            &store,
+            ORIGINAL,
+            &to(),
+            "thought you should see this",
+            at(10),
+            &taipei(),
+        )
+        .unwrap();
+
+        let draft = only_draft(&store);
+        assert_eq!(draft.subject, "Fwd: lunch on friday");
+        assert_eq!(draft.to, to(), "a forward goes where it is told");
+        assert_eq!(draft.forward_of, Some(ORIGINAL));
+        assert_eq!(draft.in_reply_to, None, "a forward answers nothing");
+
+        let text = &draft.text;
+        // What was written, then the block, then the message — in that order.
+        let note = text.find("thought you should see this").expect("the note");
+        let block = text
+            .find("---------- Forwarded message ----------")
+            .expect("block");
+        let body = text
+            .find("Shall we say one o'clock?")
+            .expect("the original text");
+        assert!(note < block && block < body, "out of order:\n{text}");
+        // A forward passes the message on; it does not answer it. Every client writes it
+        // unmarked beneath a header block, and a recipient who sees "> " reads it as a reply.
+        assert!(
+            !text.contains("> Shall we say one o'clock?"),
+            "the original was quoted like a reply:\n{text}"
+        );
+
+        // The headers a recipient needs to judge it, in the sender's zone: the original is
+        // 22:13 on Tuesday the 14th in UTC and 06:13 on Wednesday the 15th in Taipei.
+        assert!(
+            text.contains("From: Ada Lovelace <ada@example.test>"),
+            "{text}"
+        );
+        assert!(text.contains("Date: Wed, 15 Nov 2023 at 06:13"), "{text}");
+        assert!(text.contains("Subject: lunch on friday"), "{text}");
+        assert!(
+            text.contains("To: me@example.test, bea@example.test"),
+            "{text}"
+        );
+        assert!(text.contains("Cc: cara@example.test"), "{text}");
+    }
+
+    #[test]
+    fn what_the_command_prints_names_the_draft_and_how_to_send_it() {
+        // The CLI-facing half, which is also the one that decides the zone: `forward` defaults
+        // to `Local` where `draft_forward_in` is told. Asserted on the text a person reads.
+        let (store, _dir) = seeded();
+        let out = compose::forward(
+            &store,
+            ORIGINAL,
+            &to(),
+            "fyi",
+            compose::Carry::Inline,
+            at(10),
+        )
+        .unwrap();
+
+        assert!(out.contains("Fwd: lunch on friday"), "{out}");
+        assert!(out.contains("Bea <bea@example.test>"), "{out}");
+        let draft = only_draft(&store);
+        assert!(
+            out.contains(&format!("mailo send {}", draft.id)),
+            "it does not say how to send it: {out}"
+        );
+        // No double-space check here, unlike the prose messages of F97: this output is an
+        // aligned table — `  to      …` — and the runs of spaces are the alignment.
+        assert!(
+            out.contains("  to      "),
+            "the columns are not aligned: {out:?}"
+        );
+    }
+
+    #[test]
+    fn a_forward_with_no_body_yet_still_carries_the_message() {
+        // What the shell's Forward button produces: a draft with no note and no recipients, for
+        // the user to fill in. The message must already be in it, or there is nothing to send.
+        let (store, _dir) = seeded();
+        let draft =
+            compose::draft_forward_in(&store, ORIGINAL, &[], "", at(10), &taipei()).unwrap();
+        assert!(draft.to.is_empty());
+        assert!(
+            draft
+                .text
+                .contains("---------- Forwarded message ----------")
+        );
+        assert!(draft.text.contains("Shall we say one o'clock?"));
+    }
+
+    #[test]
+    fn a_message_whose_body_never_arrived_forwards_its_headers_and_nothing_else() {
+        // Mid-sync. Quoting the word "None" is what this avoids — the same case `quoted` has.
+        let (store, _dir) = seeded();
+        let id = headers_only(&store);
+        let draft = compose::draft_forward_in(&store, id, &to(), "", at(10), &taipei()).unwrap();
+        assert!(
+            draft
+                .text
+                .contains("---------- Forwarded message ----------")
+        );
+        assert!(!draft.text.contains("None"), "{}", draft.text);
+    }
+}
+
+/// Forwarding a message as an attachment: the message itself, carried as `message/rfc822`.
+mod forwarding_as_an_attachment {
+    use super::*;
+
+    /// A message as a server sends it, with an 8-bit body and an attachment of its own.
+    const SENT: &str = "From: Ada Lovelace <ada@example.test>\r\n\
+        To: me@example.test\r\n\
+        Subject: The engine notes\r\n\
+        Date: Tue, 14 Nov 2023 22:13:20 +0000\r\n\
+        Message-ID: <notes@example.test>\r\n\
+        MIME-Version: 1.0\r\n\
+        Content-Type: multipart/mixed; boundary=\"b1\"\r\n\
+        \r\n\
+        --b1\r\n\
+        Content-Type: text/plain; charset=utf-8\r\n\
+        Content-Transfer-Encoding: 8bit\r\n\
+        \r\n\
+        Les notes, enfin — voilà.\r\n\
+        --b1\r\n\
+        Content-Type: application/octet-stream; name=\"table.bin\"\r\n\
+        Content-Disposition: attachment; filename=\"table.bin\"\r\n\
+        Content-Transfer-Encoding: base64\r\n\
+        \r\n\
+        //4AAQ==\r\n\
+        --b1--\r\n";
+
+    fn bea() -> Vec<Address> {
+        vec![Address {
+            name: Some("Bea".to_owned()),
+            email: "bea@example.test".to_owned(),
+        }]
+    }
+
+    /// Store `raw` as a message with `attachments`, and return its id.
+    fn stored(store: &SqliteStore, raw: &[u8], attachments: Vec<Attachment>) -> MessageId {
+        let id = MessageId::generate();
+        let blob = store.blobs().put(&store.connection(), raw).unwrap();
+        let key = MessageKey::Rfc(format!("{id}@example.test"));
+        let message = Message {
+            id,
+            thread: ThreadId::generate(),
+            account: acct_account(),
+            key: key.clone(),
+            date: at(5),
+            from: Address {
+                name: Some("Ada Lovelace".to_owned()),
+                email: "ada@example.test".to_owned(),
+            },
+            reply_to: vec![],
+            to: vec![],
+            cc: vec![],
+            bcc: vec![],
+            subject: "The engine notes".to_owned(),
+            in_reply_to: None,
+            references: vec![],
+            rfc_message_id: None,
+            read: ReadState::Unread,
+            star: Star::Unstarred,
+            mailbox: MailboxRole::Inbox,
+            labels: vec![],
+            body: Body::Present {
+                text: None,
+                raw: blob,
+            },
+            attachments,
+        };
+        store
+            .ingest(
+                acct_account(),
+                Ingest {
+                    mailbox: MailboxRef {
+                        account: acct_account(),
+                        path: "INBOX".to_owned(),
+                    },
+                    validity: UidValidity::Same,
+                    cursor: Some(SyncCursor::Pop),
+                    messages: vec![Fetched {
+                        remote: RemoteRef::Pop {
+                            uidl: id.to_string(),
+                        },
+                        key,
+                        raw: blob,
+                        message,
+                    }],
+                    flags: vec![],
+                    labels: vec![],
+                    label_names: Vec::new(),
+                    gone: vec![],
+                },
+            )
+            .unwrap();
+        id
+    }
+
+    fn queued(store: &SqliteStore) -> Vec<u8> {
+        let due = store.outbox_due(acct_account(), at(40)).unwrap();
+        let ProtoOp::Submit { raw, .. } = &due[0].op else {
+            panic!("expected a submission");
+        };
+        store.blobs().get(&store.connection(), *raw).unwrap()
+    }
+
+    /// The round trip: what goes out carries the stored message, and that part parses back to
+    /// exactly the bytes that were stored.
+    #[test]
+    fn the_attachment_that_goes_out_is_the_message_byte_for_byte() {
+        let (store, _dir) = seeded();
+        let id = stored(&store, SENT.as_bytes(), vec![]);
+        let draft =
+            compose::draft_forward_attached(&store, id, &bea(), "see below", at(10)).unwrap();
+        assert_eq!(draft.subject, "Fwd: The engine notes");
+        assert_eq!(draft.forward_of, Some(id));
+        assert!(draft.text.contains("see below"), "{}", draft.text);
+        assert!(
+            !draft.text.contains("Forwarded message"),
+            "the message went inline as well:\n{}",
+            draft.text
+        );
+
+        compose::send(&store, draft.id, at(30)).expect("send queues");
+        let out = queued(&store);
+        let parsed = mail_mime::parse(&out).unwrap();
+        assert_eq!(
+            parsed.attachments.len(),
+            1,
+            "{}",
+            String::from_utf8_lossy(&out)
+        );
+        let carried = &parsed.attachments[0];
+        assert_eq!(carried.mime, "message/rfc822");
+        assert_eq!(carried.name, "The engine notes.eml");
+        assert_eq!(
+            String::from_utf8_lossy(&carried.bytes),
+            SENT,
+            "the carried message is not the stored one"
+        );
+        let inner = mail_mime::parse(&carried.bytes).unwrap();
+        assert_eq!(inner.text.as_deref(), Some("Les notes, enfin — voilà."));
+        assert_eq!(inner.attachments[0].bytes, [0xff, 0xfe, 0x00, 0x01]);
+
+        let text = String::from_utf8_lossy(&out).to_ascii_lowercase();
+        let part = &text[text.find("message/rfc822").unwrap()..];
+        let header = &part[..part.find("\r\n\r\n").unwrap()];
+        assert!(
+            header.contains("content-transfer-encoding: 8bit"),
+            "RFC 2046 §5.2.1 allows only 7bit, 8bit or binary:\n{header}"
+        );
+    }
+
+    #[test]
+    fn the_command_line_says_what_is_attached() {
+        let (store, _dir) = seeded();
+        let id = stored(&store, SENT.as_bytes(), vec![]);
+        let out =
+            compose::forward(&store, id, &bea(), "", compose::Carry::Attached, at(10)).unwrap();
+        assert!(out.contains("  attached The engine notes.eml"), "{out}");
+    }
+
+    #[test]
+    fn a_message_whose_body_never_arrived_is_refused() {
+        let (store, _dir) = seeded();
+        let id = headers_only(&store);
+        let why = compose::draft_forward_attached(&store, id, &bea(), "", at(10)).unwrap_err();
+        assert!(why.contains("not been downloaded"), "{why}");
+        assert!(
+            store.drafts(acct_account()).unwrap().is_empty(),
+            "a refused forward left a draft"
+        );
+    }
+
+    /// A large IMAP message is stored rebuilt from its parts, its attachments left on the server.
+    /// Those bytes are not the message as sent, and must not go out as if they were.
+    #[test]
+    fn a_message_rebuilt_from_its_parts_is_refused_even_once_its_parts_are_fetched() {
+        let rebuilt = SENT.replace(
+            "Content-Transfer-Encoding: base64\r\n\r\n//4AAQ==\r\n",
+            "Content-Transfer-Encoding: base64\r\nX-Mailo-Remote-Section: 2\r\n\
+             X-Mailo-Remote-Octets: 8\r\n\r\n\r\n",
+        );
+        let part = |content| Attachment {
+            name: "table.bin".to_owned(),
+            mime: "application/octet-stream".to_owned(),
+            size: 4,
+            content,
+            inline: Inline::Attached,
+        };
+        let cases = [
+            (
+                "its attachment still on the server",
+                part(PartContent::Remote {
+                    section: "2".to_owned(),
+                }),
+            ),
+            (
+                "its attachment fetched since",
+                part(PartContent::Held(BlobId::generate())),
+            ),
+        ];
+        for (name, attachment) in cases {
+            let (store, _dir) = seeded();
+            let id = stored(&store, rebuilt.as_bytes(), vec![attachment]);
+            let why =
+                compose::draft_forward_attached(&store, id, &bea(), "", at(10)).expect_err(name);
+            assert!(why.contains("rebuilt"), "{name}: {why}");
+            assert!(why.contains("inline"), "{name}: says what to do: {why}");
+            assert!(store.drafts(acct_account()).unwrap().is_empty(), "{name}");
+        }
+    }
+}
+
+/// Signatures, which were a column nothing read.
+///
+/// `Identity.signature` has existed since phase 1. No sending path appended one, no composer
+/// showed one, and no command could set one — every message this client had ever sent went out
+/// unsigned.
+mod signatures {
+    use super::*;
+
+    fn set(store: &SqliteStore, text: Option<&str>) {
+        compose::set_signature(store, acct_account(), text).unwrap();
+    }
+
+    /// The delimiter is `-- ` with its trailing space: RFC 3676 §4.3 names that string, and
+    /// every client that trims a signature when quoting looks for it. `--` without the space is
+    /// a different line and gets quoted back at people for the rest of the thread.
+    #[test]
+    fn a_reply_carries_the_signature_beneath_what_was_written() {
+        let (store, _dir) = seeded();
+        set(&store, Some("Ada Lovelace\nAnalytical Engines Ltd"));
+
+        compose::reply(
+            &store,
+            ORIGINAL,
+            ReplyScope::Sender,
+            "one o'clock suits",
+            at(10),
+        )
+        .unwrap();
+        let text = only_draft(&store).text;
+
+        let written = text.find("one o'clock suits").expect("what was written");
+        let delimiter = text.find("\r\n-- \r\n").expect("the signature delimiter");
+        let sig = text.find("Analytical Engines").expect("the signature");
+        let quote = text.find("Ada Lovelace wrote:").expect("the attribution");
+        assert!(written < delimiter, "the signature came first:\n{text}");
+        assert!(delimiter < sig && sig < quote, "out of order:\n{text}");
+    }
+
+    #[test]
+    fn a_forward_is_signed_too() {
+        let (store, _dir) = seeded();
+        set(&store, Some("Ada"));
+        compose::draft_forward(
+            &store,
+            ORIGINAL,
+            &[Address {
+                name: None,
+                email: "bea@example.test".to_owned(),
+            }],
+            "passing this on",
+            at(10),
+        )
+        .unwrap();
+
+        let text = only_draft(&store).text;
+        let note = text.find("passing this on").unwrap();
+        let delimiter = text.find("\r\n-- \r\n").unwrap();
+        let block = text.find("---------- Forwarded message").unwrap();
+        assert!(
+            note < delimiter && delimiter < block,
+            "out of order:\n{text}"
+        );
+    }
+
+    /// An account with no signature must not gain a bare `-- ` line, which other clients read as
+    /// "everything below is a signature" and hide. `mailo signature you@x < /dev/null` and a file
+    /// of blank lines are both "take it off".
+    #[test]
+    fn an_absent_blank_or_cleared_signature_leaves_no_delimiter() {
+        // Each row is the signatures set in turn, and what the last one says.
+        type Row = (
+            &'static str,
+            &'static [Option<&'static str>],
+            Option<&'static str>,
+        );
+        const CASES: &[Row] = &[
+            ("never set", &[], None),
+            ("only whitespace", &[Some("   \n\n  ")], None),
+            ("set, then cleared", &[Some("Ada"), None], Some("cleared")),
+        ];
+        for (name, steps, says) in CASES {
+            let (store, _dir) = seeded();
+            let mut out = String::new();
+            for text in *steps {
+                out = compose::set_signature(&store, acct_account(), *text).unwrap();
+            }
+            if let Some(said) = says {
+                assert!(out.contains(said), "{name}: {out}");
+            }
+            compose::reply(&store, ORIGINAL, ReplyScope::Sender, "hi", at(10)).unwrap();
+            let text = only_draft(&store).text;
+            assert!(!text.contains("-- "), "{name}: {text:?}");
+        }
+    }
+}
+
+/// Writing to someone who has not written first — `plan.md` phase 7a.
+///
+/// The gap this closes was not a bug in any function: every function worked. `Draft` carried
+/// every field, `Composer` edited one, `send` sent one, and there was no way to *make* one that
+/// was not a reply or a forward, so mail could only be answered and never begun. The tests below
+/// are written against that sentence rather than against the new code, which is why the first
+/// one sends to an address that appears nowhere in the seeded store.
+mod writing_to_someone_new {
+    use super::*;
+
+    fn stranger() -> Vec<Address> {
+        vec![Address {
+            name: None,
+            // Deliberately not `ada@example.test`: nobody at this address has ever written to
+            // us, so no reply or forward could reach it and only 7a can.
+            email: "kim@elsewhere.test".to_owned(),
+        }]
+    }
+
+    #[test]
+    fn a_message_can_be_written_to_someone_who_never_wrote_first() {
+        let (store, _dir) = seeded();
+        let draft = compose::draft_new(
+            &store,
+            acct_account(),
+            &stranger(),
+            "dinner on saturday",
+            "are you free?",
+            at(10),
+        )
+        .expect("a new message needs no original");
+
+        compose::send(&store, draft.id, at(20)).expect("send queues");
+        let due = store.outbox_due(acct_account(), at(30)).unwrap();
+        assert_eq!(due.len(), 1, "nothing was queued");
+        match &due[0].op {
+            ProtoOp::Submit {
+                mail_from, rcpt_to, ..
+            } => {
+                assert_eq!(mail_from, "me@example.test");
+                assert_eq!(rcpt_to, &vec!["kim@elsewhere.test".to_owned()]);
+            }
+            other => panic!("expected a submission, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn it_starts_a_thread_rather_than_joining_one() {
+        // The difference between this and a reply, on the wire. A new message that carried
+        // `In-Reply-To` would be filed by the recipient's client under a conversation they have
+        // never seen, which is the one way this can go wrong invisibly to the sender.
+        let (store, _dir) = seeded();
+        let draft =
+            compose::draft_new(&store, acct_account(), &stranger(), "hello", "", at(10)).unwrap();
+        assert_eq!(draft.in_reply_to, None);
+        assert_eq!(draft.forward_of, None);
+
+        compose::send(&store, draft.id, at(20)).unwrap();
+        let due = store.outbox_due(acct_account(), at(30)).unwrap();
+        let ProtoOp::Submit { raw, .. } = &due[0].op else {
+            panic!("expected a submission");
+        };
+        let bytes = store.blobs().get(&store.connection(), *raw).unwrap();
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(
+            !text.contains("In-Reply-To:"),
+            "a message that answers nothing claimed to answer something:\n{text}"
+        );
+        assert!(!text.contains("References:"), "{text}");
+        // And it is a real message regardless. Read as header lines rather than as substrings
+        // of the whole blob: `To: <kim@elsewhere.test>` is how the builder writes an address,
+        // and a `contains` that happened to be right about the angle brackets would still be
+        // matching a body that quoted the word.
+        let header = |name: &str| -> Option<String> {
+            text.lines()
+                .take_while(|line| !line.is_empty())
+                .find_map(|line| line.strip_prefix(name)?.trim().to_owned().into())
+        };
+        assert_eq!(
+            header("To:").as_deref(),
+            Some("<kim@elsewhere.test>"),
+            "{text}"
+        );
+        assert_eq!(header("Subject:").as_deref(), Some("hello"), "{text}");
+    }
+
+    #[test]
+    fn what_the_command_prints_names_the_draft_and_how_to_send_it() {
+        // The F99 rule: a command that leaves a draft behind has to say what will finish it.
+        let (store, _dir) = seeded();
+        let out = compose::new_message(
+            &store,
+            None,
+            [&stranger(), &[], &[]],
+            "dinner on saturday",
+            "are you free?",
+            ReceiptRequest::Unrequested,
+            at(10),
+        )
+        .expect("one account needs no --from");
+        let draft = only_draft(&store);
+        assert!(out.contains(&draft.id.to_string()), "{out}");
+        assert!(out.contains("kim@elsewhere.test"), "{out}");
+        assert!(out.contains("dinner on saturday"), "{out}");
+        assert!(out.contains(&format!("mailo send {}", draft.id)), "{out}");
+    }
+
+    #[test]
+    fn copies_are_kept_and_listed() {
+        let (store, _dir) = seeded();
+        let blind = vec![Address {
+            name: None,
+            email: "lee@elsewhere.test".to_owned(),
+        }];
+        let out = compose::new_message(
+            &store,
+            None,
+            [&stranger(), &[], &blind],
+            "s",
+            "",
+            ReceiptRequest::Unrequested,
+            at(10),
+        )
+        .unwrap();
+        assert!(out.contains("bcc     lee@elsewhere.test"), "{out}");
+        assert_eq!(only_draft(&store).bcc, blind);
+    }
+
+    #[test]
+    fn a_message_with_no_subject_says_so_rather_than_printing_a_blank() {
+        let (store, _dir) = seeded();
+        let out = compose::new_message(
+            &store,
+            None,
+            [&stranger(), &[], &[]],
+            "",
+            "",
+            ReceiptRequest::Unrequested,
+            at(10),
+        )
+        .unwrap();
+        assert!(out.contains("(none)"), "{out}");
+    }
+
+    #[test]
+    fn a_message_can_ask_for_a_read_receipt() {
+        let (store, _dir) = seeded();
+        let out = compose::new_message(
+            &store,
+            None,
+            [&stranger(), &[], &[]],
+            "figures",
+            "",
+            ReceiptRequest::Requested,
+            at(10),
+        )
+        .unwrap();
+        assert!(out.contains("asks for a read receipt"), "{out}");
+        // Kept on the stored draft, so a send tomorrow still asks.
+        assert_eq!(only_draft(&store).receipt, ReceiptRequest::Requested);
+    }
+
+    #[test]
+    fn the_subject_is_left_exactly_as_written() {
+        // No `Re:`, no `Fwd:`. Both constructors prefix, and reusing either one here would have
+        // been the obvious shortcut and the wrong message.
+        let (store, _dir) = seeded();
+        let draft =
+            compose::draft_new(&store, acct_account(), &stranger(), "Re: lunch", "", at(10))
+                .unwrap();
+        assert_eq!(draft.subject, "Re: lunch", "the subject was rewritten");
+    }
+
+    #[test]
+    fn the_signature_is_carried_but_nothing_is_quoted() {
+        let (store, _dir) = seeded();
+        store
+            .connection()
+            .execute(
+                "UPDATE identities SET signature = 'Ada' WHERE id = ?1",
+                rusqlite::params![IDENTITY.to_string()],
+            )
+            .unwrap();
+        let draft = compose::draft_new(
+            &store,
+            acct_account(),
+            &stranger(),
+            "hello",
+            "hi there",
+            at(10),
+        )
+        .unwrap();
+        assert!(draft.text.contains("hi there"), "{:?}", draft.text);
+        assert!(draft.text.contains("\r\n-- \r\nAda"), "{:?}", draft.text);
+        // There is no original, so there is nothing to quote and no attribution line to write.
+        assert!(!draft.text.contains('>'), "{:?}", draft.text);
+        assert!(!draft.text.contains("wrote:"), "{:?}", draft.text);
+    }
+}
+
+/// Which account a new message leaves from — the one free choice in the application.
+mod choosing_the_sender {
+    use super::*;
+
+    fn acct_second() -> AccountId {
+        account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a2"))
+    }
+    const SECOND_IDENTITY: IdentityId =
+        IdentityId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b2"));
+
+    /// Add a second sending account, as someone with a work address and a personal one has.
+    fn also(store: &SqliteStore) {
+        let mut plan = mail_domain::presets::manual_pop3(
+            "me@example.edu",
+            &mail_domain::presets::ManualPop3 {
+                pop3_host: "pop.example.edu".to_owned(),
+                pop3_port: 995,
+                smtp_host: "smtp.example.edu".to_owned(),
+                smtp_port: 465,
+                login: None,
+            },
+            at(0),
+        )
+        .plan;
+        plan.address = "work@example.test".to_owned();
+        let db = store.connection();
+        db.execute(
+            "INSERT INTO accounts (id, address, plan, created_at)
+             VALUES (?1, 'work@example.test', ?2, datetime('now', '+1 second'))",
+            rusqlite::params![
+                acct_second().to_string(),
+                serde_json::to_string(&plan).unwrap()
+            ],
+        )
+        .unwrap();
+        db.execute(
+            "INSERT INTO identities (id, account, from_name, from_email, is_default)
+             VALUES (?1, ?2, NULL, 'work@example.test', '\"default\"')",
+            rusqlite::params![SECOND_IDENTITY.to_string(), acct_second().to_string()],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn one_account_needs_no_question() {
+        let (store, _dir) = seeded();
+        assert_eq!(compose::account_for(&store, None), Ok(acct_account()));
+    }
+
+    #[test]
+    fn two_accounts_and_no_answer_is_refused_rather_than_guessed() {
+        // The failure this prevents is silent: a message that goes out from the wrong address
+        // looks fine to the sender and wrong to everyone who receives it.
+        let (store, _dir) = seeded();
+        also(&store);
+        let refused = compose::account_for(&store, None).expect_err("a guess is not an answer");
+        assert!(refused.contains("--from"), "{refused}");
+        assert!(refused.contains("me@example.test"), "{refused}");
+        assert!(refused.contains("work@example.test"), "{refused}");
+    }
+
+    #[test]
+    fn an_address_that_was_named_is_used() {
+        let (store, _dir) = seeded();
+        also(&store);
+        assert_eq!(
+            compose::account_for(&store, Some("work@example.test")),
+            Ok(acct_second())
+        );
+        // Addresses are not case sensitive, and nobody types their own the same way twice.
+        assert_eq!(
+            compose::account_for(&store, Some("WORK@example.test")),
+            Ok(acct_second())
+        );
+    }
+
+    #[test]
+    fn an_address_that_is_not_here_says_which_ones_are() {
+        let (store, _dir) = seeded();
+        also(&store);
+        let refused = compose::account_for(&store, Some("nobody@example.test"))
+            .expect_err("that is not an account");
+        assert!(refused.contains("work@example.test"), "{refused}");
+    }
+
+    #[test]
+    fn changing_the_account_moves_the_identity_with_it() {
+        // Both columns or neither. `identity` is a foreign key into the *new* account's
+        // identities, so moving one without the other leaves a draft that cannot be sent — and
+        // the failure would arrive at Send, long after the choice was made.
+        let (store, _dir) = seeded();
+        also(&store);
+        let draft = compose::draft_new(&store, acct_account(), &[], "", "", at(10)).unwrap();
+        assert_eq!(draft.identity, IDENTITY);
+
+        let moved =
+            compose::move_draft_to(&store, draft.id, acct_second(), at(11)).expect("it moves");
+        assert_eq!(moved.account, acct_second());
+        assert_eq!(
+            moved.identity, SECOND_IDENTITY,
+            "the draft kept an identity belonging to the account it left"
+        );
+
+        // And it is the stored row that moved, not just the value returned.
+        let reread = store.draft(draft.id).unwrap();
+        assert_eq!(reread.account, acct_second());
+        assert_eq!(reread.identity, SECOND_IDENTITY);
+    }
+
+    #[test]
+    fn moving_to_an_account_with_no_identity_leaves_the_draft_alone() {
+        let (store, _dir) = seeded();
+        also(&store);
+        store
+            .connection()
+            .execute(
+                "DELETE FROM identities WHERE account = ?1",
+                rusqlite::params![acct_second().to_string()],
+            )
+            .unwrap();
+        let draft = compose::draft_new(&store, acct_account(), &[], "", "", at(10)).unwrap();
+
+        compose::move_draft_to(&store, draft.id, acct_second(), at(11))
+            .expect_err("an account with no identity cannot send");
+        let reread = store.draft(draft.id).unwrap();
+        assert_eq!(reread.account, acct_account(), "the draft was moved anyway");
+        assert_eq!(reread.identity, IDENTITY);
+    }
+}
+
+/// Attaching a file — `plan.md` phase 7b, and FINDINGS F138.
+///
+/// `PendingAttachment` has existed since phase 1, `mail_mime::build` has assembled multipart
+/// from it since phase 2, `sqlite/draft.rs` has persisted it since phase 3, and nothing in the
+/// application ever constructed one. The send path supported attachments right up to the moment
+/// somebody needed one, which is why the first test below asserts against the bytes that leave
+/// rather than against the draft row: the row was never the part that was missing.
+mod carrying_a_file {
+    use super::*;
+
+    fn a_draft(store: &SqliteStore) -> DraftId {
+        compose::draft_new(
+            store,
+            acct_account(),
+            &[Address {
+                name: None,
+                email: "kim@elsewhere.test".to_owned(),
+            }],
+            "the report",
+            "here it is",
+            at(10),
+        )
+        .unwrap()
+        .id
+    }
+
+    fn queued_bytes(store: &SqliteStore) -> String {
+        let due = store.outbox_due(acct_account(), at(40)).unwrap();
+        let ProtoOp::Submit { raw, .. } = &due[0].op else {
+            panic!("expected a submission");
+        };
+        let bytes = store.blobs().get(&store.connection(), *raw).unwrap();
+        String::from_utf8_lossy(&bytes).into_owned()
+    }
+
+    #[test]
+    fn an_attached_file_reaches_the_bytes_that_go_out() {
+        let (store, _dir) = seeded();
+        let draft = a_draft(&store);
+
+        compose::attach_bytes(&store, draft, "report.txt", b"the whole report", at(20))
+            .expect("a draft can carry a file");
+        compose::send(&store, draft, at(30)).expect("send queues");
+
+        let text = queued_bytes(&store);
+        assert!(
+            text.contains("multipart/mixed"),
+            "the message is not multipart, so nothing is attached to it:\n{text}"
+        );
+        assert!(text.contains("report.txt"), "{text}");
+        assert!(text.contains("text/plain"), "{text}");
+        assert!(
+            text.contains("filename=\"report.txt\""),
+            "named but not as an attachment:\n{text}"
+        );
+        // And the contents. The builder picks `7bit` for a file that is already clean ASCII, so
+        // this one goes out as itself — asserted as what the message actually carries rather
+        // than as what an encoder would have produced.
+        assert!(
+            text.contains("the whole report"),
+            "the file was named but its bytes never went:\n{text}"
+        );
+    }
+
+    #[test]
+    fn a_file_that_is_not_text_survives_the_encoding() {
+        // The other half: bytes that cannot go out as themselves are base64'd, and a file that
+        // arrives corrupted is worse than one that never arrives. The expected value is written
+        // out rather than computed, because a test that encodes with the same idea as the code
+        // agrees with it whether or not either is right.
+        let (store, _dir) = seeded();
+        let draft = a_draft(&store);
+        compose::attach_bytes(&store, draft, "tiny.bin", &[0xff, 0xfe, 0x00, 0x01], at(20))
+            .unwrap();
+        compose::send(&store, draft, at(30)).unwrap();
+
+        let text = queued_bytes(&store);
+        assert!(text.contains("filename=\"tiny.bin\""), "{text}");
+        assert!(
+            text.contains("//4AAQ=="),
+            "four bytes of binary did not survive:\n{text}"
+        );
+    }
+
+    #[test]
+    fn the_name_it_goes_out_under_cannot_forge_a_header() {
+        // The same rule that decides where an *incoming* attachment may be written, applied in
+        // the other direction. A name is about to become part of a header, and a newline in one
+        // is a header of the attacker's choosing — here, of the sender's own careless choosing.
+        let (store, _dir) = seeded();
+        let draft = a_draft(&store);
+        let carried = compose::attach_bytes(
+            &store,
+            draft,
+            "../../etc/passwd\r\nBcc: someone@elsewhere.test",
+            b"x",
+            at(20),
+        )
+        .expect("a hostile name is cleaned, not refused");
+        let name = &carried.attachments[0].name;
+        assert!(!name.contains(".."), "{name}");
+        assert!(!name.contains('\r') && !name.contains('\n'), "{name:?}");
+        assert!(!name.contains('/'), "{name}");
+    }
+
+    #[test]
+    fn a_file_too_large_to_send_is_refused_while_it_is_being_attached() {
+        // Refused here rather than at Send. A message that is written, addressed and only then
+        // rejected leaves the sender with nothing useful to do about it.
+        let (store, _dir) = seeded();
+        let draft = a_draft(&store);
+        let huge = vec![0u8; (compose::ATTACHMENT_BUDGET + 1) as usize];
+        let refused = compose::attach_bytes(&store, draft, "huge.bin", &huge, at(20))
+            .expect_err("over the budget");
+        assert!(refused.contains("refuse"), "{refused}");
+        assert_eq!(
+            store.draft(draft).unwrap().attachments.len(),
+            0,
+            "the refusal still attached it"
+        );
+    }
+
+    #[test]
+    fn the_budget_counts_what_is_already_there() {
+        // Three files that each fit and together do not. Measuring only the newest is how a
+        // message grows past what the server will take, one acceptable file at a time.
+        let (store, _dir) = seeded();
+        let draft = a_draft(&store);
+        let two_fifths = vec![7u8; (compose::ATTACHMENT_BUDGET / 5 * 2) as usize];
+        compose::attach_bytes(&store, draft, "one.bin", &two_fifths, at(20)).unwrap();
+        compose::attach_bytes(&store, draft, "two.bin", &two_fifths, at(21)).unwrap();
+        let refused = compose::attach_bytes(&store, draft, "three.bin", &two_fifths, at(22))
+            .expect_err("the third goes over");
+        assert!(refused.contains("refuse"), "{refused}");
+        assert_eq!(store.draft(draft).unwrap().attachments.len(), 2);
+    }
+
+    #[test]
+    fn a_draft_already_on_its_way_does_not_gain_a_file() {
+        // The bytes were frozen at Send. Attaching afterwards would put a file on a draft that
+        // is not what is going to be delivered, which is worse than refusing.
+        let (store, _dir) = seeded();
+        let draft = a_draft(&store);
+        compose::send(&store, draft, at(30)).unwrap();
+        let refused = compose::attach_bytes(&store, draft, "late.txt", b"too late", at(31))
+            .expect_err("it is already queued");
+        assert!(refused.contains("on its way"), "{refused}");
+    }
+
+    #[test]
+    fn taking_one_back_off_leaves_the_rest() {
+        let (store, _dir) = seeded();
+        let draft = a_draft(&store);
+        compose::attach_bytes(&store, draft, "one.txt", b"first", at(20)).unwrap();
+        compose::attach_bytes(&store, draft, "two.txt", b"second", at(21)).unwrap();
+
+        let left = compose::detach(&store, draft, 0, at(22)).expect("it comes off");
+        assert_eq!(left.attachments.len(), 1);
+        assert_eq!(left.attachments[0].name, "two.txt");
+        // And the stored row moved, not just the value returned.
+        assert_eq!(store.draft(draft).unwrap().attachments.len(), 1);
+    }
+
+    #[test]
+    fn detaching_something_that_is_not_there_is_an_error_not_a_panic() {
+        let (store, _dir) = seeded();
+        let draft = a_draft(&store);
+        let refused = compose::detach(&store, draft, 3, at(22)).expect_err("there is no number 3");
+        assert!(refused.contains("no number 3"), "{refused}");
+    }
+
+    #[test]
+    fn the_type_is_guessed_from_the_name_and_falls_back_to_bytes() {
+        let (store, _dir) = seeded();
+        let draft = a_draft(&store);
+        compose::attach_bytes(&store, draft, "notes.pdf", b"%PDF", at(20)).unwrap();
+        compose::attach_bytes(&store, draft, "mystery.qqq", b"..", at(21)).unwrap();
+        let carried = store.draft(draft).unwrap();
+        assert_eq!(carried.attachments[0].mime, "application/pdf");
+        assert_eq!(
+            carried.attachments[1].mime, "application/octet-stream",
+            "an unknown extension must say `bytes`, not guess"
+        );
+    }
+
+    #[test]
+    fn a_file_on_disk_is_attached_under_its_own_name() {
+        let (store, dir) = seeded();
+        let path = dir.path().join("minutes.md");
+        std::fs::write(&path, b"# minutes").unwrap();
+
+        let draft = a_draft(&store);
+        let carried = compose::attach_file(&store, draft, &path, at(20)).expect("it reads");
+        assert_eq!(carried.attachments[0].name, "minutes.md");
+        assert_eq!(carried.attachments[0].mime, "text/plain");
+    }
+
+    #[test]
+    fn what_a_draft_carries_can_be_listed_with_its_sizes() {
+        let (store, _dir) = seeded();
+        let draft = a_draft(&store);
+        assert!(
+            compose::attachments_of(&store, draft)
+                .unwrap()
+                .contains("nothing attached")
+        );
+
+        compose::attach_bytes(&store, draft, "report.txt", b"0123456789", at(20)).unwrap();
+        let listed = compose::attachments_of(&store, draft).unwrap();
+        assert!(listed.contains("report.txt"), "{listed}");
+        assert!(listed.contains("10 B"), "{listed}");
+
+        // The same list the composer shows, from the same place.
+        let shown = compose::attached_to(&store, &store.draft(draft).unwrap());
+        assert_eq!(shown, vec![("report.txt".to_owned(), "10 B".to_owned())]);
+    }
+}

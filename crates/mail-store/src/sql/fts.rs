@@ -3,7 +3,7 @@
 //! Both halves go through [`search_tokens`], the same function `Filter::fit` uses, so the index
 //! holds exactly the tokens a query will ask for and the two sides of the parity test are one
 //! function rather than two that agree. `unicode61` still runs over the indexed text and the
-//! query; `tests/fold_table.rs` proves it leaves every token as it found it.
+//! query; `tests/store/fold_table.rs` proves it leaves every token as it found it.
 //!
 //! Tokenizing here rather than in FTS5 is also what makes Chinese searchable at all: `unicode61`
 //! makes one token of an unbroken run of ideographs, so a subject was one word and only typing

@@ -69,9 +69,17 @@ async fn after_a_pass(ending: Ending) -> (VirtualDom, Seen, Script, tempfile::Te
     (dom, seen, script, dir)
 }
 
+/// An account that must sign in again carries a mark, not a banner. The mark opens the
+/// Connection Doctor; the Doctor's gear opens Settings on the account's own page, and Sign In
+/// asks for the Add Account window with the address typed in. Both are other windows, so the
+/// Doctor stays where it is.
 #[tokio::test]
-async fn an_account_that_must_sign_in_again_shows_a_mark_that_opens_the_connection_doctor() {
+async fn a_refused_account_s_mark_opens_the_doctor_whose_gear_and_sign_in_open_their_windows() {
     let (mut dom, seen, _script, _dir) = after_a_pass(refused).await;
+    let settings = Arc::new(crate::ui::settings_window::tests::Asked::default());
+    dom.provide_root_context(crate::ui::settings_window::SettingsWindows(
+        settings.clone(),
+    ));
     assert!(matches!(link(&dom), Link::NeedsSignIn { .. }));
     let page = dioxus_ssr::render(&dom);
     // Mail puts no banner over the messages; the account carries a mark instead.
@@ -83,19 +91,44 @@ async fn an_account_that_must_sign_in_again_shows_a_mark_that_opens_the_connecti
     // Nothing can be loaded and the pane says so, with a way into the doctor.
     assert!(page.contains("Couldn\u{2019}t load this mailbox"), "{page}");
     assert!(page.contains("Connection Doctor\u{2026}"), "{page}");
+
+    // The mark opens the Doctor.
     let mark = seen.one("aria-label", "Sign in again to keep receiving mail.");
-
-    let seen = click(&mut dom, mark);
-    let seen = seen.merge(settle_seen(&mut dom).await);
+    let seen = click(&mut dom, mark).merge(settle_seen(&mut dom).await);
     let page = dioxus_ssr::render(&dom);
-    assert!(page.contains("Connection Doctor"), "no sheet: {page}");
-    assert!(page.contains("me@nowhere.example"), "no account: {page}");
-    assert!(page.contains("Sign-in needed"), "no status: {page}");
-    assert!(page.contains("Check All"), "no Check All: {page}");
-    let sign_in = seen.one("aria-label", "Sign In for me@nowhere.example");
+    assert!(
+        page.contains("Connection Doctor"),
+        "the mark: no sheet: {page}"
+    );
+    assert!(
+        page.contains("me@nowhere.example"),
+        "the mark: no account: {page}"
+    );
+    assert!(
+        page.contains("Sign-in needed"),
+        "the mark: no status: {page}"
+    );
+    assert!(page.contains("Check All"), "the mark: no Check All: {page}");
 
-    // Sign In asks for the Add Account window, with the account's address typed in. The window is
-    // another window: this one's doctor stays as it is.
+    // The gear asks for Settings on the account's page.
+    let open = seen.one("aria-label", "Account settings for me@nowhere.example");
+    click(&mut dom, open);
+    settle_seen(&mut dom).await;
+    assert_eq!(
+        settings.asks(),
+        [Some(crate::ui::settings_window::SettingsAt::Account(
+            acct_account()
+        ))],
+        "the gear"
+    );
+    let page = dioxus_ssr::render(&dom);
+    assert!(
+        page.contains("Check All"),
+        "the gear: the doctor went: {page}"
+    );
+
+    // Sign In asks for the Add Account window, with the account's address typed in.
+    let sign_in = seen.one("aria-label", "Sign In for me@nowhere.example");
     click(&mut dom, sign_in);
     settle(&mut dom).await;
     let asked = dom.in_scope(ScopeId::APP, consume_context::<super::tests::Asked>);
@@ -103,7 +136,8 @@ async fn an_account_that_must_sign_in_again_shows_a_mark_that_opens_the_connecti
         *asked.0.lock().unwrap(),
         [crate::ui::add_account::Ask {
             address: Some("me@nowhere.example".to_owned())
-        }]
+        }],
+        "Sign In"
     );
 }
 
@@ -180,29 +214,6 @@ async fn the_sync_button_is_busy_while_a_pass_runs_and_not_after() {
         !tag_with(&page, button).contains(r#"aria-busy="true""#),
         "still busy after the pass ended"
     );
-}
-
-/// The Doctor's gear opens Settings on the account's own page, and leaves the Doctor where it is.
-#[tokio::test]
-async fn the_doctor_s_gear_opens_settings_on_the_account_s_page() {
-    let (mut dom, seen, _script, _dir) = after_a_pass(refused).await;
-    let asked = Arc::new(crate::ui::settings_window::tests::Asked::default());
-    dom.provide_root_context(crate::ui::settings_window::SettingsWindows(asked.clone()));
-    let mark = seen.one("aria-label", "Sign in again to keep receiving mail.");
-    let seen = click(&mut dom, mark).merge(settle_seen(&mut dom).await);
-
-    let open = seen.one("aria-label", "Account settings for me@nowhere.example");
-    click(&mut dom, open);
-    settle_seen(&mut dom).await;
-    let account = acct_account();
-    assert_eq!(
-        asked.asks(),
-        [Some(crate::ui::settings_window::SettingsAt::Account(
-            account
-        ))]
-    );
-    let page = dioxus_ssr::render(&dom);
-    assert!(page.contains("Check All"), "the doctor went: {page}");
 }
 
 /// An account removed in the Settings window, which moves the shared revision, leaves this

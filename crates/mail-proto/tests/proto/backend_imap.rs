@@ -1,0 +1,1260 @@
+//! `ImapBackend`: the product decisions, checked as bytes on the wire.
+//!
+//! What matters here is not that a command was sent but *which* — `BODY.PEEK` rather than
+//! `BODY`, a label change rather than a delete, no `EXPUNGE` at all.
+
+use crate::common;
+
+use common::replay;
+use mail_domain::id::account_id_from_uuid;
+use mail_domain::*;
+use mail_proto::backend::{Authenticate, ImapBackend};
+use mail_proto::{
+    Backend, ImapAuth, ImapCommand, ImapSession, IoReady, Machine, Moved, Progress, ProtoError,
+    ProtoOutcome,
+};
+use porter_core::SecretText;
+use porter_core::UnixSeconds;
+use porter_core::{AccountId, Credential};
+
+fn acct_account() -> AccountId {
+    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+}
+
+fn caps(labels: ServerLabels, archive: ArchiveMeans) -> AccountCaps {
+    AccountCaps {
+        labels,
+        threads: ServerThreads::ProviderId,
+        watch: WatchMode::Idle,
+        archive,
+        folders: FolderRoles::default(),
+        condstore: Condstore::Supported,
+        move_ext: MoveExt::Supported,
+        expunge: ExpungeMeans::Forbidden,
+        top: Supported::Absent,
+        pipelining: Supported::Absent,
+        connections: ConnectionBudget { max: 5 },
+        observed_at: chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
+    }
+}
+
+fn backend(caps: AccountCaps) -> ImapBackend {
+    ImapBackend::new(
+        acct_account(),
+        caps,
+        // The factory owns authentication, which is why it and not the backend decides that
+        // this account uses XOAUTH2.
+        Box::new(|auth: Authenticate, commands: Vec<ImapCommand>| {
+            let mut all = Vec::new();
+            if auth == Authenticate::First {
+                all.push(ImapCommand::AuthenticateXoauth2);
+            }
+            all.extend(commands);
+            ImapSession::new(
+                ImapAuth {
+                    username: "ada@example.test".to_owned(),
+                    credential: Credential::OAuth {
+                        access: SecretText::new("ya29.token".to_owned()),
+                        refresh: SecretText::new("1//refresh".to_owned()),
+                        expires_at: UnixSeconds(
+                            (chrono::DateTime::from_timestamp(2_000_000_000, 0).unwrap())
+                                .timestamp(),
+                        ),
+                    },
+                    sasl: vec![SaslMech::XOauth2],
+                },
+                all,
+            )
+        }),
+    )
+}
+
+struct Driven {
+    backend: ImapBackend,
+    op: Option<ProtoOp>,
+}
+
+impl Machine for Driven {
+    type Out = ProtoOutcome;
+    fn start(&mut self) -> Progress<ProtoOutcome> {
+        let op = self.op.take().expect("start called twice");
+        self.backend.begin(op)
+    }
+    fn feed(&mut self, ready: IoReady) -> Progress<ProtoOutcome> {
+        self.backend.feed(ready)
+    }
+}
+
+fn inbox() -> MailboxRef {
+    MailboxRef {
+        account: acct_account(),
+        path: "INBOX".to_owned(),
+    }
+}
+
+/// The same backend, authenticating with a password: what every server but Gmail gets.
+fn password_backend(caps: AccountCaps) -> ImapBackend {
+    ImapBackend::new(
+        acct_account(),
+        caps,
+        Box::new(|auth: Authenticate, commands: Vec<ImapCommand>| {
+            let mut all = Vec::new();
+            if auth == Authenticate::First {
+                all.push(ImapCommand::Login);
+            }
+            all.extend(commands);
+            ImapSession::new(
+                ImapAuth {
+                    username: "ada@example.test".to_owned(),
+                    credential: Credential::Password(SecretText::new("hunter2".to_owned())),
+                    sasl: vec![SaslMech::Plain],
+                },
+                all,
+            )
+        }),
+    )
+}
+
+fn imap_ref(mailbox: &str, uid: u32) -> RemoteRef {
+    RemoteRef::Imap {
+        mailbox: mailbox.to_owned(),
+        uidvalidity: 1,
+        uid,
+    }
+}
+
+/// Fetching headers must never mark the message read.
+///
+/// `BODY.PEEK[HEADER]` and not `BODY[HEADER]`: the peeking form is IMAP's equivalent of POP3's
+/// TOP, and the non-peeking one sets \Seen as a side effect of populating a list view.
+#[test]
+fn fetching_headers_uses_body_peek() {
+    let trace = concat!(
+        "# SYNTHETIC. The assertion that matters is the C: line: BODY.PEEK, never BODY.\n",
+        "S: * OK Gimap ready\n",
+        "C: a001 AUTHENTICATE XOAUTH2 dXNlcj1hZGFAZXhhbXBsZS50ZXN0AWF1dGg9QmVhcmVyIHlhMjkudG9rZW4BAQ==\n",
+        "S: a001 OK authenticated\n",
+        "C: a002 EXAMINE \"INBOX\"\n",
+        "S: * OK [UIDVALIDITY 1] UIDs valid.\n",
+        "S: a002 OK [READ-ONLY] EXAMINE completed\n",
+        "C: a003 UID FETCH 42 (UID FLAGS BODY.PEEK[HEADER])\n",
+        "S: * 1 FETCH (UID 42 FLAGS (\\Seen))\n",
+        "S: a003 OK Success\n",
+        "DONE\n"
+    );
+    let mut driven = Driven {
+        backend: backend(caps(ServerLabels::Supported, ArchiveMeans::DropInbox)),
+        op: Some(ProtoOp::FetchHeaders {
+            remotes: vec![imap_ref("INBOX", 42)],
+        }),
+    };
+    let outcome = replay(&mut driven, trace).unwrap();
+    // And the flags it asked for are kept.
+    //
+    // This trace has said `FLAGS (\Seen)` since the day it was written and the assertion was
+    // `matches!(outcome, Fetched { .. })` — true whatever happened to them, and they were
+    // dropped. Every message was therefore built unread, and only a later flag sweep could
+    // correct it; on a CONDSTORE server that sweep asks `CHANGEDSINCE` and never revisits old
+    // mail, so anything found by backfill stayed unread for ever. Against a real account, 177
+    // of every 200 messages. See `CONVENTIONS.md`, "An assertion that was already true".
+    match outcome {
+        ProtoOutcome::Fetched { flags, .. } => assert_eq!(
+            flags,
+            vec![(
+                imap_ref("INBOX", 42),
+                mail_domain::ReadState::Read,
+                mail_domain::Star::Unstarred
+            )],
+            "the server said \\Seen and the fetch discarded it"
+        ),
+        other => panic!("{other:?}"),
+    }
+}
+
+/// Bodies are paired with messages by the UID in each response, not by position.
+///
+/// A server answers a `UID FETCH` in mailbox order, whatever order the set was written in, and
+/// says nothing about a UID that has gone. Pairing the n-th reply with the n-th request gave
+/// messages each other's bodies on a real Gmail account, once the engine started asking for the
+/// newest first: 1,302 messages ended up holding several UIDs and 1,763 held none.
+#[test]
+fn bodies_are_matched_by_uid_not_by_order() {
+    let trace = concat!(
+        "# SYNTHETIC. Asked newest first, answered in mailbox order; 5 has been expunged. UID 9's\n",
+        "# response puts UID after the literal, and its body says `UID 3`, which must not count.\n",
+        "S: * OK Gimap ready\n",
+        "C: a001 AUTHENTICATE XOAUTH2 dXNlcj1hZGFAZXhhbXBsZS50ZXN0AWF1dGg9QmVhcmVyIHlhMjkudG9rZW4BAQ==\n",
+        "S: a001 OK authenticated\n",
+        "C: a002 EXAMINE \"INBOX\"\n",
+        "S: * OK [UIDVALIDITY 1] UIDs valid.\n",
+        "S: a002 OK [READ-ONLY] EXAMINE completed\n",
+        "C: a003 UID FETCH 9,5,3 (UID BODY.PEEK[])\n",
+        "S: * 1 FETCH (UID 3 BODY[] {18}\n",
+        "S: Subject: three\n",
+        "S: \n",
+        "S: )\n",
+        "S: * 2 FETCH (BODY[] {24}\n",
+        "S: Subject: nine\n",
+        "S: \n",
+        "S: UID 3\n",
+        "S:  UID 9)\n",
+        "S: a003 OK Success\n",
+        "DONE\n"
+    );
+    let mut driven = Driven {
+        backend: backend(caps(ServerLabels::Supported, ArchiveMeans::DropInbox)),
+        op: Some(ProtoOp::FetchBody {
+            remotes: vec![
+                imap_ref("INBOX", 9),
+                imap_ref("INBOX", 5),
+                imap_ref("INBOX", 3),
+            ],
+        }),
+    };
+    let ProtoOutcome::Fetched { items, .. } = replay(&mut driven, trace).unwrap() else {
+        panic!("not a fetch");
+    };
+    let got: Vec<(u32, String)> = items
+        .into_iter()
+        .map(|(remote, raw)| {
+            let RemoteRef::Imap { uid, .. } = remote else {
+                panic!("{remote:?}")
+            };
+            let subject = String::from_utf8(raw)
+                .unwrap()
+                .lines()
+                .next()
+                .unwrap()
+                .to_owned();
+            (uid, subject)
+        })
+        .collect();
+    assert_eq!(
+        got,
+        [
+            (9, "Subject: nine".to_owned()),
+            (3, "Subject: three".to_owned())
+        ],
+        "each UID has its own body, and the expunged one has none"
+    );
+}
+
+/// Archiving on Gmail is a label change. Nothing is deleted, and no EXPUNGE is issued.
+#[test]
+fn archiving_on_gmail_removes_the_inbox_label() {
+    let trace = concat!(
+        "# SYNTHETIC. Gmail files by label: adding \\All and removing \\Inbox archives.\n",
+        "# There is deliberately no \\Deleted and no EXPUNGE anywhere in this transcript.\n",
+        "S: * OK Gimap ready\n",
+        "C: a001 AUTHENTICATE XOAUTH2 dXNlcj1hZGFAZXhhbXBsZS50ZXN0AWF1dGg9QmVhcmVyIHlhMjkudG9rZW4BAQ==\n",
+        "S: a001 OK authenticated\n",
+        "C: a002 SELECT \"INBOX\"\n",
+        "S: * OK [UIDVALIDITY 1] UIDs valid.\n",
+        "S: a002 OK [READ-WRITE] SELECT completed\n",
+        "C: a003 UID STORE 42 +X-GM-LABELS (\\All)\n",
+        "S: a003 OK Success\n",
+        "C: a004 UID STORE 42 -X-GM-LABELS (\\Inbox)\n",
+        "S: a004 OK Success\n",
+        "DONE\n"
+    );
+    let mut driven = Driven {
+        backend: backend(caps(ServerLabels::Supported, ArchiveMeans::DropInbox)),
+        op: Some(ProtoOp::SetMailbox {
+            remotes: vec![imap_ref("INBOX", 42)],
+            role: MailboxRole::Archive,
+        }),
+    };
+    assert!(matches!(
+        replay(&mut driven, trace).unwrap(),
+        ProtoOutcome::Applied
+    ));
+}
+
+/// Filing into a folder on Gmail is the folder's label added and the inbox's taken away.
+#[test]
+fn filing_on_gmail_adds_the_folders_label_and_drops_the_inbox() {
+    let trace = concat!(
+        "# SYNTHETIC. Gmail's own \"Move to\": the label in, \\Inbox out, nothing deleted.\n",
+        "S: * OK Gimap ready\n",
+        "C: a001 AUTHENTICATE XOAUTH2 dXNlcj1hZGFAZXhhbXBsZS50ZXN0AWF1dGg9QmVhcmVyIHlhMjkudG9rZW4BAQ==\n",
+        "S: a001 OK authenticated\n",
+        "C: a002 SELECT \"INBOX\"\n",
+        "S: a002 OK [READ-WRITE] SELECT completed\n",
+        "C: a003 UID STORE 42 +X-GM-LABELS (\"Money/Bills\")\n",
+        "S: a003 OK Success\n",
+        "C: a004 UID STORE 42 -X-GM-LABELS (\\Inbox)\n",
+        "S: a004 OK Success\n",
+        "DONE\n"
+    );
+    let mut driven = Driven {
+        backend: backend(caps(ServerLabels::Supported, ArchiveMeans::DropInbox)),
+        op: Some(ProtoOp::File {
+            remotes: vec![imap_ref("INBOX", 42)],
+            folder: "Money/Bills".to_owned(),
+        }),
+    };
+    assert!(matches!(
+        replay(&mut driven, trace).unwrap(),
+        ProtoOutcome::Applied
+    ));
+}
+
+/// Elsewhere it is a `MOVE` into the folder, its name in modified UTF-7.
+#[test]
+fn filing_elsewhere_moves_into_the_folder() {
+    let trace = concat!(
+        "# SYNTHETIC. RFC 6851 MOVE into a folder with a non-ASCII name.\n",
+        "S: * OK ready\n",
+        "C: a001 LOGIN \"ada@example.test\" \"hunter2\"\n",
+        "S: a001 OK logged in\n",
+        "C: a002 SELECT \"INBOX\"\n",
+        "S: a002 OK [READ-WRITE] SELECT completed\n",
+        "C: a003 UID MOVE 7,9 \"&UXZO1mWHTvY-\"\n",
+        "S: a003 OK moved\n",
+        "DONE\n"
+    );
+    let mut driven = Driven {
+        backend: password_backend(caps(
+            ServerLabels::LocalOnly,
+            ArchiveMeans::MoveToFolder("Archive".to_owned()),
+        )),
+        op: Some(ProtoOp::File {
+            remotes: vec![imap_ref("INBOX", 7), imap_ref("INBOX", 9)],
+            folder: "其他文件".to_owned(),
+        }),
+    };
+    // No `COPYUID`: moved, and where to is for a sync to find.
+    assert_eq!(
+        replay(&mut driven, trace).unwrap(),
+        ProtoOutcome::Moved(vec![
+            Moved {
+                from: imap_ref("INBOX", 7),
+                to: None,
+            },
+            Moved {
+                from: imap_ref("INBOX", 9),
+                to: None,
+            },
+        ])
+    );
+}
+
+/// A server with UIDPLUS says where each moved message landed, before the tagged `OK`
+/// (RFC 6851 §4.3), and the answer pairs each UID with its new one in order.
+#[test]
+fn a_move_answered_with_copyuid_says_where_each_message_went() {
+    let trace = concat!(
+        "# SYNTHETIC. RFC 6851 MOVE with RFC 4315 COPYUID in an untagged OK, a range included.\n",
+        "S: * OK ready\n",
+        "C: a001 LOGIN \"ada@example.test\" \"hunter2\"\n",
+        "S: a001 OK logged in\n",
+        "C: a002 SELECT \"INBOX\"\n",
+        "S: a002 OK [READ-WRITE] SELECT completed\n",
+        "C: a003 UID MOVE 9,7,8 \"Archive\"\n",
+        "S: * OK [COPYUID 432 7:9 1203,1201:1202] moved\n",
+        "S: * 1 EXPUNGE\n",
+        "S: * 1 EXPUNGE\n",
+        "S: * 1 EXPUNGE\n",
+        "S: a003 OK moved\n",
+        "DONE\n"
+    );
+    let mut driven = Driven {
+        backend: password_backend(caps(
+            ServerLabels::LocalOnly,
+            ArchiveMeans::MoveToFolder("Archive".to_owned()),
+        )),
+        op: Some(ProtoOp::SetMailbox {
+            remotes: vec![
+                imap_ref("INBOX", 9),
+                imap_ref("INBOX", 7),
+                imap_ref("INBOX", 8),
+            ],
+            role: MailboxRole::Archive,
+        }),
+    };
+    let landed = |uid| {
+        Some(RemoteRef::Imap {
+            mailbox: "Archive".to_owned(),
+            uidvalidity: 432,
+            uid,
+        })
+    };
+    assert_eq!(
+        replay(&mut driven, trace).unwrap(),
+        ProtoOutcome::Moved(vec![
+            Moved {
+                from: imap_ref("INBOX", 9),
+                to: landed(1202),
+            },
+            Moved {
+                from: imap_ref("INBOX", 7),
+                to: landed(1203),
+            },
+            Moved {
+                from: imap_ref("INBOX", 8),
+                to: landed(1201),
+            },
+        ])
+    );
+}
+
+/// Without MOVE, `UID COPY` carries `COPYUID` in its tagged `OK` (RFC 4315 §3).
+#[test]
+fn a_copy_answered_with_copyuid_in_its_completion_says_where_it_went() {
+    let mut roles = caps(
+        ServerLabels::LocalOnly,
+        ArchiveMeans::MoveToFolder("Archive".to_owned()),
+    );
+    roles.move_ext = MoveExt::Absent;
+    let trace = concat!(
+        "# SYNTHETIC. RFC 4315 COPYUID on the tagged completion of UID COPY.\n",
+        "S: * OK ready\n",
+        "C: a001 LOGIN \"ada@example.test\" \"hunter2\"\n",
+        "S: a001 OK logged in\n",
+        "C: a002 SELECT \"INBOX\"\n",
+        "S: a002 OK [READ-WRITE] SELECT completed\n",
+        "C: a003 UID COPY 42 \"Archive\"\n",
+        "S: a003 OK [COPYUID 9 42 5] copied\n",
+        "DONE\n"
+    );
+    let mut driven = Driven {
+        backend: password_backend(roles),
+        op: Some(ProtoOp::SetMailbox {
+            remotes: vec![imap_ref("INBOX", 42)],
+            role: MailboxRole::Archive,
+        }),
+    };
+    assert_eq!(
+        replay(&mut driven, trace).unwrap(),
+        ProtoOutcome::Moved(vec![Moved {
+            from: imap_ref("INBOX", 42),
+            to: Some(RemoteRef::Imap {
+                mailbox: "Archive".to_owned(),
+                uidvalidity: 9,
+                uid: 5,
+            }),
+        }])
+    );
+}
+
+/// A `COPYUID` whose sets do not pair up is no answer: an address guessed wrong would send the
+/// next operation to another message.
+#[test]
+fn a_copyuid_that_does_not_pair_up_says_nothing() {
+    let trace = concat!(
+        "# SYNTHETIC. Two source UIDs, one destination UID.\n",
+        "S: * OK ready\n",
+        "C: a001 LOGIN \"ada@example.test\" \"hunter2\"\n",
+        "S: a001 OK logged in\n",
+        "C: a002 SELECT \"INBOX\"\n",
+        "S: a002 OK [READ-WRITE] SELECT completed\n",
+        "C: a003 UID MOVE 7,9 \"Archive\"\n",
+        "S: * OK [COPYUID 432 7,9 1203] moved\n",
+        "S: a003 OK moved\n",
+        "DONE\n"
+    );
+    let mut driven = Driven {
+        backend: password_backend(caps(
+            ServerLabels::LocalOnly,
+            ArchiveMeans::MoveToFolder("Archive".to_owned()),
+        )),
+        op: Some(ProtoOp::SetMailbox {
+            remotes: vec![imap_ref("INBOX", 7), imap_ref("INBOX", 9)],
+            role: MailboxRole::Archive,
+        }),
+    };
+    let ProtoOutcome::Moved(moved) = replay(&mut driven, trace).unwrap() else {
+        panic!("a move answers Moved");
+    };
+    assert!(moved.iter().all(|m| m.to.is_none()), "{moved:?}");
+}
+
+/// Back to the inbox on Gmail is `\Inbox` added, and nothing taken away after it.
+#[test]
+fn moving_back_to_the_inbox_on_gmail_only_adds_the_inbox_label() {
+    let trace = concat!(
+        "# SYNTHETIC. Restoring from All Mail: one STORE, no -X-GM-LABELS (\\Inbox) after it.\n",
+        "S: * OK Gimap ready\n",
+        "C: a001 AUTHENTICATE XOAUTH2 dXNlcj1hZGFAZXhhbXBsZS50ZXN0AWF1dGg9QmVhcmVyIHlhMjkudG9rZW4BAQ==\n",
+        "S: a001 OK authenticated\n",
+        "C: a002 SELECT \"[Gmail]/All Mail\"\n",
+        "S: a002 OK [READ-WRITE] SELECT completed\n",
+        "C: a003 UID STORE 42 +X-GM-LABELS (\\Inbox)\n",
+        "S: a003 OK Success\n",
+        "DONE\n"
+    );
+    let mut driven = Driven {
+        backend: backend(caps(ServerLabels::Supported, ArchiveMeans::DropInbox)),
+        op: Some(ProtoOp::SetMailbox {
+            remotes: vec![imap_ref("[Gmail]/All Mail", 42)],
+            role: MailboxRole::Inbox,
+        }),
+    };
+    assert_eq!(replay(&mut driven, trace).unwrap(), ProtoOutcome::Applied);
+}
+
+/// On a server with folders, each role goes to its own folder. Trash went to the archive
+/// folder, because the archive folder was the only one this arm knew.
+#[test]
+fn trash_and_spam_go_to_their_own_folders_not_the_archive() {
+    let mut roles = caps(
+        ServerLabels::LocalOnly,
+        ArchiveMeans::MoveToFolder("Archive".to_owned()),
+    );
+    roles.folders = FolderRoles(vec![
+        ("Deleted Items".to_owned(), MailboxRole::Trash),
+        ("Junk".to_owned(), MailboxRole::Spam),
+    ]);
+    for (role, folder) in [
+        (MailboxRole::Trash, "Deleted Items"),
+        (MailboxRole::Spam, "Junk"),
+        (MailboxRole::Archive, "Archive"),
+        (MailboxRole::Inbox, "INBOX"),
+    ] {
+        // One rule both ways: where a role is sent is where a message held there is filed.
+        assert_eq!(roles.folders.filed_as(folder), role, "{folder}");
+        let trace = format!(
+            "S: * OK ready\n\
+             C: a001 LOGIN \"ada@example.test\" \"hunter2\"\n\
+             S: a001 OK logged in\n\
+             C: a002 SELECT \"Work\"\n\
+             S: a002 OK [READ-WRITE] SELECT completed\n\
+             C: a003 UID MOVE 5 \"{folder}\"\n\
+             S: a003 OK moved\n\
+             DONE\n"
+        );
+        let mut driven = Driven {
+            backend: password_backend(roles.clone()),
+            op: Some(ProtoOp::SetMailbox {
+                remotes: vec![imap_ref("Work", 5)],
+                role,
+            }),
+        };
+        assert!(
+            matches!(replay(&mut driven, &trace).unwrap(), ProtoOutcome::Moved(_)),
+            "{role:?}"
+        );
+    }
+
+    // A role the server named no folder for is refused, not filed into a guess.
+    let mut driven = Driven {
+        backend: password_backend(caps(
+            ServerLabels::LocalOnly,
+            ArchiveMeans::MoveToFolder("Archive".to_owned()),
+        )),
+        op: Some(ProtoOp::SetMailbox {
+            remotes: vec![imap_ref("INBOX", 5)],
+            role: MailboxRole::Trash,
+        }),
+    };
+    let err = replay(&mut driven, "FAIL Unsupported\n").unwrap_err();
+    assert!(matches!(err, ProtoError::Unsupported(_)), "{err}");
+}
+
+/// F156: a move into the folder its messages are already in sends nothing, with `MOVE` or
+/// without it.
+///
+/// The retry of a move split per mailbox, interrupted after its first part, finds that part's
+/// messages already in the destination. RFC 6851 and RFC 9051 do not say what a `MOVE` whose
+/// source is its destination does, so a server may refuse it or give the message a new UID;
+/// the `COPY` that stands in where `MOVE` is absent would put a second copy beside it.
+#[test]
+fn a_move_into_the_folder_the_message_is_already_in_sends_nothing() {
+    for move_ext in [MoveExt::Supported, MoveExt::Absent] {
+        let mut roles = caps(
+            ServerLabels::LocalOnly,
+            ArchiveMeans::MoveToFolder("Archive".to_owned()),
+        );
+        roles.move_ext = move_ext;
+        roles.folders = FolderRoles(vec![("Trash".to_owned(), MailboxRole::Trash)]);
+        for op in [
+            ProtoOp::SetMailbox {
+                remotes: vec![imap_ref("Archive", 5)],
+                role: MailboxRole::Archive,
+            },
+            ProtoOp::SetMailbox {
+                remotes: vec![imap_ref("Trash", 5)],
+                role: MailboxRole::Trash,
+            },
+            // `INBOX` is one mailbox in any case (RFC 9051 §5.1).
+            ProtoOp::SetMailbox {
+                remotes: vec![imap_ref("inbox", 5)],
+                role: MailboxRole::Inbox,
+            },
+            ProtoOp::File {
+                remotes: vec![imap_ref("Projects", 5)],
+                folder: "Projects".to_owned(),
+            },
+        ] {
+            let mut driven = Driven {
+                backend: password_backend(roles.clone()),
+                op: Some(op.clone()),
+            };
+            assert_eq!(
+                replay(&mut driven, "DONE\n").unwrap(),
+                ProtoOutcome::Applied,
+                "{move_ext:?} {op:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn the_folder_a_move_files_into_is_the_one_it_is_sent_to() {
+    let mut roles = caps(
+        ServerLabels::LocalOnly,
+        ArchiveMeans::MoveToFolder("Archive".to_owned()),
+    );
+    roles.folders = FolderRoles(vec![("Deleted Items".to_owned(), MailboxRole::Trash)]);
+    let target = |op: ProtoOp| mail_proto::backend::imap::move_target(&roles, &op);
+    let moved = |role| ProtoOp::SetMailbox {
+        remotes: vec![imap_ref("INBOX", 5)],
+        role,
+    };
+    assert_eq!(
+        target(moved(MailboxRole::Archive)).as_deref(),
+        Some("Archive")
+    );
+    assert_eq!(
+        target(moved(MailboxRole::Trash)).as_deref(),
+        Some("Deleted Items")
+    );
+    assert_eq!(target(moved(MailboxRole::Spam)), None, "no folder named");
+    assert_eq!(
+        target(ProtoOp::File {
+            remotes: vec![imap_ref("INBOX", 5)],
+            folder: "Projects".to_owned(),
+        })
+        .as_deref(),
+        Some("Projects")
+    );
+    let flags = ProtoOp::SetFlags {
+        remotes: vec![imap_ref("INBOX", 5)],
+        read: Some(ReadState::Read),
+        star: None,
+    };
+    assert_eq!(target(flags), None);
+    // Gmail files by label, and moves nothing.
+    let gmail = caps(ServerLabels::Supported, ArchiveMeans::DropInbox);
+    assert_eq!(
+        mail_proto::backend::imap::move_target(&gmail, &moved(MailboxRole::Trash)),
+        None
+    );
+}
+
+/// A receipt answered or declined is `$MDNSent` on the server (RFC 3503), so every other
+/// client knows not to ask again.
+#[test]
+fn a_receipt_answered_sets_mdnsent() {
+    let trace = concat!(
+        "# SYNTHETIC. One STORE of the registered keyword, and nothing removed.\n",
+        "S: * OK Gimap ready\n",
+        "C: a001 AUTHENTICATE XOAUTH2 dXNlcj1hZGFAZXhhbXBsZS50ZXN0AWF1dGg9QmVhcmVyIHlhMjkudG9rZW4BAQ==\n",
+        "S: a001 OK authenticated\n",
+        "C: a002 SELECT \"INBOX\"\n",
+        "S: * FLAGS (\\Answered \\Flagged \\Draft \\Deleted \\Seen $MDNSent)\n",
+        "S: * OK [PERMANENTFLAGS (\\Answered \\Flagged \\Draft \\Deleted \\Seen $MDNSent \\*)] Flags permitted.\n",
+        "S: * OK [UIDVALIDITY 1] UIDs valid.\n",
+        "S: a002 OK [READ-WRITE] SELECT completed\n",
+        "C: a003 UID STORE 42 +FLAGS ($MDNSent)\n",
+        "S: a003 OK Success\n",
+        "DONE\n"
+    );
+    let mut driven = Driven {
+        backend: backend(caps(ServerLabels::Supported, ArchiveMeans::DropInbox)),
+        op: Some(ProtoOp::AddKeyword {
+            remotes: vec![imap_ref("INBOX", 42)],
+            keyword: Keyword::MdnSent,
+        }),
+    };
+    assert!(matches!(
+        replay(&mut driven, trace).unwrap(),
+        ProtoOutcome::Applied
+    ));
+}
+
+/// Expunging is refused outright, not gated on a capability.
+#[test]
+fn expunge_is_refused_because_the_setting_cannot_be_read() {
+    let mut backend = backend(caps(ServerLabels::Supported, ArchiveMeans::DropInbox));
+    let outcome = backend.begin(ProtoOp::Expunge {
+        remotes: vec![imap_ref("INBOX", 42)],
+    });
+    // Gmail may be configured to delete permanently and IMAP cannot report that, so there is
+    // nothing to gate on — the command does not exist.
+    assert!(matches!(outcome, Progress::Failed(_)), "{outcome:?}");
+}
+
+/// Without CONDSTORE, or without a trusted modseq, the sweep fetches every flag.
+#[test]
+fn a_flag_sweep_without_a_modseq_fetches_everything() {
+    let trace = concat!(
+        "# SYNTHETIC. No modseq means a full flag fetch: slow and correct, which is the right\n",
+        "# way round to be wrong. Dovecot 2.0.18 froze HIGHESTMODSEQ while EXISTS climbed.\n",
+        "S: * OK Gimap ready\n",
+        "C: a001 AUTHENTICATE XOAUTH2 dXNlcj1hZGFAZXhhbXBsZS50ZXN0AWF1dGg9QmVhcmVyIHlhMjkudG9rZW4BAQ==\n",
+        "S: a001 OK authenticated\n",
+        "C: a002 EXAMINE \"INBOX\"\n",
+        "S: a002 OK [READ-ONLY] EXAMINE completed\n",
+        "C: a003 UID FETCH 1:* (UID FLAGS)\n",
+        "S: * 1 FETCH (UID 42 FLAGS (\\Seen))\n",
+        "S: a003 OK Success\n",
+        "DONE\n"
+    );
+    let mut driven = Driven {
+        backend: backend(caps(ServerLabels::Supported, ArchiveMeans::DropInbox)),
+        op: Some(ProtoOp::FetchFlags {
+            mailbox: MailboxRef {
+                account: acct_account(),
+                path: "INBOX".to_owned(),
+            },
+            since_modseq: None,
+        }),
+    };
+    assert!(matches!(
+        replay(&mut driven, trace).unwrap(),
+        ProtoOutcome::Ingested(_)
+    ));
+}
+
+/// With CONDSTORE and a modseq, the sweep is one CHANGEDSINCE fetch.
+#[test]
+fn a_flag_sweep_with_a_modseq_uses_changedsince() {
+    let trace = concat!(
+        "S: * OK Gimap ready\n",
+        "C: a001 AUTHENTICATE XOAUTH2 dXNlcj1hZGFAZXhhbXBsZS50ZXN0AWF1dGg9QmVhcmVyIHlhMjkudG9rZW4BAQ==\n",
+        "S: a001 OK authenticated\n",
+        "C: a002 EXAMINE \"INBOX\"\n",
+        "S: a002 OK [READ-ONLY] EXAMINE completed\n",
+        "C: a003 UID FETCH 1:* (UID FLAGS) (CHANGEDSINCE 3737642)\n",
+        "S: a003 OK Success\n",
+        "DONE\n"
+    );
+    let mut driven = Driven {
+        backend: backend(caps(ServerLabels::Supported, ArchiveMeans::DropInbox)),
+        op: Some(ProtoOp::FetchFlags {
+            mailbox: MailboxRef {
+                account: acct_account(),
+                path: "INBOX".to_owned(),
+            },
+            since_modseq: Some(3_737_642),
+        }),
+    };
+    assert!(matches!(
+        replay(&mut driven, trace).unwrap(),
+        ProtoOutcome::Ingested(_)
+    ));
+}
+
+/// A label change on a server without labels is local, and touches no socket.
+#[test]
+fn labels_on_a_server_without_them_stay_local() {
+    let mut backend = backend(caps(ServerLabels::LocalOnly, ArchiveMeans::LocalOnly));
+    match backend.begin(ProtoOp::SetLabels {
+        remotes: vec![imap_ref("INBOX", 42)],
+        add: vec!["work".to_owned()],
+        remove: vec![],
+    }) {
+        Progress::Done(ProtoOutcome::Applied) => {}
+        other => panic!("expected an immediate Applied, got {other:?}"),
+    }
+}
+
+/// Submission belongs to another backend and another connection.
+#[test]
+fn submission_is_refused_here() {
+    let mut backend = backend(caps(ServerLabels::Supported, ArchiveMeans::DropInbox));
+    assert!(matches!(
+        backend.begin(ProtoOp::Submit {
+            draft: DraftId::generate(),
+            raw: BlobId::generate(),
+            mail_from: "ada@example.com".to_owned(),
+            rcpt_to: vec!["bob@example.com".to_owned()],
+        }),
+        Progress::Failed(_)
+    ));
+}
+
+/// A fetched body is the literal's bytes, and nothing else.
+mod literal_bodies {
+    use mail_proto::Untagged;
+
+    fn untagged(raw: &[u8]) -> Untagged {
+        Untagged {
+            during: 0,
+            text: String::from_utf8_lossy(raw).trim_end().to_owned(),
+            raw: raw.to_vec(),
+        }
+    }
+
+    /// `(name, the FETCH line before the literal, the literal's bytes)`. Each row is a bug the
+    /// literal reader had.
+    const CASES: &[(&str, &str, &[u8])] = &[
+        (
+            // Found by reading what the CLI printed: every message fetched over IMAP carried a
+            // trailing `)`. The end-to-end tests asserted `contains`, so none of them saw it.
+            // Equality also proves the FETCH header is not part of the message either.
+            "the closing paren of the response is not part of the message",
+            "* 2 FETCH (UID 102 BODY[]",
+            b"Subject: s\r\n\r\nand a closing paren )\r\n",
+        ),
+        (
+            // `Untagged::text` goes through `from_utf8_lossy`, which turns every 8-bit byte into
+            // U+FFFD. A Latin-1 message fetched that way is silently mangled — the reader shows
+            // replacement characters where the sender wrote accents, and the stored blob is
+            // wrong for ever after.
+            "a body that is not utf-8 survives intact",
+            "* 1 FETCH (UID 1 BODY[]",
+            b"Subject: caf\xe9\r\n\r\n\xe9\xfc\xff\x00\x41",
+        ),
+        (
+            // `text` is trimmed, which is right for protocol vocabulary and wrong for mail: a
+            // message legitimately ends with blank lines.
+            "trailing whitespace in a message is not trimmed",
+            "* 1 FETCH (UID 1 BODY[]",
+            b"Subject: s\r\n\r\nbody\r\n\r\n   \r\n",
+        ),
+        (
+            // A stylesheet, and something shaped like a literal marker. The marker is the first
+            // `{n}` in the response; searching from the end found these instead and gave up.
+            "a body with braces in it is still a body",
+            "* 1 FETCH (UID 1 BODY[]",
+            b"Subject: s\r\n\r\n<style>p {color: red}</style> {12}\r\nx\r\n",
+        ),
+    ];
+
+    #[test]
+    fn a_literal_is_exactly_the_body() {
+        for (name, fetch, body) in CASES {
+            let mut raw = format!("{fetch} {{{}}}\r\n", body.len()).into_bytes();
+            raw.extend_from_slice(body);
+            raw.extend_from_slice(b")\r\n");
+            assert_eq!(untagged(&raw).literal(), Some(*body), "{name}");
+        }
+    }
+
+    #[test]
+    fn a_response_with_no_literal_offers_no_body() {
+        // A FLAGS-only FETCH has nothing to hand up, and inventing something from its text is
+        // how the response header became a message in the first place.
+        assert!(
+            untagged(b"* 1 FETCH (UID 1 FLAGS (\\Seen))\r\n")
+                .literal()
+                .is_none()
+        );
+        assert!(untagged(b"* SEARCH 1 2 3\r\n").literal().is_none());
+        assert!(untagged(b"").literal().is_none());
+        // A truncated literal — the count promises more than arrived — is not a body.
+        assert!(
+            untagged(b"* 1 FETCH (UID 1 BODY[] {99}\r\nshort")
+                .literal()
+                .is_none()
+        );
+    }
+}
+
+/// Gmail's labels, asked for and discarded for the life of the project.
+///
+/// The response bytes below are the shape `traces/imap/gmail_fetch.trace` records from a real
+/// capture, which is why this can be checked at all without an account on a server that has
+/// labels.
+mod gmail_labels {
+    use super::*;
+
+    fn surveyed(fetch_lines: &str) -> Ingest {
+        let trace = format!(
+            concat!(
+                "S: * OK Gimap ready\n",
+                "C: a001 AUTHENTICATE XOAUTH2 dXNlcj1hZGFAZXhhbXBsZS50ZXN0AWF1dGg9QmVhcmVyIHlhMjkudG9rZW4BAQ==\n",
+                "S: a001 OK authenticated\n",
+                "C: a002 EXAMINE \"INBOX\"\n",
+                "S: * OK [UIDVALIDITY 1] UIDs valid.\n",
+                "S: * OK [UIDNEXT 43] Predicted next UID.\n",
+                "S: a002 OK [READ-ONLY] EXAMINE completed\n",
+                "C: a003 UID FETCH 1:* (UID FLAGS RFC822.SIZE X-GM-LABELS)\n",
+                "{}",
+                "S: a003 OK Success\n",
+                "DONE\n"
+            ),
+            fetch_lines
+        );
+        let mut driven = Driven {
+            backend: backend(caps(ServerLabels::Supported, ArchiveMeans::DropInbox)),
+            op: Some(ProtoOp::FetchEnvelopes {
+                mailbox: inbox(),
+                since: FetchSince::Beginning,
+            }),
+        };
+        match replay(&mut driven, &trace).unwrap() {
+            ProtoOutcome::Ingested(ingest) => *ingest,
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// `(name, the FETCH lines, the labels the survey carries)`.
+    #[test]
+    fn x_gm_labels_become_user_labels() {
+        type Row = (&'static str, &'static str, Vec<(RemoteRef, Vec<String>)>);
+        let cases: Vec<Row> = vec![
+            (
+                // The capture's own shape: one message with a system label and a user label,
+                // one with an empty list. The user label, and only messages that have one.
+                "a survey carries what the server says each message is labelled",
+                concat!(
+                    "S: * 1 FETCH (UID 42 FLAGS (\\Seen) RFC822.SIZE 100 X-GM-LABELS (\\Inbox \"travel\"))\n",
+                    "S: * 2 FETCH (UID 43 FLAGS () RFC822.SIZE 200 X-GM-LABELS ())\n",
+                ),
+                vec![(imap_ref("INBOX", 42), vec!["travel".to_owned()])],
+            ),
+            (
+                // `\Inbox` is `mailbox`, `\Starred` is `star`, `\Unread` is `read`. Carried
+                // through as labels they would appear on every row, and the user could not
+                // remove them.
+                "gmail's names for mailboxes and flags are not labels",
+                "S: * 1 FETCH (UID 42 FLAGS (\\Seen) RFC822.SIZE 100 X-GM-LABELS (\\Inbox \\Sent \\Draft \\Spam \\Trash \\Important \\Starred \\Muted))\n",
+                vec![],
+            ),
+            (
+                "a quoted label may contain spaces, quotes and backslashes",
+                "S: * 1 FETCH (UID 42 FLAGS () RFC822.SIZE 100 X-GM-LABELS (\"two words\" \"with \\\"quotes\\\"\" plain))\n",
+                vec![(
+                    imap_ref("INBOX", 42),
+                    vec![
+                        "two words".to_owned(),
+                        "with \"quotes\"".to_owned(),
+                        "plain".to_owned(),
+                    ],
+                )],
+            ),
+            (
+                // Gmail sends modified UTF-7. A Chinese label arriving as `&Ux1Tgg-` and being
+                // shown that way is the same class of bug as F44's mailbox names.
+                "a non-ascii label is decoded rather than shown as wire bytes",
+                "S: * 1 FETCH (UID 42 FLAGS () RFC822.SIZE 100 X-GM-LABELS (\"&Ux1Tgg-\"))\n",
+                vec![(imap_ref("INBOX", 42), vec!["\u{531d}\u{5382}".to_owned()])],
+            ),
+        ];
+        for (name, fetch_lines, want) in cases {
+            assert_eq!(surveyed(fetch_lines).label_names, want, "{name}");
+        }
+    }
+
+    #[test]
+    fn a_server_without_labels_is_not_asked_for_them() {
+        // F113's condition: ask for what is read, and only that. A Dovecot account has
+        // no X-GM-LABELS and must not be sent an attribute it will reject.
+        let trace = concat!(
+            "S: * OK ready\n",
+            "C: a001 LOGIN \"ada@example.test\" \"hunter2\"\n",
+            "S: a001 OK authenticated\n",
+            "C: a002 EXAMINE \"INBOX\"\n",
+            "S: * OK [UIDVALIDITY 1] UIDs valid.\n",
+            "S: a002 OK [READ-ONLY] EXAMINE completed\n",
+            "C: a003 UID FETCH 1:* (UID FLAGS RFC822.SIZE)\n",
+            "S: * 1 FETCH (UID 42 FLAGS () RFC822.SIZE 100)\n",
+            "S: a003 OK Success\n",
+            "DONE\n"
+        );
+        let mut driven = Driven {
+            backend: password_backend(caps(ServerLabels::LocalOnly, ArchiveMeans::LocalOnly)),
+            op: Some(ProtoOp::FetchEnvelopes {
+                mailbox: inbox(),
+                since: FetchSince::Beginning,
+            }),
+        };
+        // `replay` asserts the client's side of the transcript, so the absence of X-GM-LABELS in
+        // the C: line above is the assertion.
+        let outcome = replay(&mut driven, trace).unwrap();
+        match outcome {
+            ProtoOutcome::Ingested(ingest) => assert!(ingest.label_names.is_empty()),
+            other => panic!("{other:?}"),
+        }
+    }
+}
+
+fn qresync_caps() -> AccountCaps {
+    AccountCaps {
+        condstore: Condstore::Qresync,
+        ..caps(ServerLabels::LocalOnly, ArchiveMeans::LocalOnly)
+    }
+}
+
+fn resync(uidvalidity: u32, modseq: u64) -> ProtoOp {
+    ProtoOp::ListRemote {
+        mailbox: inbox(),
+        since: Some(Resync {
+            uidvalidity,
+            modseq,
+        }),
+    }
+}
+
+/// With QRESYNC, one `SELECT` says what was expunged, and nothing is listed.
+///
+/// The server half is RFC 7162 §3.2.5.2's own example, plus a range written backwards, which is
+/// legal and means the same range.
+#[test]
+fn a_qresync_sweep_asks_the_server_what_vanished() {
+    let trace = concat!(
+        "S: * OK Dovecot ready\n",
+        "C: a001 AUTHENTICATE XOAUTH2 dXNlcj1hZGFAZXhhbXBsZS50ZXN0AWF1dGg9QmVhcmVyIHlhMjkudG9rZW4BAQ==\n",
+        "S: a001 OK authenticated\n",
+        "C: a002 ENABLE QRESYNC\n",
+        "S: * ENABLED QRESYNC\n",
+        "S: a002 OK Enabled\n",
+        "C: a003 EXAMINE \"INBOX\" (QRESYNC (67890007 20050715194045000))\n",
+        "S: * 314 EXISTS\n",
+        "S: * OK [UIDVALIDITY 67890007] UIDVALIDITY\n",
+        "S: * OK [UIDNEXT 567] Predicted next UID\n",
+        "S: * OK [HIGHESTMODSEQ 20050715194045319] Highest\n",
+        "S: * VANISHED (EARLIER) 41,43:116,118,120:211,540:214\n",
+        "S: * 49 FETCH (UID 117 FLAGS (\\Seen \\Answered) MODSEQ (20050715194045301))\n",
+        "S: a003 OK [READ-ONLY] Examine completed\n",
+        "DONE\n"
+    );
+    let mut driven = Driven {
+        backend: backend(qresync_caps()),
+        op: Some(resync(67_890_007, 20_050_715_194_045_000)),
+    };
+    let ProtoOutcome::Resynced { ingest, vanished } = replay(&mut driven, trace).unwrap() else {
+        panic!("a QRESYNC select is not a listing, and must not come back as one");
+    };
+    assert_eq!(
+        vanished,
+        [(41, 41), (43, 116), (118, 118), (120, 211), (214, 540)]
+    );
+    assert!(
+        ingest.gone.is_empty(),
+        "the caller fills this, from what it holds"
+    );
+    assert_eq!(
+        ingest.cursor,
+        Some(SyncCursor::Imap {
+            uidvalidity: 67_890_007,
+            uidnext: 567,
+            modseq: Some(20_050_715_194_045_319),
+        })
+    );
+    assert_eq!(
+        ingest.flags,
+        [(
+            RemoteRef::Imap {
+                mailbox: "INBOX".to_owned(),
+                uidvalidity: 67_890_007,
+                uid: 117,
+            },
+            ReadState::Read,
+            Star::Unstarred,
+        )]
+    );
+}
+
+/// A renumbered mailbox: the server ignores QRESYNC, so nothing it says is about our UIDs.
+#[test]
+fn a_qresync_sweep_after_a_renumbering_reports_nothing() {
+    let trace = concat!(
+        "S: * OK Dovecot ready\n",
+        "C: a001 AUTHENTICATE XOAUTH2 dXNlcj1hZGFAZXhhbXBsZS50ZXN0AWF1dGg9QmVhcmVyIHlhMjkudG9rZW4BAQ==\n",
+        "S: a001 OK authenticated\n",
+        "C: a002 ENABLE QRESYNC\n",
+        "S: * ENABLED QRESYNC\n",
+        "S: a002 OK Enabled\n",
+        "C: a003 EXAMINE \"INBOX\" (QRESYNC (67890007 20050715194045000))\n",
+        "S: * OK [UIDVALIDITY 99] UIDVALIDITY\n",
+        "S: * OK [HIGHESTMODSEQ 5] Highest\n",
+        "S: * VANISHED (EARLIER) 1:4294967295\n",
+        "S: a003 OK [READ-ONLY] Examine completed\n",
+        "DONE\n"
+    );
+    let mut driven = Driven {
+        backend: backend(qresync_caps()),
+        op: Some(resync(67_890_007, 20_050_715_194_045_000)),
+    };
+    let ProtoOutcome::Resynced { ingest, vanished } = replay(&mut driven, trace).unwrap() else {
+        panic!("expected a resync");
+    };
+    assert!(vanished.is_empty());
+    assert_eq!(
+        ingest.cursor, None,
+        "the cursor stays on the mailbox we know"
+    );
+}
+
+/// Gmail offers CONDSTORE without QRESYNC: a `since` changes nothing, and the sweep lists.
+#[test]
+fn without_qresync_the_sweep_still_lists_every_uid() {
+    let trace = concat!(
+        "S: * OK Gimap ready\n",
+        "C: a001 AUTHENTICATE XOAUTH2 dXNlcj1hZGFAZXhhbXBsZS50ZXN0AWF1dGg9QmVhcmVyIHlhMjkudG9rZW4BAQ==\n",
+        "S: a001 OK authenticated\n",
+        "C: a002 EXAMINE \"INBOX\"\n",
+        "S: * OK [UIDVALIDITY 1] UIDs valid\n",
+        "S: a002 OK [READ-ONLY] EXAMINE completed\n",
+        "C: a003 UID SEARCH ALL\n",
+        "S: * SEARCH 7 9\n",
+        "S: a003 OK Success\n",
+        "DONE\n"
+    );
+    let mut driven = Driven {
+        backend: backend(caps(ServerLabels::Supported, ArchiveMeans::DropInbox)),
+        op: Some(resync(1, 3_737_642)),
+    };
+    assert!(matches!(
+        replay(&mut driven, trace).unwrap(),
+        ProtoOutcome::Ingested(_)
+    ));
+}
+
+/// Believed only together: QRESYNC without CONDSTORE is a misconfigured server.
+#[test]
+fn qresync_is_believed_only_alongside_condstore() {
+    for (advertised, expected) in [
+        ("IMAP4rev1 CONDSTORE QRESYNC", Condstore::Qresync),
+        ("IMAP4rev1 CONDSTORE", Condstore::Supported),
+        ("IMAP4rev1 QRESYNC", Condstore::Absent),
+    ] {
+        let trace = format!(
+            "S: * OK ready\n\
+             C: a001 AUTHENTICATE XOAUTH2 dXNlcj1hZGFAZXhhbXBsZS50ZXN0AWF1dGg9QmVhcmVyIHlhMjkudG9rZW4BAQ==\n\
+             S: a001 OK authenticated\n\
+             C: a002 CAPABILITY\n\
+             S: * CAPABILITY {advertised}\n\
+             S: a002 OK done\n\
+             C: a003 CAPABILITY\n\
+             S: * CAPABILITY {advertised}\n\
+             S: a003 OK done\n\
+             DONE\n"
+        );
+        let mut driven = Driven {
+            backend: backend(caps(ServerLabels::LocalOnly, ArchiveMeans::LocalOnly)),
+            op: Some(ProtoOp::FetchCaps),
+        };
+        let ProtoOutcome::Caps(found) = replay(&mut driven, &trace).unwrap() else {
+            panic!("expected caps");
+        };
+        assert_eq!(found.condstore, expected, "{advertised}");
+    }
+}
+
+/// Large-message fetching: the structure first, then only the sections worth downloading.
+mod parts {
+    use super::*;
+
+    const AUTH: &str = "C: a001 AUTHENTICATE XOAUTH2 dXNlcj1hZGFAZXhhbXBsZS50ZXN0AWF1dGg9QmVhcmVyIHlhMjkudG9rZW4BAQ==\n";
+
+    /// A report with a plain and an HTML body, and a nine-megabyte PDF beside them.
+    #[test]
+    fn a_structure_becomes_a_tree_with_sections_and_sizes() {
+        let trace = format!(
+            "S: * OK ready\n\
+             {AUTH}\
+             S: a001 OK authenticated\n\
+             C: a002 EXAMINE \"INBOX\"\n\
+             S: a002 OK [READ-ONLY] done\n\
+             C: a003 UID FETCH 7 (UID BODYSTRUCTURE)\n\
+             S: * 1 FETCH (UID 7 BODYSTRUCTURE (((\"TEXT\" \"PLAIN\" (\"CHARSET\" \"utf-8\") NIL NIL \"7BIT\" 120 4 NIL NIL NIL)(\"TEXT\" \"HTML\" (\"CHARSET\" \"utf-8\") NIL NIL \"QUOTED-PRINTABLE\" 900 20 NIL NIL NIL) \"ALTERNATIVE\" (\"BOUNDARY\" \"alt-b\") NIL NIL)(\"APPLICATION\" \"PDF\" (\"NAME\" \"report.pdf\") NIL NIL \"BASE64\" 9437184 NIL (\"ATTACHMENT\" (\"FILENAME\" \"report.pdf\")) NIL) \"MIXED\" (\"BOUNDARY\" \"mix-b\") NIL NIL))\n\
+             S: a003 OK done\n\
+             DONE\n"
+        );
+        let mut driven = Driven {
+            backend: backend(caps(ServerLabels::LocalOnly, ArchiveMeans::LocalOnly)),
+            op: Some(ProtoOp::FetchStructure {
+                remotes: vec![imap_ref("INBOX", 7)],
+            }),
+        };
+        let ProtoOutcome::Structures(found) = replay(&mut driven, &trace).unwrap() else {
+            panic!("expected structures");
+        };
+        let leaf = |section: &str, mime: &str, octets: u64, attachment: bool| PartTree::Leaf {
+            section: section.to_owned(),
+            mime: mime.to_owned(),
+            octets,
+            attachment,
+        };
+        assert_eq!(
+            found,
+            [(
+                imap_ref("INBOX", 7),
+                PartTree::Multipart {
+                    section: String::new(),
+                    subtype: "mixed".to_owned(),
+                    boundary: "mix-b".to_owned(),
+                    parts: vec![
+                        PartTree::Multipart {
+                            section: "1".to_owned(),
+                            subtype: "alternative".to_owned(),
+                            boundary: "alt-b".to_owned(),
+                            parts: vec![
+                                leaf("1.1", "text/plain", 120, false),
+                                leaf("1.2", "text/html", 900, false),
+                            ],
+                        },
+                        leaf("2", "application/pdf", 9_437_184, true),
+                    ],
+                }
+            )]
+        );
+    }
+
+    /// Several literals in one response, each paired with the section it answers.
+    #[test]
+    fn sections_come_back_by_name() {
+        let trace = format!(
+            "S: * OK ready\n\
+             {AUTH}\
+             S: a001 OK authenticated\n\
+             C: a002 EXAMINE \"INBOX\"\n\
+             S: a002 OK [READ-ONLY] done\n\
+             C: a003 UID FETCH 7 (UID BODY.PEEK[HEADER] BODY.PEEK[2.MIME] BODY.PEEK[1.1])\n\
+             S: * 1 FETCH (UID 7 BODY[HEADER] {{12}}\n\
+             S: Subject: x\n\
+             S:  BODY[2.MIME] {{7}}\n\
+             S: X: yy\n\
+             S:  BODY[1.1] NIL)\n\
+             S: a003 OK done\n\
+             DONE\n"
+        );
+        let mut driven = Driven {
+            backend: backend(caps(ServerLabels::LocalOnly, ArchiveMeans::LocalOnly)),
+            op: Some(ProtoOp::FetchSections {
+                remote: imap_ref("INBOX", 7),
+                sections: vec!["HEADER".into(), "2.MIME".into(), "1.1".into()],
+            }),
+        };
+        let ProtoOutcome::Sections { parts, .. } = replay(&mut driven, &trace).unwrap() else {
+            panic!("expected sections");
+        };
+        assert_eq!(
+            parts,
+            [
+                ("HEADER".to_owned(), b"Subject: x\r\n".to_vec()),
+                ("2.MIME".to_owned(), b"X: yy\r\n".to_vec()),
+                ("1.1".to_owned(), Vec::new()),
+            ]
+        );
+    }
+
+    /// A section name is checked before it reaches the command line, not escaped after.
+    #[test]
+    fn a_section_that_is_not_one_is_refused_before_anything_is_sent() {
+        for bad in [
+            "1] BODY[",
+            "TEXT",
+            "0",
+            "1..2",
+            "",
+            "1.MIME.MIME",
+            "2 FLAGS",
+        ] {
+            let mut b = backend(caps(ServerLabels::LocalOnly, ArchiveMeans::LocalOnly));
+            let progress = b.begin(ProtoOp::FetchSections {
+                remote: imap_ref("INBOX", 7),
+                sections: vec![bad.to_owned()],
+            });
+            assert!(
+                matches!(progress, Progress::Failed(ProtoError::Malformed(_))),
+                "{bad:?} was not refused: {progress:?}"
+            );
+        }
+    }
+}

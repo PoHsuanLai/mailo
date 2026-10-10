@@ -1,5 +1,5 @@
 //! OpenPGP keys and Autocrypt peers in the in-memory store. Kept in step with `sqlite/pgp.rs`,
-//! which the parity tests in `tests/pgp_keys.rs` hold it to.
+//! which the parity tests in `tests/store/pgp_keys.rs` hold it to.
 
 use super::Inner;
 use crate::StoreError;

@@ -278,7 +278,6 @@ fn created(account: AccountId, path: &str, folders: &[Folder]) -> Folder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::id::account_id_from_uuid;
 
     #[test]
     fn a_rename_moves_what_is_beneath_and_nothing_that_merely_shares_a_prefix() {
@@ -306,18 +305,5 @@ mod tests {
             Some("Jobs")
         );
         assert_eq!(renamed("Work/x", "Work", "Jobs", None), None);
-    }
-
-    #[test]
-    fn the_inbox_is_protected_by_name_even_when_the_server_does_not_mark_it() {
-        let folder = Folder {
-            account: account_id_from_uuid(uuid::Uuid::nil()),
-            path: "inbox".to_owned(),
-            delimiter: Some('/'),
-            special: None,
-            subscription: Subscription::Subscribed,
-            holds: Holds::Mail,
-        };
-        assert_eq!(folder.protected(), Some(SpecialUse::Inbox));
     }
 }

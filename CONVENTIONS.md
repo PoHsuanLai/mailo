@@ -217,7 +217,7 @@ representation is a migration, not a refactor.
   If you find yourself reaching for `#[serde(default)]` to silence a decode error, check which
   value it is about to invent. `Vec::new()` for a recipient list and `String::new()` for an
   address are not neutral.
-- Every persisted type has a round-trip test in `tests/serde.rs`, and a **frozen fixture**
+- Every persisted type has a round-trip test in `tests/domain/serde.rs`, and a **frozen fixture**
   in `crates/mail-domain/tests/fixtures/` that must continue to deserialize. Add to the
   fixtures; never edit one.
 
@@ -388,7 +388,7 @@ command would look like if a user typed it, and type that.
 window was launched once with the screen locked, and the round ended saying the shell had not
 been seen. Seeing it was never what verification needed. The window is Blitz, and
 `ds_harness::Harness` drives the real window headlessly — pointer, keys and time against a real
-Blitz document, no display, no GPU, no screen (`crates/mail-app/tests/native_harness.rs`), and it
+Blitz document, no display, no GPU, no screen (`crates/mail-app/tests/app/native_harness.rs`), and it
 can paint what it drew to a PNG. (The webview this replaced needed a script injected into its
 page for the same; FINDINGS F106/F107 and F158 say why that is gone.)
 

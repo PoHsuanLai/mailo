@@ -1,3 +1,4 @@
+// Its own test binary: it compares timings, which hundreds of tests beside it make noisy.
 //! How the store behaves with a real mailbox in it.
 //!
 //! Every other test here holds two or three messages, which is enough to check *what* a query
@@ -10,6 +11,8 @@
 //! a page does not grow with the mailbox behind it. A linear scan shows up as a page of 50 taking
 //! materially longer at 10,000 rows than at 1,000, and that comparison is stable even on a busy
 //! machine.
+//!
+//! Its own test binary: beside hundreds of tests running in parallel, the timings get noisy.
 
 use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::id::account_id_from_uuid;

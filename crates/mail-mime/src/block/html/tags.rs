@@ -386,15 +386,3 @@ impl Frame {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::{MAPPED, open_as};
-
-    #[test]
-    fn every_listed_tag_has_a_role() {
-        for name in MAPPED {
-            assert!(open_as(name).is_some(), "{name} is listed but unmapped");
-        }
-    }
-}

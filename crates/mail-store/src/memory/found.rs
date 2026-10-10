@@ -1,5 +1,5 @@
 //! Messages a search of the server brought here, and messages by server address, in the
-//! in-memory store. Kept in step with `sqlite/found.rs`, which `tests/found.rs` holds it to.
+//! in-memory store. Kept in step with `sqlite/found.rs`, which `tests/store/found.rs` holds it to.
 
 use super::{Inner, same_remote};
 use crate::StoreError;

@@ -1,7 +1,7 @@
 # Trace format
 
 Every protocol test is a transcript. No test in this crate opens a socket; the replay harness
-in `crates/mail-proto/tests/replay.rs` feeds a [`Machine`] or [`Backend`] from a file and
+in `crates/mail-proto/tests/common/mod.rs` feeds a [`Machine`] or [`Backend`] from a file and
 asserts what it writes back.
 
 This format is part of the frozen interface. Four agents writing four sessions must not invent
@@ -49,7 +49,7 @@ transcript cannot pass by accident. A machine that asks for something the trace 
 fails the test with both the expected and the actual need printed, and every panic names the
 line number it stopped at.
 
-The harness lives in `tests/common/mod.rs` and is itself tested in `tests/harness.rs` — seven of
+The harness lives in `tests/common/mod.rs` and is itself tested in `tests/proto/harness.rs` — seven of
 those tests assert that it REJECTS a bad trace. A harness that silently passes everything is
 worse than none, because it produces green suites that prove nothing.
 

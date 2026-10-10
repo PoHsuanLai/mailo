@@ -707,59 +707,53 @@ mod tests {
 mod password_warning_tests {
     use super::*;
 
-    #[test]
-    fn microsoft_365_hosts_are_flagged() {
+    /// `(host, the fragments its warning must contain, or None for no warning)`.
+    /// `Some(&[])` means warned, whatever the words.
+    const CASES: &[(&str, Option<&[&str]>)] = &[
         // The user has a work Outlook mailbox and a school one, both managed tenants. Storing a
         // password for either produces an authentication failure at the first sync that says
         // nothing about the cause.
-        for host in [
-            "outlook.office365.com",
-            "smtp.office365.com",
-            "outlook.office.com",
-            "OUTLOOK.OFFICE365.COM",
-            "outlook.office365.com:993",
-        ] {
-            let warning = password_warning(host).unwrap_or_else(|| panic!("{host} not flagged"));
-            assert!(warning.contains("OAuth"), "{host}: {warning}");
-        }
-    }
-
-    #[test]
-    fn google_hosts_say_an_app_password_is_the_one_that_works() {
+        ("outlook.office365.com", Some(&["OAuth"])),
+        ("smtp.office365.com", Some(&["OAuth"])),
+        ("outlook.office.com", Some(&["OAuth"])),
+        ("OUTLOOK.OFFICE365.COM", Some(&["OAuth"])),
+        ("outlook.office365.com:993", Some(&["OAuth"])),
         // Different advice, because the outcome is different: Google still accepts an App
         // Password, so telling the user "use OAuth" would send them to build something they do
         // not need.
-        let warning = password_warning("imap.gmail.com").expect("flagged");
-        assert!(warning.contains("App Password"), "{warning}");
-        assert!(password_warning("smtp.googlemail.com").is_some());
-    }
-
-    #[test]
-    fn a_server_with_no_known_restriction_is_left_alone() {
+        ("imap.gmail.com", Some(&["App Password"])),
+        ("smtp.googlemail.com", Some(&[])),
         // Advice, not a gate. Anything not known to have switched passwords off gets no warning,
         // because inventing one teaches the user to ignore them.
-        for host in [
-            "pop.example.edu",
-            "imap.example.com",
-            "mail.fastmail.com",
-            "",
-            "notahost",
-        ] {
-            assert_eq!(password_warning(host), None, "{host} was warned about");
-        }
-    }
+        ("pop.example.edu", None),
+        ("imap.example.com", None),
+        ("mail.fastmail.com", None),
+        ("", None),
+        ("notahost", None),
+        // Suffix matching on a hostname is how `evil-office365.com.attacker.test` gets treated
+        // as Microsoft. These lookalikes must not match.
+        ("office365.com.example.test", None),
+        ("notgmail.com.example.test", None),
+        // `ends_with` alone treats both of these as the real thing.
+        ("evil-office365.com", None),
+        ("notgmail.com", None),
+        // And the genuine article still matches bare (`imap.gmail.com` above is a subdomain).
+        ("office365.com", Some(&[])),
+    ];
 
     #[test]
-    fn a_lookalike_domain_is_not_flagged() {
-        // Suffix matching on a hostname is how `evil-office365.com.attacker.test` gets treated
-        // as Microsoft. These must not match.
-        assert_eq!(password_warning("office365.com.example.test"), None);
-        assert_eq!(password_warning("notgmail.com.example.test"), None);
-        // `ends_with` alone treats both of these as the real thing.
-        assert_eq!(password_warning("evil-office365.com"), None);
-        assert_eq!(password_warning("notgmail.com"), None);
-        // And the genuine article still matches, bare or as a subdomain.
-        assert!(password_warning("office365.com").is_some());
-        assert!(password_warning("imap.gmail.com").is_some());
+    fn password_warning_by_host() {
+        for (host, want) in CASES {
+            let got = password_warning(host);
+            match want {
+                None => assert_eq!(got, None, "{host:?} was warned about"),
+                Some(fragments) => {
+                    let warning = got.unwrap_or_else(|| panic!("{host:?} not flagged"));
+                    for fragment in *fragments {
+                        assert!(warning.contains(fragment), "{host:?}: {warning}");
+                    }
+                }
+            }
+        }
     }
 }

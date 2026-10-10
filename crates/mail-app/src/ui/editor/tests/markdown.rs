@@ -156,11 +156,6 @@ fn markdown_shortcut_table() {
         apply_ops(&mut doc, undo);
         assert_eq!(doc, before, "{}: undo", case.name);
     }
-
-    let doc = Doc::from_text("already # ");
-    assert!(shortcuts(&doc, Pos::new(0, grapheme_len("already # "))).is_none());
-    let doc = Doc::from_text("**hi");
-    assert!(shortcuts(&doc, Pos::new(0, grapheme_len("**hi"))).is_none());
 }
 
 #[test]

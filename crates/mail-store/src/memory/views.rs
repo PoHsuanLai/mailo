@@ -1,5 +1,5 @@
 //! Saved views in the in-memory store. Kept in step with `sqlite/views.rs`, which the parity
-//! tests in `tests/views.rs` hold it to.
+//! tests in `tests/store/views.rs` hold it to.
 
 use super::Inner;
 use crate::StoreError;

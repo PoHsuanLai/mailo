@@ -59,24 +59,24 @@ wait_for "$SMTP_PORT" || exit 1
 wait_for "$POP3_PORT" || exit 1
 
 fail=0
-run() {  # run <crate> <test-target>
-  printf '%-14s ' "$2"
-  if MAILO_RECEIVED="$RECEIVED" cargo test -q -p "$1" --test "$2" -- --ignored 2>&1 \
-      | grep -qE "^test result: ok"; then
+run() {  # run <crate> <test-binary> <module>: the ignored tests of one module of that binary
+  printf '%-14s ' "$3"
+  if MAILO_RECEIVED="$RECEIVED" cargo test -q -p "$1" --test "$2" -- --ignored "$3::" 2>&1 \
+      | grep -qE "^test result: ok. [1-9]"; then
     echo "ok"
   else
     echo "FAILED"
-    MAILO_RECEIVED="$RECEIVED" cargo test -p "$1" --test "$2" -- --ignored 2>&1 | tail -20
+    MAILO_RECEIVED="$RECEIVED" cargo test -p "$1" --test "$2" -- --ignored "$3::" 2>&1 | tail -20
     fail=1
   fi
 }
 
-run mail-runtime live_smtp
-run mail-runtime live_imap
-run mail-runtime live_pop3
-run mail-core    sync_path
+run mail-runtime runtime live_smtp
+run mail-runtime runtime live_imap
+run mail-runtime runtime live_pop3
+run mail-core    core    sync_path
 if [ "$WITH_NETWORK" -eq 1 ]; then
-  run mail-runtime live_probe
+  run mail-runtime runtime live_probe
 else
   echo "live_probe      skipped (pass --network to include it; and set MAILO_LIVE_POP3 to the server it reaches)"
 fi

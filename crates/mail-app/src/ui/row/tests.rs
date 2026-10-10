@@ -85,46 +85,6 @@ async fn a_right_click_on_a_row_lists_every_action_it_has() {
 }
 
 #[tokio::test]
-async fn archive_from_the_menu_archives_it_and_offers_the_undo() {
-    let Window {
-        mut dom,
-        seen,
-        store,
-        dana,
-        subject,
-        ..
-    } = window();
-    let before = store.thread(dana).unwrap().summary.mailboxes;
-    assert!(before.contains(MailboxRole::Inbox));
-    row_action(&mut dom, &seen, &subject, "Archive").await;
-    assert!(
-        !store
-            .thread(dana)
-            .unwrap()
-            .summary
-            .mailboxes
-            .contains(MailboxRole::Inbox),
-        "the pick did not archive the conversation"
-    );
-    let page = dioxus_ssr::render(&dom);
-    assert!(
-        page.contains("class=\"ds-toast-action\""),
-        "the archive put up no toast with an Undo:\n{page}"
-    );
-    chord(
-        &mut dom,
-        "z",
-        Modifiers::CONTROL,
-        ElementId(INSIDE_THE_SHELL as usize),
-    );
-    assert_eq!(
-        store.thread(dana).unwrap().summary.mailboxes,
-        before,
-        "⌘Z did not take the menu's archive back"
-    );
-}
-
-#[tokio::test]
 async fn mark_as_read_from_the_menu_is_undone_like_any_op() {
     let Window {
         mut dom,

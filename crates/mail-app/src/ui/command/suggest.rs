@@ -84,7 +84,7 @@ fn image(tile: &Tile) -> Option<MenuImage> {
 mod tests {
     use super::super::super::menu::{Run, Tone};
     use super::*;
-    use ds::prelude::{Icon, ItemText};
+    use ds::prelude::Icon;
 
     fn row(key: &str, name: &str, group: &str) -> MenuItem {
         MenuItem {
@@ -97,13 +97,6 @@ mod tests {
             marks: Vec::new(),
             title: Vec::new(),
             detail: Vec::new(),
-        }
-    }
-
-    fn text_of(line: &Line) -> Option<&ItemText> {
-        match line {
-            Line::Item { text, .. } => Some(text),
-            _ => None,
         }
     }
 
@@ -140,8 +133,10 @@ mod tests {
         );
     }
 
+    /// What each kind of row draws as: a mail row is its subject marked over its sender, with
+    /// an avatar; a command keeps its glyph and its shortcut; a Space says so under its name.
     #[test]
-    fn a_mail_row_is_its_subject_marked_over_its_sender_with_an_avatar() {
+    fn each_row_becomes_its_menu_line() {
         let mail = MenuItem {
             tile: Tile::Avatar {
                 letter: 'D',
@@ -162,42 +157,46 @@ mod tests {
             ],
             ..row("mail:1", "Lunch", "Mail")
         };
-        let line = suggestion(&mail);
-        let want = Line::new("mail:1".to_owned(), "Lunch")
-            .with_marks(Marks::of_query("Lunch", "lun"))
-            .with_subtitle("Dana · see you at noon")
-            .with_image(MenuImage::Avatar(AvatarFace {
-                initial: 'D',
-                size: FACE,
-                tone: AvatarTone::Account(hex_colour("#3366aa")),
-                shape: AvatarShape::Round,
-            }));
-        assert_eq!(line, want);
-        assert!(text_of(&line).is_some());
-    }
-
-    #[test]
-    fn a_command_keeps_its_glyph_and_its_shortcut() {
         let compose = MenuItem {
             tile: Tile::Icon(Icon::Pen),
             right: Right::Shortcut("\u{2318}N".to_owned()),
             ..row("action:Compose", "Compose", "Commands")
         };
-        let want = Line::new("action:Compose".to_owned(), "Compose")
-            .with_image(MenuImage::Icon(Icon::Pen))
-            .with_hint("\u{2318}N");
-        assert_eq!(suggestion(&compose), want);
-    }
-
-    #[test]
-    fn a_space_says_so_under_its_name() {
         let space = MenuItem {
             help: Some("Space".to_owned()),
             ..row("space:1", "Work", "Places and People")
         };
-        let want = Line::new("space:1".to_owned(), "Work")
-            .with_subtitle("Space")
-            .with_image(MenuImage::Icon(Icon::Command));
-        assert_eq!(suggestion(&space), want);
+        let cases = [
+            (
+                "a mail",
+                mail,
+                Line::new("mail:1".to_owned(), "Lunch")
+                    .with_marks(Marks::of_query("Lunch", "lun"))
+                    .with_subtitle("Dana · see you at noon")
+                    .with_image(MenuImage::Avatar(AvatarFace {
+                        initial: 'D',
+                        size: FACE,
+                        tone: AvatarTone::Account(hex_colour("#3366aa")),
+                        shape: AvatarShape::Round,
+                    })),
+            ),
+            (
+                "a command",
+                compose,
+                Line::new("action:Compose".to_owned(), "Compose")
+                    .with_image(MenuImage::Icon(Icon::Pen))
+                    .with_hint("\u{2318}N"),
+            ),
+            (
+                "a Space",
+                space,
+                Line::new("space:1".to_owned(), "Work")
+                    .with_subtitle("Space")
+                    .with_image(MenuImage::Icon(Icon::Command)),
+            ),
+        ];
+        for (name, item, want) in cases {
+            assert_eq!(suggestion(&item), want, "{name}");
+        }
     }
 }

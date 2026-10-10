@@ -142,7 +142,7 @@ fi
 # probe `ds_desktop` in `mail-app`'s `accountd` and its tests, and nowhere else. Everything else
 # asks `mail_runtime::link::Accountd`, which a build for another desktop has too.
 if grep -rnE '\b(porter_dbus|ds_desktop)\b' crates --include='*.rs' \
-  | grep -vE '^crates/mail-runtime/src/link/dbus\.rs:|^crates/mail-runtime/tests/link_bus\.rs:|^crates/mail-app/src/accountd(_tests)?\.rs:' \
+  | grep -vE '^crates/mail-runtime/src/link/dbus\.rs:|^crates/mail-runtime/tests/runtime/link_bus\.rs:|^crates/mail-app/src/accountd(_tests)?\.rs:' \
   | grep -vE '^[^:]+:[0-9]+:[[:space:]]*//'; then
   echo "porter_dbus and ds_desktop belong to the quire-desktop link only: see scripts/check-boundary.sh"
   fail=1

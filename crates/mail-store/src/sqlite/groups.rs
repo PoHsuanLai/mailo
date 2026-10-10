@@ -1,5 +1,5 @@
 //! Contact groups in SQLite. Kept in step with `memory/groups.rs`, which the parity tests in
-//! `tests/groups.rs` hold it to.
+//! `tests/store/groups.rs` hold it to.
 
 use super::SqliteStore;
 use super::row::{json, to_json};

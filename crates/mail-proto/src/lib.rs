@@ -31,5 +31,5 @@ pub use smtp::{
 
 #[cfg(test)]
 mod tests {
-    // The replay harness lives in tests/replay.rs; see tests/traces/FORMAT.md.
+    // The replay harness lives in tests/common/mod.rs; see tests/traces/FORMAT.md.
 }

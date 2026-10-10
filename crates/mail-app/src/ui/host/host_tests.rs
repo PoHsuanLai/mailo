@@ -39,24 +39,23 @@ fn ask_everything() {
     Host::copy("a\"b@example.org");
 }
 
+/// Every ask, made in a window with no host and in one with a test's recorder: neither runs a
+/// script, and the recorder keeps each ask in order.
 #[test]
-fn a_window_with_no_host_evaluates_no_script() {
-    let scripts = Scripts::default();
-    let mut dom = VirtualDom::new(empty).with_root_context(scripts.document());
-    dom.rebuild_in_place();
-    dom.in_scope(ScopeId::ROOT, ask_everything);
-    assert!(scripts.all().is_empty(), "{:?}", scripts.all());
-}
-
-#[test]
-fn a_recorder_keeps_each_ask_and_runs_none() {
-    let scripts = Scripts::default();
-    let recorder = Recorder::default();
-    let mut dom = VirtualDom::new(empty)
-        .with_root_context(scripts.document())
-        .with_root_context(recorder.host());
-    dom.rebuild_in_place();
-    dom.in_scope(ScopeId::ROOT, ask_everything);
-    assert_eq!(recorder.asked(), every_ask());
-    assert!(scripts.all().is_empty(), "{:?}", scripts.all());
+fn no_host_runs_nothing_and_a_recorder_keeps_each_ask() {
+    const CASES: &[(&str, bool)] = &[("no host", false), ("a recorder", true)];
+    for (name, recording) in CASES {
+        let scripts = Scripts::default();
+        let recorder = Recorder::default();
+        let mut dom = VirtualDom::new(empty).with_root_context(scripts.document());
+        if *recording {
+            dom = dom.with_root_context(recorder.host());
+        }
+        dom.rebuild_in_place();
+        dom.in_scope(ScopeId::ROOT, ask_everything);
+        assert!(scripts.all().is_empty(), "{name}: {:?}", scripts.all());
+        if *recording {
+            assert_eq!(recorder.asked(), every_ask(), "{name}");
+        }
+    }
 }

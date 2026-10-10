@@ -1302,11 +1302,12 @@ mod tests {
     // ---- behaviour restored to what it was before E3 (F201 diffs 1-3) ---------------------------
     //
     // The cases below are mailo's own from before E3, with the same documents and the same
-    // expectations, moved over the porter-discover seams: `crates/mail-proto/tests/discover.rs`
+    // expectations, moved over the porter-discover seams. They came from two test files that are
+    // gone now, as they stood at mailo commit 2ea6bbe7: mail-proto's `tests/discover.rs`
     // (`selection`: the OAuth2 tests, `pop3_is_used_only_when_no_imap_server_will_do`,
     // `a_personal_microsoft_address_is_not_given_the_tenant_preset`, `starttls_only_is_skipped_and_said`)
-    // and `crates/mail-runtime/tests/discover.rs`
-    // (`a_starttls_only_document_is_skipped_and_the_search_goes_on`), at mailo commit 2ea6bbe7.
+    // and mail-runtime's `tests/discover.rs`
+    // (`a_starttls_only_document_is_skipped_and_the_search_goes_on`).
 
     const ADDRESS: &str = "someone@example.test";
 

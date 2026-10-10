@@ -158,8 +158,14 @@ async fn the_import_sheet_refuses_in_words() {
         page.contains(&format!("There is nothing at {}.", gone.display())),
         "{page}"
     );
+    // The sheet's Import button is the one that answers Return.
+    let at = page
+        .find("data-answers=\"return\"")
+        .unwrap_or_else(|| panic!("no Import button: {page}"));
+    let start = page[..at].rfind('<').unwrap();
+    let end = at + page[at..].find('>').unwrap();
     assert!(
-        page.contains("disabled"),
+        page[start..end].contains("aria-disabled=\"true\""),
         "Import is offered for nothing: {page}"
     );
 }

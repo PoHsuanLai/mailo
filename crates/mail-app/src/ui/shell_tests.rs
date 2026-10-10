@@ -261,7 +261,7 @@ async fn follow_any(
 }
 
 #[tokio::test]
-#[ignore]
+#[ignore = "writes target/frame.html and target/frame-dark.html for a person to look at"]
 async fn render_the_frame_to_a_file() {
     // Rendered once per scheme, from `appearance.toml`'s theme, so the frame's Space tint is
     // the one each scheme derives, not a relabelled copy of the light one.

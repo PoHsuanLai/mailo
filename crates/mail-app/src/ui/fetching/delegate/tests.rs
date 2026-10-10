@@ -35,53 +35,85 @@ fn syncing() -> Link {
     }
 }
 
+fn fresh() -> Link {
+    Link::Fresh
+}
+
+/// What the runner does with each event, by who schedules and what the link is. Beside a watch,
+/// the watch answers the timers and the server, and a person still asks; an account that never
+/// fetched and a running pass are the window's even beside a watch; without a watch everything
+/// runs.
 #[test]
-fn a_watch_answers_the_timers_and_the_server_and_a_person_still_asks() {
+fn the_verdict_table() {
     use Verdict::{Defer, Drop, Run};
-    let cases: &[(Event, Verdict)] = &[
-        (Event::Start(Trigger::Poll), Defer),
-        (Event::Tick, Defer),
-        (Event::Start(Trigger::Push), Drop),
-        (Event::Start(Trigger::Manual), Run),
-        (Event::Start(Trigger::FolderOpen), Run),
-        (Event::SignedIn, Run),
-        (Event::Cancel, Run),
-        (Event::Live(Live::Pushed), Run),
+    type Row = (
+        &'static str,
+        Schedule,
+        &'static [fn() -> Link],
+        Vec<Event>,
+        Verdict,
+    );
+    let cases: &[Row] = &[
+        (
+            "a watch defers the timers",
+            Schedule::Watch,
+            &[current, waiting],
+            vec![Event::Start(Trigger::Poll), Event::Tick],
+            Defer,
+        ),
+        (
+            "a watch drops the server's push",
+            Schedule::Watch,
+            &[current, waiting],
+            vec![Event::Start(Trigger::Push)],
+            Drop,
+        ),
+        (
+            "a person still asks beside a watch",
+            Schedule::Watch,
+            &[current, waiting],
+            vec![
+                Event::Start(Trigger::Manual),
+                Event::Start(Trigger::FolderOpen),
+                Event::SignedIn,
+                Event::Cancel,
+                Event::Live(Live::Pushed),
+            ],
+            Run,
+        ),
+        (
+            "never fetched or mid-pass is the window's beside a watch",
+            Schedule::Watch,
+            &[fresh, syncing],
+            vec![
+                Event::Start(Trigger::Poll),
+                Event::Start(Trigger::Push),
+                Event::Tick,
+            ],
+            Run,
+        ),
+        (
+            "without a watch everything runs",
+            Schedule::Window,
+            &[current, waiting, fresh, syncing],
+            vec![
+                Event::Start(Trigger::Poll),
+                Event::Start(Trigger::Push),
+                Event::Tick,
+                Event::Start(Trigger::Manual),
+            ],
+            Run,
+        ),
     ];
-    for link in [current(), waiting()] {
-        for (event, expected) in cases {
-            assert_eq!(
-                verdict(Schedule::Watch, &link, event),
-                *expected,
-                "{event:?} on {link:?}"
-            );
-        }
-    }
-}
-
-#[test]
-fn without_a_watch_everything_runs() {
-    for link in [current(), waiting(), Link::Fresh, syncing()] {
-        for event in [
-            Event::Start(Trigger::Poll),
-            Event::Start(Trigger::Push),
-            Event::Tick,
-            Event::Start(Trigger::Manual),
-        ] {
-            assert_eq!(verdict(Schedule::Window, &link, &event), Verdict::Run);
-        }
-    }
-}
-
-#[test]
-fn an_account_that_never_fetched_and_a_running_pass_are_the_windows_even_beside_a_watch() {
-    for link in [Link::Fresh, syncing()] {
-        for event in [
-            Event::Start(Trigger::Poll),
-            Event::Start(Trigger::Push),
-            Event::Tick,
-        ] {
-            assert_eq!(verdict(Schedule::Watch, &link, &event), Verdict::Run);
+    for (name, schedule, links, events, expected) in cases {
+        for link in links.iter().map(|make| make()) {
+            for event in events {
+                assert_eq!(
+                    verdict(*schedule, &link, event),
+                    *expected,
+                    "{name}: {event:?} on {link:?}"
+                );
+            }
         }
     }
 }

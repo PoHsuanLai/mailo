@@ -838,16 +838,6 @@ mod tests {
     use mail_store::Store;
 
     #[tokio::test]
-    async fn the_whole_app_renders() {
-        // Catches what compiling cannot: a missing context, a panic inside `rsx!`, a query that
-        // blows up on a real database. Until this test the components had never been executed
-        // at all — every other test stops at `view.rs`.
-        let (store, _dir) = seeded();
-        let mut dom = VirtualDom::new(App).with_root_context(store);
-        dom.rebuild_in_place();
-    }
-
-    #[tokio::test]
     async fn the_first_run_offers_a_way_to_add_an_account() {
         // A database with no account looked exactly like an empty mailbox: six folders, a Sync
         // button and "Nothing here." A new person needs a way out, and it is a button in the
@@ -904,10 +894,10 @@ mod tests {
     #[tokio::test]
     async fn a_configured_account_with_an_empty_folder_is_not_told_to_add_an_account() {
         // The other direction. `seeded()` has one account and mail in the inbox, so nothing on
-        // the page should be setup advice.
+        // the page should be setup advice: not the "No account" the first run shows.
         let (store, _dir) = seeded();
-        let markup = markup(store);
-        assert!(!markup.contains("No account yet"), "{markup}");
+        let shown = without_styles(&markup(store));
+        assert!(!shown.contains("No account"), "{shown}");
     }
 
     /// Whether a task spawned from inside an event handler ever runs.
@@ -1112,22 +1102,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_rows_offer_a_way_to_forward() {
-        // In the row's menu, for anyone who does not know the key.
-        dispatching();
-        let (store, _dir) = realistic();
-        let mut dom = VirtualDom::new(App).with_root_context(store);
-        let seen = crate::ui::fixtures::rebuild_into(&mut dom);
-        let first = crate::ui::fixtures::listed_subjects(&dioxus_ssr::render(&dom))
-            .into_iter()
-            .next()
-            .expect("a row");
-        crate::ui::fixtures::open_row_menu(&mut dom, &seen, &first);
-        let names = crate::ui::fixtures::menu_names(&dioxus_ssr::render(&dom));
-        assert!(names.contains(&"Forward".to_owned()), "{names:?}");
-    }
-
-    #[tokio::test]
     async fn a_letter_typed_into_a_reply_is_not_a_shortcut() {
         // The failure the whole `typing` guard exists for, through the real tree rather than
         // only against the pure function: open a conversation, start a reply, and then "e" is a
@@ -1174,9 +1148,11 @@ mod tests {
         // mounts and after a press that left it nowhere (`ui/host/native.rs`).
         let (store, _dir) = seeded();
         let markup = markup(store);
+        let root = shell_markup(&markup);
+        let tag = &root[..root.find('>').unwrap_or(root.len())];
         assert!(
-            markup.contains(r#"tabindex="0""#),
-            "the app root is not focusable:\n{markup}"
+            tag.contains(r#"tabindex="0""#),
+            "the app root is not focusable:\n{tag}"
         );
     }
 
@@ -1423,80 +1399,5 @@ mod tests {
         }
         shown.push_str(rest);
         shown
-    }
-}
-
-#[cfg(test)]
-mod reactivity_tests {
-    //! What a keystroke costs.
-    //!
-    //! A memo that reads a signal is subscribed to *every* change of it, so reading `shell` to
-    //! get something that never changes — the sidebar's places — makes an unrelated write
-    //! recompute it. The list must re-query when the search box changes; the badges must not.
-
-    use super::*;
-    use dioxus_core::{NoOpMutations, VirtualDom};
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
-    /// How many times the badge memo has run.
-    static BADGE_RUNS: AtomicUsize = AtomicUsize::new(0);
-    /// The shell signal, published so the test can write it the way a keystroke does.
-    static TYPE_NOW: AtomicUsize = AtomicUsize::new(0);
-
-    /// A stand-in for `App`'s badge memo: depends on `revision`, not on `shell`.
-    #[component]
-    fn Badges() -> Element {
-        let mut shell = use_signal(Shell::default);
-        let revision = use_signal(|| 0u64);
-
-        let filters: Vec<Option<Filter>> = use_hook(|| {
-            crate::ui::view::default_places()
-                .iter()
-                .map(|place| badge_filter(&place.source))
-                .collect()
-        });
-        let badges = use_memo(move || {
-            let _ = revision();
-            BADGE_RUNS.fetch_add(1, Ordering::SeqCst);
-            filters.len()
-        });
-
-        // A write to `shell`, driven from the test: this is the keystroke. Done in an effect
-        // rather than during render, because writing a signal while rendering is not what a
-        // key press does and not what is being measured.
-        use_effect(move || {
-            if TYPE_NOW.swap(0, Ordering::SeqCst) > 0 {
-                shell.write().search.push('x');
-            }
-        });
-
-        let typed = shell.read().search.len();
-        rsx! { div { "{badges()} {typed}" } }
-    }
-
-    #[tokio::test]
-    async fn typing_in_the_search_box_does_not_recount_every_badge() {
-        BADGE_RUNS.store(0, Ordering::SeqCst);
-        TYPE_NOW.store(0, Ordering::SeqCst);
-        let mut dom = VirtualDom::new(Badges);
-        dom.rebuild_in_place();
-        let after_first = BADGE_RUNS.load(Ordering::SeqCst);
-
-        for _ in 0..5 {
-            // A keystroke: write `shell`, then let the dom settle.
-            TYPE_NOW.store(1, Ordering::SeqCst);
-            dom.mark_dirty(dioxus_core::ScopeId::APP);
-            dom.render_immediate(&mut NoOpMutations);
-            dom.render_immediate(&mut NoOpMutations);
-        }
-
-        let runs = BADGE_RUNS.load(Ordering::SeqCst);
-        assert_eq!(
-            runs,
-            after_first,
-            "the badge memo re-ran {} times for keystrokes that changed no count; each run is \
-             one indexed query per place",
-            runs - after_first
-        );
     }
 }

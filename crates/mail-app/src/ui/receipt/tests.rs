@@ -211,30 +211,42 @@ fn the_bar_says_who_asks_and_warns_when_the_receipt_goes_elsewhere() {
     }
 }
 
+/// A message that asks shows the bar under the head, with both answers and no warning; one
+/// whose receipt goes to another domain is warned about, and can still be answered.
 #[tokio::test]
-async fn a_message_that_asks_shows_the_bar_under_the_head() {
+async fn a_request_shows_the_bar_and_one_to_another_domain_is_warned_about() {
     let (store, _dir) = seeded();
-    let (thread, _) = put(&store, ASKS, Held::Body);
-    let (_, _, markup) = reader_on(store, thread).await;
-    assert!(markup.contains("Ada asked for a read receipt."), "{markup}");
-    assert!(markup.contains("aria-label=\"Send receipt\""), "{markup}");
-    assert!(markup.contains("aria-label=\"Don't send\""), "{markup}");
-    assert!(!markup.contains("class=\"warn\""), "{markup}");
+    let (asks, _) = put(&store, ASKS, Held::Body);
+    let (elsewhere, _) = put(&store, ASKS_ELSEWHERE, Held::Body);
+
+    let (_, _, markup) = reader_on(store.clone(), asks).await;
+    for needle in [
+        "Ada asked for a read receipt.",
+        "aria-label=\"Send receipt\"",
+        "aria-label=\"Don't send\"",
+    ] {
+        assert!(markup.contains(needle), "a request: no {needle}\n{markup}");
+    }
+    assert!(
+        !markup.contains("class=\"warn\""),
+        "a request: warned\n{markup}"
+    );
     // Under the head, not among the messages.
     let head_ends = markup.find("class=\"reader-body\"").unwrap();
-    assert!(markup.find("aria-label=\"Read receipt\"").unwrap() < head_ends);
-}
+    assert!(
+        markup.find("aria-label=\"Read receipt\"").unwrap() < head_ends,
+        "a request: the bar is not under the head"
+    );
 
-#[tokio::test]
-async fn a_request_to_another_domain_is_warned_about() {
-    let (store, _dir) = seeded();
-    let (thread, _) = put(&store, ASKS_ELSEWHERE, Held::Body);
-    let (_, _, markup) = reader_on(store, thread).await;
+    let (_, _, markup) = reader_on(store, elsewhere).await;
     assert!(
         markup.contains("The receipt goes to tracker@elsewhere.test, not ada@example.test."),
-        "{markup}"
+        "another domain: no warning\n{markup}"
     );
-    assert!(markup.contains("aria-label=\"Send receipt\""), "{markup}");
+    assert!(
+        markup.contains("aria-label=\"Send receipt\""),
+        "another domain: no Send receipt\n{markup}"
+    );
 }
 
 #[tokio::test]

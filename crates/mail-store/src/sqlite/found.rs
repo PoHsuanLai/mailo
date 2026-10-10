@@ -1,5 +1,5 @@
 //! Messages a search of the server brought here, and messages by server address. Kept in step
-//! with `memory/found.rs`, which `tests/found.rs` holds it to.
+//! with `memory/found.rs`, which `tests/store/found.rs` holds it to.
 
 use super::SqliteStore;
 use super::row::uuid;

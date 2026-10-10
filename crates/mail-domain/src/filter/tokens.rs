@@ -4,7 +4,7 @@
 //! [`Filter::fit`] compares exactly what this returns. SQLite's `unicode61 remove_diacritics 2`
 //! tokenizer still sits under the index, so the one property left to hold is that it leaves this
 //! function's output alone — every character in a token is one SQLite keeps as itself. The
-//! store's `tests/fold_table.rs` checks that for every code point in Unicode.
+//! store's `tests/store/fold_table.rs` checks that for every code point in Unicode.
 //!
 //! Folding follows SQLite's own table, not Rust's lowercase, so search finds what it always
 //! found: `Résumé` is `resume`, `ς` is `σ`, `ſ` is `s`. [`fold`](super::fold) holds the code

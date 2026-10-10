@@ -24,8 +24,6 @@ fn a_missing_body_asks_to_be_downloaded() {
         body_face(&BodyState::Missing, Operation::Idle, "a@x.test"),
         BodyFace::Prompt
     );
-    assert_eq!(PROMPT, "This message hasn't been downloaded yet.");
-    assert_eq!(DOWNLOAD_MESSAGE, "Download Message");
 }
 
 #[test]

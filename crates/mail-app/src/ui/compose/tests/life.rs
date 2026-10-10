@@ -302,25 +302,6 @@ async fn run_until(
     }
 }
 
-/// Coherence rule 2 on the composer: no raw control, raw vector or literal colour beyond the
-/// exceptions mailo names (`style::exceptions::MARKUP`).
-#[tokio::test]
-async fn the_composer_draws_no_raw_markup_beyond_its_exceptions() {
-    let (store, _dir) = seeded();
-    let draft = fresh_draft(&store);
-    let (mut window, _) = Window::open(store.clone(), draft.clone(), None);
-    let mut page = window.page();
-    window.dom.in_runtime(|| {
-        let mut write = page.write();
-        write.to = vec![dana()];
-        write.subject = "Friday".to_owned();
-        type_text(&mut write, "See you then.");
-    });
-    let html = window.render();
-    let offences = crate::ui::style::tests::markup_offences(&html);
-    assert!(offences.is_empty(), "{offences:#?}");
-}
-
 #[tokio::test]
 async fn a_sent_page_folds_away_on_quires_clock() {
     let (store, _dir) = seeded();

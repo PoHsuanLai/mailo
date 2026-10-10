@@ -116,9 +116,10 @@ fn the_table_of_what_a_link_begins_as() {
 }
 
 #[test]
-fn local_only_accounts_have_no_link_because_they_are_not_listed() {
+fn each_account_it_is_given_gets_one_link() {
     // `initial` makes a link for each account it is given, and it is given the ones with a
-    // server (`sync::due::intervals` leaves out the ones that keep mail here).
+    // server (`sync::due::intervals` leaves out the ones that keep mail here), so a local-only
+    // account has none.
     let (store, _dir) = empty_store();
     let links = initial(
         &store,
@@ -129,7 +130,6 @@ fn local_only_accounts_have_no_link_because_they_are_not_listed() {
         links.keys().cloned().collect::<Vec<_>>(),
         [acct_new(), acct_known()]
     );
-    assert!(initial(&store, &[], now()).is_empty());
 }
 
 /// What happened, the accounts that exist after it, and what the links do about it.

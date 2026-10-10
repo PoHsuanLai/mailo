@@ -2,7 +2,7 @@
 //!
 //! This module and [`mail_domain::Filter::fit`] are **two implementations of one semantics**.
 //! They will diverge, silently, and the symptom is "search quietly missed a message". The
-//! defence is `tests/parity.rs`, which asserts `fit(f, ctx) == (id in sql(f))` over generated
+//! defence is `tests/store/parity.rs`, which asserts `fit(f, ctx) == (id in sql(f))` over generated
 //! filters and corpora. If that test is ever skipped or weakened, the bug ships.
 
 use chrono::{DateTime, SecondsFormat, Utc};

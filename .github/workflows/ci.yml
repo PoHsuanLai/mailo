@@ -37,7 +37,7 @@ jobs:
       # The window is quire's `ds-blitz` (Blitz, wgpu), and the one system library that stack
       # links at build time is fontconfig (parley's font discovery, `yeslogic-fontconfig-sys`).
       # Wayland, X11 and xkbcommon are opened at run time, and wgpu finds its drivers the same
-      # way, so the tests that drive the window headlessly (`tests/native_harness.rs`) need no GPU
+      # way, so the tests that drive the window headlessly (`tests/app/native_harness.rs`) need no GPU
       # and no display.
       #
       # The print tests (`ui::print::pdf_tests`) set Chinese, Japanese and Korean mail in Noto's

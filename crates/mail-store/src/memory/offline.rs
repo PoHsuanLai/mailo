@@ -1,5 +1,5 @@
 //! What of an account is held here, in the in-memory store. Kept in step with
-//! `sqlite/offline.rs`, which `tests/offline.rs` holds it to.
+//! `sqlite/offline.rs`, which `tests/store/offline.rs` holds it to.
 
 use super::Inner;
 use crate::offline::is_remote;

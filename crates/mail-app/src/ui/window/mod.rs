@@ -90,8 +90,9 @@ pub(in crate::ui) fn title(subject: &str) -> String {
     }
 }
 
-/// Whether a window opened earlier is one to raise rather than open again.
-fn raise(life: Option<WindowLife>) -> bool {
+/// Whether a window opened earlier is one to raise rather than open again. The Settings and
+/// Add Account windows ask the same question.
+pub(in crate::ui) fn raise(life: Option<WindowLife>) -> bool {
     matches!(life, Some(WindowLife::Opening | WindowLife::Open))
 }
 

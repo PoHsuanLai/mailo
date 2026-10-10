@@ -41,30 +41,6 @@ fn a_person_the_ranker_put_on_top_is_the_books_best_match() {
 }
 
 #[test]
-fn dana_has_a_person_and_a_mail_group() {
-    let built = work();
-    let (results, names) = at_dana(&built.store);
-    let items = rows_of(&results, &names, "dana");
-    let groups: Vec<&str> = items
-        .iter()
-        .filter_map(|item| item.group.as_deref())
-        .collect();
-    assert!(
-        items.iter().any(|item| item.key.starts_with("person:")),
-        "no person for dana in {groups:?}"
-    );
-    assert!(
-        items.iter().any(|item| item.key.starts_with("mail:")),
-        "no mail for dana in {groups:?}"
-    );
-    assert!(groups.contains(&"People"), "no People group in {groups:?}");
-    assert!(
-        groups.contains(&"Mail") || groups.contains(&"Top hit"),
-        "no Mail group in {groups:?}"
-    );
-}
-
-#[test]
 fn enter_on_the_top_hit_opens_that_thread() {
     let built = work();
     let (results, _) = at_dana(&built.store);
@@ -78,35 +54,6 @@ fn enter_on_the_top_hit_opens_that_thread() {
         other => panic!("enter did not open the thread: {other:?}"),
     }
     assert_eq!(shell.open, Some(hit.summary.id));
-}
-
-#[test]
-fn an_empty_query_shows_actions_and_recent_threads() {
-    let built = work();
-    let (results, names) = search_now(&built.store, "", Utc::now());
-    let items = rows_of(&results, &names, "");
-    assert!(
-        results
-            .actions
-            .iter()
-            .any(|hit| hit.command.label == "Compose"),
-        "actions: {:?}",
-        results.actions
-    );
-    let threads = results.mail.len() + matches!(results.top, Some(Top::Mail(_))) as usize;
-    assert!(threads > 0, "no recent threads");
-    assert!(
-        items
-            .iter()
-            .any(|item| item.group.as_deref() == Some("Actions")),
-        "no Actions group"
-    );
-    assert!(
-        items
-            .iter()
-            .any(|item| item.group.as_deref() == Some("Recent") || item.key.starts_with("mail:")),
-        "no recent rows"
-    );
 }
 
 /// The sidebar's row reads as what picking it does: "Hide sidebar" while it is pinned, "Show
@@ -201,7 +148,7 @@ fn dana_is_marked_in_the_persons_name() {
 /// (`menus-label.html`), each in both themes, as pages a browser can photograph. Two pages
 /// because two open menus at once is a state the window never shows.
 #[tokio::test]
-#[ignore]
+#[ignore = "writes the menus pages to a file for screenshots"]
 async fn render_the_menus_to_a_file() {
     use crate::ui::fixtures::{dispatching, rebuild_into};
 
@@ -273,16 +220,9 @@ async fn settle(dom: &mut VirtualDom) {
 #[test]
 fn the_entries_that_are_a_page_of_settings_name_it() {
     use crate::ui::view::SettingsPage;
-    const CASES: &[(&str, Option<SettingsPage>)] = &[
-        ("General Settings", Some(SettingsPage::General)),
-        ("Accounts Settings", Some(SettingsPage::Accounts)),
-        ("Contacts Settings", Some(SettingsPage::Contacts)),
-        ("Rules Settings", Some(SettingsPage::Rules)),
-        ("Keys and Certificates Settings", Some(SettingsPage::Keys)),
-        ("Keyboard Shortcuts Settings", Some(SettingsPage::Keyboard)),
-        ("Settings…", None),
-        ("Add account…", None),
-    ];
+    // The entries that do name a page are run end to end in
+    // `each_settings_entry_opens_the_settings_window_on_its_page`.
+    const CASES: &[(&str, Option<SettingsPage>)] = &[("Settings…", None), ("Add account…", None)];
     for (label, page) in CASES {
         assert_eq!(settings_page_of(label), *page, "{label:?}");
     }
@@ -323,6 +263,10 @@ async fn each_settings_entry_opens_the_settings_window_on_its_page() {
     use crate::ui::settings_window::SettingsWindows;
     use crate::ui::settings_window::tests::Asked;
     use crate::ui::view::SettingsPage;
+    let offered: Vec<String> = super::items::commands()
+        .into_iter()
+        .map(|command| command.label)
+        .collect();
     for (label, page) in [
         ("General Settings", SettingsPage::General),
         ("Accounts Settings", SettingsPage::Accounts),
@@ -331,6 +275,10 @@ async fn each_settings_entry_opens_the_settings_window_on_its_page() {
         ("Keys and Certificates Settings", SettingsPage::Keys),
         ("Keyboard Shortcuts Settings", SettingsPage::Keyboard),
     ] {
+        assert!(
+            offered.iter().any(|one| one == label),
+            "{label:?} is not offered"
+        );
         crate::ui::fixtures::dispatching();
         let asked = Arc::new(Asked::default());
         let mut dom = VirtualDom::new_with_props(

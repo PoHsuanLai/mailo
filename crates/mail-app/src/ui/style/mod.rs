@@ -136,25 +136,27 @@ pub(in crate::ui) mod tests {
             .unwrap_or_default()
     }
 
-    /// The window is quire's `SplitView`, whose last pane takes what the others leave; without
-    /// `min-width: 0` on the card a long subject widens the window past the screen.
+    /// The `.card` rule's declarations that matter. The window is quire's `SplitView`, whose last
+    /// pane takes what the others leave; without `min-width: 0` on the card a long subject widens
+    /// the window past the screen. The card is paper, not frame: it resets the text colour to the
+    /// paper's ink, or anything on it would inherit the frame's ink, which reads in one scheme and
+    /// vanishes in the other.
     #[test]
-    fn the_card_can_shrink() {
+    fn the_card_rule_shrinks_and_sets_its_ink() {
+        // (what the rule must do, the declaration that does it)
+        const CASES: &[(&str, &str)] = &[
+            ("shrink", "min-width: 0"),
+            (
+                "reset the text colour to the paper's ink",
+                "color: var(--ink)",
+            ),
+        ];
         let card = rule_body(".card");
-        assert!(
-            card.contains("min-width: 0"),
-            ".card has no min-width: 0: {card}"
-        );
-    }
-
-    /// The card is paper, not frame: it resets the text colour to the paper's ink, or anything on
-    /// it would inherit the frame's ink, which reads in one scheme and vanishes in the other.
-    #[test]
-    fn the_paper_sets_its_own_ink() {
-        let card = rule_body(".card");
-        assert!(
-            card.contains("color: var(--ink)"),
-            ".card must reset the text colour to the paper's ink: {card}"
-        );
+        for (does, declaration) in CASES {
+            assert!(
+                card.contains(declaration),
+                ".card must {does} ({declaration}): {card}"
+            );
+        }
     }
 }

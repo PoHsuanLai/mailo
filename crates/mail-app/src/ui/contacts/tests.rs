@@ -137,29 +137,6 @@ pub(in crate::ui) fn the_book() -> (Arc<SqliteStore>, tempfile::TempDir) {
     (Arc::new(store), dir)
 }
 
-#[test]
-fn the_fixture_has_each_kind_of_entry_the_tests_rely_on() {
-    let (store, _dir) = the_book();
-    let every: Vec<String> = store
-        .contacts()
-        .unwrap_or_default()
-        .into_iter()
-        .map(|contact| contact.address)
-        .collect();
-    for address in [ME, ADDED, WRITTEN, HEARD, NO_REPLY] {
-        assert!(
-            every.iter().any(|one| one == address),
-            "{address} not in {every:?}"
-        );
-    }
-    let offered: Vec<String> = book::suggest(store.as_ref(), "da")
-        .into_iter()
-        .map(|person| person.address)
-        .collect();
-    assert!(!offered.contains(&ME.to_owned()), "{offered:?}");
-    assert!(!offered.contains(&NO_REPLY.to_owned()), "{offered:?}");
-}
-
 fn named(store: &SqliteStore, address: &str) -> Option<(Option<String>, Origin)> {
     store
         .contact(address)

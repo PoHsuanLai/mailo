@@ -116,7 +116,7 @@ default = ["quire-desktop"]
 quire-desktop = ["porter-client/dbus", "dep:porter-dbus", "dep:futures-util"]
 
 [target.'cfg(target_os = "linux")'.dev-dependencies]
-# The bus of its own the link's tests run on (`tests/link_bus.rs`): the same zbus the secret store
+# The bus of its own the link's tests run on (`tests/runtime/link_bus.rs`): the same zbus the secret store
 # and the intents provider already bring.
 zbus = "5.19"
 
@@ -127,7 +127,7 @@ tokio = { version = "1", features = ["full"] }
 tempfile = "3"
 # The WKD hash the OpenPGP tests check a request path by, already in the tree through rPGP.
 sha1 = "0.10"
-# The throwaway mark verifying authority `tests/bimi.rs` builds its certificates with
+# The throwaway mark verifying authority `tests/runtime/bimi.rs` builds its certificates with
 # (`mail-mime/tests/bimi_support`). All already in the tree through `mail-mime`.
 x509-cert = { version = "0.2", features = ["builder"] }
 der = "0.7"

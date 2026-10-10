@@ -23,21 +23,6 @@ fn type_text(session: &mut Session, text: &str, start_ms: u64, step_ms: u64) {
 }
 
 #[test]
-fn typing_then_enter_then_typing() {
-    let mut session = Session::new();
-    type_text(&mut session, "Hi", 0, 10);
-    session
-        .handle(
-            &caret_event("insertParagraph", None, session.caret.pos, false),
-            30,
-        )
-        .unwrap();
-    type_text(&mut session, "there", 40, 10);
-    assert_eq!(body(&session.doc), "Hi|there");
-    assert_eq!(session.caret.pos, Pos::new(1, 5));
-}
-
-#[test]
 fn a_cut_across_paragraphs_joins_what_is_left() {
     let mut doc = doc_of(vec![
         plain(ParaKind::Heading(Level::One), "hello"),

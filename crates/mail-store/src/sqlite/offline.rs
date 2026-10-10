@@ -1,5 +1,5 @@
 //! What of an account is held here, and which attachments wait on the server. Kept in step
-//! with `memory/offline.rs`, which `tests/offline.rs` holds it to.
+//! with `memory/offline.rs`, which `tests/store/offline.rs` holds it to.
 //!
 //! Attachments are a JSON column (`serde(Vec<Attachment>)`), and a part left on the server is an
 //! element with a `remote_section` and no `blob`. The `LIKE` is a cheap first cut before

@@ -63,22 +63,6 @@ async fn settle(dom: &mut VirtualDom) {
     }
 }
 
-/// Draw whatever lands until `span` of quire's clock has passed: a roster's timers run on wall
-/// time, and a test waits for them the way the window does.
-async fn run_for(dom: &mut VirtualDom, span: std::time::Duration) {
-    let until = tokio::time::Instant::now() + span;
-    while tokio::time::Instant::now() < until {
-        let left = until - tokio::time::Instant::now();
-        if tokio::time::timeout(left, dom.wait_for_work())
-            .await
-            .is_ok()
-        {
-            dom.render_immediate(&mut NoOpMutations);
-        }
-    }
-    settle(dom).await;
-}
-
 /// Draw until `done`, or until `bound` has passed. A loaded runner fires the roster's wall-clock
 /// sleep after the nominal settle, so a test that stops at that instant still sees the previous
 /// state. Healing is brief: this returns on the render where `done` first holds, and yields
@@ -244,29 +228,6 @@ async fn undo_restores_the_mailboxes_exactly() {
 }
 
 #[tokio::test]
-async fn ctrl_z_undoes_the_same_way() {
-    let Mounted {
-        mut dom,
-        store,
-        dana,
-        seen,
-        ..
-    } = mounted();
-    let before = mailboxes(&store, dana);
-
-    archive_dana(&mut dom, &seen, &store, dana).await;
-    assert_ne!(mailboxes(&store, dana), before, "the archive did nothing");
-    chord(
-        &mut dom,
-        "z",
-        Modifiers::CONTROL,
-        ElementId(INSIDE_THE_SHELL as usize),
-    );
-
-    assert_eq!(mailboxes(&store, dana), before, "⌘Z did not undo");
-}
-
-#[tokio::test]
 async fn dragging_a_row_onto_archive_archives_it() {
     let Mounted {
         mut dom,
@@ -279,8 +240,7 @@ async fn dragging_a_row_onto_archive_archives_it() {
     let archive = seen.one("data-place", "Archive");
 
     pointer(&mut dom, "pointerdown", row, at(420.0, 120.0));
-    let moved = pointer(&mut dom, "pointermove", row, at(300.0, 160.0));
-    let _ = moved;
+    pointer(&mut dom, "pointermove", row, at(300.0, 160.0));
     pointer(&mut dom, "pointermove", row, at(120.0, 300.0));
     let page = dioxus_ssr::render(&dom);
     assert!(
@@ -515,43 +475,12 @@ async fn each_press_on_the_star_flips_the_row_and_only_that() {
     );
 }
 
-#[tokio::test]
-async fn an_undo_mid_exit_brings_the_row_back_for_good() {
-    let Mounted {
-        mut dom,
-        seen,
-        store,
-        dana,
-        ..
-    } = mounted();
-    archive_dana(&mut dom, &seen, &store, dana).await;
-    settle(&mut dom).await;
-    chord(
-        &mut dom,
-        "z",
-        Modifiers::CONTROL,
-        ElementId(INSIDE_THE_SHELL as usize),
-    );
-    // The exit it interrupted settles on its own clock; the row must outlive it.
-    run_for(&mut dom, exit_settles()).await;
-    let page = dioxus_ssr::render(&dom);
-    let row = row_markup(&page, DANA).expect("the row an undo brought back is not drawn");
-    assert!(
-        !row.contains("data-presence=\"leaving\""),
-        "the row is still leaving after the undo:\n{row}"
-    );
-    assert_eq!(
-        page.matches(&format!("aria-label=\"Open {DANA}\"")).count(),
-        1,
-        "the row is drawn twice"
-    );
-}
-
 /// An undo mid-exit takes the exit back (`Roster::stay`): the row never leaves, so the rows
 /// below it never close a gap that was never there. Before the stay, the old key finished
-/// leaving unseen and the rows under it healed for nothing.
+/// leaving unseen and the rows under it healed for nothing. The exit it interrupted settles on
+/// its own clock, and the row must outlive it, drawn once and no longer leaving.
 #[tokio::test]
-async fn an_undo_mid_exit_heals_nothing_below() {
+async fn an_undo_mid_exit_keeps_the_row_once_and_heals_nothing() {
     let Mounted {
         mut dom,
         seen,
@@ -585,10 +514,16 @@ async fn an_undo_mid_exit_heals_nothing_below() {
             row_markup(&page, RELEASE).unwrap_or_default()
         );
     }
+    settle(&mut dom).await;
     let page = dioxus_ssr::render(&dom);
     let row = row_markup(&page, DANA).expect("the row an undo brought back is not drawn");
     assert!(
         !row.contains("data-presence=\"leaving\""),
         "the row is still leaving after the undo:\n{row}"
+    );
+    assert_eq!(
+        page.matches(&format!("aria-label=\"Open {DANA}\"")).count(),
+        1,
+        "the row is drawn twice"
     );
 }

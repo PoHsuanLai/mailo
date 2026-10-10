@@ -346,34 +346,46 @@ mod tests {
         }
     }
 
+    /// The page menu's grouping: dates fall into the four bands, and no grouping is one band
+    /// with no header.
     #[test]
-    fn dates_fall_into_the_four_bands() {
+    fn group_page_bands() {
         let now = Utc.with_ymd_and_hms(2026, 9, 23, 15, 0, 0).unwrap();
-        let threads = vec![
-            thread("today", "a@b.c", 0, true),
-            thread("yesterday", "a@b.c", 1, true),
-            thread("week", "a@b.c", 3, false),
-            thread("old", "a@b.c", 20, false),
-        ];
-        let bands = group_page(threads, PageGroup::Date, &BTreeMap::new(), now, &Utc);
-        let titles: Vec<&str> = bands
-            .iter()
-            .filter_map(|band| band.title.as_deref())
-            .collect();
-        assert_eq!(titles, ["Today", "Yesterday", "This week", "Older"]);
-    }
-
-    #[test]
-    fn none_has_no_header() {
-        let now = Utc::now();
-        let bands = group_page(
-            vec![thread("a", "a@b.c", 0, true)],
-            PageGroup::None,
-            &BTreeMap::new(),
-            now,
-            &Utc,
+        type Row = (
+            &'static str,
+            Vec<ThreadSummary>,
+            PageGroup,
+            &'static [Option<&'static str>],
         );
-        assert_eq!(bands.len(), 1);
-        assert!(bands[0].title.is_none());
+        let cases: [Row; 2] = [
+            (
+                "by date",
+                vec![
+                    thread("today", "a@b.c", 0, true),
+                    thread("yesterday", "a@b.c", 1, true),
+                    thread("week", "a@b.c", 3, false),
+                    thread("old", "a@b.c", 20, false),
+                ],
+                PageGroup::Date,
+                &[
+                    Some("Today"),
+                    Some("Yesterday"),
+                    Some("This week"),
+                    Some("Older"),
+                ],
+            ),
+            (
+                "none",
+                vec![thread("a", "a@b.c", 0, true)],
+                PageGroup::None,
+                &[None],
+            ),
+        ];
+        for (name, threads, group, want) in cases {
+            let bands = group_page(threads, group, &BTreeMap::new(), now, &Utc);
+            let titles: Vec<Option<&str>> =
+                bands.iter().map(|band| band.title.as_deref()).collect();
+            assert_eq!(titles, want, "{name}");
+        }
     }
 }
