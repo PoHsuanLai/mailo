@@ -57,7 +57,31 @@ pub enum AfterRefusal {
     TryAgain,
     /// The token refused is one this source minted after a refusal already. A third token would
     /// be refused for the same reason, and asking for it is a loop against the issuer.
+    ///
+    /// Nor is it the user's to fix by signing in again: the issuer has just stood by the grant,
+    /// and a new sign-in mints the same token. See [`refused_fresh`].
     StillRefused,
+    /// What was refused is not a token this source renews, a password: its refusal is the
+    /// user's to answer.
+    NotRenewable,
+}
+
+/// A server's refusal of a token the issuer has just issued, said as what it is.
+///
+/// The rule every engine follows after [`TokenSource::after_refusal`]: a refusal of the token it
+/// minted ([`AfterRefusal::TryAgain`], then refused), or of one it minted earlier
+/// ([`AfterRefusal::StillRefused`]), is not [`Retry::NeedsReauth`]. The issuer is the authority
+/// on the sign-in and has just renewed it, so asking the user to sign in again sends them
+/// round a loop that mints the same token: a Microsoft 365 mailbox with IMAP or SMTP switched
+/// off answers every token with `NO AUTHENTICATE failed.`, and read as a refused credential it
+/// asked for a sign-in straight after one had succeeded. Anything that is not a refused
+/// credential passes through as it was.
+pub fn refused_fresh(error: RuntimeError) -> RuntimeError {
+    if matches!(error.retry(), Retry::NeedsReauth) {
+        RuntimeError::RefusedFresh(Box::new(error))
+    } else {
+        error
+    }
 }
 
 /// Where an engine gets the credential it presents.
@@ -141,10 +165,44 @@ pub fn is_fresh(credential: &Credential, now: DateTime<Utc>) -> bool {
 /// second resource (Graph's `Mail.Send`) must name the first one's scopes on every refresh:
 /// Microsoft issues each access token for one resource and refuses a request that spans two
 /// (`AADSTS28003`).
+///
+/// The incoming resource is the one that is not Graph's, wherever the sign-in listed it: a
+/// renewal that took the first resource named would mint a Graph token for IMAP from a sign-in
+/// that happened to list Graph first, and a bare `User.Read`, which Microsoft reads as Graph's,
+/// would put a second resource in the request.
 pub fn incoming_scopes(scopes: &[String]) -> Vec<String> {
-    redeem_scope(scopes)
-        .map(|chosen| chosen.split(' ').map(str::to_owned).collect())
-        .unwrap_or_default()
+    let resources: Vec<&str> = scopes.iter().filter_map(|s| resource_of(s)).collect();
+    let Some(incoming) = resources.iter().find(|r| **r != GRAPH_RESOURCE) else {
+        // Graph's alone, or no resource at all: one resource, asked for as it was.
+        return Vec::new();
+    };
+    if resources.iter().all(|r| r == incoming) {
+        // The common case, and the shape `redeem_scope` leaves unnamed.
+        return redeem_scope(scopes)
+            .map(|chosen| chosen.split(' ').map(str::to_owned).collect())
+            .unwrap_or_default();
+    }
+    scopes
+        .iter()
+        .filter(|s| resource_of(s).is_none_or(|r| r == *incoming))
+        .cloned()
+        .collect()
+}
+
+/// Microsoft Graph's resource, as a scope names it.
+const GRAPH_RESOURCE: &str = "graph.microsoft.com";
+
+/// The resource a scope is for: the host of one written as a URL, Graph's for a bare permission
+/// such as `User.Read` (Microsoft's default resource), and none for the OpenID Connect scopes,
+/// which every resource's token request may carry.
+fn resource_of(scope: &str) -> Option<&str> {
+    if let Some(rest) = scope.strip_prefix("https://") {
+        return rest.split('/').next();
+    }
+    match scope {
+        "openid" | "profile" | "email" | "offline_access" => None,
+        _ => Some(GRAPH_RESOURCE),
+    }
 }
 
 /// Spend `refresh_token` on a new access token, naming `scopes` when there are any. The refresh
@@ -477,7 +535,7 @@ impl OAuthTokens {
                 } = self.held.current()
                 else {
                     // A password is not renewed; its refusal is the user's to answer.
-                    return Ok(AfterRefusal::StillRefused);
+                    return Ok(AfterRefusal::NotRenewable);
                 };
                 if self.spent().incoming.as_deref() == Some(access.expose()) {
                     return Ok(AfterRefusal::StillRefused);
@@ -672,6 +730,47 @@ mod tests {
             .is_empty()
         );
         assert!(incoming_scopes(&scopes(&["https://mail.google.com/", "email"])).is_empty());
+    }
+
+    /// The order a sign-in listed its scopes in does not choose the incoming resource, and a
+    /// bare Graph permission (`User.Read`, read as Graph's) is Graph's, not a second resource
+    /// riding along with IMAP's.
+    #[test]
+    fn the_incoming_token_is_never_graphs_whatever_the_order() {
+        let imap = scopes(&[
+            "https://outlook.office.com/IMAP.AccessAsUser.All",
+            "https://outlook.office.com/SMTP.Send",
+            "offline_access",
+            "openid",
+        ]);
+        let mut graph_first = scopes(&[
+            "https://graph.microsoft.com/Mail.Send",
+            "https://graph.microsoft.com/Mail.ReadWrite",
+        ]);
+        graph_first.extend(imap.clone());
+        assert_eq!(incoming_scopes(&graph_first), imap);
+
+        let mut with_profile = imap.clone();
+        with_profile.push("User.Read".to_owned());
+        assert_eq!(incoming_scopes(&with_profile), imap);
+
+        // The plan an IMAP-reading, Graph-sending account carries.
+        let sending = scopes(&[
+            "https://outlook.office.com/IMAP.AccessAsUser.All",
+            "offline_access",
+            "openid",
+            "https://graph.microsoft.com/Mail.Send",
+            "https://graph.microsoft.com/Mail.ReadWrite",
+            "https://graph.microsoft.com/User.Read",
+        ]);
+        assert_eq!(
+            incoming_scopes(&sending),
+            scopes(&[
+                "https://outlook.office.com/IMAP.AccessAsUser.All",
+                "offline_access",
+                "openid"
+            ])
+        );
     }
 
     #[test]

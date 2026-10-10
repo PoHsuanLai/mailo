@@ -7,7 +7,7 @@
 
 use crate::error::Failure;
 use crate::error::within;
-use crate::tokens::{AfterRefusal, Token, TokenSource};
+use crate::tokens::{AfterRefusal, Token, TokenSource, refused_fresh};
 use crate::{AccountSecrets, Cancel, RuntimeError, Transport, drive, drive_within};
 use chrono::{DateTime, Utc};
 use mail_domain::{
@@ -544,8 +544,12 @@ impl<B: Backend> AccountEngine<B> {
             return first;
         };
         match tokens.after_refusal(token).await? {
-            AfterRefusal::TryAgain => self.run_once(op, cancel, leaving).await,
-            AfterRefusal::StillRefused => first,
+            AfterRefusal::TryAgain => self
+                .run_once(op, cancel, leaving)
+                .await
+                .map_err(refused_fresh),
+            AfterRefusal::StillRefused => first.map_err(refused_fresh),
+            AfterRefusal::NotRenewable => first,
         }
     }
 

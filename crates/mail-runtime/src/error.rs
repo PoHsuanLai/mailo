@@ -127,6 +127,21 @@ pub enum RuntimeError {
     /// A CardDAV exchange did not work. See [`crate::carddav`].
     #[error("{0}")]
     CardDav(crate::carddav::CardDavFailure),
+    /// An IMAP server's folder list named no inbox. RFC 3501 gives every account one, so the
+    /// list is not one to keep: stored, it would read as an account with no folders at all.
+    #[error("the server listed no Inbox among its folders")]
+    NoInbox,
+    /// The server refused a token the issuer had just issued, or one it had refused already
+    /// after a renewal. The issuer stands by the sign-in, so signing in again would mint the
+    /// same token: the server will not let this account in over this protocol, which is the
+    /// mailbox's or the organisation's setting (IMAP or SMTP switched off), not the password —
+    /// or the token is another account's than the address it is presented for.
+    #[error(
+        "the server refused a sign-in the issuer has just renewed, so signing in again would not \
+         help: the server may have this protocol switched off for the account, or the sign-in \
+         was to a different account than this address ({0})"
+    )]
+    RefusedFresh(Box<RuntimeError>),
 }
 
 impl Retryable for RuntimeError {
@@ -160,6 +175,8 @@ impl Retryable for RuntimeError {
             RuntimeError::Graph { retry, .. } | RuntimeError::Link { retry, .. } => retry.clone(),
             RuntimeError::Unsubscribe(failure) => failure.retry(),
             RuntimeError::CardDav(failure) => failure.retry(),
+            // The server's answer, and it will give the same one next time.
+            RuntimeError::NoInbox | RuntimeError::RefusedFresh(_) => Retry::Fatal(self.to_string()),
         }
     }
 }
