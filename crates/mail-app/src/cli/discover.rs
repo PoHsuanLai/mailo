@@ -117,8 +117,17 @@ pub fn failed(failure: &Failed) -> String {
 /// The servers of `address`, looked up over the network, or what to tell the person when there are
 /// none. The `lookup` of [`show`] and [`before_add`].
 pub fn lookup(address: &str) -> Result<Found, String> {
-    crate::edge::block_on(mail_core::discover::search(address, chrono::Utc::now()))
-        .map_err(|why| failed(&why))
+    use mail_core::discover::Looked;
+    match crate::edge::block_on(mail_core::discover::resolve(address, chrono::Utc::now())) {
+        Looked::Found(found) => Ok(found),
+        Looked::Jmap(session) => Err(format!(
+            "could not find IMAP or POP3 servers for {address}, but there is a JMAP server at \
+             {session}; add the account there with:\n\n  mailo account add {address} --jmap {session}"
+        )),
+        Looked::Ask(why) | Looked::PersonalMicrosoft(why) | Looked::Unreachable(why) => {
+            Err(failed(&why))
+        }
+    }
 }
 
 /// Whether anyone can be asked.

@@ -15,12 +15,14 @@
 //! discovery.
 
 mod jmap;
+mod offer;
 pub mod providers;
 use crate::error::CoreError;
 use chrono::{DateTime, Utc};
 pub use jmap::find as find_jmap;
 use mail_domain::presets::{self, Manual, ManualPop3, Preset};
 use mail_domain::{AuthPlan, Outgoing, Retry, SaslMech, Tls, Username};
+pub use offer::{Looked, resolve, settle, typed, typed_domain};
 use porter_core::{Family, ServiceEndpoint, Tls as Wire, UrlScheme};
 use porter_discover::{
     Dns, Found as Servers, NotFound, OAuthOnly, Outcome, Pop3, ProviderLead, SearchOptions,
