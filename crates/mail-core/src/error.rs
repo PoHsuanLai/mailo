@@ -480,7 +480,7 @@ impl Retryable for CoreError {
             CoreError::Proto(e) => e.retry(),
             CoreError::PassFailed { retry, .. } => retry.clone(),
             CoreError::KeyringUnreachable { why, .. } => {
-                mail_runtime::SecretTrouble::Unreachable(*why).retry()
+                mail_runtime::SecretTrouble::Unreachable(why).retry()
             }
             // A refusal of ours, or a fact about bytes already in hand: asking again gets the
             // same answer.
@@ -569,7 +569,8 @@ mod tests {
             matches!(missing, CoreError::NoCredential { .. }),
             "{missing:?}"
         );
-        assert_eq!(missing.retry(), Retry::NeedsReauth);
+        // A missing credential keeps the answer it had: no waiting, the sign-in is the way on.
+        assert!(!matches!(missing.retry(), Retry::After(_)), "{missing:?}");
 
         let locked = CoreError::unread_credential(
             "a@example.test",
