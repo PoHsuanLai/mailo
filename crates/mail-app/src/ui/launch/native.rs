@@ -129,7 +129,12 @@ pub fn contexts(
     dirs: Option<WindowDirs>,
     start: crate::ui::Start,
 ) -> RootContexts {
-    let mut contexts = RootContexts::new().with(store).with(look).with(start);
+    let mut contexts = RootContexts::new()
+        .with(store)
+        .with(look)
+        .with(start)
+        // The one cache of rendered bodies every reader and the warming share.
+        .with(crate::ui::reading::frames());
     if let Some(spaces) = spaces {
         contexts = contexts.with(spaces);
     }

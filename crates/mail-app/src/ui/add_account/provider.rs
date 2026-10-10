@@ -19,14 +19,14 @@ use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Utc};
 use mail_core::account::Setup;
-use mail_core::discover::{Failed, Found, Gap};
+use mail_core::discover::{Failed, Found, Looked as Resolved};
 use mail_core::password::Password;
-use mail_domain::presets::{self, Manual, ManualPop3, Preset};
-use mail_domain::{AuthPlan, HttpAuth, Incoming, Outgoing, Tls};
+use mail_domain::presets::{self, Preset};
+use mail_domain::{AuthPlan, HttpAuth};
 use mail_store::SqliteStore;
 use porter_core::sheet::{
-    Entry, FieldAnswer, FieldKind, FieldSpec, FieldValue, Hop, MailServers, Manual as Typed,
-    Presence, Protocol, Security, SignInFault, SignInInput, manual_form, parse_manual,
+    Entry, FieldAnswer, FieldKind, FieldSpec, FieldValue, Manual as Typed, Presence, Protocol,
+    SignInFault, SignInInput, manual_form, parse_manual,
 };
 use porter_core::{
     Account, AccountId, AccountLabel, AuthKind, CapabilityKind, Claim, Credential, Offer,
@@ -337,62 +337,14 @@ impl Proposal {
         }
     }
 
-    /// The servers the person typed: IMAP or POP3 with SMTP, each as secure as was said, or a
-    /// JMAP session. The secret the sign-in is made with is a password, or, for JMAP given an
-    /// API token, the token (`typed` is the one place that decides which).
+    /// The servers the person typed ([`mail_core::discover::typed`] decides what they come to).
     fn typed(
         address: &str,
         typed: Typed,
         password: Option<Password>,
         now: DateTime<Utc>,
     ) -> (Proposal, Option<Password>) {
-        let (setup, password) = match typed {
-            Typed::Imap(servers) => {
-                let manual = Manual {
-                    imap_host: servers.incoming.host.clone(),
-                    imap_port: servers.incoming.port,
-                    smtp_host: servers.outgoing.host.clone(),
-                    smtp_port: servers.outgoing.port,
-                    login: servers.login.clone(),
-                };
-                let preset = presets::manual(address, &manual, now);
-                (
-                    Setup::Discovered(Box::new(secured(preset, &servers))),
-                    password,
-                )
-            }
-            Typed::Pop3(servers) => {
-                let manual = ManualPop3 {
-                    pop3_host: servers.incoming.host.clone(),
-                    pop3_port: servers.incoming.port,
-                    smtp_host: servers.outgoing.host.clone(),
-                    smtp_port: servers.outgoing.port,
-                    login: servers.login.clone(),
-                };
-                let preset = presets::manual_pop3(address, &manual, now);
-                (
-                    Setup::Discovered(Box::new(secured(preset, &servers))),
-                    password,
-                )
-            }
-            Typed::Jmap(server) => {
-                let (auth, secret) = match server.token {
-                    // The token is what the account signs in with; the password typed on the
-                    // first form is not used.
-                    Some(token) => (
-                        HttpAuth::Bearer,
-                        Some(Password::new(token.expose().to_owned())),
-                    ),
-                    None => (HttpAuth::Basic, password),
-                };
-                let setup = Setup::Jmap {
-                    session: Some(server.session.as_str().to_owned()),
-                    login: server.login,
-                    auth,
-                };
-                (setup, secret)
-            }
-        };
+        let (setup, password) = mail_core::discover::typed(address, typed, password, now);
         let proposal = Proposal {
             address: address.to_owned(),
             setup,
@@ -400,27 +352,6 @@ impl Proposal {
         };
         (proposal, password)
     }
-}
-
-/// `preset` with the security each of its servers was typed with (the presets are made for
-/// implicit TLS).
-fn secured(mut preset: Preset, servers: &MailServers) -> Preset {
-    let tls = |hop: &Hop| match hop.security {
-        Security::Tls => Tls::Implicit,
-        Security::StartTls => Tls::StartTlsRequired,
-        // Porter accepts it for a server on this computer only, where nothing can listen in.
-        Security::Plain => Tls::Plaintext,
-    };
-    match &mut preset.plan.incoming {
-        Incoming::Imap { tls: at, .. } | Incoming::Pop3 { tls: at, .. } => {
-            *at = tls(&servers.incoming);
-        }
-        _ => {}
-    }
-    if let Outgoing::Smtp { tls: at, .. } = &mut preset.plan.outgoing {
-        *at = tls(&servers.outgoing);
-    }
-    preset
 }
 
 /// What looking an address up came to.
@@ -433,17 +364,6 @@ enum Looked {
     Failed(SignInFault),
 }
 
-/// The domain of what is typed, when it reads as an address.
-fn domain_of(typed: &str) -> Option<String> {
-    let (local, domain) = typed.trim().rsplit_once('@')?;
-    let domain = domain.to_ascii_lowercase();
-    (!local.is_empty()
-        && domain.contains('.')
-        && !domain.starts_with('.')
-        && !domain.ends_with('.'))
-    .then_some(domain)
-}
-
 /// Look `typed` up: the built-in table first, which needs no lookup, then the autoconfig search
 /// and the JMAP search side by side. Each is handed only what it needs: the search the address,
 /// which it reduces to the domain, and the JMAP search the domain's well-known URL. When both
@@ -451,7 +371,10 @@ fn domain_of(typed: &str) -> Option<String> {
 /// showed.
 fn look(typed: &str, seams: &Seams, now: DateTime<Utc>) -> Looked {
     let address = typed.trim().to_lowercase();
-    let (Some(_), Some(well_known)) = (domain_of(&address), presets::well_known(&address)) else {
+    let (Some(_), Some(well_known)) = (
+        mail_core::discover::typed_domain(&address),
+        presets::well_known(&address),
+    ) else {
         return Looked::Failed(SignInFault::Refused);
     };
     if let Some(preset) = mail_core::discover::known(&address, now) {
@@ -460,22 +383,16 @@ fn look(typed: &str, seams: &Seams, now: DateTime<Utc>) -> Looked {
     let (found, jmap) = std::thread::scope(|scope| {
         let jmap = scope.spawn(|| (seams.jmap)(&well_known));
         let found = (seams.lookup)(&address);
-        let jmap = jmap
-            .join()
-            .unwrap_or_else(|_| Err("the search stopped before it finished".to_owned()));
-        (found, jmap)
+        // A search that panicked found nothing.
+        (found, jmap.join().ok().and_then(Result::ok))
     });
-    match (found, jmap) {
-        (Ok(found), _) => Looked::Found(Proposal::discovered(&address, found.preset)),
-        (Err(_), Ok(session)) => Looked::Found(Proposal::jmap(&address, session)),
-        (Err(Failed::NoServers { gap, .. }), Err(_)) => match gap {
-            // A personal mailbox no longer takes a password, and the form cannot say what does.
-            Gap::PersonalMicrosoft => Looked::Failed(SignInFault::Forbidden),
-            Gap::Nothing | Gap::StartTlsOnly => Looked::Ask,
-        },
-        (Err(Failed::Unreachable { .. } | Failed::Broken(_)), Err(_)) => {
-            Looked::Failed(SignInFault::Unreachable)
-        }
+    match mail_core::discover::settle(found, jmap) {
+        Resolved::Found(found) => Looked::Found(Proposal::discovered(&address, found.preset)),
+        Resolved::Jmap(session) => Looked::Found(Proposal::jmap(&address, session)),
+        // A personal mailbox no longer takes a password, and the form cannot say what does.
+        Resolved::PersonalMicrosoft(_) => Looked::Failed(SignInFault::Forbidden),
+        Resolved::Ask(_) => Looked::Ask,
+        Resolved::Unreachable(_) => Looked::Failed(SignInFault::Unreachable),
     }
 }
 
@@ -630,7 +547,7 @@ impl MailSignIn {
                 // The servers are typed by hand, from guesses at the address's own domain. A
                 // password already typed is not asked for again.
                 let address = address.to_lowercase();
-                let guess = domain_of(&address);
+                let guess = mail_core::discover::typed_domain(&address);
                 self.state = State::AskedServer(Held { address, password });
                 SignInStep::AskFields(manual_form(Protocol::Imap, guess.as_deref()))
             }

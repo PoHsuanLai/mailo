@@ -36,6 +36,7 @@ pub mod import;
 pub mod invite;
 pub mod ipc;
 pub mod mail;
+pub mod message;
 pub mod notify;
 pub mod offline;
 pub mod password;
