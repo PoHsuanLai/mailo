@@ -3,10 +3,11 @@
 //!
 //! Whether a message asks is a header the domain message does not carry, so finding out reads
 //! the stored raw message. That is done off the thread that draws, for the thread the reader has
-//! open and nowhere else — [`look`] is reached from [`bar::Receipts`] only, and a test counts its
-//! calls — and the answer is kept per message and body, like the list lookup beside it in the
-//! head. A message whose body has not been fetched is [`ReceiptState::Unknown`] and shows
-//! nothing: fetching it to find out would be a POP3 `RETR`, which marks it read.
+//! open and nowhere else — it is reached from [`bar::Receipts`] only, and a test counts the reads
+//! of the app's [`Looks`] — and the answer is kept per message and body there, like the list
+//! lookup beside it in the head. A message whose body has not been fetched is
+//! [`ReceiptState::Unknown`] and shows nothing: fetching it to find out would be a POP3 `RETR`,
+//! which marks it read.
 //!
 //! What asking and answering mean is [`mail_core::receipt`]'s, the module `mailo receipt` uses, so the
 //! window and the command cannot disagree about it. Opening a message never answers: RFC 8098
@@ -18,19 +19,14 @@ mod bar;
 pub(super) use bar::Receipts;
 
 use chrono::{DateTime, Utc};
+use mail_core::SqliteStore;
+use mail_core::message::Looks;
 use mail_core::receipt::{ReceiptState, Settled};
-use mail_core::{SqliteStore, Store};
 use mail_domain::*;
 use mail_mime::ReturnPath;
 
-/// One message's standing, with the name the bar calls its sender by.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(in crate::ui) struct Standing {
-    pub message: MessageId,
-    /// The sender's name, else their address.
-    pub sender: String,
-    pub state: ReceiptState,
-}
+// One message's standing, with the name the bar calls its sender by.
+pub(in crate::ui) use mail_core::message::Receipt as Standing;
 
 /// What the bar says about one message, worked out from its standing. Pure, so every wording is
 /// a table test away.
@@ -76,87 +72,18 @@ pub(in crate::ui) fn line(standing: &Standing) -> Option<Line> {
     }
 }
 
-/// What a message's standing is a function of: the message and the bytes it has. A body that
-/// arrives is a new key. An answer given here replaces the kept standing directly.
-pub(in crate::ui) type Bodies = Vec<(MessageId, Option<BlobId>)>;
-
-#[cfg(test)]
-static LOOKED: std::sync::Mutex<Vec<MessageId>> = std::sync::Mutex::new(Vec::new());
-
-/// Whether [`look`] has read `message`'s standing in this test process.
-#[cfg(test)]
-pub(in crate::ui) fn looked_at(message: MessageId) -> bool {
-    LOOKED
-        .lock()
-        .unwrap_or_else(|held| held.into_inner())
-        .contains(&message)
-}
-
-/// Read `message`'s standing from the store. This may read a blob: it runs on a blocking
-/// thread, for the thread the reader has open, and nowhere else.
-pub(in crate::ui) fn look(store: &SqliteStore, message: MessageId) -> Option<Standing> {
-    #[cfg(test)]
-    LOOKED
-        .lock()
-        .unwrap_or_else(|held| held.into_inner())
-        .push(message);
-    let stored = store.message(message).ok()?;
-    let state = mail_core::receipt::state(store, &stored).ok()?;
-    let sender = stored
-        .from
-        .name
-        .clone()
-        .filter(|name| !name.trim().is_empty())
-        .unwrap_or_else(|| stored.from.email.clone());
-    Some(Standing {
-        message,
-        sender,
-        state,
-    })
-}
-
-/// How many messages' standings to keep. Each is a few short strings.
-const KEPT: usize = 256;
-
-type Kept = (MessageId, Option<BlobId>, Option<Standing>);
-
-static CACHE: std::sync::Mutex<Vec<Kept>> = std::sync::Mutex::new(Vec::new());
+// What a thread's standings are a function of: the messages and the bytes each one has. A body
+// that arrives is a new key. An answer given here replaces the kept standing directly.
+pub(in crate::ui) use mail_core::message::Bodies;
 
 /// The standings already found for every message in `key`, or `None` if any is missing.
-pub(in crate::ui) fn cached(key: &Bodies) -> Option<Vec<Standing>> {
-    let cache = CACHE.lock().unwrap_or_else(|held| held.into_inner());
-    key.iter()
-        .map(|(message, body)| {
-            cache
-                .iter()
-                .find(|(had, at, _)| had == message && at == body)
-                .map(|(_, _, standing)| standing.clone())
-        })
-        .collect::<Option<Vec<_>>>()
-        .map(|all| all.into_iter().flatten().collect())
+pub(in crate::ui) fn cached(looks: &Looks, key: &Bodies) -> Option<Vec<Standing>> {
+    looks.receipts_cached(key)
 }
 
-fn keep(message: MessageId, body: Option<BlobId>, standing: Option<Standing>) {
-    let mut cache = CACHE.lock().unwrap_or_else(|held| held.into_inner());
-    cache.retain(|(had, _, _)| *had != message);
-    cache.push((message, body, standing));
-    if cache.len() > KEPT {
-        cache.remove(0);
-    }
-}
-
-/// [`cached`], else [`look`] for each message, remembered. Runs on a blocking thread.
-pub(in crate::ui) fn lookup(store: &SqliteStore, key: &Bodies) -> Vec<Standing> {
-    if let Some(had) = cached(key) {
-        return had;
-    }
-    key.iter()
-        .filter_map(|(message, body)| {
-            let standing = look(store, *message);
-            keep(*message, *body, standing.clone());
-            standing
-        })
-        .collect()
+/// [`cached`], else read for each message and remembered. Runs on a blocking thread.
+pub(in crate::ui) fn lookup(looks: &Looks, store: &SqliteStore, key: &Bodies) -> Vec<Standing> {
+    looks.receipts(store, key)
 }
 
 /// Answer `message`'s request through [`mail_core::receipt::answer`], and keep the answer as its
@@ -166,6 +93,7 @@ pub(in crate::ui) fn lookup(store: &SqliteStore, key: &Bodies) -> Vec<Standing> 
 /// Returns what the toast says: where the receipt went, or that none will. The command line
 /// adds a line telling a terminal to run `mailo sync`, which the window does itself.
 pub(in crate::ui) fn answer(
+    looks: &Looks,
     store: &SqliteStore,
     message: MessageId,
     answer: ReceiptAnswer,
@@ -173,9 +101,7 @@ pub(in crate::ui) fn answer(
 ) -> Result<String, String> {
     let settled = mail_core::receipt::answer(store, message, answer, now)?;
     // Read back rather than assumed: the store's answer is the one the command will show too.
-    if let Ok(stored) = store.message(message) {
-        keep(message, stored.body.raw(), look(store, message));
-    }
+    looks.receipt_again(store, message);
     Ok(match settled {
         Settled::Sent { to } => format!("Queued a read receipt to {}", to.join(", ")),
         Settled::Declined { to } => {

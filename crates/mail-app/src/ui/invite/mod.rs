@@ -3,8 +3,9 @@
 //!
 //! Whether a message invites is read from its stored raw bytes, so finding out reads a blob.
 //! That is done off the thread that draws, for the messages the reader has open and nowhere
-//! else — [`look`] is reached from [`draw::Invitation`] only, and a test counts its calls — and
-//! the answer is kept per message and body, like the receipt bar's. A message whose body has not
+//! else — it is reached from [`draw::Invitation`] only, and a test counts the reads of the app's
+//! [`Looks`](mail_core::message::Looks) — and the answer is kept per message and body there, like
+//! the receipt bar's. A message whose body has not
 //! been fetched shows no card: fetching it to find out would be a POP3 `RETR`, which marks it
 //! read.
 //!
@@ -20,79 +21,45 @@ use card::{CHIPS, Card, Stand, card_of};
 pub(in crate::ui) use draw::Invitation;
 
 use chrono::{DateTime, Utc};
-use mail_core::invite::InviteState;
-use mail_core::{SqliteStore, Store};
+use mail_core::SqliteStore;
+use mail_core::message::{Invited, Looks};
 use mail_domain::*;
 use std::path::Path;
 
-#[cfg(test)]
-static LOOKED: std::sync::Mutex<Vec<MessageId>> = std::sync::Mutex::new(Vec::new());
-
-/// Whether [`look`] has read `message` in this test process.
-#[cfg(test)]
-pub(in crate::ui) fn looked_at(message: MessageId) -> bool {
-    LOOKED
-        .lock()
-        .unwrap_or_else(|held| held.into_inner())
-        .contains(&message)
+/// The card for what a message was found to invite to, with times in the reader's zone.
+fn card_from(message: MessageId, invited: &Invited) -> Card {
+    card_of(
+        message,
+        &invited.invite,
+        invited.answered.as_ref(),
+        &chrono::Local,
+    )
 }
-
-/// Read `message`'s invitation from the store, with times in the reader's zone. `None` when it
-/// carries none, or only its headers are here. This reads a blob: it runs on a blocking thread,
-/// for a message the reader has open, and nowhere else.
-pub(in crate::ui) fn look(store: &SqliteStore, message: MessageId) -> Option<Card> {
-    #[cfg(test)]
-    LOOKED
-        .lock()
-        .unwrap_or_else(|held| held.into_inner())
-        .push(message);
-    let stored = store.message(message).ok()?;
-    match mail_core::invite::state(store, &stored).ok()? {
-        InviteState::Shown { invite, answered } => {
-            Some(card_of(message, &invite, answered.as_ref(), &chrono::Local))
-        }
-        InviteState::NotInvite | InviteState::Unknown => None,
-    }
-}
-
-/// How many messages' cards to keep. Each is a few short strings.
-const KEPT: usize = 128;
-
-type Kept = (MessageId, Option<BlobId>, Option<Card>);
-
-static CACHE: std::sync::Mutex<Vec<Kept>> = std::sync::Mutex::new(Vec::new());
 
 /// The card already found for `message` holding `body`, if it has been looked at. `Some(None)`
 /// is a message that was looked at and invites to nothing.
-pub(in crate::ui) fn cached(message: MessageId, body: Option<BlobId>) -> Option<Option<Card>> {
-    let cache = CACHE.lock().unwrap_or_else(|held| held.into_inner());
-    cache
-        .iter()
-        .find(|(had, at, _)| *had == message && *at == body)
-        .map(|(_, _, card)| card.clone())
+pub(in crate::ui) fn cached(
+    looks: &Looks,
+    message: MessageId,
+    body: Option<BlobId>,
+) -> Option<Option<Card>> {
+    looks
+        .invite_cached(message, body)
+        .map(|invited| invited.map(|invited| card_from(message, &invited)))
 }
 
-fn keep(message: MessageId, body: Option<BlobId>, card: Option<Card>) {
-    let mut cache = CACHE.lock().unwrap_or_else(|held| held.into_inner());
-    cache.retain(|(had, _, _)| *had != message);
-    cache.push((message, body, card));
-    if cache.len() > KEPT {
-        cache.remove(0);
-    }
-}
-
-/// [`cached`], else [`look`], remembered. Runs on a blocking thread.
+/// [`cached`], else read from the store and remembered. `None` when the message carries no
+/// invitation, or only its headers are here. This reads a blob: it runs on a blocking thread,
+/// for a message the reader has open, and nowhere else.
 pub(in crate::ui) fn lookup(
+    looks: &Looks,
     store: &SqliteStore,
     message: MessageId,
     body: Option<BlobId>,
 ) -> Option<Card> {
-    if let Some(had) = cached(message, body) {
-        return had;
-    }
-    let card = look(store, message);
-    keep(message, body, card.clone());
-    card
+    looks
+        .invite(store, message, body)
+        .map(|invited| card_from(message, &invited))
 }
 
 /// Answer `message`'s invitation through [`mail_core::invite::answer`], and read its card back so
@@ -103,6 +70,7 @@ pub(in crate::ui) fn lookup(
 /// answer goes to; the rest tells a terminal to run `mailo sync`, which the window does itself —
 /// and the card as it now stands.
 pub(in crate::ui) fn answer(
+    looks: &Looks,
     store: &SqliteStore,
     message: MessageId,
     attendance: Attendance,
@@ -111,10 +79,9 @@ pub(in crate::ui) fn answer(
 ) -> Result<(String, Option<Card>), String> {
     let answered = mail_core::invite::answer(store, message, attendance, note, now)?;
     let said = crate::said::invite::said(&answered);
-    let card = look(store, message);
-    if let Ok(stored) = store.message(message) {
-        keep(message, stored.body.raw(), card.clone());
-    }
+    let card = looks
+        .invite_again(store, message)
+        .map(|invited| card_from(message, &invited));
     Ok((toast_text(&said), card))
 }
 

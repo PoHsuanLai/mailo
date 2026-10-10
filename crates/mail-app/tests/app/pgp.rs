@@ -14,6 +14,7 @@ use mail_domain::*;
 use mail_mime::openpgp::{self, Keys, SecretCert, Unlocking};
 use porter_core::AccountId;
 use rand::SeedableRng;
+use std::sync::Arc;
 
 fn acct_account() -> AccountId {
     account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
@@ -41,8 +42,9 @@ fn seeded() -> (SqliteStore, tempfile::TempDir) {
 }
 
 /// The same, with a key of the user's own already made.
-fn with_key() -> (SqliteStore, tempfile::TempDir, MapSigningStore, PgpKey) {
+fn with_key() -> (Arc<SqliteStore>, tempfile::TempDir, MapSigningStore, PgpKey) {
     let (store, dir) = seeded();
+    let store = Arc::new(store);
     let secrets = MapSigningStore::default();
     let key = pgp::keys::generate(&store, &secrets, ME, now()).unwrap();
     (store, dir, secrets, key)
@@ -734,13 +736,11 @@ mod reading {
         )
         .unwrap();
         let message = arrive(&store, sealed);
-        let shown = cli::run_with_clients(
-            &store,
+        let shown = cli::run(
+            &crate::cli_mail::mail_at(&store, now()),
             &cli::Command::Show {
                 thread: message.thread,
             },
-            now(),
-            &mail_core::ClientRegistry::default(),
         )
         .unwrap();
         assert!(

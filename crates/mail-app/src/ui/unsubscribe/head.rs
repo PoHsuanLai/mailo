@@ -42,21 +42,24 @@ pub(in crate::ui) fn Leave(
     bodies: Bodies,
     revision: Option<Signal<u64>>,
 ) -> Element {
+    let looks = crate::ui::reading::use_looks();
     let mut known = use_signal({
-        let bodies = bodies.clone();
-        move || cached(thread, &bodies)
+        let (looks, bodies) = (looks.clone(), bodies.clone());
+        move || cached(&looks, thread, &bodies)
     });
     let _look = use_resource(move || {
         let bodies = bodies.clone();
+        let looks = looks.clone();
         let store = consume_context::<Arc<SqliteStore>>();
         async move {
             if known.peek().is_some() {
                 return;
             }
-            let offer = tokio::task::spawn_blocking(move || lookup(&store, thread, &bodies))
-                .await
-                .ok()
-                .flatten();
+            let offer =
+                tokio::task::spawn_blocking(move || lookup(&looks, &store, thread, &bodies))
+                    .await
+                    .ok()
+                    .flatten();
             known.set(Some(offer));
         }
     });

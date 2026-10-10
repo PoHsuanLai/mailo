@@ -4,10 +4,11 @@
 //! What a message is — signed, encrypted, by whom — is [`mail_core::pgp`]'s and [`mail_core::smime`]'s,
 //! the modules `mailo show`, `mailo pgp` and `mailo smime` use, so the window and the command
 //! cannot disagree. Opening decrypts, so it is slow and may need the keyring: it runs on a
-//! blocking thread, for a message the reader has open and nowhere else — [`look`] is reached
-//! from [`seal::Seal`] and [`unlock`] only, and a test counts its calls — and what it found is
-//! kept per message and body, like the receipt bar's and the invitation card's. The decrypted
-//! body lives in that cache and nowhere else: it is shown in place of the stored one, through
+//! blocking thread, for a message the reader has open and nowhere else — it is reached from
+//! [`seal::Seal`] and [`unlock`] only, and a test counts the reads of the app's
+//! [`Looks`](mail_core::message::Looks) — and what it found is kept per message and body there,
+//! like the receipt bar's and the invitation card's. The decrypted body lives in that cache and
+//! nowhere else: it is shown in place of the stored one, through
 //! the same blocks, and never written down.
 //!
 //! A passphrase typed to unlock a key, or a PKCS#12 file's password, is a
@@ -24,11 +25,7 @@ mod said;
 mod seal;
 mod unlock;
 
-pub(in crate::ui) use look::{
-    Look, attachments, cached, lookup, parsed, save_attachment, subject, unlock,
-};
-#[cfg(test)]
-pub(in crate::ui) use look::{looked_at, looks_at};
+pub(in crate::ui) use look::{Look, attachments, cached, lookup, save_attachment, unlock};
 pub(in crate::ui) use said::{Said, said, said_smime, whose};
 #[cfg(test)]
 pub(in crate::ui) use said::{Tone, doubt};
@@ -91,15 +88,7 @@ pub(in crate::ui) fn seams() -> Seams {
     dioxus::prelude::try_consume_context::<Seams>().unwrap_or_else(Seams::real)
 }
 
-/// Whether a passphrase was given, when a key stayed locked. `ask` is only called for a
-/// protected key, so a key still locked after one was given was given the wrong one.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(in crate::ui) enum Tried {
-    /// None was given: it needs one.
-    Nothing,
-    /// One was given, and it did not unlock the key.
-    Wrong,
-}
+pub(in crate::ui) use mail_core::message::Tried;
 
 /// Whether something started by a press is still running, so a second press starts nothing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

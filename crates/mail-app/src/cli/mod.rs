@@ -4,10 +4,10 @@
 //! CLI can list, open and reply", and a CLI can be driven from a test where a window cannot.
 //! The UI will call the same `Store` methods.
 
-use chrono::{DateTime, Local, Utc};
+use chrono::Local;
 use mail_core::account::{Receive, Setup};
 use mail_core::when::Stamp;
-use mail_core::{SqliteStore, Store};
+use mail_core::{Mail, SqliteStore, Store};
 use mail_domain::*;
 use porter_core::AccountId;
 use std::fmt::Write as _;
@@ -1420,28 +1420,21 @@ usage: mailo <command>
     .to_owned()
 }
 
-/// Run a command against the store, returning what to print.
+/// Run a command over `mail`, returning what to print.
 ///
 /// Returns a `String` rather than printing, so tests assert on output instead of capturing
-/// stdout. OAuth setup falls back on [`mail_core::account::saved_clients`].
-pub fn run(store: &SqliteStore, command: &Command, now: DateTime<Utc>) -> Result<String, String> {
-    run_with_clients(store, command, now, &mail_core::account::saved_clients())
-}
-
-/// [`run`], with the OAuth clients named.
-///
-/// The binary passes [`mail_core::account::saved_clients`]. An integration test passes an empty
-/// registry: it links the ordinary library, so that function's `cfg!(test)` guard does not
-/// apply, and a real client id would open a browser and wait.
-pub fn run_with_clients(
-    store: &SqliteStore,
-    command: &Command,
-    now: DateTime<Utc>,
-    saved: &mail_core::ClientRegistry,
-) -> Result<String, String> {
+/// stdout. The handle carries what the commands read besides the store: the environment (a
+/// password or a passphrase given there), the secrets, the OAuth clients and the time. The binary
+/// builds it with [`crate::edge::mail`], whose clients are [`mail_core::account::saved_clients`];
+/// an integration test gives it an empty registry with `with_clients`, because it links the
+/// ordinary library, that function's `cfg!(test)` guard does not apply, and a real client id
+/// would open a browser and wait.
+pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
+    let store: &SqliteStore = mail.store();
+    let now = mail.now();
     // What the process was started with: the commands that take a password or a passphrase from
     // the environment read it here, and the library reads nothing itself.
-    let env = crate::edge::environment();
+    let env = mail.environment().clone();
     match command {
         Command::List { mailbox, limit } => {
             // `view::place_filter`, not `Filter::InMailbox`: the shell and the command list the
@@ -1758,15 +1751,9 @@ pub fn run_with_clients(
                     .map_err(remedy::error)?;
             Ok(format!("{described}\n{}", unsubscribe::report(&outcome)))
         }
-        Command::Contacts(command) => crate::edge::block_on(contacts::run(
-            store,
-            crate::edge::secrets().as_ref(),
-            &env,
-            command,
-            saved,
-            now,
-        ))
-        .map_err(remedy::error),
+        Command::Contacts(command) => {
+            crate::edge::block_on(contacts::run(mail, command)).map_err(remedy::error)
+        }
         Command::Print { target, out, pages } => {
             let printed = mail_core::print::document(store, *target, &Local, now, *pages)
                 .map_err(remedy::error)?;
@@ -1782,22 +1769,12 @@ pub fn run_with_clients(
         }
         Command::Invite(command) => invite::run(store, command, now).map_err(remedy::error),
         Command::Rules(rules) => rules::run(store, rules, now).map_err(remedy::error),
-        Command::Vacation(vacation) => crate::edge::block_on(rules::run_vacation(
-            store,
-            crate::edge::secrets().as_ref(),
-            vacation,
-            saved,
-            now,
-        ))
-        .map_err(remedy::error),
-        Command::Sieve(sieve) => crate::edge::block_on(rules::run_sieve(
-            store,
-            crate::edge::secrets().as_ref(),
-            sieve,
-            saved,
-            now,
-        ))
-        .map_err(remedy::error),
+        Command::Vacation(vacation) => {
+            crate::edge::block_on(rules::run_vacation(mail, vacation)).map_err(remedy::error)
+        }
+        Command::Sieve(sieve) => {
+            crate::edge::block_on(rules::run_sieve(mail, sieve)).map_err(remedy::error)
+        }
         Command::Discard { draft } => mail_core::compose::discard(store, *draft)
             .map(|subject| format!("discarded {subject:?}\n"))
             .map_err(remedy::error),
@@ -1808,30 +1785,21 @@ pub fn run_with_clients(
             graph,
             receive,
             consent: _,
-        } => crate::edge::block_on(mail_core::account::add(
-            store,
+        } => crate::edge::block_on(mail.accounts().add(
             address,
             manual.as_ref(),
             *microsoft,
             *graph,
             *receive,
-            &env,
-            crate::edge::secrets().as_ref(),
-            saved,
             &account::announce_sign_in,
-            now,
         ))
         .map(|added| account::added(&added))
         .map_err(remedy::error),
-        Command::AccountList => crate::edge::block_on(mail_core::account::list(
-            store,
-            crate::edge::secrets().as_ref(),
-        ))
-        .map(|accounts| account::listed(&accounts))
-        .map_err(remedy::error),
+        Command::AccountList => crate::edge::block_on(mail.accounts().list())
+            .map(|accounts| account::listed(&accounts))
+            .map_err(remedy::error),
         Command::AccountRemove { address, consent } => account::remove(
-            store,
-            crate::edge::secrets().as_ref(),
+            mail,
             mail_core::config::config_dir().as_deref(),
             address,
             *consent,

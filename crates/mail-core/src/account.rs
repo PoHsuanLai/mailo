@@ -18,6 +18,7 @@ use porter_provider::ClientEntry;
 use porter_provider::Issuer;
 
 mod advice;
+pub mod draft;
 mod linked;
 mod remove;
 
@@ -197,6 +198,11 @@ impl crate::mail::AccountOps<'_> {
     /// Every account, with what each one still needs. See [`list`].
     pub async fn list(&self) -> Result<Vec<Listed>, CoreError> {
         list(self.0.store(), self.0.secrets().as_ref()).await
+    }
+
+    /// Remove `account` and everything kept of it here. See [`remove`].
+    pub async fn remove(&self, account: AccountId) -> Result<Removed, RemoveError> {
+        remove(self.0.store(), self.0.secrets().as_ref(), account).await
     }
 
     /// The local-only account, created the first time something is kept in it.
@@ -667,7 +673,7 @@ pub fn oauth_client(
 /// The OAuth clients earlier sign-ins recorded, for [`add`] to fall back on.
 ///
 /// Empty in this crate's unit tests. Integration tests link the ordinary library, so this
-/// guard does not apply to them; they pass an empty registry to [`crate::cli::run_with_clients`].
+/// guard does not apply to them; they hand `Mail::with_clients` an empty registry.
 /// A test that found a real client id here would open a sign-in and wait on it.
 pub fn saved_clients() -> ClientRegistry {
     if cfg!(test) {
@@ -712,8 +718,9 @@ fn remember(typed: Option<&ClientEntry>) -> Result<Option<std::path::PathBuf>, C
 /// Run the browser sign-in and return the resulting credential.
 ///
 /// Waits for the person, and deliberately so: this is a one-shot setup command, the user is
-/// watching, and there is nothing else for the process to do while they sign in.
-async fn authorize(
+/// watching, and there is nothing else for the process to do while they sign in. The window's
+/// sheet waits on it too, on a thread of its own.
+pub async fn authorize(
     client: &ClientEntry,
     scopes: &[String],
     on_url: &dyn Fn(&str),

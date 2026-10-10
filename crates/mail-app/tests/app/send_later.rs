@@ -2,7 +2,7 @@
 //!
 //! `mailo send <draft> --at <when>` holds a send in the outbox until then; `mailo unsend` takes
 //! it back while it waits; `mailo template …` keeps drafts to start from. Driven through
-//! `cli::parse` and `cli::run_with_clients` against a real store, as a user would reach them.
+//! `cli::parse` and `cli::run` against a real store, as a user would reach them.
 
 use chrono::{DateTime, FixedOffset, TimeZone, Utc};
 use mail_app::cli;
@@ -12,6 +12,7 @@ use mail_core::{SqliteStore, Store};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use porter_core::AccountId;
+use std::sync::Arc;
 
 fn acct_account() -> AccountId {
     account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
@@ -32,12 +33,12 @@ fn args(s: &str) -> Vec<String> {
     s.split(' ').map(str::to_owned).collect()
 }
 
-fn exercise(store: &SqliteStore, command: &cli::Command) -> Result<String, String> {
-    cli::run_with_clients(store, command, now(), &mail_core::ClientRegistry::default())
+fn exercise(store: &Arc<SqliteStore>, command: &cli::Command) -> Result<String, String> {
+    cli::run(&crate::cli_mail::mail_at(store, now()), command)
 }
 
 /// A store with one account that can send.
-fn seeded() -> (SqliteStore, tempfile::TempDir) {
+fn seeded() -> (Arc<SqliteStore>, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let store = SqliteStore::in_memory(dir.path()).unwrap();
     {
@@ -50,7 +51,7 @@ fn seeded() -> (SqliteStore, tempfile::TempDir) {
             None,
         );
     }
-    (store, dir)
+    (Arc::new(store), dir)
 }
 
 fn someone() -> Vec<Address> {

@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 use super::said::{Said, Tone};
 use super::{Busy, Look, Unlock, cached, lookup, seams, short, unlock};
+use mail_core::message::Looks;
 use mail_core::password::Password;
 
 /// One message's protection, once it is known.
@@ -26,32 +27,48 @@ pub(in crate::ui) fn Seal(
     body: Option<BlobId>,
     landed: Signal<u64>,
 ) -> Element {
-    let mut known = use_signal(move || cached(message, body));
+    let looks = crate::ui::reading::use_looks();
+    let mut known = use_signal({
+        let looks = looks.clone();
+        move || cached(&looks, message, body)
+    });
     let working = use_signal(|| Busy::Idle);
-    let _look = use_resource(move || {
-        let store = consume_context::<Arc<SqliteStore>>();
-        let secrets = seams().secrets;
-        async move {
-            if known.peek().is_some() {
-                return;
-            }
-            let found = tokio::task::spawn_blocking(move || {
-                lookup(&store, secrets.as_ref(), message, body)
-            })
-            .await
-            .unwrap_or_else(|error| Look::Failed(format!("Opening it stopped: {error}")));
-            let shows = matches!(&found, Look::Opened(opened) if opened.shown.is_some());
-            known.set(Some(found));
-            if shows {
-                let mut landed = landed;
-                landed += 1;
+    let _look = use_resource({
+        let looks = looks.clone();
+        move || {
+            let store = consume_context::<Arc<SqliteStore>>();
+            let secrets = seams().secrets;
+            let looks = looks.clone();
+            async move {
+                if known.peek().is_some() {
+                    return;
+                }
+                let found = tokio::task::spawn_blocking(move || {
+                    lookup(&looks, &store, secrets.as_ref(), message, body)
+                })
+                .await
+                .unwrap_or_else(|error| Look::Failed(format!("Opening it stopped: {error}")));
+                let shows = matches!(&found, Look::Opened(opened) if opened.shown.is_some());
+                known.set(Some(found));
+                if shows {
+                    let mut landed = landed;
+                    landed += 1;
+                }
             }
         }
     });
     // Made here, not in the field: a task spawned from a component that is gone is dropped with
     // it, and a callback runs in the scope that made it.
     let on_unlock = use_callback(move |passphrase: Password| {
-        open_with(message, body, passphrase, known, working, landed)
+        open_with(
+            looks.clone(),
+            message,
+            body,
+            passphrase,
+            known,
+            working,
+            landed,
+        )
     });
     match known() {
         None | Some(Look::Plain) => rsx! {},
@@ -86,6 +103,7 @@ pub(in crate::ui) fn Seal(
 
 /// Open the message again with `passphrase`, on a blocking thread, and say what that found.
 fn open_with(
+    looks: Arc<Looks>,
     message: MessageId,
     body: Option<BlobId>,
     passphrase: Password,
@@ -102,7 +120,7 @@ fn open_with(
     // Spawned from a press, which is where a task is polled (F140).
     spawn(async move {
         let found = tokio::task::spawn_blocking(move || {
-            unlock(&store, secrets.as_ref(), message, body, passphrase)
+            unlock(&looks, &store, secrets.as_ref(), message, body, passphrase)
         })
         .await
         .unwrap_or_else(|error| Look::Failed(format!("Unlocking stopped: {error}")));

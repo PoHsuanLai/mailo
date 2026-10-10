@@ -11,6 +11,7 @@ use mail_core::{SqliteStore, Store};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use porter_core::AccountId;
+use std::sync::Arc;
 
 fn acct_account() -> AccountId {
     account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
@@ -25,13 +26,8 @@ fn at(n: i64) -> DateTime<Utc> {
     Utc.timestamp_opt(1_790_000_000 + n, 0).unwrap()
 }
 
-fn exercise(store: &SqliteStore, command: &cli::Command) -> Result<String, String> {
-    cli::run_with_clients(
-        store,
-        command,
-        at(100),
-        &mail_core::ClientRegistry::default(),
-    )
+fn exercise(store: &Arc<SqliteStore>, command: &cli::Command) -> Result<String, String> {
+    cli::run(&crate::cli_mail::mail_at(store, at(100)), command)
 }
 
 /// A calendar object inviting `attendee`, with `method`, `sequence` and `status`.
@@ -89,7 +85,7 @@ fn request(attendee: &str) -> Vec<u8> {
 /// A store with one account, its default identity `me@example.test` (reply-to
 /// `me.reply@example.test`) and an alternate identity `alias@example.test`, holding one message
 /// built from `raw` — or its headers only when `raw` is `None`.
-fn seeded(raw: Option<Vec<u8>>) -> (SqliteStore, tempfile::TempDir, ThreadId) {
+fn seeded(raw: Option<Vec<u8>>) -> (Arc<SqliteStore>, tempfile::TempDir, ThreadId) {
     let dir = tempfile::tempdir().unwrap();
     let store = SqliteStore::in_memory(dir.path()).unwrap();
     {
@@ -195,7 +191,7 @@ fn seeded(raw: Option<Vec<u8>>) -> (SqliteStore, tempfile::TempDir, ThreadId) {
             },
         )
         .unwrap();
-    (store, dir, thread)
+    (Arc::new(store), dir, thread)
 }
 
 /// Every submission queued, as `(mail_from, rcpt_to, bytes)`.

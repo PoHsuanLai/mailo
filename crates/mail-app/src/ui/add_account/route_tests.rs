@@ -1,8 +1,8 @@
 //! Who draws the add-account sheet: the window, or accountd's shell.
 
 use super::*;
-use mail_runtime::link::{Accountd, Answer, Changes, LinkError};
-use mail_runtime::{Link, Transport};
+use mail_core::link::{Answer, Changes, LinkError};
+use mail_core::{Accountd, Link, Transport};
 use porter_core::{AccountId, Audience, Candidate, GrantId, IssuedToken, ServiceEndpoint};
 
 /// An accountd that is never asked anything: only its presence is the test's.

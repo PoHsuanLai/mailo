@@ -18,6 +18,7 @@ use ds::prelude::*;
 use ds::root::common::Common;
 use ds::root::pass_through::ExtraClass;
 use mail_core::SqliteStore;
+use mail_core::message::Looks;
 use mail_domain::{Attendance, BlobId, MessageId};
 use std::sync::Arc;
 
@@ -51,14 +52,19 @@ pub(in crate::ui) enum Phase {
 /// reader on the message and its body, so one message's card is never drawn under another.
 #[component]
 pub(in crate::ui) fn Invitation(message: MessageId, body: Option<BlobId>) -> Element {
-    let mut known = use_signal(move || cached(message, body));
+    let looks = crate::ui::reading::use_looks();
+    let mut known = use_signal({
+        let looks = looks.clone();
+        move || cached(&looks, message, body)
+    });
     let _look = use_resource(move || {
         let store = consume_context::<Arc<SqliteStore>>();
+        let looks = looks.clone();
         async move {
             if known.peek().is_some() {
                 return;
             }
-            let found = tokio::task::spawn_blocking(move || lookup(&store, message, body))
+            let found = tokio::task::spawn_blocking(move || lookup(&looks, &store, message, body))
                 .await
                 .unwrap_or_default();
             known.set(Some(found));
@@ -75,6 +81,7 @@ pub(in crate::ui) fn Invitation(message: MessageId, body: Option<BlobId>) -> Ele
 /// The card itself. `known` is where an answer's fresh card is put.
 #[component]
 pub(in crate::ui) fn InviteCard(card: Card, known: Signal<Option<Option<Card>>>) -> Element {
+    let looks = crate::ui::reading::use_looks();
     let mut phase = use_signal(|| Phase::Resting);
     let mut more = use_signal(|| false);
     let mut everyone = use_signal(|| false);
@@ -114,7 +121,7 @@ pub(in crate::ui) fn InviteCard(card: Card, known: Signal<Option<Option<Card>>>)
     // spawned from a component that is gone is dropped with it. A callback runs in the scope
     // that made it, and this card stays.
     let send = use_callback(move |(attendance, note): (Attendance, String)| {
-        give(message, attendance, note, phase, known)
+        give(looks.clone(), message, attendance, note, phase, known)
     });
     rsx! {
             section { class: "invite", role: "group", aria_label: "Calendar invitation",
@@ -303,6 +310,7 @@ fn Noting(
 /// Queue `attendance` with `note` on a blocking thread, then say so in the toast and settle
 /// the card on what the store now holds.
 fn give(
+    looks: Arc<Looks>,
     message: MessageId,
     attendance: Attendance,
     note: String,
@@ -318,7 +326,14 @@ fn give(
     spawn(async move {
         let done = tokio::task::spawn_blocking(move || {
             let note = Some(note.as_str()).filter(|note| !note.trim().is_empty());
-            answer(&store, message, attendance, note, chrono::Utc::now())
+            answer(
+                &looks,
+                &store,
+                message,
+                attendance,
+                note,
+                chrono::Utc::now(),
+            )
         })
         .await;
         match done {

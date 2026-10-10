@@ -64,6 +64,7 @@ mod print;
 mod provider_chip;
 pub mod reading;
 mod receipt;
+mod remedy;
 mod revisions;
 mod row;
 mod rules;

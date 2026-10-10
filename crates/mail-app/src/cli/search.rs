@@ -72,9 +72,10 @@ pub(super) fn search(
 mod tests {
     use chrono::{DateTime, TimeZone, Utc};
     use mail_core::search::Affinity;
-    use mail_core::{SqliteStore, Store};
+    use mail_core::{FixedClock, SqliteStore, Store};
     use mail_domain::*;
     use porter_core::AccountId;
+    use std::sync::Arc;
 
     fn acct_account() -> AccountId {
         mail_domain::id::account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
@@ -122,7 +123,7 @@ mod tests {
     }
 
     /// A sqlite store with one account, so `mailo search` and the window's pipeline see the same rows.
-    fn sqlite_with(rows: &[(&str, &str, i64)]) -> (SqliteStore, tempfile::TempDir) {
+    fn sqlite_with(rows: &[(&str, &str, i64)]) -> (Arc<SqliteStore>, tempfile::TempDir) {
         let dir = tempfile::tempdir().expect("tempdir");
         let store = SqliteStore::in_memory(dir.path()).expect("sqlite");
         mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
@@ -142,7 +143,7 @@ mod tests {
                 )
                 .expect("sqlite apply");
         }
-        (store, dir)
+        (Arc::new(store), dir)
     }
 
     /// `mailo search` prints the list box's answer: its top results first, marked `top`, then the
@@ -156,13 +157,13 @@ mod tests {
             ("delta", "do compose it", 40),
         ]);
         let now = at(10_000);
+        let mail = crate::edge::mail(&store).with_clock(Arc::new(FixedClock::at(now)));
         let out = crate::cli::run(
-            &store,
+            &mail,
             &crate::cli::Command::Search {
                 needle: "compose".to_owned(),
                 limit: 20,
             },
-            now,
         )
         .expect("search");
         let id = |line: &str| line.split_whitespace().next_back().unwrap_or("").to_owned();
@@ -179,7 +180,7 @@ mod tests {
 
         let window = mail_core::search::search_list(
             "compose",
-            &store,
+            &*store,
             &Affinity::default(),
             &chrono::Local,
             &|_| Vec::new(),

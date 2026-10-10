@@ -3,6 +3,7 @@
 
 use crate::said::rules::said;
 use chrono::{DateTime, Utc};
+use mail_core::Mail;
 use mail_core::SqliteStore;
 use mail_core::error::CoreError;
 use mail_core::rules::server::{
@@ -10,7 +11,6 @@ use mail_core::rules::server::{
     VacationDone,
 };
 use mail_core::rules::{AccountRules, RulesCmd, RulesDone, RunProgress};
-use mail_core::{AccountSecrets, ClientRegistry};
 use mail_domain::{AfterMatch, Rule, RuleAction, RuleState, Vacation};
 use mail_proto::sieve::Takeover;
 use std::fmt::Write as _;
@@ -323,27 +323,17 @@ fn action(action: &RuleAction) -> String {
 }
 
 /// `vacation …`: run it, and say what it did.
-pub async fn run_vacation(
-    store: &SqliteStore,
-    secrets: &dyn AccountSecrets,
-    command: &VacationCmd,
-    saved: &ClientRegistry,
-    now: DateTime<Utc>,
-) -> Result<String, CoreError> {
-    mail_core::rules::server::run_vacation(store, secrets, command, saved, now)
+pub async fn run_vacation(mail: &Mail, command: &VacationCmd) -> Result<String, CoreError> {
+    mail.rules()
+        .run_vacation(command)
         .await
         .map(|done| vacation_text(&done))
 }
 
 /// `sieve …`: run it, and say what it did.
-pub async fn run_sieve(
-    store: &SqliteStore,
-    secrets: &dyn AccountSecrets,
-    command: &SieveCmd,
-    saved: &ClientRegistry,
-    now: DateTime<Utc>,
-) -> Result<String, CoreError> {
-    mail_core::rules::server::run_sieve(store, secrets, command, saved, now)
+pub async fn run_sieve(mail: &Mail, command: &SieveCmd) -> Result<String, CoreError> {
+    mail.rules()
+        .run_sieve(command)
         .await
         .map(|done| sieve_text(&done))
 }

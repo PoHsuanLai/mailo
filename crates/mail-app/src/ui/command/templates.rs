@@ -25,7 +25,7 @@ pub(in crate::ui) fn start(store: &SqliteStore, key: &str) -> Result<Draft, Stri
         .map(|(_, template)| template.id)
         .find(|id| id.to_string() == key)
         .ok_or_else(|| "that template is gone".to_owned())?;
-    mail_core::template::start(store, id, &[], Utc::now()).map_err(String::from)
+    mail_core::template::start(store, id, &[], Utc::now()).map_err(crate::ui::remedy::told)
 }
 
 /// The panel's rows while it lists the templates, narrowed by `typed`.

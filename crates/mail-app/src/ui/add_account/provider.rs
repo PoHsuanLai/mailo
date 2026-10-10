@@ -5,8 +5,8 @@
 //! the add-account flow: it asks nothing and stores nothing by itself, it says what to draw and
 //! asks a provider's sign-in what to do next. This file is that sign-in for mail, over what mailo
 //! already has: the address's lookup (`mail_core::discover`), the browser sign-in
-//! (`mail_runtime::authorize`) and the account itself (`mail_core::account`, which writes mailo's
-//! store and files the password where `mail_runtime` reads it). Every rule the old sheet kept is
+//! (`mail_core::account::authorize`) and the account itself (`mail_core::account`, which writes mailo's
+//! store and files the password where the runtime reads it). Every rule the old sheet kept is
 //! kept here: look only when asked (the lookup sends the domain and nothing else), add only when
 //! told to (`Confirm`), the password goes to the add and nowhere else.
 //!
@@ -30,7 +30,7 @@ use porter_core::sheet::{
 };
 use porter_core::{
     Account, AccountId, AccountLabel, AuthKind, CapabilityKind, Claim, Credential, Offer,
-    Provenance, Restriction, Subject, UnixSeconds, WebUrl,
+    Provenance, Restriction, Subject, WebUrl,
 };
 use porter_provider::{
     Issuer, Presented, Provider, ProviderError, ProviderSession, ProviderSpec, RevokeOutcome,
@@ -122,10 +122,9 @@ impl Seams {
                                 &saved,
                             )
                             .ok_or_else(|| "no client id".to_owned())?;
-                            let now = UnixSeconds(Utc::now().timestamp());
                             let on_url = |url: &str| urls(url);
                             tokio::select! {
-                                signed = mail_runtime::authorize::sign_in(&client, &scopes, &on_url, now) => {
+                                signed = mail_core::account::authorize(&client, &scopes, &on_url, Utc::now()) => {
                                     signed.map_err(|why| why.to_string())
                                 }
                                 _ = stopped => Err("cancelled".to_owned()),

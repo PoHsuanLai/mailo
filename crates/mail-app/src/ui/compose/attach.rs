@@ -116,7 +116,7 @@ fn attach(mut page: Signal<Page>, paths: Vec<PathBuf>) {
             let now = chrono::Utc::now();
             let saved = life::save(&store, &mut page.write(), now).and_then(|_| {
                 mail_core::compose::attach_bytes(&store, draft, &name, &bytes, now)
-                    .map_err(String::from)
+                    .map_err(crate::ui::remedy::told)
             });
             match saved {
                 Ok(stored) => {
