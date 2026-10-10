@@ -340,7 +340,7 @@ fn raw_of(store: &SqliteStore, message: &Message) -> Result<Option<Vec<u8>>, Cor
     let Some(raw) = message.body.raw() else {
         return Ok(None);
     };
-    store.blobs().get(raw).map(Some)
+    Ok(store.blobs().get(raw).map(Some)?)
 }
 
 /// Every address this account answers to — each identity's own and its reply-to — with the

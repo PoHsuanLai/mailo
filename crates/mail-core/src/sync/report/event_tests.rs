@@ -202,12 +202,12 @@ fn a_whole_run_is_read_for_the_account_that_asked() {
         pause: Pause::ServerBusy,
     };
     assert_eq!(
-        outcome(Ok(vec![other.clone(), finished(vec![])]), acct_account()),
+        outcome::<String>(Ok(vec![other.clone(), finished(vec![])]), acct_account()),
         Event::Finished { trouble: vec![] },
         "another account's end is not this one's"
     );
     assert_eq!(
-        outcome(Ok(vec![other]), acct_account()),
+        outcome::<String>(Ok(vec![other]), acct_account()),
         Event::Finished { trouble: vec![] },
         "a run that left the account out had nothing to do for it"
     );

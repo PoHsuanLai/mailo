@@ -129,6 +129,9 @@ pub enum CoreError {
     NoRuleNamed { name: String, address: String },
     #[error("--until has to be after --from")]
     UntilBeforeFrom,
+    /// A Granted plan typed in by hand: presets never make one, the desktop's service does.
+    #[error("this account is the desktop's account service's: add it there, in Add Account")]
+    AddInAccountService,
     #[error("{address} is an account of the desktop's account service, which is not reachable")]
     AccountServiceUnreachable { address: String },
     #[error("{address}: the account service lists no ManageSieve server for it")]
@@ -517,9 +520,9 @@ pub enum UsageError {
     NotAMessageId { raw: String, usage: &'static str },
     /// The domain's own words about a fingerprint that would not read.
     #[error("{0}; `mailo pgp keys` lists them")]
-    PgpFingerprint(String),
+    PgpFingerprint(mail_domain::ParseFingerprintError),
     #[error("{0}; `mailo smime list` lists them")]
-    SmimeFingerprint(String),
+    SmimeFingerprint(mail_domain::ParseFingerprintError),
     #[error("contacts add needs an address: mailo contacts add ada@example.com Ada")]
     ContactsAdd,
     #[error("contacts remove needs an address")]

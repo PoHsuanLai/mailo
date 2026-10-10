@@ -248,7 +248,7 @@ pub(crate) mod scenario {
     }
 
     fn failed(e: std::io::Error) -> RuntimeError {
-        RuntimeError::Secrets(Failure::new("the scenario secrets directory", e))
+        RuntimeError::Secrets(crate::Failure::new("the scenario secrets directory", e))
     }
 
     pub(crate) fn read(dir: &Path, name: &str) -> Result<Option<String>, RuntimeError> {

@@ -128,7 +128,7 @@ fn main() {
     let command = match command {
         Some(command) => match mail_app::cli::discover::before_add_jmap(
             command,
-            mail_core::discover::find_jmap,
+            |domain: &str| mail_core::discover::find_jmap(domain).map_err(String::from),
             mail_app::cli::discover::Terminal::of_stdin(),
             |text| {
                 use std::io::Write as _;

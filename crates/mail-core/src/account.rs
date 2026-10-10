@@ -334,10 +334,7 @@ pub fn add_receiving(
         // Presets make no such plan: an account of the desktop's accountd is read from it
         // (`linked::reconcile`), never typed in here.
         AuthPlan::Granted { .. } => {
-            return Err(
-                "this account is the desktop's account service's: add it there, in Add Account"
-                    .to_owned(),
-            );
+            return Err(CoreError::AddInAccountService);
         }
         AuthPlan::Password { username, sasl } => {
             let login = username.resolve(&address);

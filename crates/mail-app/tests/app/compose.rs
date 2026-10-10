@@ -683,7 +683,7 @@ mod closing {
     fn close(store: &SqliteStore, editing: &Composing, now: DateTime<Utc>) -> Result<(), String> {
         let base = store.draft(editing.draft).map_err(|e| e.to_string())?;
         let edited = editing.apply_to(&base, now)?;
-        compose::save(store, &edited)
+        compose::save(store, &edited).map_err(String::from)
     }
 
     #[test]
