@@ -3,7 +3,7 @@
 use super::SqliteStore;
 use crate::said::export::said;
 use mail_core::error::CoreError;
-use mail_core::export::{self, Exported, Target};
+use mail_core::export::{self, Target};
 
 /// `mailo export QUERY… --mbox FILE | --maildir DIR | --eml DIR`: what matches is counted on
 /// stderr, then progress every hundred, then the answer.
@@ -27,6 +27,7 @@ pub fn run(store: &SqliteStore, query: &str, target: &Target) -> Result<String, 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mail_core::export::Exported;
 
     #[test]
     fn it_says_how_many_were_written_and_why_the_rest_were_not() {

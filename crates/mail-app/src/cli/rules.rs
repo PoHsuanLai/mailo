@@ -3,7 +3,6 @@
 
 use crate::said::rules::said;
 use chrono::{DateTime, Utc};
-use mail_core::Pushed;
 use mail_core::SqliteStore;
 use mail_core::error::CoreError;
 use mail_core::rules::server::{
@@ -13,7 +12,7 @@ use mail_core::rules::server::{
 use mail_core::rules::{AccountRules, RulesCmd, RulesDone, RunProgress};
 use mail_core::{AccountSecrets, ClientRegistry};
 use mail_domain::{AfterMatch, Rule, RuleAction, RuleState, Vacation};
-use mail_proto::sieve::{Deleted, SieveOutcome, Takeover, VacationPlaced};
+use mail_proto::sieve::Takeover;
 use std::fmt::Write as _;
 use std::path::PathBuf;
 

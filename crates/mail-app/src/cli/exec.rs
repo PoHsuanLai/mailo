@@ -10,6 +10,7 @@ use mail_core::SqliteStore;
 use std::sync::Arc;
 
 /// What [`prepare`] leaves to be done.
+#[derive(Debug)]
 pub enum Prepared {
     /// The command was answered before any store was opened.
     Finished,

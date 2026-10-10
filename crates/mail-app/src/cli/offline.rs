@@ -50,7 +50,7 @@ mod tests {
             counted: Default::default(),
         };
         assert_eq!(
-            render(&[standing.clone()]),
+            render(std::slice::from_ref(&standing)),
             "me@example.test: all mail kept offline; 0 of 0 messages offline\n"
         );
         let bodies = Standing {

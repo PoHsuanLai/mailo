@@ -2,7 +2,7 @@
 
 use chrono::{DateTime, Local, TimeZone, Utc};
 use mail_core::error::CoreError;
-use mail_core::invite::{Answered, InviteState, repeats_words, show_when};
+use mail_core::invite::{InviteState, repeats_words, show_when};
 use mail_domain::{Address, Attendance, InviteAnswer, MessageId};
 use mail_pim::ical::PartStat;
 use mail_pim::{Invite, Kind, Me, Revision};

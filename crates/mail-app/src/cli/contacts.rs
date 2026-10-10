@@ -9,7 +9,7 @@ use super::SqliteStore;
 use crate::said::contacts::imported;
 use chrono::{DateTime, Utc};
 use mail_core::Environment;
-use mail_core::contacts::{self, BookSync, How, Imported, Synced};
+use mail_core::contacts::{self, BookSync, How, Synced};
 use mail_core::error::CoreError;
 use mail_core::{AccountSecrets, ClientRegistry};
 use std::fmt::Write as _;
@@ -218,6 +218,7 @@ fn book_synced(book: &BookSync) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mail_core::contacts::Imported;
 
     fn args(line: &str) -> Vec<String> {
         line.split_whitespace().map(str::to_owned).collect()
