@@ -17,6 +17,7 @@
 
 mod jmap;
 pub mod providers;
+use crate::error::CoreError;
 use chrono::{DateTime, Utc};
 pub use jmap::find as find_jmap;
 use mail_domain::presets::{self, Manual, ManualPop3, Preset};
@@ -177,6 +178,14 @@ pub enum Failed {
     /// The lookup could not be set up: no async runtime, no HTTP client, no resolver.
     Broken(String),
 }
+
+impl std::fmt::Display for Failed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.said())
+    }
+}
+
+impl std::error::Error for Failed {}
 
 impl Failed {
     /// What to say at a terminal: why, and the way to configure the account by hand.
@@ -561,8 +570,8 @@ pub fn classify(address: &str, why: &NotFound) -> Failed {
 }
 
 /// Look the address up, over the network.
-pub fn lookup(address: &str, now: DateTime<Utc>) -> Result<Found, String> {
-    search(address, now).map_err(|why| why.said())
+pub fn lookup(address: &str, now: DateTime<Utc>) -> Result<Found, CoreError> {
+    Ok(search(address, now)?)
 }
 
 /// [`lookup`], with the reason a miss was left typed.

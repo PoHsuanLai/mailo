@@ -20,6 +20,7 @@ pub mod compose;
 pub mod config;
 pub mod contacts;
 pub mod discover;
+pub mod error;
 pub mod export;
 pub mod fetch;
 pub mod folder;
@@ -48,3 +49,5 @@ pub mod trust;
 pub mod undo;
 pub mod unsubscribe;
 pub mod when;
+
+pub use error::{CoreError, TimeError, UsageError};

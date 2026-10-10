@@ -14,6 +14,7 @@
 //! Sources are read one message at a time; a Takeout archive of several gigabytes never has to
 //! fit in memory, and a batch is written every [`BATCH`] messages with a progress line.
 
+use crate::error::CoreError;
 use chrono::{DateTime, TimeDelta, Utc};
 use mail_domain::{ChangeId, Incoming, MailboxRef, Patch, ProtoOp, RemoteIntent};
 use mail_mime::archive::{self, Placement, Sniffed, maildir, mbox};
@@ -45,8 +46,8 @@ pub enum Destination {
 
 /// Which format `path` is: a directory with `cur`, `new` or `tmp` in it is a Maildir, a file that
 /// opens with a `From ` line is an mbox, and any other file is one message.
-pub fn detect(path: &Path) -> Result<Source, String> {
-    let meta = std::fs::metadata(path).map_err(|e| format!("{}: {e}", path.display()))?;
+pub fn detect(path: &Path) -> Result<Source, CoreError> {
+    let meta = std::fs::metadata(path).map_err(CoreError::at(&path))?;
     if meta.is_dir() {
         let maildir = ["cur", "new", "tmp"]
             .iter()
@@ -54,15 +55,12 @@ pub fn detect(path: &Path) -> Result<Source, String> {
         return if maildir {
             Ok(Source::Maildir(path.to_owned()))
         } else {
-            Err(format!(
-                "{} is a directory but not a Maildir: it has no cur, new or tmp inside",
-                path.display()
-            ))
+            Err(CoreError::NotAMaildir(path.to_owned()))
         };
     }
     let mut head = [0u8; 512];
-    let mut file = std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    let n = read_up_to(&mut file, &mut head).map_err(|e| format!("{}: {e}", path.display()))?;
+    let mut file = std::fs::File::open(path).map_err(CoreError::at(&path))?;
+    let n = read_up_to(&mut file, &mut head).map_err(CoreError::at(&path))?;
     Ok(match archive::sniff(&head[..n]) {
         Sniffed::Mbox => Source::Mbox(path.to_owned()),
         Sniffed::Eml => Source::Eml(path.to_owned()),
@@ -92,10 +90,12 @@ pub struct Item {
 }
 
 /// The messages in `source`, one at a time.
-pub fn items(source: &Source) -> Result<Box<dyn Iterator<Item = Result<Item, String>>>, String> {
+pub fn items(
+    source: &Source,
+) -> Result<Box<dyn Iterator<Item = Result<Item, CoreError>>>, CoreError> {
     match source {
         Source::Eml(path) => {
-            let raw = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+            let raw = std::fs::read(path).map_err(CoreError::at(&path))?;
             Ok(Box::new(std::iter::once(Ok(Item {
                 raw: archive::crlf(&raw),
                 // One message on its own says nothing about where it was: the inbox, read.
@@ -104,14 +104,14 @@ pub fn items(source: &Source) -> Result<Box<dyn Iterator<Item = Result<Item, Str
             }))))
         }
         Source::Mbox(path) => {
-            let file = std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
+            let file = std::fs::File::open(path).map_err(CoreError::at(&path))?;
             let folder = path
                 .file_stem()
                 .map(|stem| stem.to_string_lossy().into_owned());
             let shown = path.display().to_string();
             let reader = mbox::Reader::new(BufReader::with_capacity(1 << 16, file));
             Ok(Box::new(reader.map(move |message| {
-                let message = message.map_err(|e| format!("{shown}: {e}"))?;
+                let message = message.map_err(|e| CoreError::context(shown.clone(), e))?;
                 Ok(Item {
                     placement: mbox::placement(&message.raw, folder.as_deref()),
                     raw: archive::crlf(&message.raw),
@@ -122,8 +122,7 @@ pub fn items(source: &Source) -> Result<Box<dyn Iterator<Item = Result<Item, Str
         Source::Maildir(root) => {
             let files = maildir_files(root)?;
             Ok(Box::new(files.into_iter().map(|found| {
-                let raw = std::fs::read(&found.path)
-                    .map_err(|e| format!("{}: {e}", found.path.display()))?;
+                let raw = std::fs::read(&found.path).map_err(CoreError::at(&found.path))?;
                 Ok(Item {
                     raw: archive::crlf(&raw),
                     placement: maildir::placement(
@@ -149,9 +148,9 @@ struct Found {
 /// Every message file under a Maildir and its Maildir++ folders, in name order.
 ///
 /// The names only, not the contents: a list of paths is small next to the mail it names.
-fn maildir_files(root: &Path) -> Result<Vec<Found>, String> {
+fn maildir_files(root: &Path) -> Result<Vec<Found>, CoreError> {
     let mut places: Vec<(PathBuf, Option<String>)> = vec![(root.to_owned(), None)];
-    let entries = std::fs::read_dir(root).map_err(|e| format!("{}: {e}", root.display()))?;
+    let entries = std::fs::read_dir(root).map_err(CoreError::at(&root))?;
     let mut folders: Vec<(PathBuf, String)> = entries
         .filter_map(Result::ok)
         .filter(|entry| entry.path().is_dir())
@@ -224,7 +223,7 @@ pub fn into_local(
     source: &Source,
     now: DateTime<Utc>,
     progress: &mut dyn FnMut(&Imported),
-) -> Result<Imported, String> {
+) -> Result<Imported, CoreError> {
     let account = crate::account::local(store, now)?;
     let mut total = Imported::default();
     let mut batch: Vec<Keep> = Vec::with_capacity(BATCH);
@@ -259,8 +258,8 @@ fn keep(
     batch: Vec<Keep>,
     now: DateTime<Utc>,
     total: &mut Imported,
-) -> Result<(), String> {
-    let kept = assemble::keep(store, account, batch, now).map_err(|e| e.to_string())?;
+) -> Result<(), CoreError> {
+    let kept = assemble::keep(store, account, batch, now)?;
     total.added += kept.added;
     total.already += kept.already;
     total.unreadable += kept.unreadable;
@@ -281,28 +280,23 @@ pub fn queue_uploads(
     source: &Source,
     now: DateTime<Utc>,
     progress: &mut dyn FnMut(&Imported),
-) -> Result<(AccountId, Imported), String> {
+) -> Result<(AccountId, Imported), CoreError> {
     let address = address.to_lowercase();
     let account = crate::sync::configured(store)?
         .into_iter()
         .find(|a| a.address == address)
-        .ok_or_else(|| {
-            format!("no account for {address:?}. `mailo account list` says which there are.")
+        .ok_or_else(|| CoreError::NoAccountFor {
+            address: address.clone(),
         })?;
     if !matches!(account.plan.incoming, Incoming::Imap { .. }) {
-        return Err(format!(
-            "{address} is not an IMAP account, so it has no mailboxes to upload into; \
-             leave out --to-mailbox to keep the mail on this computer"
-        ));
+        return Err(CoreError::NotImap { address });
     }
-    let listed = store
-        .folders(account.id.clone())
-        .map_err(|e| e.to_string())?;
+    let listed = store.folders(account.id.clone())?;
     if !listed.is_empty() && !listed.iter().any(|f| f.path == folder) {
-        return Err(format!(
-            "{address} has no folder called {folder:?}; `mailo folder list {address}` shows \
-             them, and `mailo folder new {address} {folder}` makes one"
-        ));
+        return Err(CoreError::NoFolder {
+            address,
+            folder: folder.to_owned(),
+        });
     }
     let mailbox = MailboxRef {
         account: account.id.clone(),
@@ -313,8 +307,7 @@ pub fn queue_uploads(
         .outbox_due(
             account.id.clone(),
             now + TimeDelta::try_days(3650).unwrap_or_default(),
-        )
-        .map_err(|e| e.to_string())?
+        )?
         .into_iter()
         .filter_map(|entry| match entry.op {
             ProtoOp::Append {
@@ -335,35 +328,30 @@ pub fn queue_uploads(
             continue;
         };
         let key = assemble::identity(&fields, &item.raw);
-        if store
-            .holds(account.id.clone(), &key)
-            .map_err(|e| e.to_string())?
-        {
+        if store.holds(account.id.clone(), &key)? {
             total.already += 1;
             continue;
         }
-        let raw = store.blobs().put(&item.raw).map_err(|e| e.to_string())?;
+        let raw = store.blobs().put(&item.raw)?;
         if waiting.contains(&raw) {
             total.already += 1;
             continue;
         }
-        store
-            .enqueue(
-                account.id.clone(),
-                RemoteIntent::Append {
-                    mailbox: mailbox.clone(),
-                    flags: item.placement.flags.clone(),
-                    date: item.received.or(fields.date),
-                    raw,
-                },
-                // Nothing to undo: an upload changes nothing here until it has happened.
-                &Patch {
-                    id: ChangeId::generate(),
-                    changes: Vec::new(),
-                },
-                now,
-            )
-            .map_err(|e| e.to_string())?;
+        store.enqueue(
+            account.id.clone(),
+            RemoteIntent::Append {
+                mailbox: mailbox.clone(),
+                flags: item.placement.flags.clone(),
+                date: item.received.or(fields.date),
+                raw,
+            },
+            // Nothing to undo: an upload changes nothing here until it has happened.
+            &Patch {
+                id: ChangeId::generate(),
+                changes: Vec::new(),
+            },
+            now,
+        )?;
         waiting.push(raw);
         total.added += 1;
         if total.read % BATCH == 0 {

@@ -177,14 +177,14 @@ fn jmap_graph_and_pop3_candidates_read_as_what_they_are() {
 #[test]
 fn a_candidate_with_no_mail_server_or_no_address_is_said_not_to_be_mail() {
     let none = candidate("calendar-only", "g-4", vec![]);
-    let why = preset_of(&none, now()).unwrap_err();
+    let why = preset_of(&none, now()).unwrap_err().to_string();
     assert!(why.contains("lists no IMAP"), "{why}");
     let mut nameless = fastmail("fastmail-x", "g-5");
     nameless.label = AccountLabel("Work".to_owned());
     for e in &mut nameless.endpoints {
         e.login = LoginName("workuser".to_owned());
     }
-    let why = preset_of(&nameless, now()).unwrap_err();
+    let why = preset_of(&nameless, now()).unwrap_err().to_string();
     assert!(why.contains("names no address"), "{why}");
 }
 

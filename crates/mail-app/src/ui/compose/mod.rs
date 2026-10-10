@@ -557,6 +557,6 @@ fn discard(mut page: Signal<Page>, mut shell: Signal<Shell>, desk: Desk) {
             desk::unpark(desk, draft);
             shell.write().close_composer();
         }
-        Err(why) => page.write().notice = Some(why),
+        Err(why) => page.write().notice = Some(why.to_string()),
     }
 }

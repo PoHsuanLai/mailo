@@ -96,6 +96,13 @@ ratchet scripts/core-prose-allowlist.txt 'mailo [a-z]' \
   "mail-core code names a terminal command (mailo <subcommand>)" || fail=1
 ratchet scripts/core-result-string-allowlist.txt 'Result<String, String>' \
   "mail-core returns Result<String, String>" || fail=1
+# And no other `Result<_, String>` either: a failure in mail-core is a `CoreError`, whose words are
+# its `Display`, not a string handed about. Comment lines are not code.
+if grep -rnE 'Result<.*, *String>' crates/mail-core/src --include='*.rs' \
+  | grep -vE '^[^:]+:[0-9]+:[[:space:]]*//'; then
+  echo "mail-core must not return Result<_, String>: use CoreError (crates/mail-core/src/error.rs)"
+  fail=1
+fi
 
 # Names that moved to porter, or went with the types they named, must not creep back in. mailo
 # names accounts, secrets and OAuth issuers with `porter_core` and `porter_provider`'s types

@@ -540,7 +540,9 @@ fn sync_never_touches_the_local_account() {
             },
         )
         .unwrap();
-    let refused = compose::send(&store, draft.id, now()).unwrap_err();
+    let refused = compose::send(&store, draft.id, now())
+        .unwrap_err()
+        .to_string();
     assert!(refused.contains("no server to send from"), "{refused}");
 }
 

@@ -43,7 +43,7 @@ pub fn fetch_body_with(
         .map_err(|e| fatal(e.to_string()))?
         .account;
     let account = configured(&store)
-        .map_err(fatal)?
+        .map_err(|e| fatal(e.to_string()))?
         .into_iter()
         .find(|a| a.id == owner)
         .ok_or_else(|| {
@@ -96,7 +96,8 @@ pub fn fetch_body_with(
             sending_token_typed(&account, secrets.as_ref(), registry, now)
                 .await
                 .map_err(|f| (f.retry, f.why))?;
-            let mut engine = graph_engine(&store, &account, secrets).map_err(fatal)?;
+            let mut engine =
+                graph_engine(&store, &account, secrets).map_err(|e| fatal(e.to_string()))?;
             if let Some(renewal) = renewal {
                 engine = engine.with_tokens(renewal);
             }

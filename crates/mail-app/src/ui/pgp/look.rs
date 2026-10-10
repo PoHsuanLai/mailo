@@ -262,5 +262,5 @@ pub(in crate::ui) fn save_attachment(
     };
     let shown = opened.shown.ok_or("Can\u{2019}t read the attachments.")?;
     let attachment = mail_core::attach::opened_attachment(&shown, index)?;
-    mail_core::attach::save_opened(&attachment, dir)
+    mail_core::attach::save_opened(&attachment, dir).map_err(String::from)
 }

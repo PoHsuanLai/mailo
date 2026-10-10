@@ -156,7 +156,7 @@ pub fn listen_with(
         .map_err(|e| Lost::unsupported(&format!("cannot start the async runtime: {e}")))?;
     runtime.block_on(async {
         let account = configured(&store)
-            .map_err(|why| Lost::unsupported(&why))?
+            .map_err(|why| Lost::unsupported(&why.to_string()))?
             .into_iter()
             .find(|one| one.id == account)
             .ok_or_else(|| Lost::unsupported("that account is no longer configured"))?;

@@ -41,6 +41,7 @@ impl Pusher {
                 &mail_core::account::saved_clients(),
                 now,
             )
+            .map_err(String::from)
         }))
     }
 

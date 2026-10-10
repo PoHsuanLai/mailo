@@ -30,7 +30,7 @@ impl Passer {
     #[cfg(not(test))]
     pub(in crate::ui) fn server() -> Self {
         Self(Arc::new(|store, now, account, hooks| {
-            mail_core::sync::due::run_due(store, now, &[account], hooks)
+            mail_core::sync::due::run_due(store, now, &[account], hooks).map_err(String::from)
         }))
     }
 

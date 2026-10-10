@@ -178,7 +178,9 @@ fn start(
         // and `Runtime::block_on` inside an async context panics.
         let done = tokio::task::spawn_blocking(move || {
             let saved = match kept {
-                Kept::Here => mail_core::attach::save(&store, message, index, &dir),
+                Kept::Here => {
+                    mail_core::attach::save(&store, message, index, &dir).map_err(String::from)
+                }
                 Kept::Opened => super::super::pgp::save_attachment(message, body, index, &dir),
                 Kept::OnServer => fetch::fetch_then_save(&store, &fetchers, message, index, &dir),
             };

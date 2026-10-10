@@ -11,14 +11,11 @@
 crates/mail-core/src/account.rs
 crates/mail-core/src/attach.rs
 crates/mail-core/src/compose.rs
-crates/mail-core/src/compose/enclosed.rs
 crates/mail-core/src/contacts.rs
 crates/mail-core/src/discover.rs
 crates/mail-core/src/export.rs
 crates/mail-core/src/folder.rs
-crates/mail-core/src/import.rs
 crates/mail-core/src/invite.rs
-crates/mail-core/src/ipc/daemon.rs
 crates/mail-core/src/offline.rs
 crates/mail-core/src/pgp/mod.rs
 crates/mail-core/src/pgp/read.rs
@@ -29,3 +26,4 @@ crates/mail-core/src/smime/mod.rs
 crates/mail-core/src/smime/read.rs
 crates/mail-core/src/template.rs
 crates/mail-core/src/unsubscribe.rs
+crates/mail-core/src/error.rs

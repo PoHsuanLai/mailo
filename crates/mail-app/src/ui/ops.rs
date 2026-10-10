@@ -52,6 +52,7 @@ pub(super) fn start_new(
     // No recipients and no subject: there is no original to take either from, and a guess is
     // something the sender has to notice and undo. Saved anyway, so closing the window keeps it.
     mail_core::compose::draft_new(store, account, &[], "", "", chrono::Utc::now())
+        .map_err(String::from)
 }
 
 /// Begin a new message and open it in the composer, the pencil's, ⌘N's and ⌘K's Compose. With
@@ -93,7 +94,7 @@ pub(super) fn start_composing(
                 .ok_or_else(|| "that conversation has no message to forward".to_owned())?;
             // No recipients: a forward has none of its own and the composer is where the user
             // names them. The draft is saved regardless, so closing the window does not lose it.
-            match what {
+            let forwarded = match what {
                 Composes::ForwardAttached => mail_core::compose::draft_forward_attached(
                     store,
                     target.id,
@@ -104,7 +105,8 @@ pub(super) fn start_composing(
                 _ => {
                     mail_core::compose::draft_forward(store, target.id, &[], "", chrono::Utc::now())
                 }
-            }
+            };
+            forwarded.map_err(String::from)
         }
     }
 }
@@ -119,6 +121,7 @@ fn start_reply(store: &SqliteStore, thread: ThreadId, scope: ReplyScope) -> Resu
     let target = crate::ui::view::reply_target(&messages)
         .ok_or_else(|| "that conversation has no messages".to_owned())?;
     mail_core::compose::draft_reply(store, target.id, scope, "", chrono::Utc::now())
+        .map_err(String::from)
 }
 
 /// Apply a hover action, returning whether anything changed.

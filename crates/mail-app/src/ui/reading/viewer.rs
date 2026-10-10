@@ -136,7 +136,7 @@ pub(in crate::ui) fn AttachmentViewer(shell: Signal<Shell>) -> Element {
                     crate::ui::downloads::Saving::quick().end(Some(&path), origin);
                     format!("Saved to {}", path.display())
                 }
-                Err(why) => why,
+                Err(why) => why.to_string(),
             },
         ));
     };

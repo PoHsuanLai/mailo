@@ -162,12 +162,14 @@ pub(in crate::ui) fn forget(store: &dyn Store, address: &str) -> Result<bool, St
 /// Read a vCard file's bytes into the book, as `mailo contacts import` does. The answer is a
 /// sentence for the sheet.
 pub(in crate::ui) fn import(store: &dyn Store, bytes: &[u8]) -> Result<String, String> {
-    mail_core::contacts::import(store, bytes).map(|said| said.trim().replace('\n', ". "))
+    mail_core::contacts::import(store, bytes)
+        .map(|said| said.trim().replace('\n', ". "))
+        .map_err(String::from)
 }
 
 /// Write the book as vCard 4.0 into `dir`, beside anything already there, as
 /// `mailo contacts export` writes it. Returns the file written.
 pub(in crate::ui) fn export(store: &dyn Store, dir: &Path) -> Result<PathBuf, String> {
     let text = mail_core::contacts::export(store)?;
-    mail_core::attach::write_new(dir, EXPORT_NAME, text.as_bytes())
+    mail_core::attach::write_new(dir, EXPORT_NAME, text.as_bytes()).map_err(String::from)
 }

@@ -5,6 +5,7 @@
 //! paginated like a place, and ranks only a small strip of top results chosen from a capped
 //! window of the newest matches. The window bounds the scoring cost whatever the word.
 
+use crate::error::CoreError;
 use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::{Filter, LabelId, PageReq, ThreadId, ThreadSummary};
 
@@ -42,7 +43,7 @@ pub fn prepare<Tz: TimeZone>(
     source: &dyn Source,
     zone: &Tz,
     label: &dyn Fn(&str) -> Vec<LabelId>,
-) -> Result<Prepared, String> {
+) -> Result<Prepared, CoreError> {
     let extracted = extract(input)?;
     // Trailing whitespace is significant: it means the last word is finished and must not be
     // prefix-expanded. Trim only the emptiness checks.
@@ -181,7 +182,7 @@ pub fn search_list<Tz: TimeZone>(
     label: &dyn Fn(&str) -> Vec<LabelId>,
     page: PageReq,
     now: DateTime<Utc>,
-) -> Result<Searched, String> {
+) -> Result<Searched, CoreError> {
     let prepared = prepare(input, source, zone, label)?;
     let rows = prepared.listed(source, page, now);
     // The strip ranks the page it sits above: those threads are already in hand.

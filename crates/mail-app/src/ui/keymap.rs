@@ -324,7 +324,7 @@ pub fn save(dir: &Path, map: &Keymap) -> Result<(), String> {
             })
             .collect(),
     };
-    mail_core::config::write_json(dir, FILE_NAME, &stored)
+    mail_core::config::write_json(dir, FILE_NAME, &stored).map_err(String::from)
 }
 
 #[cfg(test)]

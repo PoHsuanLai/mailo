@@ -130,7 +130,7 @@ pub(in crate::ui) fn save_ics(
         "" | "(no title)" => "invitation",
         named => named,
     };
-    mail_core::attach::write_new(dir, &format!("{stem}.ics"), &bytes)
+    mail_core::attach::write_new(dir, &format!("{stem}.ics"), &bytes).map_err(String::from)
 }
 
 /// The first line of `said`, starting with a capital.

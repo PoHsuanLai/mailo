@@ -5,6 +5,7 @@
 //! authorized_keys` is a well-formed attachment name. Everything here is about the difference
 //! between what a message claims and what gets written.
 
+use mail_core::CoreError;
 use mail_core::attach;
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
@@ -235,7 +236,9 @@ mod saving {
         let id = with_attachment(&store, "one.pdf", b"x");
         let out = tempfile::tempdir().unwrap();
 
-        let why = attach::save(&store, id, 7, out.path()).unwrap_err();
+        let why = attach::save(&store, id, 7, out.path())
+            .unwrap_err()
+            .to_string();
         assert!(why.contains("1 attachment"), "{why}");
         assert!(why.contains("no number 7"), "{why}");
     }
@@ -518,9 +521,13 @@ mod left_on_the_server {
         let id = with_remote_part(&store);
         let out = tempfile::tempdir().unwrap();
         let err = attach::fetch_and_save(&store, id, 0, out.path(), |_| {
-            Err("cannot download the attachment: connection refused".to_owned())
+            Err(CoreError::cannot(
+                "download the attachment",
+                "connection refused",
+            ))
         })
-        .unwrap_err();
+        .unwrap_err()
+        .to_string();
         assert!(err.contains("connection refused"), "{err}");
         assert_eq!(std::fs::read_dir(out.path()).unwrap().count(), 0);
     }
@@ -531,7 +538,9 @@ mod left_on_the_server {
         let (store, _dir) = store();
         let id = with_remote_part(&store);
         let out = tempfile::tempdir().unwrap();
-        let err = attach::save(&store, id, 0, out.path()).unwrap_err();
+        let err = attach::save(&store, id, 0, out.path())
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("still on the server"), "{err}");
     }
 }

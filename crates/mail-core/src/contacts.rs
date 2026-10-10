@@ -4,10 +4,12 @@
 //! the CLI's side of it, plus the things only a command line does — importing and exporting
 //! `.vcf` files and syncing a CardDAV address book.
 
+use crate::error::{CoreError, UsageError};
 use chrono::{DateTime, Utc};
 use mail_domain::AuthPlan;
 use mail_pim::vcard::{self, Card, Email};
 use mail_runtime::carddav::{self, Dav, DavAuth, How};
+use mail_runtime::link::LinkError;
 use mail_runtime::{AccountSecrets, ClientRegistry, platform_secrets};
 use mail_store::{AddressBook, Edit, Group, GroupHome, GroupId, Kind, Origin, SqliteStore, Store};
 use porter_core::{CapabilityKind, Credential, Family, SecretKey, SecretPurpose, SecretText};
@@ -51,13 +53,11 @@ pub enum Contacts {
 }
 
 /// Parse what follows `contacts`.
-pub fn parse(args: &[String]) -> Result<Contacts, String> {
+pub fn parse(args: &[String]) -> Result<Contacts, CoreError> {
     let rest = |from: usize| args.get(from..).unwrap_or_default().join(" ");
     match args.first().map(String::as_str) {
         Some("add") => {
-            let address = args
-                .get(1)
-                .ok_or("contacts add needs an address: mailo contacts add ada@example.com Ada")?;
+            let address = args.get(1).ok_or(UsageError::ContactsAdd)?;
             let name = rest(2);
             Ok(Contacts::Add {
                 address: address.clone(),
@@ -65,16 +65,13 @@ pub fn parse(args: &[String]) -> Result<Contacts, String> {
             })
         }
         Some("remove") => Ok(Contacts::Remove {
-            address: args
-                .get(1)
-                .ok_or("contacts remove needs an address")?
-                .clone(),
+            address: args.get(1).ok_or(UsageError::ContactsRemove)?.clone(),
         }),
         Some("import") => Ok(Contacts::Import {
             path: args
                 .get(1)
                 .map(PathBuf::from)
-                .ok_or("contacts import needs a .vcf file")?,
+                .ok_or(UsageError::ContactsImport)?,
         }),
         Some("export") => Ok(Contacts::Export {
             path: args.get(1).map(PathBuf::from),
@@ -85,14 +82,32 @@ pub fn parse(args: &[String]) -> Result<Contacts, String> {
             while let Some(word) = words.next() {
                 match word.as_str() {
                     "--account" => {
-                        account = Some(words.next().ok_or("--account needs an address")?.clone());
+                        account = Some(
+                            words
+                                .next()
+                                .ok_or(UsageError::FlagNeeds {
+                                    flag: "--account",
+                                    what: "an address",
+                                })?
+                                .clone(),
+                        );
                     }
-                    "--user" => user = Some(words.next().ok_or("--user needs a login")?.clone()),
+                    "--user" => {
+                        user = Some(
+                            words
+                                .next()
+                                .ok_or(UsageError::FlagNeeds {
+                                    flag: "--user",
+                                    what: "a login",
+                                })?
+                                .clone(),
+                        );
+                    }
                     flag if flag.starts_with("--") => {
-                        return Err(format!("unknown option {flag:?}"));
+                        return Err(UsageError::UnknownFlag(flag.to_owned()).into());
                     }
                     _ if url.is_none() => url = Some(word.clone()),
-                    other => return Err(format!("unexpected {other:?}")),
+                    other => return Err(UsageError::Unexpected(other.to_owned()).into()),
                 }
             }
             Ok(Contacts::Sync { url, account, user })
@@ -110,23 +125,21 @@ pub fn run(
     command: &Contacts,
     saved: &ClientRegistry,
     now: DateTime<Utc>,
-) -> Result<String, String> {
+) -> Result<String, CoreError> {
     match command {
         Contacts::Find { typed, limit } => find(store, typed, *limit),
         Contacts::Add { address, name } => {
-            let contact = store
-                .put_contact(address, name.as_deref(), &Origin::Manual)
-                .map_err(|e| e.to_string())?;
+            let contact = store.put_contact(address, name.as_deref(), &Origin::Manual)?;
             Ok(format!("added {}\n", shown(&contact)))
         }
         Contacts::Remove { address } => match store.delete_contact(address) {
             Ok(true) => Ok(format!("removed {address}\n")),
-            Ok(false) => Err(format!("no contact {address:?}")),
-            Err(e) => Err(e.to_string()),
+            Ok(false) => Err(CoreError::NoContact(address.clone())),
+            Err(e) => Err(e.into()),
         },
         Contacts::Import { path } => {
-            let bytes =
-                std::fs::read(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+            let bytes = std::fs::read(path)
+                .map_err(|e| CoreError::cannot(format!("read {}", path.display()), e))?;
             import(store, &bytes)
         }
         Contacts::Export { path } => {
@@ -135,7 +148,7 @@ pub fn run(
                 None => Ok(text),
                 Some(path) => {
                     std::fs::write(path, &text)
-                        .map_err(|e| format!("cannot write {}: {e}", path.display()))?;
+                        .map_err(|e| CoreError::cannot(format!("write {}", path.display()), e))?;
                     Ok(format!("wrote {}\n", path.display()))
                 }
             }
@@ -144,7 +157,7 @@ pub fn run(
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
-                .map_err(|e| format!("cannot sync: {e}"))?;
+                .map_err(|e| CoreError::cannot("sync", e))?;
             runtime.block_on(sync(
                 store,
                 url.as_deref(),
@@ -158,10 +171,8 @@ pub fn run(
 }
 
 /// One line per match, best first: `Name <address>`, or the address alone.
-pub fn find(store: &dyn Store, typed: &str, limit: usize) -> Result<String, String> {
-    let found = store
-        .contacts_matching(typed, limit)
-        .map_err(|e| e.to_string())?;
+pub fn find(store: &dyn Store, typed: &str, limit: usize) -> Result<String, CoreError> {
+    let found = store.contacts_matching(typed, limit)?;
     if found.is_empty() {
         return Ok("no contacts match\n".to_owned());
     }
@@ -178,12 +189,12 @@ fn shown(contact: &mail_store::Contact) -> String {
 
 /// Every address on every card in `bytes`, added by hand under the card's name, and every
 /// `KIND:group` card as a group of this book ([`import_group`]).
-pub fn import(store: &dyn Store, bytes: &[u8]) -> Result<String, String> {
+pub fn import(store: &dyn Store, bytes: &[u8]) -> Result<String, CoreError> {
     let cards = vcard::parse_bytes(bytes);
     let (mut added, mut empty, mut groups) = (0, 0, 0);
     for card in &cards {
         if card.is_group() {
-            import_group(store, card, &cards).map_err(|e| e.to_string())?;
+            import_group(store, card, &cards)?;
             groups += 1;
         }
         let addresses = card.addresses_by_preference();
@@ -260,12 +271,11 @@ fn import_group(
 /// as edited — then every group made here, then one card per address the user added or has
 /// written to that no synced card covers. Addresses only ever heard from are not the user's
 /// contacts and are left out, as are the user's own.
-pub fn export(store: &dyn Store) -> Result<String, String> {
-    let failed = |e: mail_store::StoreError| e.to_string();
+pub fn export(store: &dyn Store) -> Result<String, CoreError> {
     let mut cards: Vec<Card> = Vec::new();
     let mut covered: BTreeSet<String> = BTreeSet::new();
-    let groups = store.groups().map_err(failed)?;
-    for book in store.address_books().map_err(failed)? {
+    let groups = store.groups()?;
+    for book in store.address_books()? {
         for (href, held) in &book.cards {
             let edited = groups.iter().find(|g| {
                 g.id.0 == *href
@@ -292,7 +302,7 @@ pub fn export(store: &dyn Store) -> Result<String, String> {
                 .take(1),
         );
     }
-    for contact in store.contacts().map_err(failed)? {
+    for contact in store.contacts()? {
         let theirs = contact.origin != Origin::History || contact.written.count > 0;
         if !theirs || contact.kind == Kind::Own || covered.contains(&contact.address) {
             continue;
@@ -317,7 +327,7 @@ async fn sync(
     user: Option<&str>,
     saved: &ClientRegistry,
     now: DateTime<Utc>,
-) -> Result<String, String> {
+) -> Result<String, CoreError> {
     sync_with(
         store,
         url,
@@ -339,19 +349,21 @@ async fn sync_with(
     secrets: &dyn AccountSecrets,
     saved: &ClientRegistry,
     now: DateTime<Utc>,
-) -> Result<String, String> {
+) -> Result<String, CoreError> {
     let accounts = crate::sync::configured(store)?;
-    let http = carddav::client().map_err(|e| e.to_string())?;
+    let http = carddav::client()?;
     let mut out = String::new();
 
     if url.is_none() {
-        let books = store.address_books().map_err(|e| e.to_string())?;
+        let books = store.address_books()?;
         if !books.is_empty() {
             for book in books {
                 let owner = accounts
                     .iter()
                     .find(|a| Some(a.id.clone()) == book.account)
-                    .ok_or_else(|| format!("{}: its account is no longer configured", book.url))?;
+                    .ok_or_else(|| CoreError::BookAccountGone {
+                        url: book.url.clone(),
+                    })?;
                 let base = parse_url(&book.url)?;
                 let (dav, _) = open_dav(
                     owner,
@@ -381,18 +393,13 @@ async fn sync_with(
     let owner = owner_of(&accounts, account)?;
     let start = url.map(parse_url).transpose()?;
     let (dav, start) = open_dav(owner, user, start.as_ref(), &http, secrets, saved, now).await?;
-    let found = carddav::discover(&dav, &start)
-        .await
-        .map_err(|e| e.to_string())?;
+    let found = carddav::discover(&dav, &start).await?;
     for collection in found {
         let key = collection.url.to_string();
-        let mut book = store
-            .address_book(&key)
-            .map_err(|e| e.to_string())?
-            .unwrap_or(AddressBook {
-                url: key,
-                ..AddressBook::default()
-            });
+        let mut book = store.address_book(&key)?.unwrap_or(AddressBook {
+            url: key,
+            ..AddressBook::default()
+        });
         book.account = Some(owner.id.clone());
         book.login = user.map(str::to_owned);
         out.push_str(&sync_one(&dav, store, book, collection.name).await?);
@@ -404,16 +411,16 @@ async fn sync_with(
 fn owner_of<'a>(
     accounts: &'a [crate::sync::Configured],
     account: Option<&str>,
-) -> Result<&'a crate::sync::Configured, String> {
+) -> Result<&'a crate::sync::Configured, CoreError> {
     match account {
         Some(address) => accounts
             .iter()
             .find(|a| a.address.eq_ignore_ascii_case(address))
-            .ok_or_else(|| format!("no account {address:?}")),
+            .ok_or_else(|| CoreError::UnknownAccount(address.to_owned())),
         None => match accounts {
             [only] => Ok(only),
-            [] => Err("add an account first: an address book is kept under one".into()),
-            _ => Err("name the account it belongs to: --account you@example.com".into()),
+            [] => Err(CoreError::AddAnAccountForBook),
+            _ => Err(CoreError::NameTheBookAccount),
         },
     }
 }
@@ -431,13 +438,13 @@ async fn open_dav(
     secrets: &dyn AccountSecrets,
     saved: &ClientRegistry,
     now: DateTime<Utc>,
-) -> Result<(Dav, url::Url), String> {
+) -> Result<(Dav, url::Url), CoreError> {
     if login.is_none() && owner.plan.grant().is_some() {
         return relayed(owner, start, secrets).await;
     }
-    let start = start.ok_or("an address book needs the address of its server")?;
+    let start = start.ok_or(CoreError::BookNeedsServer)?;
     let auth = auth_for(owner, login, secrets, saved, now).await?;
-    let dav = Dav::new(http.clone(), start, auth).map_err(|e| e.to_string())?;
+    let dav = Dav::new(http.clone(), start, auth)?;
     Ok((dav, start.clone()))
 }
 
@@ -452,35 +459,34 @@ async fn relayed(
     owner: &crate::sync::Configured,
     start: Option<&url::Url>,
     secrets: &dyn AccountSecrets,
-) -> Result<(Dav, url::Url), String> {
+) -> Result<(Dav, url::Url), CoreError> {
     let address = &owner.address;
     let AuthPlan::Granted { account, .. } = &owner.plan.auth else {
-        return Err(format!(
-            "{address} is not an account of the desktop's account service"
-        ));
+        return Err(CoreError::NotAServiceAccount {
+            address: address.clone(),
+        });
     };
-    let ungranted = |why: &dyn std::fmt::Display| {
-        format!(
-            "{address} is an account of the desktop's account service, and Mail has not been \
-             allowed to read its contacts ({why})"
-        )
+    let ungranted = |source: LinkError| CoreError::ContactsNotAllowed {
+        address: address.clone(),
+        source,
     };
     let Some(link) = secrets.link() else {
-        return Err(format!(
-            "{address} is an account of the desktop's account service, which is not reachable \
-             from here"
-        ));
+        return Err(CoreError::AccountServiceUnreachableFromHere {
+            address: address.clone(),
+        });
     };
     let held = link
         .contacts()
         .await
-        .map_err(|e| format!("{address}: {e}"))?;
+        .map_err(|e| CoreError::context(address.clone(), e))?;
     let candidate = match held.into_iter().find(|c| c.account == *account) {
         Some(candidate) => candidate,
         None => {
-            let asked = link.request_contacts().await.map_err(|e| ungranted(&e))?;
+            let asked = link.request_contacts().await.map_err(ungranted)?;
             if asked.account != *account {
-                return Err(ungranted(&"the grant was given to another account"));
+                return Err(CoreError::ContactsGrantMisdirected {
+                    address: address.clone(),
+                });
             }
             asked
         }
@@ -497,31 +503,28 @@ async fn relayed(
             .map(|u| u.origin())
     };
     let Some(first) = servers().next() else {
-        return Err(format!(
-            "{address} is an account of the desktop's account service whose contacts are not \
-             CardDAV (Google's are served through People, which Mail does not read): no \
-             contacts were synced"
-        ));
+        return Err(CoreError::ContactsNotCardDav {
+            address: address.clone(),
+        });
     };
     let endpoint = match start {
         Some(start) => servers()
             .find(|e| origin_of(e) == Some(start.origin()))
-            .ok_or_else(|| {
-                format!(
-                    "{start} is not the address book server of {address} ({}): the desktop's \
-                     account service relays that one only",
-                    first.url.as_str()
-                )
+            .ok_or_else(|| CoreError::NotTheBookServer {
+                start: start.to_string(),
+                address: address.clone(),
+                relays: first.url.as_str().to_owned(),
             })?,
         None => first,
     };
-    let dav =
-        Dav::relayed(link, candidate.grant.clone(), endpoint.clone()).map_err(|e| e.to_string())?;
+    let dav = Dav::relayed(link, candidate.grant.clone(), endpoint.clone())?;
     let start = match start {
         Some(start) => start.clone(),
         None => dav
             .endpoint_url()
-            .ok_or_else(|| format!("{address}: the address book server has no address"))?,
+            .ok_or_else(|| CoreError::BookServerNoAddress {
+                address: address.clone(),
+            })?,
     };
     Ok((dav, start))
 }
@@ -531,11 +534,11 @@ async fn sync_one(
     store: &SqliteStore,
     book: AddressBook,
     name: Option<String>,
-) -> Result<String, String> {
+) -> Result<String, CoreError> {
     let url = book.url.clone();
     let done = carddav::sync(dav, store, book)
         .await
-        .map_err(|e| format!("{url}: {e}"))?;
+        .map_err(|e| CoreError::context(url.clone(), e))?;
     let how = match done.how {
         How::Incremental => "changes since last time",
         How::Full => "everything",
@@ -560,13 +563,16 @@ async fn sync_one(
     Ok(out)
 }
 
-fn parse_url(text: &str) -> Result<url::Url, String> {
+fn parse_url(text: &str) -> Result<url::Url, CoreError> {
     let with_scheme = if text.contains("://") {
         text.to_owned()
     } else {
         format!("https://{text}")
     };
-    url::Url::parse(&with_scheme).map_err(|e| format!("{text:?} is not a URL: {e}"))
+    url::Url::parse(&with_scheme).map_err(|source| CoreError::NotAUrl {
+        text: text.to_owned(),
+        source,
+    })
 }
 
 /// How to sign in to an address book kept under `account`.
@@ -580,7 +586,7 @@ async fn auth_for(
     secrets: &dyn AccountSecrets,
     saved: &ClientRegistry,
     now: DateTime<Utc>,
-) -> Result<DavAuth, String> {
+) -> Result<DavAuth, CoreError> {
     if let Some(login) = login {
         let key = SecretKey {
             account: account.id.clone(),
@@ -594,15 +600,15 @@ async fn auth_for(
                         &Credential::Password(SecretText::new(password.clone())),
                     )
                     .await
-                    .map_err(|e| format!("cannot save the password: {e}"))?;
+                    .map_err(|e| CoreError::cannot("save the password", e))?;
                 password
             }
             _ => match secrets.get(&key).await {
                 Ok(Credential::Password(password)) => password.expose().to_owned(),
                 _ => {
-                    return Err(format!(
-                        "no password stored for {login}. Re-run with MAILO_PASSWORD set"
-                    ));
+                    return Err(CoreError::NoServicePassword {
+                        login: login.to_owned(),
+                    });
                 }
             },
         };
@@ -619,7 +625,10 @@ async fn auth_for(
             purpose: SecretPurpose::IncomingPassword,
         })
         .await
-        .map_err(|_| crate::account::no_credential(&account.address, &account.plan.auth))?;
+        .map_err(|_| CoreError::NoCredential {
+            address: account.address.clone(),
+            auth: account.plan.auth.clone(),
+        })?;
     match crate::sync::signed_in(account, stored, secrets, saved, now).await? {
         Credential::OAuth { access, .. } => Ok(DavAuth::Bearer(access.expose().to_owned())),
         // A pasted token is presented as it was given: a bearer, with no username.
@@ -628,10 +637,9 @@ async fn auth_for(
             user: account.plan.username(),
             password: password.expose().to_owned(),
         }),
-        Credential::ApiKey(_) | Credential::KeyPair { .. } => Err(format!(
-            "the credential stored for {} is not a sign-in",
-            account.address
-        )),
+        Credential::ApiKey(_) | Credential::KeyPair { .. } => Err(CoreError::NotASignIn {
+            address: account.address.clone(),
+        }),
     }
 }
 
@@ -711,7 +719,7 @@ mod tests {
             ),
         ];
         for (line, expected) in cases {
-            assert_eq!(parse(&args(line)), Ok(expected), "{line:?}");
+            assert_eq!(parse(&args(line)).unwrap(), expected, "{line:?}");
         }
     }
 
@@ -1000,7 +1008,10 @@ mod tests {
 
         // A grant the person gave to some other account is not this account's.
         let daemon = Daemon::new(Vec::new(), Ok(carddav_grant("fastmail-other")));
-        let why = relayed(&owner(), None, &linked(&daemon)).await.unwrap_err();
+        let why = relayed(&owner(), None, &linked(&daemon))
+            .await
+            .unwrap_err()
+            .to_string();
         assert!(why.contains("another account"), "{why}");
     }
 
@@ -1011,7 +1022,10 @@ mod tests {
     #[tokio::test]
     async fn a_linked_account_whose_contacts_are_not_allowed_says_so_in_its_own_words() {
         let daemon = Daemon::new(Vec::new(), Err(LinkError::Refused(Refusal::Denied)));
-        let why = relayed(&owner(), None, &linked(&daemon)).await.unwrap_err();
+        let why = relayed(&owner(), None, &linked(&daemon))
+            .await
+            .unwrap_err()
+            .to_string();
         assert_eq!(
             why,
             "me@example.test is an account of the desktop's account service, and Mail has not \
@@ -1024,7 +1038,10 @@ mod tests {
     #[tokio::test]
     async fn a_linked_account_whose_contacts_are_not_carddav_syncs_none_and_says_so() {
         let daemon = Daemon::new(vec![people_grant()], nothing_asked());
-        let why = relayed(&owner(), None, &linked(&daemon)).await.unwrap_err();
+        let why = relayed(&owner(), None, &linked(&daemon))
+            .await
+            .unwrap_err()
+            .to_string();
         assert!(
             why.contains("not CardDAV")
                 && why.contains("People")
@@ -1040,7 +1057,8 @@ mod tests {
         let elsewhere = url::Url::parse("https://evil.example.test/dav/").unwrap();
         let why = relayed(&owner(), Some(&elsewhere), &linked(&daemon))
             .await
-            .unwrap_err();
+            .unwrap_err()
+            .to_string();
         assert!(why.contains("is not the address book server of"), "{why}");
 
         let own = url::Url::parse("https://carddav.example.test/dav/").unwrap();
@@ -1057,7 +1075,10 @@ mod tests {
     async fn an_account_of_accountd_with_no_link_is_not_reachable_rather_than_asked_for_a_password()
     {
         let secrets = porter_secrets::MemorySecrets::default();
-        let why = relayed(&owner(), None, &secrets).await.unwrap_err();
+        let why = relayed(&owner(), None, &secrets)
+            .await
+            .unwrap_err()
+            .to_string();
         assert!(why.contains("not reachable"), "{why}");
     }
 
@@ -1083,7 +1104,8 @@ mod tests {
         let daemon = Daemon::new(vec![people_grant()], nothing_asked());
         let why = sync_with(&store, None, None, None, &linked(&daemon), &saved, now())
             .await
-            .unwrap_err();
+            .unwrap_err()
+            .to_string();
         assert!(why.contains("People"), "{why}");
         // A login of its own is the address book's own sign-in: not the relay's, and not asked.
         let said = sync_with(

@@ -29,6 +29,7 @@ mod superset;
 #[cfg(test)]
 mod support;
 
+use crate::error::CoreError;
 use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::{LabelId, ThreadId, ThreadSummary};
 
@@ -76,7 +77,7 @@ pub fn rank_query<Tz: TimeZone>(
     label: &dyn Fn(&str) -> Vec<LabelId>,
     k: usize,
     now: DateTime<Utc>,
-) -> Result<RankedMail, String> {
+) -> Result<RankedMail, CoreError> {
     let prepared = prepare(input, source, zone, label)?;
     let hits = prepared.top(source, affinity, k, &newest(&prepared, source, now), now);
     Ok(prepared.ranked(hits))

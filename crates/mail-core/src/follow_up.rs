@@ -22,6 +22,7 @@
 //! account with no Sent folder (POP3), whose copy is kept here as it is sent. One whose copy is
 //! never found is let go a week after it was due.
 
+use crate::error::{CoreError, TimeError};
 use crate::notify::{Notification, Notifier, Opens, Own};
 use chrono::{DateTime, TimeDelta, TimeZone, Utc};
 use mail_domain::{
@@ -50,7 +51,7 @@ pub fn due<Tz: TimeZone>(
     choice: &str,
     from: DateTime<Utc>,
     zone: &Tz,
-) -> Result<DateTime<Utc>, String>
+) -> Result<DateTime<Utc>, TimeError>
 where
     Tz::Offset: std::fmt::Display,
 {
@@ -65,14 +66,13 @@ where
         typed => typed.trim().to_owned(),
     };
     if phrase.is_empty() {
-        return Err("Type a time: tomorrow 9, fri 17:00, +3d, 2026-10-02".to_owned());
+        return Err(TimeError::Blank);
     }
     let at = crate::snooze::snooze_until(&phrase, from, zone)?;
     if at <= from {
-        return Err(format!(
-            "{} has already passed. Pick a later time.",
-            crate::when::stamp(at, zone, crate::when::Stamp::Full)
-        ));
+        return Err(TimeError::Passed {
+            stamp: crate::when::stamp(at, zone, crate::when::Stamp::Full),
+        });
     }
     Ok(at)
 }
@@ -186,7 +186,7 @@ impl Swept {
 ///
 /// Each change goes through [`Op::apply`] and [`Store::apply`] like the user's own, local by
 /// construction, and none is put on anyone's undo stack: the user did not do them.
-pub fn sweep(store: &SqliteStore, now: DateTime<Utc>) -> Result<Swept, String> {
+pub fn sweep(store: &SqliteStore, now: DateTime<Utc>) -> Result<Swept, CoreError> {
     let mut swept = Swept::default();
     for held in held(store) {
         match landed(store, &held) {
@@ -200,12 +200,12 @@ pub fn sweep(store: &SqliteStore, now: DateTime<Utc>) -> Result<Swept, String> {
         }
     }
     let own = crate::notify::own_addresses(store)?;
-    for summary in store.follow_ups().map_err(|e| e.to_string())? {
+    for summary in store.follow_ups()? {
         let set = match summary.follow_up {
             FollowUp::Until { set, .. } | FollowUp::Returned { set, .. } => set,
             FollowUp::Inactive => continue,
         };
-        let loaded = store.thread(summary.id).map_err(|e| e.to_string())?;
+        let loaded = store.thread(summary.id)?;
         let messages: Vec<Message> = loaded
             .messages
             .iter()
@@ -271,7 +271,7 @@ pub fn sweep_and_announce(
     store: &SqliteStore,
     notifier: Option<&dyn Notifier>,
     now: DateTime<Utc>,
-) -> Result<Swept, String> {
+) -> Result<Swept, CoreError> {
     let swept = sweep(store, now)?;
     if let Some(notifier) = notifier {
         for notification in notifications(&swept.returned) {

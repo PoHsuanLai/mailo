@@ -604,7 +604,8 @@ fn an_account_whose_folders_are_labels_is_not_fetched_by_folder() {
         PROJECTS,
         now(),
     )
-    .unwrap_err();
+    .unwrap_err()
+    .to_string();
     assert!(refused.contains("labels"), "{refused}");
     let paths = sync::mailboxes_by_account(&store).unwrap().remove(0).1;
     assert_eq!(

@@ -215,7 +215,10 @@ fn a_whole_run_is_read_for_the_account_that_asked() {
 
 #[test]
 fn a_run_that_could_not_happen_waits_and_backs_off_like_any_failure() {
-    let event = outcome(Err("cannot start the async runtime".into()), acct_account());
+    let event = outcome(
+        Err::<Vec<PassEnd>, _>("cannot start the async runtime"),
+        acct_account(),
+    );
     assert_eq!(
         event,
         Event::Failed {

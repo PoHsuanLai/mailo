@@ -10,6 +10,7 @@
 //! is simply never asked about.
 
 use crate::config::{read_json, write_json};
+use crate::error::CoreError;
 use mail_store::{Offline, Store};
 use porter_core::AccountId;
 use std::collections::BTreeSet;
@@ -69,7 +70,7 @@ pub fn load_default() -> Kept {
 }
 
 /// Set what `account` keeps, leaving every other account as it was.
-pub fn save(dir: &Path, account: AccountId, keep: Keep) -> Result<(), String> {
+pub fn save(dir: &Path, account: AccountId, keep: Keep) -> Result<(), CoreError> {
     write_json(dir, FILE_NAME, &load(dir).with(account, keep))
 }
 
@@ -119,7 +120,7 @@ pub fn command(
     accounts: &[(AccountId, String)],
     address: Option<&str>,
     set: Option<Keep>,
-) -> Result<String, String> {
+) -> Result<String, CoreError> {
     let chosen: Vec<&(AccountId, String)> = match address {
         None => accounts.iter().collect(),
         Some(address) => {
@@ -128,14 +129,14 @@ pub fn command(
                 .filter(|(_, a)| a.eq_ignore_ascii_case(address))
                 .collect();
             if found.is_empty() {
-                return Err(format!("no account {address:?}"));
+                return Err(CoreError::UnknownAccount(address.to_owned()));
             }
             found
         }
     };
     if let Some(keep) = set {
         let Some(dir) = dir else {
-            return Err("no config directory (neither XDG_CONFIG_HOME nor HOME is set)".to_owned());
+            return Err(CoreError::NoConfigDir);
         };
         for (id, _) in &chosen {
             save(dir, id.clone(), keep)?;
@@ -144,7 +145,7 @@ pub fn command(
     let kept = dir.map(load).unwrap_or_default();
     let mut out = String::new();
     for (id, address) in chosen {
-        let counted = store.offline(id.clone()).map_err(|e| e.to_string())?;
+        let counted = store.offline(id.clone())?;
         let keeps = match kept.of(id.clone()) {
             Keep::Everything => "all mail kept offline",
             Keep::Bodies => "large attachments left on the server until opened",

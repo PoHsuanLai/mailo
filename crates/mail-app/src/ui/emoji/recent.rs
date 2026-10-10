@@ -40,7 +40,7 @@ pub fn save(dir: &Path, recent: &[&'static Emoji]) -> Result<(), String> {
     let stored = Stored {
         recent: recent.iter().map(|emoji| emoji.glyph.to_owned()).collect(),
     };
-    mail_core::config::write_json(dir, FILE_NAME, &stored)
+    mail_core::config::write_json(dir, FILE_NAME, &stored).map_err(String::from)
 }
 
 /// `recent` with `picked` first: moved there if it was already in it, and the oldest dropped

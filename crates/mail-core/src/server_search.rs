@@ -15,6 +15,7 @@
 //! the engines are `mail_runtime`'s ([`crate::sync::search_server`]).
 
 use crate::config::read_json;
+use crate::error::CoreError;
 use chrono::{DateTime, Utc};
 use mail_domain::{AccountPlan, Filter, Incoming, LabelId};
 use mail_runtime::{Searched, Unsaid};
@@ -83,10 +84,9 @@ pub fn search(
     account: AccountId,
     input: &str,
     now: DateTime<Utc>,
-) -> Result<Searched, String> {
+) -> Result<Searched, CoreError> {
     let named: Vec<(String, LabelId)> = store
-        .labels(account.clone())
-        .map_err(|e| e.to_string())?
+        .labels(account.clone())?
         .into_iter()
         .map(|l| (l.name, l.id))
         .collect();

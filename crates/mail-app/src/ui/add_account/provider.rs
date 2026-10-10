@@ -156,6 +156,7 @@ impl Seams {
                         signed: signed.as_ref(),
                     },
                 )
+                .map_err(String::from)
             }),
         }
     }

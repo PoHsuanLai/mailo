@@ -529,7 +529,9 @@ fn sending_the_same_draft_twice_is_refused() {
         )
         .unwrap();
 
-    let err = compose::send(&store, draft.id, at(22)).expect_err("already sent");
+    let err = compose::send(&store, draft.id, at(22))
+        .expect_err("already sent")
+        .to_string();
     assert!(err.contains("already sent"), "{err}");
 }
 
@@ -542,7 +544,8 @@ fn an_account_with_no_identity_says_so_instead_of_inventing_a_sender() {
     mail_store::testing::delete_identities(&store, acct_account());
 
     let err = compose::reply(&store, ORIGINAL, ReplyScope::Sender, "hi", at(10))
-        .expect_err("no identity to send as");
+        .expect_err("no identity to send as")
+        .to_string();
     assert!(
         err.starts_with("this account has no identity to send as"),
         "{err}"
@@ -767,7 +770,7 @@ mod discarding {
             draft.state = state.clone();
             compose::save(&store, &draft).unwrap();
 
-            let why = compose::discard(&store, id).unwrap_err();
+            let why = compose::discard(&store, id).unwrap_err().to_string();
             assert!(why.contains("queued for delivery"), "{why}");
             assert_eq!(
                 store.drafts(acct_account()).unwrap().len(),
@@ -827,7 +830,9 @@ mod discarding {
     #[test]
     fn discarding_something_that_is_not_there_is_an_error_not_a_panic() {
         let (store, _dir) = seeded();
-        let err = compose::discard(&store, DraftId::generate()).expect_err("no such draft");
+        let err = compose::discard(&store, DraftId::generate())
+            .expect_err("no such draft")
+            .to_string();
         assert!(err.starts_with("no such draft"), "{err}");
     }
 }
@@ -1124,7 +1129,9 @@ mod forwarding_as_an_attachment {
     fn a_message_whose_body_never_arrived_is_refused() {
         let (store, _dir) = seeded();
         let id = headers_only(&store);
-        let why = compose::draft_forward_attached(&store, id, &bea(), "", at(10)).unwrap_err();
+        let why = compose::draft_forward_attached(&store, id, &bea(), "", at(10))
+            .unwrap_err()
+            .to_string();
         assert!(why.contains("not been downloaded"), "{why}");
         assert!(
             store.drafts(acct_account()).unwrap().is_empty(),
@@ -1163,8 +1170,9 @@ mod forwarding_as_an_attachment {
         for (name, attachment) in cases {
             let (store, _dir) = seeded();
             let id = stored(&store, rebuilt.as_bytes(), vec![attachment]);
-            let why =
-                compose::draft_forward_attached(&store, id, &bea(), "", at(10)).expect_err(name);
+            let why = compose::draft_forward_attached(&store, id, &bea(), "", at(10))
+                .expect_err(name)
+                .to_string();
             assert!(why.contains("rebuilt"), "{name}: {why}");
             assert!(why.contains("inline"), "{name}: says what to do: {why}");
             assert!(store.drafts(acct_account()).unwrap().is_empty(), "{name}");
@@ -1506,7 +1514,7 @@ mod choosing_the_sender {
     #[test]
     fn one_account_needs_no_question() {
         let (store, _dir) = seeded();
-        assert_eq!(compose::account_for(&store, None), Ok(acct_account()));
+        assert_eq!(compose::account_for(&store, None).unwrap(), acct_account());
     }
 
     #[test]
@@ -1515,7 +1523,9 @@ mod choosing_the_sender {
         // looks fine to the sender and wrong to everyone who receives it.
         let (store, _dir) = seeded();
         also(&store);
-        let refused = compose::account_for(&store, None).expect_err("a guess is not an answer");
+        let refused = compose::account_for(&store, None)
+            .expect_err("a guess is not an answer")
+            .to_string();
         assert!(refused.contains("--from"), "{refused}");
         assert!(refused.contains("me@example.test"), "{refused}");
         assert!(refused.contains("work@example.test"), "{refused}");
@@ -1526,13 +1536,13 @@ mod choosing_the_sender {
         let (store, _dir) = seeded();
         also(&store);
         assert_eq!(
-            compose::account_for(&store, Some("work@example.test")),
-            Ok(acct_second())
+            compose::account_for(&store, Some("work@example.test")).unwrap(),
+            acct_second()
         );
         // Addresses are not case sensitive, and nobody types their own the same way twice.
         assert_eq!(
-            compose::account_for(&store, Some("WORK@example.test")),
-            Ok(acct_second())
+            compose::account_for(&store, Some("WORK@example.test")).unwrap(),
+            acct_second()
         );
     }
 
@@ -1541,7 +1551,8 @@ mod choosing_the_sender {
         let (store, _dir) = seeded();
         also(&store);
         let refused = compose::account_for(&store, Some("nobody@example.test"))
-            .expect_err("that is not an account");
+            .expect_err("that is not an account")
+            .to_string();
         assert!(refused.contains("work@example.test"), "{refused}");
     }
 
@@ -1697,7 +1708,8 @@ mod carrying_a_file {
         let draft = a_draft(&store);
         let huge = vec![0u8; (compose::ATTACHMENT_BUDGET + 1) as usize];
         let refused = compose::attach_bytes(&store, draft, "huge.bin", &huge, at(20))
-            .expect_err("over the budget");
+            .expect_err("over the budget")
+            .to_string();
         assert!(refused.contains("refuse"), "{refused}");
         assert_eq!(
             store.draft(draft).unwrap().attachments.len(),
@@ -1716,7 +1728,8 @@ mod carrying_a_file {
         compose::attach_bytes(&store, draft, "one.bin", &two_fifths, at(20)).unwrap();
         compose::attach_bytes(&store, draft, "two.bin", &two_fifths, at(21)).unwrap();
         let refused = compose::attach_bytes(&store, draft, "three.bin", &two_fifths, at(22))
-            .expect_err("the third goes over");
+            .expect_err("the third goes over")
+            .to_string();
         assert!(refused.contains("refuse"), "{refused}");
         assert_eq!(store.draft(draft).unwrap().attachments.len(), 2);
     }
@@ -1729,7 +1742,8 @@ mod carrying_a_file {
         let draft = a_draft(&store);
         compose::send(&store, draft, at(30)).unwrap();
         let refused = compose::attach_bytes(&store, draft, "late.txt", b"too late", at(31))
-            .expect_err("it is already queued");
+            .expect_err("it is already queued")
+            .to_string();
         assert!(refused.contains("on its way"), "{refused}");
     }
 
@@ -1751,7 +1765,9 @@ mod carrying_a_file {
     fn detaching_something_that_is_not_there_is_an_error_not_a_panic() {
         let (store, _dir) = seeded();
         let draft = a_draft(&store);
-        let refused = compose::detach(&store, draft, 3, at(22)).expect_err("there is no number 3");
+        let refused = compose::detach(&store, draft, 3, at(22))
+            .expect_err("there is no number 3")
+            .to_string();
         assert!(refused.contains("no number 3"), "{refused}");
     }
 

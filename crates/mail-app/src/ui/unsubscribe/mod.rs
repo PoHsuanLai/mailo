@@ -207,7 +207,9 @@ pub(in crate::ui) fn leave(
         .enable_all()
         .build()
         .map_err(|e| format!("Could not start the request: {e}"))?;
-    runtime.block_on(mail_core::unsubscribe::perform(store, found, &http, now))
+    runtime
+        .block_on(mail_core::unsubscribe::perform(store, found, &http, now))
+        .map_err(String::from)
 }
 
 /// The client a one-click `POST` is made with.

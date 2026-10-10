@@ -6,6 +6,7 @@
 //! those accounts rules run here and there is no vacation reply. A vacation reply this client
 //! sent itself would stop whenever the laptop closed, so there is none of that either.
 
+use crate::error::{CoreError, TimeError};
 use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone, Utc};
 use mail_domain::{DateRange, IsDefault, Vacation};
 use mail_proto::sieve::{
@@ -59,17 +60,21 @@ pub enum VacationCmd {
 }
 
 /// A date or a date and time, in `zone`, as an instant.
-pub fn instant<Tz: TimeZone>(text: &str, zone: &Tz) -> Result<DateTime<Utc>, String> {
+pub fn instant<Tz: TimeZone>(text: &str, zone: &Tz) -> Result<DateTime<Utc>, TimeError> {
     let local = NaiveDateTime::parse_from_str(text, "%Y-%m-%dT%H:%M")
         .or_else(|_| NaiveDateTime::parse_from_str(text, "%Y-%m-%d %H:%M"))
         .or_else(|_| {
             NaiveDate::parse_from_str(text, "%Y-%m-%d").map(|d| d.and_time(Default::default()))
         })
-        .map_err(|_| format!("{text:?} is not a date: write 2026-10-08 or 2026-10-08T09:00"))?;
+        .map_err(|_| TimeError::NotADate {
+            text: text.to_owned(),
+        })?;
     zone.from_local_datetime(&local)
         .earliest()
         .map(|t| t.with_timezone(&Utc))
-        .ok_or_else(|| format!("{text} does not exist in this time zone"))
+        .ok_or_else(|| TimeError::NoSuchInstant {
+            text: text.to_owned(),
+        })
 }
 
 /// The reply as the account would send it: to mail addressed to any of its addresses, from its
@@ -110,12 +115,11 @@ pub fn run_vacation(
     command: &VacationCmd,
     saved: &ClientRegistry,
     now: DateTime<Utc>,
-) -> Result<String, String> {
-    let failed = |e: mail_store::StoreError| e.to_string();
+) -> Result<String, CoreError> {
     match command {
         VacationCmd::Show { account } => {
             let account = super::pick(store, account.as_deref())?;
-            Ok(match store.vacation(account.id).map_err(failed)? {
+            Ok(match store.vacation(account.id)? {
                 None => format!("{}: no vacation reply\n", account.address),
                 Some(v) => shown(&account.address, &v, now),
             })
@@ -131,9 +135,12 @@ pub fn run_vacation(
             let account = super::pick(store, account.as_deref())?;
             // Refused before anything is kept: a reply nobody will send is worse than none,
             // because the user believes it is going out.
-            endpoint(&account.plan).map_err(|why| format!("{}: {why}", account.address))?;
+            endpoint(&account.plan).map_err(|why| CoreError::NoSieve {
+                address: account.address.clone(),
+                why,
+            })?;
             let body = std::fs::read_to_string(body_file)
-                .map_err(|e| format!("cannot read {}: {e}", body_file.display()))?;
+                .map_err(|e| CoreError::cannot(format!("read {}", body_file.display()), e))?;
             let during = DateRange {
                 from: from
                     .as_deref()
@@ -147,21 +154,17 @@ pub fn run_vacation(
             if let (Some(a), Some(b)) = (during.from, during.to)
                 && b <= a
             {
-                return Err("--until has to be after --from".to_owned());
+                return Err(CoreError::UntilBeforeFrom);
             }
             let vacation = vacation_for(&account, subject, &body, *days, during);
-            store
-                .put_vacation(account.id.clone(), Some(&vacation), now)
-                .map_err(failed)?;
+            store.put_vacation(account.id.clone(), Some(&vacation), now)?;
             let mut out = shown(&account.address, &vacation, now);
             out.push_str(&push_now(store, &account, Takeover::Refuse, saved, now));
             Ok(out)
         }
         VacationCmd::Off { account } => {
             let account = super::pick(store, account.as_deref())?;
-            store
-                .put_vacation(account.id.clone(), None, now)
-                .map_err(failed)?;
+            store.put_vacation(account.id.clone(), None, now)?;
             let mut out = format!("{}: vacation reply off\n", account.address);
             if endpoint(&account.plan).is_ok() {
                 out.push_str(&push_now(store, &account, Takeover::Refuse, saved, now));
@@ -213,7 +216,7 @@ pub fn run_sieve(
     command: &SieveCmd,
     saved: &ClientRegistry,
     now: DateTime<Utc>,
-) -> Result<String, String> {
+) -> Result<String, CoreError> {
     match command {
         SieveCmd::Push { account, takeover } => {
             let account = super::pick(store, account.as_deref())?;
@@ -226,11 +229,11 @@ pub fn run_sieve(
     }
 }
 
-fn runtime() -> Result<tokio::runtime::Runtime, String> {
+fn runtime() -> Result<tokio::runtime::Runtime, CoreError> {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .map_err(|e| format!("cannot reach the server: {e}"))
+        .map_err(|e| CoreError::cannot("reach the server", e))
 }
 
 /// The account's own sign-in: the server's ManageSieve takes the same credential as its mail.
@@ -238,25 +241,21 @@ async fn auth(
     account: &crate::sync::Configured,
     saved: &ClientRegistry,
     now: DateTime<Utc>,
-) -> Result<SieveAuth, String> {
+) -> Result<SieveAuth, CoreError> {
     let secrets = platform_secrets();
     // An account of the desktop's accountd: its relay for the ManageSieve server it lists, and no
     // credential of ours.
     if let Some(grant) = account.plan.grant() {
-        let link = secrets.link().ok_or_else(|| {
-            format!(
-                "{} is an account of the desktop's account service, which is not reachable",
-                account.address
-            )
-        })?;
+        let link = secrets
+            .link()
+            .ok_or_else(|| CoreError::AccountServiceUnreachable {
+                address: account.address.clone(),
+            })?;
         let endpoint = account
             .plan
             .endpoint(porter_core::Family::Sieve)
-            .ok_or_else(|| {
-                format!(
-                    "{}: the account service lists no ManageSieve server for it",
-                    account.address
-                )
+            .ok_or_else(|| CoreError::NoManageSieve {
+                address: account.address.clone(),
             })?;
         return Ok(SieveAuth {
             username: account.plan.username(),
@@ -275,7 +274,10 @@ async fn auth(
             purpose: SecretPurpose::IncomingPassword,
         })
         .await
-        .map_err(|_| crate::account::no_credential(&account.address, &account.plan.auth))?;
+        .map_err(|_| CoreError::NoCredential {
+            address: account.address.clone(),
+            auth: account.plan.auth.clone(),
+        })?;
     let credential = crate::sync::signed_in(account, stored, secrets.as_ref(), saved, now).await?;
     Ok(SieveAuth {
         username: account.plan.username(),
@@ -291,7 +293,7 @@ fn push(
     takeover: Takeover,
     saved: &ClientRegistry,
     now: DateTime<Utc>,
-) -> Result<String, String> {
+) -> Result<String, CoreError> {
     pushed(store, account, takeover, saved, now).map(|pushed| said(&account.address, &pushed))
 }
 
@@ -304,12 +306,13 @@ pub fn pushed(
     takeover: Takeover,
     saved: &ClientRegistry,
     now: DateTime<Utc>,
-) -> Result<Pushed, String> {
-    let at = endpoint(&account.plan).map_err(|why| format!("{}: {why}", account.address))?;
-    let rules = store.rules(account.id.clone()).map_err(|e| e.to_string())?;
-    let vacation = store
-        .vacation(account.id.clone())
-        .map_err(|e| e.to_string())?;
+) -> Result<Pushed, CoreError> {
+    let at = endpoint(&account.plan).map_err(|why| CoreError::NoSieve {
+        address: account.address.clone(),
+        why,
+    })?;
+    let rules = store.rules(account.id.clone())?;
+    let vacation = store.vacation(account.id.clone())?;
     let places = Places::from_caps(&account.caps);
     runtime()?.block_on(async {
         let auth = auth(account, saved, now).await?;
@@ -325,7 +328,7 @@ pub fn pushed(
             &mut cancel,
         )
         .await
-        .map_err(|e| format!("{}:{}: {e}", at.host, at.port))
+        .map_err(|e| CoreError::context(format!("{}:{}", at.host, at.port), e))
     })
 }
 
@@ -395,14 +398,17 @@ fn status(
     account: &crate::sync::Configured,
     saved: &ClientRegistry,
     now: DateTime<Utc>,
-) -> Result<String, String> {
-    let at = endpoint(&account.plan).map_err(|why| format!("{}: {why}", account.address))?;
+) -> Result<String, CoreError> {
+    let at = endpoint(&account.plan).map_err(|why| CoreError::NoSieve {
+        address: account.address.clone(),
+        why,
+    })?;
     let outcome = runtime()?.block_on(async {
         let auth = auth(account, saved, now).await?;
         let (_tx, mut cancel) = tokio::sync::watch::channel(false);
         mail_runtime::sieve::manage(&at, &auth, SieveJob::Status, &mut cancel)
             .await
-            .map_err(|e| format!("{}:{}: {e}", at.host, at.port))
+            .map_err(|e| CoreError::context(format!("{}:{}", at.host, at.port), e))
     })?;
     let SieveOutcome::Status {
         caps,
@@ -410,7 +416,7 @@ fn status(
         ours,
     } = outcome
     else {
-        return Err("the server answered a status request with something else".to_owned());
+        return Err(CoreError::StatusExpected);
     };
     let mut out = format!(
         "{}: ManageSieve at {}:{}{}\n  extensions: {}\n",
@@ -437,10 +443,8 @@ fn status(
             }
         );
     }
-    let rules = store.rules(account.id.clone()).map_err(|e| e.to_string())?;
-    let vacation = store
-        .vacation(account.id.clone())
-        .map_err(|e| e.to_string())?;
+    let rules = store.rules(account.id.clone())?;
+    let vacation = store.vacation(account.id.clone())?;
     let compiled = compile(
         &rules,
         vacation.as_ref(),

@@ -15,6 +15,7 @@
 //! gone is found the next time its thread writes and fails, and its channel is dropped with it.
 
 use super::wire::{self, Mismatch, Request, Response};
+use crate::error::CoreError;
 use porter_core::AccountId;
 use std::io::{BufRead, BufReader, Write};
 use std::sync::mpsc::{Sender, channel};
@@ -146,10 +147,8 @@ pub(crate) fn pong() -> Response {
 }
 
 /// Write one message on `stream`.
-pub(crate) fn say(stream: &mut latchkey::Stream, response: Response) -> Result<(), String> {
+pub(crate) fn say(stream: &mut latchkey::Stream, response: Response) -> Result<(), CoreError> {
     let text = wire::line(response)?;
-    stream
-        .write_all(text.as_bytes())
-        .map_err(|e| e.to_string())?;
-    stream.flush().map_err(|e| e.to_string())
+    stream.write_all(text.as_bytes())?;
+    Ok(stream.flush()?)
 }

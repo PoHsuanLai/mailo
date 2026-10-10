@@ -14,6 +14,7 @@ pub use body::{fetch_body, fetch_body_with};
 mod jmap;
 mod search;
 
+use crate::error::CoreError;
 use mail_domain::*;
 use mail_proto::backend::{Authenticate, ImapBackend, Pop3Backend};
 use mail_proto::{ImapAuth, ImapCommand, ImapSession, Pop3Command, Pop3Session};
@@ -55,24 +56,22 @@ pub fn caps_of(store: &SqliteStore, account: AccountId) -> Option<AccountCaps> {
 }
 
 /// Read the accounts back out of the store.
-pub(crate) fn configured(store: &SqliteStore) -> Result<Vec<Configured>, String> {
+pub(crate) fn configured(store: &SqliteStore) -> Result<Vec<Configured>, CoreError> {
     let mut out = Vec::new();
-    for stored in store.list_accounts().map_err(|e| e.to_string())? {
+    for stored in store.list_accounts()? {
         let address = stored.address;
-        let plan: AccountPlan = stored
-            .plan
-            .map_err(|e| format!("{address}: stored plan is unreadable: {}", why(&e)))?;
+        let plan: AccountPlan = stored.plan.map_err(|e| CoreError::PlanUnreadable {
+            address: address.clone(),
+            why: why(&e),
+        })?;
         let caps: AccountCaps = match stored.caps {
-            Some(caps) => caps.map_err(|e| {
-                format!("{address}: stored capabilities are unreadable: {}", why(&e))
+            Some(caps) => caps.map_err(|e| CoreError::CapsUnreadable {
+                address: address.clone(),
+                why: why(&e),
             })?,
             // No capabilities yet means nothing has connected. The expected ones from the
             // preset are a starting point, not a claim about the server.
-            None => {
-                return Err(format!(
-                    "{address}: no capabilities recorded. Something has gone wrong with setup."
-                ));
-            }
+            None => return Err(CoreError::NoCaps { address }),
         };
         out.push(Configured {
             id: stored.id,
@@ -83,6 +82,14 @@ pub(crate) fn configured(store: &SqliteStore) -> Result<Vec<Configured>, String>
         });
     }
     Ok(out)
+}
+
+/// A pass's classified failure as the error of a call that has no use for the classification.
+fn pass_error(failure: Failure) -> CoreError {
+    CoreError::PassFailed {
+        retry: failure.retry,
+        why: failure.why,
+    }
 }
 
 /// Why a stored value would not read, without the store's own preamble.
@@ -100,7 +107,7 @@ pub(crate) fn why(error: &mail_store::StoreError) -> String {
 /// question separately is how `sync` came to tell a Google account to find a password.
 pub fn auth_by_account(
     store: &SqliteStore,
-) -> Result<std::collections::HashMap<String, AuthPlan>, String> {
+) -> Result<std::collections::HashMap<String, AuthPlan>, CoreError> {
     Ok(configured(store)?
         .into_iter()
         .map(|account| (account.address, account.plan.auth))
@@ -161,8 +168,8 @@ pub fn watch(
     now: chrono::DateTime<chrono::Utc>,
     notifications: crate::notify::Setting,
     tell: &dyn Fn(Watched),
-) -> Result<Vec<PassEnd>, String> {
-    let registry = clients::load_default().map_err(|e| e.to_string())?;
+) -> Result<Vec<PassEnd>, CoreError> {
+    let registry = clients::load_default()?;
     let desktop;
     let announce = match notifications {
         crate::notify::Setting::On => {
@@ -202,11 +209,11 @@ pub fn run(
     store: Arc<SqliteStore>,
     now: chrono::DateTime<chrono::Utc>,
     hooks: Hooks<'_>,
-) -> Result<Vec<PassEnd>, String> {
+) -> Result<Vec<PassEnd>, CoreError> {
     // The registry is read once per run rather than once per account: it is deployment
     // configuration, and an edit halfway through a run producing two different client ids is
     // not a behaviour worth having.
-    let registry = clients::load_default().map_err(|e| e.to_string())?;
+    let registry = clients::load_default()?;
     run_all(
         store,
         platform_secrets(),
@@ -238,7 +245,7 @@ pub fn run_with(
     registry: &ClientRegistry,
     now: chrono::DateTime<chrono::Utc>,
     hooks: Hooks<'_>,
-) -> Result<Vec<PassEnd>, String> {
+) -> Result<Vec<PassEnd>, CoreError> {
     run_all(
         store,
         secrets,
@@ -273,7 +280,7 @@ fn run_all(
     announce: Announce<'_>,
     scope: &Scope<'_>,
     hooks: Hooks<'_>,
-) -> Result<Vec<PassEnd>, String> {
+) -> Result<Vec<PassEnd>, CoreError> {
     let accounts = pick(&store, scope)?;
     pass_over(
         &store, secrets, registry, now, mode, announce, accounts, hooks,
@@ -281,7 +288,7 @@ fn run_all(
 }
 
 /// The accounts a run is to sync.
-fn pick(store: &SqliteStore, scope: &Scope<'_>) -> Result<Vec<Configured>, String> {
+fn pick(store: &SqliteStore, scope: &Scope<'_>) -> Result<Vec<Configured>, CoreError> {
     // An account that keeps its mail here has no server: nothing to fetch, nothing to drain,
     // and no credential to ask the keyring for. Left out rather than reported, because a line
     // saying so on every pass would be noise about something that is working as intended.
@@ -307,11 +314,11 @@ fn pass_over(
     announce: Announce<'_>,
     accounts: Vec<Configured>,
     hooks: Hooks<'_>,
-) -> Result<Vec<PassEnd>, String> {
+) -> Result<Vec<PassEnd>, CoreError> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .map_err(|e| format!("cannot start the async runtime: {e}"))?;
+        .map_err(CoreError::NoRuntime)?;
 
     // All the accounts at once — `plan.md` phase 8f.
     //
@@ -399,10 +406,10 @@ pub(crate) async fn signed_in(
     secrets: &dyn AccountSecrets,
     registry: &ClientRegistry,
     now: chrono::DateTime<chrono::Utc>,
-) -> Result<Credential, String> {
+) -> Result<Credential, CoreError> {
     signed_in_typed(account, credential, secrets, registry, now)
         .await
-        .map_err(|failure| failure.why)
+        .map_err(pass_error)
 }
 
 /// [`signed_in`], with what to do about a failure kept beside what to say about it.
@@ -630,7 +637,8 @@ async fn one(
             .await
         }
         Incoming::Graph => {
-            let mut engine = graph_engine(store, account, secrets).map_err(Failure::fatal)?;
+            let mut engine =
+                graph_engine(store, account, secrets).map_err(|e| Failure::fatal(e.to_string()))?;
             if let Some(source) = renewal {
                 engine = engine.with_tokens(source);
             }
@@ -693,10 +701,10 @@ async fn sending_token(
     secrets: &dyn AccountSecrets,
     registry: &ClientRegistry,
     now: chrono::DateTime<chrono::Utc>,
-) -> Result<(), String> {
+) -> Result<(), CoreError> {
     sending_token_typed(account, secrets, registry, now)
         .await
-        .map_err(|failure| failure.why)
+        .map_err(pass_error)
 }
 
 /// [`sending_token`], with what to do about a failure kept beside what to say about it.
@@ -782,9 +790,8 @@ fn graph_engine(
     store: &Arc<SqliteStore>,
     account: &Configured,
     secrets: Arc<dyn AccountSecrets>,
-) -> Result<AccountEngine<OverHttp>, String> {
-    let reader =
-        Reader::new(account.id.clone(), account.caps.clone()).map_err(|e| e.to_string())?;
+) -> Result<AccountEngine<OverHttp>, CoreError> {
+    let reader = Reader::new(account.id.clone(), account.caps.clone())?;
     Ok(AccountEngine::new(
         account.id.clone(),
         account.plan.clone(),
@@ -804,8 +811,8 @@ pub fn fetch_part(
     message: mail_domain::MessageId,
     section: &str,
     now: chrono::DateTime<chrono::Utc>,
-) -> Result<(), String> {
-    let registry = clients::load_default().map_err(|e| e.to_string())?;
+) -> Result<(), CoreError> {
+    let registry = clients::load_default()?;
     fetch_part_with(store, platform_secrets(), &registry, message, section, now)
 }
 
@@ -817,20 +824,20 @@ pub fn fetch_part_with(
     message: mail_domain::MessageId,
     section: &str,
     now: chrono::DateTime<chrono::Utc>,
-) -> Result<(), String> {
+) -> Result<(), CoreError> {
     use mail_store::Store as _;
-    let owner = store.message(message).map_err(|e| e.to_string())?.account;
+    let owner = store.message(message)?.account;
     let account = configured(store)?
         .into_iter()
         .find(|a| a.id == owner)
-        .ok_or_else(|| "the account this message belongs to is no longer configured".to_owned())?;
+        .ok_or(CoreError::MessageAccountGone)?;
     if !matches!(account.plan.incoming, Incoming::Imap { .. }) {
-        return Err("only IMAP leaves attachments on the server".to_owned());
+        return Err(CoreError::OnlyImapLeavesAttachments);
     }
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .map_err(|e| format!("cannot start the async runtime: {e}"))?;
+        .map_err(CoreError::NoRuntime)?;
     runtime.block_on(async {
         let (_tx, mut cancel) = watch::channel(false);
         let mut engine = signed_in_imap(store, &account, secrets, registry, now).await?;
@@ -838,7 +845,7 @@ pub fn fetch_part_with(
             .fetch_part(message, section, &mut cancel)
             .await
             .map(|_| ())
-            .map_err(|e| format!("cannot download the attachment: {e}"))
+            .map_err(|e| CoreError::cannot("download the attachment", e))
     })
 }
 
@@ -849,10 +856,10 @@ async fn signed_in_imap(
     secrets: Arc<dyn AccountSecrets>,
     registry: &ClientRegistry,
     now: chrono::DateTime<chrono::Utc>,
-) -> Result<AccountEngine<ImapBackend>, String> {
+) -> Result<AccountEngine<ImapBackend>, CoreError> {
     let stored = stored_credential(account, secrets.as_ref())
         .await
-        .map_err(|failure| failure.why)?;
+        .map_err(pass_error)?;
     let credential = signed_in(account, stored, secrets.as_ref(), registry, now).await?;
     let held = Held::new(credential);
     let renewal = renewal_for(
@@ -877,8 +884,8 @@ pub fn drain(
     store: &Arc<SqliteStore>,
     account: AccountId,
     now: chrono::DateTime<chrono::Utc>,
-) -> Result<SyncReport, String> {
-    let registry = clients::load_default().map_err(|e| e.to_string())?;
+) -> Result<SyncReport, CoreError> {
+    let registry = clients::load_default()?;
     drain_with(store, platform_secrets(), &registry, account, now)
 }
 
@@ -889,25 +896,22 @@ pub fn drain_with(
     registry: &ClientRegistry,
     account: AccountId,
     now: chrono::DateTime<chrono::Utc>,
-) -> Result<SyncReport, String> {
+) -> Result<SyncReport, CoreError> {
     let account = configured(store)?
         .into_iter()
         .find(|a| a.id == account)
-        .ok_or_else(|| "that account is no longer configured".to_owned())?;
+        .ok_or(CoreError::AccountGone)?;
     if !matches!(account.plan.incoming, Incoming::Imap { .. }) {
-        return Err("only an IMAP account has mailboxes to upload into".to_owned());
+        return Err(CoreError::OnlyImapUploads);
     }
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .map_err(|e| format!("cannot start the async runtime: {e}"))?;
+        .map_err(CoreError::NoRuntime)?;
     runtime.block_on(async {
         let (_tx, mut cancel) = watch::channel(false);
         let mut engine = signed_in_imap(store, &account, secrets, registry, now).await?;
-        engine
-            .drain_outbox(&mut cancel, now)
-            .await
-            .map_err(|e| e.to_string())
+        Ok(engine.drain_outbox(&mut cancel, now).await?)
     })
 }
 
@@ -1064,7 +1068,7 @@ fn after_pass(
             told,
             Watched::AnnounceFailed {
                 address: account.address.clone(),
-                why,
+                why: why.to_string(),
             },
         );
     }
@@ -1075,7 +1079,12 @@ fn after_pass(
     if let Announce::To { store, notifier } = announce
         && let Err(why) = crate::follow_up::sweep_and_announce(store, Some(notifier), at)
     {
-        relay(told, Watched::RemindersFailed { why });
+        relay(
+            told,
+            Watched::RemindersFailed {
+                why: why.to_string(),
+            },
+        );
     }
     // The rule F128 built its loop on, and the reason this one is not a bare sleep: a credential
     // the server has already refused must stop the loop rather than slow it. Sixty seconds of
@@ -1343,8 +1352,8 @@ pub fn folder_now(
     account: AccountId,
     path: &str,
     now: chrono::DateTime<chrono::Utc>,
-) -> Result<PassEnd, String> {
-    let registry = clients::load_default().map_err(|e| e.to_string())?;
+) -> Result<PassEnd, CoreError> {
+    let registry = clients::load_default()?;
     folder_now_with(store, platform_secrets(), &registry, account, path, now)
 }
 
@@ -1356,35 +1365,30 @@ pub fn folder_now_with(
     account: AccountId,
     path: &str,
     now: chrono::DateTime<chrono::Utc>,
-) -> Result<PassEnd, String> {
+) -> Result<PassEnd, CoreError> {
     let account = configured(&store)?
         .into_iter()
         .find(|a| a.id == account)
-        .ok_or_else(|| "no such account".to_owned())?;
+        .ok_or(CoreError::NoSuchAccount)?;
     match account.plan.incoming {
-        Incoming::Pop3 { .. } => {
-            return Err("POP3 has one mailbox, and every sync fetches it".to_owned());
-        }
+        Incoming::Pop3 { .. } => return Err(CoreError::Pop3OneMailbox),
         Incoming::Local => {
-            return Err(format!(
-                "{} is kept on this computer: there is no server to fetch from",
-                account.address
-            ));
+            return Err(CoreError::LocalNoServerToFetch {
+                address: account.address,
+            });
         }
         Incoming::Imap { .. } | Incoming::Graph => {}
         // Every pass fetches the whole account, and a folder's mail arrives with its label.
         Incoming::Jmap { .. } => {
-            return Err(format!(
-                "on {} folders are labels: every sync fetches the whole account",
-                account.address
-            ));
+            return Err(CoreError::FoldersAreLabelsWhole {
+                address: account.address,
+            });
         }
     }
     if account.caps.labels == ServerLabels::Supported {
-        return Err(format!(
-            "on {} folders are labels: a folder's mail arrives with its label",
-            account.address
-        ));
+        return Err(CoreError::FoldersAreLabels {
+            address: account.address,
+        });
     }
     let mailbox = MailboxRef {
         account: account.id.clone(),
@@ -1393,7 +1397,7 @@ pub fn folder_now_with(
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .map_err(|e| format!("cannot start the async runtime: {e}"))?;
+        .map_err(CoreError::NoRuntime)?;
     let done = runtime.block_on(async {
         let stored = stored_credential(&account, secrets.as_ref()).await?;
         let credential = signed_in_typed(&account, stored, secrets.as_ref(), registry, now).await?;
@@ -1409,8 +1413,8 @@ pub fn folder_now_with(
         let mut done = Done::default();
         if account.plan.incoming == Incoming::Graph {
             sending_token_typed(&account, secrets.as_ref(), registry, now).await?;
-            let mut engine =
-                graph_engine(&store, &account, secrets.clone()).map_err(Failure::fatal)?;
+            let mut engine = graph_engine(&store, &account, secrets.clone())
+                .map_err(|e| Failure::fatal(e.to_string()))?;
             if let Some(source) = renewal {
                 engine = engine.with_tokens(source);
             }
@@ -1452,14 +1456,12 @@ pub fn folder_now_with(
 /// asks and the answer is a fact this client knows: only these folders are fetched. Exposed
 /// rather than duplicated so a test can ask the code rather than restate its rules —
 /// CONVENTIONS §"An assertion that was already true proves nothing", second half.
-pub fn mailboxes_by_account(store: &SqliteStore) -> Result<Vec<(String, Vec<String>)>, String> {
+pub fn mailboxes_by_account(store: &SqliteStore) -> Result<Vec<(String, Vec<String>)>, CoreError> {
     use mail_store::Store as _;
     configured(store)?
         .into_iter()
         .map(|account| {
-            let folders = store
-                .folders(account.id.clone())
-                .map_err(|e| e.to_string())?;
+            let folders = store.folders(account.id.clone())?;
             let paths = to_sync(&account, &folders)
                 .into_iter()
                 .map(|m| m.path)

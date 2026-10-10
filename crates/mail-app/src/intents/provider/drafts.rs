@@ -21,7 +21,8 @@ use porter_core::AccountId;
 
 /// The addresses in `text` (a comma-separated list, as a person types it), or why not.
 fn addresses(text: Option<&str>) -> Result<Vec<Address>, AppRefusal> {
-    compose::addresses::parse_addresses(text.unwrap_or_default()).map_err(AppRefusal::Failed)
+    compose::addresses::parse_addresses(text.unwrap_or_default())
+        .map_err(|why| AppRefusal::Failed(why.to_string()))
 }
 
 /// An address as a person reads it.
@@ -39,7 +40,7 @@ impl Provider {
                 options: Vec::new(),
             });
         }
-        compose::account_for(&self.store, wanted).map_err(AppRefusal::Failed)
+        compose::account_for(&self.store, wanted).map_err(|why| AppRefusal::Failed(why.to_string()))
     }
 
     /// Save a draft with what the caller gave: `to`, `subject` and `body`, any of them.
@@ -53,7 +54,7 @@ impl Provider {
             invocation.text("body").unwrap_or_default(),
             Utc::now(),
         )
-        .map_err(AppRefusal::Failed)?;
+        .map_err(|why| AppRefusal::Failed(why.to_string()))?;
         let id = EntityId {
             app: APP.to_owned(),
             kind: "mail.draft".to_owned(),
@@ -86,7 +87,7 @@ impl Provider {
             body,
             Utc::now(),
         )
-        .map_err(AppRefusal::Failed)?;
+        .map_err(|why| AppRefusal::Failed(why.to_string()))?;
         let queued = compose::send_with(
             &self.store,
             self.secrets.as_ref(),
@@ -177,7 +178,7 @@ impl Provider {
                 "",
                 Utc::now(),
             );
-            let sent = made.and_then(|draft| {
+            let sent = made.map_err(|why| why.to_string()).and_then(|draft| {
                 compose::send_with(
                     &self.store,
                     self.secrets.as_ref(),
@@ -226,8 +227,8 @@ impl Provider {
                     &Local,
                 )
             })
-            .collect::<Result<Vec<Draft>, String>>()
-            .map_err(AppRefusal::Failed)?;
+            .collect::<Result<Vec<Draft>, _>>()
+            .map_err(|why: mail_core::CoreError| AppRefusal::Failed(why.to_string()))?;
         let theirs = |value: String| Labelled {
             value,
             label: Label::mail(&invocation.space),

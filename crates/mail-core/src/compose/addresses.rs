@@ -1,8 +1,9 @@
 //! The recipient box: addresses written as a person types them, and back.
 //!
-//! The grammar lives with the type, in [`Address`]; these keep the box's `String` errors for the
+//! The grammar lives with the type, in [`Address`]; these carry its errors as [`CoreError`] for the
 //! callers that show them.
 
+use crate::error::CoreError;
 use mail_domain::Address;
 
 /// Render addresses back into something a text box can hold.
@@ -11,8 +12,8 @@ pub fn join_addresses(list: &[Address]) -> String {
 }
 
 /// Parse a recipient box into addresses. See [`Address::parse_list`] for what it accepts.
-pub fn parse_addresses(input: &str) -> Result<Vec<Address>, String> {
-    Address::parse_list(input).map_err(|e| e.to_string())
+pub fn parse_addresses(input: &str) -> Result<Vec<Address>, CoreError> {
+    Ok(Address::parse_list(input)?)
 }
 
 #[cfg(test)]
@@ -94,7 +95,9 @@ mod tests {
     #[test]
     fn a_bad_entry_fails_the_whole_box_rather_than_half_of_it() {
         // Sending to "everyone I could parse" is the failure mode this prevents.
-        let err = parse_addresses("good@x.test, nonsense, other@x.test").unwrap_err();
+        let err = parse_addresses("good@x.test, nonsense, other@x.test")
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("nonsense"), "{err}");
     }
 

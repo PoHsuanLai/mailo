@@ -49,7 +49,9 @@ impl Remind {
     {
         match self {
             Remind::Off => Ok(None),
-            Remind::After(key) => mail_core::follow_up::due(key, leaves, zone).map(Some),
+            Remind::After(key) => mail_core::follow_up::due(key, leaves, zone)
+                .map(Some)
+                .map_err(String::from),
             Remind::At(at) if at <= leaves => Err(format!(
                 "The reminder, {}, comes before the message leaves. Pick a later time.",
                 when_words(at, leaves, zone)
@@ -235,8 +237,8 @@ fn PickRemind(page: Signal<Page>) -> Element {
                 when_in_sentence(*at, now, &chrono::Local)
             ),
         ),
-        Err(why) if typed.trim().is_empty() => ("pick-says", why.clone()),
-        Err(why) => ("pick-says refused", why.clone()),
+        Err(why) if typed.trim().is_empty() => ("pick-says", why.to_string()),
+        Err(why) => ("pick-says refused", why.to_string()),
     };
     rsx! {
         div { class: "pick-time",

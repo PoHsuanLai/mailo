@@ -5,6 +5,7 @@ use super::IconError;
 use super::cache::{cached, file_stem, store};
 use super::decode::decode;
 use super::fetch::{client, fetch, url};
+use crate::error::CoreError;
 use crate::provider::Provider;
 use std::fmt::Write as _;
 use std::path::Path;
@@ -57,9 +58,9 @@ pub fn report(results: &[(Provider, Result<usize, IconError>)]) -> String {
 ///
 /// A plan that does not parse is logged and skipped. The same provider twice is
 /// one fetch.
-pub fn providers_of(store: &mail_store::SqliteStore) -> Result<Vec<Provider>, String> {
+pub fn providers_of(store: &mail_store::SqliteStore) -> Result<Vec<Provider>, CoreError> {
     let mut out = Vec::new();
-    for account in store.list_accounts().map_err(|err| err.to_string())? {
+    for account in store.list_accounts()? {
         let Ok(plan) = account.plan else {
             eprintln!("provider icon: an account plan could not be read");
             continue;

@@ -1475,6 +1475,7 @@ fn fetching_a_part_of_a_pop3_message_is_refused_before_anything_is_sent() {
         "2",
         now(),
     )
-    .unwrap_err();
+    .unwrap_err()
+    .to_string();
     assert!(err.contains("only IMAP"), "{err}");
 }

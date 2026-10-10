@@ -7,6 +7,7 @@
 //! A cosmetic choice must not be a write to the file that holds someone's mail, or be able to
 //! fail a migration.
 
+use crate::error::CoreError;
 use mail_runtime::places::{self, Place};
 use std::path::{Path, PathBuf};
 
@@ -32,19 +33,19 @@ pub fn write_json(
     dir: &Path,
     file_name: &str,
     value: &impl serde::Serialize,
-) -> Result<(), String> {
-    let mut body = serde_json::to_string(value).map_err(|e| e.to_string())?;
+) -> Result<(), CoreError> {
+    let mut body = serde_json::to_string(value)?;
     body.push('\n');
     write_text(dir, file_name, &body)
 }
 
 /// Write `body` to `dir/file_name` by a temporary file and a rename, creating `dir` if needed.
-pub fn write_text(dir: &Path, file_name: &str, body: &str) -> Result<(), String> {
-    std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+pub fn write_text(dir: &Path, file_name: &str, body: &str) -> Result<(), CoreError> {
+    std::fs::create_dir_all(dir).map_err(CoreError::at(dir))?;
     let path = dir.join(file_name);
     let tmp = path.with_extension("part");
-    std::fs::write(&tmp, body).map_err(|e| format!("{}: {e}", tmp.display()))?;
-    std::fs::rename(&tmp, &path).map_err(|e| format!("{}: {e}", path.display()))
+    std::fs::write(&tmp, body).map_err(CoreError::at(&tmp))?;
+    std::fs::rename(&tmp, &path).map_err(CoreError::at(&path))
 }
 
 /// mailo's config directory: `$XDG_CONFIG_HOME/mailo`, else `$HOME/.config/mailo`, on Linux;

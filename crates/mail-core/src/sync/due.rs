@@ -5,6 +5,7 @@
 //! minute, and the acct_imap() accounts beside it want a pass every five. A pass the user asks for is
 //! not a wake and still syncs them all, through [`super::run`].
 
+use crate::error::CoreError;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -64,8 +65,8 @@ pub fn run_due(
     now: chrono::DateTime<chrono::Utc>,
     due: &[AccountId],
     hooks: super::report::Hooks<'_>,
-) -> Result<Vec<super::report::PassEnd>, String> {
-    let registry = mail_runtime::clients::load_default().map_err(|e| e.to_string())?;
+) -> Result<Vec<super::report::PassEnd>, CoreError> {
+    let registry = mail_runtime::clients::load_default()?;
     super::run_all(
         store,
         platform_secrets(),

@@ -4,6 +4,7 @@
 //! a password is read from the environment rather than invented, and an OAuth account says what
 //! it still needs rather than pretending to be configured.
 
+use crate::error::CoreError;
 use mail_domain::id::new_account_id;
 use mail_domain::*;
 use mail_runtime::{AccountSecrets, ClientRegistry, clients, tokens};
@@ -72,7 +73,7 @@ pub fn add(
     receive: crate::account::Receive,
     saved: &ClientRegistry,
     now: chrono::DateTime<chrono::Utc>,
-) -> Result<String, String> {
+) -> Result<String, CoreError> {
     // A JMAP account given `MAILO_JMAP_TOKEN` signs in with that token as a bearer; the token
     // then travels where a password would, through `Credentials`, so the window can do the same
     // by naming `HttpAuth::Bearer` itself.
@@ -164,7 +165,7 @@ pub fn add_with_password(
     graph: bool,
     now: chrono::DateTime<chrono::Utc>,
     credentials: Credentials<'_>,
-) -> Result<String, String> {
+) -> Result<String, CoreError> {
     add_receiving(
         store,
         address,
@@ -189,7 +190,7 @@ pub fn add_receiving(
     receive: crate::account::Receive,
     now: chrono::DateTime<chrono::Utc>,
     credentials: Credentials<'_>,
-) -> Result<String, String> {
+) -> Result<String, CoreError> {
     let Credentials {
         password,
         saved,
@@ -241,9 +242,7 @@ pub fn add_receiving(
         // Discovery fills the URL in before this runs (`discover::before_add_jmap`); a caller
         // that skipped it gets told how to name the server instead.
         Some(crate::account::Setup::Jmap { session: None, .. }) => {
-            return Err(format!(
-                "no JMAP session URL for {address}. Name it:\n\n                   mailo account add {address} --jmap https://jmap.example.com/.well-known/jmap"
-            ));
+            return Err(CoreError::NoJmapSession { address });
         }
         // Found by discovery and already shown to the user, who said yes. The address is set
         // again because it is the one normalised here that the stored column will hold.
@@ -255,14 +254,7 @@ pub fn add_receiving(
         None => match crate::discover::known(&address, now) {
             Some(preset) => preset,
             None => {
-                return Err(format!(
-                    "no preset for {address:?}. Either it is one of the known domains \
-                     (gmail.com, googlemail.com), or name the servers:\n\n  \
-                     mailo account add {address} --imap imap.example.com --smtp smtp.example.com\n\n\
-                     Ports default to 993 and 465, both with implicit TLS. A server that offers \
-                     only POP3 takes --pop3 in place of --imap (port 995). Add --login NAME if \
-                     the server wants something other than the whole address."
-                ));
+                return Err(CoreError::NoPreset { address });
             }
         },
     };
@@ -320,7 +312,7 @@ pub fn add_receiving(
             identities: &plan.identities,
             at: now,
         })
-        .map_err(|e| format!("cannot save the account: {e}"))?;
+        .map_err(|e| CoreError::cannot("save the account", e))?;
 
     let mut out = format!(
         "{} {address} as {account}\n",
@@ -362,7 +354,7 @@ pub fn add_receiving(
                         let value =
                             Credential::Password(SecretText::new(password.expose().to_owned()));
                         mail_runtime::block_on(secrets.put(&key, &value))
-                            .map_err(|e| format!("cannot save the password: {e}"))?;
+                            .map_err(|e| CoreError::cannot("save the password", e))?;
                     }
                     if bearer {
                         let _ = writeln!(out, "token stored in the keyring");
@@ -410,7 +402,7 @@ pub fn add_receiving(
                     },
                     &credential,
                 ))
-                .map_err(|e| format!("cannot save the token: {e}"))?;
+                .map_err(|e| CoreError::cannot("save the token", e))?;
                 // Incoming and outgoing share one OAuth credential: the scopes cover IMAP and
                 // SMTP together, and storing it twice would mean refreshing it twice.
                 mail_runtime::block_on(secrets.put(
@@ -420,7 +412,7 @@ pub fn add_receiving(
                     },
                     &credential,
                 ))
-                .map_err(|e| format!("cannot save the token: {e}"))?;
+                .map_err(|e| CoreError::cannot("save the token", e))?;
                 // Minted now rather than at the first send, so a permission the tenant withheld
                 // is reported while the user is still at the setup command — not hours later as
                 // a draft that will not leave.
@@ -517,11 +509,14 @@ pub fn add_receiving(
 ///
 /// No identity and no credential: it sends nothing and signs in nowhere. Its capabilities are
 /// stored like any account's, because everything that lists accounts reads them.
-pub fn local(store: &SqliteStore, now: chrono::DateTime<chrono::Utc>) -> Result<AccountId, String> {
+pub fn local(
+    store: &SqliteStore,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<AccountId, CoreError> {
     let address = mail_domain::presets::LOCAL_FOLDERS;
     let existing = store
         .account_by_address(address)
-        .map_err(|e| format!("cannot read the accounts: {e}"))?;
+        .map_err(|e| CoreError::cannot("read the accounts", e))?;
     if let Some(account) = existing {
         return Ok(account.id);
     }
@@ -536,7 +531,7 @@ pub fn local(store: &SqliteStore, now: chrono::DateTime<chrono::Utc>) -> Result<
             identities: &[],
             at: now,
         })
-        .map_err(|e| format!("cannot save the local account: {e}"))?;
+        .map_err(|e| CoreError::cannot("save the local account", e))?;
     Ok(account)
 }
 
@@ -588,11 +583,11 @@ fn graph_token(
     client: &ClientEntry,
     reach: tokens::GraphReach,
     now: chrono::DateTime<chrono::Utc>,
-) -> Result<(), String> {
+) -> Result<(), CoreError> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .map_err(|e| format!("cannot start the async runtime: {e}"))?;
+        .map_err(CoreError::NoRuntime)?;
     runtime.block_on(async {
         tokens::graph_token(
             account,
@@ -603,7 +598,7 @@ fn graph_token(
         )
         .await
         .map(|_| ())
-        .map_err(|e| e.to_string())
+        .map_err(CoreError::from)
     })
 }
 
@@ -612,7 +607,7 @@ fn graph_token(
 /// nothing recorded. Returns where it was written, or `None` when this machine has no config
 /// directory to write to, which is not a failure, just an installation that will need the
 /// variable again.
-fn remember(typed: Option<&ClientEntry>) -> Result<Option<std::path::PathBuf>, String> {
+fn remember(typed: Option<&ClientEntry>) -> Result<Option<std::path::PathBuf>, CoreError> {
     let Some(client) = typed else {
         return Ok(None);
     };
@@ -622,7 +617,7 @@ fn remember(typed: Option<&ClientEntry>) -> Result<Option<std::path::PathBuf>, S
         &client.client_id.0,
         client.client_secret.as_ref().map(|s| s.expose()),
     )
-    .map_err(|e| e.to_string())
+    .map_err(CoreError::from)
 }
 
 /// Run the browser sign-in and return the resulting credential.
@@ -634,11 +629,11 @@ fn authorize(
     scopes: &[String],
     on_url: &dyn Fn(&str),
     now: chrono::DateTime<chrono::Utc>,
-) -> Result<Credential, String> {
+) -> Result<Credential, CoreError> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .map_err(|e| format!("cannot start the async runtime: {e}"))?;
+        .map_err(CoreError::NoRuntime)?;
     runtime
         .block_on(mail_runtime::authorize::sign_in(
             client,
@@ -646,12 +641,12 @@ fn authorize(
             on_url,
             porter_core::UnixSeconds(now.timestamp()),
         ))
-        .map_err(|e| e.to_string())
+        .map_err(CoreError::from)
 }
 
 /// Accounts, with what each one still needs.
-pub fn list(store: &SqliteStore) -> Result<String, String> {
-    let accounts = store.list_accounts().map_err(|e| e.to_string())?;
+pub fn list(store: &SqliteStore) -> Result<String, CoreError> {
+    let accounts = store.list_accounts()?;
 
     // Which folders each account fetches, so `account list` can answer "why is my Sent folder
     // empty" without the user having to guess. A store that cannot answer is not an error here:
@@ -1056,7 +1051,8 @@ mod tests {
             &ClientRegistry::default(),
             now(),
         )
-        .unwrap_err();
+        .unwrap_err()
+        .to_string();
         assert!(err.contains("gmail.com"), "{err}");
         assert!(
             err.contains("--pop3"),

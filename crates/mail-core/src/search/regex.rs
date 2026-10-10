@@ -3,6 +3,7 @@
 //! The `regex` crate is linear-time, and the compiled form is capped, so a pattern cannot hang
 //! the window. An invalid pattern is the crate's own error text. It is never a panic.
 
+use crate::error::CoreError;
 use regex::RegexBuilder;
 
 /// Compiled size cap, and the same cap on the lazy DFA. One mebibyte.
@@ -19,7 +20,7 @@ pub struct Extracted {
 ///
 /// No such clause is `Ok` with `regex: None`. A pattern the `regex` crate refuses — a broken
 /// class, a program past [`SIZE_LIMIT`] — is `Err` of that crate's message.
-pub fn extract(input: &str) -> Result<Extracted, String> {
+pub fn extract(input: &str) -> Result<Extracted, CoreError> {
     let Some(start) = find_re(input) else {
         return Ok(Extracted {
             rest: input.to_owned(),
@@ -49,12 +50,12 @@ pub fn hits(regex: &regex::Regex, subject: &str, snippet: &str) -> bool {
 }
 
 /// Compile `pattern` with the size caps. The error string belongs to the `regex` crate.
-pub fn compile(pattern: &str) -> Result<regex::Regex, String> {
+pub fn compile(pattern: &str) -> Result<regex::Regex, CoreError> {
     RegexBuilder::new(pattern)
         .size_limit(SIZE_LIMIT)
         .dfa_size_limit(SIZE_LIMIT)
         .build()
-        .map_err(|err| err.to_string())
+        .map_err(CoreError::from)
 }
 
 /// Byte index of a `re:/` that starts a token. ASCII, so the index is a char boundary.
@@ -93,7 +94,9 @@ mod tests {
 
     #[test]
     fn unclosed_class_is_the_regex_error() {
-        let err = extract("re:/[/").expect_err("the class is unclosed");
+        let err = extract("re:/[/")
+            .expect_err("the class is unclosed")
+            .to_string();
         // Built at runtime so the literal is not a regex clippy can reject.
         let broken = String::from("[");
         let own = regex::Regex::new(&broken)
@@ -106,7 +109,9 @@ mod tests {
     fn size_limit_breach_is_an_error() {
         // A short pattern whose compiled NFA is large. A literal alternation is compressed; a
         // long counted class is not, and it crosses the 1 MiB cap `compile` sets.
-        let err = compile("[a-zA-Z0-9]{100000}").expect_err("the program must exceed the cap");
+        let err = compile("[a-zA-Z0-9]{100000}")
+            .expect_err("the program must exceed the cap")
+            .to_string();
         assert!(
             err.to_ascii_lowercase().contains("size"),
             "the message should be the size-limit error, got {err}"

@@ -61,7 +61,7 @@ fn main() {
     // the yes.
     if let Some(mail_app::cli::Command::AccountDiscover { address }) = &command {
         match mail_app::cli::discover::show(address, |address| {
-            mail_core::discover::lookup(address, chrono::Utc::now())
+            mail_core::discover::lookup(address, chrono::Utc::now()).map_err(String::from)
         }) {
             Ok(said) => print!("{said}"),
             Err(message) => {
@@ -74,7 +74,9 @@ fn main() {
     let command = match command {
         Some(command) => match mail_app::cli::discover::before_add(
             command,
-            |address| mail_core::discover::lookup(address, chrono::Utc::now()),
+            |address| {
+                mail_core::discover::lookup(address, chrono::Utc::now()).map_err(String::from)
+            },
             mail_app::cli::discover::Terminal::of_stdin(),
             |text| {
                 use std::io::Write as _;

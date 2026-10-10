@@ -28,7 +28,7 @@ impl Fetcher {
     #[cfg(not(test))]
     pub(in crate::ui) fn server() -> Self {
         Self(Arc::new(|store, account, path, now| {
-            mail_core::sync::folder_now(store, account, path, now)
+            mail_core::sync::folder_now(store, account, path, now).map_err(String::from)
         }))
     }
 

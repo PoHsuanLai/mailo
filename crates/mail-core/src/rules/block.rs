@@ -7,6 +7,7 @@
 //!
 //! It runs where rules run: on mail as it arrives. Mail already here stays where it is.
 
+use crate::error::CoreError;
 use mail_domain::{AfterMatch, Filter, Rule, RuleAction, RuleId, RuleState, TextMatch};
 use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
@@ -37,12 +38,12 @@ fn blocks(rule: &Rule, email: &str) -> bool {
 /// Block `email` on `account`: one rule, first in the order so no earlier rule files the mail
 /// somewhere else or stops the rules before it is reached. Blocking an address already blocked
 /// writes nothing.
-pub fn block(store: &SqliteStore, account: AccountId, email: &str) -> Result<Blocked, String> {
+pub fn block(store: &SqliteStore, account: AccountId, email: &str) -> Result<Blocked, CoreError> {
     let email = email.trim();
     if email.is_empty() || !email.contains('@') {
-        return Err(format!("{email:?} is not an address to block"));
+        return Err(CoreError::NotAnAddressToBlock(email.to_owned()));
     }
-    let existing = store.rules(account.clone()).map_err(|e| e.to_string())?;
+    let existing = store.rules(account.clone())?;
     if let Some(rule) = existing.iter().find(|rule| blocks(rule, email)) {
         return Ok(Blocked::Already(rule.clone()));
     }
@@ -69,11 +70,11 @@ pub fn block(store: &SqliteStore, account: AccountId, email: &str) -> Result<Blo
         actions: vec![RuleAction::Spam],
         after: AfterMatch::Stop,
     };
-    store.put_rule(&rule).map_err(|e| e.to_string())?;
+    store.put_rule(&rule)?;
     Ok(Blocked::Made(rule))
 }
 
 /// Take a block back: forget the rule it made.
-pub fn unblock(store: &SqliteStore, rule: RuleId) -> Result<(), String> {
-    store.delete_rule(rule).map_err(|e| e.to_string())
+pub fn unblock(store: &SqliteStore, rule: RuleId) -> Result<(), CoreError> {
+    Ok(store.delete_rule(rule)?)
 }

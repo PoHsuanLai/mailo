@@ -106,7 +106,7 @@ async fn read_async(
     accountd: &Arc<dyn Accountd>,
 ) -> Result<Reconciled, String> {
     let candidates = accountd.candidates().await.map_err(|e| e.to_string())?;
-    account::reconcile(store, &candidates, chrono::Utc::now())
+    account::reconcile(store, &candidates, chrono::Utc::now()).map_err(String::from)
 }
 
 /// A line for a person about what a read did, or none when nothing happened.

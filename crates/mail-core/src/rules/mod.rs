@@ -9,6 +9,7 @@
 pub mod block;
 pub mod server;
 
+use crate::error::CoreError;
 use chrono::{DateTime, Utc};
 use mail_domain::{
     AccountCaps, AfterMatch, DateRange, Filter, LabelId, MailboxRole, ReadState, Rule, RuleAction,
@@ -52,27 +53,30 @@ pub enum RulesCmd {
 pub(crate) fn pick(
     store: &SqliteStore,
     named: Option<&str>,
-) -> Result<crate::sync::Configured, String> {
+) -> Result<crate::sync::Configured, CoreError> {
     let mut accounts = crate::sync::configured(store)?;
     match named {
         Some(address) => {
             let at = accounts
                 .iter()
                 .position(|a| a.address.eq_ignore_ascii_case(address))
-                .ok_or_else(|| format!("no account {address:?}"))?;
+                .ok_or_else(|| CoreError::UnknownAccount(address.to_owned()))?;
             Ok(accounts.swap_remove(at))
         }
         None => match accounts.len() {
             1 => Ok(accounts.remove(0)),
-            0 => Err("add an account first: mailo account add <address>".to_owned()),
-            _ => Err("name the account: --account you@example.com".to_owned()),
+            0 => Err(CoreError::AddAnAccountFirst),
+            _ => Err(CoreError::NameTheAccount),
         },
     }
 }
 
 /// Run a rules command, returning what to print.
-pub fn run(store: &SqliteStore, command: &RulesCmd, now: DateTime<Utc>) -> Result<String, String> {
-    let failed = |e: mail_store::StoreError| e.to_string();
+pub fn run(
+    store: &SqliteStore,
+    command: &RulesCmd,
+    now: DateTime<Utc>,
+) -> Result<String, CoreError> {
     match command {
         RulesCmd::List { account } => {
             let accounts = match account {
@@ -81,11 +85,11 @@ pub fn run(store: &SqliteStore, command: &RulesCmd, now: DateTime<Utc>) -> Resul
             };
             let mut out = String::new();
             for account in accounts {
-                let rules = store.rules(account.id.clone()).map_err(failed)?;
+                let rules = store.rules(account.id.clone())?;
                 if rules.is_empty() {
                     continue;
                 }
-                let labels = store.labels(account.id).map_err(failed)?;
+                let labels = store.labels(account.id)?;
                 let label = |id: LabelId| {
                     labels
                         .iter()
@@ -112,16 +116,14 @@ pub fn run(store: &SqliteStore, command: &RulesCmd, now: DateTime<Utc>) -> Resul
         } => {
             let account = pick(store, account.as_deref())?;
             let index: Vec<(String, LabelId)> = store
-                .labels(account.id.clone())
-                .map_err(failed)?
+                .labels(account.id.clone())?
                 .into_iter()
                 .map(|l| (l.name, l.id))
                 .collect();
             let filter =
                 crate::query::parse_with(query, &chrono::Local, &crate::query::named(&index));
             let position = store
-                .rules(account.id.clone())
-                .map_err(failed)?
+                .rules(account.id.clone())?
                 .iter()
                 .map(|r| r.position + 1)
                 .max()
@@ -136,7 +138,7 @@ pub fn run(store: &SqliteStore, command: &RulesCmd, now: DateTime<Utc>) -> Resul
                 actions: actions.clone(),
                 after: *after,
             };
-            store.put_rule(&rule).map_err(failed)?;
+            store.put_rule(&rule)?;
             let mut out = format!("added rule {name:?} on {}\n", account.address);
             if mail_proto::sieve::endpoint(&account.plan).is_ok() {
                 out.push_str(
@@ -147,7 +149,7 @@ pub fn run(store: &SqliteStore, command: &RulesCmd, now: DateTime<Utc>) -> Resul
         }
         RulesCmd::Remove { name, account } => {
             let (account, rule) = named_rule(store, name, account.as_deref())?;
-            store.delete_rule(rule.id).map_err(failed)?;
+            store.delete_rule(rule.id)?;
             Ok(format!("removed rule {name:?} from {}\n", account.address))
         }
         RulesCmd::Set {
@@ -156,12 +158,10 @@ pub fn run(store: &SqliteStore, command: &RulesCmd, now: DateTime<Utc>) -> Resul
             state,
         } => {
             let (_, rule) = named_rule(store, name, account.as_deref())?;
-            store
-                .put_rule(&Rule {
-                    state: *state,
-                    ..rule
-                })
-                .map_err(failed)?;
+            store.put_rule(&Rule {
+                state: *state,
+                ..rule
+            })?;
             Ok(format!(
                 "rule {name:?} {}\n",
                 match state {
@@ -179,8 +179,7 @@ pub fn run(store: &SqliteStore, command: &RulesCmd, now: DateTime<Utc>) -> Resul
             let caps = caps_or_local(store, account.id, now);
             let ran = mail_store::rules::run_now(store, &caps, &rule, *batch, now, &mut |b| {
                 eprintln!("  {} looked at, {} matched", b.examined, b.acted.len());
-            })
-            .map_err(failed)?;
+            })?;
             let mut out = format!(
                 "rule {name:?}: {} message(s) looked at, {} matched, {} change(s) queued for the server\n",
                 ran.examined,
@@ -199,14 +198,16 @@ fn named_rule(
     store: &SqliteStore,
     name: &str,
     account: Option<&str>,
-) -> Result<(crate::sync::Configured, Rule), String> {
+) -> Result<(crate::sync::Configured, Rule), CoreError> {
     let account = pick(store, account)?;
     let rule = store
-        .rules(account.id.clone())
-        .map_err(|e| e.to_string())?
+        .rules(account.id.clone())?
         .into_iter()
         .find(|r| r.name == name)
-        .ok_or_else(|| format!("no rule {name:?} on {}", account.address))?;
+        .ok_or_else(|| CoreError::NoRuleNamed {
+            name: name.to_owned(),
+            address: account.address.clone(),
+        })?;
     Ok((account, rule))
 }
 
