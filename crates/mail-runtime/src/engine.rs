@@ -1234,6 +1234,7 @@ impl<B: Backend> AccountEngine<B> {
         let outcome = self.run(ProtoOp::ListFolders, cancel).await?;
         let caps = match outcome {
             ProtoOutcome::Folders { caps, listed } => {
+                self.listed_inbox(&listed)?;
                 self.store.put_folders(self.account.clone(), listed)?;
                 *caps
             }
@@ -1261,6 +1262,7 @@ impl<B: Backend> AccountEngine<B> {
         if let ProtoOutcome::Folders { caps, listed } =
             self.run(ProtoOp::ListFolders, cancel).await?
         {
+            self.listed_inbox(&listed)?;
             self.store.put_folders(self.account.clone(), listed)?;
             let caps = match self.graph.as_mut() {
                 Some(reader) => reader.observed(now),
@@ -1269,6 +1271,22 @@ impl<B: Backend> AccountEngine<B> {
             self.store.put_caps(self.account.clone(), &caps, now)?;
         }
         Ok(self.store.folders(self.account.clone())?)
+    }
+
+    /// Refuse an IMAP listing with no inbox in it.
+    ///
+    /// Every IMAP account has one (RFC 3501 §5.1), so a list without it is a list that went
+    /// wrong, and kept it would be an account with no folders that nothing complained about.
+    /// Said once, plainly, and nothing stored: the folders and roles already held stay.
+    fn listed_inbox(&self, listed: &[mail_domain::Folder]) -> Result<(), RuntimeError> {
+        let imap = matches!(self.plan.incoming, Incoming::Imap { .. });
+        let inbox = listed
+            .iter()
+            .any(|f| f.special == Some(mail_domain::SpecialUse::Inbox));
+        if imap && !inbox {
+            return Err(RuntimeError::NoInbox);
+        }
+        Ok(())
     }
 
     /// Whether this account has folders and none have been listed yet.
