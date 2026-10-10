@@ -103,12 +103,13 @@ pub fn import(store: &dyn Store, bytes: &[u8]) -> Result<Imported, CoreError> {
         }
         let name = card.display_name();
         for address in addresses {
-            // One malformed address on a card does not stop the rest of the file.
-            if store
-                .put_contact(address, name.as_deref(), &Origin::Manual)
-                .is_ok()
-            {
-                added += 1;
+            // One malformed address on a card does not stop the rest of the file. A store that
+            // will not write does: counting it as a bad address would report an import that
+            // saved nothing as one that worked.
+            match store.put_contact(address, name.as_deref(), &Origin::Manual) {
+                Ok(_) => added += 1,
+                Err(mail_store::StoreError::BadAddress(_)) => {}
+                Err(error) => return Err(error.into()),
             }
         }
     }
@@ -534,6 +535,25 @@ async fn auth_for(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A store that will not write used to be counted as a malformed address, and the import
+    /// reported success with nothing saved.
+    #[test]
+    fn an_import_the_store_refuses_fails_and_a_malformed_address_does_not() {
+        let card =
+            "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Ren\r\nEMAIL:ren@example.test\r\nEND:VCARD\r\n";
+        let refusing = mail_store::testing::in_memory();
+        mail_store::testing::refuse_contact_writes(&refusing);
+        let failed = import(&refusing, card.as_bytes());
+        assert!(matches!(failed, Err(CoreError::Store(_))), "{failed:?}");
+
+        let malformed =
+            "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Nobody\r\nEMAIL:not an address\r\nEND:VCARD\r\n";
+        let store = mail_store::testing::in_memory();
+        let imported = import(&store, malformed.as_bytes()).unwrap();
+        assert_eq!(imported.addresses, 0);
+        assert_eq!(imported.cards, 1);
+    }
 
     #[test]
     fn an_imported_file_is_offered_and_exported_back_as_4_0() {

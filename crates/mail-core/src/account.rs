@@ -422,11 +422,8 @@ pub async fn add_receiving(
     // end, because no other command finishes a half-configured account either. The id in
     // particular must be the *existing* one: it is the keyring key, so minting a fresh one
     // would orphan a credential already stored and a working account would quietly stop working.
-    let existing: Option<AccountId> = store
-        .account_by_address(&address)
-        .ok()
-        .flatten()
-        .map(|stored| stored.id);
+    // So a store that cannot say is a failure, not an account that is not here.
+    let existing: Option<AccountId> = store.account_by_address(&address)?.map(|stored| stored.id);
     let account = existing
         .clone()
         .unwrap_or_else(mail_domain::id::new_account_id);
@@ -440,9 +437,11 @@ pub async fn add_receiving(
     // Reuse the identity too, where there is one. `mailo signature` writes to that row, and
     // replacing it on a re-run would silently delete a signature the user had set — the sort of
     // loss nobody notices until it has gone out on a week of mail.
-    let established: Option<Identity> = existing
-        .clone()
-        .and_then(|account| default_identity(store, account));
+    // A store that cannot read it fails the add rather than overwrite what it could not read.
+    let established: Option<Identity> = match &existing {
+        Some(account) => default_identity(store, account.clone())?,
+        None => None,
+    };
     let identity = established.unwrap_or_else(|| Identity {
         id: IdentityId::generate(),
         account: account.clone(),
@@ -818,8 +817,11 @@ pub async fn list(
 ///
 /// Read back rather than rebuilt so that re-running `account add` keeps whatever the user has
 /// since put on it — a signature, a display name — instead of resetting it to the bare address.
-fn default_identity(store: &SqliteStore, account: AccountId) -> Option<Identity> {
-    store.identities(account).ok()?.into_iter().next()
+fn default_identity(
+    store: &SqliteStore,
+    account: AccountId,
+) -> Result<Option<Identity>, mail_store::StoreError> {
+    Ok(store.identities(account)?.into_iter().next())
 }
 
 /// The host mail arrives from, whichever protocol that is.

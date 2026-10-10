@@ -25,7 +25,11 @@ pub fn take_back(store: &SqliteStore, entry: &Undo) -> bool {
         .as_ref()
         .filter(|_| has_server(store, entry.account.clone()))
         .and_then(|remote| crate::undo::reverse_intent(remote, &entry.inverse));
-    if store.apply(entry.account.clone(), &entry.inverse).is_err() {
+    if store
+        .apply(entry.account.clone(), &entry.inverse)
+        .or_log("an undo could not be applied")
+        .is_none()
+    {
         return false;
     }
     withdraw_filing(store, entry);
@@ -37,7 +41,8 @@ pub fn take_back(store: &SqliteStore, entry: &Undo) -> bool {
                 &entry.forward,
                 chrono::Utc::now(),
             )
-            .is_err()
+            .or_log("an undo's reverse could not be queued for the server")
+            .is_none()
     {
         // Put the operation back as it was. Should that fail too, the store is left taken back
         // here and not there, and the next sync restores the server's state.
@@ -196,12 +201,10 @@ pub fn caps_here(
 ///
 /// Returns what it takes to undo it, which the window keeps for the toast and ⌘Z.
 pub fn perform(store: &SqliteStore, thread: ThreadId, op: Op) -> Option<Undo> {
-    let loaded = store.thread(thread).ok()?;
-    let messages: Vec<Message> = loaded
-        .messages
-        .iter()
-        .filter_map(|id| store.message(*id).ok())
-        .collect();
+    let loaded = store
+        .thread(thread)
+        .or_log("the conversation to act on could not be read")?;
+    let messages = messages_of(store, &loaded);
     let account = messages.first().map(|m| m.account.clone())?;
     // What the server actually supports, which is the only thing that decides whether an
     // operation gets a `RemoteIntent` at all — `Op::remote_intent` is the sole consumer of
@@ -216,7 +219,9 @@ pub fn perform(store: &SqliteStore, thread: ThreadId, op: Op) -> Option<Undo> {
         &caps,
         chrono::Utc::now(),
     );
-    store.apply(account.clone(), &applied.forward).ok()?;
+    store
+        .apply(account.clone(), &applied.forward)
+        .or_log("an operation could not be applied")?;
     // And the server's half. `Applied.remote` was computed and dropped on the floor, so every
     // operation the window performed was local and stayed local: a conversation archived here
     // was still in the inbox on the phone, and mail read here was still bold everywhere else.
@@ -239,7 +244,8 @@ pub fn perform(store: &SqliteStore, thread: ThreadId, op: Op) -> Option<Undo> {
                 &applied.inverse,
                 chrono::Utc::now(),
             )
-            .is_err()
+            .or_log("an operation's server half could not be queued")
+            .is_none()
     {
         store
             .apply(account, &applied.inverse)
@@ -263,12 +269,10 @@ pub fn perform(store: &SqliteStore, thread: ThreadId, op: Op) -> Option<Undo> {
 /// its server addresses with it. The deletion is queued first, while the store still knows where
 /// each message is (`Store::enqueue`), and nothing is returned to undo it.
 pub fn destroy(store: &SqliteStore, thread: ThreadId) -> Option<Vec<MessageId>> {
-    let loaded = store.thread(thread).ok()?;
-    let messages: Vec<Message> = loaded
-        .messages
-        .iter()
-        .filter_map(|id| store.message(*id).ok())
-        .collect();
+    let loaded = store
+        .thread(thread)
+        .or_log("the conversation to delete could not be read")?;
+    let messages = messages_of(store, &loaded);
     let account = messages.first().map(|m| m.account.clone())?;
     let now = chrono::Utc::now();
     let applied = Op::Destroy.apply(
@@ -295,12 +299,29 @@ pub fn destroy(store: &SqliteStore, thread: ThreadId) -> Option<Vec<MessageId>> 
         .filter(|_| has_server(store, account.clone()))
         && store
             .enqueue(account.clone(), intent, &applied.inverse, now)
-            .is_err()
+            .or_log("a deletion could not be queued for the server")
+            .is_none()
     {
         // Not removed here either: a message gone here and left there comes back with the next
         // sync, and meanwhile says it was deleted.
         return None;
     }
-    store.apply(account, &applied.forward).ok()?;
+    store
+        .apply(account, &applied.forward)
+        .or_log("a deletion could not be applied")?;
     Some(gone)
+}
+
+/// The messages of a loaded conversation. One that cannot be read is left out, and said: the
+/// operation then acts on the rest, as it would on a conversation the message had left.
+fn messages_of(store: &SqliteStore, loaded: &Thread) -> Vec<Message> {
+    loaded
+        .messages
+        .iter()
+        .filter_map(|id| {
+            store
+                .message(*id)
+                .or_log("a message of the conversation could not be read")
+        })
+        .collect()
 }

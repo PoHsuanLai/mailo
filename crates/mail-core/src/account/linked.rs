@@ -210,7 +210,7 @@ pub fn reconcile(
                 }
             }
             None => {
-                if holds(store, &address) {
+                if holds(store, &address)? {
                     said.held.push(address);
                     continue;
                 }
@@ -223,8 +223,10 @@ pub fn reconcile(
 }
 
 /// Whether the store has a row for `address` that is not accountd's.
-fn holds(store: &SqliteStore, address: &str) -> bool {
-    store.account_by_address(address).ok().flatten().is_some()
+///
+/// A store that cannot say is a failure: taking it for "no" would add a second row for the address.
+fn holds(store: &SqliteStore, address: &str) -> Result<bool, mail_store::StoreError> {
+    Ok(store.account_by_address(address)?.is_some())
 }
 
 fn insert(
