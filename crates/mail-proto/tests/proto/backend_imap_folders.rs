@@ -431,3 +431,104 @@ fn a_listed_name_may_be_an_atom() {
         vec![("INBOX", Some('.')), ("INBOX.Archive", Some('.'))]
     );
 }
+
+/// An Exchange Online-shaped listing: names sent as atoms where they need no quotes, `Inbox`
+/// in mixed case, quoted names with spaces, a `\Noselect` parent, and the special-use flags
+/// sent without `SPECIAL-USE` being advertised.
+///
+/// The roles were read from the text by taking whatever stood between the last two quotes,
+/// which on `* LIST (\HasNoChildren \Drafts) "/" Drafts` is the delimiter: an account filed its
+/// drafts in a folder called "/", and found no inbox, because `Inbox` was not `"INBOX"`.
+#[test]
+fn an_exchange_listing_gives_every_role_its_own_folder() {
+    let walk = trace(concat!(
+        "C: a002 LIST \"\" \"*\"\n",
+        "S: * LIST (\\HasNoChildren) \"/\" Archive\n",
+        "S: * LIST (\\Noselect \\HasChildren) \"/\" Calendar\n",
+        "S: * LIST (\\HasNoChildren) \"/\" \"Calendar/Birthdays\"\n",
+        "S: * LIST (\\HasNoChildren) \"/\" \"Conversation History\"\n",
+        "S: * LIST (\\HasNoChildren \\Trash) \"/\" \"Deleted Items\"\n",
+        "S: * LIST (\\HasNoChildren \\Drafts) \"/\" Drafts\n",
+        "S: * LIST (\\Marked \\HasChildren) \"/\" Inbox\n",
+        "S: * LIST (\\HasNoChildren) \"/\" Inbox/Receipts\n",
+        "S: * LIST (\\HasNoChildren \\Junk) \"/\" \"Junk Email\"\n",
+        "S: * LIST (\\HasNoChildren) \"/\" Outbox\n",
+        "S: * LIST (\\HasNoChildren \\Sent) \"/\" \"Sent Items\"\n",
+        "S: a002 OK LIST completed.\n",
+        "C: a003 LSUB \"\" \"*\"\n",
+        "S: * LSUB () \"/\" Inbox\n",
+        "S: * LSUB () \"/\" \"Sent Items\"\n",
+        "S: a003 OK LSUB completed.\n",
+        "DONE\n",
+    ));
+    let mut listing = Driven {
+        backend: backend(ServerLabels::LocalOnly),
+        op: Some(ProtoOp::ListFolders),
+    };
+    let ProtoOutcome::Folders { caps, listed } = replay(&mut listing, &walk).unwrap() else {
+        panic!("a listing reports folders");
+    };
+
+    // Every role at its own folder, and no folder named after the delimiter.
+    assert_eq!(caps.folders.path(MailboxRole::Inbox), Some("INBOX"));
+    assert_eq!(caps.folders.path(MailboxRole::Drafts), Some("Drafts"));
+    assert_eq!(caps.folders.path(MailboxRole::Sent), Some("Sent Items"));
+    assert_eq!(caps.folders.path(MailboxRole::Trash), Some("Deleted Items"));
+    assert_eq!(caps.folders.path(MailboxRole::Spam), Some("Junk Email"));
+    assert!(
+        caps.folders.0.iter().all(|(path, _)| path != "/"),
+        "{:?}",
+        caps.folders
+    );
+    assert!(listed.iter().all(|f| f.path != "/"), "{listed:?}");
+
+    // `Inbox` is the inbox, under the one name RFC 3501 gives it, and followed as `LSUB` says.
+    let inbox = listed
+        .iter()
+        .find(|f| f.special == Some(SpecialUse::Inbox))
+        .unwrap_or_else(|| panic!("no inbox in {listed:?}"));
+    assert_eq!(inbox.path, "INBOX");
+    assert_eq!(inbox.subscription, Subscription::Subscribed);
+    assert!(listed.iter().all(|f| f.path != "Inbox"), "{listed:?}");
+    // Only the inbox itself is case-insensitive: a folder under it keeps the server's spelling.
+    assert!(listed.iter().any(|f| f.path == "Inbox/Receipts"));
+
+    let row = |path: &str| {
+        listed
+            .iter()
+            .find(|f| f.path == path)
+            .unwrap_or_else(|| panic!("{path} was not listed: {listed:?}"))
+    };
+    assert_eq!(row("Calendar").holds, Holds::FoldersOnly);
+    assert_eq!(row("Conversation History").special, None);
+    assert_eq!(row("Sent Items").subscription, Subscription::Subscribed);
+    assert_eq!(row("Drafts").delimiter, Some('/'));
+    assert_eq!(listed.len(), 11);
+}
+
+/// A name sent as a literal is a name like any other, and a role on it is the folder's.
+#[test]
+fn a_listed_name_may_be_a_literal() {
+    let walk = trace(concat!(
+        "C: a002 LIST \"\" \"*\"\n",
+        "S: * LIST (\\HasNoChildren) \"/\" INBOX\n",
+        "S: * LIST (\\HasNoChildren \\Sent) \"/\" {10}\n",
+        "S: Sent \"Old\"\n",
+        "S: a002 OK LIST completed\n",
+        "C: a003 LSUB \"\" \"*\"\n",
+        "S: a003 OK LSUB completed\n",
+        "DONE\n",
+    ));
+    let mut listing = Driven {
+        backend: backend(ServerLabels::LocalOnly),
+        op: Some(ProtoOp::ListFolders),
+    };
+    let ProtoOutcome::Folders { caps, listed } = replay(&mut listing, &walk).unwrap() else {
+        panic!("a listing reports folders");
+    };
+    assert_eq!(caps.folders.path(MailboxRole::Sent), Some("Sent \"Old\""));
+    assert!(
+        listed.iter().any(|f| f.path == "Sent \"Old\""),
+        "{listed:?}"
+    );
+}

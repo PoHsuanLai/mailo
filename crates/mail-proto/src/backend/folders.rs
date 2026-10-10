@@ -6,7 +6,9 @@
 use crate::imap::ImapCommand;
 use crate::machine::ProtoError;
 use crate::mutf7;
-use mail_domain::{Folder, FolderWork, Holds, NonEmpty, SpecialUse, Subscription};
+use mail_domain::{
+    Folder, FolderRoles, FolderWork, Holds, MailboxRole, NonEmpty, SpecialUse, Subscription,
+};
 use porter_core::AccountId;
 
 /// The commands one piece of folder work is, in order, on one connection.
@@ -75,7 +77,13 @@ pub(crate) fn listing(untagged: &[crate::Untagged], account: AccountId) -> Vec<F
         else {
             continue;
         };
-        let path = mutf7::decode(&name);
+        // `INBOX` in whatever case the server spells it is the inbox (RFC 3501 §5.1), and it is
+        // `INBOX` here: Exchange lists `Inbox`, and a path kept as the server spelled it is a
+        // second inbox to every comparison that does not know the rule.
+        let path = match mutf7::decode(&name) {
+            inbox if inbox.eq_ignore_ascii_case("INBOX") => "INBOX".to_owned(),
+            path => path,
+        };
         // `* LSUB …` — the keyword is the second word, and a whole word.
         let lsub = u
             .text
@@ -112,6 +120,31 @@ pub(crate) fn listing(untagged: &[crate::Untagged], account: AccountId) -> Vec<F
     listed.sort_by(|a, b| a.path.cmp(&b.path));
     listed.dedup_by(|a, b| a.path == b.path);
     listed
+}
+
+/// Which listed folder plays which role, as [`ProtoOutcome::Folders`] carries them in the
+/// capabilities.
+///
+/// From the parsed listing and nothing else, so a role's path is the folder's path, however
+/// the server wrote the name. `\All` is the archive, as it is on Gmail; `\Flagged` and
+/// `\Important` are views, not mailboxes; and a container that holds no mail plays no role.
+///
+/// [`ProtoOutcome::Folders`]: crate::ProtoOutcome::Folders
+pub(crate) fn roles(listed: &[Folder]) -> FolderRoles {
+    let role = |folder: &Folder| match folder.special? {
+        SpecialUse::All => Some(MailboxRole::Archive),
+        // Not filed by role: an `\Archive` folder is reached through `ArchiveMeans`, and
+        // only `\All` has ever named the archive role here.
+        SpecialUse::Archive => None,
+        other => other.role(),
+    };
+    FolderRoles(
+        listed
+            .iter()
+            .filter(|f| f.holds == Holds::Mail)
+            .filter_map(|f| Some((f.path.clone(), role(f)?)))
+            .collect(),
+    )
 }
 
 /// What an attribute says a mailbox is for, if it says anything.

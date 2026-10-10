@@ -7,14 +7,13 @@ mod search;
 
 pub use search::{Found, Searching};
 
-use super::folders::{already_so, folder_commands};
+use super::folders::{already_so, folder_commands, listing, roles};
 use crate::imap::{Access, ImapCommand, ImapSession};
 use crate::machine::{Backend, IoReady, Machine, Moved, Progress, ProtoError, ProtoOutcome};
-use crate::mutf7;
 use mail_domain::{
-    AccountCaps, ArchiveMeans, Condstore, ExpungeMeans, FetchSince, FolderRoles, FolderWork,
-    Ingest, MailboxRef, MailboxRole, MoveExt, PartTree, ProtoOp, RemoteRef, Resync, ServerLabels,
-    SyncCursor, SystemFlag, UidValidity,
+    AccountCaps, ArchiveMeans, Condstore, ExpungeMeans, FetchSince, FolderWork, Ingest, MailboxRef,
+    MailboxRole, MoveExt, PartTree, ProtoOp, RemoteRef, Resync, ServerLabels, SyncCursor,
+    SystemFlag, UidValidity,
 };
 use porter_core::AccountId;
 
@@ -716,21 +715,18 @@ impl Backend for ImapBackend {
                 Progress::Done(ProtoOutcome::Caps(Box::new(caps)))
             }
             Job::Folders => {
-                let mut roles = Vec::new();
-                for line in transcript.untagged.iter().map(|u| u.text.as_str()) {
-                    if let Some((path, role)) = folder_role(line) {
-                        roles.push((path, role));
-                    }
-                }
+                // One reading of the listing, by `imap-proto`, for both halves: the roles are
+                // what the parsed folders say they are for. Scanning the text for them took
+                // the name to be whatever stood between the last two quotes, which on a line
+                // whose name is an atom — Exchange's `* LIST (\Drafts) "/" Drafts` — is the
+                // delimiter, so Drafts was filed as a folder called "/".
+                let listed = listing(&transcript.untagged, self.account.clone());
                 let mut caps = self.caps.clone();
-                caps.folders = FolderRoles(roles);
+                caps.folders = roles(&listed);
                 self.caps = caps.clone();
                 Progress::Done(ProtoOutcome::Folders {
                     caps: Box::new(caps),
-                    listed: crate::backend::folders::listing(
-                        &transcript.untagged,
-                        self.account.clone(),
-                    ),
+                    listed,
                 })
             }
             Job::Listing { mailbox } => {
@@ -1529,31 +1525,6 @@ fn landed_at(
             Moved { from, to }
         })
         .collect()
-}
-
-fn folder_role(line: &str) -> Option<(String, MailboxRole)> {
-    if !line.starts_with("* LIST") {
-        return None;
-    }
-    let role = if line.contains("\\All") {
-        MailboxRole::Archive
-    } else if line.contains("\\Sent") {
-        MailboxRole::Sent
-    } else if line.contains("\\Drafts") || line.contains("\\Draft") {
-        MailboxRole::Drafts
-    } else if line.contains("\\Trash") {
-        MailboxRole::Trash
-    } else if line.contains("\\Junk") {
-        MailboxRole::Spam
-    } else if line.trim_end().ends_with("\"INBOX\"") {
-        MailboxRole::Inbox
-    } else {
-        // \Flagged and \Important are virtual views, not mailboxes: syncing them would
-        // multiply every starred message under fresh UIDs.
-        return None;
-    };
-    let path = line.rsplit('"').nth(1)?.to_owned();
-    Some((mutf7::decode(&path), role))
 }
 
 impl std::fmt::Debug for ImapBackend {
