@@ -333,7 +333,8 @@ fn every_footer_control_stays_inside_the_sidebar_at_its_least_width() {
             );
         }
     }
-    assert!(seen >= 4, "only {seen} footer controls are drawn");
+    // Downloads, the dots and the menu's chevron: the menu's New Space stands in for a `+`.
+    assert!(seen >= 3, "only {seen} footer controls are drawn");
     let toggle = rect(&harness, ".ds-spaces-foot > :last-child");
     assert!(
         within(&toggle, &side),

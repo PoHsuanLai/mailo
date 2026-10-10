@@ -106,12 +106,11 @@ pub(super) fn Places(
             }
             // Downloads on the left, the Space dots, and one chevron on the right that opens
             // everything else (`foot::MoreMenu`): Today, History, New Space, Settings and the
-            // sidebar's toggle.
-            //
-            // quire ask: a prop to hide the foot's own `+`, which the menu's New Space replaces.
+            // sidebar's toggle. The foot's own `+` is left out: the menu's New Space replaces it.
             SpacesFoot {
                 handle,
                 new_payload: move |()| Mail::over(Scope::All),
+                new_space: NewSpace::Hidden,
                 leading: rsx! { crate::ui::downloads::DownloadsButton { shell } },
                 trailing: rsx! {
                     foot::MoreMenu {

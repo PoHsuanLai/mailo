@@ -38,7 +38,6 @@ async fn the_foot_dots_are_buttons_that_say_which_space_is_on() {
     );
     // Each dot's tip, which names its key, is quire's hover tip: `tests/app/native_harness.rs`
     // rests the pointer on one and reads it.
-    assert!(page.contains("aria-label=\"New Space\""), "{page}");
     assert!(
         !page.contains("class=\"appearance"),
         "the gear popover is still on the frame: {page}"
@@ -71,13 +70,12 @@ async fn the_foot_holds_the_dots_and_one_menu_button_and_no_settings_or_sidebar_
         .iter()
         .map(|button| button.attr("aria-label"))
         .collect();
-    // Downloads on the left when the window has a shelf for it, quire's own `+` until the foot
-    // can leave it out (the menu's New Space is the same path), and the one chevron at the
-    // right; between them the dots and nothing else.
+    // Downloads on the left when the window has a shelf for it and the one chevron at the right;
+    // between them the dots and nothing else. No `+`: the menu's New Space replaces it.
     let rest: Vec<&str> = labels
         .iter()
         .copied()
-        .filter(|label| *label != "Downloads" && *label != "New Space")
+        .filter(|label| *label != "Downloads")
         .collect();
     assert_eq!(
         rest,
