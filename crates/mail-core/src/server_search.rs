@@ -12,17 +12,14 @@
 //! [`crate::query::parse_with`], except that `label:` resolves against the one account being
 //! searched — a label is a name on one server — and a `re:/…/` pattern, which no server
 //! matches, is said rather than dropped. Each protocol's translation is `mail_proto::search`'s;
-//! the engines are `mail_runtime`'s ([`crate::sync::search_server`]).
+//! the engines are `mail_runtime`'s ([`crate::SyncOps::search_server`]).
 
 use crate::config::read_json;
 use crate::error::CoreError;
-use chrono::{DateTime, Utc};
 use mail_domain::{AccountPlan, Filter, Incoming, LabelId};
 use mail_runtime::{Searched, Unsaid};
-use mail_store::SqliteStore;
 use porter_core::AccountId;
 use std::path::Path;
-use std::sync::Arc;
 
 /// Whether a search shown in the list is asked of the server without the button being pressed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
@@ -77,15 +74,13 @@ pub fn filter_of(input: &str, labels: &[(String, LabelId)]) -> Result<Filter, Un
 }
 
 /// Search `account`'s server for the line `input`, and keep what it finds.
-///
-/// Blocking, with a runtime of its own, like a sync: the window calls it off the drawing thread.
-pub fn search(
-    store: Arc<SqliteStore>,
+pub async fn search(
+    mail: &crate::Mail,
     account: AccountId,
     input: &str,
-    now: DateTime<Utc>,
 ) -> Result<Searched, CoreError> {
-    let named: Vec<(String, LabelId)> = store
+    let named: Vec<(String, LabelId)> = mail
+        .store()
         .labels(account.clone())?
         .into_iter()
         .map(|l| (l.name, l.id))
@@ -95,7 +90,7 @@ pub fn search(
         Err(unsaid) => return Ok(Searched::Unsaid(unsaid)),
     };
     let labels: Vec<(LabelId, String)> = named.into_iter().map(|(n, id)| (id, n)).collect();
-    crate::sync::search_server(&store, account, &filter, &labels, now)
+    mail.sync().search_server(account, &filter, &labels).await
 }
 
 #[cfg(test)]

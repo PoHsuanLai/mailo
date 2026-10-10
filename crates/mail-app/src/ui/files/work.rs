@@ -277,7 +277,8 @@ pub(in crate::ui) fn import_then_send(
     let Some(account) = done.queued else {
         return Ok(done.said);
     };
-    let sent = match mail_core::sync::drain(store, account, now) {
+    let mail = crate::edge::mail(store);
+    let sent = match crate::edge::block_on(mail.sync().drain(account)) {
         Ok(report) => {
             let mut out = format!("{}. {} uploaded", done.said, report.appended);
             if report.still_queued > 0 {
@@ -437,7 +438,14 @@ pub(in crate::ui) fn export_now(
     if chosen.is_empty() {
         return Err("Nothing to export.".to_owned());
     }
-    let done = export::export(store, &chosen, target, now, progress)?;
+    let done = export::export(
+        store,
+        &crate::edge::environment(),
+        &chosen,
+        target,
+        now,
+        progress,
+    )?;
     let said = export::said(&done, target)
         .lines()
         .collect::<Vec<_>>()

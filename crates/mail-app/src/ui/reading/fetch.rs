@@ -35,10 +35,12 @@ impl Default for Fetchers {
     fn default() -> Self {
         Fetchers {
             body: Arc::new(|store, message| {
-                mail_core::sync::fetch_body(store, message, chrono::Utc::now())
+                let mail = crate::edge::mail(&store);
+                crate::edge::block_on(mail.sync().fetch_body(message))
             }),
             part: Arc::new(|store, message, section| {
-                mail_core::sync::fetch_part(store, message, section, chrono::Utc::now())
+                let mail = crate::edge::mail(store);
+                crate::edge::block_on(mail.sync().fetch_part(message, section))
                     .map_err(String::from)
             }),
         }
@@ -231,7 +233,7 @@ pub(super) fn BodyPane(message: MessageId, account: AccountId, mut landed: Signa
         let store = consume_context::<Arc<SqliteStore>>();
         let fetch = fetchers().body;
         spawn(async move {
-            // `spawn_blocking`: the fetch opens sockets and builds its own runtime.
+            // `spawn_blocking`: the fetch waits on the application's runtime (`edge::block_on`).
             // Claimed for as long as it runs, so a body pass that starts meanwhile leaves it to us.
             let done = tokio::task::spawn_blocking(move || {
                 let _claim = mail_runtime::wanted::claim(message);

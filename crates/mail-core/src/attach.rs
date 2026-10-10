@@ -225,7 +225,7 @@ pub fn write_new(dir: &Path, name: &str, bytes: &[u8]) -> Result<PathBuf, CoreEr
 /// [`save`], downloading the attachment first if a sync left it on the server.
 ///
 /// `download` fetches one section of `message` and records it held; the application passes
-/// [`crate::sync::fetch_part`]. Taken as a parameter so a test can check "remote, then saved"
+/// [`crate::SyncOps::fetch_part`]. Taken as a parameter so a test can check "remote, then saved"
 /// without a server.
 ///
 /// Blocking and network-bound for a part that is still remote, so the UI calls it off the

@@ -107,11 +107,12 @@ fn epoch_changed() {
     mail_runtime::epoch::keys_changed();
 }
 
-/// A PKCS#12 file's password as the command line gets one: `MAILO_SMIME_PASSWORD` when it is
-/// set, otherwise asked on the terminal with echo off, otherwise none.
-pub fn terminal_password() -> Option<String> {
-    if let Some(given) = std::env::var_os("MAILO_SMIME_PASSWORD") {
-        return given.into_string().ok();
+/// A PKCS#12 file's password as the command line gets one: `MAILO_SMIME_PASSWORD` (the
+/// environment's `smime_password`) when it is set, otherwise asked on the terminal with echo off,
+/// otherwise none.
+pub fn terminal_password(env: &crate::Environment) -> Option<String> {
+    if let Some(given) = &env.smime_password {
+        return given.clone().into_string().ok();
     }
     crate::pgp::ask_tty(
         "Password of the PKCS#12 file (not shown; MAILO_SMIME_PASSWORD also works): ",

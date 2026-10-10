@@ -304,7 +304,7 @@ fn listing() -> Vec<Folder> {
 }
 
 fn pass(store: &Arc<SqliteStore>, secrets: &Arc<MemorySecrets>) -> AccountReport {
-    let ends = sync::run_with(
+    let ends = crate::blocking::run_with(
         store.clone(),
         secrets.clone(),
         &ClientRegistry::default(),
@@ -546,7 +546,7 @@ fn a_folder_nobody_follows_is_fetched_when_asked_for() {
     let (store, secrets, _dir) = configured(port, caps(ServerLabels::LocalOnly), listing());
     assert!(listed(&store, Filter::InFolder(at(OLD))).is_empty());
 
-    let end = sync::folder_now_with(
+    let end = crate::blocking::folder_now_with(
         store.clone(),
         secrets.clone(),
         &ClientRegistry::default(),
@@ -579,7 +579,7 @@ fn first_message(store: &SqliteStore) -> MessageId {
 fn a_folder_the_server_does_not_have_is_said_not_thrown() {
     let (port, _seen) = serve(mailboxes(1));
     let (store, secrets, _dir) = configured(port, caps(ServerLabels::LocalOnly), listing());
-    let end = sync::folder_now_with(
+    let end = crate::blocking::folder_now_with(
         store,
         secrets,
         &ClientRegistry::default(),
@@ -596,7 +596,7 @@ fn a_folder_the_server_does_not_have_is_said_not_thrown() {
 fn an_account_whose_folders_are_labels_is_not_fetched_by_folder() {
     // Nothing listens on port 1: both refusals come before anything is sent.
     let (store, secrets, _dir) = configured(1, caps(ServerLabels::Supported), listing());
-    let refused = sync::folder_now_with(
+    let refused = crate::blocking::folder_now_with(
         store.clone(),
         secrets,
         &ClientRegistry::default(),

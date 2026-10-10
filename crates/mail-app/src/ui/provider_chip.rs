@@ -86,7 +86,7 @@ pub(crate) fn use_fetch_missing(mut icons: Signal<Loaded>) {
             return;
         };
         let dir = root.join("providers");
-        let missing = mail_core::provider::icon::missing(&dir);
+        let missing = mail_core::provider::icon::missing(&dir, crate::edge::environment().program);
         if missing.is_empty() {
             return;
         }

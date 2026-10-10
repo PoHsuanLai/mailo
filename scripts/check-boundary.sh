@@ -104,6 +104,60 @@ if grep -rnE 'Result<.*, *String>' crates/mail-core/src --include='*.rs' \
   fail=1
 fi
 
+# The libraries start no runtime and read no environment. The application (`mail-app`'s `edge`)
+# owns the one tokio runtime and waits on `async` work there; `mail-core`, `mail-runtime` and
+# `mail-store` hand every operation that waits on a network or the keyring back as a future, and
+# take what they need (the link to accountd, the environment, the clock) from the `Mail` handle.
+# So no library source builds a runtime or blocks on one, and `mail-core` reads no variable and
+# asks the operating system for no executable path. Comment lines are not code; code after a
+# file's `#[cfg(test)]` line, and files named `tests.rs` or `*_tests.rs`, are tests.
+library_code() { # <dir>...: "file:line: text" for every non-comment, non-test line
+  local file
+  while IFS= read -r file; do
+    awk -v f="$file" '/^#\[cfg\(test\)\]/ { exit }
+      $0 !~ /^[[:space:]]*\/\// { print f ":" NR ": " $0 }' "$file"
+  done < <(find "$@" -name '*.rs' ! -name 'tests.rs' ! -name '*_tests.rs' ! -path '*/tests/*')
+}
+if library_code crates/mail-core/src crates/mail-runtime/src crates/mail-store/src \
+  | grep -E 'new_current_thread|new_multi_thread|Runtime::new\(|runtime::Builder::new|OnceLock<.*Runtime>'; then
+  echo "a library builds a tokio runtime: make the function async and let mail-app's edge (crates/mail-app/src/edge.rs) wait on it"
+  fail=1
+fi
+if library_code crates/mail-core/src | grep -E '\bblock_on\('; then
+  echo "mail-core blocks on a future: make the function async and let mail-app's edge wait on it"
+  fail=1
+fi
+# The desktop notification adapter (`notify/desktop.rs`, behind the `desktop` feature) asks for the
+# program's own path to relaunch it on a click; it is the one place.
+if library_code crates/mail-core/src | grep -vE '^crates/mail-core/src/notify/desktop\.rs:' \
+  | grep -E 'env::var(_os)?\(|env::current_exe\('; then
+  echo "mail-core reads the environment: take it from mail_core::Environment, which mail-app builds in main"
+  fail=1
+fi
+if library_code crates/mail-runtime/src | grep -E 'link::(install|current)\(|static CURRENT: OnceLock<Link>'; then
+  echo "the link to accountd is a global again: hand it to mail_core::Mail::new (mail-app's edge::install_link keeps it for the process)"
+  fail=1
+fi
+
+# `mail-app` reaches the logic through `mail-core`'s `Mail` handle. It still names `mail-runtime`
+# and `mail-store` directly in many places (the store is the window's own model, and the signing
+# keys, places and engines are used by the window); that is a ratchet, not a clean line: the
+# counts below may go down and never up. Lines naming the crate, tests included.
+# crates/mail-app/src/edge.rs is the one place that builds the handle.
+# scripts/app-lower-crate-uses.txt holds "<crate> <count>".
+while read -r lower allowed; do
+  [ -z "$lower" ] && continue
+  case "$lower" in \#*) continue ;; esac
+  now=$(grep -rE "\b${lower}\b" crates/mail-app/src crates/mail-app/tests --include='*.rs' | wc -l)
+  if [ "$now" -gt "$allowed" ]; then
+    echo "mail-app names $lower on $now lines, over the $allowed in scripts/app-lower-crate-uses.txt: go through mail_core (add the call there) instead"
+    fail=1
+  elif [ "$now" -lt "$allowed" ]; then
+    echo "mail-app names $lower on only $now lines: lower the $allowed in scripts/app-lower-crate-uses.txt to $now"
+    fail=1
+  fi
+done < scripts/app-lower-crate-uses.txt
+
 # Names that moved to porter, or went with the types they named, must not creep back in. mailo
 # names accounts, secrets and OAuth issuers with `porter_core` and `porter_provider`'s types
 # (`AccountId`, `SecretKey`, `SecretPurpose`, `Credential`, `Issuer`), and keeps its own signing

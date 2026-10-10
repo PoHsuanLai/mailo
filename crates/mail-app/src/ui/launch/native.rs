@@ -59,7 +59,7 @@ pub(super) fn run(opening: Opening) -> Result<(), ds_blitz::LaunchError> {
     // to draw.
     let revisions = crate::ui::revisions::Revisions::new();
     let following = revisions.clone();
-    crate::accountd::follow(&store, &mail_runtime::link::current(), move |_| {
+    crate::accountd::follow(&store, &crate::edge::link(), move |_| {
         following.bump();
     });
     // The keys the person chose, read once like the above: quire lays them over the system's

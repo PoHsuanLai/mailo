@@ -139,6 +139,7 @@ fn bytes_that_are_not_what_they_began_as_are_unreadable() {
     );
 }
 
+#[cfg(feature = "pdf")]
 #[test]
 fn a_pdf_is_drawn_a_page_at_a_time_and_says_how_many_it_has() {
     let first = pdf_page(TWO_PAGES.to_vec(), 0, PAGE).unwrap();

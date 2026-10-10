@@ -30,11 +30,10 @@ pub(super) fn remove(
             // Linked to accountd, an account Mail signed in itself is set aside and its sign-in is
             // in mailo's own store, which the linked secrets do not reach: forget it from there.
             let own = (store.granted_only() && store.held_accounts().contains(&id))
-                .then(mail_runtime::own_secrets);
+                .then(crate::edge::own_secrets);
             let secrets = own.as_deref().unwrap_or(secrets);
-            // The command line has no runtime; the store does its work on its own.
             let removed =
-                mail_runtime::block_on(mail_core::account::remove(store, secrets, id.clone()))
+                crate::edge::block_on(mail_core::account::remove(store, secrets, id.clone()))
                     .map_err(|e| e.to_string())?;
             if let Some(config) = config {
                 let _ = mail_core::offline::save(config, id, mail_core::offline::Keep::Bodies);

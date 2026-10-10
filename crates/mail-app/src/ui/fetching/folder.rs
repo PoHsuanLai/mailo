@@ -59,7 +59,8 @@ impl Fetching {
         spawn(async move {
             let named = path.clone();
             let fetching = account.clone();
-            // `spawn_blocking`: the fetch opens a socket on a runtime of its own.
+            // `spawn_blocking`: the fetch waits on the application's runtime (`edge::block_on`), which
+            // an async task must not.
             let done = tokio::task::spawn_blocking(move || (fetch.0)(store, fetching, &path, now))
                 .await
                 .unwrap_or_else(|e| Err(format!("fetching stopped: {e}")));

@@ -4,6 +4,7 @@
 
 use chrono::{DateTime, TimeZone, Utc};
 use mail_app::cli;
+use mail_core::Environment;
 use mail_core::compose;
 use mail_core::export;
 use mail_core::import;
@@ -243,6 +244,7 @@ fn a_search_exports_to_mbox_and_reads_back_the_same_bytes() {
     let out = dir.path().join("out.mbox");
     let done = export::export(
         &store,
+        &Environment::default(),
         &chosen,
         &export::Target::Mbox(out.clone()),
         now(),
@@ -263,6 +265,7 @@ fn a_search_exports_to_mbox_and_reads_back_the_same_bytes() {
     assert!(
         export::export(
             &store,
+            &Environment::default(),
             &chosen,
             &export::Target::Mbox(out),
             now(),
@@ -282,6 +285,7 @@ fn everything_exports_to_a_maildir_that_imports_back_as_the_same_mail() {
     let root = dir.path().join("Exported");
     let done = export::export(
         &store,
+        &Environment::default(),
         &all,
         &export::Target::Maildir(root.clone()),
         now(),
@@ -316,6 +320,7 @@ fn everything_exports_to_a_maildir_that_imports_back_as_the_same_mail() {
     let emls = dir.path().join("emls");
     let done = export::export(
         &store,
+        &Environment::default(),
         &all,
         &export::Target::Eml(emls.clone()),
         now(),
@@ -372,7 +377,15 @@ fn a_message_with_no_body_yet_is_skipped_and_counted() {
     let chosen = export::select(&store, "inbox", now()).unwrap();
     let dir = tempfile::tempdir().unwrap();
     let target = export::Target::Eml(dir.path().join("out"));
-    let done = export::export(&store, &chosen, &target, now(), &mut |_| {}).unwrap();
+    let done = export::export(
+        &store,
+        &Environment::default(),
+        &chosen,
+        &target,
+        now(),
+        &mut |_| {},
+    )
+    .unwrap();
     assert_eq!((done.written, done.absent), (0, 1));
     assert!(export::said(&done, &target).contains("mailo sync"));
 }
@@ -446,7 +459,15 @@ fn a_message_rebuilt_from_its_parts_is_not_exported_as_the_message_even_once_its
     let chosen = export::select(&store, "inbox", now()).unwrap();
     let dir = tempfile::tempdir().unwrap();
     let target = export::Target::Eml(dir.path().join("out"));
-    let done = export::export(&store, &chosen, &target, now(), &mut |_| {}).unwrap();
+    let done = export::export(
+        &store,
+        &Environment::default(),
+        &chosen,
+        &target,
+        now(),
+        &mut |_| {},
+    )
+    .unwrap();
     assert_eq!((done.written, done.partial), (0, 1));
 }
 
@@ -478,13 +499,13 @@ fn sync_never_touches_the_local_account() {
     let before = every_message(&store, local_account(&store));
 
     let secrets = Arc::new(Counting::default());
-    let ends = sync::run_with(
+    let ends = mail_app::edge::block_on(sync::run_with(
         store.clone(),
         secrets.clone(),
         &ClientRegistry::default(),
         now(),
         Default::default(),
-    )
+    ))
     .unwrap();
     assert_eq!(
         secrets.0.load(Ordering::SeqCst),

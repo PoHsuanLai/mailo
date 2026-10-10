@@ -106,10 +106,8 @@ async fn smtp_greeting(host: &str, port: u16, tls: Tls) -> Option<String> {
 async fn the_four_providers_servers_are_what_their_files_say() {
     for (address, label) in PROVIDERS {
         // A provider file answers before any fetch, so this asks nothing of the network.
-        let owned = (*address).to_owned();
-        let found = tokio::task::spawn_blocking(move || discover::search(&owned, now()))
+        let found = discover::search(address, now())
             .await
-            .unwrap()
             .unwrap_or_else(|e| panic!("{address}: {e:?}"));
         assert!(
             matches!(&found.source, Source::Provider { label: got } if got == label),

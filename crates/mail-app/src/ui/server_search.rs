@@ -43,8 +43,10 @@ impl ServerSearcher {
     /// The server, through [`mail_core::server_search::search`].
     #[cfg(not(test))]
     fn server() -> Self {
-        Self(Arc::new(|store, account, input, now| {
-            mail_core::server_search::search(store, account, input, now).map_err(String::from)
+        Self(Arc::new(|store, account, input, _now| {
+            let mail = crate::edge::mail(&store);
+            crate::edge::block_on(mail_core::server_search::search(&mail, account, input))
+                .map_err(String::from)
         }))
     }
 
@@ -167,7 +169,8 @@ pub(super) fn start(
     let searched_for = account.clone();
     spawn(async move {
         let line = input.clone();
-        // `spawn_blocking`: the search opens a socket on a runtime of its own.
+        // `spawn_blocking`: the search waits on the application's runtime (`edge::block_on`), which
+        // an async task must not.
         let done = tokio::task::spawn_blocking(move || {
             let searched = (search.0)(store.clone(), searched_for, &line, Utc::now());
             searched.map(|searched| match searched {

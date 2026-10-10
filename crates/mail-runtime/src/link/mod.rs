@@ -47,7 +47,7 @@ use porter_core::{
 use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 use std::time::Duration;
 
 /// A boxed answer, so [`Accountd`] can be a trait object.
@@ -279,33 +279,14 @@ where
 
 #[cfg(all(feature = "quire-desktop", target_os = "linux"))]
 async fn connect_session(usage: porter_core::consent::Usage) -> Option<Arc<dyn Accountd>> {
-    // On the long-lived runtime: zbus's connection keeps its tasks on the runtime it was made
-    // under, and the runtimes of a sync or a command are short.
-    let work = async move { dbus::session(usage).await };
-    crate::account_secrets::long_lived()
-        .spawn(work)
-        .await
-        .ok()?
+    // zbus's connection keeps its tasks on the runtime it was made under, so the caller awaits
+    // this on the application's one runtime, which lives as long as the connection does.
+    dbus::session(usage).await
 }
 
 #[cfg(not(all(feature = "quire-desktop", target_os = "linux")))]
 async fn connect_session(_usage: porter_core::consent::Usage) -> Option<Arc<dyn Accountd>> {
     None
-}
-
-/// The link of this process, once [`install`]ed: `platform_secrets()` hands it to every engine
-/// (it is where an account's credentials come from, and for an accountd account that is here).
-static CURRENT: OnceLock<Link> = OnceLock::new();
-
-/// Records the process's link. Only the first call counts; a second is ignored, like
-/// `OnceLock::set`.
-pub fn install(link: Link) {
-    let _ = CURRENT.set(link);
-}
-
-/// The process's link: [`Link::Local`] until [`install`] says otherwise.
-pub fn current() -> Link {
-    CURRENT.get().cloned().unwrap_or(Link::Local)
 }
 
 /// When a token must be asked for again: this far ahead of its expiry, so an operation that

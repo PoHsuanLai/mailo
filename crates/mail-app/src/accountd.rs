@@ -40,14 +40,14 @@ impl Heard {
 }
 
 /// The one decision, made once at the start of a process: asks the desktop whether accountd is
-/// here, links to it when it is and this build can, and records the choice so every engine finds
-/// it (`mail_runtime::platform_secrets`). `usage` is how the process uses its grants:
-/// [`Usage::Background`] for `mailo watch`, [`Usage::Interactive`] for the window and the commands
-/// someone is waiting on.
+/// here, links to it when it is and this build can, and records the choice (`edge::install_link`)
+/// so every handle the application builds ([`crate::edge::mail`]) finds it. `usage` is how the
+/// process uses its grants: [`Usage::Background`] for `mailo watch`, [`Usage::Interactive`] for
+/// the window and the commands someone is waiting on.
 pub fn start(usage: Usage) -> Link {
     let here = probe();
     let link = with_runtime(link::start(here, usage));
-    link::install(link.clone());
+    crate::edge::install_link(link.clone());
     link
 }
 
@@ -74,18 +74,10 @@ pub fn here(desktop: &ds_desktop::Desktop) -> Here {
     }
 }
 
-/// Wait for `work` on a runtime of its own: the callers here are the command line's and the
+/// Wait for `work` on the application's runtime: the callers here are the command line's and the
 /// window's own threads, none of which is async.
 fn with_runtime<T>(work: impl std::future::Future<Output = T>) -> T {
-    match tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-    {
-        Ok(runtime) => runtime.block_on(work),
-        // No runtime to be had is the process's own trouble; the link's futures need none of
-        // mailo's, so they are driven by a parked thread, as the keyring's are.
-        Err(_) => mail_runtime::block_on(work),
-    }
+    crate::edge::block_on(work)
 }
 
 /// Reads the accounts accountd offers Mail into the store. `None` when the link is not accountd.

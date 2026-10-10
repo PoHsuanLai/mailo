@@ -4,13 +4,14 @@
 //! the CLI's side of it, plus the things only a command line does — importing and exporting
 //! `.vcf` files and syncing a CardDAV address book.
 
+use crate::environment::Environment;
 use crate::error::{CoreError, UsageError};
 use chrono::{DateTime, Utc};
 use mail_domain::AuthPlan;
 use mail_pim::vcard::{self, Card, Email};
 use mail_runtime::carddav::{self, Dav, DavAuth, How};
 use mail_runtime::link::LinkError;
-use mail_runtime::{AccountSecrets, ClientRegistry, platform_secrets};
+use mail_runtime::{AccountSecrets, ClientRegistry};
 use mail_store::{AddressBook, Edit, Group, GroupHome, GroupId, Kind, Origin, SqliteStore, Store};
 use porter_core::{CapabilityKind, Credential, Family, SecretKey, SecretPurpose, SecretText};
 use std::collections::BTreeSet;
@@ -119,9 +120,27 @@ pub fn parse(args: &[String]) -> Result<Contacts, CoreError> {
     }
 }
 
-/// Run a contacts command, returning what to print.
-pub fn run(
+impl crate::mail::ContactOps<'_> {
+    /// Run a contacts command, returning what to print.
+    pub async fn run(&self, command: &Contacts) -> Result<String, CoreError> {
+        let mail = self.0;
+        run(
+            mail.store(),
+            mail.secrets().as_ref(),
+            mail.environment(),
+            command,
+            &mail.saved_clients(),
+            mail.now(),
+        )
+        .await
+    }
+}
+
+/// Run a contacts command over `store`, signing in through `secrets`, returning what to print.
+pub async fn run(
     store: &SqliteStore,
+    secrets: &dyn AccountSecrets,
+    env: &Environment,
     command: &Contacts,
     saved: &ClientRegistry,
     now: DateTime<Utc>,
@@ -154,18 +173,17 @@ pub fn run(
             }
         }
         Contacts::Sync { url, account, user } => {
-            let runtime = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .map_err(|e| CoreError::cannot("sync", e))?;
-            runtime.block_on(sync(
+            sync_with(
                 store,
                 url.as_deref(),
                 account.as_deref(),
                 user.as_deref(),
+                secrets,
+                env,
                 saved,
                 now,
-            ))
+            )
+            .await
         }
     }
 }
@@ -320,33 +338,15 @@ pub fn export(store: &dyn Store) -> Result<String, CoreError> {
     Ok(vcard::write_all(&cards))
 }
 
-async fn sync(
-    store: &SqliteStore,
-    url: Option<&str>,
-    account: Option<&str>,
-    user: Option<&str>,
-    saved: &ClientRegistry,
-    now: DateTime<Utc>,
-) -> Result<String, CoreError> {
-    sync_with(
-        store,
-        url,
-        account,
-        user,
-        platform_secrets().as_ref(),
-        saved,
-        now,
-    )
-    .await
-}
-
-/// [`sync`] over the secrets (and so the link) it is given: the process's, or a test's.
+/// The sync over the secrets (and so the link) it is given: the handle's, or a test's.
+#[allow(clippy::too_many_arguments)]
 async fn sync_with(
     store: &SqliteStore,
     url: Option<&str>,
     account: Option<&str>,
     user: Option<&str>,
     secrets: &dyn AccountSecrets,
+    env: &Environment,
     saved: &ClientRegistry,
     now: DateTime<Utc>,
 ) -> Result<String, CoreError> {
@@ -371,6 +371,7 @@ async fn sync_with(
                     Some(&base),
                     &http,
                     secrets,
+                    env,
                     saved,
                     now,
                 )
@@ -392,7 +393,8 @@ async fn sync_with(
 
     let owner = owner_of(&accounts, account)?;
     let start = url.map(parse_url).transpose()?;
-    let (dav, start) = open_dav(owner, user, start.as_ref(), &http, secrets, saved, now).await?;
+    let (dav, start) =
+        open_dav(owner, user, start.as_ref(), &http, secrets, env, saved, now).await?;
     let found = carddav::discover(&dav, &start).await?;
     for collection in found {
         let key = collection.url.to_string();
@@ -430,12 +432,14 @@ fn owner_of<'a>(
 /// An account of the desktop's accountd with no login of its own goes through accountd's relay
 /// ([`relayed`]): Mail holds no password or token for it. Every other account, and a login given
 /// with `--user`, is a client of ours with the credential [`auth_for`] finds, as it always was.
+#[allow(clippy::too_many_arguments)]
 async fn open_dav(
     owner: &crate::sync::Configured,
     login: Option<&str>,
     start: Option<&url::Url>,
     http: &reqwest::Client,
     secrets: &dyn AccountSecrets,
+    env: &Environment,
     saved: &ClientRegistry,
     now: DateTime<Utc>,
 ) -> Result<(Dav, url::Url), CoreError> {
@@ -443,7 +447,7 @@ async fn open_dav(
         return relayed(owner, start, secrets).await;
     }
     let start = start.ok_or(CoreError::BookNeedsServer)?;
-    let auth = auth_for(owner, login, secrets, saved, now).await?;
+    let auth = auth_for(owner, login, secrets, env, saved, now).await?;
     let dav = Dav::new(http.clone(), start, auth)?;
     Ok((dav, start.clone()))
 }
@@ -584,6 +588,7 @@ async fn auth_for(
     account: &crate::sync::Configured,
     login: Option<&str>,
     secrets: &dyn AccountSecrets,
+    env: &Environment,
     saved: &ClientRegistry,
     now: DateTime<Utc>,
 ) -> Result<DavAuth, CoreError> {
@@ -592,16 +597,16 @@ async fn auth_for(
             account: account.id.clone(),
             purpose: SecretPurpose::ServicePassword(CapabilityKind::Contacts),
         };
-        let password = match std::env::var("MAILO_PASSWORD") {
-            Ok(password) if !password.is_empty() => {
+        let password = match env.password.as_deref() {
+            Some(password) if !password.is_empty() => {
                 secrets
                     .put(
                         &key,
-                        &Credential::Password(SecretText::new(password.clone())),
+                        &Credential::Password(SecretText::new(password.to_owned())),
                     )
                     .await
                     .map_err(|e| CoreError::cannot("save the password", e))?;
-                password
+                password.to_owned()
             }
             _ => match secrets.get(&key).await {
                 Ok(Credential::Password(password)) => password.expose().to_owned(),
@@ -1090,9 +1095,18 @@ mod tests {
 
         // No account at all: the old answer.
         let none = Daemon::new(Vec::new(), nothing_asked());
-        let said = sync_with(&store, None, None, None, &linked(&none), &saved, now())
-            .await
-            .unwrap();
+        let said = sync_with(
+            &store,
+            None,
+            None,
+            None,
+            &linked(&none),
+            &Environment::default(),
+            &saved,
+            now(),
+        )
+        .await
+        .unwrap();
         assert!(
             said.starts_with("no address book has been synced yet"),
             "{said}"
@@ -1102,10 +1116,19 @@ mod tests {
         // server (here Google's, which is not CardDAV) with no address given.
         crate::account::reconcile(&store, &[mail()], now()).unwrap();
         let daemon = Daemon::new(vec![people_grant()], nothing_asked());
-        let why = sync_with(&store, None, None, None, &linked(&daemon), &saved, now())
-            .await
-            .unwrap_err()
-            .to_string();
+        let why = sync_with(
+            &store,
+            None,
+            None,
+            None,
+            &linked(&daemon),
+            &Environment::default(),
+            &saved,
+            now(),
+        )
+        .await
+        .unwrap_err()
+        .to_string();
         assert!(why.contains("People"), "{why}");
         // A login of its own is the address book's own sign-in: not the relay's, and not asked.
         let said = sync_with(
@@ -1114,6 +1137,7 @@ mod tests {
             None,
             Some("ada"),
             &linked(&daemon),
+            &Environment::default(),
             &saved,
             now(),
         )

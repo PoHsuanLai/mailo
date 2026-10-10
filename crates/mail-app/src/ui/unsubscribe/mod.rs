@@ -201,14 +201,8 @@ pub(in crate::ui) fn leave(
         Some(Unsubscribe::OneClick { .. } | Unsubscribe::Mailto(_)) => {}
     }
     let http = http()?;
-    // Its own runtime, as `mailo unsubscribe` does: this is a blocking thread, where waiting on
-    // a future needs one, and the window's runtime is not this thread's to block.
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|e| format!("Could not start the request: {e}"))?;
-    runtime
-        .block_on(mail_core::unsubscribe::perform(store, found, &http, now))
+    // This is a blocking thread, where waiting on a future needs the application's runtime.
+    crate::edge::block_on(mail_core::unsubscribe::perform(store, found, &http, now))
         .map_err(String::from)
 }
 

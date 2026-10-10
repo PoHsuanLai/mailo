@@ -34,13 +34,14 @@ impl Pusher {
     #[cfg(not(test))]
     pub(in crate::ui) fn server() -> Self {
         Self(Arc::new(|store, account, now| {
-            mail_core::rules::server::pushed(
+            crate::edge::block_on(mail_core::rules::server::pushed(
                 store,
+                crate::edge::secrets().as_ref(),
                 account,
                 mail_proto::sieve::Takeover::Refuse,
                 &mail_core::account::saved_clients(),
                 now,
-            )
+            ))
             .map_err(String::from)
         }))
     }

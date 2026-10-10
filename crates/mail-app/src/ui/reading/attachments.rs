@@ -174,8 +174,8 @@ fn start(
     let fetchers = fetch::fetchers();
     let dir = crate::ui::files::save_dir();
     spawn(async move {
-        // `spawn_blocking`, not this task: a fetch opens sockets and builds its own runtime,
-        // and `Runtime::block_on` inside an async context panics.
+        // `spawn_blocking`, not this task: a fetch waits on the application's runtime
+        // (`edge::block_on`), and `Runtime::block_on` inside an async context panics.
         let done = tokio::task::spawn_blocking(move || {
             let saved = match kept {
                 Kept::Here => {

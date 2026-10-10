@@ -5,6 +5,7 @@ use super::IconError;
 use super::cache::{cached, file_stem, store};
 use super::decode::decode;
 use super::fetch::{client, fetch, url};
+use crate::environment::Program;
 use crate::error::CoreError;
 use crate::provider::Provider;
 use std::fmt::Write as _;
@@ -73,13 +74,13 @@ pub fn providers_of(store: &mail_store::SqliteStore) -> Result<Vec<Provider>, Co
     Ok(out)
 }
 
-/// The known providers whose icon is not cached yet, when the user binary is the one running.
+/// The known providers whose icon is not cached yet, when the installed program is the one running.
 ///
 /// Every one, not only the configured accounts': Add Account lists them all before any account
 /// is on one, and an account added in the window would otherwise show its letter until a manual
 /// refresh. Empty under a test binary, which must not open a socket or write `~/.cache/mailo`.
-pub fn missing(dir: &Path) -> Vec<Provider> {
-    if !user_binary() {
+pub fn missing(dir: &Path, program: Program) -> Vec<Provider> {
+    if program != Program::Installed {
         return Vec::new();
     }
     Provider::ALL
@@ -88,15 +89,15 @@ pub fn missing(dir: &Path) -> Vec<Provider> {
         .collect()
 }
 
-/// Fetch and cache `provider` when the user binary is the one running and the
+/// Fetch and cache `provider` when the installed program is the one running and the
 /// file is not already there.
 ///
 /// Tests execute from `deps/<crate>-<hash>` and must not open a socket or write
-/// `~/.cache/mailo`. The thread is joined because `mailo account add` returns
-/// immediately afterwards, and a process exit kills a thread it does not wait
-/// for. A failure is logged and is not an error for the caller.
-pub fn fetch_if_missing(provider: Provider) {
-    if url(provider).is_none() || !user_binary() {
+/// `~/.cache/mailo`. Awaited, because `mailo account add` returns immediately afterwards, and a
+/// process exit kills a fetch nobody waits for. A failure is logged and is not an error for the
+/// caller.
+pub async fn fetch_if_missing(provider: Provider, program: Program) {
+    if url(provider).is_none() || program != Program::Installed {
         return;
     }
     let Some(root) = crate::config::cache_dir() else {
@@ -106,41 +107,17 @@ pub fn fetch_if_missing(provider: Provider) {
     if cached(&dir, provider).is_some() {
         return;
     }
-    let handle = std::thread::spawn(move || fetch_one(&dir, provider));
-    match handle.join() {
-        Ok(Ok(())) => {}
-        Ok(Err(err)) => log::warn!("provider icon: {provider:?}: {err}"),
-        Err(_) => log::warn!("provider icon: {provider:?}: the fetch stopped"),
+    match fetch_one(&dir, provider).await {
+        Ok(()) => {}
+        Err(err) => log::warn!("provider icon: {provider:?}: {err}"),
     }
 }
 
-pub(super) fn user_binary() -> bool {
-    let Ok(path) = std::env::current_exe() else {
-        return false;
-    };
-    if path
-        .parent()
-        .and_then(|parent| parent.file_name())
-        .is_some_and(|name| name == "deps")
-    {
-        return false;
-    }
-    path.file_name()
-        .and_then(|name| name.to_str())
-        .is_some_and(|name| name == "mailo")
-}
-
-fn fetch_one(dir: &Path, provider: Provider) -> Result<(), IconError> {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|err| IconError::Fetch(err.to_string()))?;
-    runtime.block_on(async {
-        let http = client()?;
-        let bytes = fetch(&http, provider).await?;
-        let png = decode(&bytes)?;
-        store(dir, provider, &png)
-    })
+async fn fetch_one(dir: &Path, provider: Provider) -> Result<(), IconError> {
+    let http = client()?;
+    let bytes = fetch(&http, provider).await?;
+    let png = decode(&bytes)?;
+    store(dir, provider, &png)
 }
 
 async fn fetch_into(

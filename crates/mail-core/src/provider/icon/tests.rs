@@ -1,8 +1,9 @@
 use super::cache::{Loaded, cached, file_stem, store};
 use super::decode::decode;
 use super::fetch::{client, fetch, url};
-use super::refresh::{providers_of, report, user_binary};
+use super::refresh::{missing, providers_of, report};
 use super::{IconError, PNG_MAGIC};
+use crate::environment::Program;
 use crate::provider::Provider;
 use image::codecs::ico::{IcoEncoder, IcoFrame};
 use image::codecs::png::{PngDecoder, PngEncoder};
@@ -412,11 +413,15 @@ fn configured_accounts_contribute_their_provider_once() {
 }
 
 #[test]
-fn tests_do_not_count_as_the_user_binary() {
+fn nothing_is_fetched_unless_the_installed_program_is_running() {
+    let dir = tempfile::tempdir().unwrap();
     assert!(
-        !user_binary(),
-        "a test would fetch into the real cache: {:?}",
-        std::env::current_exe()
+        missing(dir.path(), Program::Other).is_empty(),
+        "a test would fetch into the real cache"
+    );
+    assert!(
+        !missing(dir.path(), Program::Installed).is_empty(),
+        "the installed program has icons to fetch into an empty cache"
     );
 }
 

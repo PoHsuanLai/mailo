@@ -13,7 +13,7 @@ use mail_proto::sieve::{
     Active, Deleted, Places, SieveJob, SieveOutcome, Takeover, VacationPlaced, compile, endpoint,
 };
 use mail_runtime::sieve::{Pushed, SieveAuth};
-use mail_runtime::{ClientRegistry, platform_secrets};
+use mail_runtime::{AccountSecrets, ClientRegistry};
 use mail_store::{SqliteStore, Store};
 use porter_core::{Credential, SecretKey, SecretPurpose};
 use std::fmt::Write as _;
@@ -110,8 +110,38 @@ pub fn vacation_for(
     }
 }
 
-pub fn run_vacation(
+impl crate::mail::RuleOps<'_> {
+    /// `mailo vacation …`, returning what to print.
+    pub async fn run_vacation(&self, command: &VacationCmd) -> Result<String, CoreError> {
+        let mail = self.0;
+        run_vacation(
+            mail.store(),
+            mail.secrets().as_ref(),
+            command,
+            &mail.saved_clients(),
+            mail.now(),
+        )
+        .await
+    }
+
+    /// `mailo sieve …`, returning what to print.
+    pub async fn run_sieve(&self, command: &SieveCmd) -> Result<String, CoreError> {
+        let mail = self.0;
+        run_sieve(
+            mail.store(),
+            mail.secrets().as_ref(),
+            command,
+            &mail.saved_clients(),
+            mail.now(),
+        )
+        .await
+    }
+}
+
+/// `mailo vacation …` over `store`, signing in through `secrets`, returning what to print.
+pub async fn run_vacation(
     store: &SqliteStore,
+    secrets: &dyn AccountSecrets,
     command: &VacationCmd,
     saved: &ClientRegistry,
     now: DateTime<Utc>,
@@ -159,7 +189,7 @@ pub fn run_vacation(
             let vacation = vacation_for(&account, subject, &body, *days, during);
             store.put_vacation(account.id.clone(), Some(&vacation), now)?;
             let mut out = shown(&account.address, &vacation, now);
-            out.push_str(&push_now(store, &account, Takeover::Refuse, saved, now));
+            out.push_str(&push_now(store, secrets, &account, Takeover::Refuse, saved, now).await);
             Ok(out)
         }
         VacationCmd::Off { account } => {
@@ -167,7 +197,9 @@ pub fn run_vacation(
             store.put_vacation(account.id.clone(), None, now)?;
             let mut out = format!("{}: vacation reply off\n", account.address);
             if endpoint(&account.plan).is_ok() {
-                out.push_str(&push_now(store, &account, Takeover::Refuse, saved, now));
+                out.push_str(
+                    &push_now(store, secrets, &account, Takeover::Refuse, saved, now).await,
+                );
             }
             Ok(out)
         }
@@ -175,14 +207,15 @@ pub fn run_vacation(
 }
 
 /// Push after a change, saying so either way: kept here is not the same as running there.
-fn push_now(
+async fn push_now(
     store: &SqliteStore,
+    secrets: &dyn AccountSecrets,
     account: &crate::sync::Configured,
     takeover: Takeover,
     saved: &ClientRegistry,
     now: DateTime<Utc>,
 ) -> String {
-    match push(store, account, takeover, saved, now) {
+    match push(store, secrets, account, takeover, saved, now).await {
         Ok(said) => said,
         Err(why) => format!(
             "  kept here, but not on the server yet: {why}\n  `mailo sieve push` tries again\n"
@@ -211,8 +244,10 @@ fn shown(address: &str, v: &Vacation, now: DateTime<Utc>) -> String {
     out
 }
 
-pub fn run_sieve(
+/// `mailo sieve …` over `store`, signing in through `secrets`, returning what to print.
+pub async fn run_sieve(
     store: &SqliteStore,
+    secrets: &dyn AccountSecrets,
     command: &SieveCmd,
     saved: &ClientRegistry,
     now: DateTime<Utc>,
@@ -220,29 +255,22 @@ pub fn run_sieve(
     match command {
         SieveCmd::Push { account, takeover } => {
             let account = super::pick(store, account.as_deref())?;
-            push(store, &account, *takeover, saved, now)
+            push(store, secrets, &account, *takeover, saved, now).await
         }
         SieveCmd::Status { account } => {
             let account = super::pick(store, account.as_deref())?;
-            status(store, &account, saved, now)
+            status(store, secrets, &account, saved, now).await
         }
     }
-}
-
-fn runtime() -> Result<tokio::runtime::Runtime, CoreError> {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|e| CoreError::cannot("reach the server", e))
 }
 
 /// The account's own sign-in: the server's ManageSieve takes the same credential as its mail.
 async fn auth(
     account: &crate::sync::Configured,
+    secrets: &dyn AccountSecrets,
     saved: &ClientRegistry,
     now: DateTime<Utc>,
 ) -> Result<SieveAuth, CoreError> {
-    let secrets = platform_secrets();
     // An account of the desktop's accountd: its relay for the ManageSieve server it lists, and no
     // credential of ours.
     if let Some(grant) = account.plan.grant() {
@@ -278,7 +306,7 @@ async fn auth(
             address: account.address.clone(),
             auth: account.plan.auth.clone(),
         })?;
-    let credential = crate::sync::signed_in(account, stored, secrets.as_ref(), saved, now).await?;
+    let credential = crate::sync::signed_in(account, stored, secrets, saved, now).await?;
     Ok(SieveAuth {
         username: account.plan.username(),
         credential,
@@ -287,21 +315,25 @@ async fn auth(
     })
 }
 
-fn push(
+async fn push(
     store: &SqliteStore,
+    secrets: &dyn AccountSecrets,
     account: &crate::sync::Configured,
     takeover: Takeover,
     saved: &ClientRegistry,
     now: DateTime<Utc>,
 ) -> Result<String, CoreError> {
-    pushed(store, account, takeover, saved, now).map(|pushed| said(&account.address, &pushed))
+    pushed(store, secrets, account, takeover, saved, now)
+        .await
+        .map(|pushed| said(&account.address, &pushed))
 }
 
 /// Compile the account's rules and vacation reply and install them, with the account's own
 /// sign-in, returning what the server did rather than words about it: the window says it its
-/// own way. What `mailo sieve push` runs.
-pub fn pushed(
+/// own way. What `mailo sieve push` runs, over the secret store it is given.
+pub async fn pushed(
     store: &SqliteStore,
+    secrets: &dyn AccountSecrets,
     account: &crate::sync::Configured,
     takeover: Takeover,
     saved: &ClientRegistry,
@@ -314,22 +346,20 @@ pub fn pushed(
     let rules = store.rules(account.id.clone())?;
     let vacation = store.vacation(account.id.clone())?;
     let places = Places::from_caps(&account.caps);
-    runtime()?.block_on(async {
-        let auth = auth(account, saved, now).await?;
-        let (_tx, mut cancel) = tokio::sync::watch::channel(false);
-        mail_runtime::sieve::push(
-            &at,
-            &auth,
-            &rules,
-            vacation.as_ref(),
-            &places,
-            takeover,
-            now,
-            &mut cancel,
-        )
-        .await
-        .map_err(|e| CoreError::context(format!("{}:{}", at.host, at.port), e))
-    })
+    let auth = auth(account, secrets, saved, now).await?;
+    let (_tx, mut cancel) = tokio::sync::watch::channel(false);
+    mail_runtime::sieve::push(
+        &at,
+        &auth,
+        &rules,
+        vacation.as_ref(),
+        &places,
+        takeover,
+        now,
+        &mut cancel,
+    )
+    .await
+    .map_err(|e| CoreError::context(format!("{}:{}", at.host, at.port), e))
 }
 
 /// What a push did, for a person.
@@ -393,8 +423,9 @@ pub fn said(address: &str, pushed: &Pushed) -> String {
     out
 }
 
-fn status(
+async fn status(
     store: &SqliteStore,
+    secrets: &dyn AccountSecrets,
     account: &crate::sync::Configured,
     saved: &ClientRegistry,
     now: DateTime<Utc>,
@@ -403,13 +434,11 @@ fn status(
         address: account.address.clone(),
         why,
     })?;
-    let outcome = runtime()?.block_on(async {
-        let auth = auth(account, saved, now).await?;
-        let (_tx, mut cancel) = tokio::sync::watch::channel(false);
-        mail_runtime::sieve::manage(&at, &auth, SieveJob::Status, &mut cancel)
-            .await
-            .map_err(|e| CoreError::context(format!("{}:{}", at.host, at.port), e))
-    })?;
+    let auth = auth(account, secrets, saved, now).await?;
+    let (_tx, mut cancel) = tokio::sync::watch::channel(false);
+    let outcome = mail_runtime::sieve::manage(&at, &auth, SieveJob::Status, &mut cancel)
+        .await
+        .map_err(|e| CoreError::context(format!("{}:{}", at.host, at.port), e))?;
     let SieveOutcome::Status {
         caps,
         scripts,

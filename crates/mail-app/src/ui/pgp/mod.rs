@@ -77,7 +77,7 @@ impl Seams {
         Seams {
             secrets: Arc::new(mail_runtime::KeyringSigningStore::default()),
             lookup: Arc::new(|store, address| {
-                mail_core::pgp::lookup_address(store, address, Utc::now())
+                crate::edge::block_on(mail_core::pgp::lookup_address(store, address, Utc::now()))
                     .map_err(|e| e.to_string())
             }),
             pick: Arc::new(|| rfd::FileDialog::new().pick_file()),

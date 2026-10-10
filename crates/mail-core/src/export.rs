@@ -10,6 +10,7 @@
 //! connections halfway through would be two commands in one. The report says how many and that
 //! `mailo sync` fills them in.
 
+use crate::environment::Environment;
 use crate::error::{CoreError, Logged};
 use chrono::{DateTime, Utc};
 use mail_domain::{
@@ -178,12 +179,13 @@ fn fits_alone(store: &SqliteStore, filter: &Filter, message: &Message, now: Date
 /// Write `messages` to `target`, calling `progress` every hundred.
 pub fn export(
     store: &SqliteStore,
+    env: &Environment,
     messages: &[MessageId],
     target: &Target,
     now: DateTime<Utc>,
     progress: &mut dyn FnMut(&Exported),
 ) -> Result<Exported, CoreError> {
-    let mut sink = Sink::open(store, target, now)?;
+    let mut sink = Sink::open(store, env, target, now)?;
     let mut done = Exported::default();
     for id in messages {
         let message = store.message(*id)?;
@@ -233,12 +235,19 @@ enum Sink {
         labels: Vec<(String, LabelId)>,
         now: DateTime<Utc>,
         count: u64,
+        /// This machine's name, in each file's unique name.
+        host: String,
     },
     Eml(PathBuf),
 }
 
 impl Sink {
-    fn open(store: &SqliteStore, target: &Target, now: DateTime<Utc>) -> Result<Self, CoreError> {
+    fn open(
+        store: &SqliteStore,
+        env: &Environment,
+        target: &Target,
+        now: DateTime<Utc>,
+    ) -> Result<Self, CoreError> {
         match target {
             Target::Mbox(path) => {
                 // Never over an existing file: an export that replaced someone's archive with a
@@ -257,6 +266,7 @@ impl Sink {
                     labels: crate::query::known_labels(store),
                     now,
                     count: 0,
+                    host: host(env),
                 })
             }
             Target::Eml(dir) => {
@@ -275,6 +285,7 @@ impl Sink {
                 labels,
                 now,
                 count,
+                host,
             } => {
                 *count += 1;
                 let dir = match folder_of(message, labels) {
@@ -295,7 +306,7 @@ impl Sink {
                     micros: now.timestamp_subsec_micros(),
                     pid: std::process::id(),
                     count: *count,
-                    host: &host(),
+                    host: host.as_str(),
                 });
                 let name = maildir::name(&unique, &maildir::flags_of(&flags_of(message)));
                 // Written in `tmp` and renamed into `cur`, as the spec says: a reader never sees
@@ -364,11 +375,9 @@ fn make_maildir(dir: &Path) -> Result<(), CoreError> {
 }
 
 /// This machine's name for a Maildir unique name, from the environment where it says.
-fn host() -> String {
-    std::env::var("HOSTNAME")
-        .ok()
-        // What Windows calls it; it has no `/etc/hostname` either.
-        .or_else(|| std::env::var("COMPUTERNAME").ok())
+fn host(env: &Environment) -> String {
+    env.hostname
+        .clone()
         .or_else(|| {
             std::fs::read_to_string("/etc/hostname")
                 .ok()

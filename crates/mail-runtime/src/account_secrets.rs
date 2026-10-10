@@ -11,11 +11,12 @@
 //! for the places that hold the store as `Arc<dyn AccountSecrets>`; it adds nothing to it.
 //!
 //! The runtime. oo7 reaches the Secret Service through zbus on tokio (that feature is on in this
-//! build), so on Linux an account secret must be awaited inside a tokio runtime, and every
-//! caller that is not async already (the command line, the window's own threads) goes through a
-//! runtime handle: `mail-core`'s `account::block_on_runtime` is where mailo bridges. What once
-//! panicked mailo, a zbus blocking call starting a runtime inside a runtime, cannot come back
-//! through this path because there is no blocking call in it; the tests below run it inside one.
+//! build), and its one connection keeps its tasks on the runtime that was current when it
+//! opened. So the store does not pick a runtime: it is given a [`Handle`] to the one the
+//! application owns and runs every call there, however (or from whatever executor) the caller
+//! awaits it. What once panicked mailo, a zbus blocking call starting a runtime inside a
+//! runtime, cannot come back through this path because there is no blocking call in it; the
+//! tests below run it inside one.
 //!
 //! Signing keys are not here: they are mailo's own (`signing_store.rs`).
 
@@ -25,7 +26,8 @@ use porter_core::{AccountId, Credential, SecretKey};
 use porter_secrets::{Secrets, SecretsError};
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
+use tokio::runtime::Handle;
 
 type Answer<'a, T> = Pin<Box<dyn Future<Output = Result<T, RuntimeError>> + Send + 'a>>;
 
@@ -80,14 +82,13 @@ impl<S: Secrets> AccountSecrets for S {
     }
 }
 
-/// Wait for `work` on this thread, for the callers that are not async: the command line, and the
-/// window's own threads. Where mailo bridges from them to porter's async trait.
+/// Wait for `work` on this thread with nothing but a parked thread, for a caller that has no
+/// runtime to hand (a test, a one-off tool). The application's own edges use their runtime.
 ///
-/// It drives the future with nothing but a parked thread, so it needs no runtime of its own and
-/// cannot start one inside another, which is the panic this path once had. The account store
-/// does its work on [`secrets_runtime`] and this only waits for the answer, so it is safe on any
-/// thread, including one a tokio runtime is driving (which it then blocks, as the keyring calls
-/// it replaces did).
+/// It needs no runtime of its own and cannot start one inside another, which is the panic this
+/// path once had. The account store does its work on the [`Handle`] it was given and this only
+/// waits for the answer, so it is safe on any thread, including one a tokio runtime is driving
+/// (which it then blocks, as the keyring calls it replaces did).
 pub fn block_on<T>(work: impl Future<Output = T>) -> T {
     use std::task::{Context, Poll, Wake, Waker};
     struct Unpark(std::thread::Thread);
@@ -118,52 +119,17 @@ compile_error!(
     "mailo keeps account secrets in porter-secrets, which has a store only on Linux, macOS and Windows"
 );
 
-/// The runtime every account-secret call runs on, whichever runtime (or none) awaits it.
+/// The platform's store, every call run on the [`Handle`] it was given.
 ///
 /// oo7 opens one Secret Service connection and keeps it for the process (porter-secrets caches
 /// it), and under zbus's `tokio` feature that connection's tasks live on the runtime that was
-/// current when it opened. mailo makes a short-lived runtime of its own for most calls
-/// (`mail-core` builds one per sync, per command), so a connection opened under one of them
-/// would die with it. A runtime that lives as long as the process, one worker thread, is where
-/// the store runs: callers hand it the call and await the answer, so the store is never driven
-/// by a runtime that is about to be dropped, and a caller needs no runtime of the store's kind.
-/// This is where mailo bridges to porter's async trait.
-fn secrets_runtime() -> &'static tokio::runtime::Handle {
-    static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
-    RUNTIME
-        .get_or_init(|| {
-            tokio::runtime::Builder::new_multi_thread()
-                .worker_threads(1)
-                .thread_name("mailo-secrets")
-                .enable_all()
-                .build()
-                .expect("a tokio runtime for the secret store")
-        })
-        .handle()
-}
-
-/// The runtime that outlives every other this crate's callers make: where a connection that keeps
-/// tasks (the secret store's, the link to accountd's) is opened, so it does not die with the short
-/// runtime of the sync or the command that happened to open it.
-#[cfg(all(feature = "quire-desktop", target_os = "linux"))]
-pub(crate) fn long_lived() -> &'static tokio::runtime::Handle {
-    secrets_runtime()
-}
-
-/// Run `work` on [`secrets_runtime`] and await it from here.
-async fn on_secrets_runtime<T: Send + 'static>(
-    work: impl Future<Output = Result<T, SecretsError>> + Send + 'static,
-) -> Result<T, SecretsError> {
-    secrets_runtime()
-        .spawn(work)
-        .await
-        .unwrap_or(Err(SecretsError::Unavailable))
-}
-
-/// The platform's store, every call run on [`secrets_runtime`].
+/// current when it opened. A caller that waits on a short-lived runtime would let the connection
+/// die with it, so the store is handed the long-lived one, the application's, and callers await
+/// the answer from wherever they are.
 #[derive(Clone)]
 pub struct PlatformSecrets<S = Native> {
     native: Arc<S>,
+    runtime: Handle,
 }
 
 // By hand: the store has no `Debug` to rely on, and nothing in here is printable.
@@ -173,69 +139,86 @@ impl<S> std::fmt::Debug for PlatformSecrets<S> {
     }
 }
 
-impl Default for PlatformSecrets {
-    fn default() -> Self {
-        Self::over(Native::default())
+impl PlatformSecrets {
+    /// This platform's store, run on `runtime`.
+    pub fn new(runtime: Handle) -> Self {
+        Self::over(Native::default(), runtime)
     }
 }
 
 impl<S> PlatformSecrets<S> {
-    /// `native` as the store.
-    pub fn over(native: S) -> Self {
+    /// `native` as the store, run on `runtime`.
+    pub fn over(native: S, runtime: Handle) -> Self {
         Self {
             native: Arc::new(native),
+            runtime,
         }
+    }
+
+    /// Run `work` on the store's runtime and await it from here.
+    async fn on_runtime<T: Send + 'static>(
+        &self,
+        work: impl Future<Output = Result<T, SecretsError>> + Send + 'static,
+    ) -> Result<T, SecretsError> {
+        self.runtime
+            .spawn(work)
+            .await
+            .unwrap_or(Err(SecretsError::Unavailable))
     }
 }
 
 impl<S: Secrets + 'static> Secrets for PlatformSecrets<S> {
     async fn put(&self, key: &SecretKey, value: &Credential) -> Result<(), SecretsError> {
         let (native, key, value) = (self.native.clone(), key.clone(), value.clone());
-        on_secrets_runtime(async move { native.put(&key, &value).await }).await
+        self.on_runtime(async move { native.put(&key, &value).await })
+            .await
     }
 
     async fn get(&self, key: &SecretKey) -> Result<Credential, SecretsError> {
         let (native, k) = (self.native.clone(), key.clone());
-        on_secrets_runtime(async move { native.get(&k).await }).await
+        self.on_runtime(async move { native.get(&k).await }).await
     }
 
     async fn delete(&self, key: &SecretKey) -> Result<(), SecretsError> {
         let (native, k) = (self.native.clone(), key.clone());
-        on_secrets_runtime(async move { native.delete(&k).await }).await
+        self.on_runtime(async move { native.delete(&k).await })
+            .await
     }
 
     async fn delete_account(&self, account: &AccountId) -> Result<(), SecretsError> {
         let (native, a) = (self.native.clone(), account.clone());
-        on_secrets_runtime(async move { native.delete_account(&a).await }).await
+        self.on_runtime(async move { native.delete_account(&a).await })
+            .await
     }
 }
 
-/// The store every entry point opens: the platform's, or in a debug build run by
-/// `dev/scenarios` (`MAILO_TEST_SECRETS_DIR`), a directory of files that never reaches the
-/// person's keyring.
-pub fn platform_secrets() -> Arc<dyn AccountSecrets> {
-    // The link the process chose at start (`link::start`): accountd's, and then Mail keeps no
-    // secret of its own and opens no keyring, or none, and mailo's own store.
-    match crate::link::current() {
-        crate::link::Link::Local => own_store(),
-        crate::link::Link::Accountd(link) => Arc::new(crate::link::LinkedSecrets::new(link)),
+/// The store an entry point opens for a process linked as `link`: accountd's, and then Mail
+/// keeps no secret of its own and opens no keyring, or none, and mailo's own store, whose calls
+/// run on `runtime`.
+pub fn platform_secrets(link: &crate::link::Link, runtime: &Handle) -> Arc<dyn AccountSecrets> {
+    match link {
+        crate::link::Link::Local => own_store(runtime),
+        crate::link::Link::Accountd(link) => {
+            Arc::new(crate::link::LinkedSecrets::new(link.clone()))
+        }
     }
 }
 
 /// mailo's own store, whatever the link: where the sign-ins Mail holds itself are kept. Linked to
 /// accountd [`platform_secrets`] holds none of them; removing an account Mail signed in itself is
 /// what asks for this, to forget its items with it.
-pub fn own_secrets() -> Arc<dyn AccountSecrets> {
-    own_store()
+pub fn own_secrets(runtime: &Handle) -> Arc<dyn AccountSecrets> {
+    own_store(runtime)
 }
 
-/// mailo's own store: the platform's, or the scenario directory's.
-fn own_store() -> Arc<dyn AccountSecrets> {
+/// mailo's own store: the platform's, or (in a debug build run by `dev/scenarios`,
+/// `MAILO_TEST_SECRETS_DIR`) a directory of files that never reaches the person's keyring.
+fn own_store(runtime: &Handle) -> Arc<dyn AccountSecrets> {
     #[cfg(debug_assertions)]
     if let Some(files) = scenario_files() {
         return Arc::new(files);
     }
-    Arc::new(PlatformSecrets::default())
+    Arc::new(PlatformSecrets::new(runtime.clone()))
 }
 
 #[cfg(debug_assertions)]
@@ -365,22 +348,24 @@ mod tests {
     /// thread already driving a runtime panics. Account secrets are read from inside every
     /// sync's runtime. The path here is porter's async trait through [`PlatformSecrets`], and
     /// nothing in it blocks: it is awaited from a multi-thread runtime's task, from a
-    /// current-thread runtime (what `mail-core`'s synchronous entry points build), and from a
+    /// current-thread runtime (a front-end's own), and from a
     /// thread with no runtime at all through [`block_on`], over a store that chunks as the
     /// Credential Manager's does.
     #[test]
     fn the_account_path_runs_on_any_executor_without_a_blocking_call() {
         use porter_secrets::StoreSecrets;
         let store = keyring_core::mock::Store::new().unwrap();
-        let secrets: Arc<dyn AccountSecrets> =
-            Arc::new(PlatformSecrets::over(StoreSecrets::chunked(store, 16)));
-        let k = key(SecretPurpose::IncomingPassword);
-
         let multi = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
             .enable_all()
             .build()
             .unwrap();
+        let secrets: Arc<dyn AccountSecrets> = Arc::new(PlatformSecrets::over(
+            StoreSecrets::chunked(store, 16),
+            multi.handle().clone(),
+        ));
+        let k = key(SecretPurpose::IncomingPassword);
+
         multi.block_on(async {
             secrets.put(&k, &password("hunter2")).await.unwrap();
             let (again, k2) = (secrets.clone(), k.clone());

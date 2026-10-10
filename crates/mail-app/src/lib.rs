@@ -8,6 +8,7 @@
 
 pub mod accountd;
 pub mod cli;
+pub mod edge;
 pub mod intents;
 pub mod session;
 pub mod settings;

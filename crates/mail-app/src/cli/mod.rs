@@ -1424,6 +1424,9 @@ pub fn run_with_clients(
     now: DateTime<Utc>,
     saved: &mail_runtime::ClientRegistry,
 ) -> Result<String, String> {
+    // What the process was started with: the commands that take a password or a passphrase from
+    // the environment read it here, and the library reads nothing itself.
+    let env = crate::edge::environment();
     match command {
         Command::List { mailbox, limit } => {
             // `view::place_filter`, not `Filter::InMailbox`: the shell and the command list the
@@ -1481,7 +1484,7 @@ pub fn run_with_clients(
                     store,
                     &mail_runtime::KeyringSigningStore::default(),
                     &message,
-                    &mail_core::pgp::terminal_passphrase,
+                    &|fingerprint| mail_core::pgp::terminal_passphrase(&env, fingerprint),
                     now,
                 );
                 let opened_text = match protected {
@@ -1572,7 +1575,7 @@ pub fn run_with_clients(
         Command::Send { draft, at: None } => mail_core::compose::send_with(
             store,
             &mail_runtime::KeyringSigningStore::default(),
-            &mail_core::pgp::terminal_passphrase,
+            &|fingerprint| mail_core::pgp::terminal_passphrase(&env, fingerprint),
             *draft,
             now,
         )
@@ -1583,7 +1586,7 @@ pub fn run_with_clients(
         } => mail_core::compose::send_later_with(
             store,
             &mail_runtime::KeyringSigningStore::default(),
-            &mail_core::pgp::terminal_passphrase,
+            &|fingerprint| mail_core::pgp::terminal_passphrase(&env, fingerprint),
             *draft,
             when,
             now,
@@ -1694,7 +1697,7 @@ pub fn run_with_clients(
         Command::Smime(smime) => mail_core::smime::run(
             store,
             &mail_runtime::KeyringSigningStore::default(),
-            &mail_core::smime::terminal_password,
+            &|| mail_core::smime::terminal_password(&env),
             smime,
             now,
         )
@@ -1718,21 +1721,23 @@ pub fn run_with_clients(
             if *step == UnsubscribeStep::Show {
                 return Ok(described);
             }
-            let runtime = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .map_err(|err| format!("cannot unsubscribe: {err}"))?;
             let http = mail_runtime::unsubscribe::client().map_err(|e| e.to_string())?;
             let outcome =
-                runtime.block_on(mail_core::unsubscribe::perform(store, &found, &http, now))?;
+                crate::edge::block_on(mail_core::unsubscribe::perform(store, &found, &http, now))?;
             Ok(format!(
                 "{described}\n{}",
                 mail_core::unsubscribe::report(&outcome)
             ))
         }
-        Command::Contacts(contacts) => {
-            mail_core::contacts::run(store, contacts, saved, now).map_err(String::from)
-        }
+        Command::Contacts(contacts) => crate::edge::block_on(mail_core::contacts::run(
+            store,
+            crate::edge::secrets().as_ref(),
+            &env,
+            contacts,
+            saved,
+            now,
+        ))
+        .map_err(String::from),
         Command::Print { target, out, pages } => {
             let printed = mail_core::print::document(store, *target, &Local, now, *pages)?;
             match out {
@@ -1748,12 +1753,23 @@ pub fn run_with_clients(
         Command::Invite(invite) => mail_core::invite::run(store, invite, now).map_err(String::from),
         Command::Rules(rules) => mail_core::rules::run(store, rules, now).map_err(String::from),
         Command::Vacation(vacation) => {
-            mail_core::rules::server::run_vacation(store, vacation, saved, now)
-                .map_err(String::from)
+            crate::edge::block_on(mail_core::rules::server::run_vacation(
+                store,
+                crate::edge::secrets().as_ref(),
+                vacation,
+                saved,
+                now,
+            ))
+            .map_err(String::from)
         }
-        Command::Sieve(sieve) => {
-            mail_core::rules::server::run_sieve(store, sieve, saved, now).map_err(String::from)
-        }
+        Command::Sieve(sieve) => crate::edge::block_on(mail_core::rules::server::run_sieve(
+            store,
+            crate::edge::secrets().as_ref(),
+            sieve,
+            saved,
+            now,
+        ))
+        .map_err(String::from),
         Command::Discard { draft } => mail_core::compose::discard(store, *draft)
             .map(|subject| format!("discarded {subject:?}\n"))
             .map_err(String::from),
@@ -1764,21 +1780,27 @@ pub fn run_with_clients(
             graph,
             receive,
             consent: _,
-        } => mail_core::account::add(
+        } => crate::edge::block_on(mail_core::account::add(
             store,
             address,
             manual.as_ref(),
             *microsoft,
             *graph,
             *receive,
+            &env,
+            crate::edge::secrets().as_ref(),
             saved,
             now,
-        )
+        ))
         .map_err(String::from),
-        Command::AccountList => mail_core::account::list(store).map_err(String::from),
+        Command::AccountList => crate::edge::block_on(mail_core::account::list(
+            store,
+            crate::edge::secrets().as_ref(),
+        ))
+        .map_err(String::from),
         Command::AccountRemove { address, consent } => account::remove(
             store,
-            mail_runtime::platform_secrets().as_ref(),
+            crate::edge::secrets().as_ref(),
             mail_core::config::config_dir().as_deref(),
             address,
             *consent,
@@ -1804,11 +1826,7 @@ pub fn run_with_clients(
             if providers.is_empty() {
                 return Ok("no accounts. Add one with: mailo account add <address>\n".to_owned());
             }
-            let runtime = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .map_err(|err| format!("cannot fetch icons: {err}"))?;
-            let results = runtime.block_on(mail_core::provider::icon::refresh(
+            let results = crate::edge::block_on(mail_core::provider::icon::refresh(
                 &root.join("providers"),
                 &providers,
             ));
@@ -1889,10 +1907,10 @@ pub fn sync_folder(
     store: std::sync::Arc<SqliteStore>,
     account: &str,
     path: &str,
-    now: DateTime<Utc>,
 ) -> Result<String, String> {
     let id = account_named(&store, account)?;
-    let end = mail_core::sync::folder_now(store, id, path, now)?;
+    let mail = crate::edge::mail(&store);
+    let end = crate::edge::block_on(mail.sync().folder_now(id, path))?;
     sync::folder_text(&end, path)
 }
 
