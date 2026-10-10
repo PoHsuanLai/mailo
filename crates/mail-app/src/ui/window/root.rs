@@ -87,7 +87,7 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
             .or_else(try_consume_context::<Spaces>)
             .unwrap_or_else(|| crate::ui::space::first_run(&[]))
     });
-    crate::ui::frame::use_followed_configuration(shell, spaces, None);
+    crate::ui::frame::use_followed_configuration(shell, spaces, None, keys);
     // A reply's desk. Handed no directories, so nothing here writes Today or the settings,
     // which are the first window's.
     let today = use_signal(crate::ui::today::Today::default);

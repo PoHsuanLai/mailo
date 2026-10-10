@@ -1,8 +1,8 @@
 //! Custom keyboard shortcuts, driven the way their user drives them in the real window on Blitz
 //! (`ds_harness::Harness`): the Settings window's Keyboard page, Change on Archive, a key that
 //! another action holds refused by that action's name, a free key taken, and then, in the main
-//! window, opened afterwards as mailo reads the keys when it opens, the new key archiving and the
-//! old one doing nothing.
+//! window, which was open all along, the new key archiving and the old one doing nothing at once,
+//! and Reset putting the shipped key back the same way.
 //!
 //! The window is handed a pair of `TempDir` directories, so the keymap it keeps lands there and
 //! nowhere else; the store is seeded in a `TempDir` too.
@@ -284,8 +284,30 @@ fn open_page(settings: &mut Harness) {
     settle_until(settings, |harness| harness.count(PAGE) == 1);
 }
 
+/// Select the newest conversation in `main`, as a click on its row does.
+fn select_newest(main: &mut Harness) {
+    main.advance(ms(300));
+    let first = ".list .ds-list-item[*|aria-posinset=\"1\"] .ds-thread-sub";
+    let rect = main
+        .rect(first)
+        .unwrap_or_else(|| panic!("{first} is not drawn:\n{}", main.html()));
+    main.click(Point {
+        x: ds::prelude::Px(rect.origin.x.0 + 24.0),
+        y: ds::prelude::Px(rect.origin.y.0 + rect.size.height.0 / 2.0),
+    });
+    main.advance(ms(300));
+}
+
+/// Press `key` in `main` and say whether the selected conversation left the inbox.
+fn archives(main: &mut Harness, store: &SqliteStore, key: char) -> bool {
+    let before = in_inbox(store);
+    main.key(Key::Char(key));
+    main.advance(ms(600));
+    in_inbox(store) < before
+}
+
 #[test]
-fn archive_rebound_in_settings_archives_on_its_new_key_in_the_next_main_window() {
+fn archive_rebound_in_settings_archives_on_its_new_key_in_the_open_main_window() {
     let dir = tempfile::tempdir().unwrap();
     let store = seeded(dir.path());
     let dirs = WindowDirs {
@@ -293,6 +315,10 @@ fn archive_rebound_in_settings_archives_on_its_new_key_in_the_next_main_window()
         state: dir.path().join("state"),
     };
     let revisions = (Revisions::new(), Configured::default());
+
+    // The main window is open before the key is changed, and stays open.
+    let mut main = main_window(&store, &dirs, &revisions);
+    select_newest(&mut main);
 
     // The Settings window, on a thread of its own as quire gives each window its own: a window's
     // host (its focus and keyboard) is per thread.
@@ -327,33 +353,60 @@ fn archive_rebound_in_settings_archives_on_its_new_key_in_the_next_main_window()
         });
     });
 
-    // The keys are read as mailo opens (quire cannot change a running keymap's overrides yet), so
-    // the main window opens after the change. Open the newest conversation, then press the old
-    // key: nothing moves.
-    let mut main = main_window(&store, &dirs, &revisions);
-    main.advance(ms(300));
-    let first = ".list .ds-list-item[*|aria-posinset=\"1\"] .ds-thread-sub";
-    let rect = main
-        .rect(first)
-        .unwrap_or_else(|| panic!("{first} is not drawn:\n{}", main.html()));
-    main.click(Point {
-        x: ds::prelude::Px(rect.origin.x.0 + 24.0),
-        y: ds::prelude::Px(rect.origin.y.0 + rect.size.height.0 / 2.0),
-    });
-    main.advance(ms(300));
-    let before = in_inbox(&store);
-    assert_eq!(before, INBOX.len());
-    main.key(Key::Char('e'));
+    // Without reopening: the old key does nothing, and the new one archives.
     main.advance(ms(600));
-    assert_eq!(in_inbox(&store), before, "the old key still archived");
+    assert!(
+        !archives(&mut main, &store, 'e'),
+        "the old key still archived"
+    );
     assert_eq!(main.count(".list .ds-thread"), INBOX.len());
-
-    // The new key archives it.
-    main.key(Key::Char('x'));
+    assert!(
+        archives(&mut main, &store, 'x'),
+        "the new key did not archive"
+    );
     settle_until(&mut main, |harness| {
         harness.count(".list .ds-thread") == INBOX.len() - 1
     });
-    assert_eq!(in_inbox(&store), before - 1, "the new key did not archive");
+}
+
+#[test]
+fn reset_in_settings_puts_the_shipped_key_back_in_the_open_main_window() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = seeded(dir.path());
+    let dirs = WindowDirs {
+        config: dir.path().join("config"),
+        state: dir.path().join("state"),
+    };
+    let moved = mail_app::ui::keymap::bind(&Default::default(), Shortcut::Archive, "x").unwrap();
+    mail_app::ui::keymap::save(&dirs.config, &moved).unwrap();
+    let revisions = (Revisions::new(), Configured::default());
+
+    // Opened with Archive on X.
+    let mut main = main_window(&store, &dirs, &revisions);
+    select_newest(&mut main);
+    assert!(
+        !archives(&mut main, &store, 'e'),
+        "E archived before the reset"
+    );
+
+    std::thread::scope(|scope| {
+        scope.spawn(|| {
+            let mut settings = settings_window(&store, &dirs, &revisions);
+            open_page(&mut settings);
+            click(&mut settings, "[*|aria-label=\"Reset Archive\"]");
+        });
+    });
+
+    // Without reopening: X does nothing and E archives.
+    main.advance(ms(600));
+    assert!(
+        !archives(&mut main, &store, 'x'),
+        "X still archived after the reset"
+    );
+    assert!(
+        archives(&mut main, &store, 'e'),
+        "the shipped key did not come back"
+    );
 }
 
 #[test]
