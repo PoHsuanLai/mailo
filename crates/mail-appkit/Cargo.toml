@@ -1,0 +1,24 @@
+[package]
+name = "mail-appkit"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+description = "mailo's one piece of AppKit that needs unsafe: the application delegate that hears open-URL and Dock-reopen events."
+
+# The workspace forbids `unsafe_code`; `define_class!` cannot be written without it, so this crate
+# is the single place that says otherwise (denied, then allowed in `delegate.rs` alone). Nothing
+# else in the tree may, and `mail-app` calls only the safe API below. The rest of the workspace
+# lints are repeated here because a crate cannot both inherit them and override one.
+[lints.rust]
+unsafe_code = "deny"
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+todo = "allow"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSAppleEventDescriptor", "NSAppleEventManager"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSResponder"] }

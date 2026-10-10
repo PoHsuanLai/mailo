@@ -60,6 +60,15 @@ fn main() {
     {
         return;
     }
+    // A second `mailo` with nothing to say raises the window that is running instead of opening
+    // another: macOS's launcher does the same for the app bundle, and this is the bare binary.
+    #[cfg(target_os = "macos")]
+    if matches!(start, Some(mail_app::ui::Start::Inbox))
+        && mailto.is_none()
+        && mail_app::handoff::deliver_activate()
+    {
+        return;
+    }
     let command = if start.is_some() {
         None
     } else {

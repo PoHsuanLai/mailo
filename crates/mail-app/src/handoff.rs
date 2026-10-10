@@ -18,7 +18,8 @@
 //! (`ds_blitz::WindowHandle::focus_with_token`), which on Wayland is how a compositor lets a window
 //! that exists take the keyboard. A token is good once, so only the first request of a call has it.
 //!
-//! macOS and Windows have no session bus: there `deliver` answers `false` and nothing is served.
+//! macOS has no session bus and listens on a Unix socket instead (`macos.rs`); Windows has neither: there
+//! `deliver` answers `false` and nothing is served.
 
 use mail_domain::ThreadId;
 
@@ -94,9 +95,14 @@ mod bus;
 #[cfg(not(any(target_os = "macos", windows)))]
 pub use bus::{Requests, deliver, serve};
 
-#[cfg(any(target_os = "macos", windows))]
+#[cfg(target_os = "macos")]
+mod macos;
+#[cfg(target_os = "macos")]
+pub use macos::{Requests, deliver, deliver_activate, hear_reopen, serve};
+
+#[cfg(windows)]
 mod none;
-#[cfg(any(target_os = "macos", windows))]
+#[cfg(windows)]
 pub use none::{Requests, deliver, serve};
 
 #[cfg(test)]

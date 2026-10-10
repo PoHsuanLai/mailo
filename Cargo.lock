@@ -4480,6 +4480,7 @@ dependencies = [
  "image",
  "latchkey",
  "log",
+ "mail-appkit",
  "mail-core",
  "mail-domain",
  "mail-mime",
@@ -4516,6 +4517,15 @@ dependencies = [
  "webbrowser",
  "x509-cert",
  "zbus",
+]
+
+[[package]]
+name = "mail-appkit"
+version = "0.1.0"
+dependencies = [
+ "objc2 0.6.4",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
 ]
 
 [[package]]

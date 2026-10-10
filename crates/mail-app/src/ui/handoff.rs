@@ -14,13 +14,25 @@ use dioxus::prelude::*;
 /// activation token. Called once, from `App`; a window with no [`Requests`] reads nothing.
 ///
 /// [`Requests`]: crate::handoff::Requests
-#[cfg(not(any(target_os = "macos", windows)))]
+#[cfg(not(windows))]
 pub(in crate::ui) fn use_handoff(shell: Signal<Shell>) {
     use crate::handoff::{ActivationToken, Requests};
 
     let Some(requests) = try_consume_context::<Requests>() else {
         return;
     };
+    // The Dock icon clicked again reaches the queue through the application delegate. It can only
+    // be set on the main thread once winit has made `NSApplication`, which is by the time `App`
+    // first draws. (URLs the system opens are heard earlier, in `serve`.)
+    #[cfg(target_os = "macos")]
+    use_hook({
+        let requests = requests.clone();
+        move || {
+            if !crate::handoff::hear_reopen(&requests) {
+                eprintln!("the Dock icon is not heard: no application delegate");
+            }
+        }
+    });
     let window = ds_blitz::use_window_handle();
     use_future(move || {
         let requests = requests.clone();
@@ -39,7 +51,10 @@ pub(in crate::ui) fn use_handoff(shell: Signal<Shell>) {
                         super::open_thread(&mut shell.write(), thread);
                         token
                     }
-                    Request::Activate { token } => token,
+                    Request::Activate { token } => {
+                        eprintln!("asked to raise the window");
+                        token
+                    }
                 };
                 if let Some(window) = &window {
                     window.focus_with_token(token.map(ActivationToken::into_string));
@@ -49,8 +64,8 @@ pub(in crate::ui) fn use_handoff(shell: Signal<Shell>) {
     });
 }
 
-/// Where there is no session bus nothing is served, so there is nothing to read.
-#[cfg(any(target_os = "macos", windows))]
+/// Where there is no bus and no socket nothing is served, so there is nothing to read.
+#[cfg(windows)]
 pub(in crate::ui) fn use_handoff(_shell: Signal<Shell>) {
     let _: Option<Request> = None;
 }
