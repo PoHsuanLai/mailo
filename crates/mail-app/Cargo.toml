@@ -100,6 +100,10 @@ dioxus = { version = "0.7" }
 # To try an unreleased quire, put a `[patch]` naming a checkout in a `.cargo/config.toml` in the
 # work directory above the checkouts (cargo reads it from parent directories), never in this repo:
 # its own `.cargo/config.toml`, if any, holds build settings only.
+# chordkit, the keymap core quire resolves keys with (actions, chords with a `Primary` modifier, the
+# display). quire re-exports only `StandardAction`; mailo names `Action`, `AppAction`, `Context` and
+# `Chord` as well. The rev quire pins (`docs/workspace-deps.toml`), so one chordkit is built.
+chordkit = { git = "https://github.com/PoHsuanLai/chordkit.git", rev = "ba094c62006c280ac53c4c5df5c0e639c1226c07" }
 ds = { git = "https://github.com/PoHsuanLai/quire.git", rev = "8ce6d4b1a026247e286336a51c51d66e3ec7124b" }  # v0.3.6
 # Settings I/O: `appearance.toml` (imported once from `appearance.json`), the settings portal.
 ds-settings = { git = "https://github.com/PoHsuanLai/quire.git", rev = "8ce6d4b1a026247e286336a51c51d66e3ec7124b", features = ["dioxus"] }  # v0.3.6
