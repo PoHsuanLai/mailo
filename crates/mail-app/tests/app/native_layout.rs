@@ -13,7 +13,7 @@ use crate::settle;
 use settle::settle_until;
 
 use crate::drive;
-use drive::{Drive, PRIMARY};
+use drive::Drive;
 use mail_app::ui::space::{Mail, Scope, Spaces};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;

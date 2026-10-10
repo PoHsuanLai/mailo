@@ -96,7 +96,8 @@ fn a_press_is_the_action_the_platform_s_chord_names() {
     use Heard::{Mail, Own as Chord, Standard};
     let windows = Platform::Windows;
     // (what, platform, key, held, typing, the action it is)
-    let cases: Vec<(&str, Platform, Key, Modifiers, bool, Option<Heard>)> = vec![
+    type Case = (&'static str, Platform, Key, Modifiers, bool, Option<Heard>);
+    let cases: Vec<Case> = vec![
         (
             "e",
             ours(),

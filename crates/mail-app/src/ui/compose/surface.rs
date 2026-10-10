@@ -326,6 +326,7 @@ fn marks_of(place: Option<Place>, caret: Option<Rect>, selection: &[Rect]) -> Ma
 }
 
 /// One input from the surface.
+#[allow(clippy::too_many_arguments)]
 fn heard(
     page: Signal<Page>,
     shell: Signal<Shell>,
