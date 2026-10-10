@@ -135,7 +135,7 @@ impl JmapEngine {
 
     fn mark_draft(&self, draft: mail_domain::DraftId, state: SendState, now: DateTime<Utc>) {
         // As in `AccountEngine::mark_draft`: a draft deleted while queued is nobody's concern.
-        let _ = self.store.set_send_state(draft, &state, now);
+        crate::engine::note_state(self.store.set_send_state(draft, &state, now));
     }
 
     /// Keep a message this client just uploaded, at the id the server gave it.

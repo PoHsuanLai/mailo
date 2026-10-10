@@ -80,6 +80,24 @@ impl StoreError {
     }
 }
 
+impl StoreError {
+    /// Whether the database said "not now" rather than "no": another connection holds the lock
+    /// (`SQLITE_BUSY`, `SQLITE_LOCKED`). The one failure of the store that going away and trying
+    /// again is the remedy for; a [`StoreError::Conflict`] or a missing row will answer the same
+    /// way every time.
+    pub fn is_busy(&self) -> bool {
+        let StoreError::Db(cause) = self else {
+            return false;
+        };
+        matches!(
+            cause
+                .downcast_ref::<rusqlite::Error>()
+                .and_then(rusqlite::Error::sqlite_error_code),
+            Some(rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked)
+        )
+    }
+}
+
 /// Words about what was being done, kept in front of the error that stopped it.
 #[derive(Debug, thiserror::Error)]
 #[error("{doing}: {source}")]
@@ -101,7 +119,8 @@ impl Context {
 impl Retryable for StoreError {
     fn retry(&self) -> Retry {
         match self {
-            // Usually a lock contended by another connection; WAL makes this brief.
+            // Usually a lock contended by another connection ([`StoreError::is_busy`]); WAL makes
+            // this brief. Any other refusal of the disk is given the same short wait.
             StoreError::Db(_) | StoreError::Blob(_, _) => Retry::After(Duration::from_millis(250)),
             // Our own bug or our own data. Retrying re-runs the same failure forever.
             StoreError::NoThread(_)
@@ -122,5 +141,38 @@ impl Retryable for StoreError {
             // Downgrading into an upgraded database. Stop, do not migrate backwards.
             StoreError::SchemaTooNew { .. } => Retry::Fatal(self.to_string()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn failure(code: i32) -> StoreError {
+        StoreError::db(rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error::new(code),
+            None,
+        ))
+    }
+
+    #[test]
+    fn a_contended_lock_is_busy_and_nothing_else_is() {
+        assert!(failure(rusqlite::ffi::SQLITE_BUSY).is_busy());
+        assert!(failure(rusqlite::ffi::SQLITE_LOCKED).is_busy());
+        assert!(!failure(rusqlite::ffi::SQLITE_CORRUPT).is_busy());
+        assert!(!failure(rusqlite::ffi::SQLITE_CONSTRAINT).is_busy());
+        assert!(!StoreError::BadCursor.is_busy());
+    }
+
+    #[test]
+    fn a_busy_database_is_tried_again_and_a_conflict_is_not() {
+        assert!(matches!(
+            failure(rusqlite::ffi::SQLITE_BUSY).retry(),
+            Retry::After(_)
+        ));
+        assert!(matches!(
+            failure(rusqlite::ffi::SQLITE_CONSTRAINT).retry(),
+            Retry::Fatal(_)
+        ));
     }
 }

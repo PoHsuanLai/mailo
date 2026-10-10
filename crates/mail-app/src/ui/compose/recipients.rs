@@ -139,7 +139,7 @@ pub(in crate::ui) fn commit_typed(page: &mut Page, list: List) -> bool {
             true
         }
         Err(why) => {
-            page.notice = Some(why);
+            page.notice = Some(why.to_string());
             false
         }
     }

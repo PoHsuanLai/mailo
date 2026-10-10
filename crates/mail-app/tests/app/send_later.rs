@@ -312,7 +312,8 @@ mod sending_later {
         let draft = a_draft(&store);
         compose::send_later_in(&store, draft.id, "2026-09-25 09:00", now(), &utc()).unwrap();
         let err = compose::send_later_in(&store, draft.id, "2026-09-01", now(), &utc())
-            .expect_err("the past");
+            .expect_err("the past")
+            .to_string();
         assert!(err.contains("already passed"), "{err}");
         assert!(matches!(
             store.draft(draft.id).unwrap().state,

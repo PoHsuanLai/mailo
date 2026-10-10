@@ -9,6 +9,7 @@
 
 use super::JmapEngine;
 use crate::engine::wait::due_alarm;
+use crate::error::Failure;
 use crate::{Cancel, RuntimeError, Woke};
 use chrono::Utc;
 use mail_proto::jmap::{EventKind, EventStream, StateChange};
@@ -88,7 +89,7 @@ impl JmapEngine {
         let http = reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(30))
             .build()
-            .map_err(|e| RuntimeError::Connect(format!("cannot build an HTTP client: {e}")))?;
+            .map_err(|e| RuntimeError::Connect(Failure::new("cannot build an HTTP client", e)))?;
         let Some(mut response) = client.events(&http, PING).await? else {
             return Ok(false);
         };
@@ -101,7 +102,7 @@ impl JmapEngine {
                 () = tokio::time::sleep(PING * 3) => return Ok(false),
                 () = tokio::time::sleep_until(deadline) => return Ok(false),
             };
-            let Some(bytes) = chunk.map_err(|e| RuntimeError::Io(format!("JMAP push: {e}")))?
+            let Some(bytes) = chunk.map_err(|e| RuntimeError::Io(Failure::new("JMAP push", e)))?
             else {
                 return Ok(false);
             };

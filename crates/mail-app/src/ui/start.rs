@@ -66,6 +66,7 @@ pub fn start_mailto(
     };
     mail_core::compose::draft_mailto(store, account, link, now)
         .map(|draft| Start::Compose(draft.id))
+        .map_err(String::from)
 }
 
 /// Open `thread` in the reader, from the inbox.

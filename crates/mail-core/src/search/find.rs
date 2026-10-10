@@ -8,6 +8,7 @@
 //! `UIDVAL`, the part of `UIDVALIDITY` the person actually asked for. Every expansion starts
 //! with the typed prefix, so marking the prefix marks the start of every expanded hit.
 
+use crate::error::CoreError;
 use std::ops::Range;
 
 use chrono::TimeZone;
@@ -70,7 +71,7 @@ pub fn list_highlight<Tz: TimeZone>(
     input: &str,
     zone: &Tz,
     label: &dyn Fn(&str) -> Vec<LabelId>,
-) -> Result<Highlight, String> {
+) -> Result<Highlight, CoreError> {
     let extracted = extract(input)?;
     let parsed = parse(&extracted.rest, zone, label);
     let mut terms = parsed.query_words();
@@ -86,7 +87,7 @@ pub fn list_highlight<Tz: TimeZone>(
 /// No operators here, because a thread is already one conversation: `from:` in a find box is
 /// the text `from:`. A pattern takes the whole box; words beside it are ignored rather than
 /// half-applied. An invalid pattern is the `regex` crate's own message.
-pub fn find_highlight(input: &str) -> Result<Highlight, String> {
+pub fn find_highlight(input: &str) -> Result<Highlight, CoreError> {
     let extracted = extract(input)?;
     if let Some(pattern) = extracted.regex {
         return Ok(Highlight {
@@ -210,7 +211,9 @@ mod tests {
             vec!["cursor", "cellar"]
         );
 
-        let broken = find_highlight("re:/(/").expect_err("an unclosed group");
+        let broken = find_highlight("re:/(/")
+            .expect_err("an unclosed group")
+            .to_string();
         let own = regex::Regex::new(&String::from("("))
             .expect_err("the same pattern")
             .to_string();

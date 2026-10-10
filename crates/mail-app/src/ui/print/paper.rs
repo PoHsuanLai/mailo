@@ -321,6 +321,7 @@ where
         missing_note: Some(PICTURES_NOTE),
     };
     mail_core::print::document_with(store, *job.thread.as_uuid(), zone, now, &options, pictures)
+        .map_err(String::from)
 }
 
 /// `printed` as a PDF on `paper`. Blocking, and slow next to a click (the layout, and the first

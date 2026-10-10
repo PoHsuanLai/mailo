@@ -8,6 +8,7 @@
 //! the reader can show it. Nothing is answered unless the user asks — an automatic "accepted"
 //! would tell every sender that this mailbox reads its mail.
 
+use crate::error::CoreError;
 use chrono::{DateTime, Local, TimeZone, Utc};
 use mail_domain::*;
 use mail_pim::ical::{self, Answering, PartStat};
@@ -47,7 +48,7 @@ pub enum InviteState {
 }
 
 /// Where `message` stands, read from its stored raw bytes and the account's identities.
-pub fn state(store: &SqliteStore, message: &Message) -> Result<InviteState, String> {
+pub fn state(store: &SqliteStore, message: &Message) -> Result<InviteState, CoreError> {
     let Some(bytes) = raw_of(store, message)? else {
         return Ok(InviteState::Unknown);
     };
@@ -56,7 +57,7 @@ pub fn state(store: &SqliteStore, message: &Message) -> Result<InviteState, Stri
     let Some(invite) = invite_of(&bytes, &me) else {
         return Ok(InviteState::NotInvite);
     };
-    let answered = store.invite_answer(message.id).map_err(|e| e.to_string())?;
+    let answered = store.invite_answer(message.id)?;
     Ok(InviteState::Shown {
         invite: Box::new(invite),
         answered,
@@ -75,51 +76,34 @@ pub fn answer(
     attendance: Attendance,
     comment: Option<&str>,
     now: DateTime<Utc>,
-) -> Result<String, String> {
-    let original = store.message(message).map_err(|e| e.to_string())?;
-    let bytes = raw_of(store, &original)?.ok_or_else(|| {
-        "only that message's headers are here yet; run mailo sync and try again".to_owned()
-    })?;
-    let part = mail_mime::calendar_part(&bytes)
-        .ok_or_else(|| "that message carries no calendar invitation".to_owned())?;
-    let calendar = ical::parse(&part.text).map_err(|e| format!("the invitation: {e}"))?;
+) -> Result<String, CoreError> {
+    let original = store.message(message)?;
+    let bytes = raw_of(store, &original)?.ok_or(CoreError::HeadersOnly)?;
+    let part = mail_mime::calendar_part(&bytes).ok_or(CoreError::NoCalendar)?;
+    let calendar = ical::parse(&part.text).map_err(|e| CoreError::context("the invitation", e))?;
     let mine = addresses(store, original.account.clone());
     let me: Vec<&str> = mine.iter().map(|(_, address)| address.as_str()).collect();
-    let invite = mail_pim::summarise(&calendar, &me)
-        .ok_or_else(|| "that message carries no invitation to answer".to_owned())?;
+    let invite = mail_pim::summarise(&calendar, &me).ok_or(CoreError::NoInvitation)?;
 
     match invite.kind {
         Kind::Request(_) => {}
         Kind::Cancelled => {
-            return Err("that event was cancelled; there is nothing to answer".into());
+            return Err(CoreError::EventCancelled);
         }
         Kind::Reply => {
-            return Err(
-                "that message is someone's answer to an invitation, not an invitation".into(),
-            );
+            return Err(CoreError::IsAnAnswer);
         }
         Kind::Published => {
-            return Err(
-                "that event was published to be added to a calendar and asks for no \
-                        answer; save it with: mailo invite <message-id> --ics FILE"
-                    .into(),
-            );
+            return Err(CoreError::PublishedEvent);
         }
     }
     let address = match &invite.me {
         Me::Invited { address, .. } => address.clone(),
-        Me::Organiser => return Err("you organised that event".into()),
-        Me::NotListed => {
-            return Err("none of this account's addresses is among that event's attendees".into());
-        }
+        Me::Organiser => return Err(CoreError::YouOrganised),
+        Me::NotListed => return Err(CoreError::NotInvited),
     };
-    let organiser = invite
-        .organiser
-        .as_ref()
-        .ok_or_else(|| "the invitation names no organiser to answer".to_owned())?;
-    let event = calendar
-        .main_event()
-        .ok_or_else(|| "that message carries no invitation to answer".to_owned())?;
+    let organiser = invite.organiser.as_ref().ok_or(CoreError::NoOrganiser)?;
+    let event = calendar.main_event().ok_or(CoreError::NoInvitation)?;
 
     let identity_id = mine
         .iter()
@@ -137,8 +121,7 @@ pub fn answer(
             at: now,
             product: &format!("-//mailo//mailo {}//EN", env!("CARGO_PKG_VERSION")),
         },
-    )
-    .map_err(|e| e.to_string())?;
+    )?;
 
     let title = invite.title.as_deref().unwrap_or("(no title)");
     let subject = format!("{}: {title}", verb(attendance));
@@ -159,43 +142,35 @@ pub fn answer(
             id,
             at: now,
         },
-    )
-    .map_err(|e| e.to_string())?;
-    let frozen = store
-        .blobs()
-        .put(&post.message)
-        .map_err(|e| e.to_string())?;
-    let queued = store
-        .enqueue(
-            original.account,
-            // Named like a draft because the outbox keys a submission by one; no draft row
-            // exists, which the drain already treats as "nothing to mark", as for a receipt.
-            RemoteIntent::Send {
-                draft: id,
-                raw: frozen,
-                mail_from: post.mail_from.clone(),
-                rcpt_to: post.rcpt_to.clone(),
-            },
-            // A reply that left cannot be taken back by a patch; answering again is how.
-            &Patch {
-                id: ChangeId::generate(),
-                changes: Vec::new(),
-            },
-            now,
-        )
-        .map_err(|e| e.to_string())?;
+    )?;
+    let frozen = store.blobs().put(&post.message)?;
+    let queued = store.enqueue(
+        original.account,
+        // Named like a draft because the outbox keys a submission by one; no draft row
+        // exists, which the drain already treats as "nothing to mark", as for a receipt.
+        RemoteIntent::Send {
+            draft: id,
+            raw: frozen,
+            mail_from: post.mail_from.clone(),
+            rcpt_to: post.rcpt_to.clone(),
+        },
+        // A reply that left cannot be taken back by a patch; answering again is how.
+        &Patch {
+            id: ChangeId::generate(),
+            changes: Vec::new(),
+        },
+        now,
+    )?;
     if queued.is_none() {
-        return Err("the answer could not be queued".to_owned());
+        return Err(CoreError::AnswerNotQueued);
     }
-    store
-        .answer_invite(&InviteAnswer {
-            message,
-            attendance,
-            sequence: invite.sequence,
-            comment: comment.map(str::to_owned),
-            answered_at: now,
-        })
-        .map_err(|e| e.to_string())?;
+    store.answer_invite(&InviteAnswer {
+        message,
+        attendance,
+        sequence: invite.sequence,
+        comment: comment.map(str::to_owned),
+        answered_at: now,
+    })?;
     Ok(format!(
         "queued your answer ({}) to {}\n\ndeliver it with: mailo sync\n",
         word(attendance),
@@ -205,13 +180,10 @@ pub fn answer(
 
 /// The calendar object in `message`, as it arrived, for saving as an `.ics` file any calendar
 /// can import.
-pub fn export(store: &SqliteStore, message: MessageId) -> Result<Vec<u8>, String> {
-    let original = store.message(message).map_err(|e| e.to_string())?;
-    let bytes = raw_of(store, &original)?.ok_or_else(|| {
-        "only that message's headers are here yet; run mailo sync and try again".to_owned()
-    })?;
-    let part = mail_mime::calendar_part(&bytes)
-        .ok_or_else(|| "that message carries no calendar invitation".to_owned())?;
+pub fn export(store: &SqliteStore, message: MessageId) -> Result<Vec<u8>, CoreError> {
+    let original = store.message(message)?;
+    let bytes = raw_of(store, &original)?.ok_or(CoreError::HeadersOnly)?;
+    let part = mail_mime::calendar_part(&bytes).ok_or(CoreError::NoCalendar)?;
     let mut text = part.text;
     // The line break before a MIME boundary belongs to the boundary, so a part's last content
     // line arrives without its own; a file ends with one (RFC 5545 §3.1).
@@ -338,21 +310,16 @@ pub fn run(
     store: &SqliteStore,
     command: &InviteCommand,
     now: DateTime<Utc>,
-) -> Result<String, String> {
+) -> Result<String, CoreError> {
     match &command.action {
         InviteAction::Show => {
-            let message = store.message(command.message).map_err(|e| e.to_string())?;
+            let message = store.message(command.message)?;
             match state(store, &message)? {
                 InviteState::Shown { invite, answered } => {
                     Ok(render(&invite, answered.as_ref(), &Local))
                 }
-                InviteState::Unknown => Err(
-                    "only that message's headers are here yet; run mailo sync and try again"
-                        .to_owned(),
-                ),
-                InviteState::NotInvite => {
-                    Err("that message carries no calendar invitation".to_owned())
-                }
+                InviteState::Unknown => Err(CoreError::HeadersOnly),
+                InviteState::NotInvite => Err(CoreError::NoCalendar),
             }
         }
         InviteAction::Answer {
@@ -362,18 +329,18 @@ pub fn run(
         InviteAction::Ics(path) => {
             let bytes = export(store, command.message)?;
             std::fs::write(path, &bytes)
-                .map_err(|e| format!("cannot write {}: {e}", path.display()))?;
+                .map_err(|e| CoreError::cannot(format!("write {}", path.display()), e))?;
             Ok(format!("wrote {}\n", path.display()))
         }
     }
 }
 
 /// The message's stored raw bytes, or `None` when only its headers are here.
-fn raw_of(store: &SqliteStore, message: &Message) -> Result<Option<Vec<u8>>, String> {
+fn raw_of(store: &SqliteStore, message: &Message) -> Result<Option<Vec<u8>>, CoreError> {
     let Some(raw) = message.body.raw() else {
         return Ok(None);
     };
-    store.blobs().get(raw).map(Some).map_err(|e| e.to_string())
+    Ok(store.blobs().get(raw).map(Some)?)
 }
 
 /// Every address this account answers to — each identity's own and its reply-to — with the

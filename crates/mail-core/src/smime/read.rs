@@ -8,6 +8,7 @@
 
 use super::certs::identity_of;
 use super::{SmimeError, epoch};
+use crate::error::{CoreError, Logged};
 use chrono::{DateTime, Utc};
 use mail_domain::*;
 use mail_mime::Parsed;
@@ -36,11 +37,8 @@ pub struct Protected {
 impl Protected {
     /// Attachment `index` of the opened message, numbered as the reader lists its attachments
     /// ([`crate::attach::opened_attachment`]). Refused for a message that could not be opened.
-    pub fn attachment(&self, index: usize) -> Result<crate::attach::OpenedAttachment, String> {
-        let shown = self
-            .shown
-            .as_ref()
-            .ok_or("that message could not be opened, so its attachments cannot be read")?;
+    pub fn attachment(&self, index: usize) -> Result<crate::attach::OpenedAttachment, CoreError> {
+        let shown = self.shown.as_ref().ok_or(CoreError::NotOpened)?;
         crate::attach::opened_attachment(shown, index)
     }
 }
@@ -94,7 +92,8 @@ pub fn open_message(
     };
     // What a signature teaches is a convenience; failing to record it is no reason not to show
     // the message.
-    let _ = mail_runtime::smime::keep_signer(store, &opened, &message.from.email, now);
+    mail_runtime::smime::keep_signer(store, &opened, &message.from.email, now)
+        .or_log("the signer's certificate was not kept");
     if matches!(
         protected.encryption,
         SmimeEncryption::Decrypted | SmimeEncryption::NotEncrypted

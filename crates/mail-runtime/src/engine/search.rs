@@ -6,6 +6,7 @@
 //! found on the server.
 
 use super::{AccountEngine, first_stored};
+use crate::error::Failure;
 use crate::search::{SERVER_HITS, Searched, ServerHits};
 use crate::tokens::{AfterRefusal, Token};
 use crate::{Cancel, RuntimeError, drive};
@@ -140,10 +141,10 @@ impl<B: Backend> AccountEngine<B> {
         let token = match self.presented(Token::Sending).await {
             Ok(porter_core::Credential::OAuth { access, .. }) => access,
             _ => {
-                return Err(RuntimeError::Secrets(format!(
+                return Err(RuntimeError::Secrets(Failure::said(format!(
                     "no Microsoft Graph sign-in is stored for {}",
                     self.plan.address
-                )));
+                ))));
             }
         };
         let Some(reader) = self.graph.as_mut() else {

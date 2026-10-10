@@ -10,6 +10,7 @@
 //! connections halfway through would be two commands in one. The report says how many and that
 //! `mailo sync` fills them in.
 
+use crate::error::{CoreError, Logged};
 use chrono::{DateTime, Utc};
 use mail_domain::{
     Body, Filter, LabelId, MailboxRole, MatchCtx, Message, MessageId, Mute, PageReq, Pin, Property,
@@ -56,13 +57,13 @@ pub fn select(
     store: &SqliteStore,
     query: &str,
     now: DateTime<Utc>,
-) -> Result<Vec<MessageId>, String> {
+) -> Result<Vec<MessageId>, CoreError> {
     let words = query.trim();
     let place = place_named(words);
     let (filter, regex) = match (place, words) {
         (Some(Chosen::Role(role)), _) => (Filter::InMailbox(role), None),
         (Some(Chosen::All), _) => (Filter::All, None),
-        (None, "") => return Err("say which messages: a search, or inbox, sent, all…".to_owned()),
+        (None, "") => return Err(CoreError::NoSelection),
         (None, _) => {
             let index = crate::query::known_labels(store);
             let label = crate::query::named(&index);
@@ -74,29 +75,27 @@ pub fn select(
     let mut chosen: Vec<(DateTime<Utc>, MessageId)> = Vec::new();
     let mut after = None;
     loop {
-        let page = store
-            .threads(
-                &Query {
-                    filter: filter.clone(),
-                    sort: Sort {
-                        property: Property::Date,
-                        dir: SortDir::Desc,
-                    },
-                    page: PageReq {
-                        after: after.clone(),
-                        limit: PAGE,
-                    },
+        let page = store.threads(
+            &Query {
+                filter: filter.clone(),
+                sort: Sort {
+                    property: Property::Date,
+                    dir: SortDir::Desc,
                 },
-                now,
-            )
-            .map_err(|e| e.to_string())?;
+                page: PageReq {
+                    after: after.clone(),
+                    limit: PAGE,
+                },
+            },
+            now,
+        )?;
         for summary in &page.items {
             if let Some(regex) = &regex
                 && !crate::search::regex_hits(regex, &summary.subject, &summary.snippet)
             {
                 continue;
             }
-            let thread = store.thread(summary.id).map_err(|e| e.to_string())?;
+            let thread = store.thread(summary.id)?;
             let messages: Vec<Message> = thread
                 .messages
                 .iter()
@@ -153,7 +152,9 @@ fn place_named(words: &str) -> Option<Chosen> {
 /// Its own server addresses, for `Filter::InFolder`: a copy of the thread elsewhere does not
 /// put this message in that folder.
 fn fits_alone(store: &SqliteStore, filter: &Filter, message: &Message, now: DateTime<Utc>) -> bool {
-    let folders = store.placed(message.id).unwrap_or_default();
+    let folders = store
+        .placed(message.id)
+        .or_log_default("the folders a message is in could not be read");
     let summary = ThreadSummary::derive(
         message.thread,
         std::slice::from_ref(message),
@@ -181,16 +182,16 @@ pub fn export(
     target: &Target,
     now: DateTime<Utc>,
     progress: &mut dyn FnMut(&Exported),
-) -> Result<Exported, String> {
+) -> Result<Exported, CoreError> {
     let mut sink = Sink::open(store, target, now)?;
     let mut done = Exported::default();
     for id in messages {
-        let message = store.message(*id).map_err(|e| e.to_string())?;
+        let message = store.message(*id)?;
         let Body::Present { raw, .. } = &message.body else {
             done.absent += 1;
             continue;
         };
-        let bytes = store.blobs().get(*raw).map_err(|e| e.to_string())?;
+        let bytes = store.blobs().get(*raw)?;
         // Read from the bytes as well as the attachments: a part fetched since leaves the
         // attachment held and the stored message as rebuilt, its part still empty in it.
         if crate::compose::rebuilt(&message, &bytes) {
@@ -237,17 +238,16 @@ enum Sink {
 }
 
 impl Sink {
-    fn open(store: &SqliteStore, target: &Target, now: DateTime<Utc>) -> Result<Self, String> {
+    fn open(store: &SqliteStore, target: &Target, now: DateTime<Utc>) -> Result<Self, CoreError> {
         match target {
             Target::Mbox(path) => {
                 // Never over an existing file: an export that replaced someone's archive with a
                 // search that matched three messages would be the worst kind of success.
-                let file = std::fs::File::create_new(path).map_err(|e| {
-                    format!(
-                        "{}: {e}; choose a name that does not exist yet",
-                        path.display()
-                    )
-                })?;
+                let file =
+                    std::fs::File::create_new(path).map_err(|source| CoreError::NotCreated {
+                        path: path.clone(),
+                        source,
+                    })?;
                 Ok(Sink::Mbox(std::io::BufWriter::new(file)))
             }
             Target::Maildir(root) => {
@@ -260,16 +260,16 @@ impl Sink {
                 })
             }
             Target::Eml(dir) => {
-                std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+                std::fs::create_dir_all(dir).map_err(CoreError::at(dir))?;
                 Ok(Sink::Eml(dir.clone()))
             }
         }
     }
 
-    fn write(&mut self, message: &Message, raw: &[u8]) -> Result<(), String> {
+    fn write(&mut self, message: &Message, raw: &[u8]) -> Result<(), CoreError> {
         match self {
             Sink::Mbox(out) => mbox::write(out, &mbox::envelope_of(raw, Some(message.date)), raw)
-                .map_err(|e| e.to_string()),
+                .map_err(CoreError::from),
             Sink::Maildir {
                 root,
                 labels,
@@ -284,8 +284,7 @@ impl Sink {
                         // Maildir++ marks a folder with this empty file.
                         let marker = dir.join("maildirfolder");
                         if !marker.exists() {
-                            std::fs::write(&marker, b"")
-                                .map_err(|e| format!("{}: {e}", marker.display()))?;
+                            std::fs::write(&marker, b"").map_err(CoreError::at(&marker))?;
                         }
                         dir
                     }
@@ -302,10 +301,9 @@ impl Sink {
                 // Written in `tmp` and renamed into `cur`, as the spec says: a reader never sees
                 // half a message under a finished name.
                 let tmp = dir.join("tmp").join(&unique);
-                std::fs::write(&tmp, mail_mime::archive::lf(raw))
-                    .map_err(|e| format!("{}: {e}", tmp.display()))?;
+                std::fs::write(&tmp, mail_mime::archive::lf(raw)).map_err(CoreError::at(&tmp))?;
                 let cur = dir.join("cur").join(&name);
-                std::fs::rename(&tmp, &cur).map_err(|e| format!("{}: {e}", cur.display()))
+                std::fs::rename(&tmp, &cur).map_err(CoreError::at(&cur))
             }
             Sink::Eml(dir) => {
                 let id = message.id.to_string();
@@ -314,17 +312,15 @@ impl Sink {
                     message.date.format("%Y%m%d-%H%M%S"),
                     &id[..8.min(id.len())]
                 ));
-                let mut out = std::fs::File::create_new(&file)
-                    .map_err(|e| format!("{}: {e}", file.display()))?;
-                out.write_all(raw)
-                    .map_err(|e| format!("{}: {e}", file.display()))
+                let mut out = std::fs::File::create_new(&file).map_err(CoreError::at(&file))?;
+                out.write_all(raw).map_err(CoreError::at(&file))
             }
         }
     }
 
-    fn finish(self) -> Result<(), String> {
+    fn finish(self) -> Result<(), CoreError> {
         match self {
-            Sink::Mbox(mut out) => out.flush().map_err(|e| e.to_string()),
+            Sink::Mbox(mut out) => out.flush().map_err(CoreError::from),
             Sink::Maildir { .. } | Sink::Eml(_) => Ok(()),
         }
     }
@@ -359,10 +355,10 @@ fn flags_of(message: &Message) -> Vec<SystemFlag> {
 }
 
 /// `cur`, `new` and `tmp` under `dir`.
-fn make_maildir(dir: &Path) -> Result<(), String> {
+fn make_maildir(dir: &Path) -> Result<(), CoreError> {
     for sub in ["cur", "new", "tmp"] {
         let path = dir.join(sub);
-        std::fs::create_dir_all(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+        std::fs::create_dir_all(&path).map_err(CoreError::at(&path))?;
     }
     Ok(())
 }

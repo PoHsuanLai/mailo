@@ -83,6 +83,8 @@ mail-proto.workspace = true
 mail-pim.workspace = true
 mail-runtime.workspace = true
 serde.workspace = true
+# The one logger the libraries write through (`main.rs`): warnings to stderr, as they were printed.
+log.workspace = true
 serde_json = "1"
 # `sync` for the channel the Original frame's image fetches reach their worker through
 # (`ui/original/net.rs`); already in the tree through reqwest and ds-blitz.

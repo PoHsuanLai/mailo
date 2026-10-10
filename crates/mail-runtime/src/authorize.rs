@@ -4,6 +4,7 @@
 //! is the part that needs a socket and randomness, which porter-oauth takes as arguments.
 
 use crate::RuntimeError;
+use crate::error::Failure;
 use porter_core::{Credential, UnixSeconds};
 use porter_oauth::{
     ExchangeFailure, ExchangeFault, LoopbackFault, LoopbackServer, Pkce, RedirectPath,
@@ -20,13 +21,15 @@ const WAIT: Duration = Duration::from_secs(300);
 /// calling it a rejected sign-in would stop a watch that only had to wait.
 pub(crate) fn exchange_fault(what: &str, fault: ExchangeFault) -> RuntimeError {
     match fault {
-        ExchangeFault::Refused => RuntimeError::Secrets(format!("{what}: the issuer refused it")),
+        ExchangeFault::Refused => {
+            RuntimeError::Secrets(Failure::said(format!("{what}: the issuer refused it")))
+        }
         ExchangeFault::Unreachable => {
-            RuntimeError::Connect(format!("{what}: token endpoint unreachable"))
+            RuntimeError::Connect(Failure::said(format!("{what}: token endpoint unreachable")))
         }
-        ExchangeFault::Unreadable => {
-            RuntimeError::Connect(format!("{what}: the token endpoint answered unreadably"))
-        }
+        ExchangeFault::Unreadable => RuntimeError::Connect(Failure::said(format!(
+            "{what}: the token endpoint answered unreadably"
+        ))),
     }
 }
 
@@ -39,10 +42,9 @@ pub(crate) fn exchange_failure(what: &str, failure: ExchangeFailure) -> RuntimeE
         .filter(|text| !text.is_empty());
     let mut error = exchange_fault(what, failure.fault);
     if let Some(said) = said
-        && let RuntimeError::Secrets(text) | RuntimeError::Connect(text) = &mut error
+        && let RuntimeError::Secrets(failure) | RuntimeError::Connect(failure) = &mut error
     {
-        text.push_str(": ");
-        text.push_str(&said);
+        failure.add_detail(&said);
     }
     error
 }
@@ -72,7 +74,7 @@ pub async fn sign_in_within(
     let endpoints = crate::clients::endpoints(client)?;
     let listener = LoopbackServer::bind_with(RedirectPath::Bare)
         .await
-        .map_err(|e| RuntimeError::Connect(format!("loopback: {e}")))?;
+        .map_err(|e| RuntimeError::Connect(Failure::new("loopback", e)))?;
     let redirect = listener.redirect_uri();
     let pkce = Pkce::from_random(rand::random(), rand::random());
     on_url(&authorize_url(&endpoints, client, &pkce, &redirect, scopes));
@@ -81,9 +83,9 @@ pub async fn sign_in_within(
         .await
         .map_err(|fault| match fault {
             LoopbackFault::Refused(why) => {
-                RuntimeError::Secrets(format!("authorization declined: {why}"))
+                RuntimeError::Secrets(Failure::new("authorization declined", why))
             }
-            other => RuntimeError::Secrets(format!("the sign-in did not complete: {other}")),
+            other => RuntimeError::Secrets(Failure::new("the sign-in did not complete", other)),
         })?;
     let http = crate::http::oauth_http()?;
     let tokens = exchange_code_scoped_detailed(
@@ -100,10 +102,9 @@ pub async fn sign_in_within(
     // No refresh token means the account works until the access token expires and then stops,
     // with no way to recover but a new browser round trip. Fail loudly now.
     let Some(refresh) = tokens.refresh_token.clone() else {
-        return Err(RuntimeError::Secrets(
-            "issuer returned no refresh token; access_type=offline may have been ignored"
-                .to_owned(),
-        ));
+        return Err(RuntimeError::Secrets(Failure::said(
+            "issuer returned no refresh token; access_type=offline may have been ignored",
+        )));
     };
     Ok(Credential::OAuth {
         expires_at: tokens.expires_at(now),

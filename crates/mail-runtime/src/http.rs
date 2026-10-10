@@ -4,6 +4,7 @@
 //! pass that never returns. (Discovery's client is [`crate::lookup`]'s: https only, and shorter.)
 
 use crate::RuntimeError;
+use crate::error::Failure;
 use crate::lookup::ReqwestHttp;
 use std::time::Duration;
 
@@ -15,7 +16,7 @@ pub fn http_client() -> Result<reqwest::Client, RuntimeError> {
     reqwest::Client::builder()
         .timeout(HTTP_TIMEOUT)
         .build()
-        .map_err(|e| RuntimeError::Connect(format!("cannot build an HTTP client: {e}")))
+        .map_err(|e| RuntimeError::Connect(Failure::new("cannot build an HTTP client", e)))
 }
 
 /// [`http_client`] as `porter_http`'s seam, which is what porter-oauth sends its exchanges over.

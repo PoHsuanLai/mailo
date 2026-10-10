@@ -17,6 +17,8 @@ use crate::AccountSecrets;
 use crate::RuntimeError;
 use crate::authorize::exchange_failure;
 use crate::clients;
+use crate::error::Failure;
+use crate::error::Logged;
 use chrono::{DateTime, Utc};
 use mail_domain::{AccountPlan, AuthPlan, Incoming, Outgoing, Retry, Retryable};
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose, SecretText, UnixSeconds};
@@ -280,7 +282,7 @@ pub async fn graph_token(
             purpose: SecretPurpose::OutgoingPassword,
         })
         .await
-        .ok();
+        .or_log("the kept Graph sign-in could not be read");
     let refresh_token = match held {
         Some(held @ Credential::OAuth { .. }) => match due_refresh(&held, now) {
             None => return Ok(held),
@@ -356,9 +358,9 @@ async fn sign_in_refresh(
         Credential::Password(_)
         | Credential::ApiKey(_)
         | Credential::Bearer(_)
-        | Credential::KeyPair { .. } => Err(RuntimeError::Secrets(
-            "sending through Graph needs a Microsoft sign-in".to_owned(),
-        )),
+        | Credential::KeyPair { .. } => Err(RuntimeError::Secrets(Failure::said(
+            "sending through Graph needs a Microsoft sign-in",
+        ))),
     }
 }
 
@@ -484,7 +486,11 @@ impl OAuthTokens {
                 self.spent().incoming = access_of(&renewed);
             }
             Token::Sending => {
-                let held = self.secrets.get(&self.sending_key()).await.ok();
+                let held = self
+                    .secrets
+                    .get(&self.sending_key())
+                    .await
+                    .or_log("the kept Graph sign-in could not be read");
                 if let Some(Credential::OAuth { access, .. }) = &held
                     && self.spent().sending.as_deref() == Some(access.expose())
                 {
@@ -553,7 +559,7 @@ impl OAuthTokens {
             Token::Incoming => spent.refused_incoming = Some(why.clone()),
             Token::Sending => spent.refused_sending = Some(why.clone()),
         }
-        Err(RuntimeError::Secrets(why))
+        Err(RuntimeError::Secrets(Failure::said(why)))
     }
 
     /// The refusal already heard for `token`, if there was one, so it is not asked again.
@@ -564,7 +570,7 @@ impl OAuthTokens {
             Token::Sending => &spent.refused_sending,
         };
         match refused {
-            Some(why) => Err(RuntimeError::Secrets(why.clone())),
+            Some(why) => Err(RuntimeError::Secrets(Failure::said(why.clone()))),
             None => Ok(()),
         }
     }

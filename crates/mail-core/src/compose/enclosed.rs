@@ -10,6 +10,7 @@
 //! to do instead: attaching a rebuilt one would send a stand-in with empty attachments, under
 //! the original's name.
 
+use crate::error::CoreError;
 use chrono::{DateTime, Utc};
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
@@ -53,8 +54,8 @@ pub fn draft_forward_attached(
     to: &[Address],
     body: &str,
     now: DateTime<Utc>,
-) -> Result<Draft, String> {
-    let original = store.message(message).map_err(|e| e.to_string())?;
+) -> Result<Draft, CoreError> {
+    let original = store.message(message)?;
     let raw = sent_bytes(store, &original)?;
     let identity = identity_of(store, original.account.clone(), None)?;
 
@@ -71,31 +72,20 @@ pub fn draft_forward_attached(
 }
 
 /// The blob holding `message` as it was sent, or why there is none.
-fn sent_bytes(store: &SqliteStore, message: &Message) -> Result<BlobId, String> {
+fn sent_bytes(store: &SqliteStore, message: &Message) -> Result<BlobId, CoreError> {
     let Body::Present { raw, .. } = message.body else {
-        return Err(
-            "that message has not been downloaded yet, so there is nothing to attach. \
-                    `mailo sync` downloads it; or forward it inline"
-                .to_owned(),
-        );
+        return Err(CoreError::NotDownloaded);
     };
-    let bytes = store.blobs().get(raw).map_err(|e| e.to_string())?;
+    let bytes = store.blobs().get(raw)?;
     if rebuilt(message, &bytes) {
-        return Err(
-            "that message is large, so it was downloaded in parts and its attachments \
-                    were left on the server. What is here is rebuilt from those parts, with the \
-                    attachments empty, and attaching it would send that rather than the message \
-                    as it was sent. Forward it inline instead"
-                .to_owned(),
-        );
+        return Err(CoreError::RebuiltFromParts);
     }
     let size = bytes.len() as u64;
     if size > ATTACHMENT_BUDGET {
-        return Err(format!(
-            "that message is {}, and most servers refuse above {}. Forward it inline instead",
-            crate::attach::human_size(size),
-            crate::attach::human_size(ATTACHMENT_BUDGET),
-        ));
+        return Err(CoreError::MessageTooBig {
+            size: crate::attach::human_size(size),
+            limit: crate::attach::human_size(ATTACHMENT_BUDGET),
+        });
     }
     Ok(raw)
 }

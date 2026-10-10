@@ -37,7 +37,7 @@ pub use account_secrets::{
 pub use assemble::{Arrival, Destination, absorb, absorb_into, assemble};
 pub use drive::{Cancel, drive};
 pub use engine::{AccountEngine, PartBudget, SyncReport, Woke};
-pub use error::RuntimeError;
+pub use error::{Failure, Logged, RuntimeError, Source};
 pub use jmap::JmapEngine;
 pub use link::{Accountd, Link};
 pub use porter_oauth::ClientRegistry;

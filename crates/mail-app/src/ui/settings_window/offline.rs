@@ -77,7 +77,7 @@ pub(super) fn OfflineCopy() -> Element {
                         let id = line.row.id;
                         move |keep: Keep| {
                             let saved = match &dirs {
-                                Some(dirs) => offline::save(&dirs.config, id.clone(), keep),
+                                Some(dirs) => offline::save(&dirs.config, id.clone(), keep).map_err(String::from),
                                 None => Err("There is no config directory to keep this in.".to_owned()),
                             };
                             match saved {

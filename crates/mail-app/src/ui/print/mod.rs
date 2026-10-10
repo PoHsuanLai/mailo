@@ -67,6 +67,7 @@ where
     Tz::Offset: std::fmt::Display,
 {
     mail_core::print::document(store, *job.thread.as_uuid(), zone, now, job.pages)
+        .map_err(String::from)
 }
 
 /// The file Save for printing writes ends in this.
@@ -89,7 +90,7 @@ where
 {
     saved_bytes(store, job, sources, zone, now)
         .and_then(|(subject, bytes)| {
-            mail_core::print::write_file_into(dir, &subject, SAVED_AS, &bytes)
+            mail_core::print::write_file_into(dir, &subject, SAVED_AS, &bytes).map_err(String::from)
         })
         .map_err(|why| {
             eprintln!("save for printing: {why}");

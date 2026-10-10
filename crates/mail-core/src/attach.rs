@@ -10,6 +10,7 @@
 //! attachment name and writing it where it asks is how a mail client hands someone else's
 //! machine over. Everything written here goes through [`safe_name`].
 
+use crate::error::CoreError;
 use mail_domain::{Attachment, MessageId};
 use mail_store::{SqliteStore, Store};
 use std::fmt::Write as _;
@@ -77,8 +78,8 @@ fn truncate_keeping_extension(name: &str) -> String {
 }
 
 /// The attachments on a message, as the CLI prints them.
-pub fn list(store: &SqliteStore, message: MessageId) -> Result<String, String> {
-    let message = store.message(message).map_err(|e| e.to_string())?;
+pub fn list(store: &SqliteStore, message: MessageId) -> Result<String, CoreError> {
+    let message = store.message(message)?;
     if message.attachments.is_empty() {
         return Ok("no attachments on that message\n".to_owned());
     }
@@ -149,25 +150,26 @@ pub fn save(
     message: MessageId,
     index: usize,
     dir: &Path,
-) -> Result<PathBuf, String> {
-    let message = store.message(message).map_err(|e| e.to_string())?;
-    let attachment: &Attachment = message.attachments.get(index).ok_or_else(|| {
-        format!(
-            "that message has {} attachment(s); there is no number {index}",
-            message.attachments.len()
-        )
-    })?;
+) -> Result<PathBuf, CoreError> {
+    let message = store.message(message)?;
+    let attachment: &Attachment =
+        message
+            .attachments
+            .get(index)
+            .ok_or_else(|| CoreError::NoAttachment {
+                have: message.attachments.len(),
+                index,
+            })?;
 
     let Some(blob) = attachment.blob() else {
-        return Err(format!(
-            "{} is still on the server; it downloads when opened",
-            attachment.name
-        ));
+        return Err(CoreError::AttachmentOnServer {
+            name: attachment.name.clone(),
+        });
     };
     let bytes = store
         .blobs()
         .get(blob)
-        .map_err(|e| format!("cannot read the attachment: {e}"))?;
+        .map_err(|e| CoreError::cannot("read the attachment", e))?;
 
     write_new(dir, &attachment.name, &bytes)
 }
@@ -190,13 +192,14 @@ pub struct OpenedAttachment {
 pub fn opened_attachment(
     shown: &mail_mime::Parsed,
     index: usize,
-) -> Result<OpenedAttachment, String> {
-    let part = shown.attachments.get(index).ok_or_else(|| {
-        format!(
-            "that message has {} attachment(s); there is no number {index}",
-            shown.attachments.len()
-        )
-    })?;
+) -> Result<OpenedAttachment, CoreError> {
+    let part = shown
+        .attachments
+        .get(index)
+        .ok_or_else(|| CoreError::NoAttachment {
+            have: shown.attachments.len(),
+            index,
+        })?;
     Ok(OpenedAttachment {
         name: part.name.clone(),
         mime: part.mime.clone(),
@@ -206,16 +209,16 @@ pub fn opened_attachment(
 
 /// Save an opened message's attachment into `dir`, as [`save`] saves a stored one: under its
 /// name made safe, never over a file already there.
-pub fn save_opened(attachment: &OpenedAttachment, dir: &Path) -> Result<PathBuf, String> {
+pub fn save_opened(attachment: &OpenedAttachment, dir: &Path) -> Result<PathBuf, CoreError> {
     write_new(dir, &attachment.name, &attachment.bytes)
 }
 
 /// Write `bytes` into `dir` under `name` made safe, never over a file already there, returning
 /// the path written. How every file the window saves reaches the disk.
-pub fn write_new(dir: &Path, name: &str, bytes: &[u8]) -> Result<PathBuf, String> {
-    std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+pub fn write_new(dir: &Path, name: &str, bytes: &[u8]) -> Result<PathBuf, CoreError> {
+    std::fs::create_dir_all(dir).map_err(CoreError::at(dir))?;
     let path = free_path(dir, &safe_name(name));
-    std::fs::write(&path, bytes).map_err(|e| format!("{}: {e}", path.display()))?;
+    std::fs::write(&path, bytes).map_err(CoreError::at(&path))?;
     Ok(path)
 }
 
@@ -232,15 +235,16 @@ pub fn fetch_and_save(
     message: MessageId,
     index: usize,
     dir: &Path,
-    download: impl FnOnce(&str) -> Result<(), String>,
-) -> Result<String, String> {
-    let stored = store.message(message).map_err(|e| e.to_string())?;
-    let attachment = stored.attachments.get(index).ok_or_else(|| {
-        format!(
-            "that message has {} attachment(s); there is no number {index}",
-            stored.attachments.len()
-        )
-    })?;
+    download: impl FnOnce(&str) -> Result<(), CoreError>,
+) -> Result<String, CoreError> {
+    let stored = store.message(message)?;
+    let attachment = stored
+        .attachments
+        .get(index)
+        .ok_or_else(|| CoreError::NoAttachment {
+            have: stored.attachments.len(),
+            index,
+        })?;
     if let mail_domain::PartContent::Remote { section } = &attachment.content {
         download(section)?;
     }

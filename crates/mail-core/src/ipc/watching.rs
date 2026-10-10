@@ -20,6 +20,7 @@
 
 use super::changes::{self, Answer, Subscribers};
 use super::wire::{Request, Response};
+use crate::error::CoreError;
 use porter_core::AccountId;
 
 /// The name the watch's lock and door live under, beside the daemon's.
@@ -66,13 +67,13 @@ pub enum Refused {
 
 /// This user's watch, wherever this platform puts such a thing: where its lock is, and the door
 /// the window knocks on.
-pub fn agent() -> Result<latchkey::Agent, String> {
-    latchkey::Agent::new(NAME).map_err(|e| e.to_string())
+pub fn agent() -> Result<latchkey::Agent, CoreError> {
+    latchkey::Agent::new(NAME).map_err(CoreError::from)
 }
 
 /// Become this user's watch, or say why not.
 pub fn claim() -> Result<Watching, Refused> {
-    claim_at(&agent().map_err(Refused::Failed)?)
+    claim_at(&agent().map_err(|e| Refused::Failed(e.to_string()))?)
 }
 
 /// Become the watch at `agent`'s address: [`claim`], for a test that keeps its own.

@@ -39,6 +39,7 @@ impl Default for Fetchers {
             }),
             part: Arc::new(|store, message, section| {
                 mail_core::sync::fetch_part(store, message, section, chrono::Utc::now())
+                    .map_err(String::from)
             }),
         }
     }
@@ -202,7 +203,7 @@ pub(super) fn fetch_then_save(
     {
         (fetchers.part)(store, message, section)?;
     }
-    mail_core::attach::save(store, message, index, dir)
+    mail_core::attach::save(store, message, index, dir).map_err(String::from)
 }
 
 // --- The body area ----------------------------------------------------------------------------

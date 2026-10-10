@@ -7,6 +7,7 @@
 
 use super::changes::{self, Answer, Subscribers};
 use super::wire::{Request, Response};
+use crate::error::CoreError;
 use mail_store::SqliteStore;
 use porter_core::AccountId;
 use std::sync::Arc;
@@ -22,7 +23,7 @@ pub type Pass = Arc<dyn Fn(Arc<SqliteStore>) -> Vec<AccountId> + Send + Sync>;
 /// Serve clients until told to stop — `mailo daemon`.
 ///
 /// One connection at a time; see [`changes::door`] for why that is enough.
-pub fn serve(store: Arc<SqliteStore>, pass: Pass) -> Result<String, String> {
+pub fn serve(store: Arc<SqliteStore>, pass: Pass) -> Result<String, CoreError> {
     let agent = crate::ipc::agent()?;
     // The lock inside this value is what makes "one daemon per user" true, and dropping it is
     // what removes the socket, so it is held for the whole of `serve`. `Err(AlreadyRunning)` is
@@ -31,10 +32,8 @@ pub fn serve(store: Arc<SqliteStore>, pass: Pass) -> Result<String, String> {
         // Said in this program's words. `latchkey` has to call it an agent because it does not
         // know what it is holding the door for; here it is a daemon, and the remedy is a command
         // the reader can type.
-        latchkey::Error::AlreadyRunning => {
-            "a mailo daemon is already running; `mailo daemon --stop` will stop it".to_owned()
-        }
-        other => other.to_string(),
+        latchkey::Error::AlreadyRunning => CoreError::DaemonRunning,
+        other => CoreError::from(other),
     })?;
     match agent.socket() {
         Some(path) => println!("listening on {}", path.display()),

@@ -14,6 +14,7 @@
 //! mailo still holds it) cannot be two rows, the address being unique: accountd's is not added, and
 //! the address is named in [`Reconciled::held`] until the person removes the old one.
 
+use crate::error::CoreError;
 use mail_domain::id::new_account_id;
 use mail_domain::presets::{self, Manual, ManualPop3, Preset};
 use mail_domain::{
@@ -79,9 +80,10 @@ fn address_of(candidate: &Candidate) -> Option<String> {
 pub fn preset_of(
     candidate: &Candidate,
     now: chrono::DateTime<chrono::Utc>,
-) -> Result<Preset, String> {
-    let address = address_of(candidate)
-        .ok_or_else(|| format!("accountd names no address for {}", candidate.label.0))?;
+) -> Result<Preset, CoreError> {
+    let address = address_of(candidate).ok_or_else(|| CoreError::NoAddressNamed {
+        label: candidate.label.0.clone(),
+    })?;
     let find = |family: Family| candidate.endpoints.iter().find(|e| e.family == family);
     let smtp = find(Family::Smtp).map(server);
     let mut preset = if let Some(imap) = find(Family::Imap) {
@@ -123,9 +125,7 @@ pub fn preset_of(
             now,
         )
     } else {
-        return Err(format!(
-            "the grant on {address} lists no IMAP, POP3, JMAP or Graph server"
-        ));
+        return Err(CoreError::GrantListsNoMail { address });
     };
     // What leaves: the account's SMTP server as it lists it, or nowhere when it lists none (and
     // the incoming side does not send for itself).
@@ -191,13 +191,14 @@ pub fn reconcile(
     store: &SqliteStore,
     candidates: &[Candidate],
     now: chrono::DateTime<chrono::Utc>,
-) -> Result<Reconciled, String> {
+) -> Result<Reconciled, CoreError> {
     let mut said = Reconciled::default();
     for candidate in candidates {
         let preset = match preset_of(candidate, now) {
             Ok(preset) => preset,
             Err(why) => {
-                said.unusable.push((candidate.label.0.clone(), why));
+                said.unusable
+                    .push((candidate.label.0.clone(), why.to_string()));
                 continue;
             }
         };
@@ -230,7 +231,7 @@ fn insert(
     store: &SqliteStore,
     preset: Preset,
     now: chrono::DateTime<chrono::Utc>,
-) -> Result<(), String> {
+) -> Result<(), CoreError> {
     let id = new_account_id();
     let mut plan = preset.plan;
     plan.identities = vec![Identity {
@@ -253,19 +254,19 @@ fn insert(
             identities: &plan.identities,
             at: now,
         })
-        .map_err(|e| format!("cannot save the account: {e}"))
+        .map_err(|e| CoreError::cannot("save the account", e))
 }
 
 /// Brings the row's grant and servers up to date, keeping what the person set (identities).
 /// Whether anything changed.
-fn refresh(store: &SqliteStore, here: &Linked, fresh: AccountPlan) -> Result<bool, String> {
+fn refresh(store: &SqliteStore, here: &Linked, fresh: AccountPlan) -> Result<bool, CoreError> {
     let stored = store
         .account(here.id.clone())
-        .map_err(|e| format!("cannot read the account: {e}"))?
-        .ok_or_else(|| "cannot read the account: it is gone".to_owned())?;
+        .map_err(|e| CoreError::cannot("read the account", e))?
+        .ok_or_else(|| CoreError::cannot("read the account", "it is gone"))?;
     let mut plan: AccountPlan = stored
         .plan
-        .map_err(|e| format!("cannot read the plan: {}", crate::sync::why(&e)))?;
+        .map_err(|e| CoreError::cannot("read the plan", crate::sync::why(&e)))?;
     let identities = std::mem::take(&mut plan.identities);
     let mut next = fresh;
     next.identities = identities;
@@ -274,7 +275,7 @@ fn refresh(store: &SqliteStore, here: &Linked, fresh: AccountPlan) -> Result<boo
     }
     store
         .set_account_plan(here.id.clone(), &next)
-        .map_err(|e| format!("cannot save the account: {e}"))?;
+        .map_err(|e| CoreError::cannot("save the account", e))?;
     Ok(true)
 }
 
@@ -290,13 +291,13 @@ fn plan_with(plan: &AccountPlan, identities: &[Identity]) -> AccountPlan {
 pub fn forget(
     store: &SqliteStore,
     gone: &[Linked],
-) -> Vec<(Linked, Result<mail_store::Freed, String>)> {
+) -> Vec<(Linked, Result<mail_store::Freed, CoreError>)> {
     gone.iter()
         .map(|account| {
             let freed = match store.remove_account(account.id.clone()) {
                 Ok(Some(freed)) => Ok(freed),
-                Ok(None) => Err("no such account".to_owned()),
-                Err(e) => Err(e.to_string()),
+                Ok(None) => Err(CoreError::NoSuchAccount),
+                Err(e) => Err(CoreError::from(e)),
             };
             (account.clone(), freed)
         })

@@ -5,6 +5,7 @@ use super::{
     AccountSecrets, ClientRegistry, configured, graph_engine, platform_secrets, sending_token,
     signed_in_imap,
 };
+use crate::error::CoreError;
 use mail_domain::{Filter, Incoming, LabelId};
 use mail_runtime::Searched;
 use mail_store::SqliteStore;
@@ -22,8 +23,8 @@ pub fn search_server(
     filter: &Filter,
     labels: &[(LabelId, String)],
     now: chrono::DateTime<chrono::Utc>,
-) -> Result<Searched, String> {
-    let registry = mail_runtime::clients::load_default().map_err(|e| e.to_string())?;
+) -> Result<Searched, CoreError> {
+    let registry = mail_runtime::clients::load_default()?;
     search_server_with(
         store,
         platform_secrets(),
@@ -44,17 +45,18 @@ pub fn search_server_with(
     filter: &Filter,
     labels: &[(LabelId, String)],
     now: chrono::DateTime<chrono::Utc>,
-) -> Result<Searched, String> {
+) -> Result<Searched, CoreError> {
     let account = configured(store)?
         .into_iter()
         .find(|a| a.id == account)
-        .ok_or_else(|| "that account is no longer configured".to_owned())?;
+        .ok_or(CoreError::AccountGone)?;
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .map_err(|e| format!("cannot start the async runtime: {e}"))?;
+        .map_err(CoreError::NoRuntime)?;
     runtime.block_on(async {
-        let failed = |e: mail_runtime::RuntimeError| format!("the server was not searched: {e}");
+        let failed =
+            |e: mail_runtime::RuntimeError| CoreError::context("the server was not searched", e);
         match &account.plan.incoming {
             Incoming::Imap { .. } => {
                 let (_tx, mut cancel) = watch::channel(false);
@@ -75,21 +77,18 @@ pub fn search_server_with(
                     account.plan.clone(),
                     store.clone(),
                     secrets,
-                )
-                .map_err(|e| e.to_string())?;
+                )?;
                 engine
                     .search_jmap(filter, labels, now)
                     .await
                     .map_err(failed)
             }
-            Incoming::Pop3 { .. } => Err(format!(
-                "{} is POP3, which has one mailbox and no search",
-                account.address
-            )),
-            Incoming::Local => Err(format!(
-                "{} is kept on this computer: there is no server to search",
-                account.address
-            )),
+            Incoming::Pop3 { .. } => Err(CoreError::Pop3NoSearch {
+                address: account.address.clone(),
+            }),
+            Incoming::Local => Err(CoreError::LocalNoSearch {
+                address: account.address.clone(),
+            }),
         }
     })
 }

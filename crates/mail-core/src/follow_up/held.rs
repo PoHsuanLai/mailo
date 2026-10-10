@@ -1,5 +1,6 @@
 //! A composer's reminder, held in `follow_up_held` (migration 0027) until its message has left.
 
+use crate::error::{CoreError, Logged};
 use chrono::{DateTime, Utc};
 use mail_domain::{Draft, DraftId, SendState, ThreadId};
 use mail_store::{SqliteStore, Store};
@@ -15,15 +16,13 @@ pub fn after_queue(
     raw: &[u8],
     at: Option<DateTime<Utc>>,
     set: DateTime<Utc>,
-) -> Result<(), String> {
+) -> Result<(), CoreError> {
     release(store, draft.id)?;
     let Some(at) = at else {
         return Ok(());
     };
-    let parsed = mail_mime::parse(raw).map_err(|e| e.to_string())?;
-    let message_id = parsed
-        .rfc_message_id
-        .ok_or_else(|| "the message has no Message-ID to be found by".to_owned())?;
+    let parsed = mail_mime::parse(raw)?;
+    let message_id = parsed.rfc_message_id.ok_or(CoreError::NoMessageId)?;
     let thread = draft
         .in_reply_to
         .and_then(|parent| store.message(parent).ok())
@@ -42,22 +41,24 @@ pub fn after_queue(
 }
 
 /// Keep `held` until its message has left.
-pub fn hold(store: &SqliteStore, held: &Held) -> Result<(), String> {
+pub fn hold(store: &SqliteStore, held: &Held) -> Result<(), CoreError> {
     store
         .hold_follow_up(held)
-        .map_err(|e| format!("cannot keep the reminder: {e}"))
+        .map_err(|e| CoreError::cannot("keep the reminder", e))
 }
 
 /// Let a draft's held reminder go: its send was taken back, or sent again without one.
-pub fn release(store: &SqliteStore, draft: DraftId) -> Result<(), String> {
+pub fn release(store: &SqliteStore, draft: DraftId) -> Result<(), CoreError> {
     store
         .release_follow_up(draft)
-        .map_err(|e| format!("cannot let the reminder go: {e}"))
+        .map_err(|e| CoreError::cannot("let the reminder go", e))
 }
 
 /// Every held reminder. A row that does not read back is skipped: it is a reminder, not mail.
 pub fn held(store: &SqliteStore) -> Vec<Held> {
-    store.follow_up_holds().unwrap_or_default()
+    store
+        .follow_up_holds()
+        .or_log_default("the held reminders could not be read")
 }
 
 /// The conversation a held reminder now belongs on, once its message has left: the one its sent

@@ -11,6 +11,7 @@
 //! is never announced twice either way: it is an arrival only on the pass that first stores it,
 //! and a stored message is never stored for the first time again.
 
+use crate::error::CoreError;
 use chrono::{DateTime, Utc};
 use mail_store::SqliteStore;
 use porter_core::AccountId;
@@ -20,8 +21,8 @@ pub fn armed(
     store: &SqliteStore,
     account: AccountId,
     now: DateTime<Utc>,
-) -> Result<DateTime<Utc>, String> {
+) -> Result<DateTime<Utc>, CoreError> {
     store
         .arm_notify_floor(account, now)
-        .map_err(|e| format!("cannot arm notifications: {e}"))
+        .map_err(|e| CoreError::cannot("arm notifications", e))
 }

@@ -15,6 +15,7 @@ pub mod click;
 pub mod desktop;
 pub mod floor;
 
+use crate::error::CoreError;
 use chrono::{DateTime, Utc};
 use mail_domain::ThreadId;
 use mail_domain::{MailboxRole, Message, MessageId, ReadState, Snooze};
@@ -243,7 +244,7 @@ pub fn announce(
     arrived: &[MessageId],
     notifier: &dyn Notifier,
     now: DateTime<Utc>,
-) -> Result<usize, String> {
+) -> Result<usize, CoreError> {
     let floor = floor::armed(store, account.clone(), now)?;
     if arrived.is_empty() {
         return Ok(0);
@@ -276,16 +277,16 @@ pub fn announce(
 }
 
 /// Every address the user sends from: each account's own, and each identity's.
-pub fn own_addresses(store: &SqliteStore) -> Result<Own, String> {
+pub fn own_addresses(store: &SqliteStore) -> Result<Own, CoreError> {
     let mut addresses: Vec<String> = Vec::new();
-    for account in store.list_all_accounts().map_err(|e| e.to_string())? {
+    for account in store.list_all_accounts()? {
         addresses.push(account.address);
         // An unreadable plan still has its address; the identities are a bonus.
         if let Ok(plan) = account.plan {
             addresses.extend(plan.identities.into_iter().map(|i| i.from.email));
         }
     }
-    addresses.extend(store.identity_addresses().map_err(|e| e.to_string())?);
+    addresses.extend(store.identity_addresses()?);
     Ok(Own::new(addresses))
 }
 

@@ -16,6 +16,7 @@ pub(crate) mod chunks;
 pub(crate) mod stored;
 
 use crate::RuntimeError;
+use crate::error::Failure;
 use chunks::{Limit, Slots};
 use keyring_core::CredentialStore;
 use mail_domain::signing::{SigningKeyId, SigningKeyRef, SigningSecret};
@@ -50,9 +51,9 @@ fn signing_secret(stored: Stored) -> Result<SigningSecret, RuntimeError> {
     match stored {
         Stored::OpenPgp(armored) => Ok(SigningSecret::OpenPgp(armored)),
         Stored::SmimeKey(pem) => Ok(SigningSecret::SmimeKey(pem)),
-        Stored::Password(_) | Stored::OAuth { .. } => Err(RuntimeError::Secrets(
-            "the keyring entry holds an account's credential, not a signing key".to_owned(),
-        )),
+        Stored::Password(_) | Stored::OAuth { .. } => Err(RuntimeError::Secrets(Failure::said(
+            "the keyring entry holds an account's credential, not a signing key",
+        ))),
     }
 }
 
@@ -122,7 +123,7 @@ impl SigningStore for KeyringSigningStore {
 
 fn read_with(slots: &dyn Slots, name: &str) -> Result<SigningSecret, RuntimeError> {
     let stored = chunks::get(slots, name)?
-        .ok_or_else(|| RuntimeError::Secrets("no such signing key".to_owned()))?;
+        .ok_or_else(|| RuntimeError::Secrets(Failure::said("no such signing key")))?;
     signing_secret(decode(&stored)?)
 }
 
@@ -133,14 +134,14 @@ fn write_with(
     value: &Stored,
 ) -> Result<(), RuntimeError> {
     let encoded = serde_json::to_string(value)
-        .map_err(|e| RuntimeError::Secrets(format!("cannot encode signing key: {e}")))?;
+        .map_err(|e| RuntimeError::Secrets(Failure::new("cannot encode signing key", e)))?;
     chunks::put(slots, name, &encoded, limit)
 }
 
 /// An entry's JSON as [`Stored`], the shape every earlier build wrote.
 pub(crate) fn decode(text: &str) -> Result<Stored, RuntimeError> {
     serde_json::from_str(text)
-        .map_err(|e| RuntimeError::Secrets(format!("stored credential is unreadable: {e}")))
+        .map_err(|e| RuntimeError::Secrets(Failure::new("stored credential is unreadable", e)))
 }
 
 /// One keyring-core store's entries under the service `mailo`, as [`chunks`] reads and writes them.
@@ -238,8 +239,34 @@ pub(crate) mod scenario {
     use crate::RuntimeError;
     use std::path::{Path, PathBuf};
 
+    /// `MAILO_TEST_SECRETS_DIR` when it is set. Otherwise, under a test harness, a directory of
+    /// this process's own: a test never reaches the person's keyring, whether or not it thought
+    /// to ask for a store of its own. `MAILO_ALLOW_REAL_KEYRING` lets the live tests
+    /// (`scripts/live-tests.sh`), which are run deliberately, reach it.
     pub(crate) fn dir() -> Option<PathBuf> {
-        std::env::var_os("MAILO_TEST_SECRETS_DIR").map(PathBuf::from)
+        if let Some(dir) = std::env::var_os("MAILO_TEST_SECRETS_DIR") {
+            return Some(PathBuf::from(dir));
+        }
+        if std::env::var_os("MAILO_ALLOW_REAL_KEYRING").is_some() || !under_test() {
+            return None;
+        }
+        static SCRATCH: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+        let dir = SCRATCH.get_or_init(|| {
+            std::env::temp_dir().join(format!("mailo-test-secrets-{}", std::process::id()))
+        });
+        std::fs::create_dir_all(dir).ok()?;
+        Some(dir.clone())
+    }
+
+    /// This crate's own unit tests, or an executable in a cargo `deps` directory: where cargo
+    /// puts every test and bench binary, and never the `mailo` that is run or installed.
+    fn under_test() -> bool {
+        cfg!(test)
+            || std::env::current_exe().ok().is_some_and(|exe| {
+                exe.parent()
+                    .and_then(Path::file_name)
+                    .is_some_and(|dir| dir == "deps")
+            })
     }
 
     fn file(dir: &Path, name: &str) -> PathBuf {
@@ -247,7 +274,7 @@ pub(crate) mod scenario {
     }
 
     fn failed(e: std::io::Error) -> RuntimeError {
-        RuntimeError::Secrets(format!("the scenario secrets directory: {e}"))
+        RuntimeError::Secrets(crate::Failure::new("the scenario secrets directory", e))
     }
 
     pub(crate) fn read(dir: &Path, name: &str) -> Result<Option<String>, RuntimeError> {
@@ -273,7 +300,7 @@ pub(crate) mod scenario {
 }
 
 fn refused(e: keyring_core::Error) -> RuntimeError {
-    RuntimeError::Secrets(e.to_string())
+    RuntimeError::Secrets(Failure::caused(e))
 }
 
 /// The store, opened on first use and kept.
@@ -285,12 +312,13 @@ fn store() -> Result<Arc<CredentialStore>, RuntimeError> {
     static OPENED: Mutex<Option<Arc<CredentialStore>>> = Mutex::new(None);
     let mut opened = OPENED
         .lock()
-        .map_err(|_| RuntimeError::Secrets("the keyring was poisoned by a panic".to_owned()))?;
+        .map_err(|_| RuntimeError::Secrets(Failure::said("the keyring was poisoned by a panic")))?;
     if let Some(store) = opened.as_ref() {
         return Ok(store.clone());
     }
-    let store = open()
-        .map_err(|e| RuntimeError::Secrets(format!("no keyring to keep signing keys in: {e}")))?;
+    let store = open().map_err(|e| {
+        RuntimeError::Secrets(Failure::new("no keyring to keep signing keys in", e))
+    })?;
     *opened = Some(store.clone());
     Ok(store)
 }
@@ -355,7 +383,7 @@ impl SigningStore for MapSigningStore {
             .expect("MapSigningStore mutex poisoned")
             .get(&signing_entry_name(key))
             .cloned()
-            .ok_or_else(|| RuntimeError::Secrets("no such signing key".to_owned()))?;
+            .ok_or_else(|| RuntimeError::Secrets(Failure::said("no such signing key")))?;
         signing_secret(held)
     }
 

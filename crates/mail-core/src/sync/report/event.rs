@@ -102,7 +102,7 @@ fn ended(end: PassEnd) -> Event {
 /// A run that could not start (no registry, a task that panicked) is worth trying again, as it
 /// always was: a laptop lid is the usual cause. It waits the interval, doubling, like any
 /// failure, and says nothing of a server because none was reached.
-pub fn outcome(done: Result<Vec<PassEnd>, String>, account: AccountId) -> Event {
+pub fn outcome<E: std::fmt::Display>(done: Result<Vec<PassEnd>, E>, account: AccountId) -> Event {
     match done {
         Ok(ends) => ends
             .into_iter()
@@ -115,7 +115,7 @@ pub fn outcome(done: Result<Vec<PassEnd>, String>, account: AccountId) -> Event 
             ),
         Err(why) => Event::Failed {
             retry: Retry::After(Duration::ZERO),
-            why,
+            why: why.to_string(),
             pause: Pause::ServerBusy,
         },
     }

@@ -6,6 +6,7 @@
 //! that this mailbox exists and was read, and when. The only way a receipt leaves is
 //! [`answer`] with [`ReceiptAnswer::Sent`], which a person asked for by name.
 
+use crate::error::CoreError;
 use chrono::{DateTime, Utc};
 use mail_domain::*;
 use mail_mime::{Human, OriginalHeaders, ReceiptAsk, Reporting, ReturnPath, Words};
@@ -63,11 +64,8 @@ fn words() -> Words {
 
 /// Where `message` stands. Reads the stored raw message, because the request is a header the
 /// domain message does not carry.
-pub fn state(store: &SqliteStore, message: &Message) -> Result<ReceiptState, String> {
-    if let Some(answered) = store
-        .receipt_answer(message.id)
-        .map_err(|e| e.to_string())?
-    {
+pub fn state(store: &SqliteStore, message: &Message) -> Result<ReceiptState, CoreError> {
+    if let Some(answered) = store.receipt_answer(message.id)? {
         return Ok(ReceiptState::Answered(answered));
     }
     if matches!(message.mailbox, MailboxRole::Sent | MailboxRole::Drafts) || is_ours(store, message)
@@ -78,7 +76,7 @@ pub fn state(store: &SqliteStore, message: &Message) -> Result<ReceiptState, Str
     let Some(raw) = message.body.raw() else {
         return Ok(ReceiptState::Unknown);
     };
-    let bytes = store.blobs().get(raw).map_err(|e| e.to_string())?;
+    let bytes = store.blobs().get(raw)?;
     Ok(match mail_mime::receipt_asked(&bytes) {
         Some(ask) => ReceiptState::Pending(ask),
         None => ReceiptState::NotAsked,
@@ -97,33 +95,28 @@ pub fn answer(
     message: MessageId,
     answer: ReceiptAnswer,
     now: DateTime<Utc>,
-) -> Result<String, String> {
-    let original = store.message(message).map_err(|e| e.to_string())?;
+) -> Result<String, CoreError> {
+    let original = store.message(message)?;
     let ask = match state(store, &original)? {
         ReceiptState::Pending(ask) => ask,
         ReceiptState::Answered(ReceiptAnswer::Sent) => {
-            return Err("a receipt for that message was already sent".to_owned());
+            return Err(CoreError::ReceiptSent);
         }
         ReceiptState::Answered(ReceiptAnswer::Declined) => {
-            return Err("you already declined to send a receipt for that message".to_owned());
+            return Err(CoreError::ReceiptDeclined);
         }
         ReceiptState::Unknown => {
-            return Err("only that message's headers are here yet; \
-                        run mailo sync and try again"
-                .to_owned());
+            return Err(CoreError::HeadersOnly);
         }
         ReceiptState::NotAsked => {
-            return Err("that message did not ask for a read receipt".to_owned());
+            return Err(CoreError::NoReceiptAsked);
         }
     };
 
     let mut out = String::new();
     if answer == ReceiptAnswer::Sent {
-        let raw = original
-            .body
-            .raw()
-            .ok_or_else(|| "the message's body is missing".to_owned())?;
-        let bytes = store.blobs().get(raw).map_err(|e| e.to_string())?;
+        let raw = original.body.raw().ok_or(CoreError::BodyMissing)?;
+        let bytes = store.blobs().get(raw)?;
         let identity = crate::compose::identity_of(
             store,
             original.account.clone(),
@@ -142,27 +135,21 @@ pub fn answer(
                 headers: OriginalHeaders::Included,
                 words: words(),
             },
-        )
-        .map_err(|e| e.to_string())?;
-        let frozen = store
-            .blobs()
-            .put(&post.message)
-            .map_err(|e| e.to_string())?;
-        let queued = store
-            .enqueue(
-                original.account.clone(),
-                RemoteIntent::Send {
-                    draft: id,
-                    raw: frozen,
-                    mail_from: post.mail_from.clone(),
-                    rcpt_to: post.rcpt_to.clone(),
-                },
-                &nothing_to_undo(),
-                now,
-            )
-            .map_err(|e| e.to_string())?;
+        )?;
+        let frozen = store.blobs().put(&post.message)?;
+        let queued = store.enqueue(
+            original.account.clone(),
+            RemoteIntent::Send {
+                draft: id,
+                raw: frozen,
+                mail_from: post.mail_from.clone(),
+                rcpt_to: post.rcpt_to.clone(),
+            },
+            &nothing_to_undo(),
+            now,
+        )?;
         if queued.is_none() {
-            return Err("the receipt could not be queued".to_owned());
+            return Err(CoreError::ReceiptNotQueued);
         }
         out.push_str(&format!(
             "queued a read receipt to {}\n\ndeliver it with: mailo sync\n",
@@ -176,21 +163,17 @@ pub fn answer(
         ));
     }
 
-    store
-        .answer_receipt(message, answer, now)
-        .map_err(|e| e.to_string())?;
+    store.answer_receipt(message, answer, now)?;
     // `None` is normal: a POP3 message has no server flags to set.
-    store
-        .enqueue(
-            original.account,
-            RemoteIntent::AddKeyword {
-                messages: vec![message],
-                keyword: Keyword::MdnSent,
-            },
-            &nothing_to_undo(),
-            now,
-        )
-        .map_err(|e| e.to_string())?;
+    store.enqueue(
+        original.account,
+        RemoteIntent::AddKeyword {
+            messages: vec![message],
+            keyword: Keyword::MdnSent,
+        },
+        &nothing_to_undo(),
+        now,
+    )?;
     Ok(out)
 }
 

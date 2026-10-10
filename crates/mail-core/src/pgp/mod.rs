@@ -13,9 +13,11 @@ pub use keys::{Imported, WithSecret, own_key};
 pub use read::{Protected, describe, open_bytes, open_message};
 pub use send::{check, outgoing};
 
+use crate::error::{CoreError, UsageError};
 use chrono::{DateTime, Utc};
 use mail_domain::{Fingerprint, KeySource, KeyTrust, SecretHeld};
 use mail_mime::MimeError;
+use mail_runtime::Failure;
 use mail_runtime::{RuntimeError, SigningStore};
 use mail_store::{SqliteStore, Store, StoreError};
 use std::fmt::Write as _;
@@ -211,22 +213,28 @@ pub enum Secret {
 }
 
 /// Parse `mailo pgp …`'s arguments.
-pub fn parse(args: &[String]) -> Result<PgpCommand, String> {
+pub fn parse(args: &[String]) -> Result<PgpCommand, CoreError> {
     let usage = "usage: mailo pgp keys | generate <address> | import <file> | \
                  export <fingerprint|address> [--secret] | delete <fingerprint|address> \
                  [--with-secret] | lookup <address> | verify <fingerprint>";
-    let arg = |i: usize, what: &str| {
-        args.get(i)
-            .cloned()
-            .ok_or_else(|| format!("pgp {} needs {what}\n\n{usage}", args[0]))
+    let arg = |i: usize, what: &'static str| {
+        args.get(i).cloned().ok_or_else(|| UsageError::Missing {
+            command: "pgp",
+            verb: args[0].clone(),
+            what,
+            usage,
+        })
     };
     let Some(verb) = args.first() else {
-        return Err(usage.to_owned());
+        return Err(UsageError::Synopsis(usage).into());
     };
-    let extra = |from: usize, allowed: &[&str]| -> Result<Vec<String>, String> {
+    let extra = |from: usize, allowed: &[&str]| -> Result<Vec<String>, UsageError> {
         let rest: Vec<String> = args.get(from..).unwrap_or_default().to_vec();
         match rest.iter().find(|a| !allowed.contains(&a.as_str())) {
-            Some(bad) => Err(format!("unknown option {bad:?}\n\n{usage}")),
+            Some(bad) => Err(UsageError::UnknownOption {
+                option: bad.clone(),
+                usage,
+            }),
             None => Ok(rest),
         }
     };
@@ -277,12 +285,15 @@ pub fn parse(args: &[String]) -> Result<PgpCommand, String> {
         "verify" => {
             let raw = arg(1, "a fingerprint")?;
             extra(2, &[])?;
-            let fingerprint = raw
-                .parse()
-                .map_err(|e| format!("{e}; `mailo pgp keys` lists them"))?;
+            let fingerprint = raw.parse().map_err(UsageError::PgpFingerprint)?;
             Ok(PgpCommand::Verify { fingerprint })
         }
-        other => Err(format!("unknown pgp command {other:?}\n\n{usage}")),
+        other => Err(UsageError::UnknownCommand {
+            command: "pgp",
+            verb: other.to_owned(),
+            usage,
+        }
+        .into()),
     }
 }
 
@@ -292,8 +303,8 @@ pub fn run(
     secrets: &dyn SigningStore,
     command: &PgpCommand,
     now: DateTime<Utc>,
-) -> Result<String, String> {
-    run_typed(store, secrets, command, now).map_err(|e| e.to_string())
+) -> Result<String, CoreError> {
+    run_typed(store, secrets, command, now).map_err(CoreError::from)
 }
 
 fn run_typed(
@@ -408,8 +419,8 @@ pub fn listing(keys: &[mail_domain::PgpKey]) -> String {
 }
 
 /// Ask `address`'s domain for its key, and keep it when there is one. Needs the network.
-pub fn lookup(store: &SqliteStore, address: &str, now: DateTime<Utc>) -> Result<String, String> {
-    let found = lookup_address(store, address, now).map_err(|e| e.to_string())?;
+pub fn lookup(store: &SqliteStore, address: &str, now: DateTime<Utc>) -> Result<String, CoreError> {
+    let found = lookup_address(store, address, now)?;
     Ok(match found {
         Some(key) => format!(
             "found {} for {address} in its domain's Web Key Directory\n  {}\n\
@@ -431,7 +442,7 @@ pub fn lookup_address(
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .map_err(|e| RuntimeError::Io(e.to_string()))?;
+        .map_err(|e| RuntimeError::Io(Failure::caused(e)))?;
     let http = mail_runtime::wkd::client()?;
     let Some(cert) = runtime.block_on(mail_runtime::wkd::lookup(&http, address))? else {
         return Ok(None);

@@ -5,6 +5,7 @@
 //! carry the complexity precisely so that this does not have to.
 
 use crate::RuntimeError;
+use crate::error::Failure;
 use mail_domain::Tls;
 use mail_proto::{IoNeed, IoReady};
 use porter_client::AuthenticatedStream;
@@ -68,9 +69,9 @@ pub(crate) fn relayed_io(stream: AuthenticatedStream) -> Result<Box<dyn RelayIo>
             let socket = std::os::unix::net::UnixStream::from(fd);
             socket
                 .set_nonblocking(true)
-                .map_err(|e| RuntimeError::Io(format!("the relay's socket: {e}")))?;
+                .map_err(|e| RuntimeError::Io(Failure::new("the relay's socket", e)))?;
             let socket = tokio::net::UnixStream::from_std(socket)
-                .map_err(|e| RuntimeError::Io(format!("the relay's socket: {e}")))?;
+                .map_err(|e| RuntimeError::Io(Failure::new("the relay's socket", e)))?;
             Ok(Box::new(socket))
         }
         AuthenticatedStream::Memory(mut end) => {
@@ -141,7 +142,7 @@ impl Transport {
     pub async fn connect(host: &str, port: u16, tls: Tls) -> Result<Self, RuntimeError> {
         let tcp = TcpStream::connect((host, port))
             .await
-            .map_err(|e| RuntimeError::Connect(format!("{host}:{port}: {e}")))?;
+            .map_err(|e| RuntimeError::Connect(Failure::new(format!("{host}:{port}"), e)))?;
         // Mail is request/response and latency-sensitive; waiting to coalesce a 20-byte command
         // with nothing else just adds a round trip.
         let _ = tcp.set_nodelay(true);
@@ -164,9 +165,9 @@ impl Transport {
                 let socket = std::os::unix::net::UnixStream::from(fd);
                 socket
                     .set_nonblocking(true)
-                    .map_err(|e| RuntimeError::Io(format!("the relay's socket: {e}")))?;
+                    .map_err(|e| RuntimeError::Io(Failure::new("the relay's socket", e)))?;
                 let socket = tokio::net::UnixStream::from_std(socket)
-                    .map_err(|e| RuntimeError::Io(format!("the relay's socket: {e}")))?;
+                    .map_err(|e| RuntimeError::Io(Failure::new("the relay's socket", e)))?;
                 Stream::Relay(socket)
             }
             AuthenticatedStream::Memory(end) => Stream::Memory(end),
@@ -186,17 +187,17 @@ impl Transport {
             #[cfg(unix)]
             other @ Stream::Relay(_) => {
                 self.stream = other;
-                Err(RuntimeError::Tls(RELAYED.to_owned()))
+                Err(RuntimeError::Tls(Failure::said(RELAYED)))
             }
             other @ Stream::Memory(_) => {
                 self.stream = other;
-                Err(RuntimeError::Tls(RELAYED.to_owned()))
+                Err(RuntimeError::Tls(Failure::said(RELAYED)))
             }
             // Upgrading twice is a bug in the caller, not a condition to tolerate silently.
             // Put the stream back so the error does not also destroy the connection.
             other => {
                 self.stream = other;
-                Err(RuntimeError::Tls("already upgraded".to_owned()))
+                Err(RuntimeError::Tls(Failure::said("already upgraded")))
             }
         }
     }
@@ -213,12 +214,13 @@ impl Transport {
         let config = rustls::ClientConfig::builder()
             .with_root_certificates(roots)
             .with_no_client_auth();
-        let name = rustls_pki_types::ServerName::try_from(host.to_owned())
-            .map_err(|_| RuntimeError::Tls(format!("{host} is not a valid server name")))?;
+        let name = rustls_pki_types::ServerName::try_from(host.to_owned()).map_err(|_| {
+            RuntimeError::Tls(Failure::said(format!("{host} is not a valid server name")))
+        })?;
         TlsConnector::from(Arc::new(config))
             .connect(name, tcp)
             .await
-            .map_err(|e| RuntimeError::Tls(format!("{host}: {e}")))
+            .map_err(|e| RuntimeError::Tls(Failure::new(host.to_string(), e)))
     }
 
     /// Satisfy one [`IoNeed`].
@@ -267,10 +269,12 @@ impl Transport {
             Stream::Relay(s) => s.write_all(bytes).await,
             Stream::Memory(s) => ByteStream::write_all(s, bytes).await,
             Stream::Upgrading => {
-                return Err(RuntimeError::Tls("transport used mid-upgrade".to_owned()));
+                return Err(RuntimeError::Tls(Failure::said(
+                    "transport used mid-upgrade",
+                )));
             }
         }
-        .map_err(|e| RuntimeError::Io(e.to_string()))
+        .map_err(|e| RuntimeError::Io(Failure::caused(e)))
     }
 
     async fn flush(&mut self) -> Result<(), RuntimeError> {
@@ -281,10 +285,12 @@ impl Transport {
             Stream::Relay(s) => s.flush().await,
             Stream::Memory(_) => Ok(()),
             Stream::Upgrading => {
-                return Err(RuntimeError::Tls("transport used mid-upgrade".to_owned()));
+                return Err(RuntimeError::Tls(Failure::said(
+                    "transport used mid-upgrade",
+                )));
             }
         }
-        .map_err(|e| RuntimeError::Io(e.to_string()))
+        .map_err(|e| RuntimeError::Io(Failure::caused(e)))
     }
 
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, RuntimeError> {
@@ -295,9 +301,11 @@ impl Transport {
             Stream::Relay(s) => s.read(buf).await,
             Stream::Memory(s) => ByteStream::read(s, buf).await,
             Stream::Upgrading => {
-                return Err(RuntimeError::Tls("transport used mid-upgrade".to_owned()));
+                return Err(RuntimeError::Tls(Failure::said(
+                    "transport used mid-upgrade",
+                )));
             }
         }
-        .map_err(|e| RuntimeError::Io(e.to_string()))
+        .map_err(|e| RuntimeError::Io(Failure::caused(e)))
     }
 }

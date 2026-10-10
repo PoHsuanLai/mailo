@@ -15,6 +15,7 @@
 //! the engines are `mail_runtime`'s ([`crate::sync::search_server`]).
 
 use crate::config::read_json;
+use crate::error::CoreError;
 use chrono::{DateTime, Utc};
 use mail_domain::{AccountPlan, Filter, Incoming, LabelId};
 use mail_runtime::{Searched, Unsaid};
@@ -61,7 +62,7 @@ pub fn searchable(plan: &AccountPlan) -> bool {
 /// `Err` when a part of it no server can match: a `re:/…/` pattern, which is matched here over
 /// what the store holds. An invalid pattern is that too: it matches nothing anywhere.
 pub fn filter_of(input: &str, labels: &[(String, LabelId)]) -> Result<Filter, Unsaid> {
-    let extracted = crate::search::extract(input).map_err(|why| Unsaid(vec![why]))?;
+    let extracted = crate::search::extract(input).map_err(|why| Unsaid(vec![why.to_string()]))?;
     if let Some(pattern) = &extracted.regex {
         return Err(Unsaid(vec![format!(
             "re:/{}/ (a pattern is matched on this computer, not by a server)",
@@ -83,10 +84,9 @@ pub fn search(
     account: AccountId,
     input: &str,
     now: DateTime<Utc>,
-) -> Result<Searched, String> {
+) -> Result<Searched, CoreError> {
     let named: Vec<(String, LabelId)> = store
-        .labels(account.clone())
-        .map_err(|e| e.to_string())?
+        .labels(account.clone())?
         .into_iter()
         .map(|l| (l.name, l.id))
         .collect();

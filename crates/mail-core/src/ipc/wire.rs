@@ -11,6 +11,7 @@
 //! it to install a new binary — so the first thing a new client meets is an old daemon. It has
 //! to be told, not left to misparse a field.
 
+use crate::error::CoreError;
 use porter_core::AccountId;
 use serde::{Deserialize, Serialize};
 
@@ -95,8 +96,8 @@ pub enum Response {
 }
 
 /// Serialise one message as a line.
-pub fn line<T: Serialize>(body: T) -> Result<String, String> {
-    let mut out = serde_json::to_string(&Framed::now(body)).map_err(|e| e.to_string())?;
+pub fn line<T: Serialize>(body: T) -> Result<String, CoreError> {
+    let mut out = serde_json::to_string(&Framed::now(body))?;
     // The framing *is* the newline, so a value that contained one would end the message early.
     // `serde_json::to_string` never emits a raw newline — it escapes them — and this asserts the
     // property the framing depends on rather than trusting it.
@@ -125,21 +126,13 @@ pub fn parse<T: for<'de> Deserialize<'de>>(text: &str) -> Result<T, Mismatch> {
 }
 
 /// Why a message could not be read.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum Mismatch {
+    #[error(
+        "the daemon speaks version {theirs} and this build speaks {ours}; \
+         stop it with the build that started it, then start it again"
+    )]
     Version { theirs: u32, ours: u32 },
+    #[error("unreadable message: {0}")]
     Unreadable(String),
-}
-
-impl std::fmt::Display for Mismatch {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Mismatch::Version { theirs, ours } => write!(
-                f,
-                "the daemon speaks version {theirs} and this build speaks {ours}; \
-                 stop it with the build that started it, then start it again"
-            ),
-            Mismatch::Unreadable(why) => write!(f, "unreadable message: {why}"),
-        }
-    }
 }

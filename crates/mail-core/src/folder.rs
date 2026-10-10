@@ -5,6 +5,7 @@
 //! the outbox, so a folder made on a train is there immediately and on the server after the
 //! next sync — or put back, if the server refuses it for good.
 
+use crate::error::{CoreError, Logged};
 use chrono::{DateTime, Utc};
 use mail_domain::folder::{FolderContents, FolderCtx, plan};
 use mail_domain::{
@@ -39,7 +40,7 @@ pub fn change(
     now: DateTime<Utc>,
 ) -> Result<Applied, Refusal> {
     let configured = crate::sync::configured(store)
-        .map_err(Refusal::Store)?
+        .map_err(|e| Refusal::Store(e.to_string()))?
         .into_iter()
         .find(|c| c.id == account)
         .ok_or(Refusal::NoAccount)?;
@@ -74,7 +75,9 @@ pub fn change(
         // Unlike a flag change, a folder that exists only here is a folder the server will
         // contradict at the next listing. If it cannot be queued, it is not made at all.
         if let Err(e) = store.enqueue(account.clone(), intent, &applied.inverse, now) {
-            let _ = store.apply(account, &applied.inverse);
+            store
+                .apply(account, &applied.inverse)
+                .or_log("a folder change could not be undone after it failed to queue");
             return Err(failed(e));
         }
     }
@@ -82,10 +85,10 @@ pub fn change(
 }
 
 /// `mailo folder list [account]`: every folder, per account.
-pub fn list(store: &SqliteStore, account: Option<AccountId>) -> Result<String, String> {
+pub fn list(store: &SqliteStore, account: Option<AccountId>) -> Result<String, CoreError> {
     let accounts = crate::sync::configured(store)?;
     if accounts.is_empty() {
-        return Err("no accounts. Add one with: mailo account add <address>".to_owned());
+        return Err(CoreError::NoAccounts);
     }
     let mut out = String::new();
     for configured in accounts
@@ -107,9 +110,7 @@ pub fn list(store: &SqliteStore, account: Option<AccountId>) -> Result<String, S
             }
             Incoming::Imap { .. } | Incoming::Graph | Incoming::Jmap { .. } => {}
         }
-        let folders = store
-            .folders(configured.id.clone())
-            .map_err(|e| e.to_string())?;
+        let folders = store.folders(configured.id.clone())?;
         if folders.is_empty() {
             let _ = writeln!(
                 out,

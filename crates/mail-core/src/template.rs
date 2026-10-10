@@ -3,6 +3,7 @@
 //! Local only, and deliberately so: a template never goes to the server's Drafts folder, where
 //! another client would list it as a message waiting to be sent. See `mail_domain::template`.
 
+use crate::error::CoreError;
 use chrono::{DateTime, Utc};
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
@@ -14,10 +15,10 @@ pub fn save(
     draft: DraftId,
     name: &str,
     now: DateTime<Utc>,
-) -> Result<Template, String> {
-    let draft = store.draft(draft).map_err(|e| e.to_string())?;
+) -> Result<Template, CoreError> {
+    let draft = store.draft(draft)?;
     let template = Template::from_draft(&draft, name, now);
-    store.put_template(&template).map_err(|e| e.to_string())?;
+    store.put_template(&template)?;
     Ok(template)
 }
 
@@ -30,8 +31,8 @@ pub fn start(
     template: TemplateId,
     to: &[Address],
     now: DateTime<Utc>,
-) -> Result<Draft, String> {
-    let template = store.template(template).map_err(|e| e.to_string())?;
+) -> Result<Draft, CoreError> {
+    let template = store.template(template)?;
     let mut draft = template.draft(now);
     if !to.is_empty() {
         draft.to = to.to_vec();
@@ -41,17 +42,17 @@ pub fn start(
 }
 
 /// Delete a template, returning the name it had.
-pub fn delete(store: &SqliteStore, template: TemplateId) -> Result<String, String> {
-    let kept = store.template(template).map_err(|e| e.to_string())?;
-    store.delete_template(template).map_err(|e| e.to_string())?;
+pub fn delete(store: &SqliteStore, template: TemplateId) -> Result<String, CoreError> {
+    let kept = store.template(template)?;
+    store.delete_template(template)?;
     Ok(kept.name)
 }
 
 /// Every template on every account, as `(account address, template)`, accounts oldest first.
-pub fn all(store: &SqliteStore) -> Result<Vec<(String, Template)>, String> {
+pub fn all(store: &SqliteStore) -> Result<Vec<(String, Template)>, CoreError> {
     let mut out = Vec::new();
     for (address, account) in crate::compose::sending_accounts(store) {
-        for template in store.templates(account).map_err(|e| e.to_string())? {
+        for template in store.templates(account)? {
             out.push((address.clone(), template));
         }
     }
@@ -64,7 +65,7 @@ pub fn save_report(
     draft: DraftId,
     name: &str,
     now: DateTime<Utc>,
-) -> Result<String, String> {
+) -> Result<String, CoreError> {
     let kept = save(store, draft, name, now)?;
     Ok(format!(
         "template {}\n  name    {}\n\nstart a message from it with: mailo template use {}\n",
@@ -78,7 +79,7 @@ pub fn start_report(
     template: TemplateId,
     to: &[Address],
     now: DateTime<Utc>,
-) -> Result<String, String> {
+) -> Result<String, CoreError> {
     let draft = start(store, template, to, now)?;
     let mut out = format!("draft {}\n", draft.id);
     let _ = writeln!(out, "  to      {}", addresses(&draft.to));
@@ -95,7 +96,7 @@ pub fn start_report(
 }
 
 /// `mailo template list`.
-pub fn list(store: &SqliteStore) -> Result<String, String> {
+pub fn list(store: &SqliteStore) -> Result<String, CoreError> {
     let all = all(store)?;
     if all.is_empty() {
         return Ok(

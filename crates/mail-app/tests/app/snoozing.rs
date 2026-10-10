@@ -144,7 +144,9 @@ fn a_time_it_does_not_understand_changes_nothing() {
     // The failure must not be half-applied: a conversation that stayed in the inbox is better
     // than one that vanished to an hour nobody chose.
     let (store, _dir, thread) = seeded();
-    let why = snooze::snooze(&store, thread, "when pigs fly", now()).unwrap_err();
+    let why = snooze::snooze(&store, thread, "when pigs fly", now())
+        .unwrap_err()
+        .to_string();
     assert!(why.contains("tomorrow"), "{why}");
     assert_eq!(listed(&store, inbox(), now()), vec![thread]);
 }

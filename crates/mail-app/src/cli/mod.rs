@@ -455,14 +455,20 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
             };
             Ok(Command::Unsubscribe { target, step })
         }
-        "contacts" => mail_core::contacts::parse(&args[1..]).map(Command::Contacts),
+        "contacts" => mail_core::contacts::parse(&args[1..])
+            .map(Command::Contacts)
+            .map_err(String::from),
         "print" => parse_print(&args[1..]),
         "invite" => invite::parse(&args[1..]).map(Command::Invite),
         "rules" => rules::parse(&args[1..]).map(Command::Rules),
         "vacation" => rules::parse_vacation(&args[1..]).map(Command::Vacation),
         "sieve" => rules::parse_sieve(&args[1..]).map(Command::Sieve),
-        "pgp" => mail_core::pgp::parse(&args[1..]).map(Command::Pgp),
-        "smime" => mail_core::smime::parse(&args[1..]).map(Command::Smime),
+        "pgp" => mail_core::pgp::parse(&args[1..])
+            .map(Command::Pgp)
+            .map_err(String::from),
+        "smime" => mail_core::smime::parse(&args[1..])
+            .map(Command::Smime)
+            .map_err(String::from),
         "watch" => match args.get(1).map(String::as_str) {
             None => Ok(Command::Watch {
                 notify: WatchNotify::AsSet,
@@ -1560,7 +1566,7 @@ pub fn run_with_clients(
             message,
             scope,
             body,
-        } => mail_core::compose::reply(store, *message, *scope, body, now),
+        } => mail_core::compose::reply(store, *message, *scope, body, now).map_err(String::from),
         // The terminal is asked for a passphrase only if the draft is signed or encrypted with a
         // protected key.
         Command::Send { draft, at: None } => mail_core::compose::send_with(
@@ -1583,17 +1589,20 @@ pub fn run_with_clients(
             now,
         )
         .map_err(|e| e.to_string()),
-        Command::Unsend { draft } => mail_core::compose::unsend_report(store, *draft, now),
-        Command::TemplateSave { draft, name } => {
-            mail_core::template::save_report(store, *draft, name, now)
+        Command::Unsend { draft } => {
+            mail_core::compose::unsend_report(store, *draft, now).map_err(String::from)
         }
-        Command::TemplateList => mail_core::template::list(store),
+        Command::TemplateSave { draft, name } => {
+            mail_core::template::save_report(store, *draft, name, now).map_err(String::from)
+        }
+        Command::TemplateList => mail_core::template::list(store).map_err(String::from),
         Command::TemplateUse { template, to } => {
-            mail_core::template::start_report(store, *template, to, now)
+            mail_core::template::start_report(store, *template, to, now).map_err(String::from)
         }
         Command::TemplateDelete { template } => mail_core::template::delete(store, *template)
-            .map(|name| format!("deleted template {name:?}\n")),
-        Command::Drafts => mail_core::compose::drafts(store),
+            .map(|name| format!("deleted template {name:?}\n"))
+            .map_err(String::from),
+        Command::Drafts => mail_core::compose::drafts(store).map_err(String::from),
         Command::ListSnoozed { limit } => {
             let page = store
                 .threads(&list_query(mail_core::place::pending_snooze(), *limit), now)
@@ -1612,31 +1621,43 @@ pub fn run_with_clients(
             }
             Ok(render_list(&page.items))
         }
-        Command::Pin { thread } => mail_core::snooze::pin(store, *thread, now),
-        Command::Snooze { thread, when } => mail_core::snooze::snooze(store, *thread, when, now),
-        Command::Wake { thread } => mail_core::snooze::wake(store, *thread, now),
-        Command::Attachments { message } => mail_core::attach::list(store, *message),
+        Command::Pin { thread } => {
+            mail_core::snooze::pin(store, *thread, now).map_err(String::from)
+        }
+        Command::Snooze { thread, when } => {
+            mail_core::snooze::snooze(store, *thread, when, now).map_err(String::from)
+        }
+        Command::Wake { thread } => {
+            mail_core::snooze::wake(store, *thread, now).map_err(String::from)
+        }
+        Command::Attachments { message } => {
+            mail_core::attach::list(store, *message).map_err(String::from)
+        }
         Command::Save {
             message,
             index,
             dir,
         } => mail_core::attach::save(store, *message, *index, dir)
-            .map(|path| format!("wrote {}\n", path.display())),
+            .map(|path| format!("wrote {}\n", path.display()))
+            .map_err(String::from),
         Command::Forward {
             message,
             to,
             body,
             carry,
-        } => mail_core::compose::forward(store, *message, to, body, *carry, now),
+        } => mail_core::compose::forward(store, *message, to, body, *carry, now)
+            .map_err(String::from),
         Command::Attach { draft, path } => {
-            mail_core::compose::attach_file(store, *draft, path, now).map(|draft| {
-                format!(
-                    "attached {}; {} now carries {} file(s)\n",
-                    path.display(),
-                    draft.id,
-                    draft.attachments.len()
-                )
-            })
+            mail_core::compose::attach_file(store, *draft, path, now)
+                .map(|draft| {
+                    format!(
+                        "attached {}; {} now carries {} file(s)\n",
+                        path.display(),
+                        draft.id,
+                        draft.attachments.len()
+                    )
+                })
+                .map_err(String::from)
         }
         Command::Detach { draft, index } => mail_core::compose::detach(store, *draft, *index, now)
             .map(|draft| {
@@ -1645,8 +1666,11 @@ pub fn run_with_clients(
                     draft.id,
                     draft.attachments.len()
                 )
-            }),
-        Command::Attached { draft } => mail_core::compose::attachments_of(store, *draft),
+            })
+            .map_err(String::from),
+        Command::Attached { draft } => {
+            mail_core::compose::attachments_of(store, *draft).map_err(String::from)
+        }
         Command::Compose {
             from,
             to,
@@ -1665,14 +1689,16 @@ pub fn run_with_clients(
             body,
             (*receipt, *openpgp, *smime),
             now,
-        ),
+        )
+        .map_err(String::from),
         Command::Smime(smime) => mail_core::smime::run(
             store,
             &mail_runtime::KeyringSigningStore::default(),
             &mail_core::smime::terminal_password,
             smime,
             now,
-        ),
+        )
+        .map_err(String::from),
         Command::Pgp(mail_core::pgp::PgpCommand::Lookup { .. }) => {
             Err("pgp lookup is dispatched before this point".to_owned())
         }
@@ -1681,9 +1707,10 @@ pub fn run_with_clients(
             &mail_runtime::KeyringSigningStore::default(),
             pgp,
             now,
-        ),
+        )
+        .map_err(String::from),
         Command::Receipt { message, answer } => {
-            mail_core::receipt::answer(store, *message, *answer, now)
+            mail_core::receipt::answer(store, *message, *answer, now).map_err(String::from)
         }
         Command::Unsubscribe { target, step } => {
             let found = mail_core::unsubscribe::find(store, *target)?;
@@ -1703,7 +1730,9 @@ pub fn run_with_clients(
                 mail_core::unsubscribe::report(&outcome)
             ))
         }
-        Command::Contacts(contacts) => mail_core::contacts::run(store, contacts, saved, now),
+        Command::Contacts(contacts) => {
+            mail_core::contacts::run(store, contacts, saved, now).map_err(String::from)
+        }
         Command::Print { target, out, pages } => {
             let printed = mail_core::print::document(store, *target, &Local, now, *pages)?;
             match out {
@@ -1712,17 +1741,22 @@ pub fn run_with_clients(
                     .map(|()| format!("wrote {}\n", path.display()))
                     .map_err(|e| format!("{}: {e}", path.display())),
                 PrintTo::Into(dir) => mail_core::print::write_into(dir, &printed)
-                    .map(|path| format!("wrote {}\n", path.display())),
+                    .map(|path| format!("wrote {}\n", path.display()))
+                    .map_err(String::from),
             }
         }
-        Command::Invite(invite) => mail_core::invite::run(store, invite, now),
-        Command::Rules(rules) => mail_core::rules::run(store, rules, now),
+        Command::Invite(invite) => mail_core::invite::run(store, invite, now).map_err(String::from),
+        Command::Rules(rules) => mail_core::rules::run(store, rules, now).map_err(String::from),
         Command::Vacation(vacation) => {
             mail_core::rules::server::run_vacation(store, vacation, saved, now)
+                .map_err(String::from)
         }
-        Command::Sieve(sieve) => mail_core::rules::server::run_sieve(store, sieve, saved, now),
+        Command::Sieve(sieve) => {
+            mail_core::rules::server::run_sieve(store, sieve, saved, now).map_err(String::from)
+        }
         Command::Discard { draft } => mail_core::compose::discard(store, *draft)
-            .map(|subject| format!("discarded {subject:?}\n")),
+            .map(|subject| format!("discarded {subject:?}\n"))
+            .map_err(String::from),
         Command::AccountAdd {
             address,
             manual,
@@ -1739,8 +1773,9 @@ pub fn run_with_clients(
             *receive,
             saved,
             now,
-        ),
-        Command::AccountList => mail_core::account::list(store),
+        )
+        .map_err(String::from),
+        Command::AccountList => mail_core::account::list(store).map_err(String::from),
         Command::AccountRemove { address, consent } => account::remove(
             store,
             mail_runtime::platform_secrets().as_ref(),
@@ -1753,7 +1788,7 @@ pub fn run_with_clients(
                 .as_deref()
                 .map(|address| account_named(store, address))
                 .transpose()?;
-            mail_core::folder::list(store, id)
+            mail_core::folder::list(store, id).map_err(String::from)
         }
         Command::Folder { account, work } => {
             let id = account_named(store, account)?;
@@ -1797,6 +1832,7 @@ pub fn run_with_clients(
                 account,
                 if *clear { None } else { Some(text.as_str()) },
             )
+            .map_err(String::from)
         }
         Command::Status => {
             let mut out = String::new();

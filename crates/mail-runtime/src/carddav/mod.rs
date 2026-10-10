@@ -31,6 +31,7 @@ pub use group::{Unwritten, group_card};
 pub use sync::{How, Synced, sync};
 
 use crate::RuntimeError;
+use crate::error::Failure;
 use crate::link::Accountd;
 use mail_domain::{Retry, Retryable};
 use porter_core::{GrantId, ServiceEndpoint};
@@ -161,7 +162,7 @@ pub fn client_builder() -> reqwest::ClientBuilder {
 pub fn client() -> Result<reqwest::Client, RuntimeError> {
     client_builder()
         .build()
-        .map_err(|e| RuntimeError::Connect(format!("cannot build an HTTP client: {e}")))
+        .map_err(|e| RuntimeError::Connect(Failure::new("cannot build an HTTP client", e)))
 }
 
 /// One server, signed in to.
@@ -222,9 +223,9 @@ impl Dav {
     /// A session with the server at `base`, which must be https.
     pub fn new(http: reqwest::Client, base: &Url, auth: DavAuth) -> Result<Self, RuntimeError> {
         if auth == DavAuth::Relayed {
-            return Err(RuntimeError::Connect(
-                "a session with no credential of its own goes through accountd's relay".to_owned(),
-            ));
+            return Err(RuntimeError::Connect(Failure::said(
+                "a session with no credential of its own goes through accountd's relay",
+            )));
         }
         https(base)?;
         Ok(Self {
@@ -245,7 +246,7 @@ impl Dav {
         endpoint: ServiceEndpoint,
     ) -> Result<Self, RuntimeError> {
         let base = Url::parse(endpoint.url.as_str())
-            .map_err(|e| RuntimeError::Connect(format!("{}: {e}", endpoint.url.as_str())))?;
+            .map_err(|e| RuntimeError::Connect(Failure::new(endpoint.url.as_str(), e)))?;
         Ok(Self {
             origin: base.origin(),
             wire: Wire::Relay(relay::Relay::new(link, grant, endpoint)),

@@ -11,6 +11,7 @@
 //! A redirect to `http:` is refused outright: the request would leave in the clear.
 
 use crate::RuntimeError;
+use crate::error::Failure;
 use mail_domain::{Retry, Retryable};
 use mail_mime::{HttpsUrl, ONE_CLICK};
 use reqwest::redirect::{Attempt, Policy};
@@ -76,7 +77,7 @@ pub fn client_builder() -> reqwest::ClientBuilder {
 pub fn client() -> Result<reqwest::Client, RuntimeError> {
     client_builder()
         .build()
-        .map_err(|e| RuntimeError::Connect(format!("cannot build an HTTP client: {e}")))
+        .map_err(|e| RuntimeError::Connect(Failure::new("cannot build an HTTP client", e)))
 }
 
 /// Which redirects keep the request a one-click unsubscribe.

@@ -23,6 +23,7 @@
 use super::report::Failure;
 use super::{Configured, Mode, clock_for, configured, imap_engine, poll_floor, renewal_for};
 use super::{signed_in_typed, to_sync};
+use crate::error::Logged;
 use mail_domain::*;
 use mail_runtime::{AccountEngine, AccountSecrets, Cancel, ClientRegistry, Held, JmapEngine, Woke};
 use mail_runtime::{RuntimeError, platform_secrets};
@@ -104,7 +105,7 @@ pub fn pushes(account: &Configured) -> bool {
 /// Every account that can be waited on, as the store describes them now.
 pub fn pushing(store: &SqliteStore) -> Vec<AccountId> {
     configured(store)
-        .unwrap_or_default()
+        .or_log_default("the accounts could not be read")
         .iter()
         .filter(|account| pushes(account))
         .map(|account| account.id.clone())
@@ -156,7 +157,7 @@ pub fn listen_with(
         .map_err(|e| Lost::unsupported(&format!("cannot start the async runtime: {e}")))?;
     runtime.block_on(async {
         let account = configured(&store)
-            .map_err(|why| Lost::unsupported(&why))?
+            .map_err(|why| Lost::unsupported(&why.to_string()))?
             .into_iter()
             .find(|one| one.id == account)
             .ok_or_else(|| Lost::unsupported("that account is no longer configured"))?;

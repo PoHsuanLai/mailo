@@ -126,7 +126,7 @@ where
     if !typed.trim().is_empty() {
         let help = match mail_core::follow_up::due(typed, now, zone) {
             Ok(at) => snooze_help(at, zone),
-            Err(why) => why,
+            Err(why) => why.to_string(),
         };
         items.push(row(
             TYPED.to_owned(),

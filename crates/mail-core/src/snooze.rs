@@ -9,6 +9,7 @@
 //! `now` at query time, so a conversation returns to the inbox on the stroke whether the client
 //! was running or not — which is the right design for something that may be asleep for a week.
 
+use crate::error::{CoreError, TimeError};
 use chrono::{DateTime, Datelike, Local, TimeDelta, TimeZone, Timelike, Utc, Weekday};
 use mail_domain::{
     AccountCaps, ArchiveMeans, ChangeId, Condstore, ExpungeMeans, FolderRoles, Message, MoveExt,
@@ -22,7 +23,7 @@ pub fn snooze(
     thread: ThreadId,
     phrase: &str,
     now: DateTime<Utc>,
-) -> Result<String, String> {
+) -> Result<String, CoreError> {
     let at = snooze_until(phrase, now, &Local)?;
     set(store, thread, Snooze::Until(at), now)?;
     Ok(format!(
@@ -32,7 +33,11 @@ pub fn snooze(
 }
 
 /// Bring one back now.
-pub fn wake(store: &SqliteStore, thread: ThreadId, now: DateTime<Utc>) -> Result<String, String> {
+pub fn wake(
+    store: &SqliteStore,
+    thread: ThreadId,
+    now: DateTime<Utc>,
+) -> Result<String, CoreError> {
     set(store, thread, Snooze::Inactive, now)?;
     Ok("back in the inbox\n".to_owned())
 }
@@ -41,8 +46,8 @@ pub fn wake(store: &SqliteStore, thread: ThreadId, now: DateTime<Utc>) -> Result
 ///
 /// Here rather than in a module of its own because pin and snooze are the same shape: thread
 /// level, local by construction, and needing a payload that `op_for` cannot supply.
-pub fn pin(store: &SqliteStore, thread: ThreadId, now: DateTime<Utc>) -> Result<String, String> {
-    let loaded = store.thread(thread).map_err(|e| e.to_string())?;
+pub fn pin(store: &SqliteStore, thread: ThreadId, now: DateTime<Utc>) -> Result<String, CoreError> {
+    let loaded = store.thread(thread)?;
     let op = crate::place::pin_op(&loaded.summary, now);
     let pinned = matches!(op, Op::SetPin(mail_domain::Pin::Rank(_)));
     apply(store, thread, op, now)?;
@@ -64,7 +69,7 @@ fn set(
     thread: ThreadId,
     snooze: Snooze,
     now: DateTime<Utc>,
-) -> Result<(), String> {
+) -> Result<(), CoreError> {
     apply(store, thread, Op::SetSnooze(snooze), now)
 }
 
@@ -75,8 +80,8 @@ pub(crate) fn apply(
     thread: ThreadId,
     op: Op,
     now: DateTime<Utc>,
-) -> Result<(), String> {
-    let loaded = store.thread(thread).map_err(|e| e.to_string())?;
+) -> Result<(), CoreError> {
+    let loaded = store.thread(thread)?;
     let messages: Vec<Message> = loaded
         .messages
         .iter()
@@ -85,7 +90,7 @@ pub(crate) fn apply(
     let account = messages
         .first()
         .map(|m| m.account.clone())
-        .ok_or_else(|| "that conversation has no messages".to_owned())?;
+        .ok_or(CoreError::EmptyConversation)?;
 
     let applied = op.apply(
         &Target::Threads(vec![thread]),
@@ -94,9 +99,7 @@ pub(crate) fn apply(
         &local_only(now),
         now,
     );
-    store
-        .apply(account, &applied.forward)
-        .map_err(|e| e.to_string())?;
+    store.apply(account, &applied.forward)?;
     let _ = ChangeId::generate();
     Ok(())
 }
@@ -150,7 +153,7 @@ pub fn snooze_until<Tz: TimeZone>(
     phrase: &str,
     now: DateTime<Utc>,
     zone: &Tz,
-) -> Result<DateTime<Utc>, String>
+) -> Result<DateTime<Utc>, TimeError>
 where
     Tz::Offset: std::fmt::Display,
 {
@@ -161,16 +164,16 @@ where
 
     let here = now.with_timezone(zone);
     let phrase = phrase.trim().to_ascii_lowercase();
-    let at = |day: chrono::NaiveDate, hour: u32| -> Result<DateTime<Utc>, String> {
+    let at = |day: chrono::NaiveDate, hour: u32| -> Result<DateTime<Utc>, TimeError> {
         let naive = day
             .and_hms_opt(hour, 0, 0)
-            .ok_or_else(|| format!("{hour}:00 is not a time"))?;
+            .ok_or(TimeError::NotAnHour { hour })?;
         // `earliest`: a local time can be skipped by a daylight-saving jump, in which case the
         // next valid instant is the honest answer rather than an error about clocks.
         zone.from_local_datetime(&naive)
             .earliest()
             .map(|t| t.with_timezone(&Utc))
-            .ok_or_else(|| "that local time does not exist".to_owned())
+            .ok_or(TimeError::NoLocalTime)
     };
 
     if let Some(rest) = phrase.strip_prefix('+') {
@@ -184,10 +187,10 @@ where
             return if here.hour() < EVENING {
                 at(today, EVENING)
             } else {
-                at(today.succ_opt().ok_or("no tomorrow")?, EVENING)
+                at(today.succ_opt().ok_or(TimeError::NoTomorrow)?, EVENING)
             };
         }
-        "tomorrow" => return at(today.succ_opt().ok_or("no tomorrow")?, MORNING),
+        "tomorrow" => return at(today.succ_opt().ok_or(TimeError::NoTomorrow)?, MORNING),
         "weekend" | "saturday" | "sat" => return at(next_weekday(today, Weekday::Sat), MORNING),
         _ => {}
     }
@@ -202,7 +205,7 @@ where
             .from_local_datetime(&naive)
             .earliest()
             .map(|t| t.with_timezone(&Utc))
-            .ok_or_else(|| "that local time does not exist".to_owned());
+            .ok_or(TimeError::NoLocalTime);
     }
     if let Some((day, clock)) = phrase.split_once(char::is_whitespace)
         && let Some((hour, minute)) = clock_of(clock.trim())
@@ -220,13 +223,10 @@ where
                 .from_local_datetime(&naive)
                 .earliest()
                 .map(|t| t.with_timezone(&Utc))
-                .ok_or_else(|| "that local time does not exist".to_owned());
+                .ok_or(TimeError::NoLocalTime);
         }
     }
-    Err(format!(
-        "{phrase:?} is not a time I know. Try: later, tonight, tomorrow, tomorrow 9, weekend, \
-         monday…sunday, fri 17:00, +2h, +3d, 2026-09-25, or \"2026-09-25 14:30\""
-    ))
+    Err(TimeError::Unknown { phrase })
 }
 
 /// `9`, `17`, `9:30`, `17:00`: an hour of the day, with its minutes when they are written.
@@ -245,22 +245,28 @@ fn clock_of(text: &str) -> Option<(u32, u32)> {
 }
 
 /// `90m`, `2h`, `3d` — the part after a `+`.
-fn relative(rest: &str, now: DateTime<Utc>) -> Result<DateTime<Utc>, String> {
+fn relative(rest: &str, now: DateTime<Utc>) -> Result<DateTime<Utc>, TimeError> {
     let rest = rest.trim();
     let (digits, unit) = rest.split_at(rest.len().saturating_sub(1));
-    let count: i64 = digits
-        .parse()
-        .map_err(|_| format!("{rest:?} is not a number of minutes, hours or days"))?;
+    let count: i64 = digits.parse().map_err(|_| TimeError::NotACount {
+        rest: rest.to_owned(),
+    })?;
     if count <= 0 {
-        return Err("a snooze goes forwards".to_owned());
+        return Err(TimeError::Backwards);
     }
     let delta = match unit {
         "m" => TimeDelta::try_minutes(count),
         "h" => TimeDelta::try_hours(count),
         "d" => TimeDelta::try_days(count),
-        _ => return Err(format!("{unit:?} is not m, h or d")),
+        _ => {
+            return Err(TimeError::BadUnit {
+                unit: unit.to_owned(),
+            });
+        }
     }
-    .ok_or_else(|| format!("{rest:?} is longer than a mail client can wait"))?;
+    .ok_or_else(|| TimeError::TooLong {
+        rest: rest.to_owned(),
+    })?;
     Ok(now + delta)
 }
 
@@ -396,7 +402,9 @@ mod snoozing {
 
     #[test]
     fn a_phrase_it_does_not_know_says_what_it_does() {
-        let why = snooze_until("next fortnight", now(), &taipei()).unwrap_err();
+        let why = snooze_until("next fortnight", now(), &taipei())
+            .unwrap_err()
+            .to_string();
         assert!(why.contains("tomorrow") && why.contains("+2h"), "{why}");
         // Nonsense that looks like an offset, too.
         assert!(snooze_until("+", now(), &taipei()).is_err());

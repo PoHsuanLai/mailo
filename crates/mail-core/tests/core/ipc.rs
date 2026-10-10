@@ -225,7 +225,9 @@ fn subscribing_to_a_daemon_from_another_build_is_an_error_that_names_the_remedy(
         stream.flush().unwrap();
         listening
     });
-    let why = mail_core::ipc::client::subscribe(&agent).unwrap_err();
+    let why = mail_core::ipc::client::subscribe(&agent)
+        .unwrap_err()
+        .to_string();
     assert!(why.contains("start it again"), "{why}");
     drop(old.join().unwrap());
 }

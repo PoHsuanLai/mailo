@@ -114,8 +114,10 @@ fn attach(mut page: Signal<Page>, paths: Vec<PathBuf>) {
             let store = consume_context::<Arc<SqliteStore>>();
             let draft = page.peek().draft;
             let now = chrono::Utc::now();
-            let saved = life::save(&store, &mut page.write(), now)
-                .and_then(|_| mail_core::compose::attach_bytes(&store, draft, &name, &bytes, now));
+            let saved = life::save(&store, &mut page.write(), now).and_then(|_| {
+                mail_core::compose::attach_bytes(&store, draft, &name, &bytes, now)
+                    .map_err(String::from)
+            });
             match saved {
                 Ok(stored) => {
                     let mut write = page.write();

@@ -25,6 +25,7 @@
 //! because "a loopback listener is reachable by anything on the machine". A socket in a
 //! directory only this user can read needs no such argument — the filesystem is the
 //! authentication, which is why `latchkey` makes that directory `0700`.
+use crate::error::CoreError;
 
 pub mod changes;
 pub mod client;
@@ -36,6 +37,6 @@ pub mod wire;
 ///
 /// Short name on purpose: on macOS the whole socket path has 104 bytes to fit in, and `TMPDIR`
 /// has already spent forty of them before anything of ours is appended.
-pub fn agent() -> Result<latchkey::Agent, String> {
-    latchkey::Agent::new("mailo").map_err(|e| e.to_string())
+pub fn agent() -> Result<latchkey::Agent, CoreError> {
+    latchkey::Agent::new("mailo").map_err(CoreError::from)
 }

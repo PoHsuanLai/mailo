@@ -36,6 +36,7 @@ mod sync;
 
 pub use client::{Auth, Client, find_session, safe_url};
 
+use crate::error::Failure;
 use crate::tokens::{AfterRefusal, Token, TokenSource};
 use crate::{AccountSecrets, RuntimeError, SyncReport};
 use chrono::{DateTime, Utc};
@@ -137,9 +138,9 @@ impl JmapEngine {
             tokens.ahead(Token::Incoming).await?;
             return match tokens.current(Token::Incoming).await? {
                 Credential::OAuth { access, .. } => Ok(Auth::Bearer(access.expose().to_owned())),
-                _ => Err(RuntimeError::Secrets(
-                    "the account service gave something other than a bearer token".to_owned(),
-                )),
+                _ => Err(RuntimeError::Secrets(Failure::said(
+                    "the account service gave something other than a bearer token",
+                ))),
             };
         }
         let credential = self
@@ -163,9 +164,9 @@ impl JmapEngine {
             (Credential::Bearer(token), _) => Auth::Bearer(token.expose().to_owned()),
             // Not a sign-in: an API key or key pair is never kept under this purpose.
             (Credential::ApiKey(_) | Credential::KeyPair { .. }, _) => {
-                return Err(RuntimeError::Secrets(
-                    "the credential kept for this account is not a password or token".to_owned(),
-                ));
+                return Err(RuntimeError::Secrets(Failure::said(
+                    "the credential kept for this account is not a password or token",
+                )));
             }
         })
     }
@@ -202,7 +203,7 @@ impl JmapEngine {
         }
         self.client
             .as_ref()
-            .ok_or_else(|| RuntimeError::Connect("JMAP: no session".to_owned()))
+            .ok_or_else(|| RuntimeError::Connect(Failure::said("JMAP: no session")))
     }
 
     /// Forget the session after a failure that may mean it is stale: a refused credential, or

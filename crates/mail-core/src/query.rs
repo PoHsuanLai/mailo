@@ -27,6 +27,7 @@
 //! word you add narrows the result. `Or` is deliberately absent — it reads ambiguously next to
 //! `-`, and nobody types it.
 
+use crate::error::Logged;
 use chrono::{DateTime, NaiveDate, TimeZone, Utc};
 use mail_domain::{DateRange, Filter, LabelId, MailboxRole, ReadState, Star, TextMatch};
 
@@ -42,13 +43,17 @@ use mail_domain::{DateRange, Filter, LabelId, MailboxRole, ReadState, Star, Text
 pub fn known_labels(store: &mail_store::SqliteStore) -> Vec<(String, LabelId)> {
     let accounts: Vec<porter_core::AccountId> = store
         .list_accounts()
-        .unwrap_or_default()
+        .or_log_default("the accounts could not be read for their labels")
         .into_iter()
         .map(|account| account.id)
         .collect();
     accounts
         .into_iter()
-        .filter_map(|account| store.labels(account).ok())
+        .filter_map(|account| {
+            store
+                .labels(account)
+                .or_log("an account's labels could not be read")
+        })
         .flatten()
         .map(|l| (l.name, l.id))
         .collect()

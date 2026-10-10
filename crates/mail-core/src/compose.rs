@@ -5,6 +5,7 @@
 //! and queue them", never "open a connection". A send that depended on the network being up at
 //! the moment the user pressed the key would lose the message on a train.
 
+use crate::error::{CoreError, Logged, TimeError};
 use chrono::{DateTime, Local, Utc};
 use mail_domain::*;
 use mail_mime::posting;
@@ -28,7 +29,7 @@ pub fn identity_of(
     store: &SqliteStore,
     account: AccountId,
     wanted: Option<IdentityId>,
-) -> Result<Identity, String> {
+) -> Result<Identity, CoreError> {
     // The default first, and the id breaks the tie so an account with two alternates picks the
     // same one every time.
     let found = match wanted {
@@ -40,12 +41,10 @@ pub fn identity_of(
     match found {
         Ok(Some(identity)) => Ok(identity),
         Ok(None) => Err(match wanted {
-            Some(id) => format!("the draft names identity {id}, which this account no longer has"),
-            None => "this account has no identity to send as. It was added before identities \
-                     were created at setup; re-add it with: mailo account add <address>"
-                .to_owned(),
+            Some(id) => CoreError::DraftIdentityGone { id },
+            None => CoreError::NoIdentityToSendAs,
         }),
-        Err(e) => Err(format!("stored identity is unreadable: {e}")),
+        Err(e) => Err(CoreError::context("stored identity is unreadable", e)),
     }
 }
 
@@ -61,7 +60,7 @@ pub fn draft_reply(
     scope: ReplyScope,
     body: &str,
     now: DateTime<Utc>,
-) -> Result<Draft, String> {
+) -> Result<Draft, CoreError> {
     draft_reply_in(store, message, scope, body, now, &Local)
 }
 
@@ -77,11 +76,11 @@ pub fn draft_reply_in<Tz: chrono::TimeZone>(
     body: &str,
     now: DateTime<Utc>,
     zone: &Tz,
-) -> Result<Draft, String>
+) -> Result<Draft, CoreError>
 where
     Tz::Offset: std::fmt::Display,
 {
-    let original = store.message(message).map_err(|e| e.to_string())?;
+    let original = store.message(message)?;
     let identity = identity_of(store, original.account.clone(), None)?;
 
     let mut draft = Draft::reply_to(&original, &identity, scope, now);
@@ -108,7 +107,7 @@ pub fn draft_forward(
     to: &[Address],
     body: &str,
     now: DateTime<Utc>,
-) -> Result<Draft, String> {
+) -> Result<Draft, CoreError> {
     draft_forward_in(store, message, to, body, now, &Local)
 }
 
@@ -123,7 +122,7 @@ pub fn draft_forward_in<Tz: chrono::TimeZone>(
     body: &str,
     now: DateTime<Utc>,
     zone: &Tz,
-) -> Result<Draft, String>
+) -> Result<Draft, CoreError>
 where
     Tz::Offset: std::fmt::Display,
 {
@@ -141,11 +140,11 @@ pub fn forward_unsaved_in<Tz: chrono::TimeZone>(
     body: &str,
     now: DateTime<Utc>,
     zone: &Tz,
-) -> Result<Draft, String>
+) -> Result<Draft, CoreError>
 where
     Tz::Offset: std::fmt::Display,
 {
-    let original = store.message(message).map_err(|e| e.to_string())?;
+    let original = store.message(message)?;
     let identity = identity_of(store, original.account.clone(), None)?;
 
     let mut draft = Draft::forward_of(&original, &identity, now);
@@ -162,7 +161,10 @@ where
 /// Local folders are not one: they have no server to send through, so they are never offered
 /// as a From, and a new message never starts on them.
 pub fn sending_accounts(store: &SqliteStore) -> Vec<(String, AccountId)> {
-    let Ok(accounts) = store.list_accounts() else {
+    let Some(accounts) = store
+        .list_accounts()
+        .or_log("the accounts to send from could not be read")
+    else {
         return Vec::new();
     };
     // Read row by row rather than through `sync::configured`, which gives up on the whole list
@@ -188,28 +190,24 @@ pub fn sending_accounts(store: &SqliteStore) -> Vec<(String, AccountId)> {
 /// the only place in the application where the sending address is a free choice — and a silent
 /// default is a message that goes out from the wrong address, which is not a failure the sender
 /// sees until someone replies to it.
-pub fn account_for(store: &SqliteStore, wanted: Option<&str>) -> Result<AccountId, String> {
+pub fn account_for(store: &SqliteStore, wanted: Option<&str>) -> Result<AccountId, CoreError> {
     let accounts = sending_accounts(store);
     if accounts.is_empty() {
-        return Err("no accounts. Add one with: mailo account add <address>".to_owned());
+        return Err(CoreError::NoAccounts);
     }
     match wanted {
         Some(address) => accounts
             .iter()
             .find(|(had, _)| had.eq_ignore_ascii_case(address))
             .map(|(_, id)| id.clone())
-            .ok_or_else(|| {
-                let known: Vec<&str> = accounts.iter().map(|(a, _)| a.as_str()).collect();
-                format!("no account {address}. This one has: {}", known.join(", "))
+            .ok_or_else(|| CoreError::NoSuchSender {
+                address: address.to_owned(),
+                known: accounts.iter().map(|(a, _)| a.clone()).collect(),
             }),
         None if accounts.len() == 1 => Ok(accounts[0].1.clone()),
-        None => {
-            let known: Vec<&str> = accounts.iter().map(|(a, _)| a.as_str()).collect();
-            Err(format!(
-                "which account should this be sent from? Say --from <address>: {}",
-                known.join(", ")
-            ))
-        }
+        None => Err(CoreError::WhichAccount {
+            known: accounts.iter().map(|(a, _)| a.clone()).collect(),
+        }),
     }
 }
 
@@ -229,7 +227,7 @@ pub fn draft_new(
     subject: &str,
     body: &str,
     now: DateTime<Utc>,
-) -> Result<Draft, String> {
+) -> Result<Draft, CoreError> {
     let identity = identity_of(store, account, None)?;
     let mut draft = Draft::blank(&identity, now);
     draft.to = to.to_vec();
@@ -252,7 +250,7 @@ pub fn draft_mailto(
     account: AccountId,
     link: &mail_mime::MailtoUri,
     now: DateTime<Utc>,
-) -> Result<Draft, String> {
+) -> Result<Draft, CoreError> {
     let identity = identity_of(store, account, None)?;
     let mut draft = Draft::blank(&identity, now);
     draft.to = link.to.clone();
@@ -278,7 +276,7 @@ pub fn draft_exact(
     subject: &str,
     body: &str,
     now: DateTime<Utc>,
-) -> Result<Draft, String> {
+) -> Result<Draft, CoreError> {
     let identity = identity_of(store, account, identity)?;
     let mut draft = Draft::blank(&identity, now);
     draft.to = to.to_vec();
@@ -295,7 +293,7 @@ pub fn address_addressed(
     store: &SqliteStore,
     account: AccountId,
     addressed: &[Address],
-) -> Result<Address, String> {
+) -> Result<Address, CoreError> {
     identity_of(
         store,
         account.clone(),
@@ -383,12 +381,10 @@ pub fn attach_bytes(
     name: &str,
     bytes: &[u8],
     now: DateTime<Utc>,
-) -> Result<Draft, String> {
-    let mut draft = store.draft(draft).map_err(|e| e.to_string())?;
+) -> Result<Draft, CoreError> {
+    let mut draft = store.draft(draft)?;
     if on_its_way(&draft.state) {
-        return Err(
-            "that draft is on its way; what goes out was frozen when you sent it".to_owned(),
-        );
+        return Err(CoreError::DraftOnItsWay);
     }
     // The name a file arrives under is the name it goes out under, and it is about to be a
     // header. `safe_name` is the same function that decides where an *incoming* attachment may
@@ -398,18 +394,16 @@ pub fn attach_bytes(
     let carried: u64 = attached_size(store, &draft);
     let total = carried.saturating_add(bytes.len() as u64);
     if total > ATTACHMENT_BUDGET {
-        return Err(format!(
-            "that would make {} of attachments, and most servers refuse above {}. \
-             Send a link instead, or split the message",
-            crate::attach::human_size(total),
-            crate::attach::human_size(ATTACHMENT_BUDGET),
-        ));
+        return Err(CoreError::AttachmentsTooBig {
+            total: crate::attach::human_size(total),
+            limit: crate::attach::human_size(ATTACHMENT_BUDGET),
+        });
     }
 
     let blob = store
         .blobs()
         .put(bytes)
-        .map_err(|e| format!("cannot store {name}: {e}"))?;
+        .map_err(|e| CoreError::cannot(format!("store {name}"), e))?;
     draft.attachments.push(PendingAttachment {
         mime: media_type_of(&name).to_owned(),
         name,
@@ -426,20 +420,20 @@ pub fn attach_file(
     draft: DraftId,
     path: &std::path::Path,
     now: DateTime<Utc>,
-) -> Result<Draft, String> {
+) -> Result<Draft, CoreError> {
     // Checked before reading, so attaching a 4 GB file is an error rather than 4 GB of memory.
     let size = std::fs::metadata(path)
-        .map_err(|e| format!("cannot read {}: {e}", path.display()))?
+        .map_err(|e| CoreError::cannot(format!("read {}", path.display()), e))?
         .len();
     if size > ATTACHMENT_BUDGET {
-        return Err(format!(
-            "{} is {}, and most servers refuse above {}",
-            path.display(),
-            crate::attach::human_size(size),
-            crate::attach::human_size(ATTACHMENT_BUDGET),
-        ));
+        return Err(CoreError::FileTooBig {
+            path: path.to_owned(),
+            size: crate::attach::human_size(size),
+            limit: crate::attach::human_size(ATTACHMENT_BUDGET),
+        });
     }
-    let bytes = std::fs::read(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+    let bytes = std::fs::read(path)
+        .map_err(|e| CoreError::cannot(format!("read {}", path.display()), e))?;
     let name = path
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
@@ -456,13 +450,13 @@ pub fn detach(
     draft: DraftId,
     index: usize,
     now: DateTime<Utc>,
-) -> Result<Draft, String> {
-    let mut draft = store.draft(draft).map_err(|e| e.to_string())?;
+) -> Result<Draft, CoreError> {
+    let mut draft = store.draft(draft)?;
     if index >= draft.attachments.len() {
-        return Err(format!(
-            "that draft has {} attachment(s); there is no number {index}",
-            draft.attachments.len()
-        ));
+        return Err(CoreError::NoDraftAttachment {
+            have: draft.attachments.len(),
+            index,
+        });
     }
     draft.attachments.remove(index);
     draft.updated = now;
@@ -503,8 +497,8 @@ pub fn attached_to(store: &SqliteStore, draft: &Draft) -> Vec<(String, String)> 
 }
 
 /// What a draft is carrying, as the CLI prints it.
-pub fn attachments_of(store: &SqliteStore, draft: DraftId) -> Result<String, String> {
-    let draft = store.draft(draft).map_err(|e| e.to_string())?;
+pub fn attachments_of(store: &SqliteStore, draft: DraftId) -> Result<String, CoreError> {
+    let draft = store.draft(draft)?;
     if draft.attachments.is_empty() {
         return Ok("nothing attached to that draft\n".to_owned());
     }
@@ -536,8 +530,8 @@ pub fn move_draft_to(
     draft: DraftId,
     account: AccountId,
     now: DateTime<Utc>,
-) -> Result<Draft, String> {
-    let mut draft = store.draft(draft).map_err(|e| e.to_string())?;
+) -> Result<Draft, CoreError> {
+    let mut draft = store.draft(draft)?;
     if draft.account == account {
         return Ok(draft);
     }
@@ -560,7 +554,7 @@ pub fn new_message(
     body: &str,
     receipt: ReceiptRequest,
     now: DateTime<Utc>,
-) -> Result<String, String> {
+) -> Result<String, CoreError> {
     new_sealed_message(
         store,
         from,
@@ -585,7 +579,7 @@ pub fn new_sealed_message(
     body: &str,
     (receipt, openpgp, smime): (ReceiptRequest, OpenPgp, Smime),
     now: DateTime<Utc>,
-) -> Result<String, String> {
+) -> Result<String, CoreError> {
     let account = account_for(store, from)?;
     let mut draft = draft_new(store, account, to, subject, body, now)?;
     if !cc.is_empty()
@@ -648,9 +642,9 @@ pub fn new_sealed_message(
     if draft.openpgp != OpenPgp::None || draft.smime != Smime::None {
         let identity = identity_of(store, draft.account.clone(), Some(draft.identity))?;
         let refused = crate::pgp::check(store, &draft, &identity, now)
-            .map_err(|e| e.to_string())
+            .map_err(CoreError::from)
             .and_then(|()| {
-                crate::smime::check(store, &draft, &identity, now).map_err(|e| e.to_string())
+                crate::smime::check(store, &draft, &identity, now).map_err(CoreError::from)
             });
         if let Err(e) = refused {
             let _ = writeln!(out, "  but it cannot be sent that way yet: {e}");
@@ -719,7 +713,7 @@ pub fn forward(
     body: &str,
     carry: Carry,
     now: DateTime<Utc>,
-) -> Result<String, String> {
+) -> Result<String, CoreError> {
     let draft = match carry {
         Carry::Inline => draft_forward(store, message, to, body, now)?,
         Carry::Attached => draft_forward_attached(store, message, to, body, now)?,
@@ -738,16 +732,15 @@ pub fn forward(
 ///
 /// Used by the composer on every save. `INSERT OR REPLACE` underneath, so this is also what an
 /// autosave calls: the draft row is the document, and the widgets are only a view of it.
-pub fn save(store: &SqliteStore, draft: &Draft) -> Result<(), String> {
-    store
-        .apply(
-            draft.account.clone(),
-            &Patch {
-                id: ChangeId::generate(),
-                changes: vec![Change::DraftUpsert(Box::new(draft.clone()))],
-            },
-        )
-        .map_err(|e| e.to_string())
+pub fn save(store: &SqliteStore, draft: &Draft) -> Result<(), CoreError> {
+    store.apply(
+        draft.account.clone(),
+        &Patch {
+            id: ChangeId::generate(),
+            changes: vec![Change::DraftUpsert(Box::new(draft.clone()))],
+        },
+    )?;
+    Ok(())
 }
 
 /// Delete a draft.
@@ -759,26 +752,21 @@ pub fn save(store: &SqliteStore, draft: &Draft) -> Result<(), String> {
 /// could be made and never unmade.
 ///
 /// Returns the subject, so the caller can say what went.
-pub fn discard(store: &SqliteStore, draft: DraftId) -> Result<String, String> {
-    let draft = store.draft(draft).map_err(|e| e.to_string())?;
+pub fn discard(store: &SqliteStore, draft: DraftId) -> Result<String, CoreError> {
+    let draft = store.draft(draft)?;
     // Mid-flight. Deleting the row would leave the outbox draining something that is no longer
     // there — and `Sending` in particular may already be on the wire, where nothing here can
     // recall it.
     if on_its_way(&draft.state) {
-        return Err(
-            "that draft is queued for delivery; it cannot be discarded until the send settles"
-                .to_owned(),
-        );
+        return Err(CoreError::DraftQueued);
     }
-    store
-        .apply(
-            draft.account,
-            &Patch {
-                id: ChangeId::generate(),
-                changes: vec![Change::DraftDelete(draft.id)],
-            },
-        )
-        .map_err(|e| e.to_string())?;
+    store.apply(
+        draft.account,
+        &Patch {
+            id: ChangeId::generate(),
+            changes: vec![Change::DraftDelete(draft.id)],
+        },
+    )?;
     Ok(draft.subject)
 }
 
@@ -789,7 +777,7 @@ pub fn reply(
     scope: ReplyScope,
     body: &str,
     now: DateTime<Utc>,
-) -> Result<String, String> {
+) -> Result<String, CoreError> {
     let draft = draft_reply(store, message, scope, body, now)?;
 
     let mut out = format!("draft {}\n", draft.id);
@@ -853,14 +841,12 @@ pub fn set_signature(
     store: &SqliteStore,
     account: AccountId,
     signature: Option<&str>,
-) -> Result<String, String> {
+) -> Result<String, CoreError> {
     let identity = identity_of(store, account, None)?;
     // An empty string is not a signature: stored as NULL, so "has one" is a single question
     // rather than two that can disagree.
     let trimmed = signature.map(str::trim_end).filter(|s| !s.is_empty());
-    store
-        .set_signature(identity.id, trimmed)
-        .map_err(|e| e.to_string())?;
+    store.set_signature(identity.id, trimmed)?;
     Ok(match trimmed {
         Some(_) => format!("signature set for {}\n", identity.from.email),
         None => format!("signature cleared for {}\n", identity.from.email),
@@ -927,15 +913,14 @@ pub enum Leaves {
 /// Builds the bytes and the envelope together, freezes the bytes in the blob store, and puts a
 /// submission in the outbox. Nothing here touches the network: the next `mailo sync` delivers
 /// it, and until it does the message is safe across a restart.
-pub fn send(store: &SqliteStore, draft: DraftId, now: DateTime<Utc>) -> Result<String, String> {
-    send_with(
+pub fn send(store: &SqliteStore, draft: DraftId, now: DateTime<Utc>) -> Result<String, CoreError> {
+    Ok(send_with(
         store,
         &mail_runtime::KeyringSigningStore::default(),
         &crate::pgp::no_passphrase,
         draft,
         now,
-    )
-    .map_err(|e| e.to_string())
+    )?)
 }
 
 /// Why a send was refused, typed so a caller can act on it: an OpenPGP key that needs its
@@ -949,12 +934,33 @@ pub enum SendError {
     Smime(#[from] crate::smime::SmimeError),
     /// Anything else: the draft already sent, no server to send from, the store.
     #[error("{0}")]
-    Other(String),
+    Other(CoreError),
 }
 
-impl From<String> for SendError {
-    fn from(said: String) -> Self {
-        SendError::Other(said)
+/// The two protections keep their own variants, because [`SendError::locked`] looks for one.
+impl From<CoreError> for SendError {
+    fn from(error: CoreError) -> Self {
+        match error {
+            CoreError::Pgp(e) => SendError::Pgp(e),
+            CoreError::Smime(e) => SendError::Smime(e),
+            other => SendError::Other(other),
+        }
+    }
+}
+
+impl From<SendError> for CoreError {
+    fn from(error: SendError) -> Self {
+        match error {
+            SendError::Pgp(e) => CoreError::Pgp(e),
+            SendError::Smime(e) => CoreError::Smime(e),
+            SendError::Other(other) => other,
+        }
+    }
+}
+
+impl From<TimeError> for SendError {
+    fn from(error: TimeError) -> Self {
+        CoreError::from(error).into()
     }
 }
 
@@ -1000,7 +1006,7 @@ pub fn send_later(
     draft: DraftId,
     phrase: &str,
     now: DateTime<Utc>,
-) -> Result<String, String> {
+) -> Result<String, CoreError> {
     send_later_in(store, draft, phrase, now, &Local)
 }
 
@@ -1025,7 +1031,7 @@ pub fn send_later_in<Tz: chrono::TimeZone>(
     phrase: &str,
     now: DateTime<Utc>,
     zone: &Tz,
-) -> Result<String, String>
+) -> Result<String, CoreError>
 where
     Tz::Offset: std::fmt::Display,
 {
@@ -1069,8 +1075,8 @@ pub fn queue(
     draft: DraftId,
     leaves: Leaves,
     now: DateTime<Utc>,
-) -> Result<(Draft, mail_mime::Posting), String> {
-    queue_with(
+) -> Result<(Draft, mail_mime::Posting), CoreError> {
+    queue_inner(
         store,
         &mail_runtime::KeyringSigningStore::default(),
         &crate::pgp::no_passphrase,
@@ -1078,7 +1084,6 @@ pub fn queue(
         leaves,
         now,
     )
-    .map_err(|e| e.to_string())
 }
 
 /// [`queue`], with the keyring and the passphrase prompt named.
@@ -1094,22 +1099,31 @@ pub fn queue_with(
     leaves: Leaves,
     now: DateTime<Utc>,
 ) -> Result<(Draft, mail_mime::Posting), SendError> {
+    queue_inner(store, secrets, ask, draft, leaves, now).map_err(SendError::from)
+}
+
+fn queue_inner(
+    store: &SqliteStore,
+    secrets: &dyn mail_runtime::SigningStore,
+    ask: crate::pgp::Ask<'_>,
+    draft: DraftId,
+    leaves: Leaves,
+    now: DateTime<Utc>,
+) -> Result<(Draft, mail_mime::Posting), CoreError> {
     // Before anything is taken back, so a time that has gone leaves an existing schedule alone.
     if let Leaves::At(at) = leaves
         && at <= now
     {
-        return Err(format!(
-            "{} has already passed; to send it now, leave out --at",
-            crate::when::stamp(at, &Local, crate::when::Stamp::Full)
-        )
-        .into());
+        return Err(CoreError::SendTimePassed {
+            stamp: crate::when::stamp(at, &Local, crate::when::Stamp::Full),
+        });
     }
-    let mut draft = store.draft(draft).map_err(|e| e.to_string())?;
+    let mut draft = store.draft(draft)?;
     match draft.state {
         SendState::Sent { at, .. } => {
-            return Err(format!("that draft was already sent at {at}").into());
+            return Err(CoreError::DraftSentAt { at });
         }
-        SendState::Sending => return Err("that message is already being sent".to_owned().into()),
+        SendState::Sending => return Err(CoreError::AlreadySending),
         SendState::Queued | SendState::Scheduled { .. } | SendState::Failed { .. } => {
             draft = unsend(store, draft.id, now)?;
         }
@@ -1118,9 +1132,7 @@ pub fn queue_with(
     // Refused before anything is built or queued: an entry in the outbox of an account with no
     // server would sit there for ever, and the draft would say "queued" the whole time.
     if crate::sync::local_accounts(store).contains(&draft.account) {
-        return Err(mail_runtime::RuntimeError::NoServer("send from")
-            .to_string()
-            .into());
+        return Err(mail_runtime::RuntimeError::NoServer("send from").into());
     }
     let identity = identity_of(store, draft.account.clone(), Some(draft.identity))?;
     let parent = draft.in_reply_to.and_then(|id| store.message(id).ok());
@@ -1132,56 +1144,48 @@ pub fn queue_with(
         let bytes = store
             .blobs()
             .get(attachment.blob)
-            .map_err(|e| format!("attachment {}: {e}", attachment.name))?;
+            .map_err(|e| CoreError::context(format!("attachment {}", attachment.name), e))?;
         parts.push((attachment.blob, bytes));
     }
 
-    let mut post =
-        posting(&draft, &identity, parent.as_ref(), &parts).map_err(|e| e.to_string())?;
+    let mut post = posting(&draft, &identity, parent.as_ref(), &parts)?;
     // Before anything is taken back or queued, so a send OpenPGP or S/MIME refuses (no key for a
     // recipient, no passphrase, both asked at once) leaves the draft as it was. S/MIME is checked
     // first so a draft asking both is refused before OpenPGP seals anything.
     crate::smime::check(store, &draft, &identity, now)?;
     post.message = crate::pgp::outgoing(store, secrets, ask, &draft, &identity, post.message, now)?;
     post.message = crate::smime::outgoing(store, secrets, &draft, &identity, post.message, now)?;
-    let raw = store
-        .blobs()
-        .put(&post.message)
-        .map_err(|e| e.to_string())?;
+    let raw = store.blobs().put(&post.message)?;
 
-    let queued = store
-        .enqueue(
-            draft.account.clone(),
-            RemoteIntent::Send {
-                draft: draft.id,
-                raw,
-                mail_from: post.mail_from.clone(),
-                rcpt_to: post.rcpt_to.clone(),
-            },
-            // No undo. Unsending is not something the outbox can offer once the bytes are on
-            // the wire, and a patch that pretended otherwise would revert something real.
-            &Patch {
-                id: ChangeId::generate(),
-                changes: Vec::new(),
-            },
-            // The entry's `next_attempt`, which is the whole of what holds a scheduled send:
-            // the outbox does not hand out an entry before it.
-            match leaves {
-                Leaves::Now => now,
-                Leaves::At(at) => at,
-            },
-        )
-        .map_err(|e| e.to_string())?;
+    let queued = store.enqueue(
+        draft.account.clone(),
+        RemoteIntent::Send {
+            draft: draft.id,
+            raw,
+            mail_from: post.mail_from.clone(),
+            rcpt_to: post.rcpt_to.clone(),
+        },
+        // No undo. Unsending is not something the outbox can offer once the bytes are on
+        // the wire, and a patch that pretended otherwise would revert something real.
+        &Patch {
+            id: ChangeId::generate(),
+            changes: Vec::new(),
+        },
+        // The entry's `next_attempt`, which is the whole of what holds a scheduled send:
+        // the outbox does not hand out an entry before it.
+        match leaves {
+            Leaves::Now => now,
+            Leaves::At(at) => at,
+        },
+    )?;
     if queued.is_none() {
-        return Err("the submission could not be queued".to_owned().into());
+        return Err(CoreError::SubmissionNotQueued);
     }
     let state = match leaves {
         Leaves::Now => SendState::Queued,
         Leaves::At(at) => SendState::Scheduled { at },
     };
-    store
-        .set_send_state(draft.id, &state, now)
-        .map_err(|e| e.to_string())?;
+    store.set_send_state(draft.id, &state, now)?;
     Ok((
         Draft {
             state,
@@ -1197,7 +1201,7 @@ pub fn unsend_report(
     store: &SqliteStore,
     draft: DraftId,
     now: DateTime<Utc>,
-) -> Result<String, String> {
+) -> Result<String, CoreError> {
     let back = unsend(store, draft, now)?;
     Ok(format!(
         "{} is a draft again and will not be sent.\nsend it with: mailo send {}\n",
@@ -1210,11 +1214,11 @@ pub fn unsend_report(
 /// One write of two changes. Deleting the draft withdraws its outbox entry (334b758), and the
 /// upsert puts the same draft back as `Editing`, so what comes back is exactly what was sent.
 /// A draft already `Sending` is on the wire and cannot be recalled; `Sent` is history.
-pub fn unsend(store: &SqliteStore, draft: DraftId, now: DateTime<Utc>) -> Result<Draft, String> {
-    let stored = store.draft(draft).map_err(|e| e.to_string())?;
+pub fn unsend(store: &SqliteStore, draft: DraftId, now: DateTime<Utc>) -> Result<Draft, CoreError> {
+    let stored = store.draft(draft)?;
     match stored.state {
-        SendState::Sending => return Err("that message is already being sent".to_owned()),
-        SendState::Sent { .. } => return Err("that message was already sent".to_owned()),
+        SendState::Sending => return Err(CoreError::AlreadySending),
+        SendState::Sent { .. } => return Err(CoreError::AlreadySent),
         SendState::Editing
         | SendState::Queued
         | SendState::Scheduled { .. }
@@ -1225,43 +1229,40 @@ pub fn unsend(store: &SqliteStore, draft: DraftId, now: DateTime<Utc>) -> Result
         updated: now,
         ..stored
     };
-    store
-        .apply(
-            back.account.clone(),
-            &Patch {
-                id: ChangeId::generate(),
-                changes: vec![
-                    Change::DraftDelete(back.id),
-                    Change::DraftUpsert(Box::new(back.clone())),
-                ],
-            },
-        )
-        .map_err(|e| e.to_string())?;
+    store.apply(
+        back.account.clone(),
+        &Patch {
+            id: ChangeId::generate(),
+            changes: vec![
+                Change::DraftDelete(back.id),
+                Change::DraftUpsert(Box::new(back.clone())),
+            ],
+        },
+    )?;
     // A reminder was for this send, and this send is not happening.
     crate::follow_up::release(store, back.id)?;
     Ok(back)
 }
 
 /// Every draft, and where it got to.
-pub fn drafts(store: &SqliteStore) -> Result<String, String> {
+pub fn drafts(store: &SqliteStore) -> Result<String, CoreError> {
     drafts_in(store, &Local)
 }
 
 /// The same, with the zone a scheduled send's time is written in named.
-pub fn drafts_in<Tz: chrono::TimeZone>(store: &SqliteStore, zone: &Tz) -> Result<String, String>
+pub fn drafts_in<Tz: chrono::TimeZone>(store: &SqliteStore, zone: &Tz) -> Result<String, CoreError>
 where
     Tz::Offset: std::fmt::Display,
 {
     let accounts: Vec<AccountId> = store
-        .list_accounts()
-        .map_err(|e| e.to_string())?
+        .list_accounts()?
         .into_iter()
         .map(|account| account.id)
         .collect();
 
     let mut out = String::new();
     for account in accounts {
-        for draft in store.drafts(account).map_err(|e| e.to_string())? {
+        for draft in store.drafts(account)? {
             let _ = write!(
                 out,
                 "{}  {:<9}  {}",

@@ -125,7 +125,7 @@ fn searched(store: &SqliteStore, search: &Search, now: DateTime<Utc>) -> Listed 
     let label = mail_core::query::named(&search.labels);
     let highlight = match search::list_highlight(&search.input, &chrono::Local, &label) {
         Ok(highlight) => highlight,
-        Err(why) => return invalid(why),
+        Err(why) => return invalid(why.to_string()),
     };
     // Nothing but a pattern: no operator, no word, no phrase to narrow the candidates with.
     let bare = highlight.pattern.is_some()
@@ -147,7 +147,7 @@ fn searched(store: &SqliteStore, search: &Search, now: DateTime<Utc>) -> Listed 
         now,
     ) {
         Ok(searched) => searched,
-        Err(why) => return invalid(why),
+        Err(why) => return invalid(why.to_string()),
     };
     Listed {
         top: searched.strip(),

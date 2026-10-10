@@ -6,6 +6,7 @@
 //! arriving mail taught. Nothing here decrypts anything — mail is decrypted when the reader opens
 //! it, never as it arrives.
 
+use crate::error::Failure;
 use crate::{RuntimeError, SigningStore};
 use chrono::{DateTime, Utc};
 use mail_domain::signing::{SigningKeyId, SigningKeyRef, SigningSecret};
@@ -33,9 +34,9 @@ pub fn private_key(
             let pem = zeroize::Zeroizing::new(pem);
             Ok(PrivateKey::from_pkcs8_pem(&pem)?)
         }
-        SigningSecret::OpenPgp(_) => Err(RuntimeError::Secrets(format!(
+        SigningSecret::OpenPgp(_) => Err(RuntimeError::Secrets(Failure::said(format!(
             "the keyring entry for S/MIME certificate {fingerprint} holds something else"
-        ))),
+        )))),
     }
 }
 

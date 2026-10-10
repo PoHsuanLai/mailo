@@ -6,6 +6,7 @@
 //! adds its named faces ([`document_with`]) and, for a conversation whose remote images the
 //! reader consented to, those images ([`Pictures`]).
 
+use crate::error::CoreError;
 use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::{Message, MessageId, ThreadId};
 use mail_mime::{Labels, Options, Pages, Parsed, Remote, Sheet};
@@ -46,13 +47,13 @@ pub struct Printed {
 ///
 /// `id` is tried as a message first and then as a thread, because both print as a uuid and
 /// the person should not have to say which one they copied — as `mailo unsubscribe` does.
-pub fn messages(store: &SqliteStore, id: uuid::Uuid) -> Result<Vec<Message>, String> {
+pub fn messages(store: &SqliteStore, id: uuid::Uuid) -> Result<Vec<Message>, CoreError> {
     if let Ok(message) = store.message(MessageId::from_uuid(id)) {
         return Ok(vec![message]);
     }
     let thread = store
         .thread(ThreadId::from_uuid(id))
-        .map_err(|_| format!("{id} is neither a message nor a thread"))?;
+        .map_err(|_| CoreError::NeitherMessageNorThread(id))?;
     let mut messages = thread
         .messages
         .iter()
@@ -61,7 +62,7 @@ pub fn messages(store: &SqliteStore, id: uuid::Uuid) -> Result<Vec<Message>, Str
     // A conversation reads in the order it was written.
     messages.sort_by_key(|message| message.date);
     if messages.is_empty() {
-        return Err(format!("thread {id} holds no messages"));
+        return Err(CoreError::EmptyThread(id));
     }
     Ok(messages)
 }
@@ -73,7 +74,7 @@ pub fn document<Tz>(
     zone: &Tz,
     now: DateTime<Utc>,
     pages: Pages,
-) -> Result<Printed, String>
+) -> Result<Printed, CoreError>
 where
     Tz: TimeZone,
     Tz::Offset: std::fmt::Display,
@@ -206,7 +207,7 @@ pub fn document_with<Tz>(
     now: DateTime<Utc>,
     options: &Options<'_>,
     pictures: Option<&Pictures<'_>>,
-) -> Result<Printed, String>
+) -> Result<Printed, CoreError>
 where
     Tz: TimeZone,
     Tz::Offset: std::fmt::Display,
@@ -261,7 +262,7 @@ pub fn file_name_with(subject: &str, extension: &str) -> String {
 ///
 /// `create_new` rather than a check and then a write: the name is only free if claiming it
 /// succeeds.
-pub fn write_into(dir: &Path, printed: &Printed) -> Result<PathBuf, String> {
+pub fn write_into(dir: &Path, printed: &Printed) -> Result<PathBuf, CoreError> {
     write_file_into(dir, &printed.subject, "html", printed.html.as_bytes())
 }
 
@@ -271,7 +272,7 @@ pub fn write_file_into(
     subject: &str,
     extension: &str,
     bytes: &[u8],
-) -> Result<PathBuf, String> {
+) -> Result<PathBuf, CoreError> {
     use std::io::Write as _;
     let name = file_name_with(subject, extension);
     let path = Path::new(&name);
@@ -291,17 +292,15 @@ pub fn write_file_into(
             .open(&candidate)
         {
             Ok(mut file) => {
-                file.write_all(bytes)
-                    .map_err(|e| format!("{}: {e}", candidate.display()))?;
+                file.write_all(bytes).map_err(CoreError::at(&candidate))?;
                 return Ok(candidate);
             }
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(e) => return Err(format!("{}: {e}", candidate.display())),
+            Err(e) => return Err(CoreError::at(&candidate)(e)),
         }
     }
-    Err(format!(
-        "{} and 998 numbered copies of it already exist in {}",
+    Err(CoreError::NamesTaken {
         name,
-        dir.display()
-    ))
+        dir: dir.to_owned(),
+    })
 }

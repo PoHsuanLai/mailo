@@ -13,6 +13,7 @@
 //!   `mailo drafts` until it has;
 //! - a web page: reported, never fetched. Opening it is the person's decision.
 
+use crate::error::CoreError;
 use chrono::{DateTime, Utc};
 use mail_domain::*;
 use mail_mime::{ListHeaders, Mailto, Unsubscribe};
@@ -47,14 +48,12 @@ pub enum Outcome {
 ///
 /// An error only when there is nothing to read them from: the body has not been fetched yet
 /// (only its headers were, and those were not kept), or the stored bytes are gone.
-pub fn list_of(store: &SqliteStore, message: &Message) -> Result<ListHeaders, String> {
-    let raw = message.body.raw().ok_or_else(|| {
-        "that message has not been fetched in full yet; run `mailo sync` and try again".to_owned()
-    })?;
+pub fn list_of(store: &SqliteStore, message: &Message) -> Result<ListHeaders, CoreError> {
+    let raw = message.body.raw().ok_or(CoreError::NotFetchedInFull)?;
     let bytes = store
         .blobs()
         .get(raw)
-        .map_err(|e| format!("the stored message is unreadable: {e}"))?;
+        .map_err(|e| CoreError::context("the stored message is unreadable", e))?;
     Ok(mail_mime::list_headers(&bytes))
 }
 
@@ -62,13 +61,13 @@ pub fn list_of(store: &SqliteStore, message: &Message) -> Result<ListHeaders, St
 ///
 /// `id` is tried as a message first and then as a thread, because both print as a uuid and the
 /// person should not have to say which one they copied.
-pub fn find(store: &SqliteStore, id: uuid::Uuid) -> Result<Found, String> {
+pub fn find(store: &SqliteStore, id: uuid::Uuid) -> Result<Found, CoreError> {
     if let Ok(message) = store.message(MessageId::from_uuid(id)) {
         return found(store, &message);
     }
     let thread = store
         .thread(ThreadId::from_uuid(id))
-        .map_err(|_| format!("{id} is neither a message nor a thread"))?;
+        .map_err(|_| CoreError::NeitherMessageNorThread(id))?;
     let mut messages = thread
         .messages
         .iter()
@@ -86,13 +85,10 @@ pub fn find(store: &SqliteStore, id: uuid::Uuid) -> Result<Found, String> {
         }
         first.get_or_insert(had);
     }
-    first.ok_or_else(|| {
-        "no message in that thread has been fetched in full yet; run `mailo sync` and try again"
-            .to_owned()
-    })
+    first.ok_or(CoreError::ThreadNotFetchedInFull)
 }
 
-fn found(store: &SqliteStore, message: &Message) -> Result<Found, String> {
+fn found(store: &SqliteStore, message: &Message) -> Result<Found, CoreError> {
     Ok(Found {
         message: message.id,
         account: message.account.clone(),
@@ -111,7 +107,7 @@ pub fn queue_mailto(
     found: &Found,
     mailto: &Mailto,
     now: DateTime<Utc>,
-) -> Result<Draft, String> {
+) -> Result<Draft, CoreError> {
     let identity =
         crate::compose::identity_addressed(store, found.account.clone(), &found.addressed);
     let subject = if mailto.subject.trim().is_empty() {
@@ -129,7 +125,7 @@ pub fn queue_mailto(
         now,
     )?;
     crate::compose::send(store, draft.id, now)?;
-    store.draft(draft.id).map_err(|e| e.to_string())
+    Ok(store.draft(draft.id)?)
 }
 
 /// Take the preferred way out of the list.
@@ -140,13 +136,11 @@ pub async fn perform(
     found: &Found,
     http: &reqwest::Client,
     now: DateTime<Utc>,
-) -> Result<Outcome, String> {
+) -> Result<Outcome, CoreError> {
     match found.list.preferred() {
-        None => Err(nothing_offered()),
+        None => Err(CoreError::NothingOffered),
         Some(Unsubscribe::OneClick { url }) => {
-            mail_runtime::unsubscribe::one_click(http, url)
-                .await
-                .map_err(|e| e.to_string())?;
+            mail_runtime::unsubscribe::one_click(http, url).await?;
             Ok(Outcome::Unsubscribed {
                 url: url.to_string(),
             })
@@ -160,8 +154,7 @@ pub async fn perform(
 }
 
 fn nothing_offered() -> String {
-    "that message offers no way to unsubscribe (it has no usable List-Unsubscribe header)"
-        .to_owned()
+    CoreError::NothingOffered.to_string()
 }
 
 /// Every way out the message offers, and which one `mailo unsubscribe` would take.

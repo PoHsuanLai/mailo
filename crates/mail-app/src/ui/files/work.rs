@@ -120,8 +120,9 @@ fn plain(e: &std::io::Error) -> String {
 }
 
 /// A reason from `import` as a sentence: a capital letter and a full stop.
-fn sentence(why: &str) -> String {
-    let why = why.trim().trim_end_matches('.');
+fn sentence(why: &dyn std::fmt::Display) -> String {
+    let said = why.to_string();
+    let why = said.trim().trim_end_matches('.');
     let mut chars = why.chars();
     match chars.next() {
         Some(first) => format!("{}{}.", first.to_uppercase(), chars.as_str()),

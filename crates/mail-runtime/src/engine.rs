@@ -5,6 +5,7 @@
 //! misrepresent ownership, and `Box<dyn Store>` per account would be worse. Time is an argument
 //! rather than a `Clock` trait, per `CONVENTIONS.md` §6.
 
+use crate::error::Failure;
 use crate::tokens::{AfterRefusal, Token, TokenSource};
 use crate::{AccountSecrets, Cancel, RuntimeError, Transport, drive};
 use chrono::{DateTime, Utc};
@@ -149,6 +150,15 @@ pub struct SyncReport {
     pub ruled: Vec<(MessageId, Vec<String>)>,
     /// Messages uploaded into a mailbox by this pass's outbox (`ProtoOp::Append`).
     pub appended: usize,
+}
+
+/// A draft's new send state, written down without letting the write fail the drain. A draft
+/// deleted while its send was queued is nobody's concern; anything else the store says is logged.
+pub(crate) fn note_state(written: Result<(), mail_store::StoreError>) {
+    match written {
+        Ok(()) | Err(mail_store::StoreError::NoDraft(_)) => {}
+        Err(why) => log::warn!("a draft's send state was not recorded: {why}"),
+    }
 }
 
 /// Refuse queued entry `id`, given up because a message it names was never found
@@ -573,10 +583,10 @@ impl<B: Backend> AccountEngine<B> {
         let access = match self.presented(Token::Sending).await {
             Ok(Credential::OAuth { access, .. }) => access,
             _ => {
-                return Err(RuntimeError::Secrets(format!(
+                return Err(RuntimeError::Secrets(Failure::said(format!(
                     "no Microsoft Graph sign-in is stored for {}",
                     self.plan.address
-                )));
+                ))));
             }
         };
         let staged = match &op {
@@ -848,9 +858,9 @@ impl<B: Backend> AccountEngine<B> {
     ) -> Result<ProtoOutcome, RuntimeError> {
         let credential = self.presented(Token::Sending).await?;
         let porter_core::Credential::OAuth { access, .. } = credential else {
-            return Err(RuntimeError::Secrets(
-                "sending through Graph needs a Microsoft sign-in, not a password".to_owned(),
-            ));
+            return Err(RuntimeError::Secrets(Failure::said(
+                "sending through Graph needs a Microsoft sign-in, not a password",
+            )));
         };
         let http = crate::http::http_client()?;
         crate::graph::send_mime(&http, &self.graph_url, access.expose(), message, rcpt_to).await?;
@@ -1165,7 +1175,7 @@ impl<B: Backend> AccountEngine<B> {
     /// Failing here would leave the outbox entry settled and the pass reporting an error about
     /// something nobody is waiting on.
     fn mark_draft(&self, draft: mail_domain::DraftId, state: SendState, now: DateTime<Utc>) {
-        let _ = self.store.set_send_state(draft, &state, now);
+        note_state(self.store.set_send_state(draft, &state, now));
     }
 
     /// Ask the server what it supports, and write down the answer.

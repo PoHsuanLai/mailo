@@ -18,6 +18,7 @@ pub use certs::{Imported, cert_for, own_cert};
 pub use read::{Protected, describe, open_bytes, open_message};
 pub use send::{check, outgoing};
 
+use crate::error::{CoreError, UsageError};
 use crate::pgp::WithSecret;
 use chrono::{DateTime, Utc};
 use mail_domain::{CertFingerprint, CertSource, KeyTrust, MessageId, SecretHeld, SmimeCert};
@@ -141,28 +142,33 @@ pub enum SmimeCommand {
 }
 
 /// Parse `mailo smime …`'s arguments.
-pub fn parse(args: &[String]) -> Result<SmimeCommand, String> {
+pub fn parse(args: &[String]) -> Result<SmimeCommand, CoreError> {
     let usage = "usage: mailo smime list | import <file> | export <fingerprint|address> | \
                  delete <fingerprint|address> [--with-secret] | trust <fingerprint> | \
                  untrust <fingerprint> | show <message-id>";
     let Some(verb) = args.first() else {
-        return Err(usage.to_owned());
+        return Err(UsageError::Synopsis(usage).into());
     };
-    let arg = |i: usize, what: &str| {
-        args.get(i)
-            .cloned()
-            .ok_or_else(|| format!("smime {verb} needs {what}\n\n{usage}"))
+    let arg = |i: usize, what: &'static str| {
+        args.get(i).cloned().ok_or_else(|| UsageError::Missing {
+            command: "smime",
+            verb: verb.clone(),
+            what,
+            usage,
+        })
     };
-    let extra = |from: usize, allowed: &[&str]| -> Result<Vec<String>, String> {
+    let extra = |from: usize, allowed: &[&str]| -> Result<Vec<String>, UsageError> {
         let rest: Vec<String> = args.get(from..).unwrap_or_default().to_vec();
         match rest.iter().find(|a| !allowed.contains(&a.as_str())) {
-            Some(bad) => Err(format!("unknown option {bad:?}\n\n{usage}")),
+            Some(bad) => Err(UsageError::UnknownOption {
+                option: bad.clone(),
+                usage,
+            }),
             None => Ok(rest),
         }
     };
-    let fingerprint = |raw: String| -> Result<CertFingerprint, String> {
-        raw.parse()
-            .map_err(|e| format!("{e}; `mailo smime list` lists them"))
+    let fingerprint = |raw: String| -> Result<CertFingerprint, UsageError> {
+        raw.parse().map_err(UsageError::SmimeFingerprint)
     };
     match verb.as_str() {
         "list" | "certs" => {
@@ -208,12 +214,20 @@ pub fn parse(args: &[String]) -> Result<SmimeCommand, String> {
             extra(2, &[])?;
             let id = raw
                 .parse::<uuid::Uuid>()
-                .map_err(|_| format!("{raw:?} is not a message id\n\n{usage}"))?;
+                .map_err(|_| UsageError::NotAMessageId {
+                    raw: raw.clone(),
+                    usage,
+                })?;
             Ok(SmimeCommand::Show {
                 message: MessageId::from_uuid(id),
             })
         }
-        other => Err(format!("unknown smime command {other:?}\n\n{usage}")),
+        other => Err(UsageError::UnknownCommand {
+            command: "smime",
+            verb: other.to_owned(),
+            usage,
+        }
+        .into()),
     }
 }
 
@@ -225,8 +239,8 @@ pub fn run(
     password: &dyn Fn() -> Option<String>,
     command: &SmimeCommand,
     now: DateTime<Utc>,
-) -> Result<String, String> {
-    run_typed(store, secrets, password, command, now).map_err(|e| e.to_string())
+) -> Result<String, CoreError> {
+    run_typed(store, secrets, password, command, now).map_err(CoreError::from)
 }
 
 fn run_typed(

@@ -44,7 +44,7 @@ impl ServerSearcher {
     #[cfg(not(test))]
     fn server() -> Self {
         Self(Arc::new(|store, account, input, now| {
-            mail_core::server_search::search(store, account, input, now)
+            mail_core::server_search::search(store, account, input, now).map_err(String::from)
         }))
     }
 

@@ -73,7 +73,7 @@ impl Provider {
             mail_core::search::first(LIMIT.saturating_add(mail_core::search::STRIP)),
             Utc::now(),
         )
-        .map_err(AppRefusal::Failed)?;
+        .map_err(|why| AppRefusal::Failed(why.to_string()))?;
         let top: Vec<ThreadSummary> = searched.top.into_iter().map(|(found, _)| found).collect();
         let rest: Vec<ThreadSummary> = searched
             .rows

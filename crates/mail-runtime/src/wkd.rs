@@ -7,6 +7,7 @@
 //! only, redirects included: a key fetched in the clear could be anyone's.
 
 use crate::RuntimeError;
+use crate::error::Failure;
 use mail_mime::openpgp::Cert;
 use mail_mime::openpgp::wkd::{WkdUrls, key_from_answer, urls};
 use reqwest::redirect::Policy;
@@ -33,7 +34,7 @@ pub fn client_builder() -> reqwest::ClientBuilder {
 pub fn client() -> Result<reqwest::Client, RuntimeError> {
     client_builder()
         .build()
-        .map_err(|e| RuntimeError::Connect(format!("cannot build an HTTP client: {e}")))
+        .map_err(|e| RuntimeError::Connect(Failure::new("cannot build an HTTP client", e)))
 }
 
 /// `address`'s key from its domain's Web Key Directory. `Ok(None)` when neither method has

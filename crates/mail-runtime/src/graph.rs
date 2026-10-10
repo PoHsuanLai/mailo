@@ -36,6 +36,7 @@
 pub mod read;
 
 use crate::RuntimeError;
+use crate::error::Failure;
 use base64::Engine as _;
 use mail_domain::{Address, Inline, Retry};
 use mail_mime::{GraphBody, GraphDraft, GraphImportance, ParsedPart};
@@ -125,7 +126,7 @@ pub async fn send_mime_within(
         .body(body)
         .send()
         .await
-        .map_err(|e| RuntimeError::Connect(format!("Microsoft Graph: {e}")))?;
+        .map_err(|e| RuntimeError::Connect(Failure::new("Microsoft Graph", e)))?;
 
     let status = response.status();
     if status.is_success() {
@@ -253,7 +254,7 @@ async fn call(
     let response = request
         .send()
         .await
-        .map_err(|e| RuntimeError::Connect(format!("Microsoft Graph: {e}")))?;
+        .map_err(|e| RuntimeError::Connect(Failure::new("Microsoft Graph", e)))?;
     let status = response.status();
     if status.is_success() {
         let text = response.text().await.unwrap_or_default();
@@ -312,7 +313,7 @@ async fn upload(
         .redirect(reqwest::redirect::Policy::none())
         .timeout(CHUNK_TIMEOUT)
         .build()
-        .map_err(|e| RuntimeError::Connect(format!("cannot build an HTTP client: {e}")))?;
+        .map_err(|e| RuntimeError::Connect(Failure::new("cannot build an HTTP client", e)))?;
     let chunk = chunk.max(1);
     let mut offset = next_offset(&session).unwrap_or(0);
     // Each answer names the next range; a server that never moves on must not keep this here.
@@ -340,7 +341,7 @@ async fn upload(
             .body(part.bytes[offset..end].to_vec())
             .send()
             .await
-            .map_err(|e| RuntimeError::Connect(format!("Microsoft Graph upload: {e}")))?;
+            .map_err(|e| RuntimeError::Connect(Failure::new("Microsoft Graph upload", e)))?;
         match response.status().as_u16() {
             200 | 201 => return Ok(()),
             202 => {

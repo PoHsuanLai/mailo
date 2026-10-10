@@ -42,6 +42,7 @@ mod search;
 pub use search::{GraphFound, GraphHit};
 
 use crate::RuntimeError;
+use crate::error::Failure;
 use crate::graph::{detail, retry_after, segment};
 use base64::Engine as _;
 use chrono::{DateTime, Utc};
@@ -394,7 +395,7 @@ impl Reader {
             self.me,
             segment(&folder)
         ))
-        .map_err(|e| RuntimeError::Connect(format!("Microsoft Graph: {e}")))?;
+        .map_err(|e| RuntimeError::Connect(Failure::new("Microsoft Graph", e)))?;
         url.query_pairs_mut()
             .append_pair("$select", SELECT)
             .append_pair("$expand", EXPAND)
@@ -412,7 +413,7 @@ impl Reader {
             .header("Prefer", format!("odata.maxpagesize={PAGE}"))
             .send()
             .await
-            .map_err(|e| RuntimeError::Connect(format!("Microsoft Graph: {e}")))?;
+            .map_err(|e| RuntimeError::Connect(Failure::new("Microsoft Graph", e)))?;
         let status = response.status().as_u16();
         if status == 410 {
             return Ok(None);
@@ -425,7 +426,7 @@ impl Reader {
         let text = response
             .text()
             .await
-            .map_err(|e| RuntimeError::Connect(format!("Microsoft Graph: {e}")))?;
+            .map_err(|e| RuntimeError::Connect(Failure::new("Microsoft Graph", e)))?;
         serde_json::from_str(&text).map(Some).map_err(|e| {
             RuntimeError::Proto(mail_proto::ProtoError::Malformed(format!(
                 "Microsoft Graph's delta page: {e}"
@@ -539,7 +540,7 @@ impl Reader {
             .body(body)
             .send()
             .await
-            .map_err(|e| RuntimeError::Connect(format!("Microsoft Graph: {e}")))?;
+            .map_err(|e| RuntimeError::Connect(Failure::new("Microsoft Graph", e)))?;
         let status = response.status().as_u16();
         if !response.status().is_success() {
             let after = retry_after(&response);
@@ -757,7 +758,7 @@ impl Reader {
         let response = request
             .send()
             .await
-            .map_err(|e| RuntimeError::Connect(format!("Microsoft Graph: {e}")))?;
+            .map_err(|e| RuntimeError::Connect(Failure::new("Microsoft Graph", e)))?;
         let status = response.status().as_u16();
         if status == 404 {
             return Ok(Answer::Gone);
@@ -770,7 +771,7 @@ impl Reader {
         let bytes = response
             .bytes()
             .await
-            .map_err(|e| RuntimeError::Connect(format!("Microsoft Graph: {e}")))?;
+            .map_err(|e| RuntimeError::Connect(Failure::new("Microsoft Graph", e)))?;
         Ok(Answer::Done(bytes.to_vec()))
     }
 }

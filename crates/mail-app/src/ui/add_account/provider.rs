@@ -93,7 +93,7 @@ impl Seams {
     pub(in crate::ui) fn real(store: Arc<SqliteStore>) -> Seams {
         Seams {
             lookup: Arc::new(|address| mail_core::discover::search(address, Utc::now())),
-            jmap: Arc::new(mail_core::discover::find_jmap),
+            jmap: Arc::new(|domain| mail_core::discover::find_jmap(domain).map_err(String::from)),
             client: Arc::new(|issuer| {
                 mail_core::account::oauth_client(issuer, &mail_core::account::saved_clients())
                     .is_some()
@@ -156,6 +156,7 @@ impl Seams {
                         signed: signed.as_ref(),
                     },
                 )
+                .map_err(String::from)
             }),
         }
     }

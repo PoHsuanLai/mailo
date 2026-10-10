@@ -74,7 +74,7 @@ pub(in crate::ui) fn load(dir: &Path) -> Log {
 
 /// Write `log` to `dir/downloads.json`, creating `dir` if needed.
 pub(in crate::ui) fn save(dir: &Path, log: &Log) -> Result<(), String> {
-    write_json(dir, FILE_NAME, log)
+    write_json(dir, FILE_NAME, log).map_err(String::from)
 }
 
 #[cfg(test)]
