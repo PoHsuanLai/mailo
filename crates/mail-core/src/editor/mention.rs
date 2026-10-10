@@ -106,7 +106,7 @@ fn body_text(doc: &Doc) -> String {
     for node in &doc.nodes {
         if let Node::Para { runs, .. } = node {
             let text = runs_text(runs);
-            let (own, forwarded) = match text.find(mail_core::compose::FORWARDED) {
+            let (own, forwarded) = match text.find(crate::compose::FORWARDED) {
                 Some(at) => (&text[..at], Forward::Begins),
                 None => (text.as_str(), Forward::NotYet),
             };
