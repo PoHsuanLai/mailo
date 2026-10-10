@@ -7,7 +7,7 @@ use dioxus_core::VirtualDom;
 
 /// The renders after an event: quire's menu floats in the root's overlay, drawn a render or two
 /// after it is asked for.
-fn settle(dom: &mut VirtualDom, mut seen: Seen) -> Seen {
+pub(in crate::ui) fn settle(dom: &mut VirtualDom, mut seen: Seen) -> Seen {
     for _ in 0..8 {
         dom.process_events();
         let mut more = Seen::default();

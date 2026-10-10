@@ -207,8 +207,9 @@ fn PageHarness(draft: Draft) -> Element {
     let today = use_signal(crate::ui::today::Today::default);
     let spaces = use_signal(|| crate::ui::space::first_run(&[]));
     let side = use_signal(|| false);
+    let pages = use_signal(|| 1u32);
     let dirs = try_consume_context::<WindowDirs>();
-    let desk = use_desk(today, spaces, dirs, side);
+    let desk = use_desk(today, spaces, dirs.clone(), side);
     use_hook(|| shell.write().compose(&draft));
     DESK.with(|slot| slot.set(Some(desk)));
     SHELL.with(|slot| slot.set(Some(shell)));
@@ -224,7 +225,16 @@ fn PageHarness(draft: Draft) -> Element {
                     ComposerPage { key: "{id}", draft: id, shell, revision }
                 }
                 SendPill { shell }
-                super::ScheduledDrafts { shell }
+                // The sidebar's menu is where drafts put aside and messages waiting are listed.
+                crate::ui::sidebar::MoreMenu {
+                    shell,
+                    pages,
+                    today,
+                    space: crate::ui::space::SpaceId(0),
+                    dirs,
+                    side_hidden: side,
+                    on_new_space: |_| {},
+                }
             }
         }
     }

@@ -58,8 +58,8 @@ use page::{Focus, Fold, Guard, Page, Phase, Saved, When};
 use props::Props;
 use seal::{BarAct, SealBar, SealWarn, Sealed, seal_and_queue};
 
-pub(in crate::ui) use desk::{Desk, ParkedDrafts, park_current, show_queued, use_desk};
-pub(in crate::ui) use later::{ScheduledDrafts, waiting};
+pub(in crate::ui) use desk::{Desk, park_current, reopen, show_queued, use_desk};
+pub(in crate::ui) use later::{cancel_waiting, waiting};
 pub(in crate::ui) use page::PageKind;
 pub(in crate::ui) use pill::SendPill;
 pub use spell::Dictionaries;

@@ -1,5 +1,5 @@
 //! Send later in the window: the Sends choice as the outbox reads it, a scheduled send on the
-//! pill and in Today, and Cancel, against a real store.
+//! pill and in the sidebar's menu, and Cancel, against a real store.
 
 use mail_core::Store;
 
@@ -7,7 +7,7 @@ use super::super::later::{choose_time, leaves, pick_time, waiting};
 use super::super::page::{Float, Phase, When};
 use super::super::props::pick_sends;
 use super::*;
-use crate::ui::fixtures::{acct_account, click, seeded};
+use crate::ui::fixtures::{acct_account, click, pick_named, seeded, settle};
 use mail_core::compose::Leaves;
 use mail_core::editor::{to_flowed, to_html};
 
@@ -188,7 +188,7 @@ async fn scheduling_holds_the_draft_until_its_time_and_cancel_brings_back_the_pa
         markup.contains(r#"class="cpage sending""#),
         "the page did not fold:\n{markup}"
     );
-    // And it is listed in Today, with its time.
+    // And it is waiting in the store, and listed in the sidebar's menu.
     assert_eq!(
         waiting(&store)
             .into_iter()
@@ -196,10 +196,15 @@ async fn scheduling_holds_the_draft_until_its_time_and_cancel_brings_back_the_pa
             .collect::<Vec<_>>(),
         [(draft.id, at)]
     );
+    let menu = seen.one("aria-label", "Sidebar menu");
+    click(&mut window.dom, menu);
+    let listed = window.render();
     assert!(
-        markup.contains("Waiting to be sent"),
-        "not in Today:\n{markup}"
+        listed.contains("Waiting to be sent") && listed.contains("Cancel sending Friday"),
+        "not in the menu:\n{listed}"
     );
+    click(&mut window.dom, menu);
+    window.render();
 
     click(
         &mut window.dom,
@@ -231,22 +236,24 @@ async fn scheduling_holds_the_draft_until_its_time_and_cancel_brings_back_the_pa
         !markup.contains("Scheduled for"),
         "the pill stayed:\n{markup}"
     );
+    click(&mut window.dom, menu);
+    let listed = window.render();
     assert!(
-        !markup.contains("today-at later"),
-        "Today still lists it:\n{markup}"
+        !listed.contains("Cancel sending Friday"),
+        "the menu still lists it:\n{listed}"
     );
 }
 
 #[tokio::test]
-async fn cancel_from_today_opens_the_draft_as_the_store_has_it() {
+async fn cancel_from_the_menu_opens_the_draft_as_the_store_has_it() {
     let (store, _dir) = seeded();
     let draft = fresh(&store);
     let at = a_day_from_now();
     let (mut window, seen) = Window::open(store.clone(), draft.clone(), None);
     scheduled_page(&mut window, at);
-    let painted = click(&mut window.dom, seen.one("aria-label", "Send"));
+    click(&mut window.dom, seen.one("aria-label", "Send"));
     let stored = store.draft(draft.id).unwrap_or_else(|why| panic!("{why}"));
-    // The pill has gone: Today is the only way back.
+    // The pill has gone: the sidebar's menu is the only way back.
     let desk = window.desk;
     window.dom.in_runtime(|| {
         let mut outbox = desk.outbox;
@@ -254,10 +261,9 @@ async fn cancel_from_today_opens_the_draft_as_the_store_has_it() {
     });
     window.render();
 
-    click(
-        &mut window.dom,
-        painted.one("aria-label", "Cancel sending Friday"),
-    );
+    let asked = click(&mut window.dom, seen.one("aria-label", "Sidebar menu"));
+    let opened = settle(&mut window.dom, asked);
+    pick_named(&mut window.dom, &opened, "Cancel sending Friday").await;
     window.render();
     assert_eq!(
         store.draft(draft.id).map(|d| d.state).ok(),

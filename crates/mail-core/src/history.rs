@@ -106,7 +106,8 @@ mod tests {
     #[test]
     fn history_lists_the_newest_open_first_and_narrows_to_a_spaces_accounts() {
         let dir = tempfile::tempdir().unwrap();
-        let store = SqliteStore::open(dir.path().join("mail.db"), dir.path().join("blobs")).unwrap();
+        let store =
+            SqliteStore::open(dir.path().join("mail.db"), dir.path().join("blobs")).unwrap();
         mail_store::testing::seed_account(&store, account(1), "one@example.test");
         mail_store::testing::seed_account(&store, account(2), "two@example.test");
         put(&store, 1, account(1));

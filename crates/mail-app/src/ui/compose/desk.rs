@@ -2,11 +2,8 @@
 //! still be taken back. One context, provided by the app, so the keyboard, the sidebar and the
 //! outbox pill all reach the same drafts.
 
-use ds::components::lists::list::model::ListStyle;
-use ds::prelude::*;
 use std::sync::Arc;
 
-use crate::ui::space::SpaceId;
 use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
 use mail_core::{SqliteStore, Store};
@@ -220,39 +217,5 @@ pub(in crate::ui) fn reopen(desk: Desk, mut shell: Signal<Shell>, draft: DraftId
     match store.draft(draft) {
         Ok(stored) => shell.write().compose(&stored),
         Err(_) => unpark(desk, draft),
-    }
-}
-
-/// The pencil entries in Today: drafts put aside in this Space, as rows of a source list.
-#[component]
-pub(in crate::ui) fn ParkedDrafts(shell: Signal<Shell>, space: SpaceId) -> Element {
-    let Some(desk) = try_use_context::<Desk>() else {
-        return rsx! {};
-    };
-    let items: Vec<ListItem<DraftId>> = desk
-        .today
-        .read()
-        .parked_in(space)
-        .into_iter()
-        .map(|parked| {
-            let draft = parked.item;
-            let row = rsx! {
-                Row {
-                    leading: RowLeading::Icon(Icon::Pen),
-                    title: parked.title.clone(),
-                    detail: None,
-                    onclick: move |_| reopen(desk, shell, draft),
-                }
-            };
-            ListItem::row(draft, parked.title.clone(), row)
-        })
-        .collect();
-    rsx! {
-        List::<DraftId> {
-            label: "Drafts put aside".to_owned(),
-            items,
-            style: ListStyle::SourceList,
-            onpick: move |draft: DraftId| reopen(desk, shell, draft),
-        }
     }
 }

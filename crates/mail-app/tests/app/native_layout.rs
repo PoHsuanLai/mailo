@@ -278,7 +278,7 @@ fn the_more_button_sits_in_the_tail_and_only_opens_the_menu() {
 
 #[test]
 fn a_hidden_sidebar_can_be_shown_again_from_the_list() {
-    const HIDE: &str = ".ds-spaces-foot [aria-label=\"Hide sidebar\"]";
+    const MORE: &str = ".ds-spaces-foot [aria-label=\"Sidebar menu\"]";
     const SHOW: &str = ".list-head [aria-label=\"Show sidebar\"]";
     let (mut harness, _dir) = open(1200, spaces(1));
     assert_eq!(
@@ -286,8 +286,11 @@ fn a_hidden_sidebar_can_be_shown_again_from_the_list() {
         0,
         "the way back is offered while the sidebar is shown"
     );
-    let hide = centre(&harness, HIDE);
-    harness.click(hide);
+    // Hiding it is a row of the foot's one menu.
+    let more = centre(&harness, MORE);
+    harness.click(more);
+    settle_until(&mut harness, |h| h.count(".ds-menu .ds-menu-item") > 0);
+    crate::row_menu::press_menu_item(&mut harness, "Hide Sidebar");
     harness.advance(ms(400));
     assert_eq!(
         harness.count(SHOW),
@@ -302,7 +305,7 @@ fn a_hidden_sidebar_can_be_shown_again_from_the_list() {
         0,
         "the way back stayed after it was taken"
     );
-    assert_eq!(harness.count(HIDE), 1, "the sidebar did not come back");
+    assert_eq!(harness.count(MORE), 1, "the sidebar did not come back");
     assert!(
         rect(&harness, ".side").size.width.0 > 100.0,
         "the sidebar is back but not drawn"
@@ -334,7 +337,7 @@ fn every_footer_control_stays_inside_the_sidebar_at_its_least_width() {
     let toggle = rect(&harness, ".ds-spaces-foot > :last-child");
     assert!(
         within(&toggle, &side),
-        "the sidebar toggle is clipped: {toggle:?} in {side:?}"
+        "the foot's menu button is clipped: {toggle:?} in {side:?}"
     );
 }
 

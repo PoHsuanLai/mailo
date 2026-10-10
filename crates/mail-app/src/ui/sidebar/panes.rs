@@ -102,7 +102,7 @@ fn pin_filter(pin: &Pinned, labels: &[(String, LabelId)]) -> Filter {
 }
 
 fn initial(text: &str) -> char {
-    super::today::initial(text)
+    super::foot::initial(text)
 }
 
 /// A stored `#rrggbb` as quire's colour. A Space file hand-edited to something else draws in
