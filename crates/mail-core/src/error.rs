@@ -305,8 +305,6 @@ pub enum CoreError {
     Pgp(#[from] crate::pgp::PgpError),
     #[error(transparent)]
     Smime(#[from] crate::smime::SmimeError),
-    #[error(transparent)]
-    Usage(#[from] UsageError),
 
     // ---- composing and sending
     #[error("the draft names identity {id}, which this account no longer has")]
@@ -491,50 +489,4 @@ pub enum TimeError {
     NotADate { text: String },
     #[error("{text} does not exist in this time zone")]
     NoSuchInstant { text: String },
-}
-
-/// A command line that could not be read, with the words that say what to type instead.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum UsageError {
-    /// A command with nothing after it: the synopsis alone.
-    #[error("{0}")]
-    Synopsis(&'static str),
-    #[error("{command} {verb} needs {what}\n\n{usage}")]
-    Missing {
-        command: &'static str,
-        verb: String,
-        what: &'static str,
-        usage: &'static str,
-    },
-    #[error("unknown option {option:?}\n\n{usage}")]
-    UnknownOption { option: String, usage: &'static str },
-    #[error("unknown {command} command {verb:?}\n\n{usage}")]
-    UnknownCommand {
-        command: &'static str,
-        verb: String,
-        usage: &'static str,
-    },
-    #[error("{raw:?} is not a message id\n\n{usage}")]
-    NotAMessageId { raw: String, usage: &'static str },
-    /// The domain's own words about a fingerprint that would not read.
-    #[error("{0}; `mailo pgp keys` lists them")]
-    PgpFingerprint(mail_domain::ParseFingerprintError),
-    #[error("{0}; `mailo smime list` lists them")]
-    SmimeFingerprint(mail_domain::ParseFingerprintError),
-    #[error("contacts add needs an address: mailo contacts add ada@example.com Ada")]
-    ContactsAdd,
-    #[error("contacts remove needs an address")]
-    ContactsRemove,
-    #[error("contacts import needs a .vcf file")]
-    ContactsImport,
-    /// A flag that takes a value was the last word.
-    #[error("{flag} needs {what}")]
-    FlagNeeds {
-        flag: &'static str,
-        what: &'static str,
-    },
-    #[error("unknown option {0:?}")]
-    UnknownFlag(String),
-    #[error("unexpected {0:?}")]
-    Unexpected(String),
 }

@@ -34,6 +34,7 @@ pub mod snooze;
 pub mod sync;
 pub mod template;
 pub mod unsubscribe;
+mod usage;
 
 /// What the user asked for.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -478,10 +479,10 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
         "sieve" => rules::parse_sieve(&args[1..]).map(Command::Sieve),
         "pgp" => pgp::parse(&args[1..])
             .map(Command::Pgp)
-            .map_err(String::from),
+            .map_err(|e| e.to_string()),
         "smime" => smime::parse(&args[1..])
             .map(Command::Smime)
-            .map_err(String::from),
+            .map_err(|e| e.to_string()),
         "watch" => match args.get(1).map(String::as_str) {
             None => Ok(Command::Watch {
                 notify: WatchNotify::AsSet,
