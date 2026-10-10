@@ -233,3 +233,67 @@ pub struct CryptoOps<'a>(pub(crate) &'a Mail);
 /// [`Mail::discover`]. The methods are in [`crate::discover`].
 #[derive(Debug, Clone, Copy)]
 pub struct DiscoverOps<'a>(pub(crate) &'a Mail);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::TimeZone;
+    use porter_secrets::MemorySecrets;
+
+    fn handle() -> (Mail, tempfile::TempDir, tokio::runtime::Runtime) {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(SqliteStore::in_memory(dir.path()).unwrap());
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let mail = Mail::new(store, Link::Local, runtime.handle().clone())
+            .with_secrets(Arc::new(MemorySecrets::default()));
+        (mail, dir, runtime)
+    }
+
+    #[test]
+    fn a_handle_carries_what_it_was_built_with_and_nothing_global() {
+        let (mail, _dir, _runtime) = handle();
+        assert!(!mail.link().is_linked());
+        assert_eq!(*mail.environment(), Environment::default());
+        let given = Environment {
+            password: Some("hunter2".to_owned()),
+            ..Environment::default()
+        };
+        let other = mail.clone().with_environment(given.clone());
+        assert_eq!(*other.environment(), given);
+        assert_eq!(
+            *mail.environment(),
+            Environment::default(),
+            "a second handle in the same process has its own environment"
+        );
+    }
+
+    #[test]
+    fn the_clock_is_the_handles_own() {
+        let (mail, _dir, _runtime) = handle();
+        let noon = Utc.with_ymd_and_hms(2026, 1, 2, 12, 0, 0).unwrap();
+        let clock = Arc::new(FixedClock::at(noon));
+        let mail = mail.with_clock(clock.clone());
+        assert_eq!(mail.now(), noon);
+        let later = noon + chrono::TimeDelta::hours(3);
+        clock.set(later);
+        assert_eq!(mail.now(), later);
+    }
+
+    #[test]
+    fn the_secrets_are_the_ones_given_and_an_unlinked_store_has_no_link() {
+        let (mail, _dir, _runtime) = handle();
+        assert!(mail.secrets().link().is_none());
+    }
+
+    #[test]
+    fn the_oauth_clients_can_be_handed_in_rather_than_read_from_the_config_directory() {
+        let (mail, _dir, _runtime) = handle();
+        let none = ClientRegistry::default();
+        let mail = mail.with_clients(none.clone());
+        assert_eq!(mail.clients().unwrap(), none);
+        assert_eq!(mail.saved_clients(), none);
+    }
+}

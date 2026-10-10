@@ -158,29 +158,25 @@ impl crate::mail::SyncOps<'_> {
     /// open for as long as the server allows, so it needs a process whose job is to stay open; the
     /// window was meant to be that and F140 says it is not, so this is.
     ///
-    /// `notifications` decides whether what each pass fetches is announced on the desktop
-    /// (`plan.md` 10.6). With no session bus to announce on, it is as if they were off.
+    /// `notifier` is where what each pass fetches is announced (`plan.md` 10.6): the desktop's
+    /// service in the binary, `None` for a watch that says nothing aloud.
     ///
     /// A watch has no end to return a report at, so each thing it would say is handed to `tell` as
     /// it happens ([`Watched`]) and the caller words it. It returns only once every account has
     /// stopped for a reason worth stopping for, with how each ended.
     pub async fn watch(
         &self,
-        notifications: crate::notify::Setting,
+        notifier: Option<&dyn crate::notify::Notifier>,
         tell: &dyn Fn(Watched),
     ) -> Result<Vec<PassEnd>, CoreError> {
         let mail = self.0;
         let registry = mail.clients()?;
-        let desktop;
-        let announce = match notifications {
-            crate::notify::Setting::On => {
-                desktop = crate::notify::desktop::Desktop::connect();
-                Announce::To {
-                    store: mail.store(),
-                    notifier: &desktop,
-                }
-            }
-            crate::notify::Setting::Off => Announce::Quietly,
+        let announce = match notifier {
+            Some(notifier) => Announce::To {
+                store: mail.store(),
+                notifier,
+            },
+            None => Announce::Quietly,
         };
         run_all(
             mail.store().clone(),

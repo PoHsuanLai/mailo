@@ -548,7 +548,8 @@ pub async fn add_receiving(
             }
         },
     }
-    crate::provider::icon::fetch_if_missing(crate::provider::provider(&plan)).await;
+    crate::provider::icon::fetch_if_missing(crate::provider::provider(&plan), environment.program)
+        .await;
     Ok(out)
 }
 

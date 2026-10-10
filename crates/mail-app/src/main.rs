@@ -26,9 +26,11 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     // What the process was started with, read here and nowhere in the libraries: they are handed
     // it (`mail_app::edge`).
-    mail_app::edge::install_environment(mail_core::Environment::from_lookup(|name| {
-        std::env::var_os(name)
-    }));
+    let mut environment = mail_core::Environment::from_lookup(|name| std::env::var_os(name));
+    if let Ok(exe) = std::env::current_exe() {
+        environment.program = mail_core::Program::of_executable(&exe);
+    }
+    mail_app::edge::install_environment(environment);
 
     // No arguments opens the window, and `open <thread>` opens it on a conversation; anything
     // else is the CLI. One binary because they are one application over one store, and a
@@ -628,7 +630,17 @@ fn main() {
             let _ = std::io::stdout().flush();
         };
         let mail = mail_app::edge::mail(&store);
-        match mail_app::edge::block_on(mail.sync().watch(notifications, &say)) {
+        // The desktop's notification service when notifications are on; with none to reach it
+        // says nothing, and the watch goes on fetching.
+        let desktop;
+        let notifier: Option<&dyn mail_core::notify::Notifier> = match notifications {
+            mail_core::notify::Setting::On => {
+                desktop = mail_core::notify::desktop::Desktop::connect();
+                Some(&desktop)
+            }
+            mail_core::notify::Setting::Off => None,
+        };
+        match mail_app::edge::block_on(mail.sync().watch(notifier, &say)) {
             // Only reached when every account has stopped for a reason worth stopping for — a
             // credential the server refused, which no amount of retrying fixes.
             Ok(ends) => {

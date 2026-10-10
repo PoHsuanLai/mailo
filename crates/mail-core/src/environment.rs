@@ -9,6 +9,39 @@
 
 use std::ffi::OsString;
 use std::fmt;
+use std::path::Path;
+
+/// Which program is running, for the one thing only the installed one does on its own: fetching
+/// provider icons into the person's cache. A test binary, or any other program that links this
+/// crate, must not open a socket or write `~/.cache/mailo`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Program {
+    /// Anything but the `mailo` binary: the default, and what every test is.
+    #[default]
+    Other,
+    /// The `mailo` binary a person runs.
+    Installed,
+}
+
+impl Program {
+    /// The program an executable at `path` is. The program asks the operating system for its
+    /// own path (`std::env::current_exe`) and hands it here.
+    ///
+    /// `mailo`, but not one under a `deps` directory, where cargo builds the test binaries.
+    pub fn of_executable(path: &Path) -> Self {
+        if path
+            .parent()
+            .and_then(|parent| parent.file_name())
+            .is_some_and(|name| name == "deps")
+        {
+            return Program::Other;
+        }
+        match path.file_name().and_then(|name| name.to_str()) {
+            Some("mailo") => Program::Installed,
+            _ => Program::Other,
+        }
+    }
+}
 
 /// The variables mailo reads, parsed. Every field is "not given" until the program gives it.
 #[derive(Clone, Default, PartialEq, Eq)]
@@ -29,6 +62,8 @@ pub struct Environment {
     pub smime_password: Option<OsString>,
     /// This machine's name, from `HOSTNAME`, else Windows's `COMPUTERNAME`.
     pub hostname: Option<String>,
+    /// Which program this is. Not a variable: the program says it ([`Program::of_executable`]).
+    pub program: Program,
 }
 
 impl Environment {
@@ -45,6 +80,7 @@ impl Environment {
             pgp_passphrase: get("MAILO_PGP_PASSPHRASE"),
             smime_password: get("MAILO_SMIME_PASSWORD"),
             hostname: text("HOSTNAME").or_else(|| text("COMPUTERNAME")),
+            program: Program::Other,
         }
     }
 }
@@ -64,6 +100,7 @@ impl fmt::Debug for Environment {
             .field("pgp_passphrase", &said(self.pgp_passphrase.is_some()))
             .field("smime_password", &said(self.smime_password.is_some()))
             .field("hostname", &self.hostname)
+            .field("program", &self.program)
             .finish()
     }
 }
@@ -127,6 +164,27 @@ mod tests {
         let both =
             Environment::from_lookup(table(&[("HOSTNAME", "box"), ("COMPUTERNAME", "desk")]));
         assert_eq!(both.hostname.as_deref(), Some("box"));
+    }
+
+    #[test]
+    fn only_the_mailo_binary_outside_a_deps_directory_is_the_installed_program() {
+        let of = |path: &str| Program::of_executable(Path::new(path));
+        assert_eq!(of("/usr/bin/mailo"), Program::Installed);
+        assert_eq!(of("/work/target/debug/mailo"), Program::Installed);
+        assert_eq!(of("/work/target/debug/deps/mailo"), Program::Other);
+        assert_eq!(
+            of("/work/target/debug/deps/mail_core-0123abcd"),
+            Program::Other
+        );
+        assert_eq!(of("/usr/bin/other"), Program::Other);
+        assert_eq!(of(""), Program::Other);
+    }
+
+    #[test]
+    fn this_test_binary_is_not_the_installed_program() {
+        let exe = std::env::current_exe().unwrap();
+        assert_eq!(Program::of_executable(&exe), Program::Other, "{exe:?}");
+        assert_eq!(Environment::default().program, Program::Other);
     }
 
     #[test]

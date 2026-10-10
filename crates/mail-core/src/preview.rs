@@ -275,6 +275,13 @@ pub fn pdf_page(bytes: Vec<u8>, number: u32, fit: Fit) -> Result<Page, Refusal> 
         .unwrap_or(Err(Refusal::Unreadable))
 }
 
+/// Without the `pdf` feature there is no reader to ask: a PDF is one that could not be read.
+#[cfg(not(feature = "pdf"))]
+fn render_page(_bytes: Vec<u8>, _number: u32, _fit: Fit) -> Result<Page, Refusal> {
+    Err(Refusal::Unreadable)
+}
+
+#[cfg(feature = "pdf")]
 fn render_page(bytes: Vec<u8>, number: u32, fit: Fit) -> Result<Page, Refusal> {
     use pdfrum::{Document, Error, RenderOptions, VelloCpuBackend};
     let doc = match Document::from_bytes(bytes) {

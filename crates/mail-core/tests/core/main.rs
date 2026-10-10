@@ -12,6 +12,7 @@ mod held_while_linked;
 mod ipc;
 mod live_presets;
 mod live_watch;
+mod no_hidden_runtime;
 mod notifications;
 mod offline_sync;
 mod search_scale;

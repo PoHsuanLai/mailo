@@ -57,7 +57,7 @@ pub mod undo;
 pub mod unsubscribe;
 pub mod when;
 
-pub use environment::Environment;
+pub use environment::{Environment, Program};
 pub use error::{CoreError, TimeError, UsageError};
 pub use mail::{
     AccountOps, Clock, ContactOps, CryptoOps, DiscoverOps, FixedClock, Mail, RuleOps, SyncOps,
