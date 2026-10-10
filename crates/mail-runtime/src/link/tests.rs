@@ -276,9 +276,21 @@ fn an_unreachable_accountd_is_not_remembered_as_a_refusal() {
 }
 
 #[test]
-fn the_process_link_is_in_process_until_one_is_installed() {
-    // `install` is once per process and other tests share it, so only the default is asserted.
-    assert!(matches!(current(), Link::Local) || current().is_linked());
+fn two_stores_in_one_process_follow_the_links_they_were_given() {
+    use crate::account_secrets::platform_secrets;
+    let rt = runtime();
+    let first: Arc<dyn Accountd> = Table::saying(vec![]);
+    let second: Arc<dyn Accountd> = Table::saying(vec![]);
+    let a = platform_secrets(&Link::Accountd(first.clone()), rt.handle());
+    let b = platform_secrets(&Link::Accountd(second.clone()), rt.handle());
+    let own = platform_secrets(&Link::Local, rt.handle());
+    assert!(Arc::ptr_eq(&a.link().unwrap(), &first));
+    assert!(Arc::ptr_eq(&b.link().unwrap(), &second));
+    assert!(!Arc::ptr_eq(&a.link().unwrap(), &b.link().unwrap()));
+    assert!(
+        own.link().is_none(),
+        "in process, mailo's own store has no link"
+    );
 }
 
 #[test]
