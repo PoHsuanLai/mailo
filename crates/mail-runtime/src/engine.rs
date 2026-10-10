@@ -1287,6 +1287,7 @@ impl<B: Backend> AccountEngine<B> {
         let Some(path) = self.folder_for(MailboxRole::Drafts) else {
             return Ok(false);
         };
+        // Not a result: the draft itself is not read here, only the bytes made from it.
         let _ = draft;
         // Stored, so the op names bytes that exist: `run_once` reads them back to stage them.
         let raw = self.store.blobs().put(&raw)?;

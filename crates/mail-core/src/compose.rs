@@ -314,7 +314,7 @@ pub fn identity_addressed(
 ) -> Option<IdentityId> {
     store
         .identities(account)
-        .ok()?
+        .or_log("the account's identities could not be read")?
         .into_iter()
         .find(|identity| {
             addressed
@@ -473,7 +473,12 @@ fn attached_size(store: &SqliteStore, draft: &Draft) -> u64 {
     draft
         .attachments
         .iter()
-        .filter_map(|a| store.blobs().size(a.blob).ok())
+        .filter_map(|a| {
+            store
+                .blobs()
+                .size(a.blob)
+                .or_log("an attachment's size could not be read")
+        })
         .sum()
 }
 
@@ -514,7 +519,10 @@ pub fn attachments_of(store: &SqliteStore, draft: DraftId) -> Result<Vec<Attache
         .map(|attachment| AttachedFile {
             name: attachment.name.clone(),
             mime: attachment.mime.clone(),
-            size: store.blobs().size(attachment.blob).ok(),
+            size: store
+                .blobs()
+                .size(attachment.blob)
+                .or_log("an attachment's size could not be read"),
         })
         .collect())
 }
@@ -1050,7 +1058,9 @@ fn queue_inner(
         return Err(mail_runtime::RuntimeError::NoServer("send from").into());
     }
     let identity = identity_of(store, draft.account.clone(), Some(draft.identity))?;
-    let parent = draft.in_reply_to.and_then(|id| store.message(id).ok());
+    let parent = draft
+        .in_reply_to
+        .and_then(|id| store.message(id).or_log("a message could not be read"));
 
     // Attachment bytes come from the blob store, because `posting` is pure and takes them as
     // an argument rather than reading anything.

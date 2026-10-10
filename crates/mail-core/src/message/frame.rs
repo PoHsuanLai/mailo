@@ -4,6 +4,7 @@
 //! A pure function of the stored body, the sanitize policy and, for a message OpenPGP or S/MIME
 //! opened, the body it opened to. [`super::Frames`] remembers the answers.
 
+use crate::error::Logged;
 use mail_domain::{Body, Message};
 use mail_mime::SanitizePolicy;
 use mail_store::SqliteStore;
@@ -91,7 +92,10 @@ pub fn render(
 fn parse_body(store: &SqliteStore, message: &Message) -> Option<mail_mime::Parsed> {
     let raw = message.body.raw()?;
     // A reader, not the writer: a sync's ingest holds the writer for a whole batch.
-    let bytes = store.blobs().get(raw).ok()?;
+    let bytes = store
+        .blobs()
+        .get(raw)
+        .or_log("a message's bytes could not be read")?;
     mail_mime::parse(&bytes).ok()
 }
 

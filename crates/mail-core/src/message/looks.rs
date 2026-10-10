@@ -16,6 +16,7 @@
 
 use super::list::{Offer, offer_of};
 use super::seal::{self, Kept};
+use crate::error::Logged;
 use crate::invite::InviteState;
 use crate::receipt::ReceiptState;
 use crate::recent::Recent;
@@ -150,7 +151,7 @@ impl Looks {
         self.count(Read::Checks);
         let results = store
             .message(message)
-            .ok()
+            .or_log("a message could not be read for its sender's checks")
             .and_then(|message| crate::auth::results_of(store, &message));
         held(&self.checks).put(message, (raw, results.clone()));
         results
@@ -198,8 +199,10 @@ impl Looks {
 
     fn read_invite(&self, store: &SqliteStore, message: MessageId) -> Option<Invited> {
         self.count(Read::Invite);
-        let stored = store.message(message).ok()?;
-        match crate::invite::state(store, &stored).ok()? {
+        let stored = store
+            .message(message)
+            .or_log("a message could not be read")?;
+        match crate::invite::state(store, &stored).or_log("an invitation could not be read")? {
             InviteState::Shown { invite, answered } => Some(Invited { invite, answered }),
             InviteState::NotInvite | InviteState::Unknown => None,
         }
@@ -249,8 +252,11 @@ impl Looks {
 
     fn read_receipt(&self, store: &SqliteStore, message: MessageId) -> Option<Receipt> {
         self.count(Read::Receipt);
-        let stored = store.message(message).ok()?;
-        let state = crate::receipt::state(store, &stored).ok()?;
+        let stored = store
+            .message(message)
+            .or_log("a message could not be read")?;
+        let state =
+            crate::receipt::state(store, &stored).or_log("a read receipt could not be read")?;
         let sender = stored
             .from
             .name
@@ -289,7 +295,10 @@ impl Looks {
         self.count(Read::List);
         // Only stored bytes are read: a message whose body is not here is skipped, never fetched.
         let found = crate::unsubscribe::find(store, *thread.as_uuid()).ok()?;
-        let sender = store.message(found.message).ok()?.from;
+        let sender = store
+            .message(found.message)
+            .or_log("a message could not be read")?
+            .from;
         let from =
             crate::compose::address_addressed(store, found.account.clone(), &found.addressed)
                 .ok()?;

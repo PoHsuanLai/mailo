@@ -6,6 +6,7 @@
 
 use super::{ListedRule, condition};
 use crate::error::CoreError;
+use crate::error::Logged;
 use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::{AfterMatch, Filter, LabelId, Rule, RuleAction, RuleId, RuleState};
 use mail_store::{SqliteStore, Store};
@@ -102,7 +103,7 @@ impl From<CoreError> for SaveError {
 pub fn labels(store: &SqliteStore, account: AccountId) -> Vec<(String, LabelId)> {
     store
         .labels(account)
-        .unwrap_or_default()
+        .or_log_default("the account's labels could not be read")
         .into_iter()
         .map(|label| (label.name, label.id))
         .collect()
@@ -300,7 +301,7 @@ pub fn delete(store: &SqliteStore, rule: &Rule) -> Result<(), CoreError> {
 pub fn conversations(store: &SqliteStore, account: AccountId, now: DateTime<Utc>) -> usize {
     store
         .count(&Filter::Account(account), now)
-        .ok()
+        .or_log("the account's conversations could not be counted")
         .and_then(|n| usize::try_from(n).ok())
         .unwrap_or(0)
 }

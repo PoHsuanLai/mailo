@@ -42,8 +42,8 @@ mod search;
 pub use search::{GraphFound, GraphHit};
 
 use crate::RuntimeError;
-use crate::error::Failure;
-use crate::graph::{detail, retry_after, segment};
+use crate::error::{Failure, Logged};
+use crate::graph::{detail, refusal_text, retry_after, segment};
 use base64::Engine as _;
 use chrono::{DateTime, Utc};
 use mail_domain::{
@@ -420,7 +420,7 @@ impl Reader {
         }
         if !response.status().is_success() {
             let after = retry_after(&response);
-            let text = response.text().await.unwrap_or_default();
+            let text = refusal_text(response).await;
             return Err(refused(status, &text, after));
         }
         let text = response
@@ -544,10 +544,15 @@ impl Reader {
         let status = response.status().as_u16();
         if !response.status().is_success() {
             let after = retry_after(&response);
-            let text = response.text().await.unwrap_or_default();
+            let text = refusal_text(response).await;
             return Err(refused(status, &text, after));
         }
-        let text = response.text().await.unwrap_or_default();
+        // The draft was made: an answer that does not read leaves it unplaced, for the next sync
+        // to find, rather than failing an upload that happened and sending it twice.
+        let text = response
+            .text()
+            .await
+            .or_log_default("Microsoft Graph's answer to an upload could not be read");
         let created: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
         let remote = created
             .get("id")
@@ -751,6 +756,7 @@ impl Reader {
         let request = match body {
             Some(body) => request
                 .header(reqwest::header::CONTENT_TYPE, "application/json")
+                // A `Value` always serialises: there is no failure here to lose.
                 .body(serde_json::to_vec(body).unwrap_or_default()),
             None if bodiless_post => request.header(reqwest::header::CONTENT_LENGTH, "0"),
             None => request,
@@ -765,7 +771,7 @@ impl Reader {
         }
         if !response.status().is_success() {
             let after = retry_after(&response);
-            let text = response.text().await.unwrap_or_default();
+            let text = refusal_text(response).await;
             return Err(refused(status, &text, after));
         }
         let bytes = response

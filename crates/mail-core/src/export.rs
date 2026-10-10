@@ -100,7 +100,7 @@ pub fn select(
             let messages: Vec<Message> = thread
                 .messages
                 .iter()
-                .filter_map(|id| store.message(*id).ok())
+                .filter_map(|id| store.message(*id).or_log("a message could not be read"))
                 .collect();
             let fits: Vec<&Message> = match place {
                 Some(Chosen::Role(role)) => messages.iter().filter(|m| m.mailbox == role).collect(),

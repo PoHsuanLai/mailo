@@ -5,6 +5,7 @@
 //! blob store, so fixing them needs no network: parse again, write back.
 
 use crate::RuntimeError;
+use crate::error::Logged;
 use mail_domain::{Change, ChangeId, Message, MessageId, Patch};
 use mail_store::{SqliteStore, Store};
 
@@ -37,10 +38,15 @@ pub fn reparse_queued(store: &SqliteStore) -> Result<usize, RuntimeError> {
 
 /// `id` with its header fields read again, or `None` when there is nothing to read them from.
 fn reparsed(store: &SqliteStore, id: MessageId) -> Option<Message> {
-    let message = store.message(id).ok()?;
+    let message = store
+        .message(id)
+        .or_log("a message could not be read to read its header again")?;
     let raw = message.body.raw()?;
-    let bytes = store.blobs().get(raw).ok()?;
-    let fields = mail_mime::parse(&bytes).ok()?;
+    let bytes = store
+        .blobs()
+        .get(raw)
+        .or_log("a message's bytes could not be read to read its header again")?;
+    let fields = mail_mime::parse(&bytes).or_log("a stored message could not be read again")?;
     let from = fields.from.unwrap_or_else(|| message.from.clone());
     Some(Message {
         subject: fields.subject,

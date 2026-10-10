@@ -14,6 +14,7 @@
 //! - a web page: reported, never fetched. Opening it is the person's decision.
 
 use crate::error::CoreError;
+use crate::error::Logged;
 use chrono::{DateTime, Utc};
 use mail_domain::*;
 use mail_mime::{ListHeaders, Mailto, Unsubscribe};
@@ -73,7 +74,7 @@ pub fn find(store: &SqliteStore, id: uuid::Uuid) -> Result<Found, CoreError> {
     let mut messages = thread
         .messages
         .iter()
-        .filter_map(|id| store.message(*id).ok())
+        .filter_map(|id| store.message(*id).or_log("a message could not be read"))
         .collect::<Vec<_>>();
     // Newest first: a list that moved its unsubscribe address says so in its latest mail.
     messages.sort_by_key(|message| std::cmp::Reverse(message.date));

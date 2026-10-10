@@ -40,7 +40,7 @@ pub fn cached(dir: &Path, domain: &str, now: DateTime<Utc>) -> Cached {
         return Cached::Unknown;
     };
     let Some(index) = std::fs::read(index_path(dir, &domain))
-        .ok()
+        .ok() // No index, or one that does not read: a domain not asked about yet.
         .and_then(|bytes| serde_json::from_slice::<Index>(&bytes).ok())
     else {
         return Cached::Unknown;
@@ -75,7 +75,7 @@ pub fn remember(
     };
     std::fs::create_dir_all(dir)?;
     let before = std::fs::read(index_path(dir, &domain))
-        .ok()
+        .ok() // No index, or one that does not read: no earlier picture to clear away.
         .and_then(|bytes| serde_json::from_slice::<Index>(&bytes).ok())
         .and_then(|index| index.logo);
     let hash = png.map(hex);
@@ -92,6 +92,7 @@ pub fn remember(
         && Some(&old) != hash.as_ref()
         && is_hex(&old)
     {
+        // Best-effort cleanup: a stale picture left behind is only disk, never shown again.
         let _ = std::fs::remove_file(png_path(dir, &domain, &old));
     }
     Ok(())
@@ -126,10 +127,12 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         .unwrap_or_default();
     let part = path.with_file_name(format!(".{name}.part"));
     if let Err(e) = std::fs::write(&part, bytes) {
+        // Best-effort cleanup: the write's own error is what is reported.
         let _ = std::fs::remove_file(&part);
         return Err(e);
     }
     std::fs::rename(&part, path).inspect_err(|_| {
+        // Best-effort cleanup: the rename's own error is what is reported.
         let _ = std::fs::remove_file(&part);
     })
 }

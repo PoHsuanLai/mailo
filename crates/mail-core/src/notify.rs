@@ -17,6 +17,7 @@ pub mod desktop;
 pub mod floor;
 
 use crate::error::CoreError;
+use crate::error::Logged;
 use chrono::{DateTime, Utc};
 use mail_domain::ThreadId;
 use mail_domain::{MailboxRole, Message, MessageId, ReadState, Snooze};
@@ -260,7 +261,7 @@ pub fn announce(
         let snooze = store
             .thread(message.thread)
             .map(|t| t.summary.snooze)
-            .unwrap_or_default();
+            .or_log_default("a conversation's snooze could not be read");
         held.push((message, snooze));
     }
     let announced: Vec<&Message> = held

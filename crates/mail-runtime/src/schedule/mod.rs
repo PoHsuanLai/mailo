@@ -41,6 +41,13 @@ use tasks::{Generations, Task, Tasks, stuck};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::watch;
 
+/// Tell the scheduler `note`. Ignoring a failure is right: the send fails only once the
+/// scheduler has stopped, and then there is nobody left to tell.
+fn tell(tx: &UnboundedSender<Note>, note: Note) {
+    // Deliberately: see above.
+    let _ = tx.send(note);
+}
+
 /// How soon a freshly opened window starts fetching, so that opening it is not also a network
 /// round trip competing with the first paint.
 pub const BEAT: Duration = Duration::from_secs(2);
@@ -263,7 +270,7 @@ impl<'a> Scheduler<'a> {
             self.fresh.push(Box::pin(async move {
                 tokio::time::sleep(beat).await;
                 for account in known {
-                    let _ = tx.send(Note::Event(account, Event::Start(Trigger::Poll)));
+                    tell(&tx, Note::Event(account, Event::Start(Trigger::Poll)));
                 }
             }));
         }
@@ -346,7 +353,7 @@ impl<'a> Scheduler<'a> {
         self.fresh.push(Box::pin(async move {
             tokio::time::sleep(wait).await;
             if wakes.current(&account, generation) {
-                let _ = tx.send(Note::Event(account, Event::Start(Trigger::Poll)));
+                tell(&tx, Note::Event(account, Event::Start(Trigger::Poll)));
             }
         }));
     }
@@ -422,6 +429,7 @@ impl<'a> Scheduler<'a> {
                 // What the pass says from here on is about a pass that no longer counts.
                 self.held.passes.next(&account);
                 if let Some(cancel) = self.held.cancels.remove(&account) {
+                    // The pass may have ended already, and then there is nothing to stop.
                     let _ = cancel.send(true);
                 }
             }
@@ -433,7 +441,7 @@ impl<'a> Scheduler<'a> {
                 self.fresh.push(Box::pin(async move {
                     tokio::time::sleep(wait).await;
                     if wakes.current(&account, generation) {
-                        let _ = tx.send(Note::Event(account, Event::Tick));
+                        tell(&tx, Note::Event(account, Event::Tick));
                     }
                 }));
             }
@@ -450,6 +458,7 @@ impl<'a> Scheduler<'a> {
         let now = self.host.now();
         for account in changes.removed {
             if let Some(cancel) = self.held.cancels.remove(&account) {
+                // The pass may have ended already, and then there is nothing to stop.
                 let _ = cancel.send(true);
             }
             self.held.passes.forget(&account);
@@ -515,13 +524,13 @@ async fn run_pass(running: Running<'_>) {
         // Ends when the pass drops its sender, which is when it has said everything.
         while let Some(event) = said.recv().await {
             if generations.current(&account, generation) {
-                let _ = tx.send(Note::Event(account.clone(), event));
+                tell(&tx, Note::Event(account.clone(), event));
             }
         }
     };
     let (passed, ()) = tokio::join!(running, forward);
     if generations.current(&account, generation) {
-        let _ = tx.send(Note::Event(account, passed.event));
+        tell(&tx, Note::Event(account, passed.event));
     }
     // What a pass stored is what the list reads, cancelled or not.
     if passed.stored == Stored::Maybe {

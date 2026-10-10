@@ -25,7 +25,7 @@ pub fn after_queue(
     let message_id = parsed.rfc_message_id.ok_or(CoreError::NoMessageId)?;
     let thread = draft
         .in_reply_to
-        .and_then(|parent| store.message(parent).ok())
+        .and_then(|parent| store.message(parent).or_log("a message could not be read"))
         .map(|parent| parent.thread);
     hold(
         store,

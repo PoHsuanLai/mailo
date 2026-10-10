@@ -12,6 +12,7 @@
 //! global: two of them share nothing.
 
 use super::frame::{FrameBody, Source, render};
+use crate::error::Logged;
 use mail_domain::{BlobId, Message, ThreadId};
 use mail_mime::{Parsed, SanitizePolicy};
 use mail_store::{SqliteStore, Store};
@@ -248,7 +249,10 @@ impl Frames {
         if sent.going.contains(&key) {
             return None;
         }
-        let size = store.blobs().size(key.0).unwrap_or(0);
+        let size = store
+            .blobs()
+            .size(key.0)
+            .or_log_default("a picture's size could not be read");
         if size <= *room || sent.landed.contains(&key) {
             *room = room.saturating_sub(size);
             return Some(self.rendered(store, message, policy));

@@ -5,6 +5,7 @@
 //! Nothing here writes a secret key anywhere else.
 
 use super::{PgpError, epoch_changed};
+use crate::error::Logged;
 use chrono::{DateTime, Utc};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
@@ -15,7 +16,10 @@ use porter_core::AccountId;
 
 /// An identity of the user's, found by its address on any account.
 pub(crate) fn identity_for(store: &SqliteStore, address: &str) -> Option<Identity> {
-    store.identity_for_address(address).ok().flatten()
+    store
+        .identity_for_address(address)
+        .or_log("an identity could not be looked up by its address")
+        .flatten()
 }
 
 /// The user's own key for `address`: one whose secret half the keyring holds, best first.

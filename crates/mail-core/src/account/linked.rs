@@ -15,6 +15,7 @@
 //! the address is named in [`Reconciled::held`] until the person removes the old one.
 
 use crate::error::CoreError;
+use crate::error::Logged;
 use mail_domain::id::new_account_id;
 use mail_domain::presets::{self, Manual, ManualPop3, Preset};
 use mail_domain::{
@@ -154,10 +155,14 @@ pub fn preset_of(
 pub fn linked(store: &SqliteStore) -> Vec<Linked> {
     store
         .list_all_accounts()
-        .unwrap_or_default()
+        .or_log_default("the accounts could not be read")
         .into_iter()
         .filter_map(|stored| {
-            let AuthPlan::Granted { account, .. } = stored.plan.ok()?.auth else {
+            let AuthPlan::Granted { account, .. } = stored
+                .plan
+                .or_log("an account's plan could not be read")?
+                .auth
+            else {
                 return None;
             };
             Some(Linked {

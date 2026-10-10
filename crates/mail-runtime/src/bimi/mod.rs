@@ -25,6 +25,7 @@ mod draw;
 pub use cache::{Cached, cached, remember};
 pub use draw::{SIZE, draw};
 
+use crate::error::Logged;
 use crate::lookup::{Miss, SystemDns};
 use chrono::{DateTime, Utc};
 use mail_mime::bimi::{self, BimiRecord, MarkProblem, vmc};
@@ -131,7 +132,7 @@ pub async fn logo<D: Txt + Sync>(
     let now = lookup.now;
     let had = tokio::task::spawn_blocking(move || cached(&dir, &asked, now))
         .await
-        .ok()?;
+        .or_log("the logo cache could not be read")?;
     match had {
         Cached::Logo(png) => return Some(png),
         Cached::None => return None,
@@ -146,9 +147,14 @@ pub async fn logo<D: Txt + Sync>(
     }
     let dir = cache_dir.to_owned();
     let domain = domain.to_owned();
+    // No logo is an answer like any other, and it is what is cached and returned as `None`.
     let kept = answer.clone().ok();
-    let _ =
-        tokio::task::spawn_blocking(move || remember(&dir, &domain, kept.as_deref(), now)).await;
+    tokio::task::spawn_blocking(move || remember(&dir, &domain, kept.as_deref(), now))
+        .await
+        .map_err(std::io::Error::other)
+        .and_then(|written| written)
+        .or_log("a sender's logo could not be cached");
+    // The same: a domain with no logo is not a failure to report.
     answer.ok()
 }
 

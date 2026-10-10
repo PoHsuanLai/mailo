@@ -7,6 +7,7 @@
 //! Every answer is a value; the sheet words it.
 
 use crate::error::CoreError;
+use crate::error::Logged;
 use crate::export::{self, Target};
 use crate::import::{self, Destination, Imported, Source};
 use chrono::{DateTime, Utc};
@@ -132,7 +133,10 @@ pub struct Upload {
 /// the window takes it, so its tile still has folders to name.
 pub fn upload_folders(store: &SqliteStore) -> Vec<Upload> {
     let mut out = Vec::new();
-    for account in store.list_accounts().unwrap_or_default() {
+    for account in store
+        .list_accounts()
+        .or_log_default("the accounts could not be read")
+    {
         let imap = match &account.plan {
             Ok(plan) => matches!(plan.incoming, Incoming::Imap { .. }),
             Err(_) => true,
@@ -142,7 +146,7 @@ pub fn upload_folders(store: &SqliteStore) -> Vec<Upload> {
         }
         let mut folders: Vec<String> = store
             .folders(account.id.clone())
-            .unwrap_or_default()
+            .or_log_default("an account's folders could not be read")
             .into_iter()
             .map(|folder| folder.path)
             .collect();
