@@ -6,7 +6,7 @@
 
 use mail_domain::{Body, Message};
 use mail_mime::SanitizePolicy;
-use mail_store::{SqliteStore, Store};
+use mail_store::SqliteStore;
 
 /// What the reader displays for one message body in its sandboxed frame.
 #[derive(Debug, Clone, PartialEq, Eq)]

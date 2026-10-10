@@ -115,7 +115,7 @@ pub const ON_THE_FRAME: u64 = 128 * 1024;
 pub const FIRST_SCREEN: usize = 20;
 
 /// Where each rendering one reader sent off the thread has got to.
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct Sent {
     /// Being rendered: drawn as a placeholder until it lands.
     going: Vec<Key>,
@@ -143,6 +143,14 @@ pub struct Frames {
     cache: Mutex<Cache>,
     /// Bumped by every [`Frames::warm`], so that only the newest one keeps going.
     warming: AtomicU64,
+}
+
+impl std::fmt::Debug for Frames {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Frames")
+            .field("warming", &self.warming)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Frames {

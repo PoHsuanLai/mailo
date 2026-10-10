@@ -119,7 +119,7 @@ pub fn failed(failure: &Failed) -> String {
 pub fn lookup(address: &str) -> Result<Found, String> {
     use mail_core::discover::Looked;
     match crate::edge::block_on(mail_core::discover::resolve(address, chrono::Utc::now())) {
-        Looked::Found(found) => Ok(found),
+        Looked::Found(found) => Ok(*found),
         Looked::Jmap(session) => Err(format!(
             "could not find IMAP or POP3 servers for {address}, but there is a JMAP server at \
              {session}; add the account there with:\n\n  mailo account add {address} --jmap {session}"

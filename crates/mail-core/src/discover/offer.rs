@@ -16,8 +16,8 @@ use porter_core::sheet::{Hop, MailServers, Manual as Typed, Security};
 /// What looking an address up came to.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Looked {
-    /// Servers were found for the address.
-    Found(Found),
+    /// Servers were found for the address. Boxed: it is far larger than the other answers.
+    Found(Box<Found>),
     /// Only a JMAP session was found, at this URL.
     Jmap(String),
     /// Nothing usable is published: the servers have to be named.
@@ -44,7 +44,7 @@ pub fn typed_domain(typed: &str) -> Option<String> {
 /// offer, as it was the first of the two the old sheet showed.
 pub fn settle(found: Result<Found, Failed>, jmap: Option<String>) -> Looked {
     match (found, jmap) {
-        (Ok(found), _) => Looked::Found(found),
+        (Ok(found), _) => Looked::Found(Box::new(found)),
         (Err(_), Some(session)) => Looked::Jmap(session),
         (Err(failed @ Failed::NoServers { gap, .. }), None) => match gap {
             Gap::PersonalMicrosoft => Looked::PersonalMicrosoft(failed),
