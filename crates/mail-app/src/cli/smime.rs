@@ -6,12 +6,12 @@
 
 use chrono::{DateTime, Utc};
 use mail_core::Environment;
+use mail_core::SigningStore;
 use mail_core::error::{CoreError, UsageError};
 use mail_core::pgp::WithSecret;
 use mail_core::smime::{Protected, SmimeError, certs, read};
+use mail_core::{SqliteStore, Store};
 use mail_domain::*;
-use mail_runtime::SigningStore;
-use mail_store::{SqliteStore, Store};
 use std::fmt::Write as _;
 
 /// A PKCS#12 file's password as the command line gets one: `MAILO_SMIME_PASSWORD` (the

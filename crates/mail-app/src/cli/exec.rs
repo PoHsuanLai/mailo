@@ -6,7 +6,7 @@
 //! (sync and watch, the daemon, the commands that wait on the network, and the exit code).
 
 use super::Command;
-use mail_store::SqliteStore;
+use mail_core::SqliteStore;
 use std::sync::Arc;
 
 /// What [`prepare`] leaves to be done.
@@ -429,7 +429,7 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) {
         {
             let provider = crate::intents::Provider::new(
                 store.clone(),
-                std::sync::Arc::new(mail_runtime::KeyringSigningStore::default()),
+                std::sync::Arc::new(mail_core::KeyringSigningStore::default()),
                 crate::intents::Opener::window(),
             );
             match crate::intents::serve(provider) {
@@ -476,10 +476,7 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) {
             eprintln!("an open window will look for new mail rather than be told of it: {why}");
         }
         // The unread count on the launcher, kept up whether or not a window is open.
-        if let Some(launcher) = crate::ui::launcher::platform()
-            && let Err(e) =
-                crate::session::keep_the_badge(store.clone(), launcher.0, crate::session::EVERY)
-        {
+        if let Some(Err(e)) = crate::session::keep_the_launchers_badge(store.clone()) {
             eprintln!("the launcher's unread count is off: {e}");
         }
         println!("watching. Ctrl-C to stop.");

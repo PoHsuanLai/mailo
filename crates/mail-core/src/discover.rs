@@ -975,17 +975,17 @@ mod tests {
             }
         ));
         assert_eq!(google.preset.plan.address, "me@firm.example");
-        let text = describe(
-            "me@firm.example",
-            &google.source.to_string(),
-            &google.preset,
-        );
+        // How the command line words it is `cli::discover::describe`'s; here, what it is.
+        let source = google.source.to_string();
         assert!(
-            text.contains("via MX → Google (mail for the domain goes to aspmx.l.google.com)"),
-            "{text}"
+            source.contains("Google (mail for the domain goes to aspmx.l.google.com)"),
+            "{source}"
         );
-        assert!(text.contains("imap.gmail.com:993"), "{text}");
-        assert!(text.contains("OAuth"), "{text}");
+        let incoming = format!("{:?}", google.preset.plan.incoming);
+        assert!(
+            incoming.contains("imap.gmail.com") && incoming.contains("993"),
+            "{incoming}"
+        );
 
         for host in ["firm-example.mail.protection.outlook.com", "mx.outlook.com"] {
             let microsoft = Net::with_mx("firm.example", host)

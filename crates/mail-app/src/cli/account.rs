@@ -8,10 +8,10 @@ use super::{Consent, account_named};
 use mail_core::account::{
     Added, ClientRecord, GraphSetup, Listed, MicrosoftRoute, Outcome, Readiness,
 };
+use mail_core::{SqliteStore, Store};
 use mail_domain::presets::PasswordWarning;
 use mail_domain::{AccountPlan, Incoming, LeaveOnServer};
 use mail_runtime::AccountSecrets;
-use mail_store::{SqliteStore, Store};
 use porter_provider::Issuer;
 use std::fmt::Write as _;
 use std::path::Path;

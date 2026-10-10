@@ -10,6 +10,7 @@ use std::fmt::Write as _;
 use std::path::PathBuf;
 
 use super::{SqliteStore, Store};
+use crate::said::invite::{said, word};
 
 /// `mailo invite …`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -166,15 +167,6 @@ pub fn render<Z: TimeZone>(invite: &Invite, answered: Option<&InviteAnswer>, zon
     out
 }
 
-/// What `mailo invite <message-id> accept|tentative|decline` prints once the answer is queued.
-pub fn said(answered: &Answered) -> String {
-    format!(
-        "queued your answer ({}) to {}\n\ndeliver it with: mailo sync\n",
-        word(answered.attendance),
-        answered.to.join(", ")
-    )
-}
-
 /// Run `mailo invite …`.
 pub fn run(
     store: &SqliteStore,
@@ -211,14 +203,6 @@ pub fn run(
                 .map_err(|e| CoreError::cannot(format!("write {}", path.display()), e))?;
             Ok(format!("wrote {}\n", path.display()))
         }
-    }
-}
-
-fn word(attendance: Attendance) -> &'static str {
-    match attendance {
-        Attendance::Accepted => "accepted",
-        Attendance::Tentative => "tentative",
-        Attendance::Declined => "declined",
     }
 }
 

@@ -163,7 +163,11 @@ pub(in crate::ui) fn forget(store: &dyn Store, address: &str) -> Result<bool, St
 /// sentence for the sheet.
 pub(in crate::ui) fn import(store: &dyn Store, bytes: &[u8]) -> Result<String, String> {
     mail_core::contacts::import(store, bytes)
-        .map(|said| said.trim().replace('\n', ". "))
+        .map(|done| {
+            crate::said::contacts::imported(&done)
+                .trim()
+                .replace('\n', ". ")
+        })
         .map_err(String::from)
 }
 

@@ -91,7 +91,7 @@ pub(in crate::ui) fn put(
     reach(&row.plan)?;
     let account = configured(store, row, now);
     let pushed = push(store, &account, now)?;
-    Ok(crate::cli::rules::said(&account.address, &pushed))
+    Ok(crate::said::rules::said(&account.address, &pushed))
 }
 
 /// Where a push stands. One that failed is ready again, its reason the page's to say.

@@ -39,9 +39,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use chrono::Utc;
+use mail_core::SqliteStore;
 use mail_domain::*;
 use mail_runtime::SigningStore;
-use mail_store::SqliteStore;
 
 /// Look a key up by its address's domain. Blocks on the network: run it off the thread that draws.
 pub(in crate::ui) type Lookup =
@@ -75,7 +75,7 @@ impl Seams {
             };
         }
         Seams {
-            secrets: Arc::new(mail_runtime::KeyringSigningStore::default()),
+            secrets: Arc::new(mail_core::KeyringSigningStore::default()),
             lookup: Arc::new(|store, address| {
                 crate::edge::block_on(mail_core::pgp::lookup_address(store, address, Utc::now()))
                     .map_err(|e| e.to_string())

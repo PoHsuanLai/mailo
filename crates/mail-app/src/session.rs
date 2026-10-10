@@ -45,6 +45,16 @@ impl Beat {
     }
 }
 
+/// Keep this platform's launcher showing the unread count, for as long as the process runs. `None`
+/// when the platform has no launcher to tell. For `mailo watch`, which has no window of its own.
+pub fn keep_the_launchers_badge<S>(store: Arc<S>) -> Option<std::io::Result<()>>
+where
+    S: Store + Send + Sync + ?Sized + 'static,
+{
+    let launcher = crate::ui::launcher::platform()?;
+    Some(keep_the_badge(store, launcher.0, EVERY).map(|_| ()))
+}
+
 /// Read the count every `every` and tell `badge` when it is due, on a thread of its own, for as
 /// long as the process runs. A read that fails (the database is busy, or gone) is skipped: the
 /// next one says it.

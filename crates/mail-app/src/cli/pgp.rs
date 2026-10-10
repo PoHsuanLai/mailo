@@ -6,12 +6,12 @@
 
 use chrono::{DateTime, Utc};
 use mail_core::Environment;
+use mail_core::SigningStore;
 use mail_core::error::{CoreError, UsageError};
 use mail_core::pgp::keys::{self, WithSecret};
 use mail_core::pgp::{Discovered, Discovery, PgpError, Protected};
+use mail_core::{SqliteStore, Store};
 use mail_domain::*;
-use mail_runtime::SigningStore;
-use mail_store::{SqliteStore, Store};
 use std::fmt::Write as _;
 
 /// The passphrase for `fingerprint` as the command line gets one: `MAILO_PGP_PASSPHRASE` (the

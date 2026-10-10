@@ -339,7 +339,7 @@ mod tests {
     use super::*;
     use mail_core::discover::Source;
 
-    fn now() -> chrono::DateTime<chrono::Utc> {
+    pub(super) fn now() -> chrono::DateTime<chrono::Utc> {
         chrono::DateTime::parse_from_rfc3339("2026-09-24T12:00:00Z")
             .unwrap()
             .with_timezone(&chrono::Utc)
@@ -542,7 +542,9 @@ mod tests {
 
 #[cfg(test)]
 mod jmap_tests {
+    use super::tests::now;
     use super::*;
+    use mail_core::discover::Source;
 
     fn add(consent: Consent) -> Command {
         Command::AccountAdd {

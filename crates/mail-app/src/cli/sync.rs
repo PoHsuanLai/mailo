@@ -4,8 +4,8 @@
 //! that `sync` and `watch` read a pass the same way: a watch that reported one differently from
 //! the command that runs one pass would be two vocabularies for one event.
 
+use mail_core::SqliteStore;
 use mail_core::sync::report::{AccountReport, PassEnd, Watched};
-use mail_store::SqliteStore;
 use std::fmt::Write as _;
 
 /// What `mailo sync` prints for a run over every account.

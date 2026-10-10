@@ -6,11 +6,12 @@
 //! this reads the words and says the result.
 
 use super::SqliteStore;
+use crate::said::contacts::imported;
 use chrono::{DateTime, Utc};
 use mail_core::Environment;
 use mail_core::contacts::{self, BookSync, How, Imported, Synced};
 use mail_core::error::CoreError;
-use mail_runtime::{AccountSecrets, ClientRegistry};
+use mail_core::{AccountSecrets, ClientRegistry};
 use std::fmt::Write as _;
 use std::path::PathBuf;
 
@@ -176,30 +177,6 @@ fn shown(name: Option<&str>, address: &str) -> String {
         email: address.to_owned(),
     }
     .to_string()
-}
-
-/// What reading a `.vcf` file says.
-pub fn imported(done: &Imported) -> String {
-    let mut out = format!(
-        "imported {} addresses from {} cards\n",
-        done.addresses, done.cards
-    );
-    if done.groups > 0 {
-        let _ = writeln!(
-            out,
-            "imported {} {}",
-            done.groups,
-            if done.groups == 1 { "group" } else { "groups" }
-        );
-    }
-    if done.empty > 0 {
-        let _ = writeln!(
-            out,
-            "{} cards had no email address and were skipped",
-            done.empty
-        );
-    }
-    out
 }
 
 /// What a sync of address books says: a line for each, and what it wrote back.

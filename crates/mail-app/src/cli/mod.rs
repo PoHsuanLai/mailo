@@ -7,8 +7,8 @@
 use chrono::{DateTime, Local, Utc};
 use mail_core::account::{Receive, Setup};
 use mail_core::when::Stamp;
+use mail_core::{SqliteStore, Store};
 use mail_domain::*;
-use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
 use std::fmt::Write as _;
 
@@ -1495,7 +1495,7 @@ pub fn run_with_clients(
                 // never before. The decrypted text is printed and kept nowhere.
                 let protected = mail_core::pgp::open_message(
                     store,
-                    &mail_runtime::KeyringSigningStore::default(),
+                    &mail_core::KeyringSigningStore::default(),
                     &message,
                     &|fingerprint| pgp::terminal_passphrase(&env, fingerprint),
                     now,
@@ -1516,7 +1516,7 @@ pub fn run_with_clients(
                     Some(text) => Some(text),
                     None => match mail_core::smime::open_message(
                         store,
-                        &mail_runtime::KeyringSigningStore::default(),
+                        &mail_core::KeyringSigningStore::default(),
                         &message,
                         now,
                     ) {
@@ -1589,7 +1589,7 @@ pub fn run_with_clients(
         // protected key.
         Command::Send { draft, at: None } => mail_core::compose::send_with(
             store,
-            &mail_runtime::KeyringSigningStore::default(),
+            &mail_core::KeyringSigningStore::default(),
             &|fingerprint| pgp::terminal_passphrase(&env, fingerprint),
             *draft,
             now,
@@ -1601,7 +1601,7 @@ pub fn run_with_clients(
             at: Some(when),
         } => mail_core::compose::send_later_with(
             store,
-            &mail_runtime::KeyringSigningStore::default(),
+            &mail_core::KeyringSigningStore::default(),
             &|fingerprint| pgp::terminal_passphrase(&env, fingerprint),
             *draft,
             when,
@@ -1723,7 +1723,7 @@ pub fn run_with_clients(
         .map_err(String::from),
         Command::Smime(command) => smime::run(
             store,
-            &mail_runtime::KeyringSigningStore::default(),
+            &mail_core::KeyringSigningStore::default(),
             &|| smime::terminal_password(&env),
             command,
             now,
@@ -1734,7 +1734,7 @@ pub fn run_with_clients(
         }
         Command::Pgp(command) => pgp::run(
             store,
-            &mail_runtime::KeyringSigningStore::default(),
+            &mail_core::KeyringSigningStore::default(),
             command,
             now,
         )

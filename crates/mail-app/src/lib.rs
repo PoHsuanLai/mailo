@@ -10,6 +10,7 @@ pub mod accountd;
 pub mod cli;
 pub mod edge;
 pub mod intents;
+pub mod said;
 pub mod session;
 pub mod settings;
 pub mod ui;
