@@ -96,6 +96,7 @@ impl<B: Backend> AccountEngine<B> {
                     }
                     () = &mut rearm, if ended.is_none() => {
                         ended = Some(Ended::Rearm);
+                        // The watch ends on its own once it is gone; nothing waits on this send.
                         let _ = tx.send(true);
                     }
                     changed = cancel.changed(), if ended.is_none() => {

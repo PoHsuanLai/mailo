@@ -395,6 +395,7 @@ fn remember(store: &SqliteStore, end: &PassEnd, at: chrono::DateTime<chrono::Utc
         PassEnd::Failed { account, why, .. } => store.pass_failed(account.clone(), at, why),
         PassEnd::Cancelled { .. } => return,
     };
+    // Logged and no more: the pass has ended either way, and only the record of it is lost.
     let _ = kept.or_log("how a pass ended could not be kept");
 }
 

@@ -60,6 +60,7 @@ impl SqliteStore {
         let failed = match (failed_at, failed_why) {
             (Some(at), why) => Some(PassFailed {
                 at: time("account_passes.failed_at", &at)?,
+                // A failure kept without words (a NULL column) reads as none: no error is lost.
                 why: why.unwrap_or_default(),
             }),
             (None, _) => None,

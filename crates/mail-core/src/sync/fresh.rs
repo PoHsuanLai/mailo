@@ -13,6 +13,7 @@
 //! last ingest. The allowance follows the server ([`WatchMode`]), not who holds the connection:
 //! the same account is pushed by a watch and polled by a window beside it.
 
+use crate::error::Logged;
 use crate::fetch::Link;
 use chrono::{DateTime, TimeDelta, Utc};
 use mail_domain::WatchMode;
@@ -74,9 +75,13 @@ impl Pace {
     pub fn of(store: &SqliteStore, account: AccountId) -> Pace {
         let recorded = store
             .passes(account.clone())
-            .ok()
+            .or_log("how the account's last pass ended could not be read")
             .and_then(|passes| passes.finished);
-        let watch = store.account_caps(account).ok().flatten().map_or(
+        let watch = store
+            .account_caps(account)
+            .or_log("what the account's server can do could not be read")
+            .flatten()
+            .map_or(
             WatchMode::Poll {
                 every: super::due::IDLE,
             },

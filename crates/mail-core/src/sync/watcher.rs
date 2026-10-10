@@ -132,6 +132,7 @@ pub async fn answer(asked: Option<Asked>, store: &SqliteStore, tx: UnboundedSend
     if let Some(mut asked) = asked {
         while asked.changed().await.is_ok() {
             for (account, _) in super::due::intervals(store) {
+                // The send fails only once the scheduler has stopped, and then nobody is left to ask.
                 let _ = tx.send(Note::Event(account, Event::Start(Trigger::Manual)));
             }
         }
