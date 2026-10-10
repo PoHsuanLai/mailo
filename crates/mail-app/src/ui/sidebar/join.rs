@@ -59,7 +59,7 @@ pub(super) fn items(
             row(
                 id.to_string(),
                 Tile::Avatar {
-                    letter: super::today::initial(name),
+                    letter: super::foot::initial(name),
                     color: color(id.clone()),
                 },
                 name.clone(),

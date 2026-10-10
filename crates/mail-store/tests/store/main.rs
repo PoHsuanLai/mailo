@@ -21,6 +21,7 @@ mod in_folder;
 mod jmap;
 mod labels;
 mod offline;
+mod opened;
 mod parity;
 mod pgp_keys;
 mod phase3_milestone;

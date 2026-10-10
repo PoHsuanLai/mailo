@@ -18,6 +18,7 @@ pub mod migrate;
 #[cfg(not(feature = "test-support"))]
 mod migrate;
 mod offline;
+mod opened;
 mod pgp;
 mod prefix;
 mod remote_row;
@@ -39,6 +40,7 @@ pub use follow_up::FollowUpHold;
 pub use history::SenderRecord;
 pub use memory::MemoryStore;
 pub use offline::{Offline, RemotePart};
+pub use opened::OPENED_KEPT;
 pub use sql::{SqlFilter, SqlValue, compile};
 pub use sqlite::Freed;
 pub use sqlite::SqliteStore;
@@ -762,4 +764,16 @@ pub trait Store {
     /// Not a [`Filter`]: a reminder is decided on messages and the user's own addresses, which a
     /// filter over the summary cannot see, so the caller reads this list and decides.
     fn follow_ups(&self) -> Result<Vec<ThreadSummary>, StoreError>;
+
+    /// Note that the person opened `thread` at `at`: History lists it from `at`, once, however
+    /// often it is opened. Opening it again moves it up; an earlier `at` than the one kept
+    /// changes nothing. Everything last opened more than [`OPENED_KEPT`] before `at` is
+    /// forgotten in the same call. A conversation the store does not hold is not recorded.
+    ///
+    /// Not through [`Store::apply`], like a view: opening mail is not an edit of it.
+    fn record_opened(&self, thread: ThreadId, at: DateTime<Utc>) -> Result<(), StoreError>;
+
+    /// The conversations the person opened, newest open first and ties by thread id: History.
+    /// A conversation that has since gone is not listed.
+    fn opened(&self) -> Result<Vec<ThreadSummary>, StoreError>;
 }

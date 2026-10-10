@@ -76,6 +76,7 @@ fn place_icon(source: &Source) -> Icon {
         Source::Drafts => Icon::FilePen,
         Source::Saved(_) => Icon::Search,
         Source::Waiting => Icon::Clock,
+        Source::History => Icon::RotateLeft,
     }
 }
 

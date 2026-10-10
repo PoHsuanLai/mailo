@@ -27,6 +27,7 @@ mod folders;
 mod found;
 mod groups;
 mod offline;
+mod opened;
 mod pgp;
 mod rules;
 mod smime;
@@ -61,6 +62,8 @@ struct Inner {
     templates: BTreeMap<TemplateId, Template>,
     /// Saved views, by id, each with its place in the sidebar.
     views: BTreeMap<mail_domain::ViewId, (i64, mail_domain::View)>,
+    /// When each conversation was last opened: History.
+    opened: BTreeMap<ThreadId, DateTime<Utc>>,
     rules: BTreeMap<mail_domain::RuleId, mail_domain::Rule>,
     vacations: BTreeMap<AccountId, mail_domain::Vacation>,
     /// What each account's server turned out to support.
@@ -145,6 +148,7 @@ impl Default for Inner {
             drafts: BTreeMap::new(),
             templates: BTreeMap::new(),
             views: BTreeMap::new(),
+            opened: BTreeMap::new(),
             rules: BTreeMap::new(),
             vacations: BTreeMap::new(),
             caps: BTreeMap::new(),
@@ -504,6 +508,15 @@ impl Store for MemoryStore {
         Ok(crate::follow_up::in_due_order(ids.into_iter().filter_map(
             |id| inner.view(id).map(|(summary, _)| summary),
         )))
+    }
+
+    fn record_opened(&self, thread: ThreadId, at: DateTime<Utc>) -> Result<(), StoreError> {
+        self.inner.borrow_mut().record_opened(thread, at);
+        Ok(())
+    }
+
+    fn opened(&self) -> Result<Vec<ThreadSummary>, StoreError> {
+        Ok(self.inner.borrow().opened_in_order())
     }
 
     fn put_view(&self, view: &mail_domain::View) -> Result<(), StoreError> {

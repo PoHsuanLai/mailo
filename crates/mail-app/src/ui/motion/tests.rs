@@ -287,28 +287,12 @@ async fn a_row_dropped_on_a_label_wears_it() {
     );
 }
 
-/// Today's entry for the thread called `title`, as rendered, if it is drawn: quire's list item
-/// around the tab, up to its close button.
-fn today_entry(page: &str, title: &str) -> Option<String> {
-    let close = page.find(&format!("aria-label=\"Close {title}\""))?;
-    let start = page[..close].rfind("class=\"ds-list-item\"")?;
-    Some(page[start..close].to_owned())
-}
-
-#[tokio::test]
-async fn a_today_entry_opens_and_closes_on_quires_clock() {
-    let Mounted { mut dom, seen, .. } = mounted();
-    // A thread Today does not hold yet: the release thread.
-    let page = dioxus_ssr::render(&dom);
-    assert!(
-        page.contains(&format!("aria-label=\"Open {RELEASE}\"")),
-        "the release row is drawn"
-    );
-    let opened = RELEASE;
-    assert!(today_entry(&page, opened).is_none(), "already in Today");
-    let row = seen.one("aria-label", &format!("Open {RELEASE}"));
-    let mut painted = click(&mut dom, row);
-    // Drawn as `settle` would, keeping what was painted: the entry's close button among it.
+/// The foot menu's rows, after opening it from the button the first paint gave out.
+async fn foot_menu(dom: &mut VirtualDom, seen: &Seen) -> (Seen, Vec<String>) {
+    let asked = click(dom, seen.one("aria-label", "Sidebar menu"));
+    // The renders that draw the menu are kept, so a pick can find its items by id: `settle`
+    // above throws them away.
+    let mut opened = crate::ui::fixtures::settle(dom, asked);
     for _ in 0..8 {
         if tokio::time::timeout(std::time::Duration::from_millis(40), dom.wait_for_work())
             .await
@@ -318,43 +302,55 @@ async fn a_today_entry_opens_and_closes_on_quires_clock() {
         }
         let mut more = Seen::default();
         dom.render_immediate(&mut more);
-        painted = painted.merge(more);
+        opened = opened.merge(more);
     }
-    let page = dioxus_ssr::render(&dom);
-    let entry = today_entry(&page, opened).expect("the opened thread is not in Today");
+    let names = crate::ui::fixtures::menu_names(&dioxus_ssr::render(dom));
+    (opened, names)
+}
+
+#[tokio::test]
+async fn a_today_entry_is_listed_when_opened_gone_when_cleared_and_expires_on_the_clock() {
+    let Mounted { mut dom, seen, .. } = mounted();
+    // A thread Today does not hold yet: the release thread.
+    let (_, names) = foot_menu(&mut dom, &seen).await;
     assert!(
-        entry.contains("data-presence=\"entering\""),
-        "the entry did not open:\n{entry}"
+        !names.iter().any(|name| name == RELEASE),
+        "already in Today"
     );
-    let span = |anim| anim_settle(anim, MotionLevel::Standard);
-    let slack = std::time::Duration::from_millis(1000);
+    // Close the menu again by its button.
+    click(&mut dom, seen.one("aria-label", "Sidebar menu"));
+    let row = seen.one("aria-label", &format!("Open {RELEASE}"));
+    click(&mut dom, row);
+    settle(&mut dom).await;
+    let (opened, names) = foot_menu(&mut dom, &seen).await;
     assert!(
-        until(&mut dom, span(Anim::RowIn) + slack, |page| {
-            today_entry(page, opened)
-                .is_some_and(|entry| entry.contains("data-presence=\"present\""))
-        })
-        .await,
-        "the entry was still opening once its entrance had settled"
+        names.iter().any(|name| name == RELEASE),
+        "the opened thread is not in Today: {names:?}"
+    );
+    crate::ui::fixtures::pick_named(&mut dom, &opened, "Clear Today").await;
+    settle(&mut dom).await;
+    let (_, names) = foot_menu(&mut dom, &seen).await;
+    assert!(
+        !names.iter().any(|name| name == RELEASE),
+        "Clear Today left it: {names:?}"
     );
 
-    let close = seen
-        .merge(painted)
-        .one("aria-label", &format!("Close {RELEASE}"));
-    click(&mut dom, close);
-    settle(&mut dom).await;
-    let page = dioxus_ssr::render(&dom);
-    let entry = today_entry(&page, opened).expect("a closed entry is drawn while it goes");
-    assert!(
-        entry.contains("data-presence=\"leaving\""),
-        "the entry did not close:\n{entry}"
+    // Expiry is the kit's: an entry idle past `IDLE` is not live, whatever was drawn.
+    let space = crate::ui::space::SpaceId(0);
+    let now = chrono::Utc::now();
+    let mut today = crate::ui::today::Today::default();
+    let thread = ThreadId::generate();
+    today.opened(
+        space,
+        thread,
+        crate::ui::today::at(
+            now - chrono::Duration::from_std(crate::ui::today::IDLE).unwrap()
+                - chrono::TimeDelta::seconds(5),
+        ),
     );
-    assert!(
-        until(&mut dom, span(Anim::RowOut) + slack, |page| {
-            today_entry(page, opened).is_none()
-        })
-        .await,
-        "the entry was still drawn once its exit had settled"
-    );
+    assert!(today.live(space, crate::ui::today::at(now)).is_empty());
+    today.opened(space, thread, crate::ui::today::at(now));
+    assert_eq!(today.live(space, crate::ui::today::at(now)).len(), 1);
 }
 
 #[tokio::test]

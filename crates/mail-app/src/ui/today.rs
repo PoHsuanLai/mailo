@@ -2,9 +2,10 @@
 //!
 //! quire's kit (`ds::components::app::spaces::Today`) over mail's items: a thread is what opens,
 //! a draft is what parks. Stored in `today.json` under the state directory. An entry is a
-//! shortcut in the sidebar; closing it, or letting it expire after [`IDLE`], removes the shortcut
-//! and does not touch the mail. A parked draft stays until it is reopened, sent or discarded,
-//! because the draft itself is in the store and this is only the way back to it.
+//! shortcut in the sidebar's menu (the chevron at the foot, which lists the newest few); Clear
+//! Today, or letting it expire after [`IDLE`], removes the shortcut and does not touch the mail.
+//! A parked draft stays until it is reopened, sent or discarded, because the draft itself is in
+//! the store and this is only the way back to it.
 //!
 //! mailo's clock is chrono's (a test's is virtual); the kit's is seconds, made here by [`at`].
 

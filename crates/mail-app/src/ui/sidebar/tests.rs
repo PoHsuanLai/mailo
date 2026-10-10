@@ -45,6 +45,54 @@ async fn the_foot_dots_are_buttons_that_say_which_space_is_on() {
     );
 }
 
+#[tokio::test]
+async fn the_foot_holds_the_dots_and_one_menu_button_and_no_settings_or_sidebar_buttons() {
+    let (store, _dir) = empty();
+    let spaces = built(
+        ["Work", "Home", "Club"]
+            .into_iter()
+            .map(|name| {
+                (
+                    name.to_owned(),
+                    SpaceLook::default(),
+                    Mail::over(Scope::All),
+                )
+            })
+            .collect(),
+        0,
+    );
+    let mut dom = VirtualDom::new(App)
+        .with_root_context(store)
+        .with_root_context(spaces);
+    dom.rebuild_in_place();
+    let page = dioxus_ssr::render(&dom);
+    let buttons = buttons_in(&page, "ds-spaces-foot");
+    let labels: Vec<&str> = buttons
+        .iter()
+        .map(|button| button.attr("aria-label"))
+        .collect();
+    // Downloads on the left when the window has a shelf for it, quire's own `+` until the foot
+    // can leave it out (the menu's New Space is the same path), and the one chevron at the
+    // right; between them the dots and nothing else.
+    let rest: Vec<&str> = labels
+        .iter()
+        .copied()
+        .filter(|label| *label != "Downloads" && *label != "New Space")
+        .collect();
+    assert_eq!(
+        rest,
+        ["Work Space", "Home Space", "Club Space", "Sidebar menu"],
+        "{page}"
+    );
+    assert_eq!(labels.last().copied(), Some("Sidebar menu"), "{page}");
+    for gone in ["Settings", "Sidebar", "Hide sidebar", "Show sidebar"] {
+        assert!(
+            !labels.contains(&gone),
+            "{gone} is still on the foot: {labels:?}"
+        );
+    }
+}
+
 pub(in crate::ui) struct Button {
     pub(in crate::ui) attrs: Vec<(String, String)>,
 }

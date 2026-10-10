@@ -471,6 +471,7 @@ pub fn downgrade_to_before_reparse(db_path: &std::path::Path) {
              DROP TABLE follow_up_held;
              DROP TABLE found_on_server;
              DROP TABLE secrets_adopted;
+             DROP TABLE opened;
              CREATE TABLE views (id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL,
                  filter TEXT NOT NULL, sort TEXT NOT NULL, group_by TEXT,
                  threading TEXT NOT NULL, shown TEXT NOT NULL, hover TEXT NOT NULL,

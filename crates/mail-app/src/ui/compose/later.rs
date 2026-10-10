@@ -7,14 +7,12 @@
 use ds::base::geometry::placement::{Align, Side};
 use ds::components::content::label::LabelRole;
 use ds::components::fields::text_field_model::Invalid;
-use ds::components::lists::list::model::ListStyle;
 use ds::components::overlays::popover::Arrow;
 use ds::host::measure::MountedRef;
 use ds::motion::detail::stamp::EventStamp;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::root::pass_through::ExtraClass;
-use std::sync::Arc;
 
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
@@ -209,52 +207,4 @@ pub(in crate::ui) fn cancel_waiting(
         super::super::motion::tell(said.clone(), super::super::motion::Follow::Nothing);
         said
     })
-}
-
-/// The clock entries in Today: messages waiting for their time, each with Cancel.
-#[component]
-pub(in crate::ui) fn ScheduledDrafts(shell: Signal<Shell>) -> Element {
-    let Some(desk) = try_use_context::<Desk>() else {
-        return rsx! {};
-    };
-    let mut refused = use_signal(|| None::<(DraftId, String)>);
-    // Read so a send scheduled or taken back redraws the list.
-    let _ = desk.outbox.read();
-    let store = consume_context::<Arc<SqliteStore>>();
-    let now = Utc::now();
-    let items: Vec<ListItem<DraftId>> = waiting(&store)
-        .into_iter()
-        .map(|one| {
-            let draft = one.draft;
-            let words = when_words(one.at, now, &chrono::Local);
-            let why = refused().filter(|(which, _)| *which == draft).map(|(_, why)| why);
-            let row = rsx! {
-                Row {
-                    leading: RowLeading::Icon(Icon::Clock),
-                    title: one.title.clone(),
-                    detail: Some(why.unwrap_or_else(|| format!("Waiting to be sent {words}")).into()),
-                    accessory: Accessory::Text(words.clone()),
-                    // A message waiting for its time opens nothing; Cancel is its one act.
-                    action: Some(RowAction::new(
-                        Icon::X,
-                        format!("Cancel sending {}", one.title),
-                        EventHandler::new(move |_| {
-                            match cancel_waiting(desk, shell, draft) {
-                                Ok(()) => refused.set(None),
-                                Err(why) => refused.set(Some((draft, why))),
-                            }
-                        }),
-                    )),
-                }
-            };
-            ListItem::row(draft, one.title.clone(), row)
-        })
-        .collect();
-    rsx! {
-        List::<DraftId> {
-            label: "Waiting to be sent".to_owned(),
-            items,
-            style: ListStyle::SourceList,
-        }
-    }
 }

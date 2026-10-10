@@ -672,7 +672,9 @@ impl Shell {
                 // Reachable only if a caller asks for a query while Drafts is selected.
                 // `listing` is the method that knows the difference; this stays total rather
                 // than panicking, and `All` is the least surprising thing to show.
-                Some(Source::Drafts) | Some(Source::Waiting) | None => Filter::All,
+                Some(Source::Drafts) | Some(Source::Waiting) | Some(Source::History) | None => {
+                    Filter::All
+                }
             }
         } else {
             mail_core::query::parse_with(
@@ -724,6 +726,9 @@ impl Shell {
         match self.places.get(self.selected).map(|p| &p.source) {
             Some(Source::Drafts) => Listing::Drafts,
             Some(Source::Waiting) => Listing::Waiting {
+                scope: self.account_filter(),
+            },
+            Some(Source::History) => Listing::History {
                 scope: self.account_filter(),
             },
             Some(Source::Mail(filter)) if *filter == place_filter(MailboxRole::Inbox) => {
@@ -1036,6 +1041,10 @@ pub enum Listing {
     Drafts,
     /// The conversations waiting on a reply, on the accounts `scope` narrows to.
     Waiting {
+        scope: Option<Filter>,
+    },
+    /// Every conversation opened, newest first, on the accounts `scope` narrows to.
+    History {
         scope: Option<Filter>,
     },
 }
@@ -1395,6 +1404,26 @@ mod listing_tests {
             .expect("there is a Waiting place");
         shell.select(waiting);
         assert_eq!(shell.listing(50), Listing::Waiting { scope: None });
+        shell.search = "invoice".to_owned();
+        assert!(matches!(shell.listing(50), Listing::Threads(_)));
+    }
+
+    #[test]
+    fn the_history_place_follows_waiting_and_lists_history_and_a_search_does_not() {
+        let mut shell = Shell::default();
+        let waiting = shell
+            .places
+            .iter()
+            .position(|p| p.source == Source::Waiting)
+            .expect("there is a Waiting place");
+        let history = shell
+            .places
+            .iter()
+            .position(|p| p.source == Source::History)
+            .expect("there is a History place");
+        assert_eq!(history, waiting + 1, "History comes after Waiting");
+        shell.select(history);
+        assert_eq!(shell.listing(50), Listing::History { scope: None });
         shell.search = "invoice".to_owned();
         assert!(matches!(shell.listing(50), Listing::Threads(_)));
     }

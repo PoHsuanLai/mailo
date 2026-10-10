@@ -31,6 +31,7 @@ pub(in crate::ui) use events::{FakePointer, PRIMARY, Scripts, chord, pointer, ty
 pub(in crate::ui) use reference::{Work, work};
 pub(in crate::ui) use row_menu::{
     listed_subjects, menu_names, open_row_menu, pick_named, pick_until, row_action, row_named,
+    settle,
 };
 pub(in crate::ui) use store::{
     acct_account, empty, gmail_caps, held_and_remote, inbox_query, realistic, seeded,

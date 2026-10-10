@@ -85,7 +85,11 @@ pub fn replied(messages: &[Message], own: &Own, set: DateTime<Utc>) -> bool {
 }
 
 /// Whether a conversation belongs where the list is narrowed to.
-fn in_scope(summary: &ThreadSummary, scope: Option<&Filter>, now: DateTime<Utc>) -> bool {
+pub(crate) fn in_scope(
+    summary: &ThreadSummary,
+    scope: Option<&Filter>,
+    now: DateTime<Utc>,
+) -> bool {
     scope.is_none_or(|filter| {
         filter.fit(&MatchCtx {
             summary,

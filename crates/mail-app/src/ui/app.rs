@@ -298,7 +298,8 @@ pub(super) fn App() -> Element {
         }
     });
 
-    // Opening a thread is a shortcut in Today. Closing one is not a write to the mail.
+    // Opening a thread is a shortcut in Today and a line in History. Closing one is not a write
+    // to the mail.
     let today_dirs = dirs.clone();
     use_effect(move || {
         let open = shell.read().open;
@@ -310,9 +311,11 @@ pub(super) fn App() -> Element {
             return;
         };
         let space = spaces.peek().current().id;
+        let now = chrono::Utc::now();
+        mail_core::history::record(&consume_context::<Arc<SqliteStore>>(), id, now);
         today_list
             .write()
-            .opened(space, id, crate::ui::today::at(chrono::Utc::now()));
+            .opened(space, id, crate::ui::today::at(now));
         if let Some(dirs) = today_dirs.clone() {
             let _ = crate::ui::today::save(&dirs.state, &today_list.read());
         }

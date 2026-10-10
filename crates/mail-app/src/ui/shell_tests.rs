@@ -1,4 +1,4 @@
-//! The frame, the account tiles, the rows and Today, rendered from the real `App`.
+//! The frame, the account tiles, the rows and the foot's menu, rendered from the real `App`.
 
 use super::app::App;
 use super::fixtures::{dispatching, rebuild_into, seeded, work};
@@ -162,7 +162,7 @@ fn the_work_rows_carry_the_read_state_the_chip_and_the_more_button() {
 }
 
 #[tokio::test]
-async fn closing_a_today_entry_writes_the_file_and_not_the_mail() {
+async fn clear_today_in_the_foot_menu_writes_the_file_and_not_the_mail() {
     dispatching();
     let built = work();
     // The fixture seeds Today for the screenshot. This test starts from an empty list
@@ -177,12 +177,11 @@ async fn closing_a_today_entry_writes_the_file_and_not_the_mail() {
         "Open Re: UIDL stability across a UIDVALIDITY change",
     );
     let second = seen.one("aria-label", "Open Notes from the sync review");
+    let menu = seen.one("aria-label", "Sidebar menu");
     let opened = super::fixtures::click(&mut dom, first);
     let second = follow(&mut dom, opened, "Open Notes from the sync review", second).await;
     let shown = super::fixtures::click(&mut dom, second);
-    // quire's Today item names its close by the entry's label: the thread's subject.
-    let close_label = "Close Notes from the sync review".to_owned();
-    let close = follow_any(&mut dom, shown, &close_label).await;
+    let menu = follow(&mut dom, shown, "Sidebar menu", menu).await;
     let stored = std::fs::read_to_string(built.dirs.state.join("today.json")).unwrap_or_default();
     assert_eq!(
         stored.matches("\"item\"").count(),
@@ -190,17 +189,31 @@ async fn closing_a_today_entry_writes_the_file_and_not_the_mail() {
         "opening two threads did not store two shortcuts: {stored}"
     );
     let before = changes(&built.store);
-    super::fixtures::click(&mut dom, close);
+
+    // The menu lists both, newest first, and has no Today group in the sidebar's body.
+    let asked = super::fixtures::click(&mut dom, menu);
+    let listed = super::fixtures::settle(&mut dom, asked);
+    let names = super::fixtures::menu_names(&dioxus_ssr::render(&dom));
+    assert_eq!(
+        names.iter().take(3).map(String::as_str).collect::<Vec<_>>(),
+        [
+            "Notes from the sync review",
+            "Re: UIDL stability across a UIDVALIDITY change",
+            "Clear Today",
+        ],
+        "{names:?}"
+    );
+    super::fixtures::pick_named(&mut dom, &listed, "Clear Today").await;
     let stored = std::fs::read_to_string(built.dirs.state.join("today.json")).unwrap_or_default();
     assert_eq!(
         stored.matches("\"item\"").count(),
-        1,
-        "closing one shortcut left {stored}"
+        0,
+        "Clear Today left {stored}"
     );
     assert_eq!(
         changes(&built.store),
         before,
-        "closing a Today shortcut wrote to the mail store"
+        "clearing Today wrote to the mail store"
     );
 }
 
@@ -233,25 +246,6 @@ async fn follow(
         let more = tokio::time::timeout(std::time::Duration::from_millis(200), dom.wait_for_work());
         if more.await.is_err() {
             return was;
-        }
-        latest = paint(dom);
-    }
-}
-
-/// [`follow`] for an element that may not have been drawn yet.
-async fn follow_any(
-    dom: &mut VirtualDom,
-    mut latest: super::fixtures::Seen,
-    label: &str,
-) -> dioxus_core::ElementId {
-    let mut found = None;
-    loop {
-        if let Some(id) = latest.get("aria-label", label) {
-            found = Some(id);
-        }
-        let more = tokio::time::timeout(std::time::Duration::from_millis(200), dom.wait_for_work());
-        if more.await.is_err() {
-            return found.unwrap_or_else(|| panic!("nothing is labelled {label:?}"));
         }
         latest = paint(dom);
     }
