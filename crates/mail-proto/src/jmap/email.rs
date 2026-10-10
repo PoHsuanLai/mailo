@@ -1,10 +1,12 @@
 //! Emails (RFC 8621 §4), as a summary: enough to list one, file it, and fetch its bytes later.
 
 use super::Mailboxes;
-use super::field::{date, malformed, opt_string, string, strings, true_keys, unsigned};
+use super::field::{date, malformed, opt_string, string, strings, true_ids, true_keys, unsigned};
 use crate::ProtoError;
 use chrono::{DateTime, Utc};
-use mail_domain::{Address, MailboxRole, ReadState, Star};
+use mail_domain::{
+    Address, JmapBlobId, JmapEmailId, JmapMailboxId, JmapThreadId, MailboxRole, ReadState, Star,
+};
 use serde_json::Value;
 
 /// The properties a summary asks for.
@@ -47,11 +49,11 @@ pub enum HasAttachment {
 /// One email as `Email/get` described it with [`SUMMARY`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EmailSummary {
-    pub id: String,
+    pub id: JmapEmailId,
     /// The raw RFC 5322 message, to download.
-    pub blob_id: String,
-    pub thread_id: Option<String>,
-    pub mailbox_ids: Vec<String>,
+    pub blob_id: JmapBlobId,
+    pub thread_id: Option<JmapThreadId>,
+    pub mailbox_ids: Vec<JmapMailboxId>,
     pub keywords: Vec<String>,
     pub size: u64,
     pub received_at: Option<DateTime<Utc>>,
@@ -86,10 +88,10 @@ impl EmailSummary {
     /// and a caller asking for keywords alone gets a summary with everything else empty.
     pub fn parse(email: &Value) -> Result<EmailSummary, ProtoError> {
         Ok(EmailSummary {
-            id: string(email, "id")?.to_owned(),
-            blob_id: opt_string(email, "blobId")?.unwrap_or("").to_owned(),
-            thread_id: opt_string(email, "threadId")?.map(str::to_owned),
-            mailbox_ids: true_keys(email, "mailboxIds")?,
+            id: string(email, "id")?.into(),
+            blob_id: opt_string(email, "blobId")?.unwrap_or("").into(),
+            thread_id: opt_string(email, "threadId")?.map(JmapThreadId::from),
+            mailbox_ids: true_ids(email, "mailboxIds")?,
             keywords: true_keys(email, "keywords")?,
             size: unsigned(email, "size", 0)?,
             received_at: date(email, "receivedAt"),
@@ -211,7 +213,7 @@ pub enum Filing {
 /// what an IMAP folder files as.
 ///
 /// Drafts and Junk file nothing: an email only there is [`Filing::Unfollowed`].
-pub fn filing(ids: &[String], mailboxes: &Mailboxes) -> Filing {
+pub fn filing(ids: &[JmapMailboxId], mailboxes: &Mailboxes) -> Filing {
     let roles = mailboxes.filing_roles(ids);
     let role = [
         MailboxRole::Trash,

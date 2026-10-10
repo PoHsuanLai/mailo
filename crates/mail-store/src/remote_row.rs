@@ -51,7 +51,7 @@ pub(crate) fn columns(remote: &RemoteRef) -> Columns {
             JMAP_ALL.to_owned(),
             Some(JMAP),
             None,
-            Some(email_id.clone()),
+            Some(email_id.as_str().to_owned()),
         ),
     }
 }
@@ -65,7 +65,9 @@ pub(crate) fn remote((mailbox, uidvalidity, uid, uidl): Columns) -> Result<Remot
             uid: uid as u32,
         }),
         (Some(GRAPH), None, Some(id)) => Ok(RemoteRef::Graph { mailbox, id }),
-        (Some(JMAP), None, Some(email_id)) => Ok(RemoteRef::Jmap { email_id }),
+        (Some(JMAP), None, Some(email_id)) => Ok(RemoteRef::Jmap {
+            email_id: email_id.into(),
+        }),
         (_, None, Some(uidl)) => Ok(RemoteRef::Pop { uidl }),
         _ => Err(StoreError::Decode {
             what: "remote_map row".to_owned(),
@@ -94,7 +96,7 @@ mod tests {
                 id: "AAMk/a+b==".to_owned(),
             },
             RemoteRef::Jmap {
-                email_id: "Mf40b5f831".to_owned(),
+                email_id: "Mf40b5f831".into(),
             },
         ] {
             assert_eq!(remote_of(&remote), remote);
@@ -123,7 +125,7 @@ mod tests {
         assert_eq!(
             remote((JMAP_ALL.to_owned(), Some(JMAP), None, Some("x".to_owned()))).unwrap(),
             RemoteRef::Jmap {
-                email_id: "x".to_owned()
+                email_id: "x".into()
             }
         );
         assert_ne!(JMAP, GRAPH);

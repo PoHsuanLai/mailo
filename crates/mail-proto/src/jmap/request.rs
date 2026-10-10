@@ -4,6 +4,7 @@
 //! request can name its result: `Email/get` given `#ids` from an `Email/query` fetches what the
 //! query found without a second round trip (RFC 8620 §3.7).
 
+use mail_domain::{JmapAccountId, JmapBlobId, JmapEmailId, JmapMailboxId};
 use serde_json::{Map, Value, json};
 
 /// One method call: its name, its arguments, and the id its response will carry.
@@ -18,7 +19,7 @@ pub struct Call {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Ids {
     /// These, by id.
-    Listed(Vec<String>),
+    Listed(Vec<JmapEmailId>),
     /// Every record of the type. Only `Mailbox/get` asks for this: a mailbox list is small, and
     /// an email list is not.
     All,
@@ -61,14 +62,14 @@ fn with_ids(mut args: Map<String, Value>, key: &str, ids: Ids) -> Value {
     Value::Object(args)
 }
 
-fn base(account: &str) -> Map<String, Value> {
+fn base(account: &JmapAccountId) -> Map<String, Value> {
     let mut args = Map::new();
     args.insert("accountId".to_owned(), json!(account));
     args
 }
 
 /// `Mailbox/get` for every mailbox, with the properties this client files by.
-pub fn mailbox_get(account: &str, id: &str) -> Call {
+pub fn mailbox_get(account: &JmapAccountId, id: &str) -> Call {
     let mut args = base(account);
     args.insert(
         "properties".to_owned(),
@@ -89,7 +90,7 @@ pub fn mailbox_get(account: &str, id: &str) -> Call {
 }
 
 /// `Mailbox/changes` since `state`.
-pub fn mailbox_changes(account: &str, since: &str, id: &str) -> Call {
+pub fn mailbox_changes(account: &JmapAccountId, since: &str, id: &str) -> Call {
     let mut args = base(account);
     args.insert("sinceState".to_owned(), json!(since));
     Call {
@@ -105,8 +106,8 @@ pub fn mailbox_changes(account: &str, since: &str, id: &str) -> Call {
 /// `limit: 0` with `calculate_total` is the cheap question "how many are there", which is how a
 /// pass decides whether it is caught up without listing anything.
 pub fn email_query(
-    account: &str,
-    unfollowed: &[String],
+    account: &JmapAccountId,
+    unfollowed: &[JmapMailboxId],
     position: u64,
     limit: u64,
     id: &str,
@@ -133,12 +134,12 @@ pub fn email_query(
 }
 
 /// The count of followed emails alone: [`email_query`] with nothing listed.
-pub fn total_query(account: &str, unfollowed: &[String], id: &str) -> Call {
+pub fn total_query(account: &JmapAccountId, unfollowed: &[JmapMailboxId], id: &str) -> Call {
     email_query(account, unfollowed, 0, 0, id)
 }
 
 /// `Email/get` of `properties` for `ids`.
-pub fn email_get(account: &str, ids: Ids, properties: &[&str], id: &str) -> Call {
+pub fn email_get(account: &JmapAccountId, ids: Ids, properties: &[&str], id: &str) -> Call {
     let mut args = base(account);
     args.insert("properties".to_owned(), json!(properties));
     Call {
@@ -149,12 +150,12 @@ pub fn email_get(account: &str, ids: Ids, properties: &[&str], id: &str) -> Call
 }
 
 /// `Email/get` of the blob ids only, for downloading bodies.
-pub fn blob_ids(account: &str, ids: Vec<String>, id: &str) -> Call {
+pub fn blob_ids(account: &JmapAccountId, ids: Vec<JmapEmailId>, id: &str) -> Call {
     email_get(account, Ids::Listed(ids), &["id", "blobId", "size"], id)
 }
 
 /// `Email/changes` since `state`, at most `max` per call.
-pub fn email_changes(account: &str, since: &str, max: u64, id: &str) -> Call {
+pub fn email_changes(account: &JmapAccountId, since: &str, max: u64, id: &str) -> Call {
     let mut args = base(account);
     args.insert("sinceState".to_owned(), json!(since));
     args.insert("maxChanges".to_owned(), json!(max));
@@ -167,16 +168,16 @@ pub fn email_changes(account: &str, since: &str, max: u64, id: &str) -> Call {
 
 /// `Email/set`: `update` is each email id with its patch, `destroy` the ids to delete for good.
 pub fn email_set(
-    account: &str,
-    update: Vec<(String, Map<String, Value>)>,
-    destroy: Vec<String>,
+    account: &JmapAccountId,
+    update: Vec<(JmapEmailId, Map<String, Value>)>,
+    destroy: Vec<JmapEmailId>,
     id: &str,
 ) -> Call {
     let mut args = base(account);
     if !update.is_empty() {
         let map: Map<String, Value> = update
             .into_iter()
-            .map(|(email, patch)| (email, Value::Object(patch)))
+            .map(|(email, patch)| (String::from(email), Value::Object(patch)))
             .collect();
         args.insert("update".to_owned(), Value::Object(map));
     }
@@ -191,7 +192,7 @@ pub fn email_set(
 }
 
 /// `Mailbox/set`, with the create, update and destroy arguments already built.
-pub fn mailbox_set(account: &str, work: Map<String, Value>, id: &str) -> Call {
+pub fn mailbox_set(account: &JmapAccountId, work: Map<String, Value>, id: &str) -> Call {
     let mut args = base(account);
     args.extend(work);
     Call {
@@ -202,7 +203,7 @@ pub fn mailbox_set(account: &str, work: Map<String, Value>, id: &str) -> Call {
 }
 
 /// `Identity/get`: every address this account may send as.
-pub fn identity_get(account: &str, id: &str) -> Call {
+pub fn identity_get(account: &JmapAccountId, id: &str) -> Call {
     let mut args = base(account);
     args.insert("ids".to_owned(), Value::Null);
     Call {
@@ -215,15 +216,15 @@ pub fn identity_get(account: &str, id: &str) -> Call {
 /// `Email/import` of one uploaded message into `mailbox`, with `keywords` and, where given, the
 /// date it was received — so imported mail sorts where it belongs rather than as today's.
 pub fn email_import(
-    account: &str,
-    blob: &str,
-    mailbox: &str,
+    account: &JmapAccountId,
+    blob: &JmapBlobId,
+    mailbox: &JmapMailboxId,
     keywords: &[&str],
     received_at: Option<chrono::DateTime<chrono::Utc>>,
     id: &str,
 ) -> Call {
     let mut mailbox_ids = Map::new();
-    mailbox_ids.insert(mailbox.to_owned(), json!(true));
+    mailbox_ids.insert(mailbox.as_str().to_owned(), json!(true));
     let keywords: Map<String, Value> = keywords
         .iter()
         .map(|k| ((*k).to_owned(), json!(true)))

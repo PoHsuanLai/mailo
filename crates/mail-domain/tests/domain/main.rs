@@ -6,6 +6,7 @@
 
 mod filter;
 mod folder;
+mod jmap_id;
 mod op;
 mod presets;
 mod section;

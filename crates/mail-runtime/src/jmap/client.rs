@@ -6,6 +6,7 @@
 
 use crate::RuntimeError;
 use crate::error::Failure;
+use mail_domain::JmapBlobId;
 use mail_proto::jmap::{self, Call, Responses, Session};
 use mail_proto::{ProtoError, Refusal};
 use std::fmt;
@@ -133,12 +134,12 @@ impl Client {
     }
 
     /// Download a blob: a message's raw RFC 5322 bytes.
-    pub async fn download(&self, blob: &str) -> Result<Vec<u8>, RuntimeError> {
+    pub async fn download(&self, blob: &JmapBlobId) -> Result<Vec<u8>, RuntimeError> {
         let url = jmap::expand(
             &self.session.download_url,
             &[
-                ("accountId", &self.session.account),
-                ("blobId", blob),
+                ("accountId", self.session.account.as_str()),
+                ("blobId", blob.as_str()),
                 ("type", "message/rfc822"),
                 ("name", "message.eml"),
             ],
@@ -153,7 +154,7 @@ impl Client {
     }
 
     /// Upload `bytes` as a message; returns the blob id to import it by.
-    pub async fn upload(&self, bytes: Vec<u8>) -> Result<String, RuntimeError> {
+    pub async fn upload(&self, bytes: Vec<u8>) -> Result<JmapBlobId, RuntimeError> {
         let limit = self.session.limits.max_size_upload;
         if limit > 0 && bytes.len() as u64 > limit {
             return Err(RuntimeError::Proto(ProtoError::Refused {
@@ -167,7 +168,7 @@ impl Client {
         }
         let url = jmap::expand(
             &self.session.upload_url,
-            &[("accountId", &self.session.account)],
+            &[("accountId", self.session.account.as_str())],
         );
         let response = self
             .auth
@@ -183,7 +184,7 @@ impl Client {
         value
             .get("blobId")
             .and_then(|b| b.as_str())
-            .map(str::to_owned)
+            .map(JmapBlobId::from)
             .ok_or_else(|| {
                 RuntimeError::Proto(ProtoError::Malformed(
                     "JMAP upload answer has no blobId".to_owned(),

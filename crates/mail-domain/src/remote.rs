@@ -5,6 +5,7 @@
 //! on `mail-proto`. They are protocol-neutral vocabulary; wire *syntax* stays in `mail-proto`.
 
 use crate::id::{BlobId, DraftId};
+use crate::jmap_id::JmapEmailId;
 use crate::section::Section;
 use crate::state::MailboxRole;
 use chrono::{DateTime, Utc};
@@ -71,7 +72,7 @@ pub enum RemoteRef {
     /// labels are, and are synced as a role and labels rather than as addresses. Every JMAP
     /// address is therefore held under the one mailbox [`JMAP_ALL`].
     Jmap {
-        email_id: String,
+        email_id: JmapEmailId,
     },
 }
 

@@ -11,7 +11,8 @@ use super::{Client, JmapEngine, email_ids};
 use crate::{RuntimeError, SyncReport};
 use chrono::{DateTime, Utc};
 use mail_domain::{
-    BlobId, MailboxRef, MailboxRole, ProtoOp, RemoteRef, Retry, Retryable, SendState, SystemFlag,
+    BlobId, JmapEmailId, JmapMailboxId, MailboxRef, MailboxRole, ProtoOp, RemoteRef, Retry,
+    Retryable, SendState, SystemFlag,
 };
 use mail_proto::jmap::{
     self, CORE, EmailSummary, Filed, Identity, Ids, MAIL, SUBMISSION, SetResult, Submission,
@@ -231,7 +232,7 @@ impl JmapEngine {
                 raw,
             } => {
                 let target = match mailboxes.id_for_path(&mailbox.path) {
-                    Some(id) => id.to_owned(),
+                    Some(id) => id.clone(),
                     None => {
                         return Err(permanent(format!(
                             "the server has no mailbox called {:?}",
@@ -253,7 +254,7 @@ impl JmapEngine {
                     .iter()
                     .find_map(|(_, v)| v.get("id").and_then(Value::as_str))
                     .map(|id| RemoteRef::Jmap {
-                        email_id: id.to_owned(),
+                        email_id: JmapEmailId::from(id),
                     });
                 Ok(ProtoOutcome::Appended { remote })
             }
@@ -288,13 +289,13 @@ impl JmapEngine {
     async fn set(
         &self,
         client: &Client,
-        update: Vec<(String, Map<String, Value>)>,
-        destroy: Vec<String>,
+        update: Vec<(JmapEmailId, Map<String, Value>)>,
+        destroy: Vec<JmapEmailId>,
     ) -> Result<ProtoOutcome, RuntimeError> {
         if update.is_empty() && destroy.is_empty() {
             return Ok(ProtoOutcome::Applied);
         }
-        let account = client.session.account.as_str();
+        let account = &client.session.account;
         let call = jmap::email_set(account, update, destroy, "s");
         let responses = client.call(&[CORE, MAIL], &[call]).await?;
         let result = SetResult::parse(responses.answer("s", "Email/set")?)?;
@@ -313,7 +314,7 @@ impl JmapEngine {
         client: &Client,
         mailboxes: &jmap::Mailboxes,
         remotes: &[RemoteRef],
-    ) -> Result<Vec<String>, RuntimeError> {
+    ) -> Result<Vec<JmapEmailId>, RuntimeError> {
         let Some(trash) = mailboxes.id_for_role(MailboxRole::Trash) else {
             return Ok(Vec::new());
         };
@@ -321,7 +322,7 @@ impl JmapEngine {
         if ids.is_empty() {
             return Ok(Vec::new());
         }
-        let account = client.session.account.as_str();
+        let account = &client.session.account;
         let call = jmap::email_get(account, Ids::Listed(ids), &["id", "mailboxIds"], "t");
         let responses = client.call(&[CORE, MAIL], &[call]).await?;
         Ok(
@@ -345,8 +346,8 @@ impl JmapEngine {
         client: &Client,
         mailboxes: &jmap::Mailboxes,
         remotes: &[RemoteRef],
-    ) -> Result<Vec<String>, RuntimeError> {
-        let bins: Vec<&str> = [MailboxRole::Trash, MailboxRole::Spam]
+    ) -> Result<Vec<JmapEmailId>, RuntimeError> {
+        let bins: Vec<&JmapMailboxId> = [MailboxRole::Trash, MailboxRole::Spam]
             .into_iter()
             .filter_map(|role| mailboxes.id_for_role(role))
             .collect();
@@ -354,13 +355,14 @@ impl JmapEngine {
         if ids.is_empty() {
             return Ok(Vec::new());
         }
-        let account = client.session.account.as_str();
+        let account = &client.session.account;
         let call = jmap::email_get(account, Ids::Listed(ids), &["id", "mailboxIds"], "t");
         let responses = client.call(&[CORE, MAIL], &[call]).await?;
         let found = EmailSummary::parse_list(responses.answer("t", "Email/get")?)?;
-        if let Some(kept) = found.iter().find(|e| {
-            e.mailbox_ids.is_empty() || !e.mailbox_ids.iter().all(|m| bins.contains(&m.as_str()))
-        }) {
+        if let Some(kept) = found
+            .iter()
+            .find(|e| e.mailbox_ids.is_empty() || !e.mailbox_ids.iter().all(|m| bins.contains(&m)))
+        {
             return Err(permanent(format!(
                 "email {} is no longer only in Trash or Junk on the server, so nothing was \
                  deleted",
@@ -399,10 +401,8 @@ impl JmapEngine {
         };
         let blob = client.upload(message).await?;
         let filed = Filed {
-            drafts: mailboxes
-                .id_for_role(MailboxRole::Drafts)
-                .map(str::to_owned),
-            sent: mailboxes.id_for_role(MailboxRole::Sent).map(str::to_owned),
+            drafts: mailboxes.id_for_role(MailboxRole::Drafts).cloned(),
+            sent: mailboxes.id_for_role(MailboxRole::Sent).cloned(),
         };
         let calls = jmap::submission(
             &client.session.account,

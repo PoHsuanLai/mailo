@@ -1505,7 +1505,7 @@ fixtures! {
     "account_plan_jmap.json" => AccountPlan =
         presets::jmap("me@example.test", "https://jmap.example.test/.well-known/jmap", HttpAuth::Bearer).plan,
     "remote_refs_jmap.json" => Vec<RemoteRef> = vec![
-        RemoteRef::Jmap { email_id: "Mf40b5f831".to_owned() },
+        RemoteRef::Jmap { email_id: "Mf40b5f831".into() },
     ],
     "sync_cursors_jmap.json" => Vec<SyncCursor> = vec![
         SyncCursor::Jmap { email_state: "e42".to_owned(), mailbox_state: "m7".to_owned() },
@@ -1564,7 +1564,7 @@ fixtures! {
             imap_ref(),
             RemoteRef::Pop { uidl: "UID-1".to_owned() },
             RemoteRef::Graph { mailbox: "Deleted Items".to_owned(), id: "AAMk-1".to_owned() },
-            RemoteRef::Jmap { email_id: "Mf40b5f831".to_owned() },
+            RemoteRef::Jmap { email_id: "Mf40b5f831".into() },
         ],
     }],
     "op_kinds_destroy.json" => Vec<OpKind> = vec![OpKind::Trash, OpKind::Destroy],
@@ -1922,7 +1922,7 @@ fn jmap_types_round_trip() {
     round_trip(
         "RemoteRef::Jmap",
         RemoteRef::Jmap {
-            email_id: "Mf40b5f831".to_owned(),
+            email_id: "Mf40b5f831".into(),
         },
     );
     round_trip(

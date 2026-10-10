@@ -119,7 +119,7 @@ pub fn folder_work(
     let existing = |path: &str| {
         mailboxes
             .id_for_path(path)
-            .map(str::to_owned)
+            .cloned()
             .ok_or_else(|| ProtoError::Refused {
                 kind: Refusal::Permanent,
                 text: format!("the server has no mailbox called {path:?}"),
@@ -139,7 +139,10 @@ pub fn folder_work(
             let (parent, name) = placed(to, mailboxes)?;
             args.insert(
                 "update".to_owned(),
-                keyed(id, json!({ "name": name, "parentId": parent })),
+                keyed(
+                    String::from(id),
+                    json!({ "name": name, "parentId": parent }),
+                ),
             );
         }
         FolderWork::Delete { path, .. } => {
@@ -151,7 +154,7 @@ pub fn folder_work(
             let yes = *subscription == Subscription::Subscribed;
             args.insert(
                 "update".to_owned(),
-                keyed(id, json!({ "isSubscribed": yes })),
+                keyed(String::from(id), json!({ "isSubscribed": yes })),
             );
         }
     }

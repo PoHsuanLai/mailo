@@ -42,7 +42,7 @@ use crate::{AccountSecrets, RuntimeError, SyncReport};
 use chrono::{DateTime, Utc};
 use mail_domain::{
     AccountCaps, AccountPlan, ArchiveMeans, Condstore, ConnectionBudget, ExpungeMeans, HttpAuth,
-    Incoming, JMAP_ALL, MailboxRef, MailboxRole, MoveExt, RemoteRef, Retry, Retryable,
+    Incoming, JMAP_ALL, JmapEmailId, MailboxRef, MailboxRole, MoveExt, RemoteRef, Retry, Retryable,
     ServerLabels, ServerThreads, Supported, SyncCursor, WatchMode,
 };
 use mail_proto::jmap::{Identity, Mailboxes};
@@ -343,8 +343,8 @@ enum Step {
 }
 
 /// The ids among `remotes` that are JMAP emails, each once.
-fn email_ids(remotes: &[RemoteRef]) -> Vec<String> {
-    let mut ids: Vec<String> = Vec::new();
+fn email_ids(remotes: &[RemoteRef]) -> Vec<JmapEmailId> {
+    let mut ids: Vec<JmapEmailId> = Vec::new();
     for remote in remotes {
         if let RemoteRef::Jmap { email_id } = remote
             && !ids.contains(email_id)

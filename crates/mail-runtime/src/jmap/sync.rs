@@ -11,7 +11,10 @@ use super::{Client, JmapEngine, Whole, email_ids};
 use crate::assemble::{Arrival, Destination, absorb_into};
 use crate::{RuntimeError, SyncReport};
 use chrono::{DateTime, Utc};
-use mail_domain::{Ingest, MailboxRole, ReadState, RemoteRef, Star, SyncCursor, UidValidity};
+use mail_domain::{
+    Ingest, JmapEmailId, JmapMailboxId, MailboxRole, ReadState, RemoteRef, Star, SyncCursor,
+    UidValidity,
+};
 use mail_proto::ProtoError;
 use mail_proto::jmap::{
     self, CORE, Changes, EmailSummary, Filing, Ids, MAIL, Mailboxes, MethodError, More, QueryPage,
@@ -76,7 +79,7 @@ impl JmapEngine {
                 .await?;
             // Any trouble asking is answered by listing them again, which is always right.
             if let Ok(args) = responses.answer("m", "Mailbox/changes")
-                && Changes::parse(args).is_ok_and(|c| c.is_empty())
+                && Changes::<JmapMailboxId>::parse(args).is_ok_and(|c| c.is_empty())
             {
                 return Ok(cached.clone());
             }
@@ -106,7 +109,7 @@ impl JmapEngine {
         let client = self.client().await?.clone();
         let unfollowed = mailboxes.unfollowed();
 
-        let mut wanted: Vec<String> = Vec::new();
+        let mut wanted: Vec<JmapEmailId> = Vec::new();
         let mut state = None;
         let mut survey = true;
         if let Some((since, _)) = self.cursor()?
@@ -117,7 +120,7 @@ impl JmapEngine {
             survey = false;
         }
 
-        let held: HashSet<String> = email_ids(&self.store.remote_refs(&self.mailbox())?)
+        let held: HashSet<JmapEmailId> = email_ids(&self.store.remote_refs(&self.mailbox())?)
             .into_iter()
             .collect();
         // Caught up only if the server holds exactly what is held here plus what the changes
@@ -126,12 +129,13 @@ impl JmapEngine {
         // emails.
         if !survey {
             let total = self.total(&client, &unfollowed).await?;
-            let new: HashSet<&String> = wanted.iter().filter(|id| !held.contains(*id)).collect();
+            let new: HashSet<&JmapEmailId> =
+                wanted.iter().filter(|id| !held.contains(*id)).collect();
             survey = total != (held.len() + new.len()) as u64;
         }
         if survey {
             let (listed, listed_at) = self.survey(&client, &unfollowed, state.is_none()).await?;
-            let on_server: HashSet<&String> = listed.iter().collect();
+            let on_server: HashSet<&JmapEmailId> = listed.iter().collect();
             let gone: Vec<RemoteRef> = held
                 .iter()
                 .filter(|id| !on_server.contains(id))
@@ -181,8 +185,8 @@ impl JmapEngine {
         client: &Client,
         mailboxes: &Mailboxes,
         since: String,
-    ) -> Result<Option<(String, Vec<String>)>, RuntimeError> {
-        let account = client.session.account.as_str();
+    ) -> Result<Option<(String, Vec<JmapEmailId>)>, RuntimeError> {
+        let account = &client.session.account;
         let mut since = since;
         let mut wanted = Vec::new();
         for _ in 0..CHANGE_ROUNDS {
@@ -204,7 +208,7 @@ impl JmapEngine {
             let changes = match responses.answer("c", "Email/changes") {
                 Err(MethodError::CannotCalculateChanges) => return Ok(None),
                 Err(e) => return Err(ProtoError::from(e).into()),
-                Ok(args) => Changes::parse(args)?,
+                Ok(args) => Changes::<JmapEmailId>::parse(args)?,
             };
             let updated = EmailSummary::parse_list(responses.answer("u", "Email/get")?)?;
             let mut truth = Truth::default();
@@ -231,8 +235,12 @@ impl JmapEngine {
     }
 
     /// How many followed emails the server holds.
-    async fn total(&self, client: &Client, unfollowed: &[String]) -> Result<u64, RuntimeError> {
-        let account = client.session.account.as_str();
+    async fn total(
+        &self,
+        client: &Client,
+        unfollowed: &[JmapMailboxId],
+    ) -> Result<u64, RuntimeError> {
+        let account = &client.session.account;
         let responses = client
             .call(
                 &[CORE, MAIL],
@@ -249,10 +257,10 @@ impl JmapEngine {
     async fn survey(
         &self,
         client: &Client,
-        unfollowed: &[String],
+        unfollowed: &[JmapMailboxId],
         with_state: bool,
-    ) -> Result<(Vec<String>, Option<String>), RuntimeError> {
-        let account = client.session.account.as_str();
+    ) -> Result<(Vec<JmapEmailId>, Option<String>), RuntimeError> {
+        let account = &client.session.account;
         let mut listed = Vec::new();
         let mut state = None;
         let mut position = 0;
@@ -290,12 +298,12 @@ impl JmapEngine {
         &mut self,
         client: &Client,
         mailboxes: &Mailboxes,
-        ids: Vec<String>,
+        ids: Vec<JmapEmailId>,
         now: DateTime<Utc>,
         report: &mut SyncReport,
         whole: Whole,
     ) -> Result<(), RuntimeError> {
-        let account = client.session.account.as_str();
+        let account = &client.session.account;
         for chunk in ids.chunks(client.session.limits.max_objects_in_get) {
             let responses = client
                 .call(
@@ -377,7 +385,7 @@ impl JmapEngine {
             return Ok(());
         }
         let client = self.client().await?.clone();
-        let account = client.session.account.as_str();
+        let account = &client.session.account;
         for chunk in wanted.chunks(client.session.limits.max_objects_in_get) {
             let responses = client
                 .call(
