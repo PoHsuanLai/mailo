@@ -160,15 +160,23 @@ impl Fetching {
     }
 }
 
+/// What Sync says when what it would fetch is already being fetched.
+pub(in crate::ui) const ALREADY_SYNCING: &str = "Already checking for mail.";
+
 /// Sync what `shell` is showing, from the toolbar button and the command menu alike.
 ///
-/// Does nothing while any of it is already fetching: a second press is the same request. Every
+/// While any of it is already fetching a second press is the same request, and starts nothing;
+/// it says so, because a press that does nothing visible reads as a button that is broken. Every
 /// folder fetched on opening is fetched again the next time it is opened.
 pub(in crate::ui) fn sync_now(shell: &Shell) {
     let Some(fetching) = try_consume_context::<Fetching>() else {
         return;
     };
     if fetching.busy_in(shell) {
+        crate::ui::motion::tell(
+            ALREADY_SYNCING.to_owned(),
+            crate::ui::motion::Follow::Nothing,
+        );
         return;
     }
     fetching.forget_folders();
