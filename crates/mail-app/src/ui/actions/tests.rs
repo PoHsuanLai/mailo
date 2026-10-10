@@ -665,3 +665,22 @@ fn the_hints_beside_commands_follow_the_platform() {
         );
     }
 }
+
+#[test]
+fn every_key_of_the_keymap_is_a_chord_and_back() {
+    use super::{chord_of_key, key_of_chord};
+    use chordkit::{Chord, Key as ChordKey, Modifier, Modifiers as Mods};
+    for (action, keys) in crate::ui::keymap::DEFAULTS {
+        for key in *keys {
+            let chord = chord_of_key(key).unwrap_or_else(|| panic!("{action:?}'s {key:?}"));
+            assert_eq!(key_of_chord(&chord).as_deref(), Some(*key), "{action:?}");
+        }
+    }
+    // The recorder hands a symbol over with the Shift that typed it; the keymap keeps the symbol.
+    let shifted = |c| Chord::new(Mods::NONE.with(Modifier::Shift), ChordKey::Char(c));
+    assert_eq!(key_of_chord(&shifted('#')).as_deref(), Some("#"));
+    assert_eq!(key_of_chord(&shifted('j')).as_deref(), Some("J"));
+    // A chord held with Ctrl is the window's, never a key of the keymap.
+    let ctrl = Chord::new(Mods::NONE.with(Modifier::Ctrl), ChordKey::Char('e'));
+    assert_eq!(key_of_chord(&ctrl), None);
+}

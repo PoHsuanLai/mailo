@@ -104,19 +104,6 @@ fn SettingsShell() -> Element {
     crate::ui::frame::use_followed_configuration(shell, spaces, None, keys);
     let on_key = move |event: Event<KeyboardData>| {
         let key = event.key().to_string();
-        // The Keyboard page takes every key while an action waits for one: the key pressed to be
-        // bound must do nothing else, Escape included, which stops the wait.
-        if crate::ui::keyboard::capturing(&shell.read()) {
-            let held = event.modifiers();
-            let key = if held.shift() {
-                crate::ui::view::shifted(&key).to_owned()
-            } else {
-                key
-            };
-            let chord = crate::ui::actions::is_chord(keys, &event.key(), held);
-            crate::ui::keyboard::pressed(shell, &key, chord);
-            return;
-        }
         // Escape with the keyboard outside the Accounts pane (on the window itself, or the
         // sidebar) still goes back from an account's page; inside it the pane's stack took it.
         let pushed = !shell.read().accounts_pane.path.is_root();
