@@ -12,6 +12,7 @@ mod groups;
 mod held;
 mod invite;
 mod offline;
+mod opened;
 mod outbox;
 mod pgp;
 mod placed;
@@ -852,6 +853,14 @@ impl Store for SqliteStore {
 
     fn follow_ups(&self) -> Result<Vec<ThreadSummary>, StoreError> {
         self.load_follow_ups()
+    }
+
+    fn record_opened(&self, thread: ThreadId, at: DateTime<Utc>) -> Result<(), StoreError> {
+        self.write_opened(thread, at)
+    }
+
+    fn opened(&self) -> Result<Vec<ThreadSummary>, StoreError> {
+        self.load_opened()
     }
 
     fn put_view(&self, view: &mail_domain::View) -> Result<(), StoreError> {
