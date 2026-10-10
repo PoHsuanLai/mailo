@@ -57,6 +57,7 @@ pub mod template;
 pub mod trust;
 pub mod undo;
 pub mod unsubscribe;
+pub mod views;
 pub mod when;
 
 pub use environment::{Environment, Program};
