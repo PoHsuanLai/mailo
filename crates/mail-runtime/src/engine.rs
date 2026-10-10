@@ -1505,7 +1505,8 @@ impl<B: Backend> AccountEngine<B> {
     }
 
     /// Keep the headers a `FetchHeaders` brought from `mailbox`, and the flags the server sent
-    /// with them. The patch's upserts are the messages new to the account ([`first_stored`]).
+    /// with them. The patch's upserts are the messages new to the account ([`first_stored`]);
+    /// beside it, how many of the headers were not a message at all.
     ///
     /// The one way headers are kept, whether a sync or a search of the server fetched them.
     pub(crate) fn absorb_headers(
