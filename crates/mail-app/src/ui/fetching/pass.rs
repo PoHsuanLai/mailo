@@ -14,7 +14,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc::UnboundedSender, watch};
 
-/// Run a pass over one account: the signature of [`mail_core::sync::due::run_due`].
+/// Run a pass over one account: the signature of [`mail_core::SyncOps::run_due`].
 pub(in crate::ui) type Pass = Arc<
     dyn Fn(Arc<SqliteStore>, DateTime<Utc>, AccountId, Hooks<'_>) -> Result<Vec<PassEnd>, String>
         + Send
@@ -26,11 +26,12 @@ pub(in crate::ui) type Pass = Arc<
 pub(in crate::ui) struct Passer(pub Pass);
 
 impl Passer {
-    /// The servers, through [`mail_core::sync::due::run_due`].
+    /// The servers, through [`mail_core::SyncOps::run_due`].
     #[cfg(not(test))]
     pub(in crate::ui) fn server() -> Self {
-        Self(Arc::new(|store, now, account, hooks| {
-            mail_core::sync::due::run_due(store, now, &[account], hooks).map_err(String::from)
+        Self(Arc::new(|store, _now, account, hooks| {
+            let mail = crate::edge::mail(&store);
+            crate::edge::block_on(mail.sync().run_due(&[account], hooks)).map_err(String::from)
         }))
     }
 

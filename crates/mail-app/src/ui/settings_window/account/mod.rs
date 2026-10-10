@@ -54,8 +54,8 @@ impl Seams {
     #[cfg(not(test))]
     fn real() -> Seams {
         Seams {
-            secrets: mail_runtime::platform_secrets(),
-            own: mail_runtime::own_secrets(),
+            secrets: crate::edge::secrets(),
+            own: crate::edge::own_secrets(),
         }
     }
 }

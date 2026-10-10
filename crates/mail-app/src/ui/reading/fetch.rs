@@ -35,10 +35,12 @@ impl Default for Fetchers {
     fn default() -> Self {
         Fetchers {
             body: Arc::new(|store, message| {
-                mail_core::sync::fetch_body(store, message, chrono::Utc::now())
+                let mail = crate::edge::mail(&store);
+                crate::edge::block_on(mail.sync().fetch_body(message))
             }),
             part: Arc::new(|store, message, section| {
-                mail_core::sync::fetch_part(store, message, section, chrono::Utc::now())
+                let mail = crate::edge::mail(store);
+                crate::edge::block_on(mail.sync().fetch_part(message, section))
                     .map_err(String::from)
             }),
         }

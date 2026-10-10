@@ -81,7 +81,7 @@ fn route_of(link: &mail_runtime::Link) -> Route {
 
 /// Who draws the sheet now, from the link chosen at start.
 fn route() -> Route {
-    route_of(&mail_runtime::link::current())
+    route_of(&crate::edge::link())
 }
 
 /// Open the add-account window, or raise it. Call it from an event handler.

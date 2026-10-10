@@ -92,11 +92,19 @@ impl Seams {
     /// The network, the keyring and the recorded OAuth clients.
     pub(in crate::ui) fn real(store: Arc<SqliteStore>) -> Seams {
         Seams {
-            lookup: Arc::new(|address| mail_core::discover::search(address, Utc::now())),
-            jmap: Arc::new(|domain| mail_core::discover::find_jmap(domain).map_err(String::from)),
+            lookup: Arc::new(|address| {
+                crate::edge::block_on(mail_core::discover::search(address, Utc::now()))
+            }),
+            jmap: Arc::new(|domain| {
+                crate::edge::block_on(mail_core::discover::find_jmap(domain)).map_err(String::from)
+            }),
             client: Arc::new(|issuer| {
-                mail_core::account::oauth_client(issuer, &mail_core::account::saved_clients())
-                    .is_some()
+                mail_core::account::oauth_client(
+                    issuer,
+                    &crate::edge::environment(),
+                    &mail_core::account::saved_clients(),
+                )
+                .is_some()
             }),
             authorize: Arc::new(|issuer, scopes, urls| {
                 Box::pin(async move {
@@ -106,25 +114,23 @@ impl Seams {
                     let (done, answer) = tokio::sync::oneshot::channel();
                     let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
                     std::thread::spawn(move || {
-                        let ended = tokio::runtime::Builder::new_current_thread()
-                            .enable_all()
-                            .build()
-                            .map_err(|why| why.to_string())
-                            .and_then(|runtime| {
-                                runtime.block_on(async {
-                                    let saved = mail_core::account::saved_clients();
-                                    let client = mail_core::account::oauth_client(issuer, &saved)
-                                        .ok_or_else(|| "no client id".to_owned())?;
-                                    let now = UnixSeconds(Utc::now().timestamp());
-                                    let on_url = |url: &str| urls(url);
-                                    tokio::select! {
-                                        signed = mail_runtime::authorize::sign_in(&client, &scopes, &on_url, now) => {
-                                            signed.map_err(|why| why.to_string())
-                                        }
-                                        _ = stopped => Err("cancelled".to_owned()),
-                                    }
-                                })
-                            });
+                        let ended = crate::edge::block_on(async {
+                            let saved = mail_core::account::saved_clients();
+                            let client = mail_core::account::oauth_client(
+                                issuer,
+                                &crate::edge::environment(),
+                                &saved,
+                            )
+                            .ok_or_else(|| "no client id".to_owned())?;
+                            let now = UnixSeconds(Utc::now().timestamp());
+                            let on_url = |url: &str| urls(url);
+                            tokio::select! {
+                                signed = mail_runtime::authorize::sign_in(&client, &scopes, &on_url, now) => {
+                                    signed.map_err(|why| why.to_string())
+                                }
+                                _ = stopped => Err("cancelled".to_owned()),
+                            }
+                        });
                         let _ = done.send(ended);
                     });
                     let _stop = stop;
@@ -140,7 +146,8 @@ impl Seams {
                     password,
                     signed,
                 } = request;
-                mail_core::account::add_with_password(
+                let environment = crate::edge::environment();
+                crate::edge::block_on(mail_core::account::add_with_password(
                     &store,
                     &address,
                     Some(&setup),
@@ -150,12 +157,13 @@ impl Seams {
                     mail_core::account::Credentials {
                         password: password.as_ref(),
                         saved: &mail_core::account::saved_clients(),
-                        secrets: mail_runtime::platform_secrets().as_ref(),
+                        secrets: crate::edge::secrets().as_ref(),
+                        environment: &environment,
                         // The sign-in has been made and its address shown already.
                         on_url: &|_| {},
                         signed: signed.as_ref(),
                     },
-                )
+                ))
                 .map_err(String::from)
             }),
         }

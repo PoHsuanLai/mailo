@@ -87,8 +87,9 @@ serde.workspace = true
 log.workspace = true
 serde_json = "1"
 # `sync` for the channel the Original frame's image fetches reach their worker through
-# (`ui/original/net.rs`); already in the tree through reqwest and ds-blitz.
-tokio = { version = "1", features = ["rt", "macros", "time", "net", "io-util", "sync"] }
+# (`ui/original/net.rs`); already in the tree through reqwest and ds-blitz. `rt-multi-thread` for
+# the application's one runtime (`edge.rs`), which the libraries below are handed.
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time", "net", "io-util", "sync"] }
 # For `join_all` only: one pass over several accounts is several independent conversations with
 # several servers, and running them one after another spends the sum of their waiting.
 futures-util = { version = "0.3", default-features = false, features = ["std"] }

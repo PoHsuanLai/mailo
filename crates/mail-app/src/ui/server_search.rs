@@ -43,8 +43,10 @@ impl ServerSearcher {
     /// The server, through [`mail_core::server_search::search`].
     #[cfg(not(test))]
     fn server() -> Self {
-        Self(Arc::new(|store, account, input, now| {
-            mail_core::server_search::search(store, account, input, now).map_err(String::from)
+        Self(Arc::new(|store, account, input, _now| {
+            let mail = crate::edge::mail(&store);
+            crate::edge::block_on(mail_core::server_search::search(&mail, account, input))
+                .map_err(String::from)
         }))
     }
 

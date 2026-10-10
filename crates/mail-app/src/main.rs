@@ -24,6 +24,11 @@ fn main() {
         log::set_max_level(log::LevelFilter::Warn);
     }
     let args: Vec<String> = std::env::args().skip(1).collect();
+    // What the process was started with, read here and nowhere in the libraries: they are handed
+    // it (`mail_app::edge`).
+    mail_app::edge::install_environment(mail_core::Environment::from_lookup(|name| {
+        std::env::var_os(name)
+    }));
 
     // No arguments opens the window, and `open <thread>` opens it on a conversation; anything
     // else is the CLI. One binary because they are one application over one store, and a
@@ -83,7 +88,8 @@ fn main() {
     // the yes.
     if let Some(mail_app::cli::Command::AccountDiscover { address }) = &command {
         match mail_app::cli::discover::show(address, |address| {
-            mail_core::discover::lookup(address, chrono::Utc::now()).map_err(String::from)
+            mail_app::edge::block_on(mail_core::discover::lookup(address, chrono::Utc::now()))
+                .map_err(String::from)
         }) {
             Ok(said) => print!("{said}"),
             Err(message) => {
@@ -97,7 +103,8 @@ fn main() {
         Some(command) => match mail_app::cli::discover::before_add(
             command,
             |address| {
-                mail_core::discover::lookup(address, chrono::Utc::now()).map_err(String::from)
+                mail_app::edge::block_on(mail_core::discover::lookup(address, chrono::Utc::now()))
+                    .map_err(String::from)
             },
             mail_app::cli::discover::Terminal::of_stdin(),
             |text| {
@@ -128,7 +135,10 @@ fn main() {
     let command = match command {
         Some(command) => match mail_app::cli::discover::before_add_jmap(
             command,
-            |domain: &str| mail_core::discover::find_jmap(domain).map_err(String::from),
+            |domain: &str| {
+                mail_app::edge::block_on(mail_core::discover::find_jmap(domain))
+                    .map_err(String::from)
+            },
             mail_app::cli::discover::Terminal::of_stdin(),
             |text| {
                 use std::io::Write as _;
@@ -332,7 +342,8 @@ fn main() {
     // Sync needs an async runtime and the store by Arc, so it is dispatched here rather than
     // inside mail_app::cli::run, which is deliberately synchronous and testable.
     if matches!(command, Some(mail_app::cli::Command::Sync)) {
-        match mail_core::sync::run(store.clone(), chrono::Utc::now(), Default::default()) {
+        let mail = mail_app::edge::mail(&store);
+        match mail_app::edge::block_on(mail.sync().run(Default::default())) {
             Ok(ends) => print!("{}", mail_app::cli::sync::run_text(&store, &ends)),
             Err(message) => {
                 eprintln!("{message}");
@@ -342,7 +353,7 @@ fn main() {
         return;
     }
     if let Some(mail_app::cli::Command::SyncFolder { account, path }) = &command {
-        match mail_app::cli::sync_folder(store, account, path, chrono::Utc::now()) {
+        match mail_app::cli::sync_folder(store, account, path) {
             Ok(text) => print!("{text}"),
             Err(message) => {
                 eprintln!("{message}");
@@ -359,9 +370,9 @@ fn main() {
         dir,
     }) = &command
     {
-        let download = |section: &str| {
-            mail_core::sync::fetch_part(&store, *message, section, chrono::Utc::now())
-        };
+        let mail = mail_app::edge::mail(&store);
+        let download =
+            |section: &str| mail_app::edge::block_on(mail.sync().fetch_part(*message, section));
         match mail_core::attach::fetch_and_save(&store, *message, *index, dir, download) {
             Ok(said) => println!("{said}"),
             Err(message) => {
@@ -378,11 +389,8 @@ fn main() {
             match mail_core::ipc::daemon::serve(
                 store,
                 std::sync::Arc::new(|store| {
-                    match mail_core::sync::run(
-                        store.clone(),
-                        chrono::Utc::now(),
-                        Default::default(),
-                    ) {
+                    let mail = mail_app::edge::mail(&store);
+                    match mail_app::edge::block_on(mail.sync().run(Default::default())) {
                         Ok(ends) => {
                             print!("{}", mail_app::cli::sync::run_text(&store, &ends));
                             ends.iter()
@@ -451,7 +459,8 @@ fn main() {
     if let Some(mail_app::cli::Command::Pgp(mail_core::pgp::PgpCommand::Lookup { address })) =
         &command
     {
-        match mail_core::pgp::lookup(&store, address, chrono::Utc::now()) {
+        match mail_app::edge::block_on(mail_core::pgp::lookup(&store, address, chrono::Utc::now()))
+        {
             Ok(said) => print!("{said}"),
             Err(message) => {
                 eprintln!("{message}");
@@ -468,7 +477,11 @@ fn main() {
         && openpgp.encrypts()
     {
         let addresses: Vec<String> = to.iter().chain(cc).map(|a| a.email.clone()).collect();
-        let said = mail_core::pgp::discover(&store, &addresses, chrono::Utc::now());
+        let said = mail_app::edge::block_on(mail_core::pgp::discover(
+            &store,
+            &addresses,
+            chrono::Utc::now(),
+        ));
         eprint!("{said}");
     }
 
@@ -488,9 +501,16 @@ fn main() {
         let now = chrono::Utc::now();
         let exported = mail_core::export::select(&store, query, now).and_then(|chosen| {
             eprintln!("{} message(s) match", chosen.len());
-            mail_core::export::export(&store, &chosen, target, now, &mut |done| {
-                eprintln!("  {} written", done.written);
-            })
+            mail_core::export::export(
+                &store,
+                &mail_app::edge::environment(),
+                &chosen,
+                target,
+                now,
+                &mut |done| {
+                    eprintln!("  {} written", done.written);
+                },
+            )
         });
         match exported {
             Ok(done) => print!("{}", mail_core::export::said(&done, target)),
@@ -607,7 +627,8 @@ fn main() {
             print!("{}", mail_app::cli::sync::watched_text(&watched));
             let _ = std::io::stdout().flush();
         };
-        match mail_core::sync::watch(store.clone(), chrono::Utc::now(), notifications, &say) {
+        let mail = mail_app::edge::mail(&store);
+        match mail_app::edge::block_on(mail.sync().watch(notifications, &say)) {
             // Only reached when every account has stopped for a reason worth stopping for — a
             // credential the server refused, which no amount of retrying fixes.
             Ok(ends) => {
@@ -698,7 +719,8 @@ fn import(
                 import::queue_uploads(store, account, folder, &source, now, &mut progress)?;
             let mut out = import::said(&total, into);
             // Sent now, so the user sees it go; whatever fails stays queued for the next sync.
-            let report = mail_core::sync::drain(store, id, now)?;
+            let mail = mail_app::edge::mail(store);
+            let report = mail_app::edge::block_on(mail.sync().drain(id))?;
             out.push_str(&format!("{} uploaded\n", report.appended));
             if report.still_queued > 0 {
                 out.push_str(&format!(

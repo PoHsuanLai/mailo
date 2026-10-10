@@ -149,8 +149,8 @@ struct Job {
     done: Box<dyn FnOnce(Got) + Send>,
 }
 
-/// The web: one worker thread, started by the first admitted image, fetching each on its own
-/// task with one client.
+/// The web: one worker task on the application's runtime, started by the first admitted image,
+/// fetching each on its own task with one client.
 ///
 /// The client sends no cookies (reqwest's `cookies` feature is off) and no `Referer`; it
 /// follows at most three redirects, which reqwest keeps to `http` and `https`; it gives up after
@@ -170,22 +170,11 @@ impl Web {
             .build()
             .ok()?;
         let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel::<Job>();
-        std::thread::Builder::new()
-            .name("mailo-images".to_owned())
-            .spawn(move || {
-                let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                else {
-                    return;
-                };
-                runtime.block_on(async move {
-                    while let Some(job) = receiver.recv().await {
-                        tokio::spawn(fetch_one(client.clone(), job));
-                    }
-                });
-            })
-            .ok()?;
+        crate::edge::runtime().spawn(async move {
+            while let Some(job) = receiver.recv().await {
+                tokio::spawn(fetch_one(client.clone(), job));
+            }
+        });
         Some(sender)
     }
 }

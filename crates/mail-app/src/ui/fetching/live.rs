@@ -1,6 +1,6 @@
 //! Push in the window: one long-lived watch per account that the server can push to.
 //!
-//! [`mail_core::sync::live::listen`] holds the connection (IMAP `IDLE`, JMAP's event source) and
+//! [`mail_core::SyncOps::listen`] holds the connection (IMAP `IDLE`, JMAP's event source) and
 //! says what it hears; [`keep`] turns that into the events the link reads and reconnects when
 //! the connection is lost. The watch runs no pass and takes no part in one: a wake for mail is
 //! a `Start(Trigger::Push)`, and the link decides whether a pass can begin.
@@ -79,7 +79,14 @@ impl Listener {
     pub(in crate::ui) fn server() -> Self {
         Self {
             listen: Arc::new(|store, account, stop, hold, heard| {
-                core::listen(store, account, stop, Some(hold), core::GRACE, heard)
+                let mail = crate::edge::mail(&store);
+                crate::edge::block_on(mail.sync().listen(
+                    account,
+                    stop,
+                    Some(hold),
+                    core::GRACE,
+                    heard,
+                ))
             }),
             pushers: Arc::new(core::pushing),
             daemon: Arc::new(|| {

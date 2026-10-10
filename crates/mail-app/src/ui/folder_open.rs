@@ -12,7 +12,7 @@ use mail_store::SqliteStore;
 use porter_core::AccountId;
 use std::sync::Arc;
 
-/// Fetch one folder now: the signature of [`mail_core::sync::folder_now`].
+/// Fetch one folder now: the signature of [`mail_core::SyncOps::folder_now`].
 pub(in crate::ui) type Fetch = Arc<
     dyn Fn(Arc<SqliteStore>, AccountId, &str, DateTime<Utc>) -> Result<PassEnd, String>
         + Send
@@ -24,11 +24,12 @@ pub(in crate::ui) type Fetch = Arc<
 pub(in crate::ui) struct Fetcher(pub Fetch);
 
 impl Fetcher {
-    /// The server, through [`mail_core::sync::folder_now`].
+    /// The server, through [`mail_core::SyncOps::folder_now`].
     #[cfg(not(test))]
     pub(in crate::ui) fn server() -> Self {
-        Self(Arc::new(|store, account, path, now| {
-            mail_core::sync::folder_now(store, account, path, now).map_err(String::from)
+        Self(Arc::new(|store, account, path, _now| {
+            let mail = crate::edge::mail(&store);
+            crate::edge::block_on(mail.sync().folder_now(account, path)).map_err(String::from)
         }))
     }
 
