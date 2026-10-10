@@ -1,5 +1,6 @@
 use super::{
-    Heard, IDS, OWN, Own, app_action, app_id, chord_for, declared, escape, heard_in, tip_of,
+    Heard, IDS, OWN, Own, app_action, app_id, declared, escape, groups, heard_in, hint_own,
+    hint_standard, overrides_of, tip_of,
 };
 use crate::ui::keymap::{Keymap as User, bind, load, save};
 use crate::ui::view::Shortcut;
@@ -30,15 +31,21 @@ fn every_platform() -> [Platform; 6] {
     ]
 }
 
-/// `platform`'s conventions with every action mailo declares registered, as a window has them.
-fn registered(platform: Platform) -> Chords {
-    let mut map = Chords::conventional(platform);
+/// `platform`'s conventions with the keys the person chose laid over them and every action mailo
+/// declares registered, as a window has them: quire applies the overrides to what the source
+/// gives, then makes the registration.
+fn registered_with(platform: Platform, user: &User) -> Chords {
+    let (mut map, problems) = Chords::conventional(platform).with_overrides(&overrides_of(user));
+    assert!(problems.is_empty(), "{platform:?}: {problems:?}");
     let app = app_id().expect("mail is an app name");
-    for group in declared() {
-        map.register(&app, &group)
-            .unwrap_or_else(|why| panic!("{platform:?}: {why}"));
-    }
+    map.register_with(&declared(&app))
+        .unwrap_or_else(|why| panic!("{platform:?}: {why}"));
     map
+}
+
+/// [`registered_with`] for a person who changed nothing.
+fn registered(platform: Platform) -> Chords {
+    registered_with(platform, &User::default())
 }
 
 fn ids() -> Vec<&'static str> {
@@ -56,7 +63,7 @@ fn every_action_has_a_default_chord_and_no_two_collide() {
     named.sort_unstable();
     named.dedup();
     assert_eq!(named.len(), all, "an id is named twice");
-    let rows: Vec<_> = declared().into_iter().flatten().collect();
+    let rows: Vec<_> = groups().into_iter().flatten().collect();
     for id in &named {
         assert!(rows.iter().any(|(action, _)| action.id() == *id), "{id}");
     }
@@ -293,18 +300,34 @@ fn a_press_is_the_action_the_platform_s_chord_names() {
             Some(Chord(Own::Focus)),
         ),
         (
-            "⇧⌘X",
+            "⇧⌘S is strikethrough, not Save As",
             ours(),
-            character("X"),
+            character("S"),
             SUPER | SHIFT,
             true,
             Some(Chord(Own::Strikethrough)),
         ),
         (
-            "⇧⌘E",
+            "⌘E is code, not Use Selection for Find",
             ours(),
-            character("E"),
-            SUPER | SHIFT,
+            character("e"),
+            SUPER,
+            true,
+            Some(Chord(Own::Code)),
+        ),
+        (
+            "Ctrl Shift S on Windows",
+            windows,
+            character("S"),
+            CTRL | SHIFT,
+            true,
+            Some(Chord(Own::Strikethrough)),
+        ),
+        (
+            "Ctrl E on Windows",
+            windows,
+            character("e"),
+            CTRL,
             true,
             Some(Chord(Own::Code)),
         ),
@@ -461,11 +484,10 @@ fn a_press_is_the_action_the_platform_s_chord_names() {
             Some(Mail(Shortcut::Archive)),
         ),
     ];
-    let user = User::default();
     for (what, platform, key, held, typing, want) in cases {
         let map = registered(platform);
         assert_eq!(
-            heard_in(&map, &user, &key, held, typing),
+            heard_in(&map, &key, held, typing),
             want,
             "{what} ({platform:?})"
         );
@@ -486,10 +508,10 @@ fn the_table_is_the_keyboard_as_it_was_for_every_key() {
             } else {
                 Modifiers::empty()
             };
-            let heard = heard_in(&map, &user, &character(&key), held, typing);
+            let heard = heard_in(&map, &character(&key), held, typing);
             let table = user.action(&key, typing);
             // A symbol is also pressed with Shift (`#` is Shift+3 on a US keyboard).
-            let shifted = heard_in(&map, &user, &character(&key), Modifiers::SHIFT, typing);
+            let shifted = heard_in(&map, &character(&key), Modifiers::SHIFT, typing);
             let asked = table.map(Heard::Mail);
             assert_eq!(heard, asked, "{key:?}, typing {typing}");
             if !key.chars().all(char::is_alphanumeric) {
@@ -507,56 +529,68 @@ fn keyboard_json_keys_take_effect_over_the_defaults() {
     let user = bind(&user, Shortcut::ToggleStar, "e").unwrap();
     save(dir.path(), &user).unwrap();
     let user = load(dir.path());
-    let map = registered(ours());
-    let said =
-        |key: &str, typing| heard_in(&map, &user, &character(key), Modifiers::empty(), typing);
-    assert_eq!(said("x", false), Some(Heard::Mail(Shortcut::Archive)));
-    assert_eq!(said("x", true), None, "not while typing");
-    assert_eq!(
-        said("e", false),
-        Some(Heard::Mail(Shortcut::ToggleStar)),
-        "the key Archive left is Star's"
-    );
-    assert_eq!(said("s", false), None, "Star's old key does nothing");
-    assert_eq!(said("j", false), Some(Heard::Mail(Shortcut::Next)));
+    // The file's keys are the keymap's own chords: the same press is the same action on every
+    // platform, and nothing outside the keymap decides it.
+    for platform in every_platform() {
+        let map = registered_with(platform, &user);
+        let said = |key: &str, typing| heard_in(&map, &character(key), Modifiers::empty(), typing);
+        assert_eq!(
+            said("x", false),
+            Some(Heard::Mail(Shortcut::Archive)),
+            "{platform:?}"
+        );
+        assert_eq!(said("x", true), None, "{platform:?}: not while typing");
+        assert_eq!(
+            said("e", false),
+            Some(Heard::Mail(Shortcut::ToggleStar)),
+            "{platform:?}: the key Archive left is Star's"
+        );
+        assert_eq!(
+            said("s", false),
+            None,
+            "{platform:?}: Star's old key does nothing"
+        );
+        assert_eq!(
+            said("j", false),
+            Some(Heard::Mail(Shortcut::Next)),
+            "{platform:?}"
+        );
+    }
     // And a key with the command key held is the platform's chord (Cut), not the person's key.
-    let held = heard_in(&map, &user, &character("x"), Modifiers::SUPER, false);
+    let map = registered_with(ours(), &user);
+    let held = heard_in(&map, &character("x"), Modifiers::SUPER, false);
     assert_eq!(held, Some(Heard::Standard(StandardAction::Cut)));
 }
 
-/// What the tip of `shortcut` draws on `map`'s platform, under the keys `user` chose.
-fn tip_text(map: &Chords, user: &User, shortcut: Shortcut) -> Option<String> {
-    let live = app_action(shortcut)
+/// What the tip of `shortcut` draws on `map`'s platform.
+fn tip_text(map: &Chords, shortcut: Shortcut) -> Option<String> {
+    let chord = app_action(shortcut)
         .map(|action| map.chords_of(&Action::App(action)))
-        .unwrap_or_default();
-    let tip = chord_for(&live, user, shortcut).and_then(tip_of)?;
+        .and_then(|live| live.first().copied())?;
+    let tip = tip_of(chord)?;
     Some(shortcut_text(map, &tip))
 }
 
 #[test]
 fn a_tip_shows_the_chord_the_resolver_would_use() {
     let map = registered(ours());
-    let user = User::default();
+    assert_eq!(tip_text(&map, Shortcut::ToggleMute).as_deref(), Some("M"));
+    assert_eq!(tip_text(&map, Shortcut::Trash).as_deref(), Some("#"));
     assert_eq!(
-        tip_text(&map, &user, Shortcut::ToggleMute).as_deref(),
-        Some("M")
-    );
-    assert_eq!(tip_text(&map, &user, Shortcut::Trash).as_deref(), Some("#"));
-    assert_eq!(
-        tip_text(&map, &user, Shortcut::ExtendNext).as_deref(),
+        tip_text(&map, Shortcut::ExtendNext).as_deref(),
         Some("\u{21e7}J")
     );
-    assert_eq!(tip_text(&map, &user, Shortcut::Back), None);
+    assert_eq!(tip_text(&map, Shortcut::Back), None);
 
-    // A key the person chose in keyboard.json is the one shown.
-    let moved = bind(&user, Shortcut::ToggleMute, "x").unwrap();
+    // A key the person chose in keyboard.json is the one shown, as it is the one resolved.
+    let moved = bind(&User::default(), Shortcut::ToggleMute, "x").unwrap();
     assert_eq!(
-        tip_text(&map, &moved, Shortcut::ToggleMute).as_deref(),
+        tip_text(&registered_with(ours(), &moved), Shortcut::ToggleMute).as_deref(),
         Some("X")
     );
-    let moved = bind(&user, Shortcut::ExtendNext, "ArrowRight").unwrap();
+    let moved = bind(&User::default(), Shortcut::ExtendNext, "ArrowRight").unwrap();
     assert_eq!(
-        tip_text(&map, &moved, Shortcut::ExtendNext).as_deref(),
+        tip_text(&registered_with(ours(), &moved), Shortcut::ExtendNext).as_deref(),
         Some("\u{2192}")
     );
 
@@ -569,7 +603,7 @@ fn a_tip_shows_the_chord_the_resolver_would_use() {
             .with_overrides(&Overrides::parse("mail.toggle-mute = Primary+Shift+M").0);
         assert!(problems.is_empty(), "{problems:?}");
         assert_eq!(
-            tip_text(&rebound, &user, Shortcut::ToggleMute).as_deref(),
+            tip_text(&rebound, Shortcut::ToggleMute).as_deref(),
             Some(shown),
             "{platform:?}"
         );
@@ -580,12 +614,12 @@ fn a_tip_shows_the_chord_the_resolver_would_use() {
             Modifiers::SUPER | Modifiers::SHIFT
         };
         assert_eq!(
-            heard_in(&rebound, &user, &character("M"), held, false),
+            heard_in(&rebound, &character("M"), held, false),
             Some(Heard::Mail(Shortcut::ToggleMute)),
             "{platform:?}"
         );
         assert_eq!(
-            heard_in(&rebound, &user, &character("m"), Modifiers::empty(), false),
+            heard_in(&rebound, &character("m"), Modifiers::empty(), false),
             None,
             "{platform:?}"
         );
@@ -610,4 +644,24 @@ fn a_chord_of_mailo_s_is_drawn_in_the_platform_s_words() {
         );
     }
     assert_eq!(escape().glyphs(), "Esc");
+}
+
+#[test]
+fn the_hints_beside_commands_follow_the_platform() {
+    let cases = [
+        (Platform::MacOs, "\u{2318}N"),
+        (Platform::Windows, "Ctrl+N"),
+    ];
+    for (platform, new) in cases {
+        let map = registered(platform);
+        assert_eq!(
+            hint_standard(&map, StandardAction::New).as_deref(),
+            Some(new),
+            "{platform:?}"
+        );
+        assert!(
+            hint_own(&map, Own::OpenInWindow).is_some(),
+            "{platform:?} has a key for a window of its own"
+        );
+    }
 }

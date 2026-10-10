@@ -30,7 +30,7 @@ fn mode_icon(peek: Peek) -> Icon {
 }
 
 /// The view menu's rows: each mode, the one in use checked, then a window of its own.
-pub(super) fn view_items(current: Peek) -> Vec<MenuItem> {
+pub(super) fn view_items(current: Peek, keymap: &chordkit::Keymap) -> Vec<MenuItem> {
     let mut items: Vec<MenuItem> = MODES
         .iter()
         .map(|peek| MenuItem {
@@ -45,7 +45,7 @@ pub(super) fn view_items(current: Peek) -> Vec<MenuItem> {
             detail: Vec::new(),
         })
         .collect();
-    items.push(super::super::window::menu_item());
+    items.push(super::super::window::menu_item(keymap));
     items
 }
 
@@ -64,6 +64,7 @@ fn mounted_into(mut at: Signal<Option<MountedRef>>) -> Common {
 pub(super) fn ViewMenu(thread: ThreadId, peek: Peek, shell: Signal<Shell>) -> Element {
     let mut open = use_signal(|| false);
     let tool = use_signal(|| None::<MountedRef>);
+    let keys = use_keys();
     rsx! {
         Button {
             bezel: Bezel::Toolbar,
@@ -79,7 +80,7 @@ pub(super) fn ViewMenu(thread: ThreadId, peek: Peek, shell: Signal<Shell>) -> El
             Floating {
                 anchor: tool(),
                 title: String::new(),
-                items: view_items(peek),
+                items: keys.with_keymap(|keymap| view_items(peek, keymap)),
                 on_pick: move |key: String| {
                     open.set(false);
                     if key == super::super::window::OPEN_KEY {
@@ -185,7 +186,10 @@ mod tests {
     #[test]
     fn the_view_menu_checks_the_mode_in_use_and_ends_with_a_window() {
         for current in MODES {
-            let items = view_items(current);
+            let items = view_items(
+                current,
+                &chordkit::Keymap::conventional(chordkit::Platform::MacOs),
+            );
             let checked: Vec<&str> = items
                 .iter()
                 .filter(|item| item.right == Right::Check(true))

@@ -119,7 +119,7 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
             return;
         }
         let typing = shell.read().composing.is_some();
-        let heard = actions::heard(keys, &shell.read().keymap, &event, typing);
+        let heard = actions::heard(keys, &event, typing);
         if crate::ui::motion::key(
             &key,
             heard == Some(Heard::Standard(StandardAction::Undo)),

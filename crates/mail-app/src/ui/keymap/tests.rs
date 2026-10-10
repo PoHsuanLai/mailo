@@ -260,14 +260,27 @@ fn keys_are_spoken_as_their_caps() {
 }
 
 #[test]
-fn the_user_s_keys_are_answered_by_the_map_and_the_defaults_are_not() {
+fn the_user_s_keys_are_chordkit_overrides_and_the_defaults_are_not() {
     let map = Keymap::default();
-    for (_, keys) in DEFAULTS {
-        for key in *keys {
-            assert_eq!(map.changed_holder(key), None, "{key:?} is chordkit's");
-        }
-    }
+    assert!(
+        map.overrides().entries().is_empty(),
+        "the defaults are declared, not overridden"
+    );
+    // Archive answers to x alone, and ExtendNext's capital is Shift with the letter.
     let map = bind(&map, Shortcut::Archive, "x").unwrap();
-    assert_eq!(map.changed_holder("x"), Some(Shortcut::Archive));
-    assert_eq!(map.changed_holder("e"), None);
+    let map = bind(&map, Shortcut::ExtendNext, "L").unwrap();
+    let overrides = map.overrides();
+    let ids: Vec<String> = overrides
+        .entries()
+        .iter()
+        .map(|entry| entry.action.id())
+        .collect();
+    assert_eq!(ids, ["mail.extend-next", "mail.archive"]);
+    assert!(
+        overrides
+            .entries()
+            .iter()
+            .all(|entry| entry.chords.len() == 1),
+        "a changed action answers to its one key"
+    );
 }

@@ -177,7 +177,7 @@ pub(in crate::ui) fn reader_groups(
 pub(super) fn name(pick: Pick, muted: Muted) -> String {
     let muted = muted == Muted::Yes;
     match pick {
-        Pick::Window => crate::ui::window::menu_item().name,
+        Pick::Window => crate::ui::window::OPEN_NAME.to_owned(),
         Pick::Remind => "Remind me if no reply…".to_owned(),
         Pick::Press(Pressed::MoveTo) => "Move to…".to_owned(),
         Pick::Press(Pressed::Op(kind)) => match kind {

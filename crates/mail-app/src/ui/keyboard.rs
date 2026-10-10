@@ -20,6 +20,7 @@ use ds::components::controls::key_equivalent::{KeyEquivalent, KeyStyle};
 use ds::components::fields::field_row::FieldRow;
 use ds::prelude::{
     Button, Form, FormSection, Label, Shortcut as Caps, ShortcutKey as Key, TextLine, Tooltip,
+    use_keys,
 };
 use ds::root::common::Common;
 
@@ -162,11 +163,17 @@ pub(in crate::ui) fn KeyboardPage(shell: Signal<Shell>) -> Element {
     let page = shell.read().keyboard.clone();
     let map = shell.read().keymap.clone();
     let any_changed = DEFAULTS.iter().any(|(action, _)| map.is_changed(*action));
+    // What the keymap could not use of the keys kept here (a key the system keeps for itself),
+    // in its own words.
+    let problems = use_keys().problems();
     rsx! {
         Form {
         FormSection {
             title: Some("Shortcuts".to_owned()),
-            footer: Some("Letters work while you read, never while you type.".to_owned()),
+            footer: Some(
+                "Letters work while you read, never while you type. A changed key is used the next time mailo opens."
+                    .to_owned(),
+            ),
             FieldRow {
                 label: keymap::name(Shortcut::Back),
                 help: Some(TextLine::from("Always")),
@@ -181,6 +188,18 @@ pub(in crate::ui) fn KeyboardPage(shell: Signal<Shell>) -> Element {
                     changed: map.is_changed(action),
                     listening: page.listening == Some(action),
                     said: said_for(&page, Some(action)),
+                }
+            }
+        }
+        if !problems.is_empty() {
+            FormSection {
+                title: Some("Not used".to_owned()),
+                for problem in problems {
+                    FieldRow {
+                        key: "{problem}",
+                        label: "Shortcut",
+                        Label { text: problem.clone(), role: LabelRole::Secondary }
+                    }
                 }
             }
         }

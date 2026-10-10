@@ -62,6 +62,13 @@ pub(super) fn run(opening: Opening) -> Result<(), ds_blitz::LaunchError> {
     crate::accountd::follow(&store, &mail_runtime::link::current(), move |_| {
         following.bump();
     });
+    // The keys the person chose, read once like the above: quire lays them over the system's
+    // keymap for every window, so they are the keymap's own chords. A change made in Settings is
+    // read the next time mailo opens, for quire has no way yet to change a running keymap's
+    // overrides.
+    let chosen = dirs
+        .as_ref()
+        .map(|dirs| crate::ui::keymap::load(&dirs.config).overrides());
     let config = AppConfig::new("mailo", ds_blitz::WindowSize::new(1200, 800))
         .with_app_id(AppId(APP_ID.to_owned()))
         .with_net(original.net())
@@ -77,6 +84,10 @@ pub(super) fn run(opening: Opening) -> Result<(), ds_blitz::LaunchError> {
         .with_context(crate::ui::revisions::Configured::default())
         // And the page the Settings window shows next, which ⌘K and the composer turn it to.
         .with_context(crate::ui::settings_window::SettingsAsked::default());
+    let config = match chosen {
+        Some(chosen) => config.with_keymap_overrides(chosen),
+        None => config,
+    };
     let config = match brand {
         Some(brand) => config.with_context(brand),
         None => config,

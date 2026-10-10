@@ -241,7 +241,7 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
             onkeydown: move |event: KeyboardEvent| {
                 let key = event.key().to_string();
                 // The page is a text surface: the chords that reach it are the ones a field leaves.
-                let heard = actions::heard(keys, &shell.peek().keymap, &event, true);
+                let heard = actions::heard(keys, &event, true);
                 if heard == Some(Heard::Own(Own::Send)) {
                     event.prevent_default();
                     event.stop_propagation();
