@@ -208,7 +208,7 @@ fn resource_of(scope: &str) -> Option<&str> {
 /// Spend `refresh_token` on a new access token, naming `scopes` when there are any. The refresh
 /// token is carried through when the issuer does not rotate it: dropping it would log the user
 /// out at the next expiry.
-async fn refresh(
+pub(crate) async fn refresh(
     client: &ClientEntry,
     refresh_token: &str,
     scopes: &[String],

@@ -18,11 +18,13 @@ use porter_provider::ClientEntry;
 use porter_provider::Issuer;
 
 mod advice;
+pub mod direct;
 pub mod draft;
 mod linked;
 mod remove;
 
 pub use advice::{no_client_id, no_credential};
+pub use direct::{Direct, Mode, SignInError, sign_in_with};
 pub use linked::{
     Linked, Reconciled, find as find_linked, forget, linked as linked_accounts, named_by_segment,
     preset_of, reconcile,
