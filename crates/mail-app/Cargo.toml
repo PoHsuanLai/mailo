@@ -109,19 +109,19 @@ dioxus = { version = "0.7" }
 # display). quire re-exports only `StandardAction`; mailo names `Action`, `AppAction`, `Context` and
 # `Chord` as well. The rev quire pins (`docs/workspace-deps.toml`), so one chordkit is built.
 chordkit = { git = "https://github.com/PoHsuanLai/chordkit.git", rev = "ba094c62006c280ac53c4c5df5c0e639c1226c07" }
-ds = { git = "https://github.com/PoHsuanLai/quire.git", rev = "4289e369cb62066d3ce9b80058f659a8c0f98b03" }  # v0.3.7
+ds = { git = "https://github.com/PoHsuanLai/quire.git", rev = "e270b3eb5f0f675ee7ffc5c5daebedac3ac7e463" }  # v0.3.8
 # Settings I/O: `appearance.toml` (imported once from `appearance.json`), the settings portal.
-ds-settings = { git = "https://github.com/PoHsuanLai/quire.git", rev = "4289e369cb62066d3ce9b80058f659a8c0f98b03", features = ["dioxus"] }  # v0.3.7
+ds-settings = { git = "https://github.com/PoHsuanLai/quire.git", rev = "e270b3eb5f0f675ee7ffc5c5daebedac3ac7e463", features = ["dioxus"] }  # v0.3.8
 # The account sheets' views (step E5): `ds_shell::accounts`, the parts `sill` draws the same sheet with.
 # Only the accounts module is used; the shell's own surfaces (bar, dock, lock) are not drawn here.
-ds-shell = { git = "https://github.com/PoHsuanLai/quire.git", rev = "4289e369cb62066d3ce9b80058f659a8c0f98b03" }  # v0.3.7
+ds-shell = { git = "https://github.com/PoHsuanLai/quire.git", rev = "e270b3eb5f0f675ee7ffc5c5daebedac3ac7e463" }  # v0.3.8
 # `mailo.toml`, and the `appearance.toml` written once on the first run after the move.
 toml = "1"
 # The window: quire's Blitz host (the window, its fonts, focus, clipboard, PDF output), and
 # `print`: the system's print dialog for a PDF (the desktop portal on Linux, else the PDF opened
 # in the viewer); `spell`: the composer's spelling, against the system's Hunspell dictionaries
 # (none is bundled); `pdf` also rasterises a PDF attachment's first page (`PdfFileThumb`).
-ds-blitz = { git = "https://github.com/PoHsuanLai/quire.git", rev = "4289e369cb62066d3ce9b80058f659a8c0f98b03", features = ["pdf", "print", "spell"] }  # v0.3.7
+ds-blitz = { git = "https://github.com/PoHsuanLai/quire.git", rev = "e270b3eb5f0f675ee7ffc5c5daebedac3ac7e463", features = ["pdf", "print", "spell"] }  # v0.3.8
 blitz-dom = { workspace = true }
 dioxus-native-dom = { workspace = true }
 base64 = "0.22"
@@ -144,7 +144,7 @@ url = "2"
 # The capability probe (`Desktop::probe`, `Capability::Accounts`): is accountd on the session bus,
 # or one the bus would start. quire's own crate, at the tag `ds` names; its `dbus` feature is zbus
 # (already in this tree for intents), and without `quire-desktop` it is not here at all.
-ds-desktop = { git = "https://github.com/PoHsuanLai/quire.git", rev = "4289e369cb62066d3ce9b80058f659a8c0f98b03", default-features = false, features = ["dbus"], optional = true }  # v0.3.7
+ds-desktop = { git = "https://github.com/PoHsuanLai/quire.git", rev = "e270b3eb5f0f675ee7ffc5c5daebedac3ac7e463", default-features = false, features = ["dbus"], optional = true }  # v0.3.8
 
 [target.'cfg(not(any(target_os = "macos", windows)))'.dependencies]
 rfd = { version = "=0.17.2", default-features = false, features = ["xdg-portal"] }
@@ -210,8 +210,8 @@ proptest = "1"
 # The linter (`lint::assert_clean`, the markup lint) and the test driver (`Harness`, `Driver`,
 # `Query`, `snapshot`; `pdf` is `Harness::pdf` for the print tests): quire's own crates, at the
 # same tag.
-ds-lint = { git = "https://github.com/PoHsuanLai/quire.git", rev = "4289e369cb62066d3ce9b80058f659a8c0f98b03" }  # v0.3.7
-ds-harness = { git = "https://github.com/PoHsuanLai/quire.git", rev = "4289e369cb62066d3ce9b80058f659a8c0f98b03", features = ["pdf"] }  # v0.3.7
+ds-lint = { git = "https://github.com/PoHsuanLai/quire.git", rev = "e270b3eb5f0f675ee7ffc5c5daebedac3ac7e463" }  # v0.3.8
+ds-harness = { git = "https://github.com/PoHsuanLai/quire.git", rev = "e270b3eb5f0f675ee7ffc5c5daebedac3ac7e463", features = ["pdf"] }  # v0.3.8
 
 [lints]
 workspace = true
