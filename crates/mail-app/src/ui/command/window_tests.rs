@@ -46,7 +46,7 @@ async fn command_k_brings_up_the_panel_with_the_keyboard_in_its_field() {
     })
     .await;
     assert!(has(&page, "Compose"), "{page}");
-    assert!(has(&page, "class=\"spotlight\""), "no panel:\n{page}");
+    assert!(has(&page, "class=\"ds-search-card\""), "no panel:\n{page}");
     assert!(
         !has(&page, "class=\"ds-palette"),
         "⌘K still opened the palette"
@@ -67,7 +67,7 @@ async fn a_press_on_the_toolbars_magnifier_brings_up_the_panel() {
         has(page, &format!("aria-label=\"{LABEL}\""))
     })
     .await;
-    assert!(has(&page, "class=\"spotlight\""), "{page}");
+    assert!(has(&page, "class=\"ds-search-card\""), "{page}");
 }
 
 #[tokio::test]
@@ -93,7 +93,7 @@ async fn the_toolbar_holds_only_a_magnifier_and_the_sidebar_has_no_field() {
     // Idle, the toolbar has no field to type in and the panel is not drawn.
     assert!(!head.contains("<input"), "the toolbar has a field:\n{head}");
     assert!(!has(&page, &format!("aria-label=\"{LABEL}\"")));
-    assert!(!has(&page, "class=\"spotlight\""));
+    assert!(!has(&page, "class=\"ds-search-card\""));
 }
 
 #[tokio::test]
@@ -136,7 +136,10 @@ async fn opening_a_mail_keeps_its_search_shown_in_the_toolbar_until_it_is_cleare
         recorder.asked()
     );
     let page = dioxus_ssr::render(&dom);
-    assert!(!has(&page, "class=\"spotlight\""), "the panel stayed up");
+    assert!(
+        !has(&page, "class=\"ds-search-card\""),
+        "the panel stayed up"
+    );
     assert!(
         has(&page, "class=\"reader-head\""),
         "no mail opened:\n{page}"

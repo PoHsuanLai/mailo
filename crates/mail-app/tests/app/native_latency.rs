@@ -206,7 +206,7 @@ fn from_a_key_to_its_frame() {
     for topic in TOPICS {
         // ⌘K: the search panel, its text selected, so the topic replaces the last one.
         harness.chord(&[PRIMARY], Key::Char('k'));
-        settle_until(&mut harness, |h| h.is_focused(".spotlight input"));
+        settle_until(&mut harness, |h| h.is_focused(".ds-search-card input"));
         let (typed, last) = topic.split_at(topic.len() - 1);
         for key in typed.chars() {
             harness.key(Key::Char(key));

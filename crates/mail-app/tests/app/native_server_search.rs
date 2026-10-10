@@ -226,7 +226,7 @@ fn press(harness: &mut Harness, selector: &str) {
 fn summon(harness: &mut Harness) {
     harness.chord(&[PRIMARY], Key::Char('k'));
     let started = std::time::Instant::now();
-    while !harness.is_focused(".spotlight input") {
+    while !harness.is_focused(".ds-search-card input") {
         assert!(
             started.elapsed() < Duration::from_secs(30),
             "⌘K brought up no search panel:\n{}",
@@ -243,7 +243,7 @@ fn put_away(harness: &mut Harness) {
         y: ds::prelude::Px(4.0),
     });
     let started = std::time::Instant::now();
-    while harness.count(".spotlight") > 0 {
+    while harness.count(".ds-search-card") > 0 {
         assert!(
             started.elapsed() < Duration::from_secs(30),
             "the search panel stayed up:\n{}",
@@ -379,7 +379,7 @@ fn a_search_that_finds_mail_here_still_ends_with_the_offer() {
     // Emptying the box is the place again, with nothing offered. The box is emptied from its
     // start with Delete: on macOS Blitz leaves Backspace in a field to the system's key bindings,
     // which a headless window never gets, so Backspace deletes nothing there.
-    press(&mut harness, ".spotlight input");
+    press(&mut harness, ".ds-search-card input");
     harness.key(Key::Home);
     for _ in 0.."flight".len() {
         harness.key(Key::Delete);

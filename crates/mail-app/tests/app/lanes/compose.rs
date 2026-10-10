@@ -10,7 +10,7 @@ use super::drive::{Drive, Key, PRIMARY};
 use super::window::{Window, account, panel_row, panel_settled, parsed, queued};
 
 /// The search panel's field.
-const FIELD: &str = ".spotlight input";
+const FIELD: &str = ".ds-search-card input";
 /// The composer's To field.
 const TO: &str = ".c-props [*|data-row=to] .c-pin input";
 /// The attached files' chips.
@@ -47,13 +47,13 @@ fn write_to_ada_with_two_files() -> Window {
     window.until("the panel offers Ada among its people", |h| {
         panel_settled(h) && panel_row(h, "ada@example.test").is_some()
     });
-    let people = window.text(".spotlight-rows");
+    let people = window.text(".ds-search-card-rows");
     assert!(people.contains("Ada Lovelace"), "{people}");
 
     // Picking her shows her mail: the search becomes hers and the panel goes.
     let n = panel_row(&window.harness, "ada@example.test").unwrap_or_default();
-    window.click(&format!(".spotlight-rows .ds-menu > :nth-child({n})"));
-    window.until("the panel goes", |h| h.count(".spotlight input") == 0);
+    window.click(&format!(".ds-search-card-rows .ds-menu > :nth-child({n})"));
+    window.until("the panel goes", |h| h.count(".ds-search-card input") == 0);
     window.until("the list shows only Ada's mail", |h| {
         h.count(".list .ds-thread") == 1
     });

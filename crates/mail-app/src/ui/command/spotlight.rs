@@ -3,10 +3,11 @@
 //! the mail, commands, places and people the text names.
 //!
 //! What is typed is the list's search, so the list behind the card narrows as it always did.
-//! The card is quire's `Popover` (its surface, its shadow; a press outside it closes it, with no
-//! scrim) holding quire's plain search field and quire's menu rows, whose highlight is the
-//! field's (`MenuCursor::Controlled`): the keyboard stays in the field, which moves the
-//! highlight, runs it and completes it ([`super::keys`]). The rows are one answer to one settled
+//! The card is quire's `SearchField` in its card form (the field and its rows as one surface,
+//! floated from the line at the top; a press outside it closes it, with no scrim). The rows show
+//! at once (`Panel::Shown`) and the arrows stop at the ends (`Ends::Stop`); the keyboard stays in
+//! the field, which moves the highlight and runs it, and mailo's [`super::keys`] completes it and
+//! leaves. The rows are one answer to one settled
 //! text: the search runs off the thread that draws once the field has been still for
 //! [`QUIET`](super::super::debounce::QUIET), and an answer to text a newer keystroke has replaced
 //! is dropped, so Return runs a row on screen, not one from a query run afresh.
@@ -22,8 +23,6 @@ use crate::ui::space::Spaces;
 use crate::ui::view::{Bar, BarListing, BarOpen, Shell};
 use dioxus::prelude::*;
 use ds::base::geometry::placement::{Align, Side};
-use ds::base::vocab::Dismiss;
-use ds::components::overlays::popover::Arrow;
 use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use ds::style::tokens::control_size::ControlSize;
@@ -34,7 +33,7 @@ use std::sync::Arc;
 pub(in crate::ui) const LABEL: &str = "Search mail and commands";
 
 /// The panel's field, for the host to put the keyboard in.
-pub(in crate::ui) const FIELD: &str = ".spotlight input";
+pub(in crate::ui) const FIELD: &str = ".ds-search-card input";
 
 /// The panel, while it is up; and, always, the line across the top of the window it hangs from.
 #[component]
@@ -94,55 +93,49 @@ pub(in crate::ui) fn Spotlight(
         BarListing::Templates(_) => Vec::new(),
         BarListing::Search => tokens(&text),
     };
-    let active = open.active;
+    // The highlighted row, by its key: quire's cursor names a row by what picking it hands back.
+    let lit = rows
+        .get(open.active.min(rows.len().saturating_sub(1)))
+        .map(|row| row.key.clone());
     let keyed = rows.clone();
+    let keyed_on = rows.clone();
     let items = suggestions(&rows);
     rsx! {
         {line}
         Fetch { shell, drawn }
-        Popover {
-            anchor: anchor_at(top()),
-            placement: Placement::new(Side::Bottom, Align::Center),
-            gap: Px(0.0),
-            arrow: Arrow::None,
-            // Escape is the field's (it empties the text before it closes); a press outside the
-            // card closes it, and the search stays what it was.
-            dismiss: Dismiss::Transient,
-            onclose: move |()| leave(shell),
-            common: Common { aria_label: Some(LABEL.to_owned()), ..Common::default() },
-            div { class: "spotlight",
-                TextField {
-                    kind: FieldKind::Search,
-                    bezel: FieldBezel::Plain,
-                    size: ControlSize::ExtraLarge,
-                    label: LABEL.to_owned(),
-                    placeholder: "Search mail, commands, places and people".to_owned(),
-                    value: text,
-                    tokens: chips,
-                    oninput: move |value: String| set_text(shell, pages, value),
-                    onkey: move |event: KeyboardEvent| on_key(ctx, keys, &keyed, event),
-                    onfocus: move |()| in_a_field.set(true),
-                    onblur: move |()| in_a_field.set(false),
+        SearchField::<String> {
+            label: LABEL.to_owned(),
+            placeholder: "Search mail, commands, places and people".to_owned(),
+            size: ControlSize::ExtraLarge,
+            value: text,
+            tokens: chips,
+            suggestions: vec![SuggestionSection::bare(items)],
+            // The rows are the person's to run before a key is typed, and Escape on an empty field
+            // is ours: it leaves the panel (or the templates), the rows staying until then.
+            open: Panel::Shown,
+            // Arrows stop at the first and last row, as `keys::step` has it.
+            ends: Ends::Stop,
+            present: SuggestionsPresent::Card,
+            // The highlight is the shell's (`BarOpen::active`), so a click, a key and the text
+            // changing all move the one.
+            cursor: SearchCursor::Is(lit),
+            on_highlight: move |key: Option<String>| {
+                if let Some(at) = key.and_then(|key| keyed.iter().position(|row| row.key == key)) {
+                    set_active(shell, at);
                 }
-                if !items.is_empty() {
-                    div { class: "spotlight-rows",
-                        Menu::<String> {
-                            placement: MenuPlacement::Popup,
-                            anchor: anchor_at(None),
-                            flow: Flow::Inline,
-                            items,
-                            onpick: move |key: String| run_row(ctx, &key),
-                            onclose: move |()| {},
-                            active: MenuCursor::Controlled(Some(active.min(rows.len().saturating_sub(1)))),
-                            on_active: move |to: Option<usize>| {
-                                if let Some(to) = to {
-                                    set_active(shell, to);
-                                }
-                            },
-                        }
-                    }
-                }
-            }
+            },
+            // The card hangs from the line across the top of the window; a press outside it
+            // closes it, and the search stays what it was.
+            place: Some(CardPlace {
+                anchor: anchor_at(top()),
+                placement: Placement::new(Side::Bottom, Align::Center),
+            }),
+            ondismiss: move |()| leave(shell),
+            oninput: move |value: String| set_text(shell, pages, value),
+            onpick: move |key: String| run_row(ctx, &key),
+            onkey: move |event: KeyboardEvent| on_key(ctx, keys, &keyed_on, event),
+            onfocus: move |()| in_a_field.set(true),
+            onblur: move |()| in_a_field.set(false),
         }
     }
 }
@@ -167,6 +160,16 @@ fn on_key(ctx: Ctx, keys: Keys, rows: &[crate::ui::menu::MenuItem], event: Keybo
     let Some(key) = bar_key(&event.key().to_string(), plain) else {
         return;
     };
+    // Return runs the highlighted row through the field's own pick, which quire makes before it
+    // lets this hear the key, so this only keeps the key from the window. The arrows are
+    // quire's too: they reach here only with no rows to move over, where they do nothing.
+    if key == BarKey::Return {
+        if !rows.is_empty() {
+            event.prevent_default();
+            event.stop_propagation();
+        }
+        return;
+    }
     let typed = if field_text(&shell.peek()).is_empty() {
         Typed::Empty
     } else {

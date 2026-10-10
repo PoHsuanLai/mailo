@@ -117,13 +117,15 @@ fn f_forwards_the_text_under_a_header_and_forward_as_attachment_encloses_the_mes
     // Forward as attachment, from the search panel's commands: the message itself enclosed.
     window.open_subject(SUBJECT);
     window.press(&[PRIMARY], Key::Char('k'), 1);
-    window.until("⌘K opens the panel", |h| h.count(".spotlight input") == 1);
+    window.until("⌘K opens the panel", |h| {
+        h.count(".ds-search-card input") == 1
+    });
     window.type_text("Forward as attachment");
     window.until("the panel answers what was typed", |h| {
         panel_settled(h) && panel_row(h, "Forward as attachment").is_some()
     });
     let n = panel_row(&window.harness, "Forward as attachment").unwrap_or_default();
-    window.click(&format!(".spotlight-rows .ds-menu > :nth-child({n})"));
+    window.click(&format!(".ds-search-card-rows .ds-menu > :nth-child({n})"));
     window.until("the forward encloses the message", |h| {
         h.text_of(".c-props [*|data-row=attached]")
             .is_some_and(|row| row.contains(".eml"))

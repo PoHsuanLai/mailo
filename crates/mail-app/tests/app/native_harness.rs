@@ -455,11 +455,11 @@ fn the_search_panel_takes_the_keyboard_filters_the_rows_and_gives_the_keyboard_b
     harness.chord(&[PRIMARY], Key::Char('k'));
     harness.advance(ms(300));
     assert!(
-        harness.is_focused(".spotlight input"),
+        harness.is_focused(".ds-search-card input"),
         "Cmd K (Ctrl under Toshy) left the keyboard elsewhere"
     );
     // The search panel is up at the top of the window; there is no palette over it.
-    settle_until(&mut harness, |h| h.count(".spotlight .ds-menu") == 1);
+    settle_until(&mut harness, |h| h.count(".ds-search-card .ds-menu") == 1);
     assert_eq!(harness.count(".ds-palette"), 0, "Cmd K: a palette is drawn");
     // Typed letters are the panel's, not shortcuts: the list's search, and the panel's query.
     for key in "arch".chars() {
@@ -467,7 +467,7 @@ fn the_search_panel_takes_the_keyboard_filters_the_rows_and_gives_the_keyboard_b
     }
     harness.advance(ms(200));
     assert_eq!(
-        harness.attr(".spotlight input", "value").as_deref(),
+        harness.attr(".ds-search-card input", "value").as_deref(),
         Some("arch"),
         "Cmd K: the typed query"
     );
@@ -475,24 +475,28 @@ fn the_search_panel_takes_the_keyboard_filters_the_rows_and_gives_the_keyboard_b
     harness.key(Key::Escape);
     harness.advance(ms(300));
     assert_eq!(
-        harness.attr(".spotlight input", "value").as_deref(),
+        harness.attr(".ds-search-card input", "value").as_deref(),
         Some(""),
         "the first Escape did not empty the field"
     );
     assert!(
-        harness.is_focused(".spotlight input"),
+        harness.is_focused(".ds-search-card input"),
         "the first Escape left the field"
     );
     settle_until(&mut harness, |h| subjects(h).len() == INBOX.len());
     // The second leaves it, and the panel goes with it.
     harness.key(Key::Escape);
     harness.advance(ms(400));
-    assert_eq!(harness.count(".spotlight"), 0, "Escape left the panel open");
+    assert_eq!(
+        harness.count(".ds-search-card"),
+        0,
+        "Escape left the panel open"
+    );
     assert!(harness.is_focused(".app"), "the keyboard did not come back");
 
     // The magnifier, and typing that filters the rows.
     harness.click(centre(&harness, SEARCH_BUTTON));
-    settle_until(&mut harness, |h| h.is_focused(".spotlight input"));
+    settle_until(&mut harness, |h| h.is_focused(".ds-search-card input"));
     for key in "invoice".chars() {
         harness.key(Key::Char(key));
     }
@@ -502,7 +506,7 @@ fn the_search_panel_takes_the_keyboard_filters_the_rows_and_gives_the_keyboard_b
         subjects(h) == vec!["The invoice for September".to_owned()]
     });
     assert_eq!(
-        harness.attr(".spotlight input", "value").as_deref(),
+        harness.attr(".ds-search-card input", "value").as_deref(),
         Some("invoice"),
         "the magnifier: the typed query"
     );
@@ -513,7 +517,7 @@ fn the_search_panel_takes_the_keyboard_filters_the_rows_and_gives_the_keyboard_b
     harness.key(Key::Escape);
     harness.advance(ms(400));
     assert_eq!(
-        harness.count(".spotlight"),
+        harness.count(".ds-search-card"),
         0,
         "Escape left the magnifier's panel open"
     );
@@ -523,7 +527,7 @@ fn the_search_panel_takes_the_keyboard_filters_the_rows_and_gives_the_keyboard_b
     harness.chord(&[PRIMARY], Key::Char('f'));
     harness.advance(ms(300));
     assert!(
-        harness.is_focused(".spotlight input"),
+        harness.is_focused(".ds-search-card input"),
         "Ctrl+F left the keyboard elsewhere"
     );
 }

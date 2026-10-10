@@ -27,9 +27,9 @@ pub fn row_of(harness: &Harness, subject: &str) -> Option<usize> {
 
 /// The position of the search panel's row that names `text`.
 pub fn panel_row(harness: &Harness, text: &str) -> Option<usize> {
-    (1..=harness.count(".spotlight-rows .ds-menu > *")).find(|n| {
+    (1..=harness.count(".ds-search-card-rows .ds-menu > *")).find(|n| {
         harness
-            .text_of(&format!(".spotlight-rows .ds-menu > :nth-child({n})"))
+            .text_of(&format!(".ds-search-card-rows .ds-menu > :nth-child({n})"))
             .is_some_and(|row| row.contains(text))
     })
 }
@@ -38,10 +38,10 @@ pub fn panel_row(harness: &Harness, text: &str) -> Option<usize> {
 /// mail first, and the rows for typed text come once the search has run on it.
 pub fn panel_settled(harness: &Harness) -> bool {
     let typed = harness
-        .attr(".spotlight input", "value")
+        .attr(".ds-search-card input", "value")
         .is_some_and(|text| !text.is_empty());
     let first = harness
-        .text_of(".spotlight-rows .ds-menu > :nth-child(1)")
+        .text_of(".ds-search-card-rows .ds-menu > :nth-child(1)")
         .unwrap_or_default();
     !typed || first != "Recent"
 }
