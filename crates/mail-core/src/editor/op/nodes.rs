@@ -1,9 +1,9 @@
 //! Inserting whole nodes (a paste), and replacing a stretch of nodes (an inverse).
 
 use super::{Op, normalize_nodes, paragraph_mut};
-use crate::ui::editor::doc::{Doc, Node, Pos, Range};
-use crate::ui::editor::error::OpError;
-use crate::ui::editor::text::{delete_text, node_len, para_len};
+use crate::editor::doc::{Doc, Node, Pos, Range};
+use crate::editor::error::OpError;
+use crate::editor::text::{delete_text, node_len, para_len};
 
 pub(super) fn insert_nodes(doc: &mut Doc, at: Pos, nodes: Vec<Node>) -> Result<Op, OpError> {
     let nodes = normalize_nodes(nodes);

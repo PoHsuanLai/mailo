@@ -1,5 +1,6 @@
-use crate::ui::view::{Shell, op_for};
+use crate::ui::view::Shell;
 use dioxus::prelude::{ReadableExt, Signal, WritableExt};
+use mail_core::view::{mute_op, op_for, reply_target};
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
@@ -33,7 +34,7 @@ pub(super) fn composes(kind: OpKind) -> Option<Composes> {
 
 /// Create the draft a reply button opens.
 ///
-/// Which message that answers is [`crate::ui::view::reply_target`]'s decision, not this function's.
+/// Which message that answers is [`mail_core::view::reply_target`]'s decision, not this function's.
 /// Open a composer on the newest message of `thread`, replying or forwarding.
 /// Begin a message that answers nothing.
 ///
@@ -90,7 +91,7 @@ pub(super) fn start_composing(
                 .iter()
                 .filter_map(|id| store.message(*id).ok())
                 .collect();
-            let target = crate::ui::view::reply_target(&messages)
+            let target = reply_target(&messages)
                 .ok_or_else(|| "that conversation has no message to forward".to_owned())?;
             // No recipients: a forward has none of its own and the composer is where the user
             // names them. The draft is saved regardless, so closing the window does not lose it.
@@ -118,8 +119,8 @@ fn start_reply(store: &SqliteStore, thread: ThreadId, scope: ReplyScope) -> Resu
         .iter()
         .filter_map(|id| store.message(*id).ok())
         .collect();
-    let target = crate::ui::view::reply_target(&messages)
-        .ok_or_else(|| "that conversation has no messages".to_owned())?;
+    let target =
+        reply_target(&messages).ok_or_else(|| "that conversation has no messages".to_owned())?;
     mail_core::compose::draft_reply(store, target.id, scope, "", chrono::Utc::now())
         .map_err(String::from)
 }
@@ -163,7 +164,7 @@ pub(super) fn resolve(store: &SqliteStore, thread: ThreadId, kind: OpKind) -> Op
         }
         OpKind::Mute => {
             let loaded = store.thread(thread).ok()?;
-            Some(crate::ui::view::mute_op(&loaded.summary))
+            Some(mute_op(&loaded.summary))
         }
         other => op_for(other),
     }

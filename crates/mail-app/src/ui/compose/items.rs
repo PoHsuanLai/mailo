@@ -3,8 +3,8 @@
 
 use super::super::menu::{MenuItem, Right, Tile};
 use super::page::Page;
-use crate::ui::editor::{Action, Item, ParaKind, Person, filter, turn_into};
 use ds::prelude::*;
+use mail_core::editor::{Action, Item, ParaKind, Person, filter, turn_into};
 
 fn tile(item: &Item) -> Tile {
     match item.action {

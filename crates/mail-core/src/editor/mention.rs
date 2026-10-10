@@ -2,8 +2,8 @@
 //!
 //! The detector is a guard, not a judge. "I didn't attach it" still counts: the word is there.
 
-use crate::ui::editor::doc::{Doc, Node, Object};
-use crate::ui::editor::text::runs_text;
+use crate::editor::doc::{Doc, Node, Object};
+use crate::editor::text::runs_text;
 
 /// Someone the composer can add to Cc.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -106,7 +106,7 @@ fn body_text(doc: &Doc) -> String {
     for node in &doc.nodes {
         if let Node::Para { runs, .. } = node {
             let text = runs_text(runs);
-            let (own, forwarded) = match text.find(mail_core::compose::FORWARDED) {
+            let (own, forwarded) = match text.find(crate::compose::FORWARDED) {
                 Some(at) => (&text[..at], Forward::Begins),
                 None => (text.as_str(), Forward::NotYet),
             };

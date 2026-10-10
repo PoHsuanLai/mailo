@@ -2,7 +2,7 @@
 //!
 //! A new message is a page: the subject as its title, property rows, and the body at 66ch. A
 //! reply is the same page, compact, under the thread it answers. The body is one
-//! root, quire's `EditSurface`, whose every edit goes through `crate::ui::editor`; the page never edits
+//! root, quire's `EditSurface`, whose every edit goes through `mail_core::editor`; the page never edits
 //! text itself. `adapt` turns what the surface hands over into editor events, and [`wire`] applies
 //! them to the page.
 //!
@@ -223,7 +223,7 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
     let anyway_label = "Send anyway";
     // The plain text is written out only while it is shown: not on every key.
     let flowed = match plain() {
-        Fold::Open => crate::ui::editor::to_flowed(&read.session.doc),
+        Fold::Open => mail_core::editor::to_flowed(&read.session.doc),
         Fold::Folded => String::new(),
     };
     drop(read);

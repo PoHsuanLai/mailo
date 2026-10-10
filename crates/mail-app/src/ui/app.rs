@@ -544,7 +544,7 @@ pub(super) fn App() -> Element {
         match action {
             Shortcut::Next | Shortcut::Previous => {
                 let ids: Vec<ThreadId> = threads().iter().map(|t| t.id).collect();
-                if let Some(id) = crate::ui::view::step(open, &ids, action == Shortcut::Next) {
+                if let Some(id) = mail_core::view::step(open, &ids, action == Shortcut::Next) {
                     shell.write().open(id);
                 }
             }

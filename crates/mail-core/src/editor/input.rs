@@ -7,15 +7,13 @@
 
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::ui::editor::doc::{Doc, Mark, Marks, Node, Pos, Presence, Range};
-use crate::ui::editor::error::OpError;
-use crate::ui::editor::keys::{self, Caret};
-use crate::ui::editor::op::{Op, apply};
-use crate::ui::editor::paste;
-use crate::ui::editor::text::{
-    grapheme_len, marks_at, node_len, para_len, range_has_mark, runs_text,
-};
-use crate::ui::editor::undo::Burst;
+use crate::editor::doc::{Doc, Mark, Marks, Node, Pos, Presence, Range};
+use crate::editor::error::OpError;
+use crate::editor::keys::{self, Caret};
+use crate::editor::op::{Op, apply};
+use crate::editor::paste;
+use crate::editor::text::{grapheme_len, marks_at, node_len, para_len, range_has_mark, runs_text};
+use crate::editor::undo::Burst;
 
 /// One `beforeinput` event, or a `compositionstart`/`compositionend` forwarded the same way.
 #[derive(Debug, Clone, PartialEq, Eq)]

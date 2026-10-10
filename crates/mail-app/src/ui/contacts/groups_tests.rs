@@ -5,7 +5,7 @@ use mail_store::{AddressBook, BookCard, Edit, Group, GroupHome, GroupId, Origin,
 
 use super::groups::{self, expand, offers};
 use super::tests::{ADDED, WRITTEN, the_book};
-use crate::ui::editor::Person;
+use mail_core::editor::Person;
 
 const BOOK: &str = "https://dav.example.test/book/";
 const GRACE_UID: &str = "urn:uuid:4fbe8971-0bc3-424c-9c26-36c3e1eff6b1";

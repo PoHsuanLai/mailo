@@ -6,8 +6,8 @@
 use mail_mime::SafeUrl;
 
 use super::{ListTag, block_text, list_end};
-use crate::ui::editor::doc::{Check, Doc, Level, Mark, Node, Object, ParaKind, Run};
-use crate::ui::editor::text::runs_text;
+use crate::editor::doc::{Check, Doc, Level, Mark, Node, Object, ParaKind, Run};
+use crate::editor::text::runs_text;
 
 /// HTML for `Draft.html`.
 ///

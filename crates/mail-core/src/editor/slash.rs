@@ -1,11 +1,11 @@
 //! The `/` menu: turn a line into a paragraph kind, or insert an object.
 //!
-//! Filtering is prefix on the name, then prefix on a keyword, then [`mail_core::search::match_list`].
+//! Filtering is prefix on the name, then prefix on a keyword, then [`crate::search::match_list`].
 //! `search::fuzzy` is private; the matcher is the one the command menu re-exports. An empty
 //! query lists the whole menu, in catalog order.
 
-use crate::ui::editor::doc::{Check, Level, ParaKind};
-use mail_core::search::match_list;
+use crate::editor::doc::{Check, Level, ParaKind};
+use crate::search::match_list;
 
 /// What choosing the item does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

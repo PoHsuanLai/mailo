@@ -14,7 +14,7 @@ use mail_pim::vcard::{self, Member};
 use mail_store::{Edit, Group, GroupHome, GroupId, Store};
 
 use super::book::person_of;
-use crate::ui::editor::Person;
+use mail_core::editor::Person;
 
 /// How many groups the To and Cc menus offer above the people.
 pub(in crate::ui) const OFFERED: usize = 3;

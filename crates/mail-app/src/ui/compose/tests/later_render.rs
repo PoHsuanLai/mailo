@@ -64,10 +64,10 @@ fn window(dress: impl FnOnce(&mut Page), before: Before) -> (String, Work) {
         dom.in_runtime(|| {
             let mut write = page.write();
             write.subject.clear();
-            write.session.doc = crate::ui::editor::Doc {
-                nodes: vec![Node::plain(crate::ui::editor::ParaKind::Paragraph, "")],
+            write.session.doc = mail_core::editor::Doc {
+                nodes: vec![Node::plain(mail_core::editor::ParaKind::Paragraph, "")],
             };
-            write.session.caret = crate::ui::editor::Caret::at(0, 0);
+            write.session.caret = mail_core::editor::Caret::at(0, 0);
             write.float = Float::Closed;
         });
     }

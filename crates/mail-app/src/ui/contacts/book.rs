@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use mail_domain::filter::search_tokens;
 use mail_store::{Contact, Kind, Origin, Store};
 
-use crate::ui::editor::Person;
+use mail_core::editor::Person;
 
 /// How many people a suggestion menu offers.
 pub(in crate::ui) const SUGGESTED: usize = 8;

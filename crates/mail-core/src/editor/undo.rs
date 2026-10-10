@@ -4,9 +4,9 @@
 //! module does not read a clock. A structural edit — paste, enter, a markdown shortcut —
 //! is its own group.
 
-use crate::ui::editor::doc::Doc;
-use crate::ui::editor::error::OpError;
-use crate::ui::editor::op::{Op, apply_all};
+use crate::editor::doc::Doc;
+use crate::editor::error::OpError;
+use crate::editor::op::{Op, apply_all};
 
 /// Whether a keystroke leaves the typing burst open.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -25,6 +25,7 @@ pub mod compose;
 pub mod config;
 pub mod contacts;
 pub mod discover;
+pub mod editor;
 pub mod environment;
 pub mod error;
 pub mod export;
@@ -55,6 +56,7 @@ pub mod template;
 pub mod trust;
 pub mod undo;
 pub mod unsubscribe;
+pub mod view;
 pub mod when;
 
 pub use environment::{Environment, Program};
