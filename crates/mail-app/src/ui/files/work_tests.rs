@@ -13,10 +13,11 @@ use mail_mime::archive::maildir::INFO;
 use porter_core::AccountId;
 
 use super::work::{
-    self, Counted, Dest, Format, Looked, expand, export_now, import_now, look, prefill, suggested,
+    self, Counted, Dest, Format, Looked, export_now, import_now, look, prefill, suggested,
 };
 use crate::ui::view::Shell;
 use mail_core::import::Source;
+use mail_core::transfer::expand;
 
 fn now() -> DateTime<Utc> {
     Utc.timestamp_opt(1_700_000_000, 0).unwrap()

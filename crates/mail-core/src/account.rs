@@ -1063,12 +1063,11 @@ mod tests {
             &ClientRegistry::default(),
             now(),
         )
-        .unwrap_err()
-        .to_string();
-        assert!(err.contains("gmail.com"), "{err}");
+        .unwrap_err();
+        assert!(err.to_string().contains("gmail.com"), "{err}");
         assert!(
-            err.contains("--pop3"),
-            "and how to name a POP3-only server: {err}"
+            matches!(err.remedy(), Some(crate::Remedy::NameServers { .. })),
+            "and the step is to name the servers: {err}"
         );
     }
 

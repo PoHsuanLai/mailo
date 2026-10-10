@@ -8,7 +8,7 @@ use mail_core::Store;
 use mail_core::contacts::groups::{self as shared, GroupError, Labelled};
 use mail_core::contacts::{Group, GroupId};
 
-pub(in crate::ui) use mail_core::contacts::groups::{Expanded, OFFERED, Offer, expand, offers};
+pub(in crate::ui) use mail_core::contacts::groups::{Offer, offers};
 
 /// Why a change to a group was not made, as the sheet says it.
 fn refused(why: GroupError) -> String {

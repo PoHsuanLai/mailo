@@ -19,7 +19,7 @@ use crate::ui::view::{Shell, Source as Listed};
 use mail_core::export::{self, Exported, Target};
 use mail_core::import::{Destination, Imported, Source};
 
-pub(in crate::ui) use mail_core::transfer::{Format, expand, expand_here, suggested};
+pub(in crate::ui) use mail_core::transfer::{Format, expand_here, suggested};
 
 /// What a typed path holds, as the sheet says it.
 #[derive(Debug, Clone, PartialEq, Eq)]
