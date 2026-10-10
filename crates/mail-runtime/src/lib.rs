@@ -41,7 +41,7 @@ pub use account_secrets::{
 };
 pub use assemble::{Absorbed, Arrival, Destination, absorb, absorb_counted, absorb_into, assemble};
 pub use drive::{Cancel, drive, drive_within};
-pub use engine::{AccountEngine, PartBudget, SyncReport, Woke};
+pub use engine::{AccountEngine, IDLE_REARM, PartBudget, SyncReport, Woke};
 pub use error::{Failure, Logged, RuntimeError, Source};
 pub use jmap::JmapEngine;
 pub use link::{Accountd, Link};

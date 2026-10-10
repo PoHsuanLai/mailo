@@ -141,12 +141,14 @@ fn finishing_polls_again_after_the_interval() {
 }
 
 #[test]
-fn finishing_carries_push_and_sets_no_timer() {
+fn finishing_carries_push_and_sets_the_silence_timer() {
     let now = t(3, 0);
     let running = syncing(First::No, current(t(0, 0), Live::Pushed));
     let (to, fx) = go(&running, Event::Finished { trouble: vec![] }, now);
     assert_eq!(to, current(now, Live::Pushed));
-    assert!(fx.is_empty());
+    // Not the poll interval: a watch's own looks come every `IDLE_REARM`, and this is only for
+    // when they stop coming.
+    assert_eq!(fx, vec![Effect::WakeAt(t(33, 0))]);
 }
 
 #[test]
@@ -323,10 +325,19 @@ fn tick_polls_a_current_link_once_the_interval_has_passed() {
     assert_eq!((to, fx), (syncing(First::No, link), vec![Effect::RunPass]));
 }
 
+/// Push spares the poll, not the look: a pushed account whose watch has said nothing for
+/// [`PUSH_SILENCE`] is passed anyway. Forty hours of a silent IDLE went unnoticed without this.
 #[test]
-fn tick_never_polls_a_pushed_link() {
+fn tick_polls_a_pushed_link_only_once_push_has_gone_silent() {
+    assert!(
+        PUSH_SILENCE > crate::IDLE_REARM,
+        "a watch's own look comes first"
+    );
+    assert!(PUSH_SILENCE > EVERY);
     let link = current(t(0, 0), Live::Pushed);
-    assert_eq!(go(&link, Event::Tick, t(59, 0)), (link, vec![]));
+    assert_eq!(go(&link, Event::Tick, t(29, 59)), (link.clone(), vec![]));
+    let (to, fx) = go(&link, Event::Tick, t(30, 0));
+    assert_eq!((to, fx), (syncing(First::No, link), vec![Effect::RunPass]));
 }
 
 #[test]
@@ -472,7 +483,10 @@ fn live_changes_update_a_current_link() {
     let link = current(t(0, 0), Live::Polling);
     assert_eq!(
         go(&link, Event::Live(Live::Pushed), t(1, 0)),
-        (current(t(0, 0), Live::Pushed), vec![])
+        (
+            current(t(0, 0), Live::Pushed),
+            vec![Effect::WakeAt(t(30, 0))]
+        )
     );
     let (to, fx) = go(
         &current(t(0, 0), Live::Pushed),

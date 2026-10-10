@@ -27,7 +27,7 @@ mod partial;
 mod search;
 mod split;
 pub(crate) mod wait;
-pub use wait::Woke;
+pub use wait::{IDLE_REARM, Woke};
 
 /// Bodies are fetched smallest band first.
 ///
