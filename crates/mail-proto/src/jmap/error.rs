@@ -1,24 +1,35 @@
 //! A method call the server answered with `error` (RFC 8620 §3.6.2).
 
 use crate::{ProtoError, Refusal};
+use mail_domain::{Retry, Retryable};
 use std::time::Duration;
 
 /// Why one method call in a request did not run.
 ///
 /// A request succeeds or fails as a whole only at the HTTP level; inside it each call answers
 /// for itself, and one refused call leaves the others' results standing.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum MethodError {
     /// `cannotCalculateChanges`: the state we hold is older than the server remembers. Not a
     /// failure — the caller starts again from a full listing.
+    #[error("cannotCalculateChanges")]
     CannotCalculateChanges,
     /// Any other error type the server named, with its description where it gave one.
+    #[error("{}", refusal_text(.kind, .description.as_deref()))]
     Refused {
         kind: String,
         description: Option<String>,
     },
     /// No answer with the call id we sent, or an answer of the wrong shape.
+    #[error("no usable answer: {0}")]
     Missing(String),
+}
+
+fn refusal_text(kind: &str, description: Option<&str>) -> String {
+    match description {
+        Some(d) => format!("{kind}: {d}"),
+        None => kind.to_owned(),
+    }
 }
 
 impl MethodError {
@@ -41,17 +52,10 @@ impl MethodError {
     }
 }
 
-impl std::fmt::Display for MethodError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            MethodError::CannotCalculateChanges => f.write_str("cannotCalculateChanges"),
-            MethodError::Refused {
-                kind,
-                description: Some(d),
-            } => write!(f, "{kind}: {d}"),
-            MethodError::Refused { kind, .. } => f.write_str(kind),
-            MethodError::Missing(why) => write!(f, "no usable answer: {why}"),
-        }
+impl Retryable for MethodError {
+    /// As the [`ProtoError`] it would become.
+    fn retry(&self) -> Retry {
+        ProtoError::from(self.clone()).retry()
     }
 }
 
