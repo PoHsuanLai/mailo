@@ -284,18 +284,7 @@ async fn one_pass(keep: Keep) -> Passed {
         keep,
     };
     let (_tx, mut cancel) = tokio::sync::watch::channel(false);
-    let report = match sync::drive(
-        &mut engine,
-        &account,
-        &[inbox()],
-        &mut cancel,
-        now(),
-        sync::Mode::Once,
-        sync::Announce::Quietly,
-        None,
-    )
-    .await
-    {
+    let report = match sync::drive(&mut engine, &account, &[inbox()], &mut cancel, now()).await {
         PassEnd::Finished(report) => report,
         other => panic!("the pass did not run to its end: {other:?}"),
     };

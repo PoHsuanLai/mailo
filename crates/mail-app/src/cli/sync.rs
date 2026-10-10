@@ -47,6 +47,7 @@ pub fn watched_text(watched: &Watched) -> String {
             format!("{address}: {why}\n")
         }
         Watched::RemindersFailed { why } => format!("reminders: {why}\n"),
+        Watched::RunFailed { why } => format!("{why}\n"),
     }
 }
 

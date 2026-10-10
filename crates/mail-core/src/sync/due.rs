@@ -73,7 +73,6 @@ impl crate::mail::SyncOps<'_> {
             &registry,
             mail.now(),
             super::Mode::Once,
-            super::Announce::Quietly,
             &super::Scope {
                 due: &|account| due.contains(&account),
                 kept: &crate::offline::load_default(),
