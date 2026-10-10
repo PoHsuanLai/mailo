@@ -226,7 +226,7 @@ fi
 # identities, labels, blobs, lookups by `Message-ID`, ...), and a test that needs a row no path of
 # the program writes asks `mail_store::testing`. So `rusqlite` is not a dependency of `mail-core`,
 # `mail-runtime` or `mail-app` (dev-dependencies included), and the store's connection, which is
-# private to it, is not reached for by name: `.connection()`, `.reader()`, and the test-support
+# private to it, is not reached for by name: `.connection()`, `.reader()`, and the testing
 # `raw_connection` / `raw_accounts` that only `mail-store`'s own tests use. Comment lines are not
 # code and are not counted.
 for crate in mail-core mail-runtime mail-app; do
@@ -241,6 +241,17 @@ if grep -rnE '\brusqlite\b|\.connection\(\)|\.reader\(\)|\braw_connection\b|\bra
   echo "SQL above mail-store: add the typed call to mail_store (or a seeding helper to mail_store::testing) instead"
   fail=1
 fi
+
+# A library crate pays for nothing it was not asked for: its default features carry none of the
+# platform keyring, the bus link, the Secret Service or the test doubles. `mail-mime`'s crypto
+# halves and `mail-core`'s `desktop` and `pdf` are the defaults a plain user expects; the rest the
+# program names. (`mail-app` is the program: its own `quire-desktop` default is its build's choice.)
+for crate in mail-domain mail-mime mail-pim mail-store mail-proto mail-runtime mail-core; do
+  if grep -E '^default[[:space:]]*=' "crates/$crate/Cargo.toml" | grep -E 'quire-desktop|keyring|oo7|testing'; then
+    echo "crates/$crate/Cargo.toml: a library's default features must not include quire-desktop, keyring, oo7 or testing"
+    fail=1
+  fi
+done
 
 # The reader draws blocks. A raw HTML sink in the UI would put a sender's markup
 # in our document, which is what the block types exist to prevent.

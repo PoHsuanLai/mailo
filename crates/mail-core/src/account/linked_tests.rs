@@ -6,18 +6,19 @@ use crate::account::{
     remove,
 };
 use mail_domain::{AccountPlan, AuthPlan, HttpAuth, Incoming, Outgoing, Tls};
-use mail_runtime::link::{Accountd, Answer, Changes, LinkError, LinkedSecrets};
-use mail_runtime::{AccountSecrets, Transport};
+use mail_runtime::AccountSecrets;
+use mail_runtime::link::{LinkError, LinkedSecrets};
+use mail_runtime::testing::FakeAccountd;
 use mail_store::SqliteStore;
 use porter_core::capability::{
     Access, Capability, Delta, LabelModel, MailCap, MailTransport, Offered,
 };
 use porter_core::{
-    AccountId, AccountLabel, Audience, Candidate, EndpointUrl, Family, GrantId, IssuedToken,
-    LoginName, ProviderId, Restriction, ServiceEndpoint, Subject,
+    AccountId, AccountLabel, Candidate, EndpointUrl, Family, GrantId, LoginName, ProviderId,
+    Restriction, ServiceEndpoint, Subject,
 };
 use porter_secrets::MemorySecrets;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 fn now() -> chrono::DateTime<chrono::Utc> {
     chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap()
@@ -300,52 +301,6 @@ fn removing_at_accountd_forgets_the_rows_by_the_signals_path_segment() {
     assert!(named_by_segment(&store, "fastmail_me").is_empty());
 }
 
-/// What accountd would be told by a removal.
-#[derive(Debug, Default)]
-struct Revoking {
-    revoked: Mutex<Vec<String>>,
-    refuse: bool,
-}
-
-fn nothing<T>() -> Answer<'static, T> {
-    Box::pin(async { Err(LinkError::Other("not part of this test".to_owned())) })
-}
-
-impl Accountd for Revoking {
-    fn candidates(&self) -> Answer<'_, Vec<Candidate>> {
-        nothing()
-    }
-    fn token<'a>(&'a self, _: &'a GrantId, _: &'a Audience) -> Answer<'a, IssuedToken> {
-        nothing()
-    }
-    fn open<'a>(&'a self, _: &'a GrantId, _: &'a ServiceEndpoint) -> Answer<'a, Transport> {
-        nothing()
-    }
-    fn add_account(&self) -> Answer<'_, AccountId> {
-        nothing()
-    }
-    fn reauthenticate<'a>(&'a self, _: &'a AccountId) -> Answer<'a, ()> {
-        nothing()
-    }
-    fn request_grant(&self) -> Answer<'_, Candidate> {
-        nothing()
-    }
-    fn revoke<'a>(&'a self, grant: &'a GrantId) -> Answer<'a, ()> {
-        let refuse = self.refuse;
-        self.revoked.lock().unwrap().push(grant.to_string());
-        Box::pin(async move {
-            if refuse {
-                Err(LinkError::Unreachable)
-            } else {
-                Ok(())
-            }
-        })
-    }
-    fn changes(&self) -> Answer<'_, Option<Box<dyn Changes>>> {
-        Box::pin(async { Ok(None) })
-    }
-}
-
 #[test]
 fn removing_a_linked_account_withdraws_the_grant_first_and_touches_no_keyring() {
     let (store, _dir) = store();
@@ -353,10 +308,7 @@ fn removing_a_linked_account_withdraws_the_grant_first_and_touches_no_keyring() 
     let id = linked_accounts(&store)[0].id.clone();
 
     // accountd cannot be reached: nothing is removed, the account and its mail are still here.
-    let down = Arc::new(Revoking {
-        refuse: true,
-        ..Revoking::default()
-    });
+    let down = Arc::new(FakeAccountd::default().with_revoke_refused(LinkError::Unreachable));
     let secrets = LinkedSecrets::new(down.clone());
     let refused = mail_runtime::block_on(remove(&store, &secrets, id.clone()));
     assert!(
@@ -366,14 +318,11 @@ fn removing_a_linked_account_withdraws_the_grant_first_and_touches_no_keyring() 
     assert_eq!(rows(&store), 1);
 
     // Reached: the grant is withdrawn, then the rows go.
-    let up = Arc::new(Revoking::default());
+    let up = Arc::new(FakeAccountd::default());
     let secrets = LinkedSecrets::new(up.clone());
     let removed = mail_runtime::block_on(remove(&store, &secrets, id)).unwrap();
     assert_eq!(removed.address, "me@example.test");
-    assert_eq!(
-        up.revoked.lock().unwrap().as_slice(),
-        ["grant-1".to_owned()]
-    );
+    assert_eq!(up.revoked(), ["grant-1".to_owned()]);
     assert_eq!(rows(&store), 0);
 
     // No link at all (a plain store): the same account is not removed on a guess.

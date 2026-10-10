@@ -2,15 +2,14 @@
 //! probe against a bus of our own.
 
 use super::*;
-use mail_runtime::Transport;
-use mail_runtime::link::{Answer, Changes, LinkError, Listed};
+use mail_core::testing::FakeAccountd;
+use mail_runtime::link::{LinkError, Listed};
 use porter_core::capability::{
     Access, Capability, Delta, LabelModel, MailCap, MailTransport, Offered,
 };
-use porter_core::wire::Refusal;
 use porter_core::{
-    AccountId, AccountLabel, Audience, Candidate, EndpointUrl, Family, GrantId, IssuedToken,
-    LoginName, ProviderId, Restriction, ServiceEndpoint, Subject,
+    AccountId, AccountLabel, Candidate, EndpointUrl, Family, GrantId, LoginName, ProviderId,
+    Restriction, ServiceEndpoint, Subject,
 };
 use std::collections::VecDeque;
 use std::sync::Mutex;
@@ -51,92 +50,9 @@ fn candidate(account: &str, address: &str, grant: &str) -> Candidate {
     ])
 }
 
-/// What the add-account sheet answers with: the account it made, and the candidate Mail is offered
-/// for it, if the sheet gave Mail a grant.
-type Sheet = Result<(AccountId, Option<Candidate>), LinkError>;
-
-/// accountd as a table: what it offers now, what the sheet adds, what was asked of it.
-#[derive(Debug, Default)]
-struct Daemon {
-    offered: Mutex<Vec<Candidate>>,
-    /// What the add-account sheet answers with, and what it would then offer.
-    adds: Mutex<VecDeque<Sheet>>,
-    /// What the consent sheet gives.
-    consents: Mutex<VecDeque<Result<Candidate, LinkError>>>,
-    asked: Mutex<Vec<String>>,
-}
-
-impl Daemon {
-    fn offering(candidates: Vec<Candidate>) -> Arc<Daemon> {
-        let daemon = Daemon::default();
-        *daemon.offered.lock().unwrap() = candidates;
-        Arc::new(daemon)
-    }
-
-    fn asked(&self) -> Vec<String> {
-        self.asked.lock().unwrap().clone()
-    }
-}
-
-fn unsaid<T>() -> Answer<'static, T> {
-    Box::pin(async { Err(LinkError::Other("not part of this test".to_owned())) })
-}
-
-impl Accountd for Daemon {
-    fn candidates(&self) -> Answer<'_, Vec<Candidate>> {
-        self.asked.lock().unwrap().push("candidates".to_owned());
-        let now = self.offered.lock().unwrap().clone();
-        Box::pin(async move { Ok(now) })
-    }
-
-    fn token<'a>(&'a self, _: &'a GrantId, _: &'a Audience) -> Answer<'a, IssuedToken> {
-        unsaid()
-    }
-
-    fn open<'a>(&'a self, _: &'a GrantId, _: &'a ServiceEndpoint) -> Answer<'a, Transport> {
-        unsaid()
-    }
-
-    fn add_account(&self) -> Answer<'_, AccountId> {
-        self.asked.lock().unwrap().push("add_account".to_owned());
-        let next = self.adds.lock().unwrap().pop_front();
-        // The account the sheet made is offered from now on, if it came with a grant.
-        if let Some(Ok((_, Some(offer)))) = &next {
-            self.offered.lock().unwrap().push(offer.clone());
-        }
-        Box::pin(async move {
-            match next {
-                Some(Ok((id, _))) => Ok(id),
-                Some(Err(e)) => Err(e),
-                None => Err(LinkError::Refused(Refusal::Dismissed)),
-            }
-        })
-    }
-
-    fn reauthenticate<'a>(&'a self, account: &'a AccountId) -> Answer<'a, ()> {
-        self.asked
-            .lock()
-            .unwrap()
-            .push(format!("reauthenticate {account}"));
-        Box::pin(async { Ok(()) })
-    }
-
-    fn request_grant(&self) -> Answer<'_, Candidate> {
-        self.asked.lock().unwrap().push("request_grant".to_owned());
-        let next = self.consents.lock().unwrap().pop_front();
-        if let Some(Ok(offer)) = &next {
-            self.offered.lock().unwrap().push(offer.clone());
-        }
-        Box::pin(async move { next.unwrap_or(Err(LinkError::Refused(Refusal::Dismissed))) })
-    }
-
-    fn revoke<'a>(&'a self, _: &'a GrantId) -> Answer<'a, ()> {
-        unsaid()
-    }
-
-    fn changes(&self) -> Answer<'_, Option<Box<dyn Changes>>> {
-        Box::pin(async { Ok(None) })
-    }
+/// accountd as a table, offering `candidates`.
+fn offering(candidates: Vec<Candidate>) -> Arc<FakeAccountd> {
+    Arc::new(FakeAccountd::offering(candidates))
 }
 
 /// A change as the follower reacts to it, on a runtime of the test's own.
@@ -162,7 +78,7 @@ fn addresses(store: &SqliteStore) -> Vec<String> {
 fn a_change_that_adds_an_account_reads_it_in_and_says_so() {
     let (store, _dir) = store();
     let daemon: Arc<dyn Accountd> =
-        Daemon::offering(vec![candidate("fastmail-ada", "ada@example.test", "g-1")]);
+        offering(vec![candidate("fastmail-ada", "ada@example.test", "g-1")]);
     let told = settle(&store, &daemon, Change::Added).expect("something to tell");
     let Heard::Read(read) = &told else {
         panic!("{told:?}")
@@ -178,7 +94,7 @@ fn a_change_that_adds_an_account_reads_it_in_and_says_so() {
 #[test]
 fn a_removal_forgets_that_account_and_no_other() {
     let (store, _dir) = store();
-    let daemon: Arc<dyn Accountd> = Daemon::offering(vec![
+    let daemon: Arc<dyn Accountd> = offering(vec![
         candidate("fastmail-ada", "ada@example.test", "g-1"),
         candidate("fastmail-bob", "bob@example.test", "g-2"),
     ]);
@@ -199,54 +115,13 @@ fn a_removal_forgets_that_account_and_no_other() {
 
 #[test]
 fn the_follower_reads_and_forgets_as_the_feed_says_and_tells_each_time() {
-    struct Feed(Mutex<Option<Listed>>);
-    impl std::fmt::Debug for Feed {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            f.write_str("Feed")
-        }
-    }
-    #[derive(Debug)]
-    struct Following {
-        daemon: Arc<Daemon>,
-        feed: Feed,
-    }
-    impl Accountd for Following {
-        fn candidates(&self) -> Answer<'_, Vec<Candidate>> {
-            self.daemon.candidates()
-        }
-        fn token<'a>(&'a self, g: &'a GrantId, a: &'a Audience) -> Answer<'a, IssuedToken> {
-            self.daemon.token(g, a)
-        }
-        fn open<'a>(&'a self, g: &'a GrantId, e: &'a ServiceEndpoint) -> Answer<'a, Transport> {
-            self.daemon.open(g, e)
-        }
-        fn add_account(&self) -> Answer<'_, AccountId> {
-            self.daemon.add_account()
-        }
-        fn reauthenticate<'a>(&'a self, a: &'a AccountId) -> Answer<'a, ()> {
-            self.daemon.reauthenticate(a)
-        }
-        fn request_grant(&self) -> Answer<'_, Candidate> {
-            self.daemon.request_grant()
-        }
-        fn revoke<'a>(&'a self, g: &'a GrantId) -> Answer<'a, ()> {
-            self.daemon.revoke(g)
-        }
-        fn changes(&self) -> Answer<'_, Option<Box<dyn Changes>>> {
-            let feed = self.feed.0.lock().unwrap().take();
-            Box::pin(async move { Ok(feed.map(|f| Box::new(f) as Box<dyn Changes>)) })
-        }
-    }
-
     let (store, _dir) = store();
-    let daemon = Daemon::offering(vec![candidate("fastmail-ada", "ada@example.test", "g-1")]);
-    let link = Link::Accountd(Arc::new(Following {
-        daemon,
-        feed: Feed(Mutex::new(Some(Listed(VecDeque::from([
+    let daemon = FakeAccountd::offering(vec![candidate("fastmail-ada", "ada@example.test", "g-1")])
+        .with_changes(Listed(VecDeque::from([
             Change::Added,
             Change::Removed("fastmail_ada".to_owned()),
-        ]))))),
-    }));
+        ])));
+    let link = Link::Accountd(Arc::new(daemon));
     let heard = Arc::new(Mutex::new(Vec::new()));
     let told = heard.clone();
     let thread = follow(&store, &link, move |h| told.lock().unwrap().push(h)).expect("a follower");
@@ -273,13 +148,9 @@ fn there_is_no_follower_for_an_in_process_link() {
 fn adding_through_the_sheet_reads_the_new_account_in() {
     let (store, _dir) = store();
     let ada = candidate("fastmail-ada", "ada@example.test", "g-1");
-    let daemon = Daemon::offering(vec![]);
+    let daemon = offering(vec![]);
     // The sheet's "Add, and allow Mail" is one grant: the account is offered at once.
-    daemon
-        .adds
-        .lock()
-        .unwrap()
-        .push_back(Ok((ada.account.clone(), Some(ada))));
+    daemon.push_sheet(Ok((ada.account.clone(), Some(ada))));
     let accountd: Arc<dyn Accountd> = daemon.clone();
     let added = add(&store, &accountd, None).unwrap();
     let Added::Account(read) = added else {
@@ -297,14 +168,10 @@ fn adding_through_the_sheet_reads_the_new_account_in() {
 fn an_account_added_without_mail_allowed_asks_for_the_grant_once() {
     let (store, _dir) = store();
     let ada = candidate("fastmail-ada", "ada@example.test", "g-1");
-    let daemon = Daemon::offering(vec![]);
+    let daemon = offering(vec![]);
     // Added with no grant for Mail: not offered until the consent sheet says yes.
-    daemon
-        .adds
-        .lock()
-        .unwrap()
-        .push_back(Ok((ada.account.clone(), None)));
-    daemon.consents.lock().unwrap().push_back(Ok(ada));
+    daemon.push_sheet(Ok((ada.account.clone(), None)));
+    daemon.push_consent(Ok(ada));
     let accountd: Arc<dyn Accountd> = daemon.clone();
     let added = add(&store, &accountd, None).unwrap();
     assert!(matches!(added, Added::Account(read) if read.added == ["ada@example.test"]));
@@ -319,23 +186,19 @@ fn an_account_added_without_mail_allowed_asks_for_the_grant_once() {
 #[test]
 fn a_sheet_the_person_closes_is_nothing_to_report() {
     let (store, _dir) = store();
-    let daemon = Daemon::offering(vec![]);
+    let daemon = offering(vec![]);
     let accountd: Arc<dyn Accountd> = daemon.clone();
     // No answer queued: the stand-in says the sheet was dismissed.
     assert_eq!(add(&store, &accountd, None), Ok(Added::Nothing));
     // And a refusal that is not a closed sheet is an error to say.
-    daemon
-        .adds
-        .lock()
-        .unwrap()
-        .push_back(Err(LinkError::Unreachable));
+    daemon.push_sheet(Err(LinkError::Unreachable));
     assert!(add(&store, &accountd, None).is_err());
 }
 
 #[test]
 fn signing_in_again_goes_to_accountd_for_its_accounts_and_for_no_other() {
     let (store, _dir) = store();
-    let daemon = Daemon::offering(vec![candidate("fastmail-ada", "ada@example.test", "g-1")]);
+    let daemon = offering(vec![candidate("fastmail-ada", "ada@example.test", "g-1")]);
     let accountd: Arc<dyn Accountd> = daemon.clone();
     read(&store, &Link::Accountd(accountd.clone())).unwrap();
     let again = add(&store, &accountd, Some("Ada@Example.test")).unwrap();
@@ -388,14 +251,14 @@ fn held_row(store: &SqliteStore, address: &str) {
 
 #[test]
 fn the_line_is_there_only_when_linked_and_only_when_mail_signed_some_account_in_itself() {
-    let accountd: Arc<dyn Accountd> = Daemon::offering(vec![]);
+    let accountd: Arc<dyn Accountd> = offering(vec![]);
     let linked = Link::Accountd(accountd);
 
     // Linked, with only accountd's accounts: no line.
     let (store, _dir) = store();
     read(
         &store,
-        &Link::Accountd(Daemon::offering(vec![candidate(
+        &Link::Accountd(offering(vec![candidate(
             "fastmail-ada",
             "ada@example.test",
             "g-1",

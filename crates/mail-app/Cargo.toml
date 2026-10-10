@@ -77,13 +77,15 @@ porter-client.workspace = true
 porter-secrets.workspace = true
 # The desktop's notifications and PDF previews are mail-core features the window and the watch use;
 # they stay on in a build without the accountd link (`quire-desktop`).
-mail-core = { workspace = true, features = ["desktop", "pdf"] }
+mail-core = { workspace = true, features = ["desktop", "pdf", "keyring"] }
 mail-domain.workspace = true
 mail-store.workspace = true
-mail-mime.workspace = true
+# The OpenPGP and S/MIME halves are features of the library; this crate uses both.
+mail-mime = { workspace = true, features = ["openpgp", "smime"] }
 mail-proto.workspace = true
 mail-pim.workspace = true
-mail-runtime.workspace = true
+# The platform keyring holds the account secrets and the signing keys: the library keeps it opt-in.
+mail-runtime = { workspace = true, features = ["keyring"] }
 serde.workspace = true
 # The one logger the libraries write through (`main.rs`): warnings to stderr, as they were printed.
 log.workspace = true
@@ -141,6 +143,9 @@ url = "2"
 #
 # On Linux and the BSDs, through the desktop portal (and so from inside a Flatpak), with no GTK.
 [target.'cfg(target_os = "linux")'.dependencies]
+# The account secrets in the Secret Service through oo7: Linux's store, which the other platforms
+# do not carry (the library keeps it a feature of its own).
+mail-runtime = { workspace = true, features = ["oo7"] }
 # The capability probe (`Desktop::probe`, `Capability::Accounts`): is accountd on the session bus,
 # or one the bus would start. quire's own crate, at the tag `ds` names; its `dbus` feature is zbus
 # (already in this tree for intents), and without `quire-desktop` it is not here at all.
@@ -172,7 +177,9 @@ rfd = { version = "=0.17.2", default-features = false }
 
 [dev-dependencies]
 # Seeding a store without writing SQL (`mail_store::testing`): the program never has it.
-mail-store = { workspace = true, features = ["test-support"] }
+mail-store = { workspace = true, features = ["testing"] }
+# The doubles at the runtime's seams (`mail_core::testing`): the program never has them.
+mail-core = { workspace = true, features = ["testing"] }
 porter-secrets = { workspace = true, features = ["testing"] }
 # Read back by the window's own tests (reader blocks, print, PGP/S-MIME composer); not used by the
 # window itself, which gets them from `mail-core` and quire.

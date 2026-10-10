@@ -1,73 +1,21 @@
 //! The choice, the failures' words, and the bearer source, against a table standing in for accountd.
 
 use super::*;
+use crate::testing::FakeAccountd;
 use crate::tokens::{AfterRefusal, Token, TokenSource};
 use chrono::{TimeZone, Utc};
 use mail_domain::Retryable;
 use porter_core::Credential;
 use porter_core::{SecretText, TokenKind};
-use std::collections::VecDeque;
-use std::sync::Mutex;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
-/// What accountd would say to `token`, in order; everything else it refuses.
-#[derive(Debug, Default)]
-struct Table {
-    tokens: Mutex<VecDeque<Result<IssuedToken, LinkError>>>,
-    asked: AtomicUsize,
+/// accountd saying `tokens` to `token`, in order, and refusing everything else.
+fn saying(tokens: Vec<Result<IssuedToken, LinkError>>) -> Arc<FakeAccountd> {
+    Arc::new(FakeAccountd::default().with_tokens(tokens))
 }
 
-impl Table {
-    fn saying(tokens: Vec<Result<IssuedToken, LinkError>>) -> Arc<Table> {
-        Arc::new(Table {
-            tokens: Mutex::new(tokens.into()),
-            asked: AtomicUsize::new(0),
-        })
-    }
-
-    fn asked(&self) -> usize {
-        self.asked.load(Ordering::SeqCst)
-    }
-}
-
-fn nothing<T>() -> Answer<'static, T> {
-    Box::pin(async { Err(LinkError::Other("not part of this test".to_owned())) })
-}
-
-impl Accountd for Table {
-    fn candidates(&self) -> Answer<'_, Vec<Candidate>> {
-        nothing()
-    }
-
-    fn token<'a>(&'a self, _: &'a GrantId, _: &'a Audience) -> Answer<'a, IssuedToken> {
-        self.asked.fetch_add(1, Ordering::SeqCst);
-        let next = self.tokens.lock().unwrap().pop_front();
-        Box::pin(async move { next.unwrap_or(Err(LinkError::Unreachable)) })
-    }
-
-    fn open<'a>(&'a self, _: &'a GrantId, _: &'a ServiceEndpoint) -> Answer<'a, Transport> {
-        nothing()
-    }
-
-    fn add_account(&self) -> Answer<'_, AccountId> {
-        nothing()
-    }
-
-    fn reauthenticate<'a>(&'a self, _: &'a AccountId) -> Answer<'a, ()> {
-        nothing()
-    }
-
-    fn request_grant(&self) -> Answer<'_, Candidate> {
-        nothing()
-    }
-
-    fn revoke<'a>(&'a self, _: &'a GrantId) -> Answer<'a, ()> {
-        nothing()
-    }
-
-    fn changes(&self) -> Answer<'_, Option<Box<dyn Changes>>> {
-        Box::pin(async { Ok(None) })
-    }
+/// How many bearers were asked of it.
+fn asked(table: &FakeAccountd) -> usize {
+    table.times_asked("token")
 }
 
 /// A future that must never be polled: the connection a "not here" must not attempt.
@@ -83,7 +31,7 @@ fn runtime() -> tokio::runtime::Runtime {
 
 #[test]
 fn the_link_is_chosen_once_by_whether_accountd_is_here_and_reachable() {
-    let table: Arc<dyn Accountd> = Table::saying(vec![]);
+    let table: Arc<dyn Accountd> = saying(vec![]);
     let rt = runtime();
     // Not here: in process, and no connection is tried.
     let link = rt.block_on(start_with(Here::No, never()));
@@ -159,7 +107,7 @@ fn token(value: &str, expires: i64) -> IssuedToken {
 
 const NOON: i64 = 1_700_000_000;
 
-fn tokens(table: &Arc<Table>) -> LinkedTokens {
+fn tokens(table: &Arc<FakeAccountd>) -> LinkedTokens {
     LinkedTokens::new(
         table.clone(),
         GrantId::parse("grant-1").unwrap(),
@@ -170,7 +118,7 @@ fn tokens(table: &Arc<Table>) -> LinkedTokens {
 
 #[test]
 fn a_token_is_asked_for_once_while_it_lasts_and_again_near_its_end() {
-    let table = Table::saying(vec![
+    let table = saying(vec![
         Ok(token("first", NOON + 3600)),
         Ok(token("second", NOON + 7200)),
     ]);
@@ -180,7 +128,7 @@ fn a_token_is_asked_for_once_while_it_lasts_and_again_near_its_end() {
         source.ahead(Token::Incoming).await.unwrap();
         source.ahead(Token::Sending).await.unwrap();
         assert_eq!(
-            table.asked(),
+            asked(&table),
             1,
             "a token with an hour left is not asked for again"
         );
@@ -209,7 +157,7 @@ fn a_token_is_asked_for_once_while_it_lasts_and_again_near_its_end() {
         // Nothing in hand yet in this source, so it asks; and the table's second answer is
         // what it gets.
         later.ahead(Token::Incoming).await.unwrap();
-        assert_eq!(table.asked(), 2);
+        assert_eq!(asked(&table), 2);
         let Credential::OAuth { access, .. } = later.current(Token::Incoming).await.unwrap() else {
             panic!("not a bearer");
         };
@@ -219,7 +167,7 @@ fn a_token_is_asked_for_once_while_it_lasts_and_again_near_its_end() {
 
 #[test]
 fn a_refused_token_is_replaced_once_and_a_second_refusal_is_final() {
-    let table = Table::saying(vec![
+    let table = saying(vec![
         Ok(token("first", NOON + 3600)),
         Ok(token("second", NOON + 3600)),
     ]);
@@ -240,13 +188,13 @@ fn a_refused_token_is_replaced_once_and_a_second_refusal_is_final() {
             source.after_refusal(Token::Incoming).await.unwrap(),
             AfterRefusal::StillRefused
         );
-        assert_eq!(table.asked(), 2);
+        assert_eq!(asked(&table), 2);
     });
 }
 
 #[test]
 fn accountds_own_refusal_is_heard_once_and_remembered() {
-    let table = Table::saying(vec![Err(LinkError::Refused(Refusal::NeedsReauth))]);
+    let table = saying(vec![Err(LinkError::Refused(Refusal::NeedsReauth))]);
     let source = tokens(&table);
     runtime().block_on(async {
         let first = source.ahead(Token::Incoming).await.unwrap_err();
@@ -256,13 +204,13 @@ fn accountds_own_refusal_is_heard_once_and_remembered() {
         assert!(matches!(again.retry(), Retry::NeedsReauth));
         let after = source.after_refusal(Token::Incoming).await.unwrap_err();
         assert!(matches!(after.retry(), Retry::NeedsReauth));
-        assert_eq!(table.asked(), 1);
+        assert_eq!(asked(&table), 1);
     });
 }
 
 #[test]
 fn an_unreachable_accountd_is_not_remembered_as_a_refusal() {
-    let table = Table::saying(vec![
+    let table = saying(vec![
         Err(LinkError::Unreachable),
         Ok(token("later", NOON + 3600)),
     ]);
@@ -271,7 +219,7 @@ fn an_unreachable_accountd_is_not_remembered_as_a_refusal() {
         let first = source.ahead(Token::Incoming).await.unwrap_err();
         assert!(matches!(first.retry(), Retry::After(_)));
         source.ahead(Token::Incoming).await.unwrap();
-        assert_eq!(table.asked(), 2);
+        assert_eq!(asked(&table), 2);
     });
 }
 
@@ -279,8 +227,8 @@ fn an_unreachable_accountd_is_not_remembered_as_a_refusal() {
 fn two_stores_in_one_process_follow_the_links_they_were_given() {
     use crate::account_secrets::platform_secrets;
     let rt = runtime();
-    let first: Arc<dyn Accountd> = Table::saying(vec![]);
-    let second: Arc<dyn Accountd> = Table::saying(vec![]);
+    let first: Arc<dyn Accountd> = saying(vec![]);
+    let second: Arc<dyn Accountd> = saying(vec![]);
     let a = platform_secrets(&Link::Accountd(first.clone()), rt.handle());
     let b = platform_secrets(&Link::Accountd(second.clone()), rt.handle());
     let own = platform_secrets(&Link::Local, rt.handle());
@@ -300,7 +248,7 @@ fn a_linked_process_hands_the_link_to_whoever_asks_and_holds_no_secret_of_its_ow
     let plain: Arc<dyn AccountSecrets> = Arc::new(MemorySecrets::default());
     assert!(plain.link().is_none(), "a plain store has no link");
 
-    let table: Arc<dyn Accountd> = Table::saying(vec![]);
+    let table: Arc<dyn Accountd> = saying(vec![]);
     let linked = LinkedSecrets::new(table);
     assert!(linked.link().is_some());
 

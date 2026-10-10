@@ -12,10 +12,10 @@ mod follow_up;
 mod history;
 pub mod memory;
 mod memory_search;
-// Public to the test-support feature only: a test of the schema walks its steps.
-#[cfg(feature = "test-support")]
+// Public to the testing feature only: a test of the schema walks its steps.
+#[cfg(feature = "testing")]
 pub mod migrate;
-#[cfg(not(feature = "test-support"))]
+#[cfg(not(feature = "testing"))]
 mod migrate;
 mod offline;
 mod opened;
@@ -27,7 +27,7 @@ mod smime;
 mod sql;
 mod sqlite;
 mod term;
-#[cfg(feature = "test-support")]
+#[cfg(feature = "testing")]
 pub mod testing;
 
 pub use account::{NewAccount, StoredAccount};

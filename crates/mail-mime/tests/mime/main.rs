@@ -5,14 +5,17 @@
 //! as a prefix: `cargo test -p mail-mime --test mime -- <file>::`.
 
 // The helpers the tests share, declared once.
+#[cfg(feature = "smime")]
 #[path = "../bimi_support/mod.rs"]
 mod bimi_support;
 #[path = "../block/mod.rs"]
 mod block;
+#[cfg(feature = "smime")]
 #[path = "../smime_support/mod.rs"]
 mod smime_support;
 
 mod auth;
+#[cfg(feature = "smime")]
 mod bimi;
 mod blind;
 mod block_adversarial;
@@ -26,6 +29,7 @@ mod build;
 mod imip;
 mod inline;
 mod mdn;
+#[cfg(feature = "openpgp")]
 mod openpgp;
 mod parse;
 mod print;
@@ -34,7 +38,9 @@ mod reconstruct;
 mod sanitize;
 mod sanitize_adversarial;
 mod sanitize_unrendered;
+#[cfg(feature = "smime")]
 mod smime;
+#[cfg(feature = "smime")]
 mod smime_openssl;
 mod unsubscribe;
 mod wire;

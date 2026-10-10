@@ -601,19 +601,18 @@ mod tests {
     // An account of the desktop's accountd (step E7)
     // -----------------------------------------------------------------------------------------
 
-    use mail_runtime::Transport;
-    use mail_runtime::link::{Accountd, Answer, Changes, LinkError, LinkedSecrets};
+    use mail_runtime::link::{LinkError, LinkedSecrets};
+    use mail_runtime::testing::FakeAccountd;
     use porter_core::capability::{
         Access, Capability, Delta, LabelModel, MailCap, MailTransport, Offered, PimCap,
         PimTransport,
     };
     use porter_core::wire::Refusal;
     use porter_core::{
-        AccountId, AccountLabel, Audience, Candidate, EndpointUrl, GrantId, IssuedToken, LoginName,
-        ProviderId, Restriction, ServiceEndpoint, Subject, Tls,
+        AccountId, AccountLabel, Candidate, EndpointUrl, GrantId, LoginName, ProviderId,
+        Restriction, ServiceEndpoint, Subject, Tls,
     };
     use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
 
     const ME: &str = "me@example.test";
 
@@ -701,65 +700,17 @@ mod tests {
     }
 
     /// accountd, as far as contacts go: the grants held, and what asking for one comes to.
-    #[derive(Debug)]
-    struct Daemon {
-        held: Vec<Candidate>,
-        asked: Result<Candidate, LinkError>,
-        requests: AtomicUsize,
+    fn accountd(held: Vec<Candidate>, asked: Result<Candidate, LinkError>) -> Arc<FakeAccountd> {
+        Arc::new(
+            FakeAccountd::default()
+                .with_contacts(held)
+                .with_contact_consent(asked),
+        )
     }
 
-    impl Daemon {
-        fn new(held: Vec<Candidate>, asked: Result<Candidate, LinkError>) -> Arc<Daemon> {
-            Arc::new(Daemon {
-                held,
-                asked,
-                requests: AtomicUsize::new(0),
-            })
-        }
-
-        fn requests(&self) -> usize {
-            self.requests.load(Ordering::SeqCst)
-        }
-    }
-
-    fn nothing<T>() -> Answer<'static, T> {
-        Box::pin(async { Err(LinkError::Other("not part of this test".to_owned())) })
-    }
-
-    impl Accountd for Daemon {
-        fn candidates(&self) -> Answer<'_, Vec<Candidate>> {
-            nothing()
-        }
-        fn token<'a>(&'a self, _: &'a GrantId, _: &'a Audience) -> Answer<'a, IssuedToken> {
-            nothing()
-        }
-        fn open<'a>(&'a self, _: &'a GrantId, _: &'a ServiceEndpoint) -> Answer<'a, Transport> {
-            nothing()
-        }
-        fn contacts(&self) -> Answer<'_, Vec<Candidate>> {
-            let held = self.held.clone();
-            Box::pin(async move { Ok(held) })
-        }
-        fn request_contacts(&self) -> Answer<'_, Candidate> {
-            self.requests.fetch_add(1, Ordering::SeqCst);
-            let asked = self.asked.clone();
-            Box::pin(async move { asked })
-        }
-        fn add_account(&self) -> Answer<'_, AccountId> {
-            nothing()
-        }
-        fn reauthenticate<'a>(&'a self, _: &'a AccountId) -> Answer<'a, ()> {
-            nothing()
-        }
-        fn request_grant(&self) -> Answer<'_, Candidate> {
-            nothing()
-        }
-        fn revoke<'a>(&'a self, _: &'a GrantId) -> Answer<'a, ()> {
-            nothing()
-        }
-        fn changes(&self) -> Answer<'_, Option<Box<dyn Changes>>> {
-            Box::pin(async { Ok(None) })
-        }
+    /// How many times the person was asked to allow contacts.
+    fn requests(daemon: &FakeAccountd) -> usize {
+        daemon.times_asked("request_contacts")
     }
 
     fn now() -> DateTime<Utc> {
@@ -778,26 +729,26 @@ mod tests {
         }
     }
 
-    fn linked(daemon: &Arc<Daemon>) -> LinkedSecrets {
+    fn linked(daemon: &Arc<FakeAccountd>) -> LinkedSecrets {
         LinkedSecrets::new(daemon.clone())
     }
 
     #[tokio::test]
     async fn a_linked_account_is_asked_for_its_contacts_once_and_reads_its_carddav_server() {
         // No grant on its contacts yet: accountd's own sheet is asked, once.
-        let daemon = Daemon::new(Vec::new(), Ok(carddav_grant("fastmail-me")));
+        let daemon = accountd(Vec::new(), Ok(carddav_grant("fastmail-me")));
         let (dav, start) = relayed(&owner(), None, &linked(&daemon)).await.unwrap();
         assert_eq!(start.as_str(), "https://carddav.example.test/");
         assert_eq!(dav.endpoint_url(), Some(start));
-        assert_eq!(daemon.requests(), 1);
+        assert_eq!(requests(&daemon), 1);
 
         // A grant already held is used as it is: nothing is asked.
-        let daemon = Daemon::new(vec![carddav_grant("fastmail-me")], nothing_asked());
+        let daemon = accountd(vec![carddav_grant("fastmail-me")], nothing_asked());
         relayed(&owner(), None, &linked(&daemon)).await.unwrap();
-        assert_eq!(daemon.requests(), 0);
+        assert_eq!(requests(&daemon), 0);
 
         // A grant the person gave to some other account is not this account's.
-        let daemon = Daemon::new(Vec::new(), Ok(carddav_grant("fastmail-other")));
+        let daemon = accountd(Vec::new(), Ok(carddav_grant("fastmail-other")));
         let why = relayed(&owner(), None, &linked(&daemon))
             .await
             .unwrap_err()
@@ -811,7 +762,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_linked_account_whose_contacts_are_not_allowed_says_so_in_its_own_words() {
-        let daemon = Daemon::new(Vec::new(), Err(LinkError::Refused(Refusal::Denied)));
+        let daemon = accountd(Vec::new(), Err(LinkError::Refused(Refusal::Denied)));
         let why = relayed(&owner(), None, &linked(&daemon))
             .await
             .unwrap_err()
@@ -822,12 +773,12 @@ mod tests {
              been allowed to read its contacts (the desktop's account service refused: the \
              person said no)"
         );
-        assert_eq!(daemon.requests(), 1);
+        assert_eq!(requests(&daemon), 1);
     }
 
     #[tokio::test]
     async fn a_linked_account_whose_contacts_are_not_carddav_syncs_none_and_says_so() {
-        let daemon = Daemon::new(vec![people_grant()], nothing_asked());
+        let daemon = accountd(vec![people_grant()], nothing_asked());
         let why = relayed(&owner(), None, &linked(&daemon))
             .await
             .unwrap_err()
@@ -838,12 +789,12 @@ mod tests {
                 && why.contains("no contacts were synced"),
             "{why}"
         );
-        assert_eq!(daemon.requests(), 0, "a grant it holds is not asked again");
+        assert_eq!(requests(&daemon), 0, "a grant it holds is not asked again");
     }
 
     #[tokio::test]
     async fn a_linked_account_is_relayed_to_its_own_server_and_no_other() {
-        let daemon = Daemon::new(vec![carddav_grant("fastmail-me")], nothing_asked());
+        let daemon = accountd(vec![carddav_grant("fastmail-me")], nothing_asked());
         let elsewhere = url::Url::parse("https://evil.example.test/dav/").unwrap();
         let why = relayed(&owner(), Some(&elsewhere), &linked(&daemon))
             .await
@@ -879,7 +830,7 @@ mod tests {
         let saved = ClientRegistry::default();
 
         // No account at all: the old answer.
-        let none = Daemon::new(Vec::new(), nothing_asked());
+        let none = accountd(Vec::new(), nothing_asked());
         let said = sync(
             &store,
             None,
@@ -897,7 +848,7 @@ mod tests {
         // accountd's account: the first sync asks accountd for its contacts and goes on to its
         // server (here Google's, which is not CardDAV) with no address given.
         crate::account::reconcile(&store, &[mail()], now()).unwrap();
-        let daemon = Daemon::new(vec![people_grant()], nothing_asked());
+        let daemon = accountd(vec![people_grant()], nothing_asked());
         let why = sync(
             &store,
             None,

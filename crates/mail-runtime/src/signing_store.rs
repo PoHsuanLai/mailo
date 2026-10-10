@@ -20,8 +20,9 @@ use crate::error::Failure;
 use chunks::{Limit, Slots};
 use keyring_core::CredentialStore;
 use mail_domain::signing::{SigningKeyId, SigningKeyRef, SigningSecret};
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+#[cfg(feature = "keyring")]
+use std::sync::Mutex;
 use stored::Stored;
 
 /// A store of signing keys.
@@ -40,14 +41,14 @@ pub(crate) const SERVICE: &str = "mailo";
 
 /// Named by the key alone: see [`SigningKeyId`] for why the account is not part of it. The
 /// prefix cannot collide with an account's entries, which begin with a UUID.
-fn signing_entry_name(key: &SigningKeyRef) -> String {
+pub(crate) fn signing_entry_name(key: &SigningKeyRef) -> String {
     match key.key {
         SigningKeyId::OpenPgp(fingerprint) => format!("openpgp:{fingerprint}"),
         SigningKeyId::Smime(fingerprint) => format!("smime:{fingerprint}"),
     }
 }
 
-fn signing_secret(stored: Stored) -> Result<SigningSecret, RuntimeError> {
+pub(crate) fn signing_secret(stored: Stored) -> Result<SigningSecret, RuntimeError> {
     match stored {
         Stored::OpenPgp(armored) => Ok(SigningSecret::OpenPgp(armored)),
         Stored::SmimeKey(pem) => Ok(SigningSecret::SmimeKey(pem)),
@@ -57,7 +58,7 @@ fn signing_secret(stored: Stored) -> Result<SigningSecret, RuntimeError> {
     }
 }
 
-fn stored_signing(value: &SigningSecret) -> Stored {
+pub(crate) fn stored_signing(value: &SigningSecret) -> Stored {
     match value {
         SigningSecret::OpenPgp(armored) => Stored::OpenPgp(armored.clone()),
         SigningSecret::SmimeKey(pem) => Stored::SmimeKey(pem.clone()),
@@ -308,6 +309,7 @@ fn refused(e: keyring_core::Error) -> RuntimeError {
 /// A store that could not be opened is tried again on the next use, not remembered as missing:
 /// a Secret Service that was not up when the first sync ran (a session whose keyring daemon
 /// starts late) is up for the second.
+#[cfg(feature = "keyring")]
 fn store() -> Result<Arc<CredentialStore>, RuntimeError> {
     static OPENED: Mutex<Option<Arc<CredentialStore>>> = Mutex::new(None);
     let mut opened = OPENED
@@ -325,6 +327,7 @@ fn store() -> Result<Arc<CredentialStore>, RuntimeError> {
 
 /// Linux and the BSDs: the Secret Service, which GNOME Keyring, KWallet and KeePassXC provide.
 #[cfg(all(
+    feature = "keyring",
     unix,
     not(any(target_os = "macos", target_os = "ios", target_os = "android"))
 ))]
@@ -333,26 +336,38 @@ fn open() -> keyring_core::Result<Arc<CredentialStore>> {
 }
 
 /// macOS: the user's login keychain.
-#[cfg(target_os = "macos")]
+#[cfg(all(feature = "keyring", target_os = "macos"))]
 fn open() -> keyring_core::Result<Arc<CredentialStore>> {
     Ok(apple_native_keyring_store::keychain::Store::new()?)
 }
 
 /// Windows: the Credential Manager, as generic credentials named `<entry>.mailo`.
-#[cfg(windows)]
+#[cfg(all(feature = "keyring", windows))]
 fn open() -> keyring_core::Result<Arc<CredentialStore>> {
     Ok(windows_native_keyring_store::Store::new()?)
 }
 
-#[cfg(not(any(
-    windows,
-    target_os = "macos",
-    all(
-        unix,
-        not(any(target_os = "macos", target_os = "ios", target_os = "android"))
-    )
-)))]
+#[cfg(all(
+    feature = "keyring",
+    not(any(
+        windows,
+        target_os = "macos",
+        all(
+            unix,
+            not(any(target_os = "macos", target_os = "ios", target_os = "android"))
+        )
+    ))
+))]
 compile_error!("mailo keeps signing keys in the platform keyring, and knows none for this target");
+
+/// A build without the `keyring` feature has no platform keyring to open: a signing key is kept
+/// in whatever [`SigningStore`] the caller hands in, or not at all.
+#[cfg(not(feature = "keyring"))]
+fn store() -> Result<Arc<CredentialStore>, RuntimeError> {
+    Err(RuntimeError::Secrets(Failure::said(
+        "this build has no platform keyring to keep signing keys in",
+    )))
+}
 
 /// Run `work` on a thread of its own and wait for it.
 ///
@@ -367,41 +382,6 @@ pub fn off_runtime<T: Send>(work: impl FnOnce() -> T + Send) -> T {
         Ok(done) => done,
         Err(panic) => std::panic::resume_unwind(panic),
     })
-}
-
-/// An in-memory store. Tests only: it never reaches the user's keyring and never persists.
-#[derive(Debug, Default)]
-pub struct MapSigningStore {
-    entries: Mutex<HashMap<String, Stored>>,
-}
-
-impl SigningStore for MapSigningStore {
-    fn get(&self, key: &SigningKeyRef) -> Result<SigningSecret, RuntimeError> {
-        let held = self
-            .entries
-            .lock()
-            .expect("MapSigningStore mutex poisoned")
-            .get(&signing_entry_name(key))
-            .cloned()
-            .ok_or_else(|| RuntimeError::Secrets(Failure::said("no such signing key")))?;
-        signing_secret(held)
-    }
-
-    fn put(&self, key: &SigningKeyRef, value: &SigningSecret) -> Result<(), RuntimeError> {
-        self.entries
-            .lock()
-            .expect("MapSigningStore mutex poisoned")
-            .insert(signing_entry_name(key), stored_signing(value));
-        Ok(())
-    }
-
-    fn forget(&self, key: &SigningKeyRef) -> Result<(), RuntimeError> {
-        self.entries
-            .lock()
-            .expect("MapSigningStore mutex poisoned")
-            .remove(&signing_entry_name(key));
-        Ok(())
-    }
 }
 
 #[cfg(test)]

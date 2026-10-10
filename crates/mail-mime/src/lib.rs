@@ -17,12 +17,14 @@ pub mod imip;
 pub mod inline;
 pub mod mailto;
 pub mod mdn;
+#[cfg(feature = "openpgp")]
 pub mod openpgp;
 pub mod parse;
 pub mod print;
 pub mod reconstruct;
 pub mod sanitize;
 pub mod script;
+#[cfg(feature = "smime")]
 pub mod smime;
 pub mod stamp;
 pub mod unsubscribe;

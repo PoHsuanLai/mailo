@@ -109,15 +109,50 @@ pub fn block_on<T>(work: impl Future<Output = T>) -> T {
 }
 
 /// This platform's store of account secrets.
-#[cfg(target_os = "linux")]
+#[cfg(all(feature = "oo7", target_os = "linux"))]
 type Native = porter_secrets::Oo7Secrets;
 /// This platform's store of account secrets.
-#[cfg(any(target_os = "macos", windows))]
+#[cfg(all(feature = "keyring", any(target_os = "macos", windows)))]
 type Native = porter_secrets::KeyringSecrets;
-#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
-compile_error!(
-    "mailo keeps account secrets in porter-secrets, which has a store only on Linux, macOS and Windows"
-);
+
+/// What a build without this platform's store feature (`oo7` on Linux, `keyring` on macOS and
+/// Windows) has for a platform store: one that holds nothing and answers every call as
+/// unavailable, which mailo reads as a sign-in to enter again. A library
+/// user who keeps secrets elsewhere hands its own [`AccountSecrets`] in and never reaches this.
+#[cfg(not(any(
+    all(feature = "oo7", target_os = "linux"),
+    all(feature = "keyring", any(target_os = "macos", windows))
+)))]
+#[derive(Debug, Default)]
+pub struct NoStore;
+
+#[cfg(not(any(
+    all(feature = "oo7", target_os = "linux"),
+    all(feature = "keyring", any(target_os = "macos", windows))
+)))]
+type Native = NoStore;
+
+#[cfg(not(any(
+    all(feature = "oo7", target_os = "linux"),
+    all(feature = "keyring", any(target_os = "macos", windows))
+)))]
+impl Secrets for NoStore {
+    async fn put(&self, _: &SecretKey, _: &Credential) -> Result<(), SecretsError> {
+        Err(SecretsError::Unavailable)
+    }
+
+    async fn get(&self, _: &SecretKey) -> Result<Credential, SecretsError> {
+        Err(SecretsError::Unavailable)
+    }
+
+    async fn delete(&self, _: &SecretKey) -> Result<(), SecretsError> {
+        Err(SecretsError::Unavailable)
+    }
+
+    async fn delete_account(&self, _: &AccountId) -> Result<(), SecretsError> {
+        Err(SecretsError::Unavailable)
+    }
+}
 
 /// The platform's store, every call run on the [`Handle`] it was given.
 ///

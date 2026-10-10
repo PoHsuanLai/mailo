@@ -80,7 +80,7 @@ pub struct SqliteStore {
     /// Held accounts are set aside (see `held.rs`).
     granted_only: std::sync::atomic::AtomicBool,
     /// The directory a test store's blobs live in, removed with the store.
-    #[cfg(feature = "test-support")]
+    #[cfg(feature = "testing")]
     pub(crate) scratch: Option<tempfile::TempDir>,
 }
 
@@ -156,7 +156,7 @@ impl SqliteStore {
             readers: Vec::new(),
             blobs: BlobStore::new(blob_root.as_ref().to_path_buf()),
             granted_only: std::sync::atomic::AtomicBool::new(false),
-            #[cfg(feature = "test-support")]
+            #[cfg(feature = "testing")]
             scratch: None,
         };
         store.refresh_queued_summaries()?;

@@ -1,6 +1,6 @@
 //! What a test seeds a store with, and the few things only a test does to one.
 //!
-//! Behind the `test-support` feature, which a crate enables for its tests and the program never
+//! Behind the `testing` feature, which a crate enables for its tests and the program never
 //! does. Nothing above the store speaks SQL (`scripts/check-boundary.sh`), so a test that needs an
 //! account, an identity or a label that no path of the program makes (a bare account whose plan
 //! is `{}`, the oldest shape the fixtures wrote) asks for it here.

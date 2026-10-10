@@ -28,6 +28,8 @@ pub mod search;
 pub mod sieve;
 pub mod signing_store;
 pub mod smime;
+#[cfg(feature = "testing")]
+pub mod testing;
 pub mod tokens;
 pub mod transport;
 pub mod unsubscribe;
@@ -46,6 +48,6 @@ pub use link::{Accountd, Link};
 pub use porter_oauth::ClientRegistry;
 pub use reparse::reparse_queued;
 pub use search::{SERVER_HITS, Searched, ServerHits, Unsaid};
-pub use signing_store::{KeyringSigningStore, MapSigningStore, SigningStore, off_runtime};
+pub use signing_store::{KeyringSigningStore, SigningStore, off_runtime};
 pub use tokens::{AfterRefusal, Held, OAuthTokens, Token, TokenSource};
 pub use transport::Transport;

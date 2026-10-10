@@ -88,6 +88,12 @@ jobs:
       - name: Portable build (no desktop extras)
         run: cargo check --workspace --no-default-features
 
+      # Each library crate alone with nothing on, and mail-mime with each crypto half alone: a
+      # `--workspace` check unifies the features `mail-app` turns on and would not notice a crate
+      # that needs one of its own.
+      - name: Every library crate builds with no features
+        run: ./scripts/check-nodef.sh
+
   # Real sockets, against servers this repository did not write: a Twisted IMAP4Server, an
   # aiosmtpd SMTP server, and a POP3 server. Separate from `check` because it needs Python and a
   # few seconds of setup, and because a failure here means something different — the protocol

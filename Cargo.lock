@@ -4694,6 +4694,7 @@ dependencies = [
  "mail-mime",
  "mail-pim",
  "mail-proto",
+ "mail-runtime",
  "mail-store",
  "p256",
  "porter-client",

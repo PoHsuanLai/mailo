@@ -22,13 +22,13 @@ tempfile = { version = "3", optional = true }
 [features]
 # What a test of this crate or of one above it seeds a store with, and the few things only a test
 # does to one (`testing`). Off in the program: nothing above the store speaks SQL.
-test-support = ["dep:tempfile"]
+testing = ["dep:tempfile"]
 
 [dev-dependencies]
 proptest = "1"
 tempfile = "3"
 # Its own tests use the seeding they share with the crates above.
-mail-store = { path = ".", features = ["test-support"] }
+mail-store = { path = ".", features = ["testing"] }
 
 [lints]
 workspace = true

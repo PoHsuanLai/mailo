@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use mail_core::MapSigningStore;
+use mail_core::testing::MapSigningStore;
 use mail_domain::*;
 use mail_mime::openpgp::Cert;
 

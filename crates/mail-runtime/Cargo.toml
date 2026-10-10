@@ -14,10 +14,13 @@ porter-oauth = { workspace = true, features = ["io"] }
 # The link to the desktop's accountd (`link/`, step E6). Without the `dbus` feature this is
 # porter's client over the in-process transport and the relay's byte streams: no zbus.
 porter-client.workspace = true
+# The trait the account secrets are filed through. The stores behind it are the `keyring` feature's.
+porter-secrets.workspace = true
 mail-domain.workspace = true
 mail-proto.workspace = true
 mail-store.workspace = true
-mail-mime.workspace = true
+# The OpenPGP and S/MIME halves are features of the library; this crate uses both.
+mail-mime = { workspace = true, features = ["openpgp", "smime"] }
 mail-pim.workspace = true
 chrono.workspace = true
 thiserror.workspace = true
@@ -69,32 +72,29 @@ rustls-native-certs = "0.8"
 # An S/MIME private key on its way to and from the keyring is wiped after. Already in the tree.
 zeroize = "1"
 
-# Where secrets are kept, per platform. All MIT OR Apache-2.0.
+# Where secrets are kept, per platform, behind the `keyring` and `oo7` features. All MIT OR
+# Apache-2.0.
 #
 # Account secrets (porter-secrets, `account_secrets.rs`): on Linux `Oo7Secrets`, the Secret Service
-# through oo7 and no daemon of ours; on macOS and Windows `KeyringSecrets`, the login keychain and
-# the Credential Manager, which chunks what the Credential Manager cannot hold. One store per
-# platform, chosen by these two lines and nowhere else.
+# through oo7 and no daemon of ours (the `oo7` feature); on macOS and Windows `KeyringSecrets`, the
+# login keychain and the Credential Manager, which chunks what the Credential Manager cannot hold
+# (the `keyring` feature). One store per platform, chosen in `account_secrets.rs` and nowhere else.
 [target.'cfg(target_os = "linux")'.dependencies]
-porter-secrets = { workspace = true, features = ["oo7"] }
 # Desktop extras (design/36 rule 3): the bus's own vocabulary, for the signals accountd sends
 # (`link/dbus.rs`). Only on Linux and only with `quire-desktop`.
 porter-dbus = { workspace = true, optional = true }
 futures-util = { version = "0.3", default-features = false, features = ["std"], optional = true }
-
-[target.'cfg(any(target_os = "macos", windows))'.dependencies]
-porter-secrets = { workspace = true, features = ["keyring"] }
 
 # The signing keys (`signing_store.rs`), over
 # keyring-core, at the features `keyring` 4 chose on each.
 #
 # Linux and the BSDs: the Secret Service (GNOME Keyring, KWallet, KeePassXC) over zbus.
 [target.'cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))'.dependencies]
-zbus-secret-service-keyring-store = { version = "1", features = ["crypto-rust"] }
+zbus-secret-service-keyring-store = { version = "1", features = ["crypto-rust"], optional = true }
 
 # macOS: the login keychain.
 [target.'cfg(target_os = "macos")'.dependencies]
-apple-native-keyring-store = { version = "1", features = ["keychain"] }
+apple-native-keyring-store = { version = "1", features = ["keychain"], optional = true }
 # The per-user directories macOS and Windows name (`places.rs`). Linux keeps the XDG rule it has
 # always followed, spelled out there, so the directories it already uses cannot move.
 dirs = "6"
@@ -102,18 +102,36 @@ dirs = "6"
 # Windows: the Credential Manager. Its entries hold at most 2560 bytes, which a Microsoft token
 # or a signing key outgrows; `signing_store/chunks.rs` is why that does not matter there.
 [target.'cfg(windows)'.dependencies]
-windows-native-keyring-store = "1"
+windows-native-keyring-store = { version = "1", optional = true }
 dirs = "6"
 
 [features]
-# Desktop extras, additive and lit by capability: the link to accountd over D-Bus. On by default
-# so a Linux build has it; a build for another desktop (and the portable gate,
-# `cargo check --workspace --no-default-features`) has the in-process path alone. The code is
-# also `cfg(target_os = "linux")`. Cargo cannot say "default on for Linux" (a feature is on or off
-# for the whole build), so the macOS and Windows jobs in CI pass `--no-default-features`, which
-# keeps zbus and porter's D-Bus transport out of those builds.
-default = ["quire-desktop"]
+# Nothing is on by default: a headless or third-party user of this crate pays for what it names.
+# `mail-app` names `keyring` and `quire-desktop`, so the shipped binary has both.
+default = []
+# Desktop extras, additive and lit by capability: the link to accountd over D-Bus. A build for
+# another desktop, and the portable gate (`cargo check --workspace --no-default-features`), has the
+# in-process path alone. The code is also `cfg(target_os = "linux")`. Cargo cannot say "on for
+# Linux" (a feature is on or off for the whole build), so the macOS and Windows jobs in CI leave it
+# off, which keeps zbus and porter's D-Bus transport out of those builds.
 quire-desktop = ["porter-client/dbus", "dep:porter-dbus", "dep:futures-util"]
+# The platform's keyrings (the Secret Service over zbus on Linux and the BSDs, the login keychain on
+# macOS, the Credential Manager on Windows): `KeyringSigningStore` over them, and on macOS and
+# Windows `PlatformSecrets`. Without it they are present but empty, answering every call as
+# unavailable, and a caller keeps its secrets in an `AccountSecrets` and a `SigningStore` of its own.
+keyring = [
+    "porter-secrets/keyring",
+    "dep:zbus-secret-service-keyring-store",
+    "dep:apple-native-keyring-store",
+    "dep:windows-native-keyring-store",
+]
+# Linux: the account secrets in the Secret Service through oo7 (`Oo7Secrets`). Its own feature
+# because macOS and Windows have no use for oo7 or the bus it brings; `mail-app` names it under
+# `cfg(target_os = "linux")`. Without it, on Linux, `PlatformSecrets` holds nothing.
+oo7 = ["porter-secrets/oo7"]
+# What a test swaps in at this crate's seams (`testing`): an in-memory transport, account secrets
+# and signing store, and accountd as a table. Off in the program.
+testing = ["porter-secrets/testing"]
 
 [target.'cfg(target_os = "linux")'.dev-dependencies]
 # The bus of its own the link's tests run on (`tests/runtime/link_bus.rs`): the same zbus the secret store
@@ -122,7 +140,9 @@ zbus = "5.19"
 
 [dev-dependencies]
 # Seeding a store without writing SQL (`mail_store::testing`): the program never has it.
-mail-store = { workspace = true, features = ["test-support"] }
+mail-store = { workspace = true, features = ["testing"] }
+# Its own tests use the doubles it exports.
+mail-runtime = { path = ".", features = ["testing"] }
 porter-proxy.workspace = true
 porter-secrets = { workspace = true, features = ["testing", "keyring"] }
 tokio = { version = "1", features = ["full"] }

@@ -9,10 +9,13 @@
 //! publish, which is the phishing it would otherwise help.
 
 mod record;
+// The mark certificate is read and chained with the S/MIME code.
+#[cfg(feature = "smime")]
 pub mod vmc;
 
 pub use record::{
     BimiRecord, Disposition, DmarcRecord, RecordError, dmarc_passed_for, enforced, parse_dmarc,
     parse_record, pick_dmarc, pick_record,
 };
+#[cfg(feature = "smime")]
 pub use vmc::{MarkProblem, same_logo, svg_bytes, verified_logo};
