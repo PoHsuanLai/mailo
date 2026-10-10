@@ -290,7 +290,7 @@ fn a_hidden_sidebar_can_be_shown_again_from_the_list() {
     let more = centre(&harness, MORE);
     harness.click(more);
     settle_until(&mut harness, |h| h.count(".ds-menu .ds-menu-item") > 0);
-    crate::row_menu::press_menu_item(&mut harness, "Hide Sidebar");
+    crate::row_menu::press_menu_item(&mut harness, "Hide sidebar");
     harness.advance(ms(400));
     assert_eq!(
         harness.count(SHOW),

@@ -89,11 +89,11 @@ fn nothing_in_today_means_no_heading_and_no_clear() {
     assert_eq!(
         rows,
         [
-            "Show All History",
+            "Show all history",
             "-",
             "New Space",
             "Settings\u{2026}",
-            "Hide Sidebar",
+            "Hide sidebar",
         ]
     );
 }
@@ -120,11 +120,11 @@ fn drafts_put_aside_and_messages_waiting_stay_reachable_under_their_own_headings
             "# Waiting to be sent",
             "Cancel sending Friday",
             "-",
-            "Show All History",
+            "Show all history",
             "-",
             "New Space",
             "Settings\u{2026}",
-            "Show Sidebar",
+            "Show sidebar",
         ]
     );
     let picks: Vec<Pick> = rows
@@ -162,10 +162,10 @@ fn settings_and_the_sidebar_toggle_show_their_keys_and_the_rest_show_none() {
     assert_eq!(
         keyed,
         [
-            ("Show All History".to_owned(), false),
+            ("Show all history".to_owned(), false),
             ("New Space".to_owned(), false),
             ("Settings\u{2026}".to_owned(), true),
-            ("Hide Sidebar".to_owned(), true),
+            ("Hide sidebar".to_owned(), true),
         ]
     );
 }

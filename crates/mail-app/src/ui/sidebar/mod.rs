@@ -11,6 +11,7 @@ mod panes;
 pub(super) use self::folder_act::folder_places;
 use self::folder_tree::{Show, arrange, scope};
 use self::folders::FolderList;
+#[cfg(test)]
 pub(in crate::ui) use self::foot::MoreMenu;
 pub(in crate::ui) use self::panes::hex_colour;
 use self::panes::{AccountTiles, PinnedList, PlaceList, counts};

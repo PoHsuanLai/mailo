@@ -1,5 +1,5 @@
 //! The Settings window, over the reference fixture and a temporary config directory: ⌘, and the
-//! gear ask for it, ⌘K's entries ask for it on their page, each schema key is a row whose control
+//! foot menu ask for it, ⌘K's entries ask for it on their page, each schema key is a row whose control
 //! writes `settings.toml`, and every page draws in the window. An account's page in the Accounts
 //! pane is `account`'s (`account/tests.rs`).
 
@@ -69,7 +69,7 @@ fn main_window(built: &Work) -> (VirtualDom, Seen, Arc<Asked>) {
 }
 
 #[tokio::test]
-async fn command_comma_and_the_gear_ask_for_the_settings_window() {
+async fn command_comma_and_the_foot_menu_ask_for_the_settings_window() {
     let built = work();
     let (mut dom, seen, asked) = main_window(&built);
     let _ = chord(
@@ -79,8 +79,14 @@ async fn command_comma_and_the_gear_ask_for_the_settings_window() {
         dioxus_core::ElementId(INSIDE_THE_SHELL as usize),
     );
     assert_eq!(asked.asks(), [None], "⌘, asked for nothing");
-    click(&mut dom, seen.one("aria-label", "Settings"));
-    assert_eq!(asked.asks(), [None, None], "the gear asked for nothing");
+    let opened = click(&mut dom, seen.one("aria-label", "Sidebar menu"));
+    let opened = crate::ui::fixtures::settle(&mut dom, opened);
+    crate::ui::fixtures::pick_named(&mut dom, &opened, "Settings\u{2026}").await;
+    assert_eq!(
+        asked.asks(),
+        [None, None],
+        "the menu's Settings asked for nothing"
+    );
     let page = dioxus_ssr::render(&dom);
     assert!(
         !page.contains("data-page=\"General\""),

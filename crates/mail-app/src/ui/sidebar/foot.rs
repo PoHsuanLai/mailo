@@ -29,7 +29,7 @@ use mail_domain::{DraftId, ThreadId};
 use std::sync::Arc;
 
 /// The most Today conversations the menu lists: the newest, so the menu stays a menu and the
-/// rest are one "Show All History" away.
+/// rest are one "Show all history" away.
 pub(super) const TODAY_SHOWN: usize = 8;
 
 /// What a row of the menu asks for.
@@ -82,7 +82,7 @@ pub(super) fn menu_items(foot: &Foot) -> Vec<MenuItem<Pick>> {
         let mut rows = vec![MenuItem::Header("Today".to_owned())];
         rows.extend(foot.today.iter().take(TODAY_SHOWN).map(|recent| {
             MenuItem::new(Pick::Thread(recent.thread), recent.title.clone())
-                .with_image(MenuImage::Avatar(recent.face.clone()))
+                .with_image(MenuImage::Avatar(recent.face))
         }));
         rows.push(
             MenuItem::new(Pick::ClearToday, "Clear Today").with_image(MenuImage::Icon(Icon::X)),
@@ -106,12 +106,12 @@ pub(super) fn menu_items(foot: &Foot) -> Vec<MenuItem<Pick>> {
         groups.push(rows);
     }
     groups.push(vec![
-        MenuItem::new(Pick::History, "Show All History")
+        MenuItem::new(Pick::History, "Show all history")
             .with_image(MenuImage::Icon(Icon::RotateLeft)),
     ]);
     let toggle = match foot.sidebar {
-        Shown::Visible => "Hide Sidebar",
-        Shown::Hidden => "Show Sidebar",
+        Shown::Visible => "Hide sidebar",
+        Shown::Hidden => "Show sidebar",
     };
     groups.push(vec![
         MenuItem::new(Pick::NewSpace, "New Space").with_image(MenuImage::Icon(Icon::Plus)),
@@ -135,7 +135,7 @@ pub(super) fn menu_items(foot: &Foot) -> Vec<MenuItem<Pick>> {
 /// `live` Today conversations, newest first. The kit lists them in the order they were opened,
 /// but a file edited by hand need not be, and the menu's cap keeps the newest.
 pub(super) fn newest_first(mut live: Vec<(ThreadId, Epoch)>) -> Vec<ThreadId> {
-    live.sort_by(|a, b| b.1.cmp(&a.1));
+    live.sort_by_key(|entry| std::cmp::Reverse(entry.1));
     live.into_iter().map(|(thread, _)| thread).collect()
 }
 
