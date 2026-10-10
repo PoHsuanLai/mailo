@@ -191,6 +191,18 @@ pub(crate) fn first_stored(patch: &mail_domain::Patch) -> impl Iterator<Item = M
 }
 
 impl SyncReport {
+    /// Say that `count` messages of `mailbox` arrived and could not be read as messages. They
+    /// were skipped, and the pass's cursor has moved past them, so nothing will fetch them
+    /// again: the person is told rather than left with mail that silently never came.
+    pub(crate) fn unreadable(&mut self, mailbox: &MailboxRef, count: usize) {
+        if count > 0 {
+            self.needs_attention.push(format!(
+                "{count} message(s) in {} could not be read and were skipped",
+                mailbox.path
+            ));
+        }
+    }
+
     /// Fold in the pass that followed this one, for a drain that queued work for itself.
     /// What is still queued is the later pass's word, since it saw the queue last.
     fn absorb(&mut self, later: SyncReport) {
@@ -1469,7 +1481,8 @@ impl<B: Backend> AccountEngine<B> {
                 Ok(ProtoOutcome::Fetched { items, flags }) => {
                     report.headers_fetched += items.len();
                     let stored = self.absorb_headers(mailbox, items, flags, now)?;
-                    report.arrived.extend(first_stored(&stored));
+                    report.unreadable(mailbox, stored.unreadable);
+                    report.arrived.extend(first_stored(&stored.patch));
                 }
                 Ok(_) => {}
                 Err(RuntimeError::Cancelled) => return Ok(report),
@@ -1500,14 +1513,14 @@ impl<B: Backend> AccountEngine<B> {
         items: Vec<(RemoteRef, Vec<u8>)>,
         flags: Vec<(RemoteRef, mail_domain::ReadState, mail_domain::Star)>,
         now: DateTime<Utc>,
-    ) -> Result<mail_domain::Patch, RuntimeError> {
+    ) -> Result<crate::assemble::Absorbed, RuntimeError> {
         let arrivals = items
             .into_iter()
             .map(|(remote, raw)| crate::assemble::Arrival { remote, raw })
             .collect::<Vec<_>>();
         // Headers only: Body::Absent says the body has not arrived, rather than storing an empty
         // message that looks complete.
-        let stored = crate::assemble::absorb_into(
+        let stored = crate::assemble::absorb_counted(
             &self.store,
             self.account.clone(),
             crate::assemble::Destination {
@@ -1613,7 +1626,7 @@ impl<B: Backend> AccountEngine<B> {
             .collect();
         if !new.is_empty() {
             report.headers_fetched += new.len();
-            let stored = crate::assemble::absorb_into(
+            let stored = crate::assemble::absorb_counted(
                 &self.store,
                 self.account.clone(),
                 crate::assemble::Destination {
@@ -1625,7 +1638,8 @@ impl<B: Backend> AccountEngine<B> {
                 true,
                 now,
             )?;
-            report.arrived.extend(first_stored(&stored));
+            report.unreadable(mailbox, stored.unreadable);
+            report.arrived.extend(first_stored(&stored.patch));
         }
         self.store.ingest(self.account.clone(), ingest)?;
         Ok(report)
@@ -1726,7 +1740,9 @@ impl<B: Backend> AccountEngine<B> {
             // Bodies carry flags too, but the header fetch has already recorded them and a
             // body batch is a subset; ignored rather than applied twice.
             Ok(ProtoOutcome::Fetched { items, .. }) => {
-                report.bodies_fetched += self.store_bodies(items, mailbox, now)?;
+                let (stored, unreadable) = self.store_bodies(items, mailbox, now)?;
+                report.bodies_fetched += stored;
+                report.unreadable(mailbox, unreadable);
             }
             Ok(_) => {}
             Err(RuntimeError::Cancelled) => return Ok(false),
@@ -1739,19 +1755,20 @@ impl<B: Backend> AccountEngine<B> {
         Ok(true)
     }
 
-    /// Store whole messages fetched from `mailbox`. How many.
+    /// Store whole messages fetched from `mailbox`. How many, and how many of them could not be
+    /// read as messages.
     fn store_bodies(
         &self,
         items: Vec<(RemoteRef, Vec<u8>)>,
         mailbox: &MailboxRef,
         now: DateTime<Utc>,
-    ) -> Result<usize, RuntimeError> {
+    ) -> Result<(usize, usize), RuntimeError> {
         let arrivals = items
             .into_iter()
             .map(|(remote, raw)| crate::assemble::Arrival { remote, raw })
             .collect::<Vec<_>>();
         let count = arrivals.len();
-        crate::assemble::absorb_into(
+        let stored = crate::assemble::absorb_counted(
             &self.store,
             self.account.clone(),
             crate::assemble::Destination {
@@ -1763,7 +1780,7 @@ impl<B: Backend> AccountEngine<B> {
             false,
             now,
         )?;
-        Ok(count)
+        Ok((count, stored.unreadable))
     }
 
     /// Fetch one message's body now, whole, and store it.
@@ -1815,7 +1832,9 @@ impl<B: Backend> AccountEngine<B> {
                 "a body fetch answered with something else".to_owned(),
             )));
         };
-        if self.store_bodies(items, &mailbox, now)? == 0 {
+        // One message asked for: unreadable bytes are logged where they were skipped, and the window that
+        // asked shows the message as it was.
+        if self.store_bodies(items, &mailbox, now)?.0 == 0 {
             return Err(RuntimeError::Proto(mail_proto::ProtoError::Refused {
                 kind: mail_proto::machine::Refusal::Permanent,
                 text: "the server no longer has that message".to_owned(),

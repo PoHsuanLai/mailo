@@ -282,3 +282,38 @@ fn bytes_that_are_not_a_message_are_skipped_not_fatal() {
     let threads = store.threads(&query(Filter::All), now()).unwrap();
     assert_eq!(threads.items.len(), 1, "the good one still arrived");
 }
+
+/// Bytes that are not a message are skipped without stopping the batch, and counted: the pass's
+/// cursor moves past them, so the count is the only way anyone learns they were there.
+#[test]
+fn an_unreadable_arrival_is_skipped_and_counted() {
+    let good = "From: Ada Lovelace <ada@example.test>\n\
+                Subject: still here\n\
+                Message-ID: <kept@example.test>\n\
+                \n\
+                The rest of the batch arrives.\n";
+    for headers_only in [false, true] {
+        let (store, _dir) = store();
+        let absorbed = mail_runtime::absorb_counted(
+            &store,
+            acct_account(),
+            mail_runtime::Destination {
+                mailbox: mailbox(),
+                role: MailboxRole::Inbox,
+            },
+            None,
+            vec![pop("good", good), pop("bad", "no header in sight")],
+            headers_only,
+            now(),
+        )
+        .unwrap();
+        assert_eq!(absorbed.unreadable, 1, "headers only: {headers_only}");
+        let stored = absorbed
+            .patch
+            .changes
+            .iter()
+            .filter(|change| matches!(change, Change::MessageUpsert(_)))
+            .count();
+        assert_eq!(stored, 1, "headers only: {headers_only}");
+    }
+}

@@ -228,8 +228,10 @@ impl<B: Backend> AccountEngine<B> {
         now: DateTime<Utc>,
         hits: &mut ServerHits,
     ) -> Result<(), RuntimeError> {
+        // What a search could not read is logged where it was skipped; a search has no pass to
+        // report it to.
         let stored = self.absorb_headers(mailbox, items, flags, now)?;
-        let new: Vec<_> = first_stored(&stored).collect();
+        let new: Vec<_> = first_stored(&stored.patch).collect();
         self.store.mark_found(self.account.clone(), &new, now)?;
         hits.fetched += new.len();
         Ok(())
