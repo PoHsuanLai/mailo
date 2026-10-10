@@ -4,6 +4,7 @@
 //! Every handler here calls `editor::` through [`super::wire`] and [`super::float`]. The only
 //! thing this file decides is which key goes where.
 
+use chordkit::StandardAction;
 use dioxus::prelude::*;
 use ds::components::controls::button_model::{Bezel, ImagePosition};
 use ds::components::controls::segmented::Tracking;
@@ -20,6 +21,7 @@ use super::float::{
 };
 use super::page::{Float, Page};
 use super::templates::{self, TemplateFloat, page_slash_items};
+use crate::ui::actions::{Heard, Own};
 use crate::ui::editor::{InputEvent, Mark, Node, Op, Presence, Range};
 use crate::ui::view::Shell;
 
@@ -163,17 +165,18 @@ fn pick(mut page: Signal<Page>, on_attach: EventHandler<()>, key: &str) {
     }
 }
 
-/// Whether `key` with `modifiers` is the menus' or a chord's, and if it is, do it: an open
-/// menu's arrows, Enter and Escape, then Ctrl B, I, U, Shift S, E, K, Z, Shift Z and Y. The
-/// surface (`surface.rs`) asks this first; a taken key goes no further.
+/// Whether `key` is the menus' or an action's, and if it is, do it: an open menu's arrows, Enter
+/// and Escape, then the editor's actions: bold, italic, underline, undo and redo (the standard
+/// ones, on the platform's own chords), strikethrough, code and link. `heard` is what the press
+/// asked of the window in a text field (`actions::heard_key`). The surface (`surface.rs`) asks
+/// this first; a taken key goes no further.
 pub(super) fn key_taken(
     mut page: Signal<Page>,
     shell: Signal<Shell>,
     on_attach: EventHandler<()>,
     key: &str,
-    modifiers: Modifiers,
+    heard: Option<Heard>,
 ) -> bool {
-    let ctrl = ds::prelude::is_command(modifiers);
     let float = page.read().float.clone();
     if templates::key(page, shell, key) {
         return true;
@@ -216,25 +219,22 @@ pub(super) fn key_taken(
             return true;
         }
     }
-    if !ctrl {
-        return false;
-    }
-    let lower = key.to_lowercase();
-    match (lower.as_str(), modifiers.shift()) {
-        ("b", false) => format(page, "formatBold"),
-        ("i", false) => format(page, "formatItalic"),
-        ("u", false) => format(page, "formatUnderline"),
-        ("s", true) => format(page, "formatStrikeThrough"),
-        ("e", false) => code(page),
-        ("k", false) => {
+    match heard {
+        Some(Heard::Standard(StandardAction::Bold)) => format(page, "formatBold"),
+        Some(Heard::Standard(StandardAction::Italic)) => format(page, "formatItalic"),
+        Some(Heard::Standard(StandardAction::Underline)) => format(page, "formatUnderline"),
+        Some(Heard::Own(Own::Strikethrough)) => format(page, "formatStrikeThrough"),
+        Some(Heard::Own(Own::Code)) => code(page),
+        // ⌘K is the search bar in the window; in the body it is Link, over a selection.
+        Some(Heard::Own(Own::Search)) => {
             let has = page.read().selection.is_some();
             if has {
                 page.write().float = Float::Link(String::new());
             }
             has
         }
-        ("z", false) => format(page, "historyUndo"),
-        ("z", true) | ("y", false) => format(page, "historyRedo"),
+        Some(Heard::Standard(StandardAction::Undo)) => format(page, "historyUndo"),
+        Some(Heard::Standard(StandardAction::Redo)) => format(page, "historyRedo"),
         _ => false,
     }
 }
@@ -431,7 +431,7 @@ fn Bubble(page: Signal<Page>, place: Option<String>) -> Element {
                         bezel: Bezel::Toolbar,
                         label: "Link",
                         title: "Link".to_owned(),
-                        title_shortcut: crate::ui::keymap::chord(&[crate::ui::keymap::KeyCap::Super], 'k'),
+                        title_shortcut: crate::ui::actions::tip_own(Own::Search),
                         icon: Icon::Link,
                         image: ImagePosition::Only,
                         onclick: on_primary(move || page.write().float = Float::Link(String::new())),

@@ -13,7 +13,7 @@ use settle::settle_until;
 
 use crate::drive;
 use crate::row_menu;
-use drive::Drive;
+use drive::{Drive, PRIMARY};
 use ds_blitz::{NetPolicy, PrintOutcome};
 use mail_app::ui::launcher::{Badge, Launcher, Unread};
 use mail_domain::id::account_id_from_uuid;
@@ -156,7 +156,7 @@ fn the_window_counts_its_inbox_and_counts_again_when_one_is_read_and_unread() {
     settle_until(&mut harness, |_| recorder.seen() == [3, 2]);
 
     // Ctrl Z makes it unread again, and the count follows.
-    harness.chord(&[Key::Ctrl], Key::Char('z'));
+    harness.chord(&[PRIMARY], Key::Char('z'));
     settle_until(&mut harness, |_| recorder.seen() == [3, 2, 3]);
 
     // A write that leaves the count where it is (a pin) sends the launcher nothing.

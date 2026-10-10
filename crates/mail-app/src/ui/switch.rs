@@ -9,16 +9,6 @@
 use crate::ui::space::Recall;
 use crate::ui::view::{PageMenu, Shell};
 
-/// The Space ⌘ and a digit ask for: `"1"` is the first. `None` for any other key.
-pub(super) fn space_key(key: &str) -> Option<usize> {
-    let mut chars = key.chars();
-    let digit = chars.next()?.to_digit(10)?;
-    if chars.next().is_some() || digit == 0 {
-        return None;
-    }
-    usize::try_from(digit - 1).ok()
-}
-
 /// Where `shell` is, as the Space it is showing will remember it.
 pub(super) fn recall_of(shell: &Shell) -> Recall {
     Recall {

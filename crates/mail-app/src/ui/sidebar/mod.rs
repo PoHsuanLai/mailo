@@ -117,7 +117,7 @@ pub(super) fn Places(
                         icon: Icon::Settings,
                         label: "Settings",
                         title: "Settings".to_owned(),
-                        title_shortcut: crate::ui::keymap::chord(&[crate::ui::keymap::KeyCap::Super], ','),
+                        title_shortcut: crate::ui::actions::tip_standard(chordkit::StandardAction::Settings),
                         onclick: move |_| crate::ui::settings_window::open(),
                     }
                     Button {
@@ -126,7 +126,7 @@ pub(super) fn Places(
                         icon: Icon::PanelLeft,
                         label: if side_hidden() { "Show sidebar" } else { "Hide sidebar" },
                         title: "Sidebar".to_owned(),
-                        title_shortcut: crate::ui::keymap::chord(&[crate::ui::keymap::KeyCap::Ctrl, crate::ui::keymap::KeyCap::Super], 's'),
+                        title_shortcut: crate::ui::actions::tip_standard(chordkit::StandardAction::ToggleSidebar),
                         onclick: move |_| side_hidden.set(!side_hidden()),
                     }
                 },

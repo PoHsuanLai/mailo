@@ -1,6 +1,4 @@
-use super::{
-    DEFAULTS, FILE_NAME, Keymap, Refused, action_keys, bind, keys_of, load, reset, save, spoken,
-};
+use super::{DEFAULTS, FILE_NAME, Keymap, Refused, bind, load, reset, save, spoken};
 use crate::ui::view::Shortcut;
 
 /// The keyboard as it was before it became a table: `view::shortcut`'s match, kept here
@@ -262,18 +260,14 @@ fn keys_are_spoken_as_their_caps() {
 }
 
 #[test]
-fn a_tip_names_the_key_in_force() {
-    let caps = |key: &str| keys_of(key).map(|keys| keys.glyphs());
-    assert_eq!(caps("m").as_deref(), Some("M"));
-    assert_eq!(caps("J").as_deref(), Some("\u{21e7}J"));
-    assert_eq!(caps("ArrowDown").as_deref(), Some("\u{2193}"));
-    assert_eq!(caps("Escape").as_deref(), Some("Esc"));
-    assert_eq!(caps("#").as_deref(), Some("#"));
+fn the_user_s_keys_are_answered_by_the_map_and_the_defaults_are_not() {
     let map = Keymap::default();
-    let now = |map: &Keymap, action| action_keys(map, action).map(|keys| keys.glyphs());
-    assert_eq!(now(&map, Shortcut::ToggleMute).as_deref(), Some("M"));
-    assert_eq!(now(&map, Shortcut::Trash).as_deref(), Some("#"));
-    let moved = bind(&map, Shortcut::ToggleMute, "x").expect("x is free");
-    assert_eq!(now(&moved, Shortcut::ToggleMute).as_deref(), Some("X"));
-    assert_eq!(now(&map, Shortcut::Back), None);
+    for (_, keys) in DEFAULTS {
+        for key in *keys {
+            assert_eq!(map.changed_holder(key), None, "{key:?} is chordkit's");
+        }
+    }
+    let map = bind(&map, Shortcut::Archive, "x").unwrap();
+    assert_eq!(map.changed_holder("x"), Some(Shortcut::Archive));
+    assert_eq!(map.changed_holder("e"), None);
 }

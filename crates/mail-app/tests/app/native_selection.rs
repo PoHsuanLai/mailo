@@ -13,7 +13,7 @@ use crate::settle;
 use settle::settle_until;
 
 use crate::drive;
-use drive::Drive;
+use drive::{Drive, PRIMARY};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_runtime::{Arrival, absorb};
@@ -222,7 +222,7 @@ fn rows_are_picked_by_ctrl_a_shift_and_ctrl_clicks_and_shift_j_and_k() {
         Vec::<usize>::new(),
         "picked at the start"
     );
-    harness.chord(&[Key::Ctrl], Key::Char('a'));
+    harness.chord(&[PRIMARY], Key::Char('a'));
     harness.advance(ms(300));
     assert_eq!(selected(&harness), vec![1, 2, 3, 4, 5], "Ctrl+A");
     assert_eq!(said(&harness).as_deref(), Some("5 selected"), "Ctrl+A");
@@ -232,7 +232,7 @@ fn rows_are_picked_by_ctrl_a_shift_and_ctrl_clicks_and_shift_j_and_k() {
     assert_eq!(said(&harness), None, "Escape");
 
     // Ctrl+A, then to Starred and back: the selection does not follow.
-    harness.chord(&[Key::Ctrl], Key::Char('a'));
+    harness.chord(&[PRIMARY], Key::Char('a'));
     harness.advance(ms(300));
     assert_eq!(
         said(&harness).as_deref(),
@@ -285,19 +285,19 @@ fn rows_are_picked_by_ctrl_a_shift_and_ctrl_clicks_and_shift_j_and_k() {
 
     // Ctrl-click.
     click_row(&mut harness, 1, &[]);
-    click_row(&mut harness, 3, &[Key::Ctrl]);
+    click_row(&mut harness, 3, &[PRIMARY]);
     assert_eq!(
         selected(&harness),
         vec![1, 3],
         "the open row and the added one"
     );
-    click_row(&mut harness, 5, &[Key::Ctrl]);
+    click_row(&mut harness, 5, &[PRIMARY]);
     assert_eq!(
         selected(&harness),
         vec![1, 3, 5],
         "a second Ctrl-click adds"
     );
-    click_row(&mut harness, 1, &[Key::Ctrl]);
+    click_row(&mut harness, 1, &[PRIMARY]);
     assert_eq!(
         selected(&harness),
         vec![3, 5],
@@ -348,13 +348,13 @@ fn archiving_a_selection_is_one_gesture_and_one_undo_puts_it_all_back() {
     let toast = harness.text_of(".ds-toast").unwrap_or_default();
     assert!(toast.contains("Archived · 3 conversations"), "{toast}");
     // One Ctrl Z: every one of the three is back, not only the last.
-    harness.chord(&[Key::Ctrl], Key::Char('z'));
+    harness.chord(&[PRIMARY], Key::Char('z'));
     harness.advance(ms(1500));
     assert_eq!(inbox_count(&store), before, "the undo left some archived");
     let want: Vec<String> = INBOX.iter().map(|(_, s)| s.to_string()).collect();
     assert_eq!(subjects(&harness), want);
     // And that was the whole entry: a second Ctrl Z has nothing of this left to take back.
-    harness.chord(&[Key::Ctrl], Key::Char('z'));
+    harness.chord(&[PRIMARY], Key::Char('z'));
     harness.advance(ms(600));
     assert_eq!(inbox_count(&store), before);
 }
@@ -363,7 +363,7 @@ fn archiving_a_selection_is_one_gesture_and_one_undo_puts_it_all_back() {
 fn a_button_on_the_selection_bar_acts_on_every_picked_row() {
     let (mut harness, _dir, store) = open();
     click_row(&mut harness, 1, &[]);
-    click_row(&mut harness, 3, &[Key::Ctrl]);
+    click_row(&mut harness, 3, &[PRIMARY]);
     let star = "[*|aria-label=\"Star the 2 selected\"]";
     let at = harness
         .centre(star)
@@ -378,7 +378,7 @@ fn a_button_on_the_selection_bar_acts_on_every_picked_row() {
             "Lunch on Thursday".to_owned(),
         ]
     );
-    harness.chord(&[Key::Ctrl], Key::Char('z'));
+    harness.chord(&[PRIMARY], Key::Char('z'));
     harness.advance(ms(600));
     assert_eq!(subjects_with(&store, Star::Starred), Vec::<String>::new());
 }
@@ -431,7 +431,7 @@ fn bar_buttons(harness: &Harness) -> Vec<String> {
 fn with_rows_picked_every_bar_button_is_inside_the_list_column() {
     let (mut harness, _dir, _store) = open();
     click_row(&mut harness, 1, &[]);
-    click_row(&mut harness, 3, &[Key::Ctrl]);
+    click_row(&mut harness, 3, &[PRIMARY]);
     assert_eq!(said(&harness).as_deref(), Some("2 selected"));
     let column = harness.rect(".list-col").expect("the list column");
     let (left, right) = (column.origin.x.0, column.origin.x.0 + column.size.width.0);

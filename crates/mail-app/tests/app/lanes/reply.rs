@@ -4,7 +4,7 @@
 
 use ds_harness::{Driver, Query};
 
-use super::drive::{Drive, Key};
+use super::drive::{Drive, Key, PRIMARY};
 use super::window::{INBOX, Window, hours_ago, parsed, queued};
 
 /// The inline reply under the open conversation.
@@ -46,7 +46,7 @@ fn a_reply_goes_out_quoted_its_answer_threads_back_and_reply_all_answers_everyon
         "Yes",
         "the bold did not close"
     );
-    window.press(&[Key::Ctrl], Key::Enter, 1);
+    window.press(&[PRIMARY], Key::Enter, 1);
     window.until("the reply is sent", |h| h.count(".ds-send-pill") == 1);
 
     let sent = queued(&window.store);

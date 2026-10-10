@@ -279,10 +279,10 @@ fn restore(
     true
 }
 
-/// The keys motion owns: Esc drops a drag, ⌘Z undoes, and the hover card takes Space and
-/// Esc. `undo` is the undo chord from the main window, or Ctrl from a conversation window;
-/// the key is z either way. Returns whether the key was handled. Never while typing: ⌘Z in a
-/// field is the field's own.
+/// The keys motion owns: Esc drops a drag, undo undoes, and the hover card takes Space and
+/// Esc. `undo` is whether the keymap resolved the press to the standard Undo action (⌘Z on a
+/// Mac or our desktop, Ctrl+Z elsewhere). Returns whether the key was handled. Never while
+/// typing: undo in a field is the field's own.
 pub(super) fn key(
     name: &str,
     undo: bool,
@@ -296,7 +296,7 @@ pub(super) fn key(
     if typing {
         return false;
     }
-    if undo && name.eq_ignore_ascii_case("z") {
+    if undo {
         let store = consume_context::<std::sync::Arc<SqliteStore>>();
         undo_last(&store, shell, revision);
         return true;

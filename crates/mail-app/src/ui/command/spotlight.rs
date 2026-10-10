@@ -16,6 +16,7 @@ use super::keys::{BarKey, Plain, Step, Typed, bar_key, step};
 use super::panel::{Drawn, Fetch, World, panel_rows};
 use super::sections::completion;
 use super::suggest::suggestions;
+use crate::ui::actions::{self, Heard, Own};
 use crate::ui::menu::anchor_at;
 use crate::ui::space::Spaces;
 use crate::ui::view::{Bar, BarListing, BarOpen, Shell};
@@ -46,6 +47,7 @@ pub(in crate::ui) fn Spotlight(
     spaces: Signal<Spaces>,
 ) -> Element {
     let store = use_hook(consume_context::<Arc<SqliteStore>>);
+    let keys = use_keys();
     let drawn = use_signal(Drawn::default);
     let mut top = use_signal(|| None::<MountedRef>);
     let open = match &shell.read().bar {
@@ -115,7 +117,7 @@ pub(in crate::ui) fn Spotlight(
                     value: text,
                     tokens: chips,
                     oninput: move |value: String| set_text(shell, pages, value),
-                    onkey: move |event: KeyboardEvent| on_key(ctx, &keyed, event),
+                    onkey: move |event: KeyboardEvent| on_key(ctx, keys, &keyed, event),
                     onfocus: move |()| in_a_field.set(true),
                     onblur: move |()| in_a_field.set(false),
                 }
@@ -143,13 +145,12 @@ pub(in crate::ui) fn Spotlight(
 }
 
 /// A key in the panel's field: what [`step`] decides, done.
-fn on_key(ctx: Ctx, rows: &[crate::ui::menu::MenuItem], event: KeyboardEvent) {
+fn on_key(ctx: Ctx, keys: Keys, rows: &[crate::ui::menu::MenuItem], event: KeyboardEvent) {
     let shell = ctx.shell;
     // ⌘K again: the panel's field is in quire's overlay, outside the window's own keys, so it
     // answers the chord itself, selecting what is typed so the next key replaces it.
-    if crate::ui::chord::command(event.modifiers())
-        && event.key().to_string().eq_ignore_ascii_case("k")
-    {
+    let heard = actions::heard(keys, &shell.peek().keymap, &event, true);
+    if heard == Some(Heard::Own(Own::Search)) {
         event.prevent_default();
         event.stop_propagation();
         crate::ui::host::Host::focus_all(FIELD);

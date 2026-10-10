@@ -92,6 +92,7 @@ pub(super) fn NameField(
     on_cancel: EventHandler<()>,
 ) -> Element {
     let focus = FieldFocus::Controlled(use_focus_request().with_select_all());
+    let keys = use_keys();
     rsx! {
         TextField {
             label: "Folder name".to_owned(),
@@ -101,9 +102,9 @@ pub(super) fn NameField(
             focus,
             oninput: move |text: String| on_input.call(text),
             onkey: move |event: KeyboardEvent| {
-                // Ctrl chords are still the window's. Every other key is the field's: a letter
-                // typed into a name is not a shortcut.
-                if ds::prelude::is_command(event.modifiers()) {
+                // A chord is still the window's. Every other key is the field's: a letter typed
+                // into a name is not a shortcut.
+                if crate::ui::actions::is_chord(keys, &event.key(), event.modifiers()) {
                     return;
                 }
                 event.stop_propagation();

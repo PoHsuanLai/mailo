@@ -97,7 +97,7 @@ mod searching_in_the_window {
         crate::ui::fixtures::chord(
             &mut dom,
             "k",
-            dioxus::html::input_data::keyboard_types::Modifiers::CONTROL,
+            crate::ui::fixtures::PRIMARY,
             dioxus_core::ElementId(crate::ui::fixtures::INSIDE_THE_SHELL as usize),
         );
         let drawn = crate::ui::fixtures::drain_seen(&mut dom);

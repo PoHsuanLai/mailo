@@ -15,7 +15,7 @@ use settle::settle_until;
 
 use crate::drive;
 use crate::row_menu;
-use drive::Drive;
+use drive::{Drive, PRIMARY};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_runtime::{Arrival, absorb};
@@ -145,7 +145,7 @@ fn labelled(label: &str) -> String {
 
 /// ⌘K: the search panel up, with the keyboard in its field.
 fn summon(harness: &mut Harness) {
-    harness.chord(&[Key::Ctrl], Key::Char('k'));
+    harness.chord(&[PRIMARY], Key::Char('k'));
     let started = std::time::Instant::now();
     while !harness.is_focused(".spotlight input") {
         assert!(
@@ -291,7 +291,7 @@ fn a_search_saved_as_a_view_is_a_place_grouped_and_offered_as_it_was_saved() {
     let (mut harness, _dir, store) = open();
     // Two read, two not: pick the first two and mark them read.
     click_subject(&mut harness, INBOX[0].1, &[]);
-    click_subject(&mut harness, INBOX[1].1, &[Key::Ctrl]);
+    click_subject(&mut harness, INBOX[1].1, &[PRIMARY]);
     harness.key(Key::Char('u'));
     harness.advance(ms(600));
     // Let the selection go. With two picked, the selection bar pushes the list bar's tools past
@@ -377,7 +377,7 @@ fn rows_picked_in_a_view_archive_as_one_gesture_and_the_view_deletes_from_its_ed
     press(&mut harness, &place("Mine"));
     let before = lines(&harness).len();
     click_subject(&mut harness, INBOX[1].1, &[]);
-    click_subject(&mut harness, INBOX[3].1, &[Key::Ctrl]);
+    click_subject(&mut harness, INBOX[3].1, &[PRIMARY]);
     let picked: Vec<usize> = (1..=harness.count(".list .ds-list-item[*|aria-posinset]"))
         .filter(|n| {
             harness
@@ -417,7 +417,7 @@ fn rows_picked_in_a_view_archive_as_one_gesture_and_the_view_deletes_from_its_ed
         .len();
     assert_eq!(archived, 2, "the archive after `e`");
     // One Ctrl Z puts both back in the view.
-    harness.chord(&[Key::Ctrl], Key::Char('z'));
+    harness.chord(&[PRIMARY], Key::Char('z'));
     harness.advance(ms(1500));
     let back = lines(&harness);
     assert!(back.contains(&INBOX[1].1.to_owned()), "Ctrl Z: {back:?}");

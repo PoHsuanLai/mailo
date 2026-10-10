@@ -22,7 +22,7 @@ use std::time::Duration;
 
 use crate::drive;
 use crate::row_menu;
-use drive::{Drive, Key};
+use drive::{Drive, Key, PRIMARY};
 
 fn acct_account() -> AccountId {
     account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
@@ -452,7 +452,7 @@ fn the_search_panel_takes_the_keyboard_filters_the_rows_and_gives_the_keyboard_b
 
     // Cmd K, then Escape twice.
     assert_eq!(harness.count(".ds-menu"), 0);
-    harness.chord(&[Key::Ctrl], Key::Char('k'));
+    harness.chord(&[PRIMARY], Key::Char('k'));
     harness.advance(ms(300));
     assert!(
         harness.is_focused(".spotlight input"),
@@ -520,7 +520,7 @@ fn the_search_panel_takes_the_keyboard_filters_the_rows_and_gives_the_keyboard_b
 
     // Ctrl+F over an open conversation.
     open_row(&mut harness, 1);
-    harness.chord(&[Key::Ctrl], Key::Char('f'));
+    harness.chord(&[PRIMARY], Key::Char('f'));
     harness.advance(ms(300));
     assert!(
         harness.is_focused(".spotlight input"),
@@ -730,7 +730,7 @@ fn archiving_a_row_from_its_menu_leaves_the_keyboard_working() {
 /// on a blocking thread, so this waits (with time passing) for the toast rather than a frame.
 fn print_first_row(harness: &mut Harness) -> String {
     open_row(harness, 1);
-    harness.chord(&[Key::Ctrl], Key::Char('p'));
+    harness.chord(&[PRIMARY], Key::Char('p'));
     settle_until(harness, |h| h.text_of(".ds-toast-body").is_some());
     harness.text_of(".ds-toast-body").unwrap_or_default()
 }
@@ -829,7 +829,7 @@ fn near(a: f32, b: f32, by: f32) -> bool {
 /// Select the whole body and delete it, so the next step of a test starts from one empty
 /// paragraph.
 fn clear(harness: &mut Harness, before: &str) {
-    press(harness, &[Key::Ctrl], Key::Char('a'), 1);
+    press(harness, &[PRIMARY], Key::Char('a'), 1);
     press(harness, &[], Key::Backspace, 1);
     harness.advance(ms(100));
     assert_eq!(
@@ -1109,7 +1109,7 @@ fn the_caret_and_the_selection_are_drawn_where_the_text_is() {
         "caret {caret:?}"
     );
     // Everything selected: one box over the run, and no caret.
-    press(&mut harness, &[Key::Ctrl], Key::Char('a'), 1);
+    press(&mut harness, &[PRIMARY], Key::Char('a'), 1);
     harness.advance(ms(100));
     let boxed = harness.rect(".c-sel").expect("no selection is drawn");
     assert!(
@@ -1175,7 +1175,7 @@ fn send_queues_the_typed_body_as_text_and_html() {
     press(&mut harness, &[], Key::Enter, 1);
     harness.click(centre(&harness, ".c-body"));
     harness.advance(ms(100));
-    press(&mut harness, &[Key::Ctrl], Key::Enter, 1);
+    press(&mut harness, &[PRIMARY], Key::Enter, 1);
     harness.advance(ms(1500));
     let later = chrono::Utc::now() + chrono::Duration::days(1);
     let due = store.outbox_due(acct_account(), later).unwrap();
@@ -1213,7 +1213,7 @@ fn composer_snapshot() {
     let (mut harness, _dir, _store) = composing();
     type_text(&mut harness, "Here is where we landed");
     press(&mut harness, &[Key::Shift], Key::Left, 6);
-    press(&mut harness, &[Key::Ctrl], Key::Char('b'), 1);
+    press(&mut harness, &[PRIMARY], Key::Char('b'), 1);
     press(&mut harness, &[], Key::Right, 1);
     press(&mut harness, &[], Key::Enter, 1);
     type_text(&mut harness, "so nobody has to scroll back");

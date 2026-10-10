@@ -14,7 +14,7 @@ use settle::settle_until;
 
 use crate::drive;
 use crate::row_menu;
-use drive::Drive;
+use drive::{Drive, PRIMARY};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_runtime::{Arrival, absorb};
@@ -217,7 +217,7 @@ fn the_row_s_menu_and_the_reader_mute_and_ctrl_z_and_m_unmute() {
         "muting moved the conversation"
     );
 
-    harness.chord(&[Key::Ctrl], Key::Char('z'));
+    harness.chord(&[PRIMARY], Key::Char('z'));
     harness.advance(ms(600));
     assert_eq!(muted(&store), Vec::<String>::new(), "Ctrl Z unmuted it");
     assert_eq!(
@@ -270,14 +270,14 @@ fn the_row_s_menu_and_the_reader_mute_and_ctrl_z_and_m_unmute() {
     );
 
     // Each was its own gesture: Ctrl Z takes back the unmute, then the mute.
-    harness.chord(&[Key::Ctrl], Key::Char('z'));
+    harness.chord(&[PRIMARY], Key::Char('z'));
     harness.advance(ms(600));
     assert_eq!(
         muted(&store),
         vec![INBOX[2].1.to_owned()],
         "Ctrl Z took back the unmute"
     );
-    harness.chord(&[Key::Ctrl], Key::Char('z'));
+    harness.chord(&[PRIMARY], Key::Char('z'));
     harness.advance(ms(600));
     assert_eq!(
         muted(&store),
@@ -307,7 +307,7 @@ fn a_selection_is_muted_as_one_gesture_by_m_and_by_the_bar() {
         toast(&harness)
     );
 
-    harness.chord(&[Key::Ctrl], Key::Char('z'));
+    harness.chord(&[PRIMARY], Key::Char('z'));
     harness.advance(ms(600));
     assert_eq!(muted(&store), Vec::<String>::new(), "one Ctrl Z, all three");
     assert_eq!(
@@ -327,7 +327,7 @@ fn a_selection_is_muted_as_one_gesture_by_m_and_by_the_bar() {
     );
 
     click_row(&mut harness, 1, &[]);
-    click_row(&mut harness, 2, &[Key::Ctrl]);
+    click_row(&mut harness, 2, &[PRIMARY]);
     let button = "[*|aria-label=\"Mute the 2 selected\"]";
     harness.click(centre(&harness, button));
     harness.advance(ms(600));
@@ -335,7 +335,7 @@ fn a_selection_is_muted_as_one_gesture_by_m_and_by_the_bar() {
     assert_eq!(muted(&store), two, "mutes the rest, never a toggle each");
 
     // Its undo takes back only what it did: the second stays muted.
-    harness.chord(&[Key::Ctrl], Key::Char('z'));
+    harness.chord(&[PRIMARY], Key::Char('z'));
     harness.advance(ms(600));
     assert_eq!(
         muted(&store),

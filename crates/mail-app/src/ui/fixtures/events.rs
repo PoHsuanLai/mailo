@@ -11,7 +11,12 @@ use dioxus_core::{ElementId, VirtualDom};
 use std::cell::RefCell;
 use std::rc::Rc;
 
-/// A key pressed with modifiers held: Ctrl 2, Shift and an arrow.
+/// The platform's primary key as the fixtures' windows have it: their keymap is our desktop's
+/// (quire's default for a root with no launcher), where Command, the primary modifier, arrives as
+/// Super. A test that presses a chord of the window holds this, never Ctrl.
+pub(in crate::ui) const PRIMARY: Modifiers = Modifiers::SUPER;
+
+/// A key pressed with modifiers held: Primary 2, Shift and an arrow.
 #[derive(Debug, Clone)]
 pub(in crate::ui) struct FakeChord(pub(in crate::ui) &'static str, pub(in crate::ui) Modifiers);
 

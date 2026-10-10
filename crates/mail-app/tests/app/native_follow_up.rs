@@ -14,7 +14,7 @@ use ds_blitz::{FocusFallback, NetPolicy, PrintOutcome};
 use ds_harness::{Clock, Driver, Harness, HarnessConfig, Query as Read, Viewport};
 
 use crate::drive;
-use drive::Drive;
+use drive::{Drive, PRIMARY};
 use mail_app::ui::native::WallClock;
 use mail_core::notify::{Notification, Notifier, Opens};
 use mail_domain::id::account_id_from_uuid;
@@ -438,7 +438,7 @@ fn the_reader_s_bell_sets_a_reminder_and_ctrl_z_takes_it_back() {
         "the bell is pressed while a reminder stands"
     );
 
-    harness.chord(&[Key::Ctrl], Key::Char('z'));
+    harness.chord(&[PRIMARY], Key::Char('z'));
     until(&mut harness, "Ctrl Z took it back", |h| {
         h.count(".reader-head .follow-up-note") == 0
     });

@@ -1,4 +1,4 @@
-use super::chord::Chord;
+use super::actions::{self, Heard, Own};
 use super::compose::{self, ComposerPage, PageKind, SendPill};
 use super::data::{PAGE, accounts, count_badges};
 use super::frame;
@@ -14,8 +14,9 @@ use crate::ui::view::{
     Appearance, Listing, PageMenu, Peek, Shell, Shortcut, Source, badge_filter, folder_filter,
     nothing_to_show, places_with,
 };
+use chordkit::StandardAction;
 use dioxus::prelude::*;
-use ds::components::app::spaces::{Showing, Switched, use_spaces};
+use ds::components::app::spaces::{Showing, SwitchChord, Switched, use_spaces};
 use ds::components::chrome::split_view::model::{Collapsing, PaneSize, PaneSpec, SplitPane};
 use ds::components::chrome::split_view::view::SplitView;
 use ds::prelude::*;
@@ -58,6 +59,8 @@ pub(super) fn App() -> Element {
         }
         shell
     });
+    // The window's keymap, with mailo's actions in it.
+    let keys = actions::use_registered();
     // Bumped after any write, to re-run the queries. Explicit rather than implicit so it is
     // obvious what causes a refresh.
     let mut revision = use_signal(|| 0u64);
@@ -382,8 +385,7 @@ pub(super) fn App() -> Element {
     let in_a_field = use_signal(|| false);
 
     let on_key = move |event: Event<KeyboardData>| {
-        // `Key`'s Display is the DOM key name — "e", "ArrowDown", "Escape" — which is the
-        // vocabulary `view::shortcut` is written against.
+        // `Key`'s Display is the DOM key name: "e", "ArrowDown", "Escape".
         let key = event.key().to_string();
         // The attachment viewer owns it while it is open: Esc closes it, the arrows turn a
         // PDF's pages, and nothing reaches the conversation behind it.
@@ -432,31 +434,31 @@ pub(super) fn App() -> Element {
             return;
         }
         let typing_now = in_a_field() || shell.read().composing.is_some();
-        let modifiers = event.modifiers();
-        let chord = super::chord::chord(&key, modifiers);
+        // What the press asks, from chordkit's keymap with the user's keys over it: a standard
+        // action (⌘F, ⌘P, ⌘Z), one of mailo's chords (⌘K, ⌘1), or a mail key (j, e, #).
+        let heard = actions::heard(keys, &shell.read().keymap, &event, typing_now);
         if super::motion::key(
             &key,
-            chord == Some(Chord::Undo),
+            heard == Some(Heard::Standard(StandardAction::Undo)),
             typing_now,
             shell,
             revision,
         ) {
             return;
         }
-        match chord {
-            Some(Chord::ToggleSidebar) => {
+        // ⌘1 to ⌘9 are Space n: quire's kit says which, on the platform's primary key.
+        if let Some(number) =
+            SwitchChord::Primary.pressed(keys.platform(), &event.key(), event.modifiers())
+        {
+            let _ = handle.switch_index(usize::from(number.get()) - 1);
+            return;
+        }
+        match heard {
+            Some(Heard::Standard(StandardAction::ToggleSidebar)) => {
                 side_hidden.set(!side_hidden());
                 return;
             }
-            Some(Chord::SwitchSpace(index)) => {
-                let _ = handle.switch_index(index);
-                return;
-            }
-            Some(Chord::Find) => {
-                super::command::summon(shell);
-                return;
-            }
-            Some(Chord::Print) => {
+            Some(Heard::Standard(StandardAction::Print)) => {
                 // The open conversation, as one flow. Nothing open: nothing printed, nothing said.
                 let open = shell.read().open;
                 if let Some(job) = super::print::job_for(open) {
@@ -464,15 +466,15 @@ pub(super) fn App() -> Element {
                 }
                 return;
             }
-            Some(Chord::CommandMenu) => {
+            Some(Heard::Standard(StandardAction::Find) | Heard::Own(Own::Search)) => {
                 super::command::summon(shell);
                 return;
             }
-            Some(Chord::Settings) => {
+            Some(Heard::Standard(StandardAction::Settings)) => {
                 super::settings_window::open();
                 return;
             }
-            Some(Chord::Undo) | None => {}
+            _ => {}
         }
         // A menu is showing its own cursor. Shortcuts would archive a thread the user is
         // trying to filter for, and the menu's own handler already took the arrows.
@@ -497,7 +499,7 @@ pub(super) fn App() -> Element {
         let typing = in_a_field() || shell.read().composing.is_some();
         let listed = || -> Vec<ThreadId> { threads().iter().map(|t| t.id).collect() };
         // ⌘A picks every listed conversation. In a field it is the field's select-all.
-        if (key == "a" || key == "A") && super::chord::command(modifiers) {
+        if heard == Some(Heard::Standard(StandardAction::SelectAll)) {
             if !typing {
                 shell.write().pick_all(&listed());
             }
@@ -522,31 +524,20 @@ pub(super) fn App() -> Element {
         }
         // Shift+Enter opens the open conversation in a window of its own (a focused row's own
         // handler takes it first, for that row).
-        if key == "Enter" && event.modifiers().shift() {
+        if heard == Some(Heard::Own(Own::OpenInWindow)) {
             let open = shell.read().open;
             if !typing && let Some(open) = open {
                 super::window::open_in_window(open);
             }
             return;
         }
-        // ⌘ held is the Mac's: ⌘N writes a message wherever the caret is, ⌘⌫ trashes while
-        // reading. No bare letter is a shortcut with ⌘ held — ⌘C is copy, and ⌘A was select-all
-        // above — because the keymap does not own chords. Esc still closes.
-        let action = if super::chord::command(modifiers) && key != "Escape" {
-            let Some(action) = crate::ui::view::command_shortcut(&key, typing) else {
-                return;
-            };
-            action
-        } else {
-            let key = if event.modifiers().shift() {
-                crate::ui::view::shifted(&key).to_owned()
-            } else {
-                key
-            };
-            let Some(action) = shell.read().keymap.action(&key, typing) else {
-                return;
-            };
-            action
+        // ⌘N writes a message wherever the caret is, ⌘⌫ trashes while reading. No bare letter is
+        // a shortcut with ⌘ held: ⌘C is copy, and ⌘A was select-all above. Esc still closes.
+        let action = match heard {
+            Some(Heard::Mail(action)) => action,
+            Some(Heard::Standard(StandardAction::New)) => Shortcut::Compose,
+            Some(Heard::Own(Own::TrashOpen)) if !typing => Shortcut::Trash,
+            _ => return,
         };
         let store = consume_context::<Arc<SqliteStore>>();
         let open = shell.read().open;

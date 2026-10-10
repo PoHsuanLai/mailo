@@ -6,7 +6,7 @@ use ds_harness::Query;
 use mail_store::Store;
 use std::path::PathBuf;
 
-use super::drive::{Drive, Key};
+use super::drive::{Drive, Key, PRIMARY};
 use super::window::{Window, account, panel_row, panel_settled, parsed, queued};
 
 /// The search panel's field.
@@ -37,7 +37,7 @@ fn write_to_ada_with_two_files() -> Window {
     let mut window = Window::open(|_| {});
 
     // ⌘K: the panel comes up with the keyboard in its field.
-    window.press(&[Key::Ctrl], Key::Char('k'), 1);
+    window.press(&[PRIMARY], Key::Char('k'), 1);
     window.until("⌘K puts the keyboard in the panel's field", |h| {
         h.is_focused(FIELD)
     });

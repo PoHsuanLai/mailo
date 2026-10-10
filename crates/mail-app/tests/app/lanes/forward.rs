@@ -3,7 +3,7 @@
 
 use ds_harness::Query;
 
-use super::drive::Key;
+use super::drive::{Key, PRIMARY};
 use super::window::{Window, deliver, hours_ago, panel_row, panel_settled, parsed, queued};
 
 const SUBJECT: &str = "Minutes of the board";
@@ -116,7 +116,7 @@ fn f_forwards_the_text_under_a_header_and_forward_as_attachment_encloses_the_mes
 
     // Forward as attachment, from the search panel's commands: the message itself enclosed.
     window.open_subject(SUBJECT);
-    window.press(&[Key::Ctrl], Key::Char('k'), 1);
+    window.press(&[PRIMARY], Key::Char('k'), 1);
     window.until("⌘K opens the panel", |h| h.count(".spotlight input") == 1);
     window.type_text("Forward as attachment");
     window.until("the panel answers what was typed", |h| {

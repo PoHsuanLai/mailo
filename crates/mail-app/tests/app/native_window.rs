@@ -20,13 +20,14 @@ use crate::settle;
 use settle::settle_until;
 
 use crate::drive;
-use drive::Drive;
+use drive::{Drive, PRIMARY};
 use mail_app::ui::native::{Ask, MessageOpen, OpenWindow, Revisions, Windows};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_runtime::{Arrival, absorb};
 use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -158,6 +159,15 @@ fn thread(store: &SqliteStore, subject: &str) -> ThreadSummary {
 /// opens a dialog, and the app's one `Revisions`.
 fn window_contexts(store: &Arc<SqliteStore>, revisions: &Revisions) -> RootContexts {
     let printer = mail_app::ui::native::Printer::with_dialog(|_, _| Ok(PrintOutcome::Cancelled));
+    window_contexts_printing(store, revisions, printer)
+}
+
+/// [`window_contexts`] with `printer`, for a test that reads what the window prints.
+fn window_contexts_printing(
+    store: &Arc<SqliteStore>,
+    revisions: &Revisions,
+    printer: mail_app::ui::native::Printer,
+) -> RootContexts {
     mail_app::ui::native::contexts(
         Arc::clone(store),
         mail_app::ui::view::Appearance::default(),
@@ -382,7 +392,7 @@ fn the_window_follows_what_the_main_window_does_to_its_conversation() {
     });
 
     // Taken back in the main window: the note goes.
-    main.chord(&[Key::Ctrl], Key::Char('z'));
+    main.chord(&[PRIMARY], Key::Char('z'));
     settle_until(&mut main, |_| {
         thread(&store, INBOX[1].1)
             .mailboxes
@@ -424,7 +434,7 @@ fn an_archive_in_the_window_reaches_the_main_list_and_its_own_ctrl_z_takes_it_ba
         h.count(".list .ds-thread") == INBOX.len() - 1
     });
 
-    window.chord(&[Key::Ctrl], Key::Char('z'));
+    window.chord(&[PRIMARY], Key::Char('z'));
     settle_until(&mut window, |_| {
         thread(&store, INBOX[2].1)
             .mailboxes
@@ -432,6 +442,43 @@ fn an_archive_in_the_window_reaches_the_main_list_and_its_own_ctrl_z_takes_it_ba
     });
     settle_until(&mut window, |h| h.count(".left-note") == 0);
     settle_until(&mut main, |h| h.count(".list .ds-thread") == INBOX.len());
+}
+
+/// ⌘P prints the conversation in a window of its own as it does in the main one: the print
+/// dialog is asked for the open conversation. The key is the platform's primary one, which on
+/// the harness's keymap (our desktop's) is Command; Ctrl alone prints nothing, where the window
+/// once tested Ctrl only and left ⌘P dead.
+#[test]
+fn command_p_prints_the_conversation_in_a_window_of_its_own() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = seeded(dir.path());
+    let revisions = Revisions::new();
+    let lunch = thread(&store, INBOX[2].1).id;
+    let dialogs = Arc::new(AtomicUsize::new(0));
+    let printer = mail_app::ui::native::Printer::with_dialog({
+        let dialogs = Arc::clone(&dialogs);
+        move |_, _| {
+            dialogs.fetch_add(1, Ordering::SeqCst);
+            Ok(PrintOutcome::Cancelled)
+        }
+    });
+    let config = HarnessConfig::new(WINDOW)
+        .with_net(NetPolicy::Local)
+        .with_clock(Clock::Wall)
+        .with_contexts(
+            window_contexts_printing(&store, &revisions, printer).with(MessageOpen(lunch)),
+        );
+    let mut window = Harness::new(mail_app::ui::native::message_root, config);
+    window.advance(ms(300));
+    settle_until(&mut window, |h| h.count(".reader-head h2") == 1);
+
+    // Ctrl+P is not the print chord on this keymap.
+    window.chord(&[Key::Ctrl], Key::Char('p'));
+    window.advance(ms(500));
+    assert_eq!(dialogs.load(Ordering::SeqCst), 0, "Ctrl+P printed");
+
+    window.chord(&[PRIMARY], Key::Char('p'));
+    settle_until(&mut window, |_| dialogs.load(Ordering::SeqCst) == 1);
 }
 
 /// A banner's click, or `mailo open` from a terminal, reaches the running window over the session

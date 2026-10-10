@@ -12,7 +12,7 @@ use crate::settle;
 use settle::settle_until;
 
 use crate::drive;
-use drive::Drive;
+use drive::{Drive, PRIMARY};
 use ds_blitz::{FocusFallback, NetPolicy, PrintOutcome};
 use mail_app::ui::appearance::WindowDirs;
 use mail_domain::id::account_id_from_uuid;
@@ -156,7 +156,7 @@ fn a_colon_and_a_name_offer_emoji_enter_puts_one_in_and_one_ctrl_z_takes_it_out(
     settle_until(&mut harness, |h| h.count(".ds-menu-item") == 0);
     assert_eq!(harness.count(".c-body > p"), 1, "Enter made no new line");
 
-    harness.chord(&[Key::Ctrl], Key::Char('z'));
+    harness.chord(&[PRIMARY], Key::Char('z'));
     settle_until(&mut harness, |h| body(h) == ":smi");
     // The keyboard is still the body's. (An undo leaves the caret where it was, clamped: the
     // editor's undo says nothing about the caret, so End takes it past the name again.)

@@ -29,6 +29,8 @@ pub(in crate::ui) fn held() -> Held {
 /// floats in the root's overlay.
 #[component]
 pub(in crate::ui) fn BarAlone(typed: String) -> Element {
+    // The window's keymap with mailo's actions in it, as `App` makes it: ⌘K is one of them.
+    let _keys = crate::ui::actions::use_registered();
     let shell = use_signal(|| Shell {
         search: typed.clone(),
         bar: Bar::Open(crate::ui::view::BarOpen::over(String::new())),

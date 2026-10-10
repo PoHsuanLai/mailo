@@ -40,7 +40,7 @@ pub(in crate::ui) fn affordance(search: &str, bar: &Bar) -> Affordance {
 pub(in crate::ui) fn SearchBox(shell: Signal<Shell>, pages: Signal<u32>) -> Element {
     let shown = affordance(&shell.read().search, &shell.read().bar);
     let title = "Search".to_owned();
-    let keys = crate::ui::keymap::chord(&[crate::ui::keymap::KeyCap::Super], 'k');
+    let keys = crate::ui::actions::tip_own(crate::ui::actions::Own::Search);
     rsx! {
         div { class: "bar",
             match shown {

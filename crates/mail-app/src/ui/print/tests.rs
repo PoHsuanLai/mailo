@@ -5,7 +5,6 @@ use crate::ui::fixtures::{
     INSIDE_THE_SHELL, Scripts, acct_account, chord, click, dispatching, rebuild_into, seeded, work,
 };
 use chrono::TimeZone;
-use dioxus::html::input_data::keyboard_types::Modifiers;
 use dioxus::prelude::*;
 use dioxus_core::{ElementId, VirtualDom};
 use mail_domain::*;
@@ -210,7 +209,7 @@ async fn ctrl_p_with_nothing_open_does_nothing_and_with_a_thread_starts_printing
     let shell = ElementId(INSIDE_THE_SHELL as usize);
 
     let before = dioxus_ssr::render(&dom);
-    chord(&mut dom, "p", Modifiers::CONTROL, shell);
+    chord(&mut dom, "p", crate::ui::fixtures::PRIMARY, shell);
     assert!(started().is_empty(), "printed with nothing open");
     assert_eq!(
         dioxus_ssr::render(&dom),
@@ -223,7 +222,7 @@ async fn ctrl_p_with_nothing_open_does_nothing_and_with_a_thread_starts_printing
         "Open Re: UIDL stability across a UIDVALIDITY change",
     );
     click(&mut dom, row);
-    chord(&mut dom, "p", Modifiers::CONTROL, shell);
+    chord(&mut dom, "p", crate::ui::fixtures::PRIMARY, shell);
     assert_eq!(
         started(),
         vec![Job {

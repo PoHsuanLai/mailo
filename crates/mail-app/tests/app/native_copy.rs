@@ -23,7 +23,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::drive;
-use drive::{Drive, Key};
+use drive::{Drive, Key, PRIMARY};
 
 fn acct_account() -> AccountId {
     account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000c3"))
@@ -400,23 +400,28 @@ fn select_all(harness: &mut Harness, held: Key) {
 }
 
 /// In a new message, each step copying text other than the step before's: (b) the composer's
-/// body, typed, all selected, Ctrl+C; (c) a plain field, the subject, with the command key;
+/// body, typed, all selected, with the window's primary key (its keymap's Copy: Super on our
+/// desktop, where Ctrl+C is not copy); (c) a plain field, the subject, with the command key;
 /// (b, e) the body again with Super+C; (c, e) the subject with Super+C, since Blitz's text input
 /// takes its select-all, copy, cut and paste chords on Super as well as Ctrl off macOS since
 /// quire v0.3.0's Blitz; (c) the To field, before its address becomes a chip.
 #[test]
-fn in_a_new_message_ctrl_c_and_super_c_copy_the_body_s_and_each_field_s_selection() {
+fn in_a_new_message_the_primary_key_and_super_c_copy_the_body_s_and_each_field_s_selection() {
     const BODY: &str = ".c-body";
     const SUBJECT: &str = ".c-title input";
     const TO: &str = ".c-props [*|data-row=to] input";
     let (mut harness, _dir) = composing();
 
-    // The body, Ctrl+C.
+    // The body, the window's primary key.
     focus(&mut harness, BODY);
     type_text(&mut harness, "see you there");
-    select_all(&mut harness, Key::Ctrl);
-    copy_with(&mut harness, Key::Ctrl);
-    assert_eq!(copied(&harness), "see you there", "Ctrl+C in the body");
+    select_all(&mut harness, PRIMARY);
+    copy_with(&mut harness, PRIMARY);
+    assert_eq!(
+        copied(&harness),
+        "see you there",
+        "the primary key in the body"
+    );
 
     // The subject, the command key.
     focus(&mut harness, SUBJECT);
@@ -467,7 +472,7 @@ fn in_a_new_message_ctrl_c_and_super_c_copy_the_body_s_and_each_field_s_selectio
 #[test]
 fn the_command_key_copies_the_search_fields_selection() {
     let (mut harness, _dir) = open();
-    harness.chord(&[COMMAND], Key::Char('k'));
+    harness.chord(&[PRIMARY], Key::Char('k'));
     until(&mut harness, "the search field", |h| {
         h.is_focused(".spotlight input")
     });

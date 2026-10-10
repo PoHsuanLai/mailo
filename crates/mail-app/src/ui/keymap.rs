@@ -10,10 +10,14 @@
 //! Esc is not in the table and cannot be given away: it closes what is open even while typing,
 //! the one key that has to work from inside a field. The composer's own keys are the editor's
 //! (`editor/keys.rs`), not these.
+//!
+//! This table is what a person can change, and the defaults it holds are what mailo declares to
+//! chordkit as its actions (`ui::actions`), which resolves every press. A key the person gave an
+//! action is laid over that resolution by `actions::heard`: quire's `Keys` has no place for a
+//! person's changes to an app's actions (its keymap comes from the system's source), so the
+//! file is read here and its keys win in `actions`.
 
 use crate::ui::view::Shortcut;
-/// quire's keys, as a tip draws them: named apart from [`Shortcut`], mailo's actions.
-pub use ds::prelude::{Shortcut as Keys, ShortcutKey as KeyCap};
 use std::path::Path;
 
 /// Where the user's keys are kept, in the config directory.
@@ -110,6 +114,15 @@ impl Keymap {
             .map(|(action, _)| *action)
             .filter(|action| *action != besides)
             .find(|action| self.keys(*action).iter().any(|held| held == key))
+    }
+
+    /// The action the user gave `key` of their own, if one. The defaults are chordkit's to
+    /// resolve; only a key the person chose is this map's to answer.
+    pub fn changed_holder(&self, key: &str) -> Option<Shortcut> {
+        self.changed
+            .iter()
+            .find(|(_, held)| held == key)
+            .map(|(action, _)| *action)
     }
 
     /// The shortcut a key press means, or `None` for a key that is not one.
@@ -246,44 +259,6 @@ pub fn spoken(key: &str) -> String {
         (Some(c), None) => c.to_uppercase().collect(),
         _ => key.strip_prefix("Arrow").unwrap_or(key).to_owned(),
     }
-}
-
-/// A key as the keymap writes it (`m`, `J` for Shift+J, ` `, `Escape`, `ArrowDown`) as quire's
-/// keys, which a tip draws after the control's name: `M`, `⇧J`, `Space`, `Esc`, `↓`. `None` for a
-/// key with no cap of its own.
-pub fn keys_of(key: &str) -> Option<Keys> {
-    let mut chars = key.chars();
-    let one = match (chars.next(), chars.next()) {
-        (Some(' '), None) => vec![KeyCap::Space],
-        (Some(c), None) if c.is_uppercase() => vec![KeyCap::Shift, KeyCap::Char(c)],
-        (Some(c), None) => vec![KeyCap::Char(c)],
-        _ => vec![match key {
-            "Escape" => KeyCap::Escape,
-            "Enter" => KeyCap::Enter,
-            "Tab" => KeyCap::Tab,
-            "ArrowDown" => KeyCap::Down,
-            "ArrowUp" => KeyCap::Up,
-            "ArrowLeft" => KeyCap::Left,
-            "ArrowRight" => KeyCap::Right,
-            "Delete" => KeyCap::Delete,
-            "Backspace" => KeyCap::Backspace,
-            _ => return None,
-        }],
-    };
-    Some(Keys(one))
-}
-
-/// The keys `action` answers to now, for the tip of a control that does what it does: the first
-/// key `map` gives it, or `None` when it has none (the tip is then the name alone).
-pub fn action_keys(map: &Keymap, action: Shortcut) -> Option<Keys> {
-    map.keys(action).first().and_then(|key| keys_of(key))
-}
-
-/// A fixed chord of the window's own, for its tip: `chord(&[KeyCap::Super], 'n')` is ⌘N.
-pub fn chord(held: &[KeyCap], key: char) -> Keys {
-    let mut keys = held.to_vec();
-    keys.push(KeyCap::Char(key));
-    Keys(keys)
 }
 
 /// One changed action, as `keyboard.json` holds it.

@@ -380,7 +380,7 @@ fn the_list_s_title_and_search_give_way_to_its_tools_in_a_narrow_list() {
         if case == "idle" {
             // Idle, the toolbar has no field: the magnifier alone.
             assert_eq!(harness.count(".list-head input"), 0);
-            harness.chord(&[drive::Key::Ctrl], drive::Key::Char('k'));
+            harness.chord(&[drive::PRIMARY], drive::Key::Char('k'));
             settle_until(&mut harness, |h| h.is_focused(".spotlight input"));
             for key in "zz".chars() {
                 harness.key(drive::Key::Char(key));
@@ -403,7 +403,7 @@ fn the_list_s_title_and_search_give_way_to_its_tools_in_a_narrow_list() {
 fn the_search_panel_sits_at_the_top_centre_of_the_window() {
     for width in [1200u32, 760] {
         let (mut harness, _dir) = open(width, spaces(1));
-        harness.chord(&[drive::Key::Ctrl], drive::Key::Char('k'));
+        harness.chord(&[drive::PRIMARY], drive::Key::Char('k'));
         settle_until(&mut harness, |h| {
             h.is_focused(".spotlight input") && h.count(".spotlight .ds-menu-item") > 0
         });
