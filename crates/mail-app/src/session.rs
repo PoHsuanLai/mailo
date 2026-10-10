@@ -14,7 +14,7 @@
 //! a dock that started after mailo, or restarted, learns it within that time.
 
 use crate::ui::launcher::{Badge, Unread, unread};
-use mail_store::Store;
+use mail_core::Store;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 

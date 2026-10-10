@@ -4,8 +4,8 @@ use crate::ui::app::App;
 use crate::ui::fixtures::{dispatching, rebuild_into};
 use chrono::{TimeZone, Utc};
 use dioxus::dioxus_core::VirtualDom;
+use mail_core::SqliteStore;
 use mail_core::fetch::{First, Live, Pause, Step};
-use mail_store::SqliteStore;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 

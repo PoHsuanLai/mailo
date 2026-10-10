@@ -14,9 +14,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use dioxus::prelude::*;
+use mail_core::{SqliteStore, Store};
 use mail_domain::{BlobId, Message, ThreadId, ThreadSummary};
 use mail_mime::SanitizePolicy;
-use mail_store::{SqliteStore, Store};
 
 use super::{FrameBody, Source, render, render_message_uncached};
 use crate::ui::view::Shell;
@@ -312,7 +312,7 @@ pub(in crate::ui) fn use_warming(shell: Signal<Shell>, threads: Memo<Vec<ThreadS
         // The same order is what a body pass fetches first, with the open conversation ahead of
         // it: a message without its body yet cannot be rendered ahead, only fetched ahead.
         let bodies: Vec<ThreadId> = open().into_iter().chain(order.iter().copied()).collect();
-        mail_runtime::wanted::ask_first(&bodies);
+        mail_core::wanted::ask_first(&bodies);
         warm(store.clone(), order, SanitizePolicy::FRAME);
     });
 }

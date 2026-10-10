@@ -9,7 +9,7 @@ use super::window::{INBOX, Window, deliver, hours_ago};
 const PRINT: &str = ".reader-head [*|aria-label=\"Print this conversation\"]";
 
 /// A second message in the review's conversation, so a printout has two to lay out.
-fn answered(store: &mail_store::SqliteStore) {
+fn answered(store: &mail_core::SqliteStore) {
     let subject = INBOX[3].1;
     deliver(
         store,

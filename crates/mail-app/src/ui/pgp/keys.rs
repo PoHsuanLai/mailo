@@ -12,9 +12,9 @@
 //! count of key changes, and the reader opens a message again when that has moved.
 
 use chrono::Utc;
+use mail_core::SigningStore;
+use mail_core::SqliteStore;
 use mail_domain::{Fingerprint, PgpKey, SecretHeld};
-use mail_runtime::SigningStore;
-use mail_store::SqliteStore;
 use std::path::{Path, PathBuf};
 
 use super::super::data::account_rows;

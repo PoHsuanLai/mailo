@@ -163,8 +163,8 @@ fn the_router_reaches_mailo_over_a_bus_and_nobody_else_does() {
             answered["Ok"]["follow"],
             serde_json::json!({ "kind": "nothing" })
         );
-        use mail_store::Store as _;
-        let in_inbox = |store: &mail_store::SqliteStore| {
+        use mail_core::Store as _;
+        let in_inbox = |store: &mail_core::SqliteStore| {
             store
                 .thread(thread)
                 .expect("thread")

@@ -6,9 +6,9 @@
 
 use chrono::{DateTime, TimeZone, Utc};
 use mail_app::cli;
+use mail_core::{SqliteStore, Store};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
-use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
 
 /// `cli::run`, with no saved OAuth clients.
@@ -17,12 +17,7 @@ fn exercise(
     command: &cli::Command,
     now: DateTime<Utc>,
 ) -> Result<String, String> {
-    cli::run_with_clients(
-        store,
-        command,
-        now,
-        &mail_runtime::ClientRegistry::default(),
-    )
+    cli::run_with_clients(store, command, now, &mail_core::ClientRegistry::default())
 }
 
 fn acct_account() -> AccountId {

@@ -12,8 +12,8 @@ use dioxus::prelude::*;
 use ds::components::content::avatar::AvatarSize;
 use ds::host::measure::MountedRef;
 use ds::prelude::*;
+use mail_core::SqliteStore;
 use mail_domain::*;
-use mail_store::SqliteStore;
 use porter_core::AccountId;
 use std::sync::Arc;
 

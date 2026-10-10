@@ -5,8 +5,8 @@
 use std::sync::Mutex;
 
 use chrono::Utc;
+use mail_core::Store;
 use mail_domain::*;
-use mail_store::Store;
 
 use super::work::{self, Draft, Step};
 use crate::ui::fixtures::{acct_account, realistic, seeded};
@@ -20,7 +20,7 @@ fn draft(name: &str, query: &str, actions: Vec<RuleAction>) -> Draft {
     }
 }
 
-fn names(store: &mail_store::SqliteStore) -> Vec<String> {
+fn names(store: &mail_core::SqliteStore) -> Vec<String> {
     work::listed(store, acct_account())
         .unwrap()
         .into_iter()

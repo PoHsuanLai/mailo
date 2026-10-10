@@ -5,8 +5,8 @@ use dioxus::prelude::*;
 use ds::components::content::label::{LabelRole, LabelStyle};
 use ds::components::overlays::inline_banner::InlineBanner;
 use ds::prelude::*;
+use mail_core::SqliteStore;
 use mail_domain::{BlobId, MessageId};
-use mail_store::SqliteStore;
 use std::sync::Arc;
 
 use super::said::{Said, Tone};

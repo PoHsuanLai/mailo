@@ -27,8 +27,8 @@ use ds::motion::detail::operation::{Operation, PendingToken};
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::tokens::control_size::ControlSize;
+use mail_core::SqliteStore;
 use mail_core::fetch::{Event, Link, Trigger};
-use mail_store::SqliteStore;
 use porter_core::AccountId;
 use std::sync::Arc;
 

@@ -6,10 +6,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_core::{SqliteStore, Store};
 use mail_domain::id::new_account_id;
 use mail_domain::*;
 use mail_mime::archive::maildir::INFO;
-use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
 
 use super::work::{

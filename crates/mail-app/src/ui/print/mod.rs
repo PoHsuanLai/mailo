@@ -23,11 +23,11 @@ pub(super) use tool::PrintTool;
 use super::motion::{motion, tell_through};
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
+use mail_core::SqliteStore;
 #[cfg(test)]
 use mail_core::print::Printed;
 use mail_domain::ThreadId;
 use mail_mime::Pages;
-use mail_store::SqliteStore;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -163,9 +163,9 @@ mod native_print {
     use chrono::{DateTime, TimeZone, Utc};
     use dioxus::prelude::*;
     use ds_blitz::{PrintError, PrintOutcome};
+    use mail_core::SqliteStore;
     use mail_core::print::{Pictures, Printed};
     use mail_domain::MessageId;
-    use mail_store::SqliteStore;
     use std::collections::BTreeMap;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};

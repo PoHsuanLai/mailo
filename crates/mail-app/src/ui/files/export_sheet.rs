@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use super::super::common::in_card;
 use dioxus::prelude::*;
-use mail_store::SqliteStore;
+use mail_core::SqliteStore;
 
 use super::super::common::classed;
 use super::super::debounce::use_debounced;

@@ -14,7 +14,7 @@ use crate::ui::space::Spaces;
 use crate::ui::view::Appearance;
 use dioxus::prelude::*;
 use ds_blitz::{AppConfig, AppId, RootContexts};
-use mail_store::SqliteStore;
+use mail_core::SqliteStore;
 use std::sync::Arc;
 
 /// The desktop entry's name (`packaging/mailo.desktop`), which notifications name too: the

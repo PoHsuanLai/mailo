@@ -14,9 +14,9 @@ use dioxus::prelude::*;
 use dioxus_core::ElementId;
 use ds::prelude::*;
 use mail_core::folder::Refusal;
+use mail_core::{SqliteStore, Store};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
-use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
 use std::sync::Arc;
 

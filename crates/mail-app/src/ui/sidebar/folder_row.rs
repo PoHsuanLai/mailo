@@ -20,9 +20,9 @@ use ds::components::menus::pop_up_button::{PopUpButton, PopUpKind};
 use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use ds::style::tokens::control_size::ControlSize;
+use mail_core::SqliteStore;
 use mail_core::folder::Refusal;
 use mail_domain::{Filter, FolderError, FolderWork, Holds, MailboxRef, NonEmpty, Subscription};
-use mail_store::SqliteStore;
 use porter_core::AccountId;
 use std::sync::Arc;
 

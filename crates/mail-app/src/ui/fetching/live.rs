@@ -20,10 +20,10 @@
 //!   without push does.
 
 use super::Note;
+use mail_core::SqliteStore;
 use mail_core::fetch::{self, BACKOFF_CEILING, Event, Link, Live, RETRY_NOW, Trigger};
 use mail_core::sync::live::{self as core, Heard, Lost};
 use mail_domain::Retry;
-use mail_store::SqliteStore;
 use porter_core::AccountId;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;

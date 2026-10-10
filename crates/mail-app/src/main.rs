@@ -1,4 +1,4 @@
-use mail_store::SqliteStore;
+use mail_core::SqliteStore;
 
 /// The one logger. What the libraries warn of (`log::warn!`) goes to stderr as a line, the way
 /// they printed it before they logged: no level, no target, the text is the whole message.

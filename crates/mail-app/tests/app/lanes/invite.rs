@@ -20,7 +20,7 @@ ATTENDEE;CN=Ada Lovelace;PARTSTAT=ACCEPTED:mailto:ada@example.test\r\n\
 ATTENDEE;CN=Me;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:me@example.test\r\n\
 END:VEVENT\r\nEND:VCALENDAR\r\n";
 
-fn invited(store: &mail_store::SqliteStore) {
+fn invited(store: &mail_core::SqliteStore) {
     let raw = format!(
         "From: Ada Lovelace <ada@example.test>\r\nTo: Me <me@example.test>\r\n\
          Subject: {SUBJECT}\r\nDate: {}\r\nMessage-ID: <invite7@example.test>\r\n\

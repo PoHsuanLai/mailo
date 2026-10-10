@@ -9,9 +9,9 @@ use ds_harness::{Clock, Driver, Harness, HarnessConfig, Query, Viewport};
 use mail_app::ui::native::{
     AddAccountOpened, AddAccountSeams, AddAccountWiring, AddRequest, add_account_root,
 };
+use mail_core::SqliteStore;
 use mail_core::discover::{Failed, Found, Gap, Source};
 use mail_domain::presets;
-use mail_store::SqliteStore;
 use porter_core::{Credential, SecretText};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;

@@ -4,7 +4,7 @@
 //! choosing a group puts each of its members on the message (`contacts::groups`).
 
 use ds::prelude::Icon;
-use mail_store::Store;
+use mail_core::Store;
 
 use super::super::contacts::book::suggest;
 use super::super::contacts::groups::{self, Offer};

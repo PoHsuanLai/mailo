@@ -8,9 +8,9 @@ use chrono::{DateTime, FixedOffset, TimeZone, Utc};
 use mail_app::cli;
 use mail_core::compose;
 use mail_core::template;
+use mail_core::{SqliteStore, Store};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
-use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
 
 fn acct_account() -> AccountId {
@@ -33,12 +33,7 @@ fn args(s: &str) -> Vec<String> {
 }
 
 fn exercise(store: &SqliteStore, command: &cli::Command) -> Result<String, String> {
-    cli::run_with_clients(
-        store,
-        command,
-        now(),
-        &mail_runtime::ClientRegistry::default(),
-    )
+    cli::run_with_clients(store, command, now(), &mail_core::ClientRegistry::default())
 }
 
 /// A store with one account that can send.

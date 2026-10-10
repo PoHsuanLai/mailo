@@ -8,10 +8,10 @@ use std::time::{Duration, Instant};
 
 use dioxus::prelude::*;
 use dioxus_core::VirtualDom;
+use mail_core::{MapSigningStore, SigningStore};
+use mail_core::{SqliteStore, Store};
 use mail_domain::signing::{SigningKeyId, SigningKeyRef};
 use mail_domain::*;
-use mail_runtime::{MapSigningStore, SigningStore};
-use mail_store::{SqliteStore, Store};
 
 use super::keys::{KeysPage, ordered};
 use super::short;

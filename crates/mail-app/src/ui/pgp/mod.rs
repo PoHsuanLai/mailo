@@ -39,9 +39,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use chrono::Utc;
+use mail_core::SigningStore;
 use mail_core::SqliteStore;
 use mail_domain::*;
-use mail_runtime::SigningStore;
 
 /// Look a key up by its address's domain. Blocks on the network: run it off the thread that draws.
 pub(in crate::ui) type Lookup =

@@ -1,6 +1,6 @@
 use crate::ui::view::Listing;
+use mail_core::{SqliteStore, Store};
 use mail_domain::*;
-use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
 
 /// How many rows the list pane asks for at a time.
@@ -134,9 +134,7 @@ fn fallback_plan(address: &str) -> AccountPlan {
 
 /// Every configured account, or why the store could not say. Where an empty answer would be
 /// acted on (taking accounts out of the Spaces), a failed read must not look like no accounts.
-pub(super) fn known_accounts(
-    store: &SqliteStore,
-) -> Result<Vec<AccountId>, mail_store::StoreError> {
+pub(super) fn known_accounts(store: &SqliteStore) -> Result<Vec<AccountId>, mail_core::StoreError> {
     Ok(store
         .list_all_accounts()?
         .into_iter()

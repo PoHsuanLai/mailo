@@ -10,8 +10,8 @@ use ds::components::fields::field_row::{FieldRow, RowLayout};
 use ds::components::fields::text_field_model::{FieldRows, Invalid};
 use ds::motion::detail::stamp::EventStamp;
 use ds::prelude::*;
+use mail_core::{SqliteStore, Store};
 use mail_domain::{DateRange, Vacation};
-use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
 
 use super::super::common::classed;

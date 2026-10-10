@@ -6,7 +6,7 @@ use std::sync::Arc;
 use dioxus::prelude::*;
 use dioxus_core::VirtualDom;
 use ds::prelude::*;
-use mail_store::{SqliteStore, Store};
+use mail_core::{SqliteStore, Store};
 
 use super::ContactsPage;
 use super::tests::{ADDED, HEARD, NO_REPLY, the_book};

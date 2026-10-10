@@ -13,9 +13,9 @@ use dioxus::prelude::*;
 use ds::prelude::*;
 use ds::style::icon::render::Glyph;
 use mail_core::auth::{Standing, standing};
+use mail_core::{SqliteStore, Store};
 use mail_domain::{BlobId, MessageId};
 use mail_mime::AuthResults;
-use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
 
 /// How many messages' answers to keep. An answer is a few short strings.

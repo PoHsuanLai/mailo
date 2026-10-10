@@ -33,9 +33,9 @@ mod dock;
 
 use super::view::{Source, badge_filter};
 use chrono::{DateTime, Utc};
+use mail_core::Store;
 use mail_core::place::place_filter;
 use mail_domain::{Filter, MailboxRole};
-use mail_store::Store;
 use std::sync::Arc;
 
 /// How many unread conversations the inbox holds, in the accounts being counted.
@@ -62,7 +62,7 @@ pub fn unread<S: Store + ?Sized>(
     store: &S,
     scope: &crate::ui::space::Scope,
     now: DateTime<Utc>,
-) -> Result<Unread, mail_store::StoreError> {
+) -> Result<Unread, mail_core::StoreError> {
     store.count(&filter(scope), now).map(Unread)
 }
 

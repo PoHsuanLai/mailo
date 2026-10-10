@@ -21,8 +21,8 @@ pub(in crate::ui) use draw::Invitation;
 
 use chrono::{DateTime, Utc};
 use mail_core::invite::InviteState;
+use mail_core::{SqliteStore, Store};
 use mail_domain::*;
-use mail_store::{SqliteStore, Store};
 use std::path::Path;
 
 #[cfg(test)]

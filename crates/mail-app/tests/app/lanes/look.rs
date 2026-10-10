@@ -3,11 +3,11 @@
 
 use chrono::{DateTime, Utc};
 use ds_harness::{Harness, Query as Read};
+use mail_core::{SqliteStore, Store};
 use mail_domain::{
     DraftId, Filter, MailboxRole, PageReq, Property, ProtoOp, Query, Sort, SortDir, TextMatch,
     ThreadSummary,
 };
-use mail_store::{SqliteStore, Store};
 
 use super::seed::account;
 

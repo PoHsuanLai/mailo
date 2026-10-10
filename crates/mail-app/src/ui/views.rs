@@ -17,8 +17,8 @@ use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::root::pass_through::ExtraClass;
+use mail_core::{SqliteStore, Store};
 use mail_domain::{OpKind, SortDir, View};
-use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
 
 /// Open the sheet on a new view of what `search` finds.

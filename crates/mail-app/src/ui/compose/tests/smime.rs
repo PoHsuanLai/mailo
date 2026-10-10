@@ -2,8 +2,8 @@
 //! both protections, what `smime::check` says stands in the way is said in the warning bar, and
 //! a locked OpenPGP key is known by the send's typed error.
 
-use mail_runtime::MapSigningStore;
-use mail_store::Store;
+use mail_core::MapSigningStore;
+use mail_core::Store;
 use rand::SeedableRng;
 
 use super::super::protection::{Mode, Protection, items, label, pick};

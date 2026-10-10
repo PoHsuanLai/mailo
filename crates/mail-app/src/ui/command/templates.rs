@@ -6,8 +6,8 @@ use std::sync::Arc;
 
 use chrono::Utc;
 use dioxus::prelude::*;
+use mail_core::SqliteStore;
 use mail_domain::Draft;
-use mail_store::SqliteStore;
 
 use super::super::compose::{every_template, template_rows};
 use super::super::menu::MenuItem;

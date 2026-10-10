@@ -10,8 +10,8 @@ use crate::ui::view::{BarListing, Shell, Source};
 use chrono::Utc;
 use dioxus::prelude::*;
 use ds::prelude::*;
+use mail_core::SqliteStore;
 use mail_core::search::Results;
-use mail_store::SqliteStore;
 use std::collections::HashMap;
 use std::sync::Arc;
 

@@ -23,8 +23,8 @@ use ds::style::tokens::hex::{Colour, Hex};
 use ds::style::tokens::person::PersonSwatch;
 use mail_core::provider::{Provider, provider};
 use mail_core::query::{self};
+use mail_core::{SqliteStore, Store};
 use mail_domain::*;
-use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
 
 #[derive(Clone, PartialEq, Eq)]

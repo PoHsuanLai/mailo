@@ -7,7 +7,7 @@
 use crate::ui::launcher::{self, Launcher, Unread};
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
-use mail_store::SqliteStore;
+use mail_core::SqliteStore;
 use std::sync::Arc;
 
 /// Keep the launcher's count. Does nothing in a window with no [`Launcher`], which is every test

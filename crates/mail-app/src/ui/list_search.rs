@@ -14,8 +14,8 @@ use super::data::list_for;
 use crate::ui::view::{Listing, Shell};
 use chrono::{DateTime, Utc};
 use mail_core::search::{self, Highlight, Source, Term};
+use mail_core::{SqliteStore, Store};
 use mail_domain::{Filter, LabelId, PageReq, Query, ThreadId, ThreadSummary};
-use mail_store::{SqliteStore, Store};
 use std::ops::Range;
 
 /// What the list pane was asked for, taken out of the shell so a blocking thread can run it.

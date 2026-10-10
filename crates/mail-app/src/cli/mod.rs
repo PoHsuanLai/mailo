@@ -1437,7 +1437,7 @@ pub fn run_with_clients(
     store: &SqliteStore,
     command: &Command,
     now: DateTime<Utc>,
-    saved: &mail_runtime::ClientRegistry,
+    saved: &mail_core::ClientRegistry,
 ) -> Result<String, String> {
     // What the process was started with: the commands that take a password or a passphrase from
     // the environment read it here, and the library reads nothing itself.
@@ -1752,7 +1752,7 @@ pub fn run_with_clients(
             if *step == UnsubscribeStep::Show {
                 return Ok(described);
             }
-            let http = mail_runtime::unsubscribe::client().map_err(|e| e.to_string())?;
+            let http = mail_core::unsubscribe::client().map_err(|e| e.to_string())?;
             let outcome =
                 crate::edge::block_on(mail_core::unsubscribe::perform(store, &found, &http, now))
                     .map_err(remedy::error)?;

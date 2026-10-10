@@ -3,9 +3,9 @@
 
 use std::sync::Arc;
 
+use mail_core::MapSigningStore;
 use mail_domain::*;
 use mail_mime::openpgp::Cert;
-use mail_runtime::MapSigningStore;
 
 use super::tests::{ME, arrive, own_key, reader, sealed, someone_elses, until};
 use super::{Look, looks_at, lookup, save_attachment};

@@ -13,9 +13,9 @@ use super::super::menu::{MenuItem, Right, Run, Tile, Tone};
 use crate::ui::actions;
 use chordkit::{Keymap, StandardAction};
 use chrono::{DateTime, Utc};
+use mail_core::SqliteStore;
 use mail_core::search::{self, ActionHit, Command, MailHit, PersonHit, Results, Top};
 use mail_domain::ThreadId;
-use mail_store::SqliteStore;
 
 /// The actions the window can run today.
 pub(in crate::ui) fn commands() -> Vec<Command> {

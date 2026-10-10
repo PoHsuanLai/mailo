@@ -23,8 +23,8 @@ use ds::components::fields::field_row::FieldRow;
 use ds::components::overlays::alert_model::{AlertButton, AlertRole, AlertStyle};
 use ds::prelude::*;
 use ds::root::common::Common;
-use mail_runtime::AccountSecrets;
-use mail_store::{SqliteStore, Store};
+use mail_core::AccountSecrets;
+use mail_core::{SqliteStore, Store};
 use porter_core::AccountId;
 use std::sync::Arc;
 

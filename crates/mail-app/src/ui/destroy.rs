@@ -14,8 +14,8 @@ use ds::components::controls::button_model::{Bezel, ImagePosition};
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::tokens::control_size::ControlSize;
+use mail_core::{SqliteStore, Store};
 use mail_domain::*;
-use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
 
 /// How many conversations one page of the Empty count reads.

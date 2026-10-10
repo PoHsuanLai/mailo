@@ -4,8 +4,8 @@
 //! the search bar ranks people from the same answer.
 
 use chrono::{DateTime, Utc};
+use mail_core::SqliteStore;
 use mail_core::search::{Affinity, SenderStats};
-use mail_store::SqliteStore;
 use std::collections::HashMap;
 
 /// One sender, as the sender card shows them.

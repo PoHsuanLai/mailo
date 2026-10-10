@@ -9,12 +9,12 @@ use mail_app::cli;
 use mail_core::compose;
 use mail_core::pgp::WithSecret;
 use mail_core::smime;
+use mail_core::{Arrival, MapSigningStore, SigningStore};
+use mail_core::{SqliteStore, Store};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::signing::{SigningKeyId, SigningKeyRef, SigningSecret};
 use mail_domain::*;
 use mail_mime::smime::{self as cms_smime, Cert, Sealing};
-use mail_runtime::{Arrival, MapSigningStore, SigningStore};
-use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
 use smime_support::*;
 
@@ -154,7 +154,7 @@ fn send(store: &SqliteStore, secrets: &MapSigningStore, draft: DraftId) -> Resul
 
 /// Store `raw` as a message that arrived in the inbox, the way a sync does, and return it.
 fn arrive(store: &SqliteStore, raw: Vec<u8>) -> Message {
-    let ingest = mail_runtime::assemble(
+    let ingest = mail_core::assemble(
         store,
         acct_account(),
         MailboxRef {

@@ -14,10 +14,10 @@ use settle::settle_until;
 
 use crate::drive;
 use drive::{Drive, PRIMARY};
+use mail_core::{Arrival, absorb};
+use mail_core::{SqliteStore, Store};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
-use mail_runtime::{Arrival, absorb};
-use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
 use std::sync::Arc;
 use std::time::Duration;

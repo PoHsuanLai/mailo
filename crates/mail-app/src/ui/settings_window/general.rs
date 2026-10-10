@@ -149,7 +149,7 @@ fn TrustedSenders(
 
 /// Fetch every provider's icon again, then show the new ones.
 fn refresh_icons() {
-    let store = consume_context::<std::sync::Arc<mail_store::SqliteStore>>();
+    let store = consume_context::<std::sync::Arc<mail_core::SqliteStore>>();
     let icons = try_consume_context::<Signal<mail_core::provider::icon::Loaded>>();
     spawn(async move {
         let Some(root) = mail_core::config::cache_dir() else {

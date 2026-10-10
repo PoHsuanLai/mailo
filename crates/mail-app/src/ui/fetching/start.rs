@@ -2,8 +2,8 @@
 
 use chrono::{DateTime, Utc};
 use mail_core::fetch::{Link, Live};
+use mail_core::{SqliteStore, Store};
 use mail_domain::{Filter, JMAP_ALL, MailboxRef};
-use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;

@@ -64,11 +64,14 @@ pub use mail::{
     AccountOps, Clock, ContactOps, CryptoOps, DiscoverOps, FixedClock, Mail, RuleOps, SyncOps,
     SystemClock,
 };
+/// What the window tells the body pass it is reading and fetching, so the pass does not repeat it.
+pub use mail_runtime::wanted;
 /// The runtime types mail-core's API hands out and takes: re-exported, so a front end goes
 /// through mail-core alone.
 pub use mail_runtime::{
-    AccountSecrets, ClientRegistry, KeyringSigningStore, SigningStore, sieve::Pushed,
+    AccountSecrets, Arrival, ClientRegistry, Destination, KeyringSigningStore, MapSigningStore,
+    Searched, ServerHits, SigningStore, absorb, absorb_into, assemble, off_runtime, sieve::Pushed,
 };
 /// The store a front end opens and hands to mail-core.
-pub use mail_store::{SqliteStore, Store};
+pub use mail_store::{SqliteStore, Store, StoreError};
 pub use remedy::{Remedy, SignInWith};

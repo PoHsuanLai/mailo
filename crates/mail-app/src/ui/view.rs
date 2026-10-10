@@ -51,7 +51,7 @@ pub enum Source {
     ///
     /// Not a `Filter`, for the reason drafts are not: whether a reminder still stands is decided
     /// on the conversation's messages and the user's own addresses, and the domain's filters see
-    /// only the summary. The store lists them ([`mail_store::Store::follow_ups`]).
+    /// only the summary. The store lists them ([`mail_core::Store::follow_ups`]).
     Waiting,
 }
 

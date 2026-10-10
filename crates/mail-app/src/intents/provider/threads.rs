@@ -9,8 +9,8 @@ use super::{Provider, outcome};
 use crate::intents::wire::{AppRefusal, EntityId, Invocation, Outcome, Target, UndoFault};
 use chrono::Local;
 use mail_core::undo::Undo;
+use mail_core::{SqliteStore, Store};
 use mail_domain::{LabelId, Membership, Op, Snooze, Star, ThreadId};
-use mail_store::{SqliteStore, Store};
 
 /// The conversations an action names, each as the thread it is, or the first that is not one.
 pub(super) fn threads_of(invocation: &Invocation) -> Result<Vec<(EntityId, ThreadId)>, AppRefusal> {

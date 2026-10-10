@@ -23,9 +23,9 @@ use std::sync::Arc;
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
 use dioxus_core::{NoOpMutations, VirtualDom};
+use mail_core::SqliteStore;
 use mail_domain::id::new_account_id;
 use mail_domain::*;
-use mail_store::SqliteStore;
 
 use super::body::Body;
 use super::desk::{Desk, use_desk};

@@ -12,9 +12,9 @@ use dioxus::prelude::*;
 use dioxus_core::{NoOpMutations, VirtualDom};
 use ds::prelude::*;
 use mail_core::unsubscribe::{Found, Outcome};
+use mail_core::{SqliteStore, Store};
 use mail_domain::*;
 use mail_mime::{ListHeaders, ListId};
-use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
 use std::time::Duration;
 

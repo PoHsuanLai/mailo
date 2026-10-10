@@ -9,9 +9,9 @@ use ds::components::controls::button_model::Answers;
 use ds::components::overlays::inline_banner::InlineBanner;
 use ds::prelude::*;
 use ds::root::common::Common;
+use mail_core::SqliteStore;
 use mail_core::receipt::ReceiptState;
 use mail_domain::{MessageId, ReceiptAnswer};
-use mail_store::SqliteStore;
 use std::sync::Arc;
 
 /// Where one bar's answer is.

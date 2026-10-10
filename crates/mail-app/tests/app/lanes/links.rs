@@ -11,7 +11,7 @@ use super::window::{Window, deliver, hours_ago, ms};
 const SUBJECT: &str = "Three links";
 const FRAME: &str = "article.frame iframe.html";
 
-fn linked(store: &mail_store::SqliteStore) {
+fn linked(store: &mail_core::SqliteStore) {
     let raw = format!(
         "From: Grace Hopper <grace@example.test>\r\nTo: Me <me@example.test>\r\n\
          Subject: {SUBJECT}\r\nDate: {}\r\nMessage-ID: <links1@example.test>\r\n\

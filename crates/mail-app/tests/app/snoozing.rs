@@ -9,10 +9,10 @@ use chrono::{DateTime, TimeDelta, TimeZone, Utc};
 use mail_app::cli;
 use mail_app::ui::view;
 use mail_core::snooze;
+use mail_core::{Arrival, absorb};
+use mail_core::{SqliteStore, Store};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
-use mail_runtime::{Arrival, absorb};
-use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
 
 fn acct_account() -> AccountId {

@@ -16,7 +16,7 @@ fn keys(page: &Page, list: List) -> Vec<String> {
 
 /// What the book itself answers for `text`, best first.
 fn book_order(store: &SqliteStore, text: &str) -> Vec<String> {
-    use mail_store::Store;
+    use mail_core::Store;
     store
         .contacts_matching(text, crate::ui::contacts::book::SUGGESTED)
         .unwrap_or_else(|why| panic!("the book: {why}"))

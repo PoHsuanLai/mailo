@@ -1,8 +1,8 @@
 //! What pushing the rules to a server did, in words: the command line prints it, the window
 //! shows it.
 
+use mail_core::Pushed;
 use mail_proto::sieve::{Deleted, SieveOutcome, VacationPlaced};
-use mail_runtime::sieve::Pushed;
 use std::fmt::Write as _;
 
 /// What a push did, for a person.

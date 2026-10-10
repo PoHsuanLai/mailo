@@ -14,9 +14,9 @@ use ds::host::measure::{Anchor, MountedRef};
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::root::pass_through::ExtraClass;
+use mail_core::SqliteStore;
 use mail_core::unsubscribe::Outcome;
 use mail_domain::ThreadId;
-use mail_store::SqliteStore;
 use std::sync::Arc;
 
 /// Where the popover is.

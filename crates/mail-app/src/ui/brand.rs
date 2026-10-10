@@ -12,10 +12,10 @@ use crate::ui::appearance::WindowDirs;
 use base64::Engine as _;
 use dioxus::prelude::*;
 use ds::components::content::avatar::AvatarSize;
+use mail_core::SqliteStore;
+use mail_core::bimi::{Cached, Lookup, cached};
 use mail_core::bimi::{Setting, domain_of};
 use mail_domain::{BlobId, MessageId};
-use mail_runtime::bimi::{Cached, Lookup, cached};
-use mail_store::SqliteStore;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -111,8 +111,8 @@ async fn ask(
     from: &str,
     dir: &std::path::Path,
 ) -> Option<Vec<u8>> {
-    let dns = mail_runtime::lookup::SystemDns::new().ok()?;
-    let http = mail_runtime::bimi::client_builder().build().ok()?;
+    let dns = mail_core::bimi::SystemDns::new().ok()?;
+    let http = mail_core::bimi::client_builder().build().ok()?;
     let lookup = Lookup {
         dns: &dns,
         http: &http,

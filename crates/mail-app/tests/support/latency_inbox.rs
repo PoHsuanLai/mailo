@@ -6,10 +6,10 @@
 use ds_blitz::{NetPolicy, PrintOutcome};
 use ds_harness::{Clock, HarnessConfig, Viewport};
 use mail_app::ui::appearance::WindowDirs;
+use mail_core::SqliteStore;
+use mail_core::{Arrival, absorb};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
-use mail_runtime::{Arrival, absorb};
-use mail_store::SqliteStore;
 use porter_core::AccountId;
 use std::sync::Arc;
 

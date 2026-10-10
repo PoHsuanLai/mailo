@@ -3,9 +3,9 @@
 use super::Note;
 use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
+use mail_core::SqliteStore;
 use mail_core::fetch::{Event, FolderFetch};
 use mail_core::sync::report::{Hooks, PassEnd, Progress, outcome};
-use mail_store::SqliteStore;
 use porter_core::AccountId;
 use std::cell::RefCell;
 use std::collections::BTreeMap;

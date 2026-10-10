@@ -58,6 +58,11 @@ pub fn write_text(dir: &Path, file_name: &str, body: &str) -> Result<(), CoreErr
     std::fs::rename(&tmp, &path).map_err(CoreError::at(&path))
 }
 
+/// The user's home directory.
+pub fn home_dir() -> Option<PathBuf> {
+    places::home()
+}
+
 /// mailo's config directory: `$XDG_CONFIG_HOME/mailo`, else `$HOME/.config/mailo`, on Linux;
 /// the system's per-user folder on macOS and Windows (`mail_runtime::places`); else None.
 pub fn config_dir() -> Option<PathBuf> {

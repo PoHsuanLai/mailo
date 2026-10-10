@@ -19,8 +19,8 @@ use chordkit::StandardAction;
 use dioxus::prelude::*;
 use ds::base::spawner::Spawner;
 use ds_settings::use_environment;
+use mail_core::{SqliteStore, Store};
 use mail_domain::*;
-use mail_store::{SqliteStore, Store};
 use std::sync::Arc;
 
 /// The conversation a window shows, as a root context: how a test's harness, which renders a

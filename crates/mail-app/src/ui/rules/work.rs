@@ -5,8 +5,8 @@
 //! only draws what these answer, so the tests drive these and not the markup.
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_core::{SqliteStore, Store};
 use mail_domain::{AfterMatch, Filter, LabelId, Rule, RuleAction, RuleId, RuleState};
-use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
 
 use super::super::files::work::{grouped, messages};
@@ -70,7 +70,7 @@ pub(in crate::ui) enum Step {
     Down,
 }
 
-fn failed(error: mail_store::StoreError) -> String {
+fn failed(error: mail_core::StoreError) -> String {
     error.to_string()
 }
 

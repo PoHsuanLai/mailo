@@ -15,9 +15,9 @@
 
 use std::sync::Arc;
 
+use mail_core::SqliteStore;
 use mail_core::account::{self, Linked, Reconciled};
 use mail_runtime::link::{self, Accountd, Change, Here, Link};
-use mail_store::SqliteStore;
 use porter_core::consent::Usage;
 
 /// What the follower of accountd's changes tells whoever draws.

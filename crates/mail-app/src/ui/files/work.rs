@@ -11,8 +11,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
+use mail_core::{SqliteStore, Store};
 use mail_domain::{Filter, Incoming};
-use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
 
 use crate::ui::view::{Shell, Source as Listed};
@@ -39,7 +39,7 @@ pub(in crate::ui) fn expand(typed: &str, home: Option<&OsStr>) -> PathBuf {
 pub(in crate::ui) fn expand_here(typed: &str) -> PathBuf {
     expand(
         typed,
-        mail_runtime::places::home()
+        mail_core::config::home_dir()
             .as_deref()
             .map(std::path::Path::as_os_str),
     )

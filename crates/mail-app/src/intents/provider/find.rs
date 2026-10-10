@@ -8,8 +8,8 @@ use crate::intents::wire::{
 };
 use chrono::{Local, Utc};
 use mail_core::when::{Stamp, stamp};
+use mail_core::{SqliteStore, Store};
 use mail_domain::{Address, Message, ThreadId, ThreadSummary};
-use mail_store::{SqliteStore, Store};
 use std::fmt::Write as _;
 
 /// The most a search answers with.

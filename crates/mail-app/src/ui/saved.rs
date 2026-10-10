@@ -2,7 +2,7 @@
 //!
 //! A view is a search that stays: its filter, how its list is grouped, and which actions its
 //! rows' menu offers beside the ones every row's menu has. It is a sidebar place ([`crate::ui::view::saved_place`]) and a row in
-//! the store ([`mail_store::Store::views`]). Free of Dioxus, like [`crate::ui::view`]: turning what
+//! the store ([`mail_core::Store::views`]). Free of Dioxus, like [`crate::ui::view`]: turning what
 //! was typed into a [`View`] can be wrong without a window.
 
 use crate::ui::view::{Place, Shell, saved_of, saved_place};

@@ -11,7 +11,7 @@ const PDF: &str = "%PDF-1.4\n% the minutes\n";
 const SEND: &str = ".c-foot [*|aria-label=\"Send\"]";
 const TO: &str = ".c-props [*|data-row=to] .c-pin input";
 
-fn with_pdf(store: &mail_store::SqliteStore) {
+fn with_pdf(store: &mail_core::SqliteStore) {
     let raw = format!(
         "From: Edsger Dijkstra <edsger@example.test>\r\nTo: Me <me@example.test>\r\n\
          Subject: {SUBJECT}\r\nDate: {}\r\nMessage-ID: <minutes1@example.test>\r\n\

@@ -13,9 +13,9 @@ use super::{Motion, act_all, motion};
 use crate::ui::view::{Place, Shell, Source};
 use dioxus::prelude::*;
 use ds::prelude::*;
+use mail_core::SqliteStore;
 use mail_core::place::place_filter;
 use mail_domain::*;
-use mail_store::SqliteStore;
 use std::sync::Arc;
 
 /// How far the pointer must travel before a press on a row is a drag, in pixels.
@@ -95,7 +95,7 @@ pub(in crate::ui) fn moved(at: (f64, f64), held: bool) {
                 return;
             }
             let store = consume_context::<Arc<SqliteStore>>();
-            let Ok(loaded) = mail_store::Store::thread(store.as_ref(), thread) else {
+            let Ok(loaded) = mail_core::Store::thread(store.as_ref(), thread) else {
                 state.drag.set(Drag::Idle);
                 return;
             };

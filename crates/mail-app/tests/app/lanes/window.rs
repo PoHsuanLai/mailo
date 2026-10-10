@@ -17,8 +17,8 @@ use ds_harness::{Clock, Driver, Harness, HarnessConfig, Query, Viewport};
 use mail_app::ui::appearance::WindowDirs;
 use mail_app::ui::native::{Browse, DialogAsk, Dialogs, Fetch, Original, SaveDir, WallClock};
 use mail_app::ui::native::{Configured, Revisions};
+use mail_core::SqliteStore;
 use mail_core::notify::{Notification, Notifier};
-use mail_store::SqliteStore;
 use std::path::PathBuf;
 
 pub use super::look::{panel_row, panel_settled, parsed, queued, row_of};
