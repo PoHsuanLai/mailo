@@ -6,6 +6,7 @@
 
 use mail_core::SqliteStore;
 use mail_core::sync::report::{AccountReport, PassEnd, Watched};
+use mail_domain::Retry;
 use std::fmt::Write as _;
 
 /// What `mailo sync` prints for a run over every account.
@@ -15,7 +16,38 @@ pub fn run_text(store: &SqliteStore, ends: &[PassEnd]) -> String {
     if ends.is_empty() {
         return nothing(!mail_core::sync::addresses(store).is_empty()).to_owned();
     }
-    ends.iter().map(pass_text).collect()
+    ends.iter()
+        .map(|end| format!("{}{}", pass_text(end), sign_in_hint(store, end)))
+        .collect()
+}
+
+/// What to type to sign an account in again, for a pass that was refused its sign-in; nothing for
+/// any other end.
+///
+/// `mail-core` words the refusal without a command and classifies it ([`Retry::NeedsReauth`]);
+/// how to mend it depends on how the account signs in, which the store knows.
+pub fn sign_in_hint(store: &SqliteStore, end: &PassEnd) -> String {
+    let address = match end {
+        PassEnd::Failed {
+            address,
+            retry: Retry::NeedsReauth,
+            ..
+        } => address,
+        PassEnd::Finished(report)
+            if report
+                .trouble
+                .iter()
+                .any(|t| matches!(t.retry, Retry::NeedsReauth)) =>
+        {
+            &report.address
+        }
+        _ => return String::new(),
+    };
+    let remedy = mail_core::sync::sign_in_remedy(store, address);
+    format!(
+        "  {}\n",
+        super::remedy::words(&remedy).replace('\n', "\n  ")
+    )
 }
 
 /// Why a run had no account to sync, given whether any account is configured at all.
@@ -247,5 +279,32 @@ mod tests {
             pause: Pause::ServerBusy,
         };
         assert_eq!(folder_text(&failed, "INBOX").unwrap_err(), "not signed in");
+    }
+
+    #[test]
+    fn a_pass_refused_its_sign_in_is_told_how_to_sign_in_and_another_is_not() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = SqliteStore::in_memory(dir.path()).unwrap();
+        let ended = |retry| PassEnd::Failed {
+            account: acct_account(),
+            address: "ada@example.test".to_owned(),
+            retry,
+            why: "refused".to_owned(),
+            pause: Pause::ServerBusy,
+        };
+        assert_eq!(
+            sign_in_hint(&store, &ended(Retry::NeedsReauth)),
+            "  sign in again with `mailo account add ada@example.test`\n"
+        );
+        assert_eq!(sign_in_hint(&store, &ended(Retry::Now)), "");
+        let silent = Trouble {
+            mailbox: None,
+            retry: Retry::NeedsReauth,
+            why: None,
+        };
+        assert!(
+            sign_in_hint(&store, &finished(Counts::default(), vec![silent]))
+                .contains("mailo account add")
+        );
     }
 }

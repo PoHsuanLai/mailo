@@ -6,6 +6,7 @@
 //! the `#[error(...)]` attributes, not in a `String` carried about, so a window can match on the
 //! variant and say it its own way.
 
+use crate::remedy::{Remedy, SignInWith};
 use mail_domain::{Retry, Retryable};
 use std::path::{Path, PathBuf};
 
@@ -73,7 +74,7 @@ pub enum CoreError {
     /// An account was named by its address and there is none like it.
     #[error("no account {0:?}")]
     UnknownAccount(String),
-    #[error("no accounts. Add one with: mailo account add <address>")]
+    #[error("no accounts")]
     NoAccounts,
     #[error("no config directory (neither XDG_CONFIG_HOME nor HOME is set)")]
     NoConfigDir,
@@ -84,7 +85,7 @@ pub enum CoreError {
 
     // ---- messages, invitations, receipts
     /// Only the headers are stored; the body has not been fetched.
-    #[error("only that message's headers are here yet; run mailo sync and try again")]
+    #[error("only that message's headers are here yet")]
     HeadersOnly,
     #[error("the message's body is missing")]
     BodyMissing,
@@ -96,10 +97,7 @@ pub enum CoreError {
     EventCancelled,
     #[error("that message is someone's answer to an invitation, not an invitation")]
     IsAnAnswer,
-    #[error(
-        "that event was published to be added to a calendar and asks for no answer; save it \
-         with: mailo invite <message-id> --ics FILE"
-    )]
+    #[error("that event was published to be added to a calendar and asks for no answer")]
     PublishedEvent,
     #[error("you organised that event")]
     YouOrganised,
@@ -121,7 +119,7 @@ pub enum CoreError {
     NotAnAddressToBlock(String),
 
     // ---- rules, and the server's filters
-    #[error("add an account first: mailo account add <address>")]
+    #[error("add an account first")]
     AddAnAccountFirst,
     #[error("name the account: --account you@example.com")]
     NameTheAccount,
@@ -163,17 +161,14 @@ pub enum CoreError {
     },
     #[error("{} is a directory but not a Maildir: it has no cur, new or tmp inside", .0.display())]
     NotAMaildir(PathBuf),
-    #[error("no account for {address:?}. `mailo account list` says which there are.")]
+    #[error("no account for {address:?}")]
     NoAccountFor { address: String },
     #[error(
         "{address} is not an IMAP account, so it has no mailboxes to upload into; leave out \
          --to-mailbox to keep the mail on this computer"
     )]
     NotImap { address: String },
-    #[error(
-        "{address} has no folder called {folder:?}; `mailo folder list {address}` shows them, \
-         and `mailo folder new {address} {folder}` makes one"
-    )]
+    #[error("{address} has no folder called {folder:?}")]
     NoFolder { address: String, folder: String },
 
     // ---- print, unsubscribe: an id that names a message or a thread
@@ -183,11 +178,9 @@ pub enum CoreError {
     EmptyThread(uuid::Uuid),
     #[error("{name} and 998 numbered copies of it already exist in {}", .dir.display())]
     NamesTaken { name: String, dir: PathBuf },
-    #[error("that message has not been fetched in full yet; run `mailo sync` and try again")]
+    #[error("that message has not been fetched in full yet")]
     NotFetchedInFull,
-    #[error(
-        "no message in that thread has been fetched in full yet; run `mailo sync` and try again"
-    )]
+    #[error("no message in that thread has been fetched in full yet")]
     ThreadNotFetchedInFull,
     #[error("that message offers no way to unsubscribe (it has no usable List-Unsubscribe header)")]
     NothingOffered,
@@ -195,7 +188,7 @@ pub enum CoreError {
     // ---- the daemon
     #[error("the daemon closed the connection without answering")]
     DaemonSilent,
-    #[error("a mailo daemon is already running; `mailo daemon --stop` will stop it")]
+    #[error("a daemon is already running")]
     DaemonRunning,
     #[error("the daemon said {said:?} where a change was expected")]
     DaemonSaid { said: crate::ipc::wire::Response },
@@ -223,17 +216,11 @@ pub enum CoreError {
     GrantListsNoMail { address: String },
     #[error("no such account")]
     NoSuchAccount,
-    #[error(
-        "no JMAP session URL for {address}. Name it:\n\n                   mailo account add {address} --jmap https://jmap.example.com/.well-known/jmap"
-    )]
+    #[error("no JMAP session URL for {address}")]
     NoJmapSession { address: String },
     #[error(
-        "no preset for {address:?}. Either it is one of the known domains \
-         (gmail.com, googlemail.com), or name the servers:\n\n  \
-         mailo account add {address} --imap imap.example.com --smtp smtp.example.com\n\n\
-         Ports default to 993 and 465, both with implicit TLS. A server that offers \
-         only POP3 takes --pop3 in place of --imap (port 995). Add --login NAME if \
-         the server wants something other than the whole address."
+        "no preset for {address:?}: it is not one of the known domains (gmail.com, googlemail.com), \
+         so the servers have to be named"
     )]
     NoPreset { address: String },
 
@@ -311,7 +298,7 @@ pub enum CoreError {
     DraftIdentityGone { id: mail_domain::IdentityId },
     #[error(
         "this account has no identity to send as. It was added before identities were created \
-         at setup; re-add it with: mailo account add <address>"
+         at setup, so it has to be added again"
     )]
     NoIdentityToSendAs,
     #[error("no account {address}. This one has: {}", .known.join(", "))]
@@ -352,8 +339,8 @@ pub enum CoreError {
     #[error(transparent)]
     Address(#[from] mail_domain::ParseAddressError),
     #[error(
-        "that message has not been downloaded yet, so there is nothing to attach. `mailo sync` \
-         downloads it; or forward it inline"
+        "that message has not been downloaded yet, so there is nothing to attach; it can be \
+         forwarded inline instead"
     )]
     NotDownloaded,
     #[error(
@@ -398,6 +385,44 @@ pub enum CoreError {
 }
 
 impl CoreError {
+    /// The step that mends this failure, when there is one: the front end words it.
+    pub fn remedy(&self) -> Option<Remedy> {
+        Some(match self {
+            CoreError::NoAccounts | CoreError::AddAnAccountFirst => Remedy::AddAccount,
+            CoreError::HeadersOnly
+            | CoreError::NotFetchedInFull
+            | CoreError::ThreadNotFetchedInFull
+            | CoreError::NotDownloaded => Remedy::Sync,
+            CoreError::PublishedEvent => Remedy::SaveInvitation,
+            CoreError::NoAccountFor { .. } => Remedy::ListAccounts,
+            CoreError::NoFolder { address, folder } => Remedy::Folders {
+                address: address.clone(),
+                folder: folder.clone(),
+            },
+            CoreError::DaemonRunning => Remedy::StopDaemon,
+            CoreError::NoJmapSession { address } => Remedy::NameJmapSession {
+                address: address.clone(),
+            },
+            CoreError::NoPreset { address } => Remedy::NameServers {
+                address: address.clone(),
+            },
+            CoreError::NoIdentityToSendAs => Remedy::ReAddAccount,
+            CoreError::NoCredential { address, auth } => {
+                // The grant is the desktop's to give again: no step of ours.
+                if matches!(auth, mail_domain::AuthPlan::Granted { .. }) {
+                    return None;
+                }
+                Remedy::SignIn {
+                    address: address.clone(),
+                    with: SignInWith::of(auth),
+                }
+            }
+            CoreError::Pgp(why) => return why.remedy(),
+            CoreError::Smime(why) => return why.remedy(),
+            _ => return None,
+        })
+    }
+
     /// `cannot {doing}: {source}`.
     pub fn cannot(doing: impl Into<String>, source: impl Into<Source>) -> Self {
         CoreError::Cannot {

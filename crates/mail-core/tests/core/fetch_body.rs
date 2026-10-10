@@ -186,7 +186,8 @@ fn a_missing_credential_asks_for_a_new_sign_in() {
     )
     .unwrap_err();
     assert_eq!(retry, Retry::NeedsReauth, "{why}");
-    assert!(why.contains("mailo account add"), "{why}");
+    assert!(why.contains("no credential stored"), "{why}");
+    assert!(!why.contains("mailo "), "core names no command: {why}");
 }
 
 #[test]

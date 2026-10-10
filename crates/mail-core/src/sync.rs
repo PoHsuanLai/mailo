@@ -124,6 +124,22 @@ pub fn addresses(store: &SqliteStore) -> Vec<(AccountId, String)> {
         .collect()
 }
 
+/// The remedy for an account that must sign in, again or for the first time: a pass that ended in
+/// [`Retry::NeedsReauth`] says so, and this says how that account signs in. An address the store
+/// does not know, or a plan it cannot read, is asked to sign in without saying how.
+pub fn sign_in_remedy(store: &SqliteStore, address: &str) -> crate::Remedy {
+    let with = configured(store)
+        .ok()
+        .and_then(|all| all.into_iter().find(|account| account.address == address))
+        .map_or(crate::SignInWith::Unknown, |account| {
+            crate::SignInWith::of(&account.plan.auth)
+        });
+    crate::Remedy::SignIn {
+        address: address.to_owned(),
+        with,
+    }
+}
+
 /// The accounts that keep their mail on this computer ([`Incoming::Local`]).
 pub fn local_accounts(store: &SqliteStore) -> Vec<AccountId> {
     configured(store)
@@ -482,10 +498,7 @@ async fn signed_in_typed(
         // thing entirely.
         //
         // The remedy is the user signing in again, so it is classified as one.
-        return Err(Failure::reauth(crate::account::no_client_id(
-            *issuer,
-            &account.address,
-        )));
+        return Err(Failure::reauth(crate::account::no_client_id(*issuer)));
     };
     tokens::renew(account.id.clone(), client, scopes, credential, secrets, now)
         .await

@@ -45,6 +45,7 @@ pub mod print;
 pub mod provider;
 pub mod query;
 pub mod receipt;
+pub mod remedy;
 pub mod rules;
 pub mod search;
 pub mod server_search;
@@ -70,3 +71,4 @@ pub use mail_runtime::{
 };
 /// The store a front end opens and hands to mail-core.
 pub use mail_store::{SqliteStore, Store};
+pub use remedy::{Remedy, SignInWith};

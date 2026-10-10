@@ -1,17 +1,9 @@
-# mail-core files that still name a terminal command in a string: `mailo account add …`,
-# `mailo sync`, and so on.
+# mail-core files that name a terminal command in a string: `mailo account add …`, `mailo sync`,
+# and so on.
 #
-# These modules still return terminal prose. A front-end should word a result for itself, so each
-# is to be converted to a typed outcome (a value the window and the command line each render in
-# their own words), and its line removed from this file when it is. The list only shrinks:
-# scripts/check-boundary.sh fails on a mail-core file with such a string that is not listed, and
-# on a listed file that no longer has one.
+# None do. A failure that has a remedy says so with a value (`mail_core::Remedy`,
+# `CoreError::remedy`) and the front end words it; `mail-app`'s `cli::remedy` is where the terminal
+# names the command. This file stays so the check keeps its two-way shape, and stays empty:
+# scripts/check-boundary.sh fails on a mail-core file with such a string.
 #
 # One repository-relative path per line.
-# What is left is the Display of error types: `#[error("... mailo sync ...")]` hints that every front
-# of the library shows today. Wording an error for a front-end means mapping `CoreError` in
-# mail-app's cli (it is converted to a `String` with `?` in many places), which is its own lane.
-crates/mail-core/src/account/advice.rs
-crates/mail-core/src/error.rs
-crates/mail-core/src/pgp/mod.rs
-crates/mail-core/src/smime/mod.rs

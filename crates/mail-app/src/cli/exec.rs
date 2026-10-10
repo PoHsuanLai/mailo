@@ -222,7 +222,7 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) {
         match crate::edge::block_on(mail.sync().run(Default::default())) {
             Ok(ends) => print!("{}", super::sync::run_text(&store, &ends)),
             Err(message) => {
-                eprintln!("{message}");
+                eprintln!("{}", super::remedy::error(message));
                 std::process::exit(1);
             }
         }
@@ -276,7 +276,7 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) {
                                 .collect()
                         }
                         Err(why) => {
-                            eprintln!("{why}");
+                            eprintln!("{}", super::remedy::error(why));
                             Vec::new()
                         }
                     }
@@ -297,7 +297,7 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) {
                     return;
                 }
                 Err(message) => {
-                    eprintln!("{message}");
+                    eprintln!("{}", super::remedy::error(message));
                     std::process::exit(1);
                 }
             }
@@ -389,7 +389,7 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) {
         match super::export::run(&store, query, target) {
             Ok(said) => print!("{said}"),
             Err(message) => {
-                eprintln!("{message}");
+                eprintln!("{}", super::remedy::error(message));
                 std::process::exit(1);
             }
         }
@@ -417,7 +417,7 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) {
         ) {
             Ok(said) => print!("{said}"),
             Err(message) => {
-                eprintln!("{message}");
+                eprintln!("{}", super::remedy::error(message));
                 std::process::exit(1);
             }
         }
@@ -493,6 +493,9 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) {
                 watching.changed(end.account());
             }
             print!("{}", super::sync::watched_text(&watched));
+            if let mail_core::sync::report::Watched::Pass(end) = &watched {
+                print!("{}", super::sync::sign_in_hint(&store, end));
+            }
             let _ = std::io::stdout().flush();
         };
         let mail = crate::edge::mail(&store);
@@ -515,7 +518,7 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) {
                 std::process::exit(1);
             }
             Err(message) => {
-                eprintln!("{message}");
+                eprintln!("{}", super::remedy::error(message));
                 std::process::exit(1);
             }
         }
