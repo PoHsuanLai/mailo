@@ -12,7 +12,7 @@ use super::press::on_primary;
 use super::text::{attachment_rows, stamp};
 use crate::ui::view::Shell;
 use attachments::Attachments;
-pub(in crate::ui) use cache::{frames, use_frames, use_warming};
+pub(in crate::ui) use cache::{frames, looks, use_frames, use_looks, use_warming};
 use dioxus::prelude::*;
 use ds::components::content::avatar::{
     AvatarFace, AvatarShape, AvatarSize, AvatarTone, person_hue,
@@ -136,6 +136,7 @@ pub(super) fn Reader(
 ) -> Element {
     let store = use_context::<Arc<SqliteStore>>();
     let frames = use_frames();
+    let looks = use_looks();
     // The store may have moved under this conversation, here or in another window.
     if let Some(revision) = revision {
         let _ = revision();
@@ -215,7 +216,13 @@ pub(super) fn Reader(
         .filter_map(|id| store.message(*id).ok())
         .map(|message| {
             let showing = pressed
-                || images::auto_allow_message(&reading, &looked.borrow(), &message, &mut wanted);
+                || images::auto_allow_message(
+                    &reading,
+                    &looks,
+                    &looked.borrow(),
+                    &message,
+                    &mut wanted,
+                );
             let policy = shell.read().policy_with(showing);
             let mut frame = |policy| {
                 frames.on_the_frame(
@@ -283,7 +290,7 @@ pub(super) fn Reader(
     let subject = shown
         .iter()
         .find(|(message, ..)| message.subject == loaded.summary.subject)
-        .and_then(|(message, ..)| super::pgp::subject(message))
+        .and_then(|(message, ..)| looks.opened_subject(message))
         .unwrap_or_else(|| loaded.summary.subject.clone());
     // How many messages there are, and the moment their dates are written against: the newest
     // says everything in its header, the rest who and when.
@@ -313,13 +320,14 @@ pub(super) fn Reader(
         if !worth {
             return None;
         }
-        let passed = images::dmarc_known(&looked.borrow(), message, &mut wanted)?;
+        let passed = images::dmarc_known(&looks, &looked.borrow(), message, &mut wanted)?;
         (!images::suspicious(message.from.name.as_deref(), &message.from.email, passed))
             .then(|| message.from.email.trim().to_lowercase())
     });
     if !wanted.is_empty() {
         let messages = shown.iter().map(|(message, ..)| message.clone()).collect();
         images::look_later(
+            looks.clone(),
             store.clone(),
             messages,
             wanted,
@@ -332,7 +340,7 @@ pub(super) fn Reader(
     let attached: Vec<_> = shown
         .iter()
         .map(|(message, ..)| {
-            super::pgp::attachments(message).unwrap_or_else(|| attachment_rows(message))
+            super::pgp::attachments(&looks, message).unwrap_or_else(|| attachment_rows(message))
         })
         .collect();
 

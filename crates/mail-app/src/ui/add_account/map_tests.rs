@@ -8,18 +8,19 @@ use ds_shell::accounts::model::{
 
 use porter_core::sheet::{
     Entry, FieldKind, FieldProblem, FieldSpec, FieldValue, Presence, ProblemKind, Protocol,
-    ProviderRow, Review, ReviewView, RowKind, ServiceChoice, ServiceRow, ServiceState, SheetInput,
-    SheetView, SignInFault, SignInView, UserCode, manual_form,
+    ProviderRow, Review, ReviewView, RowKind, ServiceRow, ServiceState, SheetInput, SheetView,
+    SignInFault, SignInView, UserCode, manual_form,
 };
 use porter_core::{
-    AbsentReason, AccountLabel, CapabilityKind, EndpointUrl, LimitReason, ProviderId, SecretText,
-    Toggle, WebUrl,
+    AbsentReason, AccountLabel, CapabilityKind, EndpointUrl, LimitReason, ProviderId, Toggle,
+    WebUrl,
 };
 
 use super::map::{
-    Action, Awaiting, ListKey, Out, Sheet, Step, acted, choice_label, fault_of, kind_of, list_key,
-    mark_of, provider_label, role_of, service_key, shown, step_of, typed,
+    Action, Out, Sheet, Step, acted, choice_label, fault_of, kind_of, list_key, mark_of,
+    provider_label, role_of, service_key, shown, step_of, typed,
 };
+use mail_core::account::draft::{Awaiting, CopyMark, ListKey};
 
 fn id(text: &str) -> ProviderId {
     ProviderId::parse(text).unwrap()
@@ -231,152 +232,6 @@ fn the_form_carries_the_prefill_the_typing_and_the_problem() {
 }
 
 #[test]
-fn submit_sends_every_field_once_and_empties_the_secret() {
-    let sheet = showing(form());
-    let (sheet, _) = acted(
-        sheet,
-        typed(
-            FieldRole::Address,
-            FieldText::Plain(" ada@example.test ".to_owned()),
-        ),
-    );
-    // Required fields first: the empty password stops it.
-    let (sheet, input) = acted(sheet, Action::Submit);
-    assert_eq!(input, None);
-    let (sheet, _) = acted(
-        sheet,
-        typed(FieldRole::Password, FieldText::Secret(Hidden::new("pw"))),
-    );
-    let (sheet, input) = acted(sheet, Action::Submit);
-    let Some(SheetInput::Submit(answers)) = input else {
-        panic!("{input:?}");
-    };
-    assert_eq!(answers.len(), 2);
-    assert_eq!(
-        answers[0].value,
-        FieldValue::Plain("ada@example.test".to_owned())
-    );
-    assert_eq!(answers[1].value, FieldValue::Secret(SecretText::new("pw")));
-    assert_eq!(sheet.awaiting, Awaiting::View);
-    assert!(
-        !format!("{sheet:?}").contains("\"pw\""),
-        "the draft kept the password"
-    );
-    // A second press before the service has answered is not a second answer.
-    let (_, again) = acted(sheet, Action::Submit);
-    assert_eq!(again, None);
-}
-
-#[test]
-fn every_event_is_the_right_input() {
-    let url = WebUrl::parse("https://login.example.test/start?x=1").unwrap();
-    let browser = SheetView::BrowserWait {
-        row: None,
-        provider: id("google"),
-        url,
-    };
-    let failed = SheetView::Failed {
-        row: None,
-        provider: id("fastmail"),
-        fault: SignInFault::Unreachable,
-    };
-    let cases: Vec<(&str, SheetView, Action, Option<SheetInput>)> = vec![
-        (
-            "pick",
-            SheetView::Providers(rows()),
-            Action::Pick(ListKey::Provider(id("fastmail"))),
-            Some(SheetInput::Pick(id("fastmail"))),
-        ),
-        (
-            "pick other",
-            SheetView::Providers(rows()),
-            Action::Pick(ListKey::Other),
-            Some(SheetInput::Pick(id("generic-imap"))),
-        ),
-        (
-            "pick unknown",
-            SheetView::Providers(rows()),
-            Action::Pick(ListKey::Provider(id("nextcloud"))),
-            None,
-        ),
-        (
-            "query",
-            SheetView::Providers(rows()),
-            Action::Query("fast".to_owned()),
-            None,
-        ),
-        (
-            "cancel",
-            SheetView::Providers(rows()),
-            Action::Cancel,
-            Some(SheetInput::Dismiss),
-        ),
-        (
-            "cancel working",
-            SheetView::Working {
-                provider: id("fastmail"),
-                row: None,
-            },
-            Action::Cancel,
-            Some(SheetInput::Dismiss),
-        ),
-        (
-            "back from the form",
-            form(),
-            Action::Back,
-            Some(SheetInput::Back),
-        ),
-        (
-            "back from the list",
-            SheetView::Providers(rows()),
-            Action::Back,
-            None,
-        ),
-        (
-            "back from failed",
-            failed.clone(),
-            Action::Back,
-            Some(SheetInput::Back),
-        ),
-        (
-            "retry",
-            failed.clone(),
-            Action::Retry,
-            Some(SheetInput::Retry),
-        ),
-        ("retry on the form", form(), Action::Retry, None),
-        (
-            "open again",
-            browser.clone(),
-            Action::OpenAgain,
-            Some(SheetInput::OpenAgain),
-        ),
-        ("open again elsewhere", form(), Action::OpenAgain, None),
-        ("copied", browser, Action::Copied, None),
-        (
-            "confirm",
-            review(),
-            Action::Confirm,
-            Some(SheetInput::Confirm(vec![
-                ServiceChoice {
-                    kind: CapabilityKind::Mail,
-                    toggle: Toggle::On,
-                },
-                ServiceChoice {
-                    kind: CapabilityKind::Storage,
-                    toggle: Toggle::Off,
-                },
-            ])),
-        ),
-        ("confirm on the form", form(), Action::Confirm, None),
-    ];
-    for (name, view, action, want) in cases {
-        let (_, input) = acted(showing(view), action);
-        assert_eq!(input, want, "{name}");
-    }
-}
-
-#[test]
 fn no_switch_is_drawn_for_a_service_the_add_does_nothing_with() {
     let sheet = showing(review());
     let Some(Step::Review(props)) = step_of(&sheet) else {
@@ -443,7 +298,7 @@ fn a_browser_step_asks_the_window_to_open_its_page_each_time_it_is_shown() {
         },
     );
     assert!(out.is_empty());
-    assert_eq!(sheet.draft.copied, super::map::CopyMark::Idle);
+    assert_eq!(sheet.draft.copied, CopyMark::Idle);
 }
 
 #[test]

@@ -18,6 +18,7 @@ use porter_provider::ClientEntry;
 use porter_provider::Issuer;
 
 mod advice;
+pub mod draft;
 mod linked;
 mod remove;
 

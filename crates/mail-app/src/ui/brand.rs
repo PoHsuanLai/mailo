@@ -35,14 +35,13 @@ enum Local {
     Ask(Vec<mail_mime::smime::Cert>, mail_mime::AuthResults),
 }
 
-/// The switch, the checks and the cache, read from disk. Blocking.
+/// The switch, the checks (`checks`, asked only once the switch is on and the sender has a
+/// domain) and the cache, read from disk. Blocking.
 fn local(
-    store: &SqliteStore,
+    checks: impl FnOnce() -> Option<mail_mime::AuthResults>,
     logos: crate::settings::BrandLogos,
     config: &std::path::Path,
     cache: &std::path::Path,
-    message: MessageId,
-    raw: BlobId,
     from: &str,
 ) -> Local {
     if Setting::from(logos) == Setting::Off {
@@ -51,7 +50,7 @@ fn local(
     let Some(domain) = domain_of(from) else {
         return Local::Nothing;
     };
-    let Some(results) = super::checks::lookup(store, message, raw) else {
+    let Some(results) = checks() else {
         return Local::Nothing;
     };
     if !mail_mime::bimi::dmarc_passed_for(&results, domain) {
@@ -71,11 +70,13 @@ fn use_brand_logo(
     from: String,
 ) -> Signal<Option<String>> {
     let mut logo = use_signal(|| None::<String>);
+    let looks = super::reading::use_looks();
     let settings = crate::ui::prefs::use_settings();
     let _find = use_resource(move || {
         // Read here, so turning brand logos on or off looks again.
         let logos = settings.read().reading.brand_logos;
         let store = consume_context::<Arc<SqliteStore>>();
+        let looks = looks.clone();
         let dirs = try_consume_context::<WindowDirs>();
         let place = try_consume_context::<BrandCache>();
         let from = from.clone();
@@ -85,7 +86,13 @@ fn use_brand_logo(
             };
             let (asked, at) = (from.clone(), dir.clone());
             let found = tokio::task::spawn_blocking(move || {
-                local(&store, logos, &dirs.config, &at, message, raw, &asked)
+                local(
+                    || looks.checks(&store, message, raw),
+                    logos,
+                    &dirs.config,
+                    &at,
+                    &asked,
+                )
             })
             .await;
             let png = match found {

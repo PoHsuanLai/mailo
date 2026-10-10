@@ -1,11 +1,12 @@
 //! Read receipts in the window. Opening never answers; only the bar's buttons do.
 
-use super::{Line, Standing, line, looked_at};
+use super::{Line, Standing, line};
 use crate::ui::fixtures::{Seen, acct_account, click, dispatching, rebuild_into, seeded};
 use crate::ui::reading::Reader;
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use dioxus_core::VirtualDom;
+use mail_core::message::{Looks, Read};
 use mail_core::receipt::ReceiptState;
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
@@ -129,14 +130,26 @@ async fn settle(dom: &mut VirtualDom, seen: &mut Seen, for_ms: u64) {
     }
 }
 
-/// The reader on `thread`, once its lookups have landed.
-async fn reader_on(store: Arc<SqliteStore>, thread: ThreadId) -> (VirtualDom, Seen, String) {
+/// The reader on `thread`, once its lookups have landed, and the lookups it used.
+async fn reader_looking(
+    store: Arc<SqliteStore>,
+    thread: ThreadId,
+) -> (VirtualDom, Seen, String, Arc<Looks>) {
     dispatching();
-    let mut dom = VirtualDom::new_with_props(Open, OpenProps { thread }).with_root_context(store);
+    let looks = Arc::new(Looks::new());
+    let mut dom = VirtualDom::new_with_props(Open, OpenProps { thread })
+        .with_root_context(store)
+        .with_root_context(looks.clone());
     let mut seen = rebuild_into(&mut dom);
     settle(&mut dom, &mut seen, 400).await;
     // The renderer escapes the apostrophe; the words are compared as they read.
     let markup = dioxus_ssr::render(&dom).replace("&#39;", "'");
+    (dom, seen, markup, looks)
+}
+
+/// [`reader_looking`], without the lookups.
+async fn reader_on(store: Arc<SqliteStore>, thread: ThreadId) -> (VirtualDom, Seen, String) {
+    let (dom, seen, markup, _) = reader_looking(store, thread).await;
     (dom, seen, markup)
 }
 
@@ -282,9 +295,9 @@ async fn opening_a_message_that_asks_answers_nothing_and_queues_nothing() {
     let (store, _dir) = seeded();
     let (thread, message) = put(&store, ASKS, Held::Body);
     let queued = outbox(&store);
-    let (_, _, markup) = reader_on(store.clone(), thread).await;
+    let (_, _, markup, looks) = reader_looking(store.clone(), thread).await;
     // It was looked at and shown — the assertion below is about a reader that did its work.
-    assert!(looked_at(message) && markup.contains("Send receipt"));
+    assert!(looks.reads(Read::Receipt) > 0 && markup.contains("Send receipt"));
     assert_eq!(store.receipt_answer(message).unwrap(), None);
     assert_eq!(outbox(&store), queued, "opening queued something");
 }
@@ -335,10 +348,10 @@ fn answering_twice_is_refused_and_queues_nothing_more() {
     let (store, _dir) = seeded();
     let (_, message) = put(&store, ASKS, Held::Body);
     let now = chrono::Utc::now();
-    let said = super::answer(&store, message, ReceiptAnswer::Sent, now).unwrap();
+    let said = super::answer(&Looks::new(), &store, message, ReceiptAnswer::Sent, now).unwrap();
     assert_eq!(said, "Queued a read receipt to ada@example.test");
     let queued = submissions(&store);
-    assert!(super::answer(&store, message, ReceiptAnswer::Sent, now).is_err());
+    assert!(super::answer(&Looks::new(), &store, message, ReceiptAnswer::Sent, now).is_err());
     assert_eq!(submissions(&store), queued);
 }
 

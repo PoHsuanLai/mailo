@@ -13,7 +13,7 @@ use mail_core::SqliteStore;
 use mail_domain::*;
 use mail_mime::smime::{Cert, Identity, Sealing};
 
-use super::tests::{ME, arrive, lines, reader, seals, shows, until};
+use super::tests::{ME, arrive, lines, reader, reader_looking, seals, shows, until};
 use super::{Said, Tone, doubt, said_smime};
 use crate::ui::fixtures::seeded;
 use crate::ui::fixtures::smime_support::{Person, identity, pki, rng, stranger_pki};
@@ -517,7 +517,7 @@ async fn an_encrypted_smime_message_shows_its_body_and_lists_what_is_attached_in
         sealed(&raw, Smime::SignAndEncrypt, &bea(), &[me().cert]),
     );
     assert!(!message.body.text().unwrap_or_default().contains("zebra"));
-    let (mut dom, mut seen) = reader(store, secrets, message.thread);
+    let (mut dom, mut seen, looks) = reader_looking(store, secrets, message.thread);
     let page = until(&mut dom, &mut seen, |page| {
         page.contains("the zebra is under the mat")
     })
@@ -540,12 +540,18 @@ async fn an_encrypted_smime_message_shows_its_body_and_lists_what_is_attached_in
     assert!(!page.contains("smime.p7m"), "{page}");
 
     // Saved, it is the bytes that were attached.
-    let saved =
-        super::save_attachment(message.id, message.body.raw(), 0, &dir.path().join("out")).unwrap();
+    let saved = super::save_attachment(
+        &looks,
+        message.id,
+        message.body.raw(),
+        0,
+        &dir.path().join("out"),
+    )
+    .unwrap();
     assert_eq!(saved.file_name().unwrap(), "map.bin");
     assert_eq!(std::fs::read(saved).unwrap(), [0, 1, 2, 3, 4, 5, 6, 7]);
     assert!(
-        super::save_attachment(message.id, message.body.raw(), 1, dir.path()).is_err(),
+        super::save_attachment(&looks, message.id, message.body.raw(), 1, dir.path()).is_err(),
         "there is one attachment"
     );
 }

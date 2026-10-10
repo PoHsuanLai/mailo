@@ -3,30 +3,43 @@
 //! rendered before anyone opens it.
 //!
 //! The cache is one [`Frames`] for the whole app, a root context (`ui::launch::contexts`); a
-//! reader drawn with none around it (a test's) gets one of its own. Opened OpenPGP and S/MIME
-//! bodies are `ui/pgp`'s, handed to it as the one thing it asks of them.
+//! reader drawn with none around it (a test's) gets one of its own. So is the [`Looks`], the
+//! other thing the reader keeps per message: the checks, the invitation, the receipt, the list's
+//! way out and what OpenPGP or S/MIME opened. Opened bodies are the `Looks`', handed to the
+//! `Frames` as the one thing it asks of them.
 
 use std::sync::Arc;
 
 use dioxus::prelude::*;
 use mail_core::SqliteStore;
-use mail_core::message::{FIRST_SCREEN, Frames, Key, Sent, ahead};
+use mail_core::message::{FIRST_SCREEN, Frames, Key, Looks, Sent, ahead};
 use mail_domain::{Message, ThreadId, ThreadSummary};
 use mail_mime::SanitizePolicy;
 
 use crate::ui::view::Shell;
 
-/// A new cache of rendered bodies, asking `ui/pgp` which messages it has opened.
-pub(in crate::ui) fn frames() -> Arc<Frames> {
-    Arc::new(Frames::new(Arc::new(|message| {
-        crate::ui::pgp::parsed(message)
+/// A new, empty set of the reader's per-message lookups.
+pub(in crate::ui) fn looks() -> Arc<Looks> {
+    Arc::new(Looks::new())
+}
+
+/// The app's lookups: the root context, or a set of this component's own where there is none.
+pub(in crate::ui) fn use_looks() -> Arc<Looks> {
+    use_hook(|| try_consume_context::<Arc<Looks>>().unwrap_or_else(looks))
+}
+
+/// A new cache of rendered bodies, asking `looks` which messages it has opened.
+pub(in crate::ui) fn frames(looks: Arc<Looks>) -> Arc<Frames> {
+    Arc::new(Frames::new(Arc::new(move |message: &Message| {
+        looks.opened_body(message).map(|parsed| *parsed)
     })))
 }
 
 /// The app's cache of rendered bodies: the root context, or a cache of this component's own where
 /// there is none.
 pub(in crate::ui) fn use_frames() -> Arc<Frames> {
-    use_hook(|| try_consume_context::<Arc<Frames>>().unwrap_or_else(frames))
+    let looks = use_looks();
+    use_hook(|| try_consume_context::<Arc<Frames>>().unwrap_or_else(|| frames(looks)))
 }
 
 /// Render `later` on a blocking thread, then move `landed` so the reader draws them.

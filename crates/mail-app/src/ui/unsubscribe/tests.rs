@@ -3,7 +3,7 @@
 //! the popover.
 
 use super::head::{Confirm, Phase};
-use super::{Ask, Offer, archive_from, ask, leave, looked_at, offer_of};
+use super::{Ask, Offer, archive_from, ask, leave};
 use crate::ui::app::App;
 use crate::ui::fixtures::{acct_account, dispatching, rebuild_into, seeded};
 use crate::ui::reading::Reader;
@@ -11,10 +11,11 @@ use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use dioxus_core::{NoOpMutations, VirtualDom};
 use ds::prelude::*;
+use mail_core::message::offer_of;
+use mail_core::message::{Looks, Read};
 use mail_core::unsubscribe::{Found, Outcome};
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
-use mail_mime::{ListHeaders, ListId};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -144,58 +145,25 @@ fn Open(thread: ThreadId) -> Element {
     rsx! { ds::prelude::Ds { appearance: ds::prelude::Appearance::default(), material: ds::prelude::Material::Window, Reader { thread, shell } } }
 }
 
-/// The reader on `thread`, once its lookup has landed.
-async fn reader_on(store: Arc<SqliteStore>, thread: ThreadId) -> (VirtualDom, String) {
-    let mut dom = VirtualDom::new_with_props(Open, OpenProps { thread }).with_root_context(store);
+/// The reader on `thread`, once its lookup has landed, and the lookups it used.
+async fn reader_looking(
+    store: Arc<SqliteStore>,
+    thread: ThreadId,
+) -> (VirtualDom, String, Arc<Looks>) {
+    let looks = Arc::new(Looks::new());
+    let mut dom = VirtualDom::new_with_props(Open, OpenProps { thread })
+        .with_root_context(store)
+        .with_root_context(looks.clone());
     dom.rebuild_in_place();
     settle(&mut dom, Duration::from_millis(400)).await;
     let markup = dioxus_ssr::render(&dom);
+    (dom, markup, looks)
+}
+
+/// [`reader_looking`], without the lookups.
+async fn reader_on(store: Arc<SqliteStore>, thread: ThreadId) -> (VirtualDom, String) {
+    let (dom, markup, _) = reader_looking(store, thread).await;
     (dom, markup)
-}
-
-#[test]
-fn there_is_an_offer_only_when_there_is_a_way_out() {
-    let cases = [
-        (ONE_CLICK, true),
-        (MAILTO, true),
-        (WEB, true),
-        (NO_WAY_OUT, false),
-        ("", false),
-    ];
-    for (headers, offered) in cases {
-        assert_eq!(offer_from(headers).is_some(), offered, "{headers:?}");
-    }
-}
-
-#[test]
-fn the_list_is_named_by_its_description_then_its_id_then_its_sender() {
-    let named = |id: Option<ListId>| {
-        let found = Found {
-            message: MessageId::generate(),
-            account: acct_account(),
-            addressed: vec![],
-            list: ListHeaders {
-                id,
-                unsubscribe: vec![mail_mime::Unsubscribe::Web {
-                    url: "https://example.test/".to_owned(),
-                }],
-            },
-        };
-        let sender = Address {
-            name: Some("News".to_owned()),
-            email: "news@example.test".to_owned(),
-        };
-        offer_of(found, sender, address("me@example.test"))
-            .unwrap()
-            .list
-    };
-    let id = |description: Option<&str>| ListId {
-        description: description.map(str::to_owned),
-        id: "weekly.example.test".to_owned(),
-    };
-    assert_eq!(named(Some(id(Some("Weekly")))), "Weekly");
-    assert_eq!(named(Some(id(None))), "weekly.example.test");
-    assert_eq!(named(None), "News");
 }
 
 #[tokio::test]
@@ -321,7 +289,9 @@ fn a_web_page_is_never_given_a_client() {
 fn a_mailto_way_out_queues_a_message() {
     let (store, _dir) = seeded();
     let thread = put(&store, "announce@example.test", MAILTO, Held::Body);
-    let offer = super::look(&store, thread).expect("the thread offers a way out");
+    let offer = Looks::new()
+        .offer(&store, thread, &Vec::new())
+        .expect("the thread offers a way out");
     assert!(matches!(ask(&offer), Some(Ask::Mailto { .. })));
 
     let outcome = leave(&store, &offer.found, chrono::Utc::now(), super::client).unwrap();
@@ -360,13 +330,16 @@ async fn the_list_does_not_read_a_list_header() {
     dispatching();
     let (store, _dir) = seeded();
     let thread = put(&store, "weekly@rust.test", MAILTO, Held::Body);
-    let mut dom = VirtualDom::new(App).with_root_context(store.clone());
+    let looks = Arc::new(Looks::new());
+    let mut dom = VirtualDom::new(App)
+        .with_root_context(store.clone())
+        .with_root_context(looks.clone());
     let _seen = rebuild_into(&mut dom);
     settle(&mut dom, Duration::from_millis(50)).await;
-    assert!(!looked_at(thread), "the list read a list header");
+    assert_eq!(looks.reads(Read::List), 0, "the list read a list header");
 
-    let (_, markup) = reader_on(store, thread).await;
-    assert!(looked_at(thread) && markup.contains("aria-label=\"Unsubscribe\""));
+    let (_, markup, reader) = reader_looking(store, thread).await;
+    assert!(reader.reads(Read::List) > 0 && markup.contains("aria-label=\"Unsubscribe\""));
 }
 
 #[tokio::test]

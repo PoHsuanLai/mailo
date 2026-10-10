@@ -1,6 +1,5 @@
 //! Invitations in the window. Opening shows the card and answers nothing; only Send does.
 
-use super::looked_at;
 use crate::ui::files::SaveDir;
 use crate::ui::fixtures::{
     Seen, acct_account, chord, click, dispatching, rebuild_into, seeded, type_into,
@@ -10,6 +9,7 @@ use crate::ui::view::Shell;
 use dioxus::html::input_data::keyboard_types::Modifiers;
 use dioxus::prelude::*;
 use dioxus_core::VirtualDom;
+use mail_core::message::{Looks, Read};
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
 use std::sync::Arc;
@@ -199,19 +199,32 @@ fn markup(dom: &VirtualDom) -> String {
     dioxus_ssr::render(dom).replace("&#39;", "'")
 }
 
-/// The reader on `thread`, saving into `saves`, once its lookups have landed.
+/// The reader on `thread`, saving into `saves`, once its lookups have landed, and the lookups it
+/// used.
+async fn reader_looking(
+    store: Arc<SqliteStore>,
+    thread: ThreadId,
+    saves: &std::path::Path,
+) -> (VirtualDom, Seen, String, Arc<Looks>) {
+    dispatching();
+    let looks = Arc::new(Looks::new());
+    let mut dom = VirtualDom::new_with_props(Open, OpenProps { thread })
+        .with_root_context(store)
+        .with_root_context(looks.clone())
+        .with_root_context(Saves(saves.to_owned()));
+    let mut seen = rebuild_into(&mut dom);
+    settle(&mut dom, &mut seen, 400).await;
+    let page = markup(&dom);
+    (dom, seen, page, looks)
+}
+
+/// [`reader_looking`], without the lookups.
 async fn reader_on(
     store: Arc<SqliteStore>,
     thread: ThreadId,
     saves: &std::path::Path,
 ) -> (VirtualDom, Seen, String) {
-    dispatching();
-    let mut dom = VirtualDom::new_with_props(Open, OpenProps { thread })
-        .with_root_context(store)
-        .with_root_context(Saves(saves.to_owned()));
-    let mut seen = rebuild_into(&mut dom);
-    settle(&mut dom, &mut seen, 400).await;
-    let page = markup(&dom);
+    let (dom, seen, page, _) = reader_looking(store, thread, saves).await;
     (dom, seen, page)
 }
 
@@ -220,9 +233,9 @@ async fn opening_an_invitation_shows_the_card_and_answers_nothing() {
     let (store, dir) = seeded();
     let (thread, message) = put(&store, &request(0), "REQUEST");
     let queued = outbox(&store);
-    let (_, _, page) = reader_on(store.clone(), thread, dir.path()).await;
+    let (_, _, page, looks) = reader_looking(store.clone(), thread, dir.path()).await;
     // It was looked at and shown: the assertions below are about a reader that did its work.
-    assert!(looked_at(message), "the card never looked");
+    assert!(looks.reads(Read::Invite) > 0, "the card never looked");
     assert!(page.contains("class=\"invite\""), "{page}");
     assert!(page.contains("Design review") && page.contains(">Accept<"));
     // At the top of the message, above its body, and not inside the sender's HTML.
@@ -389,6 +402,7 @@ fn the_answer_says_who_it_goes_to() {
     let (store, _dir) = seeded();
     let (_, message) = put(&store, &request(0), "REQUEST");
     let (said, card) = super::answer(
+        &Looks::new(),
         &store,
         message,
         Attendance::Tentative,

@@ -10,13 +10,14 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
 use dioxus_core::VirtualDom;
+use mail_core::message::{Looks, Read};
 use mail_core::{Arrival, MapSigningStore};
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
 use mail_mime::openpgp::{self, Cert, SecretCert, Unlocking};
 use rand::SeedableRng;
 
-use super::{Said, Seams, Tone, looked_at, said};
+use super::{Said, Seams, Tone, said};
 use crate::ui::fixtures::{
     Seen, acct_account, click, dispatching, rebuild_into, seeded, type_into,
 };
@@ -134,17 +135,30 @@ fn Open(thread: ThreadId) -> Element {
     rsx! { ds::prelude::Ds { appearance: ds::prelude::Appearance::default(), material: ds::prelude::Material::Window, Reader { thread, shell } } }
 }
 
-/// The reader on `thread`, with `secrets` as the keyring.
+/// The reader on `thread`, with `secrets` as the keyring, and the lookups it uses: the ones the
+/// seal and the reader's own body share, as the launched window's do.
+pub(super) fn reader_looking(
+    store: Arc<SqliteStore>,
+    secrets: Arc<MapSigningStore>,
+    thread: ThreadId,
+) -> (VirtualDom, Seen, Arc<Looks>) {
+    dispatching();
+    let looks = Arc::new(Looks::new());
+    let mut dom = VirtualDom::new_with_props(Open, OpenProps { thread })
+        .with_root_context(store)
+        .with_root_context(looks.clone())
+        .with_root_context(seams_with(secrets));
+    let seen = rebuild_into(&mut dom);
+    (dom, seen, looks)
+}
+
+/// [`reader_looking`], without the lookups.
 pub(super) fn reader(
     store: Arc<SqliteStore>,
     secrets: Arc<MapSigningStore>,
     thread: ThreadId,
 ) -> (VirtualDom, Seen) {
-    dispatching();
-    let mut dom = VirtualDom::new_with_props(Open, OpenProps { thread })
-        .with_root_context(store)
-        .with_root_context(seams_with(secrets));
-    let seen = rebuild_into(&mut dom);
+    let (dom, seen, _) = reader_looking(store, secrets, thread);
     (dom, seen)
 }
 
@@ -490,9 +504,9 @@ async fn a_signed_message_says_who_signed_it_over_its_body() {
         &store,
         sealed(&raw, OpenPgp::Sign, Some(&mine(&secrets, &key)), &[], 21),
     );
-    let (mut dom, mut seen) = reader(store, secrets, message.thread);
+    let (mut dom, mut seen, looks) = reader_looking(store, secrets, message.thread);
     let page = until(&mut dom, &mut seen, |page| shows(page, "seal-line")).await;
-    assert!(looked_at(message.id));
+    assert!(looks.reads(Read::Seal) > 0);
     let said = lines(&page);
     assert_eq!(
         said[0],
@@ -756,8 +770,8 @@ async fn a_plain_message_says_nothing_and_every_seal_class_is_styled() {
     let (store, _dir) = seeded();
     let secrets = Arc::new(MapSigningStore::default());
     let plain = arrive(&store, letter("finch", "no openpgp here").into_bytes());
-    let (mut dom, mut seen) = reader(store.clone(), secrets.clone(), plain.thread);
-    let page = until(&mut dom, &mut seen, |_| looked_at(plain.id)).await;
+    let (mut dom, mut seen, looks) = reader_looking(store.clone(), secrets.clone(), plain.thread);
+    let page = until(&mut dom, &mut seen, |_| looks.reads(Read::Seal) > 0).await;
     assert!(!page.contains("class=\"seal"), "{page}");
 
     let key = own_key(&store, &secrets);
