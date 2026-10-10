@@ -202,10 +202,12 @@ impl SqliteStore {
 fn read_key(row: &rusqlite::Row<'_>) -> Result<PgpKey, StoreError> {
     let fingerprint: String = row.get(0)?;
     Ok(PgpKey {
-        fingerprint: fingerprint.parse().map_err(|why| StoreError::Decode {
-            what: "pgp_keys.fingerprint".to_owned(),
-            why: why.to_string(),
-        })?,
+        fingerprint: fingerprint
+            .parse::<Fingerprint>()
+            .map_err(|why| StoreError::Decode {
+                what: "pgp_keys.fingerprint".to_owned(),
+                why: why.to_string(),
+            })?,
         key_ids: json("PgpKey.key_ids", &row.get::<_, String>(1)?)?,
         user_ids: json("PgpKey.user_ids", &row.get::<_, String>(2)?)?,
         emails: json("PgpKey.emails", &row.get::<_, String>(3)?)?,

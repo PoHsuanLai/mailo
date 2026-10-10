@@ -123,10 +123,12 @@ impl SqliteStore {
 fn read_cert(row: &rusqlite::Row<'_>) -> Result<SmimeCert, StoreError> {
     let fingerprint: String = row.get(0)?;
     Ok(SmimeCert {
-        fingerprint: fingerprint.parse().map_err(|why| StoreError::Decode {
-            what: "smime_certs.fingerprint".to_owned(),
-            why: why.to_string(),
-        })?,
+        fingerprint: fingerprint
+            .parse::<CertFingerprint>()
+            .map_err(|why| StoreError::Decode {
+                what: "smime_certs.fingerprint".to_owned(),
+                why: why.to_string(),
+            })?,
         subject: row.get(1)?,
         issuer: row.get(2)?,
         serial: row.get(3)?,
