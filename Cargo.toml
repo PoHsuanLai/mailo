@@ -26,7 +26,7 @@ rust-version = "1.92"
 latchkey    = { git = "https://github.com/PoHsuanLai/latchkey", rev = "ef0117ada46854702057c79515516da43b271455" }
 mail-core   = { path = "crates/mail-core", default-features = false }
 mail-domain = { path = "crates/mail-domain" }
-mail-mime   = { path = "crates/mail-mime" }
+mail-mime   = { path = "crates/mail-mime", default-features = false }
 mail-pim    = { path = "crates/mail-pim" }
 mail-proto  = { path = "crates/mail-proto" }
 mail-runtime = { path = "crates/mail-runtime", default-features = false }
