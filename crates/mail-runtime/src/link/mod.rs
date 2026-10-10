@@ -34,6 +34,7 @@ pub use client::{Client, Listed};
 pub use tokens::LinkedTokens;
 
 use crate::AccountSecrets;
+use crate::error::Failure;
 use porter_core::SecretKey;
 
 use crate::{RuntimeError, Transport};
@@ -344,9 +345,9 @@ impl LinkedSecrets {
 
 /// What a linked process says to a secret it is asked to read or write.
 fn not_here() -> RuntimeError {
-    RuntimeError::Secrets(
-        "linked to the desktop's accounts: Mail keeps no secret of its own".to_owned(),
-    )
+    RuntimeError::Secrets(Failure::said(
+        "linked to the desktop's accounts: Mail keeps no secret of its own",
+    ))
 }
 
 impl AccountSecrets for LinkedSecrets {

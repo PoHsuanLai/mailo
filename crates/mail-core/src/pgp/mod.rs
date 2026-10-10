@@ -16,6 +16,7 @@ pub use send::{check, outgoing};
 use chrono::{DateTime, Utc};
 use mail_domain::{Fingerprint, KeySource, KeyTrust, SecretHeld};
 use mail_mime::MimeError;
+use mail_runtime::Failure;
 use mail_runtime::{RuntimeError, SigningStore};
 use mail_store::{SqliteStore, Store, StoreError};
 use std::fmt::Write as _;
@@ -431,7 +432,7 @@ pub fn lookup_address(
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .map_err(|e| RuntimeError::Io(e.to_string()))?;
+        .map_err(|e| RuntimeError::Io(Failure::caused(e)))?;
     let http = mail_runtime::wkd::client()?;
     let Some(cert) = runtime.block_on(mail_runtime::wkd::lookup(&http, address))? else {
         return Ok(None);

@@ -5,6 +5,7 @@
 //! the outbox can act on — `Retryable`.
 
 use crate::RuntimeError;
+use crate::error::Failure;
 use mail_proto::jmap::{self, Call, Responses, Session};
 use mail_proto::{ProtoError, Refusal};
 use std::fmt;
@@ -63,10 +64,10 @@ pub fn safe_url(url: &url::Url) -> Result<(), RuntimeError> {
     if url.scheme() == "https" || (url.scheme() == "http" && loopback) {
         Ok(())
     } else {
-        Err(RuntimeError::Tls(format!(
+        Err(RuntimeError::Tls(Failure::said(format!(
             "JMAP: {url} is not HTTPS, and the account's password would cross the network in \
              the clear"
-        )))
+        ))))
     }
 }
 
@@ -88,15 +89,16 @@ impl Client {
         session_url: &str,
         auth: Auth,
     ) -> Result<Client, RuntimeError> {
-        let url = url::Url::parse(session_url)
-            .map_err(|e| RuntimeError::Connect(format!("JMAP: {session_url:?}: {e}")))?;
+        let url = url::Url::parse(session_url).map_err(|e| {
+            RuntimeError::Connect(Failure::new(format!("JMAP: {session_url:?}"), e))
+        })?;
         safe_url(&url)?;
         let response = auth
             .apply(http.get(url))
             .header(reqwest::header::ACCEPT, "application/json")
             .send()
             .await
-            .map_err(|e| RuntimeError::Connect(format!("JMAP session: {e}")))?;
+            .map_err(|e| RuntimeError::Connect(Failure::new("JMAP session", e)))?;
         // Relative URLs in the session are relative to where it was finally found.
         let base = response.url().clone();
         let body = checked(response, "the session").await?;
@@ -125,7 +127,7 @@ impl Client {
             .json(&body)
             .send()
             .await
-            .map_err(|e| RuntimeError::Connect(format!("JMAP: {e}")))?;
+            .map_err(|e| RuntimeError::Connect(Failure::new("JMAP", e)))?;
         let bytes = checked(response, "a request").await?;
         Ok(Responses::parse(&bytes)?)
     }
@@ -146,7 +148,7 @@ impl Client {
             .apply(self.http.get(url))
             .send()
             .await
-            .map_err(|e| RuntimeError::Connect(format!("JMAP download: {e}")))?;
+            .map_err(|e| RuntimeError::Connect(Failure::new("JMAP download", e)))?;
         checked(response, "a download").await
     }
 
@@ -174,7 +176,7 @@ impl Client {
             .body(bytes)
             .send()
             .await
-            .map_err(|e| RuntimeError::Connect(format!("JMAP upload: {e}")))?;
+            .map_err(|e| RuntimeError::Connect(Failure::new("JMAP upload", e)))?;
         let body = checked(response, "an upload").await?;
         let value: serde_json::Value = serde_json::from_slice(&body)
             .map_err(|e| ProtoError::Malformed(format!("JMAP upload answer: {e}")))?;
@@ -215,7 +217,7 @@ impl Client {
             .header(reqwest::header::ACCEPT, "text/event-stream")
             .send()
             .await
-            .map_err(|e| RuntimeError::Connect(format!("JMAP push: {e}")))?;
+            .map_err(|e| RuntimeError::Connect(Failure::new("JMAP push", e)))?;
         if response.status().is_success() {
             return Ok(Some(response));
         }
@@ -230,7 +232,7 @@ async fn checked(response: reqwest::Response, what: &str) -> Result<Vec<u8>, Run
             .bytes()
             .await
             .map(|b| b.to_vec())
-            .map_err(|e| RuntimeError::Io(format!("JMAP {what}: {e}")));
+            .map_err(|e| RuntimeError::Io(Failure::new(format!("JMAP {what}"), e)));
     }
     Err(refusal(response, what).await)
 }
@@ -295,16 +297,16 @@ pub async fn find_session(http: &reqwest::Client, url: &str) -> Result<String, R
         .header(reqwest::header::ACCEPT, "application/json")
         .send()
         .await
-        .map_err(|e| RuntimeError::Connect(format!("no JMAP session at {url}: {e}")))?;
+        .map_err(|e| RuntimeError::Connect(Failure::new(format!("no JMAP session at {url}"), e)))?;
     let found = response.url().clone();
     match response.status().as_u16() {
         200 | 401 => {
             safe_url(&found)?;
             Ok(found.to_string())
         }
-        status => Err(RuntimeError::Connect(format!(
+        status => Err(RuntimeError::Connect(Failure::said(format!(
             "no JMAP session at {url}: the server answered HTTP {status}"
-        ))),
+        )))),
     }
 }
 

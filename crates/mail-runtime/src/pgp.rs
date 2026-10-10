@@ -4,6 +4,7 @@
 //! do: read and write the keyring, and write what arriving mail taught to the store. Nothing
 //! here decrypts anything — mail is decrypted when the reader opens it, never as it arrives.
 
+use crate::error::Failure;
 use crate::{RuntimeError, SigningStore};
 use chrono::{DateTime, Utc};
 use mail_domain::autocrypt::{self, Sighting, effective_date};
@@ -28,9 +29,9 @@ pub fn secret_key(
 ) -> Result<SecretCert, RuntimeError> {
     match secrets.get(&entry(account, fingerprint))? {
         SigningSecret::OpenPgp(armored) => Ok(SecretCert::from_armored(&armored)?),
-        SigningSecret::SmimeKey(_) => Err(RuntimeError::Secrets(format!(
+        SigningSecret::SmimeKey(_) => Err(RuntimeError::Secrets(Failure::said(format!(
             "the keyring entry for OpenPGP key {fingerprint} holds something else"
-        ))),
+        )))),
     }
 }
 

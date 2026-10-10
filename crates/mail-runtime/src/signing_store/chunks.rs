@@ -14,6 +14,7 @@
 //! stored value can never be mistaken for the marker.
 
 use crate::RuntimeError;
+use crate::error::Failure;
 
 /// How long one entry's value may be on this platform.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -89,9 +90,9 @@ pub fn get(slots: &dyn Slots, name: &str) -> Result<Option<String>, RuntimeError
         match slots.read(&part_name(name, index))? {
             Some(part) => value.push_str(&part),
             None => {
-                return Err(RuntimeError::Secrets(format!(
+                return Err(RuntimeError::Secrets(Failure::said(format!(
                     "stored credential is incomplete: part {index} of {parts} is missing"
-                )));
+                ))));
             }
         }
     }
@@ -123,9 +124,9 @@ fn parts_in(head: &str) -> Result<Option<usize>, RuntimeError> {
     };
     match count.parse::<usize>() {
         Ok(count) if (2..=MOST_PARTS).contains(&count) => Ok(Some(count)),
-        _ => Err(RuntimeError::Secrets(format!(
+        _ => Err(RuntimeError::Secrets(Failure::said(format!(
             "stored credential is unreadable: {head:?} is not a part count"
-        ))),
+        )))),
     }
 }
 
@@ -184,7 +185,9 @@ mod tests {
 
         fn write(&self, name: &str, value: &str) -> Result<(), RuntimeError> {
             if value.encode_utf16().count() > self.limit {
-                return Err(RuntimeError::Secrets(format!("{name} is too long")));
+                return Err(RuntimeError::Secrets(Failure::said(format!(
+                    "{name} is too long"
+                ))));
             }
             self.entries
                 .lock()

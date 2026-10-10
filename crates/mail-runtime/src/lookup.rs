@@ -14,6 +14,7 @@
 //! server at all. Redirects are followed only to `https:`. Each request has [`PER_REQUEST`], and
 //! a caller that wants a bound on a whole search wraps it in [`TOTAL`].
 
+use crate::error::Failure;
 use porter_discover::{Dns, DnsFault, MxRecord, SrvRecord};
 use porter_http::{Header, Http, HttpError, HttpRequest, HttpResponse, Status};
 use porter_provider::DomainName;
@@ -54,13 +55,13 @@ impl fmt::Debug for SystemDns {
 impl SystemDns {
     pub fn new() -> Result<Self, crate::RuntimeError> {
         let mut builder = hickory_resolver::TokioResolver::builder_tokio()
-            .map_err(|e| crate::RuntimeError::Connect(format!("no DNS configuration: {e}")))?;
+            .map_err(|e| crate::RuntimeError::Connect(Failure::new("no DNS configuration", e)))?;
         builder.options_mut().timeout = PER_REQUEST;
         builder.options_mut().attempts = 1;
         builder
             .build()
             .map(SystemDns)
-            .map_err(|e| crate::RuntimeError::Connect(format!("cannot start a resolver: {e}")))
+            .map_err(|e| crate::RuntimeError::Connect(Failure::new("cannot start a resolver", e)))
     }
 
     /// The TXT records at `name`, each one's strings joined as RFC 7208 §3.3 joins SPF's. A

@@ -5,6 +5,7 @@
 //! misrepresent ownership, and `Box<dyn Store>` per account would be worse. Time is an argument
 //! rather than a `Clock` trait, per `CONVENTIONS.md` §6.
 
+use crate::error::Failure;
 use crate::tokens::{AfterRefusal, Token, TokenSource};
 use crate::{AccountSecrets, Cancel, RuntimeError, Transport, drive};
 use chrono::{DateTime, Utc};
@@ -573,10 +574,10 @@ impl<B: Backend> AccountEngine<B> {
         let access = match self.presented(Token::Sending).await {
             Ok(Credential::OAuth { access, .. }) => access,
             _ => {
-                return Err(RuntimeError::Secrets(format!(
+                return Err(RuntimeError::Secrets(Failure::said(format!(
                     "no Microsoft Graph sign-in is stored for {}",
                     self.plan.address
-                )));
+                ))));
             }
         };
         let staged = match &op {
@@ -848,9 +849,9 @@ impl<B: Backend> AccountEngine<B> {
     ) -> Result<ProtoOutcome, RuntimeError> {
         let credential = self.presented(Token::Sending).await?;
         let porter_core::Credential::OAuth { access, .. } = credential else {
-            return Err(RuntimeError::Secrets(
-                "sending through Graph needs a Microsoft sign-in, not a password".to_owned(),
-            ));
+            return Err(RuntimeError::Secrets(Failure::said(
+                "sending through Graph needs a Microsoft sign-in, not a password",
+            )));
         };
         let http = crate::http::http_client()?;
         crate::graph::send_mime(&http, &self.graph_url, access.expose(), message, rcpt_to).await?;

@@ -7,6 +7,7 @@
 
 use super::{Answer, EXPAND, INBOX, Reader, SELECT, describe, well_known};
 use crate::RuntimeError;
+use crate::error::Failure;
 use crate::graph::segment;
 use mail_domain::{ReadState, RemoteRef, Star};
 use mail_proto::search::graph::{GraphPlace, GraphPlan, GraphQuery};
@@ -51,7 +52,7 @@ impl Reader {
             }
         };
         let mut url = url::Url::parse(&base)
-            .map_err(|e| RuntimeError::Connect(format!("Microsoft Graph: {e}")))?;
+            .map_err(|e| RuntimeError::Connect(Failure::new("Microsoft Graph", e)))?;
         {
             let mut query = url.query_pairs_mut();
             match &plan.query {

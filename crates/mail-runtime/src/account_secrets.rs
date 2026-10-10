@@ -20,6 +20,7 @@
 //! Signing keys are not here: they are mailo's own (`signing_store.rs`).
 
 use crate::RuntimeError;
+use crate::error::Failure;
 use porter_core::{AccountId, Credential, SecretKey};
 use porter_secrets::{Secrets, SecretsError};
 use std::future::Future;
@@ -54,7 +55,7 @@ pub trait AccountSecrets: Send + Sync {
 /// Every secret failure is `Secrets`, which reads as `NeedsReauth`: a missing or locked store is
 /// answered by asking the person to sign in, not by retrying. That is how it always was.
 fn refused(why: SecretsError) -> RuntimeError {
-    RuntimeError::Secrets(why.to_string())
+    RuntimeError::Secrets(Failure::caused(why))
 }
 
 impl<S: Secrets> AccountSecrets for S {

@@ -17,6 +17,7 @@ use crate::AccountSecrets;
 use crate::RuntimeError;
 use crate::authorize::exchange_failure;
 use crate::clients;
+use crate::error::Failure;
 use chrono::{DateTime, Utc};
 use mail_domain::{AccountPlan, AuthPlan, Incoming, Outgoing, Retry, Retryable};
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose, SecretText, UnixSeconds};
@@ -356,9 +357,9 @@ async fn sign_in_refresh(
         Credential::Password(_)
         | Credential::ApiKey(_)
         | Credential::Bearer(_)
-        | Credential::KeyPair { .. } => Err(RuntimeError::Secrets(
-            "sending through Graph needs a Microsoft sign-in".to_owned(),
-        )),
+        | Credential::KeyPair { .. } => Err(RuntimeError::Secrets(Failure::said(
+            "sending through Graph needs a Microsoft sign-in",
+        ))),
     }
 }
 
@@ -553,7 +554,7 @@ impl OAuthTokens {
             Token::Incoming => spent.refused_incoming = Some(why.clone()),
             Token::Sending => spent.refused_sending = Some(why.clone()),
         }
-        Err(RuntimeError::Secrets(why))
+        Err(RuntimeError::Secrets(Failure::said(why)))
     }
 
     /// The refusal already heard for `token`, if there was one, so it is not asked again.
@@ -564,7 +565,7 @@ impl OAuthTokens {
             Token::Sending => &spent.refused_sending,
         };
         match refused {
-            Some(why) => Err(RuntimeError::Secrets(why.clone())),
+            Some(why) => Err(RuntimeError::Secrets(Failure::said(why.clone()))),
             None => Ok(()),
         }
     }

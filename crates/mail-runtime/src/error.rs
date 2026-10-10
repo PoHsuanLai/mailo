@@ -1,17 +1,93 @@
 //! Runtime failures.
 
 use mail_domain::{Retry, Retryable};
+use std::fmt;
 use std::time::Duration;
+
+/// What a failure carries as its cause, kept as the error it was rather than as its text.
+pub type Source = Box<dyn std::error::Error + Send + Sync + 'static>;
+
+/// What went wrong outside the protocol, in words, with the error underneath when there is one.
+///
+/// Reads as `doing: cause` (just `doing` or just the cause when the other is absent), the way
+/// the text always read; a caller that wants the cause itself walks [`std::error::Error::source`]
+/// rather than parsing the sentence.
+#[derive(Debug)]
+pub struct Failure {
+    doing: String,
+    source: Option<Source>,
+}
+
+impl Failure {
+    /// What was being done, and the error that stopped it.
+    pub fn new(doing: impl Into<String>, source: impl Into<Source>) -> Self {
+        Self {
+            doing: doing.into(),
+            source: Some(source.into()),
+        }
+    }
+
+    /// A failure with no cause beneath it, only words.
+    pub fn said(words: impl Into<String>) -> Self {
+        Self {
+            doing: words.into(),
+            source: None,
+        }
+    }
+
+    /// An error with nothing to say about what was being done.
+    pub fn caused(source: impl Into<Source>) -> Self {
+        Self {
+            doing: String::new(),
+            source: Some(source.into()),
+        }
+    }
+
+    /// The same failure with something more said after it, as an issuer says why it refused.
+    pub(crate) fn add_detail(&mut self, said: &str) {
+        *self = Failure::said(format!("{self}: {said}"));
+    }
+}
+
+impl fmt::Display for Failure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match (self.doing.is_empty(), &self.source) {
+            (_, None) => f.write_str(&self.doing),
+            (true, Some(source)) => write!(f, "{source}"),
+            (false, Some(source)) => write!(f, "{}: {source}", self.doing),
+        }
+    }
+}
+
+impl std::error::Error for Failure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.source
+            .as_deref()
+            .map(|source| source as &(dyn std::error::Error + 'static))
+    }
+}
+
+impl From<String> for Failure {
+    fn from(words: String) -> Self {
+        Failure::said(words)
+    }
+}
+
+impl From<&str> for Failure {
+    fn from(words: &str) -> Self {
+        Failure::said(words)
+    }
+}
 
 /// Something went wrong outside the protocol machines.
 #[derive(Debug, thiserror::Error)]
 pub enum RuntimeError {
     #[error("cannot connect: {0}")]
-    Connect(String),
+    Connect(#[source] Failure),
     #[error("TLS: {0}")]
-    Tls(String),
+    Tls(#[source] Failure),
     #[error("io: {0}")]
-    Io(String),
+    Io(#[source] Failure),
     #[error("protocol: {0}")]
     Proto(#[from] mail_proto::ProtoError),
     #[error("store: {0}")]
@@ -19,7 +95,7 @@ pub enum RuntimeError {
     #[error("composing: {0}")]
     Compose(#[from] mail_mime::MimeError),
     #[error("secret store: {0}")]
-    Secrets(String),
+    Secrets(#[source] Failure),
     /// The machine wanted something the transport in use cannot provide.
     #[error("unsupported io: {0}")]
     UnsupportedIo(String),
@@ -54,7 +130,7 @@ impl Retryable for RuntimeError {
             // Either the clock is wrong, the network is hostile, or the server really did
             // present a bad chain. None of those is fixed by trying again in a loop, and
             // retrying a rejected certificate is how a client teaches its user to ignore it.
-            RuntimeError::Tls(why) => Retry::Fatal(why.clone()),
+            RuntimeError::Tls(why) => Retry::Fatal(why.to_string()),
             // A fact about the message, not about the network. Retrying rebuilds the same
             // bytes and fails the same way, forever.
             RuntimeError::Compose(e) => e.retry(),

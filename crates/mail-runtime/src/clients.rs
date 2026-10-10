@@ -15,6 +15,7 @@
 //! account signed in with `MAILO_OAUTH_CLIENT_ID` could not be renewed an hour later otherwise.
 
 use crate::RuntimeError;
+use crate::error::Failure;
 use porter_core::{EndpointUrl, SecretText};
 use porter_oauth::ClientRegistry;
 use porter_provider::{
@@ -72,8 +73,9 @@ pub fn load(files: &Files) -> Result<ClientRegistry, RuntimeError> {
     if let Some(path) = &files.legacy
         && let Some(text) = text(path)?
     {
-        let legacy = porter_oauth::from_mailo(&text, CHANNEL)
-            .map_err(|e| RuntimeError::Secrets(format!("{}: unreadable: {e}", path.display())))?;
+        let legacy = porter_oauth::from_mailo(&text, CHANNEL).map_err(|e| {
+            RuntimeError::Secrets(Failure::new(format!("{}: unreadable", path.display()), e))
+        })?;
         for entry in legacy.clients {
             let covered = |file: &ClientsFile| {
                 file.clients
@@ -139,9 +141,9 @@ pub fn endpoints(client: &ClientEntry) -> Result<IssuerEndpoints, RuntimeError> 
                 device: None,
             })
         }
-        other => Err(RuntimeError::Secrets(format!(
+        other => Err(RuntimeError::Secrets(Failure::said(format!(
             "mailo has no mail sign-in through {other:?}"
-        ))),
+        )))),
     }
 }
 
@@ -163,7 +165,7 @@ pub fn remember(
         None => Vec::new(),
         Some(text) => {
             let file: serde_json::Value = serde_json::from_str(&text).map_err(|e| {
-                RuntimeError::Secrets(format!("{}: unreadable: {e}", path.display()))
+                RuntimeError::Secrets(Failure::new(format!("{}: unreadable", path.display()), e))
             })?;
             file.get("registrations")
                 .and_then(|r| r.as_array().cloned())
@@ -171,7 +173,7 @@ pub fn remember(
         }
     };
     let issuer_name = serde_json::to_value(issuer)
-        .map_err(|e| RuntimeError::Secrets(format!("cannot encode the registry: {e}")))?;
+        .map_err(|e| RuntimeError::Secrets(Failure::new("cannot encode the registry", e)))?;
     let mut row = serde_json::json!({ "issuer": issuer_name, "client_id": client_id });
     if let Some(secret) = client_secret {
         row["client_secret"] = secret.into();
@@ -184,12 +186,13 @@ pub fn remember(
         None => rows.push(row),
     }
     let body = serde_json::to_string_pretty(&serde_json::json!({ "registrations": rows }))
-        .map_err(|e| RuntimeError::Secrets(format!("cannot encode the registry: {e}")))?;
+        .map_err(|e| RuntimeError::Secrets(Failure::new("cannot encode the registry", e)))?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
-            .map_err(|e| RuntimeError::Io(format!("{}: {e}", parent.display())))?;
+            .map_err(|e| RuntimeError::Io(Failure::new(parent.display().to_string(), e)))?;
     }
-    std::fs::write(path, body).map_err(|e| RuntimeError::Io(format!("{}: {e}", path.display())))?;
+    std::fs::write(path, body)
+        .map_err(|e| RuntimeError::Io(Failure::new(path.display().to_string(), e)))?;
     // Owner-only, as it always was: the application secret in here is not the user's credential,
     // but a config file nobody else can read costs one syscall and removes the question.
     #[cfg(unix)]
@@ -204,7 +207,10 @@ fn text(path: &Path) -> Result<Option<String>, RuntimeError> {
     match std::fs::read_to_string(path) {
         Ok(text) => Ok(Some(text)),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(RuntimeError::Io(format!("{}: {e}", path.display()))),
+        Err(e) => Err(RuntimeError::Io(Failure::new(
+            path.display().to_string(),
+            e,
+        ))),
     }
 }
 
@@ -214,8 +220,9 @@ fn read(path: Option<&Path>) -> Result<ClientsFile, RuntimeError> {
     };
     match text(path)? {
         None => Ok(ClientsFile::default()),
-        Some(text) => parse_clients(&text)
-            .map_err(|e| RuntimeError::Secrets(format!("{}: unreadable: {e}", path.display()))),
+        Some(text) => parse_clients(&text).map_err(|e| {
+            RuntimeError::Secrets(Failure::new(format!("{}: unreadable", path.display()), e))
+        }),
     }
 }
 
