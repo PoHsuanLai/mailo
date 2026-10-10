@@ -2,13 +2,13 @@
 
 use mail_mime::{RemoteImages, SanitizePolicy, from_html, sanitize};
 
-use crate::ui::editor::convert::{nodes_from_blocks, nodes_from_plain};
-use crate::ui::editor::doc::{Doc, Node, ParaKind, Pos, Range};
-use crate::ui::editor::error::OpError;
-use crate::ui::editor::input::{Edit, InputEvent, Record, at, without_selection};
-use crate::ui::editor::keys::Caret;
-use crate::ui::editor::op::Op;
-use crate::ui::editor::text::{grapheme_len, node_len};
+use crate::editor::convert::{nodes_from_blocks, nodes_from_plain};
+use crate::editor::doc::{Doc, Node, ParaKind, Pos, Range};
+use crate::editor::error::OpError;
+use crate::editor::input::{Edit, InputEvent, Record, at, without_selection};
+use crate::editor::keys::Caret;
+use crate::editor::op::Op;
+use crate::editor::text::{grapheme_len, node_len};
 
 /// Clipboard HTML goes through `sanitize`, then `from_html`, then nodes. Plain text is
 /// paragraphs. One plain paragraph is typed into the line; anything more is inserted as nodes.

@@ -9,7 +9,7 @@ pub use html::to_html;
 
 use mail_mime::{Block, Span};
 
-use crate::ui::editor::doc::{Check, Node, ParaKind};
+use crate::editor::doc::{Check, Node, ParaKind};
 
 /// Which list a run of list items is. A list is written once around consecutive items.
 #[derive(Clone, Copy)]

@@ -5,10 +5,10 @@
 
 use mail_mime::{Block, ListKind, Span};
 
-use crate::ui::editor::doc::{
+use crate::editor::doc::{
     Check, ImageRef, Level, Mark, Marks, Node, Object, ParaKind, Presence, Run, Table,
 };
-use crate::ui::editor::text::{delete_text, grapheme_len, runs_text};
+use crate::editor::text::{delete_text, grapheme_len, runs_text};
 
 /// Paragraphs from plain clipboard text.
 ///

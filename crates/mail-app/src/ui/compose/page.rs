@@ -8,7 +8,7 @@ use mail_domain::{Address, Draft, DraftId, ReceiptRequest};
 use porter_core::AccountId;
 
 use super::opening::doc_of;
-use crate::ui::editor::{Person, Pos, Range, Session};
+use mail_core::editor::{Person, Pos, Range, Session};
 
 /// Whether the page stands alone in the reader column or sits under a thread.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -323,8 +323,8 @@ impl Page {
             to: self.to.iter().map(address).collect(),
             cc: self.cc.iter().map(address).collect(),
             subject: self.subject.clone(),
-            text: crate::ui::editor::to_flowed(doc),
-            html: Some(crate::ui::editor::to_html(doc)),
+            text: mail_core::editor::to_flowed(doc),
+            html: Some(mail_core::editor::to_html(doc)),
             receipt: self.receipt,
             openpgp: self.protection.openpgp(),
             smime: self.protection.smime(),

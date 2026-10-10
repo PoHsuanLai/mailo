@@ -1,7 +1,7 @@
 //! Behaviour the composer has to keep. The two properties live here; the tables are in
 //! `tests/`, one file per concern.
 //!
-//! This file keeps its name because `proptest-regressions/ui/editor/tests.txt` is keyed to it:
+//! This file keeps its name because `proptest-regressions/editor/tests.txt` is keyed to it:
 //! the seeds recorded there are replayed before any new case.
 
 mod events;

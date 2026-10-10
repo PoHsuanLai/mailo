@@ -33,8 +33,8 @@ use super::page::Page;
 use super::wire::{Heard, hear};
 use super::{ComposerPage, SendPill, composing};
 use crate::ui::appearance::WindowDirs;
-use crate::ui::editor::{InputEvent, Node, Person, Pos, Range};
 use crate::ui::view::Shell;
+use mail_core::editor::{InputEvent, Node, Person, Pos, Range};
 
 /// A fixed instant, so nothing here depends on the clock.
 fn at(minutes: i64) -> DateTime<Utc> {
@@ -168,7 +168,7 @@ fn body(page: &Page) -> String {
         .nodes
         .iter()
         .map(|node| match node {
-            Node::Para { runs, .. } => crate::ui::editor::runs_text(runs),
+            Node::Para { runs, .. } => mail_core::editor::runs_text(runs),
             Node::Object(_) => "[object]".to_owned(),
         })
         .collect::<Vec<_>>()
@@ -272,13 +272,13 @@ impl Window {
 
 #[test]
 fn a_reply_text_opens_as_paragraphs_a_signature_and_a_folded_original() {
-    use crate::ui::editor::Object;
+    use mail_core::editor::Object;
     let text = "Sounds good.\r\n\r\n-- \r\nDana\r\n\r\nOn Wed, 23 Sep 2026 at 09:02, Sam Okafor wrote:\r\n> first line\r\n> second line\r\n";
     let nodes = super::opening::doc_from_text(text);
     let shape: Vec<String> = nodes
         .iter()
         .map(|node| match node {
-            Node::Para { runs, .. } => format!("p:{}", crate::ui::editor::runs_text(runs)),
+            Node::Para { runs, .. } => format!("p:{}", mail_core::editor::runs_text(runs)),
             Node::Object(Object::Signature) => "sig".to_owned(),
             Node::Object(Object::QuotedMessage { who, when, body }) => {
                 format!("quoted:{who}/{when}/{}", body.len())

@@ -4,7 +4,7 @@
 //! `search::fuzzy` is private; the matcher is the one the command menu re-exports. An empty
 //! query lists the whole menu, in catalog order.
 
-use crate::ui::editor::doc::{Check, Level, ParaKind};
+use crate::editor::doc::{Check, Level, ParaKind};
 use mail_core::search::match_list;
 
 /// What choosing the item does.

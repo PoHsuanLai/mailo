@@ -11,7 +11,7 @@ use super::super::contacts::groups::{self, Offer};
 use super::super::menu::{MenuItem, Right, Tile};
 use super::float::people_rows;
 use super::page::{CcRow, Float, List, Page, person};
-use crate::ui::editor::Person;
+use mail_core::editor::Person;
 
 /// Someone typed into `list`'s field. A comma commits what came before it.
 ///

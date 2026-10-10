@@ -5,8 +5,8 @@ use base64::Engine as _;
 use super::super::page::{CcRow, Float, Guard};
 use super::*;
 use crate::ui::app::App;
-use crate::ui::editor::{Check, Doc, ImageRef, Level, Object, ParaKind, Range, Table};
 use crate::ui::fixtures::{key, work};
+use mail_core::editor::{Check, Doc, ImageRef, Level, Object, ParaKind, Range, Table};
 
 /// A small picture, embedded the way an image in a draft is: never fetched.
 fn picture() -> String {
@@ -55,7 +55,7 @@ fn composed(page: &mut Page) {
             ),
         ],
     };
-    page.session.caret = crate::ui::editor::Caret::at(7, 1);
+    page.session.caret = mail_core::editor::Caret::at(7, 1);
     page.float = Float::Slash {
         anchor: Pos::new(7, 0),
         active: 0,

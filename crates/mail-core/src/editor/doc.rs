@@ -3,7 +3,7 @@
 //! Offsets are grapheme clusters. A backspace deletes what the reader sees as one
 //! character, including an emoji family joined by ZWJ.
 
-use crate::ui::editor::text::normalize_runs;
+use crate::editor::text::normalize_runs;
 use mail_mime::SafeUrl;
 use mail_mime::block::Block;
 

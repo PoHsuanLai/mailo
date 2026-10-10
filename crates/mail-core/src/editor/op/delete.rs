@@ -1,9 +1,9 @@
 //! Deleting a range: inside one paragraph, or across paragraphs and objects.
 
 use super::{Op, check_range, paragraph_mut};
-use crate::ui::editor::doc::{Doc, Marks, Node, ParaKind, Pos, Range, Run};
-use crate::ui::editor::error::OpError;
-use crate::ui::editor::text::{delete_text, grapheme_len, normalize_runs, para_len};
+use crate::editor::doc::{Doc, Marks, Node, ParaKind, Pos, Range, Run};
+use crate::editor::error::OpError;
+use crate::editor::text::{delete_text, grapheme_len, normalize_runs, para_len};
 
 pub(super) fn delete(doc: &mut Doc, range: Range) -> Result<Op, OpError> {
     let range = range.ordered();

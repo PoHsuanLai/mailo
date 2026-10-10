@@ -25,6 +25,7 @@ pub mod compose;
 pub mod config;
 pub mod contacts;
 pub mod discover;
+pub mod editor;
 pub mod environment;
 pub mod error;
 pub mod export;

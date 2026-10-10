@@ -11,9 +11,9 @@ mod delete;
 mod nodes;
 mod paint;
 
-use crate::ui::editor::doc::{Doc, Mark, Marks, Node, ParaKind, Pos, Presence, Range, Run};
-use crate::ui::editor::error::OpError;
-use crate::ui::editor::text::{
+use crate::editor::doc::{Doc, Mark, Marks, Node, ParaKind, Pos, Presence, Range, Run};
+use crate::editor::error::OpError;
+use crate::editor::text::{
     delete_text, grapheme_len, insert_text, node_len, normalize_runs, para_len,
 };
 
