@@ -3,11 +3,10 @@
 //! that answers the sign-in page by calling the loopback listener back, as a browser sent back by
 //! the issuer does.
 
-use mail_core::account::direct::WAIT;
+use mail_core::account::direct::{Profiles, WAIT};
 use mail_core::account::{Direct, Mode, SignInError, sign_in_with};
 use mail_core::{Environment, SqliteStore};
 use mail_domain::AuthPlan;
-use mail_runtime::authorize::Profiles;
 use porter_core::{AccountId, Credential, EndpointUrl, SecretKey, SecretPurpose};
 use porter_provider::{ClientEntry, Issuer, IssuerEndpoints};
 use porter_secrets::MemorySecrets;

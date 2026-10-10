@@ -138,6 +138,8 @@ pub(super) fn AccountTiles(
 ) -> Element {
     // The "+" menu while it is open: the accounts it offers, hung from the row of tiles.
     let mut joining = use_signal(|| None::<Vec<(AccountId, String)>>);
+    // The add menu while it is open: the providers that sign in straight in the browser.
+    let mut adding = use_signal(|| None::<Vec<(porter_provider::Issuer, String)>>);
     let mut row_at = use_signal(|| None::<MountedRef>);
     let colors = space.clone();
     let several = counted.rows.len() > 1;
@@ -200,7 +202,9 @@ pub(super) fn AccountTiles(
                         .map(|row| (row.id.clone(), row.shown()))
                         .collect();
                     match join::plus(spaces.peek().current(), &all) {
-                        Plus::AddNew => super::super::add_account::open(),
+                        Plus::AddNew => {
+                            super::super::add_account::add_from(|offered| adding.set(Some(offered)))
+                        }
                         Plus::Offer(outside) => joining.set(Some(outside)),
                     }
                 }),
@@ -237,12 +241,23 @@ pub(super) fn AccountTiles(
                     joining.set(None);
                     match join::picked(&key, &outside) {
                         Some(account) => bring_in(shell, spaces, account),
-                        None => super::super::add_account::open(),
+                        None => super::super::add_account::add_from(|offered| {
+                            adding.set(Some(offered))
+                        }),
                     }
                 },
                 on_close: move |_| joining.set(None),
             }
         }
+        if let Some(redirects) = adding() {
+            super::super::add_account::AddMenu {
+                anchor: row_at(),
+                redirects,
+                on_close: move |()| adding.set(None),
+            }
+        }
+        // A sign-in in the browser, while it waits: a quiet row under the tiles.
+        super::super::add_account::PendingSignIn {}
     }
 }
 

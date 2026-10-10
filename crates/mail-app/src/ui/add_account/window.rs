@@ -388,7 +388,7 @@ fn body(step: Step, send: Callback<Action>, marks: Marks) -> Element {
 }
 
 /// The account mailo's store has for `address`, which the add has just written.
-fn account_at(address: &str) -> Option<AccountId> {
+pub(super) fn account_at(address: &str) -> Option<AccountId> {
     let store = consume_context::<Arc<SqliteStore>>();
     crate::ui::data::account_rows(&store)
         .into_iter()
@@ -397,7 +397,7 @@ fn account_at(address: &str) -> Option<AccountId> {
 }
 
 /// A new account joins the current Space when the Space is limited to some accounts.
-fn into_scope(spaces: &mut Signal<Spaces>, account: AccountId) {
+pub(super) fn into_scope(spaces: &mut Signal<Spaces>, account: AccountId) {
     // The Spaces as they are on disk: this window's copy may be older than a Space another
     // window added or switched to meanwhile, and keeping it would undo that.
     if let Some(dirs) = try_consume_context::<crate::ui::appearance::WindowDirs>()

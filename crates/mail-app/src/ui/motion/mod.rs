@@ -39,6 +39,9 @@ pub(in crate::ui) enum Follow {
     Undo(UndoHandle),
     /// After leaving a list: archive what it already sent, by its sender's address.
     ArchiveFrom { sender: String, list: String },
+    /// After a sign-in in the browser that did not work: try it again, or open the add-account
+    /// window, which says what is missing.
+    SignIn(crate::ui::add_account::Retry),
     /// Nothing to take back: an unsubscribe, once made, is the list's.
     Nothing,
 }
@@ -52,6 +55,9 @@ pub(super) struct Toasts {
     /// What the "Archive All" button of a leave-a-list toast does: it reads the list it offered
     /// from [`Motion::toast`] when pressed.
     pub on_archive: EventHandler<()>,
+    /// What the button of a sign-in that did not work does ("Try Again", "Use Add Account…"):
+    /// it reads what it offered from [`Motion::toast`] when pressed.
+    pub on_sign_in: EventHandler<()>,
 }
 
 /// The motion state the window shares.
@@ -331,6 +337,18 @@ impl Motion {
                 toasts
                     .hub
                     .push_action(text, ToastAction::new("Archive All"), toasts.on_archive);
+            }
+            (Follow::SignIn(retry), Some(toasts)) => {
+                let serial = self.toast.peek().as_ref().map_or(0, |said| said.serial) + 1;
+                let label = retry.label();
+                self.toast.set(Some(Said {
+                    text: text.clone(),
+                    serial,
+                    follow: Follow::SignIn(retry),
+                }));
+                toasts
+                    .hub
+                    .push_action(text, ToastAction::new(label), toasts.on_sign_in);
             }
             // No host yet (a window still mounting): the words are kept, as before.
             (follow, None) => {

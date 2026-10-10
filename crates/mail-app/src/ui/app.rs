@@ -716,6 +716,8 @@ pub(super) fn App() -> Element {
                 }
             }
             super::space_menu::MailSpaceMenu { handle, today: today_list }
+            // A sign-in straight in the browser: run here, and said here when it ends.
+            super::add_account::DirectSignInWatch { spaces }
             // The search panel, at the top centre of the window while it is up.
             super::command::Spotlight { shell, pages, revision, in_a_field, side_hidden, spaces }
             if shell.read().files.is_some() {

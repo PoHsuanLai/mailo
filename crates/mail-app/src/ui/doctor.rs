@@ -6,7 +6,9 @@
 //! list's title opens it too when it is a warning, and so does the search bar. The words of
 //! each line are [`crate::ui::fetching::account_line`]'s.
 //!
-//! Sign In and Settings borrow the Add account sheet, prefilled with the account. This sheet
+//! Sign In goes straight to the browser for an account that signs in with a redirect
+//! (`add_account::again`); otherwise Sign In and Settings borrow the Add account sheet, prefilled
+//! with the account. This sheet
 //! steps aside while it is open and comes back when it closes, and what the account was waiting
 //! for is told to its link once the Add account sheet has changed something. Each row's gear
 //! opens Settings on the account's own page (`settings_window::open_account`).
@@ -129,7 +131,13 @@ pub(in crate::ui) fn DoctorView(shell: Signal<Shell>, revision: Signal<u64>) -> 
                     crate::ui::add_account::allow_again();
                     return;
                 }
-                Remedy::SignIn => After::SignedIn,
+                Remedy::SignIn => {
+                    // Straight to the browser when the account signs in with a redirect, as it
+                    // was added; the window, with the address typed, otherwise.
+                    pending.set(Some((account, *revision.peek(), After::SignedIn)));
+                    crate::ui::add_account::again(name);
+                    return;
+                }
                 Remedy::Settings => After::Retry,
             };
             pending.set(Some((account, *revision.peek(), after)));

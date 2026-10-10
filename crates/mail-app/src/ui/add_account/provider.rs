@@ -98,14 +98,7 @@ impl Seams {
             jmap: Arc::new(|domain| {
                 crate::edge::block_on(mail_core::discover::find_jmap(domain)).map_err(String::from)
             }),
-            client: Arc::new(|issuer| {
-                mail_core::account::oauth_client(
-                    issuer,
-                    &crate::edge::environment(),
-                    &mail_core::account::saved_clients(),
-                )
-                .is_some()
-            }),
+            client: Arc::new(has_client),
             authorize: Arc::new(|issuer, scopes, urls| {
                 Box::pin(async move {
                     // `sign_in` borrows a callback that is not `Sync`, so it runs on a thread of
@@ -170,6 +163,28 @@ impl Seams {
     }
 }
 
+/// Whether this installation has an OAuth client for `issuer`: one typed in the environment, or
+/// one an earlier sign-in recorded.
+pub(super) fn has_client(issuer: Issuer) -> bool {
+    mail_core::account::oauth_client(
+        issuer,
+        &crate::edge::environment(),
+        &mail_core::account::saved_clients(),
+    )
+    .is_some()
+}
+
+/// The provider files of [`OFFERED`], in its order.
+pub(super) fn offered_specs() -> Vec<ProviderSpec> {
+    let known = mail_core::discover::providers::set();
+    OFFERED
+        .iter()
+        .filter_map(|id| porter_core::ProviderId::parse(id).ok())
+        .filter_map(|id| known.get(&id))
+        .cloned()
+        .collect()
+}
+
 /// The accounts the window has added, by address: what a finished sheet leaves for whoever
 /// opened it (the Space the account joins, the list that draws it).
 #[derive(Debug, Clone, Default)]
@@ -208,13 +223,10 @@ pub(in crate::ui) fn offered(
     added: &Added,
     prefill: Option<String>,
 ) -> Vec<MailProvider> {
-    let known = mail_core::discover::providers::set();
-    OFFERED
-        .iter()
-        .filter_map(|id| porter_core::ProviderId::parse(id).ok())
-        .filter_map(|id| known.get(&id))
+    offered_specs()
+        .into_iter()
         .map(|spec| MailProvider {
-            spec: spec.clone(),
+            spec,
             seams: seams.clone(),
             added: added.clone(),
             prefill: prefill.clone(),

@@ -14,7 +14,10 @@ use std::time::Duration;
 use chrono::{DateTime, Utc};
 use mail_domain::AuthPlan;
 use mail_domain::presets::{self, Preset};
-use mail_runtime::authorize::{Profiles, SignInFault, identity_scopes, sign_in_told, whoami};
+use mail_runtime::authorize::{SignInFault, identity_scopes, sign_in_told, whoami};
+
+/// Where the issuer is asked whose account signed in; the real endpoints by default.
+pub use mail_runtime::authorize::Profiles;
 use mail_runtime::{AccountSecrets, ClientRegistry};
 use mail_store::SqliteStore;
 use porter_provider::Issuer;
