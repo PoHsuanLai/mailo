@@ -6,6 +6,11 @@
 //! `mail-runtime`). `mail-app` is its only user, and draws two front-ends over it: the window
 //! (`mail_app::ui`) and the command line (`mail_app::cli`).
 //!
+//! The way in is [`Mail`]: one handle over the store, the link to accountd, the environment and
+//! the clock, with the operations that wait on a network as `async` methods grouped by what they
+//! are for. This crate starts no runtime and reads no environment variable; the front-end owns
+//! both and hands them in.
+//!
 //! This crate never depends on a toolkit that draws (`dioxus`, `ds`, `ds-settings`,
 //! `ds-blitz`): `scripts/check-boundary.sh` fails the build if it does. A function here returns
 //! a value for a front-end to word, not the words of one; the modules that still return
@@ -20,6 +25,7 @@ pub mod compose;
 pub mod config;
 pub mod contacts;
 pub mod discover;
+pub mod environment;
 pub mod error;
 pub mod export;
 pub mod fetch;
@@ -28,6 +34,7 @@ pub mod follow_up;
 pub mod import;
 pub mod invite;
 pub mod ipc;
+pub mod mail;
 pub mod notify;
 pub mod offline;
 pub mod password;
@@ -50,4 +57,9 @@ pub mod undo;
 pub mod unsubscribe;
 pub mod when;
 
+pub use environment::Environment;
 pub use error::{CoreError, TimeError, UsageError};
+pub use mail::{
+    AccountOps, Clock, ContactOps, CryptoOps, DiscoverOps, FixedClock, Mail, RuleOps, SyncOps,
+    SystemClock,
+};

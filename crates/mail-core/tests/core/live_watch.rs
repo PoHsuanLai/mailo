@@ -178,7 +178,7 @@ fn listening_with_grace(
     let heard = Arc::new(Mutex::new(Vec::new()));
     let said = heard.clone();
     let handle = std::thread::spawn(move || {
-        live::listen_with(
+        crate::blocking::listen_with(
             store,
             secrets(),
             &ClientRegistry::default(),

@@ -569,36 +569,44 @@ pub fn classify(address: &str, why: &NotFound) -> Failed {
     no_servers(address, Gap::Nothing, &why.to_string())
 }
 
+impl crate::mail::DiscoverOps<'_> {
+    /// Look the address up, over the network, at the handle's time.
+    pub async fn lookup(&self, address: &str) -> Result<Found, CoreError> {
+        lookup(address, self.0.now()).await
+    }
+
+    /// [`lookup`], with the reason a miss was left typed.
+    pub async fn search(&self, address: &str) -> Result<Found, Failed> {
+        search(address, self.0.now()).await
+    }
+
+    /// Follow a JMAP session `url` over the network, without a credential.
+    pub async fn find_jmap(&self, url: &str) -> Result<String, CoreError> {
+        jmap::find(url).await
+    }
+}
+
 /// Look the address up, over the network.
-pub fn lookup(address: &str, now: DateTime<Utc>) -> Result<Found, CoreError> {
-    Ok(search(address, now)?)
+pub async fn lookup(address: &str, now: DateTime<Utc>) -> Result<Found, CoreError> {
+    Ok(search(address, now).await?)
 }
 
 /// [`lookup`], with the reason a miss was left typed.
-pub fn search(address: &str, now: DateTime<Utc>) -> Result<Found, Failed> {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|e| Failed::Broken(format!("cannot start the async runtime: {e}")))?;
-    runtime.block_on(async {
-        let http = mail_runtime::lookup::ReqwestHttp::new()
-            .map_err(|e| Failed::Broken(format!("cannot build an HTTP client: {e}")))?;
-        let dns =
-            mail_runtime::lookup::SystemDns::new().map_err(|e| Failed::Broken(e.to_string()))?;
-        match tokio::time::timeout(mail_runtime::lookup::TOTAL, run(&http, &dns, address, now))
-            .await
-        {
-            Ok(found) => found,
-            Err(_) => Err(Failed::Unreachable {
-                address: address.to_owned(),
-                retry: Retry::Now,
-                why: format!(
-                    "no answer in {} seconds",
-                    mail_runtime::lookup::TOTAL.as_secs()
-                ),
-            }),
-        }
-    })
+pub async fn search(address: &str, now: DateTime<Utc>) -> Result<Found, Failed> {
+    let http = mail_runtime::lookup::ReqwestHttp::new()
+        .map_err(|e| Failed::Broken(format!("cannot build an HTTP client: {e}")))?;
+    let dns = mail_runtime::lookup::SystemDns::new().map_err(|e| Failed::Broken(e.to_string()))?;
+    match tokio::time::timeout(mail_runtime::lookup::TOTAL, run(&http, &dns, address, now)).await {
+        Ok(found) => found,
+        Err(_) => Err(Failed::Unreachable {
+            address: address.to_owned(),
+            retry: Retry::Now,
+            why: format!(
+                "no answer in {} seconds",
+                mail_runtime::lookup::TOTAL.as_secs()
+            ),
+        }),
+    }
 }
 
 /// The search as mailo runs it: every source, a document that is usable only in part decided the

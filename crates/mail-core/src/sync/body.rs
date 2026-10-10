@@ -1,8 +1,7 @@
 //! Fetching one message's body on demand, for a reader that opened a message no sync had
 //! reached yet.
 //!
-//! Modelled on [`super::fetch_part`]: blocking, with a runtime of its own, because its callers
-//! are a click handler and a command. It differs in what it returns. A part download reports
+//! Modelled on [`super::fetch_part_with`]. It differs in what it returns. A part download reports
 //! prose; this reports a [`Retry`] beside the prose, so the reader can offer "try again" for a
 //! dropped connection and "sign in again" for a rejected credential, which are different
 //! buttons.
@@ -17,19 +16,26 @@
 use super::*;
 use mail_domain::{Retry, Retryable as _};
 
-/// Download one message's body and store it, so the reader's next read shows it.
-pub fn fetch_body(
-    store: Arc<SqliteStore>,
-    message: mail_domain::MessageId,
-    now: chrono::DateTime<chrono::Utc>,
-) -> Result<(), (Retry, String)> {
-    let registry = mail_runtime::clients::load_default()
-        .map_err(|e| (Retry::Fatal(e.to_string()), e.to_string()))?;
-    fetch_body_with(store, platform_secrets(), &registry, message, now)
+impl crate::mail::SyncOps<'_> {
+    /// Download one message's body and store it, so the reader's next read shows it.
+    pub async fn fetch_body(&self, message: mail_domain::MessageId) -> Result<(), (Retry, String)> {
+        let mail = self.0;
+        let registry = mail
+            .clients()
+            .map_err(|e| (Retry::Fatal(e.to_string()), e.to_string()))?;
+        fetch_body_with(
+            mail.store().clone(),
+            mail.secrets(),
+            &registry,
+            message,
+            mail.now(),
+        )
+        .await
+    }
 }
 
-/// The same, with the secret store named, so a test can run it.
-pub fn fetch_body_with(
+/// [`SyncOps::fetch_body`](crate::SyncOps), with the secret store named, so a test can run it.
+pub async fn fetch_body_with(
     store: Arc<SqliteStore>,
     secrets: Arc<dyn AccountSecrets>,
     registry: &ClientRegistry,
@@ -69,11 +75,7 @@ pub fn fetch_body_with(
             ));
         }
     }
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|e| fatal(format!("cannot start the async runtime: {e}")))?;
-    runtime.block_on(async {
+    async {
         let (_tx, mut cancel) = watch::channel(false);
         let stored = super::stored_credential(&account, secrets.as_ref())
             .await
@@ -115,5 +117,6 @@ pub fn fetch_body_with(
                 .await
                 .map_err(failed)
         }
-    })
+    }
+    .await
 }

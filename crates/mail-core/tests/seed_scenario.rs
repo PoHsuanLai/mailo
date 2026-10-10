@@ -12,7 +12,7 @@
 
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
-use mail_runtime::platform_secrets;
+use mail_runtime::own_secrets;
 use mail_store::SqliteStore;
 use porter_core::SecretText;
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
@@ -87,12 +87,18 @@ fn seed() {
         );
         mail_store::testing::seed_caps(&store, acct_account(), &caps, chrono::Utc::now()).unwrap();
     }
-    mail_runtime::block_on(platform_secrets().put(
-        &SecretKey {
-            account: acct_account(),
-            purpose: SecretPurpose::IncomingPassword,
-        },
-        &Credential::Password(SecretText::new("s3cr3t-pass".to_owned())),
-    ))
-    .unwrap();
+    // The scenario's own store, never accountd's: a seed runs unlinked.
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime
+        .block_on(own_secrets(runtime.handle()).put(
+            &SecretKey {
+                account: acct_account(),
+                purpose: SecretPurpose::IncomingPassword,
+            },
+            &Credential::Password(SecretText::new("s3cr3t-pass".to_owned())),
+        ))
+        .unwrap();
 }

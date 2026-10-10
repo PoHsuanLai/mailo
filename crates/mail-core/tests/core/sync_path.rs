@@ -169,7 +169,7 @@ fn an_account_with_no_credential_is_skipped_with_a_reason() {
     // One account needing attention must not stop the others fetching mail, and the reason has
     // to name the command that fixes it — this is the first thing a new user sees.
     let (store, _dir) = configured(1, caps());
-    let out = sync::run_with(
+    let out = crate::blocking::run_with(
         store,
         Arc::new(MemorySecrets::default()),
         &ClientRegistry::default(),
@@ -194,7 +194,7 @@ fn an_unreachable_server_is_reported_per_account_not_thrown() {
     let secrets = MemorySecrets::default();
     with_password(&secrets, "s3cr3t-pass");
 
-    let out = sync::run_with(
+    let out = crate::blocking::run_with(
         store,
         Arc::new(secrets),
         &ClientRegistry::default(),
@@ -215,7 +215,7 @@ fn no_accounts_is_a_run_with_no_account_in_it() {
     // What to say about that is the command line's: see `mail_app::cli::sync`.
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(SqliteStore::in_memory(dir.path()).unwrap());
-    let ends = sync::run_with(
+    let ends = crate::blocking::run_with(
         store,
         Arc::new(MemorySecrets::default()),
         &ClientRegistry::default(),
@@ -237,7 +237,7 @@ async fn a_whole_pass_against_a_real_server_lands_mail_and_reports_what_it_fetch
 
     let store_for_pass = store.clone();
     let ends = tokio::task::spawn_blocking(move || {
-        sync::run_with(
+        crate::blocking::run_with(
             store_for_pass,
             Arc::new(secrets),
             &ClientRegistry::default(),
@@ -425,7 +425,7 @@ mod renewing_an_expired_sign_in {
         mail_runtime::block_on(secrets.put(&key(), &token(-120))).unwrap();
         let (ends, seen) = token_endpoint(RENEWED);
 
-        let _ = sync::run_with(
+        let _ = crate::blocking::run_with(
             store,
             secrets.clone(),
             &registry(ends),
@@ -477,7 +477,7 @@ mod renewing_an_expired_sign_in {
         mail_runtime::block_on(secrets.put(&key(), &token(-120))).unwrap();
         let (ends, _seen) = token_endpoint(RENEWED);
 
-        let _ = sync::run_with(
+        let _ = crate::blocking::run_with(
             store,
             secrets.clone(),
             &registry(ends),
@@ -505,7 +505,7 @@ mod renewing_an_expired_sign_in {
         mail_runtime::block_on(secrets.put(&key(), &token(45))).unwrap();
         let (ends, seen) = token_endpoint(RENEWED);
 
-        let _ = sync::run_with(
+        let _ = crate::blocking::run_with(
             store,
             secrets.clone(),
             &registry(ends),
@@ -551,7 +551,7 @@ mod renewing_an_expired_sign_in {
         let (ends, seen) = token_endpoint(RENEWED);
         let registry = registry_at(Issuer::Microsoft, ends);
 
-        let _ = sync::run_with(
+        let _ = crate::blocking::run_with(
             store,
             secrets,
             &registry,
@@ -589,7 +589,7 @@ mod renewing_an_expired_sign_in {
         .unwrap();
         let (ends, seen) = token_endpoint(RENEWED);
 
-        let _ = sync::run_with(
+        let _ = crate::blocking::run_with(
             store,
             secrets,
             &registry(ends),
@@ -608,7 +608,7 @@ mod renewing_an_expired_sign_in {
         let secrets: Arc<dyn AccountSecrets> = Arc::new(MemorySecrets::default());
         mail_runtime::block_on(secrets.put(&key(), &token(-120))).unwrap();
 
-        let out = sync::run_with(
+        let out = crate::blocking::run_with(
             store,
             secrets,
             &ClientRegistry::default(),
@@ -732,7 +732,7 @@ mod a_refused_sign_in {
         let secrets = MemorySecrets::default();
         with_password(&secrets, "definitely-not-the-password");
 
-        let ends = sync::run_with(
+        let ends = crate::blocking::run_with(
             store,
             Arc::new(secrets),
             &ClientRegistry::default(),
@@ -769,7 +769,7 @@ mod a_refused_sign_in {
         let secrets = MemorySecrets::default();
         with_password(&secrets, "the-right-password");
 
-        let ends = sync::run_with(
+        let ends = crate::blocking::run_with(
             store,
             Arc::new(secrets),
             &ClientRegistry::default(),
@@ -817,7 +817,7 @@ mod a_refused_sign_in {
         let secrets = MemorySecrets::default();
         with_password(&secrets, "wrong");
 
-        let ends = sync::run_with(
+        let ends = crate::blocking::run_with(
             store,
             Arc::new(secrets),
             &ClientRegistry::default(),
@@ -885,7 +885,7 @@ mod a_server_asking_to_be_left_alone {
         let secrets = MemorySecrets::default();
         with_password(&secrets, "the-right-password");
 
-        let ends = sync::run_with(
+        let ends = crate::blocking::run_with(
             store,
             Arc::new(secrets),
             &ClientRegistry::default(),
@@ -914,7 +914,7 @@ mod a_server_asking_to_be_left_alone {
         let secrets = MemorySecrets::default();
         with_password(&secrets, "the-right-password");
 
-        let ends = sync::run_with(
+        let ends = crate::blocking::run_with(
             store,
             Arc::new(secrets),
             &ClientRegistry::default(),
@@ -955,7 +955,7 @@ mod an_account_with_nothing_stored {
 
     fn told(auth: AuthPlan) -> String {
         let (store, _dir) = configured_with(1, caps(), auth);
-        sync::run_with(
+        crate::blocking::run_with(
             store,
             Arc::new(MemorySecrets::default()),
             &ClientRegistry::default(),
@@ -996,35 +996,11 @@ mod an_account_with_nothing_stored {
 
     /// `mailo account list` is the third surface, and it has to agree with the other two.
     ///
-    /// It reads the stored credential, so it runs in a child process of this binary whose
-    /// `MAILO_TEST_SECRETS_DIR` names a scratch directory: a test never asks the person's keyring
-    /// anything, not even for a key that is not there. `platform_secrets()` follows
-    /// `link::current()`, so no test in the `core` binary (all of `tests/core/`) may call
-    /// `mail_runtime::link::install`.
+    /// It reads the stored credential from the store it is handed, here an empty one in memory:
+    /// a test never asks the person's keyring anything, not even for a key that is not there.
     #[test]
     fn the_account_listing_says_the_same_thing_in_fewer_words() {
-        if std::env::var_os("MAILO_TEST_SECRETS_DIR").is_none() {
-            let secrets = tempfile::tempdir().unwrap();
-            let name = "the_account_listing_says_the_same_thing_in_fewer_words";
-            // The test's full name in this binary: its module path without the crate's own name.
-            let full = match module_path!().split_once("::") {
-                Some((_, module)) => format!("{module}::{name}"),
-                None => name.to_owned(),
-            };
-            let out = std::process::Command::new(std::env::current_exe().unwrap())
-                .args([full.as_str(), "--exact", "--nocapture", "--test-threads=1"])
-                .env("MAILO_TEST_SECRETS_DIR", secrets.path())
-                .output()
-                .unwrap();
-            let said = format!(
-                "{}{}",
-                String::from_utf8_lossy(&out.stdout),
-                String::from_utf8_lossy(&out.stderr)
-            );
-            assert!(out.status.success(), "{name} failed:\n{said}");
-            assert!(said.contains("1 passed"), "{name} did not run:\n{said}");
-            return;
-        }
+        let secrets = MemorySecrets::default();
         let (oauth, _a) = configured_with(
             1,
             caps(),
@@ -1033,7 +1009,7 @@ mod an_account_with_nothing_stored {
                 scopes: vec!["https://mail.google.com/".to_owned()],
             },
         );
-        let listed = account::list(&oauth).unwrap();
+        let listed = crate::blocking::block_on(account::list(&oauth, &secrets)).unwrap();
         assert!(
             listed.contains("not signed in"),
             "an OAuth account was told a credential was missing, which reads as \"find a \
@@ -1048,7 +1024,7 @@ mod an_account_with_nothing_stored {
                 sasl: vec![SaslMech::Plain],
             },
         );
-        let listed = account::list(&password).unwrap();
+        let listed = crate::blocking::block_on(account::list(&password, &secrets)).unwrap();
         assert!(listed.contains("no credential stored"), "{listed}");
     }
 
@@ -1205,7 +1181,7 @@ mod both_accounts_at_once {
             &Credential::Password(SecretText::new("s3cr3t-pass".to_owned())),
         ))
         .unwrap();
-        let _ = sync::run_with(
+        let _ = crate::blocking::run_with(
             store,
             Arc::new(secrets),
             &ClientRegistry::default(),
@@ -1467,7 +1443,7 @@ fn fetching_a_part_of_a_pop3_message_is_refused_before_anything_is_sent() {
     .unwrap();
     let id = mail_store::testing::message_ids(&store).remove(0);
 
-    let err = sync::fetch_part_with(
+    let err = crate::blocking::fetch_part_with(
         &store,
         Arc::new(MemorySecrets::default()),
         &ClientRegistry::default(),

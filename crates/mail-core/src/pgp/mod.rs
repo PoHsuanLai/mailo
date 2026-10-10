@@ -13,11 +13,11 @@ pub use keys::{Imported, WithSecret, own_key};
 pub use read::{Protected, describe, open_bytes, open_message};
 pub use send::{check, outgoing};
 
+use crate::environment::Environment;
 use crate::error::{CoreError, UsageError};
 use chrono::{DateTime, Utc};
 use mail_domain::{Fingerprint, KeySource, KeyTrust, SecretHeld};
 use mail_mime::MimeError;
-use mail_runtime::Failure;
 use mail_runtime::{RuntimeError, SigningStore};
 use mail_store::{SqliteStore, Store, StoreError};
 use std::fmt::Write as _;
@@ -116,14 +116,14 @@ fn epoch_changed() {
     mail_runtime::epoch::keys_changed();
 }
 
-/// The passphrase for `fingerprint` as the command line gets one: `MAILO_PGP_PASSPHRASE` when it
-/// is set, otherwise asked on the terminal with echo off, otherwise none.
+/// The passphrase for `fingerprint` as the command line gets one: `MAILO_PGP_PASSPHRASE` (the
+/// environment's `pgp_passphrase`) when it is set, otherwise asked on the terminal with echo off, otherwise none.
 ///
 /// The environment variable is for scripts; it is visible to other processes of the same user,
 /// which the prompt is not, and the prompt says so.
-pub fn terminal_passphrase(fingerprint: Fingerprint) -> Option<String> {
-    if let Some(given) = std::env::var_os("MAILO_PGP_PASSPHRASE") {
-        return given.into_string().ok();
+pub fn terminal_passphrase(env: &Environment, fingerprint: Fingerprint) -> Option<String> {
+    if let Some(given) = &env.pgp_passphrase {
+        return given.clone().into_string().ok();
     }
     ask_tty(&format!(
         "Passphrase for OpenPGP key {} (not shown; MAILO_PGP_PASSPHRASE also works): ",
@@ -418,9 +418,34 @@ pub fn listing(keys: &[mail_domain::PgpKey]) -> String {
     out
 }
 
+impl crate::mail::CryptoOps<'_> {
+    /// Ask `address`'s domain for its key, and keep it when there is one: what to print.
+    pub async fn lookup(&self, address: &str) -> Result<String, CoreError> {
+        lookup(self.0.store(), address, self.0.now()).await
+    }
+
+    /// [`lookup`]'s work: the key, kept, or `None`.
+    pub async fn lookup_address(
+        &self,
+        address: &str,
+    ) -> Result<Option<mail_domain::PgpKey>, PgpError> {
+        lookup_address(self.0.store(), address, self.0.now()).await
+    }
+
+    /// The To and Cc addresses of an encrypted draft that have no key yet, each asked of its
+    /// domain's Web Key Directory.
+    pub async fn discover(&self, addresses: &[String]) -> String {
+        discover(self.0.store(), addresses, self.0.now()).await
+    }
+}
+
 /// Ask `address`'s domain for its key, and keep it when there is one. Needs the network.
-pub fn lookup(store: &SqliteStore, address: &str, now: DateTime<Utc>) -> Result<String, CoreError> {
-    let found = lookup_address(store, address, now)?;
+pub async fn lookup(
+    store: &SqliteStore,
+    address: &str,
+    now: DateTime<Utc>,
+) -> Result<String, CoreError> {
+    let found = lookup_address(store, address, now).await?;
     Ok(match found {
         Some(key) => format!(
             "found {} for {address} in its domain's Web Key Directory\n  {}\n\
@@ -434,17 +459,13 @@ pub fn lookup(store: &SqliteStore, address: &str, now: DateTime<Utc>) -> Result<
 }
 
 /// [`lookup`]'s work: the key, kept, or `None`.
-pub fn lookup_address(
+pub async fn lookup_address(
     store: &SqliteStore,
     address: &str,
     now: DateTime<Utc>,
 ) -> Result<Option<mail_domain::PgpKey>, PgpError> {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|e| RuntimeError::Io(Failure::caused(e)))?;
     let http = mail_runtime::wkd::client()?;
-    let Some(cert) = runtime.block_on(mail_runtime::wkd::lookup(&http, address))? else {
+    let Some(cert) = mail_runtime::wkd::lookup(&http, address).await? else {
         return Ok(None);
     };
     let kept = store.put_pgp_key(cert.record(KeySource::Wkd, now, &[address]))?;
@@ -454,13 +475,13 @@ pub fn lookup_address(
 
 /// The To and Cc addresses of an encrypted draft that have no key yet, each asked of its
 /// domain's Web Key Directory: what `mailo compose --encrypt` does before it reports.
-pub fn discover(store: &SqliteStore, addresses: &[String], now: DateTime<Utc>) -> String {
+pub async fn discover(store: &SqliteStore, addresses: &[String], now: DateTime<Utc>) -> String {
     let mut out = String::new();
     for address in addresses {
         if matches!(keys::key_for(store, address, now), Ok(Some(_))) {
             continue;
         }
-        match lookup_address(store, address, now) {
+        match lookup_address(store, address, now).await {
             Ok(Some(key)) => {
                 let _ = writeln!(
                     out,

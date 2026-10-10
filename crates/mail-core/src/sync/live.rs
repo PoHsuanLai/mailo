@@ -2,8 +2,8 @@
 //!
 //! `mailo watch` waits inside [`super::drive`], between passes it runs itself. The window runs
 //! its passes elsewhere and wants only the waiting: one connection kept open, and a typed
-//! [`Heard`] each time the server, the outbox or the interval has something to say. [`listen`] is
-//! that, built from the same engine calls `drive` makes (`AccountEngine::wait`,
+//! [`Heard`] each time the server, the outbox or the interval has something to say.
+//! [`SyncOps::listen`](crate::SyncOps) is that, built from the same engine calls `drive` makes (`AccountEngine::wait`,
 //! `JmapEngine::wait`) and the same floor under them ([`super::poll_floor`]), so the two cannot
 //! disagree about how a server is waited on.
 //!
@@ -25,8 +25,9 @@ use super::{Configured, Mode, clock_for, configured, imap_engine, poll_floor, re
 use super::{signed_in_typed, to_sync};
 use crate::error::Logged;
 use mail_domain::*;
-use mail_runtime::{AccountEngine, AccountSecrets, Cancel, ClientRegistry, Held, JmapEngine, Woke};
-use mail_runtime::{RuntimeError, platform_secrets};
+use mail_runtime::{
+    AccountEngine, AccountSecrets, Cancel, ClientRegistry, Held, JmapEngine, RuntimeError, Woke,
+};
 use mail_store::SqliteStore;
 use porter_core::AccountId;
 use std::sync::Arc;
@@ -112,36 +113,40 @@ pub fn pushing(store: &SqliteStore) -> Vec<AccountId> {
         .collect()
 }
 
-/// Wait on one account until `cancel` fires or the connection is lost, saying what is heard.
-///
-/// Blocking, with a runtime of its own, like [`super::run`]: its callers are threads, not async
-/// code. `Ok(())` means `cancel` fired (or its sender was dropped, which the engines read the
-/// same way). `hold` is described at [`Hold`].
-pub fn listen(
-    store: Arc<SqliteStore>,
-    account: AccountId,
-    cancel: watch::Receiver<bool>,
-    hold: Option<Hold>,
-    grace: Duration,
-    heard: &dyn Fn(Heard),
-) -> Result<(), Lost> {
-    let registry =
-        mail_runtime::clients::load_default().map_err(|e| Lost::unsupported(&e.to_string()))?;
-    listen_with(
-        store,
-        platform_secrets(),
-        &registry,
-        account,
-        cancel,
-        hold,
-        grace,
-        heard,
-    )
+impl crate::mail::SyncOps<'_> {
+    /// Wait on one account until `cancel` fires or the connection is lost, saying what is heard.
+    ///
+    /// `Ok(())` means `cancel` fired (or its sender was dropped, which the engines read the same
+    /// way). `hold` is described at [`Hold`].
+    pub async fn listen(
+        &self,
+        account: AccountId,
+        cancel: watch::Receiver<bool>,
+        hold: Option<Hold>,
+        grace: Duration,
+        heard: &dyn Fn(Heard),
+    ) -> Result<(), Lost> {
+        let mail = self.0;
+        let registry = mail
+            .clients()
+            .map_err(|e| Lost::unsupported(&e.to_string()))?;
+        listen_with(
+            mail.store().clone(),
+            mail.secrets(),
+            &registry,
+            account,
+            cancel,
+            hold,
+            grace,
+            heard,
+        )
+        .await
+    }
 }
 
-/// [`listen`], with the secret store named, so a test can run it.
+/// [`SyncOps::listen`](crate::SyncOps), with the secret store named, so a test can run it.
 #[allow(clippy::too_many_arguments)]
-pub fn listen_with(
+pub async fn listen_with(
     store: Arc<SqliteStore>,
     secrets: Arc<dyn AccountSecrets>,
     registry: &ClientRegistry,
@@ -151,20 +156,14 @@ pub fn listen_with(
     grace: Duration,
     heard: &dyn Fn(Heard),
 ) -> Result<(), Lost> {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|e| Lost::unsupported(&format!("cannot start the async runtime: {e}")))?;
-    runtime.block_on(async {
-        let account = configured(&store)
-            .map_err(|why| Lost::unsupported(&why.to_string()))?
-            .into_iter()
-            .find(|one| one.id == account)
-            .ok_or_else(|| Lost::unsupported("that account is no longer configured"))?;
-        let mut waiting = Waiter::open(&store, &account, secrets, registry).await?;
-        let mut cancel = cancel;
-        hearing(&mut waiting, &mut cancel, hold, grace, heard).await
-    })
+    let account = configured(&store)
+        .map_err(|why| Lost::unsupported(&why.to_string()))?
+        .into_iter()
+        .find(|one| one.id == account)
+        .ok_or_else(|| Lost::unsupported("that account is no longer configured"))?;
+    let mut waiting = Waiter::open(&store, &account, secrets, registry).await?;
+    let mut cancel = cancel;
+    hearing(&mut waiting, &mut cancel, hold, grace, heard).await
 }
 
 /// An engine, and what it waits with.

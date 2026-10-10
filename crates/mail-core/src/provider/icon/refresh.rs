@@ -92,10 +92,10 @@ pub fn missing(dir: &Path) -> Vec<Provider> {
 /// file is not already there.
 ///
 /// Tests execute from `deps/<crate>-<hash>` and must not open a socket or write
-/// `~/.cache/mailo`. The thread is joined because `mailo account add` returns
-/// immediately afterwards, and a process exit kills a thread it does not wait
-/// for. A failure is logged and is not an error for the caller.
-pub fn fetch_if_missing(provider: Provider) {
+/// `~/.cache/mailo`. Awaited, because `mailo account add` returns immediately afterwards, and a
+/// process exit kills a fetch nobody waits for. A failure is logged and is not an error for the
+/// caller.
+pub async fn fetch_if_missing(provider: Provider) {
     if url(provider).is_none() || !user_binary() {
         return;
     }
@@ -106,11 +106,9 @@ pub fn fetch_if_missing(provider: Provider) {
     if cached(&dir, provider).is_some() {
         return;
     }
-    let handle = std::thread::spawn(move || fetch_one(&dir, provider));
-    match handle.join() {
-        Ok(Ok(())) => {}
-        Ok(Err(err)) => log::warn!("provider icon: {provider:?}: {err}"),
-        Err(_) => log::warn!("provider icon: {provider:?}: the fetch stopped"),
+    match fetch_one(&dir, provider).await {
+        Ok(()) => {}
+        Err(err) => log::warn!("provider icon: {provider:?}: {err}"),
     }
 }
 
@@ -130,17 +128,11 @@ pub(super) fn user_binary() -> bool {
         .is_some_and(|name| name == "mailo")
 }
 
-fn fetch_one(dir: &Path, provider: Provider) -> Result<(), IconError> {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|err| IconError::Fetch(err.to_string()))?;
-    runtime.block_on(async {
-        let http = client()?;
-        let bytes = fetch(&http, provider).await?;
-        let png = decode(&bytes)?;
-        store(dir, provider, &png)
-    })
+async fn fetch_one(dir: &Path, provider: Provider) -> Result<(), IconError> {
+    let http = client()?;
+    let bytes = fetch(&http, provider).await?;
+    let png = decode(&bytes)?;
+    store(dir, provider, &png)
 }
 
 async fn fetch_into(

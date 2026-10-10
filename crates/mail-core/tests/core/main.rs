@@ -5,6 +5,7 @@
 //! as a prefix: `cargo test -p mail-core --test core -- <file>::`.
 
 mod attachments;
+mod blocking;
 mod fetch_body;
 mod folder_sync;
 mod held_while_linked;

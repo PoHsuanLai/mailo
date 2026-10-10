@@ -209,8 +209,6 @@ pub enum CoreError {
     // ---- discovery, server search
     #[error(transparent)]
     Discovery(#[from] crate::discover::Failed),
-    #[error("cannot start the async runtime: {0}")]
-    NoRuntime(#[source] std::io::Error),
     #[error("that account is no longer configured")]
     AccountGone,
     #[error("{address} is POP3, which has one mailbox and no search")]

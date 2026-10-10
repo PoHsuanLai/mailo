@@ -3,15 +3,13 @@
 //! The window wakes at the shortest interval any account asks for, [`super::poll_interval`]. A
 //! wake syncs only the accounts whose own interval has passed: one Graph account polls every
 //! minute, and the acct_imap() accounts beside it want a pass every five. A pass the user asks for is
-//! not a wake and still syncs them all, through [`super::run`].
+//! not a wake and still syncs them all, through [`SyncOps::run`](crate::SyncOps).
 
 use crate::error::{CoreError, Logged};
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use mail_domain::{Incoming, WatchMode};
-use mail_runtime::platform_secrets;
 use mail_store::SqliteStore;
 use porter_core::AccountId;
 
@@ -59,27 +57,31 @@ pub fn due(
         .collect()
 }
 
-/// One pass over the accounts in `due` and no others, as [`super::run`] does it for all of them.
-pub fn run_due(
-    store: Arc<SqliteStore>,
-    now: chrono::DateTime<chrono::Utc>,
-    due: &[AccountId],
-    hooks: super::report::Hooks<'_>,
-) -> Result<Vec<super::report::PassEnd>, CoreError> {
-    let registry = mail_runtime::clients::load_default()?;
-    super::run_all(
-        store,
-        platform_secrets(),
-        &registry,
-        now,
-        super::Mode::Once,
-        super::Announce::Quietly,
-        &super::Scope {
-            due: &|account| due.contains(&account),
-            kept: &crate::offline::load_default(),
-        },
-        hooks,
-    )
+impl crate::mail::SyncOps<'_> {
+    /// One pass over the accounts in `due` and no others, as [`SyncOps::run`](crate::SyncOps) does
+    /// it for all of them.
+    pub async fn run_due(
+        &self,
+        due: &[AccountId],
+        hooks: super::report::Hooks<'_>,
+    ) -> Result<Vec<super::report::PassEnd>, CoreError> {
+        let mail = self.0;
+        let registry = mail.clients()?;
+        super::run_all(
+            mail.store().clone(),
+            mail.secrets(),
+            &registry,
+            mail.now(),
+            super::Mode::Once,
+            super::Announce::Quietly,
+            &super::Scope {
+                due: &|account| due.contains(&account),
+                kept: &crate::offline::load_default(),
+            },
+            hooks,
+        )
+        .await
+    }
 }
 
 #[cfg(test)]

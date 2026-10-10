@@ -4,6 +4,7 @@
 //! a password is read from the environment rather than invented, and an OAuth account says what
 //! it still needs rather than pretending to be configured.
 
+use crate::environment::Environment;
 use crate::error::{CoreError, Logged};
 use mail_domain::id::new_account_id;
 use mail_domain::*;
@@ -57,29 +58,67 @@ pub enum Receive {
     Graph,
 }
 
+impl crate::mail::AccountOps<'_> {
+    /// Configure an account from its address, with the password or token the environment gave.
+    /// See [`add`].
+    pub async fn add(
+        &self,
+        address: &str,
+        manual: Option<&crate::account::Setup>,
+        microsoft: bool,
+        graph: bool,
+        receive: crate::account::Receive,
+    ) -> Result<String, CoreError> {
+        let mail = self.0;
+        add(
+            mail.store(),
+            address,
+            manual,
+            microsoft,
+            graph,
+            receive,
+            mail.environment(),
+            mail.secrets().as_ref(),
+            &mail.saved_clients(),
+            mail.now(),
+        )
+        .await
+    }
+
+    /// Every account, with what each one still needs. See [`list`].
+    pub async fn list(&self) -> Result<String, CoreError> {
+        list(self.0.store(), self.0.secrets().as_ref()).await
+    }
+
+    /// The local-only account, created the first time something is kept in it.
+    pub fn local(&self) -> Result<AccountId, CoreError> {
+        local(self.0.store(), self.0.now())
+    }
+}
+
 /// Configure an account from its address.
 ///
 /// The preset supplies hosts, ports and expected capabilities; the credential comes from the
-/// environment and goes straight to the keyring. Nothing about a password is persisted in
-/// SQLite, which is the whole reason `Credential` exists as a separate type.
+/// environment (`env`) and goes straight to `secrets`, the keyring. Nothing about a password is
+/// persisted in SQLite, which is the whole reason `Credential` exists as a separate type.
 // Each argument is one of the command line's independent answers, passed through as it came.
 #[allow(clippy::too_many_arguments)]
-pub fn add(
+pub async fn add(
     store: &SqliteStore,
     address: &str,
     manual: Option<&crate::account::Setup>,
     microsoft: bool,
     graph: bool,
     receive: crate::account::Receive,
+    env: &Environment,
+    secrets: &dyn AccountSecrets,
     saved: &ClientRegistry,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<String, CoreError> {
     // A JMAP account given `MAILO_JMAP_TOKEN` signs in with that token as a bearer; the token
     // then travels where a password would, through `Credentials`, so the window can do the same
     // by naming `HttpAuth::Bearer` itself.
-    let token = std::env::var("MAILO_JMAP_TOKEN")
-        .ok()
-        .filter(|t| !t.is_empty());
+    let token = env.jmap_token.clone();
     let bearer;
     let (manual, secret) = match (manual, token) {
         (Some(crate::account::Setup::Jmap { session, login, .. }), Some(token)) => {
@@ -90,7 +129,7 @@ pub fn add(
             };
             (Some(&bearer), Some(token))
         }
-        (manual, _) => (manual, std::env::var("MAILO_PASSWORD").ok()),
+        (manual, _) => (manual, env.password.clone()),
     };
     let password = secret.map(crate::password::Password::new);
     add_receiving(
@@ -104,7 +143,8 @@ pub fn add(
         Credentials {
             password: password.as_ref(),
             saved,
-            secrets: mail_runtime::platform_secrets().as_ref(),
+            secrets,
+            environment: env,
             on_url: &|url| {
                 // As `println!` would, but a closed stdout is not worth a panic mid-sign-in.
                 let _ = print_signin(url, &mut std::io::stdout().lock());
@@ -112,6 +152,7 @@ pub fn add(
             signed: None,
         },
     )
+    .await
 }
 
 /// What the command line says when a sign-in needs a browser: the address to open, then that it
@@ -129,6 +170,8 @@ pub struct Credentials<'a> {
     pub saved: &'a ClientRegistry,
     /// Where the password or the sign-in's token is put.
     pub secrets: &'a dyn AccountSecrets,
+    /// What the program was started with: the OAuth client typed there is the one that signs in.
+    pub environment: &'a Environment,
     /// Handed the address to open when the account signs in in a browser, before the sign-in
     /// waits for it. The command line prints it; the window shows it and opens a browser.
     /// Called on the thread the add runs on.
@@ -153,11 +196,10 @@ impl std::fmt::Debug for Credentials<'_> {
 ///
 /// The window's Add account sheet calls this: setting `MAILO_PASSWORD` from a running window
 /// would mean writing the environment while other threads read it. `add` calls it with the
-/// variable's value and the platform keyring, so the command line behaves exactly as before.
+/// environment's value and the platform keyring, so the command line behaves exactly as before.
 /// The password goes to `secrets` and nowhere else — not SQLite, not a file, not the text this
-/// returns. (Minting a Graph token for `--send graph` still reads the platform keyring; the
-/// window never asks for Graph.)
-pub fn add_with_password(
+/// returns. (Minting a Graph token for `--send graph` goes through the same `secrets`.)
+pub async fn add_with_password(
     store: &SqliteStore,
     address: &str,
     manual: Option<&crate::account::Setup>,
@@ -176,12 +218,13 @@ pub fn add_with_password(
         now,
         credentials,
     )
+    .await
 }
 
 /// [`add_with_password`], with how mail is read named: `--receive graph` for a Microsoft tenant
 /// that has switched IMAP off.
 #[allow(clippy::too_many_arguments)]
-pub fn add_receiving(
+pub async fn add_receiving(
     store: &SqliteStore,
     address: &str,
     manual: Option<&crate::account::Setup>,
@@ -195,6 +238,7 @@ pub fn add_receiving(
         password,
         saved,
         secrets,
+        environment,
         on_url,
         signed,
     } = credentials;
@@ -350,7 +394,9 @@ pub fn add_receiving(
                         };
                         let value =
                             Credential::Password(SecretText::new(password.expose().to_owned()));
-                        mail_runtime::block_on(secrets.put(&key, &value))
+                        secrets
+                            .put(&key, &value)
+                            .await
                             .map_err(|e| CoreError::cannot("save the password", e))?;
                     }
                     if bearer {
@@ -386,36 +432,40 @@ pub fn add_receiving(
                 }
             }
         }
-        AuthPlan::OAuth { issuer, scopes } => match client_for(*issuer, saved) {
+        AuthPlan::OAuth { issuer, scopes } => match client_for(*issuer, environment, saved) {
             Some((client, typed)) => {
                 let credential = match signed {
                     Some(credential) => credential.clone(),
-                    None => authorize(&client, scopes, on_url, now)?,
+                    None => authorize(&client, scopes, on_url, now).await?,
                 };
-                mail_runtime::block_on(secrets.put(
-                    &SecretKey {
-                        account: account.clone(),
-                        purpose: SecretPurpose::OAuthRefresh,
-                    },
-                    &credential,
-                ))
-                .map_err(|e| CoreError::cannot("save the token", e))?;
+                secrets
+                    .put(
+                        &SecretKey {
+                            account: account.clone(),
+                            purpose: SecretPurpose::OAuthRefresh,
+                        },
+                        &credential,
+                    )
+                    .await
+                    .map_err(|e| CoreError::cannot("save the token", e))?;
                 // Incoming and outgoing share one OAuth credential: the scopes cover IMAP and
                 // SMTP together, and storing it twice would mean refreshing it twice.
-                mail_runtime::block_on(secrets.put(
-                    &SecretKey {
-                        account: account.clone(),
-                        purpose: SecretPurpose::IncomingPassword,
-                    },
-                    &credential,
-                ))
-                .map_err(|e| CoreError::cannot("save the token", e))?;
+                secrets
+                    .put(
+                        &SecretKey {
+                            account: account.clone(),
+                            purpose: SecretPurpose::IncomingPassword,
+                        },
+                        &credential,
+                    )
+                    .await
+                    .map_err(|e| CoreError::cannot("save the token", e))?;
                 // Minted now rather than at the first send, so a permission the tenant withheld
                 // is reported while the user is still at the setup command — not hours later as
                 // a draft that will not leave.
                 if plan.outgoing == Outgoing::Graph {
                     let reach = tokens::GraphReach::of(&plan);
-                    match graph_token(account, &client, reach, now) {
+                    match graph_token(account, &client, reach, secrets, now).await {
                         Ok(()) if reach == tokens::GraphReach::ReadAndSend => {
                             let _ = writeln!(out, "reading and sending go through Microsoft Graph");
                         }
@@ -498,7 +548,7 @@ pub fn add_receiving(
             }
         },
     }
-    crate::provider::icon::fetch_if_missing(crate::provider::provider(&plan));
+    crate::provider::icon::fetch_if_missing(crate::provider::provider(&plan)).await;
     Ok(out)
 }
 
@@ -539,17 +589,16 @@ pub fn local(
 /// change how an account sends, say — without digging the client id back out of a portal.
 ///
 /// The client, and whether it came from the environment (and so is to be remembered).
-fn client_for(issuer: Issuer, saved: &ClientRegistry) -> Option<(ClientEntry, bool)> {
-    let from_env = |name| std::env::var(name).ok().filter(|s: &String| !s.is_empty());
-    if let Some(client_id) = from_env("MAILO_OAUTH_CLIENT_ID") {
+fn client_for(
+    issuer: Issuer,
+    env: &Environment,
+    saved: &ClientRegistry,
+) -> Option<(ClientEntry, bool)> {
+    if let Some(client_id) = env.oauth_client_id.as_deref() {
         // Google issues one with every "Desktop app" client and refuses the exchange without
         // it; Microsoft's public clients want none. Read here rather than demanded, so the
         // issuer that does not need one is not asked for it.
-        let typed = clients::entry(
-            issuer,
-            &client_id,
-            from_env("MAILO_OAUTH_CLIENT_SECRET").as_deref(),
-        );
+        let typed = clients::entry(issuer, client_id, env.oauth_client_secret.as_deref());
         return Some((typed, true));
     }
     clients::client(saved, issuer).map(|client| (client.clone(), false))
@@ -558,8 +607,12 @@ fn client_for(issuer: Issuer, saved: &ClientRegistry) -> Option<(ClientEntry, bo
 /// The OAuth client an address's sign-in would use for `issuer`: the one typed in the environment,
 /// else one the registry holds. `None` is a sign-in that cannot start, and the one thing to say is
 /// where to get a client id ([`no_client_id`]).
-pub fn oauth_client(issuer: Issuer, saved: &ClientRegistry) -> Option<ClientEntry> {
-    client_for(issuer, saved).map(|(client, _)| client)
+pub fn oauth_client(
+    issuer: Issuer,
+    env: &Environment,
+    saved: &ClientRegistry,
+) -> Option<ClientEntry> {
+    client_for(issuer, env, saved).map(|(client, _)| client)
 }
 
 /// The OAuth clients earlier sign-ins recorded, for [`add`] to fall back on.
@@ -576,28 +629,17 @@ pub fn saved_clients() -> ClientRegistry {
 }
 
 /// Exchange the sign-in's refresh token for a Graph token and keep it as the outgoing credential.
-fn graph_token(
+async fn graph_token(
     account: AccountId,
     client: &ClientEntry,
     reach: tokens::GraphReach,
+    secrets: &dyn AccountSecrets,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<(), CoreError> {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(CoreError::NoRuntime)?;
-    runtime.block_on(async {
-        tokens::graph_token(
-            account,
-            client,
-            reach,
-            mail_runtime::platform_secrets().as_ref(),
-            now,
-        )
+    tokens::graph_token(account, client, reach, secrets, now)
         .await
         .map(|_| ())
         .map_err(CoreError::from)
-    })
 }
 
 /// Record a client typed in the environment in mailo's own `oauth.json` (never porter's
@@ -620,30 +662,26 @@ fn remember(typed: Option<&ClientEntry>) -> Result<Option<std::path::PathBuf>, C
 
 /// Run the browser sign-in and return the resulting credential.
 ///
-/// Blocking, and deliberately so: this is a one-shot setup command, the user is watching, and
-/// there is nothing else for the process to do while they sign in.
-fn authorize(
+/// Waits for the person, and deliberately so: this is a one-shot setup command, the user is
+/// watching, and there is nothing else for the process to do while they sign in.
+async fn authorize(
     client: &ClientEntry,
     scopes: &[String],
     on_url: &dyn Fn(&str),
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<Credential, CoreError> {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(CoreError::NoRuntime)?;
-    runtime
-        .block_on(mail_runtime::authorize::sign_in(
-            client,
-            scopes,
-            on_url,
-            porter_core::UnixSeconds(now.timestamp()),
-        ))
-        .map_err(CoreError::from)
+    mail_runtime::authorize::sign_in(
+        client,
+        scopes,
+        on_url,
+        porter_core::UnixSeconds(now.timestamp()),
+    )
+    .await
+    .map_err(CoreError::from)
 }
 
 /// Accounts, with what each one still needs.
-pub fn list(store: &SqliteStore) -> Result<String, CoreError> {
+pub async fn list(store: &SqliteStore, secrets: &dyn AccountSecrets) -> Result<String, CoreError> {
     let accounts = store.list_accounts()?;
 
     // Which folders each account fetches, so `account list` can answer "why is my Sent folder
@@ -655,7 +693,6 @@ pub fn list(store: &SqliteStore) -> Result<String, CoreError> {
         .or_log_default("account list: how each account signs in could not be read");
     let local = crate::sync::local_accounts(store);
 
-    let secrets = mail_runtime::platform_secrets();
     let mut out = String::new();
     for stored in accounts {
         let (account, address) = (stored.id, stored.address);
@@ -670,11 +707,13 @@ pub fn list(store: &SqliteStore) -> Result<String, CoreError> {
         let has_password = if granted {
             secrets.link().is_some()
         } else {
-            mail_runtime::block_on(secrets.get(&SecretKey {
-                account,
-                purpose: SecretPurpose::IncomingPassword,
-            }))
-            .is_ok()
+            secrets
+                .get(&SecretKey {
+                    account,
+                    purpose: SecretPurpose::IncomingPassword,
+                })
+                .await
+                .is_ok()
         };
         // What is missing depends on how the account signs in, and `sync` says so at length.
         // Saying "no credential stored" for an OAuth account reads as "find a password", which
@@ -845,6 +884,39 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = SqliteStore::in_memory(dir.path()).unwrap();
         (store, dir)
+    }
+
+    /// [`super::add`] with nothing in the environment and a store of secrets that is a test's.
+    #[allow(clippy::too_many_arguments)]
+    fn add(
+        store: &SqliteStore,
+        address: &str,
+        manual: Option<&crate::account::Setup>,
+        microsoft: bool,
+        graph: bool,
+        receive: crate::account::Receive,
+        saved: &ClientRegistry,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> Result<String, CoreError> {
+        mail_runtime::block_on(super::add(
+            store,
+            address,
+            manual,
+            microsoft,
+            graph,
+            receive,
+            &Environment::default(),
+            &porter_secrets::MemorySecrets::default(),
+            saved,
+            now,
+        ))
+    }
+
+    fn list(store: &SqliteStore) -> Result<String, CoreError> {
+        mail_runtime::block_on(super::list(
+            store,
+            &porter_secrets::MemorySecrets::default(),
+        ))
     }
 
     /// The command line's sign-in prompt is byte for byte what `authorize` printed itself before
@@ -1026,16 +1098,31 @@ mod tests {
             "recorded-client",
             None,
         )]);
-        if std::env::var_os("MAILO_OAUTH_CLIENT_ID").is_none() {
-            let (client, typed) = client_for(Issuer::Microsoft, &saved).unwrap();
-            assert_eq!(client.client_id.0, "recorded-client");
-            assert!(!typed, "a recorded client is not recorded again");
-        }
-        assert_eq!(
-            client_for(Issuer::Google, &ClientRegistry::default()).is_some(),
-            std::env::var_os("MAILO_OAUTH_CLIENT_ID").is_some(),
+        let none = Environment::default();
+        let (client, typed) = client_for(Issuer::Microsoft, &none, &saved).unwrap();
+        assert_eq!(client.client_id.0, "recorded-client");
+        assert!(!typed, "a recorded client is not recorded again");
+        assert!(
+            client_for(Issuer::Google, &none, &ClientRegistry::default()).is_none(),
             "nothing recorded and nothing in the environment is no client"
         );
+    }
+
+    #[test]
+    fn a_client_typed_in_the_environment_wins_and_is_remembered() {
+        let saved = clients::registry_of(vec![clients::entry(
+            Issuer::Microsoft,
+            "recorded-client",
+            None,
+        )]);
+        let typed = Environment {
+            oauth_client_id: Some("typed-client".to_owned()),
+            ..Environment::default()
+        };
+        let (client, remember) = client_for(Issuer::Microsoft, &typed, &saved).unwrap();
+        assert_eq!(client.client_id.0, "typed-client");
+        assert!(remember, "a typed client is recorded for renewing later");
+        assert!(oauth_client(Issuer::Google, &typed, &ClientRegistry::default()).is_some());
     }
 
     #[test]

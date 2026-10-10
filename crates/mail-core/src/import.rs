@@ -268,7 +268,7 @@ fn keep(
 
 /// Queue every message in `source` for upload into `folder` on the IMAP account `address`.
 ///
-/// Nothing is sent here; [`crate::sync::drain`] sends it. A message the account already holds,
+/// Nothing is sent here; [`crate::SyncOps::drain`] sends it. A message the account already holds,
 /// by identity, is not queued, and neither is one already waiting in the outbox for the same
 /// folder: that is what makes running the same import twice upload each message once.
 ///

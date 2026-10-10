@@ -34,7 +34,7 @@ fn two_accounts(secrets: &MemorySecrets) -> (SqliteStore, tempfile::TempDir) {
     let store = SqliteStore::in_memory(dir.path()).unwrap();
     for address in [KEPT, GONE] {
         let password = Password::new(format!("{address}-secret"));
-        add_with_password(
+        block_on(add_with_password(
             &store,
             address,
             Some(&pop3()),
@@ -45,10 +45,11 @@ fn two_accounts(secrets: &MemorySecrets) -> (SqliteStore, tempfile::TempDir) {
                 password: Some(&password),
                 saved: &ClientRegistry::default(),
                 secrets,
+                environment: &crate::Environment::default(),
                 on_url: &|url| panic!("a password account asked for a browser: {url}"),
                 signed: None,
             },
-        )
+        ))
         .unwrap();
         store
             .create_label(account_of(&store, address), "travel")

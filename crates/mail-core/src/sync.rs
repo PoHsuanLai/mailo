@@ -2,7 +2,8 @@
 //!
 //! This is where everything meets: the preset that configured the account, the credential in the
 //! keyring, the backend that speaks the protocol, and the store that keeps the result. It is
-//! also the only place in the application that needs an async runtime.
+//! also where the application's async work starts: every entry point is `async`, awaited on the
+//! runtime the front-end owns.
 
 pub use crate::notify::Announce;
 pub mod due;
@@ -10,7 +11,7 @@ pub mod live;
 pub mod report;
 
 mod body;
-pub use body::{fetch_body, fetch_body_with};
+pub use body::fetch_body_with;
 mod jmap;
 mod search;
 
@@ -23,12 +24,12 @@ use mail_runtime::link::LinkedTokens;
 use mail_runtime::tokens::{self, Now};
 use mail_runtime::{
     AccountEngine, AccountSecrets, ClientRegistry, Held, OAuthTokens, SyncReport, TokenSource,
-    clients, platform_secrets,
+    clients,
 };
 use mail_store::SqliteStore;
 use porter_core::{AccountId, Credential, Family, SecretKey, SecretPurpose, SecretText};
 use report::{Done, Emit, Failure, Hooks, PassEnd, Progress, Told, Watched};
-pub use search::{search_server, search_server_with};
+pub use search::search_server_with;
 use std::sync::Arc;
 use tokio::sync::watch;
 
@@ -150,85 +151,141 @@ pub fn poll_interval(store: &SqliteStore) -> std::time::Duration {
         .unwrap_or(default)
 }
 
-/// Keep syncing until the process is stopped — `mailo watch`, and `plan.md` phase 8g.
-///
-/// Where `AccountEngine::watch` finally has a caller outside a test. IDLE is a connection held
-/// open for as long as the server allows, so it needs a process whose job is to stay open; the
-/// window was meant to be that and F140 says it is not, so this is.
-///
-/// `notifications` decides whether what each pass fetches is announced on the desktop
-/// (`plan.md` 10.6). With no session bus to announce on, it is as if they were off.
-///
-/// A watch has no end to return a report at, so each thing it would say is handed to `tell` as it
-/// happens ([`Watched`]) and the caller words it. It returns only once every account has stopped
-/// for a reason worth stopping for, with how each ended.
-pub fn watch(
-    store: Arc<SqliteStore>,
-    now: chrono::DateTime<chrono::Utc>,
-    notifications: crate::notify::Setting,
-    tell: &dyn Fn(Watched),
-) -> Result<Vec<PassEnd>, CoreError> {
-    let registry = clients::load_default()?;
-    let desktop;
-    let announce = match notifications {
-        crate::notify::Setting::On => {
-            desktop = crate::notify::desktop::Desktop::connect();
-            Announce::To {
-                store: &store,
-                notifier: &desktop,
+impl crate::mail::SyncOps<'_> {
+    /// Keep syncing until the process is stopped — `mailo watch`, and `plan.md` phase 8g.
+    ///
+    /// Where `AccountEngine::watch` finally has a caller outside a test. IDLE is a connection held
+    /// open for as long as the server allows, so it needs a process whose job is to stay open; the
+    /// window was meant to be that and F140 says it is not, so this is.
+    ///
+    /// `notifications` decides whether what each pass fetches is announced on the desktop
+    /// (`plan.md` 10.6). With no session bus to announce on, it is as if they were off.
+    ///
+    /// A watch has no end to return a report at, so each thing it would say is handed to `tell` as
+    /// it happens ([`Watched`]) and the caller words it. It returns only once every account has
+    /// stopped for a reason worth stopping for, with how each ended.
+    pub async fn watch(
+        &self,
+        notifications: crate::notify::Setting,
+        tell: &dyn Fn(Watched),
+    ) -> Result<Vec<PassEnd>, CoreError> {
+        let mail = self.0;
+        let registry = mail.clients()?;
+        let desktop;
+        let announce = match notifications {
+            crate::notify::Setting::On => {
+                desktop = crate::notify::desktop::Desktop::connect();
+                Announce::To {
+                    store: mail.store(),
+                    notifier: &desktop,
+                }
             }
-        }
-        crate::notify::Setting::Off => Announce::Quietly,
-    };
-    run_all(
-        store.clone(),
-        platform_secrets(),
-        &registry,
-        now,
-        Mode::Watch,
-        announce,
-        &Scope {
-            due: &|_| true,
-            kept: &crate::offline::load_default(),
-        },
-        Hooks {
-            told: Some(tell),
-            ..Hooks::default()
-        },
-    )
+            crate::notify::Setting::Off => Announce::Quietly,
+        };
+        run_all(
+            mail.store().clone(),
+            mail.secrets(),
+            &registry,
+            mail.now(),
+            Mode::Watch,
+            announce,
+            &Scope {
+                due: &|_| true,
+                kept: &crate::offline::load_default(),
+            },
+            Hooks {
+                told: Some(tell),
+                ..Hooks::default()
+            },
+        )
+        .await
+    }
+
+    /// Sync every configured account that has a credential, how each ended kept as data.
+    ///
+    /// Accounts without one end as [`PassEnd::Failed`] rather than failing the run: having one
+    /// account that needs attention should not stop the others from fetching mail. An account with
+    /// nothing to sync has no entry, so a run over no accounts is an empty list, and what to say of
+    /// that is for the caller.
+    pub async fn run(&self, hooks: Hooks<'_>) -> Result<Vec<PassEnd>, CoreError> {
+        let mail = self.0;
+        // The registry is read once per run rather than once per account: it is deployment
+        // configuration, and an edit halfway through a run producing two different client ids is
+        // not a behaviour worth having.
+        let registry = mail.clients()?;
+        run_all(
+            mail.store().clone(),
+            mail.secrets(),
+            &registry,
+            mail.now(),
+            Mode::Once,
+            Announce::Quietly,
+            &Scope {
+                due: &|_| true,
+                kept: &crate::offline::load_default(),
+            },
+            hooks,
+        )
+        .await
+    }
+
+    /// Download one attachment a sync left on the server, and record it as held.
+    pub async fn fetch_part(
+        &self,
+        message: mail_domain::MessageId,
+        section: &str,
+    ) -> Result<(), CoreError> {
+        let mail = self.0;
+        let registry = mail.clients()?;
+        fetch_part_with(
+            mail.store(),
+            mail.secrets(),
+            &registry,
+            message,
+            section,
+            mail.now(),
+        )
+        .await
+    }
+
+    /// Run one IMAP account's outbox now, and nothing else: no fetch, no flag sweep.
+    ///
+    /// What `mailo import --to-mailbox` runs after queueing its uploads, so they go while the user
+    /// is watching rather than at the next sync.
+    pub async fn drain(&self, account: AccountId) -> Result<SyncReport, CoreError> {
+        let mail = self.0;
+        let registry = mail.clients()?;
+        drain_with(mail.store(), mail.secrets(), &registry, account, mail.now()).await
+    }
+
+    /// Fetch one folder now.
+    ///
+    /// For a folder the window opens that no pass fetches — one the user does not follow — so its
+    /// mail is there to list without waiting for the next pass. A followed folder is fetched by
+    /// every pass anyway, and asking again here is harmless: what is already held is not fetched
+    /// twice. List it afterwards with `Filter::InFolder`.
+    ///
+    /// How the fetch ended is the return, as one account's pass does ([`PassEnd`]); it is never
+    /// `Cancelled`, because nothing holds a signal to cancel it with. An `Err` is a request there
+    /// is nothing to fetch for: POP3, which has one mailbox and fetches it every pass, and an
+    /// account whose folders are labels, where a folder's mail is the mail with that label and
+    /// arrives with it.
+    pub async fn folder_now(&self, account: AccountId, path: &str) -> Result<PassEnd, CoreError> {
+        let mail = self.0;
+        let registry = mail.clients()?;
+        folder_now_with(
+            mail.store().clone(),
+            mail.secrets(),
+            &registry,
+            account,
+            path,
+            mail.now(),
+        )
+        .await
+    }
 }
 
-/// Sync every configured account that has a credential, how each ended kept as data.
-///
-/// Accounts without one end as [`PassEnd::Failed`] rather than failing the run: having one
-/// account that needs attention should not stop the others from fetching mail. An account with
-/// nothing to sync has no entry, so a run over no accounts is an empty list, and what to say of
-/// that is for the caller.
-pub fn run(
-    store: Arc<SqliteStore>,
-    now: chrono::DateTime<chrono::Utc>,
-    hooks: Hooks<'_>,
-) -> Result<Vec<PassEnd>, CoreError> {
-    // The registry is read once per run rather than once per account: it is deployment
-    // configuration, and an edit halfway through a run producing two different client ids is
-    // not a behaviour worth having.
-    let registry = clients::load_default()?;
-    run_all(
-        store,
-        platform_secrets(),
-        &registry,
-        now,
-        Mode::Once,
-        Announce::Quietly,
-        &Scope {
-            due: &|_| true,
-            kept: &crate::offline::load_default(),
-        },
-        hooks,
-    )
-}
-
-/// The same, with the secret store named.
+/// [`SyncOps::run`](crate::SyncOps), with the secret store named.
 ///
 /// The keyring is the only thing in this function that cannot exist in a test, and it was
 /// reached for directly — so the one function that ties configuration, credentials, the backend,
@@ -238,7 +295,7 @@ pub fn run(
 /// Injected rather than faked at a lower level, because what is worth testing here *is* the
 /// assembly: which credential is fetched for which purpose, what happens to an account that has
 /// none, and that a failure in one account does not stop the next.
-pub fn run_with(
+pub async fn run_with(
     store: Arc<SqliteStore>,
     secrets: Arc<dyn AccountSecrets>,
     registry: &ClientRegistry,
@@ -258,6 +315,7 @@ pub fn run_with(
         },
         hooks,
     )
+    .await
 }
 
 /// Which accounts a run syncs, and how much of each it keeps.
@@ -270,7 +328,7 @@ struct Scope<'a> {
 
 /// A run over the accounts in `scope`, told whether to stop after one pass.
 #[allow(clippy::too_many_arguments)]
-fn run_all(
+async fn run_all(
     store: Arc<SqliteStore>,
     secrets: Arc<dyn AccountSecrets>,
     registry: &ClientRegistry,
@@ -284,6 +342,7 @@ fn run_all(
     pass_over(
         &store, secrets, registry, now, mode, announce, accounts, hooks,
     )
+    .await
 }
 
 /// The accounts a run is to sync.
@@ -304,7 +363,7 @@ fn pick(store: &SqliteStore, scope: &Scope<'_>) -> Result<Vec<Configured>, CoreE
 
 /// One pass over `accounts`, concurrently, each ended as a [`PassEnd`].
 #[allow(clippy::too_many_arguments)]
-fn pass_over(
+async fn pass_over(
     store: &Arc<SqliteStore>,
     secrets: Arc<dyn AccountSecrets>,
     registry: &ClientRegistry,
@@ -314,11 +373,6 @@ fn pass_over(
     accounts: Vec<Configured>,
     hooks: Hooks<'_>,
 ) -> Result<Vec<PassEnd>, CoreError> {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(CoreError::NoRuntime)?;
-
     // All the accounts at once — `plan.md` phase 8f.
     //
     // Accounts are independent by construction: `AccountId` partitions every table, and two
@@ -340,31 +394,30 @@ fn pass_over(
     // listed its accounts in whatever order they happened to finish would read differently
     // between runs for no reason the user could see.
     Ok(
-        runtime.block_on(futures_util::future::join_all(accounts.iter().map(
-            |account| async {
-                let cancel = hooks.cancel.get(&account.id).cloned();
-                let emit = |progress| {
-                    if let Some(sink) = hooks.progress {
-                        sink(account.id.clone(), progress);
-                    }
-                };
-                let cancelled = cancel.clone();
-                let result = one(
-                    store,
-                    account,
-                    secrets.clone(),
-                    registry,
-                    now,
-                    mode,
-                    announce,
-                    cancel,
-                    Some(&emit),
-                    hooks.told,
-                )
-                .await;
-                ended(account, result, cancelled)
-            },
-        ))),
+        futures_util::future::join_all(accounts.iter().map(|account| async {
+            let cancel = hooks.cancel.get(&account.id).cloned();
+            let emit = |progress| {
+                if let Some(sink) = hooks.progress {
+                    sink(account.id.clone(), progress);
+                }
+            };
+            let cancelled = cancel.clone();
+            let result = one(
+                store,
+                account,
+                secrets.clone(),
+                registry,
+                now,
+                mode,
+                announce,
+                cancel,
+                Some(&emit),
+                hooks.told,
+            )
+            .await;
+            ended(account, result, cancelled)
+        }))
+        .await,
     )
 }
 
@@ -801,22 +854,8 @@ fn graph_engine(
     .with_graph_reader(reader))
 }
 
-/// Download one attachment a sync left on the server, and record it as held.
-///
-/// Blocking, with a runtime of its own, for the same reason [`run`] has one: its callers are a
-/// command and a click handler, not async code.
-pub fn fetch_part(
-    store: &Arc<SqliteStore>,
-    message: mail_domain::MessageId,
-    section: &str,
-    now: chrono::DateTime<chrono::Utc>,
-) -> Result<(), CoreError> {
-    let registry = clients::load_default()?;
-    fetch_part_with(store, platform_secrets(), &registry, message, section, now)
-}
-
-/// The same, with the secret store named, so a test can run it.
-pub fn fetch_part_with(
+/// [`SyncOps::fetch_part`](crate::SyncOps), with the secret store named, so a test can run it.
+pub async fn fetch_part_with(
     store: &Arc<SqliteStore>,
     secrets: Arc<dyn AccountSecrets>,
     registry: &ClientRegistry,
@@ -833,19 +872,13 @@ pub fn fetch_part_with(
     if !matches!(account.plan.incoming, Incoming::Imap { .. }) {
         return Err(CoreError::OnlyImapLeavesAttachments);
     }
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(CoreError::NoRuntime)?;
-    runtime.block_on(async {
-        let (_tx, mut cancel) = watch::channel(false);
-        let mut engine = signed_in_imap(store, &account, secrets, registry, now).await?;
-        engine
-            .fetch_part(message, section, &mut cancel)
-            .await
-            .map(|_| ())
-            .map_err(|e| CoreError::cannot("download the attachment", e))
-    })
+    let (_tx, mut cancel) = watch::channel(false);
+    let mut engine = signed_in_imap(store, &account, secrets, registry, now).await?;
+    engine
+        .fetch_part(message, section, &mut cancel)
+        .await
+        .map(|_| ())
+        .map_err(|e| CoreError::cannot("download the attachment", e))
 }
 
 /// An IMAP engine for `account`, signed in with a fresh credential and kept fresh.
@@ -875,21 +908,8 @@ async fn signed_in_imap(
     Ok(engine)
 }
 
-/// Run one IMAP account's outbox now, and nothing else: no fetch, no flag sweep.
-///
-/// What `mailo import --to-mailbox` runs after queueing its uploads, so they go while the user
-/// is watching rather than at the next sync. Blocking, with a runtime of its own, like [`run`].
-pub fn drain(
-    store: &Arc<SqliteStore>,
-    account: AccountId,
-    now: chrono::DateTime<chrono::Utc>,
-) -> Result<SyncReport, CoreError> {
-    let registry = clients::load_default()?;
-    drain_with(store, platform_secrets(), &registry, account, now)
-}
-
-/// The same, with the secret store named, so a test can run it.
-pub fn drain_with(
+/// [`SyncOps::drain`](crate::SyncOps), with the secret store named, so a test can run it.
+pub async fn drain_with(
     store: &Arc<SqliteStore>,
     secrets: Arc<dyn AccountSecrets>,
     registry: &ClientRegistry,
@@ -903,15 +923,9 @@ pub fn drain_with(
     if !matches!(account.plan.incoming, Incoming::Imap { .. }) {
         return Err(CoreError::OnlyImapUploads);
     }
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(CoreError::NoRuntime)?;
-    runtime.block_on(async {
-        let (_tx, mut cancel) = watch::channel(false);
-        let mut engine = signed_in_imap(store, &account, secrets, registry, now).await?;
-        Ok(engine.drain_outbox(&mut cancel, now).await?)
-    })
+    let (_tx, mut cancel) = watch::channel(false);
+    let mut engine = signed_in_imap(store, &account, secrets, registry, now).await?;
+    Ok(engine.drain_outbox(&mut cancel, now).await?)
 }
 
 /// One pass, or passes until the process is stopped.
@@ -1331,33 +1345,9 @@ async fn remote_parts<B: mail_proto::Backend>(
     }
 }
 
-/// Fetch one folder now: its first page of headers, what the server says of them, and bodies.
-///
-/// For a folder the window opens that no pass fetches — one the user does not follow — so its
-/// mail is there to list without waiting for the next pass. A followed folder is fetched by
-/// every pass anyway, and asking again here is harmless: what is already held is not fetched
-/// twice. List it afterwards with `Filter::InFolder`.
-///
-/// Blocking, with a runtime of its own, like [`run`] and [`fetch_part`]: its callers are a
-/// command and a click handler, which reach it through `spawn_blocking`.
-///
-/// How the fetch ended is the return, as one account's pass does ([`PassEnd`]); it is never
-/// `Cancelled`, because nothing holds a signal to cancel it with. An `Err` is a request there is
-/// nothing to fetch for: POP3, which has one mailbox and fetches it every pass, and an account
-/// whose folders are labels, where a folder's mail is the mail with that label and arrives with
-/// it.
-pub fn folder_now(
-    store: Arc<SqliteStore>,
-    account: AccountId,
-    path: &str,
-    now: chrono::DateTime<chrono::Utc>,
-) -> Result<PassEnd, CoreError> {
-    let registry = clients::load_default()?;
-    folder_now_with(store, platform_secrets(), &registry, account, path, now)
-}
-
-/// The same, with the secret store named, so a test can run it.
-pub fn folder_now_with(
+/// Fetch one folder now ([`SyncOps::folder_now`](crate::SyncOps)): its first page of headers, what
+/// the server says of them, and bodies. The secret store is named, so a test can run it.
+pub async fn folder_now_with(
     store: Arc<SqliteStore>,
     secrets: Arc<dyn AccountSecrets>,
     registry: &ClientRegistry,
@@ -1393,11 +1383,7 @@ pub fn folder_now_with(
         account: account.id.clone(),
         path: path.to_owned(),
     };
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(CoreError::NoRuntime)?;
-    let done = runtime.block_on(async {
+    let done = async {
         let stored = stored_credential(&account, secrets.as_ref()).await?;
         let credential = signed_in_typed(&account, stored, secrets.as_ref(), registry, now).await?;
         let (_tx, mut cancel) = watch::channel(false);
@@ -1445,7 +1431,8 @@ pub fn folder_now_with(
         )
         .await;
         Ok(done)
-    });
+    }
+    .await;
     Ok(ended(&account, done, None))
 }
 
@@ -1540,7 +1527,7 @@ fn to_sync(account: &Configured, folders: &[Folder]) -> Vec<MailboxRef> {
 /// Whether a pass fetches this folder, beside the inbox and Sent.
 ///
 /// One the user follows (`LSUB`) that can hold mail. An unfollowed one is fetched when it is
-/// opened, by [`folder_now`], and not on every pass: a server can list hundreds of them.
+/// opened, by [`SyncOps::folder_now`](crate::SyncOps), and not on every pass: a server can list hundreds of them.
 ///
 /// Trash, Junk and Archive are fetched like any folder, and what arrives from them is filed
 /// under their roles (`FolderRoles::filed_as`). Not these:

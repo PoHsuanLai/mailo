@@ -2,8 +2,7 @@
 //! credential kept fresh, a Graph engine with a Graph token valid now, or a JMAP engine.
 
 use super::{
-    AccountSecrets, ClientRegistry, configured, graph_engine, platform_secrets, sending_token,
-    signed_in_imap,
+    AccountSecrets, ClientRegistry, configured, graph_engine, sending_token, signed_in_imap,
 };
 use crate::error::CoreError;
 use mail_domain::{Filter, Incoming, LabelId};
@@ -13,31 +12,33 @@ use porter_core::AccountId;
 use std::sync::Arc;
 use tokio::sync::watch;
 
-/// Search `account`'s server for `filter`, and keep what it finds here.
-///
-/// `labels` is the account's labels with their names, for `label:`. Blocking, with a runtime of
-/// its own, like [`super::fetch_part`]: its caller is a click, not async code.
-pub fn search_server(
-    store: &Arc<SqliteStore>,
-    account: AccountId,
-    filter: &Filter,
-    labels: &[(LabelId, String)],
-    now: chrono::DateTime<chrono::Utc>,
-) -> Result<Searched, CoreError> {
-    let registry = mail_runtime::clients::load_default()?;
-    search_server_with(
-        store,
-        platform_secrets(),
-        &registry,
-        account,
-        filter,
-        labels,
-        now,
-    )
+impl crate::mail::SyncOps<'_> {
+    /// Search `account`'s server for `filter`, and keep what it finds here.
+    ///
+    /// `labels` is the account's labels with their names, for `label:`.
+    pub async fn search_server(
+        &self,
+        account: AccountId,
+        filter: &Filter,
+        labels: &[(LabelId, String)],
+    ) -> Result<Searched, CoreError> {
+        let mail = self.0;
+        let registry = mail.clients()?;
+        search_server_with(
+            mail.store(),
+            mail.secrets(),
+            &registry,
+            account,
+            filter,
+            labels,
+            mail.now(),
+        )
+        .await
+    }
 }
 
-/// The same, with the secret store named, so a test can run it.
-pub fn search_server_with(
+/// [`SyncOps::search_server`](crate::SyncOps), with the secret store named, so a test can run it.
+pub async fn search_server_with(
     store: &Arc<SqliteStore>,
     secrets: Arc<dyn AccountSecrets>,
     registry: &ClientRegistry,
@@ -50,11 +51,7 @@ pub fn search_server_with(
         .into_iter()
         .find(|a| a.id == account)
         .ok_or(CoreError::AccountGone)?;
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(CoreError::NoRuntime)?;
-    runtime.block_on(async {
+    async {
         let failed =
             |e: mail_runtime::RuntimeError| CoreError::context("the server was not searched", e);
         match &account.plan.incoming {
@@ -90,5 +87,6 @@ pub fn search_server_with(
                 address: account.address.clone(),
             }),
         }
-    })
+    }
+    .await
 }

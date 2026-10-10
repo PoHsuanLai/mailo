@@ -5,7 +5,6 @@
 //! no daemon: it answers just enough of the protocol for one `UID FETCH`.
 
 use chrono::{DateTime, TimeZone, Utc};
-use mail_core::sync;
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_runtime::{AccountSecrets, ClientRegistry};
@@ -162,7 +161,7 @@ fn a_body_fetched_on_demand_is_stored_for_the_reader() {
     let secrets = MemorySecrets::default();
     with_password(&secrets);
 
-    sync::fetch_body_with(
+    crate::blocking::fetch_body_with(
         store.clone(),
         Arc::new(secrets),
         &ClientRegistry::default(),
@@ -178,7 +177,7 @@ fn a_body_fetched_on_demand_is_stored_for_the_reader() {
 #[test]
 fn a_missing_credential_asks_for_a_new_sign_in() {
     let (store, id, _dir) = account_with_header_only_message(1);
-    let (retry, why) = sync::fetch_body_with(
+    let (retry, why) = crate::blocking::fetch_body_with(
         store,
         Arc::new(MemorySecrets::default()),
         &ClientRegistry::default(),
@@ -196,7 +195,7 @@ fn an_unreachable_server_can_be_tried_again_later() {
     let (store, id, _dir) = account_with_header_only_message(1);
     let secrets = MemorySecrets::default();
     with_password(&secrets);
-    let (retry, why) = sync::fetch_body_with(
+    let (retry, why) = crate::blocking::fetch_body_with(
         store.clone(),
         Arc::new(secrets),
         &ClientRegistry::default(),

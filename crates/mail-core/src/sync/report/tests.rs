@@ -73,8 +73,8 @@ fn with_password(secrets: &MemorySecrets) {
     .unwrap();
 }
 
-#[test]
-fn a_missing_credential_fails_the_account_as_needing_a_sign_in() {
+#[tokio::test]
+async fn a_missing_credential_fails_the_account_as_needing_a_sign_in() {
     let (store, _dir) = store_at(1);
     let ends = run_with(
         store,
@@ -83,6 +83,7 @@ fn a_missing_credential_fails_the_account_as_needing_a_sign_in() {
         now(),
         Hooks::default(),
     )
+    .await
     .unwrap();
     let [PassEnd::Failed { retry, why, .. }] = ends.as_slice() else {
         panic!("one failed account expected: {ends:?}");
@@ -91,8 +92,8 @@ fn a_missing_credential_fails_the_account_as_needing_a_sign_in() {
     assert!(why.contains("no credential stored"), "{why}");
 }
 
-#[test]
-fn an_unreachable_server_fails_the_account_with_a_wait() {
+#[tokio::test]
+async fn an_unreachable_server_fails_the_account_with_a_wait() {
     let (store, _dir) = store_at(1);
     let secrets = MemorySecrets::default();
     with_password(&secrets);
@@ -103,6 +104,7 @@ fn an_unreachable_server_fails_the_account_with_a_wait() {
         now(),
         Hooks::default(),
     )
+    .await
     .unwrap();
     let [PassEnd::Failed { retry, pause, .. }] = ends.as_slice() else {
         panic!("one failed account expected: {ends:?}");
@@ -115,8 +117,8 @@ fn an_unreachable_server_fails_the_account_with_a_wait() {
     );
 }
 
-#[test]
-fn a_mailbox_that_fails_lands_in_trouble_with_its_decision() {
+#[tokio::test]
+async fn a_mailbox_that_fails_lands_in_trouble_with_its_decision() {
     // A server that accepts the connection and hangs up on everything after it: the account is
     // reachable, and every mailbox in it fails.
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -136,6 +138,7 @@ fn a_mailbox_that_fails_lands_in_trouble_with_its_decision() {
         now(),
         Hooks::default(),
     )
+    .await
     .unwrap();
     // Reachable, so the pass ran; the inbox failed in it, and said which mailbox and what to do.
     let [PassEnd::Finished(report)] = ends.as_slice() else {
