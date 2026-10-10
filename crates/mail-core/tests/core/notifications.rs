@@ -419,7 +419,7 @@ async fn watching<F: std::future::Future<Output = ()>>(
     };
     let raced = tokio::time::timeout(std::time::Duration::from_secs(20), async {
         tokio::select! {
-            () = loop_ => panic!("the watch loop returned on its own"),
+            _ = loop_ => panic!("the watch loop returned on its own"),
             _ = until => {}
         }
     })
