@@ -169,6 +169,7 @@ pub async fn sign_in_with(
     let (unopened, mut refused) = tokio::sync::mpsc::unbounded_channel::<String>();
     let on_url = move |url: &str| {
         if let Err(why) = browse(url) {
+            // The wait reads this; if it has already ended there is nobody left to tell.
             let _ = unopened.send(why.to_string());
         }
     };
