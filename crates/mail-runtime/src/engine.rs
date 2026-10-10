@@ -1939,7 +1939,7 @@ impl<B: Backend> AccountEngine<B> {
     pub async fn fetch_part(
         &mut self,
         message: MessageId,
-        section: &str,
+        section: &mail_domain::Section,
         cancel: &mut Cancel,
     ) -> Result<BlobId, RuntimeError> {
         let remote = self
@@ -1952,12 +1952,19 @@ impl<B: Backend> AccountEngine<B> {
                     "fetching part of a message that has no IMAP address".to_owned(),
                 ))
             })?;
-        let header = format!("{section}.MIME");
+        let Some(header) = section.mime() else {
+            return Err(RuntimeError::Proto(mail_proto::ProtoError::Malformed(
+                format!(
+                    "{:?} is not a part with headers of its own",
+                    section.as_str()
+                ),
+            )));
+        };
         let outcome = self
             .run(
                 ProtoOp::FetchSections {
                     remote,
-                    sections: vec![header.clone(), section.to_owned()],
+                    sections: vec![header.clone(), section.clone()],
                 },
                 cancel,
             )
@@ -1973,7 +1980,7 @@ impl<B: Backend> AccountEngine<B> {
                 .find(|(s, _)| s == name)
                 .map(|(_, bytes)| bytes.as_slice())
         };
-        let (Some(mime), Some(content)) = (find(&header), find(section)) else {
+        let (Some(mime), Some(content)) = (find(header.as_str()), find(section.as_str())) else {
             return Err(RuntimeError::Proto(mail_proto::ProtoError::Malformed(
                 format!("the server did not send section {section} and its headers"),
             )));
@@ -2375,7 +2382,7 @@ mod tests {
     fn a_part_budget_stops_at_its_count_or_its_bytes_and_always_takes_one() {
         let part = |n: u128, size: u64| mail_store::RemotePart {
             message: MessageId::from_uuid(uuid::Uuid::from_u128(n)),
-            section: "2".to_owned(),
+            section: "2".parse().unwrap(),
             size,
         };
         let sizes = |parts: Vec<mail_store::RemotePart>| -> Vec<u64> {

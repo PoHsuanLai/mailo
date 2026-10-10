@@ -373,9 +373,9 @@ fn main() {
     }) = &command
     {
         let mail = mail_app::edge::mail(&store);
-        let download =
-            |section: &str| mail_app::edge::block_on(mail.sync().fetch_part(*message, section));
-        match mail_core::attach::fetch_and_save(&store, *message, *index, dir, download) {
+        match mail_core::attach::fetch_and_save(&store, *message, *index, dir, |section| {
+            mail_app::edge::block_on(mail.sync().fetch_part(*message, section))
+        }) {
             Ok(said) => println!("{said}"),
             Err(message) => {
                 eprintln!("{message}");

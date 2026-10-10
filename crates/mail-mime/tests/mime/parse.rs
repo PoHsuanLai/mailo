@@ -469,18 +469,18 @@ fn a_reconstructed_text_part_keeps_its_flowed_parameters() {
     let plain = "hello \r\nthere\r\n";
 
     let tree = PartTree::Multipart {
-        section: String::new(),
+        section: mail_domain::Section::root(),
         subtype: "mixed".to_owned(),
         boundary: "mix".to_owned(),
         parts: vec![
             PartTree::Leaf {
-                section: "1".into(),
+                section: "1".parse().unwrap(),
                 mime: "text/plain".into(),
                 octets: attach.len() as u64,
                 attachment: true,
             },
             PartTree::Leaf {
-                section: "2".into(),
+                section: "2".parse().unwrap(),
                 mime: "text/plain".into(),
                 octets: plain.len() as u64,
                 attachment: false,

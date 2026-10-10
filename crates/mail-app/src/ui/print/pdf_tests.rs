@@ -92,7 +92,7 @@ fn thread_of(store: &SqliteStore, seeds: Vec<Seed>) -> ThreadId {
                         mime: "application/octet-stream".to_owned(),
                         size,
                         content: PartContent::Remote {
-                            section: (part + 2).to_string(),
+                            section: (part + 2).to_string().parse().unwrap(),
                         },
                         inline: Inline::Attached,
                     })

@@ -1166,7 +1166,7 @@ mod parts {
             panic!("expected structures");
         };
         let leaf = |section: &str, mime: &str, octets: u64, attachment: bool| PartTree::Leaf {
-            section: section.to_owned(),
+            section: section.parse().unwrap(),
             mime: mime.to_owned(),
             octets,
             attachment,
@@ -1176,12 +1176,12 @@ mod parts {
             [(
                 imap_ref("INBOX", 7),
                 PartTree::Multipart {
-                    section: String::new(),
+                    section: mail_domain::Section::root(),
                     subtype: "mixed".to_owned(),
                     boundary: "mix-b".to_owned(),
                     parts: vec![
                         PartTree::Multipart {
-                            section: "1".to_owned(),
+                            section: "1".parse().unwrap(),
                             subtype: "alternative".to_owned(),
                             boundary: "alt-b".to_owned(),
                             parts: vec![
@@ -1218,7 +1218,11 @@ mod parts {
             backend: backend(caps(ServerLabels::LocalOnly, ArchiveMeans::LocalOnly)),
             op: Some(ProtoOp::FetchSections {
                 remote: imap_ref("INBOX", 7),
-                sections: vec!["HEADER".into(), "2.MIME".into(), "1.1".into()],
+                sections: vec![
+                    "HEADER".parse().unwrap(),
+                    "2.MIME".parse().unwrap(),
+                    "1.1".parse().unwrap(),
+                ],
             }),
         };
         let ProtoOutcome::Sections { parts, .. } = replay(&mut driven, &trace).unwrap() else {
@@ -1237,19 +1241,16 @@ mod parts {
     /// A section name is checked before it reaches the command line, not escaped after.
     #[test]
     fn a_section_that_is_not_one_is_refused_before_anything_is_sent() {
-        for bad in [
-            "1] BODY[",
-            "TEXT",
-            "0",
-            "1..2",
-            "",
-            "1.MIME.MIME",
-            "2 FLAGS",
-        ] {
+        // Text that is no section at all cannot be made into one; these are sections that
+        // exist but that this client never asks for.
+        for bad in ["1] BODY[", "0", "1..2", "1.MIME.MIME", "2 FLAGS"] {
+            assert!(bad.parse::<Section>().is_err(), "{bad:?}");
+        }
+        for bad in ["TEXT", "", "1.TEXT", "1.HEADER"] {
             let mut b = backend(caps(ServerLabels::LocalOnly, ArchiveMeans::LocalOnly));
             let progress = b.begin(ProtoOp::FetchSections {
                 remote: imap_ref("INBOX", 7),
-                sections: vec![bad.to_owned()],
+                sections: vec![bad.parse().unwrap()],
             });
             assert!(
                 matches!(progress, Progress::Failed(ProtoError::Malformed(_))),

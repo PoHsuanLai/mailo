@@ -5,6 +5,7 @@
 //! on `mail-proto`. They are protocol-neutral vocabulary; wire *syntax* stays in `mail-proto`.
 
 use crate::id::{BlobId, DraftId};
+use crate::section::Section;
 use crate::state::MailboxRole;
 use chrono::{DateTime, Utc};
 use porter_core::AccountId;
@@ -314,7 +315,7 @@ pub enum ProtoOp {
     /// Named sections of one message: `HEADER`, `2.MIME`, `2.1`. IMAP only.
     FetchSections {
         remote: RemoteRef,
-        sections: Vec<String>,
+        sections: Vec<Section>,
     },
     Watch {
         mailbox: MailboxRef,

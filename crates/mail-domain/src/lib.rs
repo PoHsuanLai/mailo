@@ -27,6 +27,7 @@ pub mod receipt;
 pub mod remote;
 pub mod retry;
 pub mod rule;
+pub mod section;
 pub mod signing;
 pub mod smime;
 pub mod state;
@@ -43,7 +44,7 @@ pub use address::Address;
 pub use autocrypt::{AutocryptPeer, PreferEncrypt, Sighting};
 pub use content::{Attachment, Body, Inline, Label, PartContent};
 pub use draft::{Draft, PendingAttachment, ReplyScope, SendState};
-pub use error::{FolderError, ParseAddressError, ParseFingerprintError};
+pub use error::{FolderError, ParseAddressError, ParseFingerprintError, ParseSectionError};
 pub use filter::{DateRange, Filed, Filter, Leaving, MatchCtx, Placed, TextMatch};
 pub use folder::{
     Folder, FolderContents, FolderCtx, FolderWork, Holds, NonEmpty, SpecialUse, Subscription,
@@ -68,6 +69,7 @@ pub use remote::{
 };
 pub use retry::{Retry, Retryable};
 pub use rule::{AfterMatch, Rule, RuleAction, RuleState, Vacation};
+pub use section::Section;
 pub use smime::{
     BadSignature, CertFingerprint, CertProblem, CertSource, Smime, SmimeCert, SmimeEncryption,
     SmimeVerification,

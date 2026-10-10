@@ -51,18 +51,18 @@ impl Report {
 
     fn tree(&self) -> PartTree {
         let leaf = |section: &str, mime: &str, octets: usize, attachment| PartTree::Leaf {
-            section: section.to_owned(),
+            section: section.parse().unwrap(),
             mime: mime.to_owned(),
             octets: octets as u64,
             attachment,
         };
         PartTree::Multipart {
-            section: String::new(),
+            section: mail_domain::Section::root(),
             subtype: "mixed".to_owned(),
             boundary: "mix".to_owned(),
             parts: vec![
                 PartTree::Multipart {
-                    section: "1".to_owned(),
+                    section: "1".parse().unwrap(),
                     subtype: "alternative".to_owned(),
                     boundary: "alt".to_owned(),
                     parts: vec![
@@ -98,7 +98,11 @@ impl Report {
         sections_for(&self.tree(), keep)
             .unwrap()
             .into_iter()
-            .map(|s| (s.clone(), server[&s].clone()))
+            .map(|s| {
+                let name = s.to_string();
+                let bytes = server[&name].clone();
+                (name, bytes)
+            })
             .collect()
     }
 }
@@ -203,7 +207,7 @@ fn a_marker_in_the_message_itself_is_removed_and_never_believed() {
 #[test]
 fn a_message_that_is_not_multipart_is_fetched_whole() {
     let leaf = PartTree::Leaf {
-        section: "1".to_owned(),
+        section: "1".parse().unwrap(),
         mime: "text/plain".to_owned(),
         octets: 9,
         attachment: false,

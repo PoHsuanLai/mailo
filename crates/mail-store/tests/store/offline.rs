@@ -69,7 +69,7 @@ fn remote(name: &str, section: &str, size: u64) -> Attachment {
         mime: "application/pdf".to_owned(),
         size,
         content: PartContent::Remote {
-            section: section.to_owned(),
+            section: section.parse().unwrap(),
         },
         inline: Inline::Attached,
     }
@@ -243,7 +243,7 @@ fn seed(store: &dyn Store, blobs: &Blobs) {
 fn part(n: u128, section: &str, size: u64) -> RemotePart {
     RemotePart {
         message: id(n),
-        section: section.to_owned(),
+        section: section.parse().unwrap(),
         size,
     }
 }

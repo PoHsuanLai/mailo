@@ -693,7 +693,7 @@ fn attachment_content_round_trips() {
         "remote",
         Attachment {
             content: PartContent::Remote {
-                section: "1.3".to_owned(),
+                section: "1.3".parse().unwrap(),
             },
             ..attachment()
         },

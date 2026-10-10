@@ -1159,7 +1159,7 @@ mod forwarding_as_an_attachment {
             (
                 "its attachment still on the server",
                 part(PartContent::Remote {
-                    section: "2".to_owned(),
+                    section: "2".parse().unwrap(),
                 }),
             ),
             (

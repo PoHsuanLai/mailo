@@ -203,7 +203,7 @@ impl SqliteStore {
 pub(crate) fn held(
     attachments: &mut [mail_domain::Attachment],
     message: MessageId,
-    section: &str,
+    section: &mail_domain::Section,
     blob: mail_domain::BlobId,
     size: u64,
 ) -> Result<(), StoreError> {
@@ -212,7 +212,7 @@ pub(crate) fn held(
         .find(|a| matches!(&a.content, mail_domain::PartContent::Remote { section: s } if s == section))
         .ok_or_else(|| StoreError::NoPart {
             message,
-            section: section.to_owned(),
+            section: section.clone(),
         })?;
     part.content = mail_domain::PartContent::Held(blob);
     part.size = size;
@@ -723,7 +723,7 @@ impl Store for SqliteStore {
     fn hold_part(
         &self,
         message: MessageId,
-        section: &str,
+        section: &mail_domain::Section,
         blob: mail_domain::BlobId,
         size: u64,
     ) -> Result<(), StoreError> {

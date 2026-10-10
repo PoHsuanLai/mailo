@@ -11,7 +11,7 @@
 //! arriving from the server is removed here first: a sender cannot put one in a message and have
 //! it believed.
 
-use mail_domain::PartTree;
+use mail_domain::{PartTree, Section};
 use std::collections::HashMap;
 
 /// On a part left on the server: the IMAP section it is fetched by.
@@ -22,13 +22,14 @@ pub const REMOTE_OCTETS: &str = "X-Mailo-Remote-Octets";
 /// The sections to ask for so that [`reconstruct`] can rebuild `tree`, keeping the leaves `keep`
 /// accepts. `None` when `tree` is not multipart: there is nothing to leave behind, and the caller
 /// fetches it whole.
-pub fn sections_for(tree: &PartTree, keep: &dyn Fn(&PartTree) -> bool) -> Option<Vec<String>> {
+pub fn sections_for(tree: &PartTree, keep: &dyn Fn(&PartTree) -> bool) -> Option<Vec<Section>> {
     let PartTree::Multipart { parts, .. } = tree else {
         return None;
     };
-    let mut out = vec!["HEADER".to_owned()];
-    fn walk(node: &PartTree, keep: &dyn Fn(&PartTree) -> bool, out: &mut Vec<String>) {
-        out.push(format!("{}.MIME", node.section()));
+    let mut out = vec![Section::header()];
+    fn walk(node: &PartTree, keep: &dyn Fn(&PartTree) -> bool, out: &mut Vec<Section>) {
+        // Every node below the root is numbered, so every one has headers of its own.
+        out.extend(node.section().mime());
         match node {
             PartTree::Multipart { parts, .. } => {
                 for child in parts {
@@ -77,7 +78,7 @@ fn write_children(
     };
     for child in parts {
         out.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
-        let header = without_markers(fetched.get(&format!("{}.MIME", child.section()))?);
+        let header = without_markers(fetched.get(child.section().mime()?.as_str())?);
         match child {
             PartTree::Multipart { .. } => {
                 out.extend_from_slice(&header);
@@ -85,7 +86,7 @@ fn write_children(
             }
             PartTree::Leaf {
                 section, octets, ..
-            } => match fetched.get(section) {
+            } => match fetched.get(section.as_str()) {
                 Some(content) => {
                     out.extend_from_slice(&header);
                     out.extend_from_slice(content);

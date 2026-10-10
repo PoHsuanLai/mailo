@@ -383,7 +383,7 @@ impl Backend for ImapBackend {
             ProtoOp::FetchSections { remote, sections } => {
                 // Each name goes into the command line, so each is checked against the grammar
                 // rather than trusted: they come from a stored row, which came from a server.
-                if sections.is_empty() || !sections.iter().all(|s| is_section(s)) {
+                if sections.is_empty() || !sections.iter().all(|s| is_section(s.as_str())) {
                     return Progress::Failed(ProtoError::Malformed(format!(
                         "not a section list: {sections:?}"
                     )));
@@ -1167,16 +1167,8 @@ fn uid_of(remote: &RemoteRef) -> Option<u32> {
 /// a root that is not multipart is section `1` (RFC 3501 §6.4.5).
 fn part_tree(body: &imap_proto::BodyStructure<'_>, path: &[u32]) -> Option<PartTree> {
     use imap_proto::BodyStructure as B;
-    let section = |path: &[u32]| {
-        if path.is_empty() {
-            "1".to_owned()
-        } else {
-            path.iter()
-                .map(u32::to_string)
-                .collect::<Vec<_>>()
-                .join(".")
-        }
-    };
+    let section =
+        |path: &[u32]| mail_domain::Section::of(if path.is_empty() { &[1u32][..] } else { path });
     match body {
         B::Multipart { common, bodies, .. } => {
             // Without its boundary a multipart cannot be written back out, and one that is
@@ -1199,9 +1191,9 @@ fn part_tree(body: &imap_proto::BodyStructure<'_>, path: &[u32]) -> Option<PartT
                 .collect::<Option<Vec<_>>>()?;
             Some(PartTree::Multipart {
                 section: if path.is_empty() {
-                    String::new()
+                    mail_domain::Section::root()
                 } else {
-                    section(path)
+                    section(path)?
                 },
                 subtype: common.ty.subtype.to_ascii_lowercase(),
                 boundary,
@@ -1211,7 +1203,7 @@ fn part_tree(body: &imap_proto::BodyStructure<'_>, path: &[u32]) -> Option<PartT
         B::Basic { common, other, .. }
         | B::Text { common, other, .. }
         | B::Message { common, other, .. } => Some(PartTree::Leaf {
-            section: section(path),
+            section: section(path)?,
             mime: format!("{}/{}", common.ty.ty, common.ty.subtype).to_ascii_lowercase(),
             octets: u64::from(other.octets),
             attachment: common

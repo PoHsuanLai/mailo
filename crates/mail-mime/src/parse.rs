@@ -24,7 +24,7 @@ pub struct ParsedPart {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RemotePart {
     /// The IMAP section: `"2"`, `"1.3"`.
-    pub section: String,
+    pub section: mail_domain::Section,
     /// Size on the server, before transfer decoding.
     pub octets: u64,
 }
@@ -364,7 +364,7 @@ fn remote_part(part: &mail_parser::MessagePart<'_>) -> Option<RemotePart> {
             .map(|v| v.trim().to_owned())
     };
     Some(RemotePart {
-        section: field(crate::reconstruct::REMOTE_SECTION)?,
+        section: field(crate::reconstruct::REMOTE_SECTION)?.parse().ok()?,
         octets: field(crate::reconstruct::REMOTE_OCTETS)?.parse().ok()?,
     })
 }

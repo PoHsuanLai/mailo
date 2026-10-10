@@ -12,7 +12,7 @@ use mail_domain::{Attachment, Body, Message, MessageId, PartContent};
 pub struct RemotePart {
     pub message: MessageId,
     /// The IMAP section it is (`"2"`, `"1.3"`).
-    pub section: String,
+    pub section: mail_domain::Section,
     /// The server's figure for it, encoded: about a third more than the file for base64.
     pub size: u64,
 }
@@ -53,5 +53,5 @@ impl Offline {
 /// A stored row with neither a blob nor a section reads back as a remote part with an empty
 /// section (`mail_domain::content`); nothing can fetch that, so it is not counted as waiting.
 pub(crate) fn is_remote(attachment: &Attachment) -> bool {
-    matches!(&attachment.content, PartContent::Remote { section } if !section.is_empty())
+    matches!(&attachment.content, PartContent::Remote { section } if !section.is_root())
 }

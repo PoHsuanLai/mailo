@@ -19,7 +19,8 @@ use std::sync::Arc;
 use crate::ui::press::on_primary;
 
 type BodyFetch = dyn Fn(Arc<SqliteStore>, MessageId) -> Result<(), (Retry, String)> + Send + Sync;
-type PartFetch = dyn Fn(&Arc<SqliteStore>, MessageId, &str) -> Result<(), String> + Send + Sync;
+type PartFetch =
+    dyn Fn(&Arc<SqliteStore>, MessageId, &mail_domain::Section) -> Result<(), String> + Send + Sync;
 
 /// The two network calls the reader makes. Provided as context by a test; the window uses
 /// [`Fetchers::default`].
