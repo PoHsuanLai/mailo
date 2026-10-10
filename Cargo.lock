@@ -319,7 +319,7 @@ dependencies = [
  "objc2-foundation 0.3.2",
  "parking_lot",
  "percent-encoding",
- "windows-sys 0.52.0",
+ "windows-sys 0.60.2",
  "wl-clipboard-rs",
  "x11rb",
 ]
@@ -2289,7 +2289,7 @@ checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
 [[package]]
 name = "ds"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire.git?rev=b9b9c03bf166f0e2be834518b2dd1ee76b4de7f5#b9b9c03bf166f0e2be834518b2dd1ee76b4de7f5"
+source = "git+https://github.com/PoHsuanLai/quire.git?rev=e0d1ed4880c55557326261bcb8d3091ee8a66f89#e0d1ed4880c55557326261bcb8d3091ee8a66f89"
 dependencies = [
  "dioxus",
  "ds-core",
@@ -2304,7 +2304,7 @@ dependencies = [
 [[package]]
 name = "ds-behaviour"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire.git?rev=b9b9c03bf166f0e2be834518b2dd1ee76b4de7f5#b9b9c03bf166f0e2be834518b2dd1ee76b4de7f5"
+source = "git+https://github.com/PoHsuanLai/quire.git?rev=e0d1ed4880c55557326261bcb8d3091ee8a66f89#e0d1ed4880c55557326261bcb8d3091ee8a66f89"
 dependencies = [
  "ds-core",
 ]
@@ -2312,7 +2312,7 @@ dependencies = [
 [[package]]
 name = "ds-blitz"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire.git?rev=b9b9c03bf166f0e2be834518b2dd1ee76b4de7f5#b9b9c03bf166f0e2be834518b2dd1ee76b4de7f5"
+source = "git+https://github.com/PoHsuanLai/quire.git?rev=e0d1ed4880c55557326261bcb8d3091ee8a66f89#e0d1ed4880c55557326261bcb8d3091ee8a66f89"
 dependencies = [
  "anyrender",
  "anyrender_vello_hybrid",
@@ -2353,7 +2353,7 @@ dependencies = [
 [[package]]
 name = "ds-core"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire.git?rev=b9b9c03bf166f0e2be834518b2dd1ee76b4de7f5#b9b9c03bf166f0e2be834518b2dd1ee76b4de7f5"
+source = "git+https://github.com/PoHsuanLai/quire.git?rev=e0d1ed4880c55557326261bcb8d3091ee8a66f89#e0d1ed4880c55557326261bcb8d3091ee8a66f89"
 dependencies = [
  "ds-core-derive",
  "futures-timer",
@@ -2365,7 +2365,7 @@ dependencies = [
 [[package]]
 name = "ds-core-derive"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire.git?rev=b9b9c03bf166f0e2be834518b2dd1ee76b4de7f5#b9b9c03bf166f0e2be834518b2dd1ee76b4de7f5"
+source = "git+https://github.com/PoHsuanLai/quire.git?rev=e0d1ed4880c55557326261bcb8d3091ee8a66f89#e0d1ed4880c55557326261bcb8d3091ee8a66f89"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -2376,7 +2376,7 @@ dependencies = [
 [[package]]
 name = "ds-desktop"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire.git?rev=b9b9c03bf166f0e2be834518b2dd1ee76b4de7f5#b9b9c03bf166f0e2be834518b2dd1ee76b4de7f5"
+source = "git+https://github.com/PoHsuanLai/quire.git?rev=e0d1ed4880c55557326261bcb8d3091ee8a66f89#e0d1ed4880c55557326261bcb8d3091ee8a66f89"
 dependencies = [
  "zbus",
 ]
@@ -2384,7 +2384,7 @@ dependencies = [
 [[package]]
 name = "ds-harness"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire.git?rev=b9b9c03bf166f0e2be834518b2dd1ee76b4de7f5#b9b9c03bf166f0e2be834518b2dd1ee76b4de7f5"
+source = "git+https://github.com/PoHsuanLai/quire.git?rev=e0d1ed4880c55557326261bcb8d3091ee8a66f89#e0d1ed4880c55557326261bcb8d3091ee8a66f89"
 dependencies = [
  "anyrender",
  "anyrender_vello_cpu",
@@ -2414,7 +2414,7 @@ dependencies = [
 [[package]]
 name = "ds-intents"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire.git?rev=b9b9c03bf166f0e2be834518b2dd1ee76b4de7f5#b9b9c03bf166f0e2be834518b2dd1ee76b4de7f5"
+source = "git+https://github.com/PoHsuanLai/quire.git?rev=e0d1ed4880c55557326261bcb8d3091ee8a66f89#e0d1ed4880c55557326261bcb8d3091ee8a66f89"
 dependencies = [
  "ds-core",
 ]
@@ -2422,7 +2422,7 @@ dependencies = [
 [[package]]
 name = "ds-lint"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire.git?rev=b9b9c03bf166f0e2be834518b2dd1ee76b4de7f5#b9b9c03bf166f0e2be834518b2dd1ee76b4de7f5"
+source = "git+https://github.com/PoHsuanLai/quire.git?rev=e0d1ed4880c55557326261bcb8d3091ee8a66f89#e0d1ed4880c55557326261bcb8d3091ee8a66f89"
 dependencies = [
  "cssparser 0.37.0",
  "ds-core",
@@ -2432,7 +2432,7 @@ dependencies = [
 [[package]]
 name = "ds-motion"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire.git?rev=b9b9c03bf166f0e2be834518b2dd1ee76b4de7f5#b9b9c03bf166f0e2be834518b2dd1ee76b4de7f5"
+source = "git+https://github.com/PoHsuanLai/quire.git?rev=e0d1ed4880c55557326261bcb8d3091ee8a66f89#e0d1ed4880c55557326261bcb8d3091ee8a66f89"
 dependencies = [
  "dioxus",
  "ds-core",
@@ -2442,7 +2442,7 @@ dependencies = [
 [[package]]
 name = "ds-settings"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire.git?rev=b9b9c03bf166f0e2be834518b2dd1ee76b4de7f5#b9b9c03bf166f0e2be834518b2dd1ee76b4de7f5"
+source = "git+https://github.com/PoHsuanLai/quire.git?rev=e0d1ed4880c55557326261bcb8d3091ee8a66f89#e0d1ed4880c55557326261bcb8d3091ee8a66f89"
 dependencies = [
  "dioxus",
  "ds-behaviour",
@@ -2461,7 +2461,7 @@ dependencies = [
 [[package]]
 name = "ds-settings-derive"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire.git?rev=b9b9c03bf166f0e2be834518b2dd1ee76b4de7f5#b9b9c03bf166f0e2be834518b2dd1ee76b4de7f5"
+source = "git+https://github.com/PoHsuanLai/quire.git?rev=e0d1ed4880c55557326261bcb8d3091ee8a66f89#e0d1ed4880c55557326261bcb8d3091ee8a66f89"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2471,7 +2471,7 @@ dependencies = [
 [[package]]
 name = "ds-shell"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire.git?rev=b9b9c03bf166f0e2be834518b2dd1ee76b4de7f5#b9b9c03bf166f0e2be834518b2dd1ee76b4de7f5"
+source = "git+https://github.com/PoHsuanLai/quire.git?rev=e0d1ed4880c55557326261bcb8d3091ee8a66f89#e0d1ed4880c55557326261bcb8d3091ee8a66f89"
 dependencies = [
  "dioxus",
  "ds",
@@ -2484,7 +2484,7 @@ dependencies = [
 [[package]]
 name = "ds-style"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire.git?rev=b9b9c03bf166f0e2be834518b2dd1ee76b4de7f5#b9b9c03bf166f0e2be834518b2dd1ee76b4de7f5"
+source = "git+https://github.com/PoHsuanLai/quire.git?rev=e0d1ed4880c55557326261bcb8d3091ee8a66f89#e0d1ed4880c55557326261bcb8d3091ee8a66f89"
 dependencies = [
  "dioxus",
  "ds-core",
@@ -2698,7 +2698,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5588,7 +5588,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d8fae84b431384b68627d0f9b3b1245fcf9f46f6c0e3dc902e9dce64edd1967"
 dependencies = [
  "libc",
- "windows-sys 0.45.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5723,8 +5723,9 @@ dependencies = [
 
 [[package]]
 name = "pdfrum"
-version = "0.4.0"
-source = "git+https://github.com/PoHsuanLai/pdfrum?rev=e21b9352e0e070e4572ad67d16a309c570df2b83#e21b9352e0e070e4572ad67d16a309c570df2b83"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0219aedc87a3d9473e39deecdda755e74483dbf8fe9e9050f9d51e64e378357f"
 dependencies = [
  "kurbo",
  "pdfrum-common",
@@ -5744,8 +5745,9 @@ dependencies = [
 
 [[package]]
 name = "pdfrum-anyrender"
-version = "0.4.0"
-source = "git+https://github.com/PoHsuanLai/pdfrum?rev=e21b9352e0e070e4572ad67d16a309c570df2b83#e21b9352e0e070e4572ad67d16a309c570df2b83"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e804abdf03c94467344728b54b697a6a6e60dff267a7c985a2d3e86186893cb3"
 dependencies = [
  "anyrender",
  "pdfrum-common",
@@ -5757,8 +5759,9 @@ dependencies = [
 
 [[package]]
 name = "pdfrum-cmap"
-version = "0.4.0"
-source = "git+https://github.com/PoHsuanLai/pdfrum?rev=e21b9352e0e070e4572ad67d16a309c570df2b83#e21b9352e0e070e4572ad67d16a309c570df2b83"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "10f5823bbf2ed2af0368f7feab0cfbc4db65bf8a7b8d46c99385442ad61d3332"
 dependencies = [
  "pdfrum-common",
  "pdfrum-object",
@@ -5767,16 +5770,18 @@ dependencies = [
 
 [[package]]
 name = "pdfrum-common"
-version = "0.4.0"
-source = "git+https://github.com/PoHsuanLai/pdfrum?rev=e21b9352e0e070e4572ad67d16a309c570df2b83#e21b9352e0e070e4572ad67d16a309c570df2b83"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6d29037dc447311f491609cfabcb64816c106f4508c51b9b775fc9ecf640d769"
 dependencies = [
  "kurbo",
 ]
 
 [[package]]
 name = "pdfrum-crypt"
-version = "0.4.0"
-source = "git+https://github.com/PoHsuanLai/pdfrum?rev=e21b9352e0e070e4572ad67d16a309c570df2b83#e21b9352e0e070e4572ad67d16a309c570df2b83"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "24cb81671b14b6c4036bca4c3ae3884aef1bdc5f670af4d35f4d31506b98aeb8"
 dependencies = [
  "aes 0.9.3",
  "cbc 0.2.1",
@@ -5793,8 +5798,9 @@ dependencies = [
 
 [[package]]
 name = "pdfrum-doc"
-version = "0.4.0"
-source = "git+https://github.com/PoHsuanLai/pdfrum?rev=e21b9352e0e070e4572ad67d16a309c570df2b83#e21b9352e0e070e4572ad67d16a309c570df2b83"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba009851966b4b51c7dd6b6a173ea63833bf371f159c9931cb71e0341fec5a34"
 dependencies = [
  "kurbo",
  "pdfrum-common",
@@ -5809,8 +5815,9 @@ dependencies = [
 
 [[package]]
 name = "pdfrum-edit"
-version = "0.4.0"
-source = "git+https://github.com/PoHsuanLai/pdfrum?rev=e21b9352e0e070e4572ad67d16a309c570df2b83#e21b9352e0e070e4572ad67d16a309c570df2b83"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aefff548e3093c1ab253e2cc9daf7eca2db0f12885c259f9a971c8e3265bf2c6"
 dependencies = [
  "getrandom 0.4.3",
  "kurbo",
@@ -5832,8 +5839,9 @@ dependencies = [
 
 [[package]]
 name = "pdfrum-filters"
-version = "0.4.0"
-source = "git+https://github.com/PoHsuanLai/pdfrum?rev=e21b9352e0e070e4572ad67d16a309c570df2b83#e21b9352e0e070e4572ad67d16a309c570df2b83"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f2bd7328a19108046fd7e1eaca71c2f982b680d0c28851790dfacb7a7e99a9b3"
 dependencies = [
  "miniz_oxide 0.9.1",
  "pdfrum-common",
@@ -5844,8 +5852,9 @@ dependencies = [
 
 [[package]]
 name = "pdfrum-font"
-version = "0.4.0"
-source = "git+https://github.com/PoHsuanLai/pdfrum?rev=e21b9352e0e070e4572ad67d16a309c570df2b83#e21b9352e0e070e4572ad67d16a309c570df2b83"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e5c7e0a05f24458ecc37a93237a47f49c80b35d527612bfba13ec694ba44ee71"
 dependencies = [
  "pdfrum-cmap",
  "pdfrum-common",
@@ -5860,8 +5869,9 @@ dependencies = [
 
 [[package]]
 name = "pdfrum-object"
-version = "0.4.0"
-source = "git+https://github.com/PoHsuanLai/pdfrum?rev=e21b9352e0e070e4572ad67d16a309c570df2b83#e21b9352e0e070e4572ad67d16a309c570df2b83"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a6f9f0c758ef076bca8f492ee128e4a663cf30760fd4d05ab7ff34c9b47334ee"
 dependencies = [
  "bytes",
  "pdfrum-common",
@@ -5871,8 +5881,9 @@ dependencies = [
 
 [[package]]
 name = "pdfrum-page"
-version = "0.4.0"
-source = "git+https://github.com/PoHsuanLai/pdfrum?rev=e21b9352e0e070e4572ad67d16a309c570df2b83#e21b9352e0e070e4572ad67d16a309c570df2b83"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "22e2a43e0ce71fccc819c96ebd59dfe24fa950d38f5b1ed663fbb44c21b9a58e"
 dependencies = [
  "kurbo",
  "moxcms 0.9.1",
@@ -5887,8 +5898,9 @@ dependencies = [
 
 [[package]]
 name = "pdfrum-parser"
-version = "0.4.0"
-source = "git+https://github.com/PoHsuanLai/pdfrum?rev=e21b9352e0e070e4572ad67d16a309c570df2b83#e21b9352e0e070e4572ad67d16a309c570df2b83"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2d0daf0a1fe7386da03dcca2a49ad90f230ba090c40ea7f805746dc4f4faaf41"
 dependencies = [
  "pdfrum-common",
  "pdfrum-crypt",
@@ -5899,8 +5911,9 @@ dependencies = [
 
 [[package]]
 name = "pdfrum-raster-vello-cpu"
-version = "0.4.0"
-source = "git+https://github.com/PoHsuanLai/pdfrum?rev=e21b9352e0e070e4572ad67d16a309c570df2b83#e21b9352e0e070e4572ad67d16a309c570df2b83"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0d9f083a84af44ccfd9dab6be193c82e93b7e5274649173ebb2a88b15576a5a0"
 dependencies = [
  "kurbo",
  "pdfrum-page",
@@ -5911,8 +5924,9 @@ dependencies = [
 
 [[package]]
 name = "pdfrum-render"
-version = "0.4.0"
-source = "git+https://github.com/PoHsuanLai/pdfrum?rev=e21b9352e0e070e4572ad67d16a309c570df2b83#e21b9352e0e070e4572ad67d16a309c570df2b83"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4e036cab291a7c3abc89cab44038496a678703394f98d3914994ab4d74dc5a80"
 dependencies = [
  "kurbo",
  "pdfrum-common",
@@ -5926,8 +5940,9 @@ dependencies = [
 
 [[package]]
 name = "pdfrum-text"
-version = "0.4.0"
-source = "git+https://github.com/PoHsuanLai/pdfrum?rev=e21b9352e0e070e4572ad67d16a309c570df2b83#e21b9352e0e070e4572ad67d16a309c570df2b83"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d76751173dde106ebc628391cd3fe91eeead51a6798faf1ec0f873af58242408"
 dependencies = [
  "kurbo",
  "pdfrum-common",
@@ -5940,8 +5955,9 @@ dependencies = [
 
 [[package]]
 name = "pdfrum-type1"
-version = "0.4.0"
-source = "git+https://github.com/PoHsuanLai/pdfrum?rev=e21b9352e0e070e4572ad67d16a309c570df2b83#e21b9352e0e070e4572ad67d16a309c570df2b83"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "85f59c5e3c5d5af7ef40e124401cfc5f7d249e88e6602197377461ff7b15dd2b"
 dependencies = [
  "pdfrum-common",
  "read-fonts 0.44.0",
@@ -6401,7 +6417,7 @@ dependencies = [
 [[package]]
 name = "porter-client"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=b12886e4d047d9763a4dccfa9fa3ce92084483ca#b12886e4d047d9763a4dccfa9fa3ce92084483ca"
+source = "git+https://github.com/PoHsuanLai/porter?rev=43f9c7e99fe528806eb5c4cbda261a6be79e0f1f#43f9c7e99fe528806eb5c4cbda261a6be79e0f1f"
 dependencies = [
  "porter-core",
  "porter-dbus",
@@ -6417,7 +6433,7 @@ dependencies = [
 [[package]]
 name = "porter-core"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=b12886e4d047d9763a4dccfa9fa3ce92084483ca#b12886e4d047d9763a4dccfa9fa3ce92084483ca"
+source = "git+https://github.com/PoHsuanLai/porter?rev=43f9c7e99fe528806eb5c4cbda261a6be79e0f1f#43f9c7e99fe528806eb5c4cbda261a6be79e0f1f"
 dependencies = [
  "serde",
  "serde_json",
@@ -6428,11 +6444,12 @@ dependencies = [
 [[package]]
 name = "porter-dbus"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=b12886e4d047d9763a4dccfa9fa3ce92084483ca#b12886e4d047d9763a4dccfa9fa3ce92084483ca"
+source = "git+https://github.com/PoHsuanLai/porter?rev=43f9c7e99fe528806eb5c4cbda261a6be79e0f1f#43f9c7e99fe528806eb5c4cbda261a6be79e0f1f"
 dependencies = [
  "porter-core",
  "serde",
  "serde_json",
+ "thiserror 2.0.21",
  "tokio",
  "zbus",
 ]
@@ -6440,7 +6457,7 @@ dependencies = [
 [[package]]
 name = "porter-discover"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=b12886e4d047d9763a4dccfa9fa3ce92084483ca#b12886e4d047d9763a4dccfa9fa3ce92084483ca"
+source = "git+https://github.com/PoHsuanLai/porter?rev=43f9c7e99fe528806eb5c4cbda261a6be79e0f1f#43f9c7e99fe528806eb5c4cbda261a6be79e0f1f"
 dependencies = [
  "porter-core",
  "porter-http",
@@ -6454,12 +6471,12 @@ dependencies = [
 [[package]]
 name = "porter-fs"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=b12886e4d047d9763a4dccfa9fa3ce92084483ca#b12886e4d047d9763a4dccfa9fa3ce92084483ca"
+source = "git+https://github.com/PoHsuanLai/porter?rev=43f9c7e99fe528806eb5c4cbda261a6be79e0f1f#43f9c7e99fe528806eb5c4cbda261a6be79e0f1f"
 
 [[package]]
 name = "porter-http"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=b12886e4d047d9763a4dccfa9fa3ce92084483ca#b12886e4d047d9763a4dccfa9fa3ce92084483ca"
+source = "git+https://github.com/PoHsuanLai/porter?rev=43f9c7e99fe528806eb5c4cbda261a6be79e0f1f#43f9c7e99fe528806eb5c4cbda261a6be79e0f1f"
 dependencies = [
  "porter-core",
  "thiserror 2.0.21",
@@ -6468,7 +6485,7 @@ dependencies = [
 [[package]]
 name = "porter-oauth"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=b12886e4d047d9763a4dccfa9fa3ce92084483ca#b12886e4d047d9763a4dccfa9fa3ce92084483ca"
+source = "git+https://github.com/PoHsuanLai/porter?rev=43f9c7e99fe528806eb5c4cbda261a6be79e0f1f#43f9c7e99fe528806eb5c4cbda261a6be79e0f1f"
 dependencies = [
  "base64 0.22.1",
  "porter-core",
@@ -6485,7 +6502,7 @@ dependencies = [
 [[package]]
 name = "porter-provider"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=b12886e4d047d9763a4dccfa9fa3ce92084483ca#b12886e4d047d9763a4dccfa9fa3ce92084483ca"
+source = "git+https://github.com/PoHsuanLai/porter?rev=43f9c7e99fe528806eb5c4cbda261a6be79e0f1f#43f9c7e99fe528806eb5c4cbda261a6be79e0f1f"
 dependencies = [
  "porter-core",
  "serde",
@@ -6496,7 +6513,7 @@ dependencies = [
 [[package]]
 name = "porter-proxy"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=b12886e4d047d9763a4dccfa9fa3ce92084483ca#b12886e4d047d9763a4dccfa9fa3ce92084483ca"
+source = "git+https://github.com/PoHsuanLai/porter?rev=43f9c7e99fe528806eb5c4cbda261a6be79e0f1f#43f9c7e99fe528806eb5c4cbda261a6be79e0f1f"
 dependencies = [
  "base64 0.22.1",
  "porter-core",
@@ -6506,7 +6523,7 @@ dependencies = [
 [[package]]
 name = "porter-secrets"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=b12886e4d047d9763a4dccfa9fa3ce92084483ca#b12886e4d047d9763a4dccfa9fa3ce92084483ca"
+source = "git+https://github.com/PoHsuanLai/porter?rev=43f9c7e99fe528806eb5c4cbda261a6be79e0f1f#43f9c7e99fe528806eb5c4cbda261a6be79e0f1f"
 dependencies = [
  "apple-native-keyring-store",
  "keyring-core",
@@ -6522,11 +6539,12 @@ dependencies = [
 [[package]]
 name = "porter-service"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=b12886e4d047d9763a4dccfa9fa3ce92084483ca#b12886e4d047d9763a4dccfa9fa3ce92084483ca"
+source = "git+https://github.com/PoHsuanLai/porter?rev=43f9c7e99fe528806eb5c4cbda261a6be79e0f1f#43f9c7e99fe528806eb5c4cbda261a6be79e0f1f"
 dependencies = [
  "porter-core",
  "porter-provider",
  "porter-secrets",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -6737,7 +6755,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7263,7 +7281,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -8395,7 +8413,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -9736,7 +9754,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
