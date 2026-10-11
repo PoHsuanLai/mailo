@@ -79,6 +79,23 @@ pub enum CoreError {
     #[error("no config directory (neither XDG_CONFIG_HOME nor HOME is set)")]
     NoConfigDir,
 
+    // ---- profiles
+    #[error(transparent)]
+    ProfileId(#[from] crate::profile::NotAProfileId),
+    /// A Profile was named by its id or its name and there is none like it.
+    #[error("no profile {0:?}")]
+    NoProfile(String),
+    #[error("{0:?} cannot name a profile: a name is not blank and not a profile id")]
+    ProfileNameUnusable(String),
+    #[error("another profile is already called {0:?}")]
+    ProfileNameTaken(String),
+    #[error("the default profile is the install in place, and cannot be removed")]
+    DefaultProfileStays,
+    /// `profiles.json` of a later version, which this build would write back without what the
+    /// version added.
+    #[error("{}: written by a newer mailo (version {version})", .path.display())]
+    ProfilesTooNew { path: PathBuf, version: u32 },
+
     // ---- reminders
     #[error("the message has no Message-ID to be found by")]
     NoMessageId,

@@ -44,6 +44,7 @@ pub mod pgp;
 pub mod place;
 pub mod preview;
 pub mod print;
+pub mod profile;
 pub mod provider;
 pub mod query;
 pub mod receipt;
