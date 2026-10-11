@@ -15,10 +15,10 @@
 
 use crate::AccountSecrets;
 use crate::RuntimeError;
+use crate::SecretTrouble;
 use crate::authorize::exchange_failure;
 use crate::clients;
 use crate::error::Failure;
-use crate::error::Logged;
 use chrono::{DateTime, Utc};
 use mail_domain::{AccountPlan, AuthPlan, Incoming, Outgoing, Retry, Retryable};
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose, SecretText, UnixSeconds};
@@ -359,13 +359,7 @@ pub async fn graph_token(
     secrets: &dyn AccountSecrets,
     now: DateTime<Utc>,
 ) -> Result<Credential, RuntimeError> {
-    let held = secrets
-        .get(&SecretKey {
-            account: account.clone(),
-            purpose: SecretPurpose::OutgoingPassword,
-        })
-        .await
-        .or_log("the kept Graph sign-in could not be read");
+    let held = kept_graph(secrets, account.clone()).await?;
     let refresh_token = match held {
         Some(held @ Credential::OAuth { .. }) => match due_refresh(&held, now) {
             None => return Ok(held),
@@ -383,15 +377,32 @@ async fn graph_refresh(
     secrets: &dyn AccountSecrets,
     account: AccountId,
 ) -> Result<String, RuntimeError> {
-    match secrets
-        .get(&SecretKey {
-            account: account.clone(),
-            purpose: SecretPurpose::OutgoingPassword,
-        })
-        .await
-    {
-        Ok(Credential::OAuth { refresh, .. }) => Ok(refresh.expose().to_owned()),
+    match kept_graph(secrets, account.clone()).await? {
+        Some(Credential::OAuth { refresh, .. }) => Ok(refresh.expose().to_owned()),
         _ => sign_in_refresh(secrets, account).await,
+    }
+}
+
+/// The Graph token kept as the account's outgoing credential, or `None` when there is none to
+/// use yet.
+///
+/// None kept is the ordinary first mint, from the sign-in's refresh token, and nothing to warn
+/// about. A keyring that did not answer is the error itself: minting from the sign-in would ask
+/// the same keyring, and the account waits for it as it does for any other read.
+async fn kept_graph(
+    secrets: &dyn AccountSecrets,
+    account: AccountId,
+) -> Result<Option<Credential>, RuntimeError> {
+    let key = SecretKey {
+        account,
+        purpose: SecretPurpose::OutgoingPassword,
+    };
+    match secrets.get(&key).await {
+        Ok(held) => Ok(Some(held)),
+        Err(why) => match SecretTrouble::of(&why) {
+            SecretTrouble::Absent => Ok(None),
+            SecretTrouble::Unreachable(_) => Err(why),
+        },
     }
 }
 
@@ -569,11 +580,7 @@ impl OAuthTokens {
                 self.spent().incoming = access_of(&renewed);
             }
             Token::Sending => {
-                let held = self
-                    .secrets
-                    .get(&self.sending_key())
-                    .await
-                    .or_log("the kept Graph sign-in could not be read");
+                let held = kept_graph(self.secrets.as_ref(), self.account.clone()).await?;
                 if let Some(Credential::OAuth { access, .. }) = &held
                     && self.spent().sending.as_deref() == Some(access.expose())
                 {
@@ -725,6 +732,56 @@ fn access_of(credential: &Credential) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A keyring that answers every read with one refusal.
+    struct Refusing(fn() -> porter_secrets::SecretsError);
+
+    impl AccountSecrets for Refusing {
+        fn get<'a>(
+            &'a self,
+            _: &'a SecretKey,
+        ) -> Pin<Box<dyn Future<Output = Result<Credential, RuntimeError>> + Send + 'a>> {
+            let why = RuntimeError::Secrets(Failure::caused((self.0)()));
+            Box::pin(async move { Err(why) })
+        }
+        fn put<'a>(
+            &'a self,
+            _: &'a SecretKey,
+            _: &'a Credential,
+        ) -> Pin<Box<dyn Future<Output = Result<(), RuntimeError>> + Send + 'a>> {
+            Box::pin(async { Ok(()) })
+        }
+        fn forget<'a>(
+            &'a self,
+            _: &'a SecretKey,
+        ) -> Pin<Box<dyn Future<Output = Result<(), RuntimeError>> + Send + 'a>> {
+            Box::pin(async { Ok(()) })
+        }
+        fn forget_account<'a>(
+            &'a self,
+            _: &'a AccountId,
+        ) -> Pin<Box<dyn Future<Output = Result<(), RuntimeError>> + Send + 'a>> {
+            Box::pin(async { Ok(()) })
+        }
+    }
+
+    /// No Graph token kept yet is the first mint, not a failure; a keyring that does not answer
+    /// is the failure, and is not taken for an empty one.
+    #[tokio::test]
+    async fn no_kept_graph_token_is_a_first_mint_and_a_locked_keyring_is_an_error() {
+        let account = mail_domain::id::account_id_from_uuid(uuid::uuid!(
+            "00000000-0000-4000-8000-0000000000a1"
+        ));
+        let empty = porter_secrets::MemorySecrets::default();
+        assert!(kept_graph(&empty, account.clone()).await.unwrap().is_none());
+
+        let locked = Refusing(|| porter_secrets::SecretsError::Locked);
+        let why = kept_graph(&locked, account).await.unwrap_err();
+        assert_eq!(
+            SecretTrouble::of(&why),
+            SecretTrouble::Unreachable("the keyring is locked")
+        );
+    }
 
     fn scopes(list: &[&str]) -> Vec<String> {
         list.iter().map(|s| (*s).to_owned()).collect()
