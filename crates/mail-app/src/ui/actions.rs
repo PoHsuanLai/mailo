@@ -189,7 +189,7 @@ fn key_of(key: &str) -> Option<(ChordKey, bool)> {
 }
 
 /// The chord a key of the keymap is.
-fn chord_of_key(key: &str) -> Option<Chord> {
+pub(in crate::ui) fn chord_of_key(key: &str) -> Option<Chord> {
     let (base, shifted) = key_of(key)?;
     let held = if shifted {
         Mods::NONE.with(Modifier::Shift)
@@ -197,6 +197,48 @@ fn chord_of_key(key: &str) -> Option<Chord> {
         Mods::NONE
     };
     Some(Chord::new(held, base))
+}
+
+/// The key of the keymap a chord is, the other way from [`chord_of_key`]: Shift with a letter is
+/// the capital (`J`), Shift with a symbol is the symbol (`#`), as the keymap has always meant the
+/// character. `None` for a chord the keymap cannot hold (Ctrl, Alt or Super held, or a key with no
+/// name there).
+pub(in crate::ui) fn key_of_chord(chord: &Chord) -> Option<String> {
+    let held = chord.modifiers();
+    let shifted = held == Mods::NONE.with(Modifier::Shift);
+    if !held.is_empty() && !shifted {
+        return None;
+    }
+    match chord.key() {
+        ChordKey::Char(c) if shifted && c.is_alphabetic() => Some(c.to_uppercase().collect()),
+        ChordKey::Char(c) if shifted && c.is_alphanumeric() => None,
+        ChordKey::Char(c) => Some(c.to_string()),
+        ChordKey::Named(_) if shifted => None,
+        ChordKey::Named(NamedKey::Space) => Some(" ".to_owned()),
+        ChordKey::Named(NamedKey::F(n)) => Some(format!("F{n}")),
+        ChordKey::Named(named) => {
+            let name = match named {
+                NamedKey::Escape => "Escape",
+                NamedKey::Enter => "Enter",
+                NamedKey::Tab => "Tab",
+                NamedKey::Backspace => "Backspace",
+                NamedKey::Delete => "Delete",
+                NamedKey::Insert => "Insert",
+                NamedKey::Home => "Home",
+                NamedKey::End => "End",
+                NamedKey::PageUp => "PageUp",
+                NamedKey::PageDown => "PageDown",
+                NamedKey::Up => "ArrowUp",
+                NamedKey::Down => "ArrowDown",
+                NamedKey::Left => "ArrowLeft",
+                NamedKey::Right => "ArrowRight",
+                _ => return None,
+            };
+            Some(name.to_owned())
+        }
+        // A modifier tapped alone is no key of the keymap's.
+        _ => None,
+    }
 }
 
 /// The chords a key of the keymap is declared as. A symbol (`#`, `!`) is typed with Shift on

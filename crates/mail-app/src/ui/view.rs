@@ -367,13 +367,9 @@ pub enum AccountStep {
     Refused(String),
 }
 
-/// The Keyboard page of Settings: which action is waiting for its key, and what the last change
-/// came to.
+/// The Keyboard page of Settings: what the last change came to.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct KeyboardPage {
-    /// The action waiting for its new key: the next press is offered to it, and the window
-    /// gives every key to the page until then. `None` is waiting for nothing.
-    pub listening: Option<Shortcut>,
     /// Why the last key was not taken, or the keymap not kept, in words, under the row it is
     /// about.
     pub said: Option<KeySaid>,

@@ -215,12 +215,10 @@ fn ask(at: Option<SettingsAt>) {
 }
 
 /// Show `page` in this Settings window, Accounts at its list as System Settings shows a pane
-/// chosen in its sidebar. A key the Keyboard page was waiting for is waited for no longer: the
-/// page that took every key is gone.
+/// chosen in its sidebar.
 pub(in crate::ui) fn go(mut shell: Signal<Shell>, page: SettingsPage) {
     let mut write = shell.write();
     write.settings = Some(page);
-    write.keyboard.listening = None;
     if write.accounts_pane.step != AccountStep::Removing {
         write.accounts_pane = AccountsPane::default();
     }
