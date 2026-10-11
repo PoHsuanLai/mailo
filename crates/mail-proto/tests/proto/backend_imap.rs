@@ -243,7 +243,8 @@ fn bodies_are_matched_by_uid_not_by_order() {
 #[test]
 fn archiving_on_gmail_removes_the_inbox_label() {
     let trace = concat!(
-        "# SYNTHETIC. Gmail files by label: adding \\All and removing \\Inbox archives.\n",
+        "# SYNTHETIC. Gmail files by label: removing \\Inbox archives, and nothing is added.\n",
+        "# \\All is no label of Gmail's: storing it made a user label named \\All.\n",
         "# There is deliberately no \\Deleted and no EXPUNGE anywhere in this transcript.\n",
         "S: * OK Gimap ready\n",
         "C: a001 AUTHENTICATE XOAUTH2 dXNlcj1hZGFAZXhhbXBsZS50ZXN0AWF1dGg9QmVhcmVyIHlhMjkudG9rZW4BAQ==\n",
@@ -251,10 +252,8 @@ fn archiving_on_gmail_removes_the_inbox_label() {
         "C: a002 SELECT \"INBOX\"\n",
         "S: * OK [UIDVALIDITY 1] UIDs valid.\n",
         "S: a002 OK [READ-WRITE] SELECT completed\n",
-        "C: a003 UID STORE 42 +X-GM-LABELS (\\All)\n",
+        "C: a003 UID STORE 42 -X-GM-LABELS (\\Inbox)\n",
         "S: a003 OK Success\n",
-        "C: a004 UID STORE 42 -X-GM-LABELS (\\Inbox)\n",
-        "S: a004 OK Success\n",
         "DONE\n"
     );
     let mut driven = Driven {
