@@ -172,7 +172,7 @@ async fn signing_in_with_google_opens_the_page_once_and_adds_the_account_it_name
     .expect("the account is added");
 
     assert_eq!(added.address, "you@example.test");
-    let opened = opened.lock().unwrap();
+    let opened = opened.lock().unwrap().clone();
     assert_eq!(opened.len(), 1, "the page is opened once: {opened:?}");
     assert!(
         opened[0].starts_with(&format!("http://127.0.0.1:{port}/authorize?")),

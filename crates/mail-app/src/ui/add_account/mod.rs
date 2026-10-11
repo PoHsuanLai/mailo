@@ -31,7 +31,7 @@ mod window;
 pub(in crate::ui) use direct::{
     AddMenu, DirectSignInWatch, PendingSignIn, Retry, add_from, again, retry,
 };
-pub use direct::{DirectSignIns, SignInDirectly, Signing};
+pub use direct::{DirectSignIns, SignInDirectly};
 pub use provider::{Request, Seams};
 pub use window::{Browse, Fit, Opened, Wiring, add_account_root};
 

@@ -282,7 +282,8 @@ async fn google_from_the_plus_menu_signs_in_in_the_browser_with_no_window() {
         .all("aria-label", "Add account")
         .last()
         .expect("the + tile");
-    let opened = settle_menu(&mut dom, click(&mut dom, plus));
+    let asked = click(&mut dom, plus);
+    let opened = settle_menu(&mut dom, asked);
     let names = menu_names(&dioxus_ssr::render(&dom));
     assert_eq!(names, ["Google", "Other Account\u{2026}"]);
     pick_named(&mut dom, &opened, "Google").await;
@@ -353,7 +354,8 @@ async fn other_account_and_a_provider_without_a_client_open_the_window() {
         .all("aria-label", "Add account")
         .last()
         .expect("the + tile");
-    let opened = settle_menu(&mut dom, click(&mut dom, plus));
+    let asked = click(&mut dom, plus);
+    let opened = settle_menu(&mut dom, asked);
     pick_named(&mut dom, &opened, "Other Account\u{2026}").await;
     settle(&mut dom).await;
     assert_eq!(
