@@ -885,7 +885,7 @@ mod sending_apart {
             Hooks::default(),
         )
         .expect("a pass runs");
-        let end = <[PassEnd; 1]>::try_from(ends).expect("one account");
+        let [end] = <[PassEnd; 1]>::try_from(ends).expect("one account");
 
         // The inbox was fetched with the IMAP token, which worked.
         let PassEnd::Finished(report) = &end else {

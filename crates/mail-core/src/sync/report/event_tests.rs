@@ -171,6 +171,7 @@ fn how_a_pass_ended_is_what_the_link_hears() {
                 retry: Retry::After(secs(5)),
                 why: "cannot connect".into(),
                 pause: Pause::Unreachable,
+                offer: None,
             },
             Event::Failed {
                 retry: Retry::After(secs(5)),
@@ -200,6 +201,7 @@ fn a_whole_run_is_read_for_the_account_that_asked() {
         retry: Retry::NeedsReauth,
         why: "not yours".into(),
         pause: Pause::ServerBusy,
+        offer: None,
     };
     assert_eq!(
         outcome::<String>(Ok(vec![other.clone(), finished(vec![])]), acct_account()),
