@@ -129,12 +129,17 @@ fn session(sock: std::net::TcpStream, held: &Held, seen: &Seen) {
         let upper = rest.to_uppercase();
         seen.lock().unwrap().push(if upper.starts_with("LOGIN") {
             "LOGIN".to_owned()
+        } else if upper.starts_with("AUTHENTICATE") {
+            "AUTHENTICATE".to_owned()
         } else {
             rest.to_owned()
         });
         let reply = if upper.starts_with("CAPABILITY") {
             format!("* CAPABILITY IMAP4rev1\r\n{tag} OK done\r\n")
-        } else if upper.starts_with("LOGIN") || upper.starts_with("NOOP") {
+        } else if upper.starts_with("LOGIN")
+            || upper.starts_with("AUTHENTICATE")
+            || upper.starts_with("NOOP")
+        {
             format!("{tag} OK done\r\n")
         } else if upper.starts_with("SELECT") || upper.starts_with("EXAMINE") {
             let name = rest
@@ -699,5 +704,229 @@ fn which_mailboxes_a_pass_fetches() {
         let mut tail = paths[first.len()..].to_vec();
         tail.sort();
         assert_eq!(tail, rest, "{row}: the rest");
+    }
+}
+
+/// Sending apart from receiving: an account that reads over IMAP and sends through Graph, whose
+/// Graph sign-in for sending the issuer will not renew.
+///
+/// It used to stop the whole account at "sign in" before a pass ran, though the inbox was there
+/// to fetch with a token that worked. Now the inbox syncs, the message waits in the outbox saying
+/// why, and the account is not asked to sign in to receive.
+mod sending_apart {
+    use super::*;
+    use mail_runtime::clients;
+    use porter_core::{EndpointUrl, UnixSeconds};
+    use porter_provider::{ClientEntry, Issuer, IssuerEndpoints};
+    use std::io::Read as _;
+
+    /// An issuer's token endpoint that refuses every renewal, as Microsoft does once consent to
+    /// `Mail.Send` was withdrawn.
+    fn refusing_issuer() -> u16 {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for sock in listener.incoming() {
+                let Ok(mut sock) = sock else { continue };
+                let mut buf = vec![0u8; 8192];
+                if matches!(sock.read(&mut buf), Ok(0) | Err(_)) {
+                    continue;
+                }
+                let body = r#"{"error":"invalid_grant","error_description":"AADSTS65001: the user has not consented"}"#;
+                let response = format!(
+                    "HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\n\
+                     Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                // The client may have gone; the test reads what the pass made of it.
+                let _ = sock.write_all(response.as_bytes());
+            }
+        });
+        port
+    }
+
+    fn registry(issuer_port: u16) -> ClientRegistry {
+        let at = |path: &str| EndpointUrl::parse(&format!("http://127.0.0.1:{issuer_port}/{path}"));
+        let client = ClientEntry {
+            endpoints: Some(IssuerEndpoints {
+                authorize: at("authorize").unwrap(),
+                token: at("token").unwrap(),
+                revoke: None,
+                device: None,
+            }),
+            ..clients::entry(Issuer::Microsoft, "client-id", None)
+        };
+        clients::registry_of(vec![client])
+    }
+
+    /// A signed-in Microsoft account on `port` that reads over IMAP and sends through Graph,
+    /// with a token for IMAP good for the hour and none yet for Graph.
+    fn configured(port: u16) -> (Arc<SqliteStore>, Arc<MemorySecrets>, tempfile::TempDir) {
+        let (store, _, dir) = super::configured(port, caps(ServerLabels::LocalOnly), listing());
+        let plan = AccountPlan {
+            address: "ada@example.test".to_owned(),
+            incoming: Incoming::Imap {
+                host: "127.0.0.1".to_owned(),
+                port,
+                tls: Tls::Plaintext,
+            },
+            outgoing: Outgoing::Graph,
+            auth: AuthPlan::OAuth {
+                issuer: Issuer::Microsoft,
+                scopes: vec![
+                    "https://outlook.office.com/IMAP.AccessAsUser.All".to_owned(),
+                    "offline_access".to_owned(),
+                    "https://graph.microsoft.com/Mail.Send".to_owned(),
+                ],
+            },
+            identities: Vec::new(),
+        };
+        store.set_account_plan(acct_account(), &plan).unwrap();
+        let secrets = Arc::new(MemorySecrets::default());
+        let signed_in = Credential::OAuth {
+            access: SecretText::new("imap-token".to_owned()),
+            refresh: SecretText::new("refresh-token".to_owned()),
+            expires_at: UnixSeconds(now().timestamp() + 3600),
+        };
+        for purpose in [SecretPurpose::IncomingPassword, SecretPurpose::OAuthRefresh] {
+            mail_runtime::block_on(secrets.put(
+                &SecretKey {
+                    account: acct_account(),
+                    purpose,
+                },
+                &signed_in,
+            ))
+            .unwrap();
+        }
+        (store, secrets, dir)
+    }
+
+    /// Pressing send on a message to one person.
+    fn queue_a_message(store: &SqliteStore) -> DraftId {
+        let identity = Identity {
+            id: IdentityId::generate(),
+            account: acct_account(),
+            from: Address {
+                name: None,
+                email: "ada@example.test".to_owned(),
+            },
+            reply_to: None,
+            signature: None,
+            default: IsDefault::Default,
+        };
+        mail_store::testing::seed_identity(store, &identity);
+        let draft = Draft {
+            id: DraftId::generate(),
+            account: acct_account(),
+            identity: identity.id,
+            to: vec![Address {
+                name: None,
+                email: "bea@example.test".to_owned(),
+            }],
+            cc: Vec::new(),
+            bcc: Vec::new(),
+            subject: "lunch on friday".to_owned(),
+            in_reply_to: None,
+            forward_of: None,
+            text: "One o'clock?\r\n".to_owned(),
+            html: None,
+            attachments: Vec::new(),
+            receipt: ReceiptRequest::Unrequested,
+            openpgp: OpenPgp::None,
+            smime: Smime::None,
+            state: SendState::Editing,
+            updated: now(),
+        };
+        store
+            .apply(
+                acct_account(),
+                &Patch {
+                    id: ChangeId::generate(),
+                    changes: vec![Change::DraftUpsert(Box::new(draft.clone()))],
+                },
+            )
+            .unwrap();
+        let post = mail_mime::posting(&draft, &identity, None, &[]).expect("it has a recipient");
+        let raw = store.blobs().put(&post.message).unwrap();
+        store
+            .enqueue(
+                acct_account(),
+                RemoteIntent::Send {
+                    draft: draft.id,
+                    raw,
+                    mail_from: post.mail_from.clone(),
+                    rcpt_to: post.rcpt_to.clone(),
+                },
+                &Patch {
+                    id: ChangeId::generate(),
+                    changes: Vec::new(),
+                },
+                now(),
+            )
+            .unwrap()
+            .expect("a submission is always queued");
+        store
+            .set_send_state(draft.id, &SendState::Queued, now())
+            .unwrap();
+        draft.id
+    }
+
+    #[test]
+    fn a_sending_token_that_will_not_renew_leaves_receiving_running() {
+        let (port, _seen) = serve(mailboxes(1));
+        let (store, secrets, _dir) = configured(port);
+        let draft = queue_a_message(&store);
+
+        let ends = crate::blocking::run_with(
+            store.clone(),
+            secrets.clone(),
+            &registry(refusing_issuer()),
+            now(),
+            Hooks::default(),
+        )
+        .expect("a pass runs");
+        let end = <[PassEnd; 1]>::try_from(ends).expect("one account");
+
+        // The inbox was fetched with the IMAP token, which worked.
+        let PassEnd::Finished(report) = &end else {
+            panic!("the account's pass did not run to its end: {end:?}")
+        };
+        assert_eq!(
+            listed(&store, Filter::InFolder(at("INBOX"))),
+            vec!["first", "in both", "second"],
+            "{report:?}"
+        );
+        // Nothing asks this account to sign in, or to wait, to receive.
+        assert!(
+            report
+                .trouble
+                .iter()
+                .all(|t| !t.retry.needs_person() && !matches!(t.retry, Retry::After(_))),
+            "{:?}",
+            report.trouble
+        );
+        assert!(
+            !matches!(
+                end.clone().event(),
+                mail_core::fetch::Event::Failed {
+                    retry: Retry::NeedsReauth,
+                    ..
+                }
+            ),
+            "the account reads as needing a sign-in: {end:?}"
+        );
+        // The message waits in the outbox, saying why, and the draft says it did not go.
+        let errors = mail_store::testing::outbox_errors(&store);
+        assert_eq!(errors.len(), 1, "the message is kept: {errors:?}");
+        assert!(
+            errors[0].as_deref().is_some_and(|why| !why.is_empty()),
+            "{errors:?}"
+        );
+        assert!(
+            matches!(store.draft(draft).unwrap().state, SendState::Failed { .. }),
+            "{:?}",
+            store.draft(draft).unwrap().state
+        );
+        assert_eq!(report.counts.still_queued, 1, "{report:?}");
     }
 }

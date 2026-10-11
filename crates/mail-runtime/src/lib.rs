@@ -25,6 +25,7 @@ pub mod remote_image;
 pub mod reparse;
 pub mod schedule;
 pub mod search;
+pub mod sending;
 pub mod sieve;
 pub mod signing_store;
 pub mod smime;

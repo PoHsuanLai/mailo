@@ -954,6 +954,9 @@ impl<B: Backend> AccountEngine<B> {
                 ProtoOp::Submit { draft, .. } => Some(*draft),
                 _ => None,
             };
+            // Sending apart from receiving (`crate::sending`): what a submission's failure asks
+            // for is its own row's, not the account's.
+            let tells_the_pass = crate::sending::tells_the_pass(&entry.op);
             // What a submission sent, and to whom, for the account that files its own copy of it.
             let copy = self.sent_copy();
             let submitted = match &entry.op {
@@ -1036,8 +1039,13 @@ impl<B: Backend> AccountEngine<B> {
                 }
                 Err(RuntimeError::Cancelled) => return Ok((report, false)),
                 Err(e) => {
-                    let retry = e.retry();
-                    report.saw(&retry);
+                    let retry = match tells_the_pass {
+                        true => e.retry(),
+                        false => crate::sending::settles(&e),
+                    };
+                    if tells_the_pass {
+                        report.saw(&retry);
+                    }
                     // Refused after part of it was done: only the rest is undone (FINDINGS F159).
                     let done = match retry {
                         Retry::Fatal(_) => partial::done(&held, &progress, into.as_deref()),
@@ -1051,7 +1059,11 @@ impl<B: Backend> AccountEngine<B> {
                         halted = true;
                         break;
                     }
-                    if retry.needs_person() || matches!(retry, Retry::Fatal(_)) {
+                    // Said as the error is, whatever the row does with it: a send the server
+                    // refused for good, or refused the protocol for, is worth a note.
+                    if (tells_the_pass && retry.needs_person())
+                        || matches!(e.retry(), Retry::Fatal(_))
+                    {
                         report.needs_attention.push(e.to_string());
                     }
                     if let Some(draft) = draft {

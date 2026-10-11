@@ -376,6 +376,19 @@ pub fn outbox_ops(store: &SqliteStore) -> Vec<mail_domain::ProtoOp> {
         .collect()
 }
 
+/// Why each queued operation last failed (`outbox.last_error`), in the order it was queued:
+/// `None` for one that has not failed.
+pub fn outbox_errors(store: &SqliteStore) -> Vec<Option<String>> {
+    let db = store.connection();
+    let mut stmt = db
+        .prepare("SELECT last_error FROM outbox ORDER BY id")
+        .expect("list the outbox");
+    stmt.query_map([], |r| r.get::<_, Option<String>>(0))
+        .expect("list the outbox")
+        .map(|error| error.expect("a row"))
+        .collect()
+}
+
 /// Drop everything queued, as if it had all been sent.
 pub fn clear_outbox(store: &SqliteStore) {
     store

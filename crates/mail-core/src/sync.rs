@@ -584,10 +584,14 @@ async fn one(
     say(emit, Progress::Connecting);
     let stored = stored_credential(account, secrets.as_ref()).await?;
     let credential = signed_in_typed(account, stored, secrets.as_ref(), registry, now).await?;
-    // Not fatal to the pass: an account that cannot send can still receive.
+    // Not fatal to the pass: an account that cannot send can still receive. And a token for
+    // sending alone is sending's (`mail_runtime::sending`): what it could not have is said on
+    // the outbox, when there is something to send, and never asks this account to sign in or
+    // wait. The one an account reading through Graph receives with is this pass's to report.
     let sending = sending_token_typed(account, secrets.as_ref(), registry, now)
         .await
-        .err();
+        .err()
+        .filter(|_| !mail_runtime::sending::sending_alone(&account.plan));
     // The credential goes into a cell rather than into the session factory, so a token renewed
     // an hour into a watch reaches the next connection.
     let held = Held::new(credential);
