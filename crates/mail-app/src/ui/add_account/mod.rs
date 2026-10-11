@@ -17,9 +17,8 @@
 //! does, and the Connection Doctor signs such an account in again the same way. Other Account…,
 //! and every provider that needs a form, is the window.
 //!
-//! **Who draws** ([`Route`]). With the desktop's accountd linked (step E6, `mail_core::link`)
-//! mailo asks it to run the sheet and sill draws it (`Accounts::add_account`), and the window is
-//! not opened at all. Otherwise the window is the host, on every platform, as before.
+//! The window is the host on every platform: mailo keeps its own accounts and credentials. Signing
+//! in through the desktop's accountd (a "Continue as" offer) is planned, not here yet.
 
 mod direct;
 mod host;
@@ -68,33 +67,6 @@ impl std::fmt::Debug for AddAccountWindows {
     }
 }
 
-/// Who draws the add-account sheet.
-#[derive(Debug, Clone)]
-enum Route {
-    /// This process hosts porter's account service and draws the sheet in a window of its own.
-    OwnWindow,
-    /// The desktop's accountd runs the sheet and its shell draws it (`Accounts::add_account`, and
-    /// `Accounts::reauthenticate` for an account being signed in again): mailo opens no window.
-    Accountd(Arc<dyn mail_core::Accountd>),
-}
-
-/// Who draws the sheet, given the link this process chose (`mail_core::link`).
-///
-/// With accountd linked every sheet is accountd's, a new account or one signed in again: accountd
-/// holds every account, and mailo opens no window and keeps no sign-in of its own. Without
-/// accountd it is the window's.
-fn route_of(link: &mail_core::Link) -> Route {
-    match link.accountd() {
-        Some(accountd) => Route::Accountd(accountd.clone()),
-        None => Route::OwnWindow,
-    }
-}
-
-/// Who draws the sheet now, from the link chosen at start.
-fn route() -> Route {
-    route_of(&crate::edge::link())
-}
-
 /// Open the add-account window, or raise it. Call it from an event handler.
 pub(in crate::ui) fn open() {
     request(Ask::default());
@@ -108,94 +80,16 @@ pub(in crate::ui) fn open_for(address: String) {
     });
 }
 
-/// Let Mail use an account of the desktop's again, when the grant on it was withdrawn: accountd's
-/// chooser and consent sheet, not a sign-in. Without accountd there are no grants, and this is
-/// Add Account. Call it from an event handler.
+/// What a failure that asks to allow Mail again opens: Add Account, the one way an account comes
+/// back. Call it from an event handler.
 pub(in crate::ui) fn allow_again() {
-    if try_consume_context::<AddAccountWindows>().is_none()
-        && let Route::Accountd(accountd) = route()
-    {
-        let store = consume_context::<Arc<SqliteStore>>();
-        through_accountd(accountd, store, |store, accountd| {
-            crate::accountd::allow(store, accountd)
-        });
-        return;
-    }
     request(Ask::default());
 }
 
 fn request(ask: Ask) {
     match try_consume_context::<AddAccountWindows>() {
         Some(windows) => windows.0.open(ask),
-        None => {
-            let store = consume_context::<Arc<SqliteStore>>();
-            match route() {
-                Route::OwnWindow => quire(ask),
-                Route::Accountd(accountd) => {
-                    through_accountd(accountd, store, move |store, accountd| {
-                        crate::accountd::add(store, accountd, ask.address.as_deref())
-                    })
-                }
-            }
-        }
-    }
-}
-
-/// Run accountd's sheet (`sheet`: an add, a sign-in again, an allow again) on a thread of its
-/// own, and tell every window when it ends.
-///
-/// The sheet is the desktop's (sill draws it, over everything), and the call waits for the person,
-/// so it is not made on the window's thread. What the person added is read into the store, and the
-/// shared revision moves, so every window draws it. A sheet closed is nothing to say; a failure is
-/// said on stderr and in the notice of the window that asked, which hears it back on its own
-/// thread.
-fn through_accountd(
-    accountd: Arc<dyn mail_core::Accountd>,
-    store: Arc<SqliteStore>,
-    sheet: impl FnOnce(
-        &SqliteStore,
-        &Arc<dyn mail_core::Accountd>,
-    ) -> Result<crate::accountd::Added, String>
-    + Send
-    + 'static,
-) {
-    let revisions = try_consume_context::<crate::ui::revisions::Revisions>();
-    let motion = crate::ui::motion::motion();
-    let (failed, heard) = tokio::sync::oneshot::channel::<String>();
-    let spawned = std::thread::Builder::new()
-        .name("mailo-add-account".to_owned())
-        .spawn(move || {
-            match sheet(&store, &accountd) {
-                Ok(crate::accountd::Added::Account(read)) => {
-                    if let Some(said) = crate::accountd::said(&read) {
-                        eprintln!("mailo: {said}");
-                    }
-                }
-                Ok(crate::accountd::Added::Nothing) => {}
-                Err(why) => {
-                    eprintln!("mailo: Add Account: {why}");
-                    let _ = failed.send(format!("Could not add the account: {why}"));
-                }
-            }
-            if let Some(revisions) = revisions {
-                revisions.bump();
-            }
-        });
-    match spawned {
-        // Nothing comes back when it worked or the sheet was closed: the sender is dropped.
-        // At the root: the button that asked may be gone (a Settings window closed) by the time
-        // the person is done with the sheet.
-        Ok(_) => {
-            dioxus::core::spawn_forever(async move {
-                if let Ok(text) = heard.await {
-                    crate::ui::motion::tell_through(motion, text);
-                }
-            });
-        }
-        Err(why) => crate::ui::motion::tell(
-            format!("Could not open the Add Account sheet: {why}"),
-            crate::ui::motion::Follow::Nothing,
-        ),
+        None => quire(ask),
     }
 }
 
@@ -237,7 +131,5 @@ mod host_tests;
 mod map_tests;
 #[cfg(test)]
 mod provider_tests;
-#[cfg(test)]
-mod route_tests;
 #[cfg(test)]
 mod size_tests;

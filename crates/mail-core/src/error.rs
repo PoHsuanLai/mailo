@@ -127,15 +127,8 @@ pub enum CoreError {
     NoRuleNamed { name: String, address: String },
     #[error("--until has to be after --from")]
     UntilBeforeFrom,
-    /// A Granted plan typed in by hand: presets never make one, the desktop's service does.
-    #[error("this account is the desktop's account service's: add it there, in Add Account")]
-    AddInAccountService,
-    #[error("{address} is an account of the desktop's account service, which is not reachable")]
-    AccountServiceUnreachable { address: String },
-    #[error("{address}: the account service lists no ManageSieve server for it")]
-    NoManageSieve { address: String },
     /// The account has no credential stored; what to do about it depends on how it signs in.
-    #[error("{}", crate::account::no_credential(.address, .auth))]
+    #[error("{}", crate::account::no_credential(.auth))]
     NoCredential {
         address: String,
         auth: mail_domain::AuthPlan,
@@ -214,10 +207,6 @@ pub enum CoreError {
     LocalNoSearch { address: String },
 
     // ---- accounts
-    #[error("accountd names no address for {label}")]
-    NoAddressNamed { label: String },
-    #[error("the grant on {address} lists no IMAP, POP3, JMAP or Graph server")]
-    GrantListsNoMail { address: String },
     #[error("no such account")]
     NoSuchAccount,
     #[error(
@@ -244,45 +233,6 @@ pub enum CoreError {
     NameTheBookAccount,
     #[error("an address book needs the address of its server")]
     BookNeedsServer,
-    #[error("{address} is not an account of the desktop's account service")]
-    NotAServiceAccount { address: String },
-    /// The account service would not let Mail read the account's contacts.
-    #[error(
-        "{address} is an account of the desktop's account service, and Mail has not been \
-         allowed to read its contacts ({source})"
-    )]
-    ContactsNotAllowed {
-        address: String,
-        #[source]
-        source: mail_runtime::link::LinkError,
-    },
-    #[error(
-        "{address} is an account of the desktop's account service, and Mail has not been \
-         allowed to read its contacts (the grant was given to another account)"
-    )]
-    ContactsGrantMisdirected { address: String },
-    #[error(
-        "{address} is an account of the desktop's account service, which is not reachable \
-         from here"
-    )]
-    AccountServiceUnreachableFromHere { address: String },
-    #[error(
-        "{address} is an account of the desktop's account service whose contacts are not \
-         CardDAV (Google's are served through People, which Mail does not read): no \
-         contacts were synced"
-    )]
-    ContactsNotCardDav { address: String },
-    #[error(
-        "{start} is not the address book server of {address} ({relays}): the desktop's \
-         account service relays that one only"
-    )]
-    NotTheBookServer {
-        start: String,
-        address: String,
-        relays: String,
-    },
-    #[error("{address}: the address book server has no address")]
-    BookServerNoAddress { address: String },
     #[error("{text:?} is not a URL: {source}")]
     NotAUrl {
         text: String,
@@ -416,16 +366,10 @@ impl CoreError {
                 address: address.clone(),
             },
             CoreError::NoIdentityToSendAs => Remedy::ReAddAccount,
-            CoreError::NoCredential { address, auth } => {
-                // The grant is the desktop's to give again: no step of ours.
-                if matches!(auth, mail_domain::AuthPlan::Granted { .. }) {
-                    return None;
-                }
-                Remedy::SignIn {
-                    address: address.clone(),
-                    with: SignInWith::of(auth),
-                }
-            }
+            CoreError::NoCredential { address, auth } => Remedy::SignIn {
+                address: address.clone(),
+                with: SignInWith::of(auth),
+            },
             CoreError::Pgp(why) => return why.remedy(),
             CoreError::Smime(why) => return why.remedy(),
             _ => return None,

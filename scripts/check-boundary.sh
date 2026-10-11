@@ -7,8 +7,8 @@
 set -uo pipefail
 
 PURE=(mail-domain mail-mime mail-proto mail-pim)
-# E6: nor the desktop's D-Bus link (porter's client and bus vocabulary, quire's capability probe):
-# the sans-I/O crates know nothing of accountd.
+# Nor porter's client, its bus vocabulary or quire's capability probe: the sans-I/O crates know
+# nothing of the desktop's accountd.
 FORBIDDEN=(tokio rusqlite dioxus reqwest keyring-core porter-client porter-dbus ds-desktop zbus)
 # `mail-core` is the I/O-capable core: it may use tokio and the network, which the PURE
 # crates may not. What it may never reach is anything that draws, the window's toolkit or the
@@ -107,7 +107,7 @@ fi
 # The libraries start no runtime and read no environment. The application (`mail-app`'s `edge`)
 # owns the one tokio runtime and waits on `async` work there; `mail-core`, `mail-runtime` and
 # `mail-store` hand every operation that waits on a network or the keyring back as a future, and
-# take what they need (the link to accountd, the environment, the clock) from the `Mail` handle.
+# take what they need (the secrets, the environment, the clock) from the `Mail` handle.
 # So no library source builds a runtime or blocks on one, and `mail-core` reads no variable and
 # asks the operating system for no executable path. Comment lines are not code; code after a
 # file's `#[cfg(test)]` line, and files named `tests.rs` or `*_tests.rs`, are tests.
@@ -145,10 +145,6 @@ if library_code crates/mail-core/src \
 fi
 if grep -nE '^[[:space:]]*rpassword' crates/mail-core/Cargo.toml; then
   echo "mail-core depends on rpassword: prompting a person is mail-app's cli"
-  fail=1
-fi
-if library_code crates/mail-runtime/src | grep -E 'link::(install|current)\(|static CURRENT: OnceLock<Link>'; then
-  echo "the link to accountd is a global again: hand it to mail_core::Mail::new (mail-app's edge::install_link keeps it for the process)"
   fail=1
 fi
 
@@ -211,14 +207,13 @@ if grep -rnE "$FORBIDDEN_SYMBOLS" crates --include='*.rs' | grep -vE '^[^:]+:[0-
   fail=1
 fi
 
-# The D-Bus link to accountd is desktop-only code behind the `quire-desktop` feature (quire design/36
-# rule 3): `porter_dbus` is named in `mail-runtime`'s `link/dbus.rs` and its bus test, and quire's
-# probe `ds_desktop` in `mail-app`'s `accountd` and its tests, and nowhere else. Everything else
-# asks `mail_runtime::link::Accountd`, which a build for another desktop has too.
-if grep -rnE '\b(porter_dbus|ds_desktop)\b' crates --include='*.rs' \
-  | grep -vE '^crates/mail-runtime/src/link/dbus\.rs:|^crates/mail-runtime/tests/runtime/link_bus\.rs:|^crates/mail-app/src/accountd(_tests)?\.rs:' \
-  | grep -vE '^[^:]+:[0-9]+:[[:space:]]*//'; then
-  echo "porter_dbus and ds_desktop belong to the quire-desktop link only: see scripts/check-boundary.sh"
+# Linked mode is gone: mailo keeps its own accounts and credentials, and no account is the desktop
+# accountd's. The link (`mail_runtime::link`, its secrets and tokens, `Link`, `Accountd`), the
+# `granted` plan, the held accounts it set aside and the app's `accountd` module are not to come
+# back by name; accountd's sign-in help, when it comes, is a sign-in like any other.
+LINKED_SYMBOLS='\b(porter_dbus|ds_desktop)\b|\bmail_(runtime|core)::link\b|\bLinkedSecrets\b|\bLinkedTokens\b|\bAuthPlan::Granted\b|\bset_granted_only\b|\bheld_accounts\b|\bHELD_LINE\b|\bcrate::accountd\b|\bmail_app::accountd\b|\binstall_link\b'
+if grep -rnE "$LINKED_SYMBOLS" crates --include='*.rs' | grep -vE '^[^:]+:[0-9]+:[[:space:]]*//'; then
+  echo "linked mode is gone: see LINKED_SYMBOLS in scripts/check-boundary.sh"
   fail=1
 fi
 
@@ -227,7 +222,7 @@ fi
 # the program writes asks `mail_store::testing`. So `rusqlite` is not a dependency of `mail-core`,
 # `mail-runtime` or `mail-app` (dev-dependencies included), and the store's connection, which is
 # private to it, is not reached for by name: `.connection()`, `.reader()`, and the testing
-# `raw_connection` / `raw_accounts` that only `mail-store`'s own tests use. Comment lines are not
+# `raw_connection` that only `mail-store`'s own tests use. Comment lines are not
 # code and are not counted.
 for crate in mail-core mail-runtime mail-app; do
   if grep -nE '^[[:space:]]*rusqlite[[:space:]]*=' "crates/$crate/Cargo.toml"; then
@@ -235,7 +230,7 @@ for crate in mail-core mail-runtime mail-app; do
     fail=1
   fi
 done
-if grep -rnE '\brusqlite\b|\.connection\(\)|\.reader\(\)|\braw_connection\b|\braw_accounts\b' \
+if grep -rnE '\brusqlite\b|\.connection\(\)|\.reader\(\)|\braw_connection\b' \
   crates/mail-core crates/mail-runtime crates/mail-app --include='*.rs' \
   | grep -vE '^[^:]+:[0-9]+:[[:space:]]*//'; then
   echo "SQL above mail-store: add the typed call to mail_store (or a seeding helper to mail_store::testing) instead"
@@ -243,7 +238,7 @@ if grep -rnE '\brusqlite\b|\.connection\(\)|\.reader\(\)|\braw_connection\b|\bra
 fi
 
 # A library crate pays for nothing it was not asked for: its default features carry none of the
-# platform keyring, the bus link, the Secret Service or the test doubles. `mail-mime`'s crypto
+# platform keyring, the desktop's extras, the Secret Service or the test doubles. `mail-mime`'s crypto
 # halves and `mail-core`'s `desktop` and `pdf` are the defaults a plain user expects; the rest the
 # program names. (`mail-app` is the program: its own `quire-desktop` default is its build's choice.)
 for crate in mail-domain mail-mime mail-pim mail-store mail-proto mail-runtime mail-core; do

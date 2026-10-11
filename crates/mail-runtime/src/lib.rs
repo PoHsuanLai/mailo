@@ -17,7 +17,6 @@ pub mod fetch;
 pub mod graph;
 pub mod http;
 pub mod jmap;
-pub mod link;
 pub mod lookup;
 pub mod pgp;
 pub mod places;
@@ -38,14 +37,13 @@ pub mod wanted;
 pub mod wkd;
 
 pub use account_secrets::{
-    AccountSecrets, PlatformSecrets, SecretTrouble, block_on, own_secrets, platform_secrets,
+    AccountSecrets, PlatformSecrets, SecretTrouble, block_on, platform_secrets,
 };
 pub use assemble::{Absorbed, Arrival, Destination, absorb, absorb_counted, absorb_into, assemble};
 pub use drive::{Cancel, drive, drive_within};
 pub use engine::{AccountEngine, IDLE_REARM, PartBudget, SyncReport, Woke};
 pub use error::{Failure, Logged, RuntimeError, Source};
 pub use jmap::JmapEngine;
-pub use link::{Accountd, Link};
 pub use porter_oauth::ClientRegistry;
 pub use reparse::reparse_queued;
 pub use search::{SERVER_HITS, Searched, ServerHits, Unsaid};

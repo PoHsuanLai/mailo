@@ -20,16 +20,11 @@ use porter_provider::Issuer;
 mod advice;
 pub mod direct;
 pub mod draft;
-mod linked;
 mod remove;
 mod switch;
 
 pub use advice::{no_client_id, no_credential};
 pub use direct::{Direct, Mode, SignInError, sign_in_with};
-pub use linked::{
-    Linked, Reconciled, find as find_linked, forget, linked as linked_accounts, named_by_segment,
-    preset_of, reconcile,
-};
 pub use remove::{RemoveError, Removed, remove};
 pub use switch::{graph_offer, switch_to_graph};
 
@@ -172,8 +167,6 @@ pub enum Readiness {
     Ready,
     /// An OAuth account that has not signed in.
     NotSignedIn,
-    /// An account of the desktop's account service, which is not reachable.
-    ServiceUnreachable,
     /// A password account with no password stored.
     NoCredential,
     /// The keyring did not answer (locked, or not reachable), so whether there is a credential
@@ -505,11 +498,6 @@ pub async fn add_receiving(
         }
     );
     let outcome = match &plan.auth {
-        // Presets make no such plan: an account of the desktop's accountd is read from it
-        // (`linked::reconcile`), never typed in here.
-        AuthPlan::Granted { .. } => {
-            return Err(CoreError::AddInAccountService);
-        }
         AuthPlan::Password { username, sasl } => {
             let login = username.resolve(&address);
             match password {
@@ -878,25 +866,14 @@ pub async fn list(
             });
             continue;
         }
-        // An account of the desktop's accountd has no credential here to look for: it is ready
-        // when there is a link to it.
-        let granted = matches!(plans.get(&address), Some(AuthPlan::Granted { .. }));
-        let read = if granted {
-            if secrets.link().is_some() {
-                Ok(())
-            } else {
-                Err(SecretTrouble::Absent)
-            }
-        } else {
-            secrets
-                .get(&SecretKey {
-                    account,
-                    purpose: SecretPurpose::IncomingPassword,
-                })
-                .await
-                .map(|_| ())
-                .map_err(|error| SecretTrouble::of(&error))
-        };
+        let read = secrets
+            .get(&SecretKey {
+                account,
+                purpose: SecretPurpose::IncomingPassword,
+            })
+            .await
+            .map(|_| ())
+            .map_err(|error| SecretTrouble::of(&error));
         // What is missing depends on how the account signs in, and `sync` says so at length.
         // Saying "no credential stored" for an OAuth account reads as "find a password", which
         // is the one thing that will not work — the same contradiction, one line shorter. A
@@ -906,7 +883,6 @@ pub async fn list(
             Err(SecretTrouble::Unreachable(why)) => Readiness::KeyringUnreachable { why },
             Err(SecretTrouble::Absent) => match plans.get(&address) {
                 Some(AuthPlan::OAuth { .. }) => Readiness::NotSignedIn,
-                Some(AuthPlan::Granted { .. }) => Readiness::ServiceUnreachable,
                 _ => Readiness::NoCredential,
             },
         };

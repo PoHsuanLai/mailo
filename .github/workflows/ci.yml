@@ -154,9 +154,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
-      # `--no-default-features`: the `quire-desktop` feature (the link to accountd over D-Bus) is
-      # our desktop's extras and is on by default for a Linux build; here the in-process path is
-      # what is built and tested, with no zbus transport in the tree (quire design/36 rule 3).
+      # `--no-default-features`: the `quire-desktop` feature (opening a saved file in anyview over
+      # the session bus) is our desktop's extras and is on by default for a Linux build; here the
+      # portable build is what is built and tested (quire design/36 rule 3).
       - name: Clippy
         run: cargo clippy --workspace --all-targets --no-default-features -- -D warnings
       # No network, as in `check`: everything that talks to a socket is `#[ignore]`d.

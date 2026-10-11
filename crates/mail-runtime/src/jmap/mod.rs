@@ -37,12 +37,11 @@ mod sync;
 pub use client::{Auth, Client, find_session, safe_url};
 
 use crate::error::Failure;
-use crate::tokens::{AfterRefusal, Token, TokenSource, refused_fresh};
 use crate::{AccountSecrets, RuntimeError, SyncReport};
 use chrono::{DateTime, Utc};
 use mail_domain::{
     AccountCaps, AccountPlan, ArchiveMeans, Condstore, ConnectionBudget, ExpungeMeans, HttpAuth,
-    Incoming, JMAP_ALL, JmapEmailId, MailboxRef, MailboxRole, MoveExt, RemoteRef, Retry, Retryable,
+    Incoming, JMAP_ALL, JmapEmailId, MailboxRef, MailboxRole, MoveExt, RemoteRef, Retryable,
     ServerLabels, ServerThreads, Supported, SyncCursor, WatchMode,
 };
 use mail_proto::jmap::{Identity, Mailboxes};
@@ -71,9 +70,6 @@ pub struct JmapEngine {
     plan: AccountPlan,
     store: Arc<SqliteStore>,
     secrets: Arc<dyn AccountSecrets>,
-    /// For an account that is accountd's: its bearer tokens, asked for on the grant, made the
-    /// first time one is wanted (`auth`).
-    linked: std::sync::OnceLock<Arc<crate::link::LinkedTokens>>,
     http: reqwest::Client,
     /// The session, once fetched. Dropped when the server refuses the credential or says the
     /// session changed, so the next use fetches it again.
@@ -106,7 +102,6 @@ impl JmapEngine {
             plan,
             store,
             secrets,
-            linked: std::sync::OnceLock::new(),
             http: crate::http::http_client()?,
             client: None,
             mailboxes: None,
@@ -134,15 +129,6 @@ impl JmapEngine {
     /// The credential, as the header the plan says it travels in.
     async fn auth(&self) -> Result<Auth, RuntimeError> {
         let (_, how) = self.session_url()?;
-        if let Some(tokens) = self.linked_tokens()? {
-            tokens.ahead(Token::Incoming).await?;
-            return match tokens.current(Token::Incoming).await? {
-                Credential::OAuth { access, .. } => Ok(Auth::Bearer(access.expose().to_owned())),
-                _ => Err(RuntimeError::Secrets(Failure::said(
-                    "the account service gave something other than a bearer token",
-                ))),
-            };
-        }
         let credential = self
             .secrets
             .get(&SecretKey {
@@ -169,28 +155,6 @@ impl JmapEngine {
                 )));
             }
         })
-    }
-
-    /// The bearer tokens of an account that is accountd's; `None` for one that is mailo's own.
-    fn linked_tokens(&self) -> Result<Option<&Arc<crate::link::LinkedTokens>>, RuntimeError> {
-        let Some(grant) = self.plan.grant() else {
-            return Ok(None);
-        };
-        if let Some(tokens) = self.linked.get() {
-            return Ok(Some(tokens));
-        }
-        let link = self
-            .secrets
-            .link()
-            .ok_or(crate::link::LinkError::Unreachable)?;
-        let audience = porter_core::Audience(porter_core::Family::Jmap.slug());
-        Ok(Some(self.linked.get_or_init(|| {
-            Arc::new(crate::link::LinkedTokens::new(
-                link,
-                grant.clone(),
-                audience,
-            ))
-        })))
     }
 
     /// The session, fetching it if this engine has none.
@@ -220,20 +184,6 @@ impl JmapEngine {
             Ok(_) => Ok(()),
             Err(e) => {
                 self.forget_if_stale(&e);
-                // A bearer accountd gave was refused: one new one, as every engine does, and a
-                // refusal of the new one is not the user's sign-in (`tokens::refused_fresh`).
-                if matches!(e.retry(), Retry::NeedsReauth)
-                    && let Some(tokens) = self.linked.get().cloned()
-                {
-                    match tokens.after_refusal(Token::Incoming).await {
-                        Ok(AfterRefusal::TryAgain) => {
-                            return self.client().await.map(|_| ()).map_err(refused_fresh);
-                        }
-                        Ok(AfterRefusal::StillRefused) => return Err(refused_fresh(e)),
-                        // Nothing new to try: the refusal stands as the server gave it.
-                        Ok(AfterRefusal::NotRenewable) | Err(_) => {}
-                    }
-                }
                 Err(e)
             }
         }

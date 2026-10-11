@@ -64,7 +64,7 @@ pub(in crate::ui) fn entry(spec: &ProviderSpec, has_client: &dyn Fn(Issuer) -> b
 pub(in crate::ui) fn entry_for_plan(auth: &AuthPlan, has_client: &dyn Fn(Issuer) -> bool) -> Entry {
     match auth {
         AuthPlan::OAuth { issuer, .. } => redirect_if(*issuer, has_client),
-        AuthPlan::Password { .. } | AuthPlan::Granted { .. } => Entry::Window,
+        AuthPlan::Password { .. } => Entry::Window,
     }
 }
 
@@ -195,8 +195,7 @@ impl SignInDirectly for Real {
 }
 
 /// The direct sign-in this window may start: a test's, else the program's. None while the
-/// add-account window is a test's recorder (nothing real is reached then) or while the desktop's
-/// accountd holds every account (its sheet is the only way in).
+/// add-account window is a test's recorder (nothing real is reached then).
 fn runner() -> Option<DirectSignIns> {
     if let Some(ours) = try_consume_context::<DirectSignIns>() {
         return Some(ours);
@@ -204,13 +203,8 @@ fn runner() -> Option<DirectSignIns> {
     if try_consume_context::<super::AddAccountWindows>().is_some() {
         return None;
     }
-    match super::route() {
-        super::Route::Accountd(_) => None,
-        super::Route::OwnWindow => {
-            let store = consume_context::<Arc<SqliteStore>>();
-            Some(DirectSignIns(Arc::new(Real { store })))
-        }
-    }
+    let store = consume_context::<Arc<SqliteStore>>();
+    Some(DirectSignIns(Arc::new(Real { store })))
 }
 
 /// The providers the add menu lists by name now. Empty when no direct sign-in can start here,

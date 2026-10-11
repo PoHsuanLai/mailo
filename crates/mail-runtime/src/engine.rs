@@ -6,7 +6,6 @@
 //! rather than a `Clock` trait, per `CONVENTIONS.md` §6.
 
 use crate::error::Failure;
-use crate::error::within;
 use crate::tokens::{AfterRefusal, Token, TokenSource, refused_fresh};
 use crate::{AccountSecrets, Cancel, RuntimeError, Transport, drive, drive_within};
 use chrono::{DateTime, Utc};
@@ -19,7 +18,7 @@ use mail_mime::Posting;
 use mail_proto::backend::SmtpBackend;
 use mail_proto::{Authentication, Backend, Moved, ProtoOutcome, SignIn, Submission};
 use mail_store::{Dispatch, OutboxEntry, Settle, SqliteStore, Store};
-use porter_core::{AccountId, Credential, Family, SecretKey, SecretPurpose};
+use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -316,7 +315,19 @@ pub struct AccountEngine<B: Backend> {
     /// without saying where has been looked for, counted when the drain begins
     /// ([`Store::unplaced_pass`], FINDINGS F155).
     synced: Vec<String>,
+    /// Where connections to the incoming server come from in place of a socket: a test's server
+    /// in memory ([`AccountEngine::with_dial`]). `None` in the program.
+    dial: Option<Dial>,
 }
+
+/// Opens a connection to the incoming server in place of [`Transport::connect`]: what a test hands
+/// [`AccountEngine::with_dial`] to play the server in memory, on a paused clock.
+pub type Dial = Arc<
+    dyn Fn() -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<Transport, RuntimeError>> + Send>,
+        > + Send
+        + Sync,
+>;
 
 impl<B: Backend> AccountEngine<B> {
     pub fn new(
@@ -338,6 +349,7 @@ impl<B: Backend> AccountEngine<B> {
             tokens: None,
             graph: None,
             synced: Vec::new(),
+            dial: None,
         }
     }
 
@@ -397,6 +409,14 @@ impl<B: Backend> AccountEngine<B> {
         self
     }
 
+    /// Open every connection to the incoming server with `dial` instead of a socket: a test's
+    /// server in memory (`mail_runtime::testing::memory_transport`), which a paused clock can be
+    /// run against where a loopback socket cannot.
+    pub fn with_dial(mut self, dial: Dial) -> Self {
+        self.dial = Some(dial);
+        self
+    }
+
     /// Where the incoming server lives. `None` for an account that keeps its mail here.
     fn incoming(&self) -> Option<(&str, u16, Tls)> {
         match &self.plan.incoming {
@@ -418,51 +438,10 @@ impl<B: Backend> AccountEngine<B> {
         let (host, port, tls) = self
             .incoming()
             .ok_or(RuntimeError::NoServer("connect to"))?;
-        let family = match self.plan.incoming {
-            Incoming::Pop3 { .. } => Family::Pop3,
-            _ => Family::Imap,
-        };
-        match self.relayed(family).await? {
-            Some(relay) => Ok(relay),
+        match &self.dial {
+            Some(dial) => dial().await,
             None => Transport::connect(host, port, tls).await,
         }
-    }
-
-    /// A connection to the account's server of `family` that accountd has already signed in to,
-    /// when the account is accountd's ([`mail_domain::AuthPlan::Granted`]); `None` when it is mailo's own.
-    ///
-    /// An accountd account with no link to accountd (it is not running, or this is a build that
-    /// has no D-Bus) cannot be reached, and says so as something to try again, not as a password
-    /// to ask for.
-    async fn relayed(&self, family: Family) -> Result<Option<Transport>, RuntimeError> {
-        let Some(grant) = self.plan.grant() else {
-            return Ok(None);
-        };
-        let Some(link) = self.secrets.link() else {
-            return Err(RuntimeError::Link {
-                why: format!(
-                    "{} is an account of the desktop's account service, which is not reachable",
-                    self.plan.address
-                ),
-                retry: Retry::After(Duration::from_secs(30)),
-            });
-        };
-        let Some(endpoint) = self.plan.endpoint(family) else {
-            return Err(RuntimeError::Link {
-                why: format!(
-                    "the grant on {} lists no {} server",
-                    self.plan.address,
-                    family.slug()
-                ),
-                retry: Retry::Fatal(format!("no {} server granted", family.slug())),
-            });
-        };
-        // accountd dials, secures and signs in before it answers, so this is an exchange's
-        // patience rather than a handshake's.
-        let opened = within(crate::drive::QUIET, "opening a relay", async {
-            link.open(grant, endpoint).await.map_err(RuntimeError::from)
-        });
-        Ok(Some(opened.await?))
     }
 
     /// Run one operation, with a token that is fresh — and, if the server refuses a token that
@@ -660,23 +639,18 @@ impl<B: Backend> AccountEngine<B> {
         // Most providers authenticate submission with the same secret as retrieval, which is
         // what `AuthPlan` means by covering both directions. A separate outgoing secret is
         // preferred where one was stored, because a few hosts really do differ.
-        let auth = if self.plan.grant().is_some() {
-            // The relay signs in: nothing to present, and nothing of the account's in this process.
-            Authentication::Relayed
-        } else {
-            let credential = match &self.tokens {
-                Some(tokens) => tokens.current(Token::Sending).await?,
-                None => match self.secret(SecretPurpose::OutgoingPassword).await {
-                    Ok(credential) => credential,
-                    Err(_) => self.secret(SecretPurpose::IncomingPassword).await?,
-                },
-            };
-            Authentication::SignIn(SignIn {
-                username,
-                credential,
-                sasl,
-            })
+        let credential = match &self.tokens {
+            Some(tokens) => tokens.current(Token::Sending).await?,
+            None => match self.secret(SecretPurpose::OutgoingPassword).await {
+                Ok(credential) => credential,
+                Err(_) => self.secret(SecretPurpose::IncomingPassword).await?,
+            },
         };
+        let auth = Authentication::SignIn(SignIn {
+            username,
+            credential,
+            sasl,
+        });
         // The incoming backend's capabilities. They describe the *account*, not the socket:
         // `SmtpBackend` reads none of the IMAP-shaped fields, and giving it a second, emptier
         // set would mean two answers to one question.
@@ -772,10 +746,7 @@ impl<B: Backend> AccountEngine<B> {
 
         let mut backend = self.submitter().await?;
         backend.stage(posting)?;
-        let mut transport = match self.relayed(Family::Smtp).await? {
-            Some(relay) => relay,
-            None => Transport::connect(&host, port, tls).await?,
-        };
+        let mut transport = Transport::connect(&host, port, tls).await?;
         let mut step = BackendMachine {
             backend: &mut backend,
             op: Some(op),

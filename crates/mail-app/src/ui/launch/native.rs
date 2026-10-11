@@ -54,14 +54,8 @@ pub(super) fn run(opening: Opening) -> Result<(), ds_blitz::LaunchError> {
         });
     let original = Original::window();
     // One revision for every window, so a conversation open in a window of its own follows what
-    // the main window does to it, and the other way round (`ui/revisions`). It is also what the
-    // follower of accountd's changes moves: an account added or removed there is every window's
-    // to draw.
+    // the main window does to it, and the other way round (`ui/revisions`).
     let revisions = crate::ui::revisions::Revisions::new();
-    let following = revisions.clone();
-    crate::accountd::follow(&store, &crate::edge::link(), move |_| {
-        following.bump();
-    });
     // The keys the person chose, as the windows open: quire lays them over the system's keymap
     // for every window, so they are the keymap's own chords. A change made in Settings reaches
     // the running windows through `Keys::set_overrides` (`frame::use_followed_configuration`).

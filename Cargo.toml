@@ -57,18 +57,11 @@ porter-http = { git = "https://github.com/PoHsuanLai/porter", rev = "83ac0fa6fd8
 # (`porter-service`: the sheet's conversation, `Sheets`, `AccountService`; pure, no zbus). It enters
 # `mail-app`, the front-end that draws.
 porter-service = { git = "https://github.com/PoHsuanLai/porter", rev = "83ac0fa6fd890c7f0ca38d98ce917c0c5a0913f2" }
-# Step E6: the link to the desktop's accountd. porter-client is the app-facing API over two
-# transports: in process (always) and D-Bus (its `dbus` feature, enabled only by mailo's
-# `quire-desktop` feature, on Linux: design/36 section 1 rule 3). Without `dbus` and `framed` it
-# is the pure client (porter-core, -provider, -secrets, -service, -infer): no zbus. porter-dbus
-# is the bus's own vocabulary, for the signals a client waits on (`AccountAdded`,
-# `AccountRemoved`); it is reached only from the `quire-desktop` code.
+# porter-client is the app-facing API: the add-account window's in-process transport, and the
+# relay's byte stream `mail-runtime`'s transport can wrap. Its `dbus` feature stays off: mailo keeps
+# its own accounts and credentials, and no zbus comes in through it. (accountd sign-in help, the
+# desktop's "Continue as" sheet, is planned for a later step.)
 porter-client = { git = "https://github.com/PoHsuanLai/porter", rev = "83ac0fa6fd890c7f0ca38d98ce917c0c5a0913f2", default-features = false }
-porter-dbus = { git = "https://github.com/PoHsuanLai/porter", rev = "83ac0fa6fd890c7f0ca38d98ce917c0c5a0913f2" }
-# The relay itself, for the tests of the link only (`mail-runtime`'s dev-dependencies): the real
-# `* PREAUTH` / `220` / `+OK porter relay ready` greetings in front of a fake server on loopback,
-# rather than a copy of them written here. Not in any build of mailo.
-porter-proxy = { git = "https://github.com/PoHsuanLai/porter", rev = "83ac0fa6fd890c7f0ca38d98ce917c0c5a0913f2", default-features = false, features = ["io"] }
 serde       = { version = "1", features = ["derive"] }
 chrono      = { version = "0.4", features = ["serde"] }
 uuid        = { version = "1", features = ["v4", "serde"] }

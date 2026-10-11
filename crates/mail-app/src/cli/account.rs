@@ -32,14 +32,6 @@ pub(super) fn remove(
             Err(asking(address, held, incoming.as_ref()))
         }
         Consent::Given => {
-            // Linked to accountd, an account Mail signed in itself is set aside and its sign-in is
-            // in mailo's own store, which the linked secrets do not reach: forget it from there.
-            let own = (store.granted_only() && store.held_accounts().contains(&id))
-                .then(crate::edge::own_secrets);
-            let mail = match own {
-                Some(own) => mail.clone().with_secrets(own),
-                None => mail.clone(),
-            };
             let removed = crate::edge::block_on(mail.accounts().remove(id.clone()))
                 .map_err(|e| e.to_string())?;
             if let Some(config) = config {
@@ -230,7 +222,6 @@ pub(super) fn listed(accounts: &[Listed]) -> String {
             }
             Readiness::Ready => "ready",
             Readiness::NotSignedIn => "not signed in",
-            Readiness::ServiceUnreachable => "the desktop's account service is not reachable",
             Readiness::NoCredential => "no credential stored",
             Readiness::KeyringUnreachable { why } => *why,
         };

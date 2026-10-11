@@ -64,10 +64,6 @@ pub fn describe(address: &str, origin: &str, found: &Preset) -> String {
                 _ => "an issuer mailo does not read mail through",
             }
         ),
-        AuthPlan::Granted { .. } => {
-            "the desktop's account service signs it in; no password or token is stored here"
-                .to_owned()
-        }
     };
     let _ = writeln!(out, "  incoming  {incoming}");
     let _ = writeln!(out, "  outgoing  {outgoing}");
