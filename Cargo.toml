@@ -79,8 +79,8 @@ log         = "0.4"
 # copied verbatim: only the lines mailo names itself. The window reaches the Blitz
 # document through these to focus, select or scroll an element found by selector
 # (`ui/host/native.rs`).
-blitz-dom = { git = "https://github.com/PoHsuanLai/blitz", rev = "ca79f436e811a64abc6dce9b4584e4fc2d3faa64", default-features = false, features = ["svg", "system-fonts", "custom-widget", "accessibility"] }
-dioxus-native-dom = { git = "https://github.com/PoHsuanLai/blitz", rev = "ca79f436e811a64abc6dce9b4584e4fc2d3faa64", default-features = false, features = ["svg", "system-fonts", "accessibility"] }
+blitz-dom = { git = "https://github.com/PoHsuanLai/blitz", rev = "2e44d7534de341b9037ffa92c0da49b29adea533", default-features = false, features = ["svg", "system-fonts", "custom-widget", "accessibility"] }
+dioxus-native-dom = { git = "https://github.com/PoHsuanLai/blitz", rev = "2e44d7534de341b9037ffa92c0da49b29adea533", default-features = false, features = ["svg", "system-fonts", "accessibility"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
