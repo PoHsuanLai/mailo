@@ -403,6 +403,23 @@ pub fn saved_of(place: &Place) -> Option<&View> {
 /// Sent and Archive get one too. That looks odd until a filter rule files an unread message
 /// straight into Archive, at which point a badgeless Archive is a message the user never learns
 /// about.
+/// `filter` narrowed to `scope`, the accounts the window is showing (`None` is every account).
+///
+/// The one narrowing the list and the sidebar's counts both go through, so a badge counts what
+/// opening its place lists: a count over every account beside a list of one said Trash held a
+/// message that was in another account's Trash.
+pub fn scoped(scope: Option<Filter>, filter: Filter) -> Filter {
+    match scope {
+        Some(scope) => Filter::And(vec![scope, filter]),
+        None => filter,
+    }
+}
+
+/// What a place's badge counts in `scope`: its unread, among the accounts its list shows.
+pub fn scoped_badge(source: &Source, scope: Option<Filter>) -> Option<Filter> {
+    badge_filter(source).map(|filter| scoped(scope, filter))
+}
+
 pub fn badge_filter(source: &Source) -> Option<Filter> {
     match source {
         Source::Mail(filter) => Some(crate::place::unread_in(filter.clone())),

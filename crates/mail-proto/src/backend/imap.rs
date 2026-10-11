@@ -489,15 +489,14 @@ impl Backend for ImapBackend {
                     ArchiveMeans::DropInbox => {
                         // Gmail: filing is label membership. Removing \Inbox archives, and
                         // nothing is deleted.
-                        let label = gmail_label(role);
                         self.job = Job::Applied;
-                        let mut commands = vec![
-                            Self::select(&source, Access::ReadWrite),
-                            ImapCommand::UidStore {
+                        let mut commands = vec![Self::select(&source, Access::ReadWrite)];
+                        if let Some(label) = gmail_label(role) {
+                            commands.push(ImapCommand::UidStore {
                                 set: set.clone(),
                                 what: format!("+X-GM-LABELS ({label})"),
-                            },
-                        ];
+                            });
+                        }
                         // Back to the inbox is `\Inbox` added and nothing taken away. Taking it
                         // away after, as every other role does, removed the label just added,
                         // and the message stayed archived on the server.
@@ -1363,16 +1362,20 @@ fn mailbox_of(remotes: &[RemoteRef], account: AccountId) -> MailboxRef {
     MailboxRef { account, path }
 }
 
-/// Gmail's system label for a role.
-fn gmail_label(role: MailboxRole) -> &'static str {
-    match role {
+/// Gmail's system label for a role, or `None` for the archive.
+///
+/// All Mail is not a label: a message is in it by being in the account, and archiving is
+/// `\Inbox` taken away and nothing added. `\All` is a LIST attribute, never one of Gmail's
+/// labels, and a `+X-GM-LABELS (\All)` made a user label of that name on the account.
+fn gmail_label(role: MailboxRole) -> Option<&'static str> {
+    Some(match role {
         MailboxRole::Inbox => "\\Inbox",
-        MailboxRole::Archive => "\\All",
+        MailboxRole::Archive => return None,
         MailboxRole::Sent => "\\Sent",
         MailboxRole::Drafts => "\\Draft",
         MailboxRole::Trash => "\\Trash",
         MailboxRole::Spam => "\\Spam",
-    }
+    })
 }
 
 fn quoted_labels(labels: &[String]) -> String {
