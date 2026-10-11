@@ -9,7 +9,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-for crate in mail-domain mail-mime mail-pim mail-store mail-proto mail-runtime mail-core; do
+for crate in mail-domain mail-mime mail-pim mail-store mail-proto mail-runtime mail-core mail-appkit; do
   echo "nodef: $crate"
   cargo check -p "$crate" --no-default-features
 done

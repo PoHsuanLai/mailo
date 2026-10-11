@@ -3,7 +3,7 @@
 #
 #   ./packaging/macos/bundle.sh
 #
-# Needs Xcode's command line tools (iconutil, hdiutil, plutil, all part of macOS) and `resvg`
+# Needs Xcode's command line tools (iconutil, hdiutil, plutil, codesign, all part of macOS) and `resvg`
 # (`cargo install resvg`), which draws the icon from the one SVG every package uses. Lands in
 # target/macos/: mailo.app and mailo-<version>.dmg.
 set -euo pipefail
@@ -14,7 +14,7 @@ target="${CARGO_TARGET_DIR:-$root/target}"
 out="$target/macos"
 svg=packaging/icons/hicolor/scalable/apps/mailo.svg
 
-for tool in resvg iconutil hdiutil plutil; do
+for tool in resvg iconutil hdiutil plutil codesign; do
     if ! command -v "$tool" >/dev/null 2>&1; then
         echo "bundle.sh: $tool is missing" >&2
         exit 1
@@ -44,6 +44,14 @@ for size in 16 32 128 256 512; do
 done
 iconutil -c icns "$iconset" -o "$app/Contents/Resources/mailo.icns"
 rm -rf "$iconset"
+
+# An ad-hoc signature over the whole bundle, under the bundle identifier. The linker already signs
+# the binary ad hoc, but under a name taken from its hash and with Info.plist and the icon outside
+# the seal; sealing them under the identifier makes the bundle one thing macOS can recognise, which
+# is what the keychain and the notification centre ask of an app. It is not a Developer ID: Gatekeeper
+# still says the developer cannot be verified.
+codesign --force --sign - --identifier io.github.PoHsuanLai.mailo "$app"
+codesign --verify --strict "$app"
 
 # Signing and notarisation would go here, and are left out: they need an Apple Developer ID
 # certificate and an App Store Connect key, which would come in as CI secrets (for example

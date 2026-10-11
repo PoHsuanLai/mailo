@@ -86,6 +86,10 @@ zeroize = "1"
 # Desktop extras (design/36 rule 3): the bus's own vocabulary, for the signals accountd sends
 # (`link/dbus.rs`). Only on Linux and only with `quire-desktop`.
 porter-dbus = { workspace = true, optional = true }
+# porter-client's D-Bus transport leans on Linux-only fd sealing (`rustix::fs::fcntl_get_seals`), so
+# its `dbus` feature is lit here and not in `quire-desktop` itself: a default-feature build on
+# macOS never sees it.
+porter-client = { workspace = true, features = ["dbus"], optional = true }
 futures-util = { version = "0.3", default-features = false, features = ["std"], optional = true }
 
 # The signing keys (`signing_store.rs`), over
@@ -116,8 +120,10 @@ default = []
 # another desktop, and the portable gate (`cargo check --workspace --no-default-features`), has the
 # in-process path alone. The code is also `cfg(target_os = "linux")`. Cargo cannot say "on for
 # Linux" (a feature is on or off for the whole build), so the macOS and Windows jobs in CI leave it
-# off, which keeps zbus and porter's D-Bus transport out of those builds.
-quire-desktop = ["porter-client/dbus", "dep:porter-dbus", "dep:futures-util"]
+# off, which keeps zbus and porter's D-Bus transport out of those builds. What it turns on is a
+# Linux-only dependency too (`porter-client`'s `dbus`, `porter-dbus`), so a default-feature build on
+# macOS or Windows leaves them out as well.
+quire-desktop = ["dep:porter-client", "dep:porter-dbus", "dep:futures-util"]
 # The platform's keyrings (the Secret Service over zbus on Linux and the BSDs, the login keychain on
 # macOS, the Credential Manager on Windows): `KeyringSigningStore` over them, and on macOS and
 # Windows `PlatformSecrets`. Without it they are present but empty, answering every call as

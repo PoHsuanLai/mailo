@@ -162,6 +162,12 @@ jobs:
       # No network, as in `check`: everything that talks to a socket is `#[ignore]`d.
       - name: Tests
         run: cargo test --workspace --no-default-features
+      # The default features on a Mac: the build a person gets from a plain `cargo build`, which
+      # the two steps above never compile. Only checked, not run, and only on macOS until a
+      # Windows runner says the same of itself.
+      - name: Default features
+        if: runner.os == 'macOS'
+        run: cargo check --workspace --all-targets
 
   # Unsigned packages for each platform, on every push to master and by hand. They are artifacts
   # of the run, not a release: nothing here publishes anything.
