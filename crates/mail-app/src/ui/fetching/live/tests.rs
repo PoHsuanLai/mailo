@@ -72,6 +72,7 @@ fn refused() -> PassEnd {
         retry: Retry::NeedsReauth,
         why: "the server refused the password".to_owned(),
         pause: Pause::ServerBusy,
+        offer: None,
     }
 }
 
@@ -82,6 +83,7 @@ fn unreachable() -> PassEnd {
         retry: Retry::After(Duration::from_secs(5)),
         why: "cannot connect".to_owned(),
         pause: Pause::Unreachable,
+        offer: None,
     }
 }
 

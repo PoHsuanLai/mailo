@@ -220,6 +220,11 @@ pub enum CoreError {
     GrantListsNoMail { address: String },
     #[error("no such account")]
     NoSuchAccount,
+    #[error(
+        "{address} is not a work or school Microsoft account reading over IMAP, so there is \
+         nothing to move to Microsoft Graph"
+    )]
+    NotMicrosoftImap { address: String },
     #[error("no JMAP session URL for {address}")]
     NoJmapSession { address: String },
     #[error(

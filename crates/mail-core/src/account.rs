@@ -22,6 +22,7 @@ pub mod direct;
 pub mod draft;
 mod linked;
 mod remove;
+mod switch;
 
 pub use advice::{no_client_id, no_credential};
 pub use direct::{Direct, Mode, SignInError, sign_in_with};
@@ -30,6 +31,7 @@ pub use linked::{
     preset_of, reconcile,
 };
 pub use remove::{RemoveError, Removed, remove};
+pub use switch::{graph_offer, switch_to_graph};
 
 /// Servers the user named, for an address the preset table does not cover.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -675,7 +677,7 @@ pub fn local(
 /// Discovery now offers a work or school address Graph, so adding such an account again — to
 /// sign in again, the way every refusal says to — would otherwise move it off IMAP without a
 /// word. Thunderbird does not migrate an account either: a new type is the person's choice,
-/// made by asking for Graph by name (`--receive graph`).
+/// made with [`switch_to_graph`] or `--receive graph`.
 fn kept_on_imap(
     stored: AccountPlan,
     found: mail_domain::presets::Preset,

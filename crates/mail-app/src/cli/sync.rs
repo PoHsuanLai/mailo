@@ -222,6 +222,7 @@ mod tests {
             retry: Retry::Now,
             why: "cannot connect".to_owned(),
             pause: Pause::Unreachable,
+            offer: None,
         };
         let dir = tempfile::tempdir().unwrap();
         let store = SqliteStore::in_memory(dir.path()).unwrap();
@@ -248,6 +249,7 @@ mod tests {
             retry: Retry::Now,
             why: "cannot connect".to_owned(),
             pause: Pause::Unreachable,
+            offer: None,
         });
         assert_eq!(watched_text(&failed), "ada@example.test: cannot connect\n");
         let waited = Watched::WaitFailed {
@@ -278,6 +280,7 @@ mod tests {
             retry: Retry::NeedsReauth,
             why: "not signed in".to_owned(),
             pause: Pause::ServerBusy,
+            offer: None,
         };
         assert_eq!(folder_text(&failed, "INBOX").unwrap_err(), "not signed in");
     }
@@ -292,6 +295,7 @@ mod tests {
             retry,
             why: "refused".to_owned(),
             pause: Pause::ServerBusy,
+            offer: None,
         };
         assert_eq!(
             sign_in_hint(&store, &ended(Retry::NeedsReauth)),

@@ -25,6 +25,7 @@ fn failed() -> PassEnd {
         retry: Retry::After(Duration::from_secs(5)),
         why: "cannot connect".to_owned(),
         pause: Pause::Unreachable,
+        offer: None,
     }
 }
 

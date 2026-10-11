@@ -574,6 +574,61 @@ mod renewing_an_expired_sign_in {
         );
     }
 
+    /// A work Microsoft account on IMAP whose server refuses even the token its issuer has just
+    /// renewed: the organisation switched IMAP off. The pass ends on it once, as nothing a new
+    /// sign-in would mend, and offers to set the account up over Graph.
+    #[test]
+    fn a_work_account_refused_over_imap_is_offered_graph() {
+        let (store, _dir) = configured_with(
+            super::a_refused_sign_in::serve_refusing(),
+            caps(),
+            AuthPlan::OAuth {
+                issuer: Issuer::Microsoft,
+                scopes: vec![
+                    "https://outlook.office.com/IMAP.AccessAsUser.All".to_owned(),
+                    "https://outlook.office.com/SMTP.Send".to_owned(),
+                    "offline_access".to_owned(),
+                ],
+            },
+        );
+        let secrets: Arc<dyn AccountSecrets> = Arc::new(MemorySecrets::default());
+        for purpose in [SecretPurpose::IncomingPassword, SecretPurpose::OAuthRefresh] {
+            mail_runtime::block_on(secrets.put(
+                &SecretKey {
+                    account: acct_account(),
+                    purpose,
+                },
+                &token(60),
+            ))
+            .unwrap();
+        }
+        let (ends, seen) = token_endpoint(RENEWED);
+
+        let ended = crate::blocking::run_with(
+            store,
+            secrets,
+            &registry_at(Issuer::Microsoft, ends),
+            now(),
+            sync::report::Hooks::default(),
+        )
+        .unwrap();
+        let said = words(&ended);
+        let [end] = <[PassEnd; 1]>::try_from(ended).expect("one account");
+
+        assert!(
+            !seen.lock().unwrap().is_empty(),
+            "the issuer renewed it before it counted as refused"
+        );
+        let PassEnd::Failed { retry, offer, .. } = &end else {
+            panic!("the refusal did not end the pass: {said}")
+        };
+        assert!(matches!(retry, Retry::Fatal(_)), "{retry:?}: {said}");
+        assert_eq!(*offer, Some(sync::report::Offer::UseGraph), "{said}");
+        // Not a sign-in to ask for: the issuer has just stood by the one it has.
+        let (link, _) = linked(end, waiting(0));
+        assert!(matches!(link, Link::Broken { .. }), "{link:?}");
+    }
+
     #[test]
     fn a_password_account_never_reaches_the_issuer() {
         // The plan is what decides, not the credential: a password has no expiry and there is
@@ -691,7 +746,7 @@ mod a_refused_sign_in {
     /// It words the refusal the way Exchange, Courier and UW-imapd do — a bare `NO LOGIN
     /// failed.`, with none of the response codes Dovecot and Gmail send. Picking the wording
     /// that already worked would have made this test agree with itself.
-    fn serve_refusing() -> u16 {
+    pub(super) fn serve_refusing() -> u16 {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         std::thread::spawn(move || {

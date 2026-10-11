@@ -18,7 +18,7 @@ use mail_core::schedule::{
     Change, Daemon, Heard, Host, ListenCall, Local, Lost, PassCall, Passed, Schedule, Stored,
     Timing,
 };
-use mail_core::sync::report::{Hooks, Progress, outcome};
+use mail_core::sync::report::{Hooks, Offer, PassEnd, Progress, outcome};
 use mail_domain::Retry;
 use mail_store::SqliteStore;
 use porter_core::AccountId;
@@ -37,7 +37,25 @@ pub(super) struct WindowHost {
     /// What each account's pass is doing, for a spinner: read by the surfaces of the next wave.
     pub ops: Signal<BTreeMap<AccountId, Operation>>,
     pub folders: Signal<BTreeMap<(AccountId, String), FolderFetch>>,
+    /// What the last pass of each account offered beside its failure ([`offer_of`]).
+    pub offers: Signal<BTreeMap<AccountId, Offer>>,
     pub revision: Signal<u64>,
+}
+
+/// What a run offered `account`: the [`Offer`] its pass failed with, if it failed with one.
+///
+/// Kept beside the link rather than in it, because the link is the scheduler's and an offer
+/// says nothing about when to try again. Every pass's end replaces it, so a pass that ran, or
+/// failed some other way, takes the last one's back.
+pub(super) fn offer_of(done: &Result<Vec<PassEnd>, String>, account: &AccountId) -> Option<Offer> {
+    done.as_ref().ok()?.iter().find_map(|end| match end {
+        PassEnd::Failed {
+            account: failed,
+            offer,
+            ..
+        } if failed == account => *offer,
+        _ => None,
+    })
 }
 
 /// The operation to show once `link` is what it is: running only while a pass is, and under the
@@ -84,6 +102,7 @@ impl Host for WindowHost {
 
     fn pass(&self, call: PassCall) -> Local<'_, Passed> {
         let (store, passer) = (self.store.clone(), self.passer.clone());
+        let mut offers = self.offers;
         Box::pin(async move {
             let PassCall {
                 account,
@@ -106,6 +125,16 @@ impl Host for WindowHost {
             })
             .await
             .unwrap_or_else(|e| Err(format!("the sync pass stopped: {e}")));
+            match offer_of(&done, &account) {
+                Some(offer) => {
+                    offers.write().insert(account.clone(), offer);
+                }
+                None => {
+                    if offers.peek().contains_key(&account) {
+                        offers.write().remove(&account);
+                    }
+                }
+            }
             let stored = if may_have_stored(&done) {
                 Stored::Maybe
             } else {

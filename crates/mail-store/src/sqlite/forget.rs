@@ -120,6 +120,24 @@ impl SqliteStore {
             }
         }
     }
+
+    /// Let go of where `account`'s messages are on its server and how far each of its mailboxes
+    /// was fetched: every address (`remote_map`) and cursor (`sync_state`) it has, together.
+    ///
+    /// For an account that is to be reached another way, whose addresses and cursors mean
+    /// nothing to the new one: an IMAP UID is no Graph id, and a `UIDNEXT` no delta link. The
+    /// messages stay, and so does everything said about them here. The next sync finds each
+    /// one again by its key (`Message-ID`) and gives it its new address, and an operation
+    /// queued on one waits for that, as it does for any message a server moved.
+    pub fn forget_addresses(&self, account: AccountId) -> Result<(), StoreError> {
+        let db = self.connection();
+        let tx = db.unchecked_transaction()?;
+        let id = account.to_string();
+        db.execute("DELETE FROM remote_map WHERE account = ?1", params![id])?;
+        db.execute("DELETE FROM sync_state WHERE account = ?1", params![id])?;
+        tx.commit()?;
+        Ok(())
+    }
 }
 
 /// Columns that hold prose and never an id: what the scan does not read.

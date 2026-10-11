@@ -15,7 +15,7 @@
 
 use crate::ui::common::in_card;
 use crate::ui::data::account_rows;
-use crate::ui::fetching::{AccountLine, Fetching, Remedy, Standing, account_line};
+use crate::ui::fetching::{AccountLine, Fetching, Remedy, Standing, account_line, offered};
 use crate::ui::press::{SheetClose, on_primary};
 use crate::ui::view::{DoctorSheet, Shell};
 use dioxus::prelude::*;
@@ -64,6 +64,7 @@ fn label_of(remedy: Remedy) -> &'static str {
         Remedy::Allow => "Allow Mail\u{2026}",
         Remedy::TryAgain => "Try Again",
         Remedy::Settings => "Settings\u{2026}",
+        Remedy::UseGraph => "Use Microsoft Graph",
     }
 }
 
@@ -122,6 +123,10 @@ pub(in crate::ui) fn DoctorView(shell: Signal<Shell>, revision: Signal<u64>) -> 
     let act = Callback::new(
         move |(account, name, remedy): (AccountId, String, Remedy)| {
             let after = match remedy {
+                Remedy::UseGraph => {
+                    use_graph(fetching, revision, account, name);
+                    return;
+                }
                 Remedy::TryAgain => {
                     fetching.send(account, Event::Start(Trigger::Manual));
                     return;
@@ -159,7 +164,11 @@ pub(in crate::ui) fn DoctorView(shell: Signal<Shell>, revision: Signal<u64>) -> 
                     AccountRowView {
                         key: "{account}",
                         name: name.clone(),
-                        line: account_line(&link, fetching.pace(&account), now, &chrono::Local),
+                        line: offered(
+                            account_line(&link, fetching.pace(&account), now, &chrono::Local),
+                            &link,
+                            fetching.offer(&account),
+                        ),
                         act: {
                             let account = account.clone();
                             move |remedy| act.call((account.clone(), name.clone(), remedy))
@@ -181,6 +190,60 @@ pub(in crate::ui) fn DoctorView(shell: Signal<Shell>, revision: Signal<u64>) -> 
             }
         }
     }
+}
+
+/// Use Microsoft Graph: set the account up again over Graph and sign it in for Graph in the
+/// browser (`mail_core::account::switch_to_graph`), then fetch with the new sign-in.
+///
+/// The sign-in waits on a browser, so it runs on a thread of its own, as the Add account sheet's
+/// does; what it came to is said, and a sign-in that worked is told to the account's link.
+fn use_graph(fetching: Fetching, mut revision: Signal<u64>, account: AccountId, name: String) {
+    let Some(store) = try_consume_context::<Arc<SqliteStore>>() else {
+        return;
+    };
+    dioxus::core::spawn_forever(async move {
+        let (done, answer) = tokio::sync::oneshot::channel();
+        let switching = account.clone();
+        std::thread::spawn(move || {
+            let environment = crate::edge::environment();
+            let secrets = crate::edge::secrets();
+            let saved = mail_core::account::saved_clients();
+            let browse = |url: &str| {
+                if let Err(why) = webbrowser::open(url) {
+                    log::warn!("the browser would not open the Microsoft sign-in: {why}");
+                }
+            };
+            let switched = crate::edge::block_on(mail_core::account::switch_to_graph(
+                &store,
+                switching,
+                chrono::Utc::now(),
+                mail_core::account::Credentials {
+                    password: None,
+                    saved: &saved,
+                    secrets: secrets.as_ref(),
+                    environment: &environment,
+                    on_url: &browse,
+                    signed: None,
+                },
+            ));
+            // The window that asked may have closed; then nobody is left to tell.
+            let _ = done.send(switched.map(|added| added.outcome).map_err(String::from));
+        });
+        let said = match answer.await {
+            Ok(Ok(mail_core::account::Outcome::SignedIn { .. })) => {
+                revision += 1;
+                fetching.signed_in(account);
+                format!("{name} now reads and sends through Microsoft Graph.")
+            }
+            Ok(Ok(_)) => {
+                revision += 1;
+                format!("{name} is set up for Microsoft Graph, and waits to be signed in.")
+            }
+            Ok(Err(why)) => format!("Couldn\u{2019}t move {name} to Microsoft Graph: {why}"),
+            Err(_) => format!("Couldn\u{2019}t move {name} to Microsoft Graph: it stopped."),
+        };
+        crate::ui::motion::tell(said, crate::ui::motion::Follow::Nothing);
+    });
 }
 
 /// One account: its address, a glyph and how it stands, the button that fixes it, and the one

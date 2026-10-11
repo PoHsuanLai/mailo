@@ -414,12 +414,19 @@ fn ended(
             account: account.id.clone(),
             address: account.address.clone(),
         },
-        Err(Failure { retry, why, pause }) => PassEnd::Failed {
+        Err(Failure {
+            retry,
+            why,
+            pause,
+            refused,
+        }) => PassEnd::Failed {
             account: account.id.clone(),
             address: account.address.clone(),
             retry,
             why,
             pause,
+            // Refused the protocol, an account set up another way may be served.
+            offer: refused.and_then(|_| crate::account::graph_offer(&account.plan)),
         },
     }
 }
@@ -490,6 +497,7 @@ pub(crate) async fn stored_credential(
                     account.address
                 ),
                 pause: crate::fetch::Pause::ServerBusy,
+                refused: None,
             }),
         };
     }
@@ -510,6 +518,7 @@ pub(crate) async fn stored_credential(
                 retry: trouble.retry(),
                 why: why.to_owned(),
                 pause: crate::fetch::Pause::ServerBusy,
+                refused: None,
             },
         })
 }
@@ -977,7 +986,7 @@ async fn pass<B: mail_proto::Backend>(
     // sync, each pass brings the inbox up to date before it moves on.
     let mut done = Done::default();
     for mailbox in mailboxes {
-        one_mailbox(engine, mailbox, keep, cancel, now, &mut done, emit).await;
+        one_mailbox(engine, mailbox, keep, cancel, now, &mut done, emit).await?;
     }
 
     // Rules, over what arrived in any folder this pass, before the drain so that what they
@@ -1039,7 +1048,10 @@ const PARTS_PER_PASS: mail_runtime::PartBudget = mail_runtime::PartBudget {
 /// One mailbox's share of a pass: headers, then the server's view of what is held, then bodies.
 ///
 /// Failures are folded into `report` rather than returned: a folder the server will not select
-/// is worth seeing and is not a reason to abandon the mail already in hand.
+/// is worth seeing and is not a reason to abandon the mail already in hand. The one returned is
+/// a refusal of the protocol itself ([`report::ProtocolRefused`]), which is the account's and not
+/// the folder's: every other folder would meet it too, and the pass ends on it so the account
+/// says so once.
 async fn one_mailbox<B: mail_proto::Backend>(
     engine: &mut AccountEngine<B>,
     mailbox: &MailboxRef,
@@ -1048,7 +1060,7 @@ async fn one_mailbox<B: mail_proto::Backend>(
     now: chrono::DateTime<chrono::Utc>,
     done: &mut Done,
     emit: Emit<'_>,
-) {
+) -> Result<(), Failure> {
     let path = mailbox.path.as_str();
     let headers = |done: u32| Progress::Headers {
         mailbox: path.to_owned(),
@@ -1063,8 +1075,12 @@ async fn one_mailbox<B: mail_proto::Backend>(
         Err(e) => {
             // Classified while the error is still typed. By the time it reaches the user it
             // is prose, and prose is not something a loop can safely decide on.
+            let failure = Failure::of("", &e);
+            if failure.refused.is_some() {
+                return Err(failure);
+            }
             done.trouble(Some(path), e.retry(), format!("{path}: {e}"));
-            return;
+            return Ok(());
         }
     };
     done.counts.headers_fetched += one.headers_fetched;
@@ -1118,6 +1134,7 @@ async fn one_mailbox<B: mail_proto::Backend>(
         }
         Err(e) => done.trouble(Some(path), e.retry(), format!("{path}: {e}")),
     }
+    Ok(())
 }
 
 /// A count of messages, as the `u32` a [`Progress`] carries.
@@ -1213,7 +1230,7 @@ pub async fn folder_now_with(
                 &mut done,
                 None,
             )
-            .await;
+            .await?;
             return Ok(done);
         }
         let mut engine = imap_engine(&store, &account, held, secrets.clone());
@@ -1230,7 +1247,7 @@ pub async fn folder_now_with(
             &mut done,
             None,
         )
-        .await;
+        .await?;
         Ok(done)
     }
     .await;
