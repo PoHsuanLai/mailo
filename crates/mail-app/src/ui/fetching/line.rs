@@ -8,6 +8,7 @@ use super::status::{ago, clock, not_updated_since};
 use chrono::{DateTime, TimeZone, Utc};
 use mail_core::fetch::{Link, Live, Pause, Trouble};
 use mail_core::sync::fresh::{self, Freshness, Pace};
+use mail_core::sync::report::Offer;
 
 /// The glyph at the start of an account's line.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,7 +36,13 @@ pub enum Remedy {
     TryAgain,
     /// Open the account's settings.
     Settings,
+    /// Set the account up again over Microsoft Graph, and sign it in for it.
+    UseGraph,
 }
+
+/// What a line says when Microsoft refused a work or school account mail over IMAP.
+pub const IMAP_REFUSED: &str = "Microsoft refused mail access over IMAP for this account. The \
+    organisation may have switched IMAP off.";
 
 /// An account's line.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -108,6 +115,20 @@ where
             folders_that_failed(trouble),
             Some(Remedy::TryAgain),
         ),
+    }
+}
+
+/// `line`, unless the pass that broke the link left an [`Offer`]: then that, in plain words,
+/// with its one action in place of Settings.
+///
+/// Only a broken link: the offer is the last pass's, and a link that has since moved on (a pass
+/// running, or one that finished) is no longer about it.
+pub fn offered(line: AccountLine, link: &Link, offer: Option<Offer>) -> AccountLine {
+    match (link, offer) {
+        (Link::Broken { .. }, Some(Offer::UseGraph)) => {
+            said(Standing::Broken, IMAP_REFUSED, Some(Remedy::UseGraph))
+        }
+        _ => line,
     }
 }
 
@@ -302,6 +323,33 @@ mod tests {
         assert_eq!(line(&one).text, "Couldn\u{2019}t update 1 folder: Archive");
         let none = current(Live::Polling, vec![trouble(None)]);
         assert_eq!(line(&none).text, "no room");
+    }
+
+    /// A pass Microsoft refused over IMAP says so in plain words and offers Graph, in place of
+    /// the error and Settings; the offer is forgotten once the link moves on.
+    #[test]
+    fn a_refused_imap_account_is_offered_graph_in_plain_words() {
+        let broken = Link::Broken {
+            why: "the server refused a sign-in the issuer has just renewed".into(),
+            first: First::No,
+        };
+        let plain = line(&broken);
+        assert_eq!(plain.remedy, Some(Remedy::Settings));
+        let refused = offered(plain.clone(), &broken, Some(Offer::UseGraph));
+        assert_eq!(
+            refused,
+            said(Standing::Broken, IMAP_REFUSED, Some(Remedy::UseGraph))
+        );
+        assert!(refused.text.contains("IMAP"), "{}", refused.text);
+        assert!(!refused.text.to_lowercase().contains("mailo "));
+        assert_eq!(offered(plain.clone(), &broken, None), plain);
+
+        let current = current(Live::Polling, vec![]);
+        assert_eq!(
+            offered(line(&current), &current, Some(Offer::UseGraph)),
+            line(&current),
+            "a link that has moved on is not about the refusal"
+        );
     }
 
     #[test]

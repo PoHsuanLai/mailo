@@ -161,6 +161,25 @@ fn personal_microsoft(spec: &ProviderSpec, domain: &DomainName) -> bool {
             .any(|suffix| domain.is_within(suffix))
 }
 
+/// What `address`'s domain says of a Microsoft account: personal when Microsoft's provider file
+/// claims it as one of its own consumer domains (`outlook.com`, `hotmail.com`, `live.com`,
+/// `msn.com` and the rest), and an organisation's otherwise.
+///
+/// Only a guess from a name, so it comes second to the tenant a sign-in names
+/// (`presets::microsoft_account`).
+pub fn microsoft_domain(address: &str) -> presets::MicrosoftAccount {
+    let personal = domain_of(address).is_some_and(|domain| {
+        providers::set()
+            .claiming(&domain, &[])
+            .into_iter()
+            .any(|(spec, via)| via == DomainMatch::Domain && personal_microsoft(spec, &domain))
+    });
+    match personal {
+        true => presets::MicrosoftAccount::Personal,
+        false => presets::MicrosoftAccount::Organisation,
+    }
+}
+
 /// The built-in table: what an address alone proves, so that nothing is looked up and nothing
 /// need be confirmed.
 ///
@@ -408,12 +427,7 @@ fn guard(address: &str, preset: Preset) -> Result<Preset, Failed> {
             ..
         }
     );
-    let personal = domain_of(address).is_some_and(|domain| {
-        providers::set()
-            .claiming(&domain, &[])
-            .into_iter()
-            .any(|(spec, via)| via == DomainMatch::Domain && personal_microsoft(spec, &domain))
-    });
+    let personal = microsoft_domain(address) == presets::MicrosoftAccount::Personal;
     match tenant && personal {
         true => Err(no_servers(
             address,
@@ -772,7 +786,14 @@ mod tests {
                 preset.plan.auth
             );
             assert_eq!(preset.plan.address, address);
-            assert_eq!(preset.expected_caps.observed_at, now(), "{address}");
+            // A tenant's account reads through Graph, whose capabilities are asked for before
+            // the first fetch; Gmail's preset starts from what it expects.
+            match issuer {
+                Issuer::Microsoft => {
+                    assert_eq!(preset.plan.incoming, Incoming::Graph, "{address}");
+                }
+                _ => assert_eq!(preset.expected_caps.observed_at, now(), "{address}"),
+            }
         }
     }
 

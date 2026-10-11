@@ -83,6 +83,7 @@ pub(super) fn refused() -> PassEnd {
         retry: Retry::NeedsReauth,
         why: "the server refused the password".to_owned(),
         pause: mail_core::fetch::Pause::ServerBusy,
+        offer: None,
     }
 }
 
@@ -93,6 +94,7 @@ pub(super) fn unreachable() -> PassEnd {
         retry: Retry::After(Duration::from_secs(5)),
         why: "cannot connect".to_owned(),
         pause: mail_core::fetch::Pause::Unreachable,
+        offer: None,
     }
 }
 

@@ -37,7 +37,7 @@ mod sync;
 pub use client::{Auth, Client, find_session, safe_url};
 
 use crate::error::Failure;
-use crate::tokens::{AfterRefusal, Token, TokenSource};
+use crate::tokens::{AfterRefusal, Token, TokenSource, refused_fresh};
 use crate::{AccountSecrets, RuntimeError, SyncReport};
 use chrono::{DateTime, Utc};
 use mail_domain::{
@@ -220,15 +220,19 @@ impl JmapEngine {
             Ok(_) => Ok(()),
             Err(e) => {
                 self.forget_if_stale(&e);
-                // A bearer accountd gave was refused: one new one, as every engine does.
+                // A bearer accountd gave was refused: one new one, as every engine does, and a
+                // refusal of the new one is not the user's sign-in (`tokens::refused_fresh`).
                 if matches!(e.retry(), Retry::NeedsReauth)
                     && let Some(tokens) = self.linked.get().cloned()
-                    && matches!(
-                        tokens.after_refusal(Token::Incoming).await,
-                        Ok(AfterRefusal::TryAgain)
-                    )
                 {
-                    return self.client().await.map(|_| ());
+                    match tokens.after_refusal(Token::Incoming).await {
+                        Ok(AfterRefusal::TryAgain) => {
+                            return self.client().await.map(|_| ()).map_err(refused_fresh);
+                        }
+                        Ok(AfterRefusal::StillRefused) => return Err(refused_fresh(e)),
+                        // Nothing new to try: the refusal stands as the server gave it.
+                        Ok(AfterRefusal::NotRenewable) | Err(_) => {}
+                    }
                 }
                 Err(e)
             }

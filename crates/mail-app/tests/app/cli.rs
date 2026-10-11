@@ -531,10 +531,28 @@ mod microsoft {
             } => assert!(microsoft && graph),
             other => panic!("{other:?}"),
         }
-        let plain = cli::parse(&args("account add me@yourcompany.example --microsoft")).unwrap();
+        // Named, the way it sends keeps IMAP for reading.
         assert!(matches!(
-            plain,
-            cli::Command::AccountAdd { graph: false, .. }
+            cli::parse(&args(
+                "account add me@yourcompany.example --microsoft --send graph",
+            ))
+            .unwrap(),
+            cli::Command::AccountAdd {
+                receive: mail_core::account::Receive::Imap,
+                ..
+            }
+        ));
+        let smtp = cli::parse(&args(
+            "account add me@yourcompany.example --microsoft --send smtp",
+        ))
+        .unwrap();
+        assert!(matches!(
+            smtp,
+            cli::Command::AccountAdd {
+                graph: false,
+                receive: mail_core::account::Receive::Imap,
+                ..
+            }
         ));
     }
 
@@ -553,10 +571,26 @@ mod microsoft {
                 ..
             }
         ));
+        // Graph is the default for a work or school account, as Thunderbird and Evolution set
+        // Microsoft 365 up; IMAP is asked for by name.
         let plain = cli::parse(&args("account add me@yourcompany.example --microsoft")).unwrap();
         assert!(matches!(
             plain,
             cli::Command::AccountAdd {
+                microsoft: true,
+                graph: false,
+                receive: mail_core::account::Receive::Usual,
+                ..
+            }
+        ));
+        let imap = cli::parse(&args(
+            "account add me@yourcompany.example --microsoft --receive imap",
+        ))
+        .unwrap();
+        assert!(matches!(
+            imap,
+            cli::Command::AccountAdd {
+                graph: false,
                 receive: mail_core::account::Receive::Imap,
                 ..
             }

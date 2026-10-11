@@ -5,3 +5,7 @@
 .add-account-window:focus { outline: none; }
 .add-account-step { display: flex; flex-direction: column; width: 100%; min-width: 0; }
 .acct-actions { display: flex; flex-direction: column; align-items: flex-end; gap: var(--s-8); }
+/* A sign-in in the browser while it waits, under the account tiles: a spinner, what it waits for,
+   and the button that stops it. */
+.direct-sign-in { display: flex; align-items: center; gap: var(--s-8); min-width: 0; padding: var(--s-4) var(--s-8); }
+.direct-sign-in-words { flex: 1 1 auto; min-width: 0; }

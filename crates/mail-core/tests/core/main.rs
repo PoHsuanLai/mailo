@@ -6,6 +6,7 @@
 
 mod attachments;
 mod blocking;
+mod direct_sign_in;
 mod fetch_body;
 mod folder_sync;
 mod held_while_linked;

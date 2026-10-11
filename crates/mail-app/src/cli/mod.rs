@@ -60,7 +60,8 @@ pub enum Command {
         microsoft: bool,
         /// `--send graph`: send through Microsoft Graph, for a tenant with SMTP AUTH off.
         graph: bool,
-        /// `--receive graph`: read through Microsoft Graph, for a tenant with IMAP off.
+        /// How a Microsoft account reads: `Usual` (through Graph, or as an account already here
+        /// does) unless `--receive` or `--send` names it; IMAP for every other account.
         receive: Receive,
         /// `--yes`: servers found by discovery may be used without asking. Without it they are
         /// shown and asked about on a terminal, and refused anywhere else.
@@ -843,14 +844,15 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
                 };
                 let mut graph = false;
                 let mut send_named = false;
-                let mut receive = Receive::Imap;
+                // Named, or left to the default below.
+                let mut receive_named: Option<Receive> = None;
                 let mut others: Vec<String> = Vec::new();
                 let mut words = rest.iter().filter(|a| *a != "--microsoft" && *a != "--yes");
                 while let Some(word) = words.next() {
                     if word == "--receive" {
-                        receive = match words.next().map(String::as_str) {
-                            Some("graph") => Receive::Graph,
-                            Some("imap") => Receive::Imap,
+                        receive_named = match words.next().map(String::as_str) {
+                            Some("graph") => Some(Receive::Graph),
+                            Some("imap") => Some(Receive::Imap),
                             other => {
                                 return Err(format!(
                                     "--receive takes imap or graph, not {other:?}\n\n{}",
@@ -888,6 +890,15 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
                         ));
                     }
                 }
+                // A work or school account reads through Graph unless it is told otherwise, as
+                // Thunderbird and Evolution set Microsoft 365 up: `--receive imap` keeps IMAP, and
+                // so does naming how it sends, which is a choice only an IMAP account has.
+                let receive = match (receive_named, send_named) {
+                    (Some(named), _) => named,
+                    (None, true) => Receive::Imap,
+                    (None, false) if microsoft => Receive::Usual,
+                    (None, false) => Receive::Imap,
+                };
                 // Reading through Graph leaves no IMAP sign-in for SMTP to borrow: the one token
                 // is Graph's, so the account sends through Graph as well.
                 if receive == Receive::Graph {
@@ -1376,11 +1387,11 @@ usage: mailo <command>
                              a JMAP server (RFC 8620): at the session URL given, or found at
                              https://<domain>/.well-known/jmap and confirmed first. Set
                              MAILO_PASSWORD, or MAILO_JMAP_TOKEN for a bearer token.
-  account add <address> --microsoft [--send graph] [--receive graph]
-                             a work or school Microsoft 365 mailbox on its own domain;
-                             --send graph where the tenant has SMTP sending turned off,
-                             --receive graph where it has IMAP turned off (it then sends
-                             through Graph as well)
+  account add <address> --microsoft [--receive imap] [--send smtp|graph]
+                             a work or school Microsoft 365 mailbox on its own domain,
+                             read and sent through Microsoft Graph; --receive imap reads
+                             over IMAP instead, sending over SMTP, or through Graph with
+                             --send graph
   sync                       fetch mail and send anything queued
   sync --folder <account> <path>
                              fetch one folder now, followed or not

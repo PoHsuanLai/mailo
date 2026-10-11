@@ -7,7 +7,7 @@
 
 use crate::error::Failure;
 use crate::error::within;
-use crate::tokens::{AfterRefusal, Token, TokenSource};
+use crate::tokens::{AfterRefusal, Token, TokenSource, refused_fresh};
 use crate::{AccountSecrets, Cancel, RuntimeError, Transport, drive, drive_within};
 use chrono::{DateTime, Utc};
 use mail_domain::{
@@ -544,8 +544,12 @@ impl<B: Backend> AccountEngine<B> {
             return first;
         };
         match tokens.after_refusal(token).await? {
-            AfterRefusal::TryAgain => self.run_once(op, cancel, leaving).await,
-            AfterRefusal::StillRefused => first,
+            AfterRefusal::TryAgain => self
+                .run_once(op, cancel, leaving)
+                .await
+                .map_err(refused_fresh),
+            AfterRefusal::StillRefused => first.map_err(refused_fresh),
+            AfterRefusal::NotRenewable => first,
         }
     }
 
@@ -950,6 +954,9 @@ impl<B: Backend> AccountEngine<B> {
                 ProtoOp::Submit { draft, .. } => Some(*draft),
                 _ => None,
             };
+            // Sending apart from receiving (`crate::sending`): what a submission's failure asks
+            // for is its own row's, not the account's.
+            let tells_the_pass = crate::sending::tells_the_pass(&entry.op);
             // What a submission sent, and to whom, for the account that files its own copy of it.
             let copy = self.sent_copy();
             let submitted = match &entry.op {
@@ -1032,8 +1039,13 @@ impl<B: Backend> AccountEngine<B> {
                 }
                 Err(RuntimeError::Cancelled) => return Ok((report, false)),
                 Err(e) => {
-                    let retry = e.retry();
-                    report.saw(&retry);
+                    let retry = match tells_the_pass {
+                        true => e.retry(),
+                        false => crate::sending::settles(&e),
+                    };
+                    if tells_the_pass {
+                        report.saw(&retry);
+                    }
                     // Refused after part of it was done: only the rest is undone (FINDINGS F159).
                     let done = match retry {
                         Retry::Fatal(_) => partial::done(&held, &progress, into.as_deref()),
@@ -1047,7 +1059,11 @@ impl<B: Backend> AccountEngine<B> {
                         halted = true;
                         break;
                     }
-                    if retry.needs_person() || matches!(retry, Retry::Fatal(_)) {
+                    // Said as the error is, whatever the row does with it: a send the server
+                    // refused for good, or refused the protocol for, is worth a note.
+                    if (tells_the_pass && retry.needs_person())
+                        || matches!(e.retry(), Retry::Fatal(_))
+                    {
                         report.needs_attention.push(e.to_string());
                     }
                     if let Some(draft) = draft {
@@ -1230,6 +1246,7 @@ impl<B: Backend> AccountEngine<B> {
         let outcome = self.run(ProtoOp::ListFolders, cancel).await?;
         let caps = match outcome {
             ProtoOutcome::Folders { caps, listed } => {
+                self.listed_inbox(&listed)?;
                 self.store.put_folders(self.account.clone(), listed)?;
                 *caps
             }
@@ -1257,6 +1274,7 @@ impl<B: Backend> AccountEngine<B> {
         if let ProtoOutcome::Folders { caps, listed } =
             self.run(ProtoOp::ListFolders, cancel).await?
         {
+            self.listed_inbox(&listed)?;
             self.store.put_folders(self.account.clone(), listed)?;
             let caps = match self.graph.as_mut() {
                 Some(reader) => reader.observed(now),
@@ -1265,6 +1283,23 @@ impl<B: Backend> AccountEngine<B> {
             self.store.put_caps(self.account.clone(), &caps, now)?;
         }
         Ok(self.store.folders(self.account.clone())?)
+    }
+
+    /// Refuse an IMAP or Graph listing with no inbox in it.
+    ///
+    /// Every IMAP account has one (RFC 3501 §5.1), and every Exchange mailbox answers to Graph's
+    /// well-known `inbox`, so a list without it is a list that went wrong, and kept it would be
+    /// an account with no folders that nothing complained about. Said once, plainly, and
+    /// nothing stored: the folders and roles already held stay.
+    fn listed_inbox(&self, listed: &[mail_domain::Folder]) -> Result<(), RuntimeError> {
+        let has_one = matches!(self.plan.incoming, Incoming::Imap { .. } | Incoming::Graph);
+        let inbox = listed
+            .iter()
+            .any(|f| f.special == Some(mail_domain::SpecialUse::Inbox));
+        if has_one && !inbox {
+            return Err(RuntimeError::NoInbox);
+        }
+        Ok(())
     }
 
     /// Whether this account has folders and none have been listed yet.

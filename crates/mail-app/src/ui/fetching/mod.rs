@@ -30,6 +30,7 @@ use mail_core::SqliteStore;
 use mail_core::fetch::{Event, FolderFetch, Link, Trigger};
 use mail_core::schedule::{self, End, Note, Scheduler};
 use mail_core::sync::fresh::Pace;
+use mail_core::sync::report::Offer;
 use porter_core::AccountId;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
@@ -40,7 +41,7 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 pub(in crate::ui) use delegate::Delegate;
 pub(in crate::ui) use face::{CANNOT_LOAD, FIRST_SYNC, HasRows, ListFace, list_face};
 pub(in crate::ui) use folder::opened;
-pub(in crate::ui) use line::{AccountLine, Remedy, Standing, account_line};
+pub(in crate::ui) use line::{AccountLine, Remedy, Standing, account_line, offered};
 pub(in crate::ui) use marks::{Mark, folder_mark, sync_availability};
 pub(in crate::ui) use pass::Passer;
 pub(in crate::ui) use status::{StatusLine, Tone, status_line, thousandths};
@@ -52,6 +53,8 @@ pub(in crate::ui) struct Fetching {
     /// What each account's pass is doing, for a spinner: read by the surfaces of the next wave.
     ops: Signal<BTreeMap<AccountId, Operation>>,
     folders: Signal<BTreeMap<(AccountId, String), FolderFetch>>,
+    /// What each account's last pass offered beside its failure.
+    offers: Signal<BTreeMap<AccountId, Offer>>,
     tx: Signal<UnboundedSender<Note>>,
 }
 
@@ -84,6 +87,11 @@ impl Fetching {
     /// One account's link, or `None` for one with nothing to fetch.
     pub(in crate::ui) fn link(&self, account: AccountId) -> Option<Link> {
         self.links.read().get(&account).cloned()
+    }
+
+    /// What `account`'s last pass offered beside its failure, if anything ([`offered`]).
+    pub(in crate::ui) fn offer(&self, account: &AccountId) -> Option<Offer> {
+        self.offers.read().get(account).copied()
     }
 
     /// What `account`'s pass is doing, for a spinner: running from the moment it starts.
@@ -204,6 +212,7 @@ pub(in crate::ui) fn use_fetching(revision: Signal<u64>) -> Fetching {
     external::use_external_changes(revision, store.clone(), doors);
     let ops = use_signal(BTreeMap::new);
     let folders = use_signal(BTreeMap::new);
+    let offers = use_signal(BTreeMap::new);
     let channel = use_hook(|| {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<Note>();
         (tx, Rc::new(RefCell::new(Some(rx))))
@@ -213,6 +222,7 @@ pub(in crate::ui) fn use_fetching(revision: Signal<u64>) -> Fetching {
         links,
         ops,
         folders,
+        offers,
         tx,
     });
     // The accounts changing is the runner's to hear, since it owns what to do about it.
@@ -232,6 +242,7 @@ pub(in crate::ui) fn use_fetching(revision: Signal<u64>) -> Fetching {
             links,
             ops,
             folders,
+            offers,
             revision,
         };
         let every = accounts.peek().iter().cloned().collect();

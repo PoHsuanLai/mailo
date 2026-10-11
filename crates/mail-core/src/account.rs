@@ -18,16 +18,20 @@ use porter_provider::ClientEntry;
 use porter_provider::Issuer;
 
 mod advice;
+pub mod direct;
 pub mod draft;
 mod linked;
 mod remove;
+mod switch;
 
 pub use advice::{no_client_id, no_credential};
+pub use direct::{Direct, Mode, SignInError, sign_in_with};
 pub use linked::{
     Linked, Reconciled, find as find_linked, forget, linked as linked_accounts, named_by_segment,
     preset_of, reconcile,
 };
 pub use remove::{RemoveError, Removed, remove};
+pub use switch::{graph_offer, switch_to_graph};
 
 /// Servers the user named, for an address the preset table does not cover.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -54,12 +58,17 @@ pub enum Setup {
     Discovered(Box<mail_domain::presets::Preset>),
 }
 
-/// How a Microsoft 365 account receives: `--receive imap`, the default, or `--receive graph`.
+/// How a Microsoft 365 account receives: `--receive imap`, `--receive graph`, or neither named.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Receive {
+    /// Over IMAP, named so.
     Imap,
-    /// Through Microsoft Graph, for a tenant that switched IMAP off. Sends through Graph too.
+    /// Through Microsoft Graph, named so. Sends through Graph too.
     Graph,
+    /// Neither named: through Graph for a work or school account that is new here, as
+    /// Thunderbird and Evolution set Microsoft 365 up, and as it already does for one that is
+    /// here ([`add_receiving`] never moves an account off IMAP unasked).
+    Usual,
 }
 
 /// What adding an account did, for a front-end to word.
@@ -136,7 +145,10 @@ pub enum ClientRecord {
 pub enum MicrosoftRoute {
     /// Not a Microsoft 365 account named as such.
     Other,
+    /// `--microsoft`: through Graph.
     Microsoft,
+    /// `--microsoft --receive imap`.
+    Imap,
     /// `--microsoft --send graph`.
     SendThroughGraph,
     /// `--microsoft --receive graph`.
@@ -367,6 +379,15 @@ pub async fn add_receiving(
                 &address, now,
             ))
         }
+        // `--microsoft` names a work or school account, which reads through Graph unless its
+        // sending was named too: that is a choice only an IMAP account has.
+        _ if microsoft && receive == crate::account::Receive::Usual && !graph => {
+            mail_domain::presets::microsoft_for(
+                mail_domain::presets::MicrosoftAccount::Organisation,
+                &address,
+                now,
+            )
+        }
         _ if microsoft && graph => mail_domain::presets::send_through_graph(
             mail_domain::presets::microsoft_preset(&address, now),
         ),
@@ -423,10 +444,16 @@ pub async fn add_receiving(
     // particular must be the *existing* one: it is the keyring key, so minting a fresh one
     // would orphan a credential already stored and a working account would quietly stop working.
     // So a store that cannot say is a failure, not an account that is not here.
-    let existing: Option<AccountId> = store.account_by_address(&address)?.map(|stored| stored.id);
+    let stored = store.account_by_address(&address)?;
+    let existing: Option<AccountId> = stored.as_ref().map(|stored| stored.id.clone());
     let account = existing
         .clone()
         .unwrap_or_else(mail_domain::id::new_account_id);
+    // Signing an IMAP account in again is not a reason to move it to Graph.
+    let preset = match stored.and_then(|stored| stored.plan.ok()) {
+        Some(plan) => kept_on_imap(plan, preset, receive),
+        None => preset,
+    };
 
     // The preset leaves `identities` empty on purpose: minting one needs an `IdentityId` and
     // an `AccountId`, which would make a preset impure and invent an account id no row
@@ -462,7 +489,7 @@ pub async fn add_receiving(
             id: &account,
             address: &address,
             plan: &plan,
-            caps: &preset.expected_caps,
+            caps: &unobserved(&preset.expected_caps),
             identities: &plan.identities,
             at: now,
         })
@@ -594,6 +621,9 @@ pub async fn add_receiving(
                     (true, _, crate::account::Receive::Graph) => {
                         MicrosoftRoute::ReceiveThroughGraph
                     }
+                    // `--receive imap --send smtp`, where plain `--microsoft` would read
+                    // through Graph.
+                    (true, false, crate::account::Receive::Imap) => MicrosoftRoute::Imap,
                     (true, true, _) => MicrosoftRoute::SendThroughGraph,
                     (true, false, _) => MicrosoftRoute::Microsoft,
                     _ => MicrosoftRoute::Other,
@@ -639,6 +669,86 @@ pub fn local(
         })
         .map_err(|e| CoreError::cannot("save the local account", e))?;
     Ok(account)
+}
+
+/// `found`, unless the account is already here reading a Microsoft mailbox over IMAP and Graph
+/// was not asked for by name: then its own plan, with what `found` expects of the server.
+///
+/// Discovery now offers a work or school address Graph, so adding such an account again — to
+/// sign in again, the way every refusal says to — would otherwise move it off IMAP without a
+/// word. Thunderbird does not migrate an account either: a new type is the person's choice,
+/// made with [`switch_to_graph`] or `--receive graph`.
+fn kept_on_imap(
+    stored: AccountPlan,
+    found: mail_domain::presets::Preset,
+    receive: crate::account::Receive,
+) -> mail_domain::presets::Preset {
+    let microsoft_imap = matches!(stored.incoming, Incoming::Imap { .. })
+        && matches!(
+            stored.auth,
+            AuthPlan::OAuth {
+                issuer: Issuer::Microsoft,
+                ..
+            }
+        );
+    if microsoft_imap
+        && found.plan.incoming == Incoming::Graph
+        && receive != crate::account::Receive::Graph
+    {
+        let expected_caps = mail_domain::presets::microsoft_preset(
+            &stored.address,
+            found.expected_caps.observed_at,
+        )
+        .expected_caps;
+        return mail_domain::presets::Preset {
+            plan: stored,
+            expected_caps,
+        };
+    }
+    found
+}
+
+/// Which kind of Microsoft account `address` is: by the tenant `credential` was issued in, when
+/// it has been signed in and its token says ([`tokens::tenant_of`]), else by the address's
+/// domain ([`crate::discover::microsoft_domain`]).
+pub fn microsoft_account_of(
+    address: &str,
+    credential: Option<&Credential>,
+) -> mail_domain::presets::MicrosoftAccount {
+    let tenant = credential.and_then(tokens::tenant_of);
+    mail_domain::presets::microsoft_account(
+        tenant.as_deref(),
+        crate::discover::microsoft_domain(address),
+    )
+}
+
+/// How a Microsoft account at `address` is set up: over Graph for a work or school account, over
+/// IMAP and SMTP for a personal one ([`mail_domain::presets::microsoft_for`]).
+///
+/// The one choice every path that adds a Microsoft account makes, for a caller that may not
+/// know which kind it has until the sign-in is done: a sign-in straight in the browser learns
+/// the address from the issuer, and the tenant from the token it was given.
+pub fn microsoft_preset_for(
+    address: &str,
+    credential: Option<&Credential>,
+    now: chrono::DateTime<chrono::Utc>,
+) -> mail_domain::presets::Preset {
+    mail_domain::presets::microsoft_for(microsoft_account_of(address, credential), address, now)
+}
+
+/// A preset's capabilities as an account is stored with them: an expectation, never an
+/// observation.
+///
+/// Stamped as observed at the epoch, so the first pass asks the server (`caps_are_stale`)
+/// instead of believing the preset for a day. Stamped as observed now, a Microsoft 365 account
+/// added this morning kept the preset's empty folder roles and `MOVE` absent until tomorrow, and
+/// one signed in again had the roles its server had already given wiped back to the guess. The
+/// local account is the exception: its capabilities are the truth, with no server to ask.
+pub(crate) fn unobserved(expected: &AccountCaps) -> AccountCaps {
+    AccountCaps {
+        observed_at: chrono::DateTime::<chrono::Utc>::UNIX_EPOCH,
+        ..expected.clone()
+    }
 }
 
 /// The OAuth client to sign in with: from the environment, or else the one recorded by an
@@ -1173,5 +1283,195 @@ mod tests {
     fn listing_nothing_is_an_empty_list() {
         let (store, _dir) = store();
         assert!(list(&store).unwrap().is_empty());
+    }
+
+    /// What a preset expects of a server is stored as never observed, so the first pass asks.
+    ///
+    /// Stamped with the moment of adding, a Microsoft 365 account kept the preset's empty folder
+    /// roles for its first day — no Sent, no Drafts — and one added again lost the roles its
+    /// server had already given.
+    #[test]
+    fn an_added_accounts_capabilities_are_asked_for_on_the_first_pass() {
+        let (store, _dir) = store();
+        let address = "someone@contoso.onmicrosoft.com";
+        add(
+            &store,
+            address,
+            None,
+            false,
+            false,
+            crate::account::Receive::Imap,
+            &ClientRegistry::default(),
+            now(),
+        )
+        .unwrap();
+        let id = store
+            .account_by_address(address)
+            .unwrap()
+            .expect("the account")
+            .id;
+        let caps = crate::sync::caps_of(&store, id).expect("capabilities stored");
+        assert_eq!(
+            caps.observed_at,
+            chrono::DateTime::<chrono::Utc>::UNIX_EPOCH
+        );
+        let expected = microsoft_preset_for(address, None, now()).expected_caps;
+        assert_eq!(caps, super::unobserved(&expected), "nothing else changed");
+    }
+
+    /// A work or school Microsoft account is added reading and sending through Graph, signed in
+    /// for Thunderbird's five Graph permissions; the address alone proves a tenant's.
+    #[test]
+    fn an_organisations_microsoft_account_is_added_over_graph() {
+        let (store, _dir) = store();
+        let address = "someone@contoso.onmicrosoft.com";
+        let added = add(
+            &store,
+            address,
+            None,
+            false,
+            false,
+            crate::account::Receive::Imap,
+            &ClientRegistry::default(),
+            now(),
+        )
+        .unwrap();
+        let plan = store
+            .account_by_address(address)
+            .unwrap()
+            .expect("the account")
+            .plan
+            .unwrap();
+        assert_eq!(plan.incoming, Incoming::Graph);
+        assert_eq!(plan.outgoing, Outgoing::Graph);
+        let AuthPlan::OAuth { issuer, scopes } = &plan.auth else {
+            panic!("{:?}", plan.auth)
+        };
+        assert_eq!(*issuer, Issuer::Microsoft);
+        let mut scopes: Vec<&str> = scopes.iter().map(String::as_str).collect();
+        scopes.sort_unstable();
+        let mut five = mail_domain::presets::GRAPH_SCOPES.to_vec();
+        five.sort_unstable();
+        assert_eq!(scopes, five);
+        // No client id here, so it waits for one, asking for those same five.
+        let Outcome::NeedsClientId { scopes: asked, .. } = added.outcome else {
+            panic!("{:?}", added.outcome)
+        };
+        assert_eq!(asked.len(), 5, "{asked:?}");
+    }
+
+    /// An account already reading a Microsoft mailbox over IMAP keeps doing so when it is added
+    /// again to sign in, though discovery now offers Graph: only asking for Graph moves it.
+    #[test]
+    fn signing_an_imap_account_in_again_does_not_move_it_to_graph() {
+        let (store, _dir) = store();
+        let address = "someone@contoso.onmicrosoft.com";
+        let incoming = |store: &SqliteStore| {
+            store
+                .account_by_address(address)
+                .unwrap()
+                .expect("the account")
+                .plan
+                .unwrap()
+                .incoming
+        };
+        let again = |receive| {
+            add(
+                &store,
+                address,
+                None,
+                false,
+                false,
+                receive,
+                &ClientRegistry::default(),
+                now(),
+            )
+            .unwrap()
+        };
+        add(
+            &store,
+            address,
+            None,
+            true,
+            false,
+            crate::account::Receive::Imap,
+            &ClientRegistry::default(),
+            now(),
+        )
+        .unwrap();
+        assert!(matches!(incoming(&store), Incoming::Imap { .. }));
+
+        let id = again(crate::account::Receive::Usual).account;
+        assert!(
+            matches!(incoming(&store), Incoming::Imap { .. }),
+            "moved unasked"
+        );
+        again(crate::account::Receive::Imap);
+        assert!(
+            matches!(incoming(&store), Incoming::Imap { .. }),
+            "moved unasked"
+        );
+
+        let moved = add(
+            &store,
+            address,
+            None,
+            true,
+            false,
+            crate::account::Receive::Graph,
+            &ClientRegistry::default(),
+            now(),
+        )
+        .unwrap();
+        assert_eq!(incoming(&store), Incoming::Graph, "asked for by name");
+        assert_eq!(moved.account, id, "the same account");
+    }
+
+    /// The kind of Microsoft account follows the tenant a token names over the address's domain,
+    /// and the domain when no token says.
+    #[test]
+    fn a_microsoft_account_is_personal_by_its_tenant_or_else_its_domain() {
+        use mail_domain::presets::MicrosoftAccount::{Organisation, Personal};
+        let jwt = |tid: &str| {
+            use base64::Engine as _;
+            let claims = format!(r#"{{"tid":"{tid}"}}"#);
+            Credential::OAuth {
+                access: SecretText::new(format!(
+                    "e30.{}.sig",
+                    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(claims)
+                )),
+                refresh: SecretText::new("r".to_owned()),
+                expires_at: porter_core::UnixSeconds(0),
+            }
+        };
+        let consumer = jwt(mail_domain::presets::MICROSOFT_CONSUMER_TENANT);
+        let work = jwt("0b5f3c2e-1d4a-4f6b-9c8d-7e6f5a4b3c2d");
+        let cases = [
+            ("me@outlook.com", None, Personal),
+            ("me@hotmail.com", None, Personal),
+            ("me@contoso.example", None, Organisation),
+            ("me@contoso.onmicrosoft.com", None, Organisation),
+            // A personal account signed in with an address on any domain.
+            ("me@example.test", Some(&consumer), Personal),
+            ("me@outlook.com", Some(&work), Organisation),
+        ];
+        for (address, credential, want) in cases {
+            assert_eq!(microsoft_account_of(address, credential), want, "{address}");
+        }
+        assert_eq!(
+            microsoft_preset_for("me@outlook.com", None, now())
+                .plan
+                .incoming,
+            mail_domain::presets::microsoft_preset("me@outlook.com", now())
+                .plan
+                .incoming,
+            "a personal account keeps IMAP"
+        );
+        assert_eq!(
+            microsoft_preset_for("me@contoso.example", None, now())
+                .plan
+                .incoming,
+            Incoming::Graph
+        );
     }
 }

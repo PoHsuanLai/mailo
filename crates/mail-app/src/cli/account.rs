@@ -188,6 +188,7 @@ pub(super) fn added(added: &Added) -> String {
                 MicrosoftRoute::ReceiveThroughGraph => " --microsoft --receive graph",
                 MicrosoftRoute::SendThroughGraph => " --microsoft --send graph",
                 MicrosoftRoute::Microsoft => " --microsoft",
+                MicrosoftRoute::Imap => " --microsoft --receive imap",
                 MicrosoftRoute::Other => "",
             };
             let _ = writeln!(
@@ -470,6 +471,7 @@ mod render_tests {
     fn a_microsoft_account_keeps_its_flags_in_the_command_to_re_run() {
         for (route, flags) in [
             (MicrosoftRoute::Microsoft, " --microsoft\n"),
+            (MicrosoftRoute::Imap, " --microsoft --receive imap\n"),
             (
                 MicrosoftRoute::SendThroughGraph,
                 " --microsoft --send graph\n",

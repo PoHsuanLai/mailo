@@ -11,16 +11,27 @@
 //! quire's parts (`map`). `window` is the window, [`Ask`] and [`AddAccountWindows`] the way it is
 //! opened.
 //!
+//! **Straight to the browser** (`direct`). A provider whose accounts sign in with an OAuth redirect
+//! needs no window: the "+" after the account tiles and Settings' Add Account… are a menu that
+//! names each such provider and signs in with it in the browser, as a sign-in button on the web
+//! does, and the Connection Doctor signs such an account in again the same way. Other Account…,
+//! and every provider that needs a form, is the window.
+//!
 //! **Who draws** ([`Route`]). With the desktop's accountd linked (step E6, `mail_core::link`)
 //! mailo asks it to run the sheet and sill draws it (`Accounts::add_account`), and the window is
 //! not opened at all. Otherwise the window is the host, on every platform, as before.
 
+mod direct;
 mod host;
 mod map;
 mod provider;
 mod size;
 mod window;
 
+pub(in crate::ui) use direct::{
+    AddMenu, DirectSignInWatch, PendingSignIn, Retry, add_from, again, retry,
+};
+pub use direct::{DirectSignIns, SignInDirectly};
 pub use provider::{Request, Seams};
 pub use window::{Browse, Fit, Opened, Wiring, add_account_root};
 
@@ -218,6 +229,8 @@ fn quire(ask: Ask) {
     }
 }
 
+#[cfg(test)]
+mod direct_tests;
 #[cfg(test)]
 mod host_tests;
 #[cfg(test)]

@@ -344,6 +344,7 @@ fn only_a_pass_that_ran_may_have_stored_something() {
         retry: Retry::After(std::time::Duration::from_secs(5)),
         why: "cannot connect".to_owned(),
         pause: crate::fetch::Pause::Unreachable,
+        offer: None,
     };
     let cancelled = PassEnd::Cancelled {
         account: acct_account(),

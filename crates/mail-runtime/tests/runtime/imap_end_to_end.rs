@@ -67,13 +67,18 @@ fn maildrop() -> Vec<(u32, String)> {
     ]
 }
 
-/// How the server should behave when a fetch arrives.
+/// How the server should behave when a fetch or a listing arrives.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Fault {
     /// Answer everything.
     None,
     /// Drop the connection partway through the first body fetch, once.
     DropDuringFetch,
+    /// List folders the way Exchange Online does: atoms where a name needs no quotes, `Inbox`
+    /// in mixed case, a `\Noselect` parent, and special-use flags with no `SPECIAL-USE`.
+    Exchange,
+    /// Answer `LIST` and `LSUB` with nothing at all.
+    NoFolders,
 }
 
 /// The mailbox's `UIDVALIDITY`, which a test can change under the client.
@@ -222,14 +227,38 @@ async fn session(
             } else if upper.starts_with("LOGIN") {
                 format!("{tag} OK logged in\r\n")
             } else if upper.starts_with("LIST") {
-                format!(
-                    "* LIST (\\HasNoChildren) \"/\" \"INBOX\"\r\n\
-                     * LIST (\\HasNoChildren \\Sent) \"/\" \"Sent\"\r\n\
-                     * LIST (\\HasNoChildren \\Drafts) \"/\" \"Drafts\"\r\n\
-                     {tag} OK done\r\n"
-                )
+                match fault {
+                    Fault::Exchange => format!(
+                        "* LIST (\\HasNoChildren) \"/\" Archive\r\n\
+                         * LIST (\\Noselect \\HasChildren) \"/\" Calendar\r\n\
+                         * LIST (\\HasNoChildren) \"/\" \"Calendar/Birthdays\"\r\n\
+                         * LIST (\\HasNoChildren \\Trash) \"/\" \"Deleted Items\"\r\n\
+                         * LIST (\\HasNoChildren \\Drafts) \"/\" Drafts\r\n\
+                         * LIST (\\Marked \\HasChildren) \"/\" Inbox\r\n\
+                         * LIST (\\HasNoChildren \\Junk) \"/\" \"Junk Email\"\r\n\
+                         * LIST (\\HasNoChildren) \"/\" Outbox\r\n\
+                         * LIST (\\HasNoChildren \\Sent) \"/\" \"Sent Items\"\r\n\
+                         {tag} OK LIST completed.\r\n"
+                    ),
+                    Fault::NoFolders => format!("{tag} OK LIST completed.\r\n"),
+                    Fault::None | Fault::DropDuringFetch => format!(
+                        "* LIST (\\HasNoChildren) \"/\" \"INBOX\"\r\n\
+                         * LIST (\\HasNoChildren \\Sent) \"/\" \"Sent\"\r\n\
+                         * LIST (\\HasNoChildren \\Drafts) \"/\" \"Drafts\"\r\n\
+                         {tag} OK done\r\n"
+                    ),
+                }
             } else if upper.starts_with("LSUB") {
-                format!("* LSUB () \"/\" \"INBOX\"\r\n{tag} OK done\r\n")
+                match fault {
+                    Fault::Exchange => format!(
+                        "* LSUB () \"/\" Inbox\r\n* LSUB () \"/\" \"Sent Items\"\r\n\
+                         {tag} OK LSUB completed.\r\n"
+                    ),
+                    Fault::NoFolders => format!("{tag} OK LSUB completed.\r\n"),
+                    Fault::None | Fault::DropDuringFetch => {
+                        format!("* LSUB () \"/\" \"INBOX\"\r\n{tag} OK done\r\n")
+                    }
+                }
             } else if upper.starts_with("ENABLE") {
                 format!("* ENABLED QRESYNC\r\n{tag} OK enabled\r\n")
             } else if upper.starts_with("SELECT") || upper.starts_with("EXAMINE") {
@@ -1873,4 +1902,94 @@ async fn a_granted_account_syncs_through_porters_relay_and_never_signs_in_itself
     );
     assert!(!app.contains(&PASSWORD.to_uppercase()));
     assert!(app.contains("UID FETCH"), "the app sent nothing:\n{app}");
+}
+
+/// The first pass on an Exchange Online mailbox: every role at its own folder, the inbox found
+/// under `Inbox`, and the inbox synced.
+///
+/// Its listing is where a folder called "/" came from: the roles were read from the text by
+/// taking whatever stood between the last two quotes, which on `* LIST (\Drafts) "/" Drafts`
+/// is the delimiter, and `Inbox` was no inbox because it was not `"INBOX"`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_exchange_listing_finds_every_role_and_the_first_pass_syncs_the_inbox() {
+    let seen: Shared = Arc::new(Mutex::new(Seen::default()));
+    let (port, _validity) = serve(seen, Fault::Exchange).await;
+    let mut it = engine(port, tempfile::tempdir().unwrap());
+    let (_tx, mut cancel) = watch::channel(false);
+
+    let caps = it
+        .engine
+        .refresh_caps(&mut cancel, now())
+        .await
+        .expect("an Exchange listing is a listing");
+    for (role, path) in [
+        (MailboxRole::Inbox, "INBOX"),
+        (MailboxRole::Drafts, "Drafts"),
+        (MailboxRole::Sent, "Sent Items"),
+        (MailboxRole::Trash, "Deleted Items"),
+        (MailboxRole::Spam, "Junk Email"),
+    ] {
+        assert_eq!(caps.folders.path(role), Some(path), "{:?}", caps.folders);
+    }
+    assert!(
+        caps.folders.0.iter().all(|(path, _)| path != "/"),
+        "the delimiter was taken for a folder: {:?}",
+        caps.folders
+    );
+
+    let folders = it.store.folders(acct_account()).unwrap();
+    let inbox_row = folders
+        .iter()
+        .find(|f| f.special == Some(SpecialUse::Inbox))
+        .unwrap_or_else(|| panic!("no inbox among {folders:?}"));
+    assert_eq!(
+        inbox_row.path, "INBOX",
+        "one inbox, under the name RFC 3501 gives it"
+    );
+    assert_eq!(inbox_row.subscription, Subscription::Subscribed);
+    assert!(folders.iter().all(|f| f.path != "Inbox" && f.path != "/"));
+    assert_eq!(
+        folders
+            .iter()
+            .find(|f| f.path == "Calendar")
+            .map(|f| f.holds),
+        Some(Holds::FoldersOnly)
+    );
+
+    let report = it
+        .engine
+        .sync(&inbox(), &mut cancel, now(), 200)
+        .await
+        .expect("the inbox syncs");
+    assert_eq!(report.headers_fetched, 2, "{report:?}");
+    assert_eq!(count(&it.store), 2);
+}
+
+/// A listing with no inbox in it is said, plainly and typed, and not kept: kept, it read as an
+/// account with no folders that nothing complained about. Not a refused sign-in either — the
+/// sign-in worked, and asking for another would send the user round for nothing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_listing_with_no_inbox_is_an_error_and_not_an_empty_account() {
+    let seen: Shared = Arc::new(Mutex::new(Seen::default()));
+    let (port, _validity) = serve(seen, Fault::NoFolders).await;
+    let mut it = engine(port, tempfile::tempdir().unwrap());
+    let (_tx, mut cancel) = watch::channel(false);
+
+    let e = it
+        .engine
+        .refresh_caps(&mut cancel, now())
+        .await
+        .expect_err("no inbox is not a listing to keep");
+    assert!(matches!(e, mail_runtime::RuntimeError::NoInbox), "{e}");
+    assert!(matches!(e.retry(), Retry::Fatal(_)), "{:?}", e.retry());
+    assert!(!e.retry().needs_person(), "{:?}", e.retry());
+    assert!(e.to_string().contains("no Inbox"), "{e}");
+    assert!(it.store.folders(acct_account()).unwrap().is_empty());
+
+    let e = it
+        .engine
+        .refresh_folders(&mut cancel, now())
+        .await
+        .expect_err("the same listing, asked for on its own");
+    assert!(matches!(e, mail_runtime::RuntimeError::NoInbox), "{e}");
 }

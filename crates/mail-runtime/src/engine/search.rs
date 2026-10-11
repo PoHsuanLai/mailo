@@ -8,7 +8,7 @@
 use super::{AccountEngine, first_stored};
 use crate::error::Failure;
 use crate::search::{SERVER_HITS, Searched, ServerHits};
-use crate::tokens::{AfterRefusal, Token};
+use crate::tokens::{AfterRefusal, Token, refused_fresh};
 use crate::{Cancel, RuntimeError, drive};
 use chrono::{DateTime, Utc};
 use mail_domain::{
@@ -103,8 +103,12 @@ impl AccountEngine<ImapBackend> {
             return first;
         };
         match tokens.after_refusal(Token::Incoming).await? {
-            AfterRefusal::TryAgain => self.imap_search_once(plan, cancel).await,
-            AfterRefusal::StillRefused => first,
+            AfterRefusal::TryAgain => self
+                .imap_search_once(plan, cancel)
+                .await
+                .map_err(refused_fresh),
+            AfterRefusal::StillRefused => first.map_err(refused_fresh),
+            AfterRefusal::NotRenewable => first,
         }
     }
 

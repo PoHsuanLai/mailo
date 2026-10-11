@@ -6,7 +6,9 @@
 use crate::imap::ImapCommand;
 use crate::machine::ProtoError;
 use crate::mutf7;
-use mail_domain::{Folder, FolderWork, Holds, NonEmpty, SpecialUse, Subscription};
+use mail_domain::{
+    Folder, FolderRoles, FolderWork, Holds, MailboxRole, NonEmpty, SpecialUse, Subscription,
+};
 use porter_core::AccountId;
 
 /// The commands one piece of folder work is, in order, on one connection.
@@ -75,7 +77,13 @@ pub(crate) fn listing(untagged: &[crate::Untagged], account: AccountId) -> Vec<F
         else {
             continue;
         };
-        let path = mutf7::decode(&name);
+        // `INBOX` in whatever case the server spells it is the inbox (RFC 3501 §5.1), and it is
+        // `INBOX` here: Exchange lists `Inbox`, and a path kept as the server spelled it is a
+        // second inbox to every comparison that does not know the rule.
+        let path = match mutf7::decode(&name) {
+            inbox if inbox.eq_ignore_ascii_case("INBOX") => "INBOX".to_owned(),
+            path => path,
+        };
         // `* LSUB …` — the keyword is the second word, and a whole word.
         let lsub = u
             .text
@@ -86,10 +94,14 @@ pub(crate) fn listing(untagged: &[crate::Untagged], account: AccountId) -> Vec<F
             followed.push(path);
             continue;
         }
-        let special = name_attributes.iter().find_map(special_use).or_else(|| {
-            path.eq_ignore_ascii_case("INBOX")
-                .then_some(SpecialUse::Inbox)
-        });
+        // The inbox is the inbox by its name, whatever attributes ride along: a server that
+        // lists `INBOX` with `\Flagged` (Twisted sends a mailbox's message flags there) has
+        // not made its inbox a view of starred mail.
+        let special = if path == "INBOX" {
+            Some(SpecialUse::Inbox)
+        } else {
+            name_attributes.iter().find_map(special_use)
+        };
         let holds = if name_attributes.iter().any(holds_nothing) {
             Holds::FoldersOnly
         } else {
@@ -112,6 +124,35 @@ pub(crate) fn listing(untagged: &[crate::Untagged], account: AccountId) -> Vec<F
     listed.sort_by(|a, b| a.path.cmp(&b.path));
     listed.dedup_by(|a, b| a.path == b.path);
     listed
+}
+
+/// Which listed folder plays which role, as [`ProtoOutcome::Folders`] carries them in the
+/// capabilities.
+///
+/// From the parsed listing and nothing else, so a role's path is the folder's path, however
+/// the server wrote the name. `\All` is the archive, as it is on Gmail; `\Flagged` and
+/// `\Important` are views, not mailboxes; and a container that holds no mail plays no role.
+///
+/// [`ProtoOutcome::Folders`]: crate::ProtoOutcome::Folders
+pub(crate) fn roles(listed: &[Folder]) -> FolderRoles {
+    FolderRoles(
+        listed
+            .iter()
+            .filter(|f| f.holds == Holds::Mail)
+            .filter_map(|f| Some((f.path.clone(), role_of(f.special?)?)))
+            .collect(),
+    )
+}
+
+/// The role a mailbox with this special use plays in the capabilities.
+fn role_of(special: SpecialUse) -> Option<MailboxRole> {
+    match special {
+        SpecialUse::All => Some(MailboxRole::Archive),
+        // Not filed by role: an `\Archive` folder is reached through `ArchiveMeans`, and only
+        // `\All` has ever named the archive role here.
+        SpecialUse::Archive => None,
+        other => other.role(),
+    }
 }
 
 /// What an attribute says a mailbox is for, if it says anything.
@@ -189,6 +230,36 @@ mod tests {
             kind: Refusal::Permanent,
             text: text.to_owned(),
         }
+    }
+
+    fn untagged(line: &str) -> crate::Untagged {
+        crate::Untagged {
+            during: 0,
+            text: line.to_owned(),
+            raw: format!("{line}\r\n").into_bytes(),
+        }
+    }
+
+    #[test]
+    fn the_inbox_is_the_inbox_by_name_whatever_attributes_it_carries() {
+        let lines = [
+            r#"* LIST (\Seen \Flagged \Deleted \Draft) "." "INBOX""#,
+            r#"* LIST (\Flagged) "/" Starred"#,
+        ];
+        let listed = listing(
+            &lines.map(untagged),
+            mail_domain::id::account_id_from_uuid(uuid::uuid!(
+                "00000000-0000-4000-8000-0000000000a1"
+            )),
+        );
+        let special = |path: &str| {
+            listed
+                .iter()
+                .find(|f| f.path == path)
+                .and_then(|f| f.special)
+        };
+        assert_eq!(special("INBOX"), Some(SpecialUse::Inbox));
+        assert_eq!(special("Starred"), Some(SpecialUse::Flagged));
     }
 
     #[test]

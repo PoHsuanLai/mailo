@@ -419,6 +419,83 @@ async fn folders_are_listed_with_their_children_and_the_well_known_ones_get_role
     }
 }
 
+/// What the rest of mailo needs of a Graph listing before anything else: one inbox, under the
+/// name every protocol here gives it, with its role, wherever Graph's display name for it is in
+/// another language.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_inbox_is_listed_as_inbox_with_its_role_whatever_it_is_called() {
+    let script: Script = Arc::new(|request: &Request, port: u16| {
+        // The same mailbox with the inbox's display name in German.
+        if request.path() == "/v1.0/me/mailFolders" {
+            return ok(json!({
+                "value": [
+                    { "id": "ID-INBOX", "displayName": "Posteingang", "childFolderCount": 0, "isHidden": false },
+                    { "id": "ID-SENT", "displayName": "Gesendete Elemente", "childFolderCount": 0, "isHidden": false },
+                ],
+            }));
+        }
+        folders(request, port)
+            .unwrap_or_else(|| status("404 Not Found", r#"{"error":{"code":"ErrorItemNotFound"}}"#))
+    });
+    let (port, _seen) = serve(script).await;
+    let mut it = account(port);
+    let (_tx, mut cancel) = cancel();
+    let folders = it.engine.refresh_folders(&mut cancel, now()).await.unwrap();
+
+    let inboxes: Vec<&Folder> = folders
+        .iter()
+        .filter(|f| f.special == Some(SpecialUse::Inbox))
+        .collect();
+    assert_eq!(inboxes.len(), 1, "{folders:?}");
+    assert_eq!(inboxes[0].path, "INBOX");
+    assert!(
+        folders.iter().all(|f| f.path != "Posteingang"),
+        "{folders:?}"
+    );
+    let sent = folders
+        .iter()
+        .find(|f| f.path == "Gesendete Elemente")
+        .expect("the sent folder");
+    assert_eq!(sent.special, Some(SpecialUse::Sent));
+
+    let caps: AccountCaps = it
+        .store
+        .account_caps(acct_account())
+        .unwrap()
+        .expect("capabilities were written");
+    assert_eq!(caps.folders.path(MailboxRole::Inbox), Some("INBOX"));
+    assert_eq!(
+        caps.folders.path(MailboxRole::Sent),
+        Some("Gesendete Elemente")
+    );
+}
+
+/// A Graph listing with no inbox, because the well-known `inbox` would not answer, is said and
+/// not kept, as an IMAP one is: kept, it read as an account with nothing in it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_graph_listing_with_no_inbox_is_an_error_and_nothing_is_kept() {
+    let script: Script = Arc::new(|request: &Request, port: u16| {
+        if request.path() == "/v1.0/me/mailFolders/inbox" {
+            return status("404 Not Found", r#"{"error":{"code":"ErrorItemNotFound"}}"#);
+        }
+        folders(request, port)
+            .unwrap_or_else(|| status("404 Not Found", r#"{"error":{"code":"ErrorItemNotFound"}}"#))
+    });
+    let (port, _seen) = serve(script).await;
+    let mut it = account(port);
+    let (_tx, mut cancel) = cancel();
+
+    let refused = it.engine.refresh_folders(&mut cancel, now()).await;
+    assert!(
+        matches!(refused, Err(mail_runtime::RuntimeError::NoInbox)),
+        "{refused:?}"
+    );
+    assert!(
+        it.store.folders(acct_account()).unwrap().is_empty(),
+        "a listing with no inbox was kept"
+    );
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_first_sync_follows_the_pages_and_keeps_the_delta_link() {
     let (port, seen) = serve(inbox_script()).await;

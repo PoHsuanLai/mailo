@@ -168,6 +168,7 @@ mod tests {
             retry: Retry::Now,
             why: "cannot connect".to_owned(),
             pause: Pause::Unreachable,
+            offer: None,
         });
         let said = FolderEvent::Refused("Archive was not fetched: cannot connect".to_owned());
         assert_eq!(ended(failed, "Archive"), said);

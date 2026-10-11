@@ -528,7 +528,11 @@ async fn a_refused_token_that_looked_valid_is_renewed_once_and_the_operation_ret
     );
 }
 
-/// A server that refuses the renewed token too is not a reason to renew again.
+/// A server that refuses the renewed token too is not a reason to renew again, and not a reason
+/// to ask the user to sign in again either: the issuer has just stood by the sign-in, and a new
+/// one mints the same token. It is a Microsoft 365 mailbox with IMAP switched off, which answers
+/// every token with a plain `NO AUTHENTICATE failed.` — and was told to sign in again straight
+/// after signing in.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_server_that_refuses_the_renewed_token_too_does_not_start_a_loop() {
     let (imap_port, presented) = imap(&[]).await;
@@ -541,7 +545,17 @@ async fn a_server_that_refuses_the_renewed_token_too_does_not_start_a_loop() {
 
     for _ in 0..3 {
         let e = ask(&mut it).await.expect_err("the server accepts nothing");
-        assert!(matches!(e.retry(), Retry::NeedsReauth), "{e}");
+        assert!(matches!(e, RuntimeError::RefusedFresh(_)), "{e}");
+        assert!(
+            matches!(e.retry(), Retry::Fatal(_)),
+            "a token the issuer just renewed was blamed on the sign-in: {e}"
+        );
+        let said = e.to_string();
+        assert!(said.contains("signing in again would not help"), "{said}");
+        assert!(
+            said.contains("Invalid credentials"),
+            "the server's words: {said}"
+        );
     }
 
     assert_eq!(
@@ -908,8 +922,15 @@ async fn a_graph_refusal_after_renewing_surfaces_rather_than_renewing_again() {
     let report = it.engine.drain_outbox(&mut cancel, t0()).await.unwrap();
 
     assert_eq!(report.submitted, 0);
-    assert!(report.needs_reauth, "{report:?}");
-    assert!(!report.needs_attention.is_empty(), "{report:?}");
+    // Graph refused the token the issuer had just minted: not the user's sign-in to redo.
+    assert!(!report.needs_reauth, "{report:?}");
+    assert!(
+        report
+            .needs_attention
+            .iter()
+            .any(|n| n.contains("signing in again would not help")),
+        "{report:?}"
+    );
     assert_eq!(posted.lock().unwrap().len(), 2, "one attempt and one retry");
     assert_eq!(asked.lock().unwrap().len(), 1);
 }

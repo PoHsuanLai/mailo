@@ -257,7 +257,7 @@ fn insert(
             id: &id,
             address: &plan.address,
             plan: &plan,
-            caps: &preset.expected_caps,
+            caps: &super::unobserved(&preset.expected_caps),
             identities: &plan.identities,
             at: now,
         })

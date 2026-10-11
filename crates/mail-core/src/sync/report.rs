@@ -73,10 +73,28 @@ pub enum PassEnd {
         why: String,
         /// Why the server is to be left alone, when `retry` says to wait.
         pause: Pause,
+        /// What the person can do about it that neither waiting nor signing in again would.
+        offer: Option<Offer>,
     },
     /// The caller's cancel signal ended it.
     Cancelled { account: AccountId, address: String },
 }
+
+/// What a person can do about a pass that failed, when it is neither waiting nor signing in
+/// again: the one action the window offers beside the failure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Offer {
+    /// Set the account up again to read and send through Microsoft Graph: Microsoft refused it
+    /// mail over IMAP (`account::switch_to_graph`).
+    UseGraph,
+}
+
+/// The server will not serve the account over the protocol it was reached by: it refused a
+/// sign-in its issuer stands by (`RuntimeError::RefusedFresh`), or listed no inbox
+/// (`RuntimeError::NoInbox`). Nothing about the credential or the network, so no retry and no
+/// new sign-in changes it; what the account is set up with might.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ProtocolRefused;
 
 /// A pass's failure to run, before it knows which account it was.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -86,12 +104,20 @@ pub(crate) struct Failure {
     /// What kind of wait `retry` asks for. Said only where the error is classified: the delay
     /// alone cannot tell a rate limit from a dropped connection.
     pub pause: Pause,
+    /// Whether it was the protocol, not the account, that was refused. Kept while the error is
+    /// still typed, so the account's [`Offer`] can be decided once the account is known.
+    pub refused: Option<ProtocolRefused>,
 }
 
 /// An error that knows why a wait after it is a wait.
 pub(crate) trait Pauses {
     /// What the server did, as far as this error can tell.
     fn pause(&self) -> Pause;
+
+    /// Whether the server refused the protocol itself ([`ProtocolRefused`]).
+    fn refused(&self) -> Option<ProtocolRefused> {
+        None
+    }
 }
 
 impl Pauses for RuntimeError {
@@ -108,6 +134,11 @@ impl Pauses for RuntimeError {
             // (`graph::refused`), so the two cannot be told apart here and are not guessed at.
             _ => Pause::ServerBusy,
         }
+    }
+
+    fn refused(&self) -> Option<ProtocolRefused> {
+        matches!(self, RuntimeError::RefusedFresh(_) | RuntimeError::NoInbox)
+            .then_some(ProtocolRefused)
     }
 }
 
@@ -187,6 +218,7 @@ impl Failure {
             retry: Retry::Fatal(why.clone()),
             why,
             pause: Pause::ServerBusy,
+            refused: None,
         }
     }
 
@@ -196,6 +228,7 @@ impl Failure {
             retry: Retry::NeedsReauth,
             why: why.into(),
             pause: Pause::ServerBusy,
+            refused: None,
         }
     }
 
@@ -205,6 +238,7 @@ impl Failure {
             retry: e.retry(),
             why: format!("{prefix}{e}"),
             pause: e.pause(),
+            refused: e.refused(),
         }
     }
 }

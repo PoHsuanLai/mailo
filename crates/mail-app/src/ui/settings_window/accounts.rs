@@ -24,6 +24,7 @@ use ds::components::fields::field_row::FieldRow;
 use ds::components::lists::list::model::ListStyle;
 use ds::components::lists::row::size::RowSize;
 use ds::components::overlays::alert_model::{AlertButton, AlertRole, AlertStyle};
+use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::icon::family::PlateFamily;
@@ -81,6 +82,10 @@ pub(super) fn Accounts(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
 fn AccountList(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
     // Read again when an account comes or goes.
     let _ = revision();
+    // The add menu while it is open (the providers that sign in straight in the browser), hung
+    // from the Add Account… row.
+    let mut adding = use_signal(|| None::<Vec<(porter_provider::Issuer, String)>>);
+    let mut add_row = use_signal(|| None::<MountedRef>);
     let store = try_consume_context::<Arc<SqliteStore>>();
     let rows = store
         .as_ref()
@@ -134,9 +139,14 @@ fn AccountList(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
                 title: "Add Account\u{2026}",
                 size: RowSize::Settings,
                 accessory: Accessory::Chevron,
-                onclick: move |_| crate::ui::add_account::open(),
+                onclick: move |_| {
+                    crate::ui::add_account::add_from(|offered| adding.set(Some(offered)))
+                },
                 common: Common {
                     aria_label: Some("Add Account\u{2026}".to_owned()),
+                    mounted: Some(EventHandler::new(move |event: MountedEvent| {
+                        add_row.set(Some(MountedRef(event.data())));
+                    })),
                     ..Common::default()
                 },
             }
@@ -152,6 +162,13 @@ fn AccountList(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
                 List::<String> { label: "Accounts", items, style: ListStyle::Grouped }
             }
             OfflineCopy {}
+        }
+        if let Some(redirects) = adding() {
+            crate::ui::add_account::AddMenu {
+                anchor: add_row(),
+                redirects,
+                on_close: move |()| adding.set(None),
+            }
         }
     }
 }
