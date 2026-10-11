@@ -199,13 +199,14 @@ pub fn incoming_scopes(scopes: &[String]) -> Vec<String> {
 /// none, which is `None` here, and the caller falls back on the address.
 pub fn tenant_of(credential: &Credential) -> Option<String> {
     use base64::Engine as _;
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     let Credential::OAuth { access, .. } = credential else {
         return None;
     };
     let claims = access.expose().split('.').nth(1)?;
-    let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .decode(claims.trim_end_matches('='))
-        .ok()?;
+    // Claims that are not base64url are no JWT's, and name no tenant.
+    let decoded = URL_SAFE_NO_PAD.decode(claims.trim_end_matches('=')).ok()?;
+    // Nor do claims that are not JSON.
     let claims: serde_json::Value = serde_json::from_slice(&decoded).ok()?;
     claims
         .get("tid")
