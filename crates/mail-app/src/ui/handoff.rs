@@ -8,6 +8,7 @@
 use super::view::Shell;
 use crate::handoff::Request;
 use dioxus::prelude::*;
+use mail_core::Store as _;
 
 /// Read what the running window is asked, on the thread that draws: open each conversation in
 /// this window (`shell`, as a click on its row would) and raise the window with the request's
@@ -49,6 +50,21 @@ pub(in crate::ui) fn use_handoff(shell: Signal<Shell>) {
                         // a click did to a window with no other way to ask it.
                         eprintln!("opened conversation {thread}");
                         super::open_thread(&mut shell.write(), thread);
+                        token
+                    }
+                    Request::Mailto { link, token } => {
+                        // The draft is saved first, as at a `mailto:` start, then the composer
+                        // opens on it.
+                        let store = consume_context::<std::sync::Arc<mail_core::SqliteStore>>();
+                        let saved = super::start_mailto(&store, &link, chrono::Utc::now());
+                        match saved {
+                            Ok(super::Start::Compose(id)) => match store.draft(id) {
+                                Ok(draft) => shell.write().compose(&draft),
+                                Err(why) => eprintln!("compose: {why}"),
+                            },
+                            Ok(_) => {}
+                            Err(why) => eprintln!("{why}"),
+                        }
                         token
                     }
                     Request::Activate { token } => {

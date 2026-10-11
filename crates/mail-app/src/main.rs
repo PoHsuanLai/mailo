@@ -69,6 +69,15 @@ fn main() {
     {
         return;
     }
+    // `mailo mailto:…` while a window is running composes in it rather than opening another.
+    #[cfg(target_os = "macos")]
+    if mailto.is_some()
+        && args
+            .first()
+            .is_some_and(|uri| mail_app::handoff::deliver_mailto(uri))
+    {
+        return;
+    }
     let command = if start.is_some() {
         None
     } else {

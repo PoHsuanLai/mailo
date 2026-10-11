@@ -187,6 +187,11 @@ pub fn deliver(thread: ThreadId, _token: Option<&str>) -> bool {
     socket_path().is_some_and(|path| send(&path, &uri_of(thread)))
 }
 
+/// Ask the running window to open a composer on the `mailto:` link `uri`. True when one took it.
+pub fn deliver_mailto(uri: &str) -> bool {
+    socket_path().is_some_and(|path| send(&path, uri))
+}
+
 /// Ask the running window to raise itself. True when one did; false when none is running.
 pub fn deliver_activate() -> bool {
     socket_path().is_some_and(|path| send(&path, ACTIVATE))
@@ -228,6 +233,20 @@ mod tests {
                 token: None
             })
         );
+    }
+
+    #[test]
+    fn a_mailto_link_sent_to_the_socket_reaches_the_window() {
+        let dir = tempfile::tempdir().expect("a scratch directory");
+        let path = dir.path().join("h.sock");
+        let requests = serve_at(&path).expect("served");
+        let mut queue = requests.take().expect("the queue, once");
+
+        assert!(send(&path, "mailto:a@example.test?subject=hi"));
+        assert!(matches!(
+            queue.try_recv().ok(),
+            Some(Request::Mailto { link, .. }) if link.subject == "hi"
+        ));
     }
 
     #[test]
