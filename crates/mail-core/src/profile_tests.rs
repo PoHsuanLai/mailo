@@ -61,10 +61,18 @@ fn a_profile_is_found_by_its_id_or_its_name_in_any_case() {
     let work = registry.add("Work").unwrap();
 
     assert_eq!(registry.resolve(work.id().as_str()).unwrap(), &work);
-    assert_eq!(registry.resolve(&work.id().as_str().to_uppercase()).unwrap(), &work);
+    assert_eq!(
+        registry
+            .resolve(&work.id().as_str().to_uppercase())
+            .unwrap(),
+        &work
+    );
     assert_eq!(registry.resolve("wORK").unwrap(), &work);
     assert!(registry.resolve("Default").unwrap().id().is_default());
-    assert!(matches!(registry.resolve("Play"), Err(CoreError::NoProfile(_))));
+    assert!(matches!(
+        registry.resolve("Play"),
+        Err(CoreError::NoProfile(_))
+    ));
 
     // A name a lookup could not tell from an id, or from another Profile's, is refused.
     for name in ["", "  ", "default", "DEADBEEF"] {
@@ -73,14 +81,28 @@ fn a_profile_is_found_by_its_id_or_its_name_in_any_case() {
             "{name:?}"
         );
     }
-    assert!(matches!(registry.add(" work "), Err(CoreError::ProfileNameTaken(_))));
+    assert!(matches!(
+        registry.add(" work "),
+        Err(CoreError::ProfileNameTaken(_))
+    ));
     registry.rename(work.id(), "WORK").unwrap();
 }
 
 #[test]
 fn an_id_that_is_not_one_is_refused_when_parsed_and_when_read() {
-    for text in ["", "deadbee", "deadbeef0", "DEADBEEF", "ghijklmn", "../../x", "Default"] {
-        assert_eq!(text.parse::<ProfileId>(), Err(NotAProfileId(text.to_owned())));
+    for text in [
+        "",
+        "deadbee",
+        "deadbeef0",
+        "DEADBEEF",
+        "ghijklmn",
+        "../../x",
+        "Default",
+    ] {
+        assert_eq!(
+            text.parse::<ProfileId>(),
+            Err(NotAProfileId(text.to_owned()))
+        );
     }
     assert!("deadbeef".parse::<ProfileId>().is_ok());
 
@@ -107,7 +129,10 @@ fn a_removal_is_remembered_until_it_is_finished_and_the_default_cannot_be_remove
     registry.begin_remove(work.id()).unwrap();
     let mut again = Registry::load(dir.path()).unwrap();
     assert_eq!(again.pending_removals(), [work.id().clone()]);
-    assert!(again.get(work.id()).is_some(), "listed until the removal finishes");
+    assert!(
+        again.get(work.id()).is_some(),
+        "listed until the removal finishes"
+    );
 
     again.finish_remove(work.id()).unwrap();
     let after = Registry::load(dir.path()).unwrap();

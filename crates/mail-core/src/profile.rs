@@ -315,6 +315,7 @@ impl Registry {
 
     /// The Profile `text` names: its id in any case, else its name in any case.
     pub fn resolve(&self, text: &str) -> Result<&Profile, CoreError> {
+        // Text that is no id may still be a name, tried next.
         let by_id = text
             .to_ascii_lowercase()
             .parse::<ProfileId>()
@@ -323,10 +324,11 @@ impl Registry {
         let wanted = text.trim().to_lowercase();
         by_id
             .or_else(|| {
-                self.file
-                    .profiles
-                    .iter()
-                    .find(|p| p.name.as_deref().is_some_and(|n| n.to_lowercase() == wanted))
+                self.file.profiles.iter().find(|p| {
+                    p.name
+                        .as_deref()
+                        .is_some_and(|n| n.to_lowercase() == wanted)
+                })
             })
             .ok_or_else(|| CoreError::NoProfile(text.to_owned()))
     }
