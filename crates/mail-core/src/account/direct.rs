@@ -158,6 +158,9 @@ pub async fn sign_in_with(
     };
     let scopes = match &kept {
         Some(preset) => scopes_of(&preset.plan.auth),
+        // Whether a Microsoft account is a person's own or an organisation's is only known once
+        // it has signed in (its token's tenant), so the sign-in asks for what either plan needs.
+        None if issuer == Issuer::Microsoft => presets::microsoft_either_scopes(),
         None => presets::preset_for_issuer(issuer, "", now)
             .map(|preset| scopes_of(&preset.plan.auth))
             .ok_or(SignInError::NotMail(issuer))?,
@@ -194,6 +197,11 @@ pub async fn sign_in_with(
                 });
             }
             preset
+        }
+        // A work or school account reads through Graph, a person's own keeps IMAP: the same
+        // rule every other way of adding one goes through.
+        _ if issuer == Issuer::Microsoft => {
+            super::microsoft_preset_for(&signed_as, Some(&credential), now)
         }
         _ => presets::preset_for_issuer(issuer, &signed_as, now)
             .ok_or(SignInError::NotMail(issuer))?,
