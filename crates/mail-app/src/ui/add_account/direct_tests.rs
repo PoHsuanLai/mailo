@@ -78,7 +78,8 @@ fn an_account_signs_in_again_where_its_plan_says() {
     let every = with_clients(&[Issuer::Google, Issuer::Microsoft]);
     let google_only = with_clients(&[Issuer::Google]);
     // (plan, clients, where it goes)
-    let cases: [(&str, &AuthPlan, &dyn Fn(Issuer) -> bool, Entry); 4] = [
+    type Case<'a> = (&'a str, &'a AuthPlan, &'a dyn Fn(Issuer) -> bool, Entry);
+    let cases: [Case; 4] = [
         ("gmail", &gmail, &every, Entry::Redirect(Issuer::Google)),
         (
             "outlook",
@@ -131,7 +132,8 @@ fn the_toast_says_how_it_ended_in_plain_words() {
     let again = Mode::Again {
         address: "you@example.test".to_owned(),
     };
-    let cases: Vec<(&str, Mode, Result<String, SignInError>, &str, Follow)> = vec![
+    type Case<'a> = (&'a str, Mode, Result<String, SignInError>, &'a str, Follow);
+    let cases: Vec<Case> = vec![
         (
             "added",
             Mode::Add,
