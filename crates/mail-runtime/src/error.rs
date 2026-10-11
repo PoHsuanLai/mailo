@@ -127,8 +127,9 @@ pub enum RuntimeError {
     /// A CardDAV exchange did not work. See [`crate::carddav`].
     #[error("{0}")]
     CardDav(crate::carddav::CardDavFailure),
-    /// An IMAP server's folder list named no inbox. RFC 3501 gives every account one, so the
-    /// list is not one to keep: stored, it would read as an account with no folders at all.
+    /// An IMAP server's folder list, or Graph's, named no inbox. RFC 3501 gives every account
+    /// one, and Graph every mailbox, so the list is not one to keep: stored, it would read as an
+    /// account with no folders at all.
     #[error("the server listed no Inbox among its folders")]
     NoInbox,
     /// The server refused a token the issuer had just issued, or one it had refused already

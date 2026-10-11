@@ -189,6 +189,30 @@ pub fn incoming_scopes(scopes: &[String]) -> Vec<String> {
         .collect()
 }
 
+/// The tenant an access token was issued in: its `tid` claim, when the token is a JWT that
+/// carries one.
+///
+/// Read, not verified. The token came straight from the issuer over TLS, and what is read here
+/// only chooses how an account is set up (`presets::microsoft_account`); it grants nothing, so a
+/// forged one would only misconfigure the forger's own account. A work or school account's
+/// tokens are JWTs naming its organisation's tenant; a personal account's are opaque and name
+/// none, which is `None` here, and the caller falls back on the address.
+pub fn tenant_of(credential: &Credential) -> Option<String> {
+    use base64::Engine as _;
+    let Credential::OAuth { access, .. } = credential else {
+        return None;
+    };
+    let claims = access.expose().split('.').nth(1)?;
+    let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(claims.trim_end_matches('='))
+        .ok()?;
+    let claims: serde_json::Value = serde_json::from_slice(&decoded).ok()?;
+    claims
+        .get("tid")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned)
+}
+
 /// Microsoft Graph's resource, as a scope names it.
 const GRAPH_RESOURCE: &str = "graph.microsoft.com";
 
@@ -770,6 +794,43 @@ mod tests {
                 "offline_access",
                 "openid"
             ])
+        );
+    }
+
+    /// A JWT's tenant is read; an opaque token, a malformed one and a password name none.
+    #[test]
+    fn the_tenant_is_read_from_a_jwt_and_from_nothing_else() {
+        use base64::Engine as _;
+        let jwt = |claims: &str| {
+            let part = |text: &str| base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(text);
+            Credential::OAuth {
+                access: SecretText::new(format!(
+                    "{}.{}.signature",
+                    part(r#"{"alg":"RS256","typ":"JWT"}"#),
+                    part(claims)
+                )),
+                refresh: SecretText::new("r".to_owned()),
+                expires_at: UnixSeconds(0),
+            }
+        };
+        let tid = "0b5f3c2e-1d4a-4f6b-9c8d-7e6f5a4b3c2d";
+        assert_eq!(
+            tenant_of(&jwt(format!(
+                r#"{{"tid":"{tid}","upn":"me@example.test"}}"#
+            )
+            .as_str())),
+            Some(tid.to_owned())
+        );
+        assert_eq!(tenant_of(&jwt(r#"{"upn":"me@example.test"}"#)), None);
+        let opaque = Credential::OAuth {
+            access: SecretText::new("EwBwA8l6BAAU-opaque".to_owned()),
+            refresh: SecretText::new("r".to_owned()),
+            expires_at: UnixSeconds(0),
+        };
+        assert_eq!(tenant_of(&opaque), None);
+        assert_eq!(
+            tenant_of(&Credential::Password(SecretText::new("hunter2".to_owned()))),
+            None
         );
     }
 

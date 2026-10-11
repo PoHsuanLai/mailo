@@ -140,10 +140,15 @@ fn gmail(address: &str, now: DateTime<Utc>) -> Preset {
 /// Each issuer mailo has a mail provider for serves exactly one, so naming the issuer names the
 /// servers too. `None` for an issuer that hosts no mail mailo reads (porter's list is longer
 /// than mailo's: Dropbox is not a mail provider).
+///
+/// Microsoft's is a work or school account's, which reads and sends through Graph
+/// ([`microsoft_for`]): discovery refuses a personal Microsoft address before it gets here, so
+/// every address that does is an organisation's. A caller that may hold a personal one, such as
+/// a sign-in that learns the address only afterwards, asks [`microsoft_for`] with what it knows.
 pub fn preset_for_issuer(issuer: Issuer, address: &str, now: DateTime<Utc>) -> Option<Preset> {
     match issuer {
         Issuer::Google => Some(gmail(address, now)),
-        Issuer::Microsoft => Some(microsoft(address, now)),
+        Issuer::Microsoft => Some(microsoft_for(MicrosoftAccount::Organisation, address, now)),
         Issuer::Dropbox | Issuer::Box | Issuer::Fastmail | Issuer::OpenRouter | Issuer::OpenAi => {
             None
         }
@@ -382,12 +387,75 @@ pub fn manual_pop3(address: &str, manual: &ManualPop3, _now: DateTime<Utc>) -> P
     }
 }
 
-/// A managed Microsoft 365 mailbox, work or school, for an address the table cannot recognise.
+/// A Microsoft mailbox over IMAP and SMTP, for an address the table cannot recognise.
 ///
-/// Public because a custom tenant domain is the common case and `--microsoft` is how the user
-/// says so.
+/// Public because a custom tenant domain is the common case and `--microsoft --receive imap` is
+/// how the user says so. A work or school account is otherwise set up over Graph
+/// ([`microsoft_for`]); this is what [`send_through_graph`] and [`receive_through_graph`] start
+/// from, and what a personal account keeps.
 pub fn microsoft_preset(address: &str, now: DateTime<Utc>) -> Preset {
     microsoft(address, now)
+}
+
+/// Microsoft's tenant for personal accounts (outlook.com, hotmail.com, live.com, msn.com): the
+/// `tid` a token or ID token carries for every one of them. A work or school account carries its
+/// organisation's own.
+pub const MICROSOFT_CONSUMER_TENANT: &str = "9188040d-6c67-4c5b-b112-36a304b66dad";
+
+/// Which kind of Microsoft account an address is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MicrosoftAccount {
+    /// A personal Microsoft account: outlook.com, hotmail.com, live.com, msn.com and the rest of
+    /// Microsoft's consumer domains.
+    Personal,
+    /// A work or school account, in an organisation's Microsoft Entra ID tenant.
+    Organisation,
+}
+
+/// Which kind of Microsoft account signed in: the tenant the sign-in named when it named one,
+/// otherwise what the address's domain says (`by_domain`).
+///
+/// The tenant first because it is the issuer's own word and the domain is only a guess from
+/// a name: a personal account may sign in with any address it was created with, and an
+/// organisation may use any domain it owns. Microsoft gives every personal account the one
+/// consumer tenant ([`MICROSOFT_CONSUMER_TENANT`]); any other tenant is an organisation's.
+pub fn microsoft_account(tenant: Option<&str>, by_domain: MicrosoftAccount) -> MicrosoftAccount {
+    match tenant.map(str::trim) {
+        Some(tid) if tid.eq_ignore_ascii_case(MICROSOFT_CONSUMER_TENANT) => {
+            MicrosoftAccount::Personal
+        }
+        Some(tid) if !tid.is_empty() => MicrosoftAccount::Organisation,
+        _ => by_domain,
+    }
+}
+
+/// How a Microsoft account of `kind` is set up.
+///
+/// A work or school account reads and sends through Microsoft Graph, as Thunderbird and
+/// Evolution set up Microsoft 365: an organisation can switch IMAP off per mailbox, and it is
+/// off by default on some plans, while Graph is what Microsoft keeps for mail clients. A personal
+/// account keeps IMAP and SMTP.
+pub fn microsoft_for(kind: MicrosoftAccount, address: &str, now: DateTime<Utc>) -> Preset {
+    match kind {
+        MicrosoftAccount::Personal => microsoft(address, now),
+        MicrosoftAccount::Organisation => receive_through_graph(microsoft(address, now)),
+    }
+}
+
+/// What a Microsoft sign-in asks for when the kind of account is not known until it is done:
+/// both plans' scopes, IMAP's first, so either plan finds its consent in hand afterwards.
+///
+/// IMAP's resource first because the code is redeemed for the first one named: a personal
+/// account then holds an IMAP token at once, and an organisation's mints its Graph token from
+/// the refresh token as every Graph account does.
+pub fn microsoft_either_scopes() -> Vec<String> {
+    let mut scopes: Vec<String> = MICROSOFT_SCOPES.iter().map(|s| (*s).to_owned()).collect();
+    for scope in GRAPH_SCOPES {
+        if !scopes.iter().any(|s| s == scope) {
+            scopes.push(scope.to_owned());
+        }
+    }
+    scopes
 }
 
 /// The delegated permission Graph's `sendMail` needs.
@@ -397,6 +465,21 @@ pub const GRAPH_SEND_SCOPE: &str = "https://graph.microsoft.com/Mail.Send";
 /// [`GRAPH_SEND_SCOPE`]: it is created as a draft in the mailbox, its attachments uploaded to
 /// the draft, and the draft sent.
 pub const GRAPH_WRITE_SCOPE: &str = "https://graph.microsoft.com/Mail.ReadWrite";
+
+/// What an account that reads and sends through Graph signs in for: Thunderbird's set.
+///
+/// `Mail.ReadWrite` to read, flag and move, `MailboxFolder.ReadWrite` for the folders,
+/// `Mail.Send` to send, `User.Read` for whose account it is, and `offline_access` for a refresh
+/// token, without which the account stops an hour after it is added. All Graph's, so one token
+/// serves both directions. `Mail.ReadWrite` first: nothing depends on it, but it is the one
+/// every other permission here would be useless without.
+pub const GRAPH_SCOPES: [&str; 5] = [
+    GRAPH_WRITE_SCOPE,
+    "https://graph.microsoft.com/MailboxFolder.ReadWrite",
+    GRAPH_SEND_SCOPE,
+    "https://graph.microsoft.com/User.Read",
+    "offline_access",
+];
 
 /// `preset`, sending through Microsoft Graph instead of SMTP.
 ///
@@ -426,9 +509,9 @@ pub const GRAPH_POLL_EVERY: Duration = Duration::from_secs(60);
 
 /// `preset`, receiving and sending through Microsoft Graph instead of IMAP and SMTP.
 ///
-/// For a tenant that switched IMAP off. Every scope the sign-in asks for is Graph's —
-/// `Mail.ReadWrite` to read, flag and move, `Mail.Send` to send — so one token serves both
-/// directions: there is no second resource to exchange the refresh token for.
+/// How a work or school account is set up ([`microsoft_for`]), and the way out for a tenant that
+/// switched IMAP off. Every scope the sign-in asks for is Graph's ([`GRAPH_SCOPES`]), so one
+/// token serves both directions: there is no second resource to exchange the refresh token for.
 ///
 /// The capabilities are what Graph offers every mailbox, not a guess about one: folders rather
 /// than labels, a move that is a move, nothing ever expunged, and polling. The folder roles are
@@ -438,15 +521,7 @@ pub fn receive_through_graph(mut preset: Preset) -> Preset {
     preset.plan.incoming = Incoming::Graph;
     preset.plan.outgoing = Outgoing::Graph;
     if let AuthPlan::OAuth { scopes, .. } = &mut preset.plan.auth {
-        *scopes = [
-            GRAPH_WRITE_SCOPE,
-            GRAPH_SEND_SCOPE,
-            "offline_access",
-            "openid",
-        ]
-        .iter()
-        .map(|s| (*s).to_owned())
-        .collect();
+        *scopes = GRAPH_SCOPES.iter().map(|s| (*s).to_owned()).collect();
     }
     preset.expected_caps = AccountCaps {
         labels: ServerLabels::LocalOnly,
@@ -715,6 +790,111 @@ mod tests {
         );
         assert_eq!(issuer_for_server("imap.evil-gmail.com"), None);
         assert_eq!(issuer_for_server("imap.example.net"), None);
+    }
+
+    /// Personal or organisational, from the tenant when the sign-in named one and from the
+    /// domain when it did not; and how each is set up.
+    #[test]
+    fn a_microsoft_account_is_told_apart_by_its_tenant_then_its_domain() {
+        use MicrosoftAccount::{Organisation, Personal};
+        let tenant = "0b5f3c2e-1d4a-4f6b-9c8d-7e6f5a4b3c2d";
+        // (tenant the sign-in named, what the domain says, what it is)
+        let cases = [
+            (Some(MICROSOFT_CONSUMER_TENANT), Organisation, Personal),
+            (Some(MICROSOFT_CONSUMER_TENANT), Personal, Personal),
+            (
+                Some("9188040D-6C67-4C5B-B112-36A304B66DAD"),
+                Organisation,
+                Personal,
+            ),
+            (Some(tenant), Personal, Organisation),
+            (Some(tenant), Organisation, Organisation),
+            (None, Personal, Personal),
+            (None, Organisation, Organisation),
+            (Some(""), Personal, Personal),
+            (Some("  "), Organisation, Organisation),
+        ];
+        for (tid, by_domain, want) in cases {
+            assert_eq!(
+                microsoft_account(tid, by_domain),
+                want,
+                "{tid:?} {by_domain:?}"
+            );
+        }
+
+        // (kind, incoming, outgoing)
+        let imap = Incoming::Imap {
+            host: "outlook.office365.com".to_owned(),
+            port: 993,
+            tls: Tls::Implicit,
+        };
+        let smtp = Outgoing::Smtp {
+            host: "smtp.office365.com".to_owned(),
+            port: 587,
+            tls: Tls::StartTlsRequired,
+        };
+        let plans = [
+            (Personal, imap, smtp),
+            (Organisation, Incoming::Graph, Outgoing::Graph),
+        ];
+        for (kind, incoming, outgoing) in plans {
+            let preset = microsoft_for(kind, "me@contoso.example", at());
+            assert_eq!(preset.plan.incoming, incoming, "{kind:?}");
+            assert_eq!(preset.plan.outgoing, outgoing, "{kind:?}");
+            assert_eq!(preset.plan.address, "me@contoso.example");
+        }
+        assert_eq!(
+            preset_for_issuer(Issuer::Microsoft, "me@contoso.example", at()),
+            Some(microsoft_for(Organisation, "me@contoso.example", at())),
+            "discovery refuses a personal address, so what reaches the issuer's preset is work"
+        );
+    }
+
+    /// A work or school account signs in for Thunderbird's five Graph permissions, and nothing of
+    /// IMAP's or SMTP's.
+    #[test]
+    fn an_organisations_account_signs_in_for_graph_alone() {
+        let preset = microsoft_for(MicrosoftAccount::Organisation, "me@contoso.example", at());
+        let AuthPlan::OAuth { issuer, scopes } = &preset.plan.auth else {
+            panic!("{:?}", preset.plan.auth)
+        };
+        assert_eq!(*issuer, Issuer::Microsoft);
+        let mut got: Vec<&str> = scopes.iter().map(String::as_str).collect();
+        got.sort_unstable();
+        assert_eq!(
+            got,
+            [
+                "https://graph.microsoft.com/Mail.ReadWrite",
+                "https://graph.microsoft.com/Mail.Send",
+                "https://graph.microsoft.com/MailboxFolder.ReadWrite",
+                "https://graph.microsoft.com/User.Read",
+                "offline_access",
+            ]
+        );
+    }
+
+    /// A sign-in that learns the kind of account only afterwards consents to both plans once
+    /// each, IMAP's resource first.
+    #[test]
+    fn either_kinds_scopes_are_both_plans_once_each() {
+        let either = microsoft_either_scopes();
+        assert_eq!(
+            either[0],
+            "https://outlook.office.com/IMAP.AccessAsUser.All"
+        );
+        for kind in [MicrosoftAccount::Personal, MicrosoftAccount::Organisation] {
+            let AuthPlan::OAuth { scopes, .. } = microsoft_for(kind, "", at()).plan.auth else {
+                panic!("an OAuth plan");
+            };
+            assert!(
+                scopes.iter().all(|s| either.contains(s)),
+                "{kind:?}: {scopes:?}"
+            );
+        }
+        let mut unique = either.clone();
+        unique.sort();
+        unique.dedup();
+        assert_eq!(unique.len(), either.len(), "{either:?}");
     }
 
     /// Only the issuers mailo reads mail through have a preset.

@@ -1273,17 +1273,18 @@ impl<B: Backend> AccountEngine<B> {
         Ok(self.store.folders(self.account.clone())?)
     }
 
-    /// Refuse an IMAP listing with no inbox in it.
+    /// Refuse an IMAP or Graph listing with no inbox in it.
     ///
-    /// Every IMAP account has one (RFC 3501 §5.1), so a list without it is a list that went
-    /// wrong, and kept it would be an account with no folders that nothing complained about.
-    /// Said once, plainly, and nothing stored: the folders and roles already held stay.
+    /// Every IMAP account has one (RFC 3501 §5.1), and every Exchange mailbox answers to Graph's
+    /// well-known `inbox`, so a list without it is a list that went wrong, and kept it would be
+    /// an account with no folders that nothing complained about. Said once, plainly, and
+    /// nothing stored: the folders and roles already held stay.
     fn listed_inbox(&self, listed: &[mail_domain::Folder]) -> Result<(), RuntimeError> {
-        let imap = matches!(self.plan.incoming, Incoming::Imap { .. });
+        let has_one = matches!(self.plan.incoming, Incoming::Imap { .. } | Incoming::Graph);
         let inbox = listed
             .iter()
             .any(|f| f.special == Some(mail_domain::SpecialUse::Inbox));
-        if imap && !inbox {
+        if has_one && !inbox {
             return Err(RuntimeError::NoInbox);
         }
         Ok(())
