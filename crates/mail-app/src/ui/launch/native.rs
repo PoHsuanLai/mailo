@@ -49,7 +49,7 @@ pub(super) fn run(opening: Opening) -> Result<(), ds_blitz::LaunchError> {
         })
         .map(|_| {
             crate::ui::follow_up::Notices(std::sync::Arc::new(
-                mail_core::notify::desktop::Desktop::connect(),
+                mail_core::notify::desktop::Desktop::connect_in_window(),
             ))
         });
     let original = Original::window();
