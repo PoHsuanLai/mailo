@@ -80,6 +80,10 @@ pub(crate) fn listing(untagged: &[crate::Untagged], account: AccountId) -> Vec<F
         // `INBOX` in whatever case the server spells it is the inbox (RFC 3501 §5.1), and it is
         // `INBOX` here: Exchange lists `Inbox`, and a path kept as the server spelled it is a
         // second inbox to every comparison that does not know the rule.
+        let name = match quoted_name(&u.raw) {
+            true => unescape(&name),
+            false => name.into_owned(),
+        };
         let path = match mutf7::decode(&name) {
             inbox if inbox.eq_ignore_ascii_case("INBOX") => "INBOX".to_owned(),
             path => path,
@@ -124,6 +128,30 @@ pub(crate) fn listing(untagged: &[crate::Untagged], account: AccountId) -> Vec<F
     listed.sort_by(|a, b| a.path.cmp(&b.path));
     listed.dedup_by(|a, b| a.path == b.path);
     listed
+}
+
+/// Whether a `LIST` line's name, its last field, was a quoted string.
+///
+/// `imap-proto` hands a quoted name over as it stood between the quotes, escapes and all, and
+/// an atom or a literal with nothing to undo, without saying which it was. A line that ends in
+/// a quote and carries no literal ended in a quoted name.
+fn quoted_name(raw: &[u8]) -> bool {
+    let line = raw.trim_ascii_end();
+    line.ends_with(b"\"") && !line.windows(3).any(|w| w == b"}\r\n")
+}
+
+/// A quoted string's contents with its escapes undone: `\\` is a backslash and `\"` a quote
+/// (RFC 3501 §4.3), so Gmail's `"\\All"` is the label `\All`, not `\\All`.
+fn unescape(quoted: &str) -> String {
+    let mut out = String::with_capacity(quoted.len());
+    let mut chars = quoted.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' => out.extend(chars.next()),
+            other => out.push(other),
+        }
+    }
+    out
 }
 
 /// Which listed folder plays which role, as [`ProtoOutcome::Folders`] carries them in the
@@ -260,6 +288,24 @@ mod tests {
         };
         assert_eq!(special("INBOX"), Some(SpecialUse::Inbox));
         assert_eq!(special("Starred"), Some(SpecialUse::Flagged));
+    }
+
+    /// A quoted name has its escapes undone; an atom's backslash is its own.
+    #[test]
+    fn a_quoted_name_is_unescaped_and_an_atom_is_kept() {
+        let lines = [
+            r#"* LIST (\HasNoChildren) "/" "\\All""#,
+            r#"* LIST (\HasNoChildren) "/" "Say \"hi\"""#,
+            r#"* LIST (\HasNoChildren) "/" Plain"#,
+        ];
+        let listed = listing(
+            &lines.map(untagged),
+            mail_domain::id::account_id_from_uuid(uuid::uuid!(
+                "00000000-0000-4000-8000-0000000000a1"
+            )),
+        );
+        let paths: Vec<&str> = listed.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(paths, ["Plain", "Say \"hi\"", "\\All"]);
     }
 
     #[test]
