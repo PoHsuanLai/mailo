@@ -213,8 +213,10 @@ mod badge_tests {
         let work = crate::ui::fixtures::work();
         let store = &work.store;
         let now = chrono::Utc::now();
-        let mut shell = Shell::default();
-        shell.places = default_places();
+        let mut shell = Shell {
+            places: default_places(),
+            ..Shell::default()
+        };
         let every: Vec<ThreadSummary> = list_for(store, Listing::Threads(shell.query(1000)), now);
         let accounts: BTreeSet<_> = every.iter().map(|row| row.account.clone()).collect();
         assert!(
