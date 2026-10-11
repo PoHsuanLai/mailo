@@ -232,9 +232,24 @@ async fn a_microsoft_sign_in_reads_the_address_from_graph_with_a_profile_token()
     // The page asks for the profile beside the mail scopes, and the code is redeemed for mail.
     let scope = param(&opened.lock().unwrap()[0], "scope");
     assert!(scope.contains("User.Read"), "{scope}");
+    // An address no person's own Microsoft domain covers, and a token that names no tenant:
+    // a work or school account, which reads and sends through Graph (Thunderbird's rule).
+    let stored = store
+        .account_by_address("you@example.test")
+        .unwrap()
+        .expect("the account is stored");
+    assert_eq!(
+        stored.plan.unwrap().incoming,
+        mail_domain::Incoming::Graph,
+        "a work or school account reads through Graph"
+    );
     let asked = asked.lock().unwrap();
     let requests: Vec<&str> = asked.iter().map(|(request, _)| request.as_str()).collect();
-    assert_eq!(requests, ["POST /token", "POST /token", "GET /me"]);
+    // The code, the profile token and the profile, then the Graph token the account reads with.
+    assert_eq!(
+        requests,
+        ["POST /token", "POST /token", "GET /me", "POST /token"]
+    );
     assert!(
         asked[0].1.contains("IMAP.AccessAsUser.All"),
         "{}",
