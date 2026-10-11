@@ -8,7 +8,6 @@
 use super::view::Shell;
 use crate::handoff::Request;
 use dioxus::prelude::*;
-use mail_core::Store as _;
 
 /// Read what the running window is asked, on the thread that draws: open each conversation in
 /// this window (`shell`, as a click on its row would) and raise the window with the request's
@@ -18,6 +17,7 @@ use mail_core::Store as _;
 #[cfg(not(windows))]
 pub(in crate::ui) fn use_handoff(shell: Signal<Shell>) {
     use crate::handoff::{ActivationToken, Requests};
+    use mail_core::Store as _;
 
     let Some(requests) = try_consume_context::<Requests>() else {
         return;
