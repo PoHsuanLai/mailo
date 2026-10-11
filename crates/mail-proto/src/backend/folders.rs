@@ -94,10 +94,14 @@ pub(crate) fn listing(untagged: &[crate::Untagged], account: AccountId) -> Vec<F
             followed.push(path);
             continue;
         }
-        let special = name_attributes.iter().find_map(special_use).or_else(|| {
-            path.eq_ignore_ascii_case("INBOX")
-                .then_some(SpecialUse::Inbox)
-        });
+        // The inbox is the inbox by its name, whatever attributes ride along: a server that
+        // lists `INBOX` with `\Flagged` (Twisted sends a mailbox's message flags there) has
+        // not made its inbox a view of starred mail.
+        let special = if path == "INBOX" {
+            Some(SpecialUse::Inbox)
+        } else {
+            name_attributes.iter().find_map(special_use)
+        };
         let holds = if name_attributes.iter().any(holds_nothing) {
             Holds::FoldersOnly
         } else {
@@ -226,6 +230,36 @@ mod tests {
             kind: Refusal::Permanent,
             text: text.to_owned(),
         }
+    }
+
+    fn untagged(line: &str) -> crate::Untagged {
+        crate::Untagged {
+            during: 0,
+            text: line.to_owned(),
+            raw: format!("{line}\r\n").into_bytes(),
+        }
+    }
+
+    #[test]
+    fn the_inbox_is_the_inbox_by_name_whatever_attributes_it_carries() {
+        let lines = [
+            r#"* LIST (\Seen \Flagged \Deleted \Draft) "." "INBOX""#,
+            r#"* LIST (\Flagged) "/" Starred"#,
+        ];
+        let listed = listing(
+            &lines.map(untagged),
+            mail_domain::id::account_id_from_uuid(uuid::uuid!(
+                "00000000-0000-4000-8000-0000000000a1"
+            )),
+        );
+        let special = |path: &str| {
+            listed
+                .iter()
+                .find(|f| f.path == path)
+                .and_then(|f| f.special)
+        };
+        assert_eq!(special("INBOX"), Some(SpecialUse::Inbox));
+        assert_eq!(special("Starred"), Some(SpecialUse::Flagged));
     }
 
     #[test]
