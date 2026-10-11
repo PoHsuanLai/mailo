@@ -25,6 +25,7 @@ rust-version = "1.92"
 [workspace.dependencies]
 # The per-user agent lifecycle, its own repo since 2026-10-07 (split from crates/latchkey here).
 latchkey    = { git = "https://github.com/PoHsuanLai/latchkey", rev = "ef0117ada46854702057c79515516da43b271455" }
+mail-appkit = { path = "crates/mail-appkit" }
 mail-core   = { path = "crates/mail-core", default-features = false }
 mail-domain = { path = "crates/mail-domain" }
 mail-mime   = { path = "crates/mail-mime", default-features = false }
