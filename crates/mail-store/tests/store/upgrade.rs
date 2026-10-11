@@ -1599,3 +1599,107 @@ fn a_conversation_from_before_follow_ups_opens_with_no_reminder_and_keeps_one_ac
         .collect();
     assert_eq!(listed, vec![thread]);
 }
+
+/// An account of the desktop's accountd, kept by a build that could link to it (auth `granted`),
+/// goes on open with everything that named it, and an account of mailo's own beside it stays as it
+/// was. Without this the stored plan would no longer read, and the account could never sign in.
+#[test]
+fn an_account_granted_by_the_desktop_is_removed_and_one_of_mailos_own_is_kept() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("mail.db");
+    let manual = mail_domain::presets::manual(
+        "me@example.test",
+        &mail_domain::presets::Manual {
+            imap_host: "imap.example.test".to_owned(),
+            imap_port: 993,
+            smtp_host: "smtp.example.test".to_owned(),
+            smtp_port: 465,
+            login: None,
+        },
+        chrono::Utc::now(),
+    );
+    let own_plan = serde_json::to_string(&manual.plan).unwrap();
+    // What a linked build wrote for an account of accountd's: the grant and the servers listed.
+    let granted_plan = r#"{"address":"them@example.test",
+        "incoming":{"kind":"imap","v":{"host":"imap.example.test","port":993,"tls":"implicit"}},
+        "outgoing":{"kind":"smtp","v":{"host":"smtp.example.test","port":465,"tls":"implicit"}},
+        "auth":{"kind":"granted","v":{"account":"provider-them-example-test","grant":"grant-1",
+            "endpoints":[]}},
+        "identities":[]}"#;
+    let (own, granted) = {
+        let db = Connection::open(&path).unwrap();
+        db.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        for (version, sql) in migrate::MIGRATIONS
+            .iter()
+            .filter(|&&(version, _)| version < 31)
+        {
+            db.execute_batch(sql).unwrap();
+            if *version > 1 {
+                db.execute(
+                    "INSERT INTO schema_version (version, applied_at) VALUES (?1, datetime('now'))",
+                    [version],
+                )
+                .unwrap();
+            }
+        }
+        let own = seed(&db).0;
+        db.execute(
+            "UPDATE accounts SET plan = ?1 WHERE id = ?2",
+            [&own_plan, &own],
+        )
+        .unwrap();
+        let granted = uuid::Uuid::new_v4().to_string();
+        let thread = uuid::Uuid::new_v4().to_string();
+        db.execute(
+            "INSERT INTO accounts (id, address, plan, created_at)
+             VALUES (?1, 'them@example.test', ?2, datetime('now'))",
+            [&granted, granted_plan],
+        )
+        .unwrap();
+        db.execute(
+            "INSERT INTO threads (id, account, snooze, pin) VALUES (?1, ?2, '\"none\"', '\"none\"')",
+            [&thread, &granted],
+        )
+        .unwrap();
+        db.execute(
+            "INSERT INTO account_passes (account, finished_at) VALUES (?1, '2026-10-01T00:00:00Z')",
+            [&granted],
+        )
+        .unwrap();
+        (own, granted)
+    };
+
+    let store = SqliteStore::open(&path, dir.path()).unwrap();
+    assert_eq!(
+        version_of(&store.raw_connection()),
+        migrate::EXPECTED_VERSION
+    );
+    let listed = store.list_accounts().unwrap();
+    assert_eq!(
+        listed.iter().map(|a| a.id.to_string()).collect::<Vec<_>>(),
+        vec![own.clone()],
+        "only mailo's own account is left"
+    );
+    assert_eq!(listed[0].plan.as_ref().unwrap(), &manual.plan);
+    let named = |table: &str| -> i64 {
+        store
+            .raw_connection()
+            .query_row(
+                &format!("SELECT count(*) FROM {table} WHERE account = ?1"),
+                [&granted],
+                |r| r.get(0),
+            )
+            .unwrap()
+    };
+    assert_eq!(named("threads"), 0, "its threads went with it");
+    assert_eq!(named("account_passes"), 0, "and the rows beside it");
+    let kept: i64 = store
+        .raw_connection()
+        .query_row(
+            "SELECT count(*) FROM messages WHERE account = ?1",
+            [&own],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(kept, 1, "the other account's mail is untouched");
+}

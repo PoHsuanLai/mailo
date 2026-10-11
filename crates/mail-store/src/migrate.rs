@@ -55,10 +55,14 @@ pub const MIGRATIONS: &[(u32, &str)] = &[
     (28, include_str!("../migrations/0028_secrets_adopted.sql")),
     (29, include_str!("../migrations/0029_opened.sql")),
     (30, include_str!("../migrations/0030_passes.sql")),
+    (
+        31,
+        include_str!("../migrations/0031_drop_granted_accounts.sql"),
+    ),
 ];
 
 /// The schema version this build expects.
-pub const EXPECTED_VERSION: u32 = 30;
+pub const EXPECTED_VERSION: u32 = 31;
 
 /// Bring `db` up to [`EXPECTED_VERSION`], creating it if it is empty.
 ///

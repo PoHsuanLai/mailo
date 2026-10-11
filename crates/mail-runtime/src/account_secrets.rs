@@ -47,13 +47,6 @@ pub trait AccountSecrets: Send + Sync {
     fn forget<'a>(&'a self, key: &'a SecretKey) -> Answer<'a, ()>;
     /// Forgets every secret of `account`, in one step, when the account is removed.
     fn forget_account<'a>(&'a self, account: &'a AccountId) -> Answer<'a, ()>;
-
-    /// The desktop's accountd, when this store sits beside a link to it: where the credentials of
-    /// an account that is accountd's come from (`AuthPlan::Granted`), which this store holds none
-    /// of. `None` for every plain store, and then such an account cannot be reached.
-    fn link(&self) -> Option<Arc<dyn crate::link::Accountd>> {
-        None
-    }
 }
 
 /// Every secret failure is `Secrets`, with porter's error kept underneath it: what it asks of the
@@ -71,8 +64,7 @@ fn refused(why: SecretsError) -> RuntimeError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SecretTrouble {
     /// No credential to use: nothing is filed under the key, or what is filed does not decode
-    /// (signing in again replaces it). Also every failure that is not the store's own, such as
-    /// a linked process, which keeps no secret at all.
+    /// (signing in again replaces it). Also every failure that is not the store's own.
     Absent,
     /// The store did not answer, in plain words. The read is tried again later; signing in again
     /// would not help.
@@ -276,22 +268,9 @@ impl<S: Secrets + 'static> Secrets for PlatformSecrets<S> {
     }
 }
 
-/// The store an entry point opens for a process linked as `link`: accountd's, and then Mail
-/// keeps no secret of its own and opens no keyring, or none, and mailo's own store, whose calls
-/// run on `runtime`.
-pub fn platform_secrets(link: &crate::link::Link, runtime: &Handle) -> Arc<dyn AccountSecrets> {
-    match link {
-        crate::link::Link::Local => own_store(runtime),
-        crate::link::Link::Accountd(link) => {
-            Arc::new(crate::link::LinkedSecrets::new(link.clone()))
-        }
-    }
-}
-
-/// mailo's own store, whatever the link: where the sign-ins Mail holds itself are kept. Linked to
-/// accountd [`platform_secrets`] holds none of them; removing an account Mail signed in itself is
-/// what asks for this, to forget its items with it.
-pub fn own_secrets(runtime: &Handle) -> Arc<dyn AccountSecrets> {
+/// The store an entry point opens: mailo's own, whose calls run on `runtime`. mailo keeps every
+/// account's credentials itself.
+pub fn platform_secrets(runtime: &Handle) -> Arc<dyn AccountSecrets> {
     own_store(runtime)
 }
 

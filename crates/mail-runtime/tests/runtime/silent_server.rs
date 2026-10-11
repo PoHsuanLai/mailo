@@ -1,8 +1,7 @@
 //! A server that goes quiet and never says so: the 40 hours an IDLE account sat on a socket a NAT
 //! had forgotten, with no error, no reconnect and no pass.
 //!
-//! Each connection is scripted in memory, behind a stand-in for accountd's relay, so the clock
-//! can be paused and half an hour of silence costs nothing. Two promises are checked: a held
+//! Each connection is scripted in memory (`AccountEngine::with_dial`), so the clock can be paused and half an hour of silence costs nothing. Two promises are checked: a held
 //! IDLE is ended in protocol and issued again before RFC 2177's twenty-nine minutes, and an
 //! exchange that hears nothing at all ends as [`RuntimeError::Stalled`], which is answered by a
 //! new connection.
@@ -12,15 +11,12 @@ use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_proto::backend::ImapBackend;
 use mail_proto::{ImapAuth, ImapCommand, ImapSession};
-use mail_runtime::link::{Accountd, Answer, Changes, LinkError, LinkedSecrets};
-use mail_runtime::{AccountEngine, IDLE_REARM, RuntimeError, Transport, Woke};
+use mail_runtime::engine::Dial;
+use mail_runtime::testing::{memory_secrets, memory_transport};
+use mail_runtime::{AccountEngine, IDLE_REARM, RuntimeError, Woke};
 use mail_store::SqliteStore;
-use porter_client::AuthenticatedStream;
-use porter_core::stream::{ByteStream, DuplexEnd, duplex};
-use porter_core::{
-    AccountId, Audience, Candidate, Credential, EndpointUrl, Family, GrantId, IssuedToken,
-    LoginName, SecretText, ServiceEndpoint,
-};
+use porter_core::stream::{ByteStream, DuplexEnd};
+use porter_core::{AccountId, Credential, SecretText};
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -54,7 +50,7 @@ enum Server {
 /// Every line a client sent, with when, across connections.
 type Heard = Arc<Mutex<Vec<(Instant, String)>>>;
 
-/// accountd, as far as the engine asks: a scripted connection per open.
+/// The incoming server, as far as the engine reaches it: a scripted connection per dial.
 #[derive(Debug, Default)]
 struct Script {
     next: Mutex<VecDeque<Server>>,
@@ -90,66 +86,20 @@ impl Script {
     }
 }
 
-fn refuse<T>() -> Answer<'static, T> {
-    Box::pin(async { Err(LinkError::Other("not part of this test".to_owned())) })
-}
-
-impl Accountd for Script {
-    fn candidates(&self) -> Answer<'_, Vec<Candidate>> {
-        refuse()
-    }
-
-    fn token<'a>(&'a self, _: &'a GrantId, _: &'a Audience) -> Answer<'a, IssuedToken> {
-        refuse()
-    }
-
-    fn open<'a>(
-        &'a self,
-        _grant: &'a GrantId,
-        _endpoint: &'a ServiceEndpoint,
-    ) -> Answer<'a, Transport> {
-        *self.opened.lock().unwrap() += 1;
-        let server = self
+/// A dial that answers each connection with the next of `script`'s servers.
+fn dial(script: Arc<Script>) -> Dial {
+    Arc::new(move || {
+        *script.opened.lock().unwrap() += 1;
+        let server = script
             .next
             .lock()
             .unwrap()
             .pop_front()
             .unwrap_or(Server::QuietAfterIdle);
-        let (app, end) = duplex(64 * 1024);
-        tokio::spawn(serve(end, server, self.heard.clone()));
-        Box::pin(async move {
-            Transport::relayed(AuthenticatedStream::Memory(app))
-                .map_err(|e| LinkError::Other(e.to_string()))
-        })
-    }
-
-    fn open_stream<'a>(
-        &'a self,
-        _: &'a GrantId,
-        _: &'a ServiceEndpoint,
-    ) -> Answer<'a, AuthenticatedStream> {
-        refuse()
-    }
-
-    fn add_account(&self) -> Answer<'_, AccountId> {
-        refuse()
-    }
-
-    fn reauthenticate<'a>(&'a self, _: &'a AccountId) -> Answer<'a, ()> {
-        refuse()
-    }
-
-    fn request_grant(&self) -> Answer<'_, Candidate> {
-        refuse()
-    }
-
-    fn revoke<'a>(&'a self, _: &'a GrantId) -> Answer<'a, ()> {
-        refuse()
-    }
-
-    fn changes(&self) -> Answer<'_, Option<Box<dyn Changes>>> {
-        Box::pin(async { Ok(None) })
-    }
+        let (transport, end) = memory_transport();
+        tokio::spawn(serve(end, server, script.heard.clone()));
+        Box::pin(async move { Ok(transport) })
+    })
 }
 
 /// Play `server` on one connection, keeping every line the client sends.
@@ -224,7 +174,8 @@ struct Fixture {
     _dir: tempfile::TempDir,
 }
 
-/// An IMAP account of accountd's whose every connection is one of `script`'s.
+/// An IMAP account whose every connection is one of `script`'s. The connection is in memory and
+/// asks for no sign-in, so the session sends none first.
 fn engine(script: Arc<Script>) -> Fixture {
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(SqliteStore::open(dir.path().join("mail.db"), dir.path()).unwrap());
@@ -237,15 +188,9 @@ fn engine(script: Arc<Script>) -> Fixture {
             tls: Tls::Implicit,
         },
         outgoing: Outgoing::Nowhere,
-        auth: AuthPlan::Granted {
-            account: AccountId::parse("example-me").unwrap(),
-            grant: GrantId::parse("grant-1").unwrap(),
-            endpoints: vec![ServiceEndpoint {
-                family: Family::Imap,
-                url: EndpointUrl::parse("imap://imap.example.test:993").unwrap(),
-                tls: porter_core::Tls::Implicit,
-                login: LoginName("me@example.test".to_owned()),
-            }],
+        auth: AuthPlan::Password {
+            username: Username::SameAsAddress,
+            sasl: vec![SaslMech::Plain],
         },
         identities: Vec::new(),
     };
@@ -257,18 +202,12 @@ fn engine(script: Arc<Script>) -> Fixture {
     let backend = ImapBackend::new(
         acct_account(),
         caps(),
-        // The relay signed in before the app saw its greeting: nothing to send first.
         Box::new(move |_authenticate, commands: Vec<ImapCommand>| {
             ImapSession::new(auth.clone(), commands)
         }),
     );
-    let engine = AccountEngine::new(
-        acct_account(),
-        plan,
-        backend,
-        store,
-        Arc::new(LinkedSecrets::new(script)),
-    );
+    let engine = AccountEngine::new(acct_account(), plan, backend, store, memory_secrets())
+        .with_dial(dial(script));
     Fixture { engine, _dir: dir }
 }
 

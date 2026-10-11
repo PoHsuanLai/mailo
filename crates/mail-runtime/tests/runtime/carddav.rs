@@ -7,19 +7,12 @@
 //! RFC 6578 and RFC 6764 describe — well-known redirect, principal, home set, `sync-collection`
 //! with tokens, `addressbook-multiget` and an etag `PROPFIND` — from that book, so a test can
 //! change a card between syncs and watch the change arrive.
-//!
-//! The last tests are the same server reached the way a linked account reaches it (step E7): in
-//! plain text on loopback behind porter's own relay (`tests/support/relay.rs`, the real
-//! `porter_proxy::relay` with the app's end in memory), which adds the `Authorization` itself.
 
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::{Retry, Retryable};
 use mail_runtime::RuntimeError;
 use mail_runtime::carddav::{self, CardDavFailure, Dav, DavAuth, How};
-use mail_runtime::link::LinkError;
-use mail_runtime::testing::FakeAccountd;
 use mail_store::{AddressBook, Edit, GroupHome, GroupId, MemoryStore, Origin, Store};
-use porter_core::{EndpointUrl, Family, GrantId, LoginName, ServiceEndpoint};
 use rustls_pki_types::pem::PemObject;
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use std::collections::BTreeMap;
@@ -28,8 +21,6 @@ use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use url::Url;
-
-use crate::relay;
 
 const CERT: &[u8] = include_bytes!("../fixtures/tls/cert.pem");
 const KEY: &[u8] = include_bytes!("../fixtures/tls/key.pem");
@@ -286,21 +277,6 @@ async fn serve(server: Shared) -> SocketAddr {
                 continue;
             };
             reply_to(&mut stream, &server).await;
-        }
-    });
-    addr
-}
-
-/// The same server without TLS, for the relay to dial: the relay is the one that owns TLS in front
-/// of a real server, and `Loopback` (`tests/support/relay.rs`) dials plain text. Every connection
-/// is served on a task of its own, because the relay may open one it never writes to.
-async fn serve_plain(server: Shared) -> SocketAddr {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    tokio::spawn(async move {
-        while let Ok((mut sock, _)) = listener.accept().await {
-            let server = server.clone();
-            tokio::spawn(async move { reply_to(&mut sock, &server).await });
         }
     });
     addr
@@ -975,180 +951,4 @@ async fn a_write_refused_as_stale_leaves_the_edit_for_the_next_sync() {
         .unwrap();
     assert_eq!(again.written, 1);
     assert_eq!(server.lock().unwrap().puts.len(), 2);
-}
-
-// ---------------------------------------------------------------------------------------------
-// Through accountd's relay (step E7)
-// ---------------------------------------------------------------------------------------------
-
-/// The account's CardDAV endpoint at the plain server `addr`: porter allows `http` for a
-/// loopback host only, and says so with `Tls::Plain`.
-fn endpoint(addr: SocketAddr) -> ServiceEndpoint {
-    ServiceEndpoint {
-        family: Family::CardDav,
-        url: EndpointUrl::parse(&format!("http://127.0.0.1:{}/", addr.port())).unwrap(),
-        tls: porter_core::Tls::Plain,
-        login: LoginName("ada".to_owned()),
-    }
-}
-
-fn grant() -> GrantId {
-    GrantId::parse("grant-contacts").unwrap()
-}
-
-/// A linked session: the relay signs in as `ada` with `secret`, which only it has.
-fn relayed(addr: SocketAddr) -> (Dav, Arc<relay::Relays>) {
-    let relays = relay::Relays::signing_in_with("secret");
-    let dav = Dav::relayed(relays.clone(), grant(), endpoint(addr)).unwrap();
-    (dav, relays)
-}
-
-async fn plain_book(addr: SocketAddr, store: &MemoryStore) -> AddressBook {
-    let url = format!("http://127.0.0.1:{}{BOOK}", addr.port());
-    store.address_book(&url).unwrap().unwrap_or(AddressBook {
-        url,
-        ..AddressBook::default()
-    })
-}
-
-#[tokio::test]
-async fn a_linked_account_discovers_syncs_and_writes_a_group_back_through_the_relay() {
-    let server: Shared = Arc::default();
-    {
-        let mut s = server.lock().unwrap();
-        s.put("ada", &card("Ada", &["ada@example.test"]));
-        s.put(
-            "team",
-            &group_card("Team", "team-1", &["mailto:bob@example.test"]),
-        );
-    }
-    let addr = serve_plain(server.clone()).await;
-    let (dav, relays) = relayed(addr);
-    let start = dav
-        .endpoint_url()
-        .expect("a relayed session names its server");
-    assert_eq!(start.as_str(), format!("http://127.0.0.1:{}/", addr.port()));
-
-    // Discovery: the well-known redirect, the principal, the home set, the address books.
-    let found = carddav::discover(&dav, &start).await.unwrap();
-    assert_eq!(found.len(), 1);
-    assert_eq!(
-        found[0].url.as_str(),
-        format!("http://127.0.0.1:{}{BOOK}", addr.port())
-    );
-
-    // A first sync brings both cards in; the group is a group.
-    let store = MemoryStore::new();
-    let done = carddav::sync(&dav, &store, plain_book(addr, &store).await)
-        .await
-        .unwrap();
-    assert_eq!((done.changed, done.how), (2, How::Full));
-    assert_eq!(
-        names(&store),
-        [("ada@example.test".to_owned(), Some("Ada".to_owned()))]
-    );
-    let id = store.groups().unwrap()[0].id.clone();
-
-    // An edited group goes back with PUT over the etag it came with.
-    let etag = server.lock().unwrap().cards[&team_path()].0.clone();
-    edit_group(&store, &id, "The team", "mailto:cy@example.test");
-    let done = carddav::sync(&dav, &store, plain_book(addr, &store).await)
-        .await
-        .unwrap();
-    assert_eq!((done.written, done.unwritten.len()), (1, 0));
-    let (path, if_match, body) = server.lock().unwrap().puts[0].clone();
-    assert_eq!((path, if_match), (team_path(), Some(etag)));
-    let written = mail_pim::vcard::parse(&body).remove(0);
-    assert_eq!(written.formatted_name.as_deref(), Some("The team"));
-    assert_eq!(
-        written.members,
-        ["mailto:bob@example.test", "mailto:cy@example.test"]
-    );
-
-    // What the server saw is the relay's: every request carried the `Authorization` the relay
-    // adds (`ada:secret`), though none was written on this side.
-    let (seen, auth) = {
-        let s = server.lock().unwrap();
-        (s.seen.len(), s.auth.clone())
-    };
-    assert!(seen >= 8, "{seen} requests");
-    assert!(
-        auth.iter()
-            .all(|a| a.as_deref() == Some(GOOD) && auth.len() == seen),
-        "{auth:?}"
-    );
-    // And what this side wrote has no credential in it, nor does it name one.
-    let sent = relays.app_sent();
-    assert!(
-        sent.contains("PROPFIND /") && sent.contains("PUT /home/ada/contacts/team.vcf"),
-        "{sent}"
-    );
-    assert!(!sent.to_lowercase().contains("authorization"), "{sent}");
-    assert!(
-        !sent.contains("secret") && !sent.contains("YWRh"),
-        "no password or its Basic form reached this side: {sent}"
-    );
-    // One stream for each request.
-    assert_eq!(relays.opened(), seen);
-}
-
-#[tokio::test]
-async fn a_relayed_session_sends_nothing_to_any_server_but_the_accounts() {
-    let server: Shared = Arc::default();
-    let addr = serve_plain(server.clone()).await;
-    let (dav, relays) = relayed(addr);
-
-    // Another host, and the same host on another port, are other origins.
-    for foreign in [
-        "http://elsewhere.test/",
-        "http://127.0.0.1:1/",
-        "https://127.0.0.1/",
-    ] {
-        let err = carddav::discover(&dav, &Url::parse(foreign).unwrap())
-            .await
-            .unwrap_err();
-        assert!(
-            matches!(err, RuntimeError::CardDav(CardDavFailure::Foreign(_))),
-            "{foreign}: {err:?}"
-        );
-        assert!(matches!(err.retry(), Retry::Fatal(_)), "{err:?}");
-    }
-    assert_eq!(relays.opened(), 0, "no relay was asked for");
-    assert!(server.lock().unwrap().seen.is_empty());
-}
-
-#[tokio::test]
-async fn a_relay_accountd_refuses_for_the_person_to_answer_is_a_reauth_and_the_book_is_untouched() {
-    let addr: SocketAddr = "127.0.0.1:9".parse().unwrap();
-    let store = MemoryStore::new();
-    let dav = Dav::relayed(
-        Arc::new(
-            FakeAccountd::default()
-                .with_stream_refused(LinkError::Refused(porter_core::wire::Refusal::NeedsReauth)),
-        ),
-        grant(),
-        endpoint(addr),
-    )
-    .unwrap();
-    let err = carddav::sync(&dav, &store, plain_book(addr, &store).await)
-        .await
-        .unwrap_err();
-    assert!(
-        matches!(err, RuntimeError::CardDav(CardDavFailure::Unauthorized)),
-        "{err:?}"
-    );
-    assert_eq!(err.retry(), Retry::NeedsReauth);
-    assert_eq!(store.contacts().unwrap(), vec![]);
-}
-
-#[test]
-fn no_credential_belongs_to_a_session_of_our_own() {
-    let err = Dav::new(
-        carddav::client().unwrap(),
-        &Url::parse("https://dav.example.test/").unwrap(),
-        DavAuth::Relayed,
-    )
-    .unwrap_err();
-    assert!(matches!(err, RuntimeError::Connect(_)), "{err:?}");
-    assert_eq!(format!("{:?}", DavAuth::Relayed), "DavAuth::Relayed");
 }

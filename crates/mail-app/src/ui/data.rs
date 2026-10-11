@@ -143,7 +143,7 @@ fn fallback_plan(address: &str) -> AccountPlan {
 /// acted on (taking accounts out of the Spaces), a failed read must not look like no accounts.
 pub(super) fn known_accounts(store: &SqliteStore) -> Result<Vec<AccountId>, mail_core::StoreError> {
     Ok(store
-        .list_all_accounts()?
+        .list_accounts()?
         .into_iter()
         .map(|account| account.id)
         .collect())

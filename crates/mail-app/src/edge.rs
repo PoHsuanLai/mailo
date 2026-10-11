@@ -1,27 +1,26 @@
-//! Where the application meets `mail-core`: the one runtime, the link to accountd, and what the
-//! process was started with.
+//! Where the application meets `mail-core`: the one runtime, and what the process was started
+//! with.
 //!
 //! `mail-core` and `mail-runtime` are libraries. They start no runtime, read no environment
 //! variable and keep no process-wide state; their I/O is `async`, and every piece they need
-//! (the link to accountd, the environment, the clock) is handed to a [`Mail`]. This module is
+//! (the environment, the clock) is handed to a [`Mail`]. This module is
 //! the one place the binary chooses those pieces, once, in `main`, and the one place a
 //! synchronous caller (the command line, a window thread) waits on `async` work.
 //!
 //! - [`block_on`] waits for a future on the application's runtime. It is for threads that are
 //!   not async: calling it from a task of that same runtime panics, as `block_on` always does.
-//! - [`install_link`] and [`install_environment`] record what `main` decided; until it does, the
-//!   link is [`Link::Local`] and the environment is empty, which is what a test wants.
+//! - [`install_environment`] records what `main` decided; until it does, the environment is
+//!   empty, which is what a test wants.
 //! - [`mail`] builds the handle over a store from those.
 
 use mail_core::{Environment, Mail};
-use mail_runtime::{AccountSecrets, Link};
+use mail_runtime::AccountSecrets;
 use mail_store::SqliteStore;
 use std::future::Future;
 use std::sync::{Arc, OnceLock};
 use tokio::runtime::Runtime;
 
 static RUNTIME: OnceLock<Runtime> = OnceLock::new();
-static LINK: OnceLock<Link> = OnceLock::new();
 static ENVIRONMENT: OnceLock<Environment> = OnceLock::new();
 
 /// The application's one runtime, started the first time anything asks. It lives as long as the
@@ -42,16 +41,6 @@ pub fn block_on<T>(work: impl Future<Output = T>) -> T {
     runtime().block_on(work)
 }
 
-/// Records the process's link to accountd. Only the first call counts, like `OnceLock::set`.
-pub fn install_link(link: Link) {
-    let _ = LINK.set(link);
-}
-
-/// The process's link: [`Link::Local`] until [`install_link`] says otherwise.
-pub fn link() -> Link {
-    LINK.get().cloned().unwrap_or(Link::Local)
-}
-
 /// Records what the process was started with. Only the first call counts.
 pub fn install_environment(environment: Environment) {
     let _ = ENVIRONMENT.set(environment);
@@ -62,21 +51,15 @@ pub fn environment() -> Environment {
     ENVIRONMENT.get().cloned().unwrap_or_default()
 }
 
-/// The handle on `mail-core` over `store`, signed in through the process's link, with the
-/// process's environment and the application's runtime.
+/// The handle on `mail-core` over `store`, with the process's environment and the application's
+/// runtime.
 pub fn mail(store: &Arc<SqliteStore>) -> Mail {
-    Mail::new(store.clone(), link(), runtime().handle().clone()).with_environment(environment())
+    Mail::new(store.clone(), runtime().handle().clone()).with_environment(environment())
 }
 
-/// The store of account secrets for the process's link, for the calls that take only that.
+/// mailo's store of account secrets, for the calls that take only that.
 pub fn secrets() -> Arc<dyn AccountSecrets> {
-    mail_runtime::platform_secrets(&link(), runtime().handle())
-}
-
-/// mailo's own store of account secrets whatever the link: where the sign-ins Mail holds itself
-/// are kept.
-pub fn own_secrets() -> Arc<dyn AccountSecrets> {
-    mail_runtime::own_secrets(runtime().handle())
+    mail_runtime::platform_secrets(runtime().handle())
 }
 
 #[cfg(test)]
@@ -94,9 +77,8 @@ mod tests {
     }
 
     #[test]
-    fn until_main_decides_the_link_is_in_process_and_the_environment_is_empty() {
-        // Both are once per process and other tests share them, so only the defaults are shown.
-        assert!(matches!(link(), Link::Local) || link().is_linked());
+    fn until_main_decides_the_environment_is_empty() {
+        // Once per process and other tests share it, so only the default is shown.
         let _ = environment();
     }
 

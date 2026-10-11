@@ -1,8 +1,7 @@
 //! The one handle on mailo's logic: [`Mail`].
 //!
 //! A front-end builds a `Mail` once, at its edge, from the pieces only it can choose: the store it
-//! opened, the link to accountd it settled on, the runtime it owns, the environment it was started
-//! with, and (in a test) a clock. Everything this crate does that touches a server, the keyring or
+//! opened, the runtime it owns, the environment it was started with, and (in a test) a clock. Everything this crate does that touches a server, the keyring or
 //! the environment is then a method on it, grouped by what it is for:
 //!
 //! - [`Mail::accounts`]: adding, listing and removing accounts;
@@ -22,7 +21,7 @@
 
 use crate::environment::Environment;
 use chrono::{DateTime, Utc};
-use mail_runtime::{AccountSecrets, ClientRegistry, Link, platform_secrets};
+use mail_runtime::{AccountSecrets, ClientRegistry, platform_secrets};
 use mail_store::SqliteStore;
 use std::sync::Arc;
 use tokio::runtime::Handle;
@@ -65,12 +64,11 @@ impl Clock for FixedClock {
     }
 }
 
-/// The store, the link, the secrets, the environment, the clock and the runtime handle that
-/// mailo's operations run over. See the module documentation.
+/// The store, the secrets, the environment, the clock and the runtime handle that mailo's
+/// operations run over. See the module documentation.
 #[derive(Clone)]
 pub struct Mail {
     store: Arc<SqliteStore>,
-    link: Link,
     secrets: Arc<dyn AccountSecrets>,
     environment: Environment,
     clients: Option<ClientRegistry>,
@@ -80,21 +78,18 @@ pub struct Mail {
 
 impl std::fmt::Debug for Mail {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Mail")
-            .field("link", &self.link.name())
-            .finish_non_exhaustive()
+        f.debug_struct("Mail").finish_non_exhaustive()
     }
 }
 
 impl Mail {
-    /// A handle over `store`, signed in through `link`, with `runtime` as the one the
-    /// application owns. The secrets are the platform's (or accountd's, when linked), the
-    /// environment is empty and the clock is the wall's; change any with the `with_` methods.
-    pub fn new(store: Arc<SqliteStore>, link: Link, runtime: Handle) -> Self {
-        let secrets = platform_secrets(&link, &runtime);
+    /// A handle over `store`, with `runtime` as the one the application owns. The secrets are the
+    /// platform's, the environment is empty and the clock is the wall's; change any with the
+    /// `with_` methods.
+    pub fn new(store: Arc<SqliteStore>, runtime: Handle) -> Self {
+        let secrets = platform_secrets(&runtime);
         Self {
             store,
-            link,
             secrets,
             environment: Environment::default(),
             clients: None,
@@ -136,12 +131,7 @@ impl Mail {
         &self.store
     }
 
-    /// The link to accountd this handle was made with.
-    pub fn link(&self) -> &Link {
-        &self.link
-    }
-
-    /// Where account secrets are kept, or asked for: the link's, when there is one.
+    /// Where account secrets are kept.
     pub fn secrets(&self) -> Arc<dyn AccountSecrets> {
         self.secrets.clone()
     }
@@ -247,7 +237,7 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        let mail = Mail::new(store, Link::Local, runtime.handle().clone())
+        let mail = Mail::new(store, runtime.handle().clone())
             .with_secrets(Arc::new(MemorySecrets::default()));
         (mail, dir, runtime)
     }
@@ -255,7 +245,6 @@ mod tests {
     #[test]
     fn a_handle_carries_what_it_was_built_with_and_nothing_global() {
         let (mail, _dir, _runtime) = handle();
-        assert!(!mail.link().is_linked());
         assert_eq!(*mail.environment(), Environment::default());
         let given = Environment {
             password: Some("hunter2".to_owned()),
@@ -280,12 +269,6 @@ mod tests {
         let later = noon + chrono::TimeDelta::hours(3);
         clock.set(later);
         assert_eq!(mail.now(), later);
-    }
-
-    #[test]
-    fn the_secrets_are_the_ones_given_and_an_unlinked_store_has_no_link() {
-        let (mail, _dir, _runtime) = handle();
-        assert!(mail.secrets().link().is_none());
     }
 
     #[test]

@@ -22,14 +22,13 @@ use mail_domain::*;
 use mail_proto::backend::{Authenticate, ImapBackend, Pop3Backend};
 use mail_proto::{ImapAuth, ImapCommand, ImapSession, Pop3Command, Pop3Session};
 use mail_runtime::graph::read::{OverHttp, Reader};
-use mail_runtime::link::LinkedTokens;
 use mail_runtime::tokens::{self, Now};
 use mail_runtime::{
     AccountEngine, AccountSecrets, ClientRegistry, Held, OAuthTokens, SyncReport, TokenSource,
     clients,
 };
 use mail_store::SqliteStore;
-use porter_core::{AccountId, Credential, Family, SecretKey, SecretPurpose, SecretText};
+use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
 use report::{Done, Emit, Failure, Hooks, PassEnd, Progress};
 pub use search::search_server_with;
 use std::sync::Arc;
@@ -478,29 +477,11 @@ async fn signed_in_typed(
         .map_err(|e| Failure::of("cannot renew the sign-in: ", &e))
 }
 
-/// The credential stored for `account`'s sign-in: what the keyring holds for an account of mailo's
-/// own. An account that is the desktop's accountd's holds none here (its servers are reached
-/// through accountd's relays and its bearers asked for on its grant, `mail_runtime::link`), so
-/// what comes back is a placeholder no engine reads; without a link to accountd it cannot be
-/// reached at all, which is said as something to try again.
+/// The credential stored for `account`'s sign-in: what the keyring holds for it.
 pub(crate) async fn stored_credential(
     account: &Configured,
     secrets: &dyn AccountSecrets,
 ) -> Result<Credential, Failure> {
-    if account.plan.grant().is_some() {
-        return match secrets.link() {
-            Some(_) => Ok(Credential::Password(SecretText::new(""))),
-            None => Err(Failure {
-                retry: Retry::After(std::time::Duration::from_secs(30)),
-                why: format!(
-                    "{} is an account of the desktop's account service, which is not reachable",
-                    account.address
-                ),
-                pause: crate::fetch::Pause::ServerBusy,
-                refused: None,
-            }),
-        };
-    }
     secrets
         .get(&SecretKey {
             account: account.id.clone(),
@@ -510,10 +491,9 @@ pub(crate) async fn stored_credential(
         // A credential that is not there is one to be asked for again; a keyring that did not
         // answer is waited for, and says so.
         .map_err(|error| match mail_runtime::SecretTrouble::of(&error) {
-            mail_runtime::SecretTrouble::Absent => Failure::reauth(crate::account::no_credential(
-                &account.address,
-                &account.plan.auth,
-            )),
+            mail_runtime::SecretTrouble::Absent => {
+                Failure::reauth(crate::account::no_credential(&account.plan.auth))
+            }
             trouble @ mail_runtime::SecretTrouble::Unreachable(why) => Failure {
                 retry: trouble.retry(),
                 why: why.to_owned(),
@@ -538,15 +518,6 @@ fn renewal_for(
     registry: &ClientRegistry,
     clock: Now,
 ) -> Option<Arc<dyn TokenSource>> {
-    // An account that is accountd's presents a bearer only to Graph, and asks accountd for it.
-    if let AuthPlan::Granted { grant, .. } = &account.plan.auth {
-        let link = secrets.link()?;
-        return (account.plan.incoming == Incoming::Graph).then(|| {
-            let audience = porter_core::Audience(Family::Graph.slug());
-            let tokens = LinkedTokens::new(link, grant.clone(), audience).with_clock(clock);
-            Arc::new(tokens) as Arc<dyn TokenSource>
-        });
-    }
     let AuthPlan::OAuth { issuer, .. } = &account.plan.auth else {
         return None;
     };
@@ -775,7 +746,6 @@ fn imap_engine(
         | Credential::KeyPair { .. } => ImapCommand::Login,
     };
     let (username, sasl) = (username_for(&account.plan), sasl_for(&account.plan));
-    let relayed = account.plan.grant().is_some();
     let backend = ImapBackend::new(
         account.id.clone(),
         account.caps.clone(),
@@ -785,8 +755,7 @@ fn imap_engine(
         // process started with, for as long as it runs.
         Box::new(move |authenticate, commands: Vec<ImapCommand>| {
             let mut all = Vec::new();
-            // A relay's connection greets with `PREAUTH`: nothing to sign in with.
-            if authenticate == Authenticate::First && !relayed {
+            if authenticate == Authenticate::First {
                 all.push(mechanism.clone());
             }
             all.extend(commands);

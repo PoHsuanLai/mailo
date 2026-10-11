@@ -16,18 +16,13 @@ use porter_provider::Issuer;
 /// never going to be accepted, which is the hazard this whole project has been careful about.
 /// So an OAuth account says it needs a client id, and a password account only that none is stored;
 /// the steps for either are [`crate::Remedy::SignIn`]'s, worded by the front end.
-pub fn no_credential(address: &str, auth: &AuthPlan) -> String {
+pub fn no_credential(auth: &AuthPlan) -> String {
     match auth {
         AuthPlan::OAuth { issuer, .. } => format!(
             "not signed in yet. This account uses OAuth ({issuer:?}), which needs a client id \
              registered with the issuer — a password will not work"
         ),
         AuthPlan::Password { .. } => "no credential stored".to_owned(),
-        // Not a credential of ours to be missing: the grant is what is wanted.
-        AuthPlan::Granted { .. } => format!(
-            "the desktop's account service does not let Mail use {address} (any more). Allow it \
-             again in Add Account"
-        ),
     }
 }
 

@@ -16,11 +16,9 @@ authors = ["Po Hsuan Lai <pohsuanlai0208@gmail.com>"]
 [features]
 # On for a plain `cargo test -p mail-core`; `mail-app` names the ones it wants, and a consumer of
 # the logic alone (`default-features = false`) gets none of the desktop's adapters. Nothing that
-# reaches the platform's keyring or the session bus is default: those are `keyring` and
-# `quire-desktop`, which the program that wants them names.
+# reaches the platform's keyring is default: that is `keyring` (and `oo7`), which the program that
+# wants it names.
 default = ["desktop", "pdf"]
-# Desktop extras (design/36): the link to accountd over D-Bus, in mail-runtime.
-quire-desktop = ["mail-runtime/quire-desktop"]
 # The platform's secret stores for account secrets and signing keys, in mail-runtime. Without it
 # the caller hands in its own `AccountSecrets` and `SigningStore`.
 keyring = ["mail-runtime/keyring"]
