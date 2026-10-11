@@ -11,8 +11,8 @@ use super::style::STYLE;
 use crate::ui::selection::Toward;
 use crate::ui::space::Spaces;
 use crate::ui::view::{
-    Appearance, Listing, PageMenu, Peek, Shell, Shortcut, Source, badge_filter, folder_filter,
-    nothing_to_show, places_with,
+    Appearance, Listing, PageMenu, Peek, Shell, Shortcut, Source, folder_filter, nothing_to_show,
+    places_with, scoped_badge,
 };
 use chordkit::StandardAction;
 use dioxus::prelude::*;
@@ -141,22 +141,32 @@ pub(super) fn App() -> Element {
     // counts never changes — only the answer does.
     // Mailbox badges are fixed. Label badges join them when the label list changes, which is
     // a signal of its own so a keystroke — a shell change — does not recount.
+    // The accounts the list is showing. A memo of its own, so only a change of tile or Space
+    // reaches the counts, never a keystroke.
+    let badge_scope = use_memo(move || shell.read().account_filter());
     let badge_filters = use_memo(move || {
+        let scope = badge_scope();
         let mut filters: Vec<Option<Filter>> = crate::ui::view::default_places()
             .iter()
-            .map(|place| badge_filter(&place.source))
+            .map(|place| scoped_badge(&place.source, scope.clone()))
             .collect();
         for id in label_ids.read().iter() {
-            filters.push(Some(Filter::And(vec![
-                Filter::HasLabel(*id),
-                Filter::Read(ReadState::Unread),
-            ])));
+            filters.push(Some(mail_core::view::scoped(
+                scope.clone(),
+                Filter::And(vec![Filter::HasLabel(*id), Filter::Read(ReadState::Unread)]),
+            )));
         }
         for (_, mailbox) in folder_refs.read().iter() {
-            filters.push(badge_filter(&Source::Mail(folder_filter(mailbox))));
+            filters.push(scoped_badge(
+                &Source::Mail(folder_filter(mailbox)),
+                scope.clone(),
+            ));
         }
         for view in saved_views.read().iter() {
-            filters.push(badge_filter(&Source::Saved(Box::new(view.clone()))));
+            filters.push(scoped_badge(
+                &Source::Saved(Box::new(view.clone())),
+                scope.clone(),
+            ));
         }
         filters
     });
