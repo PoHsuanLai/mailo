@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 
 pub use mail_core::view::{
     Place, Source, badge_filter, default_places, folder_filter, folder_of, is_label_place,
-    places_with, saved_of, saved_place,
+    places_with, saved_of, saved_place, scoped_badge,
 };
 
 /// What a Mute button or menu item says for these conversations: what pressing it would do.
@@ -742,10 +742,7 @@ impl Shell {
     /// A tile wins over the Space: pressing one account inside a Space of three shows that
     /// account. No tile and an empty scope leave the filter alone, which is every account.
     fn with_account(&self, filter: Filter) -> Filter {
-        match self.account_filter() {
-            Some(account) => Filter::And(vec![account, filter]),
-            None => filter,
-        }
+        mail_core::view::scoped(self.account_filter(), filter)
     }
 
     /// The pressed tile, or the Space's accounts, as a filter. `None` is every account.

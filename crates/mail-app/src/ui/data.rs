@@ -43,8 +43,14 @@ pub(super) fn count_badges(store: &SqliteStore, filters: &[Option<Filter>]) -> V
     filters
         .iter()
         .map(|filter| match store.count(filter.as_ref()?, now) {
-            Ok(0) | Err(_) => None,
+            Ok(0) => None,
             Ok(n) => Some(n),
+            // No badge rather than a wrong one, but said: a count that fails every time is a
+            // store to look at, not a place with nothing unread.
+            Err(why) => {
+                log::warn!("a sidebar count failed: {why}");
+                None
+            }
         })
         .collect()
 }
@@ -173,6 +179,87 @@ mod tests {
         assert_eq!(
             listed.iter().map(|summary| summary.id).collect::<Vec<_>>(),
             [hi]
+        );
+    }
+}
+
+#[cfg(test)]
+mod badge_tests {
+    use super::*;
+    use crate::ui::view::{Listing, Shell, Source, default_places, scoped_badge};
+    use mail_domain::{ReadState, ThreadSummary};
+    use std::collections::BTreeSet;
+
+    /// The rows `shell` lists for the place it has selected, when that place lists threads.
+    fn listed(
+        store: &SqliteStore,
+        shell: &Shell,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> Option<Vec<ThreadSummary>> {
+        match shell.listing(1000) {
+            listing @ (Listing::Threads(_) | Listing::Inbox { .. }) => {
+                Some(list_for(store, listing, now))
+            }
+            _ => None,
+        }
+    }
+
+    /// One source of truth: in every scope the window can show (all accounts, or one account
+    /// pressed), each place's badge is the number of unread conversations opening it lists. A
+    /// badge counted over every account beside a list of one said Trash held a message that
+    /// was in another account's Trash.
+    #[test]
+    fn every_badge_counts_the_unread_its_place_lists_in_every_scope() {
+        let work = crate::ui::fixtures::work();
+        let store = &work.store;
+        let now = chrono::Utc::now();
+        let mut shell = Shell {
+            places: default_places(),
+            ..Shell::default()
+        };
+        let every: Vec<ThreadSummary> = list_for(store, Listing::Threads(shell.query(1000)), now);
+        let accounts: BTreeSet<_> = every.iter().map(|row| row.account.clone()).collect();
+        assert!(
+            accounts.len() > 1,
+            "the fixture needs mail in more than one account"
+        );
+
+        let mut differed = false;
+        for pressed in std::iter::once(None).chain(accounts.iter().cloned().map(Some)) {
+            shell.account = pressed.clone();
+            for (index, place) in default_places().iter().enumerate() {
+                if matches!(
+                    place.source,
+                    Source::Drafts | Source::Waiting | Source::History
+                ) {
+                    continue;
+                }
+                shell.selected = index;
+                let Some(rows) = listed(store, &shell, now) else {
+                    continue;
+                };
+                let unread = rows
+                    .iter()
+                    .filter(|row| row.read == ReadState::Unread)
+                    .count() as u64;
+                let badge = count_badges(
+                    store,
+                    &[scoped_badge(&place.source, shell.account_filter())],
+                )[0]
+                .unwrap_or(0);
+                let unscoped =
+                    count_badges(store, &[scoped_badge(&place.source, None)])[0].unwrap_or(0);
+                differed |= unscoped != badge;
+                assert_eq!(
+                    badge, unread,
+                    "{:?} with {pressed:?} pressed: the badge says {badge}, the list has {unread} unread",
+                    place.source
+                );
+            }
+        }
+        assert!(
+            differed,
+            "no scope narrowed any badge: the test proves nothing"
         );
     }
 }
