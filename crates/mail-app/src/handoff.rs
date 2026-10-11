@@ -18,9 +18,11 @@
 //! (`ds_blitz::WindowHandle::focus_with_token`), which on Wayland is how a compositor lets a window
 //! that exists take the keyboard. A token is good once, so only the first request of a call has it.
 //!
-//! macOS and Windows have no session bus: there `deliver` answers `false` and nothing is served.
+//! macOS has no session bus and listens on a Unix socket instead (`macos.rs`); Windows has neither: there
+//! `deliver` answers `false` and nothing is served.
 
 use mail_domain::ThreadId;
+use mail_mime::MailtoUri;
 
 /// The well-known name the running window owns.
 pub const NAME: &str = "io.github.PoHsuanLai.mailo";
@@ -55,6 +57,11 @@ pub enum Request {
         thread: ThreadId,
         token: Option<ActivationToken>,
     },
+    /// Open the composer on what this `mailto:` link asks for, and raise the window.
+    Mailto {
+        link: MailtoUri,
+        token: Option<ActivationToken>,
+    },
 }
 
 /// The scheme and path of a conversation's URI: `mailo:thread/<id>`.
@@ -72,21 +79,31 @@ pub fn thread_of(uri: &str) -> Option<ThreadId> {
 }
 
 /// What `uris` ask, the token on the first request only: every one is for this window, and a
-/// token is good once. No conversation of ours among them is a request to raise the window.
+/// token is good once. A conversation of ours or a `mailto:` link is a request; none among them
+/// is a request to raise the window.
 pub fn requests_of(uris: &[String], token: Option<ActivationToken>) -> Vec<Request> {
-    let mut threads = uris.iter().filter_map(|uri| thread_of(uri));
-    let Some(first) = threads.next() else {
-        return vec![Request::Activate { token }];
-    };
-    let first = Request::Thread {
-        thread: first,
-        token,
-    };
-    let rest = threads.map(|thread| Request::Thread {
-        thread,
-        token: None,
-    });
-    std::iter::once(first).chain(rest).collect()
+    let mut requests: Vec<Request> = uris
+        .iter()
+        .filter_map(|uri| {
+            if let Some(thread) = thread_of(uri) {
+                Some(Request::Thread {
+                    thread,
+                    token: None,
+                })
+            } else {
+                uri.parse()
+                    .ok()
+                    .map(|link| Request::Mailto { link, token: None })
+            }
+        })
+        .collect();
+    match requests.first_mut() {
+        Some(Request::Thread { token: first, .. } | Request::Mailto { token: first, .. }) => {
+            *first = token;
+        }
+        _ => requests.push(Request::Activate { token }),
+    }
+    requests
 }
 
 #[cfg(not(any(target_os = "macos", windows)))]
@@ -94,9 +111,14 @@ mod bus;
 #[cfg(not(any(target_os = "macos", windows)))]
 pub use bus::{Requests, deliver, serve};
 
-#[cfg(any(target_os = "macos", windows))]
+#[cfg(target_os = "macos")]
+mod macos;
+#[cfg(target_os = "macos")]
+pub use macos::{Requests, deliver, deliver_activate, deliver_mailto, hear_reopen, serve};
+
+#[cfg(windows)]
 mod none;
-#[cfg(any(target_os = "macos", windows))]
+#[cfg(windows)]
 pub use none::{Requests, deliver, serve};
 
 #[cfg(test)]
@@ -117,6 +139,17 @@ mod tests {
         for uri in NOT_OURS {
             assert_eq!(thread_of(uri), None, "{uri:?}");
         }
+    }
+
+    #[test]
+    fn a_mailto_link_is_a_request_and_takes_the_token_when_first() {
+        let token = ActivationToken::new("t");
+        let uris = ["mailto:a@example.test?subject=hi".to_owned()];
+        let want: MailtoUri = uris[0].parse().expect("a link");
+        assert_eq!(
+            requests_of(&uris, token.clone()),
+            vec![Request::Mailto { link: want, token }]
+        );
     }
 
     #[test]

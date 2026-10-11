@@ -8,6 +8,7 @@ members = [
   "crates/mail-store",
   "crates/mail-runtime",
   "crates/mail-core",
+  "crates/mail-appkit",
   "crates/mail-app",
 ]
 

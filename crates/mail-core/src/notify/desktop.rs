@@ -21,17 +21,19 @@
 //! action offered is `default`, the key a server invokes when the bubble itself is clicked.
 //!
 //! What each platform does not do:
-//! - macOS: a click opens nothing. Hearing it needs the main run loop of an application bundle,
-//!   and `mailo watch` is a command in a terminal; waiting would block that thread for good and
-//!   show the notification twice. The notification names the installed `mailo.app` when there is
-//!   one, else the system's default sender.
+//! - macOS: only the window hears a click ([`Desktop::connect_in_window`]): the click is delivered
+//!   on the application's main run loop, which winit's is, and `mailo watch` is a command in a
+//!   terminal with none, where waiting would block that thread for good. So a banner the watch
+//!   shows opens nothing when clicked, and one the window shows (a follow-up coming back) opens its
+//!   conversation through `mailo open`, which hands it to the running window. The notification
+//!   names the installed `mailo.app` when there is one, else the system's default sender.
 //! - Windows: toasts are shown as Windows PowerShell's. A toast names its sender by an
 //!   application user model id, and one that no Start menu shortcut registers shows nothing at
 //!   all, so the registered PowerShell id is the one that always works. No activation token: it
 //!   is a Wayland and X11 notion.
 
 use super::{Notification, Notifier, Opens};
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 use notify_rust::NotificationResponse;
 #[cfg(not(all(unix, not(target_os = "macos"))))]
 use std::sync::Arc;
@@ -52,6 +54,10 @@ type Hearing = Arc<Waiting>;
 pub struct Desktop {
     reach: Reach,
     hearing: Hearing,
+    /// macOS: whether this process runs the main run loop a click is delivered on (the window
+    /// does; `mailo watch`, a command in a terminal, does not).
+    #[cfg(target_os = "macos")]
+    run_loop: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -67,7 +73,22 @@ impl Desktop {
         Desktop {
             reach,
             hearing: hearing(reach),
+            #[cfg(target_os = "macos")]
+            run_loop: false,
         }
+    }
+
+    /// As [`connect`](Self::connect), for the window: the process that runs the application's
+    /// main run loop. On macOS that is what lets a click on a banner be heard; everywhere else
+    /// it is the same as `connect`.
+    pub fn connect_in_window() -> Self {
+        #[cfg_attr(not(target_os = "macos"), allow(unused_mut))]
+        let mut desktop = Self::connect();
+        #[cfg(target_os = "macos")]
+        {
+            desktop.run_loop = true;
+        }
+        desktop
     }
 }
 
@@ -115,7 +136,7 @@ fn reach() -> Reach {
 ///
 /// A macro rather than a function because the D-Bus handle and the toast handle share
 /// `wait_for_response` but not a type, and `notify-rust` does not export the toast's by name.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 macro_rules! wait_on {
     ($shown:expr, $opens:expr, $waiting:expr) => {{
         // Past the bound the notification is still shown; only its click opens nothing.
@@ -139,6 +160,8 @@ impl Notifier for Desktop {
         }
         let notification = notification.clone();
         let hearing = self.hearing.clone();
+        #[cfg(target_os = "macos")]
+        let run_loop = self.run_loop;
         // On a thread of its own, because a notification service that is slow to answer — or
         // registered and wedged — holds the call for its whole timeout, and this is called
         // between passes of a loop that fetches mail for every account on one thread. The same
@@ -151,10 +174,12 @@ impl Notifier for Desktop {
             hearing.show(shown.id(), notification.opens);
             #[cfg(windows)]
             wait_on!(shown, notification.opens, hearing);
-            // On macOS a click is not heard (the module's notes say why), so nothing waits.
+            // On macOS only the window hears a click (the module's notes say why); `shown` sends
+            // the notification when it is dropped, so there it simply goes.
             #[cfg(target_os = "macos")]
-            // Not a result: the two are only kept alive until here.
-            let _ = (shown, hearing);
+            if run_loop {
+                wait_on!(shown, notification.opens, hearing);
+            }
         });
     }
 }
@@ -230,7 +255,7 @@ impl Launch {
 /// What follows from the service's answer about a notification that opens `opens`: a window to
 /// start when the notification itself was clicked, and nothing for a close or for any other
 /// action (none other is offered, so a service inventing one gets nothing).
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 pub fn answer(response: &NotificationResponse, opens: Opens) -> Option<Launch> {
     match response {
         NotificationResponse::Default => Some(Launch { opens }),
@@ -249,7 +274,6 @@ pub fn answer(response: &NotificationResponse, opens: Opens) -> Option<Launch> {
 /// and may take focus. The child is waited for on a thread of its own, so it is neither held up
 /// nor left a zombie. A window that cannot be started is a click that did nothing, with nobody to
 /// tell but the watch's terminal.
-#[cfg(not(target_os = "macos"))]
 fn start(launch: Launch, token: Option<&str>) {
     let exe = match std::env::current_exe() {
         Ok(exe) => exe,
@@ -341,7 +365,7 @@ mod tests {
 
     // Only Windows reads a response (Linux listens in `click`), so the click test, the one user
     // of this id, runs there.
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     fn thread(n: u128) -> Opens {
         Opens::Thread(mail_domain::ThreadId::from_uuid(uuid::Uuid::from_u128(n)))
     }
@@ -352,7 +376,7 @@ mod tests {
         assert_eq!(escape("lunch on friday"), "lunch on friday");
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     #[test]
     fn a_click_on_the_notification_opens_what_it_was_about_and_nothing_else_does() {
         use notify_rust::CloseReason;

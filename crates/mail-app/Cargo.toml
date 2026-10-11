@@ -167,6 +167,8 @@ zbus = "5.19"
 rpassword = "7"
 
 [target.'cfg(target_os = "macos")'.dependencies]
+# The application delegate (open-URL, Dock reopen): the one crate allowed `unsafe`.
+mail-appkit = { path = "../mail-appkit" }
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString"] }
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSResponder", "NSDockTile"] }
