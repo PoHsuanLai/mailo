@@ -270,6 +270,7 @@ pub(in crate::ui) fn work() -> Work {
             },
         ],
         colors,
+        profile: mail_core::profile::ProfileId::default(),
     };
     let spaces = space::built(vec![("Work".to_owned(), work, mail)], 0);
     space::save(

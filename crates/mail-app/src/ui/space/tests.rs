@@ -85,6 +85,7 @@ fn a_spaces_file_from_before_quire_still_loads_and_round_trips() {
                     email: "dana@example.com".to_owned(),
                 }],
                 colors: BTreeMap::new(),
+                profile: ProfileId::default(),
             },
         ),
         (
