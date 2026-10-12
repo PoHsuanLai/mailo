@@ -11,8 +11,11 @@
 //!   not async: calling it from a task of that same runtime panics, as `block_on` always does.
 //! - [`install_environment`] records what `main` decided; until it does, the environment is
 //!   empty, which is what a test wants.
+//! - [`install_profile`] records whose mail the process is over; until it does, that is the
+//!   default Profile, which is what a test wants.
 //! - [`mail`] builds the handle over a store from those.
 
+use mail_core::profile::{Profile, Roots};
 use mail_core::{Environment, Mail};
 use mail_runtime::AccountSecrets;
 use mail_store::SqliteStore;
@@ -22,6 +25,7 @@ use tokio::runtime::Runtime;
 
 static RUNTIME: OnceLock<Runtime> = OnceLock::new();
 static ENVIRONMENT: OnceLock<Environment> = OnceLock::new();
+static PROFILE: OnceLock<(Profile, Roots)> = OnceLock::new();
 
 /// The application's one runtime, started the first time anything asks. It lives as long as the
 /// process, which is what the secret store's connection to the keyring needs of it.
@@ -51,10 +55,64 @@ pub fn environment() -> Environment {
     ENVIRONMENT.get().cloned().unwrap_or_default()
 }
 
+/// Records whose mail the process is over, and the directories its paths are under. Only the first
+/// call counts.
+pub fn install_profile(profile: Profile, roots: Roots) {
+    let _ = PROFILE.set((profile, roots));
+}
+
+/// The Profile `main` recorded: the default one until it does.
+pub fn profile() -> Profile {
+    PROFILE
+        .get()
+        .map(|(profile, _)| profile.clone())
+        .unwrap_or_default()
+}
+
+/// The directories the recorded Profile's paths are under: `None` until `main` records them.
+pub fn roots() -> Option<Roots> {
+    PROFILE.get().map(|(_, roots)| roots.clone())
+}
+
 /// The handle on `mail-core` over `store`, with the process's environment and the application's
 /// runtime.
 pub fn mail(store: &Arc<SqliteStore>) -> Mail {
     Mail::new(store.clone(), runtime().handle().clone()).with_environment(environment())
+}
+
+/// The profile named by a leading `--profile <x>` or `--profile=<x>`, and the arguments without
+/// it, so everything that reads the command line afterwards reads what it always read.
+///
+/// The flag is the program's own and goes ahead of the verb (`mailo --profile work open <thread>`,
+/// `mailo --profile work mailto:…`, `mailo --profile work`); after the verb the words are the
+/// verb's. A flag with no value is an error, and given twice the last one counts.
+pub fn take_profile_flag(
+    args: impl IntoIterator<Item = String>,
+) -> Result<(Vec<String>, Option<String>), String> {
+    let mut rest = args.into_iter().peekable();
+    let mut profile = None;
+    loop {
+        let value = match rest.peek().map(String::as_str) {
+            Some("--profile") => {
+                rest.next();
+                rest.next()
+            }
+            Some(arg) if arg.starts_with("--profile=") => rest
+                .next()
+                .and_then(|arg| arg.strip_prefix("--profile=").map(str::to_owned)),
+            _ => break,
+        };
+        match value.filter(|value| !value.is_empty()) {
+            Some(value) => profile = Some(value),
+            None => {
+                return Err(
+                    "--profile needs a profile id or name: mailo --profile <id-or-name> <command>"
+                        .to_owned(),
+                );
+            }
+        }
+    }
+    Ok((rest.collect(), profile))
 }
 
 /// mailo's store of account secrets, for the calls that take only that.
@@ -65,6 +123,75 @@ pub fn secrets() -> Arc<dyn AccountSecrets> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn taken(words: &[&str]) -> Result<(Vec<String>, Option<String>), String> {
+        take_profile_flag(words.iter().map(|word| (*word).to_owned()))
+    }
+
+    #[test]
+    fn the_profile_flag_is_taken_ahead_of_the_verb_and_nothing_else_moves() {
+        const CASES: &[(&[&str], &[&str], Option<&str>)] = &[
+            (&[], &[], None),
+            (&["list"], &["list"], None),
+            (&["--profile", "work"], &[], Some("work")),
+            (&["--profile=work"], &[], Some("work")),
+            (
+                &["--profile", "work", "list", "inbox"],
+                &["list", "inbox"],
+                Some("work"),
+            ),
+            (
+                &["--profile=work", "open", "t1"],
+                &["open", "t1"],
+                Some("work"),
+            ),
+            (
+                &["--profile", "work", "mailto:a@example.test"],
+                &["mailto:a@example.test"],
+                Some("work"),
+            ),
+            // Twice: the last one.
+            (
+                &["--profile", "a", "--profile=b", "sync"],
+                &["sync"],
+                Some("b"),
+            ),
+            // After the verb it is the verb's, which says what it makes of it.
+            (
+                &["list", "--profile", "work"],
+                &["list", "--profile", "work"],
+                None,
+            ),
+            (&["search", "--profile=x"], &["search", "--profile=x"], None),
+            // A word that merely starts like it is not it.
+            (&["--profiles", "x"], &["--profiles", "x"], None),
+        ];
+        for (words, rest, profile) in CASES {
+            let (got_rest, got) = taken(words).unwrap();
+            assert_eq!(&got_rest, rest, "{words:?}");
+            assert_eq!(got.as_deref(), *profile, "{words:?}");
+        }
+    }
+
+    #[test]
+    fn a_profile_flag_with_no_value_is_refused() {
+        for words in [
+            &["--profile"][..],
+            &["--profile="],
+            &["--profile", "", "list"],
+        ] {
+            let error = taken(words).unwrap_err();
+            assert!(error.contains("--profile needs"), "{words:?}: {error}");
+        }
+    }
+
+    #[test]
+    fn with_no_profile_recorded_the_default_one_is_in_force() {
+        // Another test in this process may have recorded one; the default is the unrecorded case.
+        if PROFILE.get().is_none() {
+            assert!(profile().id().is_default());
+        }
+    }
 
     #[test]
     fn work_is_waited_on_from_a_plain_thread_and_from_many_at_once() {

@@ -1427,6 +1427,9 @@ usage: mailo <command>
                              how much of each account is here
   daemon [--stop]            run the background daemon, or stop it
   ping                       reach the daemon, starting one if none is running
+
+options, before the command:
+  --profile <id-or-name>     run over that profile's mail instead of the default's
 "
     .to_owned()
 }
