@@ -2,6 +2,7 @@
 //! that every `spaces.json` mailo ever wrote still reads as it did. How quire's kit reads a file
 //! field by field is quire's to test; these are mailo's files through it.
 
+use mail_core::profile::ProfileId;
 use super::{Mail, Pinned, Recall, Scope, SpaceId, Spaces, boot, ensure_colors, first_run, load};
 use crate::ui::appearance::{Legacy, WindowDirs};
 use ds::prelude::{SpaceLook, Theme};
@@ -190,6 +191,28 @@ fn mail_s_own_fields_read_leniently() {
 }
 
 #[test]
+fn a_space_belongs_to_the_default_profile_unless_it_says_otherwise() {
+    let (_dir, dirs) = dirs();
+    write(
+        &dirs,
+        r#"{"spaces":[{"name":"Old"},{"name":"Other","profile":"0123abcd"},{"name":"Bad","profile":"nope"}]}"#,
+    );
+    let profiles: Vec<ProfileId> = load(&dirs)
+        .list()
+        .iter()
+        .map(|space| space.payload.profile.clone())
+        .collect();
+    assert_eq!(
+        profiles,
+        vec![ProfileId::default(), other_profile(), ProfileId::default()]
+    );
+}
+
+fn other_profile() -> ProfileId {
+    "0123abcd".parse().expect("a profile id")
+}
+
+#[test]
 fn first_run_follows_the_accounts() {
     let none = first_run(&[]);
     assert_eq!(none.count(), 1, "zero accounts");
@@ -261,25 +284,40 @@ fn boot_writes_a_first_run_inherits_a_missing_theme_and_colours_the_accounts() {
 
 #[test]
 fn colours_fill_only_the_accounts_without_one() {
+    let profile = ProfileId::default();
     let mut mail = Mail::default();
     mail.colors.insert(account(1), "#000000".to_owned());
-    assert!(ensure_colors(&mut mail, &[account(1), account(2)]));
+    assert!(ensure_colors(&mut mail, &profile, &[account(1), account(2)]));
     assert_eq!(mail.colors[&account(1)], "#000000");
     assert!(mail.colors.contains_key(&account(2)));
     assert!(
-        !ensure_colors(&mut mail, &[account(1), account(2)]),
+        !ensure_colors(&mut mail, &profile, &[account(1), account(2)]),
         "twice"
     );
+    let mut foreign = Mail {
+        profile: other_profile(),
+        ..Mail::default()
+    };
+    assert!(!ensure_colors(&mut foreign, &profile, &[account(1)]));
+    assert!(foreign.colors.is_empty(), "another Profile's Space is left alone");
 }
 
 #[test]
 fn a_new_account_joins_a_scoped_space_and_not_an_open_one() {
+    let profile = ProfileId::default();
     let mut open = Mail::over(Scope::All);
-    assert!(!open.widen(account(1)));
+    assert!(!open.widen(&profile, account(1)));
     assert_eq!(open.scope, Scope::All);
 
     let mut scoped = Mail::over(Scope::Accounts(vec![account(2)]));
-    assert!(scoped.widen(account(1)));
-    assert!(!scoped.widen(account(1)), "added twice");
+    assert!(scoped.widen(&profile, account(1)));
+    assert!(!scoped.widen(&profile, account(1)), "added twice");
     assert_eq!(scoped.scope, Scope::Accounts(vec![account(2), account(1)]));
+
+    let mut foreign = Mail {
+        profile: other_profile(),
+        ..Mail::over(Scope::Accounts(vec![account(2)]))
+    };
+    assert!(!foreign.widen(&profile, account(1)));
+    assert_eq!(foreign.scope, Scope::Accounts(vec![account(2)]));
 }

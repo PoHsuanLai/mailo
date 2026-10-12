@@ -26,6 +26,7 @@ use ds_shell::prelude::{
 };
 use mail_core::SqliteStore;
 use porter_core::AccountId;
+use mail_core::profile::ProfileId;
 
 use super::host::{self, Ended, Shown};
 use super::map::{self, Action, Out, Sheet, Step};
@@ -410,7 +411,7 @@ pub(super) fn into_scope(spaces: &mut Signal<Spaces>, account: AccountId) {
         let mut all = spaces.write();
         let current = all.current().id;
         let mut widened = false;
-        all.edit(current, |space| widened = space.payload.widen(account));
+        all.edit(current, |space| widened = space.payload.widen(&ProfileId::default(), account));
         widened
     };
     if widened {

@@ -15,6 +15,7 @@ use ds::components::menus::item::item::{AfterPick, MenuItem};
 use ds::prelude::{Availability, Check};
 use mail_core::SqliteStore;
 use porter_core::AccountId;
+use mail_core::profile::ProfileId;
 use std::sync::Arc;
 
 /// Every account there is, in order, and how the window names it.
@@ -87,7 +88,7 @@ pub(in crate::ui) fn MailSpaceMenu(handle: Handle, mut today: Signal<Today>) -> 
     rsx! {
         SpaceMenu::<Mail, Recall, AccountId> {
             handle,
-            new_payload: move |()| Mail::over(Scope::All),
+            new_payload: move |()| Mail::new_in(&ProfileId::default()),
             extra,
             on_extra: move |(space, account): (SpaceId, AccountId)| {
                 let all: Vec<AccountId> = accounts().into_iter().map(|(id, _)| id).collect();
