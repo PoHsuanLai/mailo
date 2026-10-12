@@ -1449,6 +1449,8 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
     // What the process was started with: the commands that take a password or a passphrase from
     // the environment read it here, and the library reads nothing itself.
     let env = mail.environment().clone();
+    // The Profile's own keys: the handle was built over its keyring service.
+    let signing = mail.signing();
     match command {
         Command::List { mailbox, limit } => {
             // `view::place_filter`, not `Filter::InMailbox`: the shell and the command list the
@@ -1504,7 +1506,7 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
                 // never before. The decrypted text is printed and kept nowhere.
                 let protected = mail_core::pgp::open_message(
                     store,
-                    &mail_core::KeyringSigningStore::default(),
+                    signing.as_ref(),
                     &message,
                     &|fingerprint| pgp::terminal_passphrase(&env, fingerprint),
                     now,
@@ -1525,7 +1527,7 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
                     Some(text) => Some(text),
                     None => match mail_core::smime::open_message(
                         store,
-                        &mail_core::KeyringSigningStore::default(),
+                        signing.as_ref(),
                         &message,
                         now,
                     ) {
@@ -1598,7 +1600,7 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
         // protected key.
         Command::Send { draft, at: None } => mail_core::compose::send_with(
             store,
-            &mail_core::KeyringSigningStore::default(),
+            signing.as_ref(),
             &|fingerprint| pgp::terminal_passphrase(&env, fingerprint),
             *draft,
             now,
@@ -1610,7 +1612,7 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
             at: Some(when),
         } => mail_core::compose::send_later_with(
             store,
-            &mail_core::KeyringSigningStore::default(),
+            signing.as_ref(),
             &|fingerprint| pgp::terminal_passphrase(&env, fingerprint),
             *draft,
             when,
@@ -1732,7 +1734,7 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
         .map_err(remedy::error),
         Command::Smime(command) => smime::run(
             store,
-            &mail_core::KeyringSigningStore::default(),
+            signing.as_ref(),
             &|| smime::terminal_password(&env),
             command,
             now,
@@ -1743,7 +1745,7 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
         }
         Command::Pgp(command) => pgp::run(
             store,
-            &mail_core::KeyringSigningStore::default(),
+            signing.as_ref(),
             command,
             now,
         )

@@ -16,7 +16,7 @@
 //! - [`mail`] builds the handle over a store from those.
 
 use mail_core::profile::{Profile, Roots};
-use mail_core::{Environment, Mail};
+use mail_core::{Environment, KeyringSigningStore, Mail, SigningStore};
 use mail_runtime::AccountSecrets;
 use mail_store::SqliteStore;
 use std::future::Future;
@@ -74,10 +74,17 @@ pub fn roots() -> Option<Roots> {
     PROFILE.get().map(|(_, roots)| roots.clone())
 }
 
-/// The handle on `mail-core` over `store`, with the process's environment and the application's
-/// runtime.
+/// The signing keys of the recorded Profile, in the keyring service its id names.
+pub fn signing() -> Arc<dyn SigningStore> {
+    Arc::new(KeyringSigningStore::for_service(profile().signing_service()))
+}
+
+/// The handle on `mail-core` over `store`, with the process's environment, its Profile's signing
+/// keys and the application's runtime.
 pub fn mail(store: &Arc<SqliteStore>) -> Mail {
-    Mail::new(store.clone(), runtime().handle().clone()).with_environment(environment())
+    Mail::new(store.clone(), runtime().handle().clone())
+        .with_environment(environment())
+        .with_signing(signing())
 }
 
 /// The profile named by a leading `--profile <x>` or `--profile=<x>`, and the arguments without
@@ -190,6 +197,7 @@ mod tests {
         // Another test in this process may have recorded one; the default is the unrecorded case.
         if PROFILE.get().is_none() {
             assert!(profile().id().is_default());
+            assert_eq!(profile().signing_service(), "mailo");
         }
     }
 
