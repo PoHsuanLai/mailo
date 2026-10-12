@@ -1525,22 +1525,20 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
                 // S/MIME likewise, when OpenPGP found nothing to open.
                 let opened_text = match opened_text {
                     Some(text) => Some(text),
-                    None => match mail_core::smime::open_message(
-                        store,
-                        signing.as_ref(),
-                        &message,
-                        now,
-                    ) {
-                        Ok(Some(protected)) => {
-                            out.push_str(&smime::describe(&protected));
-                            protected.shown.and_then(|parsed| parsed.text)
+                    None => {
+                        match mail_core::smime::open_message(store, signing.as_ref(), &message, now)
+                        {
+                            Ok(Some(protected)) => {
+                                out.push_str(&smime::describe(&protected));
+                                protected.shown.and_then(|parsed| parsed.text)
+                            }
+                            Ok(None) => None,
+                            Err(e) => {
+                                let _ = writeln!(out, "    S/MIME: {e}");
+                                None
+                            }
                         }
-                        Ok(None) => None,
-                        Err(e) => {
-                            let _ = writeln!(out, "    S/MIME: {e}");
-                            None
-                        }
-                    },
+                    }
                 };
                 if let Some(text) = opened_text {
                     let _ = writeln!(out, "{}", text.trim_end());
@@ -1743,13 +1741,9 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
         Command::Pgp(pgp::PgpCommand::Lookup { .. }) => {
             Err("pgp lookup is dispatched before this point".to_owned())
         }
-        Command::Pgp(command) => pgp::run(
-            store,
-            signing.as_ref(),
-            command,
-            now,
-        )
-        .map_err(remedy::error),
+        Command::Pgp(command) => {
+            pgp::run(store, signing.as_ref(), command, now).map_err(remedy::error)
+        }
         Command::Receipt { message, answer } => {
             mail_core::receipt::answer(store, *message, *answer, now)
                 .map(|settled| receipt::answered(&settled))

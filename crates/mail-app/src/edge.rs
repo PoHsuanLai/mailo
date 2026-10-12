@@ -76,7 +76,9 @@ pub fn roots() -> Option<Roots> {
 
 /// The signing keys of the recorded Profile, in the keyring service its id names.
 pub fn signing() -> Arc<dyn SigningStore> {
-    Arc::new(KeyringSigningStore::for_service(profile().signing_service()))
+    Arc::new(KeyringSigningStore::for_service(
+        profile().signing_service(),
+    ))
 }
 
 /// The handle on `mail-core` over `store`, with the process's environment, its Profile's signing
