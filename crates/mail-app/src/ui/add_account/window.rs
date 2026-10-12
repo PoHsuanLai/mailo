@@ -25,8 +25,8 @@ use ds_shell::prelude::{
     BrowserWait, ProviderList, ReviewServices, ShowCode, SignInFailed, SignInForm, SignInWorking,
 };
 use mail_core::SqliteStore;
-use porter_core::AccountId;
 use mail_core::profile::ProfileId;
+use porter_core::AccountId;
 
 use super::host::{self, Ended, Shown};
 use super::map::{self, Action, Out, Sheet, Step};
@@ -411,7 +411,9 @@ pub(super) fn into_scope(spaces: &mut Signal<Spaces>, account: AccountId) {
         let mut all = spaces.write();
         let current = all.current().id;
         let mut widened = false;
-        all.edit(current, |space| widened = space.payload.widen(&ProfileId::default(), account));
+        all.edit(current, |space| {
+            widened = space.payload.widen(&ProfileId::default(), account)
+        });
         widened
     };
     if widened {

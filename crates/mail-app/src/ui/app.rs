@@ -21,8 +21,8 @@ use ds::components::chrome::split_view::model::{Collapsing, PaneSize, PaneSpec, 
 use ds::components::chrome::split_view::view::SplitView;
 use ds::prelude::*;
 use ds_settings::{Environment, UserStyle};
-use mail_core::{SqliteStore, Store};
 use mail_core::profile::ProfileId;
+use mail_core::{SqliteStore, Store};
 use mail_domain::*;
 use std::sync::Arc;
 
@@ -296,7 +296,8 @@ pub(super) fn App() -> Element {
         };
         let mut next = spaces.peek().clone();
         // The window opens the default Profile until it can open others.
-        if crate::ui::space::forget_unknown(&mut next, &ProfileId::default(), &known) == crate::ui::space::Forgot::Changed
+        if crate::ui::space::forget_unknown(&mut next, &ProfileId::default(), &known)
+            == crate::ui::space::Forgot::Changed
         {
             frame::keep(&next);
             let scope = next.current().payload.scope.clone();

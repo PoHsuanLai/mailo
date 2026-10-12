@@ -14,8 +14,8 @@ use ds::components::app::spaces::SpaceMenu;
 use ds::components::menus::item::item::{AfterPick, MenuItem};
 use ds::prelude::{Availability, Check};
 use mail_core::SqliteStore;
-use porter_core::AccountId;
 use mail_core::profile::ProfileId;
+use porter_core::AccountId;
 use std::sync::Arc;
 
 /// Every account there is, in order, and how the window names it.

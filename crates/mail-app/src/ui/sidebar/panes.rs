@@ -19,9 +19,9 @@ use ds::components::lists::list::model::{ListItem, ListStyle};
 use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use ds::root::common::Common;
-use mail_core::profile::ProfileId;
 use ds::style::tokens::hex::{Colour, Hex};
 use ds::style::tokens::person::PersonSwatch;
+use mail_core::profile::ProfileId;
 use mail_core::provider::{Provider, provider};
 use mail_core::query::{self};
 use mail_core::{SqliteStore, Store};
@@ -268,7 +268,9 @@ fn bring_in(mut shell: Signal<Shell>, mut spaces: Signal<Spaces>, account: Accou
         let mut all = spaces.write();
         let current = all.current().id;
         let mut widened = false;
-        all.edit(current, |space| widened = space.payload.widen(&ProfileId::default(), account));
+        all.edit(current, |space| {
+            widened = space.payload.widen(&ProfileId::default(), account)
+        });
         widened
     };
     if widened {

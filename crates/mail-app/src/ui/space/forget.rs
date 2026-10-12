@@ -58,7 +58,11 @@ fn forget_where(spaces: &mut Spaces, account: AccountId, of: impl Fn(&Mail) -> b
 /// accounts are in a store not open here, is left exactly as it is.
 pub fn forget_unknown(spaces: &mut Spaces, profile: &ProfileId, known: &[AccountId]) -> Forgot {
     let mut named: Vec<AccountId> = Vec::new();
-    for space in spaces.list().iter().filter(|s| s.payload.profile == *profile) {
+    for space in spaces
+        .list()
+        .iter()
+        .filter(|s| s.payload.profile == *profile)
+    {
         if let Scope::Accounts(ids) = &space.payload.scope {
             named.extend(ids.iter().cloned());
         }
@@ -71,7 +75,10 @@ pub fn forget_unknown(spaces: &mut Spaces, profile: &ProfileId, known: &[Account
         .into_iter()
         .filter(|id| !known.contains(id))
         .fold(Forgot::Nothing, |forgot, id| {
-            match (forgot, forget_where(spaces, id, |mail| mail.profile == *profile)) {
+            match (
+                forgot,
+                forget_where(spaces, id, |mail| mail.profile == *profile),
+            ) {
                 (Forgot::Nothing, Forgot::Nothing) => Forgot::Nothing,
                 _ => Forgot::Changed,
             }
@@ -81,8 +88,8 @@ pub fn forget_unknown(spaces: &mut Spaces, profile: &ProfileId, known: &[Account
 #[cfg(test)]
 mod tests {
     use super::{Forgot, forget_account, forget_unknown};
-    use mail_core::profile::ProfileId;
     use crate::ui::space::{Mail, Recall, Scope, Spaces};
+    use mail_core::profile::ProfileId;
     use porter_core::AccountId;
     use uuid::Uuid;
 

@@ -2,13 +2,13 @@
 //! that every `spaces.json` mailo ever wrote still reads as it did. How quire's kit reads a file
 //! field by field is quire's to test; these are mailo's files through it.
 
-use mail_core::profile::ProfileId;
 use super::{Mail, Pinned, Recall, Scope, SpaceId, Spaces, boot, ensure_colors, first_run, load};
 use crate::ui::appearance::{Legacy, WindowDirs};
 use ds::prelude::{SpaceLook, Theme};
 use ds::style::space::look::CardAccent;
 use ds::style::space::palette::Dot;
 use ds::style::space::presets::PRESETS;
+use mail_core::profile::ProfileId;
 use mail_domain::ThreadId;
 use mail_domain::id::account_id_from_uuid;
 use porter_core::AccountId;
@@ -287,7 +287,11 @@ fn colours_fill_only_the_accounts_without_one() {
     let profile = ProfileId::default();
     let mut mail = Mail::default();
     mail.colors.insert(account(1), "#000000".to_owned());
-    assert!(ensure_colors(&mut mail, &profile, &[account(1), account(2)]));
+    assert!(ensure_colors(
+        &mut mail,
+        &profile,
+        &[account(1), account(2)]
+    ));
     assert_eq!(mail.colors[&account(1)], "#000000");
     assert!(mail.colors.contains_key(&account(2)));
     assert!(
@@ -299,7 +303,10 @@ fn colours_fill_only_the_accounts_without_one() {
         ..Mail::default()
     };
     assert!(!ensure_colors(&mut foreign, &profile, &[account(1)]));
-    assert!(foreign.colors.is_empty(), "another Profile's Space is left alone");
+    assert!(
+        foreign.colors.is_empty(),
+        "another Profile's Space is left alone"
+    );
 }
 
 #[test]
