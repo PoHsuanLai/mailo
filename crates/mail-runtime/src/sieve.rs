@@ -5,7 +5,6 @@
 //! connections a push needs — one to learn what the server's Sieve can do, one to install a
 //! script written for exactly that.
 
-use crate::error::within;
 use crate::{Cancel, RuntimeError, Transport, drive};
 use chrono::{DateTime, Utc};
 use mail_domain::{Rule, Vacation};
@@ -13,8 +12,7 @@ use mail_proto::sieve::{
     Compiled, Endpoint, Places, SieveAuthentication, SieveJob, SieveLogin, SieveOutcome,
     SieveSession, Takeover, compile,
 };
-use porter_core::{Credential, GrantId, ServiceEndpoint};
-use std::sync::Arc;
+use porter_core::Credential;
 
 /// Who to sign in as.
 ///
@@ -23,20 +21,8 @@ use std::sync::Arc;
 pub struct SieveAuth {
     pub username: String,
     pub credential: Credential,
-    /// For an account that is the desktop's accountd's: its relay for the ManageSieve server. The
-    /// connection comes from the daemon already upgraded and signed in, and `username` and
-    /// `credential` are not read.
-    pub relay: Option<Relay>,
     /// The name this client's script goes by on the server, and who the script says wrote it.
     pub script_name: String,
-}
-
-/// accountd's relay to one server of a granted account.
-#[derive(Debug, Clone)]
-pub struct Relay {
-    pub link: Arc<dyn crate::link::Accountd>,
-    pub grant: GrantId,
-    pub endpoint: ServiceEndpoint,
 }
 
 /// Do one job on the account's ManageSieve server.
@@ -46,32 +32,15 @@ pub async fn manage(
     job: SieveJob,
     cancel: &mut Cancel,
 ) -> Result<SieveOutcome, RuntimeError> {
-    let mut transport = match &auth.relay {
-        // Bounded as the engines' relays are (`AccountEngine::connect`): accountd signs in first.
-        Some(relay) => {
-            within(crate::drive::QUIET, "opening a relay", async {
-                relay
-                    .link
-                    .open(&relay.grant, &relay.endpoint)
-                    .await
-                    .map_err(RuntimeError::from)
-            })
-            .await?
-        }
-        None => Transport::connect(&endpoint.host, endpoint.port, endpoint.tls).await?,
-    };
+    let mut transport = Transport::connect(&endpoint.host, endpoint.port, endpoint.tls).await?;
     let mut session = SieveSession::new(
         SieveLogin {
             host: endpoint.host.clone(),
             port: endpoint.port,
             tls: endpoint.tls,
-            auth: if auth.relay.is_some() {
-                SieveAuthentication::Relayed
-            } else {
-                SieveAuthentication::SignIn {
-                    username: auth.username.clone(),
-                    credential: auth.credential.clone(),
-                }
+            auth: SieveAuthentication::SignIn {
+                username: auth.username.clone(),
+                credential: auth.credential.clone(),
             },
             script_name: auth.script_name.clone(),
         },

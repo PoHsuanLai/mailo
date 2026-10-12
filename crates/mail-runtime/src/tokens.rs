@@ -5,8 +5,7 @@
 //! operation, and again when a server refuses a token that looked valid: "give me the credential
 //! to present", "renew it once, because it was refused". The engine takes tokens from nowhere
 //! else. [`OAuthTokens`] is the source that renews in process, through porter-oauth, over the
-//! account's secrets (`porter_secrets`); at E6 another implementation answers from accountd's
-//! `Accounts::token` and the engines do not change.
+//! account's secrets (`porter_secrets`).
 //!
 //! It holds each of the account's access tokens to the issuer's schedule, not the pass's: the
 //! incoming one in a [`Held`] cell that the backend's session factory reads each time it
@@ -508,7 +507,7 @@ impl OAuthTokens {
     ) -> Self {
         let incoming_scopes = match &plan.auth {
             AuthPlan::OAuth { scopes, .. } => incoming_scopes(scopes),
-            AuthPlan::Password { .. } | AuthPlan::Granted { .. } => Vec::new(),
+            AuthPlan::Password { .. } => Vec::new(),
         };
         Self {
             account,

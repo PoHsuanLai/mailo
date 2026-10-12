@@ -262,7 +262,7 @@ fn stored(
 fn scopes_of(auth: &AuthPlan) -> Vec<String> {
     match auth {
         AuthPlan::OAuth { scopes, .. } => scopes.clone(),
-        AuthPlan::Password { .. } | AuthPlan::Granted { .. } => Vec::new(),
+        AuthPlan::Password { .. } => Vec::new(),
     }
 }
 

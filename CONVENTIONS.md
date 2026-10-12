@@ -26,7 +26,7 @@ Push effects to the edges. The layering already encodes this: `mail-domain`, `ma
 the clock. `mail-core` drives them and may use tokio, but has no window and no
 terminal in it; `mail-app` draws the window (`ui`) and the terminal (`cli`) over it. The libraries start no
 runtime, read no environment variable and keep no process-wide state: their I/O is `async`, and `mail-app`'s
-`edge` owns the one runtime, the link to accountd and the environment, handing them in through `mail_core::Mail`
+`edge` owns the one runtime and the environment, handing them in through `mail_core::Mail`
 (`scripts/check-boundary.sh` and `tests/core/no_hidden_runtime.rs` hold the line). When a pure crate seems to need an effect, that is a sign the effect belongs to the
 caller — `Op::apply` returns a `RemoteIntent` rather than performing one, and `Machine::feed`
 returns an `IoNeed` rather than satisfying it.

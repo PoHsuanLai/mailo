@@ -285,13 +285,6 @@ impl SqliteStore {
     }
 }
 
-impl SqliteStore {
-    /// What accounts are selected `FROM` while held ones are set aside, for a test of that.
-    pub fn raw_accounts(&self) -> &'static str {
-        self.accounts()
-    }
-}
-
 /// Rewrite stored messages: `edit` is shown each one and says whether it changed it, and a
 /// changed message is written back the way any other change to it is.
 pub fn edit_messages(store: &SqliteStore, mut edit: impl FnMut(&mut mail_domain::Message) -> bool) {

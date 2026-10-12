@@ -98,7 +98,6 @@ pub(super) fn settings(plan: &AccountPlan) -> Vec<Line> {
             (AuthPlan::Password { .. }, false) => {
                 format!("With a password, as {}", plan.username())
             }
-            (AuthPlan::Granted { .. }, _) => "Through your system's accounts".to_owned(),
         },
     ));
     let addresses: Vec<String> = plan

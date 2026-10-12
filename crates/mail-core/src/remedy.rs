@@ -21,13 +21,11 @@ pub enum SignInWith {
 }
 
 impl SignInWith {
-    /// How an account's plan signs in. A grant is the desktop's to give again, so it names no
-    /// way of ours.
+    /// How an account's plan signs in.
     pub fn of(auth: &mail_domain::AuthPlan) -> Self {
         match auth {
             mail_domain::AuthPlan::OAuth { issuer, .. } => SignInWith::OAuth { issuer: *issuer },
             mail_domain::AuthPlan::Password { .. } => SignInWith::Password,
-            mail_domain::AuthPlan::Granted { .. } => SignInWith::Unknown,
         }
     }
 }

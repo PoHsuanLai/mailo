@@ -36,9 +36,6 @@ const ASK: &str = "Remove Account\u{2026}";
 #[derive(Clone)]
 pub(in crate::ui) struct Seams {
     pub secrets: Arc<dyn AccountSecrets>,
-    /// Where the sign-ins Mail holds itself are kept, for removing an account it signed in itself
-    /// while linked to accountd (`secrets` is then the link's, which holds none of them).
-    pub own: Arc<dyn AccountSecrets>,
 }
 
 impl Seams {
@@ -47,7 +44,6 @@ impl Seams {
     fn real() -> Seams {
         Seams {
             secrets: Arc::new(porter_secrets::MemorySecrets::default()),
-            own: Arc::new(porter_secrets::MemorySecrets::default()),
         }
     }
 
@@ -55,7 +51,6 @@ impl Seams {
     fn real() -> Seams {
         Seams {
             secrets: crate::edge::secrets(),
-            own: crate::edge::own_secrets(),
         }
     }
 }
@@ -133,55 +128,6 @@ fn forgotten(dirs: Option<&WindowDirs>, account: AccountId) {
     if let Some(dirs) = dirs {
         let _ = mail_core::offline::save(&dirs.config, account, mail_core::offline::Keep::Bodies);
     }
-}
-
-/// What asking to remove `account`, an account Mail signed in itself that is set aside while
-/// linked to accountd, says: the title, the body and the confirming button. The words of any
-/// removal: they name the mail on this computer that goes with it.
-pub(super) fn held_asking(account: &AccountId, address: &str) -> (String, String, &'static str) {
-    let store = try_consume_context::<Arc<SqliteStore>>();
-    let held = store
-        .as_ref()
-        .and_then(|store| store.offline(account.clone()).ok())
-        .map_or(0, |offline| {
-            usize::try_from(offline.messages).unwrap_or(usize::MAX)
-        });
-    let incoming = store
-        .as_ref()
-        .and_then(|store| store.account(account.clone()).ok().flatten())
-        .and_then(|stored| stored.plan.ok())
-        .map(|plan| plan.incoming);
-    let asked = words::asking(
-        address,
-        held,
-        incoming.as_ref().unwrap_or(&mail_domain::Incoming::Graph),
-    );
-    (asked.title, asked.body, asked.confirm)
-}
-
-/// Remove `account`, which Mail signed in itself and which is set aside while linked: the same
-/// removal as `mailo account remove`, forgetting its sign-in from mailo's own store. `failed` says
-/// why when it did not happen; the revision moves when it did.
-pub(super) fn remove_held(
-    mut revision: Signal<u64>,
-    mut failed: Signal<Option<String>>,
-    account: AccountId,
-) {
-    let Some(store) = try_consume_context::<Arc<SqliteStore>>() else {
-        return;
-    };
-    let seams = seams();
-    let dirs = try_consume_context::<WindowDirs>();
-    dioxus::core::spawn_forever(async move {
-        match mail_core::account::remove(&store, seams.own.as_ref(), account.clone()).await {
-            Ok(_) => {
-                forgotten(dirs.as_ref(), account);
-                failed.set(None);
-                revision += 1;
-            }
-            Err(error) => failed.set(Some(words::refused(&error))),
-        }
-    });
 }
 
 /// The account's page, under the pane's header, which names it.

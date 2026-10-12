@@ -281,7 +281,7 @@ pub fn announce(
 /// Every address the user sends from: each account's own, and each identity's.
 pub fn own_addresses(store: &SqliteStore) -> Result<Own, CoreError> {
     let mut addresses: Vec<String> = Vec::new();
-    for account in store.list_all_accounts()? {
+    for account in store.list_accounts()? {
         addresses.push(account.address);
         // An unreadable plan still has its address; the identities are a bonus.
         if let Ok(plan) = account.plan {

@@ -5309,3 +5309,16 @@ before, byte for byte (the existing suite).
   accountd's side is the relay in memory (the boundary keeps a real accountd out of the dev
   dependencies). **Not tested:** the Unix-socket end of a real accountd's relay; `relayed_io` takes
   the fd the way `Transport::relayed` does, and the suite has no real accountd to hand one over.
+
+### F207 — Linked mode is gone: mailo keeps its own accounts and credentials (supersedes F204–F206)
+
+Decision: porter's account store is a library mailo owns outright; accountd becomes
+an optional "Continue as" sign-in helper in a later step, and mailo always keeps its own credentials.
+So the link to accountd is removed whole: `mail_runtime::link` (`Link`, `Accountd`, `LinkedSecrets`,
+`LinkedTokens`, the D-Bus follower), `mail-app`'s `accountd` module and its start in `main.rs`,
+`AuthPlan::Granted` and everything that matched on it, the relayed CardDAV client and the link's
+relay for ManageSieve, IMAP and SMTP (the protocol crates keep their relayed-session seam), and the held accounts (`SqliteStore::set_granted_only`, `held.rs`, `HELD_LINE`).
+Migration 0031 removes any stored account whose plan is `granted`, with every row that names it, the
+way removing an account does; none was in use. `AccountEngine::with_dial` keeps the in-memory server
+the silent-server tests ran behind the link's relay. `scripts/check-boundary.sh` (`LINKED_SYMBOLS`)
+keeps the names from coming back.

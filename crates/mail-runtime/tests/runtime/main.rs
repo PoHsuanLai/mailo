@@ -9,8 +9,6 @@
 mod bimi_support;
 #[path = "../jmap_fake/mod.rs"]
 mod jmap_fake;
-#[path = "../support/relay.rs"]
-mod relay;
 
 mod assemble;
 mod bimi;
@@ -26,7 +24,6 @@ mod graph_send;
 mod imap_end_to_end;
 mod jmap;
 mod large_messages;
-mod link_bus;
 mod live_imap;
 mod live_pop3;
 mod live_probe;

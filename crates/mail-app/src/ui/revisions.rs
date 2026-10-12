@@ -78,7 +78,7 @@ impl Revisions {
         self.0.stamp.send_modify(|stamp| bridge.publish(stamp));
     }
 
-    /// Something that is no window's changed the store (an account accountd added or removed):
+    /// Something that is no window's changed the store (an account a sign-in in the browser added):
     /// every window reads it again. Nobody's own move, so every window follows it.
     pub fn bump(&self) {
         self.0.stamp.send_modify(|stamp| {

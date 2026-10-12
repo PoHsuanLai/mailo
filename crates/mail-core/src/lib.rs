@@ -6,10 +6,10 @@
 //! `mail-runtime`). `mail-app` is its only user, and draws two front-ends over it: the window
 //! (`mail_app::ui`) and the command line (`mail_app::cli`).
 //!
-//! The way in is [`Mail`]: one handle over the store, the link to accountd, the environment and
-//! the clock, with the operations that wait on a network as `async` methods grouped by what they
-//! are for. This crate starts no runtime and reads no environment variable; the front-end owns
-//! both and hands them in.
+//! The way in is [`Mail`]: one handle over the store, the secrets, the environment and the clock,
+//! with the operations that wait on a network as `async` methods grouped by what they are for.
+//! This crate starts no runtime and reads no environment variable; the front-end owns both and
+//! hands them in.
 //!
 //! This crate never depends on a toolkit that draws (`dioxus`, `ds`, `ds-settings`,
 //! `ds-blitz`): `scripts/check-boundary.sh` fails the build if it does. A function here returns
@@ -44,6 +44,7 @@ pub mod pgp;
 pub mod place;
 pub mod preview;
 pub mod print;
+pub mod profile;
 pub mod provider;
 pub mod query;
 pub mod receipt;
@@ -72,7 +73,7 @@ pub use mail::{
     SystemClock,
 };
 /// The doubles at the runtime's seams, for a front end's tests: an in-memory transport, secrets and
-/// signing store, and accountd as a table.
+/// signing store.
 #[cfg(feature = "testing")]
 pub use mail_runtime::testing;
 /// What the window tells the body pass it is reading and fetching, so the pass does not repeat it.
@@ -80,9 +81,9 @@ pub use mail_runtime::wanted;
 /// The runtime types mail-core's API hands out and takes: re-exported, so a front end goes
 /// through mail-core alone.
 pub use mail_runtime::{
-    AccountSecrets, Accountd, Arrival, ClientRegistry, Destination, KeyringSigningStore, Link,
-    Searched, ServerHits, SigningStore, Transport, absorb, absorb_into, assemble, fetch, link,
-    off_runtime, remote_image, schedule, sieve::Pushed,
+    AccountSecrets, Arrival, ClientRegistry, Destination, KeyringSigningStore, Searched,
+    ServerHits, SigningStore, Transport, absorb, absorb_into, assemble, fetch, off_runtime,
+    remote_image, schedule, sieve::Pushed,
 };
 /// The store a front end opens and hands to mail-core.
 pub use mail_store::{SqliteStore, Store, StoreError};

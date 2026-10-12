@@ -322,9 +322,7 @@ impl Proposal {
     /// Servers discovery or the built-in table found.
     fn discovered(address: &str, preset: Preset) -> Proposal {
         let auth = match &preset.plan.auth {
-            // Discovery finds servers to sign in to with mailo's own sign-in; an account of the
-            // desktop's accountd is read from it (`mail_core::account::reconcile`), never found.
-            AuthPlan::Password { .. } | AuthPlan::Granted { .. } => Auth::Password,
+            AuthPlan::Password { .. } => Auth::Password,
             AuthPlan::OAuth { issuer, scopes } => Auth::OAuth {
                 issuer: *issuer,
                 scopes: scopes.clone(),

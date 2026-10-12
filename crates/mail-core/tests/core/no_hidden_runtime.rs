@@ -92,18 +92,3 @@ fn mail_core_reads_no_environment_variable() {
         hits.join("\n")
     );
 }
-
-#[test]
-fn the_link_to_accountd_is_not_a_global() {
-    let hits = found(
-        "mail-runtime",
-        &["link::install(", "link::current(", "static CURRENT"],
-        &[],
-    );
-    assert!(
-        hits.is_empty(),
-        "the link is handed to mail_core::Mail::new; a process-wide copy is the application's \
-         (mail-app's edge):\n{}",
-        hits.join("\n")
-    );
-}

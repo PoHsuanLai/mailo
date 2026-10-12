@@ -60,13 +60,12 @@ name = "mailo"
 path = "src/main.rs"
 
 [features]
-# Desktop extras (design/36 rule 3): what only our desktop has, lit by a capability probe at run
-# time and never by asking which OS this is. Here: the link to accountd, so the add-account sheet
-# is sill's and the account's secrets are accountd's. On by default; a build for another desktop,
-# and the portable gate (`cargo check --workspace --no-default-features`), has the in-process path
-# alone, and `ds-desktop`, zbus and the D-Bus transport are not in its tree.
+# Desktop extras (design/36 rule 3): what only our desktop has. Here: a saved file opens in
+# anyview, the desktop's viewer, over the session bus (`ui/downloads/open.rs`), with the system's
+# app when anyview does not answer. On by default; a build for another desktop, and the portable
+# gate (`cargo check --workspace --no-default-features`), opens files in the system's app alone.
 default = ["quire-desktop"]
-quire-desktop = ["mail-core/quire-desktop", "mail-runtime/quire-desktop", "dep:ds-desktop"]
+quire-desktop = []
 
 [dependencies]
 porter-core.workspace = true
@@ -76,7 +75,7 @@ porter-client.workspace = true
 # `Secrets`, the seam porter's service is built over; no store feature, so no keyring and no zbus.
 porter-secrets.workspace = true
 # The desktop's notifications and PDF previews are mail-core features the window and the watch use;
-# they stay on in a build without the accountd link (`quire-desktop`).
+# they stay on in a build without the desktop extras (`quire-desktop`).
 mail-core = { workspace = true, features = ["desktop", "pdf", "keyring"] }
 mail-domain.workspace = true
 mail-store.workspace = true
@@ -111,19 +110,19 @@ dioxus = { version = "0.7" }
 # display). quire re-exports only `StandardAction`; mailo names `Action`, `AppAction`, `Context` and
 # `Chord` as well. The rev quire pins (`docs/workspace-deps.toml`), so one chordkit is built.
 chordkit = { git = "https://github.com/PoHsuanLai/chordkit.git", rev = "ba094c62006c280ac53c4c5df5c0e639c1226c07" }
-ds = { git = "https://github.com/PoHsuanLai/quire.git", rev = "319e0b0903657d4af841fdfd09ba1c649ed3cd57" }  # v0.3.18
+ds = { git = "https://github.com/PoHsuanLai/quire.git", rev = "b50e4b80ac8e03ebd2f9506d3aed92770cbeb6cd" }  # v0.3.19
 # Settings I/O: `appearance.toml` (imported once from `appearance.json`), the settings portal.
-ds-settings = { git = "https://github.com/PoHsuanLai/quire.git", rev = "319e0b0903657d4af841fdfd09ba1c649ed3cd57", features = ["dioxus"] }  # v0.3.18
+ds-settings = { git = "https://github.com/PoHsuanLai/quire.git", rev = "b50e4b80ac8e03ebd2f9506d3aed92770cbeb6cd", features = ["dioxus"] }  # v0.3.19
 # The account sheets' views (step E5): `ds_shell::accounts`, the parts `sill` draws the same sheet with.
 # Only the accounts module is used; the shell's own surfaces (bar, dock, lock) are not drawn here.
-ds-shell = { git = "https://github.com/PoHsuanLai/quire.git", rev = "319e0b0903657d4af841fdfd09ba1c649ed3cd57" }  # v0.3.18
+ds-shell = { git = "https://github.com/PoHsuanLai/quire.git", rev = "b50e4b80ac8e03ebd2f9506d3aed92770cbeb6cd" }  # v0.3.19
 # `mailo.toml`, and the `appearance.toml` written once on the first run after the move.
 toml = "1"
 # The window: quire's Blitz host (the window, its fonts, focus, clipboard, PDF output), and
 # `print`: the system's print dialog for a PDF (the desktop portal on Linux, else the PDF opened
 # in the viewer); `spell`: the composer's spelling, against the system's Hunspell dictionaries
 # (none is bundled); `pdf` also rasterises a PDF attachment's first page (`PdfFileThumb`).
-ds-blitz = { git = "https://github.com/PoHsuanLai/quire.git", rev = "319e0b0903657d4af841fdfd09ba1c649ed3cd57", features = ["pdf", "print", "spell"] }  # v0.3.18
+ds-blitz = { git = "https://github.com/PoHsuanLai/quire.git", rev = "b50e4b80ac8e03ebd2f9506d3aed92770cbeb6cd", features = ["pdf", "print", "spell"] }  # v0.3.19
 blitz-dom = { workspace = true }
 dioxus-native-dom = { workspace = true }
 base64 = "0.22"
@@ -146,10 +145,6 @@ url = "2"
 # The account secrets in the Secret Service through oo7: Linux's store, which the other platforms
 # do not carry (the library keeps it a feature of its own).
 mail-runtime = { workspace = true, features = ["oo7"] }
-# The capability probe (`Desktop::probe`, `Capability::Accounts`): is accountd on the session bus,
-# or one the bus would start. quire's own crate, at the tag `ds` names; its `dbus` feature is zbus
-# (already in this tree for intents), and without `quire-desktop` it is not here at all.
-ds-desktop = { git = "https://github.com/PoHsuanLai/quire.git", rev = "319e0b0903657d4af841fdfd09ba1c649ed3cd57", default-features = false, features = ["dbus"], optional = true }  # v0.3.18
 
 [target.'cfg(not(any(target_os = "macos", windows)))'.dependencies]
 rfd = { version = "=0.17.2", default-features = false, features = ["xdg-portal"] }
@@ -219,8 +214,8 @@ proptest = "1"
 # The linter (`lint::assert_clean`, the markup lint) and the test driver (`Harness`, `Driver`,
 # `Query`, `snapshot`; `pdf` is `Harness::pdf` for the print tests): quire's own crates, at the
 # same tag.
-ds-lint = { git = "https://github.com/PoHsuanLai/quire.git", rev = "319e0b0903657d4af841fdfd09ba1c649ed3cd57" }  # v0.3.18
-ds-harness = { git = "https://github.com/PoHsuanLai/quire.git", rev = "319e0b0903657d4af841fdfd09ba1c649ed3cd57", features = ["pdf"] }  # v0.3.18
+ds-lint = { git = "https://github.com/PoHsuanLai/quire.git", rev = "b50e4b80ac8e03ebd2f9506d3aed92770cbeb6cd" }  # v0.3.19
+ds-harness = { git = "https://github.com/PoHsuanLai/quire.git", rev = "b50e4b80ac8e03ebd2f9506d3aed92770cbeb6cd", features = ["pdf"] }  # v0.3.19
 
 [lints]
 workspace = true

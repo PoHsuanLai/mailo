@@ -43,46 +43,38 @@ fn identity_of(row: &Row<'_>) -> Result<Identity, StoreError> {
 }
 
 impl SqliteStore {
-    /// Every account that is shown, oldest first. With held accounts set aside
-    /// ([`SqliteStore::set_granted_only`]) they are not here.
+    /// Every account, oldest first.
     ///
     /// A row whose id is not an id is left out: there is nothing to call it by.
     pub fn list_accounts(&self) -> Result<Vec<StoredAccount>, StoreError> {
-        self.read_accounts(self.accounts(), "", [])
+        self.read_accounts("", [])
     }
 
-    /// Every account the store holds, whether or not held accounts are set aside. For the code
-    /// that has to see them: reconciling with the desktop's accounts, or removing one.
-    pub fn list_all_accounts(&self) -> Result<Vec<StoredAccount>, StoreError> {
-        self.read_accounts("accounts", "", [])
-    }
-
-    /// The account with this address, set aside or not. The address is compared as written.
+    /// The account with this address. The address is compared as written.
     pub fn account_by_address(&self, address: &str) -> Result<Option<StoredAccount>, StoreError> {
         Ok(self
-            .read_accounts("accounts", "WHERE a.address = ?1", [address])?
+            .read_accounts("WHERE a.address = ?1", [address])?
             .into_iter()
             .next())
     }
 
-    /// The account with this id, set aside or not.
+    /// The account with this id.
     pub fn account(&self, id: AccountId) -> Result<Option<StoredAccount>, StoreError> {
         Ok(self
-            .read_accounts("accounts", "WHERE a.id = ?1", [id.to_string()])?
+            .read_accounts("WHERE a.id = ?1", [id.to_string()])?
             .into_iter()
             .next())
     }
 
     fn read_accounts<P: rusqlite::Params>(
         &self,
-        from: &str,
         filter: &str,
         params: P,
     ) -> Result<Vec<StoredAccount>, StoreError> {
         let db = self.reader();
         let mut stmt = db.prepare(&format!(
             "SELECT a.id, a.address, a.plan, c.caps
-             FROM {from} a LEFT JOIN account_caps c ON c.account = a.id
+             FROM accounts a LEFT JOIN account_caps c ON c.account = a.id
              {filter} ORDER BY a.created_at"
         ))?;
         let rows = stmt.query_map(params, |r| {

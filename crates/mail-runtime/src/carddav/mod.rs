@@ -11,19 +11,9 @@
 //! — `/.well-known/carddav` (RFC 6764) — is usually a `301` answered to a `PROPFIND`, which the
 //! client would turn into a `GET`; and because credentials go only to the origin they were given
 //! for, never to wherever a redirect points.
-//!
-//! **Through accountd's relay** (step E7, [`Dav::relayed`]): an account that is the desktop's
-//! accountd's has no password or token here. The requests go as plain HTTP/1.1, with no
-//! `Authorization`, over the stream `Accounts::open_authenticated` returns for the account's
-//! CardDAV endpoint, one stream for each request; the relay dials the server over TLS and adds the
-//! credential (`relay.rs`). The https rule reads there as: the URL is the origin of the endpoint
-//! the grant lists, and nothing else (the relay refuses any other origin, and a redirect to one
-//! stops here before anything is written). The scheme is the endpoint's own, which porter allows
-//! to be plain `http` only for a loopback host.
 
 mod discover;
 mod group;
-mod relay;
 mod sync;
 
 pub use discover::{Collection, discover};
@@ -32,12 +22,9 @@ pub use sync::{How, Synced, sync};
 
 use crate::RuntimeError;
 use crate::error::Failure;
-use crate::link::Accountd;
 use mail_domain::{Retry, Retryable};
-use porter_core::{GrantId, ServiceEndpoint};
 use reqwest::{Method, StatusCode};
 use std::fmt;
-use std::sync::Arc;
 use std::time::Duration;
 use url::Url;
 
@@ -56,10 +43,6 @@ pub enum DavAuth {
     /// An OAuth bearer token (RFC 6750): the account's own sign-in, for a provider whose
     /// address book accepts it.
     Bearer(String),
-    /// None at all: the desktop's accountd signs in on its relay, which adds the `Authorization`
-    /// itself and drops any this side writes. Only [`Dav::relayed`] has it; no request of that
-    /// session carries an `Authorization` header.
-    Relayed,
 }
 
 // By hand, like `Credential`'s: a derived Debug puts the secret in every log line.
@@ -72,22 +55,20 @@ impl fmt::Debug for DavAuth {
                 .field("password", &"<redacted>")
                 .finish(),
             DavAuth::Bearer(_) => f.write_str("DavAuth::Bearer(<redacted>)"),
-            DavAuth::Relayed => f.write_str("DavAuth::Relayed"),
         }
     }
 }
 
 impl DavAuth {
-    /// The `Authorization` value to send, if this side sends one.
-    fn header(&self) -> Option<String> {
+    /// The `Authorization` value to send.
+    fn header(&self) -> String {
         use base64::Engine as _;
         match self {
-            DavAuth::Basic { user, password } => Some(format!(
+            DavAuth::Basic { user, password } => format!(
                 "Basic {}",
                 base64::engine::general_purpose::STANDARD.encode(format!("{user}:{password}"))
-            )),
-            DavAuth::Bearer(token) => Some(format!("Bearer {token}")),
-            DavAuth::Relayed => None,
+            ),
+            DavAuth::Bearer(token) => format!("Bearer {token}"),
         }
     }
 }
@@ -98,10 +79,6 @@ pub enum CardDavFailure {
     /// `401`: the password or token was refused.
     #[error("the address book server refused the sign-in")]
     Unauthorized,
-    /// Through accountd's relay: Mail is no longer allowed to read the account's contacts (the
-    /// grant was withdrawn). Allowing Mail again answers it, not a sign-in.
-    #[error("Mail is no longer allowed to read this account's contacts")]
-    NotAllowed,
     /// Any other status the exchange could not go on from.
     #[error("the address book server answered {status} to {what}")]
     Refused { status: u16, what: &'static str },
@@ -111,10 +88,6 @@ pub enum CardDavFailure {
     /// A redirect or an href pointed somewhere other than `https:`.
     #[error("{0} is not an https address; nothing was sent there")]
     Insecure(String),
-    /// Through accountd's relay: a redirect or an href named a server other than the account's
-    /// CardDAV endpoint, which the relay would refuse. Nothing was sent there.
-    #[error("{0} is not the account's address book server; nothing was sent there")]
-    Foreign(String),
     /// A redirect loop, or a chain longer than [`REDIRECTS`].
     #[error("too many redirects from {0}")]
     Redirects(String),
@@ -130,7 +103,6 @@ impl Retryable for CardDavFailure {
     fn retry(&self) -> Retry {
         match self {
             CardDavFailure::Unauthorized => Retry::NeedsReauth,
-            CardDavFailure::NotAllowed => Retry::NeedsGrant,
             CardDavFailure::Refused {
                 status: 429 | 500..=599,
                 ..
@@ -168,18 +140,10 @@ pub fn client() -> Result<reqwest::Client, RuntimeError> {
 /// One server, signed in to.
 #[derive(Debug, Clone)]
 pub struct Dav {
-    wire: Wire,
+    http: reqwest::Client,
     auth: DavAuth,
-    /// The origin the credentials were given for. Nothing else is sent them. Relayed, the origin
-    /// of the endpoint the relay serves, and the only one a request may name.
+    /// The origin the credentials were given for. Nothing else is sent them.
     origin: url::Origin,
-}
-
-/// How the requests get to the server: a client of ours, or the stream accountd's relay hands over.
-#[derive(Debug, Clone)]
-enum Wire {
-    Http(reqwest::Client),
-    Relay(relay::Relay),
 }
 
 /// What came back from one request, before redirects and statuses are read.
@@ -222,55 +186,12 @@ pub(crate) enum Put {
 impl Dav {
     /// A session with the server at `base`, which must be https.
     pub fn new(http: reqwest::Client, base: &Url, auth: DavAuth) -> Result<Self, RuntimeError> {
-        if auth == DavAuth::Relayed {
-            return Err(RuntimeError::Connect(Failure::said(
-                "a session with no credential of its own goes through accountd's relay",
-            )));
-        }
         https(base)?;
         Ok(Self {
-            wire: Wire::Http(http),
+            http,
             auth,
             origin: base.origin(),
         })
-    }
-
-    /// A session with the account's CardDAV `endpoint`, through accountd's relay on `grant`
-    /// (`Accounts::open_authenticated`): no credential here ([`DavAuth::Relayed`]), and no TLS
-    /// either, the relay owns both. Every request opens its own stream, so a relay that is
-    /// refused (`NeedsReauth`, a grant gone) says so on the request, and an idle connection is
-    /// never found closed.
-    pub fn relayed(
-        link: Arc<dyn Accountd>,
-        grant: GrantId,
-        endpoint: ServiceEndpoint,
-    ) -> Result<Self, RuntimeError> {
-        let base = Url::parse(endpoint.url.as_str())
-            .map_err(|e| RuntimeError::Connect(Failure::new(endpoint.url.as_str(), e)))?;
-        Ok(Self {
-            origin: base.origin(),
-            wire: Wire::Relay(relay::Relay::new(link, grant, endpoint)),
-            auth: DavAuth::Relayed,
-        })
-    }
-
-    /// The URL a session starts from when it is not given one: the endpoint the relay serves.
-    /// `None` for a session of our own.
-    pub fn endpoint_url(&self) -> Option<Url> {
-        match &self.wire {
-            Wire::Http(_) => None,
-            Wire::Relay(relay) => Url::parse(relay.endpoint().url.as_str()).ok(),
-        }
-    }
-
-    /// Whether a request may go to `url`: https, for a client of ours; the relay's endpoint
-    /// origin, for the relay.
-    fn secure(&self, url: &Url) -> Result<(), CardDavFailure> {
-        match &self.wire {
-            Wire::Http(_) => https(url),
-            Wire::Relay(_) if url.origin() == self.origin => Ok(()),
-            Wire::Relay(_) => Err(CardDavFailure::Foreign(url.to_string())),
-        }
     }
 
     /// An href from a reply, as a URL: relative ones against the URL that was asked.
@@ -278,7 +199,7 @@ impl Dav {
         let url = base
             .join(href)
             .map_err(|e| CardDavFailure::Malformed(format!("{href}: {e}")))?;
-        self.secure(&url)?;
+        https(&url)?;
         Ok(url)
     }
 
@@ -293,7 +214,7 @@ impl Dav {
             .map_err(|e| CardDavFailure::Malformed(e.to_string()))?;
         let mut at = url.clone();
         for _ in 0..=REDIRECTS {
-            self.secure(&at)?;
+            https(&at)?;
             let mut headers: Vec<(&'static str, String)> =
                 vec![("Content-Type", request.content_type.to_owned())];
             if let Some(depth) = request.depth {
@@ -302,19 +223,10 @@ impl Dav {
             if let Some(etag) = request.if_match {
                 headers.push(("If-Match", etag.to_owned()));
             }
-            if at.origin() == self.origin
-                && let Some(value) = self.auth.header()
-            {
-                headers.push(("Authorization", value));
+            if at.origin() == self.origin {
+                headers.push(("Authorization", self.auth.header()));
             }
-            let raw = match &self.wire {
-                Wire::Http(http) => exchange(http, &method, &at, &headers, &request.body).await?,
-                Wire::Relay(relay) => {
-                    relay
-                        .exchange(&method, &at, &headers, &request.body)
-                        .await?
-                }
-            };
+            let raw = exchange(&self.http, &method, &at, &headers, &request.body).await?;
             if raw.status.is_redirection()
                 && let Some(location) = &raw.location
             {
