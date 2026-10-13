@@ -84,6 +84,12 @@ jobs:
       - name: No silent discards
         run: ./scripts/check-discards.sh
 
+      # Every word the window shows lives in crates/mail-app/src/ui/copy/, by kind: held by a
+      # ratchet on the visible string literals still written elsewhere under ui/
+      # (scripts/copy-literals.txt).
+      - name: The window's words are in ui/copy
+        run: ./scripts/check-copy.sh
+
       # The [patch] block is quire's fork block exactly (vello, anyrender, dioxus): checked against
       # quire's own docs/fork-patches.toml at the pinned rev, never against a copy kept here.
       - name: The fork patches are quire's
