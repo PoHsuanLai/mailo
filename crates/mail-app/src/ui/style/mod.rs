@@ -597,8 +597,8 @@ pub(in crate::ui) mod tests {
     #[test]
     fn every_font_size_is_a_step_of_the_scale() {
         const SCALE: &[&str] = &[
-            "var(--fs-display)",   // a composer's subject, 26
-            "var(--fs-subject)",   // a reader's subject, 20
+            "var(--fs-display)",   // a display title, 26
+            "var(--fs-subject)",   // a reader's and a composer's subject, 20
             "var(--fs-heading)",   // a heading written in a message
             "var(--fs-heading-3)", // a sub-heading written in a message
             "var(--fs-title)",     // a pane's title, 16
@@ -645,7 +645,8 @@ pub(in crate::ui) mod tests {
     }
 
     /// Type rule: titles. A pane's title is Title (16/700), a reader's subject 20/700 on 1.15 in
-    /// the display face, a composer's subject 26/700.
+    /// the display face, and a composer's subject the same: what you write looks like what you
+    /// read.
     #[test]
     fn the_titles_are_set_by_the_rule_sheet() {
         assert_eq!(values_of(".list-head h2", "font-size"), ["var(--fs-title)"]);
@@ -654,7 +655,8 @@ pub(in crate::ui) mod tests {
             ["var(--fs-subject)"]
         );
         assert_eq!(values_of(".reader-subject", "line-height"), ["1.15"]);
-        assert_eq!(values_of(".c-title", "font-size"), ["var(--fs-display)"]);
+        assert_eq!(values_of(".c-title", "font-size"), ["var(--fs-subject)"]);
+        assert_eq!(values_of(".c-title", "line-height"), ["1.15"]);
         assert_eq!(values_of(".c-title", "font-weight"), ["700"]);
         assert_eq!(
             values_of(".c-title", "font-family"),

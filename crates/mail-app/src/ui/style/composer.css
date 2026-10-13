@@ -11,27 +11,32 @@
 }
 .cpage.sending { opacity: 0; transition: opacity var(--t-quick) var(--e-exit); }
 .cpage.focus { position: absolute; inset: 0; z-index: var(--z-focus-page); }
-.cpage.focus .c-scroll > * { padding-inline: max(var(--s-18), calc((100% - 70ch) / 2)); }
+.cpage.focus .c-scroll > * { padding-inline: max(var(--s-18), calc((100% - 66ch) / 2)); }
+/* the bar: Focus alone, at the right edge every trailing control shares */
 .c-top { display: flex; align-items: center; gap: var(--s-6); padding: var(--s-10) var(--s-18); }
-.c-top .state { display: flex; align-items: center; gap: var(--s-6); color: var(--ink-faint); }
-.c-top .state .pip { width: var(--s-6); height: var(--s-6); border-radius: var(--r-pill); background: var(--ok); transition: background-color var(--t-quick) var(--e-out); }
-.c-top .state.dirty .pip { background: var(--warn); }
 .c-top .grow, .c-foot .grow { flex: 1; }
 .c-scroll { flex: 1; overflow-y: auto; scrollbar-width: none; min-height: 0; display: flex; flex-direction: column; }
-/* the head band: `.reader-head`'s, the subject in its title's face (quire's Title label) */
-.c-head { padding: var(--s-6) var(--s-18) var(--s-12); border-bottom: var(--hair) solid var(--line-soft); }
-.c-title { display: flex; width: 100%; font-family: var(--font-display); font-size: var(--fs-display); font-weight: 700; }
+/* the head band: `.reader-head`'s, the subject the reader's subject (20/700 in the display face) */
+.c-head { padding: var(--s-6) var(--s-18) 0; }
+.c-title { display: flex; width: 100%; font-family: var(--font-display); font-size: var(--fs-subject); line-height: 1.15; font-weight: 700; }
 
-/* properties: one line each (`props::Line`), as a message's header writes "To: …": a small
-   secondary label, then the value, from the header's left edge. No label column: every line
-   starts at the same x. */
-.c-props { padding: var(--s-12) var(--s-18); display: grid; gap: var(--s-2); }
-.c-line { display: flex; align-items: center; gap: var(--s-6); min-height: var(--ctl-h-m); min-width: 0; }
-.c-line-k { flex: none; }
-.c-line-v { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-8); flex: 1 1 0; min-width: 0; }
+/* the header lines (`props::Line`): one right-aligned label column of one width, as wide as the
+   widest label ("Security"), no colons, and every value from the same x. The one hairline is
+   under them all, header | body, as the reader's is. */
+.c-props {
+  padding: var(--s-12) var(--s-18); display: grid; gap: var(--s-2); border-bottom: var(--hair) solid var(--line-soft);
+}
+.c-line {
+  display: grid; grid-template-columns: 4.5em minmax(0, 1fr); column-gap: var(--s-8); align-items: center;
+  min-height: var(--ctl-h-m); min-width: 0;
+}
+.c-line-k { justify-self: end; }
+.c-line-v { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-8); min-width: 0; }
 .c-line-v > .p-menu { flex-basis: 100%; }
 .c-pin { display: flex; flex: 1; min-width: 120px; position: relative; }
 .pinput { flex: 1; min-width: 120px; }
+/* "Cc" and "Bcc" at the To row's end: the last one's right edge is the pane's inset */
+.c-reveal { flex: none; }
 
 /* the document: one surface, like writing a letter, set as the reader sets a message (its frame's
    14 px, 1.5 and paragraph gap in `reading::html_sheet`), so what is written is what is read */
@@ -73,9 +78,8 @@
   padding: 0 var(--s-4); border-radius: var(--r-tiny);
 }
 .c-body .m-a { color: var(--accent-text); text-underline-offset: var(--s-2); text-decoration: underline; }
-/* the signature: the marker, and every paragraph after it, quieter */
-.c-body .o-sig { margin: 1.2em 0 .2em; border-top: var(--hair) solid var(--line-soft); height: 0; }
-.c-body .o-sig ~ p { color: var(--ink-faint); }
+/* the signature: a marker with no rule, and its lines in plain ink, since they are sent */
+.c-body .o-sig { margin: 1.2em 0 .2em; height: 0; }
 /* On Blitz the page draws its own caret and selection (compose/surface.rs): boxes placed from
    the surface's rects, the selection's layer before the surface (under its text: `.c-body` is
    positioned, and neither sets a z-index) and the caret's after it, `--caret-w` wide */
@@ -129,17 +133,21 @@
 }
 .link-field { width: 220px; }
 
+/* ⋯ › Show Plain Text: what the message carries as plain text, under the body */
 .plain {
   margin-top: var(--s-14); border: var(--hair) solid var(--line-soft); border-radius: var(--r-media); background: var(--surface-2);
   padding: var(--s-12) var(--s-14); font-family: var(--font-code); font-size: var(--fs-meta); line-height: 1.65; white-space: pre-wrap; color: var(--ink);
 }
-.plain .cap { display: block; color: var(--ink-faint); margin-bottom: var(--s-6); }
+/* the files on the draft: one strip at the body's end */
+.c-attached { display: flex; flex-wrap: wrap; gap: var(--s-6); margin-top: var(--s-14); }
 
-/* the foot: a banner when it matters, then the buttons and one Send */
+/* the foot: a banner when it matters, then Attach, ⋯, and Send ▾ at the right edge */
 .c-foot {
   display: flex; align-items: center; gap: var(--s-8); padding: var(--s-10) var(--s-18); border-top: var(--hair) solid var(--line-soft);
   flex-wrap: wrap;
 }
+/* Send and its ▾, one control: the filled button, then the chevron beside it */
+.c-send { display: inline-flex; align-items: center; gap: var(--s-2); }
 
 /* reply lives under the thread, set as the next message would be: across the reader, a hairline
    over it, its lines and its body on the header's ground */

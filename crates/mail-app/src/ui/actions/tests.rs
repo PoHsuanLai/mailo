@@ -300,6 +300,22 @@ fn a_press_is_the_action_the_platform_s_chord_names() {
             Some(Chord(Own::Focus)),
         ),
         (
+            "⇧⌘C is Cc (on a Mac, not Show Colors)",
+            ours(),
+            character("C"),
+            SUPER | SHIFT,
+            true,
+            Some(Chord(Own::AddCc)),
+        ),
+        (
+            "⇧⌘B is Bcc",
+            ours(),
+            character("B"),
+            SUPER | SHIFT,
+            true,
+            Some(Chord(Own::AddBcc)),
+        ),
+        (
             "⇧⌘S is strikethrough, not Save As",
             ours(),
             character("S"),

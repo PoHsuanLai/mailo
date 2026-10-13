@@ -391,4 +391,9 @@ impl Window {
     pub fn menu_item(&mut self, name: &str) {
         hands::menu_item(&mut self.harness, name);
     }
+
+    /// Pick `name` in the open menu's submenu `parent`.
+    pub fn submenu_item(&mut self, parent: &str, name: &str) {
+        hands::submenu_item(&mut self.harness, parent, name);
+    }
 }

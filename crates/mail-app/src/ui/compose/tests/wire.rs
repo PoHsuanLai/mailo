@@ -1,7 +1,7 @@
 //! Recorded editor events, replayed through the page's handler into documents and markup.
 
 use super::super::float::{pick_mention, pick_slash};
-use super::super::page::{CcRow, Float};
+use super::super::page::{Float, RowShown};
 use super::super::render::{para_renders, reset_para_renders};
 use super::*;
 use mail_core::editor::{Level, Mark, ParaKind, to_html};
@@ -248,7 +248,7 @@ fn a_mention_adds_the_person_to_cc() {
     pick_mention(&mut page, "dana@example.test");
     assert_eq!(body(&page), "ask @Dana Whitfield ");
     assert_eq!(page.cc.len(), before + 1);
-    assert_eq!(page.cc_row, CcRow::Shown, "the Cc row appears");
+    assert_eq!(page.cc_row, RowShown::Shown, "the Cc row appears");
 
     // Someone already on the message is not added twice.
     type_text(&mut page, "and @da");

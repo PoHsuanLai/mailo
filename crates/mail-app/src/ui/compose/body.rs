@@ -6,6 +6,7 @@
 
 use chordkit::StandardAction;
 use dioxus::prelude::*;
+use ds::base::geometry::placement::{Align, Side};
 use ds::components::controls::button_model::{Bezel, ImagePosition};
 use ds::components::controls::segmented::Tracking;
 use ds::components::menus::pop_up_button::PopUpButton;
@@ -135,6 +136,22 @@ pub(in crate::ui) fn Body(
                         },
                     }
                 },
+                // `/` › Emoji…: the picker at the caret. A pick or Esc gives the body its keys back.
+                Float::EmojiPicker => rsx! {
+                    div {
+                        class: "c-float",
+                        "data-anchor": "below",
+                        style: below.clone(),
+                        onmounted: move |event| at_caret.set(Some(MountedRef(event.data()))),
+                    }
+                    Popover {
+                        anchor: at(),
+                        placement: Placement::new(Side::Bottom, Align::Start),
+                        gap: Px(6.0),
+                        onclose: move |()| close_picker(page),
+                        super::emoji::Picker { page, on_done: move |()| close_picker(page) }
+                    }
+                },
                 Float::SaveTemplate(_) | Float::Templates { .. } => rsx! {
                     div {
                         class: "c-float",
@@ -149,6 +166,14 @@ pub(in crate::ui) fn Body(
             }
         }
     }
+}
+
+/// The emoji picker closed: the body takes the keyboard back.
+fn close_picker(mut page: Signal<Page>) {
+    if page.peek().float == Float::EmojiPicker {
+        page.write().float = Float::Closed;
+    }
+    crate::ui::host::Host::focus_next_frame(".c-body");
 }
 
 fn pick(mut page: Signal<Page>, on_attach: EventHandler<()>, key: &str) {

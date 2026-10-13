@@ -1,4 +1,4 @@
-//! OpenPGP from the composer: the row writes the draft, what stands in the way is said in the
+//! OpenPGP from the composer: ⋯ › Security and the Security row write the draft, what stands in the way is said in the
 //! warning bar before anything is queued, and a locked key is asked for there.
 
 use mail_core::Store;
@@ -122,10 +122,10 @@ fn the_row_writes_the_drafts_openpgp() {
             (None, "None".to_owned()),
             (pgp.clone(), "Sign".to_owned()),
             (pgp.clone(), "Encrypt".to_owned()),
-            (pgp, "Sign and encrypt".to_owned()),
+            (pgp, "Sign and Encrypt".to_owned()),
             (smime.clone(), "Sign".to_owned()),
             (smime.clone(), "Encrypt".to_owned()),
-            (smime, "Sign and encrypt".to_owned()),
+            (smime, "Sign and Encrypt".to_owned()),
         ]
     );
     page.float = Float::Protection;
@@ -147,23 +147,30 @@ fn the_row_writes_the_drafts_openpgp() {
 }
 
 #[tokio::test]
-async fn the_row_is_drawn_and_its_choice_saved() {
+async fn security_is_chosen_from_the_more_menu_and_drawn_only_while_set() {
     let (store, _dir) = seeded();
     let draft = asking(&store, OpenPgp::None);
-    let (mut window, seen) = window(store.clone(), draft.clone(), Arc::default());
+    let (mut window, _seen) = window(store.clone(), draft.clone(), Arc::default());
     let markup = window.render();
-    assert!(markup.contains("data-row=\"protection\""), "{markup}");
-    click(&mut window.dom, seen.one("aria-label", "Protection: None"));
-    let markup = window.render();
-    assert!(markup.contains("Sign and encrypt"), "{markup}");
+    assert!(!markup.contains("data-row=\"security\""), "{markup}");
     let mut page = window.page();
-    window
-        .dom
-        .in_runtime(|| pick(&mut page.write(), "pgp-sign"));
+    window.dom.in_runtime(|| page.write().float = Float::More);
+    let markup = window.render();
+    assert!(markup.contains("Security"), "⋯ has no Security:\n{markup}");
+    window.dom.in_runtime(|| {
+        let act = super::super::foot::pick_more(&mut page.write(), "security:pgp-sign");
+        assert_eq!(act, super::super::foot::More::Done);
+    });
+    let markup = window.render();
+    assert!(markup.contains("data-row=\"security\""), "{markup}");
     window.dom.in_runtime(|| {
         super::super::life::save(&store, &mut page.write(), Utc::now()).unwrap();
     });
     assert_eq!(store.draft(draft.id).unwrap().openpgp, OpenPgp::Sign);
+    // The row's menu sets it back to None, and the row goes.
+    window.dom.in_runtime(|| pick(&mut page.write(), "none"));
+    let markup = window.render();
+    assert!(!markup.contains("data-row=\"security\""), "{markup}");
 }
 
 #[tokio::test]

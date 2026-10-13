@@ -76,6 +76,10 @@ pub(in crate::ui) enum Own {
     Send,
     /// Focus mode in the composer.
     Focus,
+    /// ⇧⌘C: the composer's Cc row, drawn and given the keyboard.
+    AddCc,
+    /// ⇧⌘B: the composer's Bcc row, the same way.
+    AddBcc,
     /// Shift+Enter: the open conversation in a window of its own.
     OpenInWindow,
 }
@@ -96,6 +100,8 @@ const OWN: &[(Own, &str, &[&str])] = &[
     (Own::Code, "mail.code", &["Primary+E"]),
     (Own::Send, "mail.send", &["Primary+Enter"]),
     (Own::Focus, "mail.focus", &["Primary+Shift+F"]),
+    (Own::AddCc, "mail.add-cc", &["Primary+Shift+C"]),
+    (Own::AddBcc, "mail.add-bcc", &["Primary+Shift+B"]),
     (Own::OpenInWindow, "mail.open-in-window", &["Shift+Enter"]),
 ];
 
@@ -292,14 +298,16 @@ fn groups() -> Vec<Group> {
         .collect()
 }
 
-/// The registration of `groups`: their actions, and the two standard actions whose chords mailo
-/// takes for the composer's formatting, which it does not offer (it has no Save As, and Use
-/// Selection for Find is not a thing in a mail window), so strikethrough is ⇧⌘S and code is ⌘E.
+/// The registration of `groups`: their actions, and the standard actions whose chords mailo
+/// takes for the composer, which it does not offer (it has no Save As, Use Selection for Find is
+/// not a thing in a mail window, and it has no colour panel), so strikethrough is ⇧⌘S, code is ⌘E
+/// and Cc is ⇧⌘C.
 fn registration(app: &AppId, groups: &[Group]) -> Registration {
     groups.iter().flatten().fold(
         Registration::new(app)
             .forgo(StandardAction::SaveAs)
-            .forgo(StandardAction::UseSelectionForFind),
+            .forgo(StandardAction::UseSelectionForFind)
+            .forgo(StandardAction::ShowColors),
         |registration, (action, chord)| registration.action(action.clone(), *chord),
     )
 }

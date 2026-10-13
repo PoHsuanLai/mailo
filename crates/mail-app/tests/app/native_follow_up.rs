@@ -186,10 +186,16 @@ fn type_text(harness: &mut Harness, text: &str) {
     }
 }
 
-/// The open menu's row that says `name`. The composer's reminder is a menu; the reader's bell
-/// opens a pick list. Each row is a direct child of its list.
+/// The open menu's row that says `name`. The composer's reminder is a submenu of Send ▾, and a
+/// submenu's rows are looked at first; the reader's bell opens a pick list. Each row is a direct
+/// child of its list.
 fn menu_row(harness: &Harness, name: &str) -> String {
     let mut candidates = Vec::new();
+    for n in 1..=24 {
+        candidates.push(format!(
+            ".ds-menu[*|data-depth=\"1\"] .ds-menu-list > .ds-menu-item:nth-child({n})"
+        ));
+    }
     for n in 1..=24 {
         candidates.push(format!(".ds-menu-list > .ds-menu-item:nth-child({n})"));
         candidates.push(format!(".ds-pick-list-rows > .ds-row:nth-child({n})"));
@@ -243,7 +249,7 @@ fn a_reminder_set_in_the_composer_brings_the_conversation_back_with_no_reply_yet
     let inbox_before = harness.count(".list .ds-thread");
     assert_eq!(inbox_before, INBOX.len());
 
-    // A new message: to, subject, and the Remind row's "Tomorrow morning".
+    // A new message: to, subject, and Send ▾ › Remind Me If No Reply › "Tomorrow morning".
     harness.key(Key::Char('c'));
     until(&mut harness, "the composer opens", |h| {
         h.count(".cpage .c-body") == 1
@@ -263,10 +269,18 @@ fn a_reminder_set_in_the_composer_brings_the_conversation_back_with_no_reply_yet
         h.is_focused(".c-title input")
     });
     type_text(&mut harness, SUBJECT);
-    let remind = ".c-props [*|aria-label=\"Remind me if no reply\"]";
-    harness.click(centre(&harness, remind));
-    until(&mut harness, "the Remind menu opens", |h| {
+    assert_eq!(
+        harness.count(".c-props [*|data-row=remind]"),
+        0,
+        "a Remind row before a reminder is set"
+    );
+    harness.click(centre(&harness, ".c-foot [*|aria-label=\"Send Options\"]"));
+    until(&mut harness, "Send ▾ opens", |h| {
         h.count(".ds-menu .ds-menu-item") > 0
+    });
+    press_menu_row(&mut harness, "Remind Me If No Reply");
+    until(&mut harness, "its submenu opens", |h| {
+        h.count(".ds-menu[*|data-depth=\"1\"] .ds-menu-item") > 0
     });
     press_menu_row(&mut harness, "Tomorrow morning");
     until(&mut harness, "the row says the reminder", |h| {

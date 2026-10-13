@@ -148,7 +148,7 @@ fn attached_names(store: &SqliteStore) -> Vec<String> {
 
 /// The Attached row's chips, as their text.
 fn chips(harness: &Harness) -> usize {
-    harness.count(".c-props [*|data-row=attached] .ds-chip")
+    harness.count(".c-attached .ds-chip")
 }
 
 /// Files dragged over the window light the composer, and over it target it; the light goes with

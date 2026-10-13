@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use dioxus::prelude::*;
-use ds::components::controls::button_model::Bezel;
+use ds::components::controls::button_model::{Bezel, ImagePosition};
 use ds::file_drop::drag::FileDrop;
 use ds::file_drop::hook::{FileDropHandle, use_file_drop};
 use ds::prelude::*;
@@ -20,25 +20,35 @@ use crate::ui::press::on_primary;
 use mail_core::compose::ATTACHMENT_BUDGET;
 
 /// A file picker, as a button: the native dialog (`ui::pick`). Each file chosen lands on the
-/// draft and in the Attached row. `bezel` is the bar's it stands in: the composer's own bar
-/// (`Toolbar`), or a banner's actions (`Push`).
+/// draft and in the strip at the body's end. `bezel` is the bar's it stands in: the composer's
+/// foot (`Toolbar`, its glyph alone with a tip), or a banner's actions (`Push`, its words).
 #[component]
 pub(super) fn Attach(page: Signal<Page>, label: &'static str, bezel: Bezel) -> Element {
+    let image = match bezel {
+        Bezel::Toolbar => ImagePosition::Only,
+        _ => ImagePosition::Leading,
+    };
     rsx! {
         Button {
             bezel,
             label,
+            image,
             icon: Icon::Paperclip,
-            onclick: on_primary(move || {
-                crate::ui::pick::choose(crate::ui::pick::Ask::Attachments, None, move |paths| {
-                    attach(page, paths);
-                });
-            }),
-            // A plain label is the visible name. The composer's tests find this button by its
-            // accessible name, which quire copies onto aria-label only for an icon-only button.
+            title: (image == ImagePosition::Only).then(|| label.to_owned()),
+            onclick: on_primary(move || choose(page)),
+            // The composer's tests find this button by its accessible name, which quire copies
+            // onto aria-label only for an icon-only button; a labelled one names it here.
             common: Common { aria_label: Some(label.to_owned()), ..Common::default() },
         }
     }
+}
+
+/// Open the file picker; what is chosen is attached. The foot's Attach and `/` › Attachment both
+/// come here.
+pub(super) fn choose(page: Signal<Page>) {
+    crate::ui::pick::choose(crate::ui::pick::Ask::Attachments, None, move |paths| {
+        attach(page, paths);
+    });
 }
 
 /// The page as a drop target: files let go on it are attached, in the order they came. Its

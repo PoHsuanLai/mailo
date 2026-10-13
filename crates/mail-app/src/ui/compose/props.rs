@@ -1,5 +1,12 @@
-//! The property rows under the title: From, To, Cc, Sends, Protection and Attached. Every choice
-//! is a quire `Menu` and every input a quire `TextField`.
+//! The header rows between the subject and the body, as a message's header is set: one
+//! right-aligned label column of one width, no colons, every value at one x.
+//!
+//! A new message draws To and nothing else. Cc and Bcc are drawn once added (their keys, or their
+//! words at the end of the To row) or while someone is on them; From only when more than one
+//! address can send; Sends, Remind, Security and Receipt only while they are not the default, each
+//! with a menu that sets it back ("Now", "Off", "None"). The choices themselves live under Send ▾
+//! and the foot's ⋯ (`foot.rs`). Every choice is a quire `Menu` and every input a quire
+//! `TextField`.
 
 use super::super::press::on_primary;
 use ds::components::content::avatar::{
@@ -24,13 +31,14 @@ use super::super::data::account_rows;
 use super::super::menu::{
     Floating, MenuItem, MenuKey, Right, Tile, anchor_at, menu_items, menu_key,
 };
-use super::super::menus::{snooze_help, when_words};
-use super::later::{PICK_KEY, PICK_LABEL, PickTime};
-use super::page::{CcRow, Float, Guard, List, Page, PageKind, When};
+use super::super::menus::snooze_help;
+use super::later::{PICK_KEY, PICK_LABEL};
+use super::page::{Float, Guard, List, Page, PageKind, When};
 use super::protection::ProtectionRow;
-use super::receipt::{KEY as RECEIPT_KEY, ReceiptRow, item as receipt_item};
+use super::receipt::ReceiptRow;
 use super::recipients::{commit_typed, people_items, pick_person, pop_last, remove, typed};
 use super::remind::RemindRow;
+use crate::ui::actions::{self, Own};
 use crate::ui::provider_chip::ProvChip;
 use crate::ui::view::Shell;
 use mail_core::provider::provider;
@@ -38,93 +46,175 @@ use mail_core::provider::provider;
 #[component]
 pub(in crate::ui) fn Props(page: Signal<Page>, shell: Signal<Shell>) -> Element {
     let read = page.read();
-    let compact = read.kind == PageKind::Reply;
-    let cc_shown = read.cc_row == CcRow::Shown;
+    let new = read.kind == PageKind::New;
+    let cc = read.row_shown(List::Cc);
+    let bcc = read.row_shown(List::Bcc);
     let guard = read.guard;
-    let attached = read.attached.clone();
     drop(read);
     let refused = match guard {
         Guard::NoRecipient(count) => Some(count),
         _ => None,
     };
+    let store = consume_context::<Arc<SqliteStore>>();
+    // One address to send from is no choice: the row is drawn only when there is another.
+    let senders = mail_core::compose::sending_accounts(&store).len();
     rsx! {
         div { class: "c-props",
-            if !compact {
+            if new && senders > 1 {
                 FromRow { page, shell }
             }
             Line {
-                label: "To",
+                label: list_label(List::To),
                 row: "to",
                 Recipients { page, list: List::To, refused }
-                if !cc_shown {
-                    Button {
-                        bezel: Bezel::Inline,
-                        label: "Cc".to_owned(),
-                        onclick: move |_| page.write().cc_row = CcRow::Shown,
-                    }
+                if !cc {
+                    Reveal { page, list: List::Cc }
+                }
+                if !bcc {
+                    Reveal { page, list: List::Bcc }
                 }
             }
-            if cc_shown {
+            if cc {
                 Line {
-                    label: "Cc",
+                    label: list_label(List::Cc),
                     row: "cc",
                     Recipients { page, list: List::Cc, refused: None }
                 }
             }
-            if !compact {
-                SendsRow { page }
-                ProtectionRow { page }
-            }
-            ReceiptRow { page }
-            RemindRow { page }
-            if !attached.is_empty() {
+            if bcc {
                 Line {
-                    label: "Attached",
-                    row: "attached",
-                    for (index, (name, size)) in attached.into_iter().enumerate() {
-                        Chip {
-                            key: "{index}",
-                            variant: ChipVariant::Neutral,
-                            text: format!("{} · {name} · {size}", kind_of(&name)),
-                        }
-                    }
+                    label: list_label(List::Bcc),
+                    row: "bcc",
+                    Recipients { page, list: List::Bcc, refused: None }
                 }
             }
+            SendsRow { page }
+            RemindRow { page }
+            ProtectionRow { page }
+            ReceiptRow { page }
         }
     }
 }
 
-/// One property line, as a message's header writes "To: …" (`reading/header.rs`): its name,
-/// small and secondary, then its value or control, from the header's left edge. Its `data-row`
-/// is what the page's tests and its layout find it by.
+/// What a recipient list's row and field are called.
+pub(in crate::ui) fn list_label(list: List) -> &'static str {
+    match list {
+        List::To => "To",
+        List::Cc => "Cc",
+        List::Bcc => "Bcc",
+    }
+}
+
+/// The key that adds `list`'s row, when it has one.
+pub(in crate::ui) fn reveal_key(list: List) -> Option<Own> {
+    match list {
+        List::To => None,
+        List::Cc => Some(Own::AddCc),
+        List::Bcc => Some(Own::AddBcc),
+    }
+}
+
+/// The input of `list`'s field, for the keyboard to go to once the row is drawn.
+fn field_of(list: List) -> &'static str {
+    match list {
+        List::To => ".c-props [*|data-row=to] .pinput input",
+        List::Cc => ".c-props [*|data-row=cc] .pinput input",
+        List::Bcc => ".c-props [*|data-row=bcc] .pinput input",
+    }
+}
+
+/// Draw `list`'s row and put the keyboard in it: its word at the end of the To row, or its key.
+pub(in crate::ui) fn reveal(mut page: Signal<Page>, list: List) {
+    page.write().reveal(list);
+    crate::ui::host::Host::focus_after_task(field_of(list));
+}
+
+/// "Cc" or "Bcc" at the end of the To row, until that row is drawn.
 #[component]
-pub(super) fn Line(
-    #[props(into)] label: String,
-    #[props(default)] help: Option<String>,
-    row: &'static str,
-    children: Element,
-) -> Element {
+fn Reveal(page: Signal<Page>, list: List) -> Element {
+    let name = list_label(list);
+    rsx! {
+        Button {
+            bezel: Bezel::Inline,
+            label: name.to_owned(),
+            title: format!("Add {name}"),
+            title_shortcut: reveal_key(list).and_then(actions::tip_own),
+            onclick: on_primary(move || reveal(page, list)),
+            common: Common {
+                extra_class: ExtraClass::parse("c-reveal").ok(),
+                aria_label: Some(format!("Add {name}")),
+                ..Common::default()
+            },
+        }
+    }
+}
+
+/// One header line: its name, small, secondary and right-aligned in the label column, then its
+/// value or control from the value column's edge, which every line shares. Its `data-row` is what
+/// the page's tests and its layout find it by.
+#[component]
+pub(super) fn Line(#[props(into)] label: String, row: &'static str, children: Element) -> Element {
     rsx! {
         div { class: "c-line", role: "group", aria_label: "{label}", "data-row": row,
             Label {
-                text: format!("{label}:"),
+                text: label.clone(),
                 role: LabelRole::Secondary,
                 style: LabelStyle::Footnote,
                 common: crate::ui::common::classed("c-line-k"),
-            }
-            if let Some(help) = help {
-                Label { text: help, role: LabelRole::Tertiary, style: LabelStyle::Footnote }
             }
             div { class: "c-line-v", {children} }
         }
     }
 }
 
-/// The short kind a file chip shows: its extension, upper-cased.
-fn kind_of(name: &str) -> String {
-    name.rsplit_once('.')
-        .map(|(_, ext)| ext.chars().take(4).collect::<String>().to_uppercase())
-        .unwrap_or_else(|| "FILE".to_owned())
+/// A row that says one choice which is not the default, and the menu to change it, whose first
+/// item sets it back: Sends, Remind, Security and Receipt. The menu is open while the page's
+/// float is `float`.
+#[component]
+pub(super) fn ChoiceRow(
+    page: Signal<Page>,
+    label: &'static str,
+    row: &'static str,
+    value: String,
+    float: Float,
+    items: Vec<MenuItem>,
+    on_pick: EventHandler<String>,
+) -> Element {
+    let open = page.read().float == float;
+    let mut at = use_signal(|| None::<MountedRef>);
+    let closing = float.clone();
+    let toggling = float.clone();
+    rsx! {
+        Line {
+            label,
+            row,
+            Button {
+                bezel: Bezel::Inline,
+                label: value.clone(),
+                trailing: Some(Trailing::Glyph(Icon::ChevronDown)),
+                shown: Some(if open { Shown::Visible } else { Shown::Hidden }),
+                onclick: on_primary(move || {
+                    let next = if open { Float::Closed } else { toggling.clone() };
+                    page.write().float = next;
+                }),
+                common: Common {
+                    aria_label: Some(format!("{label}: {value}")),
+                    mounted: Some(EventHandler::new(move |event: MountedEvent| at.set(Some(MountedRef(event.data()))))),
+                    ..Common::default()
+                },
+            }
+            if open {
+                Floating {
+                    placement: MenuPlacement::Popup,
+                    anchor: at(),
+                    title: String::new(),
+                    items,
+                    on_pick,
+                    on_close: move |_| close(page, &closing),
+                }
+            }
+        }
+    }
 }
 
 #[component]
@@ -136,7 +226,17 @@ fn FromRow(page: Signal<Page>, shell: Signal<Shell>) -> Element {
     let marks = shell.read().appearance.marks;
     let current = rows.iter().find(|row| row.id == from);
     let address = current.map(|row| row.address.clone()).unwrap_or_default();
-    let via = current.map(|row| provider(&row.plan));
+    // A provider's mark says which one only when the addresses are on more than one.
+    let mut providers: Vec<&str> = rows
+        .iter()
+        .filter(|row| !row.is_local())
+        .map(|row| provider(&row.plan).title())
+        .collect();
+    providers.sort_unstable();
+    providers.dedup();
+    let via = current
+        .filter(|_| providers.len() > 1)
+        .map(|row| provider(&row.plan));
     // Local folders send nothing, so they are no From to choose.
     let items: Vec<MenuItem> = rows
         .iter()
@@ -229,8 +329,8 @@ fn move_to(mut page: Signal<Page>, key: &str) {
     }
 }
 
-/// The Sends menu: right away, the two named times, "Pick a time…", and the receipt. A named
-/// time's help is the date it resolves to, written as the snooze menu writes one.
+/// The Sends row's menu: "Now" first, the way back to the default, then the two named times and
+/// "Pick a Time…". A named time's hint is the date it resolves to, as the snooze menu writes one.
 pub(in crate::ui) fn sends_items<Tz: chrono::TimeZone>(
     page: &Page,
     now: chrono::DateTime<chrono::Utc>,
@@ -240,11 +340,11 @@ where
     Tz::Offset: std::fmt::Display,
 {
     let when = page.when;
-    let row = |key: &str, icon, name: String, help: String, on: bool| MenuItem {
+    let row = |key: &str, icon, name: String, help: Option<String>, on: bool| MenuItem {
         key: key.to_owned(),
         tile: Tile::Icon(icon),
         name,
-        help: Some(help),
+        help,
         right: Right::Check(on),
         group: None,
         marks: Vec::new(),
@@ -254,10 +354,7 @@ where
     let mut items: Vec<MenuItem> = When::ALL
         .into_iter()
         .map(|choice| {
-            let help = match choice.due(now, zone) {
-                Some(at) => snooze_help(at, zone),
-                None => "as soon as you press Send".to_owned(),
-            };
+            let help = choice.due(now, zone).map(|at| snooze_help(at, zone));
             let icon = if choice == When::Now {
                 Icon::Send
             } else {
@@ -273,80 +370,70 @@ where
         })
         .collect();
     let (help, on) = match when {
-        When::At(at) => (when_words(at, now, zone), true),
-        _ => ("tomorrow 9, fri 17:00, +2h".to_owned(), false),
+        When::At(at) => (Some(super::super::menus::when_words(at, now, zone)), true),
+        _ => (None, false),
     };
     items.push(row(PICK_KEY, Icon::Clock, PICK_LABEL.to_owned(), help, on));
-    items.push(receipt_item(page.receipt));
     items
 }
 
+/// The Sends row, only while the message is scheduled: when it leaves, and the menu that sends it
+/// "Now" instead.
 #[component]
 fn SendsRow(page: Signal<Page>) -> Element {
     let when = page.read().when;
-    let float = page.read().float.clone();
-    let open = float == Float::Sends;
-    let picking = matches!(float, Float::PickTime(_));
+    if when == When::Now {
+        return rsx! {};
+    }
     let now = chrono::Utc::now();
     let items = sends_items(&page.read(), now, &chrono::Local);
-    let shown = when.shown(now, &chrono::Local);
-    let mut value = use_signal(|| None::<MountedRef>);
     rsx! {
-        Line {
+        ChoiceRow {
+            page,
             label: "Sends",
-            help: (when != When::Now).then(|| "scheduled".to_owned()),
             row: "sends",
-            Button {
-                bezel: Bezel::Inline,
-                label: shown,
-                trailing: Some(Trailing::Glyph(Icon::ChevronDown)),
-                shown: Some(if open { Shown::Visible } else { Shown::Hidden }),
-                onclick: on_primary(move || {
-                    let next = if open || picking { Float::Closed } else { Float::Sends };
-                    page.write().float = next;
-                }),
-                common: Common {
-                    mounted: Some(EventHandler::new(move |event: MountedEvent| value.set(Some(MountedRef(event.data()))))),
-                    ..Common::default()
-                },
-            }
-            if open {
-                Floating {
-                    placement: MenuPlacement::Popup,
-                    anchor: value(),
-                    title: "Send".to_owned(),
-                    items,
-                    on_pick: move |key: String| {
-                        pick_sends(&mut page.write(), &key);
-                        if matches!(page.peek().float, Float::PickTime(_)) {
-                            crate::ui::host::Host::focus_after_task(".pick-field input");
-                        }
-                    },
-                    // "Pick a time…" opens the field where the menu was: closing the menu
-                    // after that pick must not close the field.
-                    on_close: move |_| close(page, &Float::Sends),
-                }
-            }
-            if picking {
-                PickTime { page, anchor: value() }
-            }
+            value: when.shown(now, &chrono::Local),
+            float: Float::Sends,
+            items,
+            on_pick: move |key: String| {
+                let mut page = page;
+                pick_sends(&mut page.write(), &key);
+            },
         }
     }
 }
 
-/// A choice from the Sends menu: when it goes, or whether it asks for a read receipt.
+/// A choice from the Sends row's menu or Send ▾ › Send Later: when it goes. "Pick a Time…" opens
+/// the field by Send ▾; the choice is made when a time is entered there.
 pub(in crate::ui) fn pick_sends(page: &mut Page, key: &str) {
     if let Some(choice) = When::from_key(key) {
         page.when = choice;
         page.touch();
     } else if key == PICK_KEY {
-        // The field opens where the menu was; the choice is made when a time is entered.
         page.float = Float::PickTime(String::new());
         return;
-    } else if key == RECEIPT_KEY {
-        page.toggle_receipt();
     }
     page.float = Float::Closed;
+}
+
+/// The files on the draft, as one strip at the end of the body: each its name and size.
+#[component]
+pub(super) fn Attached(page: Signal<Page>) -> Element {
+    let attached = page.read().attached.clone();
+    if attached.is_empty() {
+        return rsx! {};
+    }
+    rsx! {
+        div { class: "c-attached", role: "group", aria_label: "Attachments", "data-row": "attached",
+            for (index, (name, size)) in attached.into_iter().enumerate() {
+                Chip {
+                    key: "{index}-{name}",
+                    variant: ChipVariant::Neutral,
+                    text: format!("{name} · {size}"),
+                }
+            }
+        }
+    }
 }
 
 /// The chips of one list, the field beside them, and the people menu under it.
@@ -360,14 +447,8 @@ fn Recipients(page: Signal<Page>, list: List, refused: Option<u32>) -> Element {
     // The field's box, which the people menu floats under.
     let mut field_at = use_signal(|| None::<MountedRef>);
     let read = page.read();
-    let people = match list {
-        List::To => read.to.clone(),
-        List::Cc => read.cc.clone(),
-    };
-    let value = match list {
-        List::To => read.typed_to.clone(),
-        List::Cc => read.typed_cc.clone(),
-    };
+    let people = read.list(list).to_vec();
+    let value = read.typed(list).to_owned();
     let menu = match read.float {
         Float::People { list: open, active } if open == list => Some(active),
         _ => None,
@@ -436,10 +517,7 @@ fn Recipients(page: Signal<Page>, list: List, refused: Option<u32>) -> Element {
                 }
             },
             TextField {
-                label: match list {
-                    List::To => "To".to_owned(),
-                    List::Cc => "Cc".to_owned(),
-                },
+                label: list_label(list).to_owned(),
                 bezel: FieldBezel::Plain,
                 placeholder: placeholder.to_owned(),
                 focus,

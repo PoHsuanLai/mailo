@@ -1,7 +1,9 @@
 //! The composer: a page in the reader column, on the Rust editor core.
 //!
-//! A new message is a page: the subject as its title, property rows, and the body at 66ch. A
-//! reply is the same page, compact, under the thread it answers. The body is one
+//! A new message is a page: the subject as its title, To, and the body at 66ch, over a foot of
+//! Attach, ⋯ and Send ▾. Every other header row is drawn only while it says something that is not
+//! the default (`props.rs`), and the choices that set them are in the foot's menus (`foot.rs`). A
+//! reply is the same grid and foot under the thread it answers, with no bar and no subject. The body is one
 //! root, quire's `EditSurface`, whose every edit goes through `mail_core::editor`; the page never edits
 //! text itself. `adapt` turns what the surface hands over into editor events, and [`wire`] applies
 //! them to the page.
@@ -16,6 +18,7 @@ mod body;
 mod desk;
 mod emoji;
 mod float;
+mod foot;
 mod items;
 mod later;
 mod life;
@@ -38,8 +41,7 @@ mod wire;
 mod tests;
 
 use crate::ui::actions::{self, Heard, Own};
-use ds::components::content::label::LabelRole;
-use ds::components::controls::button_model::{Answers, Bezel, ImagePosition};
+use ds::components::controls::button_model::{Bezel, ImagePosition};
 use ds::components::overlays::inline_banner::InlineBanner;
 use ds::prelude::*;
 use ds::root::common::Common;
@@ -49,13 +51,14 @@ use std::sync::Arc;
 
 use dioxus::prelude::*;
 use mail_core::{SqliteStore, Store};
-use mail_domain::DraftId;
+use mail_domain::{Change, ChangeId, DraftId, Patch};
 
 use attach::Attach;
 use body::Body;
+use foot::{MoreButton, SendButton};
 use life::{Anyway, Sent};
-use page::{Focus, Fold, Guard, Page, Phase, Saved, When};
-use props::Props;
+use page::{Focus, Fold, Guard, List, Page, Phase, Saved};
+use props::{Attached, Props};
 use seal::{BarAct, SealBar, SealWarn, Sealed, seal_and_queue};
 
 pub(in crate::ui) use desk::{Desk, park_current, reopen, show_queued, use_desk};
@@ -143,7 +146,6 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
     let mut desk = use_context::<Desk>();
     let keys = use_keys();
     let mut page = use_signal(|| initial.clone());
-    let mut plain = use_signal(|| Fold::Folded);
     let folding = Folding {
         timer: use_motion_timer(Anim::Fade),
         then: use_callback(move |()| close(page, shell, desk)),
@@ -208,23 +210,15 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
         (false, _, Focus::On) => "cpage focus",
         (false, _, Focus::Off) => "cpage",
     };
-    let status = match read.saved {
-        Saved::Opened => "Draft · saved",
-        Saved::Clean => "Draft · saved just now",
-        Saved::Dirty => "Draft · saving…",
-    };
-    let dirty = read.saved == Saved::Dirty;
     let subject = read.subject.clone();
     let notice = read.notice.clone();
     let warn = read.guard == Guard::Warn;
     let seal_bar = read.seal_bar.clone();
-    let scheduled = read.when != When::Now;
-    let send_label = if scheduled { "Schedule" } else { "Send" };
     let anyway_label = "Send anyway";
     // The plain text is written out only while it is shown: not on every key.
-    let flowed = match plain() {
-        Fold::Open => mail_core::editor::to_flowed(&read.session.doc),
-        Fold::Folded => String::new(),
+    let flowed = match read.plain {
+        Fold::Open => Some(mail_core::editor::to_flowed(&read.session.doc)),
+        Fold::Folded => None,
     };
     drop(read);
 
@@ -250,18 +244,24 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                     event.prevent_default();
                     event.stop_propagation();
                     toggle_focus(page, desk);
+                } else if heard == Some(Heard::Own(Own::AddCc)) {
+                    event.prevent_default();
+                    event.stop_propagation();
+                    props::reveal(page, List::Cc);
+                } else if heard == Some(Heard::Own(Own::AddBcc)) {
+                    event.prevent_default();
+                    event.stop_propagation();
+                    props::reveal(page, List::Bcc);
                 } else if key == "Escape" {
                     event.prevent_default();
                     event.stop_propagation();
                     escape(page, shell, desk);
                 }
             },
+            // The bar holds Focus alone: autosave is silent, and keeping or deleting the draft
+            // is the foot's ⋯ (and Esc).
             if !reply {
                 div { class: "c-top",
-                    span { class: if dirty { "state dirty" } else { "state" },
-                        span { class: "pip" }
-                        Label { text: status, role: LabelRole::Tertiary }
-                    }
                     span { class: "grow" }
                     Button {
                         bezel: Bezel::Toolbar,
@@ -273,30 +273,11 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                         onclick: move |_| toggle_focus(page, desk),
                         image: ImagePosition::Only,
                     }
-                    Button {
-                        bezel: Bezel::Toolbar,
-                        size: ControlSize::Large,
-                        icon: Icon::Archive,
-                        label: "Keep for later".to_owned(),
-                        title: "Keep for Later".to_owned(),
-                        title_shortcut: actions::escape(),
-                        onclick: move |_| desk::park(desk, page, shell),
-                        image: ImagePosition::Only,
-                    }
-                    Button {
-                        bezel: Bezel::Toolbar,
-                        size: ControlSize::Large,
-                        icon: Icon::Trash,
-                        label: "Discard".to_owned(),
-                        title: "Discard".to_owned(),
-                        onclick: move |_| discard(page, shell, desk),
-                        image: ImagePosition::Only,
-                    }
                 }
             }
             div { class: "c-scroll",
                 // The head reads as a message's (`reader.css`): the subject where its title is,
-                // on the reader's head band, and the lines under it as its header's.
+                // at its size, and the header lines under it, one hairline under them all.
                 if !reply {
                     div { class: "c-head",
                         TextField {
@@ -322,13 +303,12 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                             onclose: move |()| page.write().notice = None,
                         }
                     }
-                    Body { page, shell, on_attach: move |_| page.write().notice = Some("Use Attach below.".to_owned()) }
-                    if plain() == Fold::Open {
-                        div { class: "plain",
-                            span { class: "cap", "Plain text" }
-                            "{flowed}"
-                        }
+                    // `/` › Attachment opens the picker the foot's Attach does.
+                    Body { page, shell, on_attach: move |_| attach::choose(page) }
+                    if let Some(flowed) = flowed {
+                        div { class: "plain", "{flowed}" }
                     }
+                    Attached { page }
                 }
             }
             div { class: "c-foot",
@@ -348,24 +328,14 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                     }
                 }
                 SealWarn { bar: seal_bar, on_act: on_seal }
-                Button {
-                    bezel: Bezel::Toolbar,
-                    label: "Plain text",
-                    value: Some(if plain() == Fold::Open { Check::On } else { Check::Off }),
-                    onclick: on_primary(move || plain.set(if plain() == Fold::Open { Fold::Folded } else { Fold::Open })),
-                }
                 Attach { page, label: "Attach", bezel: Bezel::Toolbar }
-                emoji::EmojiButton { page }
-                span { class: "grow" }
-                Button {
-                    answers: Answers::Return,
-                    label: if scheduled { "Schedule" } else { "Send" },
-                    title: (if scheduled { "Schedule" } else { "Send" }).to_owned(),
-                    title_shortcut: actions::tip_own(Own::Send),
-                    icon: if scheduled { Icon::Clock } else { Icon::Send },
-                    onclick: on_primary(move || send(Anyway::No)),
-                    common: Common { aria_label: Some(send_label.to_owned()), ..Common::default() },
+                MoreButton {
+                    page,
+                    on_keep: move |()| desk::park(desk, page, shell),
+                    on_delete: move |()| delete_draft(page, shell, desk, revision),
                 }
+                span { class: "grow" }
+                SendButton { page, on_send: move |()| send(Anyway::No) }
             }
         }
     }
@@ -547,15 +517,54 @@ fn close(mut page: Signal<Page>, mut shell: Signal<Shell>, mut desk: Desk) {
     }
 }
 
-/// Delete the draft. Its queued send, if any, goes with it (334b758).
-fn discard(mut page: Signal<Page>, mut shell: Signal<Shell>, desk: Desk) {
+/// Delete the draft, as ⋯ › Delete Draft does, and offer it back. Saved first, so the undo
+/// brings back what was on the page; the undo is the window's (the toast's tab and ⌘Z), and puts
+/// the draft back in Drafts. A draft already on its way is refused, as before (334b758).
+fn delete_draft(
+    mut page: Signal<Page>,
+    mut shell: Signal<Shell>,
+    desk: Desk,
+    mut revision: Signal<u64>,
+) {
     let store = consume_context::<Arc<SqliteStore>>();
     let draft = page.peek().draft;
+    let kept = life::save(&store, &mut page.write(), chrono::Utc::now());
+    let stored = match kept {
+        Ok(stored) => stored,
+        Err(why) => {
+            page.write().notice = Some(why);
+            return;
+        }
+    };
     match mail_core::compose::discard(&store, draft) {
         Ok(_) => {
             page.write().phase = Phase::Closed;
             desk::unpark(desk, draft);
-            shell.write().close_composer();
+            let account = stored.account.clone();
+            let undo = mail_core::undo::Undo {
+                said: "Draft deleted".to_owned(),
+                thread: None,
+                account,
+                forward: Patch {
+                    id: ChangeId::generate(),
+                    changes: vec![Change::DraftDelete(draft)],
+                },
+                inverse: Patch {
+                    id: ChangeId::generate(),
+                    changes: vec![Change::DraftUpsert(Box::new(stored))],
+                },
+                remote: None,
+            };
+            let handle = {
+                let mut write = shell.write();
+                write.close_composer();
+                write.undo.push(undo)
+            };
+            revision += 1;
+            super::motion::tell(
+                "Draft deleted".to_owned(),
+                super::motion::Follow::Undo(handle),
+            );
         }
         Err(why) => page.write().notice = Some(crate::ui::remedy::told(why)),
     }

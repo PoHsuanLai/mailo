@@ -75,7 +75,7 @@ fn f_forwards_the_message_with_its_pdf() {
     window.press(&[], Key::Char('f'), 1);
     window.until("f opens a forward", |h| h.count(".cpage .c-body") == 1);
     window.until("the forward carries the PDF", |h| {
-        h.text_of(".c-props [*|data-row=attached]")
+        h.text_of(".c-attached")
             .is_some_and(|row| row.contains("minutes.pdf"))
     });
     send_to_grace(&mut window);
@@ -127,7 +127,7 @@ fn f_forwards_the_text_under_a_header_and_forward_as_attachment_encloses_the_mes
     let n = panel_row(&window.harness, "Forward as attachment").unwrap_or_default();
     window.click(&format!(".ds-search-card-rows .ds-menu > :nth-child({n})"));
     window.until("the forward encloses the message", |h| {
-        h.text_of(".c-props [*|data-row=attached]")
+        h.text_of(".c-attached")
             .is_some_and(|row| row.contains(".eml"))
     });
     send_to_grace(&mut window);

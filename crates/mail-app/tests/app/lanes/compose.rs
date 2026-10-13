@@ -14,7 +14,7 @@ const FIELD: &str = ".ds-search-card input";
 /// The composer's To field.
 const TO: &str = ".c-props [*|data-row=to] .c-pin input";
 /// The attached files' chips.
-const ATTACHED: &str = ".c-props [*|data-row=attached] .ds-chip";
+const ATTACHED: &str = ".c-attached .ds-chip";
 /// The send pill's Undo.
 const UNDO: &str = ".send-at .ds-send-pill-undo";
 /// The composer's Send button.
@@ -94,7 +94,7 @@ fn write_to_ada_with_two_files() -> Window {
     let told = drop_on(&mut window, ".c-body", vec![notes]);
     assert_eq!(told, DropAcceptance::Copy, "the composer took the drop");
     window.until("the dropped file is attached", |h| h.count(ATTACHED) == 2);
-    let chips = window.text(".c-props [*|data-row=attached]");
+    let chips = window.text(".c-attached");
     assert!(
         chips.contains("slides.pdf") && chips.contains("notes.txt"),
         "{chips}"

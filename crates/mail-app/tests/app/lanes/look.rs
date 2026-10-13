@@ -55,6 +55,19 @@ pub fn menu_item_of(harness: &Harness, name: &str) -> Option<usize> {
     })
 }
 
+/// The position of the item named `name` in the submenu a pick of the open menu opened.
+pub fn submenu_item_of(harness: &Harness, name: &str) -> Option<usize> {
+    let list = SUBMENU_LIST;
+    (1..=harness.count(&format!("{list} > *"))).find(|n| {
+        harness
+            .text_of(&format!("{list} > :nth-child({n}) .ds-menu-label"))
+            .is_some_and(|label| label.trim() == name)
+    })
+}
+
+/// A submenu's rows: quire draws each submenu as a menu panel one level deeper.
+pub const SUBMENU_LIST: &str = ".ds-menu[*|data-depth=\"1\"] .ds-menu-list";
+
 /// One submission waiting in the outbox: its draft, recipients and bytes.
 pub struct Queued {
     pub draft: DraftId,

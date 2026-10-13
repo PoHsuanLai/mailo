@@ -1,9 +1,10 @@
 //! The composer is set as the reader sets a message, on Blitz (`native`), in the real window: a
-//! new message's subject sits where a message's title does (larger: the composer's subject is
-//! 26, a reader's 20), at its weight; its address
-//! lines start at the reader's left edge, as a message's header does; and its body starts where
-//! the reader's body does, at the reader's size. A reply under the thread lines up the same way,
-//! and its bar of buttons is drawn inside the window.
+//! new message's subject sits where a message's title does, at its size (20) and weight; its
+//! header lines start at the reader's left edge, as a message's header does, with one
+//! right-aligned label column and every value at one x; its body starts where the reader's body
+//! does, at the reader's size; and every trailing control (Focus, the To row's Bcc, Send ▾) ends
+//! on one right edge. A reply under the thread lines up the same way, and its bar of buttons is
+//! drawn inside the window.
 //!
 //! The window is `mail_app::ui::native::root` over a store seeded in a `TempDir`: nothing here
 //! touches the network, the real mail store or the real config.
@@ -215,21 +216,62 @@ fn near(what: &str, got: f32, want: f32) {
     );
 }
 
-/// A property row's label, and its value: both start at the header's left edge, in that order.
+/// Each of `rows` starts at the header's left edge; their labels end on one x, right-aligned in
+/// one column; and their values start on one x past it.
 fn assert_lines(harness: &Harness, page: &str, rows: &[&str], model: &Reader) {
+    let mut label_rights = Vec::new();
+    let mut value_lefts = Vec::new();
     for name in rows {
         let row = format!("{page} .c-props [*|data-row={name}]");
+        let line = harness
+            .rect(&row)
+            .unwrap_or_else(|| panic!("{row} is not drawn:\n{}", harness.html()));
+        near(&format!("{name}'s line"), line.origin.x.0, model.head_left);
         let label = harness
             .rect(&format!("{row} .c-line-k"))
             .unwrap_or_else(|| panic!("{row} has no label:\n{}", harness.html()));
-        near(
-            &format!("{name}'s label"),
-            label.origin.x.0,
-            model.head_left,
+        let value = harness
+            .rect(&format!("{row} .c-line-v"))
+            .unwrap_or_else(|| panic!("{row} has no value:\n{}", harness.html()));
+        assert!(
+            label.origin.x.0 + label.size.width.0 <= value.origin.x.0 + SLACK,
+            "{name}'s label runs into its value"
         );
-        let line = harness.rect(&row).expect("the row is drawn");
-        near(&format!("{name}'s line"), line.origin.x.0, model.head_left);
+        label_rights.push((*name, label.origin.x.0 + label.size.width.0));
+        value_lefts.push((*name, value.origin.x.0));
     }
+    for (what, edges) in [
+        ("label's right", &label_rights),
+        ("value's left", &value_lefts),
+    ] {
+        let (first, at) = edges[0];
+        for (name, x) in edges {
+            assert!(
+                (x - at).abs() <= SLACK,
+                "{name}'s {what} is at {x}, {first}'s at {at}"
+            );
+        }
+    }
+}
+
+/// The right edge of the first element matching `selector`.
+fn right(harness: &Harness, selector: &str) -> f32 {
+    let rect = harness
+        .rect(selector)
+        .unwrap_or_else(|| panic!("{selector} is not drawn:\n{}", harness.html()));
+    rect.origin.x.0 + rect.size.width.0
+}
+
+/// Press the element `selector` at its centre.
+fn press(harness: &mut Harness, selector: &str) {
+    let rect = harness
+        .rect(selector)
+        .unwrap_or_else(|| panic!("{selector} is not drawn:\n{}", harness.html()));
+    harness.click(Point {
+        x: Px(rect.origin.x.0 + rect.size.width.0 / 2.0),
+        y: Px(rect.origin.y.0 + rect.size.height.0 / 2.0),
+    });
+    harness.advance(ms(300));
 }
 
 #[test]
@@ -244,18 +286,49 @@ fn a_new_message_is_set_as_the_reader_sets_a_message() {
 
     let (subject_left, subject_font) = text_box(&harness, ".cpage .c-title input");
     near("the subject", subject_left, model.title_left);
-    // The rule sheet sets the two subjects apart: a message's is 20, a new message's 26.
+    // What you write looks like what you read: both subjects are 20.
     assert_eq!(model.title_font, 20.0, "the reader's subject size");
-    assert_eq!(subject_font, 26.0, "the composer's subject size");
-    assert_lines(
-        &harness,
-        ".cpage",
-        &["from", "to", "sends", "protection", "remind"],
-        &model,
+    assert_eq!(
+        subject_font, model.title_font,
+        "the composer's subject size"
     );
+    // A new message from one address draws To and nothing else.
+    for gone in [
+        "from", "cc", "bcc", "sends", "remind", "security", "receipt",
+    ] {
+        assert_eq!(
+            harness.count(&format!(".cpage .c-props [*|data-row={gone}]")),
+            0,
+            "a new message draws {gone}"
+        );
+    }
+    assert_lines(&harness, ".cpage", &["to"], &model);
     let (body_left, body_font) = text_box(&harness, ".cpage .c-body");
     near("the body", body_left, model.body_left);
     assert_eq!(body_font, model.body_font, "the body's size");
+
+    // Every trailing control ends on one right edge: the bar's Focus, the To row's Bcc, Send ▾.
+    let edge = right(&harness, ".cpage .c-top .ds-button");
+    for (what, selector) in [
+        (
+            "Bcc at the To row's end",
+            ".cpage [*|aria-label=\"Add Bcc\"]",
+        ),
+        ("Send ▾", ".cpage .c-foot .c-send"),
+    ] {
+        let x = right(&harness, selector);
+        assert!(
+            (x - edge).abs() <= SLACK,
+            "{what} ends at {x}, Focus at {edge}"
+        );
+    }
+
+    // Cc and Bcc added: three rows, one label column, every value at one x.
+    press(&mut harness, ".cpage [*|aria-label=\"Add Cc\"]");
+    wait_for(&mut harness, ".cpage .c-props [*|data-row=cc]");
+    press(&mut harness, ".cpage [*|aria-label=\"Add Bcc\"]");
+    wait_for(&mut harness, ".cpage .c-props [*|data-row=bcc]");
+    assert_lines(&harness, ".cpage", &["to", "cc", "bcc"], &model);
 }
 
 #[test]
@@ -267,12 +340,17 @@ fn a_reply_is_set_as_the_reader_sets_a_message() {
     harness.key(Key::Char('r'));
     wait_for(&mut harness, ".inline-reply .c-body");
 
-    assert_lines(&harness, ".inline-reply", &["to", "remind"], &model);
+    assert_lines(&harness, ".inline-reply", &["to"], &model);
+    assert_eq!(
+        harness.count(".inline-reply .c-props [*|data-row=remind]"),
+        0,
+        "a reply draws a Remind row before one is set"
+    );
     let (body_left, body_font) = text_box(&harness, ".inline-reply .c-body");
     near("the reply's body", body_left, model.body_left);
     assert_eq!(body_font, model.body_font, "the reply's body size");
 
-    // Its bar, Send and all, is inside the window.
+    // Its bar, Send and all, is inside the window, and it is the new message's foot.
     let bar = harness
         .rect(".inline-reply .c-foot")
         .expect("the reply's bar is drawn");
@@ -281,4 +359,11 @@ fn a_reply_is_set_as_the_reader_sets_a_message() {
         bar.origin.y.0 >= 0.0 && bottom <= VIEW.height as f32,
         "the reply's bar runs out of the window: {bar:?}"
     );
+    for name in ["Attach", "More", "Send", "Send Options"] {
+        assert_eq!(
+            harness.count(&format!(".inline-reply .c-foot [*|aria-label=\"{name}\"]")),
+            1,
+            "the reply's foot has no {name}"
+        );
+    }
 }
