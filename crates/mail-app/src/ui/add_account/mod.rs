@@ -106,9 +106,11 @@ fn quire(ask: Ask) {
         handle.focus();
         return;
     }
+    // Reached only in the launched program: a test's window hands `AddAccountWindows`. The OAuth
+    // clients are the ones `main` gave the edge, as every other sign-in's are.
     let store = consume_context::<Arc<SqliteStore>>();
     let props = window::AddAccountWindowProps {
-        wiring: window::Wiring::real(store),
+        wiring: window::Wiring::real(store, crate::edge::clients()),
         prefill: ask.address,
     };
     // It opens at the size of the list, its first step, fitted to the screen (`size`).

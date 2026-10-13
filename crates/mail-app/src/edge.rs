@@ -13,10 +13,14 @@
 //!   empty, which is what a test wants.
 //! - [`install_profile`] records whose mail the process is over; until it does, that is the
 //!   default Profile, which is what a test wants.
+//! - [`install_clients`] records the OAuth clients the program signs in as (`main` hands it
+//!   [`OAuthClients::here`], this installation's clients files); until
+//!   it does there are none, which is what a test wants: a sign-in it starts stops at "needs a
+//!   client id" instead of opening a real issuer's page.
 //! - [`mail`] builds the handle over a store from those.
 
 use mail_core::profile::{Profile, Roots};
-use mail_core::{Environment, KeyringSigningStore, Mail, SigningStore};
+use mail_core::{Environment, KeyringSigningStore, Mail, OAuthClients, SigningStore};
 use mail_runtime::AccountSecrets;
 use mail_store::SqliteStore;
 use std::future::Future;
@@ -26,6 +30,7 @@ use tokio::runtime::Runtime;
 static RUNTIME: OnceLock<Runtime> = OnceLock::new();
 static ENVIRONMENT: OnceLock<Environment> = OnceLock::new();
 static PROFILE: OnceLock<(Profile, Roots)> = OnceLock::new();
+static CLIENTS: OnceLock<OAuthClients> = OnceLock::new();
 
 /// The application's one runtime, started the first time anything asks. It lives as long as the
 /// process, which is what the secret store's connection to the keyring needs of it.
@@ -55,6 +60,16 @@ pub fn environment() -> Environment {
     ENVIRONMENT.get().cloned().unwrap_or_default()
 }
 
+/// Records the OAuth clients the program signs in as. Only the first call counts.
+pub fn install_clients(clients: OAuthClients) {
+    let _ = CLIENTS.set(clients);
+}
+
+/// The OAuth clients `main` recorded: none until it does.
+pub fn clients() -> OAuthClients {
+    CLIENTS.get().cloned().unwrap_or_default()
+}
+
 /// Records whose mail the process is over, and the directories its paths are under. Only the first
 /// call counts.
 pub fn install_profile(profile: Profile, roots: Roots) {
@@ -81,11 +96,12 @@ pub fn signing() -> Arc<dyn SigningStore> {
     ))
 }
 
-/// The handle on `mail-core` over `store`, with the process's environment, its Profile's signing
-/// keys and the application's runtime.
+/// The handle on `mail-core` over `store`, with the process's environment, its OAuth clients, its
+/// Profile's signing keys and the application's runtime.
 pub fn mail(store: &Arc<SqliteStore>) -> Mail {
     Mail::new(store.clone(), runtime().handle().clone())
         .with_environment(environment())
+        .with_oauth_clients(clients())
         .with_signing(signing())
 }
 

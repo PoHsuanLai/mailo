@@ -32,6 +32,7 @@ mod keys;
 mod offline;
 mod root;
 
+pub(in crate::ui) use account::Seams as AccountSeams;
 pub(in crate::ui) use keys::with_value;
 pub use root::settings_root;
 

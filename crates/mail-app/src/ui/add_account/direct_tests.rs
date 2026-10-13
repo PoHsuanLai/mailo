@@ -3,7 +3,7 @@
 
 use super::direct::{
     AddPick, DirectSignIns, Entry, SignInDirectly, Signing, add_menu, entry, entry_for_plan,
-    redirects, told, waiting_words,
+    offered_redirects, redirects, told, waiting_words,
 };
 use super::provider::offered_specs;
 use super::{AddAccountWindows, Ask, OpenAddAccount};
@@ -14,6 +14,7 @@ use dioxus::prelude::*;
 use dioxus_core::{NoOpMutations, VirtualDom};
 use ds::prelude::MenuItem;
 use mail_core::account::{Mode, SignInError};
+use mail_core::{ClientRegistry, Environment};
 use mail_domain::AuthPlan;
 use porter_provider::Issuer;
 use std::sync::{Arc, Mutex};
@@ -192,17 +193,27 @@ fn the_toast_says_how_it_ended_in_plain_words() {
     assert_eq!(waiting_words(google), "Signing in with Google\u{2026}");
 }
 
-/// A direct sign-in of the test's: it records each one asked for and waits until the test ends
-/// it.
-#[derive(Default)]
+/// A direct sign-in of the test's: it has the clients it is given, records each sign-in asked
+/// for and waits until the test ends it.
 struct Fake {
+    clients: ClientRegistry,
     asked: Mutex<Vec<(Issuer, Mode)>>,
     end: Mutex<Option<tokio::sync::oneshot::Sender<Result<String, SignInError>>>>,
 }
 
+impl Fake {
+    fn with(clients: ClientRegistry) -> Fake {
+        Fake {
+            clients,
+            asked: Mutex::default(),
+            end: Mutex::default(),
+        }
+    }
+}
+
 impl SignInDirectly for Fake {
     fn has_client(&self, issuer: Issuer) -> bool {
-        issuer == Issuer::Google
+        mail_core::account::oauth_client(issuer, &Environment::default(), &self.clients).is_some()
     }
 
     fn sign_in(&self, issuer: Issuer, mode: Mode) -> Signing {
@@ -226,9 +237,9 @@ async fn keep_account(store: &mail_core::SqliteStore, address: &str) {
         now,
         mail_core::account::Credentials {
             password: None,
-            saved: &mail_core::ClientRegistry::default(),
+            saved: &ClientRegistry::default(),
             secrets: &porter_secrets::MemorySecrets::default(),
-            environment: &mail_core::Environment::default(),
+            environment: &Environment::default(),
             on_url: &|_| {},
             signed: None,
         },
@@ -269,7 +280,9 @@ async fn settle(dom: &mut VirtualDom) -> Seen {
 async fn google_from_the_plus_menu_signs_in_in_the_browser_with_no_window() {
     dispatching();
     let (store, _dir) = empty();
-    let fake = Arc::new(Fake::default());
+    let fake = Arc::new(Fake::with(mail_core::testing::fake_clients_for(&[
+        Issuer::Google,
+    ])));
     let windows = Windows::default();
     let mut dom = VirtualDom::new(crate::ui::app::App)
         .with_root_context(store.clone())
@@ -344,7 +357,9 @@ async fn google_from_the_plus_menu_signs_in_in_the_browser_with_no_window() {
 async fn other_account_and_a_provider_without_a_client_open_the_window() {
     dispatching();
     let (store, _dir) = empty();
-    let fake = Arc::new(Fake::default());
+    let fake = Arc::new(Fake::with(mail_core::testing::fake_clients_for(&[
+        Issuer::Google,
+    ])));
     let windows = Windows::default();
     let mut dom = VirtualDom::new(crate::ui::app::App)
         .with_root_context(store)
@@ -377,4 +392,98 @@ async fn other_account_and_a_provider_without_a_client_open_the_window() {
         2,
         "no window for Microsoft"
     );
+}
+
+#[tokio::test]
+async fn with_clients_at_hand_the_plus_menu_names_google_and_microsoft() {
+    dispatching();
+    let (store, _dir) = empty();
+    // Both stand-ins at hand, as an installation with both clients has: each is named, and a pick goes
+    // to the sign-in (here the test's recorder), never to the window.
+    let fake = Arc::new(Fake::with(mail_core::testing::fake_clients()));
+    let windows = Windows::default();
+    let mut dom = VirtualDom::new(crate::ui::app::App)
+        .with_root_context(store)
+        .with_root_context(crate::ui::revisions::Revisions::new())
+        .with_root_context(DirectSignIns(fake.clone()))
+        .with_root_context(AddAccountWindows(Arc::new(windows.clone())));
+    let seen = rebuild_into(&mut dom);
+    let seen = seen.merge(settle(&mut dom).await);
+    let plus = *seen
+        .all("aria-label", "Add account")
+        .last()
+        .expect("the + tile");
+    let asked = click(&mut dom, plus);
+    let opened = settle_menu(&mut dom, asked);
+    let names = menu_names(&dioxus_ssr::render(&dom));
+    assert_eq!(names, ["Google", "Microsoft", "Other Account\u{2026}"]);
+    pick_named(&mut dom, &opened, "Microsoft").await;
+    settle(&mut dom).await;
+    assert_eq!(
+        *fake.asked.lock().unwrap(),
+        [(Issuer::Microsoft, Mode::Add)]
+    );
+    assert!(
+        windows.0.lock().unwrap().is_empty(),
+        "a window was asked for"
+    );
+}
+
+/// A window whose root was not handed the program's sign-in (every test's, unless it hands a
+/// recorder) offers no provider by name and has nothing to sign in with: "+" and a sign-in again
+/// open the add-account window, and nothing reaches a browser or an issuer. Nor has the edge any
+/// client, since only `main` installs them.
+#[tokio::test]
+async fn a_root_without_the_programs_sign_in_offers_no_redirect_and_reaches_nothing() {
+    dispatching();
+    assert_eq!(
+        crate::edge::clients().load().unwrap(),
+        ClientRegistry::default(),
+        "the edge has clients no test installed"
+    );
+    // (root, whether it hands a recorder for the add-account window)
+    const CASES: &[(&str, bool)] = &[
+        ("the main window, its store alone", false),
+        ("the main window, with a recorder for the window", true),
+    ];
+    for (name, recorded) in CASES {
+        let (store, _dir) = empty();
+        let windows = Windows::default();
+        let mut dom = VirtualDom::new(crate::ui::app::App)
+            .with_root_context(store)
+            .with_root_context(crate::ui::revisions::Revisions::new());
+        if *recorded {
+            dom = dom.with_root_context(AddAccountWindows(Arc::new(windows.clone())));
+        }
+        let seen = rebuild_into(&mut dom);
+        let seen = seen.merge(settle(&mut dom).await);
+        let offered = dom.in_scope(ScopeId::APP, offered_redirects);
+        assert!(offered.is_empty(), "{name}: offered {offered:?}");
+        // The keys' seams too: no lookup and no keyring of the user's.
+        let looked = dom.in_scope(ScopeId::APP, || {
+            let seams = crate::ui::pgp::seams();
+            let store = consume_context::<Arc<mail_core::SqliteStore>>();
+            (seams.lookup)(store.as_ref(), "ada@example.test")
+        });
+        assert!(looked.is_err(), "{name}: a lookup was made");
+        if !*recorded {
+            continue;
+        }
+        // "+" is the window, with no menu, and so is a sign-in asked for by name.
+        let plus = *seen
+            .all("aria-label", "Add account")
+            .last()
+            .expect("the + tile");
+        let _ = click(&mut dom, plus);
+        settle(&mut dom).await;
+        dom.in_scope(ScopeId::APP, || {
+            super::direct::start(Issuer::Google, Mode::Add);
+        });
+        settle(&mut dom).await;
+        assert_eq!(
+            *windows.0.lock().unwrap(),
+            [Ask::default(), Ask::default()],
+            "{name}: + and Google each open the window"
+        );
+    }
 }

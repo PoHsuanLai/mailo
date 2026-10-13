@@ -265,7 +265,8 @@ mod tests {
             "the send-only Graph token is forgotten"
         );
 
-        // A sign-in is asked for, for Graph's scopes: with no client id here, it says so.
+        // A sign-in is asked for, for Graph's scopes: with no client at hand (the registry handed
+        // in is empty, on purpose), it says so.
         let Outcome::NeedsClientId { issuer, scopes, .. } = switched.outcome else {
             panic!("{:?}", switched.outcome)
         };

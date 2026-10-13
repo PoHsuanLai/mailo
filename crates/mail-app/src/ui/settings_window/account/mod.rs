@@ -42,24 +42,25 @@ pub(in crate::ui) struct Seams {
 }
 
 impl Seams {
-    /// The system keyring. In this crate's tests, an empty keyring of its own.
-    #[cfg(test)]
-    fn real() -> Seams {
+    /// The system keyring: the launched window's, handed as a root context there
+    /// (`launch::native`) and nowhere else.
+    pub(in crate::ui) fn real() -> Seams {
         Seams {
-            secrets: Arc::new(porter_secrets::MemorySecrets::default()),
+            secrets: crate::edge::secrets(),
         }
     }
 
-    #[cfg(not(test))]
-    fn real() -> Seams {
+    /// A window's whose root handed none, as a test's does: a keyring that holds nothing, so a
+    /// removal forgets nothing and touches no keyring of the user's.
+    fn none() -> Seams {
         Seams {
-            secrets: crate::edge::secrets(),
+            secrets: Arc::new(mail_core::NoKeyring),
         }
     }
 }
 
 fn seams() -> Seams {
-    try_consume_context::<Seams>().unwrap_or_else(Seams::real)
+    try_consume_context::<Seams>().unwrap_or_else(Seams::none)
 }
 
 /// The account's row, read from the store. `None` once it is gone.

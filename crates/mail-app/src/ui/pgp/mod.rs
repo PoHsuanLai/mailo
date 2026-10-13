@@ -58,20 +58,8 @@ pub(in crate::ui) struct Seams {
 }
 
 impl Seams {
-    /// The system keyring, the network and the desktop's dialogs. In this crate's tests, an
-    /// empty keyring of its own and nothing else: a window drawn by a test has no business with
-    /// the user's keys, the network or a dialog.
-    #[cfg(test)]
-    pub(in crate::ui) fn real() -> Seams {
-        Seams {
-            secrets: Arc::new(mail_core::testing::MapSigningStore::default()),
-            lookup: Arc::new(|_, _| Err("no lookups in tests".to_owned())),
-            pick: Arc::new(|| None),
-            save: Arc::new(|_| None),
-        }
-    }
-
-    #[cfg(not(test))]
+    /// The system keyring, the network and the desktop's dialogs: the launched window's, handed
+    /// as a root context there (`launch::native`) and nowhere else.
     pub(in crate::ui) fn real() -> Seams {
         Seams {
             secrets: crate::edge::signing(),
@@ -87,11 +75,23 @@ impl Seams {
             save: Arc::new(|name| rfd::FileDialog::new().set_file_name(name).save_file()),
         }
     }
+
+    /// A window's whose root handed none, as a test's does: a keyring that holds nothing, no
+    /// lookups and no dialogs. A window drawn by a test has no business with the user's keys, the
+    /// network or a dialog.
+    fn none() -> Seams {
+        Seams {
+            secrets: Arc::new(mail_core::NoKeyring),
+            lookup: Arc::new(|_, _| Err("no lookups in tests".to_owned())),
+            pick: Arc::new(|| None),
+            save: Arc::new(|_| None),
+        }
+    }
 }
 
-/// The seams the window was given, else the real ones.
+/// The seams the window's root handed, else ones that reach nothing.
 pub(in crate::ui) fn seams() -> Seams {
-    dioxus::prelude::try_consume_context::<Seams>().unwrap_or_else(Seams::real)
+    dioxus::prelude::try_consume_context::<Seams>().unwrap_or_else(Seams::none)
 }
 
 pub(in crate::ui) use mail_core::message::Tried;

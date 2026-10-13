@@ -27,9 +27,9 @@ use ds::host::measure::MountedRef;
 use ds::motion::detail::operation::{Operation, PendingToken};
 use ds::prelude::*;
 use ds::style::tokens::control_size::ControlSize;
-use mail_core::SqliteStore;
 use mail_core::account::direct::{WAIT, name_of, signs_in_directly};
 use mail_core::account::{Mode, SignInError};
+use mail_core::{OAuthClients, SqliteStore};
 use mail_domain::AuthPlan;
 use porter_core::AuthKind;
 use porter_provider::{Issuer, ProviderSpec};
@@ -112,15 +112,26 @@ pub(in crate::ui) fn add_menu(redirects: &[(Issuer, String)]) -> Vec<MenuItem<Ad
     rows
 }
 
-/// A direct sign-in, as the world is reached for one: a root context, so a test reaches nothing.
+/// A direct sign-in, as the world is reached for one: a root context. The launched program's
+/// root hands the real one ([`DirectSignIns::real`]); a test hands a recorder, or none, and a
+/// window without one offers no provider by name and opens the add-account window instead, so a
+/// test's window can never reach a browser or an issuer.
 #[derive(Clone)]
 pub struct DirectSignIns(pub Arc<dyn SignInDirectly>);
+
+impl DirectSignIns {
+    /// The program's: `clients`, the system browser, the keyring and `store`. For the launched
+    /// window's root alone.
+    pub(in crate::ui) fn real(store: Arc<SqliteStore>, clients: OAuthClients) -> DirectSignIns {
+        DirectSignIns(Arc::new(Real { store, clients }))
+    }
+}
 
 /// A sign-in under way: the address added, or why not. Dropping it cancels the sign-in and frees
 /// its listener.
 pub type Signing = Pin<Box<dyn Future<Output = Result<String, SignInError>> + Send>>;
 
-/// How a direct sign-in reaches the world: the recorded OAuth clients, the browser, the keyring
+/// How a direct sign-in reaches the world: the program's OAuth clients, the browser, the keyring
 /// and the store in the program, a recorder in a test.
 pub trait SignInDirectly: Send + Sync + 'static {
     /// Whether an OAuth client for `issuer` is at hand.
@@ -135,18 +146,20 @@ impl std::fmt::Debug for DirectSignIns {
     }
 }
 
-/// The program's: the recorded clients, the system browser, the keyring and `store`.
+/// The program's: its OAuth clients, the system browser, the keyring and `store`.
 struct Real {
     store: Arc<SqliteStore>,
+    clients: OAuthClients,
 }
 
 impl SignInDirectly for Real {
     fn has_client(&self, issuer: Issuer) -> bool {
-        super::provider::has_client(issuer)
+        super::provider::has_client(issuer, &self.clients)
     }
 
     fn sign_in(&self, issuer: Issuer, mode: Mode) -> Signing {
         let store = Arc::clone(&self.store);
+        let clients = self.clients.clone();
         Box::pin(async move {
             // `sign_in_with` borrows the browser's callback across its wait, which is not `Send`,
             // so it runs on a thread of its own, as the add-account sheet's sign-in does, and
@@ -158,7 +171,7 @@ impl SignInDirectly for Real {
                 .name("mailo-sign-in".to_owned())
                 .spawn(move || {
                     let ended = crate::edge::block_on(async {
-                        let saved = mail_core::account::saved_clients();
+                        let saved = clients.saved();
                         let environment = crate::edge::environment();
                         let secrets = crate::edge::secrets();
                         let browse = |url: &str| webbrowser::open(url);
@@ -194,17 +207,11 @@ impl SignInDirectly for Real {
     }
 }
 
-/// The direct sign-in this window may start: a test's, else the program's. None while the
-/// add-account window is a test's recorder (nothing real is reached then).
+/// The direct sign-in this window may start: its root's, and none when the root handed none.
+/// Never a real one made up here: only the launched program's root has the real one, so a test's
+/// window that forgot to hand a recorder reaches nothing.
 fn runner() -> Option<DirectSignIns> {
-    if let Some(ours) = try_consume_context::<DirectSignIns>() {
-        return Some(ours);
-    }
-    if try_consume_context::<super::AddAccountWindows>().is_some() {
-        return None;
-    }
-    let store = consume_context::<Arc<SqliteStore>>();
-    Some(DirectSignIns(Arc::new(Real { store })))
+    try_consume_context::<DirectSignIns>()
 }
 
 /// The providers the add menu lists by name now. Empty when no direct sign-in can start here,

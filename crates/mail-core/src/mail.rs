@@ -1,7 +1,8 @@
 //! The one handle on mailo's logic: [`Mail`].
 //!
 //! A front-end builds a `Mail` once, at its edge, from the pieces only it can choose: the store it
-//! opened, the runtime it owns, the environment it was started with, and (in a test) a clock. Everything this crate does that touches a server, the keyring or
+//! opened, the runtime it owns, the environment it was started with, the OAuth clients it signs in
+//! as ([`OAuthClients`]), and (in a test) a clock. Everything this crate does that touches a server, the keyring or
 //! the environment is then a method on it, grouped by what it is for:
 //!
 //! - [`Mail::accounts`]: adding, listing and removing accounts;
@@ -20,6 +21,7 @@
 //! function without a `Mail`.
 
 use crate::environment::Environment;
+use crate::error::Logged;
 use chrono::{DateTime, Utc};
 use mail_runtime::{
     AccountSecrets, ClientRegistry, KeyringSigningStore, SigningStore, platform_secrets,
@@ -66,15 +68,63 @@ impl Clock for FixedClock {
     }
 }
 
-/// The store, the secrets, the environment, the clock and the runtime handle that mailo's
-/// operations run over. See the module documentation.
+/// Where a [`Mail`]'s OAuth clients come from: chosen by the front-end at its edge, never by this
+/// crate.
+///
+/// A handle starts with none at hand ([`OAuthClients::default`]): every OAuth sign-in it starts
+/// stops at "needs a client id", and nothing reaches an issuer. The program hands it
+/// [`OAuthClients::here`], this installation's; a test hands it the clients it means to have
+/// (`mail_runtime::testing::fake_clients`), or none on purpose.
+#[derive(Debug, Clone)]
+pub enum OAuthClients {
+    /// Exactly these.
+    Given(ClientRegistry),
+    /// Read from these files at each use, so a client a sign-in records, or one set up in porter's
+    /// Settings while the program runs, is the next sign-in's and the next renewal's.
+    Files(mail_runtime::clients::Files),
+}
+
+impl Default for OAuthClients {
+    /// None at hand.
+    fn default() -> Self {
+        OAuthClients::Given(ClientRegistry::default())
+    }
+}
+
+impl OAuthClients {
+    /// This installation's: porter's shipped clients, the person's own, and mailo's earlier
+    /// `oauth.json`. For the program's edge alone: a test that called it
+    /// would sign in as mailo with whatever the machine it runs on has set up.
+    pub fn here() -> Self {
+        OAuthClients::Files(mail_runtime::clients::Files::here())
+    }
+
+    /// The registry now. One that cannot be read is an error, never read as empty (that would
+    /// report a configured client as missing).
+    pub fn load(&self) -> Result<ClientRegistry, crate::CoreError> {
+        match self {
+            OAuthClients::Given(clients) => Ok(clients.clone()),
+            OAuthClients::Files(files) => Ok(mail_runtime::clients::load(files)?),
+        }
+    }
+
+    /// The same, for the places that sign in and can do without: a registry that cannot be read is
+    /// logged and empty.
+    pub fn saved(&self) -> ClientRegistry {
+        self.load()
+            .or_log_default("the recorded OAuth clients could not be read")
+    }
+}
+
+/// The store, the secrets, the environment, the OAuth clients, the clock and the runtime handle
+/// that mailo's operations run over. See the module documentation.
 #[derive(Clone)]
 pub struct Mail {
     store: Arc<SqliteStore>,
     secrets: Arc<dyn AccountSecrets>,
     signing: Arc<dyn SigningStore>,
     environment: Environment,
-    clients: Option<ClientRegistry>,
+    clients: OAuthClients,
     clock: Arc<dyn Clock>,
     runtime: Handle,
 }
@@ -87,8 +137,8 @@ impl std::fmt::Debug for Mail {
 
 impl Mail {
     /// A handle over `store`, with `runtime` as the one the application owns. The secrets are the
-    /// platform's, the environment is empty and the clock is the wall's; change any with the
-    /// `with_` methods.
+    /// platform's, the environment is empty, no OAuth client is at hand and the clock is the
+    /// wall's; change any with the `with_` methods.
     pub fn new(store: Arc<SqliteStore>, runtime: Handle) -> Self {
         let secrets = platform_secrets(&runtime);
         Self {
@@ -96,7 +146,7 @@ impl Mail {
             secrets,
             signing: Arc::new(KeyringSigningStore::default()),
             environment: Environment::default(),
-            clients: None,
+            clients: OAuthClients::default(),
             clock: Arc::new(SystemClock),
             runtime,
         }
@@ -109,10 +159,17 @@ impl Mail {
         self
     }
 
-    /// With these OAuth clients, in place of the ones recorded in the config directory: a test's.
+    /// With exactly these OAuth clients: a test's, or a caller's that has them in hand.
     #[must_use]
     pub fn with_clients(mut self, clients: ClientRegistry) -> Self {
-        self.clients = Some(clients);
+        self.clients = OAuthClients::Given(clients);
+        self
+    }
+
+    /// With the OAuth clients from `clients`: the program's ([`OAuthClients::here`]).
+    #[must_use]
+    pub fn with_oauth_clients(mut self, clients: OAuthClients) -> Self {
+        self.clients = clients;
         self
     }
 
@@ -170,22 +227,16 @@ impl Mail {
         self.clock.now()
     }
 
-    /// The OAuth clients earlier sign-ins recorded, read from the config directory (or the ones
-    /// given with [`Mail::with_clients`]). A registry that cannot be read is an error.
+    /// The OAuth clients this handle was given, as a registry now. A registry that cannot be read
+    /// is an error.
     pub fn clients(&self) -> Result<ClientRegistry, crate::CoreError> {
-        match &self.clients {
-            Some(clients) => Ok(clients.clone()),
-            None => Ok(mail_runtime::clients::load_default()?),
-        }
+        self.clients.load()
     }
 
     /// The same, for the places that sign in and can do without: a registry that cannot be read is
     /// logged and empty.
     pub fn saved_clients(&self) -> ClientRegistry {
-        match &self.clients {
-            Some(clients) => clients.clone(),
-            None => crate::account::saved_clients(),
-        }
+        self.clients.saved()
     }
 
     /// Adding, listing and removing accounts.
@@ -291,11 +342,22 @@ mod tests {
     }
 
     #[test]
-    fn the_oauth_clients_can_be_handed_in_rather_than_read_from_the_config_directory() {
+    fn a_handle_has_the_oauth_clients_it_is_handed_and_none_until_it_is() {
         let (mail, _dir, _runtime) = handle();
+        // Nothing handed: no client at hand, whatever this machine has set up.
         let none = ClientRegistry::default();
-        let mail = mail.with_clients(none.clone());
         assert_eq!(mail.clients().unwrap(), none);
         assert_eq!(mail.saved_clients(), none);
+        let fake = mail_runtime::testing::fake_clients();
+        let given = mail.clone().with_clients(fake.clone());
+        assert_eq!(given.clients().unwrap(), fake);
+        assert_eq!(given.saved_clients(), fake);
+        // Files are read at each use, and a file that is not there is empty.
+        let dir = tempfile::tempdir().unwrap();
+        let files = mail.with_oauth_clients(OAuthClients::Files(mail_runtime::clients::Files {
+            own: Some(dir.path().join("clients.toml")),
+            ..mail_runtime::clients::Files::default()
+        }));
+        assert_eq!(files.clients().unwrap(), none);
     }
 }

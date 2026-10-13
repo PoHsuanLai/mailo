@@ -293,6 +293,7 @@ async fn closing_the_page_in_the_browser_is_a_cancelled_sign_in_and_adds_nothing
 
 #[tokio::test]
 async fn no_client_for_the_issuer_opens_no_page() {
+    // No client at hand: a registry without one, on purpose.
     let (store, _dir) = store();
     let opened = Arc::new(Mutex::new(Vec::new()));
     let browse = browser(opened.clone(), None);

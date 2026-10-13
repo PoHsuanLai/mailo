@@ -239,10 +239,9 @@ pub(super) fn listed(accounts: &[Listed]) -> String {
 /// Where an installed-application client id comes from, per issuer.
 ///
 /// Named rather than left as "register an installed application with the issuer", which is a
-/// research task standing between someone and their own mail. A client id is the one thing this
-/// program cannot supply — it is registered against the user's account with the issuer, and
-/// shipping one in a source tree would mean every user of this client shared an identity and a
-/// quota.
+/// research task standing between someone and their own mail. It is read when the registry at
+/// hand has no client for the issuer: one registered against the person's account with the
+/// issuer, typed in the environment or recorded in a clients file.
 ///
 /// Deliberately names the durable things — the product, the credential type, the consent
 /// requirement — and not a path through a menu, because console navigation is rewritten far more
@@ -425,9 +424,10 @@ mod render_tests {
     }
 
     #[test]
-    fn an_oauth_account_without_a_client_id_says_how_to_supply_one() {
+    fn with_no_client_at_hand_an_oauth_account_says_how_to_supply_one() {
         // Rather than appearing configured and failing at first connect with something less
-        // obvious. A client id cannot be shipped in the source tree, and that is worth saying.
+        // obvious. With no client at hand (a registry without one, or a person who wants their
+        // own) the advice is the command to run once they have one.
         let said = added(&done(
             "someone@gmail.com",
             false,
