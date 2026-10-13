@@ -25,7 +25,26 @@ fn store() -> (SqliteStore, tempfile::TempDir) {
 
 /// A message carrying one attachment with the name a sender chose.
 fn with_attachment(store: &SqliteStore, claimed: &str, bytes: &[u8]) -> MessageId {
-    let raw = store.blobs().put(b"raw").unwrap();
+    ingested(store, claimed, bytes, b"raw", Here::Whole)
+}
+
+/// How much of a message the fixture stores.
+#[derive(Clone, Copy, PartialEq)]
+enum Here {
+    Whole,
+    HeadersOnly,
+}
+
+/// The fixture's message as first stored: its bytes `sent`, and its body as `here` says. A
+/// stored body is never replaced by an upsert, so a test that needs other bytes starts here.
+fn ingested(
+    store: &SqliteStore,
+    claimed: &str,
+    bytes: &[u8],
+    sent: &[u8],
+    here: Here,
+) -> MessageId {
+    let raw = store.blobs().put(sent).unwrap();
     let blob = store.blobs().put(bytes).unwrap();
     let id = MessageId::generate();
     let message = Message {
@@ -50,9 +69,12 @@ fn with_attachment(store: &SqliteStore, claimed: &str, bytes: &[u8]) -> MessageI
         star: Star::Unstarred,
         mailbox: MailboxRole::Inbox,
         labels: vec![],
-        body: Body::Present {
-            text: Some("see attached".to_owned()),
-            raw,
+        body: match here {
+            Here::Whole => Body::Present {
+                text: Some("see attached".to_owned()),
+                raw,
+            },
+            Here::HeadersOnly => Body::Absent,
         },
         attachments: vec![Attachment {
             name: claimed.to_owned(),
@@ -549,19 +571,7 @@ mod whole_message {
 
     /// A message whose stored bytes are `raw`, line ends and all.
     fn sent_as(store: &SqliteStore, raw: &[u8]) -> MessageId {
-        let id = plain_message(store);
-        let blob = store.blobs().put(raw).unwrap();
-        mail_store::testing::edit_messages(store, |message| {
-            if message.id != id {
-                return false;
-            }
-            message.body = Body::Present {
-                text: Some("drawn".to_owned()),
-                raw: blob,
-            };
-            true
-        });
-        id
+        ingested(store, "x.pdf", b"x", raw, Here::Whole)
     }
 
     #[test]
@@ -585,14 +595,7 @@ mod whole_message {
     #[test]
     fn a_message_with_only_its_headers_here_has_none_and_writes_nothing() {
         let (store, _dir) = store();
-        let id = plain_message(&store);
-        mail_store::testing::edit_messages(&store, |message| {
-            if message.id != id {
-                return false;
-            }
-            message.body = Body::Absent;
-            true
-        });
+        let id = ingested(&store, "x.pdf", b"x", b"raw", Here::HeadersOnly);
         assert_eq!(export::raw_message(&store, id).unwrap(), None);
         let out = tempfile::tempdir().unwrap();
         assert_eq!(export::save_eml(&store, id, out.path()).unwrap(), None);
