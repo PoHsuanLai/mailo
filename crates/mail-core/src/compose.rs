@@ -16,7 +16,7 @@ use porter_core::AccountId;
 
 pub mod addresses;
 mod enclosed;
-pub use enclosed::{Carry, ENCLOSED, draft_forward_attached, rebuilt};
+pub use enclosed::{Carry, ENCLOSED, draft_forward_attached, eml_name, rebuilt};
 
 /// Read one identity, or the account's default, out of the `identities` table.
 ///
