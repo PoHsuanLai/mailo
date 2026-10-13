@@ -61,10 +61,10 @@ impl PartialEq for Wiring {
 }
 
 impl Wiring {
-    /// The network, the keyring, the recorded OAuth clients and the browser.
-    pub(super) fn real(store: Arc<SqliteStore>) -> Wiring {
+    /// The network, the keyring, the program's OAuth clients (`clients`) and the browser.
+    pub(super) fn real(store: Arc<SqliteStore>, clients: mail_core::OAuthClients) -> Wiring {
         Wiring::new(
-            Seams::real(store),
+            Seams::real(store, clients),
             Arc::new(|url| webbrowser::open(url).map_err(|why| why.to_string())),
         )
     }

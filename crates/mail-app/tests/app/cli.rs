@@ -1,8 +1,9 @@
 //! The CLI against a real store, which is `plan.md` phase 4's "a tiny CLI can list and open".
 //!
 //! Driven through `cli::run` rather than by spawning the binary, so the assertions are about what
-//! the user sees rather than about process plumbing. The handle has no saved OAuth clients: this
-//! links the ordinary library, and a saved client id would open a real sign-in.
+//! the user sees rather than about process plumbing. The handle has no OAuth client at hand, on
+//! purpose (`cli_mail`): an OAuth account stops at the advice on getting one, where a client would
+//! open a sign-in and wait.
 
 use chrono::{DateTime, TimeZone, Utc};
 use mail_app::cli;
@@ -12,7 +13,7 @@ use mail_domain::*;
 use porter_core::AccountId;
 use std::sync::Arc;
 
-/// `cli::run`, at `now`, with no saved OAuth clients.
+/// `cli::run`, at `now`, with no OAuth client at hand.
 fn exercise(
     store: &Arc<SqliteStore>,
     command: &cli::Command,
@@ -604,8 +605,9 @@ mod microsoft {
             "account add me@yourcompany.example --microsoft --send graph",
         ))
         .unwrap();
-        // No client id in the environment, so this stops at "needs a client id", after the
-        // plan is written; the advice it prints must reproduce the flag.
+        // No client at hand (the handle's registry is empty on purpose) and none in the
+        // environment, so this stops at "needs a client id", after the plan is written; the
+        // advice it prints must reproduce the flag.
         let out = exercise(&store, &command, now()).unwrap();
         assert!(out.contains("--microsoft --send graph"), "{out}");
         let plan: AccountPlan = store

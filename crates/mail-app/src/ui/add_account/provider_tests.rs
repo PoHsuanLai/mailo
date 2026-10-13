@@ -623,7 +623,8 @@ async fn a_browser_account_opens_the_browser_then_reviews_and_adds_with_the_cred
 }
 
 #[tokio::test]
-async fn a_browser_account_without_a_client_id_says_so_and_opens_nothing() {
+async fn with_no_client_at_hand_a_browser_account_says_so_and_opens_nothing() {
+    // No client at hand, on purpose: a registry without one for the issuer.
     let log = Arc::new(Log::default());
     let script = Script {
         client: false,

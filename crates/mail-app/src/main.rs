@@ -44,6 +44,9 @@ fn main() {
         environment.program = mail_core::Program::of_executable(&exe);
     }
     mail_app::edge::install_environment(environment);
+    // The OAuth clients it signs in as: porter's files and mailo's earlier one. Chosen here and
+    // handed down, so no library and no test reads them for itself.
+    mail_app::edge::install_clients(mail_core::OAuthClients::here());
 
     // No arguments opens the window, and `open <thread>` opens it on a conversation; anything
     // else is the CLI. One binary because they are one application over one store, and a

@@ -53,6 +53,14 @@ pub(super) fn run(opening: Opening) -> Result<(), ds_blitz::LaunchError> {
             ))
         });
     let original = Original::window();
+    // How the window reaches the world for a sign-in, for keys and for a removal's keyring: the
+    // real ones, here and only here. A test's root (`contexts`) has none of them, and a window
+    // without one reaches nothing (`add_account::DirectSignIns`, `pgp::seams`, Settings'
+    // account page): no browser, no issuer, no keyring, no dialog.
+    let sign_ins =
+        crate::ui::add_account::DirectSignIns::real(store.clone(), crate::edge::clients());
+    let keys = crate::ui::pgp::Seams::real();
+    let removals = crate::ui::settings_window::AccountSeams::real();
     // One revision for every window, so a conversation open in a window of its own follows what
     // the main window does to it, and the other way round (`ui/revisions`).
     let revisions = crate::ui::revisions::Revisions::new();
@@ -71,6 +79,9 @@ pub(super) fn run(opening: Opening) -> Result<(), ds_blitz::LaunchError> {
         .with_context(original.pill())
         .with_context(original.menus())
         .with_context(original.images())
+        .with_context(sign_ins)
+        .with_context(keys)
+        .with_context(removals)
         .with_context(icons)
         .with_context(revisions)
         // And one for the configuration files a window writes (key bindings, Spaces).

@@ -656,7 +656,8 @@ mod renewing_an_expired_sign_in {
     #[test]
     fn an_expired_sign_in_with_no_client_id_says_so_instead_of_failing_to_authenticate() {
         // "authentication failed" points at the password the user does not have. The actual
-        // problem is that this installation cannot renew, and the message has to say that.
+        // problem is that this installation cannot renew, and the message has to say that. No
+        // client at hand is an empty registry, handed in on purpose.
         let (store, _dir) = oauth_account();
         let secrets: Arc<dyn AccountSecrets> = Arc::new(MemorySecrets::default());
         mail_runtime::block_on(secrets.put(&key(), &token(-120))).unwrap();

@@ -191,7 +191,7 @@ fn use_graph(fetching: Fetching, mut revision: Signal<u64>, account: AccountId, 
         std::thread::spawn(move || {
             let environment = crate::edge::environment();
             let secrets = crate::edge::secrets();
-            let saved = mail_core::account::saved_clients();
+            let saved = crate::edge::clients().saved();
             let browse = |url: &str| {
                 if let Err(why) = webbrowser::open(url) {
                     log::warn!("the browser would not open the Microsoft sign-in: {why}");

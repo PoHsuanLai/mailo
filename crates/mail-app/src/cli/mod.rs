@@ -1439,10 +1439,9 @@ options, before the command:
 /// Returns a `String` rather than printing, so tests assert on output instead of capturing
 /// stdout. The handle carries what the commands read besides the store: the environment (a
 /// password or a passphrase given there), the secrets, the OAuth clients and the time. The binary
-/// builds it with [`crate::edge::mail`], whose clients are [`mail_core::account::saved_clients`];
-/// an integration test gives it an empty registry with `with_clients`, because it links the
-/// ordinary library, that function's `cfg!(test)` guard does not apply, and a real client id
-/// would open a browser and wait.
+/// builds it with [`crate::edge::mail`], whose clients are the ones `main` installed
+/// ([`mail_core::OAuthClients::here`], this installation's files); a test's handle has the ones the
+/// test hands it, and none when it hands none, so no test opens a real sign-in and waits.
 pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
     let store: &SqliteStore = mail.store();
     let now = mail.now();

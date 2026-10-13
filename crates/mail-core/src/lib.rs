@@ -69,11 +69,11 @@ pub mod when;
 pub use environment::{Environment, Program};
 pub use error::{CoreError, TimeError};
 pub use mail::{
-    AccountOps, Clock, ContactOps, CryptoOps, DiscoverOps, FixedClock, Mail, RuleOps, SyncOps,
-    SystemClock,
+    AccountOps, Clock, ContactOps, CryptoOps, DiscoverOps, FixedClock, Mail, OAuthClients, RuleOps,
+    SyncOps, SystemClock,
 };
-/// The doubles at the runtime's seams, for a front end's tests: an in-memory transport, secrets and
-/// signing store.
+/// The doubles at the runtime's seams, for a front end's tests: an in-memory transport, secrets,
+/// signing store and OAuth clients that sign in nowhere.
 #[cfg(feature = "testing")]
 pub use mail_runtime::testing;
 /// What the window tells the body pass it is reading and fetching, so the pass does not repeat it.
@@ -81,7 +81,7 @@ pub use mail_runtime::wanted;
 /// The runtime types mail-core's API hands out and takes: re-exported, so a front end goes
 /// through mail-core alone.
 pub use mail_runtime::{
-    AccountSecrets, Arrival, ClientRegistry, Destination, KeyringSigningStore, Searched,
+    AccountSecrets, Arrival, ClientRegistry, Destination, KeyringSigningStore, NoKeyring, Searched,
     ServerHits, SigningStore, Transport, absorb, absorb_into, assemble, fetch, off_runtime,
     remote_image, schedule, sieve::Pushed,
 };

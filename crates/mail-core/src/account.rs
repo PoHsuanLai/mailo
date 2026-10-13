@@ -599,9 +599,10 @@ pub async fn add_receiving(
             // preset table does not have, and a re-run without it fails to find any preset
             // at all. Advice that does not work when followed is worse than none.
             //
-            // The client id is deployment configuration and cannot be shipped in a source
-            // tree, so the honest thing is to say exactly what is missing — not to look
-            // configured and fail at first connect.
+            // No client at hand: the registry handed in has none for this issuer, and the
+            // environment names none.
+            // The honest thing is to say exactly what is missing — not to look configured and
+            // fail at first connect.
             _ => Outcome::NeedsClientId {
                 issuer: *issuer,
                 scopes: scopes.clone(),
@@ -770,19 +771,6 @@ pub fn oauth_client(
     saved: &ClientRegistry,
 ) -> Option<ClientEntry> {
     client_for(issuer, env, saved).map(|(client, _)| client)
-}
-
-/// The OAuth clients earlier sign-ins recorded, for [`add`] to fall back on.
-///
-/// Empty in this crate's unit tests. Integration tests link the ordinary library, so this
-/// guard does not apply to them; they hand `Mail::with_clients` an empty registry.
-/// A test that found a real client id here would open a sign-in and wait on it.
-pub fn saved_clients() -> ClientRegistry {
-    if cfg!(test) {
-        return ClientRegistry::default();
-    }
-    mail_runtime::clients::load_default()
-        .or_log_default("the recorded OAuth clients could not be read")
 }
 
 /// Exchange the sign-in's refresh token for a Graph token and keep it as the outgoing credential.
@@ -1178,13 +1166,12 @@ mod tests {
     }
 
     #[test]
-    fn an_oauth_account_without_a_client_id_says_how_to_supply_one() {
+    fn with_no_client_at_hand_an_oauth_account_says_how_to_supply_one() {
         // Rather than appearing configured and failing at first connect with something less
-        // obvious. A client id cannot be shipped in the source tree, and that is worth saying.
+        // obvious. No client at hand is a registry without one, handed in on purpose here, and
+        // no MAILO_OAUTH_CLIENT_ID: the useful thing then is the
+        // exact command to run once they have one.
         let (store, _dir) = store();
-        // With no MAILO_OAUTH_CLIENT_ID set, which is the state anyone starts in. The client
-        // id is deployment configuration and cannot be shipped in a source tree, so the useful
-        // thing is the exact command to run once they have one.
         let out = add(
             &store,
             "someone@gmail.com",

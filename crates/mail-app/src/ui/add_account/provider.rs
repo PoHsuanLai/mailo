@@ -18,10 +18,10 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Utc};
-use mail_core::SqliteStore;
 use mail_core::account::Setup;
 use mail_core::discover::{Failed, Found, Looked as Resolved};
 use mail_core::password::Password;
+use mail_core::{OAuthClients, SqliteStore};
 use mail_domain::presets::{self, Preset};
 use mail_domain::{AuthPlan, HttpAuth};
 use porter_core::sheet::{
@@ -89,8 +89,10 @@ pub struct Seams {
 }
 
 impl Seams {
-    /// The network, the keyring and the recorded OAuth clients.
-    pub(in crate::ui) fn real(store: Arc<SqliteStore>) -> Seams {
+    /// The network, the keyring and the program's OAuth clients, `clients`.
+    pub(in crate::ui) fn real(store: Arc<SqliteStore>, clients: OAuthClients) -> Seams {
+        let has = clients.clone();
+        let signs_in = clients.clone();
         Seams {
             lookup: Arc::new(|address| {
                 crate::edge::block_on(mail_core::discover::search(address, Utc::now()))
@@ -98,8 +100,9 @@ impl Seams {
             jmap: Arc::new(|domain| {
                 crate::edge::block_on(mail_core::discover::find_jmap(domain)).map_err(String::from)
             }),
-            client: Arc::new(has_client),
-            authorize: Arc::new(|issuer, scopes, urls| {
+            client: Arc::new(move |issuer| has_client(issuer, &has)),
+            authorize: Arc::new(move |issuer, scopes, urls| {
+                let clients = signs_in.clone();
                 Box::pin(async move {
                     // `sign_in` borrows a callback that is not `Sync`, so it runs on a thread of
                     // its own and the future waits for it. Dropping the future drops `stop`, which
@@ -108,7 +111,7 @@ impl Seams {
                     let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
                     std::thread::spawn(move || {
                         let ended = crate::edge::block_on(async {
-                            let saved = mail_core::account::saved_clients();
+                            let saved = clients.saved();
                             let client = mail_core::account::oauth_client(
                                 issuer,
                                 &crate::edge::environment(),
@@ -148,7 +151,7 @@ impl Seams {
                     Utc::now(),
                     mail_core::account::Credentials {
                         password: password.as_ref(),
-                        saved: &mail_core::account::saved_clients(),
+                        saved: &clients.saved(),
                         secrets: crate::edge::secrets().as_ref(),
                         environment: &environment,
                         // The sign-in has been made and its address shown already.
@@ -163,15 +166,11 @@ impl Seams {
     }
 }
 
-/// Whether this installation has an OAuth client for `issuer`: one typed in the environment, or
-/// one an earlier sign-in recorded.
-pub(super) fn has_client(issuer: Issuer) -> bool {
-    mail_core::account::oauth_client(
-        issuer,
-        &crate::edge::environment(),
-        &mail_core::account::saved_clients(),
-    )
-    .is_some()
+/// Whether an OAuth client for `issuer` is at hand: one typed in the environment, or one of
+/// `clients` (the program's: this installation's files).
+pub(super) fn has_client(issuer: Issuer, clients: &OAuthClients) -> bool {
+    mail_core::account::oauth_client(issuer, &crate::edge::environment(), &clients.saved())
+        .is_some()
 }
 
 /// The provider files of [`OFFERED`], in its order.
