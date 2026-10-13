@@ -227,7 +227,7 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 [[package]]
 name = "anyrender"
 version = "0.13.0"
-source = "git+https://github.com/PoHsuanLai/anyrender?rev=a0825ebfc0443f3ef0830c0e09f2d85df3da632b#a0825ebfc0443f3ef0830c0e09f2d85df3da632b"
+source = "git+https://github.com/PoHsuanLai/anyrender?rev=a1c328cc6084cd3a4580d16a7ecdc939bd68f50e#a1c328cc6084cd3a4580d16a7ecdc939bd68f50e"
 dependencies = [
  "kurbo",
  "peniko",
@@ -251,7 +251,7 @@ dependencies = [
 [[package]]
 name = "anyrender_vello_cpu"
 version = "0.17.0"
-source = "git+https://github.com/PoHsuanLai/anyrender?rev=a0825ebfc0443f3ef0830c0e09f2d85df3da632b#a0825ebfc0443f3ef0830c0e09f2d85df3da632b"
+source = "git+https://github.com/PoHsuanLai/anyrender?rev=a1c328cc6084cd3a4580d16a7ecdc939bd68f50e#a1c328cc6084cd3a4580d16a7ecdc939bd68f50e"
 dependencies = [
  "anyrender",
  "bytemuck",
@@ -268,7 +268,7 @@ dependencies = [
 [[package]]
 name = "anyrender_vello_hybrid"
 version = "0.10.0"
-source = "git+https://github.com/PoHsuanLai/anyrender?rev=a0825ebfc0443f3ef0830c0e09f2d85df3da632b#a0825ebfc0443f3ef0830c0e09f2d85df3da632b"
+source = "git+https://github.com/PoHsuanLai/anyrender?rev=a1c328cc6084cd3a4580d16a7ecdc939bd68f50e#a1c328cc6084cd3a4580d16a7ecdc939bd68f50e"
 dependencies = [
  "anyrender",
  "debug_timer 0.1.3 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2248,7 +2248,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2313,7 +2313,7 @@ checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
 [[package]]
 name = "ds"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire.git?rev=b50e4b80ac8e03ebd2f9506d3aed92770cbeb6cd#b50e4b80ac8e03ebd2f9506d3aed92770cbeb6cd"
+source = "git+https://github.com/PoHsuanLai/quire.git?rev=836084afaaa6659bb276df6e1f40d06a9dff7c9e#836084afaaa6659bb276df6e1f40d06a9dff7c9e"
 dependencies = [
  "chordkit",
  "dioxus",
@@ -2329,7 +2329,7 @@ dependencies = [
 [[package]]
 name = "ds-behaviour"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire.git?rev=b50e4b80ac8e03ebd2f9506d3aed92770cbeb6cd#b50e4b80ac8e03ebd2f9506d3aed92770cbeb6cd"
+source = "git+https://github.com/PoHsuanLai/quire.git?rev=836084afaaa6659bb276df6e1f40d06a9dff7c9e#836084afaaa6659bb276df6e1f40d06a9dff7c9e"
 dependencies = [
  "ds-core",
 ]
@@ -2337,7 +2337,7 @@ dependencies = [
 [[package]]
 name = "ds-blitz"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire.git?rev=b50e4b80ac8e03ebd2f9506d3aed92770cbeb6cd#b50e4b80ac8e03ebd2f9506d3aed92770cbeb6cd"
+source = "git+https://github.com/PoHsuanLai/quire.git?rev=836084afaaa6659bb276df6e1f40d06a9dff7c9e#836084afaaa6659bb276df6e1f40d06a9dff7c9e"
 dependencies = [
  "anyrender",
  "anyrender_vello_hybrid",
@@ -2381,7 +2381,7 @@ dependencies = [
 [[package]]
 name = "ds-core"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire.git?rev=b50e4b80ac8e03ebd2f9506d3aed92770cbeb6cd#b50e4b80ac8e03ebd2f9506d3aed92770cbeb6cd"
+source = "git+https://github.com/PoHsuanLai/quire.git?rev=836084afaaa6659bb276df6e1f40d06a9dff7c9e#836084afaaa6659bb276df6e1f40d06a9dff7c9e"
 dependencies = [
  "chordkit",
  "ds-core-derive",
@@ -2394,7 +2394,7 @@ dependencies = [
 [[package]]
 name = "ds-core-derive"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire.git?rev=b50e4b80ac8e03ebd2f9506d3aed92770cbeb6cd#b50e4b80ac8e03ebd2f9506d3aed92770cbeb6cd"
+source = "git+https://github.com/PoHsuanLai/quire.git?rev=836084afaaa6659bb276df6e1f40d06a9dff7c9e#836084afaaa6659bb276df6e1f40d06a9dff7c9e"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -2405,12 +2405,12 @@ dependencies = [
 [[package]]
 name = "ds-desktop"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire.git?rev=b50e4b80ac8e03ebd2f9506d3aed92770cbeb6cd#b50e4b80ac8e03ebd2f9506d3aed92770cbeb6cd"
+source = "git+https://github.com/PoHsuanLai/quire.git?rev=836084afaaa6659bb276df6e1f40d06a9dff7c9e#836084afaaa6659bb276df6e1f40d06a9dff7c9e"
 
 [[package]]
 name = "ds-harness"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire.git?rev=b50e4b80ac8e03ebd2f9506d3aed92770cbeb6cd#b50e4b80ac8e03ebd2f9506d3aed92770cbeb6cd"
+source = "git+https://github.com/PoHsuanLai/quire.git?rev=836084afaaa6659bb276df6e1f40d06a9dff7c9e#836084afaaa6659bb276df6e1f40d06a9dff7c9e"
 dependencies = [
  "anyrender",
  "anyrender_vello_cpu",
@@ -2441,7 +2441,7 @@ dependencies = [
 [[package]]
 name = "ds-intents"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire.git?rev=b50e4b80ac8e03ebd2f9506d3aed92770cbeb6cd#b50e4b80ac8e03ebd2f9506d3aed92770cbeb6cd"
+source = "git+https://github.com/PoHsuanLai/quire.git?rev=836084afaaa6659bb276df6e1f40d06a9dff7c9e#836084afaaa6659bb276df6e1f40d06a9dff7c9e"
 dependencies = [
  "ds-core",
 ]
@@ -2449,7 +2449,7 @@ dependencies = [
 [[package]]
 name = "ds-lint"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire.git?rev=b50e4b80ac8e03ebd2f9506d3aed92770cbeb6cd#b50e4b80ac8e03ebd2f9506d3aed92770cbeb6cd"
+source = "git+https://github.com/PoHsuanLai/quire.git?rev=836084afaaa6659bb276df6e1f40d06a9dff7c9e#836084afaaa6659bb276df6e1f40d06a9dff7c9e"
 dependencies = [
  "cssparser 0.37.0",
  "ds-core",
@@ -2459,7 +2459,7 @@ dependencies = [
 [[package]]
 name = "ds-motion"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire.git?rev=b50e4b80ac8e03ebd2f9506d3aed92770cbeb6cd#b50e4b80ac8e03ebd2f9506d3aed92770cbeb6cd"
+source = "git+https://github.com/PoHsuanLai/quire.git?rev=836084afaaa6659bb276df6e1f40d06a9dff7c9e#836084afaaa6659bb276df6e1f40d06a9dff7c9e"
 dependencies = [
  "dioxus",
  "ds-core",
@@ -2469,7 +2469,7 @@ dependencies = [
 [[package]]
 name = "ds-settings"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire.git?rev=b50e4b80ac8e03ebd2f9506d3aed92770cbeb6cd#b50e4b80ac8e03ebd2f9506d3aed92770cbeb6cd"
+source = "git+https://github.com/PoHsuanLai/quire.git?rev=836084afaaa6659bb276df6e1f40d06a9dff7c9e#836084afaaa6659bb276df6e1f40d06a9dff7c9e"
 dependencies = [
  "dioxus",
  "ds-behaviour",
@@ -2488,7 +2488,7 @@ dependencies = [
 [[package]]
 name = "ds-settings-derive"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire.git?rev=b50e4b80ac8e03ebd2f9506d3aed92770cbeb6cd#b50e4b80ac8e03ebd2f9506d3aed92770cbeb6cd"
+source = "git+https://github.com/PoHsuanLai/quire.git?rev=836084afaaa6659bb276df6e1f40d06a9dff7c9e#836084afaaa6659bb276df6e1f40d06a9dff7c9e"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2498,7 +2498,7 @@ dependencies = [
 [[package]]
 name = "ds-shell"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire.git?rev=b50e4b80ac8e03ebd2f9506d3aed92770cbeb6cd#b50e4b80ac8e03ebd2f9506d3aed92770cbeb6cd"
+source = "git+https://github.com/PoHsuanLai/quire.git?rev=836084afaaa6659bb276df6e1f40d06a9dff7c9e#836084afaaa6659bb276df6e1f40d06a9dff7c9e"
 dependencies = [
  "dioxus",
  "ds",
@@ -2511,7 +2511,7 @@ dependencies = [
 [[package]]
 name = "ds-style"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire.git?rev=b50e4b80ac8e03ebd2f9506d3aed92770cbeb6cd#b50e4b80ac8e03ebd2f9506d3aed92770cbeb6cd"
+source = "git+https://github.com/PoHsuanLai/quire.git?rev=836084afaaa6659bb276df6e1f40d06a9dff7c9e#836084afaaa6659bb276df6e1f40d06a9dff7c9e"
 dependencies = [
  "dioxus",
  "ds-core",
@@ -2725,7 +2725,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3152,7 +3152,7 @@ dependencies = [
 [[package]]
 name = "glifo"
 version = "0.2.0"
-source = "git+https://github.com/PoHsuanLai/vello?rev=1722f6234e10b95d574d2252698a6cc7cdcadb82#1722f6234e10b95d574d2252698a6cc7cdcadb82"
+source = "git+https://github.com/PoHsuanLai/vello?rev=3e43d4af1f1955f2efc2cd52e50350811a1386ca#3e43d4af1f1955f2efc2cd52e50350811a1386ca"
 dependencies = [
  "bytemuck",
  "foldhash 0.2.0",
@@ -5617,7 +5617,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d8fae84b431384b68627d0f9b3b1245fcf9f46f6c0e3dc902e9dce64edd1967"
 dependencies = [
  "libc",
- "windows-sys 0.45.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6304,7 +6304,7 @@ dependencies = [
 [[package]]
 name = "pixels_window_renderer"
 version = "0.8.0"
-source = "git+https://github.com/PoHsuanLai/anyrender?rev=a0825ebfc0443f3ef0830c0e09f2d85df3da632b#a0825ebfc0443f3ef0830c0e09f2d85df3da632b"
+source = "git+https://github.com/PoHsuanLai/anyrender?rev=a1c328cc6084cd3a4580d16a7ecdc939bd68f50e#a1c328cc6084cd3a4580d16a7ecdc939bd68f50e"
 dependencies = [
  "anyrender",
  "debug_timer 0.1.3 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -6756,7 +6756,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7282,7 +7282,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7937,7 +7937,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3d1e2c7f27f8d4cb10542a02c49005dbd6e93095799d6f3be745fae9f8fedd4"
 dependencies = [
  "libc",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7946,8 +7946,8 @@ version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0d204abcbdf8e88729306a8d0ca01a79d8a49969fe1f84696909d6dbc4321c1a"
 dependencies = [
- "foldhash 0.1.5",
- "hashbrown 0.15.5",
+ "foldhash 0.2.0",
+ "hashbrown 0.17.1",
 ]
 
 [[package]]
@@ -8414,7 +8414,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -8432,7 +8432,7 @@ version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d8c27177b12a6399ffc08b98f76f7c9a1f4fe9fc967c784c5a071fa8d93cf7e1"
 dependencies = [
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -8879,7 +8879,7 @@ checksum = "f2f6fb2847f6742cd76af783a2a2c49e9375d0a111c7bef6f71cd9e738c72d6e"
 dependencies = [
  "memoffset",
  "tempfile",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -9047,7 +9047,7 @@ checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
 [[package]]
 name = "vello_common"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/vello?rev=1722f6234e10b95d574d2252698a6cc7cdcadb82#1722f6234e10b95d574d2252698a6cc7cdcadb82"
+source = "git+https://github.com/PoHsuanLai/vello?rev=3e43d4af1f1955f2efc2cd52e50350811a1386ca#3e43d4af1f1955f2efc2cd52e50350811a1386ca"
 dependencies = [
  "bytemuck",
  "fearless_simd",
@@ -9077,7 +9077,7 @@ dependencies = [
 [[package]]
 name = "vello_cpu"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/vello?rev=1722f6234e10b95d574d2252698a6cc7cdcadb82#1722f6234e10b95d574d2252698a6cc7cdcadb82"
+source = "git+https://github.com/PoHsuanLai/vello?rev=3e43d4af1f1955f2efc2cd52e50350811a1386ca#3e43d4af1f1955f2efc2cd52e50350811a1386ca"
 dependencies = [
  "bytemuck",
  "crossbeam-channel",
@@ -9104,7 +9104,7 @@ dependencies = [
 [[package]]
 name = "vello_hybrid"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/vello?rev=1722f6234e10b95d574d2252698a6cc7cdcadb82#1722f6234e10b95d574d2252698a6cc7cdcadb82"
+source = "git+https://github.com/PoHsuanLai/vello?rev=3e43d4af1f1955f2efc2cd52e50350811a1386ca#3e43d4af1f1955f2efc2cd52e50350811a1386ca"
 dependencies = [
  "bytemuck",
  "glifo 0.2.0",
@@ -9119,7 +9119,7 @@ dependencies = [
 [[package]]
 name = "vello_sparse_shaders"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/vello?rev=1722f6234e10b95d574d2252698a6cc7cdcadb82#1722f6234e10b95d574d2252698a6cc7cdcadb82"
+source = "git+https://github.com/PoHsuanLai/vello?rev=3e43d4af1f1955f2efc2cd52e50350811a1386ca#3e43d4af1f1955f2efc2cd52e50350811a1386ca"
 dependencies = [
  "wesl",
  "wesl-macros",
@@ -9699,7 +9699,7 @@ dependencies = [
 [[package]]
 name = "wgpu_context"
 version = "0.9.0"
-source = "git+https://github.com/PoHsuanLai/anyrender?rev=a0825ebfc0443f3ef0830c0e09f2d85df3da632b#a0825ebfc0443f3ef0830c0e09f2d85df3da632b"
+source = "git+https://github.com/PoHsuanLai/anyrender?rev=a1c328cc6084cd3a4580d16a7ecdc939bd68f50e#a1c328cc6084cd3a4580d16a7ecdc939bd68f50e"
 dependencies = [
  "futures-intrusive",
  "wgpu",
@@ -9755,7 +9755,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

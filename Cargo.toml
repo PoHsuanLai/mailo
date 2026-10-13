@@ -167,16 +167,16 @@ opt-level = 2
 # only at a workspace root and mailo builds the renderer (`ds-blitz`). Change it only by pasting
 # that file again; `scripts/check-fork-patches.sh` fails CI when the two differ.
 [patch.crates-io]
-vello_common = { git = "https://github.com/PoHsuanLai/vello", rev = "1722f6234e10b95d574d2252698a6cc7cdcadb82" }
-vello_cpu = { git = "https://github.com/PoHsuanLai/vello", rev = "1722f6234e10b95d574d2252698a6cc7cdcadb82" }
-vello_hybrid = { git = "https://github.com/PoHsuanLai/vello", rev = "1722f6234e10b95d574d2252698a6cc7cdcadb82" }
-vello_sparse_shaders = { git = "https://github.com/PoHsuanLai/vello", rev = "1722f6234e10b95d574d2252698a6cc7cdcadb82" }
-glifo = { git = "https://github.com/PoHsuanLai/vello", rev = "1722f6234e10b95d574d2252698a6cc7cdcadb82" }
-anyrender = { git = "https://github.com/PoHsuanLai/anyrender", rev = "a0825ebfc0443f3ef0830c0e09f2d85df3da632b" }
-anyrender_vello_cpu = { git = "https://github.com/PoHsuanLai/anyrender", rev = "a0825ebfc0443f3ef0830c0e09f2d85df3da632b" }
-anyrender_vello_hybrid = { git = "https://github.com/PoHsuanLai/anyrender", rev = "a0825ebfc0443f3ef0830c0e09f2d85df3da632b" }
-wgpu_context = { git = "https://github.com/PoHsuanLai/anyrender", rev = "a0825ebfc0443f3ef0830c0e09f2d85df3da632b" }
-pixels_window_renderer = { git = "https://github.com/PoHsuanLai/anyrender", rev = "a0825ebfc0443f3ef0830c0e09f2d85df3da632b" }
+vello_common = { git = "https://github.com/PoHsuanLai/vello", rev = "3e43d4af1f1955f2efc2cd52e50350811a1386ca" }
+vello_cpu = { git = "https://github.com/PoHsuanLai/vello", rev = "3e43d4af1f1955f2efc2cd52e50350811a1386ca" }
+vello_hybrid = { git = "https://github.com/PoHsuanLai/vello", rev = "3e43d4af1f1955f2efc2cd52e50350811a1386ca" }
+vello_sparse_shaders = { git = "https://github.com/PoHsuanLai/vello", rev = "3e43d4af1f1955f2efc2cd52e50350811a1386ca" }
+glifo = { git = "https://github.com/PoHsuanLai/vello", rev = "3e43d4af1f1955f2efc2cd52e50350811a1386ca" }
+anyrender = { git = "https://github.com/PoHsuanLai/anyrender", rev = "a1c328cc6084cd3a4580d16a7ecdc939bd68f50e" }
+anyrender_vello_cpu = { git = "https://github.com/PoHsuanLai/anyrender", rev = "a1c328cc6084cd3a4580d16a7ecdc939bd68f50e" }
+anyrender_vello_hybrid = { git = "https://github.com/PoHsuanLai/anyrender", rev = "a1c328cc6084cd3a4580d16a7ecdc939bd68f50e" }
+wgpu_context = { git = "https://github.com/PoHsuanLai/anyrender", rev = "a1c328cc6084cd3a4580d16a7ecdc939bd68f50e" }
+pixels_window_renderer = { git = "https://github.com/PoHsuanLai/anyrender", rev = "a1c328cc6084cd3a4580d16a7ecdc939bd68f50e" }
 # dioxus-core 0.7.10 can spin forever in VirtualDom::wait_for_work: a task woken and then cancelled
 # before it is polled (a use_resource restart) leaves an empty entry in the dirty-task queue that
 # pop_task never removes. Fixed upstream in DioxusLabs/dioxus#5554 (0.8-alpha only); this fork

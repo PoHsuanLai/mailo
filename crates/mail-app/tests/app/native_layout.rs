@@ -464,14 +464,14 @@ fn lines_fit(harness: &Harness, case: &str) {
 
 /// The index (1-based) of the open menu's item named `name`.
 fn menu_item(harness: &Harness, name: &str) -> String {
-    let n = (1..=harness.count(".ds-menu > *"))
+    let n = (1..=harness.count(".ds-menu-list > *"))
         .find(|n| {
             harness
-                .text_of(&format!(".ds-menu > :nth-child({n}) .ds-menu-label"))
+                .text_of(&format!(".ds-menu-list > :nth-child({n}) .ds-menu-label"))
                 .is_some_and(|label| label.trim() == name)
         })
         .unwrap_or_else(|| panic!("no menu item is named {name:?}:\n{}", harness.html()));
-    format!(".ds-menu > :nth-child({n})")
+    format!(".ds-menu-list > :nth-child({n})")
 }
 
 #[test]

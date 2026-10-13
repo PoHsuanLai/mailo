@@ -13,7 +13,7 @@ use ds_harness::{Harness, Query};
 
 /// The open menu's children, items and rules alike, by position (1-based).
 fn child(n: usize) -> String {
-    format!(".ds-menu > :nth-child({n})")
+    format!(".ds-menu-list > :nth-child({n})")
 }
 
 /// Right-click the row `row` (a selector for its list item) on its subject line, and wait for
@@ -29,7 +29,7 @@ pub fn open_row_menu(harness: &mut Harness, row: &str) {
 
 /// The open menu's item names, in order.
 pub fn menu_names(harness: &Harness) -> Vec<String> {
-    (1..=harness.count(".ds-menu > *"))
+    (1..=harness.count(".ds-menu-list > *"))
         .filter_map(|n| harness.text_of(&format!("{} .ds-menu-label", child(n))))
         .collect()
 }
@@ -38,7 +38,7 @@ pub fn menu_names(harness: &Harness) -> Vec<String> {
 /// menu to go: quire blinks the item, then acts. A pick that opens a further menu (Snooze…,
 /// Label…, Move to…) leaves that one up.
 pub fn press_menu_item(harness: &mut Harness, name: &str) {
-    let n = (1..=harness.count(".ds-menu > *"))
+    let n = (1..=harness.count(".ds-menu-list > *"))
         .find(|n| {
             harness
                 .text_of(&format!("{} .ds-menu-label", child(*n)))

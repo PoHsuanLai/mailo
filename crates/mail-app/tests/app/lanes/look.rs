@@ -48,9 +48,9 @@ pub fn panel_settled(harness: &Harness) -> bool {
 
 /// The position of the open menu's item named `name`.
 pub fn menu_item_of(harness: &Harness, name: &str) -> Option<usize> {
-    (1..=harness.count(".ds-menu > *")).find(|n| {
+    (1..=harness.count(".ds-menu-list > *")).find(|n| {
         harness
-            .text_of(&format!(".ds-menu > :nth-child({n}) .ds-menu-label"))
+            .text_of(&format!(".ds-menu-list > :nth-child({n}) .ds-menu-label"))
             .is_some_and(|label| label.trim() == name)
     })
 }
