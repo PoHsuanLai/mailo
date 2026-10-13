@@ -35,8 +35,10 @@ pub trait SigningStore: Send + Sync {
     fn forget(&self, key: &SigningKeyRef) -> Result<(), RuntimeError>;
 }
 
-/// The keyring service every entry of mailo's, signing keys and earlier builds' account secrets
-/// alike, is filed under.
+/// The keyring service mailo's signing keys are filed under when nothing says otherwise: the one
+/// every entry of mailo's, signing keys and earlier builds' account secrets alike, always had.
+/// A Profile other than the default files its keys under a service of its own
+/// ([`KeyringSigningStore::for_service`]).
 pub(crate) const SERVICE: &str = "mailo";
 
 /// Named by the key alone: see [`SigningKeyId`] for why the account is not part of it. The
@@ -70,6 +72,9 @@ pub(crate) fn stored_signing(value: &SigningSecret) -> Stored {
 /// in [`open`] below, and nowhere else), or one given keyring-core store, which is how the tests
 /// use keyring-core's mock with the Credential Manager's size limit on any platform.
 ///
+/// Entries are filed under one keyring service ([`for_service`](Self::for_service); `mailo` unless
+/// told otherwise), so two services keep the same key apart.
+///
 /// Every call runs on a thread of its own, whichever it is over: see [`off_runtime`].
 pub struct KeyringSigningStore {
     slots: Box<dyn Slots + Send + Sync>,
@@ -83,25 +88,44 @@ impl std::fmt::Debug for KeyringSigningStore {
 }
 
 impl Default for KeyringSigningStore {
-    /// The platform's keyring.
+    /// The platform's keyring, under the service `mailo`.
     fn default() -> Self {
-        Self::with_slots(Box::new(Keyring), LIMIT)
+        Self::for_service(SERVICE)
     }
 }
 
 impl KeyringSigningStore {
+    /// The platform's keyring, with entries filed under `service`: a Profile's own
+    /// (`mail_core::profile::Profile::signing_service`).
+    pub fn for_service(service: impl Into<String>) -> Self {
+        Self::with_slots(
+            Box::new(Keyring {
+                service: service.into(),
+            }),
+            LIMIT,
+        )
+    }
+
     pub(crate) fn with_slots(slots: Box<dyn Slots + Send + Sync>, limit: Limit) -> Self {
         Self { slots, limit }
     }
 
-    /// Keeps signing keys in `store`, each in one entry.
+    /// Keeps signing keys in `store`, each in one entry, under the service `mailo`.
     pub fn over(store: Arc<CredentialStore>) -> Self {
-        Self::with_slots(Box::new(StoreSlots(store)), Limit::None)
+        Self::over_service(store, SERVICE)
+    }
+
+    /// Keeps signing keys in `store`, each in one entry, under `service`.
+    pub fn over_service(store: Arc<CredentialStore>, service: impl Into<String>) -> Self {
+        Self::with_slots(Box::new(StoreSlots::new(store, service)), Limit::None)
     }
 
     /// Keeps signing keys in `store`, cut into parts of at most `units` UTF-16 code units.
     pub fn chunked(store: Arc<CredentialStore>, units: usize) -> Self {
-        Self::with_slots(Box::new(StoreSlots(store)), Limit::Utf16Units(units))
+        Self::with_slots(
+            Box::new(StoreSlots::new(store, SERVICE)),
+            Limit::Utf16Units(units),
+        )
     }
 }
 
@@ -145,9 +169,21 @@ pub(crate) fn decode(text: &str) -> Result<Stored, RuntimeError> {
         .map_err(|e| RuntimeError::Secrets(Failure::new("stored credential is unreadable", e)))
 }
 
-/// One keyring-core store's entries under the service `mailo`, as [`chunks`] reads and writes them.
+/// One keyring-core store's entries under one service, as [`chunks`] reads and writes them.
 #[derive(Clone)]
-pub(crate) struct StoreSlots(pub(crate) Arc<CredentialStore>);
+pub(crate) struct StoreSlots {
+    store: Arc<CredentialStore>,
+    service: String,
+}
+
+impl StoreSlots {
+    pub(crate) fn new(store: Arc<CredentialStore>, service: impl Into<String>) -> Self {
+        Self {
+            store,
+            service: service.into(),
+        }
+    }
+}
 
 impl std::fmt::Debug for StoreSlots {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -158,8 +194,8 @@ impl std::fmt::Debug for StoreSlots {
 impl Slots for StoreSlots {
     fn read(&self, name: &str) -> Result<Option<String>, RuntimeError> {
         match self
-            .0
-            .build(SERVICE, name, None)
+            .store
+            .build(&self.service, name, None)
             .map_err(refused)?
             .get_password()
         {
@@ -170,8 +206,8 @@ impl Slots for StoreSlots {
     }
 
     fn write(&self, name: &str, value: &str) -> Result<(), RuntimeError> {
-        self.0
-            .build(SERVICE, name, None)
+        self.store
+            .build(&self.service, name, None)
             .map_err(refused)?
             .set_password(value)
             .map_err(refused)
@@ -179,8 +215,8 @@ impl Slots for StoreSlots {
 
     fn delete(&self, name: &str) -> Result<(), RuntimeError> {
         match self
-            .0
-            .build(SERVICE, name, None)
+            .store
+            .build(&self.service, name, None)
             .map_err(refused)?
             .delete_credential()
         {
@@ -201,31 +237,45 @@ pub(crate) const LIMIT: Limit = Limit::None;
 
 /// This platform's credential store, as [`chunks`] reads and writes it.
 #[derive(Debug)]
-pub(crate) struct Keyring;
+pub(crate) struct Keyring {
+    service: String,
+}
+
+impl Keyring {
+    /// The entry's name in the scenario directory, which has no services: the default's is the
+    /// name alone, as it always was, and another service's is told apart by a prefix.
+    fn scenario_name(&self, name: &str) -> String {
+        if self.service == SERVICE {
+            name.to_owned()
+        } else {
+            format!("{}/{name}", self.service)
+        }
+    }
+}
 
 impl Slots for Keyring {
     fn read(&self, name: &str) -> Result<Option<String>, RuntimeError> {
         #[cfg(debug_assertions)]
         if let Some(dir) = scenario::dir() {
-            return scenario::read(&dir, name);
+            return scenario::read(&dir, &self.scenario_name(name));
         }
-        StoreSlots(store()?).read(name)
+        StoreSlots::new(store()?, self.service.clone()).read(name)
     }
 
     fn write(&self, name: &str, value: &str) -> Result<(), RuntimeError> {
         #[cfg(debug_assertions)]
         if let Some(dir) = scenario::dir() {
-            return scenario::write(&dir, name, value);
+            return scenario::write(&dir, &self.scenario_name(name), value);
         }
-        StoreSlots(store()?).write(name, value)
+        StoreSlots::new(store()?, self.service.clone()).write(name, value)
     }
 
     fn delete(&self, name: &str) -> Result<(), RuntimeError> {
         #[cfg(debug_assertions)]
         if let Some(dir) = scenario::dir() {
-            return scenario::delete(&dir, name);
+            return scenario::delete(&dir, &self.scenario_name(name));
         }
-        StoreSlots(store()?).delete(name)
+        StoreSlots::new(store()?, self.service.clone()).delete(name)
     }
 }
 
@@ -483,7 +533,7 @@ mod tests {
             };
             let entries: Vec<Stored> = serde_json::from_str(text).unwrap();
             // Written the way every earlier build wrote it: the entry is the one JSON value.
-            StoreSlots(mock.clone())
+            StoreSlots::new(mock.clone(), SERVICE)
                 .write(
                     &signing_entry_name(&key),
                     &serde_json::to_string(&entries[0]).unwrap(),
@@ -491,7 +541,7 @@ mod tests {
                 .unwrap();
             let secret = store.get(&key).unwrap();
             store.put(&key, &secret).unwrap();
-            let kept = StoreSlots(mock.clone())
+            let kept = StoreSlots::new(mock.clone(), SERVICE)
                 .read(&signing_entry_name(&key))
                 .unwrap()
                 .unwrap();
@@ -522,7 +572,7 @@ mod tests {
             account: pgp_ref().account,
             key: SigningKeyId::Smime(mail_domain::smime::CertFingerprint([9; 32])),
         };
-        let slots = StoreSlots(mock);
+        let slots = StoreSlots::new(mock, SERVICE);
         for (key, secret) in [
             (pgp_ref(), SigningSecret::OpenPgp(armored)),
             (smime, SigningSecret::SmimeKey(pem)),
@@ -538,5 +588,34 @@ mod tests {
             assert!(slots.read(&format!("{name}#1")).unwrap().is_none());
             assert!(store.get(&key).is_err());
         }
+    }
+
+    /// Two Profiles may hold the same key. Each keeps its own entry, under its own service, and
+    /// forgetting one leaves the other.
+    #[test]
+    fn two_services_keep_the_same_key_apart() {
+        let mock = keyring_core::mock::Store::new().unwrap();
+        let default = KeyringSigningStore::over(mock.clone());
+        let other = KeyringSigningStore::over_service(mock.clone(), "mailo/0123abcd");
+        let (first, second) = (
+            SigningSecret::OpenPgp("first".into()),
+            SigningSecret::OpenPgp("second".into()),
+        );
+        default.put(&pgp_ref(), &first).unwrap();
+        assert!(other.get(&pgp_ref()).is_err(), "the other service has none");
+        other.put(&pgp_ref(), &second).unwrap();
+        assert_eq!(default.get(&pgp_ref()).unwrap(), first);
+        assert_eq!(other.get(&pgp_ref()).unwrap(), second);
+        // The default's entry is where every earlier build kept it.
+        let name = signing_entry_name(&pgp_ref());
+        assert!(
+            StoreSlots::new(mock.clone(), "mailo")
+                .read(&name)
+                .unwrap()
+                .is_some()
+        );
+        other.forget(&pgp_ref()).unwrap();
+        assert!(other.get(&pgp_ref()).is_err());
+        assert_eq!(default.get(&pgp_ref()).unwrap(), first);
     }
 }

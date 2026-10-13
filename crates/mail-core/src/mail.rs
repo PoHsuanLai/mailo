@@ -21,7 +21,9 @@
 
 use crate::environment::Environment;
 use chrono::{DateTime, Utc};
-use mail_runtime::{AccountSecrets, ClientRegistry, platform_secrets};
+use mail_runtime::{
+    AccountSecrets, ClientRegistry, KeyringSigningStore, SigningStore, platform_secrets,
+};
 use mail_store::SqliteStore;
 use std::sync::Arc;
 use tokio::runtime::Handle;
@@ -70,6 +72,7 @@ impl Clock for FixedClock {
 pub struct Mail {
     store: Arc<SqliteStore>,
     secrets: Arc<dyn AccountSecrets>,
+    signing: Arc<dyn SigningStore>,
     environment: Environment,
     clients: Option<ClientRegistry>,
     clock: Arc<dyn Clock>,
@@ -91,6 +94,7 @@ impl Mail {
         Self {
             store,
             secrets,
+            signing: Arc::new(KeyringSigningStore::default()),
             environment: Environment::default(),
             clients: None,
             clock: Arc::new(SystemClock),
@@ -126,6 +130,15 @@ impl Mail {
         self
     }
 
+    /// With another store of signing keys, in place of the platform's under the service `mailo`: a
+    /// Profile's own (`KeyringSigningStore::for_service`, with `Profile::signing_service`), or a
+    /// test's.
+    #[must_use]
+    pub fn with_signing(mut self, signing: Arc<dyn SigningStore>) -> Self {
+        self.signing = signing;
+        self
+    }
+
     /// The store.
     pub fn store(&self) -> &Arc<SqliteStore> {
         &self.store
@@ -134,6 +147,12 @@ impl Mail {
     /// Where account secrets are kept.
     pub fn secrets(&self) -> Arc<dyn AccountSecrets> {
         self.secrets.clone()
+    }
+
+    /// Where signing keys are kept: OpenPGP secret keys and S/MIME private keys, which are mailo's
+    /// own and not an account's.
+    pub fn signing(&self) -> Arc<dyn SigningStore> {
+        self.signing.clone()
     }
 
     /// What the program was started with.

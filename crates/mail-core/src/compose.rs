@@ -7,8 +7,10 @@
 
 use crate::error::{CoreError, Logged, TimeError};
 use chrono::{DateTime, Local, Utc};
+use mail_domain::signing::{SigningKeyRef, SigningSecret};
 use mail_domain::*;
 use mail_mime::posting;
+use mail_runtime::{Failure, RuntimeError};
 use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
 
@@ -851,6 +853,10 @@ pub enum Leaves {
 /// Builds the bytes and the envelope together, freezes the bytes in the blob store, and puts a
 /// submission in the outbox. Nothing here touches the network: the next sync delivers it, and
 /// until it does the message is safe across a restart.
+///
+/// For a draft that is neither signed nor encrypted: a draft that asks to be has no keys here
+/// and is refused (see [`send_with`], over the [`Mail::signing`](crate::Mail::signing) store,
+/// for one that may be).
 pub fn send(
     store: &SqliteStore,
     draft: DraftId,
@@ -858,11 +864,35 @@ pub fn send(
 ) -> Result<(Draft, mail_mime::Posting), CoreError> {
     Ok(send_with(
         store,
-        &mail_runtime::KeyringSigningStore::default(),
+        &NoKeys,
         &crate::pgp::no_passphrase,
         draft,
         now,
     )?)
+}
+
+/// A store of signing keys with none in it, for the sends that carry none: a draft that asks to be
+/// signed or encrypted is refused rather than looked up in a keyring this function was not given.
+struct NoKeys;
+
+impl mail_runtime::SigningStore for NoKeys {
+    fn get(&self, _: &SigningKeyRef) -> Result<SigningSecret, RuntimeError> {
+        Err(Self::refusal())
+    }
+
+    fn put(&self, _: &SigningKeyRef, _: &SigningSecret) -> Result<(), RuntimeError> {
+        Err(Self::refusal())
+    }
+
+    fn forget(&self, _: &SigningKeyRef) -> Result<(), RuntimeError> {
+        Err(Self::refusal())
+    }
+}
+
+impl NoKeys {
+    fn refusal() -> RuntimeError {
+        RuntimeError::Secrets(Failure::said("no signing keys are available to this send"))
+    }
 }
 
 /// Why a send was refused, typed so a caller can act on it: an OpenPGP key that needs its
@@ -986,7 +1016,8 @@ where
 
 /// Freeze a draft's bytes and put its submission in the outbox, to leave as `leaves` says.
 ///
-/// Returns the draft and what was queued. A draft that is already queued, held or failing is
+/// For a draft that is neither signed nor encrypted, as [`send`] is. Returns the draft and what
+/// was queued. A draft that is already queued, held or failing is
 /// taken back first and queued afresh, so pressing Send twice — or changing the time of a
 /// scheduled one — leaves one submission in the outbox rather than two, which the recipient
 /// would have received twice.
@@ -998,7 +1029,7 @@ pub fn queue(
 ) -> Result<(Draft, mail_mime::Posting), CoreError> {
     queue_inner(
         store,
-        &mail_runtime::KeyringSigningStore::default(),
+        &NoKeys,
         &crate::pgp::no_passphrase,
         draft,
         leaves,

@@ -14,6 +14,7 @@ use ds::components::app::spaces;
 use ds::prelude::SpaceLook;
 use ds::style::tokens::person::PersonSwatch;
 use ds_settings::{Fixup, SpacesStorage};
+use mail_core::profile::ProfileId;
 use porter_core::AccountId;
 use serde::de::Deserializer;
 use serde::{Deserialize, Serialize};
@@ -56,6 +57,10 @@ pub enum Pinned {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct Mail {
+    /// The Profile whose store this Space's accounts are in. A Space written before Profiles
+    /// existed has none, and belongs to the default Profile.
+    #[serde(deserialize_with = "de_profile")]
+    pub profile: ProfileId,
     /// Whose mail this Space shows.
     #[serde(deserialize_with = "de_scope")]
     pub scope: Scope,
@@ -77,9 +82,21 @@ impl Mail {
         }
     }
 
-    /// Put `account` in this Space when it shows some accounts and not that one yet. Returns
-    /// whether it changed: a Space over every account already shows it.
-    pub(in crate::ui) fn widen(&mut self, account: AccountId) -> bool {
+    /// A new Space's mail in `profile`, over every account, nothing pinned.
+    pub fn new_in(profile: &ProfileId) -> Mail {
+        Mail {
+            profile: profile.clone(),
+            ..Mail::over(Scope::All)
+        }
+    }
+
+    /// Put `account`, one of `profile`'s, in this Space when it belongs to `profile`, shows some
+    /// accounts and not that one yet. Returns whether it changed: a Space over every account
+    /// already shows it, and a Space of another Profile does not take this store's accounts.
+    pub(in crate::ui) fn widen(&mut self, profile: &ProfileId, account: AccountId) -> bool {
+        if self.profile != *profile {
+            return false;
+        }
         match &mut self.scope {
             Scope::Accounts(ids) if !ids.contains(&account) => {
                 ids.push(account);
@@ -97,6 +114,15 @@ enum ScopeRaw {
     Accounts(Vec<AccountId>),
     #[serde(other)]
     Unknown,
+}
+
+/// A stored Profile id, or the default Profile's when it is not one: the file stays readable.
+fn de_profile<'de, D>(deserializer: D) -> Result<ProfileId, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(serde_json::from_value(value).unwrap_or_default())
 }
 
 fn de_scope<'de, D>(deserializer: D) -> Result<Scope, D::Error>
@@ -125,8 +151,12 @@ pub fn avatar_color(space: &Space, id: AccountId, index: usize) -> String {
         .unwrap_or_else(|| swatch(index))
 }
 
-/// Fill any account that has no colour yet. Returns whether the Space changed.
-pub fn ensure_colors(mail: &mut Mail, accounts: &[AccountId]) -> bool {
+/// Fill any of `profile`'s accounts that has no colour yet. Returns whether the Space changed;
+/// a Space of another Profile is never changed.
+pub fn ensure_colors(mail: &mut Mail, profile: &ProfileId, accounts: &[AccountId]) -> bool {
+    if mail.profile != *profile {
+        return false;
+    }
     let mut changed = false;
     for (index, id) in accounts.iter().enumerate() {
         if mail.colors.contains_key(id) {
@@ -198,11 +228,13 @@ pub fn boot(dirs: Option<&WindowDirs>, accounts: &[AccountId], legacy: &Legacy) 
         }
         spaces
     };
+    // The window opens the default Profile until it can open others.
+    let profile = ProfileId::default();
     let colour = |spaces: &mut Spaces| {
         let current = spaces.current().id;
         let mut changed = false;
         spaces.edit(current, |space| {
-            changed = ensure_colors(&mut space.payload, accounts);
+            changed = ensure_colors(&mut space.payload, &profile, accounts);
         });
         if changed { Fixup::Changed } else { Fixup::Kept }
     };

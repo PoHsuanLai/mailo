@@ -423,7 +423,7 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) {
         {
             let provider = crate::intents::Provider::new(
                 store.clone(),
-                std::sync::Arc::new(mail_core::KeyringSigningStore::default()),
+                crate::edge::signing(),
                 crate::intents::Opener::window(),
             );
             match crate::intents::serve(provider) {

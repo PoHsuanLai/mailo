@@ -1427,6 +1427,9 @@ usage: mailo <command>
                              how much of each account is here
   daemon [--stop]            run the background daemon, or stop it
   ping                       reach the daemon, starting one if none is running
+
+options, before the command:
+  --profile <id-or-name>     run over that profile's mail instead of the default's
 "
     .to_owned()
 }
@@ -1446,6 +1449,8 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
     // What the process was started with: the commands that take a password or a passphrase from
     // the environment read it here, and the library reads nothing itself.
     let env = mail.environment().clone();
+    // The Profile's own keys: the handle was built over its keyring service.
+    let signing = mail.signing();
     match command {
         Command::List { mailbox, limit } => {
             // `view::place_filter`, not `Filter::InMailbox`: the shell and the command list the
@@ -1501,7 +1506,7 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
                 // never before. The decrypted text is printed and kept nowhere.
                 let protected = mail_core::pgp::open_message(
                     store,
-                    &mail_core::KeyringSigningStore::default(),
+                    signing.as_ref(),
                     &message,
                     &|fingerprint| pgp::terminal_passphrase(&env, fingerprint),
                     now,
@@ -1520,22 +1525,20 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
                 // S/MIME likewise, when OpenPGP found nothing to open.
                 let opened_text = match opened_text {
                     Some(text) => Some(text),
-                    None => match mail_core::smime::open_message(
-                        store,
-                        &mail_core::KeyringSigningStore::default(),
-                        &message,
-                        now,
-                    ) {
-                        Ok(Some(protected)) => {
-                            out.push_str(&smime::describe(&protected));
-                            protected.shown.and_then(|parsed| parsed.text)
+                    None => {
+                        match mail_core::smime::open_message(store, signing.as_ref(), &message, now)
+                        {
+                            Ok(Some(protected)) => {
+                                out.push_str(&smime::describe(&protected));
+                                protected.shown.and_then(|parsed| parsed.text)
+                            }
+                            Ok(None) => None,
+                            Err(e) => {
+                                let _ = writeln!(out, "    S/MIME: {e}");
+                                None
+                            }
                         }
-                        Ok(None) => None,
-                        Err(e) => {
-                            let _ = writeln!(out, "    S/MIME: {e}");
-                            None
-                        }
-                    },
+                    }
                 };
                 if let Some(text) = opened_text {
                     let _ = writeln!(out, "{}", text.trim_end());
@@ -1595,7 +1598,7 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
         // protected key.
         Command::Send { draft, at: None } => mail_core::compose::send_with(
             store,
-            &mail_core::KeyringSigningStore::default(),
+            signing.as_ref(),
             &|fingerprint| pgp::terminal_passphrase(&env, fingerprint),
             *draft,
             now,
@@ -1607,7 +1610,7 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
             at: Some(when),
         } => mail_core::compose::send_later_with(
             store,
-            &mail_core::KeyringSigningStore::default(),
+            signing.as_ref(),
             &|fingerprint| pgp::terminal_passphrase(&env, fingerprint),
             *draft,
             when,
@@ -1729,7 +1732,7 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
         .map_err(remedy::error),
         Command::Smime(command) => smime::run(
             store,
-            &mail_core::KeyringSigningStore::default(),
+            signing.as_ref(),
             &|| smime::terminal_password(&env),
             command,
             now,
@@ -1738,13 +1741,9 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
         Command::Pgp(pgp::PgpCommand::Lookup { .. }) => {
             Err("pgp lookup is dispatched before this point".to_owned())
         }
-        Command::Pgp(command) => pgp::run(
-            store,
-            &mail_core::KeyringSigningStore::default(),
-            command,
-            now,
-        )
-        .map_err(remedy::error),
+        Command::Pgp(command) => {
+            pgp::run(store, signing.as_ref(), command, now).map_err(remedy::error)
+        }
         Command::Receipt { message, answer } => {
             mail_core::receipt::answer(store, *message, *answer, now)
                 .map(|settled| receipt::answered(&settled))
