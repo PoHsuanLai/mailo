@@ -289,7 +289,10 @@ async fn a_row_dropped_on_a_label_wears_it() {
 
 /// The foot menu's rows, after opening it from the button the first paint gave out.
 async fn foot_menu(dom: &mut VirtualDom, seen: &Seen) -> (Seen, Vec<String>) {
-    let asked = click(dom, seen.one("aria-label", "Sidebar menu"));
+    let asked = click(
+        dom,
+        seen.one("aria-label", crate::ui::copy::aria::SIDEBAR_MENU),
+    );
     // The renders that draw the menu are kept, so a pick can find its items by id: `settle`
     // above throws them away.
     let mut opened = crate::ui::fixtures::settle(dom, asked);
@@ -318,7 +321,10 @@ async fn a_today_entry_is_listed_when_opened_gone_when_cleared_and_expires_on_th
         "already in Today"
     );
     // Close the menu again by its button.
-    click(&mut dom, seen.one("aria-label", "Sidebar menu"));
+    click(
+        &mut dom,
+        seen.one("aria-label", crate::ui::copy::aria::SIDEBAR_MENU),
+    );
     let row = seen.one("aria-label", &format!("Open {RELEASE}"));
     click(&mut dom, row);
     settle(&mut dom).await;

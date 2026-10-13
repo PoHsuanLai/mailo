@@ -89,17 +89,17 @@ fn nothing_in_today_means_no_heading_and_no_clear() {
     assert_eq!(
         rows,
         [
-            "Show all history",
+            "History",
             "-",
             "New Space",
             "Settings\u{2026}",
-            "Hide sidebar",
+            "Hide Sidebar",
         ]
     );
 }
 
 #[test]
-fn drafts_put_aside_and_messages_waiting_stay_reachable_under_their_own_headings() {
+fn drafts_and_scheduled_messages_stay_reachable_under_their_own_headings() {
     let foot = Foot {
         today: vec![recent(1)],
         parked: vec![(draft(7), "Offsite".to_owned())],
@@ -114,17 +114,17 @@ fn drafts_put_aside_and_messages_waiting_stay_reachable_under_their_own_headings
             "Conversation 1",
             "Clear Today",
             "-",
-            "# Drafts put aside",
+            "# Drafts",
             "Offsite",
             "-",
-            "# Waiting to be sent",
-            "Cancel sending Friday",
+            "# Scheduled",
+            "Cancel Sending Friday",
             "-",
-            "Show all history",
+            "History",
             "-",
             "New Space",
             "Settings\u{2026}",
-            "Show sidebar",
+            "Show Sidebar",
         ]
     );
     let picks: Vec<Pick> = rows
@@ -162,10 +162,10 @@ fn settings_and_the_sidebar_toggle_show_their_keys_and_the_rest_show_none() {
     assert_eq!(
         keyed,
         [
-            ("Show all history".to_owned(), false),
+            ("History".to_owned(), false),
             ("New Space".to_owned(), false),
             ("Settings\u{2026}".to_owned(), true),
-            ("Hide sidebar".to_owned(), true),
+            ("Hide Sidebar".to_owned(), true),
         ]
     );
 }

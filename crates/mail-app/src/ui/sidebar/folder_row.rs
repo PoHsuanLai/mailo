@@ -3,11 +3,12 @@
 use super::super::fetching;
 use super::super::menu::{Floating, menu_items};
 use super::super::move_to;
-use super::folder_act::{act, messages_word, refused, renamed_path};
+use super::folder_act::{act, refused, renamed_path};
 use super::folder_parts::{NameField, Naming, Said, actions};
 use super::folder_tree::{Kind, Node};
 use super::folders::{Note, Open, Spot, Wires};
 use super::tagged;
+use crate::ui::copy;
 use crate::ui::view::{Source, folder_of};
 use dioxus::prelude::*;
 use ds::base::press::Press;
@@ -151,7 +152,7 @@ pub(super) fn FolderRow(
         rsx! {
             NameField {
                 value: text,
-                placeholder: "Folder name".to_owned(),
+                placeholder: copy::fields::FOLDER_NAME.to_owned(),
                 on_input: move |text: String| {
                     open.set(Open::Renaming { spot: rename_spot.clone(), text });
                 },
@@ -217,11 +218,8 @@ pub(super) fn FolderRow(
         Open::Confirm { spot: at, messages } if *at == spot => {
             let delete = at.clone();
             Some(RowConfirm {
-                question: format!(
-                    "Delete \u{201c}{name}\u{201d} and the {} in it?",
-                    messages_word(*messages)
-                ),
-                confirm: "Delete Folder and Mail".to_owned(),
+                question: copy::confirm::delete_folder(&name, &copy::status::messages(*messages)),
+                confirm: copy::controls::DELETE_FOLDER_AND_MAIL.to_owned(),
                 role: ButtonRole::Destructive,
                 on_confirm: EventHandler::new({
                     let account = account.clone();
@@ -256,7 +254,7 @@ pub(super) fn FolderRow(
         }
         PopUpButton::<String> {
             kind: PopUpKind::Overflow,
-            title: Some(format!("Actions for {overflow_name}")),
+            title: Some(copy::aria::actions_for(&overflow_name)),
             size: ControlSize::Small,
             items: menu_items("", &items, false),
             onpick: { let account = account.clone(); move |key: String| {

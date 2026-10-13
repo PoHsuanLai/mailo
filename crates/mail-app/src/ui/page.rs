@@ -8,6 +8,7 @@ use std::collections::BTreeMap;
 
 use super::menu::anchor_at;
 use super::press::on_primary;
+use crate::ui::copy;
 use crate::ui::fetching::use_status;
 use crate::ui::view::{PageGroup, PageMenu, PageParts, Shell};
 use chrono::{DateTime, TimeZone, Utc};
@@ -54,7 +55,7 @@ where
                 .labels
                 .iter()
                 .find_map(|id| names.get(id).cloned())
-                .unwrap_or_else(|| "No label".to_owned())
+                .unwrap_or_else(|| copy::headers::NO_LABEL.to_owned())
         }),
         PageGroup::Unread => {
             let mut unread = Vec::new();
@@ -66,7 +67,7 @@ where
                     read.push(thread);
                 }
             }
-            titled([("Unread", unread), ("Read", read)])
+            titled([(copy::headers::UNREAD, unread), (copy::headers::READ, read)])
         }
     }
 }
@@ -121,10 +122,10 @@ where
         }
     }
     titled([
-        ("Today", today),
-        ("Yesterday", yesterday),
-        ("This week", week),
-        ("Older", older),
+        (copy::headers::TODAY, today),
+        (copy::headers::YESTERDAY, yesterday),
+        (copy::headers::THIS_WEEK, week),
+        (copy::headers::OLDER, older),
     ])
 }
 
@@ -141,11 +142,11 @@ pub(super) fn titled<const N: usize>(bands: [(&str, Vec<ThreadSummary>); N]) -> 
 
 /// The groupings the ⋯'s Group ▸ offers, in its order.
 const GROUPS: [(PageGroup, &str); 5] = [
-    (PageGroup::None, "None"),
-    (PageGroup::Sender, "Sender"),
-    (PageGroup::Date, "Date"),
-    (PageGroup::Label, "Label"),
-    (PageGroup::Unread, "Unread"),
+    (PageGroup::None, copy::menus::GROUP_NONE),
+    (PageGroup::Sender, copy::menus::GROUP_SENDER),
+    (PageGroup::Date, copy::menus::GROUP_DATE),
+    (PageGroup::Label, copy::menus::GROUP_LABEL),
+    (PageGroup::Unread, copy::menus::GROUP_UNREAD),
 ];
 
 /// What a row of the list's ⋯ asks for.
@@ -177,10 +178,10 @@ pub(super) fn more_items(
         .map(|(by, name)| MenuItem::new(More::Group(*by), *name).with_check(check(*by == group)))
         .collect();
     let shown = [
-        ("snippet", "Snippet", parts.snippet),
-        ("provider", "Provider", parts.provider),
-        ("chips", "Chips", parts.chips),
-        ("time", "Time", parts.time),
+        ("snippet", copy::menus::PART_SNIPPET, parts.snippet),
+        ("provider", copy::menus::PART_PROVIDER, parts.provider),
+        ("chips", copy::menus::PART_CHIPS, parts.chips),
+        ("time", copy::menus::PART_TIME, parts.time),
     ]
     .into_iter()
     .map(|(key, name, part)| {
@@ -191,20 +192,21 @@ pub(super) fn more_items(
     .collect();
     let mut rows = vec![
         MenuItem::Submenu {
-            title: "Group".to_owned(),
+            title: copy::menus::GROUP.to_owned(),
             image: Some(MenuImage::Icon(Icon::Group)),
             availability: Availability::Enabled,
             children: groups,
         },
         MenuItem::Submenu {
-            title: "Row Properties".to_owned(),
+            title: copy::menus::ROW_PROPERTIES.to_owned(),
             image: Some(MenuImage::Icon(Icon::Columns)),
             availability: Availability::Enabled,
             children: shown,
         },
     ];
     if let Some(said) = sync {
-        let item = MenuItem::new(More::Sync, "Sync Now").with_image(MenuImage::Icon(Icon::Refresh));
+        let item = MenuItem::new(More::Sync, copy::menus::SYNC_NOW)
+            .with_image(MenuImage::Icon(Icon::Refresh));
         rows.push(MenuItem::Separator);
         rows.push(match said.is_empty() {
             true => item,
@@ -234,8 +236,8 @@ pub(super) fn ListMore(shell: Signal<Shell>, syncs: bool) -> Element {
             bezel: Bezel::Toolbar,
             size: ControlSize::Large,
             image: ImagePosition::Only,
-            label: "More",
-            title: Some("More".to_owned()),
+            label: copy::aria::MORE,
+            title: Some(copy::tooltips::MORE.to_owned()),
             icon: Some(IconSource::Glyph(Icon::Ellipsis)),
             shown: if open { Shown::Visible } else { Shown::Hidden },
             common: Common {
@@ -259,7 +261,7 @@ pub(super) fn ListMore(shell: Signal<Shell>, syncs: bool) -> Element {
                 anchor: anchor_at(tool()),
                 items,
                 common: Common {
-                    aria_label: Some("List options".to_owned()),
+                    aria_label: Some(copy::aria::LIST_OPTIONS.to_owned()),
                     ..Common::default()
                 },
                 onpick: move |pick: More| match pick {

@@ -294,7 +294,7 @@ async fn google_from_the_plus_menu_signs_in_in_the_browser_with_no_window() {
 
     // "+" is a menu: Google, which has a client, then Other Account….
     let plus = *seen
-        .all("aria-label", "Add account")
+        .all("aria-label", crate::ui::copy::aria::ADD_ACCOUNT)
         .last()
         .expect("the + tile");
     let asked = click(&mut dom, plus);
@@ -368,7 +368,7 @@ async fn other_account_and_a_provider_without_a_client_open_the_window() {
     let seen = rebuild_into(&mut dom);
     let seen = seen.merge(settle(&mut dom).await);
     let plus = *seen
-        .all("aria-label", "Add account")
+        .all("aria-label", crate::ui::copy::aria::ADD_ACCOUNT)
         .last()
         .expect("the + tile");
     let asked = click(&mut dom, plus);
@@ -410,7 +410,7 @@ async fn with_clients_at_hand_the_plus_menu_names_google_and_microsoft() {
     let seen = rebuild_into(&mut dom);
     let seen = seen.merge(settle(&mut dom).await);
     let plus = *seen
-        .all("aria-label", "Add account")
+        .all("aria-label", crate::ui::copy::aria::ADD_ACCOUNT)
         .last()
         .expect("the + tile");
     let asked = click(&mut dom, plus);
@@ -471,7 +471,7 @@ async fn a_root_without_the_programs_sign_in_offers_no_redirect_and_reaches_noth
         }
         // "+" is the window, with no menu, and so is a sign-in asked for by name.
         let plus = *seen
-            .all("aria-label", "Add account")
+            .all("aria-label", crate::ui::copy::aria::ADD_ACCOUNT)
             .last()
             .expect("the + tile");
         let _ = click(&mut dom, plus);

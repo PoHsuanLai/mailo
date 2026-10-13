@@ -16,6 +16,7 @@ pub(in crate::ui) use self::foot::MoreMenu;
 pub(in crate::ui) use self::panes::hex_colour;
 use self::panes::{AccountTiles, PinnedList, PlaceList, counts};
 use crate::ui::appearance::WindowDirs;
+use crate::ui::copy;
 use crate::ui::space::{Handle, Mail};
 use crate::ui::today::Today;
 use crate::ui::view::Shell;
@@ -90,7 +91,7 @@ pub(super) fn Places(
         // Hidden, the sidebar floats over the card from the edge while the pointer is there
         // (quire's `EdgePeek`), and a click on the edge pins it again.
         EdgePeek {
-            label: "Sidebar",
+            label: copy::aria::SIDEBAR,
             pinned,
             onpin: move |()| side_hidden.set(false),
             common: Common { extra_class: ExtraClass::parse("side").ok(), ..Common::default() },

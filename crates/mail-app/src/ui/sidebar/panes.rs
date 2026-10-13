@@ -4,6 +4,7 @@ use super::super::data::account_rows;
 use super::super::motion::{drag, motion};
 use super::join::{self, Plus};
 use super::tagged;
+use crate::ui::copy;
 use crate::ui::fetching::{Fetching, Mark};
 use crate::ui::menu::Floating;
 use crate::ui::provider_chip::{MarkAt, mark_of, mark_style};
@@ -194,12 +195,12 @@ pub(super) fn AccountTiles(
     };
     rsx! {
         PinTiles::<Option<AccountId>> {
-            label: "Accounts in this Space",
+            label: copy::aria::ACCOUNTS_IN_SPACE,
             items,
             selected: Some(selected),
             add: PinAdd {
-                label: "Add account".to_owned(),
-                hint: Some("Add account\u{2026}".to_owned()),
+                label: copy::aria::ADD_ACCOUNT.to_owned(),
+                hint: Some(copy::tooltips::ADD_ACCOUNT.to_owned()),
                 onadd: EventHandler::new(move |()| {
                     let store = consume_context::<std::sync::Arc<SqliteStore>>();
                     let all: Vec<(AccountId, String)> = account_rows(&store)
@@ -237,7 +238,7 @@ pub(super) fn AccountTiles(
         if let Some(outside) = joining() {
             Floating {
                 anchor: row_at(),
-                title: "Add to this Space".to_owned(),
+                title: copy::titles::ADD_TO_SPACE.to_owned(),
                 items: {
                     // The swatch an account takes is by its place among every account, as its
                     // tile's is: two uncoloured accounts do not share one.
@@ -321,7 +322,7 @@ pub(super) fn all_status(statuses: &[PinStatus]) -> PinStatus {
             why: (*one).clone(),
         },
         many => PinStatus::Attention {
-            why: format!("{} accounts need attention.", many.len()),
+            why: copy::status::accounts_need_attention(many.len()),
         },
     }
 }
@@ -378,8 +379,8 @@ pub(super) fn PlaceList(
             || views.iter().any(|(at, _)| *at == index)
     };
     let mut items = vec![ListItem::heading(
-        PlaceKey::Head("Places"),
-        rsx! { SectionHeader { title: "Places" } },
+        PlaceKey::Head("places"),
+        rsx! { SectionHeader { title: copy::headers::PLACES } },
     )];
     for (index, place) in places.iter().take(split).enumerate() {
         items.push(place_item(
@@ -393,8 +394,8 @@ pub(super) fn PlaceList(
     }
     if !labels.is_empty() {
         items.push(ListItem::heading(
-            PlaceKey::Head("Labels"),
-            rsx! { SectionHeader { title: "Labels" } },
+            PlaceKey::Head("labels"),
+            rsx! { SectionHeader { title: copy::headers::LABELS } },
         ));
         for (index, name) in &labels {
             items.push(place_item(*index, name, Icon::Tag, shell, pages, badges));
@@ -402,8 +403,8 @@ pub(super) fn PlaceList(
     }
     if !views.is_empty() {
         items.push(ListItem::heading(
-            PlaceKey::Head("Views"),
-            rsx! { SectionHeader { title: "Views" } },
+            PlaceKey::Head("views"),
+            rsx! { SectionHeader { title: copy::headers::VIEWS } },
         ));
         for (index, name) in &views {
             items.push(place_item(*index, name, Icon::Search, shell, pages, badges));
@@ -411,7 +412,7 @@ pub(super) fn PlaceList(
     }
     rsx! {
         List::<PlaceKey> {
-            label: "Places",
+            label: copy::aria::PLACES,
             items,
             style: ListStyle::SourceList,
             cursor: (listed(selected) && !shell.read().from_today).then_some(PlaceKey::Place(selected)),
@@ -508,7 +509,7 @@ pub(super) fn PinnedList(
     }
     let mut items = vec![ListItem::heading(
         "head".to_owned(),
-        rsx! { SectionHeader { title: "Pinned" } },
+        rsx! { SectionHeader { title: copy::headers::PINNED } },
     )];
     for (index, pin) in space.payload.pins.iter().enumerate() {
         let name = match pin {
@@ -540,7 +541,7 @@ pub(super) fn PinnedList(
     }
     rsx! {
         List::<String> {
-            label: "Pinned",
+            label: copy::aria::PINNED,
             items,
             style: ListStyle::SourceList,
         }

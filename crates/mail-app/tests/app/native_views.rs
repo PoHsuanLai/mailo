@@ -251,7 +251,7 @@ fn make_the_view(harness: &mut Harness) {
     type_text(harness, "in:inbox");
     harness.advance(ms(800));
     put_away(harness);
-    press(harness, &labelled("Save as view"));
+    press(harness, &labelled(mail_app::ui::copy::aria::SAVE_AS_VIEW));
     let sheet = labelled("Saved view");
     assert_eq!(harness.count(&sheet), 1, "Save as view opened no sheet");
     // The name starts as the search; replace it.
@@ -427,7 +427,7 @@ fn rows_picked_in_a_view_archive_as_one_gesture_and_the_view_deletes_from_its_ed
     // picked the header is the pick bar: Esc clears the selection, as a person would.
     harness.key(Key::Escape);
     harness.advance(ms(300));
-    press(&mut harness, &labelled("Edit view"));
+    press(&mut harness, &labelled(mail_app::ui::copy::aria::EDIT_VIEW));
     let sheet = labelled("Saved view");
     assert_eq!(harness.count(&sheet), 1, "Edit view opened no sheet");
     assert_eq!(

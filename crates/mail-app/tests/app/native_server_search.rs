@@ -347,9 +347,10 @@ fn a_search_with_nothing_here_offers_the_server_and_lists_what_it_finds() {
         "the hit is kept like any other message"
     );
     let html = harness.html();
-    assert!(html.contains("From the server"), "{html}");
+    let server = mail_app::ui::copy::headers::FROM_SERVER;
+    assert!(html.contains(server), "{html}");
     assert_eq!(
-        harness.count("[*|data-chip=\"from the server\"]"),
+        harness.count(&format!("[*|data-chip=\"{server}\"]")),
         1,
         "the row says where it came from:\n{html}"
     );

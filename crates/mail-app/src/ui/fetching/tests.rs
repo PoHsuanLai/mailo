@@ -201,7 +201,10 @@ async fn pressing_sync_runs_one_pass_that_reports_and_ends() {
         "nothing ran before it was asked"
     );
 
-    click(&mut dom, seen.one("aria-label", "Sync now"));
+    click(
+        &mut dom,
+        seen.one("aria-label", crate::ui::copy::aria::SYNC_NOW),
+    );
     settle(&mut dom).await;
     assert_eq!(script.runs.load(Ordering::SeqCst), 1);
     match link(&dom) {
@@ -221,7 +224,10 @@ async fn pressing_sync_runs_one_pass_that_reports_and_ends() {
     );
 
     // A second press is the same request: nothing new starts.
-    click(&mut dom, seen.one("aria-label", "Sync now"));
+    click(
+        &mut dom,
+        seen.one("aria-label", crate::ui::copy::aria::SYNC_NOW),
+    );
     settle(&mut dom).await;
     assert_eq!(
         script.runs.load(Ordering::SeqCst),

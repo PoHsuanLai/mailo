@@ -196,11 +196,12 @@ async fn scheduling_holds_the_draft_until_its_time_and_cancel_brings_back_the_pa
             .collect::<Vec<_>>(),
         [(draft.id, at)]
     );
-    let menu = seen.one("aria-label", "Sidebar menu");
+    let menu = seen.one("aria-label", crate::ui::copy::aria::SIDEBAR_MENU);
     click(&mut window.dom, menu);
     let listed = window.render();
     assert!(
-        listed.contains("Waiting to be sent") && listed.contains("Cancel sending Friday"),
+        listed.contains(crate::ui::copy::headers::SCHEDULED)
+            && listed.contains(&crate::ui::copy::menus::cancel_sending("Friday")),
         "not in the menu:\n{listed}"
     );
     click(&mut window.dom, menu);
@@ -239,7 +240,7 @@ async fn scheduling_holds_the_draft_until_its_time_and_cancel_brings_back_the_pa
     click(&mut window.dom, menu);
     let listed = window.render();
     assert!(
-        !listed.contains("Cancel sending Friday"),
+        !listed.contains(&crate::ui::copy::menus::cancel_sending("Friday")),
         "the menu still lists it:\n{listed}"
     );
 }
@@ -261,9 +262,17 @@ async fn cancel_from_the_menu_opens_the_draft_as_the_store_has_it() {
     });
     window.render();
 
-    let asked = click(&mut window.dom, seen.one("aria-label", "Sidebar menu"));
+    let asked = click(
+        &mut window.dom,
+        seen.one("aria-label", crate::ui::copy::aria::SIDEBAR_MENU),
+    );
     let opened = settle(&mut window.dom, asked);
-    pick_named(&mut window.dom, &opened, "Cancel sending Friday").await;
+    pick_named(
+        &mut window.dom,
+        &opened,
+        &crate::ui::copy::menus::cancel_sending("Friday"),
+    )
+    .await;
     window.render();
     assert_eq!(
         store.draft(draft.id).map(|d| d.state).ok(),

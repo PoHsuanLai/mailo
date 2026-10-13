@@ -8,6 +8,7 @@
 //! is seen without a line of words over the list. With only local folders in view there is
 //! nothing to sync, and no mark.
 
+use crate::ui::copy;
 use crate::ui::data::{account_rows, syncs_nothing};
 use crate::ui::fetching::{Fetching, StatusLine, Tone, sync_availability, use_status};
 use crate::ui::press::on_primary;
@@ -19,21 +20,13 @@ use mail_core::SqliteStore;
 use mail_core::fetch::Link;
 use std::sync::Arc;
 
-/// The mark's tip: its name, then the line when there is one, in as few words as say it:
-/// "Sync · 3 min ago".
+/// The mark's tip: its name, then the line when there is one, in the line's own fewer words
+/// for a tip ([`StatusLine::tip`]): "Sync · 3 min ago".
 pub(super) fn sync_tip(line: &StatusLine) -> String {
-    if line.text.is_empty() {
-        return "Sync".to_owned();
+    if line.tip.is_empty() {
+        return copy::tooltips::SYNC.to_owned();
     }
-    format!("Sync \u{b7} {}", fresh(&line.text))
-}
-
-/// "Updated 3 minutes ago" as a tip says it: "3 min ago". Any other line is said as it is.
-fn fresh(text: &str) -> String {
-    text.strip_prefix("Updated ")
-        .unwrap_or(text)
-        .replace(" minutes ago", " min ago")
-        .replace(" minute ago", " min ago")
+    copy::tooltips::sync_saying(&line.tip)
 }
 
 /// The class of the dot a line puts on the mark: none when all is well or busy, else the
@@ -70,7 +63,9 @@ pub(super) fn SyncMark(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
         })
         .unwrap_or_default();
     let availability = sync_availability(&links.iter().collect::<Vec<&Link>>());
-    let tip = line.as_ref().map_or_else(|| "Sync".to_owned(), sync_tip);
+    let tip = line
+        .as_ref()
+        .map_or_else(|| copy::tooltips::SYNC.to_owned(), sync_tip);
     let warned = line.as_ref().and_then(dot);
     rsx! {
         span { class: "sync-hold",
@@ -82,7 +77,7 @@ pub(super) fn SyncMark(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
             Button {
                 bezel: Bezel::Toolbar,
                 image: ImagePosition::Only,
-                label: "Sync now",
+                label: copy::aria::SYNC_NOW,
                 icon: Some(IconSource::Glyph(Icon::Refresh)),
                 title: Some(tip),
                 availability,
@@ -103,6 +98,7 @@ mod tests {
     fn line(text: &str, tone: Tone, progress: Option<(u32, u32)>) -> StatusLine {
         StatusLine {
             text: text.to_owned(),
+            tip: text.to_owned(),
             progress,
             tone,
         }
@@ -113,7 +109,10 @@ mod tests {
         let cases = [
             (line("", Tone::Plain, None), "Sync", None),
             (
-                line("Updated 3 minutes ago", Tone::Plain, None),
+                StatusLine {
+                    tip: "3 min ago".to_owned(),
+                    ..line("Updated 3 minutes ago", Tone::Plain, None)
+                },
                 "Sync \u{b7} 3 min ago",
                 None,
             ),

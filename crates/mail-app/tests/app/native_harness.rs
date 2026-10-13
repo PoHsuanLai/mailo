@@ -596,7 +596,7 @@ fn renaming(fallback: FocusFallback) -> (Harness, tempfile::TempDir, Arc<SqliteS
         1,
         "the folder's menu did not open"
     );
-    // New folder inside, then Rename.
+    // New Folder Inside, then Rename.
     harness.key(Key::Down);
     harness.key(Key::Enter);
     // A fixed wait lands before select-all on a loaded runner: the field is focused and the

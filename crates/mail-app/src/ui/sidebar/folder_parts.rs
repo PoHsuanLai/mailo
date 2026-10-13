@@ -5,6 +5,7 @@ use super::folder_act::child_path;
 use super::folder_row::run;
 use super::folder_tree::{Kind, Node};
 use super::folders::{Note, Open, Spot, Wires};
+use crate::ui::copy;
 use dioxus::prelude::*;
 use ds::components::content::label::LabelRole;
 use ds::components::lists::row::row::Outline;
@@ -41,12 +42,12 @@ pub(super) fn Naming(
     let delimiter = delimiter_of.call(account);
     rsx! {
         Row {
-            title: "New folder",
+            title: copy::fields::NEW_FOLDER,
             outline: Outline::Leaf,
             edit: rsx! {
                 NameField {
                     value: text,
-                    placeholder: "New folder".to_owned(),
+                    placeholder: copy::fields::NEW_FOLDER.to_owned(),
                     on_input: move |text: String| {
                         let now = open.peek().clone();
                         if let Open::Naming { account, parent, .. } = now {
@@ -95,7 +96,7 @@ pub(super) fn NameField(
     let keys = use_keys();
     rsx! {
         TextField {
-            label: "Folder name".to_owned(),
+            label: copy::fields::FOLDER_NAME.to_owned(),
             value,
             placeholder,
             bezel: FieldBezel::Plain,
@@ -120,7 +121,7 @@ pub(super) fn NameField(
 
 /// The ⋯ menu's items for `node`.
 pub(super) fn actions(node: &Node) -> Vec<MenuItem> {
-    let new = item("new", Icon::Plus, "New folder inside", None);
+    let new = item("new", Icon::Plus, copy::menus::NEW_FOLDER_INSIDE, None);
     match node.kind {
         Kind::Implied => vec![new],
         Kind::Listed { subscription, .. } => {
@@ -128,16 +129,18 @@ pub(super) fn actions(node: &Node) -> Vec<MenuItem> {
                 Subscription::Subscribed => item(
                     "unfollow",
                     Icon::X,
-                    "Stop following",
-                    Some("Other mail apps may stop showing it"),
+                    copy::menus::STOP_FOLLOWING,
+                    Some(copy::menus::STOP_FOLLOWING_HELP),
                 ),
-                Subscription::Unsubscribed => item("follow", Icon::Check, "Follow", None),
+                Subscription::Unsubscribed => {
+                    item("follow", Icon::Check, copy::menus::FOLLOW, None)
+                }
             };
             vec![
                 new,
-                item("rename", Icon::Pen, "Rename", None),
+                item("rename", Icon::Pen, copy::menus::RENAME, None),
                 follow,
-                item("delete", Icon::Trash, "Delete", None),
+                item("delete", Icon::Trash, copy::menus::DELETE, None),
             ]
         }
     }
