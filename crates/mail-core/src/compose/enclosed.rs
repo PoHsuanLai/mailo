@@ -63,7 +63,7 @@ pub fn draft_forward_attached(
     draft.to = to.to_vec();
     draft.text = signed(body, &identity);
     draft.attachments.push(PendingAttachment {
-        name: file_name(&original.subject),
+        name: eml_name(&original.subject),
         mime: ENCLOSED.to_owned(),
         blob: raw,
     });
@@ -90,11 +90,12 @@ fn sent_bytes(store: &SqliteStore, message: &Message) -> Result<BlobId, CoreErro
     Ok(raw)
 }
 
-/// The attached message's file name: its subject, with `.eml`.
+/// A message's file name: its subject, with `.eml`. An attached one goes by it, and so does one
+/// saved on its own.
 ///
 /// A slash would otherwise make [`crate::attach::safe_name`] keep only what follows it, so
 /// "Q3/Q4 plan" would go as "Q4 plan.eml".
-fn file_name(subject: &str) -> String {
+pub fn eml_name(subject: &str) -> String {
     let subject: String = subject
         .chars()
         .map(|c| if matches!(c, '/' | '\\') { '-' } else { c })
@@ -110,7 +111,7 @@ fn file_name(subject: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::file_name;
+    use super::eml_name;
 
     #[test]
     fn the_file_is_named_for_the_subject() {
@@ -122,7 +123,7 @@ mod tests {
             ("line\r\nbreak", "linebreak.eml"),
         ];
         for (subject, expect) in CASES {
-            assert_eq!(file_name(subject), *expect, "{subject:?}");
+            assert_eq!(eml_name(subject), *expect, "{subject:?}");
         }
     }
 }
