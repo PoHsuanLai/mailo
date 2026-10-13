@@ -16,7 +16,9 @@ use porter_core::AccountId;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::ui::fetching::Need;
 use crate::ui::press::on_primary;
+use crate::ui::reauth::{Reauth, SIGN_IN};
 
 type BodyFetch = dyn Fn(Arc<SqliteStore>, MessageId) -> Result<(), (Retry, String)> + Send + Sync;
 type PartFetch =
@@ -59,7 +61,10 @@ pub(super) fn fetchers() -> Fetchers {
 pub(super) enum Again {
     /// Try again.
     Offer,
-    /// Trying again cannot help: the account has to sign in, or the account does not work this way.
+    /// Trying again cannot help until the person gives what the account needs: Sign In is
+    /// offered instead.
+    SignIn(Need),
+    /// Trying again cannot help: the account does not work this way.
     Withhold,
 }
 
@@ -67,7 +72,9 @@ impl Again {
     fn of(retry: &Retry) -> Again {
         match retry {
             Retry::Now | Retry::After(_) => Again::Offer,
-            Retry::NeedsReauth | Retry::NeedsGrant | Retry::Fatal(_) => Again::Withhold,
+            Retry::NeedsReauth => Again::SignIn(Need::SignIn),
+            Retry::NeedsGrant => Again::SignIn(Need::Allow),
+            Retry::Fatal(_) => Again::Withhold,
         }
     }
 }
@@ -77,7 +84,8 @@ impl Again {
 pub(super) enum BodyFace {
     /// The calm prompt with a Download Message button.
     Prompt,
-    /// A `Loadable` in this phase; its Retry is offered when `Again::Offer`.
+    /// A `Loadable` in this phase; its Retry is offered when `Again::Offer`, its Sign In when
+    /// `Again::SignIn`.
     Pane(Phase, Again),
 }
 
@@ -273,6 +281,7 @@ pub(super) fn BodyPane(message: MessageId, account: AccountId, mut landed: Signa
             begin();
         }
     };
+    let reauth = try_consume_context::<Reauth>();
     match body_face(&state(), op(), &address) {
         BodyFace::Prompt => rsx! {
             div { class: "body-pane",
@@ -294,7 +303,20 @@ pub(super) fn BodyPane(message: MessageId, account: AccountId, mut landed: Signa
                     phase,
                     onretry: match again {
                         Again::Offer => Some(EventHandler::new(move |()| ask())),
-                        Again::Withhold => None,
+                        Again::SignIn(_) | Again::Withhold => None,
+                    },
+                    action: match (again, reauth) {
+                        (Again::SignIn(need), Some(reauth)) => Some(rsx! {
+                            Button {
+                                label: SIGN_IN,
+                                common: Common { aria_label: Some(format!("{SIGN_IN} to {address}")), ..Common::default() },
+                                onclick: on_primary({
+                                    let address = address.clone();
+                                    move || reauth.sign_in(&address, need)
+                                }),
+                            }
+                        }),
+                        _ => None,
                     },
                     common: Common { aria_label: Some("Message body".to_owned()), ..Common::default() },
                 }

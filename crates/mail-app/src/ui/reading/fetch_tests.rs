@@ -54,7 +54,13 @@ fn a_failed_body_says_what_to_do_about_it() {
             Retry::NeedsReauth,
             "401",
             "Sign in to ada@example.test again to download it.",
-            Again::Withhold,
+            Again::SignIn(Need::SignIn),
+        ),
+        (
+            Retry::NeedsGrant,
+            "revoked",
+            "Allow Mail to use ada@example.test again to download it.",
+            Again::SignIn(Need::Allow),
         ),
         (
             Retry::Fatal("POP3 cannot fetch one message".into()),
@@ -123,7 +129,7 @@ fn a_failed_download_names_the_file_and_keeps_the_raw_error_secondary() {
     );
     let said = download_failure("a.pdf", &Retry::NeedsReauth, "401", "a@x.test");
     assert_eq!(said.detail, "Sign in to a@x.test again.");
-    assert_eq!(said.again, Again::Withhold);
+    assert_eq!(said.again, Again::SignIn(Need::SignIn));
 }
 
 #[test]

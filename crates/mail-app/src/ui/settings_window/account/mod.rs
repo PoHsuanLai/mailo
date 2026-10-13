@@ -14,7 +14,9 @@ mod words;
 
 use crate::ui::appearance::WindowDirs;
 use crate::ui::data::{AccountRow, account_rows};
+use crate::ui::fetching::{Need, Needing, use_needs};
 use crate::ui::press::on_primary;
+use crate::ui::reauth::SIGN_IN;
 use crate::ui::view::{AccountStep, AccountsPage, Shell};
 use dioxus::prelude::*;
 use ds::components::content::label::Label;
@@ -23,6 +25,7 @@ use ds::components::fields::field_row::FieldRow;
 use ds::components::overlays::alert_model::{AlertButton, AlertRole, AlertStyle};
 use ds::prelude::*;
 use ds::root::common::Common;
+use ds::style::tokens::control_size::ControlSize;
 use mail_core::AccountSecrets;
 use mail_core::{SqliteStore, Store};
 use porter_core::AccountId;
@@ -130,6 +133,18 @@ fn forgotten(dirs: Option<&WindowDirs>, account: AccountId) {
     }
 }
 
+/// Sign `account` in again, as the dialog in the first window does; that window is told, so that
+/// it tries the account again when the sign-in is done.
+fn sign_in(address: &str, account: &AccountId, need: Need) {
+    if let Some(needing) = try_consume_context::<Needing>() {
+        needing.signing_in(account.clone());
+    }
+    match need {
+        Need::SignIn => crate::ui::add_account::again(address.to_owned()),
+        Need::Allow => crate::ui::add_account::allow_again(),
+    }
+}
+
 /// The account's page, under the pane's header, which names it.
 #[component]
 pub(super) fn AccountPage(
@@ -139,6 +154,8 @@ pub(super) fn AccountPage(
 ) -> Element {
     // Read again when an account comes or goes.
     let _ = revision();
+    // Whether the account waits for the person: the first window knows, and says so to this one.
+    let waiting = use_needs();
     let Some(row) = row_of(&account) else {
         // Removed from elsewhere while the page was shown.
         return rsx! {
@@ -151,6 +168,11 @@ pub(super) fn AccountPage(
     };
     let step = shell.read().accounts_pane.step.clone();
     let name = row.shown();
+    let need = waiting
+        .read()
+        .iter()
+        .find(|(id, _)| *id == account)
+        .map(|(_, need)| *need);
     let refused = match &step {
         AccountStep::Refused(why) => Some(why.clone()),
         AccountStep::Showing | AccountStep::Asking | AccountStep::Removing => None,
@@ -170,6 +192,24 @@ pub(super) fn AccountPage(
     };
     rsx! {
         Form {
+            if let Some(need) = need {
+                FormSection {
+                    FieldRow { label: words::STATUS,
+                        div { class: "doctor-acts",
+                            Label { text: words::WAITING }
+                            Button {
+                                label: SIGN_IN,
+                                size: ControlSize::Small,
+                                common: Common { aria_label: Some(format!("{SIGN_IN} to {name}")), ..Common::default() },
+                                onclick: on_primary({
+                                    let (address, account) = (row.address.clone(), account.clone());
+                                    move || sign_in(&address, &account, need)
+                                }),
+                            }
+                        }
+                    }
+                }
+            }
             FormSection { title: Some("Servers".to_owned()),
                 for line in words::settings(&row.plan) {
                     FieldRow { key: "{line.label}", label: line.label,

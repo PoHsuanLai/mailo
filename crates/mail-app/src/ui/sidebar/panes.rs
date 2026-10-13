@@ -7,6 +7,7 @@ use super::tagged;
 use crate::ui::fetching::{Fetching, Mark};
 use crate::ui::menu::Floating;
 use crate::ui::provider_chip::{MarkAt, mark_of, mark_style};
+use crate::ui::reauth::{Pressed, Reauth};
 use crate::ui::space::{self, Pinned, Space, Spaces};
 use crate::ui::view::{Shell, Source, folder_of, is_label_place, saved_of};
 use dioxus::prelude::*;
@@ -219,8 +220,15 @@ pub(super) fn AccountTiles(
                 shell.write().account = account;
                 pages.set(1);
             },
-            // The mark is a button: it opens the Connection Doctor, which lists every account.
-            onstatus: move |_: Option<AccountId>| super::super::doctor::open(shell),
+            // The mark is a button: an account that needs signing in is asked about again, the
+            // rest are Connections', which lists every account.
+            onstatus: move |account: Option<AccountId>| {
+                let asked = try_consume_context::<Reauth>()
+                    .map_or(Pressed::Nobody, |reauth| reauth.press(account.as_ref()));
+                if asked == Pressed::Nobody {
+                    super::super::doctor::open(shell);
+                }
+            },
         }
         if let Some(outside) = joining() {
             Floating {
