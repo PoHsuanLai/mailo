@@ -1,4 +1,4 @@
-//! The list's subtitle: what mail fetching is doing, in a few words.
+//! What mail fetching is doing, in a few words: the sidebar sync mark's tip and its warning.
 
 use chrono::{DateTime, TimeZone, Utc};
 use mail_core::fetch::{Count, Link, Live, Pause, Step};
@@ -12,7 +12,7 @@ pub enum Tone {
     Danger,
 }
 
-/// The subtitle.
+/// The line.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StatusLine {
     pub text: String,

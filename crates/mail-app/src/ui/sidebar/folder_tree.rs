@@ -100,6 +100,10 @@ pub(in crate::ui) fn scope(shell: &Shell) -> crate::ui::space::Scope {
 /// the ones made in this client, and every label on a server without labels-as-mailboxes —
 /// stay in Labels.
 ///
+/// A mailbox with no name of the person's ([`Folder::named`]) is not drawn: a level with no
+/// name is a stray separator, and a name spelled as a system flag is the server's. The real All
+/// Mail (`\All` as an attribute) is special-use, so it is a Place, the account's Archive.
+///
 /// POP3 has one mailbox, so a scope of POP3 accounts has no section. Neither does an IMAP
 /// account whose folders have never been listed: a listing always has at least the inbox, so
 /// an empty one means a sync has not asked yet, not that there is nothing.
@@ -120,7 +124,10 @@ pub(in crate::ui) fn arrange(accounts: &[AccountFolders], show: Show) -> Option<
             continue;
         }
         let label_of = |folder: &Folder| label_for(folder, labels, *server_labels);
-        let own: Vec<&Folder> = folders.iter().filter(|f| f.protected().is_none()).collect();
+        let own: Vec<&Folder> = folders
+            .iter()
+            .filter(|f| f.protected().is_none() && f.named())
+            .collect();
         taken.extend(own.iter().filter_map(|f| label_of(f)));
         let shown: Vec<Folder> = own
             .iter()
@@ -159,7 +166,7 @@ pub(in crate::ui) fn placed(accounts: &[AccountFolders]) -> Vec<(String, Mailbox
             } if *server_labels != ServerLabels::Supported => {
                 let mut own: Vec<&Folder> = folders
                     .iter()
-                    .filter(|f| f.protected().is_none() && f.holds == Holds::Mail)
+                    .filter(|f| f.protected().is_none() && f.named() && f.holds == Holds::Mail)
                     .collect();
                 own.sort_by(|a, b| a.path.cmp(&b.path));
                 own.into_iter()

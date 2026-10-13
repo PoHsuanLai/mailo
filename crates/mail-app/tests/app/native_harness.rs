@@ -353,27 +353,25 @@ fn clicking_a_row_opens_it_in_the_reader() {
 #[test]
 fn a_menu_opens_on_click_and_closes_on_escape() {
     let (mut harness, _dir) = open();
-    let group = ".bar-tools .ds-button:nth-child(1)";
-    assert_eq!(harness.attr(group, "aria-label").as_deref(), Some("Group"));
+    // The list toolbar's ⋯, which holds Group, Row Properties and Sync Now.
+    let more = ".list-head button[*|aria-label=\"More\"]";
+    assert_eq!(harness.count(more), 1, "the list's toolbar has no ⋯");
     assert_eq!(harness.count(".ds-menu"), 0);
-    harness.click(centre(&harness, group));
+    harness.click(centre(&harness, more));
     harness.advance(ms(300));
-    assert_eq!(harness.count(".ds-menu"), 1, "the Group menu did not open");
-    assert_eq!(
-        harness.attr(group, "aria-expanded").as_deref(),
-        Some("true")
-    );
+    assert_eq!(harness.count(".ds-menu"), 1, "the ⋯ menu did not open");
+    assert_eq!(harness.attr(more, "aria-expanded").as_deref(), Some("true"));
     harness.key(Key::Escape);
     harness.advance(ms(400));
     assert_eq!(harness.count(".ds-menu"), 0, "Escape left the menu open");
     assert_eq!(
-        harness.attr(group, "aria-expanded").as_deref(),
+        harness.attr(more, "aria-expanded").as_deref(),
         Some("false")
     );
     // quire hands the keyboard back to the menu's opener when the menu goes (its `HostHandBack`,
     // quire after v0.1.9, "mailo gaps 7"), rather than to `.app`.
     assert!(
-        harness.is_focused(group),
+        harness.is_focused(more),
         "the keyboard did not come back to the opener"
     );
 }

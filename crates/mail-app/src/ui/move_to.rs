@@ -35,13 +35,14 @@ pub(in crate::ui) struct Destination {
 }
 
 /// The account's own folders that hold mail, by path: never the inbox or a special-use folder,
-/// which are places with ops of their own, and never a label that is only a label.
+/// which are places with ops of their own, never a label that is only a label, and never a
+/// mailbox with no name of the person's ([`Folder::named`]).
 pub(in crate::ui) fn destinations(store: &SqliteStore, account: AccountId) -> Vec<Destination> {
     let mut folders: Vec<Folder> = store
         .folders(account)
         .unwrap_or_default()
         .into_iter()
-        .filter(|f| f.protected().is_none() && f.holds == Holds::Mail)
+        .filter(|f| f.protected().is_none() && f.named() && f.holds == Holds::Mail)
         .collect();
     folders.sort_by(|a, b| a.path.cmp(&b.path));
     folders

@@ -9,15 +9,13 @@ use super::data::{AccountRow, account_rows, syncs_nothing};
 use super::list_search::{Marking, RowHit, Scope, row_hit};
 use super::motion::{Ghost, Toast};
 use super::ops::compose_new;
-use super::page::PageMenus;
+use super::page::ListMore;
 use super::picks::PickBar;
 use super::press::on_primary;
 use super::row::{DraftRow, MailRow};
 use super::server_search::{Asked, ServerSearch, found_threads};
 use super::view_groups::group_list;
-use crate::ui::fetching::{
-    CANNOT_LOAD, Fetching, HasRows, ListFace, Need, list_face, sync_availability,
-};
+use crate::ui::fetching::{CANNOT_LOAD, Fetching, HasRows, ListFace, Need, list_face};
 use crate::ui::reauth::{Reauth, SIGN_IN};
 use crate::ui::view::{Nothing, Shell};
 use dioxus::prelude::*;
@@ -41,7 +39,7 @@ mod first_sync;
 mod status;
 
 use self::first_sync::FirstSyncRows;
-use self::status::{ListStatus, SyncButton};
+use self::status::ListProgress;
 
 /// A `SectionHeader`'s height: its eyebrow line and its padding (27.05 px drawn).
 const HEADING_PITCH: f32 = 27.0;
@@ -178,7 +176,7 @@ pub(super) fn ThreadList(
         .iter()
         .map(|(name, id)| (*id, name.clone()))
         .collect();
-    // Local folders are never synced: with only them in view there is no Sync, and no word of one.
+    // Local folders are never synced: with only them in view the ⋯ has no Sync Now.
     let quiet = syncs_nothing(&rows(), shell.read().account.clone(), &shell.read().scope);
     // Said by the links of the accounts in view, and said of nothing when they have none.
     let fetching = try_consume_context::<Fetching>();
@@ -192,7 +190,6 @@ pub(super) fn ThreadList(
         })
         .unwrap_or_default();
     let link_refs: Vec<&Link> = links.iter().collect();
-    let sync_state = sync_availability(&link_refs);
     let search_note = marking.read().note();
     let invalid = matches!(marking.read().scope, Scope::Invalid(_));
     let accounts = rows();
@@ -402,7 +399,9 @@ pub(super) fn ThreadList(
     let retry = EventHandler::new(move |()| super::fetching::sync_now(&shell.read()));
     rsx! {
         div { class: "list-col",
-            // The list's header is quire's 52 px `Toolbar`. While anything listed is picked, the
+            // The list's header is quire's 52 px `Toolbar`: the place's title, New Message, the
+            // search and a ⋯ for the rest (`page::ListMore`). How fresh the mail is, and any
+            // warning, is the sidebar's sync mark's to say. While anything listed is picked, the
             // bar is the selection's: its count and its actions, and nothing else.
             Toolbar::<()> {
                 onpick: move |_| {},
@@ -435,7 +434,6 @@ pub(super) fn ThreadList(
                                     }
                                 }
                             }
-                            ListStatus { shell }
                             if let Some(said) = search_note {
                                 Label {
                                     text: said,
@@ -445,7 +443,6 @@ pub(super) fn ThreadList(
                                 }
                             }
                             div { class: "bar-tools",
-                                PageMenus { shell }
                                 // Trash and Spam alone: everything in them, deleted forever, once asked.
                                 super::destroy::EmptyButton { shell }
                                 // A search can be kept as a view, and a view shown can be changed.
@@ -473,9 +470,6 @@ pub(super) fn ThreadList(
                                         onclick: on_primary(move || super::views::open_edit(shell, &view)),
                                     }
                                 }
-                                if !quiet {
-                                    SyncButton { shell, availability: sync_state }
-                                }
                                 Button {
                                     bezel: Bezel::Toolbar,
                                     size: ControlSize::Large,
@@ -493,12 +487,15 @@ pub(super) fn ThreadList(
                                 }
                             }
                             // The search, at the toolbar's trailing end where the Mac keeps it: a
-                            // magnifier that brings up the search panel, or the search shown.
+                            // magnifier that brings up the search panel, or the search shown. The
+                            // ⋯ closes the row: Group, Row Properties and Sync Now.
                             super::command::SearchBox { shell, pages }
+                            ListMore { shell, syncs: !quiet }
                         }
                     }
                 },
             }
+            ListProgress { shell }
             // quire's list: it keeps each row by its key, so a row that leaves plays its exit and
             // the rows below close the gap. A `Loadable` decides what the pane holds: outline rows
             // while the first mail comes, the failure when no account can be reached, else the

@@ -49,6 +49,23 @@ impl Folder {
     pub fn contains(&self, path: &str) -> bool {
         path == self.path || is_beneath(path, &self.path, self.delimiter)
     }
+
+    /// Whether every level of the path has a name a person could have given it: none is empty
+    /// or blank, and none is spelled as a system flag, a backslash and a word (RFC 3501 §9,
+    /// `flag-extension`). A mailbox that fails is no folder of the person's to list, open or
+    /// file into. An empty level is a stray separator. A flag's spelling is the server's: Gmail
+    /// lists the label a client made by storing the `\All` attribute as a label as a mailbox
+    /// called `\All`, and its labels spelled so are the system's, which the label reader
+    /// already leaves out.
+    pub fn named(&self) -> bool {
+        let levels: Vec<&str> = match self.delimiter {
+            Some(d) => self.path.split(d).collect(),
+            None => vec![self.path.as_str()],
+        };
+        levels
+            .iter()
+            .all(|level| !level.trim().is_empty() && !level.starts_with('\\'))
+    }
 }
 
 /// The special uses a server can give a mailbox (RFC 6154, and Gmail's `\Important`), plus the
@@ -293,6 +310,41 @@ mod tests {
                 *want,
                 "{path}"
             );
+        }
+    }
+
+    #[test]
+    fn a_folder_is_named_when_every_level_has_a_name_a_person_gave_it() {
+        const CASES: &[(&str, Option<char>, bool)] = &[
+            ("Work", Some('/'), true),
+            ("Work/2026", Some('/'), true),
+            ("[Gmail]/All Mail", Some('/'), true),
+            ("收件匣", Some('/'), true),
+            ("a/b", None, true),
+            // A backslash inside a name is the person's own.
+            ("Back\\slash", Some('/'), true),
+            // The label Gmail made when `\All` was stored as one, and anything filed beneath it.
+            ("\\All", Some('/'), false),
+            ("\\All/Old", Some('/'), false),
+            ("Work/\\Flagged", Some('/'), false),
+            // Stray separators: no name, or a level with none.
+            ("", Some('/'), false),
+            ("/", Some('/'), false),
+            ("//all", Some('/'), false),
+            ("Work/", Some('/'), false),
+            ("Work..2026", Some('.'), false),
+            ("  ", None, false),
+        ];
+        for (path, delimiter, want) in CASES {
+            let folder = Folder {
+                account: crate::id::account_id_from_uuid(uuid::Uuid::nil()),
+                path: (*path).to_owned(),
+                delimiter: *delimiter,
+                special: None,
+                subscription: Subscription::Subscribed,
+                holds: Holds::Mail,
+            };
+            assert_eq!(folder.named(), *want, "{path:?} with {delimiter:?}");
         }
     }
 

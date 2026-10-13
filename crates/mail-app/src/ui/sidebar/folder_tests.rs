@@ -121,15 +121,29 @@ fn places_and_unfollowed_folders_are_left_out() {
     holder.holds = Holds::FoldersOnly;
     let mut old = folder("Old", Some('/'));
     old.subscription = Subscription::Unsubscribed;
+    // The real All Mail is special-use: a Place, the account's Archive.
+    let mut all_mail = folder("[Gmail]/All Mail", Some('/'));
+    all_mail.special = Some(SpecialUse::All);
+    // Names that are nobody's folder, followed or not: the label Gmail made when `\All` was
+    // stored as one, and paths of stray separators.
+    let mut flag_unfollowed = folder("\\Important", Some('/'));
+    flag_unfollowed.subscription = Subscription::Unsubscribed;
     let folders = vec![
         folder("INBOX", Some('/')),
         holder,
         sent,
+        all_mail,
         folder("Work", Some('/')),
         old,
+        folder("\\All", Some('/')),
+        folder("\\All/Old", Some('/')),
+        flag_unfollowed,
+        folder("//all", Some('/')),
+        folder("/", Some('/')),
+        folder("", Some('/')),
     ];
     let section = arrange(&gmail(folders.clone(), vec![]), Show::Followed).unwrap();
-    // The inbox and Sent are Places, and `[Gmail]` holds nothing once they are gone.
+    // The inbox, Sent and All Mail are Places, and `[Gmail]` holds nothing once they are gone.
     assert_eq!(shape(&section.trees[0].nodes), "Work");
     assert_eq!(section.hidden, 1);
     let all = arrange(&gmail(folders, vec![]), Show::All).unwrap();
@@ -203,6 +217,7 @@ fn a_name_is_one_level() {
         (None, "a/b", None, Ok("a/b")),
         (Some("Work"), "x", None, Err("no subfolders")),
         (None, "  ", Some('/'), Err("Type a name")),
+        (None, "\\All", Some('/'), Err("can’t start with “\\”")),
     ];
     for (parent, name, delimiter, want) in CASES {
         let got = child_path(*parent, name, *delimiter);

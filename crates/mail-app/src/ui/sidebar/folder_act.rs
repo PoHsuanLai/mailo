@@ -194,6 +194,10 @@ pub(in crate::ui) fn child_path(
     {
         return Err(format!("A folder name can\u{2019}t contain “{d}”."));
     }
+    // A name spelled as a system flag is the server's, and is never drawn (`Folder::named`).
+    if name.starts_with('\\') {
+        return Err("A folder name can\u{2019}t start with “\\”.".to_owned());
+    }
     match (parent, delimiter) {
         (None, _) => Ok(name.to_owned()),
         (Some(parent), Some(d)) => Ok(format!("{parent}{d}{name}")),
