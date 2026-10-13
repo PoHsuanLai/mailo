@@ -14,7 +14,7 @@ use crate::ui::view::{Place, Shell, Source};
 use dioxus::prelude::*;
 use ds::prelude::*;
 use mail_core::SqliteStore;
-use mail_core::place::place_filter;
+use mail_core::place::place_role;
 use mail_domain::*;
 use std::sync::Arc;
 
@@ -43,13 +43,14 @@ pub(in crate::ui) enum Drag {
 pub(in crate::ui) fn view_kind(place: &Place) -> ViewKind {
     match &place.source {
         Source::Mail(Filter::HasLabel(label)) => ViewKind::PlaceLabel { label: *label },
-        Source::Mail(Filter::InMailbox(role)) => ViewKind::Place { mailbox: *role },
-        Source::Mail(filter) if *filter == place_filter(MailboxRole::Inbox) => ViewKind::Place {
-            mailbox: MailboxRole::Inbox,
+        // A mailbox's place, found by the filter it lists, as the sidebar built it.
+        Source::Mail(filter) => match place_role(filter) {
+            Some(mailbox) => ViewKind::Place { mailbox },
+            None => ViewKind::Query,
         },
         // A saved view says what it is; one made in the editor is a query, and takes no drop.
         Source::Saved(view) => view.kind.clone(),
-        Source::Mail(_) | Source::Drafts | Source::Waiting | Source::History => ViewKind::Query,
+        Source::Drafts | Source::Waiting | Source::History => ViewKind::Query,
     }
 }
 

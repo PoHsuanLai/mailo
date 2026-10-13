@@ -11,13 +11,16 @@
 //! picked row still acts on the whole selection, takes the keyboard back first (FINDINGS F172),
 //! asks before deleting forever, and lands on the undo stack like any other op.
 
-use super::act::{Pressed, op_icon, strip_label};
+use super::act::{Pressed, op_icon};
+use crate::ui::copy::menus;
+use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
 use ds::components::menus::item::item::{MenuImage, MenuItem};
 use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use ds::root::common::Common;
-use mail_domain::{OpKind, ReadState, Star};
+use mail_core::view::says;
+use mail_domain::{OpKind, ReadState, Star, ThreadSummary};
 
 /// A row of the menu.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -99,17 +102,18 @@ fn slot(pick: Pick) -> (Group, u8) {
     }
 }
 
-/// The menu for a conversation in `read` and `star` state whose row offers `offered` (what the
-/// strip offered: the view's hover actions, and Delete forever in a bin), grouped.
+/// The menu for `summary`, whose row offers `offered` (the view's actions or
+/// [`mail_core::view::hover_actions`], and Delete forever in a bin), grouped.
 ///
 /// Mark read or unread, star or unstar, mute, remind and move are always there, whatever the
-/// view's strip named; a view only narrowed what fitted on a strip.
-pub(super) fn groups(offered: &[OpKind], read: ReadState, star: Star) -> Vec<Vec<Pick>> {
-    let read = match read {
+/// view's strip named, each on the side the conversation needs; a view only narrowed what fitted
+/// on a strip.
+pub(super) fn groups(offered: &[OpKind], summary: &ThreadSummary) -> Vec<Vec<Pick>> {
+    let read = match summary.read {
         ReadState::Unread => OpKind::MarkRead,
         ReadState::Read => OpKind::MarkUnread,
     };
-    let star = match star {
+    let star = match summary.star {
         Star::Unstarred => OpKind::Star,
         Star::Starred => OpKind::Unstar,
     };
@@ -144,11 +148,7 @@ pub(super) fn groups(offered: &[OpKind], read: ReadState, star: Star) -> Vec<Vec
 /// The open conversation's ⋯ in the reader: the row's menu without what the reader's toolbar
 /// already holds (Move, Mute, Remind, and the window, which the view menu offers), and with the
 /// replies and the quieter actions a conversation always has, and Download last.
-pub(in crate::ui) fn reader_groups(
-    offered: &[OpKind],
-    read: ReadState,
-    star: Star,
-) -> Vec<Vec<Pick>> {
+pub(in crate::ui) fn reader_groups(offered: &[OpKind], summary: &ThreadSummary) -> Vec<Vec<Pick>> {
     let always = [
         OpKind::Reply,
         OpKind::ReplyAll,
@@ -158,7 +158,7 @@ pub(in crate::ui) fn reader_groups(
         OpKind::AddLabel,
     ];
     let offered: Vec<OpKind> = always.iter().chain(offered).copied().collect();
-    groups(&offered, read, star)
+    groups(&offered, summary)
         .into_iter()
         .map(|group| {
             group
@@ -179,30 +179,17 @@ pub(in crate::ui) fn reader_groups(
         .collect()
 }
 
-/// What a row is called. One that opens a further menu or a sheet ends in "…", as the Mac's do.
-pub(super) fn name(pick: Pick, muted: Muted) -> String {
-    let muted = muted == Muted::Yes;
+/// What a row is called: the side of its action the conversation is offered
+/// ([`mail_core::view::says`]), so an archived one says Move to Inbox and a pinned one Unpin. One
+/// that opens a further menu or a sheet ends in "…", as the Mac's do.
+pub(super) fn name(pick: Pick, summary: &ThreadSummary, now: DateTime<Utc>) -> &'static str {
     match pick {
-        Pick::Window => crate::ui::window::OPEN_NAME.to_owned(),
-        Pick::Remind => "Remind me if no reply…".to_owned(),
-        Pick::Download => "Download".to_owned(),
-        Pick::Press(Pressed::MoveTo) => "Move to…".to_owned(),
-        Pick::Press(Pressed::Op(kind)) => match kind {
-            OpKind::MarkRead => "Mark as read".to_owned(),
-            OpKind::MarkUnread => "Mark as unread".to_owned(),
-            OpKind::Snooze => "Snooze…".to_owned(),
-            OpKind::AddLabel => "Label…".to_owned(),
-            OpKind::Destroy => "Delete forever…".to_owned(),
-            other => strip_label(other, muted).to_owned(),
-        },
+        Pick::Window => crate::ui::window::OPEN_NAME,
+        Pick::Remind => menus::offered(says(OpKind::FollowUp, summary, now)),
+        Pick::Download => menus::DOWNLOAD,
+        Pick::Press(Pressed::MoveTo) => menus::MOVE_TO,
+        Pick::Press(Pressed::Op(kind)) => menus::offered(says(kind, summary, now)),
     }
-}
-
-/// Whether the conversation is muted, which names its mute row.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(in crate::ui) enum Muted {
-    Yes,
-    No,
 }
 
 fn icon(pick: Pick) -> Icon {
@@ -215,8 +202,12 @@ fn icon(pick: Pick) -> Icon {
     }
 }
 
-/// The groups as quire's menu rows, a rule between each group.
-pub(in crate::ui) fn rows(groups: &[Vec<Pick>], muted: Muted) -> Vec<MenuItem<Pick>> {
+/// The groups as quire's menu rows, a rule between each group, named for `summary` at `now`.
+pub(in crate::ui) fn rows(
+    groups: &[Vec<Pick>],
+    summary: &ThreadSummary,
+    now: DateTime<Utc>,
+) -> Vec<MenuItem<Pick>> {
     let mut out = Vec::new();
     for (n, group) in groups.iter().enumerate() {
         if n > 0 {
@@ -224,7 +215,8 @@ pub(in crate::ui) fn rows(groups: &[Vec<Pick>], muted: Muted) -> Vec<MenuItem<Pi
         }
         for pick in group {
             out.push(
-                MenuItem::new(*pick, name(*pick, muted)).with_image(MenuImage::Icon(icon(*pick))),
+                MenuItem::new(*pick, name(*pick, summary, now))
+                    .with_image(MenuImage::Icon(icon(*pick))),
             );
         }
     }
@@ -260,10 +252,47 @@ pub(super) fn RowMenu(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::copy::menus as m;
+    use chrono::TimeZone;
+    use mail_core::view::hover_actions;
+    use mail_domain::id::new_account_id;
+    use mail_domain::*;
+
+    fn now() -> DateTime<Utc> {
+        Utc.timestamp_opt(1_700_000_000, 0).unwrap()
+    }
+
+    fn summary(tweak: impl FnOnce(&mut ThreadSummary)) -> ThreadSummary {
+        let mut s = ThreadSummary {
+            id: ThreadId::generate(),
+            account: new_account_id(),
+            subject: "s".into(),
+            snippet: String::new(),
+            from: Address {
+                name: None,
+                email: "a@example.test".into(),
+            },
+            participants: vec![],
+            recipients: vec![],
+            last_date: now(),
+            message_count: 1,
+            read: ReadState::Unread,
+            star: Star::Unstarred,
+            mailboxes: MailboxSet::only(MailboxRole::Inbox),
+            labels: vec![],
+            attachments: Attachments::None,
+            snooze: Snooze::Inactive,
+            pin: mail_domain::Pin::Unpinned,
+            mute: Mute::Unmuted,
+            follow_up: FollowUp::Inactive,
+        };
+        tweak(&mut s);
+        s
+    }
 
     /// The menu's rows by name, a rule as `-`.
-    fn names(offered: &[OpKind], read: ReadState, star: Star, muted: Muted) -> Vec<String> {
-        rows(&groups(offered, read, star), muted)
+    fn names(offered: &[OpKind], summary: &ThreadSummary) -> Vec<String> {
+        rows(&groups(offered, summary), summary, now())
             .into_iter()
             .map(|row| match row {
                 MenuItem::Item { title, .. } => title,
@@ -274,137 +303,168 @@ mod tests {
 
     #[test]
     fn the_menu_lists_every_action_in_the_mac_s_order() {
-        let inbox_strip = [
-            OpKind::Archive,
-            OpKind::Trash,
-            OpKind::MarkRead,
-            OpKind::Pin,
-            OpKind::Mute,
-            OpKind::Snooze,
-            OpKind::AddLabel,
-            OpKind::Forward,
-        ];
-        let binned = [OpKind::Restore, OpKind::MarkUnread, OpKind::Destroy];
+        let inbox = summary(|_| {});
+        let binned = summary(|s| {
+            s.read = ReadState::Read;
+            s.star = Star::Starred;
+            s.mute = Mute::Muted;
+            s.mailboxes = MailboxSet::only(MailboxRole::Trash);
+        });
+        let mut bin_offers = hover_actions(&binned);
+        bin_offers.push(OpKind::Destroy);
         let a_view_s_own = [OpKind::Reply, OpKind::Spam, OpKind::FollowUp];
-        /// A conversation's state, then the menu it gets.
-        type Case<'a> = (&'a str, &'a [OpKind], ReadState, Star, Muted, &'a [&'a str]);
-        let cases: &[Case] = &[
+        /// A conversation, what its row offers, then the menu it gets.
+        type Case<'a> = (&'a str, &'a ThreadSummary, Vec<OpKind>, Vec<&'a str>);
+        let cases: Vec<Case> = vec![
             (
                 "an unread inbox conversation",
-                &inbox_strip,
-                ReadState::Unread,
-                Star::Unstarred,
-                Muted::No,
-                &[
-                    "Open in new window",
+                &inbox,
+                hover_actions(&inbox),
+                vec![
+                    crate::ui::window::OPEN_NAME,
                     "-",
-                    "Forward",
+                    m::FORWARD,
                     "-",
-                    "Mark as read",
-                    "Star",
-                    "Pin",
-                    "Mute",
+                    m::MARK_AS_READ,
+                    m::STAR,
+                    m::PIN,
+                    m::MUTE,
                     "-",
-                    "Snooze…",
-                    "Remind me if no reply…",
-                    "Label…",
-                    "Move to…",
+                    m::SNOOZE,
+                    m::REMIND,
+                    m::LABEL,
+                    m::MOVE_TO,
                     "-",
-                    "Archive",
-                    "Trash",
+                    m::ARCHIVE,
+                    m::MARK_AS_SPAM,
+                    m::MOVE_TO_TRASH,
                 ],
             ),
             (
-                "a read, starred, muted one in a bin",
+                "a read, starred, muted one in Trash",
                 &binned,
-                ReadState::Read,
-                Star::Starred,
-                Muted::Yes,
-                &[
-                    "Open in new window",
+                bin_offers,
+                vec![
+                    crate::ui::window::OPEN_NAME,
                     "-",
-                    "Mark as unread",
-                    "Unstar",
-                    "Unmute",
+                    m::FORWARD,
                     "-",
-                    "Remind me if no reply…",
-                    "Move to…",
+                    m::MARK_AS_UNREAD,
+                    m::UNSTAR,
+                    m::PIN,
+                    m::UNMUTE,
                     "-",
-                    "Restore",
-                    "Delete forever…",
+                    m::SNOOZE,
+                    m::REMIND,
+                    m::LABEL,
+                    m::MOVE_TO,
+                    "-",
+                    m::MOVE_TO_INBOX,
+                    m::MARK_AS_SPAM,
+                    m::DELETE_FOREVER,
                 ],
             ),
             (
                 "a view whose strip names its own, with nothing else",
-                &a_view_s_own,
-                ReadState::Unread,
-                Star::Unstarred,
-                Muted::No,
-                &[
-                    "Open in new window",
+                &inbox,
+                a_view_s_own.to_vec(),
+                vec![
+                    crate::ui::window::OPEN_NAME,
                     "-",
-                    "Reply",
+                    m::REPLY,
                     "-",
-                    "Mark as read",
-                    "Star",
-                    "Mute",
+                    m::MARK_AS_READ,
+                    m::STAR,
+                    m::MUTE,
                     "-",
-                    "Remind me if no reply…",
-                    "Move to…",
+                    m::REMIND,
+                    m::MOVE_TO,
                     "-",
-                    "Spam",
+                    m::MARK_AS_SPAM,
                 ],
             ),
         ];
-        for (case, offered, read, star, muted, want) in cases {
-            assert_eq!(names(offered, *read, *star, *muted), *want, "{case}");
+        for (case, summary, offered, want) in cases {
+            assert_eq!(names(&offered, summary), want, "{case}");
         }
+    }
+
+    /// The owner's report: an archived conversation's menu offered Archive. It offers the way
+    /// back, and every pair by the side the conversation is not on.
+    #[test]
+    fn an_archived_conversation_is_offered_move_to_inbox_and_not_archive() {
+        let archived = summary(|s| {
+            s.mailboxes = MailboxSet::only(MailboxRole::Archive);
+            s.pin = mail_domain::Pin::Rank(1);
+            s.snooze = Snooze::Until(Utc.timestamp_opt(1_800_000_000, 0).unwrap());
+            s.follow_up = FollowUp::Until {
+                at: Utc.timestamp_opt(1_800_000_000, 0).unwrap(),
+                set: now(),
+            };
+        });
+        let listed = names(&hover_actions(&archived), &archived);
+        for want in [m::MOVE_TO_INBOX, m::UNPIN, m::UNSNOOZE, m::STOP_REMINDING] {
+            assert!(
+                listed.iter().any(|row| row == want),
+                "no {want} in {listed:?}"
+            );
+        }
+        for not in [m::ARCHIVE, m::PIN, m::SNOOZE, m::REMIND, m::NOT_SPAM] {
+            assert!(!listed.iter().any(|row| row == not), "{not} in {listed:?}");
+        }
+        // In Spam the way back is Not Spam, and Mark as Spam is not offered.
+        let spam = summary(|s| s.mailboxes = MailboxSet::only(MailboxRole::Spam));
+        let listed = names(&hover_actions(&spam), &spam);
+        assert!(listed.iter().any(|row| row == m::NOT_SPAM), "{listed:?}");
+        assert!(
+            !listed.iter().any(|row| row == m::MARK_AS_SPAM),
+            "{listed:?}"
+        );
     }
 
     #[test]
     fn the_readers_more_menu_leaves_out_what_its_toolbar_holds() {
+        let read = summary(|s| s.read = ReadState::Read);
         let inbox = [OpKind::Archive, OpKind::Trash, OpKind::Spam];
-        let names: Vec<String> = rows(
-            &reader_groups(&inbox, ReadState::Read, Star::Unstarred),
-            Muted::No,
-        )
-        .into_iter()
-        .map(|row| match row {
-            MenuItem::Item { title, .. } => title,
-            _ => "-".to_owned(),
-        })
-        .collect();
+        let names: Vec<String> = rows(&reader_groups(&inbox, &read), &read, now())
+            .into_iter()
+            .map(|row| match row {
+                MenuItem::Item { title, .. } => title,
+                _ => "-".to_owned(),
+            })
+            .collect();
         assert_eq!(
             names,
             [
-                "Reply",
-                "Reply all",
-                "Forward",
+                m::REPLY,
+                m::REPLY_ALL,
+                m::FORWARD,
                 "-",
-                "Mark as unread",
-                "Star",
-                "Pin",
+                m::MARK_AS_UNREAD,
+                m::STAR,
+                m::PIN,
                 "-",
-                "Snooze…",
-                "Label…",
+                m::SNOOZE,
+                m::LABEL,
                 "-",
-                "Archive",
-                "Spam",
-                "Trash",
+                m::ARCHIVE,
+                m::MARK_AS_SPAM,
+                m::MOVE_TO_TRASH,
                 "-",
-                "Download",
+                m::DOWNLOAD,
             ]
         );
     }
 
     #[test]
     fn download_is_the_reader_s_last_group_and_not_the_row_s() {
-        let reader = reader_groups(&[], ReadState::Unread, Star::Unstarred);
+        let inbox = summary(|_| {});
+        let reader = reader_groups(&[], &inbox);
         assert_eq!(
             reader.last().map(Vec::as_slice),
             Some(&[Pick::Download][..])
         );
-        let row = groups(&[OpKind::Archive], ReadState::Unread, Star::Unstarred);
+        let row = groups(&[OpKind::Archive], &inbox);
         assert!(
             !row.iter().flatten().any(|pick| *pick == Pick::Download),
             "{row:?}"
@@ -432,7 +492,7 @@ mod tests {
             OpKind::ReplyAll,
             OpKind::Forward,
         ];
-        let listed = names(&every, ReadState::Unread, Star::Unstarred, Muted::No);
+        let listed = names(&every, &summary(|_| {}));
         let rows: Vec<&String> = listed.iter().filter(|name| *name != "-").collect();
         for row in &rows {
             assert_eq!(
@@ -442,11 +502,11 @@ mod tests {
             );
         }
         // Read and star are listed the way the conversation needs them, whatever was offered.
-        assert!(rows.iter().any(|row| *row == "Mark as read"), "{listed:?}");
+        assert!(rows.iter().any(|row| *row == m::MARK_AS_READ), "{listed:?}");
         assert!(
-            !rows.iter().any(|row| *row == "Mark as unread"),
+            !rows.iter().any(|row| *row == m::MARK_AS_UNREAD),
             "{listed:?}"
         );
-        assert!(!rows.iter().any(|row| *row == "Unstar"), "{listed:?}");
+        assert!(!rows.iter().any(|row| *row == m::UNSTAR), "{listed:?}");
     }
 }
