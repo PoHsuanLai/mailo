@@ -144,6 +144,16 @@ pub struct Profile {
     name: Option<String>,
 }
 
+impl Default for Profile {
+    /// The default Profile, unnamed: what a run with no registry and no `--profile` is over.
+    fn default() -> Self {
+        Self {
+            id: ProfileId::default(),
+            name: None,
+        }
+    }
+}
+
 impl Profile {
     pub fn id(&self) -> &ProfileId {
         &self.id

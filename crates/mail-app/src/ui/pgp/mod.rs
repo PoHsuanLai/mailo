@@ -74,7 +74,7 @@ impl Seams {
     #[cfg(not(test))]
     pub(in crate::ui) fn real() -> Seams {
         Seams {
-            secrets: Arc::new(mail_core::KeyringSigningStore::default()),
+            secrets: crate::edge::signing(),
             lookup: Arc::new(|store, address| {
                 crate::edge::block_on(mail_core::pgp::lookup_address(
                     store,

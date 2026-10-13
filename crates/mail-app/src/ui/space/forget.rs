@@ -5,7 +5,8 @@
 //! until one is added to it: accounts belong to Spaces, so the Space does not widen itself to
 //! everyone else's mail. The other accounts' colours stay as they were stored.
 
-use super::{Scope, SpaceId, Spaces};
+use super::{Mail, Scope, SpaceId, Spaces};
+use mail_core::profile::ProfileId;
 use porter_core::AccountId;
 
 /// Whether forgetting an account changed the Spaces, and so whether they need writing.
@@ -19,9 +20,17 @@ pub enum Forgot {
 
 /// Take `account` out of every Space in `spaces`.
 pub fn forget_account(spaces: &mut Spaces, account: AccountId) -> Forgot {
+    forget_where(spaces, account, |_| true)
+}
+
+/// Take `account` out of the Spaces whose mail `of` accepts, and leave the others as they are.
+fn forget_where(spaces: &mut Spaces, account: AccountId, of: impl Fn(&Mail) -> bool) -> Forgot {
     let mut forgot = Forgot::Nothing;
     let ids: Vec<SpaceId> = spaces.list().iter().map(|space| space.id).collect();
     for id in ids {
+        if spaces.get(id).is_none_or(|space| !of(&space.payload)) {
+            continue;
+        }
         spaces.edit(id, |space| {
             let mail = &mut space.payload;
             if let Scope::Accounts(ids) = &mut mail.scope
@@ -43,11 +52,17 @@ pub fn forget_account(spaces: &mut Spaces, account: AccountId) -> Forgot {
     forgot
 }
 
-/// Take every account not in `known` out of every Space: what [`forget_account`] does for one,
-/// for each the Spaces name that the store no longer has, removed here or from a terminal.
-pub fn forget_unknown(spaces: &mut Spaces, known: &[AccountId]) -> Forgot {
+/// Take every account not in `known` out of every Space of `profile`: what [`forget_account`]
+/// does for one, for each the Spaces name that the store no longer has, removed here or from a
+/// terminal. `known` is the accounts of `profile`'s store, so a Space of another Profile, whose
+/// accounts are in a store not open here, is left exactly as it is.
+pub fn forget_unknown(spaces: &mut Spaces, profile: &ProfileId, known: &[AccountId]) -> Forgot {
     let mut named: Vec<AccountId> = Vec::new();
-    for space in spaces.list() {
+    for space in spaces
+        .list()
+        .iter()
+        .filter(|s| s.payload.profile == *profile)
+    {
         if let Scope::Accounts(ids) = &space.payload.scope {
             named.extend(ids.iter().cloned());
         }
@@ -60,7 +75,10 @@ pub fn forget_unknown(spaces: &mut Spaces, known: &[AccountId]) -> Forgot {
         .into_iter()
         .filter(|id| !known.contains(id))
         .fold(Forgot::Nothing, |forgot, id| {
-            match (forgot, forget_account(spaces, id)) {
+            match (
+                forgot,
+                forget_where(spaces, id, |mail| mail.profile == *profile),
+            ) {
                 (Forgot::Nothing, Forgot::Nothing) => Forgot::Nothing,
                 _ => Forgot::Changed,
             }
@@ -71,6 +89,7 @@ pub fn forget_unknown(spaces: &mut Spaces, known: &[AccountId]) -> Forgot {
 mod tests {
     use super::{Forgot, forget_account, forget_unknown};
     use crate::ui::space::{Mail, Recall, Scope, Spaces};
+    use mail_core::profile::ProfileId;
     use porter_core::AccountId;
     use uuid::Uuid;
 
@@ -154,12 +173,36 @@ mod tests {
         assert_eq!(all.recall().of(second), left(2));
     }
 
+    fn elsewhere(mail: Mail) -> Mail {
+        Mail {
+            profile: other(),
+            ..mail
+        }
+    }
+
+    fn other() -> ProfileId {
+        "0123abcd".parse().expect("a profile id")
+    }
+
     #[test]
     fn accounts_the_store_no_longer_has_leave_and_known_ones_stay() {
-        let mut all = spaces(vec![scoped(&[1, 2], &[1, 2, 3]), scoped(&[3], &[3])]);
+        // The Space of another Profile names accounts this store does not have, and keeps them.
+        let foreign = elsewhere(scoped(&[3, 4], &[3, 4]));
+        let mut all = spaces(vec![
+            scoped(&[1, 2], &[1, 2, 3]),
+            scoped(&[3], &[3]),
+            foreign.clone(),
+        ]);
+        let left = all.list()[2].id;
+        all.edit_recall(left, |recall| recall.account = Some(account(3)));
         let known = [account(1)];
-        assert_eq!(forget_unknown(&mut all, &known), Forgot::Changed);
-        assert_eq!(payloads(&all), vec![scoped(&[1], &[1]), scoped(&[], &[])]);
-        assert_eq!(forget_unknown(&mut all, &known), Forgot::Nothing);
+        let profile = ProfileId::default();
+        assert_eq!(forget_unknown(&mut all, &profile, &known), Forgot::Changed);
+        assert_eq!(
+            payloads(&all),
+            vec![scoped(&[1], &[1]), scoped(&[], &[]), foreign]
+        );
+        assert_eq!(all.recall().of(left).account, Some(account(3)));
+        assert_eq!(forget_unknown(&mut all, &profile, &known), Forgot::Nothing);
     }
 }

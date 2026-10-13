@@ -15,7 +15,7 @@ pub(in crate::ui) use self::foot::MoreMenu;
 pub(in crate::ui) use self::panes::hex_colour;
 use self::panes::{AccountTiles, PinnedList, PlaceList, counts};
 use crate::ui::appearance::WindowDirs;
-use crate::ui::space::{Handle, Mail, Scope};
+use crate::ui::space::{Handle, Mail};
 use crate::ui::today::Today;
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
@@ -24,6 +24,7 @@ use ds::components::app::spaces::{Showing, SpaceHead, SpacesFoot};
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::root::pass_through::{DataAttr, DataName, ExtraClass};
+use mail_core::profile::ProfileId;
 
 /// A `data-<name>` of mailo's own on a quire component: where a hover card or a test finds the
 /// thing the element stands for.
@@ -108,7 +109,7 @@ pub(super) fn Places(
             // sidebar's toggle. The foot's own `+` is left out: the menu's New Space replaces it.
             SpacesFoot {
                 handle,
-                new_payload: move |()| Mail::over(Scope::All),
+                new_payload: move |()| Mail::new_in(&ProfileId::default()),
                 new_space: NewSpace::Hidden,
                 leading: rsx! { crate::ui::downloads::DownloadsButton { shell } },
                 trailing: rsx! {
@@ -122,7 +123,7 @@ pub(super) fn Places(
                         // The same path the foot's `+` takes: add the Space, then open its name.
                         on_new_space: move |at: Point| {
                             if handle.editing().is_none() {
-                                let made = handle.add(Mail::over(Scope::All));
+                                let made = handle.add(Mail::new_in(&ProfileId::default()));
                                 handle.show(made, at, Showing::Rename);
                             }
                         },

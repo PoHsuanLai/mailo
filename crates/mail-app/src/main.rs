@@ -23,7 +23,15 @@ fn main() {
     if log::set_logger(&Stderr).is_ok() {
         log::set_max_level(log::LevelFilter::Warn);
     }
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    // `--profile` is the program's own, ahead of the verb: what follows is read as if it had not
+    // been there.
+    let (args, profile) = match mail_app::edge::take_profile_flag(std::env::args().skip(1)) {
+        Ok(taken) => taken,
+        Err(message) => {
+            eprintln!("{message}");
+            std::process::exit(2);
+        }
+    };
     // What the process was started with, read here and nowhere in the libraries: they are handed
     // it (`mail_app::edge`).
     let mut environment = mail_core::Environment::from_lookup(|name| std::env::var_os(name));
@@ -95,12 +103,34 @@ fn main() {
         mail_app::cli::exec::Prepared::Run(command) => command,
     };
 
-    let Some(dirs) = paths() else {
+    let Some(roots) = roots() else {
         eprintln!(
             "cannot determine a data directory for this user (on Linux, set HOME or XDG_DATA_HOME)"
         );
         std::process::exit(1);
     };
+    // Whose mail this run is over: the default Profile's, which is the store as it was before
+    // Profiles, unless `--profile` names another. A registry that cannot be read stops the run,
+    // since going on over the default would hide the others.
+    let registry = match mail_core::profile::Registry::load(&roots.data) {
+        Ok(registry) => registry,
+        Err(e) => {
+            eprintln!("{e}");
+            std::process::exit(2);
+        }
+    };
+    let chosen = match registry.resolve(profile.as_deref().unwrap_or("default")) {
+        Ok(chosen) => chosen.clone(),
+        Err(e) => {
+            eprintln!("{e}");
+            std::process::exit(2);
+        }
+    };
+    let dirs = Paths {
+        db: chosen.db(&roots),
+        blobs: chosen.blobs(&roots),
+    };
+    mail_app::edge::install_profile(chosen, roots);
     if let Err(e) = std::fs::create_dir_all(&dirs.blobs) {
         eprintln!("cannot create {}: {e}", dirs.blobs.display());
         std::process::exit(1);
@@ -201,12 +231,12 @@ struct Paths {
     blobs: std::path::PathBuf,
 }
 
-/// Where the database and blobs live: mailo's data directory (`$XDG_DATA_HOME/mailo` on Linux,
-/// the local application data folder on macOS and Windows; `mail_runtime::places`).
-fn paths() -> Option<Paths> {
-    let base = mail_runtime::places::dir(mail_runtime::places::Place::Data)?;
-    Some(Paths {
-        db: base.join("mail.db"),
-        blobs: base.join("blobs"),
+/// The directories Profiles' paths are under: mailo's data directory (`$XDG_DATA_HOME/mailo` on
+/// Linux, the local application data folder on macOS and Windows; `mail_runtime::places`) and its
+/// config directory.
+fn roots() -> Option<mail_core::profile::Roots> {
+    Some(mail_core::profile::Roots {
+        data: mail_runtime::places::dir(mail_runtime::places::Place::Data)?,
+        config: mail_core::config::config_dir()?,
     })
 }
