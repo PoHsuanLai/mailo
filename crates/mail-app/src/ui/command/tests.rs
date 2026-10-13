@@ -381,9 +381,11 @@ fn Runs(id: CommandId) -> Element {
     let mut revision = use_signal(|| 0u64);
     let mut side_hidden = use_signal(|| false);
     let spaces = use_signal(|| crate::ui::space::first_run(&[]));
+    // Named by its id, not a fixed word: the fixture sees only attributes the template fills in.
+    let name = format!("run {id:?}");
     rsx! {
         button {
-            "aria-label": "run",
+            "aria-label": name,
             onclick: move |_| run_action(shell, pages, &mut revision, &mut side_hidden, spaces, id),
         }
     }
@@ -407,7 +409,7 @@ async fn each_settings_entry_opens_the_settings_window_on_its_page() {
         let mut dom = VirtualDom::new_with_props(Runs, RunsProps { id })
             .with_root_context(SettingsWindows(asked.clone()));
         let seen = crate::ui::fixtures::rebuild_into(&mut dom);
-        crate::ui::fixtures::click(&mut dom, seen.one("aria-label", "run"));
+        crate::ui::fixtures::click(&mut dom, seen.one("aria-label", &format!("run {id:?}")));
         assert_eq!(
             asked.asks(),
             [Some(crate::ui::settings_window::SettingsAt::Page(page))],

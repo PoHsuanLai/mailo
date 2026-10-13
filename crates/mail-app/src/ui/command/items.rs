@@ -307,6 +307,7 @@ pub(in crate::ui) fn commands() -> Vec<Command> {
 }
 
 /// The entry for `id`. Every id has one; [`ENTRIES`] is checked against them in the tests.
+#[cfg(test)]
 pub(in crate::ui) fn entry_of(id: CommandId) -> &'static Entry {
     ENTRIES
         .iter()

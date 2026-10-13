@@ -239,7 +239,7 @@ fn refusals_are_said_in_words() {
         path: "[Gmail]/Sent Mail".to_owned(),
         special: SpecialUse::Sent,
     });
-    assert!(refused(&special).contains("account's Sent folder"));
+    assert!(refused(&special).contains("account\u{2019}s Sent folder"));
     let pop = Refusal::Folder(FolderError::SingleMailbox);
     assert!(refused(&pop).contains("POP3"));
     let exists = Refusal::Folder(FolderError::Exists("Work".to_owned()));
