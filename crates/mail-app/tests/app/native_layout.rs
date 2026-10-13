@@ -323,7 +323,7 @@ fn dots_off_centre(harness: &Harness) -> f32 {
 #[test]
 fn every_footer_control_stays_inside_the_sidebar_at_its_least_width() {
     let (mut harness, _dir) = open(1200, spaces(2));
-    // The dots stand at the foot's centre, though Downloads is at one end and the chevron at the
+    // The dots stand at the foot's centre, though Sync is at one end and the chevron at the
     // other, as wide as the dots' own group is and no wider.
     let off = dots_off_centre(&harness);
     assert!(off <= 1.0, "the dots are {off}px off the foot's centre");
@@ -345,7 +345,7 @@ fn every_footer_control_stays_inside_the_sidebar_at_its_least_width() {
             );
         }
     }
-    // Downloads, the dots and the menu's chevron: the menu's New Space stands in for a `+`.
+    // Sync, the dots and the menu's chevron: the menu's New Space stands in for a `+`.
     assert!(seen >= 3, "only {seen} footer controls are drawn");
     let toggle = rect(&harness, ".ds-spaces-foot > :last-child");
     assert!(
@@ -356,6 +356,80 @@ fn every_footer_control_stays_inside_the_sidebar_at_its_least_width() {
     assert!(
         off <= 1.0,
         "at the least width the dots are {off}px off the foot's centre"
+    );
+}
+
+/// Downloads in the sidebar's title row: the Space's name on the left, the button at the right
+/// inset (the foot's chevron's, below it), its list opening below it, and a right click on it
+/// nobody's while one on the name is still the Space's menu.
+#[test]
+fn downloads_stands_at_the_right_of_the_sidebar_s_title_row_and_opens_below_it() {
+    use ds::base::press::PointerButton;
+    const BUTTON: &str = ".side-head [*|aria-label=\"Downloads\"]";
+    let (mut harness, _dir) = open(1200, spaces(2));
+    assert_eq!(
+        harness.count(".ds-spaces-foot [*|aria-label=\"Downloads\"]"),
+        0,
+        "Downloads is still in the foot"
+    );
+    let head = rect(&harness, ".side-head");
+    let name = rect(&harness, ".side-head > .ds-space-head");
+    let button = rect(&harness, BUTTON);
+    assert!(
+        within(&button, &head),
+        "{button:?} outside the title row {head:?}"
+    );
+    assert!(
+        right(&name) <= left(&button) + 0.5,
+        "the name {name:?} runs under the button {button:?}"
+    );
+    assert!(
+        (right(&button) - right(&head)).abs() <= 1.0,
+        "the button {button:?} is not at the title row's right end {head:?}"
+    );
+    let chevron = rect(&harness, ".ds-spaces-foot > :last-child");
+    assert!(
+        (right(&button) - right(&chevron)).abs() <= 1.0,
+        "the button {button:?} and the foot's chevron {chevron:?} are not at one inset"
+    );
+    let off = dots_off_centre(&harness);
+    assert!(off <= 1.0, "the dots are {off}px off the foot's centre");
+
+    // The list hangs below the button, and a second click on the button closes it.
+    harness.click(centre(&harness, BUTTON));
+    harness.advance(ms(400));
+    let list = harness
+        .rect(".downloads")
+        .unwrap_or_else(|| panic!("the button opened no list:\n{}", harness.html()));
+    assert!(
+        top(&list) >= bottom(&button) - 0.5,
+        "the list {list:?} does not open below the button {button:?}"
+    );
+    harness.click(centre(&harness, BUTTON));
+    harness.advance(ms(400));
+    assert_eq!(harness.count(".downloads"), 0, "the list stayed open");
+
+    // A right click on the button opens nothing; one on the name is the Space's menu.
+    harness.press(centre(&harness, BUTTON), PointerButton::Secondary);
+    harness.advance(ms(400));
+    assert_eq!(
+        harness.count(".ds-menu-item"),
+        0,
+        "a right click on Downloads opened a menu"
+    );
+    assert_eq!(
+        harness.count(".downloads"),
+        0,
+        "a right click on Downloads opened its list"
+    );
+    harness.press(
+        centre(&harness, ".side-head > .ds-space-head"),
+        PointerButton::Secondary,
+    );
+    harness.advance(ms(400));
+    assert!(
+        harness.count(".ds-menu-item") > 0,
+        "a right click on the Space's name did not open its menu"
     );
 }
 

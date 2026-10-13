@@ -70,15 +70,10 @@ async fn the_foot_holds_the_dots_and_one_menu_button_and_no_settings_or_sidebar_
         .iter()
         .map(|button| button.attr("aria-label"))
         .collect();
-    // Downloads on the left when the window has a shelf for it and the one chevron at the right;
-    // between them the dots and nothing else. No `+`: the menu's New Space replaces it.
-    let rest: Vec<&str> = labels
-        .iter()
-        .copied()
-        .filter(|label| *label != "Downloads")
-        .collect();
+    // The dots and the one chevron at the right, and nothing else: Downloads is in the title
+    // row now. No `+`: the menu's New Space replaces it.
     assert_eq!(
-        rest,
+        labels,
         [
             "Work Space",
             "Home Space",

@@ -1,4 +1,5 @@
-//! The Downloads button at the foot of the sidebar, and the list it opens above itself.
+//! The Downloads button at the right of the sidebar's title row, and the list it opens below
+//! itself.
 //!
 //! A row is only the file: its name, and its size, when it was saved and the message it came
 //! from. A click opens it in the app the system gives its kind; everything else is in its right
@@ -55,7 +56,7 @@ pub(in crate::ui) fn DownloadsButton(shell: Signal<Shell>) -> Element {
         return rsx! {};
     };
     let mut open = use_signal(|| false);
-    // The button's hold: what the list stands above, edge to edge with the button.
+    // The button's hold: what the list hangs below, edge to edge with the button.
     let mut hold = use_signal(|| None::<MountedRef>);
     let menu = use_signal(|| None::<Held>);
     let going = !shelf.read().going.is_empty();
@@ -69,7 +70,7 @@ pub(in crate::ui) fn DownloadsButton(shell: Signal<Shell>) -> Element {
     rsx! {
         span { class: "downloads-hold",
             onmounted: move |event: MountedEvent| hold.set(Some(MountedRef(event.data()))),
-            // The foot's right click is the Space's menu; here it is nobody's.
+            // The title row's right click is the Space's menu; here it is nobody's.
             oncontextmenu: move |event: MouseEvent| {
                 event.prevent_default();
                 event.stop_propagation();
@@ -80,7 +81,9 @@ pub(in crate::ui) fn DownloadsButton(shell: Signal<Shell>) -> Element {
                 icon: Icon::Download,
                 label: "Downloads",
                 title: "Downloads".to_owned(),
-                onclick: move |_| {
+                // A primary press only: a right click on the button is nobody's, and does not
+                // open the list either.
+                onclick: crate::ui::press::on_primary(move || {
                     if *open.peek() {
                         open.set(false);
                         return;
@@ -90,7 +93,7 @@ pub(in crate::ui) fn DownloadsButton(shell: Signal<Shell>) -> Element {
                         shelf.write().unseen = false;
                     }
                     open.set(true);
-                },
+                }),
             }
             if let Some(class) = dot {
                 span { class, aria_hidden: "true" }
@@ -175,7 +178,7 @@ fn DownloadsList(
     rsx! {
         Popover {
             anchor,
-            placement: Placement::new(Side::Top, Align::Start),
+            placement: Placement::new(Side::Bottom, Align::Start),
             gap: Px(6.0),
             arrow: Arrow::None,
             common: Common { aria_label: Some("Downloads".to_owned()), ..Common::default() },
