@@ -305,6 +305,8 @@ pub(super) fn MailRow(
                         match pick {
                             Pick::Window => super::window::open_in_window(id),
                             Pick::Remind => reminding.set(Some(opener)),
+                            // Not offered here: the reader's ⋯ holds it.
+                            Pick::Download => {}
                             Pick::Press(pressed) => {
                                 // A menu the pick opens stands where this one stood.
                                 let at = Some(opener.place());

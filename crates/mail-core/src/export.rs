@@ -210,6 +210,39 @@ pub fn export(
     Ok(done)
 }
 
+/// `id`'s stored bytes: the message as the server sent it, never a rendering. `None` while only
+/// its headers are here.
+///
+/// A message rebuilt from its parts ([`crate::compose::rebuilt`]) gives the rebuilt bytes, which
+/// are what the reader draws it from.
+pub fn raw_message(store: &SqliteStore, id: MessageId) -> Result<Option<Vec<u8>>, CoreError> {
+    let message = store.message(id)?;
+    raw_of(store, &message)
+}
+
+/// Write `id`'s [`raw_message`] into `dir` as one `.eml` named from its subject, never over a
+/// file already there, returning the path written. `None`, and nothing written, while only its
+/// headers are here.
+pub fn save_eml(
+    store: &SqliteStore,
+    id: MessageId,
+    dir: &Path,
+) -> Result<Option<PathBuf>, CoreError> {
+    let message = store.message(id)?;
+    let Some(bytes) = raw_of(store, &message)? else {
+        return Ok(None);
+    };
+    let name = crate::compose::eml_name(&message.subject);
+    crate::attach::write_new(dir, &name, &bytes).map(Some)
+}
+
+fn raw_of(store: &SqliteStore, message: &Message) -> Result<Option<Vec<u8>>, CoreError> {
+    match &message.body {
+        Body::Present { raw, .. } => Ok(Some(store.blobs().get(*raw)?)),
+        Body::Absent => Ok(None),
+    }
+}
+
 /// An open destination.
 enum Sink {
     Mbox(std::io::BufWriter<std::fs::File>),

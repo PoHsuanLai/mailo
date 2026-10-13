@@ -28,6 +28,9 @@ pub(in crate::ui) enum Pick {
     Press(Pressed),
     /// Remind me if no reply…: the follow-up menu, where this menu stood.
     Remind,
+    /// Download: the conversation's messages as the server sent them, an `.eml` each, into the
+    /// downloads directory. The reader's ⋯ only.
+    Download,
 }
 
 /// What asked for the menu, which says where it hangs.
@@ -56,7 +59,7 @@ impl Opener {
 }
 
 /// The menu's groups, a rule between each, in the Mac's order: open it, answer it, mark it,
-/// put it off or file it away, and last what takes it out of the list.
+/// put it off or file it away, what takes it out of the list, and last what copies it out.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Group {
     Open,
@@ -64,6 +67,7 @@ enum Group {
     Mark,
     Organise,
     Remove,
+    Keep,
 }
 
 /// Where `pick` sits: its group, then its place inside it.
@@ -72,6 +76,7 @@ fn slot(pick: Pick) -> (Group, u8) {
         Pick::Window => return (Group::Open, 0),
         Pick::Press(Pressed::MoveTo) => return (Group::Organise, 3),
         Pick::Remind => return (Group::Organise, 1),
+        Pick::Download => return (Group::Keep, 0),
         Pick::Press(Pressed::Op(kind)) => kind,
     };
     match kind {
@@ -138,7 +143,7 @@ pub(super) fn groups(offered: &[OpKind], read: ReadState, star: Star) -> Vec<Vec
 
 /// The open conversation's ⋯ in the reader: the row's menu without what the reader's toolbar
 /// already holds (Move, Mute, Remind, and the window, which the view menu offers), and with the
-/// replies and the quieter actions a conversation always has.
+/// replies and the quieter actions a conversation always has, and Download last.
 pub(in crate::ui) fn reader_groups(
     offered: &[OpKind],
     read: ReadState,
@@ -170,6 +175,7 @@ pub(in crate::ui) fn reader_groups(
                 .collect::<Vec<_>>()
         })
         .filter(|group| !group.is_empty())
+        .chain([vec![Pick::Download]])
         .collect()
 }
 
@@ -179,6 +185,7 @@ pub(super) fn name(pick: Pick, muted: Muted) -> String {
     match pick {
         Pick::Window => crate::ui::window::OPEN_NAME.to_owned(),
         Pick::Remind => "Remind me if no reply…".to_owned(),
+        Pick::Download => "Download".to_owned(),
         Pick::Press(Pressed::MoveTo) => "Move to…".to_owned(),
         Pick::Press(Pressed::Op(kind)) => match kind {
             OpKind::MarkRead => "Mark as read".to_owned(),
@@ -202,6 +209,7 @@ fn icon(pick: Pick) -> Icon {
     match pick {
         Pick::Window => Icon::Window,
         Pick::Remind => Icon::Bell,
+        Pick::Download => Icon::Download,
         Pick::Press(Pressed::MoveTo) => Icon::FolderInput,
         Pick::Press(Pressed::Op(kind)) => op_icon(kind),
     }
@@ -383,7 +391,23 @@ mod tests {
                 "Archive",
                 "Spam",
                 "Trash",
+                "-",
+                "Download",
             ]
+        );
+    }
+
+    #[test]
+    fn download_is_the_reader_s_last_group_and_not_the_row_s() {
+        let reader = reader_groups(&[], ReadState::Unread, Star::Unstarred);
+        assert_eq!(
+            reader.last().map(Vec::as_slice),
+            Some(&[Pick::Download][..])
+        );
+        let row = groups(&[OpKind::Archive], ReadState::Unread, Star::Unstarred);
+        assert!(
+            !row.iter().flatten().any(|pick| *pick == Pick::Download),
+            "{row:?}"
         );
     }
 

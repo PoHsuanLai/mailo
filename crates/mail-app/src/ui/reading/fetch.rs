@@ -163,14 +163,17 @@ pub(super) fn download_failure(name: &str, retry: &Retry, why: &str, account: &s
 
 /// The toast after a save: the folder the file went to, by its name.
 pub(super) fn saved_toast(path: &Path) -> String {
-    let folder = path
-        .parent()
-        .and_then(Path::file_name)
-        .and_then(|n| n.to_str());
-    match folder {
+    match folder_of(path) {
         Some(folder) => format!("Saved to {folder}"),
         None => "Saved".to_owned(),
     }
+}
+
+/// The name of the folder `path` is in.
+pub(super) fn folder_of(path: &Path) -> Option<&str> {
+    path.parent()
+        .and_then(Path::file_name)
+        .and_then(|n| n.to_str())
 }
 
 // --- Store lookups -----------------------------------------------------------------------------
