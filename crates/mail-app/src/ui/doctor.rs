@@ -17,8 +17,8 @@
 use crate::ui::common::in_card;
 use crate::ui::data::account_rows;
 use crate::ui::fetching::{AccountLine, Fetching, Need, Remedy, Standing, account_line, offered};
-use crate::ui::reauth::Reauth;
 use crate::ui::press::{SheetClose, on_primary};
+use crate::ui::reauth::Reauth;
 use crate::ui::view::{DoctorSheet, Shell};
 use dioxus::prelude::*;
 use ds::components::content::label::{Label, LabelStyle};

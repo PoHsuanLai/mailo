@@ -44,10 +44,7 @@ fn one(name: &str) -> String {
 }
 
 /// The accounts to ask about: those that need the person and were not put off.
-fn to_ask(
-    needs: &[(AccountId, Need)],
-    put_off: &BTreeSet<AccountId>,
-) -> Vec<(AccountId, Need)> {
+fn to_ask(needs: &[(AccountId, Need)], put_off: &BTreeSet<AccountId>) -> Vec<(AccountId, Need)> {
     needs
         .iter()
         .filter(|(id, _)| !put_off.contains(id))
@@ -58,11 +55,15 @@ fn to_ask(
 /// Which of `put_off` stay put off: those still waiting for the person, or trying again, since
 /// a try that fails sends them back to waiting and is not a new reason to ask. An account that
 /// has recovered is forgotten, so that it is asked about if it ever needs the person again.
-fn still_put_off(put_off: &BTreeSet<AccountId>, links: &[(AccountId, Link)]) -> BTreeSet<AccountId> {
+fn still_put_off(
+    put_off: &BTreeSet<AccountId>,
+    links: &[(AccountId, Link)],
+) -> BTreeSet<AccountId> {
     links
         .iter()
         .filter(|(id, link)| {
-            put_off.contains(id) && (Need::of(link).is_some() || matches!(link, Link::Syncing { .. }))
+            put_off.contains(id)
+                && (Need::of(link).is_some() || matches!(link, Link::Syncing { .. }))
         })
         .map(|(id, _)| id.clone())
         .collect()

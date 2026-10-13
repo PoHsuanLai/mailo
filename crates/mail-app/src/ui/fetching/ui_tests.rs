@@ -104,7 +104,10 @@ async fn a_refused_account_is_asked_about_once_and_signs_in_from_the_dialog_or_t
         page.contains("can\u{2019}t fetch new mail until you do."),
         "{page}"
     );
-    assert!(!page.contains("Check All"), "Connections opened unasked: {page}");
+    assert!(
+        !page.contains("Check All"),
+        "Connections opened unasked: {page}"
+    );
     // Nothing can be loaded, and the pane says so with a Sign In of its own.
     assert!(page.contains("Couldn\u{2019}t load this mailbox"), "{page}");
     assert!(
@@ -123,11 +126,20 @@ async fn a_refused_account_is_asked_about_once_and_signs_in_from_the_dialog_or_t
     // The tile asks again, though it was put off.
     let asked = click(&mut dom, mark).merge(settle_seen(&mut dom).await);
     let page = dioxus_ssr::render(&dom);
-    assert!(page.contains("Sign in to me@nowhere.example again?"), "{page}");
-    assert!(!page.contains("Check All"), "the mark opened Connections: {page}");
+    assert!(
+        page.contains("Sign in to me@nowhere.example again?"),
+        "{page}"
+    );
+    assert!(
+        !page.contains("Check All"),
+        "the mark opened Connections: {page}"
+    );
 
     // Sign In asks for the Add Account window, with the account's address typed in.
-    click(&mut dom, asked.one("aria-label", "Sign In to me@nowhere.example"));
+    click(
+        &mut dom,
+        asked.one("aria-label", "Sign In to me@nowhere.example"),
+    );
     settle(&mut dom).await;
     let page = dioxus_ssr::render(&dom);
     assert!(!page.contains("again?"), "asked after Sign In: {page}");
@@ -174,7 +186,10 @@ async fn try_again_in_connections_asks_for_a_manual_pass_and_its_gear_opens_sett
         !page.contains(r#"class="ds-inline-banner"#),
         "a banner is back: {page}"
     );
-    assert!(!page.contains("again?"), "asked about a server that is down: {page}");
+    assert!(
+        !page.contains("again?"),
+        "asked about a server that is down: {page}"
+    );
     assert!(!page.contains("Check All"), "open unasked: {page}");
 
     let seen = open_connections(&mut dom, &seen).await;
