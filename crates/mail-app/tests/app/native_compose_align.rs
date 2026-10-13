@@ -1,7 +1,7 @@
 //! The composer is set as the reader sets a message, on Blitz (`native`), in the real window: a
 //! new message's subject sits where a message's title does, at its size (20) and weight; its
-//! header lines start at the reader's left edge, as a message's header does, with one
-//! right-aligned label column and every value at one x; its body starts where the reader's body
+//! header lines start at the reader's left edge, as a message's header does, each label on that
+//! edge and every value at one x; its body starts where the reader's body
 //! does, at the reader's size; and every trailing control (Focus, the To row's Bcc, Send ▾) ends
 //! on one right edge. A reply under the thread lines up the same way, and its bar of buttons is
 //! drawn inside the window.
@@ -216,10 +216,9 @@ fn near(what: &str, got: f32, want: f32) {
     );
 }
 
-/// Each of `rows` starts at the header's left edge; their labels end on one x, right-aligned in
-/// one column; and their values start on one x past it.
+/// Each of `rows` starts at the header's left edge; their labels start on that edge, where the
+/// subject and the body do; and their values start on one x past the widest label.
 fn assert_lines(harness: &Harness, page: &str, rows: &[&str], model: &Reader) {
-    let mut label_rights = Vec::new();
     let mut value_lefts = Vec::new();
     for name in rows {
         let row = format!("{page} .c-props [*|data-row={name}]");
@@ -237,13 +236,14 @@ fn assert_lines(harness: &Harness, page: &str, rows: &[&str], model: &Reader) {
             label.origin.x.0 + label.size.width.0 <= value.origin.x.0 + SLACK,
             "{name}'s label runs into its value"
         );
-        label_rights.push((*name, label.origin.x.0 + label.size.width.0));
+        near(
+            &format!("{name}'s label"),
+            label.origin.x.0,
+            model.head_left,
+        );
         value_lefts.push((*name, value.origin.x.0));
     }
-    for (what, edges) in [
-        ("label's right", &label_rights),
-        ("value's left", &value_lefts),
-    ] {
+    for (what, edges) in [("value's left", &value_lefts)] {
         let (first, at) = edges[0];
         for (name, x) in edges {
             assert!(

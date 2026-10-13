@@ -222,7 +222,7 @@ pub(super) fn SendButton(page: Signal<Page>, on_send: EventHandler<()>) -> Eleme
             }
             PullDownButton::<String> {
                 face: PullDownFace::Chevron,
-                bezel: Bezel::Push,
+                bezel: Bezel::Toolbar,
                 items,
                 open: Some(if open { Shown::Visible } else { Shown::Hidden }),
                 on_open_change: move |to: Shown| {

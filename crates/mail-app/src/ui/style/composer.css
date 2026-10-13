@@ -20,8 +20,9 @@
 .c-head { padding: var(--s-6) var(--s-18) 0; }
 .c-title { display: flex; width: 100%; font-family: var(--font-display); font-size: var(--fs-subject); line-height: 1.15; font-weight: 700; }
 
-/* the header lines (`props::Line`): one right-aligned label column of one width, as wide as the
-   widest label ("Security"), no colons, and every value from the same x. The one hairline is
+/* the header lines (`props::Line`): each label starts on the pane's leading edge, where the
+   subject and the body start, in one column as wide as the widest label ("Security"), no colons,
+   and every value from the same x. The one hairline is
    under them all, header | body, as the reader's is. */
 .c-props {
   padding: var(--s-12) var(--s-18); display: grid; gap: var(--s-2); border-bottom: var(--hair) solid var(--line-soft);
@@ -30,7 +31,7 @@
   display: grid; grid-template-columns: 4.5em minmax(0, 1fr); column-gap: var(--s-8); align-items: center;
   min-height: var(--ctl-h-m); min-width: 0;
 }
-.c-line-k { justify-self: end; }
+.c-line-k { justify-self: start; }
 .c-line-v { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-8); min-width: 0; }
 .c-line-v > .p-menu { flex-basis: 100%; }
 .c-pin { display: flex; flex: 1; min-width: 120px; position: relative; }
@@ -146,7 +147,7 @@
   display: flex; align-items: center; gap: var(--s-8); padding: var(--s-10) var(--s-18); border-top: var(--hair) solid var(--line-soft);
   flex-wrap: wrap;
 }
-/* Send and its ▾, one control: the filled button, then the chevron beside it */
+/* Send and its ▾: the one filled button, then a plain chevron beside it, as the ⋯ and Attach are plain */
 .c-send { display: inline-flex; align-items: center; gap: var(--s-2); }
 
 /* reply lives under the thread, set as the next message would be: across the reader, a hairline

@@ -1,5 +1,5 @@
 //! The header rows between the subject and the body, as a message's header is set: one
-//! right-aligned label column of one width, no colons, every value at one x.
+//! label column of one width starting on the pane's leading edge, no colons, every value at one x.
 //!
 //! A new message draws To and nothing else. Cc and Bcc are drawn once added (their keys, or their
 //! words at the end of the To row) or while someone is on them; From only when more than one
@@ -149,7 +149,7 @@ fn Reveal(page: Signal<Page>, list: List) -> Element {
     }
 }
 
-/// One header line: its name, small, secondary and right-aligned in the label column, then its
+/// One header line: its name, small and secondary, on the label column's leading edge, then its
 /// value or control from the value column's edge, which every line shares. Its `data-row` is what
 /// the page's tests and its layout find it by.
 #[component]
