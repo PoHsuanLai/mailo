@@ -100,9 +100,10 @@ impl AccountRow {
     }
 }
 
-/// Whether what the list shows is only local folders, so there is nothing for a sync to do: the
+/// Whether nothing the list shows has a server, so there is nothing for a sync to do: the
 /// pressed tile is local folders, or no tile is pressed and every account in the Space's `scope`
-/// (empty meaning all) is. The list then has no Sync button and says nothing about syncing.
+/// (empty meaning all) is, or there is no account at all. The sidebar then has no sync mark and
+/// the list's ⋯ no Sync Now.
 pub(super) fn syncs_nothing(
     rows: &[AccountRow],
     pressed: Option<AccountId>,
@@ -112,7 +113,7 @@ pub(super) fn syncs_nothing(
         .iter()
         .filter(|row| scope.narrowed(pressed.clone()).shows(row.id.clone()))
         .collect();
-    !in_view.is_empty() && in_view.iter().all(|row| row.is_local())
+    in_view.iter().all(|row| row.is_local())
 }
 
 /// What the window calls the local-only account, wherever it names it.

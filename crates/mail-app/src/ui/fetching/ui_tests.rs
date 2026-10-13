@@ -1,6 +1,6 @@
-//! What the list says of the links behind it, in the running window: the placeholder rows while
-//! the first mail comes, the dialog when an account must sign in again, and the busy Sync button
-//! while a pass runs. Passes are the test's own (see `tests`).
+//! What the window says of the links behind it: the placeholder rows while the first mail
+//! comes, the dialog when an account must sign in again, and the sidebar's sync mark, busy while
+//! a pass runs and warning when one failed. Passes are the test's own (see `tests`).
 
 use super::tests::{
     Ending, Script, account, acct_account, finished, link, passer, refused, settle, unreachable,
@@ -165,12 +165,26 @@ async fn a_refused_account_is_asked_about_once_and_signs_in_from_the_dialog_or_t
     assert_eq!(asked_for(&dom), [ask.clone(), ask], "the pane's Sign In");
 }
 
+/// A warning is the sidebar's sync mark's: plain words in its tip and a dot on it, and no line
+/// of words in the list's header.
 #[tokio::test]
-async fn the_status_line_of_a_warning_is_plain_words() {
+async fn a_warning_is_said_by_the_sync_mark_and_not_over_the_list() {
     let (dom, _seen, _script, _dir) = after_a_pass(refused).await;
     let page = dioxus_ssr::render(&dom);
-    let line = tag_with(&page, "Sign-in needed");
-    assert!(line.contains("status warn"), "{line}");
+    let mark = tag_with(&page, r#"aria-label="Sync now""#);
+    assert!(mark.contains("Sync \u{b7} Sign-in needed"), "{mark}");
+    assert!(
+        page.contains(r#"class="sync-dot""#),
+        "no warning dot on the sync mark: {page}"
+    );
+    let head = &page[page
+        .find(r#"class="list-head""#)
+        .expect("the list's toolbar")..];
+    let head = &head[..head.find(r#"class="list""#).unwrap_or(head.len())];
+    assert!(
+        !head.contains("Sign-in needed"),
+        "the warning is in the list's header:\n{head}"
+    );
     assert!(!page.contains("data-opens"), "it is a way in again: {page}");
 }
 

@@ -212,6 +212,27 @@ pub(in crate::ui) fn sync_now(shell: &Shell) {
     fetching.sync(&fetching.in_view(shell), Trigger::Manual);
 }
 
+/// How often the status line is read again, so "5 minutes ago" moves on. A minute is the finest
+/// the words go.
+const STATUS_EVERY: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// What the accounts `shell` shows are doing, as [`Fetching::status`] says it, read again every
+/// [`STATUS_EVERY`]. `None` in a window with no fetching. A hook: the component that calls it is
+/// the one a tick of the clock draws again, so it is called by the small parts that say the
+/// line (the sidebar's sync mark, the list's bar and its ⋯), never by the list.
+pub(in crate::ui) fn use_status(shell: Signal<Shell>) -> Option<StatusLine> {
+    let mut tick = use_signal(|| 0u32);
+    use_future(move || async move {
+        loop {
+            ds::base::time::clock::sleep(STATUS_EVERY).await;
+            tick += 1;
+        }
+    });
+    let _ = tick();
+    let fetching = try_consume_context::<Fetching>()?;
+    Some(fetching.status(&shell.read(), crate::ui::clock::now()))
+}
+
 /// Provide [`Fetching`] for the window and start the loop that serves it. Once, from `App`.
 ///
 /// `revision` moves when a pass has stored something, and when an account comes or goes.

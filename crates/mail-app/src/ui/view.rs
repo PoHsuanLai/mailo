@@ -236,13 +236,12 @@ pub enum Grouping {
     Saved(GroupKey),
 }
 
-/// Which list-bar menu is open.
+/// Whether the list toolbar's ⋯ menu is open.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PageMenu {
     #[default]
     Closed,
-    Group,
-    Properties,
+    More,
 }
 
 /// The search bar's panel of suggestions, under its field in the list's toolbar.

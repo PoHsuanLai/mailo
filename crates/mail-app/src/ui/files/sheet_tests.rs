@@ -214,7 +214,7 @@ async fn every_class_the_mail_file_sheets_draw_is_styled() {
     assert!(offences.is_empty(), "markup offences: {offences:#?}");
 }
 
-/// Whether the list bar offers a sync.
+/// Whether the window offers a sync: the sync mark at the sidebar's foot.
 fn syncs(page: &str) -> bool {
     page.contains("aria-label=\"Sync now\"")
 }

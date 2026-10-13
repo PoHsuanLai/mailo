@@ -481,14 +481,19 @@ fn lines_fit(harness: &Harness, case: &str) {
 
 /// The index (1-based) of the open menu's item named `name`.
 fn menu_item(harness: &Harness, name: &str) -> String {
-    let n = (1..=harness.count(".ds-menu-list > *"))
+    item_in(harness, ".ds-menu-list", name)
+}
+
+/// The selector of the row named `name` in the menu list `list`.
+fn item_in(harness: &Harness, list: &str, name: &str) -> String {
+    let n = (1..=harness.count(&format!("{list} > *")))
         .find(|n| {
             harness
-                .text_of(&format!(".ds-menu-list > :nth-child({n}) .ds-menu-label"))
+                .text_of(&format!("{list} > :nth-child({n}) .ds-menu-label"))
                 .is_some_and(|label| label.trim() == name)
         })
         .unwrap_or_else(|| panic!("no menu item is named {name:?}:\n{}", harness.html()));
-    format!(".ds-menu-list > :nth-child({n})")
+    format!("{list} > :nth-child({n})")
 }
 
 #[test]
@@ -496,15 +501,25 @@ fn a_row_s_lines_fit_inside_its_slot() {
     // The list places rows a fixed pitch apart, quire's `thread_card_height` for the lines a
     // row draws, and holds each to its slot, so a row whose lines run taller than the slot draws
     // its last line under its own selection ring. With snippets it is three lines; with them
-    // hidden from Properties, two, and the slot shrinks with them.
+    // hidden from the ⋯'s Row Properties, two, and the slot shrinks with them.
     let (mut harness, _dir) = open(1200, spaces(1));
     assert_eq!(harness.count(&format!("{ROW} .ds-thread-snip")), 1);
     lines_fit(&harness, "three lines");
     let three = rect(&harness, ROW).size.height.0;
 
-    harness.click(centre(&harness, "[*|aria-label=\"Properties\"]"));
+    harness.click(centre(&harness, ".list-head [*|aria-label=\"More\"]"));
     settle_until(&mut harness, |h| h.count(".ds-menu .ds-menu-item") > 0);
-    let snippet = menu_item(&harness, "Snippet");
+    let properties = menu_item(&harness, "Row Properties");
+    settle_until(&mut harness, |h| {
+        h.centre(&properties)
+            .is_some_and(|at| h.hits(at, &properties))
+    });
+    harness.click(centre(&harness, &properties));
+    let sub = ".ds-menu[*|data-depth=\"1\"] .ds-menu-list";
+    settle_until(&mut harness, |h| {
+        h.count(&format!("{sub} .ds-menu-item")) > 0
+    });
+    let snippet = item_in(&harness, sub, "Snippet");
     settle_until(&mut harness, |h| {
         h.centre(&snippet).is_some_and(|at| h.hits(at, &snippet))
     });

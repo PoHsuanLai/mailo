@@ -37,14 +37,17 @@
    (`space_editor.css`, `spaces.css`). */
 .side .foot-lead, .side .foot-end { display: flex; align-items: center; flex: 1000 1 0; }
 .side .foot-end { justify-content: flex-end; }
-/* Downloads: the button's hold carries the dot that says a file is being saved, or one was
-   saved since the list was last opened. */
-.downloads-hold { position: relative; display: flex; }
-.downloads-dot {
+/* Downloads and Sync at the foot: each button's hold carries a dot. Downloads' says a file is
+   being saved, or one was saved since the list was last opened; Sync's that the mail is stale
+   or cannot be fetched, which its tip explains. */
+.downloads-hold, .sync-hold { position: relative; display: flex; }
+.downloads-dot, .sync-dot {
   position: absolute; top: var(--s-3); right: var(--s-3); width: var(--s-6); height: var(--s-6);
   border-radius: var(--r-pill); background: var(--ok); pointer-events: none;
 }
 .downloads-dot.going { background: var(--ink-faint); }
+.sync-dot { background: var(--warn); }
+.sync-dot.bad { background: var(--danger); }
 .downloads { display: flex; flex-direction: column; gap: var(--s-4); width: 320px; max-height: 420px; overflow-y: auto; scrollbar-width: none; padding: var(--s-8); }
 .downloads-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s-8); padding: 0 var(--s-6); }
 .downloads-empty { margin: 0; padding: var(--s-10) var(--s-6); color: var(--ink-soft); }
@@ -71,7 +74,6 @@
   white-space: nowrap; overflow: hidden;
 }
 .list-head .status.bad { color: var(--danger); font-weight: 600; }
-.list-head .status.warn { color: var(--warn); }
 /* The selection's actions are toolbar-sized buttons, set close as a toolbar's icon group is.
    They take the room they need before the count does, so the usual set stays on one line in the
    list column and the count gives way first. */

@@ -91,6 +91,31 @@ async fn the_foot_holds_the_dots_and_one_menu_button_and_no_settings_or_sidebar_
     }
 }
 
+/// With an account that has a server, Sync is the foot's mark, at its start; the list's header
+/// is its title, New Message, Search and the ⋯ that holds Group, Row Properties and Sync Now.
+#[tokio::test]
+async fn sync_is_the_foots_mark_and_the_list_header_is_its_title_and_three_icons() {
+    let (store, _dir) = crate::ui::fixtures::seeded();
+    let page = crate::ui::fixtures::markup(store);
+    let labels = |class: &str| -> Vec<String> {
+        buttons_in(&page, class)
+            .iter()
+            .map(|button| button.attr("aria-label").to_owned())
+            .collect()
+    };
+    let foot = labels("ds-spaces-foot");
+    assert_eq!(
+        foot.first().map(String::as_str),
+        Some("Sync now"),
+        "{foot:?}"
+    );
+    assert_eq!(
+        labels("list-head"),
+        ["Compose", crate::ui::command::BOX_LABEL, "More"],
+        "{page}"
+    );
+}
+
 pub(in crate::ui) struct Button {
     pub(in crate::ui) attrs: Vec<(String, String)>,
 }

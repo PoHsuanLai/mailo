@@ -6,6 +6,7 @@ mod folders;
 mod foot;
 mod join;
 mod panes;
+mod sync;
 
 pub(super) use self::folder_act::folder_places;
 use self::folder_tree::{Show, arrange, scope};
@@ -104,9 +105,10 @@ pub(super) fn Places(
                 }
                 PinnedList { shell, pages, space: space.clone(), pins: tiles.pins.clone() }
             }
-            // Downloads on the left, the Space dots, and one chevron on the right that opens
-            // everything else (`foot::MoreMenu`): Today, History, New Space, Settings and the
-            // sidebar's toggle. The foot's own `+` is left out: the menu's New Space replaces it.
+            // Sync and Downloads on the left, the Space dots, and one chevron on the right that
+            // opens everything else (`foot::MoreMenu`): Today, History, New Space, Settings and
+            // the sidebar's toggle. The foot's own `+` is left out: the menu's New Space replaces
+            // it. Sync's mark says how fresh the mail is, and warns when it is not (`sync`).
             // Each end is a hold of mailo's own, as wide as the other (`style/shell.css`), so the
             // dots stand at the foot's centre whatever either end holds.
             SpacesFoot {
@@ -115,6 +117,7 @@ pub(super) fn Places(
                 new_space: NewSpace::Hidden,
                 leading: rsx! {
                     div { class: "foot-lead",
+                        sync::SyncMark { shell, revision }
                         crate::ui::downloads::DownloadsButton { shell }
                     }
                 },

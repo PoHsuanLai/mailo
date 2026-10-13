@@ -1,12 +1,14 @@
-//! Group and Properties, applied to the loaded page only.
+//! Group and Row Properties, applied to the loaded page only, and the list toolbar's ⋯ that
+//! holds them with Sync Now.
 //!
-//! Neither asks the store for a different query. The menu title says so.
+//! Neither asks the store for a different query.
 
 use ds::prelude::*;
 use std::collections::BTreeMap;
 
-use super::menu::{Floating, MenuItem, Right, Tile};
+use super::menu::anchor_at;
 use super::press::on_primary;
+use crate::ui::fetching::use_status;
 use crate::ui::view::{PageGroup, PageMenu, PageParts, Shell};
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
@@ -137,172 +139,147 @@ pub(super) fn titled<const N: usize>(bands: [(&str, Vec<ThreadSummary>); N]) -> 
         .collect()
 }
 
-fn group_items(current: PageGroup) -> Vec<MenuItem> {
-    [
-        (PageGroup::None, "None", "One list"),
-        (PageGroup::Sender, "Sender", "By who sent it"),
-        (
-            PageGroup::Date,
-            "Date",
-            "Today, yesterday, this week, older",
-        ),
-        (PageGroup::Label, "Label", "By the first label"),
-        (PageGroup::Unread, "Unread", "Unread, then the rest"),
-    ]
-    .into_iter()
-    .map(|(group, name, help)| MenuItem {
-        key: group_key(group).to_owned(),
-        tile: if group == PageGroup::None {
-            Tile::Glyph('–')
-        } else {
-            Tile::Icon(Icon::Group)
-        },
-        name: name.to_owned(),
-        help: Some(help.to_owned()),
-        right: Right::Check(current == group),
-        group: None,
-        marks: Vec::new(),
-        title: Vec::new(),
-        detail: Vec::new(),
-    })
-    .collect()
+/// The groupings the ⋯'s Group ▸ offers, in its order.
+const GROUPS: [(PageGroup, &str); 5] = [
+    (PageGroup::None, "None"),
+    (PageGroup::Sender, "Sender"),
+    (PageGroup::Date, "Date"),
+    (PageGroup::Label, "Label"),
+    (PageGroup::Unread, "Unread"),
+];
+
+/// What a row of the list's ⋯ asks for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum More {
+    /// Band the loaded page this way.
+    Group(PageGroup),
+    /// Show or hide a part of every row, by its key in [`PageParts::part_mut`].
+    Part(&'static str),
+    /// Fetch what the list shows.
+    Sync,
 }
 
-fn group_key(group: PageGroup) -> &'static str {
-    match group {
-        PageGroup::None => "none",
-        PageGroup::Sender => "sender",
-        PageGroup::Date => "date",
-        PageGroup::Label => "label",
-        PageGroup::Unread => "unread",
-    }
+fn check(on: bool) -> Check {
+    if on { Check::On } else { Check::Off }
 }
 
-fn group_from(key: &str) -> Option<PageGroup> {
-    Some(match key {
-        "none" => PageGroup::None,
-        "sender" => PageGroup::Sender,
-        "date" => PageGroup::Date,
-        "label" => PageGroup::Label,
-        "unread" => PageGroup::Unread,
-        _ => return None,
-    })
-}
-
-fn part_items(parts: PageParts) -> Vec<MenuItem> {
-    [
+/// The ⋯'s rows: Group ▸ with a check on the grouping in use, Row Properties ▸ with a check on
+/// each part a row shows (a pick switches it and leaves the menu up, so several can be), then
+/// Sync Now where there is something to sync, with what the sync mark says under it, since the
+/// sidebar that holds the mark can be hidden. `sync` is `None` with only local folders in view.
+pub(super) fn more_items(
+    group: PageGroup,
+    parts: PageParts,
+    sync: Option<String>,
+) -> Vec<MenuItem<More>> {
+    let groups = GROUPS
+        .iter()
+        .map(|(by, name)| MenuItem::new(More::Group(*by), *name).with_check(check(*by == group)))
+        .collect();
+    let shown = [
         ("snippet", "Snippet", parts.snippet),
         ("provider", "Provider", parts.provider),
         ("chips", "Chips", parts.chips),
         ("time", "Time", parts.time),
     ]
     .into_iter()
-    .map(|(key, name, part)| MenuItem {
-        key: key.to_owned(),
-        tile: Tile::Icon(Icon::Columns),
-        name: name.to_owned(),
-        help: None,
-        right: Right::Check(part.shown()),
-        group: None,
-        marks: Vec::new(),
-        title: Vec::new(),
-        detail: Vec::new(),
+    .map(|(key, name, part)| {
+        MenuItem::new(More::Part(key), name)
+            .with_check(check(part.shown()))
+            .with_after(AfterPick::KeepOpen)
     })
-    .collect()
+    .collect();
+    let mut rows = vec![
+        MenuItem::Submenu {
+            title: "Group".to_owned(),
+            image: Some(MenuImage::Icon(Icon::Group)),
+            availability: Availability::Enabled,
+            children: groups,
+        },
+        MenuItem::Submenu {
+            title: "Row Properties".to_owned(),
+            image: Some(MenuImage::Icon(Icon::Columns)),
+            availability: Availability::Enabled,
+            children: shown,
+        },
+    ];
+    if let Some(said) = sync {
+        let item = MenuItem::new(More::Sync, "Sync Now").with_image(MenuImage::Icon(Icon::Refresh));
+        rows.push(MenuItem::Separator);
+        rows.push(match said.is_empty() {
+            true => item,
+            false => item.with_subtitle(said),
+        });
+    }
+    rows
 }
 
-/// The Group and Properties buttons, and whichever menu is open: Group is a menu with a check
-/// on the chosen grouping, Properties a menu of toggles for the parts a row shows.
+/// The list toolbar's ⋯: what the list offers beyond New Message and Search, folded into one
+/// menu so the header is its title and three icons. Group and Row Properties apply to the
+/// loaded page only; Sync Now is the sidebar's sync mark's press. `syncs` is false with only
+/// local folders in view.
 #[component]
-pub(super) fn PageMenus(shell: Signal<Shell>) -> Element {
-    let open = shell.read().page_menu;
-    let group = shell.read().group;
-    let parts = shell.read().parts;
-    let mut group_button = use_signal(|| None::<MountedRef>);
-    let mut parts_button = use_signal(|| None::<MountedRef>);
-    let shown = |menu: PageMenu| {
-        if open == menu {
-            Shown::Visible
-        } else {
-            Shown::Hidden
-        }
+pub(super) fn ListMore(shell: Signal<Shell>, syncs: bool) -> Element {
+    let open = shell.read().page_menu == PageMenu::More;
+    let mut tool = use_signal(|| None::<MountedRef>);
+    let line = use_status(shell);
+    let items = if open {
+        let sync = syncs.then(|| line.map(|line| line.text).unwrap_or_default());
+        more_items(shell.read().group, shell.read().parts, sync)
+    } else {
+        Vec::new()
     };
     rsx! {
         Button {
             bezel: Bezel::Toolbar,
             size: ControlSize::Large,
             image: ImagePosition::Only,
-            label: "Group",
-            title: Some("Group".to_owned()),
-            icon: Some(IconSource::Glyph(Icon::Group)),
-            shown: shown(PageMenu::Group),
+            label: "More",
+            title: Some("More".to_owned()),
+            icon: Some(IconSource::Glyph(Icon::Ellipsis)),
+            shown: if open { Shown::Visible } else { Shown::Hidden },
             common: Common {
-                aria_label: Some("Group".to_owned()),
                 mounted: Some(EventHandler::new(move |event: MountedEvent| {
-                    group_button.set(Some(MountedRef(event.data())));
+                    tool.set(Some(MountedRef(event.data())));
                 })),
                 ..Common::default()
             },
             onclick: on_primary(move || {
-                let next = if shell.peek().page_menu == PageMenu::Group {
+                let next = if shell.peek().page_menu == PageMenu::More {
                     PageMenu::Closed
                 } else {
-                    PageMenu::Group
+                    PageMenu::More
                 };
                 shell.write().page_menu = next;
             }),
         }
-        Button {
-            bezel: Bezel::Toolbar,
-            size: ControlSize::Large,
-            image: ImagePosition::Only,
-            label: "Properties",
-            title: Some("Row Properties".to_owned()),
-            icon: Some(IconSource::Glyph(Icon::Columns)),
-            shown: shown(PageMenu::Properties),
-            common: Common {
-                aria_label: Some("Properties".to_owned()),
-                mounted: Some(EventHandler::new(move |event: MountedEvent| {
-                    parts_button.set(Some(MountedRef(event.data())));
-                })),
-                ..Common::default()
-            },
-            onclick: on_primary(move || {
-                let next = if shell.peek().page_menu == PageMenu::Properties {
-                    PageMenu::Closed
-                } else {
-                    PageMenu::Properties
-                };
-                shell.write().page_menu = next;
-            }),
-        }
-        if open == PageMenu::Group {
-            Floating {
-                anchor: group_button(),
-                title: String::new(),
-                items: group_items(group),
-                on_pick: move |key: String| {
-                    if let Some(group) = group_from(&key) {
-                        shell.write().group = group;
+        if open {
+            Menu::<More> {
+                placement: MenuPlacement::Popup,
+                anchor: anchor_at(tool()),
+                items,
+                common: Common {
+                    aria_label: Some("List options".to_owned()),
+                    ..Common::default()
+                },
+                onpick: move |pick: More| match pick {
+                    More::Group(by) => {
+                        let mut written = shell.write();
+                        written.group = by;
+                        written.page_menu = PageMenu::Closed;
+                    }
+                    // The menu stays up for the next toggle (`AfterPick::KeepOpen`).
+                    More::Part(key) => {
+                        if let Some(part) = shell.write().parts.part_mut(key) {
+                            *part = (*part).toggle();
+                        }
+                    }
+                    More::Sync => {
                         shell.write().page_menu = PageMenu::Closed;
+                        crate::ui::fetching::sync_now(&shell.read());
                     }
                 },
-                on_close: move |_| shell.write().page_menu = PageMenu::Closed,
-            }
-        }
-        if open == PageMenu::Properties {
-            // A menu of toggles: each pick shows or hides a part, and the menu stays open.
-            Floating {
-                anchor: parts_button(),
-                title: "This page".to_owned(),
-                toggles: true,
-                items: part_items(parts),
-                on_pick: move |key: String| {
-                    if let Some(part) = shell.write().parts.part_mut(&key) {
-                        *part = (*part).toggle();
-                    }
-                },
-                on_close: move |_| shell.write().page_menu = PageMenu::Closed,
+                onclose: move |()| shell.write().page_menu = PageMenu::Closed,
             }
         }
     }
@@ -311,7 +288,9 @@ pub(super) fn PageMenus(shell: Signal<Shell>) -> Element {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::view::RowPart;
     use chrono::TimeZone;
+    use ds::prelude::{AfterPick, Check, MenuItem};
     use mail_domain::id::new_account_id;
     use mail_domain::*;
 
@@ -344,6 +323,78 @@ mod tests {
             mute: Mute::Unmuted,
             follow_up: mail_domain::FollowUp::Inactive,
         }
+    }
+
+    /// The ⋯'s rows as a person reads them: a submenu as `Name ▸ [children]`, a checked item
+    /// with `✓`, a rule as `-`, an item's second line after `/`.
+    fn read(rows: &[MenuItem<More>]) -> Vec<String> {
+        rows.iter()
+            .map(|row| match row {
+                MenuItem::Item {
+                    title, check, text, ..
+                } => {
+                    let mark = if *check == Some(Check::On) { "✓" } else { "" };
+                    match &text.subtitle {
+                        Some(under) => format!("{mark}{title} / {under}"),
+                        None => format!("{mark}{title}"),
+                    }
+                }
+                MenuItem::Submenu {
+                    title, children, ..
+                } => format!("{title} ▸ [{}]", read(children).join(", ")),
+                MenuItem::Separator => "-".to_owned(),
+                MenuItem::Header(title) | MenuItem::Info { title, .. } => title.clone(),
+            })
+            .collect()
+    }
+
+    /// The ⋯ holds what the list's toolbar used to spread over three buttons: Group ▸ and Row
+    /// Properties ▸ with their checks, and Sync Now under a rule, saying how fresh the mail is,
+    /// only where there is something to sync.
+    #[test]
+    fn the_more_menu_folds_group_row_properties_and_sync_now() {
+        const GROUP: &str = "Group ▸ [None, Sender, ✓Date, Label, Unread]";
+        let parts = PageParts::default();
+        let shown = read(&more_items(PageGroup::Date, parts, None))[1].clone();
+        let cases: [(Option<&str>, &[&str]); 3] = [
+            (None, &[GROUP, shown.as_str()]),
+            (Some(""), &[GROUP, shown.as_str(), "-", "Sync Now"]),
+            (
+                Some("Not updated since 14:05"),
+                &[
+                    GROUP,
+                    shown.as_str(),
+                    "-",
+                    "Sync Now / Not updated since 14:05",
+                ],
+            ),
+        ];
+        for (sync, want) in cases {
+            let rows = read(&more_items(PageGroup::Date, parts, sync.map(str::to_owned)));
+            assert_eq!(rows, want, "{sync:?}");
+        }
+        assert!(
+            shown.starts_with("Row Properties ▸ [") && shown.contains("Snippet"),
+            "{shown}"
+        );
+        // A part switched off loses its check, and each part's pick leaves the menu up.
+        let mut hidden = parts;
+        hidden.snippet = RowPart::Hidden;
+        let rows = more_items(PageGroup::None, hidden, None);
+        let MenuItem::Submenu { children, .. } = &rows[1] else {
+            panic!("{:?}", read(&rows));
+        };
+        assert!(
+            read(children).contains(&"Snippet".to_owned()),
+            "{children:?}"
+        );
+        assert!(children.iter().all(|child| matches!(
+            child,
+            MenuItem::Item {
+                after: AfterPick::KeepOpen,
+                ..
+            }
+        )));
     }
 
     /// The page menu's grouping: dates fall into the four bands, and no grouping is one band
