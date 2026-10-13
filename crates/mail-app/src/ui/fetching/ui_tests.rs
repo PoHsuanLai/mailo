@@ -118,7 +118,7 @@ async fn a_refused_account_is_asked_about_once_and_signs_in_from_the_dialog_or_t
 
     // Later: the question is not asked again, and the tile still says why.
     let mark = seen.one("aria-label", "Sign in again to keep receiving mail.");
-    click(&mut dom, seen.one("aria-label", "Later"));
+    click(&mut dom, seen.one("data-answer", "later"));
     settle_seen(&mut dom).await;
     let page = dioxus_ssr::render(&dom);
     assert!(!page.contains("again?"), "asked after Later: {page}");
@@ -153,10 +153,14 @@ async fn a_refused_account_is_asked_about_once_and_signs_in_from_the_dialog_or_t
             .unwrap()
             .clone()
     };
-    assert_eq!(asked_for(&dom), [ask.clone()], "the dialog's Sign In");
+    assert_eq!(
+        asked_for(&dom),
+        std::slice::from_ref(&ask),
+        "the dialog's Sign In"
+    );
 
     // The pane's Sign In is the same.
-    click(&mut dom, seen.one("aria-label", "Sign In"));
+    click(&mut dom, seen.one("data-sign-in", "mailbox"));
     settle(&mut dom).await;
     assert_eq!(asked_for(&dom), [ask.clone(), ask], "the pane's Sign In");
 }

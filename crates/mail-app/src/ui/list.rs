@@ -381,6 +381,7 @@ pub(super) fn ThreadList(
         Some(rsx! {
             Button {
                 label: SIGN_IN,
+                common: crate::ui::sidebar::tagged("sign-in", "mailbox"),
                 onclick: on_primary(move || reauth.sign_in(&name, need)),
             }
         })

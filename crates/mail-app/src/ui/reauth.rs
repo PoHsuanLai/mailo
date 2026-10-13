@@ -271,7 +271,8 @@ pub(in crate::ui) fn ReauthPrompt() -> Element {
                             LATER,
                             AlertRole::Cancel,
                             EventHandler::new(move |()| reauth.later()),
-                        ),
+                        )
+                        .with_common(crate::ui::sidebar::tagged("answer", "later")),
                     ],
                 }
             }
