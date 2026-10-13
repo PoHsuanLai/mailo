@@ -82,7 +82,7 @@ pub fn menu_item(harness: &mut Harness, name: &str) {
         super::look::menu_item_of(h, name).is_some()
     });
     let n = super::look::menu_item_of(harness, name).unwrap_or_default();
-    click(harness, &format!(".ds-menu > :nth-child({n})"));
+    click(harness, &format!(".ds-menu-list > :nth-child({n})"));
     harness.advance(ms(300));
 }
 

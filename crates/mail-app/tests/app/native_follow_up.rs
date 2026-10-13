@@ -191,7 +191,7 @@ fn type_text(harness: &mut Harness, text: &str) {
 fn menu_row(harness: &Harness, name: &str) -> String {
     let mut candidates = Vec::new();
     for n in 1..=24 {
-        candidates.push(format!(".ds-menu > .ds-menu-item:nth-child({n})"));
+        candidates.push(format!(".ds-menu-list > .ds-menu-item:nth-child({n})"));
         candidates.push(format!(".ds-pick-list-rows > .ds-row:nth-child({n})"));
     }
     candidates

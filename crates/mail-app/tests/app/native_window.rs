@@ -258,19 +258,19 @@ fn click_row(harness: &mut Harness, n: usize) {
 /// Wait for the menu's Open in new window, then press it where it is drawn.
 fn press_open_in_window(harness: &mut Harness) {
     let row = |h: &Harness| {
-        (1..=h.count(".ds-menu > *")).find(|n| {
-            h.text_of(&format!(".ds-menu > :nth-child({n}) .ds-menu-label"))
+        (1..=h.count(".ds-menu-list > *")).find(|n| {
+            h.text_of(&format!(".ds-menu-list > :nth-child({n}) .ds-menu-label"))
                 .is_some_and(|name| name.trim() == "Open in new window")
         })
     };
     settle_until(harness, |h| {
         row(h).is_some_and(|n| {
-            let item = format!(".ds-menu > :nth-child({n})");
+            let item = format!(".ds-menu-list > :nth-child({n})");
             h.centre(&item).is_some_and(|at| h.hits(at, &item))
         })
     });
     let n = row(harness).unwrap_or_else(|| panic!("no Open in new window:\n{}", harness.html()));
-    harness.click(centre(harness, &format!(".ds-menu > :nth-child({n})")));
+    harness.click(centre(harness, &format!(".ds-menu-list > :nth-child({n})")));
     // The menu blinks the picked row and acts on it as it closes, which takes real time on a
     // slow runner: a fixed advance can end before the ask is made.
     settle_until(harness, |h| h.count(".ds-menu") == 0);
