@@ -7,6 +7,7 @@
 //! sets it back. What the menus list and what a pick does are pure ([`send_items`], [`pick_send`],
 //! [`more_items`], [`pick_more`]), so the tests can say them without a window.
 
+use crate::ui::copy;
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
 use ds::components::controls::button_model::{Answers, Bezel, ImagePosition};
@@ -40,9 +41,9 @@ const KEEP: &str = "keep";
 const DELETE: &str = "delete";
 
 /// What Send ▾ is called, by its tip and to assistive technology. Not "Send": that is the button.
-pub(in crate::ui) const SEND_OPTIONS: &str = "Send Options";
+pub(in crate::ui) const SEND_OPTIONS: &str = copy::aria::SEND_OPTIONS;
 /// And the foot's ⋯.
-pub(in crate::ui) const MORE: &str = "More";
+pub(in crate::ui) const MORE: &str = copy::aria::MORE;
 
 /// Send ▾: Send Later ▸, Remind Me If No Reply ▸, and Ask for Read Receipt, each checked as the
 /// page has it.
@@ -92,13 +93,13 @@ where
     };
     vec![
         Line::Submenu {
-            title: "Send Later".to_owned(),
+            title: copy::menus::SEND_LATER.to_owned(),
             image: Some(MenuImage::Icon(Icon::Clock)),
             availability: Availability::Enabled,
             children: prefixed(LATER, later),
         },
         Line::Submenu {
-            title: "Remind Me If No Reply".to_owned(),
+            title: copy::menus::REMIND_IF_NO_REPLY.to_owned(),
             image: Some(MenuImage::Icon(Icon::Bell)),
             availability: Availability::Enabled,
             children: prefixed(REMIND, remind),
@@ -145,19 +146,21 @@ pub(in crate::ui) fn more_items(page: &Page) -> Vec<Line<String>> {
     }));
     vec![
         Line::Submenu {
-            title: "Security".to_owned(),
+            title: copy::menus::SECURITY.to_owned(),
             image: Some(MenuImage::Icon(Icon::Key)),
             availability: Availability::Enabled,
             children: security,
         },
-        Line::new(PLAIN.to_owned(), "Show Plain Text").with_check(check(page.plain == Fold::Open)),
-        Line::new(SAVE_KEY.to_owned(), "Save as Template\u{2026}")
+        Line::new(PLAIN.to_owned(), copy::menus::SHOW_PLAIN_TEXT)
+            .with_check(check(page.plain == Fold::Open)),
+        Line::new(SAVE_KEY.to_owned(), copy::menus::SAVE_AS_TEMPLATE)
             .with_image(MenuImage::Icon(Icon::FilePen)),
         Line::Separator,
-        Line::new(KEEP.to_owned(), "Keep for Later")
+        Line::new(KEEP.to_owned(), copy::menus::KEEP_FOR_LATER)
             .with_image(MenuImage::Icon(Icon::Clock))
             .with_key(actions::escape()),
-        Line::new(DELETE.to_owned(), "Delete Draft").with_image(MenuImage::Icon(Icon::Trash)),
+        Line::new(DELETE.to_owned(), copy::menus::DELETE_DRAFT)
+            .with_image(MenuImage::Icon(Icon::Trash)),
     ]
 }
 
@@ -213,12 +216,12 @@ pub(super) fn SendButton(page: Signal<Page>, on_send: EventHandler<()>) -> Eleme
         span { class: "c-send",
             Button {
                 answers: Answers::Return,
-                label: "Send",
-                title: "Send".to_owned(),
+                label: copy::controls::SEND,
+                title: copy::controls::SEND.to_owned(),
                 title_shortcut: actions::tip_own(Own::Send),
                 icon: Icon::Send,
                 onclick: on_primary(move || on_send.call(())),
-                common: Common { aria_label: Some("Send".to_owned()), ..Common::default() },
+                common: Common { aria_label: Some(copy::controls::SEND.to_owned()), ..Common::default() },
             }
             PullDownButton::<String> {
                 face: PullDownFace::Chevron,
@@ -300,7 +303,7 @@ pub(super) fn MoreButton(
                 anchor: anchor_at(at()),
                 items,
                 common: Common {
-                    aria_label: Some("Message actions".to_owned()),
+                    aria_label: Some(copy::aria::MESSAGE_ACTIONS.to_owned()),
                     ..Common::default()
                 },
                 onpick: move |key: String| {

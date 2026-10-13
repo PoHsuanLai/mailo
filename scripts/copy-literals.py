@@ -18,7 +18,8 @@ What is a visible literal is a heuristic, kept simple and deterministic:
   escapes are gone; one token of lowercase, digits and `-_.:/#@=` (a class, a key, an id, a path,
   an event name, a search operator); lowercase words joined by `-` or `_` (a class list); one
   token in capitals or in camelCase (an environment variable, a region code, a command name); a
-  CSS selector or CSS (`px`, `var(`, `:` with `;`); a URL; a locale code; a DOM key name; a font.
+  CSS selector or CSS (`px`, `var(`, `:` with `;`); a URL; a locale code; a DOM key name; a font;
+  a key chord as the keymap spells it (`Primary+Shift+F`, `Alt+Primary+C`).
 
 Everything else is counted: a capitalised word ("Inbox"), any words with a space between them
 ("no mail from them"), anything with typographic marks ("Settings…").
@@ -71,6 +72,7 @@ FONT = re.compile(
     r"P?MingLiU|Batang|Malgun|Apple ?(?:SD|Myungjo)|Georgia$|Times New Roman|Helvetica|Arial|"
     r"Segoe|Menlo|Consolas|Courier|DejaVu|Liberation|Cantarell|Inter$)"
 )
+CHORD = re.compile(r"^(?:(?:Primary|Shift|Alt|Ctrl|Control|Super|Meta|Cmd|Option)\+)+[A-Za-z0-9]+$")
 PLACEHOLDER = re.compile(r"\{[^{}]*\}")
 ESCAPE = re.compile(r"\\(?:u\{[0-9a-fA-F]+\}|x[0-9a-fA-F]{2}|.)")
 
@@ -85,7 +87,7 @@ def visible_text(text):
         return False
     if CONSTANT.match(plain) or SELECTOR.search(plain) or FONT.match(plain):
         return False
-    if plain in DOM_KEYS:
+    if plain in DOM_KEYS or CHORD.match(plain):
         return False
     if "://" in plain or plain.startswith(("mailto:", "data:")):
         return False

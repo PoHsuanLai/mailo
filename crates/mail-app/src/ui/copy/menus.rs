@@ -46,3 +46,12 @@ pub const DELETE: &str = "Delete";
 // The row at the end of Folders that shows the folders nobody follows, or hides them again.
 pub const SHOW_ALL_FOLDERS: &str = "Show All Folders";
 pub const SHOW_FOLLOWED_ONLY: &str = "Show Followed Only";
+
+// The composer's Send ▾ and ⋯.
+pub const SEND_LATER: &str = "Send Later";
+pub const REMIND_IF_NO_REPLY: &str = "Remind Me If No Reply";
+pub const SECURITY: &str = "Security";
+pub const SHOW_PLAIN_TEXT: &str = "Show Plain Text";
+pub const SAVE_AS_TEMPLATE: &str = "Save as Template\u{2026}";
+pub const KEEP_FOR_LATER: &str = "Keep for Later";
+pub const DELETE_DRAFT: &str = "Delete Draft";

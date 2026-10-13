@@ -28,3 +28,9 @@ pub const NEW_MESSAGE: &str = "New Message";
 pub const MORE: &str = "More";
 /// The menu the ⋯ opens.
 pub const LIST_OPTIONS: &str = "List options";
+
+// The composer's foot.
+/// Send ▾: not "Send", which is the button beside it.
+pub const SEND_OPTIONS: &str = "Send Options";
+/// The composer's ⋯ menu.
+pub const MESSAGE_ACTIONS: &str = "Message Actions";

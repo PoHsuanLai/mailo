@@ -8,3 +8,5 @@ pub const ADD_ACCOUNT: &str = "Add Account…";
 pub const NEW: &str = "New";
 /// A folder's row asking before its mail goes with it.
 pub const DELETE_FOLDER_AND_MAIL: &str = "Delete Folder and Mail";
+/// The composer's one filled button.
+pub const SEND: &str = "Send";
