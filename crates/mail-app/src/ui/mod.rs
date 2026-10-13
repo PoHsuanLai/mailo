@@ -63,6 +63,7 @@ mod press;
 mod print;
 mod provider_chip;
 pub mod reading;
+mod reauth;
 mod receipt;
 mod remedy;
 mod revisions;

@@ -1,21 +1,23 @@
-//! The Connection Doctor: a sheet that lists every account that has a server, how it stands and
-//! the one thing to do about it, as macOS Mail's window of that name does.
+//! Connections: a sheet that lists every account that has a server, how it stands and the one
+//! thing to do about it, as macOS Mail's Connection Doctor does.
 //!
-//! Mail marks an account with a problem in the sidebar and puts no banner over the messages;
-//! pressing the mark opens this. Here the marks are `sidebar::marks`, the status line under the
-//! list's title opens it too when it is a warning, and so does the search bar. The words of
-//! each line are [`crate::ui::fetching::account_line`]'s.
+//! It is the full view and nothing routes to it by itself: an account that needs signing in is
+//! asked about in a dialog (`reauth`), and the sidebar, the list and Settings each say it in their
+//! own words with a Sign In beside it. This sheet is reached from the command menu, from
+//! Settings' account page, and from an account tile that has trouble a sign-in cannot fix. The
+//! words of each line are [`crate::ui::fetching::account_line`]'s.
 //!
-//! Sign In goes straight to the browser for an account that signs in with a redirect
-//! (`add_account::again`); otherwise Sign In and Settings borrow the Add account sheet, prefilled
-//! with the account. This sheet
-//! steps aside while it is open and comes back when it closes, and what the account was waiting
-//! for is told to its link once the Add account sheet has changed something. Each row's gear
-//! opens Settings on the account's own page (`settings_window::open_account`).
+//! Sign In is the dialog's (`Reauth::sign_in`): straight to the browser for an account that signs
+//! in with a redirect, else the Add account window with the address typed in. Settings borrows
+//! the same window. This sheet steps aside while it is open and comes back when it closes, and
+//! what the account was waiting for is told to its link once the Add account window has changed
+//! something. Each row's gear opens Settings on the account's own page
+//! (`settings_window::open_account`).
 
 use crate::ui::common::in_card;
 use crate::ui::data::account_rows;
-use crate::ui::fetching::{AccountLine, Fetching, Remedy, Standing, account_line, offered};
+use crate::ui::fetching::{AccountLine, Fetching, Need, Remedy, Standing, account_line, offered};
+use crate::ui::reauth::Reauth;
 use crate::ui::press::{SheetClose, on_primary};
 use crate::ui::view::{DoctorSheet, Shell};
 use dioxus::prelude::*;
@@ -35,7 +37,7 @@ use porter_core::AccountId;
 use std::sync::Arc;
 
 /// What the sheet and its command are called.
-pub(in crate::ui) const TITLE: &str = "Connection Doctor";
+pub(in crate::ui) const TITLE: &str = "Connections";
 
 /// Open the sheet.
 pub(in crate::ui) fn open(mut shell: Signal<Shell>) {
@@ -46,15 +48,6 @@ pub(in crate::ui) fn open(mut shell: Signal<Shell>) {
 pub(in crate::ui) fn close(mut shell: Signal<Shell>) {
     shell.write().doctor = None;
     crate::ui::host::Host::focus_app();
-}
-
-/// What closing the Add account sheet should do for an account, if it changed anything.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum After {
-    /// The password was replaced: tell the link, which then tries again.
-    SignedIn,
-    /// The settings were changed: try again now.
-    Retry,
 }
 
 /// The button's label.
@@ -96,12 +89,12 @@ fn listed(fetching: Fetching, store: &SqliteStore) -> Vec<Listed> {
 #[component]
 pub(in crate::ui) fn DoctorView(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
     let fetching = try_consume_context::<Fetching>();
-    let mut pending = use_signal(|| None::<(AccountId, u64, After)>);
-    // The Add account window signed an account in, or changed its settings: it moves the shared
-    // revision when it does, and a window closed with nothing added leaves the sign-in waiting.
+    let mut pending = use_signal(|| None::<(AccountId, u64)>);
+    // The Add account window changed an account's settings: it moves the shared revision when it
+    // does, and a window closed with nothing changed leaves the account as it was.
     use_effect(move || {
         let now = revision();
-        let Some((account, at, after)) = pending.peek().clone() else {
+        let Some((account, at)) = pending.peek().clone() else {
             return;
         };
         if now == at {
@@ -109,10 +102,7 @@ pub(in crate::ui) fn DoctorView(shell: Signal<Shell>, revision: Signal<u64>) -> 
         }
         pending.set(None);
         let Some(fetching) = fetching else { return };
-        match after {
-            After::SignedIn => fetching.signed_in(account),
-            After::Retry => fetching.send(account, Event::Start(Trigger::Manual)),
-        }
+        fetching.send(account, Event::Start(Trigger::Manual));
     });
     let Some(fetching) = fetching else {
         return rsx! {};
@@ -120,33 +110,27 @@ pub(in crate::ui) fn DoctorView(shell: Signal<Shell>, revision: Signal<u64>) -> 
     let accounts = listed(fetching, &consume_context::<Arc<SqliteStore>>());
     let now = crate::ui::clock::now();
     let busy = accounts.iter().any(|(_, _, link)| link.is_busy());
+    let reauth = try_consume_context::<Reauth>();
     let act = Callback::new(
-        move |(account, name, remedy): (AccountId, String, Remedy)| {
-            let after = match remedy {
-                Remedy::UseGraph => {
-                    use_graph(fetching, revision, account, name);
-                    return;
+        move |(account, name, remedy): (AccountId, String, Remedy)| match remedy {
+            Remedy::UseGraph => use_graph(fetching, revision, account, name),
+            Remedy::TryAgain => fetching.send(account, Event::Start(Trigger::Manual)),
+            Remedy::Allow => {
+                if let Some(reauth) = reauth {
+                    reauth.sign_in(&name, Need::Allow);
                 }
-                Remedy::TryAgain => {
-                    fetching.send(account, Event::Start(Trigger::Manual));
-                    return;
+            }
+            // Straight to the browser when the account signs in with a redirect, as it was
+            // added; the window, with the address typed, otherwise.
+            Remedy::SignIn => {
+                if let Some(reauth) = reauth {
+                    reauth.sign_in(&name, Need::SignIn);
                 }
-                Remedy::Allow => {
-                    pending.set(Some((account, *revision.peek(), After::SignedIn)));
-                    crate::ui::add_account::allow_again();
-                    return;
-                }
-                Remedy::SignIn => {
-                    // Straight to the browser when the account signs in with a redirect, as it
-                    // was added; the window, with the address typed, otherwise.
-                    pending.set(Some((account, *revision.peek(), After::SignedIn)));
-                    crate::ui::add_account::again(name);
-                    return;
-                }
-                Remedy::Settings => After::Retry,
-            };
-            pending.set(Some((account, *revision.peek(), after)));
-            crate::ui::add_account::open_for(name);
+            }
+            Remedy::Settings => {
+                pending.set(Some((account, *revision.peek())));
+                crate::ui::add_account::open_for(name);
+            }
         },
     );
     rsx! {

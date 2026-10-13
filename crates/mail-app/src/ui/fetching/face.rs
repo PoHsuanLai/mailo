@@ -4,6 +4,7 @@
 //! empty list, and which one it is decides whether the person waits or acts.
 
 use crate::ui::view::Nothing;
+use super::need::Need;
 use mail_core::fetch::{First, Link, Pause};
 
 /// Whether the list has any rows.
@@ -41,15 +42,25 @@ pub enum Problem {
 
 impl Problem {
     /// What the pane says under the title when nothing can be loaded: what is wrong and what,
-    /// if anything, to do about it.
-    pub fn description(self) -> &'static str {
+    /// if anything, to do about it. `account` is the one a sign-in is asked for.
+    pub fn description(self, account: &str) -> String {
         match self {
             Problem::Unreachable => {
-                "Mailo can\u{2019}t reach the server right now. It will keep trying."
+                "Mailo can\u{2019}t reach the server right now. It will keep trying.".to_owned()
             }
-            Problem::Broken => "Something is wrong with this account. Check its settings.",
-            Problem::SignIn => "Sign in again to load your mail.",
-            Problem::Allow => "Allow Mail to use this account again to load your mail.",
+            Problem::Broken => "Something is wrong with this account. Check its settings.".to_owned(),
+            Problem::SignIn | Problem::Allow => {
+                format!("Sign in to {account} again to load its mail.")
+            }
+        }
+    }
+
+    /// What the person is to give, when that is the problem: the pane offers it as a button.
+    pub fn need(self) -> Option<Need> {
+        match self {
+            Problem::SignIn => Some(Need::SignIn),
+            Problem::Allow => Some(Need::Allow),
+            Problem::Unreachable | Problem::Broken => None,
         }
     }
 }
@@ -211,6 +222,20 @@ mod tests {
         ];
         for (links, want) in cases {
             assert_eq!(face(&links), ListFace::CannotLoad(want), "{links:?}");
+        }
+    }
+
+    #[test]
+    fn only_a_sign_in_is_the_persons_to_give_and_it_names_the_account() {
+        let cases = [
+            (Problem::Unreachable, None, "Mailo can\u{2019}t reach the server right now. It will keep trying."),
+            (Problem::Broken, None, "Something is wrong with this account. Check its settings."),
+            (Problem::SignIn, Some(Need::SignIn), "Sign in to me@x.test again to load its mail."),
+            (Problem::Allow, Some(Need::Allow), "Sign in to me@x.test again to load its mail."),
+        ];
+        for (problem, need, said) in cases {
+            assert_eq!(problem.need(), need, "{problem:?}");
+            assert_eq!(problem.description("me@x.test"), said, "{problem:?}");
         }
     }
 
