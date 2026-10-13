@@ -115,7 +115,8 @@ fn body(harness: &Harness) -> String {
     harness.text_of(".c-body > p").unwrap_or_default()
 }
 
-/// Type `/emo` in the body and press Enter on Emoji…, and wait for the picker's cells to be drawn
+/// Type `/emoj` in the body, which leaves Emoji… the one row (`/emo` also finds Code), and press
+/// Enter on it, and wait for the picker's cells to be drawn
 /// where they can be pressed, with its search field holding the keyboard.
 fn open_picker(harness: &mut Harness) {
     assert_eq!(
@@ -123,7 +124,7 @@ fn open_picker(harness: &mut Harness) {
         0,
         "the foot has an emoji button"
     );
-    type_text(harness, "/emo");
+    type_text(harness, "/emoj");
     settle_until(harness, |h| {
         h.text_of(".ds-menu-item")
             .is_some_and(|row| row.contains("Emoji"))

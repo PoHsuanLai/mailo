@@ -429,11 +429,18 @@ pub(super) fn Attached(page: Signal<Page>) -> Element {
                 Chip {
                     key: "{index}-{name}",
                     variant: ChipVariant::Neutral,
-                    text: format!("{name} · {size}"),
+                    text: format!("{} · {name} · {size}", kind_of(&name)),
                 }
             }
         }
     }
+}
+
+/// The short kind a file chip shows: its extension, upper-cased.
+fn kind_of(name: &str) -> String {
+    name.rsplit_once('.')
+        .map(|(_, ext)| ext.chars().take(4).collect::<String>().to_uppercase())
+        .unwrap_or_else(|| "FILE".to_owned())
 }
 
 /// The chips of one list, the field beside them, and the people menu under it.

@@ -200,8 +200,9 @@ async fn autosave_writes_the_documents_two_bodies_once_typing_stops() {
         "{:?}",
         stored.html
     );
+    // Autosave is silent: the page says nothing about it (the bar holds Focus alone).
     let markup = window.render();
-    assert!(markup.contains("saved just now"), "{markup}");
+    assert!(!markup.contains("saved just now"), "{markup}");
 }
 
 #[tokio::test]
