@@ -32,7 +32,7 @@ fn a_reply_goes_out_quoted_its_answer_threads_back_and_reply_all_answers_everyon
     );
     let quote = window.text(&format!("{REPLY} .o-rq"));
     assert!(
-        quote.contains("Ada Lovelace") && quote.contains("show quoted text"),
+        quote.contains("Ada Lovelace") && quote.contains("Show Quoted Text"),
         "no folded quote naming Ada: {quote:?}"
     );
 

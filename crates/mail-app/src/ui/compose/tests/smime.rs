@@ -122,7 +122,7 @@ fn picking_smime_clears_openpgp() {
     let mut base = draft_of("");
     base.openpgp = OpenPgp::SignAndEncrypt;
     let mut page = Page::of(&base, Vec::new(), Vec::new());
-    assert_eq!(label(page.protection), "OpenPGP · Sign and encrypt");
+    assert_eq!(label(page.protection), "OpenPGP · Sign and Encrypt");
     page.seal_bar = SealBar::NoOwnKey("me@example.test".to_owned());
     pick(&mut page, "smime-sign");
     assert_eq!(page.protection, Protection::Smime(Mode::Sign));
@@ -150,7 +150,7 @@ async fn the_row_offers_both_schemes_in_one_menu_and_saves_the_choice() {
     let (mut window, seen) = window(store.clone(), draft.clone(), Arc::default());
     click(
         &mut window.dom,
-        seen.one("aria-label", "Protection: OpenPGP · Sign"),
+        seen.one("aria-label", "Security: OpenPGP · Sign"),
     );
     let markup = window.render();
     assert!(

@@ -76,6 +76,10 @@ pub(in crate::ui) enum Own {
     Send,
     /// Focus mode in the composer.
     Focus,
+    /// ⌥⌘C, as in Apple Mail: the composer's Cc row, drawn and given the keyboard.
+    AddCc,
+    /// ⌥⌘B, as in Apple Mail: the composer's Bcc row, the same way.
+    AddBcc,
     /// Shift+Enter: the open conversation in a window of its own.
     OpenInWindow,
 }
@@ -96,6 +100,8 @@ const OWN: &[(Own, &str, &[&str])] = &[
     (Own::Code, "mail.code", &["Primary+E"]),
     (Own::Send, "mail.send", &["Primary+Enter"]),
     (Own::Focus, "mail.focus", &["Primary+Shift+F"]),
+    (Own::AddCc, "mail.add-cc", &["Alt+Primary+C"]),
+    (Own::AddBcc, "mail.add-bcc", &["Alt+Primary+B"]),
     (Own::OpenInWindow, "mail.open-in-window", &["Shift+Enter"]),
 ];
 

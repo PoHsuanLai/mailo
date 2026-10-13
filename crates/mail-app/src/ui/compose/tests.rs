@@ -12,6 +12,7 @@ mod people;
 mod people_groups;
 mod receipt;
 mod render;
+mod rows;
 mod smime;
 mod templates;
 mod wire;

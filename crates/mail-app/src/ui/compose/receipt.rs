@@ -1,61 +1,79 @@
-//! Asking for a read receipt from the composer: an item in the Sends menu, and a row that says
-//! so while it is on.
+//! Asking for a read receipt from the composer: a toggle under Send ▾, and a Receipt row that is
+//! drawn only while it is on, whose menu turns it Off.
 //!
-//! In the Sends menu because it is a choice about how the message goes out, beside when it goes;
-//! a row of its own only while it is on, because most mail never asks and an always-present
-//! "Receipt: no" row would be a question put to every message.
+//! Under Send ▾ because it is a choice about how the message goes out; a row of its own only while
+//! it is on, because most mail never asks and an always-present "Receipt: no" row would be a
+//! question put to every message.
 
-use super::props::Line;
+use super::props::ChoiceRow;
 use dioxus::prelude::*;
-use ds::components::controls::button_model::{Bezel, ImagePosition};
-use ds::components::controls::chip::{Chip, ChipVariant};
 use ds::prelude::*;
 use mail_domain::ReceiptRequest;
 
 use super::super::menu::{MenuItem, Right, Tile};
-use super::page::Page;
+use super::page::{Float, Page};
 
-/// The Sends menu's key for the receipt item. No `When` shares it.
+/// Send ▾'s key for the receipt item.
 pub(in crate::ui) const KEY: &str = "receipt";
 
-/// What the item and the row call it.
-pub(in crate::ui) const ASK: &str = "Ask for a read receipt";
+/// What Send ▾'s item calls it.
+pub(in crate::ui) const ASK: &str = "Ask for Read Receipt";
 
-/// The Sends menu's receipt item, checked while the draft asks.
-pub(in crate::ui) fn item(receipt: ReceiptRequest) -> MenuItem {
-    MenuItem {
-        key: KEY.to_owned(),
+/// The Receipt row's menu keys.
+pub(in crate::ui) const ON_KEY: &str = "receipt:on";
+pub(in crate::ui) const OFF_KEY: &str = "receipt:off";
+
+/// The Receipt row's menu: "Requested", checked, and "Off", the way back to the default.
+pub(in crate::ui) fn row_items(receipt: ReceiptRequest) -> Vec<MenuItem> {
+    let row = |key: &str, name: &str, on: bool| MenuItem {
+        key: key.to_owned(),
         tile: Tile::Icon(Icon::Check),
-        name: ASK.to_owned(),
+        name: name.to_owned(),
         help: None,
-        right: Right::Check(receipt == ReceiptRequest::Requested),
-        group: Some("Also".to_owned()),
+        right: Right::Check(on),
+        group: None,
         marks: Vec::new(),
         title: Vec::new(),
         detail: Vec::new(),
-    }
+    };
+    vec![
+        row(ON_KEY, "Requested", receipt == ReceiptRequest::Requested),
+        row(OFF_KEY, "Off", receipt == ReceiptRequest::Unrequested),
+    ]
 }
 
-/// The row under Sends while the draft asks, with the way to stop asking.
+/// A pick from the Receipt row's menu.
+pub(in crate::ui) fn pick_row(page: &mut Page, key: &str) {
+    let want = match key {
+        ON_KEY => ReceiptRequest::Requested,
+        OFF_KEY => ReceiptRequest::Unrequested,
+        _ => page.receipt,
+    };
+    if page.receipt != want {
+        page.toggle_receipt();
+    }
+    page.float = Float::Closed;
+}
+
+/// The Receipt row, only while the draft asks.
 #[component]
 pub(in crate::ui) fn ReceiptRow(page: Signal<Page>) -> Element {
-    if page.read().receipt != ReceiptRequest::Requested {
+    let receipt = page.read().receipt;
+    if receipt != ReceiptRequest::Requested {
         return rsx! {};
     }
-    let stop = "Stop asking for a read receipt";
     rsx! {
-        Line {
+        ChoiceRow {
+            page,
             label: "Receipt",
             row: "receipt",
-            Chip { variant: ChipVariant::Neutral, text: "Asks for a read receipt".to_owned() }
-            Button {
-                bezel: Bezel::Toolbar,
-                image: ImagePosition::Only,
-                icon: Icon::X,
-                label: stop,
-                title: stop.to_owned(),
-                onclick: super::super::press::on_primary(move || page.write().toggle_receipt()),
-            }
+            value: "Requested".to_owned(),
+            float: Float::Receipt,
+            items: row_items(receipt),
+            on_pick: move |key: String| {
+                let mut page = page;
+                pick_row(&mut page.write(), &key);
+            },
         }
     }
 }

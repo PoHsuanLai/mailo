@@ -5,7 +5,7 @@
 //!   own parts, a Space tile's badge among them, keep the sizes quire gives them);
 //! - a Large button is a toolbar's, on the quiet `Toolbar` bezel: a push button inside content is
 //!   Regular, and a dense row's is Small;
-//! - the composer's own bar (Plain text, Attach, Emoji, Send) is Regular throughout;
+//! - the composer's foot (Attach, ⋯, Send and its ▾) is Regular throughout;
 //! - a glyph on a row, in the reader or in the composer is 14 px or larger: quire's 11 and 13 px
 //!   rungs are not used there.
 //!
@@ -178,10 +178,13 @@ fn every_control_in_the_window_is_the_size_its_place_calls_for() {
     harness.key(Key::Char('c'));
     settle_until(&mut harness, |h| h.count(".cpage .c-foot") > 0);
     sizes_hold(&harness, "the composer");
+    // Attach and ⋯ stand in the foot; Send in its group, and Send's ▾ one level further in.
     let foot = harness.count(".cpage .c-foot > button.ds-button")
-        + harness.count(".cpage .c-foot > * > button.ds-button");
+        + harness.count(".cpage .c-foot > * > button.ds-button")
+        + harness.count(".cpage .c-foot > * > * > button.ds-button");
     let regular = harness.count(".cpage .c-foot > button.ds-button[*|data-size=\"regular\"]")
-        + harness.count(".cpage .c-foot > * > button.ds-button[*|data-size=\"regular\"]");
+        + harness.count(".cpage .c-foot > * > button.ds-button[*|data-size=\"regular\"]")
+        + harness.count(".cpage .c-foot > * > * > button.ds-button[*|data-size=\"regular\"]");
     assert!(
         foot >= 4,
         "the composer's bar has {foot} buttons:\n{}",

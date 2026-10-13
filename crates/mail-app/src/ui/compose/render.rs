@@ -330,7 +330,7 @@ fn Obj(n: usize, object: Object, menu: bool, quoted: Fold, page: Signal<Page>) -
                             TextRun::new(who.clone(), RunTone::Strong),
                             TextRun::new(format!(", {when}"), RunTone::Faint),
                             TextRun::new(
-                                if open { "  hide quoted text" } else { "  show quoted text" },
+                                if open { " — Hide Quoted Text" } else { " — Show Quoted Text" },
                                 RunTone::Faint,
                             ),
                         ]),

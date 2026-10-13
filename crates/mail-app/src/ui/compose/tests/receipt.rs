@@ -1,10 +1,10 @@
-//! Asking for a read receipt: the Sends menu's item, the row it shows, and the draft it saves.
+//! Asking for a read receipt: Send ▾'s item, the row it shows while on, and the draft it saves.
 
 use mail_core::Store;
 
+use super::super::foot::pick_send;
 use super::super::page::{Float, Saved};
-use super::super::props::pick_sends;
-use super::super::receipt::{ASK, KEY};
+use super::super::receipt::{ASK, KEY, OFF_KEY};
 use super::*;
 use crate::ui::fixtures::{acct_account, click, seeded};
 
@@ -31,26 +31,26 @@ async fn saved_as(window: &mut Window, store: &SqliteStore, draft: DraftId, want
 }
 
 #[test]
-fn the_sends_menu_item_turns_the_request_on_and_off() {
+fn send_menu_item_turns_the_request_on_and_off() {
     let mut page = page_of("");
     assert_eq!(page.receipt, ReceiptRequest::Unrequested);
-    page.float = Float::Sends;
+    page.float = Float::SendMenu;
 
-    pick_sends(&mut page, KEY);
+    pick_send(&mut page, KEY);
     assert_eq!(page.receipt, ReceiptRequest::Requested);
     assert_eq!(page.saved, Saved::Dirty, "a change the autosave would miss");
     assert_eq!(page.float, Float::Closed);
 
-    pick_sends(&mut page, KEY);
+    pick_send(&mut page, KEY);
     assert_eq!(page.receipt, ReceiptRequest::Unrequested);
     // A when is still a when: the receipt item does not shadow one.
-    pick_sends(&mut page, "tomorrow");
+    pick_send(&mut page, "later:tomorrow");
     assert_eq!(page.receipt, ReceiptRequest::Unrequested);
     assert_eq!(page.when, super::super::page::When::Tomorrow);
 }
 
 #[tokio::test]
-async fn asking_is_autosaved_shown_as_a_row_and_can_be_taken_back() {
+async fn asking_is_autosaved_shown_as_a_row_and_can_be_set_back_to_off() {
     let (store, _dir) = seeded();
     let draft = fresh_draft(&store);
     let (mut window, _seen) = Window::open(store.clone(), draft.clone(), None);
@@ -58,28 +58,38 @@ async fn asking_is_autosaved_shown_as_a_row_and_can_be_taken_back() {
     assert!(!markup.contains("data-row=\"receipt\""), "{markup}");
 
     let mut page = window.page();
-    window.dom.in_runtime(|| page.write().float = Float::Sends);
+    window
+        .dom
+        .in_runtime(|| page.write().float = Float::SendMenu);
     let markup = window.render();
     assert!(
         markup.contains(ASK),
-        "the Sends menu has no receipt item:\n{markup}"
+        "Send ▾ has no receipt item:\n{markup}"
     );
 
-    window.dom.in_runtime(|| pick_sends(&mut page.write(), KEY));
+    window.dom.in_runtime(|| pick_send(&mut page.write(), KEY));
     let markup = window.render();
     assert!(markup.contains("data-row=\"receipt\""), "{markup}");
-    assert!(markup.contains("Asks for a read receipt"), "{markup}");
     saved_as(&mut window, &store, draft.id, ReceiptRequest::Requested).await;
 
-    // Opened again from the store, the page still asks, and × stops it.
+    // Opened again from the store, the page still asks, and the row's menu sets it Off.
     let stored = store.draft(draft.id).unwrap_or_else(|why| panic!("{why}"));
     let (mut window, seen) = Window::open(store.clone(), stored, None);
     let markup = window.render();
     assert!(markup.contains("data-row=\"receipt\""), "{markup}");
     click(
         &mut window.dom,
-        seen.one("aria-label", "Stop asking for a read receipt"),
+        seen.one("aria-label", "Receipt: Requested"),
     );
+    let markup = window.render();
+    assert!(
+        markup.contains(">Off<"),
+        "the row's menu has no Off:\n{markup}"
+    );
+    let mut page = window.page();
+    window
+        .dom
+        .in_runtime(|| super::super::receipt::pick_row(&mut page.write(), OFF_KEY));
     let markup = window.render();
     assert!(!markup.contains("data-row=\"receipt\""), "{markup}");
     saved_as(&mut window, &store, draft.id, ReceiptRequest::Unrequested).await;

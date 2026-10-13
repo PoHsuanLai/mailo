@@ -155,7 +155,7 @@ async fn render_send_later_and_templates_to_files() {
             1,
         )
     };
-    let (sends, _a) = window(|page| page.float = Float::Sends, Before::Nothing);
+    let (sends, _a) = window(|page| page.float = Float::SendMenu, Before::Nothing);
     crate::ui::fixtures::dump("later-sends", &sends);
     let (pick_time, _b) = window(
         |page| page.float = Float::PickTime("fri 17:00".to_owned()),

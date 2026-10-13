@@ -1,7 +1,8 @@
 //! Emoji in the composer, on the real window (Blitz, through `ds_harness::Harness`): `:smi` offers
-//! emoji by name and Enter puts the first in the body, where one Ctrl Z takes it out again; the
-//! foot's button opens the picker, where a click picks; the picker is walked with the arrows,
-//! Enter and Escape; and what was picked is first in a new window's picker.
+//! emoji by name and Enter puts the first in the body, where one Ctrl Z takes it out again; `/` ›
+//! Emoji… opens the picker at the caret (the foot has no emoji button), where a click picks; the
+//! picker is walked with the arrows, Enter and Escape; and what was picked is first in a new
+//! window's picker.
 //!
 //! The recent emoji are kept in the window's state directory, here a `TempDir`.
 
@@ -32,10 +33,6 @@ const VIEW: Viewport = Viewport {
     height: 800,
     scale_percent: 100,
 };
-
-/// The foot's button. Blitz's selectors name an attribute with a dash through the any-namespace
-/// form.
-const BUTTON: &str = ".c-foot [*|aria-label=\"Emoji\"]";
 
 /// A cell of the picker's grid.
 const CELL: &str = ".em-picker .ds-emoji-cell";
@@ -118,13 +115,21 @@ fn body(harness: &Harness) -> String {
     harness.text_of(".c-body > p").unwrap_or_default()
 }
 
-/// Press the foot's button and wait for the picker's cells to be drawn where they can be
-/// pressed, with its search field holding the keyboard.
+/// Type `/emoj` in the body, which leaves Emoji… the one row (`/emo` also finds Code), and press
+/// Enter on it, and wait for the picker's cells to be drawn
+/// where they can be pressed, with its search field holding the keyboard.
 fn open_picker(harness: &mut Harness) {
+    assert_eq!(
+        harness.count(".c-foot [*|aria-label=\"Emoji\"]"),
+        0,
+        "the foot has an emoji button"
+    );
+    type_text(harness, "/emoj");
     settle_until(harness, |h| {
-        h.centre(BUTTON).is_some_and(|at| h.hits(at, BUTTON))
+        h.text_of(".ds-menu-item")
+            .is_some_and(|row| row.contains("Emoji"))
     });
-    harness.click(centre(harness, BUTTON));
+    harness.key(Key::Enter);
     settle_until(harness, |h| {
         h.centre(CELL).is_some_and(|at| h.hits(at, CELL)) && h.is_focused(".em-picker input")
     });
@@ -166,7 +171,7 @@ fn a_colon_and_a_name_offer_emoji_enter_puts_one_in_and_one_ctrl_z_takes_it_out(
 }
 
 #[test]
-fn the_button_opens_the_picker_a_click_picks_and_a_new_window_has_it_first() {
+fn slash_emoji_opens_the_picker_a_click_picks_and_a_new_window_has_it_first() {
     let (mut harness, _dir, store, dirs) = composing();
     type_text(&mut harness, "Hi ");
     settle_until(&mut harness, |h| body(h).trim_end() == "Hi");
@@ -223,7 +228,10 @@ fn the_picker_is_walked_with_the_arrows_enter_picks_and_escape_closes_it() {
     let second = mail_app::ui::emoji::search("cat")[1].glyph;
     settle_until(&mut harness, |h| body(h) == second);
 
-    // Escape closes the picker and nothing else: the draft stays open, the body unchanged.
+    // Escape closes the picker and nothing else: the draft stays open, the body unchanged. A `/`
+    // opens its menu at the start of a word, so a space goes first.
+    settle_until(&mut harness, |h| h.is_focused(".c-body"));
+    type_text(&mut harness, " ");
     open_picker(&mut harness);
     harness.key(Key::Escape);
     settle_until(&mut harness, |h| h.count(".em-picker") == 0);
@@ -233,6 +241,6 @@ fn the_picker_is_walked_with_the_arrows_enter_picks_and_escape_closes_it() {
         1,
         "Escape put the draft aside"
     );
-    assert_eq!(body(&harness), second);
+    assert_eq!(body(&harness).trim_end(), second);
     settle_until(&mut harness, |h| h.is_focused(".c-body"));
 }

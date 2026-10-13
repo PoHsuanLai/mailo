@@ -1,11 +1,10 @@
-//! Send later, in the window: what the Sends row's choice means to the outbox, the "Pick a
-//! time…" field, and the list of messages waiting for their time.
+//! Send later, in the window: what Send ▾ › Send Later and the Sends row choose means to the
+//! outbox, the "Pick a Time…" field, and the list of messages waiting for their time.
 //!
 //! The times are the snooze menu's: a typed phrase goes through [`mail_core::snooze::snooze_until`],
 //! and every time is written by [`when_words`], so "Tomorrow 08:00" reads the same everywhere.
 
 use ds::base::geometry::placement::{Align, Side};
-use ds::components::content::label::LabelRole;
 use ds::components::fields::text_field_model::Invalid;
 use ds::components::overlays::popover::Arrow;
 use ds::host::measure::MountedRef;
@@ -26,10 +25,10 @@ use super::page::{Float, Page, When};
 use crate::ui::view::Shell;
 use mail_core::compose::Leaves;
 
-/// The Sends menu's key for "Pick a time…".
+/// The Sends menu's key for "Pick a Time…".
 pub(in crate::ui) const PICK_KEY: &str = "at";
 /// And what it says.
-pub(in crate::ui) const PICK_LABEL: &str = "Pick a time…";
+pub(in crate::ui) const PICK_LABEL: &str = "Pick a Time…";
 
 /// What the example phrases are, where the field has nothing to go on.
 const TRY: &str = "Type a time, like tomorrow 9";
@@ -100,8 +99,9 @@ where
     Ok(at)
 }
 
-/// "Pick a time…": a popover hung from the Sends button with the field, and under it the time it
-/// reads or why it reads none.
+/// "Pick a Time…": a popover hung from `anchor` (Send ▾, or the Sends row's value) with the field,
+/// and under it the time it reads or why it reads none. Esc or a click away closes it and leaves
+/// the choice as it was.
 #[component]
 pub(in crate::ui) fn PickTime(page: Signal<Page>, anchor: Option<MountedRef>) -> Element {
     let Float::PickTime(typed) = page.read().float.clone() else {
@@ -133,7 +133,7 @@ pub(in crate::ui) fn PickTime(page: Signal<Page>, anchor: Option<MountedRef>) ->
             placement: Placement::new(Side::Bottom, Align::Start),
             gap: Px(4.0),
             arrow: Arrow::None,
-            onclose: move |()| page.write().float = Float::Sends,
+            onclose: move |()| page.write().float = Float::Closed,
             div {
                 class: "pick-time",
                 onkeydown: move |event: KeyboardEvent| {
@@ -144,12 +144,11 @@ pub(in crate::ui) fn PickTime(page: Signal<Page>, anchor: Option<MountedRef>) ->
                         }
                         Some(MenuKey::Escape) => {
                             event.stop_propagation();
-                            page.write().float = Float::Sends;
+                            page.write().float = Float::Closed;
                         }
                         _ => {}
                     }
                 },
-                Label { text: "Send at".to_owned(), role: LabelRole::Secondary }
                 TextField {
                     label: "Send at".to_owned(),
                     placeholder: "tomorrow 9".to_owned(),

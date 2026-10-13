@@ -86,6 +86,19 @@ pub fn menu_item(harness: &mut Harness, name: &str) {
     harness.advance(ms(300));
 }
 
+/// Open the open menu's submenu `parent` and pick `name` in it: Send ▾ › Send Later › Tomorrow.
+pub fn submenu_item(harness: &mut Harness, parent: &str, name: &str) {
+    menu_item(harness, parent);
+    let what = format!("the {parent:?} submenu offers {name:?}");
+    until(harness, &what, |h| {
+        super::look::submenu_item_of(h, name).is_some()
+    });
+    let n = super::look::submenu_item_of(harness, name).unwrap_or_default();
+    let list = super::look::SUBMENU_LIST;
+    click(harness, &format!("{list} > :nth-child({n})"));
+    harness.advance(ms(300));
+}
+
 /// Scroll `scroller` with the wheel until `selector` stands inside it, as a person scrolls a
 /// long page to what they want. The view is read before it scrolls: Blitz reads a scrolled
 /// element's rect as moved up by as far as it has scrolled, though it is drawn where it was.

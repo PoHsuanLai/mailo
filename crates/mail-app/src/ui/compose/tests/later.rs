@@ -92,6 +92,13 @@ fn a_typed_phrase_is_read_the_way_snooze_reads_it_and_a_past_one_is_refused() {
 fn pick_a_time_opens_a_field_and_enter_makes_the_typed_time_the_choice() {
     let now = wednesday(10, 0);
     let mut page = page_of("hello");
+    page.float = Float::SendMenu;
+    super::super::foot::pick_send(&mut page, "later:at");
+    assert_eq!(
+        page.float,
+        Float::PickTime(String::new()),
+        "Send ▾ › Send Later › Pick a Time… did not open the field"
+    );
     page.float = Float::Sends;
     pick_sends(&mut page, super::super::later::PICK_KEY);
     assert_eq!(
@@ -161,7 +168,7 @@ async fn scheduling_holds_the_draft_until_its_time_and_cancel_brings_back_the_pa
         outbox(&store, far),
     );
 
-    // The button says Schedule now; it is the same element it was.
+    // The button still says Send: the Sends row says when. It is the same element it was.
     let painted = click(&mut window.dom, seen.one("aria-label", "Send"));
     let markup = window.render();
     assert_eq!(

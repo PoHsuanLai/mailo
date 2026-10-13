@@ -9,7 +9,7 @@ use crate::ui::emoji::Emoji;
 pub(in crate::ui) use super::items::{
     emoji_items, mention_items, object_items, people_rows, slash_items, turn_items,
 };
-use super::page::{CcRow, Float, Page};
+use super::page::{Float, List, Page};
 use mail_core::editor::{
     Action, Caret, ImageRef, InputEvent, Node, Object, Op, ParaKind, Pos, Range, Table, apply_all,
     catalog, joins_cc, node_len, runs_text, turn_into,
@@ -301,7 +301,7 @@ pub(in crate::ui) fn pick_mention(page: &mut Page, address: &str) {
     }
     if let Some(joining) = joins_cc(&person, &page.to, &page.cc).cloned() {
         page.cc.push(joining);
-        page.cc_row = CcRow::Shown;
+        page.reveal(List::Cc);
     }
 }
 

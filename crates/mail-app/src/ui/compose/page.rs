@@ -36,7 +36,7 @@ impl When {
     /// What the Sends menu calls a choice, worded the way the snooze menu words its times.
     pub(in crate::ui) fn label(self) -> &'static str {
         match self {
-            When::Now => "Right away",
+            When::Now => "Now",
             When::Tomorrow => "Tomorrow 08:00",
             When::Monday => "Monday 09:00",
             When::At(_) => super::later::PICK_LABEL,
@@ -96,11 +96,13 @@ impl When {
 pub(in crate::ui) enum List {
     To,
     Cc,
+    Bcc,
 }
 
-/// The Cc row is hidden until it is used, asked for, or an `@` adds someone.
+/// Whether the Cc or the Bcc row is drawn. Hidden until it is asked for (its key, or its word
+/// at the end of the To row), or someone is on it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(in crate::ui) enum CcRow {
+pub(in crate::ui) enum RowShown {
     Hidden,
     Shown,
 }
@@ -130,16 +132,24 @@ pub(in crate::ui) enum Float {
     Object(usize),
     /// Send from.
     From,
-    /// When to send.
+    /// The Sends row's menu: when to send, "Now" first.
     Sends,
-    /// Whether to sign or encrypt, and with what.
+    /// The Security row's menu: how it is signed or encrypted, "None" first.
     Protection,
-    /// "Pick a time…" under the Sends row, with what has been typed.
+    /// "Pick a Time…" for the send, from Send ▾ or the Sends row, with what has been typed.
     PickTime(String),
-    /// Whether to be reminded if nobody answers.
+    /// The Remind row's menu: whether to be reminded if nobody answers, "Off" first.
     Remind,
-    /// "Pick a time…" under the Remind row, with what has been typed.
+    /// "Pick a Time…" for the reminder, from Send ▾ or the Remind row, with what has been typed.
     PickRemind(String),
+    /// The Receipt row's menu: "Requested" or "Off".
+    Receipt,
+    /// Send ▾: Send Later, Remind Me If No Reply and Ask for Read Receipt.
+    SendMenu,
+    /// The foot's ⋯: Security, Show Plain Text, Save as Template…, Keep for Later, Delete Draft.
+    More,
+    /// The emoji picker, opened from the `/` menu at the caret.
+    EmojiPicker,
     /// "Save as template…", with the name typed so far.
     SaveTemplate(String),
     /// "Start from a template": the templates, at the caret.
@@ -164,7 +174,8 @@ pub(in crate::ui) enum Guard {
     Warn,
 }
 
-/// The status dot.
+/// Whether the page's changes are in the store. Never drawn: autosave is silent, and a save that
+/// fails says so through `notice`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::ui) enum Saved {
     /// As it was opened: nothing to save yet.
@@ -217,10 +228,13 @@ pub(in crate::ui) struct Page {
     pub subject: String,
     pub to: Vec<Person>,
     pub cc: Vec<Person>,
-    /// What is typed into the To and Cc fields and not yet a chip.
+    pub bcc: Vec<Person>,
+    /// What is typed into the To, Cc and Bcc fields and not yet a chip.
     pub typed_to: String,
     pub typed_cc: String,
-    pub cc_row: CcRow,
+    pub typed_bcc: String,
+    pub cc_row: RowShown,
+    pub bcc_row: RowShown,
     pub when: When,
     /// Whether Send asks to be reminded if nobody answers, and when.
     pub remind: super::remind::Remind,
@@ -247,6 +261,8 @@ pub(in crate::ui) struct Page {
     pub phase: Phase,
     pub focus: Focus,
     pub quoted: Fold,
+    /// The plain text the message will carry, shown under the body from ⋯ › Show Plain Text.
+    pub plain: Fold,
     /// The contact book's suggestions for what is being typed now — in To, in Cc, or after an
     /// `@` — best first. Asked again on each keystroke; the fields and `@` never type at once.
     pub people: Vec<Person>,
@@ -269,20 +285,27 @@ impl Page {
             PageKind::New
         };
         let cc: Vec<Person> = draft.cc.iter().map(person).collect();
+        let bcc: Vec<Person> = draft.bcc.iter().map(person).collect();
+        let shown = |list: &[Person]| {
+            if list.is_empty() {
+                RowShown::Hidden
+            } else {
+                RowShown::Shown
+            }
+        };
         Self {
             draft: draft.id,
             kind,
             from: draft.account.clone(),
             subject: draft.subject.clone(),
             to: draft.to.iter().map(person).collect(),
-            cc_row: if cc.is_empty() {
-                CcRow::Hidden
-            } else {
-                CcRow::Shown
-            },
+            cc_row: shown(&cc),
+            bcc_row: shown(&bcc),
             cc,
+            bcc,
             typed_to: String::new(),
             typed_cc: String::new(),
+            typed_bcc: String::new(),
             when: When::Now,
             remind: super::remind::Remind::Off,
             receipt: draft.receipt,
@@ -303,25 +326,27 @@ impl Page {
             phase: Phase::Writing,
             focus: Focus::Off,
             quoted: Fold::Folded,
+            plain: Fold::Folded,
             people,
             groups: Vec::new(),
             notice: None,
         }
     }
 
-    /// Something changed: the dot turns and the next debounced save has work.
+    /// Something changed: the next debounced save has work.
     pub(in crate::ui) fn touch(&mut self) {
         self.saved = Saved::Dirty;
         self.edits = self.edits.wrapping_add(1);
     }
 
     /// The draft as this page would store it, over `base` so everything the page does not show
-    /// (the identity, what it replies to, Bcc) is whatever the store says.
+    /// (the identity, what it replies to) is whatever the store says.
     pub(in crate::ui) fn apply_to(&self, base: &Draft, now: DateTime<Utc>) -> Draft {
         let doc = &self.session.doc;
         Draft {
             to: self.to.iter().map(address).collect(),
             cc: self.cc.iter().map(address).collect(),
+            bcc: self.bcc.iter().map(address).collect(),
             subject: self.subject.clone(),
             text: mail_core::editor::to_flowed(doc),
             html: Some(mail_core::editor::to_html(doc)),
@@ -347,6 +372,7 @@ impl Page {
         match list {
             List::To => &mut self.to,
             List::Cc => &mut self.cc,
+            List::Bcc => &mut self.bcc,
         }
     }
 
@@ -355,6 +381,45 @@ impl Page {
         match list {
             List::To => &mut self.typed_to,
             List::Cc => &mut self.typed_cc,
+            List::Bcc => &mut self.typed_bcc,
+        }
+    }
+
+    /// The recipients of `list`, to read.
+    pub(in crate::ui) fn list(&self, list: List) -> &[Person] {
+        match list {
+            List::To => &self.to,
+            List::Cc => &self.cc,
+            List::Bcc => &self.bcc,
+        }
+    }
+
+    /// The text typed into `list`'s field, to read.
+    pub(in crate::ui) fn typed(&self, list: List) -> &str {
+        match list {
+            List::To => &self.typed_to,
+            List::Cc => &self.typed_cc,
+            List::Bcc => &self.typed_bcc,
+        }
+    }
+
+    /// Draw the Cc or the Bcc row, as its key or its word at the end of the To row asks. To is
+    /// always drawn.
+    pub(in crate::ui) fn reveal(&mut self, list: List) {
+        match list {
+            List::To => {}
+            List::Cc => self.cc_row = RowShown::Shown,
+            List::Bcc => self.bcc_row = RowShown::Shown,
+        }
+    }
+
+    /// Whether `list`'s row is drawn: To always, Cc and Bcc once revealed or while someone is on
+    /// them.
+    pub(in crate::ui) fn row_shown(&self, list: List) -> bool {
+        match list {
+            List::To => true,
+            List::Cc => self.cc_row == RowShown::Shown || !self.cc.is_empty(),
+            List::Bcc => self.bcc_row == RowShown::Shown || !self.bcc.is_empty(),
         }
     }
 

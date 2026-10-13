@@ -26,24 +26,25 @@ fn a_message_sent_tomorrow_at_eight_waits_then_its_reminder_comes_back_with_no_r
     window.click(".c-body");
     window.type_text("Numbers inside.");
 
-    // Send: Tomorrow 08:00.
-    window.click(".c-props [*|data-row=sends] .ds-button");
-    window.menu_item("Tomorrow 08:00");
+    // Send ▾ › Send Later › Tomorrow 08:00. No Sends row until then.
+    assert_eq!(window.harness.count(".c-props [*|data-row=sends]"), 0);
+    window.click(".c-foot [*|aria-label=\"Send Options\"]");
+    window.submenu_item("Send Later", "Tomorrow 08:00");
     window.until("the row says when it leaves", |h| {
         h.text_of(".c-props [*|data-row=sends]")
             .is_some_and(|row| row.contains("Tomorrow 08:00"))
     });
 
-    // Remind me if no reply: in 3 days.
-    window.click(".c-props [*|aria-label=\"Remind me if no reply\"]");
-    window.menu_item("In 3 days");
+    // Send ▾ › Remind Me If No Reply › In 3 days.
+    window.click(".c-foot [*|aria-label=\"Send Options\"]");
+    window.submenu_item("Remind Me If No Reply", "In 3 days");
     window.until("the row says the reminder", |h| {
         h.text_of(".c-props [*|data-row=remind]")
             .is_some_and(|row| row.contains("if no reply"))
     });
 
     let asked = window.now();
-    window.click(".c-foot [*|aria-label=\"Schedule\"]");
+    window.click(".c-foot [*|aria-label=\"Send\"]");
     window.until("the pill says it is scheduled", |h| {
         h.text_of(".ds-send-pill")
             .is_some_and(|pill| pill.contains("Scheduled"))

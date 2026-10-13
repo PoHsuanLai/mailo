@@ -1,7 +1,8 @@
-//! Emoji in the body: the foot's emoji button and its picker, and what a pick from either the
-//! picker or the `:` menu does beyond the document, which is to remember the emoji.
+//! Emoji in the body: the picker `/` › Emoji… opens at the caret, and what a pick from either the
+//! picker or the `:` menu does beyond the document, which is to remember the emoji. The system's
+//! own picker types into the body as any text does.
 //!
-//! The picker is quire's popover over the button: a search field that keeps the keyboard, a tab
+//! The picker is quire's popover at the caret (`body.rs`): a search field that keeps the keyboard, a tab
 //! per group with the recent emoji first, and quire's `EmojiGrid`, whose glyphs are drawn in
 //! colour through `.ds-emoji-text` where the system's Noto Color Emoji is the COLRv1 build (a
 //! CBDT one, Ubuntu's, is not drawn at all: FINDINGS). The arrows move through the grid from the field, Enter
@@ -9,19 +10,11 @@
 //! ([`super::float::insert_emoji`]) and the body takes the keyboard back.
 
 use dioxus::prelude::*;
-use ds::base::geometry::placement::{Align, Side};
-use ds::components::controls::button_model::{Bezel, ImagePosition};
 use ds::components::controls::segmented::Tracking;
 use ds::components::lists::emoji_grid::grid::EmojiCell;
 use ds::components::lists::emoji_grid::nav::{GridMove, GridStep, grid_step};
-use ds::host::measure::MountedRef;
-use ds::prelude::{
-    Button, Choice, EmojiGrid, FieldFocus, FieldKind, Icon, Placement, Popover, Px,
-    SegmentedControl, Shown as Layer, TextField,
-};
-use ds::root::common::Common;
+use ds::prelude::{Choice, EmojiGrid, FieldFocus, FieldKind, Px, SegmentedControl, TextField};
 
-use super::super::menu::anchor_at;
 use super::desk::Desk;
 use super::float::{insert_emoji, pick_emoji};
 use super::page::Page;
@@ -36,13 +29,6 @@ const CELL: Px = Px(50.0);
 
 /// The most cells a search shows.
 const FOUND: usize = 64;
-
-/// Whether the picker is open.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Shown {
-    Closed,
-    Open,
-}
 
 /// What the picker's grid shows when nothing is typed in its search field.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -86,50 +72,9 @@ pub(super) fn pick_typed(mut page: Signal<Page>, glyph: &str) {
     }
 }
 
-/// The emoji button in the page's foot, and the picker it opens over itself.
-#[component]
-pub(super) fn EmojiButton(page: Signal<Page>) -> Element {
-    let mut shown = use_signal(|| Shown::Closed);
-    let mut at = use_signal(|| None::<MountedRef>);
-    let open = shown() == Shown::Open;
-    let close = move |()| {
-        shown.set(Shown::Closed);
-        Host::focus_next_frame(".c-body");
-    };
-    rsx! {
-        Button {
-            bezel: Bezel::Toolbar,
-            image: ImagePosition::Only,
-            icon: Icon::Smile,
-            label: "Emoji".to_owned(),
-            title: Some("Emoji".to_owned()),
-            shown: Some(if open { Layer::Visible } else { Layer::Hidden }),
-            common: Common {
-                mounted: Some(EventHandler::new(move |event: MountedEvent| {
-                    at.set(Some(MountedRef(event.data())));
-                })),
-                ..Common::default()
-            },
-            onclick: move |_| shown.set(if open { Shown::Closed } else { Shown::Open }),
-        }
-        if open {
-            Popover {
-                anchor: anchor_at(at()),
-                placement: Placement::new(Side::Top, Align::Start),
-                gap: Px(6.0),
-                onclose: close,
-                Picker {
-                    page,
-                    on_done: close,
-                }
-            }
-        }
-    }
-}
-
 /// The picker's content: the field, the tabs, the grid, and the name of the emoji selected.
 #[component]
-fn Picker(page: Signal<Page>, on_done: EventHandler<()>) -> Element {
+pub(super) fn Picker(page: Signal<Page>, on_done: EventHandler<()>) -> Element {
     let recent: Vec<&'static Emoji> = try_use_context::<Desk>()
         .map(|desk| desk.emoji.read().clone())
         .unwrap_or_default();

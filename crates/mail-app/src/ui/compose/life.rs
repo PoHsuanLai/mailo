@@ -121,10 +121,13 @@ pub(in crate::ui) fn send<Tz: TimeZone>(
 where
     Tz::Offset: std::fmt::Display,
 {
-    if !commit_typed(page, List::To) || !commit_typed(page, List::Cc) {
+    if !commit_typed(page, List::To)
+        || !commit_typed(page, List::Cc)
+        || !commit_typed(page, List::Bcc)
+    {
         return Ok(Sent::Stopped);
     }
-    if page.to.is_empty() && page.cc.is_empty() {
+    if page.to.is_empty() && page.cc.is_empty() && page.bcc.is_empty() {
         let count = match page.guard {
             Guard::NoRecipient(count) => count + 1,
             _ => 1,

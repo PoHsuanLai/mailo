@@ -1,5 +1,5 @@
-//! Templates in the window: "Save as template…" and "Start from a template" in the `/` menu, and
-//! the rows every list of templates draws, here and in ⌘K.
+//! Templates in the window: "Start from a template" in the `/` menu, "Save as Template…" in the
+//! foot's ⋯ (`foot.rs`), and the rows every list of templates draws, here and in ⌘K.
 //!
 //! Every write goes through `mail_core::template`, the module `mailo template` uses. Templates are
 //! local only; see `mail_domain::template`.
@@ -28,8 +28,10 @@ use super::page::{Float, Page, PageKind, Phase, address};
 use crate::ui::view::Shell;
 use mail_core::editor::{Caret, Node, Op, Range, runs_text};
 
-/// The `/` row that keeps the message as a template.
+/// The ⋯ item that keeps the message as a template.
 pub(in crate::ui) const SAVE_KEY: &str = "template:save";
+/// The `/` row that opens the emoji picker at the caret.
+pub(in crate::ui) const EMOJI_KEY: &str = "emoji:pick";
 /// The `/` row that starts the message from one, offered while the body is empty.
 pub(in crate::ui) const START_KEY: &str = "template:start";
 
@@ -41,14 +43,14 @@ pub(in crate::ui) fn page_slash_items(page: &Page) -> Vec<MenuItem> {
     let typed = query(page).unwrap_or_default();
     let wanted = typed.trim().to_lowercase();
     let mut items = slash_items(&typed);
-    let mut offer = |key: &str, name: &str, help: &str, words: &[&str]| {
+    let mut offer = |key: &str, icon: Icon, name: &str, help: &str, words: &[&str]| {
         let hit = wanted.is_empty()
             || name.to_lowercase().starts_with(&wanted)
             || words.iter().any(|word| word.starts_with(&wanted));
         if hit {
             items.push(MenuItem {
                 key: key.to_owned(),
-                tile: Tile::Icon(Icon::FilePen),
+                tile: Tile::Icon(icon),
                 name: name.to_owned(),
                 help: Some(help.to_owned()),
                 right: Right::None,
@@ -59,20 +61,23 @@ pub(in crate::ui) fn page_slash_items(page: &Page) -> Vec<MenuItem> {
             });
         }
     };
+    // The picker the foot's emoji button used to open: one step from the caret, as `:` is.
+    offer(
+        EMOJI_KEY,
+        Icon::Smile,
+        "Emoji…",
+        "Pick one to put at the caret",
+        &["emoji", "smile"],
+    );
     if page.kind == PageKind::New && body_is_empty(page, &typed) {
         offer(
             START_KEY,
-            "Start from a template",
+            Icon::FilePen,
+            "Start from a Template",
             "A saved message",
             &["template", "start"],
         );
     }
-    offer(
-        SAVE_KEY,
-        "Save as template…",
-        "Keep this message to start others from",
-        &["template", "save", "keep"],
-    );
     items
 }
 
@@ -94,6 +99,7 @@ pub(in crate::ui) fn pick(page: &mut Page, key: &str) -> bool {
     let next = match key {
         SAVE_KEY => Float::SaveTemplate(String::new()),
         START_KEY => Float::Templates { active: 0 },
+        EMOJI_KEY => Float::EmojiPicker,
         _ => return false,
     };
     if let Float::Slash { anchor, .. } = page.float {

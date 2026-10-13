@@ -1,5 +1,6 @@
-//! The composer's one protection control: none, or OpenPGP, or S/MIME, each to sign, encrypt, or
-//! both.
+//! The composer's one protection choice: none, or OpenPGP, or S/MIME, each to sign, encrypt, or
+//! both. Chosen from the foot's ⋯ › Security; a Security row is drawn only while it is not None,
+//! and its menu sets it back.
 //!
 //! A message is protected one way or the other, never both — the two wrap the same content in
 //! two envelopes, and one inside the other opens for nobody. So the page holds a single
@@ -7,17 +8,12 @@
 //! written from it, one of them always `None` ([`Protection::openpgp`], [`Protection::smime`]).
 //! There is no second row whose choice the first would have to undo.
 
-use super::props::Line;
+use super::props::ChoiceRow;
 use dioxus::prelude::*;
-use ds::base::press::Press;
-use ds::components::controls::button_marks::Trailing;
-use ds::components::controls::button_model::Bezel;
-use ds::host::measure::MountedRef;
 use ds::prelude::*;
-use ds::root::common::Common;
 use mail_domain::{Draft, OpenPgp, Smime};
 
-use super::super::menu::{Floating, MenuItem, Right, Tile};
+use super::super::menu::{MenuItem, Right, Tile};
 use super::page::{Float, Page};
 use super::seal::SealBar;
 
@@ -111,7 +107,7 @@ const CHOICES: [(Protection, &str, Option<&str>, &str, &str); 7] = [
         Protection::OpenPgp(Mode::SignAndEncrypt),
         "pgp-sign-encrypt",
         Some("OpenPGP"),
-        "Sign and encrypt",
+        "Sign and Encrypt",
         "only they can read it, and they can check it is from you",
     ),
     (
@@ -132,7 +128,7 @@ const CHOICES: [(Protection, &str, Option<&str>, &str, &str); 7] = [
         Protection::Smime(Mode::SignAndEncrypt),
         "smime-sign-encrypt",
         Some("S/MIME"),
-        "Sign and encrypt",
+        "Sign and Encrypt",
         "only they can read it, and they can check your certificate",
     ),
 ];
@@ -180,47 +176,36 @@ pub(in crate::ui) fn pick(page: &mut Page, key: &str) {
     page.float = Float::Closed;
 }
 
-/// The protection row: what the draft asks, and the menu to change it.
+/// Every choice as `(key, scheme, name, checked)`: what ⋯ › Security lists, a submenu per scheme.
+pub(in crate::ui) fn choices(
+    protection: Protection,
+) -> Vec<(&'static str, Option<&'static str>, &'static str, bool)> {
+    CHOICES
+        .iter()
+        .map(|(choice, key, group, name, _)| (*key, *group, *name, *choice == protection))
+        .collect()
+}
+
+/// The Security row, only while the message is signed or encrypted: how, and the menu that sets
+/// it back to None.
 #[component]
 pub(in crate::ui) fn ProtectionRow(page: Signal<Page>) -> Element {
     let protection = page.read().protection;
-    let open = page.read().float == Float::Protection;
-    let shown = label(protection);
-    let name = "Protection";
-    let mut value = use_signal(|| None::<MountedRef>);
+    if protection == Protection::None {
+        return rsx! {};
+    }
     rsx! {
-        Line {
-            label: "Protection",
-            row: "protection",
-            Button {
-                bezel: Bezel::Inline,
-                label: shown.to_owned(),
-                trailing: Some(Trailing::Glyph(Icon::ChevronDown)),
-                shown: Some(if open { Shown::Visible } else { Shown::Hidden }),
-                onclick: move |_: Press| {
-                    let next = if open { Float::Closed } else { Float::Protection };
-                    page.write().float = next;
-                },
-                common: Common {
-                    aria_label: Some(format!("{name}: {shown}")),
-                    mounted: Some(EventHandler::new(move |event: MountedEvent| value.set(Some(MountedRef(event.data()))))),
-                    ..Common::default()
-                },
-            }
-            if open {
-                Floating {
-                    placement: MenuPlacement::Popup,
-                    anchor: value(),
-                    title: "Protection".to_owned(),
-                    items: items(protection),
-                    on_pick: move |key: String| pick(&mut page.write(), &key),
-                    on_close: move |_| {
-                        if page.peek().float == Float::Protection {
-                            page.write().float = Float::Closed;
-                        }
-                    },
-                }
-            }
+        ChoiceRow {
+            page,
+            label: "Security",
+            row: "security",
+            value: label(protection),
+            float: Float::Protection,
+            items: items(protection),
+            on_pick: move |key: String| {
+                let mut page = page;
+                pick(&mut page.write(), &key);
+            },
         }
     }
 }

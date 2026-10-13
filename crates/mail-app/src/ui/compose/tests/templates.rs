@@ -1,10 +1,11 @@
-//! Templates from the composer: saved from `/`, listed, started from on an empty page, deleted.
+//! Templates from the composer: saved from ⋯, listed, started from `/` on an empty page, deleted.
 
 use mail_core::Store;
 
 use super::super::page::Float;
 use super::super::templates::{
-    SAVE_KEY, START_KEY, every, forget, page_slash_items, pick, save_named, template_rows,
+    EMOJI_KEY, SAVE_KEY, START_KEY, every, forget, page_slash_items, pick, save_named,
+    template_rows,
 };
 use super::*;
 use crate::ui::fixtures::{acct_account, seeded};
@@ -34,18 +35,29 @@ fn the_slash_menu_offers_a_template_only_while_the_body_is_empty() {
     slash(&mut empty);
     let offered = page_slash_items(&empty);
     assert!(keys(&offered).contains(&START_KEY), "{:?}", keys(&offered));
-    assert!(keys(&offered).contains(&SAVE_KEY));
+    assert!(keys(&offered).contains(&EMOJI_KEY));
+    // Saving is the foot's ⋯ › Save as Template…: one home for it.
+    assert!(!keys(&offered).contains(&SAVE_KEY));
 
     let mut written = page_of("");
     type_text(&mut written, "Dear Dana, ");
     slash(&mut written);
     let offered = page_slash_items(&written);
     assert!(!keys(&offered).contains(&START_KEY), "{:?}", keys(&offered));
-    assert!(keys(&offered).contains(&SAVE_KEY));
 
     // Typing narrows them like every other row.
-    type_text(&mut written, "temp");
-    assert_eq!(keys(&page_slash_items(&written)), [SAVE_KEY]);
+    type_text(&mut written, "emoj");
+    assert_eq!(keys(&page_slash_items(&written)), [EMOJI_KEY]);
+}
+
+#[test]
+fn slash_emoji_opens_the_picker_and_the_slash_goes() {
+    let mut page = page_of("");
+    type_text(&mut page, "Hi ");
+    slash(&mut page);
+    assert!(pick(&mut page, EMOJI_KEY));
+    assert_eq!(page.float, Float::EmojiPicker);
+    assert_eq!(body(&page), "Hi ", "the typed / stays behind");
 }
 
 #[tokio::test]
@@ -55,14 +67,15 @@ async fn saved_listed_started_from_and_deleted() {
     let (window, _seen) = Window::open(store.clone(), draft.clone(), None);
     let before = every(&store).len();
 
-    // Written, then kept from `/` under a name. The `/` typed to get there does not stay.
+    // Written, then kept from ⋯ under a name.
     let mut page = window.page();
     let said = window.dom.in_runtime(|| {
         let mut write = page.write();
         write.subject = "Weekly notes".to_owned();
         type_text(&mut write, "Here is what moved this week. ");
-        slash(&mut write);
-        assert!(pick(&mut write, SAVE_KEY));
+        write.float = Float::More;
+        let act = super::super::foot::pick_more(&mut write, SAVE_KEY);
+        assert_eq!(act, super::super::foot::More::Done);
         assert_eq!(write.float, Float::SaveTemplate(String::new()));
         write.float = Float::SaveTemplate("Weekly".to_owned());
         save_named(&store, &mut write, Utc::now())

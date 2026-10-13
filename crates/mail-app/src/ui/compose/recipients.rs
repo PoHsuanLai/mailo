@@ -1,4 +1,4 @@
-//! The To and Cc rows: chips, what is typed beside them, and the people menu under them.
+//! The To, Cc and Bcc rows: chips, what is typed beside them, and the people menu under them.
 //!
 //! The menu offers the contact groups whose name fits what was typed above the people, and
 //! choosing a group puts each of its members on the message (`contacts::groups`).
@@ -10,7 +10,7 @@ use super::super::contacts::book::suggest;
 use super::super::contacts::groups::{self, Offer};
 use super::super::menu::{MenuItem, Right, Tile};
 use super::float::people_rows;
-use super::page::{CcRow, Float, List, Page, person};
+use super::page::{Float, List, Page, person};
 use mail_core::editor::Person;
 
 /// Someone typed into `list`'s field. A comma commits what came before it.
@@ -47,19 +47,10 @@ const GROUP_KEY: &str = "group:";
 /// The groups offered for what is typed, then the book's suggestions in its order less those
 /// already on the message.
 pub(in crate::ui) fn people_items(page: &Page, list: List) -> Vec<MenuItem> {
-    let typed = match list {
-        List::To => &page.typed_to,
-        List::Cc => &page.typed_cc,
-    };
-    if typed.trim().is_empty() {
+    if page.typed(list).trim().is_empty() {
         return Vec::new();
     }
-    let listed = |person: &Person| {
-        page.to
-            .iter()
-            .chain(&page.cc)
-            .any(|other| other.address.eq_ignore_ascii_case(&person.address))
-    };
+    let listed = |person: &Person| on_message(page, &person.address);
     let mut items: Vec<MenuItem> = page.groups.iter().map(group_row).collect();
     items.extend(people_rows(
         page.people
@@ -145,18 +136,20 @@ pub(in crate::ui) fn commit_typed(page: &mut Page, list: List) -> bool {
     }
 }
 
-fn add(page: &mut Page, list: List, joining: Person) {
-    let listed = page
-        .to
+/// Whether `address` is already on the message, in To, Cc or Bcc.
+fn on_message(page: &Page, address: &str) -> bool {
+    page.to
         .iter()
         .chain(&page.cc)
-        .any(|other| other.address.eq_ignore_ascii_case(&joining.address));
-    if listed {
+        .chain(&page.bcc)
+        .any(|other| other.address.eq_ignore_ascii_case(address))
+}
+
+fn add(page: &mut Page, list: List, joining: Person) {
+    if on_message(page, &joining.address) {
         return;
     }
-    if list == List::Cc {
-        page.cc_row = CcRow::Shown;
-    }
+    page.reveal(list);
     page.list_mut(list).push(joining);
     page.touch();
 }

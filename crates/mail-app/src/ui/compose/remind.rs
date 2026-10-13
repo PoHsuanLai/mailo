@@ -1,4 +1,5 @@
-//! The Remind row: "remind me if no reply", chosen as the message is written.
+//! Remind Me If No Reply, chosen as the message is written: under Send ▾ only, and a Remind row
+//! that is drawn only while a reminder is set, whose menu turns it Off.
 //!
 //! The times are the thread menu's ([`mail_core::follow_up::CHOICES`]), counted from when the message
 //! leaves rather than from when the row was set, so a message scheduled for Monday and "In 3 days"
@@ -8,20 +9,18 @@
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
 
-use super::super::menu::{Floating, MenuItem, MenuKey, Right, Tile, menu_key};
+use super::super::menu::{MenuItem, MenuKey, Right, Tile, menu_key};
 use super::super::menus::{snooze_help, when_in_sentence, when_words};
-use super::super::press::on_primary;
 use super::page::{Float, Page};
-use super::props::Line;
-use ds::components::controls::button_marks::Trailing;
-use ds::components::controls::button_model::Bezel;
+use super::props::ChoiceRow;
+use ds::base::geometry::placement::{Align, Side};
+use ds::components::overlays::popover::Arrow;
 use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::root::pass_through::ExtraClass;
-use ds::style::icon::render::Glyph;
 
-/// The Remind menu's key for "Don't remind me".
+/// The Remind menu's key for "Off".
 pub(in crate::ui) const OFF_KEY: &str = "off";
 /// And for "Pick a time…".
 pub(in crate::ui) const PICK_KEY: &str = "at";
@@ -66,7 +65,7 @@ impl Remind {
         Tz::Offset: std::fmt::Display,
     {
         match self {
-            Remind::Off => "Don't remind me".to_owned(),
+            Remind::Off => "Off".to_owned(),
             Remind::After(key) => mail_core::follow_up::CHOICES
                 .iter()
                 .find(|(choice, _)| *choice == key)
@@ -77,8 +76,49 @@ impl Remind {
     }
 }
 
-/// The Remind menu: off, the named times with the date each means if the message left now, and
-/// "Pick a time…".
+/// The reminder's choices: the named times, each with the date it means if the message left now,
+/// then "Pick a Time…", the current one checked. What Send ▾ › Remind Me If No Reply lists.
+pub(in crate::ui) fn remind_choices<Tz: TimeZone>(
+    remind: Remind,
+    now: DateTime<Utc>,
+    zone: &Tz,
+) -> Vec<MenuItem>
+where
+    Tz::Offset: std::fmt::Display,
+{
+    let row = |key: &str, icon, name: &str, help: Option<String>, on: bool| MenuItem {
+        key: key.to_owned(),
+        tile: Tile::Icon(icon),
+        name: name.to_owned(),
+        help,
+        right: Right::Check(on),
+        group: None,
+        marks: Vec::new(),
+        title: Vec::new(),
+        detail: Vec::new(),
+    };
+    let mut items: Vec<MenuItem> = mail_core::follow_up::CHOICES
+        .iter()
+        .filter_map(|(key, says)| {
+            let at = mail_core::follow_up::due(key, now, zone).ok()?;
+            Some(row(
+                key,
+                Icon::Bell,
+                says,
+                Some(snooze_help(at, zone)),
+                remind == Remind::After(key),
+            ))
+        })
+        .collect();
+    let (help, on) = match remind {
+        Remind::At(at) => (Some(when_words(at, now, zone)), true),
+        _ => (None, false),
+    };
+    items.push(row(PICK_KEY, Icon::Clock, "Pick a Time…", help, on));
+    items
+}
+
+/// The Remind row's menu: "Off" first, which is the way back to the default, then the choices.
 pub(in crate::ui) fn remind_items<Tz: TimeZone>(
     remind: Remind,
     now: DateTime<Utc>,
@@ -87,47 +127,22 @@ pub(in crate::ui) fn remind_items<Tz: TimeZone>(
 where
     Tz::Offset: std::fmt::Display,
 {
-    let row = |key: &str, icon, name: &str, help: String, on: bool| MenuItem {
-        key: key.to_owned(),
-        tile: Tile::Icon(icon),
-        name: name.to_owned(),
-        help: Some(help),
-        right: Right::Check(on),
+    let mut items = vec![MenuItem {
+        key: OFF_KEY.to_owned(),
+        tile: Tile::Icon(Icon::X),
+        name: "Off".to_owned(),
+        help: None,
+        right: Right::Check(remind == Remind::Off),
         group: None,
         marks: Vec::new(),
         title: Vec::new(),
         detail: Vec::new(),
-    };
-    let mut items = vec![row(
-        OFF_KEY,
-        Icon::X,
-        "Don't remind me",
-        "whether or not anyone answers".to_owned(),
-        remind == Remind::Off,
-    )];
-    items.extend(
-        mail_core::follow_up::CHOICES
-            .iter()
-            .filter_map(|(key, says)| {
-                let at = mail_core::follow_up::due(key, now, zone).ok()?;
-                Some(row(
-                    key,
-                    Icon::Bell,
-                    says,
-                    snooze_help(at, zone),
-                    remind == Remind::After(key),
-                ))
-            }),
-    );
-    let (help, on) = match remind {
-        Remind::At(at) => (when_words(at, now, zone), true),
-        _ => ("tomorrow 9, fri 17:00, +3d".to_owned(), false),
-    };
-    items.push(row(PICK_KEY, Icon::Clock, "Pick a time…", help, on));
+    }];
+    items.extend(remind_choices(remind, now, zone));
     items
 }
 
-/// A choice from the Remind menu.
+/// A choice from the Remind menu or from Send ▾ › Remind Me If No Reply.
 pub(in crate::ui) fn pick_remind(page: &mut Page, key: &str) {
     if key == PICK_KEY {
         page.float = Float::PickRemind(String::new());
@@ -165,65 +180,36 @@ where
     Ok(at)
 }
 
+/// The Remind row, only while a reminder is set: when it comes, and the menu that turns it Off.
 #[component]
 pub(in crate::ui) fn RemindRow(page: Signal<Page>) -> Element {
     let remind = page.read().remind;
-    let float = page.read().float.clone();
-    let open = float == Float::Remind;
-    let picking = matches!(float, Float::PickRemind(_));
+    if remind == Remind::Off {
+        return rsx! {};
+    }
     let now = super::super::clock::now();
     let items = remind_items(remind, now, &chrono::Local);
     let shown = remind.shown(now, &chrono::Local);
-    let mut value = use_signal(|| None::<MountedRef>);
     rsx! {
-        Line {
-            label: "Remind me",
+        ChoiceRow {
+            page,
+            label: "Remind",
             row: "remind",
-            Button {
-                bezel: Bezel::Inline,
-                label: shown,
-                trailing: Some(Trailing::Glyph(Icon::ChevronDown)),
-                shown: Some(if open { Shown::Visible } else { Shown::Hidden }),
-                common: Common {
-                    aria_label: Some("Remind me if no reply".to_owned()),
-                    mounted: Some(EventHandler::new(move |event: MountedEvent| {
-                        value.set(Some(MountedRef(event.data())));
-                    })),
-                    ..Common::default()
-                },
-                onclick: on_primary(move || {
-                    let next = if open || picking { Float::Closed } else { Float::Remind };
-                    page.write().float = next;
-                }),
-            }
-            if open {
-                Floating {
-                    anchor: value(),
-                    title: "Remind me if no reply".to_owned(),
-                    items,
-                    on_pick: move |key: String| {
-                        pick_remind(&mut page.write(), &key);
-                        if matches!(page.peek().float, Float::PickRemind(_)) {
-                            crate::ui::host::Host::focus_after_task(".remind-field input");
-                        }
-                    },
-                    on_close: move |_| {
-                        if page.peek().float == Float::Remind {
-                            page.write().float = Float::Closed;
-                        }
-                    },
-                }
-            }
-            if picking {
-                div { class: "p-menu", PickRemind { page } }
-            }
+            value: shown,
+            float: Float::Remind,
+            items,
+            on_pick: move |key: String| {
+                let mut page = page;
+                pick_remind(&mut page.write(), &key);
+            },
         }
     }
 }
 
-/// "Pick a time…" under the Remind row: the field, and under it the time it reads or why not.
+/// "Pick a Time…" for the reminder: a popover hung from `anchor` with the field, and under it the
+/// time it reads or why not. Esc or a click away closes it and leaves the reminder as it was.
 #[component]
-fn PickRemind(page: Signal<Page>) -> Element {
+pub(in crate::ui) fn PickRemind(page: Signal<Page>, anchor: Option<MountedRef>) -> Element {
     let Float::PickRemind(typed) = page.read().float.clone() else {
         return rsx! {};
     };
@@ -241,10 +227,14 @@ fn PickRemind(page: Signal<Page>) -> Element {
         Err(why) => ("pick-says refused", why.to_string()),
     };
     rsx! {
-        div { class: "pick-time",
-            div { class: "g", "Remind me at" }
+        Popover {
+            anchor: super::super::menu::anchor_at(anchor),
+            placement: Placement::new(Side::Bottom, Align::Start),
+            gap: Px(4.0),
+            arrow: Arrow::None,
+            onclose: move |()| page.write().float = Float::Closed,
             div {
-                class: "pick-in",
+                class: "pick-time",
                 onkeydown: move |event: KeyboardEvent| {
                     match menu_key(&event.key().to_string()) {
                         Some(MenuKey::Enter) => {
@@ -254,25 +244,24 @@ fn PickRemind(page: Signal<Page>) -> Element {
                         }
                         Some(MenuKey::Escape) => {
                             event.stop_propagation();
-                            page.write().float = Float::Remind;
+                            page.write().float = Float::Closed;
                         }
                         _ => {}
                     }
                 },
-                Glyph { icon: Icon::Bell, size: IconSize::Compact }
                 TextField {
                     label: "Remind me at".to_owned(),
                     value: typed.clone(),
                     placeholder: "tomorrow 9, fri 17:00, +3d".to_owned(),
-                    bezel: FieldBezel::Plain,
+                    focus: FieldFocus::OnMount,
                     common: Common {
                         extra_class: ExtraClass::parse("remind-field").ok(),
                         ..Common::default()
                     },
                     oninput: move |value: String| page.write().float = Float::PickRemind(value),
                 }
+                p { class: "{class}", role: "status", "{says}" }
             }
-            p { class: "{class}", role: "status", "{says}" }
         }
     }
 }

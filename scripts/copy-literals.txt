@@ -2,7 +2,6 @@
 # as scripts/copy-literals.py counts them. A ratchet (scripts/check-copy.sh): it fails when a
 # count rises or an unlisted file gains one, and when a count falls until this file says so.
 # A new word goes in crates/mail-app/src/ui/copy/. Format: "<file> <count>".
-crates/mail-app/src/ui/actions.rs 10
 crates/mail-app/src/ui/app.rs 4
 crates/mail-app/src/ui/bin.rs 11
 crates/mail-app/src/ui/brand.rs 1
@@ -49,19 +48,19 @@ crates/mail-app/src/ui/command/templates.rs 1
 crates/mail-app/src/ui/compose/attach.rs 3
 crates/mail-app/src/ui/compose/body.rs 14
 crates/mail-app/src/ui/compose/desk.rs 2
-crates/mail-app/src/ui/compose/emoji.rs 8
+crates/mail-app/src/ui/compose/emoji.rs 6
 crates/mail-app/src/ui/compose/float.rs 2
 crates/mail-app/src/ui/compose/items.rs 6
-crates/mail-app/src/ui/compose/later.rs 8
+crates/mail-app/src/ui/compose/later.rs 7
 crates/mail-app/src/ui/compose/life.rs 1
-crates/mail-app/src/ui/compose/mod.rs 30
+crates/mail-app/src/ui/compose/mod.rs 15
 crates/mail-app/src/ui/compose/page.rs 3
 crates/mail-app/src/ui/compose/pill.rs 10
-crates/mail-app/src/ui/compose/props.rs 15
-crates/mail-app/src/ui/compose/protection.rs 24
+crates/mail-app/src/ui/compose/props.rs 12
+crates/mail-app/src/ui/compose/protection.rs 22
 crates/mail-app/src/ui/compose/receipt.rs 5
 crates/mail-app/src/ui/compose/recipients.rs 3
-crates/mail-app/src/ui/compose/remind.rs 16
+crates/mail-app/src/ui/compose/remind.rs 11
 crates/mail-app/src/ui/compose/render.rs 7
 crates/mail-app/src/ui/compose/seal.rs 20
 crates/mail-app/src/ui/compose/surface.rs 1

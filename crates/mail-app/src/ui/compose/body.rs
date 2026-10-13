@@ -6,9 +6,11 @@
 
 use chordkit::StandardAction;
 use dioxus::prelude::*;
+use ds::base::geometry::placement::{Align, Side};
 use ds::components::controls::button_model::{Bezel, ImagePosition};
 use ds::components::controls::segmented::Tracking;
 use ds::components::menus::pop_up_button::PopUpButton;
+use ds::edit::pointer::EditFocus;
 use ds::host::measure::{Anchor, MountedRef};
 use ds::prelude::*;
 
@@ -45,14 +47,19 @@ pub(in crate::ui) fn Body(
     let mut at_caret = use_signal(|| None::<MountedRef>);
     // The surface measures the caret and the selection itself.
     let marks = use_signal(super::surface::Marks::default);
+    // Whether the surface has the keyboard: the bubble is drawn only then, so a selection left
+    // behind in the body puts no bar over the subject or the header lines while one of them is
+    // being typed in.
+    let focus = use_signal(|| EditFocus::Out);
     let read = page.read();
     let only_empty = matches!(read.session.doc.nodes.as_slice(),
         [Node::Para { runs, .. }] if runs.is_empty());
     let float = read.float.clone();
-    let selected = read.selection.is_some();
+    let bar = read.selection.is_some()
+        && (focus() == EditFocus::In || matches!(read.float, Float::Link(_)));
     drop(read);
     let class = if only_empty { "c-body ph" } else { "c-body" };
-    let editable = rsx! { super::surface::Surface { page, shell, on_attach, class, marks } };
+    let editable = rsx! { super::surface::Surface { page, shell, on_attach, class, marks, focus } };
     // Where the `/` and `@` menus float: the caret's own rect, and the float boxes and the bubble
     // are placed from the surface's measures.
     let (at, below, above) = (
@@ -135,6 +142,22 @@ pub(in crate::ui) fn Body(
                         },
                     }
                 },
+                // `/` › Emoji…: the picker at the caret. A pick or Esc gives the body its keys back.
+                Float::EmojiPicker => rsx! {
+                    div {
+                        class: "c-float",
+                        "data-anchor": "below",
+                        style: below.clone(),
+                        onmounted: move |event| at_caret.set(Some(MountedRef(event.data()))),
+                    }
+                    Popover {
+                        anchor: at(),
+                        placement: Placement::new(Side::Bottom, Align::Start),
+                        gap: Px(6.0),
+                        onclose: move |()| close_picker(page),
+                        super::emoji::Picker { page, on_done: move |()| close_picker(page) }
+                    }
+                },
                 Float::SaveTemplate(_) | Float::Templates { .. } => rsx! {
                     div {
                         class: "c-float",
@@ -144,18 +167,28 @@ pub(in crate::ui) fn Body(
                         TemplateFloat { page, shell, at: at_caret() }
                     }
                 },
-                _ if selected => rsx! { Bubble { page, place: above } },
+                _ if bar => rsx! { Bubble { page, place: above } },
                 _ => rsx! {},
             }
         }
     }
 }
 
+/// The emoji picker closed: the body takes the keyboard back.
+fn close_picker(mut page: Signal<Page>) {
+    if page.peek().float == Float::EmojiPicker {
+        page.write().float = Float::Closed;
+    }
+    crate::ui::host::Host::focus_next_frame(".c-body");
+}
+
 fn pick(mut page: Signal<Page>, on_attach: EventHandler<()>, key: &str) {
     if templates::pick(&mut page.write(), key) {
-        // The name field takes the keys once it is there.
-        if matches!(page.peek().float, Float::SaveTemplate(_)) {
-            crate::ui::host::Host::focus_after_task(".tpl-name input");
+        // The name field, or the picker's search field, takes the keys once it is there.
+        match page.peek().float {
+            Float::SaveTemplate(_) => crate::ui::host::Host::focus_after_task(".tpl-name input"),
+            Float::EmojiPicker => crate::ui::host::Host::focus_after_task(".em-picker input"),
+            _ => {}
         }
         return;
     }
@@ -393,6 +426,7 @@ fn Bubble(page: Signal<Page>, place: Option<String>) -> Element {
                                 link(page);
                             } else if key == "Escape" {
                                 page.write().float = Float::Closed;
+                                crate::ui::host::Host::focus_next_frame(".c-body");
                             }
                         },
                         TextField {
@@ -477,4 +511,6 @@ fn link(mut page: Signal<Page>) {
         caret,
     );
     write.float = Float::Closed;
+    // The field goes with the float: the body takes the keyboard back, and the bar with it.
+    crate::ui::host::Host::focus_next_frame(".c-body");
 }

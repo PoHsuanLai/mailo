@@ -2,7 +2,7 @@
 
 use base64::Engine as _;
 
-use super::super::page::{CcRow, Float, Guard};
+use super::super::page::{Float, Fold, Guard, RowShown, When};
 use super::*;
 use crate::ui::app::App;
 use crate::ui::fixtures::{key, work};
@@ -28,7 +28,7 @@ fn composed(page: &mut Page) {
     page.subject = "Offsite, Friday".to_owned();
     page.to = vec![dana()];
     page.cc = vec![sam()];
-    page.cc_row = CcRow::Shown;
+    page.cc_row = RowShown::Shown;
     page.session.doc = Doc {
         nodes: vec![
             Node::plain(ParaKind::Heading(Level::One), "Plans for Friday"),
@@ -138,9 +138,27 @@ async fn every_class_the_composer_draws_is_styled() {
         }),
         Box::new(|page: &mut Page| {
             composed(page);
+            page.when = When::Tomorrow;
             page.float = Float::Sends;
             page.guard = Guard::NoRecipient(1);
         }),
+        // Every row a choice draws, Bcc, the plain text and the attachments strip.
+        Box::new(|page: &mut Page| {
+            composed(page);
+            page.float = Float::Closed;
+            page.bcc = vec![dana()];
+            page.when = When::Monday;
+            page.remind = super::super::remind::Remind::After("three-days");
+            page.protection =
+                super::super::protection::Protection::OpenPgp(super::super::protection::Mode::Sign);
+            page.receipt = ReceiptRequest::Requested;
+            page.plain = Fold::Open;
+            page.attached = vec![("agenda.pdf".to_owned(), "1.2 MB".to_owned())];
+        }),
+        Box::new(|page: &mut Page| page.float = Float::SendMenu),
+        Box::new(|page: &mut Page| page.float = Float::More),
+        Box::new(|page: &mut Page| page.float = Float::PickRemind("fri 9".to_owned())),
+        Box::new(|page: &mut Page| page.float = Float::EmojiPicker),
         Box::new(|page: &mut Page| page.float = Float::PickTime("tomorrow 9".to_owned())),
         Box::new(|page: &mut Page| page.float = Float::PickTime("2020-01-01 10:00".to_owned())),
         Box::new(|page: &mut Page| page.float = Float::SaveTemplate("Weekly".to_owned())),

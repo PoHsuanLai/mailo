@@ -148,10 +148,10 @@ pub(super) fn Surface(
     on_attach: EventHandler<()>,
     class: &'static str,
     marks: Signal<Marks>,
+    focus: Signal<EditFocus>,
 ) -> Element {
     let handle = use_edit_handle();
     let window_keys = use_keys();
-    let mut focus = use_signal(|| EditFocus::Out);
     // A reply, or an addressed message, opens with the keyboard in its body
     // (`super::opening`). Once, after the surface has mounted: the page is peeked, not read.
     use_effect(move || {
@@ -228,7 +228,10 @@ pub(super) fn Surface(
                     heard(page, shell, window_keys, on_attach, handle, preedit, &taken, input);
                 },
                 on_pointer: move |pointer: EditPointer| pointed(page, &pointer),
-                on_focus: move |now: EditFocus| focus.set(now),
+                on_focus: move |now: EditFocus| {
+                    let mut focus = focus;
+                    focus.set(now);
+                },
                 spell,
                 caret: Some(at_caret),
                 on_replace: move |replace: SpellReplace| replaced(page, replace),
