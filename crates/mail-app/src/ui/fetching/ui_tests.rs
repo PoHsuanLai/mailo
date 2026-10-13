@@ -24,7 +24,7 @@ fn tag_with<'a>(page: &'a str, needle: &str) -> &'a str {
 }
 
 #[tokio::test]
-async fn a_new_account_with_no_mail_shows_placeholder_rows_and_says_why() {
+async fn a_new_account_with_no_mail_shows_placeholder_rows_and_no_caption() {
     let (store, _dir) = account(false);
     let (passer, _script) = passer();
     let (mut dom, _seen) = window(store, passer);
@@ -35,7 +35,11 @@ async fn a_new_account_with_no_mail_shows_placeholder_rows_and_says_why() {
         page.matches("ds-skeleton-row").count() >= 8,
         "no placeholder rows: {page}"
     );
-    assert!(page.contains("Downloading your mail"), "no caption: {page}");
+    // The rows alone: the window opens with no words over the list.
+    assert!(
+        !page.contains("Downloading your mail"),
+        "a caption over the rows: {page}"
+    );
     assert!(
         !page.contains("Couldn\u{2019}t load"),
         "a first fetch is not a failure: {page}"

@@ -1,9 +1,8 @@
-//! What the list holds while an account's first mail is on its way: rows in outline, and one
-//! line of words under them, so the pane reads as "coming" and not as "empty".
+//! What the list holds while an account's first mail is on its way: rows in outline, so the pane
+//! reads as "coming" and not as "empty". No words: the counted download's bar across the list's
+//! top says how far it has got.
 
-use crate::ui::fetching::FIRST_SYNC;
 use dioxus::prelude::*;
-use ds::components::content::label::{Label, LabelRole, LabelStyle};
 use ds::prelude::*;
 
 /// How many placeholder rows fill the pane: more than a pane shows.
@@ -13,7 +12,6 @@ const ROWS: usize = 8;
 pub(super) fn FirstSyncRows() -> Element {
     rsx! {
         div { class: "first-sync",
-            Label { text: FIRST_SYNC, role: LabelRole::Tertiary, style: LabelStyle::Footnote }
             for n in 0..ROWS {
                 SkeletonRow {
                     key: "{n}",

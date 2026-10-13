@@ -61,7 +61,7 @@ fn bare(dir: &std::path::Path) -> Arc<SqliteStore> {
 }
 
 #[test]
-fn an_account_never_fetched_shows_placeholder_rows_and_a_caption() {
+fn an_account_never_fetched_shows_placeholder_rows_and_no_caption() {
     let dir = tempfile::tempdir().unwrap();
     let store = bare(dir.path());
     let contexts = mail_app::ui::native::contexts(
@@ -90,8 +90,8 @@ fn an_account_never_fetched_shows_placeholder_rows_and_a_caption() {
         "a placeholder row is not laid out: {rect:?}"
     );
     assert!(
-        harness.html().contains("Downloading your mail"),
-        "no caption"
+        !harness.html().contains("Downloading your mail"),
+        "a caption over the placeholder rows"
     );
     assert_eq!(
         harness.count(".list .ds-empty-state"),
