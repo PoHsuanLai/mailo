@@ -312,9 +312,21 @@ fn a_hidden_sidebar_can_be_shown_again_from_the_list() {
     );
 }
 
+/// How far the Space dots stand from the foot's centre, across.
+fn dots_off_centre(harness: &Harness) -> f32 {
+    let foot = rect(harness, ".ds-spaces-foot");
+    let dots = rect(harness, ".ds-spaces-dots");
+    let mid = |r: &Rect| (left(r) + right(r)) / 2.0;
+    (mid(&dots) - mid(&foot)).abs()
+}
+
 #[test]
 fn every_footer_control_stays_inside_the_sidebar_at_its_least_width() {
     let (mut harness, _dir) = open(1200, spaces(2));
+    // The dots stand at the foot's centre, though Downloads is at one end and the chevron at the
+    // other, as wide as the dots' own group is and no wider.
+    let off = dots_off_centre(&harness);
+    assert!(off <= 1.0, "the dots are {off}px off the foot's centre");
     drag_sidebar(&mut harness, -60.0);
     let side = rect(&harness, ".side");
     assert!(
@@ -339,6 +351,11 @@ fn every_footer_control_stays_inside_the_sidebar_at_its_least_width() {
     assert!(
         within(&toggle, &side),
         "the foot's menu button is clipped: {toggle:?} in {side:?}"
+    );
+    let off = dots_off_centre(&harness);
+    assert!(
+        off <= 1.0,
+        "at the least width the dots are {off}px off the foot's centre"
     );
 }
 

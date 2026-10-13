@@ -107,26 +107,35 @@ pub(super) fn Places(
             // Downloads on the left, the Space dots, and one chevron on the right that opens
             // everything else (`foot::MoreMenu`): Today, History, New Space, Settings and the
             // sidebar's toggle. The foot's own `+` is left out: the menu's New Space replaces it.
+            // Each end is a hold of mailo's own, as wide as the other (`style/shell.css`), so the
+            // dots stand at the foot's centre whatever either end holds.
             SpacesFoot {
                 handle,
                 new_payload: move |()| Mail::new_in(&ProfileId::default()),
                 new_space: NewSpace::Hidden,
-                leading: rsx! { crate::ui::downloads::DownloadsButton { shell } },
+                leading: rsx! {
+                    div { class: "foot-lead",
+                        crate::ui::downloads::DownloadsButton { shell }
+                    }
+                },
                 trailing: rsx! {
-                    foot::MoreMenu {
-                        shell,
-                        pages,
-                        today,
-                        space: space_id,
-                        dirs: dirs.clone(),
-                        side_hidden,
-                        // The same path the foot's `+` takes: add the Space, then open its name.
-                        on_new_space: move |at: Point| {
-                            if handle.editing().is_none() {
-                                let made = handle.add(Mail::new_in(&ProfileId::default()));
-                                handle.show(made, at, Showing::Rename);
-                            }
-                        },
+                    div { class: "foot-end",
+                        foot::MoreMenu {
+                            shell,
+                            pages,
+                            today,
+                            space: space_id,
+                            dirs: dirs.clone(),
+                            side_hidden,
+                            // The same path the foot's `+` takes: add the Space, then open its
+                            // name.
+                            on_new_space: move |at: Point| {
+                                if handle.editing().is_none() {
+                                    let made = handle.add(Mail::new_in(&ProfileId::default()));
+                                    handle.show(made, at, Showing::Rename);
+                                }
+                            },
+                        }
                     }
                 },
             }
