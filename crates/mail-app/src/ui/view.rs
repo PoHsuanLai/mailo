@@ -309,7 +309,7 @@ pub struct RulesPage {
     pub account: Option<AccountId>,
 }
 
-/// The Connection Doctor sheet while it is open. It keeps nothing: it reads every account's
+/// The Connections sheet while it is open. It keeps nothing: it reads every account's
 /// link, and a sign-in it starts is the Add account sheet's.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DoctorSheet;
@@ -500,7 +500,7 @@ pub struct Shell {
     pub files: Option<FileSheet>,
     /// Which account the Rules page of Settings shows.
     pub rules: RulesPage,
-    /// The Connection Doctor sheet while it is open. `None` is closed.
+    /// The Connections sheet while it is open. `None` is closed.
     pub doctor: Option<DoctorSheet>,
     /// Settings' Accounts pane: the list, or an account's page over it.
     pub accounts_pane: AccountsPane,

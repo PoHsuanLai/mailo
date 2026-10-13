@@ -1,4 +1,4 @@
-//! One account's line in the Connection Doctor: how it stands, in a few words, and the one thing
+//! One account's line in Connections: how it stands, in a few words, and the one thing
 //! the person can do about it.
 //!
 //! Pure, like [`super::status`]: a [`Link`] and the time in, words out. No line tells the person

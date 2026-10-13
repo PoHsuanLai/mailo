@@ -134,10 +134,7 @@ pub(super) fn FolderList(
             items.push(ListItem::heading(
                 FolderKey::Account(tree.account.clone()),
                 rsx! {
-                    div { class: "account-head",
-                        SectionHeader { title: tree.address.clone() }
-                        super::marks::LinkMark { shell, account: tree.account.clone() }
-                    }
+                    SectionHeader { title: tree.address.clone() }
                 },
             ));
         }

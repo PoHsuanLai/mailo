@@ -29,6 +29,7 @@ use mail_domain::{BlobId, MessageId, Retry};
 use super::super::text::{AttachmentRow, Kept};
 use super::fetch::{self, Again};
 use super::thumb::Thumb;
+use crate::ui::reauth::{Reauth, SIGN_IN};
 use crate::ui::view::Shell;
 
 type Downloads = Signal<HashMap<usize, Download>>;
@@ -45,6 +46,7 @@ pub(super) fn Attachments(
     let toasts = use_hook(try_consume_context::<ds::stack::toast_hub::ToastHub>);
     let store = use_context::<Arc<SqliteStore>>();
     let looks = super::use_looks();
+    let reauth = try_consume_context::<Reauth>();
     let account = use_hook(|| {
         store
             .message(message)
@@ -66,6 +68,7 @@ pub(super) fn Attachments(
             let here = kept == Kept::Here;
             let saved_name = name.clone();
             let again_name = name.clone();
+            let sign_in_account = account.clone();
             let saved_looks = looks.clone();
             let again_looks = looks.clone();
             let button = rsx! {
@@ -121,6 +124,16 @@ pub(super) fn Attachments(
                                         common: Common { aria_label: Some(format!("Try again to download {name}")), ..Common::default() },
                                         onclick: super::super::press::on_primary(move || {
                                             start(&again_looks, message, body, index, kept, &again_name, downloads, toasts);
+                                        }),
+                                    }
+                                }),
+                                Again::SignIn(need) => reauth.map(|reauth| rsx! {
+                                    Button {
+                                        label: SIGN_IN,
+                                        common: Common { aria_label: Some(format!("{SIGN_IN} to {sign_in_account}")), ..Common::default() },
+                                        onclick: super::super::press::on_primary({
+                                            let sign_in_account = sign_in_account.clone();
+                                            move || reauth.sign_in(&sign_in_account, need)
                                         }),
                                     }
                                 }),

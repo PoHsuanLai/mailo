@@ -5,7 +5,6 @@ mod folder_tree;
 mod folders;
 mod foot;
 mod join;
-mod marks;
 mod panes;
 
 pub(super) use self::folder_act::folder_places;

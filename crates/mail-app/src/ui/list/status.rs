@@ -1,7 +1,7 @@
 //! What the accounts in view are doing. All is well: no words under the title, only the Sync
 //! button's tip, "Sync · 3 min ago", and its arrows turning while it works. Words appear
 //! when there is something to read: a download that knows how much there is, with its bar, or a
-//! warning, which opens the Connection Doctor.
+//! warning, in plain text.
 //!
 //! Components of their own so that a tick of the clock, or a pass moving from one step to the
 //! next, draws the line and the button and not the list.
@@ -105,33 +105,14 @@ pub(super) fn ListStatus(shell: Signal<Shell>) -> Element {
         Tone::Warn => "status warn",
         Tone::Danger => "status bad",
     };
-    // A warning is a way in to the Connection Doctor, as Mail's mark is; a quiet line is words.
-    let words = match line.tone {
-        Tone::Plain => rsx! {
-            // A count, cut short when it must be; the whole of it on hover.
-            Label {
-                text: line.text.clone(),
-                role: LabelRole::Tertiary,
-                style: LabelStyle::Footnote,
-                common: classed(class),
-            }
-        },
-        Tone::Warn | Tone::Danger => rsx! {
-            Button {
-                label: line.text.clone(),
-                bezel: Bezel::Inline,
-                title: Some("Connection Doctor".to_owned()),
-                onclick: on_primary(move || crate::ui::doctor::open(shell)),
-                // `data-opens`: what it opens, for a test to find it by, since its words change.
-                common: Common {
-                    extra_class: classed(class).extra_class,
-                    ..crate::ui::sidebar::tagged("opens", "doctor")
-                },
-            }
-        },
-    };
     rsx! {
-        {words}
+        // A count or a warning, cut short when it must be; the whole of it on hover.
+        Label {
+            text: line.text.clone(),
+            role: LabelRole::Tertiary,
+            style: LabelStyle::Footnote,
+            common: classed(class),
+        }
         if let Some((done, of)) = line.progress {
             div { class: "list-progress",
                 ProgressIndicator {

@@ -13,7 +13,7 @@
 //! name, look and accounts) is the Space's menu's, a right click on the Space.
 //!
 //! Every way into one of those pages from the main window (⌘K, the composer's bar) opens the
-//! window on that page, or turns the open window to it ([`open_at`]), and the Connection Doctor's
+//! window on that page, or turns the open window to it ([`open_at`]), and Connections'
 //! gear opens it on an account's page ([`open_account`]): where it is asked to be is put in
 //! [`SettingsAsked`], which every window shares, and the Settings window follows it.
 //!

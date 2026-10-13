@@ -1,22 +1,22 @@
-//! What a row, a button and a face show of the links behind them: pure mappings from fetch
+//! What a tile and a button show of the links behind them: pure mappings from fetch
 //! state to the small marks quire draws, so each can be tested with a table.
 
 use super::status::{clock, not_updated_since};
 use chrono::{DateTime, TimeZone, Utc};
 use ds::prelude::Availability;
-use mail_core::fetch::{FolderFetch, Link, Pause};
+use mail_core::fetch::{Link, Pause};
 use mail_core::sync::fresh::{self, Freshness, Pace};
 
-/// What a row carries at its end for the work or the trouble behind it.
+/// What an account's tile carries for the work or the trouble behind it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Mark {
     /// Nothing to say.
     Quiet,
     /// Work is going on: the small spinner.
     Busy,
-    /// Something is wrong: a warning glyph, and why, as its hover text and its label.
+    /// Something is wrong: a warning on the tile, and why, as its hover text and its label.
     Warn(String),
-    /// The server cannot be reached: Mail's offline glyph, and why, as the warning has it.
+    /// The server cannot be reached: the same warning, and why.
     Offline(String),
 }
 
@@ -69,16 +69,6 @@ where
             }),
             many => Mark::Warn(format!("{} folders couldn\u{2019}t update.", many.len())),
         },
-    }
-}
-
-/// A folder's mark: the spinner while it is fetched, a quiet warning with the server's words
-/// when it said no.
-pub fn folder_mark(fetch: &FolderFetch) -> Mark {
-    match fetch {
-        FolderFetch::Fetching => Mark::Busy,
-        FolderFetch::Refused(why) => Mark::Warn(why.clone()),
-        FolderFetch::Unfetched | FolderFetch::Fetched { .. } => Mark::Quiet,
     }
 }
 
@@ -191,17 +181,6 @@ mod tests {
         assert_eq!(
             account_mark(&current(&[]), five(), after(16), &Utc),
             Mark::Warn("Not updated since 12:30.".into())
-        );
-    }
-
-    #[test]
-    fn a_folder_shows_its_fetch() {
-        assert_eq!(folder_mark(&FolderFetch::Fetching), Mark::Busy);
-        assert_eq!(folder_mark(&FolderFetch::Unfetched), Mark::Quiet);
-        assert_eq!(folder_mark(&FolderFetch::Fetched { at: at() }), Mark::Quiet);
-        assert_eq!(
-            folder_mark(&FolderFetch::Refused("No such folder.".into())),
-            Mark::Warn("No such folder.".into())
         );
     }
 }

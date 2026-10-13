@@ -79,6 +79,7 @@ impl Fetching {
     }
 
     /// Where a folder's on-demand fetch stands. A folder never opened is `Unfetched`.
+    #[cfg(test)]
     pub(in crate::ui) fn folder(&self, account: AccountId, path: &str) -> FolderFetch {
         self.folders
             .read()
