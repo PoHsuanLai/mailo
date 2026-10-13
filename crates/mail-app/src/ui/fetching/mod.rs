@@ -40,7 +40,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 pub(in crate::ui) use delegate::Delegate;
-pub(in crate::ui) use face::{CANNOT_LOAD, FIRST_SYNC, HasRows, ListFace, list_face};
+pub(in crate::ui) use face::{CANNOT_LOAD, HasRows, ListFace, list_face};
 pub(in crate::ui) use folder::opened;
 pub(in crate::ui) use line::{AccountLine, Remedy, Standing, account_line, offered};
 pub(in crate::ui) use marks::{Mark, sync_availability};

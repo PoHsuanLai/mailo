@@ -81,7 +81,7 @@ fn an_implied_level_keeps_the_full_path_so_it_can_be_acted_on() {
     let nodes = tree(&[folder("Projects/2026", Some('/'))], &|_| None);
     assert_eq!(nodes[0].path, "Projects");
     assert_eq!(nodes[0].children[0].path, "Projects/2026");
-    // Only "New folder inside" makes sense of a name the server never listed.
+    // Only New Folder Inside makes sense of a name the server never listed.
     let keys: Vec<String> = actions(&nodes[0]).into_iter().map(|i| i.key).collect();
     assert_eq!(keys, ["new"]);
     let keys: Vec<String> = actions(&nodes[0].children[0])
@@ -239,7 +239,7 @@ fn refusals_are_said_in_words() {
         path: "[Gmail]/Sent Mail".to_owned(),
         special: SpecialUse::Sent,
     });
-    assert!(refused(&special).contains("account's Sent folder"));
+    assert!(refused(&special).contains("account\u{2019}s Sent folder"));
     let pop = Refusal::Folder(FolderError::SingleMailbox);
     assert!(refused(&pop).contains("POP3"));
     let exists = Refusal::Folder(FolderError::Exists("Work".to_owned()));

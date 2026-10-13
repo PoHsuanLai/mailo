@@ -70,9 +70,6 @@ impl Problem {
 /// The title of the pane when nothing can be loaded.
 pub const CANNOT_LOAD: &str = "Couldn\u{2019}t load this mailbox";
 
-/// The caption under the placeholder rows while the first mail is on its way.
-pub const FIRST_SYNC: &str = "Downloading your mail\u{2026}";
-
 /// What the list pane shows, given its rows, the links of the accounts in scope and why it is
 /// empty if it is.
 pub fn list_face(has_rows: HasRows, links: &[&Link], nothing: &Nothing) -> ListFace {

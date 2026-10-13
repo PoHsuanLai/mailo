@@ -24,7 +24,7 @@ fn tag_with<'a>(page: &'a str, needle: &str) -> &'a str {
 }
 
 #[tokio::test]
-async fn a_new_account_with_no_mail_shows_placeholder_rows_and_says_why() {
+async fn a_new_account_with_no_mail_shows_placeholder_rows_and_no_caption() {
     let (store, _dir) = account(false);
     let (passer, _script) = passer();
     let (mut dom, _seen) = window(store, passer);
@@ -35,7 +35,11 @@ async fn a_new_account_with_no_mail_shows_placeholder_rows_and_says_why() {
         page.matches("ds-skeleton-row").count() >= 8,
         "no placeholder rows: {page}"
     );
-    assert!(page.contains("Downloading your mail"), "no caption: {page}");
+    // The rows alone: the window opens with no words over the list.
+    assert!(
+        !page.contains("Downloading your mail"),
+        "a caption over the rows: {page}"
+    );
     assert!(
         !page.contains("Couldn\u{2019}t load"),
         "a first fetch is not a failure: {page}"
@@ -171,7 +175,10 @@ async fn a_refused_account_is_asked_about_once_and_signs_in_from_the_dialog_or_t
 async fn a_warning_is_said_by_the_sync_mark_and_not_over_the_list() {
     let (dom, _seen, _script, _dir) = after_a_pass(refused).await;
     let page = dioxus_ssr::render(&dom);
-    let mark = tag_with(&page, r#"aria-label="Sync now""#);
+    let mark = tag_with(
+        &page,
+        &format!("aria-label=\"{}\"", crate::ui::copy::aria::SYNC_NOW),
+    );
     assert!(mark.contains("Sync \u{b7} Sign-in needed"), "{mark}");
     assert!(
         page.contains(r#"class="sync-dot""#),
@@ -249,14 +256,17 @@ async fn the_sync_button_is_busy_while_a_pass_runs_and_not_after() {
     let (store, _dir) = account(true);
     let (passer, script) = passer();
     let (mut dom, seen) = window(store, passer);
-    let button = r#"aria-label="Sync now""#;
+    let button = &format!("aria-label=\"{}\"", crate::ui::copy::aria::SYNC_NOW);
     let page = dioxus_ssr::render(&dom);
     assert!(
         !tag_with(&page, button).contains(r#"aria-busy="true""#),
         "busy before anything ran"
     );
 
-    click(&mut dom, seen.one("aria-label", "Sync now"));
+    click(
+        &mut dom,
+        seen.one("aria-label", crate::ui::copy::aria::SYNC_NOW),
+    );
     settle(&mut dom).await;
     assert_eq!(script.runs.load(Ordering::SeqCst), 1);
     let page = dioxus_ssr::render(&dom);

@@ -309,7 +309,10 @@ async fn the_section_draws_nested_folders_and_leaves_out_places_and_unfollowed_o
         "Projects is not a branch: {page}"
     );
     assert!(page[projects..].contains("Actions for 2026"), "{page}");
-    assert!(page.contains("Show all"), "{page}");
+    assert!(
+        page.contains(crate::ui::copy::menus::SHOW_ALL_FOLDERS),
+        "{page}"
+    );
 }
 
 #[tokio::test]
@@ -338,10 +341,16 @@ async fn the_menu_and_the_field_are_the_shared_ones_and_styled() {
     }
     let menu = dioxus_ssr::render(&dom);
     assert!(menu.contains("class=\"ds-menu"), "{menu}");
-    for item in ["New folder inside", "Rename", "Stop following", "Delete"] {
+    use crate::ui::copy::menus;
+    for item in [
+        menus::NEW_FOLDER_INSIDE,
+        menus::RENAME,
+        menus::STOP_FOLLOWING,
+        menus::DELETE,
+    ] {
         assert!(menu.contains(item), "{item} missing: {menu}");
     }
-    // The first item is New folder inside.
+    // The first item is New Folder Inside.
     let first = seen.fixed("class", "ds-menu-item")[0];
     let picked = click(&mut dom, first);
     let seen = picked.merge(later(&mut dom).await);
@@ -374,7 +383,7 @@ async fn renaming_projects() -> (VirtualDom, ElementId, Arc<SqliteStore>, tempfi
         dom.render_immediate(&mut more);
         seen = seen.merge(more);
     }
-    // The menu's items in order: New folder inside, then Rename.
+    // The menu's items in order: New Folder Inside, then Rename.
     let rename = seen.fixed("class", "ds-menu-item")[1];
     let picked = click(&mut dom, rename);
     let field = picked

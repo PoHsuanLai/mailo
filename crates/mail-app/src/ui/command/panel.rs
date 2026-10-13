@@ -3,7 +3,7 @@
 
 use super::super::debounce::{Settled, use_debounced};
 use super::super::menu::{MenuItem, Right};
-use super::items::{commands, restate_sidebar, rows_of, search_now};
+use super::items::{gone_to, restate_sidebar, rows_of, search_now};
 use super::sections::{Destination, TEMPLATES, places_for, sections};
 use crate::ui::space::Spaces;
 use crate::ui::view::{BarListing, Shell, Source};
@@ -52,7 +52,13 @@ pub(super) fn panel_rows(
                 .into_iter()
                 .map(|row| restate_sidebar(row, sidebar, query))
                 .collect();
-            let offered: Vec<String> = commands().into_iter().map(|one| one.label).collect();
+            let offered: Vec<usize> = shell
+                .places
+                .iter()
+                .enumerate()
+                .filter(|(_, place)| gone_to(&place.source))
+                .map(|(index, _)| index)
+                .collect();
             let places: Vec<Destination> = shell
                 .places
                 .iter()

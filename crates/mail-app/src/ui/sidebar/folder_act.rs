@@ -4,6 +4,7 @@
 use super::super::data::account_rows;
 use super::super::motion::{Follow, tell};
 use super::folder_tree::{AccountFolders, Mailboxes, placed};
+use crate::ui::copy;
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use mail_core::folder::{Refusal, change};
@@ -116,23 +117,21 @@ pub(in crate::ui) fn leaf(path: &str, delimiter: Option<char>) -> &str {
 pub(in crate::ui) fn told(work: &FolderWork, delimiter: Option<char>) -> String {
     let name = |path: &str| leaf(path, delimiter).to_owned();
     match work {
-        FolderWork::Create { path } => format!("Folder “{}” made", name(path)),
-        FolderWork::Rename { from, to } => {
-            format!("“{}” renamed to “{}”", name(from), name(to))
-        }
+        FolderWork::Create { path } => copy::toasts::folder_made(&name(path)),
+        FolderWork::Rename { from, to } => copy::toasts::folder_renamed(&name(from), &name(to)),
         FolderWork::Delete {
             path,
             non_empty: NonEmpty::Refuse,
-        } => format!("Folder “{}” deleted", name(path)),
+        } => copy::toasts::folder_deleted(&name(path)),
         FolderWork::Delete {
             path,
             non_empty: NonEmpty::Allow,
-        } => format!("Folder “{}” deleted with its mail", name(path)),
+        } => copy::toasts::folder_deleted_with_mail(&name(path)),
         FolderWork::Subscribe {
             path,
             subscription: Subscription::Subscribed,
-        } => format!("Following “{}”", name(path)),
-        FolderWork::Subscribe { path, .. } => format!("Stopped following “{}”", name(path)),
+        } => copy::toasts::following(&name(path)),
+        FolderWork::Subscribe { path, .. } => copy::toasts::stopped_following(&name(path)),
     }
 }
 
@@ -142,37 +141,21 @@ pub(in crate::ui) fn told(work: &FolderWork, delimiter: Option<char>) -> String 
 pub(in crate::ui) fn refused(refusal: &Refusal) -> String {
     match refusal {
         Refusal::Folder(error) => match error {
-            FolderError::SingleMailbox => "POP3 has no folders.".to_owned(),
-            FolderError::KeptLocally => "Local mail has labels, not folders.".to_owned(),
-            FolderError::Special { path, special } => format!(
-                "“{path}” is the account's {} folder and stays as it is.",
-                special.name()
-            ),
+            FolderError::SingleMailbox => copy::errors::POP3_NO_FOLDERS.to_owned(),
+            FolderError::KeptLocally => copy::errors::LOCAL_HAS_LABELS.to_owned(),
+            FolderError::Special { path, special } => {
+                copy::errors::special_folder(path, special.name())
+            }
             FolderError::NotEmpty { path, messages } => {
-                format!("“{path}” holds {} and was kept.", messages_word(*messages))
+                copy::errors::folder_holds(path, &copy::status::messages(*messages))
             }
-            FolderError::Exists(name) => format!("There is already a folder called “{name}”."),
-            FolderError::Unknown(name) => {
-                format!("“{name}” is not on the server's list any more. Sync to refresh it.")
-            }
-            FolderError::HasChildren(name) => {
-                format!("“{name}” has folders inside it. Move or delete those first.")
-            }
-            FolderError::BadName { name, why } => {
-                format!("“{name}” cannot be a folder name: {why}.")
-            }
+            FolderError::Exists(name) => copy::errors::folder_exists(name),
+            FolderError::Unknown(name) => copy::errors::folder_unknown(name),
+            FolderError::HasChildren(name) => copy::errors::folder_has_children(name),
+            FolderError::BadName { name, why } => copy::errors::bad_folder_name(name, why),
         },
-        Refusal::NoAccount => "That account is not set up here any more.".to_owned(),
-        Refusal::Store(why) => format!("Nothing was changed: {why}"),
-    }
-}
-
-/// "1 message", "132 messages".
-pub(in crate::ui) fn messages_word(count: u64) -> String {
-    if count == 1 {
-        "1 message".to_owned()
-    } else {
-        format!("{count} messages")
+        Refusal::NoAccount => copy::errors::ACCOUNT_GONE.to_owned(),
+        Refusal::Store(why) => copy::errors::nothing_changed(why),
     }
 }
 
@@ -187,21 +170,21 @@ pub(in crate::ui) fn child_path(
 ) -> Result<String, String> {
     let name = name.trim();
     if name.is_empty() {
-        return Err("Type a name first.".to_owned());
+        return Err(copy::errors::TYPE_A_NAME.to_owned());
     }
     if let Some(d) = delimiter
         && name.contains(d)
     {
-        return Err(format!("A folder name can\u{2019}t contain “{d}”."));
+        return Err(copy::errors::name_has_delimiter(d));
     }
     // A name spelled as a system flag is the server's, and is never drawn (`Folder::named`).
     if name.starts_with('\\') {
-        return Err("A folder name can\u{2019}t start with “\\”.".to_owned());
+        return Err(copy::errors::NAME_STARTS_WITH_FLAG.to_owned());
     }
     match (parent, delimiter) {
         (None, _) => Ok(name.to_owned()),
         (Some(parent), Some(d)) => Ok(format!("{parent}{d}{name}")),
-        (Some(_), None) => Err("This server has no subfolders.".to_owned()),
+        (Some(_), None) => Err(copy::errors::NO_SUBFOLDERS.to_owned()),
     }
 }
 

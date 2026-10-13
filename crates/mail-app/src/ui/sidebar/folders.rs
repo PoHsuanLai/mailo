@@ -9,6 +9,7 @@ use super::super::menu::{Floating, MenuItem};
 use super::folder_parts::{Naming, Said, item};
 use super::folder_row::FolderRow;
 use super::folder_tree::{Section, Show};
+use crate::ui::copy;
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::components::lists::list::model::{ListItem, ListStyle};
@@ -122,7 +123,7 @@ pub(super) fn FolderList(
     if matches!(&*open.read(), Open::Naming { parent: None, .. }) {
         items.push(ListItem::row(
             FolderKey::New,
-            "New folder",
+            copy::fields::NEW_FOLDER,
             rsx! {
                 Naming { wires, at: None, delimiter_of: Callback::new(delimiter_of) }
             },
@@ -154,19 +155,22 @@ pub(super) fn FolderList(
     }
     if toggling {
         let all = show() == Show::All;
+        let toggle = if all {
+            copy::menus::SHOW_FOLLOWED_ONLY
+        } else {
+            copy::menus::SHOW_ALL_FOLDERS
+        };
         items.push(ListItem::row(
             FolderKey::Toggle,
-            "Show all folders",
+            toggle,
             rsx! {
                 Row {
                     leading: RowLeading::Icon(Icon::Folder),
-                    title: if all { "Followed only" } else { "Show all" },
+                    title: toggle,
                     outline: Outline::None,
-                    common: super::tagged("hint", if all {
-                        "Hide the folders you do not follow"
-                    } else {
-                        "Show the folders you do not follow"
-                    }),
+                    // A handle for the tests and the automation, never shown: the row's title
+                    // says what it does.
+                    common: super::tagged("toggle", "folders"),
                     onclick: move |_| {
                         let mut show = show;
                         show.set(if show() == Show::All { Show::Followed } else { Show::All });
@@ -177,12 +181,12 @@ pub(super) fn FolderList(
     }
     rsx! {
         SectionHeader {
-            title: "Folders",
+            title: copy::headers::FOLDERS,
             actions: vec![HeaderAction {
                 onmounted: Some(EventHandler::new(move |event: MountedEvent| {
                     new_button.set(Some(MountedRef(event.data())));
                 })),
-                ..HeaderAction::new("New", EventHandler::new(move |()| {
+                ..HeaderAction::new(copy::controls::NEW, EventHandler::new(move |()| {
                     if several {
                         open.set(Open::Accounts);
                     } else if let Some(account) = first.clone() {
@@ -194,7 +198,7 @@ pub(super) fn FolderList(
         if *open.read() == Open::Accounts {
             Floating {
                 anchor: new_button(),
-                title: "New folder on".to_owned(),
+                title: copy::titles::NEW_FOLDER.to_owned(),
                 items: pick_items,
                 on_pick: move |key: String| {
                     if let Ok(uuid) = key.parse() {
@@ -212,7 +216,7 @@ pub(super) fn FolderList(
         }
         Said { wires, account: None, path: None }
         List::<FolderKey> {
-            label: "Folders",
+            label: copy::aria::FOLDERS,
             items,
             style: ListStyle::SourceList,
         }

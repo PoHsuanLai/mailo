@@ -4,6 +4,7 @@ use super::super::data::account_rows;
 use super::super::motion::{drag, motion};
 use super::join::{self, Plus};
 use super::tagged;
+use crate::ui::copy;
 use crate::ui::fetching::{Fetching, Mark};
 use crate::ui::menu::Floating;
 use crate::ui::provider_chip::{MarkAt, mark_of, mark_style};
@@ -22,6 +23,7 @@ use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::tokens::hex::{Colour, Hex};
 use ds::style::tokens::person::PersonSwatch;
+use mail_core::place::{pending_snooze, place_filter};
 use mail_core::profile::ProfileId;
 use mail_core::provider::{Provider, provider};
 use mail_core::query::{self};
@@ -113,19 +115,21 @@ pub(in crate::ui) fn hex_colour(text: &str) -> Colour {
     Colour::Solid(Hex::parse(text).unwrap_or_else(|| PersonSwatch::nth(0).hex()))
 }
 
-fn place_icon(name: &str) -> Icon {
-    match name {
-        "Inbox" => Icon::Inbox,
-        "Starred" => Icon::Star,
-        "Snoozed" => Icon::Clock,
-        "Archive" => Icon::Archive,
-        "Trash" => Icon::Trash,
-        "Drafts" => Icon::FilePen,
-        "Sent" => Icon::Send,
-        "Spam" => Icon::OctagonAlert,
-        "Pinned" => Icon::Pin,
-        "Waiting" => Icon::Bell,
-        "History" => Icon::RotateLeft,
+/// A built-in place's glyph, found by what the place lists rather than by what it is called.
+fn place_icon(source: &Source) -> Icon {
+    let role = |role: MailboxRole| *source == Source::Mail(place_filter(role));
+    match source {
+        Source::Drafts => Icon::FilePen,
+        Source::Waiting => Icon::Bell,
+        Source::History => Icon::RotateLeft,
+        Source::Mail(Filter::Starred(Star::Starred)) => Icon::Star,
+        Source::Mail(Filter::Pinned) => Icon::Pin,
+        Source::Mail(filter) if *filter == pending_snooze() => Icon::Clock,
+        _ if role(MailboxRole::Inbox) => Icon::Inbox,
+        _ if role(MailboxRole::Archive) => Icon::Archive,
+        _ if role(MailboxRole::Trash) => Icon::Trash,
+        _ if role(MailboxRole::Sent) => Icon::Send,
+        _ if role(MailboxRole::Spam) => Icon::OctagonAlert,
         _ => Icon::Tag,
     }
 }
@@ -191,12 +195,12 @@ pub(super) fn AccountTiles(
     };
     rsx! {
         PinTiles::<Option<AccountId>> {
-            label: "Accounts in this Space",
+            label: copy::aria::ACCOUNTS_IN_SPACE,
             items,
             selected: Some(selected),
             add: PinAdd {
-                label: "Add account".to_owned(),
-                hint: Some("Add account\u{2026}".to_owned()),
+                label: copy::aria::ADD_ACCOUNT.to_owned(),
+                hint: Some(copy::tooltips::ADD_ACCOUNT.to_owned()),
                 onadd: EventHandler::new(move |()| {
                     let store = consume_context::<std::sync::Arc<SqliteStore>>();
                     let all: Vec<(AccountId, String)> = account_rows(&store)
@@ -234,7 +238,7 @@ pub(super) fn AccountTiles(
         if let Some(outside) = joining() {
             Floating {
                 anchor: row_at(),
-                title: "Add to this Space".to_owned(),
+                title: copy::titles::ADD_TO_SPACE.to_owned(),
                 items: {
                     // The swatch an account takes is by its place among every account, as its
                     // tile's is: two uncoloured accounts do not share one.
@@ -318,7 +322,7 @@ pub(super) fn all_status(statuses: &[PinStatus]) -> PinStatus {
             why: (*one).clone(),
         },
         many => PinStatus::Attention {
-            why: format!("{} accounts need attention.", many.len()),
+            why: copy::status::accounts_need_attention(many.len()),
         },
     }
 }
@@ -375,14 +379,14 @@ pub(super) fn PlaceList(
             || views.iter().any(|(at, _)| *at == index)
     };
     let mut items = vec![ListItem::heading(
-        PlaceKey::Head("Places"),
-        rsx! { SectionHeader { title: "Places" } },
+        PlaceKey::Head("places"),
+        rsx! { SectionHeader { title: copy::headers::PLACES } },
     )];
     for (index, place) in places.iter().take(split).enumerate() {
         items.push(place_item(
             index,
             &place.name,
-            place_icon(&place.name),
+            place_icon(&place.source),
             shell,
             pages,
             badges,
@@ -390,8 +394,8 @@ pub(super) fn PlaceList(
     }
     if !labels.is_empty() {
         items.push(ListItem::heading(
-            PlaceKey::Head("Labels"),
-            rsx! { SectionHeader { title: "Labels" } },
+            PlaceKey::Head("labels"),
+            rsx! { SectionHeader { title: copy::headers::LABELS } },
         ));
         for (index, name) in &labels {
             items.push(place_item(*index, name, Icon::Tag, shell, pages, badges));
@@ -399,8 +403,8 @@ pub(super) fn PlaceList(
     }
     if !views.is_empty() {
         items.push(ListItem::heading(
-            PlaceKey::Head("Views"),
-            rsx! { SectionHeader { title: "Views" } },
+            PlaceKey::Head("views"),
+            rsx! { SectionHeader { title: copy::headers::VIEWS } },
         ));
         for (index, name) in &views {
             items.push(place_item(*index, name, Icon::Search, shell, pages, badges));
@@ -408,7 +412,7 @@ pub(super) fn PlaceList(
     }
     rsx! {
         List::<PlaceKey> {
-            label: "Places",
+            label: copy::aria::PLACES,
             items,
             style: ListStyle::SourceList,
             cursor: (listed(selected) && !shell.read().from_today).then_some(PlaceKey::Place(selected)),
@@ -505,7 +509,7 @@ pub(super) fn PinnedList(
     }
     let mut items = vec![ListItem::heading(
         "head".to_owned(),
-        rsx! { SectionHeader { title: "Pinned" } },
+        rsx! { SectionHeader { title: copy::headers::PINNED } },
     )];
     for (index, pin) in space.payload.pins.iter().enumerate() {
         let name = match pin {
@@ -537,7 +541,7 @@ pub(super) fn PinnedList(
     }
     rsx! {
         List::<String> {
-            label: "Pinned",
+            label: copy::aria::PINNED,
             items,
             style: ListStyle::SourceList,
         }

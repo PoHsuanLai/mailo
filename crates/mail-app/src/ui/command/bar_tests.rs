@@ -256,9 +256,10 @@ async fn new_from_template_lists_the_templates_in_the_panel_and_starts_one() {
     mail_core::template::save(&store, draft.id, "Weekly", chrono::Utc::now())
         .unwrap_or_else(|why| panic!("a template: {why}"));
     // The row, not the field's own value, which holds the same words.
-    bar.typed(templates::ACTION, |page| {
+    let action = items::entry_of(items::CommandId::FromTemplate).label;
+    bar.typed(action, |page| {
         // The answer to the words typed, not the empty field's: the action is the top hit.
-        words(page).contains(&format!("{TOP}{}", templates::ACTION))
+        words(page).contains(&format!("{TOP}{action}"))
     })
     .await;
     bar.key("Enter");

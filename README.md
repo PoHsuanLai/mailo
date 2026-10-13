@@ -194,6 +194,7 @@ cargo test --workspace            # ~2200 tests, no network
 cargo clippy --all-targets
 cargo fmt --all --check
 ./scripts/check-boundary.sh       # the sans-I/O boundary
+./scripts/check-copy.sh           # the window's words live in crates/mail-app/src/ui/copy
 ./scripts/live-tests.sh           # real sockets against local servers
 cargo deny check licenses
 ```

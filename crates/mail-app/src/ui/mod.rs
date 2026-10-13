@@ -6,6 +6,7 @@
 
 pub mod appearance;
 pub mod bin;
+pub mod copy;
 pub mod emoji;
 pub mod handoff;
 pub mod keymap;

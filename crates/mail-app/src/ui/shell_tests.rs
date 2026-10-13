@@ -177,11 +177,11 @@ async fn clear_today_in_the_foot_menu_writes_the_file_and_not_the_mail() {
         "Open Re: UIDL stability across a UIDVALIDITY change",
     );
     let second = seen.one("aria-label", "Open Notes from the sync review");
-    let menu = seen.one("aria-label", "Sidebar menu");
+    let menu = seen.one("aria-label", crate::ui::copy::aria::SIDEBAR_MENU);
     let opened = super::fixtures::click(&mut dom, first);
     let second = follow(&mut dom, opened, "Open Notes from the sync review", second).await;
     let shown = super::fixtures::click(&mut dom, second);
-    let menu = follow(&mut dom, shown, "Sidebar menu", menu).await;
+    let menu = follow(&mut dom, shown, crate::ui::copy::aria::SIDEBAR_MENU, menu).await;
     let stored = std::fs::read_to_string(built.dirs.state.join("today.json")).unwrap_or_default();
     assert_eq!(
         stored.matches("\"item\"").count(),

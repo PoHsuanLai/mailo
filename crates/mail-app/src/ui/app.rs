@@ -1120,7 +1120,10 @@ mod tests {
     async fn the_sidebar_offers_a_way_to_write() {
         // The button, for anyone who does not know the key.
         let (store, _dir) = realistic();
-        assert!(markup(store).contains(r#"aria-label="Compose""#));
+        assert!(markup(store).contains(&format!(
+            "aria-label=\"{}\"",
+            crate::ui::copy::aria::NEW_MESSAGE
+        )));
     }
 
     #[tokio::test]

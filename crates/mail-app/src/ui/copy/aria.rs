@@ -1,0 +1,30 @@
+//! Accessible names: what a screen reader says for a control, including an icon-only button's `label:`.
+//!
+//! Case: Title Case for a control's name ("Sync Now", "More"); a fuller phrase may carry a value ("Settings for {name}").
+
+// The sidebar.
+pub const SIDEBAR: &str = "Sidebar";
+/// The chevron at the foot's right.
+pub const SIDEBAR_MENU: &str = "Sidebar Menu";
+/// The foot's sync mark.
+pub const SYNC_NOW: &str = "Sync Now";
+pub const ACCOUNTS_IN_SPACE: &str = "Accounts in this Space";
+/// The "+" after a Space's account tiles.
+pub const ADD_ACCOUNT: &str = "Add Account";
+pub const PLACES: &str = "Places";
+pub const PINNED: &str = "Pinned";
+pub const FOLDERS: &str = "Folders";
+
+/// A row's ⋯: "Actions for Projects".
+pub fn actions_for(name: &str) -> String {
+    format!("Actions for {name}")
+}
+
+// The list's toolbar.
+pub const SHOW_SIDEBAR: &str = "Show Sidebar";
+pub const SAVE_AS_VIEW: &str = "Save as View";
+pub const EDIT_VIEW: &str = "Edit View";
+pub const NEW_MESSAGE: &str = "New Message";
+pub const MORE: &str = "More";
+/// The menu the ⋯ opens.
+pub const LIST_OPTIONS: &str = "List options";

@@ -33,7 +33,7 @@ const VIEW: Viewport = Viewport {
     scale_percent: 100,
 };
 
-const PLUS: &str = r#"[aria-label="Add account"]"#;
+const PLUS: &str = r#"[aria-label="Add Account"]"#;
 
 fn store(dir: &std::path::Path) -> Arc<SqliteStore> {
     std::fs::create_dir_all(dir.join("blobs")).unwrap();
@@ -133,8 +133,9 @@ fn plus_offers_the_account_the_space_does_not_show_and_then_goes_straight_to_add
         "Home is not offered:\n{menu}"
     );
     assert!(
-        menu.contains("Add New Account"),
-        "Add New Account is not offered: {menu}"
+        // The row's text, not the "+" tile's aria-label of the same words.
+        menu.contains(">Add Account"),
+        "Add Account… is not offered: {menu}"
     );
 
     harness.click(centre(&harness, ".ds-menu .ds-menu-item"));

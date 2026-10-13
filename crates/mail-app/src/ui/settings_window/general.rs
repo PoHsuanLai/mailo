@@ -2,7 +2,8 @@
 //!
 //! Each row is the schema's ([`super::keys`]); what a section adds beside its rows (Refresh icons)
 //! and what it says under them (whether there is a dictionary, whether a brand-logo root is
-//! trusted) is said here, by section title, so the rows themselves stay the ones detent draws. The one key a row of the schema
+//! trusted) is said here, by a key the section holds (never by its title, which is copy), so the
+//! rows themselves stay the ones detent draws. The one key a row of the schema
 //! cannot draw, the senders whose images load, is a row per sender with its Remove.
 
 use super::keys::{SchemaSection, sections};
@@ -37,9 +38,9 @@ pub(super) fn General() -> Element {
     };
     // What a section says about itself as a whole, under its group: that the system has no
     // dictionary for a language, or that no logo can be verified yet.
-    let footer_of = |title: &str| match title {
-        "Writing" => missing.clone(),
-        "Reading" if settings.reading.brand_logos == BrandLogos::On && roots == 0 => {
+    let footer_of = |part: Part| match part {
+        Part::Writing => missing.clone(),
+        Part::Reading if settings.reading.brand_logos == BrandLogos::On && roots == 0 => {
             Some("Logos can't be verified on this computer yet.".to_owned())
         }
         _ => None,
@@ -50,16 +51,16 @@ pub(super) fn General() -> Element {
             if let Some(why) = failed() {
                 InlineBanner { severity: Severity::Danger, text: "Not kept", detail: Some(TextLine::from(why)) }
             }
-            for (title, keys) in drawn_sections() {
+            for (title, keys, part) in drawn_sections() {
                 SchemaSection {
                     key: "{title}",
                     title: title.clone(),
                     keys,
                     values: values.clone(),
                     onedit,
-                    footer: footer_of(&title),
-                    match title.as_str() {
-                        "Mail list" => rsx! {
+                    footer: footer_of(part),
+                    match part {
+                        Part::MailList => rsx! {
                             FieldRow { label: "Provider icons",
                                 Button {
                                     bezel: Bezel::Inline,
@@ -68,7 +69,7 @@ pub(super) fn General() -> Element {
                                 }
                             }
                         },
-                        "Reading" => rsx! {
+                        Part::Reading => rsx! {
                             TrustedSenders {
                                 senders: settings.reading.trusted_image_senders.clone(),
                                 mode: settings.reading.remote_images,
@@ -86,17 +87,47 @@ pub(super) fn General() -> Element {
 /// The schema path of the senders whose images load.
 const TRUSTED_KEY: &str = "reading.trusted_image_senders";
 
-/// The schema's sections and the keys whose rows the schema draws: the trusted senders are rows
-/// of their own ([`TrustedSenders`]), not the list's read-only value.
-fn drawn_sections() -> Vec<(String, Vec<ds_settings::schema::KeySpec>)> {
+/// A section this page adds to, known by a key it holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Part {
+    /// The provider marks' section: Refresh Icons beside its rows.
+    MailList,
+    /// Spelling's: whether there is a dictionary, under it.
+    Writing,
+    /// The images' and logos': the trusted senders, and whether a logo can be verified.
+    Reading,
+    Other,
+}
+
+impl Part {
+    /// The part `keys` are, by the schema paths among them.
+    fn of(keys: &[ds_settings::schema::KeySpec]) -> Self {
+        let holds = |path: &str| keys.iter().any(|key| key.path.0 == path);
+        if holds("window.provider_marks") {
+            Part::MailList
+        } else if holds("compose.spelling") {
+            Part::Writing
+        } else if holds(TRUSTED_KEY) {
+            Part::Reading
+        } else {
+            Part::Other
+        }
+    }
+}
+
+/// The schema's sections, each with what this page adds to it, and the keys whose rows the
+/// schema draws: the trusted senders are rows of their own ([`TrustedSenders`]), not the list's
+/// read-only value.
+fn drawn_sections() -> Vec<(String, Vec<ds_settings::schema::KeySpec>, Part)> {
     sections(&crate::settings::schema())
         .into_iter()
         .map(|(title, keys)| {
+            let part = Part::of(&keys);
             let keys = keys
                 .into_iter()
                 .filter(|key| key.path.0 != TRUSTED_KEY)
                 .collect();
-            (title, keys)
+            (title, keys, part)
         })
         .collect()
 }

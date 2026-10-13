@@ -311,11 +311,8 @@ async fn opening_fetches_once_per_choice_and_not_again_within_the_minute() {
         "fetched again within the minute"
     );
 
-    // An unfollowed folder, drawn by "Show all", opens and fetches too.
-    let shown = click(
-        &mut dom,
-        seen.one("data-hint", "Show the folders you do not follow"),
-    );
+    // An unfollowed folder, drawn by Show All Folders, opens and fetches too.
+    let shown = click(&mut dom, seen.one("data-toggle", "folders"));
     click(&mut dom, shown.folder(OLD));
     settle(&mut dom).await;
     assert_eq!(calls.load(Ordering::SeqCst), 3);

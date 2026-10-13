@@ -79,7 +79,10 @@ async fn command_comma_and_the_foot_menu_ask_for_the_settings_window() {
         dioxus_core::ElementId(INSIDE_THE_SHELL as usize),
     );
     assert_eq!(asked.asks(), [None], "⌘, asked for nothing");
-    let opened = click(&mut dom, seen.one("aria-label", "Sidebar menu"));
+    let opened = click(
+        &mut dom,
+        seen.one("aria-label", crate::ui::copy::aria::SIDEBAR_MENU),
+    );
     let opened = crate::ui::fixtures::settle(&mut dom, opened);
     crate::ui::fixtures::pick_named(&mut dom, &opened, "Settings\u{2026}").await;
     assert_eq!(

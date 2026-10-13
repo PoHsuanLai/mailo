@@ -10,6 +10,7 @@
 use crate::ui::actions::tip_standard;
 use crate::ui::appearance::WindowDirs;
 use crate::ui::compose::{Desk, cancel_waiting, reopen, waiting};
+use crate::ui::copy;
 use crate::ui::menus::when_words;
 use crate::ui::space::SpaceId;
 use crate::ui::text::sender;
@@ -27,7 +28,7 @@ use mail_domain::{DraftId, ThreadId};
 use std::sync::Arc;
 
 /// The most Today conversations the menu lists: the newest, so the menu stays a menu and the
-/// rest are one "Show all history" away.
+/// rest are one History away.
 pub(super) const TODAY_SHOWN: usize = 8;
 
 /// What a row of the menu asks for.
@@ -77,43 +78,45 @@ pub(super) struct Foot {
 pub(super) fn menu_items(foot: &Foot) -> Vec<MenuItem<Pick>> {
     let mut groups: Vec<Vec<MenuItem<Pick>>> = Vec::new();
     if !foot.today.is_empty() {
-        let mut rows = vec![MenuItem::Header("Today".to_owned())];
+        let mut rows = vec![MenuItem::Header(copy::headers::TODAY.to_owned())];
         rows.extend(foot.today.iter().take(TODAY_SHOWN).map(|recent| {
             MenuItem::new(Pick::Thread(recent.thread), recent.title.clone())
                 .with_image(MenuImage::Avatar(recent.face))
         }));
         rows.push(
-            MenuItem::new(Pick::ClearToday, "Clear Today").with_image(MenuImage::Icon(Icon::X)),
+            MenuItem::new(Pick::ClearToday, copy::menus::CLEAR_TODAY)
+                .with_image(MenuImage::Icon(Icon::X)),
         );
         groups.push(rows);
     }
     if !foot.parked.is_empty() {
-        let mut rows = vec![MenuItem::Header("Drafts put aside".to_owned())];
+        let mut rows = vec![MenuItem::Header(copy::headers::DRAFTS.to_owned())];
         rows.extend(foot.parked.iter().map(|(draft, title)| {
             MenuItem::new(Pick::Draft(*draft), title.clone()).with_image(MenuImage::Icon(Icon::Pen))
         }));
         groups.push(rows);
     }
     if !foot.waiting.is_empty() {
-        let mut rows = vec![MenuItem::Header("Waiting to be sent".to_owned())];
+        let mut rows = vec![MenuItem::Header(copy::headers::SCHEDULED.to_owned())];
         rows.extend(foot.waiting.iter().map(|(draft, title, when)| {
-            MenuItem::new(Pick::CancelSend(*draft), format!("Cancel sending {title}"))
+            MenuItem::new(Pick::CancelSend(*draft), copy::menus::cancel_sending(title))
                 .with_image(MenuImage::Icon(Icon::Clock))
                 .with_hint(when.clone())
         }));
         groups.push(rows);
     }
     groups.push(vec![
-        MenuItem::new(Pick::History, "Show all history")
+        MenuItem::new(Pick::History, copy::menus::HISTORY)
             .with_image(MenuImage::Icon(Icon::RotateLeft)),
     ]);
     let toggle = match foot.sidebar {
-        Shown::Visible => "Hide sidebar",
-        Shown::Hidden => "Show sidebar",
+        Shown::Visible => copy::menus::HIDE_SIDEBAR,
+        Shown::Hidden => copy::menus::SHOW_SIDEBAR,
     };
     groups.push(vec![
-        MenuItem::new(Pick::NewSpace, "New Space").with_image(MenuImage::Icon(Icon::Plus)),
-        MenuItem::new(Pick::Settings, "Settings\u{2026}")
+        MenuItem::new(Pick::NewSpace, copy::menus::NEW_SPACE)
+            .with_image(MenuImage::Icon(Icon::Plus)),
+        MenuItem::new(Pick::Settings, copy::menus::SETTINGS)
             .with_image(MenuImage::Icon(Icon::Settings))
             .with_key(tip_standard(chordkit::StandardAction::Settings)),
         MenuItem::new(Pick::ToggleSidebar, toggle)
@@ -170,7 +173,7 @@ fn gather(store: &SqliteStore, today: &Today, space: SpaceId, sidebar: Shown) ->
         .filter_map(|(index, thread)| {
             let loaded = store.thread(thread).ok()?;
             let title = if loaded.summary.subject.trim().is_empty() {
-                "(no subject)".to_owned()
+                copy::empty::NO_SUBJECT.to_owned()
             } else {
                 loaded.summary.subject.clone()
             };
@@ -250,7 +253,7 @@ pub(in crate::ui) fn MoreMenu(
             // A window with no renderer (the tests) has no rect to hang the menu from.
             anchor: Some(crate::ui::menu::anchor_at(tool())),
             common: Common {
-                aria_label: Some("Sidebar menu".to_owned()),
+                aria_label: Some(copy::aria::SIDEBAR_MENU.to_owned()),
                 mounted: Some(EventHandler::new(move |event: MountedEvent| {
                     tool.set(Some(MountedRef(event.data())));
                 })),

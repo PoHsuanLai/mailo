@@ -168,7 +168,7 @@ mod tests {
         let history = shell
             .places
             .iter()
-            .position(|place| place.name == "History")
+            .position(|place| place.source == crate::ui::view::Source::History)
             .expect("there is a History place");
         shell.select(history);
         let now = chrono::Utc::now();

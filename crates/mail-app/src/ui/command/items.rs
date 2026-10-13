@@ -11,50 +11,329 @@ use std::collections::HashMap;
 
 use super::super::menu::{MenuItem, Right, Run, Tile, Tone};
 use crate::ui::actions;
+use crate::ui::bin::Bin;
+use crate::ui::view::{SettingsPage, Source};
 use chordkit::{Keymap, StandardAction};
 use chrono::{DateTime, Utc};
 use mail_core::SqliteStore;
+use mail_core::place::{pending_snooze, place_filter};
 use mail_core::search::{self, ActionHit, Command, MailHit, PersonHit, Results, Top};
-use mail_domain::ThreadId;
+use mail_domain::{Filter, MailboxRole, Star, ThreadId};
 
-/// The actions the window can run today.
-pub(in crate::ui) fn commands() -> Vec<Command> {
-    [
+/// A command the panel offers, by what it does. A row is dispatched on this, never on its
+/// words: its label is looked up from [`ENTRIES`], so renaming one changes no behaviour.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::ui) enum CommandId {
+    Compose,
+    FromTemplate,
+    ForwardAttached,
+    Print,
+    Sync,
+    Connections,
+    Go(Goes),
+    Empty(Bin),
+    Sidebar,
+    AddAccount,
+    Import,
+    Export,
+    NewView,
+    Settings,
+    SettingsAt(SettingsPage),
+    Theme(Look),
+}
+
+/// A place a Go command opens: one of the sidebar's own, found by what it lists rather than by
+/// what it is called.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::ui) enum Goes {
+    Inbox,
+    Starred,
+    Snoozed,
+    Archive,
+    Trash,
+}
+
+impl Goes {
+    /// What the place lists, which is how it is found among the window's places.
+    pub(in crate::ui) fn source(self) -> Source {
+        match self {
+            Goes::Inbox => Source::Mail(place_filter(MailboxRole::Inbox)),
+            Goes::Starred => Source::Mail(Filter::Starred(Star::Starred)),
+            Goes::Snoozed => Source::Mail(pending_snooze()),
+            Goes::Archive => Source::Mail(place_filter(MailboxRole::Archive)),
+            Goes::Trash => Source::Mail(place_filter(MailboxRole::Trash)),
+        }
+    }
+}
+
+/// An appearance a Theme command sets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::ui) enum Look {
+    Light,
+    Dark,
+    System,
+}
+
+/// One command's row: what it does, the key its row carries, its words, its glyph, and the
+/// standard action whose chord is drawn beside it.
+pub(in crate::ui) struct Entry {
+    pub id: CommandId,
+    /// The row's key after `action:`. Stable, and never shown.
+    pub key: &'static str,
+    pub label: &'static str,
+    pub icon: Icon,
+    pub standard: Option<StandardAction>,
+}
+
+const fn entry(
+    id: CommandId,
+    key: &'static str,
+    label: &'static str,
+    icon: Icon,
+    standard: Option<StandardAction>,
+) -> Entry {
+    Entry {
+        id,
+        key,
+        label,
+        icon,
+        standard,
+    }
+}
+
+/// The actions the window can run today, in the order the panel offers them.
+pub(in crate::ui) const ENTRIES: &[Entry] = &[
+    entry(
+        CommandId::Compose,
+        "compose",
         "Compose",
+        Icon::Pen,
+        Some(StandardAction::New),
+    ),
+    entry(
+        CommandId::FromTemplate,
+        "from-template",
         "New from template",
+        Icon::FilePen,
+        None,
+    ),
+    entry(
+        CommandId::ForwardAttached,
+        "forward-attached",
         "Forward as attachment",
+        Icon::Forward,
+        None,
+    ),
+    entry(
+        CommandId::Print,
+        "print",
         "Print conversation",
-        "Sync now",
+        Icon::Printer,
+        Some(StandardAction::Print),
+    ),
+    entry(CommandId::Sync, "sync", "Sync now", Icon::Refresh, None),
+    entry(
+        CommandId::Connections,
+        "connections",
         "Connections",
+        Icon::TriangleAlert,
+        None,
+    ),
+    entry(
+        CommandId::Go(Goes::Inbox),
+        "go-inbox",
         "Go to Inbox",
+        Icon::Inbox,
+        None,
+    ),
+    entry(
+        CommandId::Go(Goes::Starred),
+        "go-starred",
         "Go to Starred",
+        Icon::Star,
+        None,
+    ),
+    entry(
+        CommandId::Go(Goes::Snoozed),
+        "go-snoozed",
         "Go to Snoozed",
+        Icon::Clock,
+        None,
+    ),
+    entry(
+        CommandId::Go(Goes::Archive),
+        "go-archive",
         "Go to Archive",
+        Icon::Archive,
+        None,
+    ),
+    entry(
+        CommandId::Go(Goes::Trash),
+        "go-trash",
         "Go to Trash",
-        "Empty Trash…",
-        "Empty Spam…",
+        Icon::Trash,
+        None,
+    ),
+    entry(
+        CommandId::Empty(Bin::Trash),
+        "empty-trash",
+        "Empty Trash\u{2026}",
+        Icon::Command,
+        None,
+    ),
+    entry(
+        CommandId::Empty(Bin::Spam),
+        "empty-spam",
+        "Empty Spam\u{2026}",
+        Icon::Command,
+        None,
+    ),
+    entry(
+        CommandId::Sidebar,
+        "sidebar",
         "Hide sidebar",
-        "Add account…",
-        "Import mail…",
-        "Export mail…",
-        "New view…",
-        "Settings…",
-        // Each page of Settings, named so that "set" finds them all.
+        Icon::PanelLeft,
+        Some(StandardAction::ToggleSidebar),
+    ),
+    entry(
+        CommandId::AddAccount,
+        "add-account",
+        "Add account\u{2026}",
+        Icon::Plus,
+        None,
+    ),
+    entry(
+        CommandId::Import,
+        "import",
+        "Import mail\u{2026}",
+        Icon::Plus,
+        None,
+    ),
+    entry(
+        CommandId::Export,
+        "export",
+        "Export mail\u{2026}",
+        Icon::Forward,
+        None,
+    ),
+    entry(
+        CommandId::NewView,
+        "new-view",
+        "New view\u{2026}",
+        Icon::Search,
+        None,
+    ),
+    entry(
+        CommandId::Settings,
+        "settings",
+        "Settings\u{2026}",
+        Icon::Settings,
+        None,
+    ),
+    // Each page of Settings, named so that "set" finds them all.
+    entry(
+        CommandId::SettingsAt(SettingsPage::General),
+        "settings-general",
         "General Settings",
+        Icon::Settings,
+        None,
+    ),
+    entry(
+        CommandId::SettingsAt(SettingsPage::Accounts),
+        "settings-accounts",
         "Accounts Settings",
+        Icon::Mail,
+        None,
+    ),
+    entry(
+        CommandId::SettingsAt(SettingsPage::Contacts),
+        "settings-contacts",
         "Contacts Settings",
+        Icon::Group,
+        None,
+    ),
+    entry(
+        CommandId::SettingsAt(SettingsPage::Rules),
+        "settings-rules",
         "Rules Settings",
+        Icon::FolderInput,
+        None,
+    ),
+    entry(
+        CommandId::SettingsAt(SettingsPage::Keys),
+        "settings-keys",
         "Keys and Certificates Settings",
+        Icon::Key,
+        None,
+    ),
+    entry(
+        CommandId::SettingsAt(SettingsPage::Keyboard),
+        "settings-keyboard",
         "Keyboard Shortcuts Settings",
+        Icon::Keyboard,
+        None,
+    ),
+    entry(
+        CommandId::Theme(Look::Light),
+        "theme-light",
         "Theme light",
+        Icon::Settings,
+        None,
+    ),
+    entry(
+        CommandId::Theme(Look::Dark),
+        "theme-dark",
         "Theme dark",
+        Icon::Settings,
+        None,
+    ),
+    entry(
+        CommandId::Theme(Look::System),
+        "theme-system",
         "Theme system",
-    ]
-    .into_iter()
-    .map(|label| Command {
-        label: label.to_owned(),
+        Icon::Settings,
+        None,
+    ),
+];
+
+/// The commands as the matcher takes them: their words, in the panel's order.
+pub(in crate::ui) fn commands() -> Vec<Command> {
+    ENTRIES
+        .iter()
+        .map(|entry| Command {
+            label: entry.label.to_owned(),
+        })
+        .collect()
+}
+
+/// The entry for `id`. Every id has one; [`ENTRIES`] is checked against them in the tests.
+#[cfg(test)]
+pub(in crate::ui) fn entry_of(id: CommandId) -> &'static Entry {
+    ENTRIES
+        .iter()
+        .find(|entry| entry.id == id)
+        .expect("every command has an entry")
+}
+
+/// The entry the matcher answered with: its hit carries the words it matched, which are one
+/// entry's (the labels are distinct, as the tests hold).
+fn entry_hit(hit: &ActionHit) -> Option<&'static Entry> {
+    ENTRIES
+        .iter()
+        .find(|entry| entry.label == hit.command.label)
+}
+
+/// The key a command's row carries.
+pub(in crate::ui) fn action_key(entry: &Entry) -> String {
+    format!("action:{}", entry.key)
+}
+
+/// Whether a Go command already opens the place listing `source`.
+pub(in crate::ui) fn gone_to(source: &Source) -> bool {
+    ENTRIES.iter().any(|entry| match entry.id {
+        CommandId::Go(goes) => goes.source() == *source,
+        _ => false,
     })
-    .collect()
 }
 
 /// What Enter does with one row.
@@ -62,7 +341,7 @@ pub(in crate::ui) fn commands() -> Vec<Command> {
 pub(in crate::ui) enum Pick {
     Open(ThreadId),
     From(String),
-    Action(String),
+    Action(CommandId),
 }
 
 /// The key the row was given, read back against the results that produced it.
@@ -74,8 +353,12 @@ pub(in crate::ui) fn interpret(results: &Results, key: &str) -> Option<Pick> {
             Top::Person(hit) if key == format!("person:{}", hit.email.to_ascii_lowercase()) => {
                 return Some(Pick::From(hit.email.to_ascii_lowercase()));
             }
-            Top::Action(hit) if key == format!("action:{}", hit.command.label) => {
-                return Some(Pick::Action(hit.command.label.clone()));
+            Top::Action(hit) => {
+                if let Some(entry) = entry_hit(hit)
+                    && key == action_key(entry)
+                {
+                    return Some(Pick::Action(entry.id));
+                }
             }
             _ => {}
         }
@@ -90,13 +373,21 @@ pub(in crate::ui) fn interpret(results: &Results, key: &str) -> Option<Pick> {
             return Some(Pick::From(hit.email.to_ascii_lowercase()));
         }
     }
-    for hit in &results.actions {
-        if key == format!("action:{}", hit.command.label) {
-            return Some(Pick::Action(hit.command.label.clone()));
+    for entry in results.actions.iter().filter_map(entry_hit) {
+        if key == action_key(entry) {
+            return Some(Pick::Action(entry.id));
         }
     }
     None
 }
+
+/// The groups [`rows_of`] files its rows under, which [`super::sections::sections`] regroups
+/// by. Not shown: the panel draws its own titles.
+pub(in crate::ui) const TOP_HIT: &str = "top";
+pub(in crate::ui) const RECENT: &str = "recent";
+pub(in crate::ui) const MAIL: &str = "mail";
+pub(in crate::ui) const PEOPLE: &str = "people";
+pub(in crate::ui) const ACTIONS: &str = "actions";
 
 /// The rows the menu paints for one `search::run`.
 pub(in crate::ui) fn rows_of(
@@ -110,27 +401,27 @@ pub(in crate::ui) fn rows_of(
         out.push(top_item(top, names, query, keymap));
     }
     let mail_group = if query.trim().is_empty() {
-        "Recent"
+        RECENT
     } else {
-        "Mail"
+        MAIL
     };
     for hit in &results.mail {
         out.push(mail_item(hit, mail_group, query));
     }
     for hit in &results.people {
-        out.push(person_item(hit, names, query, "People"));
+        out.push(person_item(hit, names, query, PEOPLE));
     }
     for hit in &results.actions {
-        out.push(action_item(hit, "Actions", keymap));
+        out.push(action_item(hit, ACTIONS, keymap));
     }
     out
 }
 
 fn top_item(top: &Top, names: &HashMap<String, String>, query: &str, keymap: &Keymap) -> MenuItem {
     match top {
-        Top::Mail(hit) => mail_item(hit, "Top hit", query),
-        Top::Person(hit) => person_item(hit, names, query, "Top hit"),
-        Top::Action(hit) => action_item(hit, "Top hit", keymap),
+        Top::Mail(hit) => mail_item(hit, TOP_HIT, query),
+        Top::Person(hit) => person_item(hit, names, query, TOP_HIT),
+        Top::Action(hit) => action_item(hit, TOP_HIT, keymap),
     }
 }
 
@@ -262,7 +553,7 @@ pub(in crate::ui) fn restate_sidebar(mut item: MenuItem, sidebar: Shown, query: 
 }
 
 /// The key of the sidebar's row, which is the same whichever way it reads.
-pub(in crate::ui) const SIDEBAR_KEY: &str = "action:Hide sidebar";
+pub(in crate::ui) const SIDEBAR_KEY: &str = "action:sidebar";
 
 fn query_marks(query: &str, text: &str) -> Vec<u32> {
     search::match_list(query, &[text])
@@ -283,16 +574,13 @@ pub(in crate::ui) fn avatar_color(email: &str) -> String {
 /// A command row, with the chord of the standard action it is drawn from `keymap`: its first
 /// chord, in the platform's own order and words (`Ctrl+N` on Windows, ⌘N on a Mac).
 fn action_item(hit: &ActionHit, group: &str, keymap: &Keymap) -> MenuItem {
-    let standard = match hit.command.label.as_str() {
-        "Compose" => Some(StandardAction::New),
-        "Hide sidebar" => Some(StandardAction::ToggleSidebar),
-        "Print conversation" => Some(StandardAction::Print),
-        _ => None,
-    };
-    let shortcut = standard.and_then(|action| actions::hint_standard(keymap, action));
+    let entry = entry_hit(hit);
+    let shortcut = entry
+        .and_then(|entry| entry.standard)
+        .and_then(|action| actions::hint_standard(keymap, action));
     MenuItem {
-        key: format!("action:{}", hit.command.label),
-        tile: Tile::Icon(action_icon(&hit.command.label)),
+        key: entry.map_or_else(String::new, action_key),
+        tile: Tile::Icon(entry.map_or(Icon::Command, |entry| entry.icon)),
         name: hit.command.label.clone(),
         help: None,
         right: shortcut.map(Right::Shortcut).unwrap_or(Right::None),
@@ -300,35 +588,6 @@ fn action_item(hit: &ActionHit, group: &str, keymap: &Keymap) -> MenuItem {
         marks: hit.indices.clone(),
         title: Vec::new(),
         detail: Vec::new(),
-    }
-}
-
-fn action_icon(label: &str) -> Icon {
-    match label {
-        "Compose" => Icon::Pen,
-        "New from template" => Icon::FilePen,
-        "Print conversation" => Icon::Printer,
-        "Forward as attachment" => Icon::Forward,
-        "Sync now" => Icon::Refresh,
-        "Connections" => Icon::TriangleAlert,
-        "Hide sidebar" => Icon::PanelLeft,
-        "Theme light" | "Theme dark" | "Theme system" => Icon::Settings,
-        "Go to Inbox" => Icon::Inbox,
-        "Go to Starred" => Icon::Star,
-        "Go to Snoozed" => Icon::Clock,
-        "Go to Archive" => Icon::Archive,
-        "Go to Trash" => Icon::Trash,
-        "Contacts Settings" => Icon::Group,
-        "Accounts Settings" => Icon::Mail,
-        "Add account…" => Icon::Plus,
-        "Import mail…" => Icon::Plus,
-        "Export mail…" => Icon::Forward,
-        "Rules Settings" => Icon::FolderInput,
-        "New view…" => Icon::Search,
-        "Keys and Certificates Settings" => Icon::Key,
-        "Keyboard Shortcuts Settings" => Icon::Keyboard,
-        "Settings…" | "General Settings" => Icon::Settings,
-        _ => Icon::Command,
     }
 }
 

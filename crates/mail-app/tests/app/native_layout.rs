@@ -278,8 +278,8 @@ fn the_more_button_sits_in_the_tail_and_only_opens_the_menu() {
 
 #[test]
 fn a_hidden_sidebar_can_be_shown_again_from_the_list() {
-    const MORE: &str = ".ds-spaces-foot [aria-label=\"Sidebar menu\"]";
-    const SHOW: &str = ".list-head [aria-label=\"Show sidebar\"]";
+    const MORE: &str = ".ds-spaces-foot [aria-label=\"Sidebar Menu\"]";
+    const SHOW: &str = ".list-head [aria-label=\"Show Sidebar\"]";
     let (mut harness, _dir) = open(1200, spaces(1));
     assert_eq!(
         harness.count(SHOW),
@@ -290,7 +290,7 @@ fn a_hidden_sidebar_can_be_shown_again_from_the_list() {
     let more = centre(&harness, MORE);
     harness.click(more);
     settle_until(&mut harness, |h| h.count(".ds-menu .ds-menu-item") > 0);
-    crate::row_menu::press_menu_item(&mut harness, "Hide sidebar");
+    crate::row_menu::press_menu_item(&mut harness, mail_app::ui::copy::menus::HIDE_SIDEBAR);
     harness.advance(ms(400));
     assert_eq!(
         harness.count(SHOW),

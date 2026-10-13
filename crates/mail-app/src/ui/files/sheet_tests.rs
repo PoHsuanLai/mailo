@@ -216,7 +216,10 @@ async fn every_class_the_mail_file_sheets_draw_is_styled() {
 
 /// Whether the window offers a sync: the sync mark at the sidebar's foot.
 fn syncs(page: &str) -> bool {
-    page.contains("aria-label=\"Sync now\"")
+    page.contains(&format!(
+        "aria-label=\"{}\"",
+        crate::ui::copy::aria::SYNC_NOW
+    ))
 }
 
 #[tokio::test]

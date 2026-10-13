@@ -16,6 +16,9 @@ pub enum Tone {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StatusLine {
     pub text: String,
+    /// The line in the fewer words the sync mark's tip says it in, after "Sync ·": "3 min ago"
+    /// where the line says "Updated 3 minutes ago". The same as `text` for most lines.
+    pub tip: String,
     /// Done and total, when something is being counted; the fraction to draw.
     pub progress: Option<(u32, u32)>,
     pub tone: Tone,
@@ -32,8 +35,10 @@ pub fn thousandths(done: u32, of: u32) -> u16 {
 }
 
 fn line(text: impl Into<String>, tone: Tone) -> StatusLine {
+    let text = text.into();
     StatusLine {
-        text: text.into(),
+        tip: text.clone(),
+        text,
         progress: None,
         tone,
     }
@@ -119,9 +124,8 @@ fn busy(links: &[&Link]) -> Option<StatusLine> {
         });
     Some(match counted {
         Some(Count { done, of }) => StatusLine {
-            text: format!("Downloading {done} of {of}"),
             progress: Some((done, of)),
-            tone: Tone::Plain,
+            ..line(format!("Downloading {done} of {of}"), Tone::Plain)
         },
         None if running.iter().any(|(step, _)| **step == Step::Sending) => {
             line("Sending\u{2026}", Tone::Plain)
@@ -195,24 +199,31 @@ where
             false => line("Not checked yet", Tone::Plain),
         };
     };
-    let base = match live {
-        Live::Pushed => "Up to date".to_owned(),
-        Live::Polling => ago(oldest, now, zone),
+    let (base, short) = match live {
+        Live::Pushed => {
+            let said = "Up to date".to_owned();
+            (said.clone(), said)
+        }
+        Live::Polling => (ago(oldest, now, zone), ago_short(oldest, now, zone)),
     };
-    match currents
+    let failed = currents
         .iter()
         .map(|(_, folders, _)| folders)
-        .sum::<usize>()
-    {
-        0 => line(base, Tone::Plain),
-        1 => line(
-            format!("{base} \u{b7} 1 folder couldn\u{2019}t update"),
-            Tone::Warn,
-        ),
-        n => line(
-            format!("{base} \u{b7} {n} folders couldn\u{2019}t update"),
-            Tone::Warn,
-        ),
+        .sum::<usize>();
+    let suffix = match failed {
+        0 => None,
+        1 => Some("1 folder couldn\u{2019}t update".to_owned()),
+        n => Some(format!("{n} folders couldn\u{2019}t update")),
+    };
+    match suffix {
+        None => StatusLine {
+            tip: short,
+            ..line(base, Tone::Plain)
+        },
+        Some(suffix) => StatusLine {
+            tip: format!("{short} \u{b7} {suffix}"),
+            ..line(format!("{base} \u{b7} {suffix}"), Tone::Warn)
+        },
     }
 }
 
@@ -226,6 +237,19 @@ where
         _ if minutes == 1 => "Updated 1 minute ago".to_owned(),
         _ if minutes < 60 => format!("Updated {minutes} minutes ago"),
         _ => format!("Updated at {}", clock(at, zone)),
+    }
+}
+
+/// [`ago`] in the sync mark's tip's fewer words: "3 min ago", "just now", "at 12:00".
+fn ago_short<Tz: TimeZone>(at: DateTime<Utc>, now: DateTime<Utc>, zone: &Tz) -> String
+where
+    Tz::Offset: std::fmt::Display,
+{
+    let minutes = (now - at).num_minutes();
+    match (now - at).num_seconds() {
+        ..60 => crate::ui::copy::status::JUST_NOW.to_owned(),
+        _ if minutes < 60 => crate::ui::copy::status::minutes_ago(minutes),
+        _ => crate::ui::copy::status::at_clock(&clock(at, zone)),
     }
 }
 
@@ -538,6 +562,27 @@ mod tests {
         for (name, links, now, text, tone) in cases {
             let got = status_line(&links, now, &Utc);
             assert_eq!((got.text.as_str(), got.tone), (text, tone), "{name}");
+        }
+    }
+
+    /// The sync mark's tip says how fresh the mail is in fewer words than the line, and the
+    /// rest of the line as it is.
+    #[test]
+    fn the_tip_says_the_age_in_fewer_words() {
+        let cases = [
+            (t(0, 0), 0, "just now"),
+            (t(1, 0), 0, "1 min ago"),
+            (t(3, 0), 0, "3 min ago"),
+            (t(60, 0), 0, "at 12:00"),
+            (
+                t(3, 0),
+                1,
+                "3 min ago \u{b7} 1 folder couldn\u{2019}t update",
+            ),
+        ];
+        for (now, folders, tip) in cases {
+            let got = say(&[current(t(0, 0), Live::Polling, folders)], now);
+            assert_eq!(got.tip, tip, "{}", got.text);
         }
     }
 

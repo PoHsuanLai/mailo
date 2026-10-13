@@ -4,6 +4,7 @@
 //! A Space over every account already shows them all, so its "+" goes straight to Add account,
 //! as does that of a Space that holds every account there is.
 
+use crate::ui::copy;
 use crate::ui::menu::{MenuItem, Right, Tile};
 use crate::ui::space::{Scope, Space};
 use porter_core::AccountId;
@@ -63,15 +64,15 @@ pub(super) fn items(
                     color: color(id.clone()),
                 },
                 name.clone(),
-                "Show in this Space",
+                copy::headers::SHOW_HERE,
             )
         })
         .collect();
     rows.push(row(
         NEW.to_owned(),
         Tile::Icon(ds::prelude::Icon::Plus),
-        "Add New Account\u{2026}".to_owned(),
-        "New",
+        copy::menus::ADD_ACCOUNT.to_owned(),
+        copy::headers::NEW,
     ));
     rows
 }
@@ -138,7 +139,7 @@ mod tests {
             [
                 "a2@example.test",
                 "a3@example.test",
-                "Add New Account\u{2026}"
+                crate::ui::copy::menus::ADD_ACCOUNT
             ]
         );
         assert_eq!(picked(&rows[1].key, &outside), Some(account(3).0));

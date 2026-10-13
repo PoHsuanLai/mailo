@@ -79,11 +79,20 @@ async fn the_foot_holds_the_dots_and_one_menu_button_and_no_settings_or_sidebar_
         .collect();
     assert_eq!(
         rest,
-        ["Work Space", "Home Space", "Club Space", "Sidebar menu"],
+        [
+            "Work Space",
+            "Home Space",
+            "Club Space",
+            crate::ui::copy::aria::SIDEBAR_MENU
+        ],
         "{page}"
     );
-    assert_eq!(labels.last().copied(), Some("Sidebar menu"), "{page}");
-    for gone in ["Settings", "Sidebar", "Hide sidebar", "Show sidebar"] {
+    assert_eq!(
+        labels.last().copied(),
+        Some(crate::ui::copy::aria::SIDEBAR_MENU),
+        "{page}"
+    );
+    for gone in ["Settings", "Sidebar", "Hide Sidebar", "Show Sidebar"] {
         assert!(
             !labels.contains(&gone),
             "{gone} is still on the foot: {labels:?}"
@@ -106,12 +115,16 @@ async fn sync_is_the_foots_mark_and_the_list_header_is_its_title_and_three_icons
     let foot = labels("ds-spaces-foot");
     assert_eq!(
         foot.first().map(String::as_str),
-        Some("Sync now"),
+        Some(crate::ui::copy::aria::SYNC_NOW),
         "{foot:?}"
     );
     assert_eq!(
         labels("list-head"),
-        ["Compose", crate::ui::command::BOX_LABEL, "More"],
+        [
+            crate::ui::copy::aria::NEW_MESSAGE,
+            crate::ui::command::BOX_LABEL,
+            crate::ui::copy::aria::MORE,
+        ],
         "{page}"
     );
 }

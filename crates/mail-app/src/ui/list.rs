@@ -15,6 +15,7 @@ use super::press::on_primary;
 use super::row::{DraftRow, MailRow};
 use super::server_search::{Asked, ServerSearch, found_threads};
 use super::view_groups::group_list;
+use crate::ui::copy;
 use crate::ui::fetching::{CANNOT_LOAD, Fetching, HasRows, ListFace, Need, list_face};
 use crate::ui::reauth::{Reauth, SIGN_IN};
 use crate::ui::view::{Nothing, Shell};
@@ -148,7 +149,7 @@ pub(super) fn ThreadList(
         .places
         .get(shell.read().selected)
         .map(|place| place.name.clone())
-        .unwrap_or_else(|| "Inbox".to_owned());
+        .unwrap_or_else(|| copy::titles::INBOX.to_owned());
     let address = shell.read().account.clone().and_then(|id| {
         shell
             .read()
@@ -235,7 +236,7 @@ pub(super) fn ThreadList(
     for draft in drafts() {
         let id = draft.id.to_string();
         let label = if draft.subject.is_empty() {
-            "(no subject)".to_owned()
+            copy::empty::NO_SUBJECT.to_owned()
         } else {
             draft.subject.clone()
         };
@@ -249,7 +250,7 @@ pub(super) fn ThreadList(
     if !strip.is_empty() {
         items.push(ListItem::heading(
             Slot::TopHeading,
-            rsx! { div { class: "band", SectionHeader { title: "Top results".to_owned() } } },
+            rsx! { div { class: "band", SectionHeader { title: copy::headers::TOP_RESULTS.to_owned() } } },
         ));
         for summary in strip {
             let Dress { via, chips, hit } = dress_row(&summary);
@@ -264,7 +265,7 @@ pub(super) fn ThreadList(
         }
         items.push(ListItem::heading(
             Slot::NewestHeading,
-            rsx! { div { class: "band", SectionHeader { title: "Newest first".to_owned() } } },
+            rsx! { div { class: "band", SectionHeader { title: copy::headers::NEWEST_FIRST.to_owned() } } },
         ));
     }
     for band in group_list(
@@ -295,7 +296,7 @@ pub(super) fn ThreadList(
     if !server_rows.is_empty() {
         items.push(ListItem::heading(
             Slot::ServerHeading,
-            rsx! { div { class: "band", SectionHeader { title: "From the server".to_owned() } } },
+            rsx! { div { class: "band", SectionHeader { title: copy::headers::FROM_SERVER.to_owned() } } },
         ));
         for summary in server_rows {
             let Dress { via, chips, hit } = dress_row(&summary);
@@ -363,7 +364,11 @@ pub(super) fn ThreadList(
             title: CANNOT_LOAD.to_owned(),
             description: Some(
                 problem
-                    .description(sign_in.as_ref().map_or("this account", |(name, _)| name))
+                    .description(
+                        sign_in
+                            .as_ref()
+                            .map_or(copy::errors::THIS_ACCOUNT, |(name, _)| name),
+                    )
                     .into(),
             ),
         },
@@ -391,7 +396,7 @@ pub(super) fn ThreadList(
     let empty_action: Option<Element> = matches!(nothing(), Nothing::NoAccount).then(|| {
         rsx! {
             Button {
-                label: "Add Account\u{2026}",
+                label: copy::controls::ADD_ACCOUNT,
                 onclick: on_primary(super::add_account::open),
             }
         }
@@ -413,9 +418,9 @@ pub(super) fn ThreadList(
                                 bezel: Bezel::Toolbar,
                                 size: ControlSize::Large,
                                 image: ImagePosition::Only,
-                                label: "Show sidebar",
+                                label: copy::aria::SHOW_SIDEBAR,
                                 icon: Some(IconSource::Glyph(Icon::PanelLeft)),
-                                title: Some("Sidebar".to_owned()),
+                                title: Some(copy::tooltips::SHOW_SIDEBAR.to_owned()),
                                 title_shortcut: crate::ui::actions::tip_standard(chordkit::StandardAction::ToggleSidebar),
                                 onclick: on_primary(move || side_hidden.set(false)),
                             }
@@ -451,9 +456,9 @@ pub(super) fn ThreadList(
                                         bezel: Bezel::Toolbar,
                                         size: ControlSize::Large,
                                         image: ImagePosition::Only,
-                                        label: "Save as view",
+                                        label: copy::aria::SAVE_AS_VIEW,
                                         icon: Some(IconSource::Glyph(Icon::Plus)),
-                                        title: Some("Save as View".to_owned()),
+                                        title: Some(copy::tooltips::SAVE_AS_VIEW.to_owned()),
                                         onclick: on_primary(move || {
                                             let search = shell.peek().search.clone();
                                             super::views::open_new(shell, &search);
@@ -464,9 +469,9 @@ pub(super) fn ThreadList(
                                         bezel: Bezel::Toolbar,
                                         size: ControlSize::Large,
                                         image: ImagePosition::Only,
-                                        label: "Edit view",
+                                        label: copy::aria::EDIT_VIEW,
                                         icon: Some(IconSource::Glyph(Icon::Settings)),
-                                        title: Some("Edit View".to_owned()),
+                                        title: Some(copy::tooltips::EDIT_VIEW.to_owned()),
                                         onclick: on_primary(move || super::views::open_edit(shell, &view)),
                                     }
                                 }
@@ -474,9 +479,9 @@ pub(super) fn ThreadList(
                                     bezel: Bezel::Toolbar,
                                     size: ControlSize::Large,
                                     image: ImagePosition::Only,
-                                    label: "Compose",
+                                    label: copy::aria::NEW_MESSAGE,
                                     icon: Some(IconSource::Glyph(Icon::Pen)),
-                                    title: Some("New Message".to_owned()),
+                                    title: Some(copy::tooltips::NEW_MESSAGE.to_owned()),
                                     title_shortcut: crate::ui::actions::tip_standard(chordkit::StandardAction::New),
                                     onclick: on_primary(move || {
                                         let store = consume_context::<Arc<SqliteStore>>();
@@ -550,7 +555,7 @@ struct Dress {
 }
 
 /// The chip on a conversation a search of the server brought here.
-pub(super) const FROM_SERVER: &str = "from the server";
+pub(super) const FROM_SERVER: &str = copy::headers::FROM_SERVER;
 
 fn dress(
     summary: &ThreadSummary,
