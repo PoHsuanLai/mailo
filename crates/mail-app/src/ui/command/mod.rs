@@ -232,7 +232,7 @@ fn run_action(
             let search = shell.peek().search.clone();
             super::views::open_new(shell, &search);
         }
-        "Connection Doctor" => {
+        "Connections" => {
             close(shell);
             super::doctor::open(shell);
         }

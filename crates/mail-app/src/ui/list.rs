@@ -15,7 +15,10 @@ use super::press::on_primary;
 use super::row::{DraftRow, MailRow};
 use super::server_search::{Asked, ServerSearch, found_threads};
 use super::view_groups::group_list;
-use crate::ui::fetching::{CANNOT_LOAD, Fetching, HasRows, ListFace, list_face, sync_availability};
+use crate::ui::fetching::{
+    CANNOT_LOAD, Fetching, HasRows, ListFace, Need, list_face, sync_availability,
+};
+use crate::ui::reauth::{Reauth, SIGN_IN};
 use crate::ui::view::{Nothing, Shell};
 use dioxus::prelude::*;
 use ds::components::app::thread_height::{ThreadLines, thread_card_gap, thread_card_height};
@@ -338,6 +341,21 @@ pub(super) fn ThreadList(
         HasRows::Yes
     };
     let face = list_face(has_rows, &link_refs, &nothing());
+    // When no account can be loaded because one must sign in, the pane names that account and
+    // offers the sign-in itself.
+    let sign_in: Option<(String, Need)> = match &face {
+        ListFace::CannotLoad(problem) => problem.need().and_then(|need| {
+            let (id, _) = fetching?
+                .needs_in_view(&shell.read())
+                .into_iter()
+                .find(|(_, waiting)| *waiting == need)?;
+            rows()
+                .into_iter()
+                .find(|row| row.id == id)
+                .map(|row| (row.shown(), need))
+        }),
+        _ => None,
+    };
     let phase = match &face {
         ListFace::FirstSync => Phase::Loading(
             fetching
@@ -346,20 +364,27 @@ pub(super) fn ThreadList(
         ),
         ListFace::CannotLoad(problem) => Phase::Failed {
             title: CANNOT_LOAD.to_owned(),
-            description: Some(problem.description().into()),
+            description: Some(
+                problem
+                    .description(sign_in.as_ref().map_or("this account", |(name, _)| name))
+                    .into(),
+            ),
         },
         ListFace::Rows | ListFace::Empty | ListFace::NoMatch(_) | ListFace::NoAccount => {
             Phase::Ready
         }
     };
-    // Beside Retry in the failure `Loadable` draws: a way into the Connection Doctor.
-    let doctor_action: Option<Element> = matches!(face, ListFace::CannotLoad(_)).then(|| {
-        rsx! {
+    // Beside Retry in the failure `Loadable` draws, or instead of it, where Retry cannot help.
+    let reauth = try_consume_context::<Reauth>();
+    let sign_in_action: Option<Element> = sign_in.clone().and_then(|(name, need)| {
+        let reauth = reauth?;
+        Some(rsx! {
             Button {
-                label: "Connection Doctor\u{2026}",
-                onclick: on_primary(move || super::doctor::open(shell)),
+                label: SIGN_IN,
+                common: crate::ui::sidebar::tagged("sign-in", "mailbox"),
+                onclick: on_primary(move || reauth.sign_in(&name, need)),
             }
-        }
+        })
     });
     let empty_form = match nothing() {
         Nothing::NoMatch(_) => EmptyForm::NoResults,
@@ -484,8 +509,8 @@ pub(super) fn ThreadList(
                 Loadable {
                     phase,
                     placeholder: rsx! { FirstSyncRows {} },
-                    onretry: retry,
-                    action: doctor_action,
+                    onretry: if sign_in.is_some() { None } else { Some(retry) },
+                    action: sign_in_action,
                     VirtualList::<Slot> {
                         key: "{question}",
                         label: place.clone(),

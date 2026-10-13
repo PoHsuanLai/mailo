@@ -133,6 +133,8 @@ pub(super) fn App() -> Element {
     // Mail that only arrives when you press a button is mail you miss: every account's link, the
     // timers that poll them and the loop that runs their passes (`fetching`).
     super::fetching::use_fetching(revision);
+    // Whom to ask to sign in again, once the links have all said how they stand.
+    super::reauth::use_reauth(revision);
     // The unread count on the dock or the Dash, when the window was launched with one.
     super::launcher_count::use_launcher_count(revision, shell);
 
@@ -416,7 +418,17 @@ pub(super) fn App() -> Element {
             }
             return;
         }
-        // The Connection Doctor, behind the Add account sheet when that is open on top of it:
+        // The sign-in question: Esc is Later, and no other key does what it would to the rows
+        // behind it.
+        if let Some(reauth) = try_consume_context::<super::reauth::Reauth>()
+            && !reauth.asked().is_empty()
+        {
+            if key == "Escape" {
+                reauth.later();
+            }
+            return;
+        }
+        // The Connections sheet, behind the Add account sheet when that is open on top of it:
         // Esc closes it, and no other key does what it would to the rows behind it.
         if shell.read().doctor.is_some() {
             if key == "Escape" {
@@ -751,6 +763,7 @@ pub(super) fn App() -> Element {
             if shell.read().no_account {
                 super::no_account::NoAccountAlert { shell }
             }
+            super::reauth::ReauthPrompt {}
         }
         }
     }

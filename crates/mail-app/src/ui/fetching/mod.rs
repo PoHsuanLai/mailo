@@ -17,6 +17,7 @@ mod host;
 mod line;
 mod live;
 mod marks;
+mod need;
 mod outbox;
 mod pass;
 mod scope;
@@ -42,7 +43,8 @@ pub(in crate::ui) use delegate::Delegate;
 pub(in crate::ui) use face::{CANNOT_LOAD, FIRST_SYNC, HasRows, ListFace, list_face};
 pub(in crate::ui) use folder::opened;
 pub(in crate::ui) use line::{AccountLine, Remedy, Standing, account_line, offered};
-pub(in crate::ui) use marks::{Mark, folder_mark, sync_availability};
+pub(in crate::ui) use marks::{Mark, sync_availability};
+pub(in crate::ui) use need::{Need, Needing, needs_you, use_needs};
 pub(in crate::ui) use pass::Passer;
 pub(in crate::ui) use status::{StatusLine, Tone, status_line, thousandths};
 
@@ -117,6 +119,23 @@ impl Fetching {
             .iter()
             .map(|(id, link)| (id.clone(), link.clone()))
             .collect()
+    }
+
+    /// The accounts waiting for the person to sign in again or to allow Mail again. Read in a
+    /// component, it redraws when any link moves.
+    pub(in crate::ui) fn needs(&self) -> Vec<(AccountId, Need)> {
+        needs_you(&self.all_links())
+    }
+
+    /// Those of [`Fetching::needs`] that `shell` is showing.
+    pub(in crate::ui) fn needs_in_view(&self, shell: &Shell) -> Vec<(AccountId, Need)> {
+        needs_you(&self.links_in_view(shell))
+    }
+
+    /// Whether every account has had its first pass say how it stands, so that "needs nothing"
+    /// is known and not only not yet asked.
+    pub(in crate::ui) fn settled(&self) -> bool {
+        need::settled(&self.all_links())
     }
 
     /// The links of the accounts in view, with whom they belong to.
