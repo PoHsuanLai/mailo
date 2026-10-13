@@ -28,17 +28,17 @@ fn titles(rows: &[MenuItem]) -> Vec<(String, String)> {
 fn the_sections_come_in_the_panels_order_under_its_titles() {
     // As `rows_of` gives them: top hit, mail, people, actions.
     let rows = vec![
-        row("action:Archive", "Archive", "Top hit"),
-        row("mail:1", "Lunch", "Mail"),
-        row("person:dana@example.org", "Dana", "People"),
-        row("action:Compose", "Compose", "Actions"),
+        row("action:archive", "Archive", items::TOP_HIT),
+        row("mail:1", "Lunch", items::MAIL),
+        row("person:dana@example.org", "Dana", items::PEOPLE),
+        row("action:compose", "Compose", items::ACTIONS),
     ];
     let places = vec![row("place:4", "Projects", "anything")];
     let got = titles(&sections(rows, places, "a"));
     let want: Vec<(String, String)> = [
-        (TOP, "action:Archive"),
+        (TOP, "action:archive"),
         (MAIL, "mail:1"),
-        (COMMANDS, "action:Compose"),
+        (COMMANDS, "action:compose"),
         (PLACES, "place:4"),
         (PLACES, "person:dana@example.org"),
     ]
@@ -51,9 +51,9 @@ fn the_sections_come_in_the_panels_order_under_its_titles() {
 #[test]
 fn an_empty_field_has_recent_mail_and_no_top_hit() {
     let rows = vec![
-        row("mail:1", "Newest", "Top hit"),
-        row("mail:2", "Older", "Recent"),
-        row("action:Compose", "Compose", "Actions"),
+        row("mail:1", "Newest", items::TOP_HIT),
+        row("mail:2", "Older", items::RECENT),
+        row("action:compose", "Compose", items::ACTIONS),
     ];
     let got = titles(&sections(rows, Vec::new(), "  "));
     assert_eq!(
@@ -61,7 +61,7 @@ fn an_empty_field_has_recent_mail_and_no_top_hit() {
         vec![
             (RECENT.to_owned(), "mail:1".to_owned()),
             (RECENT.to_owned(), "mail:2".to_owned()),
-            (COMMANDS.to_owned(), "action:Compose".to_owned()),
+            (COMMANDS.to_owned(), "action:compose".to_owned()),
         ]
     );
 }
@@ -70,8 +70,8 @@ fn an_empty_field_has_recent_mail_and_no_top_hit() {
 fn each_section_is_capped() {
     const CASES: &[(&str, &str, usize)] = &[
         ("mail", "Mail", MAIL_CAP),
-        ("action", "Actions", COMMANDS_CAP),
-        ("person", "People", PLACES_CAP),
+        ("action", items::ACTIONS, COMMANDS_CAP),
+        ("person", items::PEOPLE, PLACES_CAP),
     ];
     for (prefix, group, cap) in CASES {
         let rows: Vec<MenuItem> = (0..20)
@@ -94,11 +94,11 @@ fn a_mail_and_a_person_keep_their_avatars() {
             marks: Vec::new(),
             tone: Tone::Strong,
         }],
-        ..row("mail:1", "Lunch", "Mail")
+        ..row("mail:1", "Lunch", items::MAIL)
     };
     let person = MenuItem {
         tile: face.clone(),
-        ..row("person:dana@example.org", "Dana Ng", "People")
+        ..row("person:dana@example.org", "Dana Ng", items::PEOPLE)
     };
     let drawn = sections(vec![mail, person], Vec::new(), "d");
     let tiles: Vec<Tile> = drawn.into_iter().map(|row| row.tile).collect();
@@ -116,7 +116,8 @@ fn place(name: &str) -> Destination {
 fn places_and_spaces_are_found_by_name_and_none_twice() {
     let places = [place("Inbox"), place("Projects"), place("Receipts")];
     let spaces = ["Work".to_owned(), "Personal".to_owned()];
-    let offered = ["Go to Inbox".to_owned()];
+    // Inbox, at 0, is a Go command's place.
+    let offered = [0];
     const CASES: &[(&str, usize, &[&str])] = &[
         ("proj", 0, &["place:1"]),
         // Inbox is a command's already.
@@ -156,7 +157,7 @@ fn a_key_reads_back_as_what_its_row_does() {
 #[test]
 fn tab_completes_a_row_as_its_text() {
     const CASES: &[(&str, &str, &str)] = &[
-        ("action:Settings…", "Settings…", "Settings…"),
+        ("action:settings", "Settings…", "Settings…"),
         ("mail:1", "Lunch on Friday", "Lunch on Friday"),
         ("person:dana@example.org", "Dana", "from:dana@example.org"),
         ("place:2", "Projects", "Projects"),

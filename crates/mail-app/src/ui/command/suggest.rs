@@ -106,7 +106,7 @@ mod tests {
             row("mail:1", "Lunch", "Top Hit"),
             row("mail:2", "Lunch again", "Mail"),
             row("mail:3", "Lunch, third", "Mail"),
-            row("action:Compose", "Compose", "Commands"),
+            row("action:compose", "Compose", "Commands"),
         ];
         let shape: Vec<String> = suggestions(&rows)
             .iter()
@@ -128,7 +128,7 @@ mod tests {
                 "mail:3",
                 "---",
                 "# Commands",
-                "action:Compose"
+                "action:compose"
             ]
         );
     }
@@ -160,7 +160,7 @@ mod tests {
         let compose = MenuItem {
             tile: Tile::Icon(Icon::Pen),
             right: Right::Shortcut("\u{2318}N".to_owned()),
-            ..row("action:Compose", "Compose", "Commands")
+            ..row("action:compose", "Compose", "Commands")
         };
         let space = MenuItem {
             help: Some("Space".to_owned()),
@@ -183,7 +183,7 @@ mod tests {
             (
                 "a command",
                 compose,
-                Line::new("action:Compose".to_owned(), "Compose")
+                Line::new("action:compose".to_owned(), "Compose")
                     .with_image(MenuImage::Icon(Icon::Pen))
                     .with_hint("\u{2318}N"),
             ),

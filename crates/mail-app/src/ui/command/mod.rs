@@ -26,10 +26,11 @@ pub(in crate::ui) use spotlight::{FIELD, LABEL};
 pub(in crate::ui) use spotlight::{Spotlight, summon};
 
 use super::ops::{Composes, compose_new, start_composing};
-use crate::ui::view::{Bar, BarListing, PageMenu, SettingsPage, Shell};
+use crate::ui::view::{Bar, BarListing, PageMenu, Shell, Source};
 use dioxus::prelude::*;
-use items::Pick;
+use items::{CommandId, Look, Pick};
 use mail_core::SqliteStore;
+use mail_core::place::place_filter;
 use sections::Choice;
 use spotlight::Ctx;
 use std::sync::Arc;
@@ -92,92 +93,77 @@ fn act(ctx: Ctx, choice: Option<Choice>) {
             }
         }
         // "New from template" lists the templates in the same panel rather than running anything.
-        Choice::Pick(Pick::Action(label)) if label == templates::ACTION => {
+        Choice::Pick(Pick::Action(CommandId::FromTemplate)) => {
             restore(shell, pages);
             if let Bar::Open(open) = &mut shell.write().bar {
                 open.listing = BarListing::Templates(String::new());
                 open.active = 0;
             }
         }
-        Choice::Pick(Pick::Action(label)) => {
+        Choice::Pick(Pick::Action(id)) => {
             restore(shell, pages);
-            run_action(
-                shell,
-                pages,
-                &mut revision,
-                &mut side_hidden,
-                spaces,
-                &label,
-            );
+            run_action(shell, pages, &mut revision, &mut side_hidden, spaces, id);
         }
     }
 }
 
-/// The page of Settings a command's entry opens, when it is one.
-fn settings_page_of(label: &str) -> Option<SettingsPage> {
-    match label {
-        "General Settings" => Some(SettingsPage::General),
-        "Accounts Settings" => Some(SettingsPage::Accounts),
-        "Contacts Settings" => Some(SettingsPage::Contacts),
-        "Rules Settings" => Some(SettingsPage::Rules),
-        "Keys and Certificates Settings" => Some(SettingsPage::Keys),
-        "Keyboard Shortcuts Settings" => Some(SettingsPage::Keyboard),
-        _ => None,
-    }
-}
-
+/// Run the command `id`. What it does is decided by the id alone; its words are not read.
 fn run_action(
     mut shell: Signal<Shell>,
     mut pages: Signal<u32>,
     revision: &mut Signal<u64>,
     side_hidden: &mut Signal<bool>,
     spaces: Signal<crate::ui::space::Spaces>,
-    label: &str,
+    id: CommandId,
 ) {
-    if let Some(place) = label.strip_prefix("Go to ") {
-        let index = shell.read().places.iter().position(|one| one.name == place);
-        if let Some(index) = index {
-            shell.write().select(index);
-            pages.set(1);
+    match id {
+        CommandId::Go(goes) => {
+            let source = goes.source();
+            let index = shell
+                .read()
+                .places
+                .iter()
+                .position(|one| one.source == source);
+            if let Some(index) = index {
+                shell.write().select(index);
+                pages.set(1);
+            }
+            close(shell);
         }
-        close(shell);
-        return;
-    }
-    // Emptying goes to the bin first, so what is being emptied is what the window shows behind
-    // the sheet that asks.
-    if let Some(bin) = label
-        .strip_prefix("Empty ")
-        .and_then(|rest| rest.strip_suffix('…'))
-    {
-        let index = shell.read().places.iter().position(|one| one.name == bin);
-        close(shell);
-        if let Some(index) = index {
-            shell.write().select(index);
-            pages.set(1);
-            let store = consume_context::<Arc<SqliteStore>>();
-            super::destroy::ask_everything(&store, shell);
+        // Emptying goes to the bin first, so what is being emptied is what the window shows
+        // behind the sheet that asks.
+        CommandId::Empty(bin) => {
+            let source = Source::Mail(place_filter(bin.role()));
+            let index = shell
+                .read()
+                .places
+                .iter()
+                .position(|one| one.source == source);
+            close(shell);
+            if let Some(index) = index {
+                shell.write().select(index);
+                pages.set(1);
+                let store = consume_context::<Arc<SqliteStore>>();
+                super::destroy::ask_everything(&store, shell);
+            }
         }
-        return;
-    }
-    // The entries that are a page of Settings open the window on that page.
-    if let Some(page) = settings_page_of(label) {
-        close(shell);
-        super::settings_window::open_at(page);
-        return;
-    }
-    match label {
-        "Compose" => {
+        // The entries that are a page of Settings open the window on that page.
+        CommandId::SettingsAt(page) => {
+            close(shell);
+            super::settings_window::open_at(page);
+        }
+        CommandId::Compose => {
             let store = consume_context::<Arc<SqliteStore>>();
             if compose_new(&store, shell) {
                 *revision += 1;
             }
             close(shell);
         }
-        "Sync now" => {
+        CommandId::Sync => {
             super::fetching::sync_now(&shell.read());
             close(shell);
         }
-        "Forward as attachment" => {
+        CommandId::ForwardAttached => {
             close(shell);
             // The conversation open behind the menu, as Forward's `f` takes it. A refusal (no
             // body yet, or a message rebuilt from its parts) is said where every other outcome
@@ -201,50 +187,50 @@ fn run_action(
                 ),
             }
         }
-        "Print conversation" => {
+        CommandId::Print => {
             close(shell);
             let open = shell.read().open;
             if let Some(job) = super::print::job_for(open) {
                 super::print::print(job);
             }
         }
-        "Hide sidebar" => {
+        CommandId::Sidebar => {
             side_hidden.set(!side_hidden());
             close(shell);
         }
-        "Add account…" => {
+        CommandId::AddAccount => {
             close(shell);
             super::add_account::open();
         }
-        "Import mail…" => {
+        CommandId::Import => {
             close(shell);
             super::files::open_import(shell);
         }
-        "Export mail…" => {
+        CommandId::Export => {
             // Closed first: the sheet opens on the search the window is showing, not on what
             // was typed into this menu.
             close(shell);
             super::files::open_export(shell);
         }
-        "New view…" => {
+        CommandId::NewView => {
             // Closed first, like Export: the view starts from the search the window shows.
             close(shell);
             let search = shell.peek().search.clone();
             super::views::open_new(shell, &search);
         }
-        "Connections" => {
+        CommandId::Connections => {
             close(shell);
             super::doctor::open(shell);
         }
-        "Settings…" => {
+        CommandId::Settings => {
             close(shell);
             super::settings_window::open();
         }
-        "Theme light" | "Theme dark" | "Theme system" => {
-            let theme: ds::prelude::Theme = match label {
-                "Theme light" => ds::prelude::Theme::Light,
-                "Theme dark" => ds::prelude::Theme::Dark,
-                _ => ds::prelude::Theme::System,
+        CommandId::Theme(look) => {
+            let theme: ds::prelude::Theme = match look {
+                Look::Light => ds::prelude::Theme::Light,
+                Look::Dark => ds::prelude::Theme::Dark,
+                Look::System => ds::prelude::Theme::System,
             };
             // The theme is the current Space's now, so this is a change to that Space. The
             // window's `Ds` root reads it from the Spaces; there is nothing to repaint by hand.
@@ -257,7 +243,8 @@ fn run_action(
             super::frame::keep(&spaces.read());
             close(shell);
         }
-        _ => close(shell),
+        // Listed in the panel itself, by `act`; run here it has nothing to do.
+        CommandId::FromTemplate => close(shell),
     }
 }
 

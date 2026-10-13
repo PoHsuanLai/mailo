@@ -14,9 +14,6 @@ use super::super::menu::MenuItem;
 use super::super::motion::{Follow, tell};
 use crate::ui::view::Shell;
 
-/// The action's label, as the Actions group lists it.
-pub(super) const ACTION: &str = "New from template";
-
 /// Start a draft from the template `key` names, addressed as the template is.
 pub(in crate::ui) fn start(store: &SqliteStore, key: &str) -> Result<Draft, String> {
     let all = every_template(store);

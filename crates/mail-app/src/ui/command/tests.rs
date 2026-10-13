@@ -2,10 +2,12 @@
 //! screenshots are taken from. How the bar itself behaves is `bar_tests.rs`.
 
 use super::super::app::App;
-use super::items::{Pick, interpret, rows_of, search_now, tokens};
+use super::items::{CommandId, Goes, Look, Pick, interpret, rows_of, search_now, tokens};
 use super::*;
+use crate::ui::bin::Bin;
 use crate::ui::fixtures::work;
 use crate::ui::menu::Right;
+use crate::ui::view::SettingsPage;
 use crate::ui::view::Shell;
 use chordkit::Platform;
 use chrono::Utc;
@@ -224,30 +226,153 @@ async fn settle(dom: &mut VirtualDom) {
     dom.render_immediate(&mut dioxus_core::NoOpMutations);
 }
 
+/// Every command the panel offers, by the id it is dispatched on and the key its row carries.
+/// A command added to the panel is added here, and a label renamed changes nothing in this
+/// table.
+const EVERY_COMMAND: &[(CommandId, &str)] = &[
+    (CommandId::Compose, "action:compose"),
+    (CommandId::FromTemplate, "action:from-template"),
+    (CommandId::ForwardAttached, "action:forward-attached"),
+    (CommandId::Print, "action:print"),
+    (CommandId::Sync, "action:sync"),
+    (CommandId::Connections, "action:connections"),
+    (CommandId::Go(Goes::Inbox), "action:go-inbox"),
+    (CommandId::Go(Goes::Starred), "action:go-starred"),
+    (CommandId::Go(Goes::Snoozed), "action:go-snoozed"),
+    (CommandId::Go(Goes::Archive), "action:go-archive"),
+    (CommandId::Go(Goes::Trash), "action:go-trash"),
+    (CommandId::Empty(Bin::Trash), "action:empty-trash"),
+    (CommandId::Empty(Bin::Spam), "action:empty-spam"),
+    (CommandId::Sidebar, "action:sidebar"),
+    (CommandId::AddAccount, "action:add-account"),
+    (CommandId::Import, "action:import"),
+    (CommandId::Export, "action:export"),
+    (CommandId::NewView, "action:new-view"),
+    (CommandId::Settings, "action:settings"),
+    (
+        CommandId::SettingsAt(SettingsPage::General),
+        "action:settings-general",
+    ),
+    (
+        CommandId::SettingsAt(SettingsPage::Accounts),
+        "action:settings-accounts",
+    ),
+    (
+        CommandId::SettingsAt(SettingsPage::Contacts),
+        "action:settings-contacts",
+    ),
+    (
+        CommandId::SettingsAt(SettingsPage::Rules),
+        "action:settings-rules",
+    ),
+    (
+        CommandId::SettingsAt(SettingsPage::Keys),
+        "action:settings-keys",
+    ),
+    (
+        CommandId::SettingsAt(SettingsPage::Keyboard),
+        "action:settings-keyboard",
+    ),
+    (CommandId::Theme(Look::Light), "action:theme-light"),
+    (CommandId::Theme(Look::Dark), "action:theme-dark"),
+    (CommandId::Theme(Look::System), "action:theme-system"),
+];
+
+/// Each row the panel draws for a command carries its id's key, and that key reads back as
+/// that id, whichever way the row is worded: as one of the Actions and as the top hit.
 #[test]
-fn the_entries_that_are_a_page_of_settings_name_it() {
-    use crate::ui::view::SettingsPage;
-    // The entries that do name a page are run end to end in
-    // `each_settings_entry_opens_the_settings_window_on_its_page`.
-    const CASES: &[(&str, Option<SettingsPage>)] = &[("Settings…", None), ("Add account…", None)];
-    for (label, page) in CASES {
-        assert_eq!(settings_page_of(label), *page, "{label:?}");
-    }
-    let offered: Vec<String> = super::items::commands()
-        .into_iter()
-        .map(|command| command.label)
+fn every_palette_row_is_run_by_its_id() {
+    use super::items::{ENTRIES, action_key};
+    use mail_core::search::{ActionHit, Command};
+    let listed: Vec<(CommandId, String)> = ENTRIES
+        .iter()
+        .map(|entry| (entry.id, action_key(entry)))
         .collect();
-    for (label, _) in CASES {
+    let want: Vec<(CommandId, String)> = EVERY_COMMAND
+        .iter()
+        .map(|(id, key)| (*id, (*key).to_owned()))
+        .collect();
+    assert_eq!(listed, want, "the panel's commands and this table differ");
+    let keymap = conventional(Platform::MacOs);
+    for (id, key) in EVERY_COMMAND {
+        let hit = ActionHit {
+            command: Command {
+                label: super::items::entry_of(*id).label.to_owned(),
+            },
+            score: 0,
+            indices: Vec::new(),
+        };
+        let cases = [
+            (
+                "an action",
+                Results {
+                    actions: vec![hit.clone()],
+                    ..Results::default()
+                },
+            ),
+            (
+                "the top hit",
+                Results {
+                    top: Some(Top::Action(hit.clone())),
+                    ..Results::default()
+                },
+            ),
+        ];
+        for (name, results) in cases {
+            let rows = rows_of(&results, &HashMap::new(), "", &keymap);
+            assert_eq!(
+                rows.iter().map(|row| row.key.as_str()).collect::<Vec<_>>(),
+                [*key],
+                "{key} as {name}"
+            );
+            assert_eq!(
+                interpret(&results, key),
+                Some(Pick::Action(*id)),
+                "{key} as {name}"
+            );
+        }
+    }
+}
+
+/// Two commands with one label would be one row the matcher cannot tell apart.
+#[test]
+fn no_two_commands_share_a_label() {
+    let labels: Vec<&str> = super::items::ENTRIES
+        .iter()
+        .map(|entry| entry.label)
+        .collect();
+    let mut sorted = labels.clone();
+    sorted.sort_unstable();
+    sorted.dedup();
+    assert_eq!(sorted.len(), labels.len(), "{labels:?}");
+}
+
+/// A Go command finds its place by what the place lists, so each one names a place the
+/// window has.
+#[test]
+fn each_go_command_finds_its_place() {
+    let shell = Shell::default();
+    for (id, key) in EVERY_COMMAND {
+        let CommandId::Go(goes) = id else {
+            continue;
+        };
         assert!(
-            offered.iter().any(|one| one == label),
-            "{label:?} is not offered"
+            shell
+                .places
+                .iter()
+                .any(|place| place.source == goes.source()),
+            "{key} goes nowhere"
+        );
+        assert!(
+            super::items::gone_to(&goes.source()),
+            "{key} is not offered"
         );
     }
 }
 
-/// A button that runs the command `label`, as Enter on its row in the menu does.
+/// A button that runs the command `id`, as Enter on its row in the menu does.
 #[component]
-fn Runs(label: String) -> Element {
+fn Runs(id: CommandId) -> Element {
     let shell = use_signal(|| Shell {
         bar: Bar::Open(crate::ui::view::BarOpen::over(String::new())),
         ..Shell::default()
@@ -256,11 +381,10 @@ fn Runs(label: String) -> Element {
     let mut revision = use_signal(|| 0u64);
     let mut side_hidden = use_signal(|| false);
     let spaces = use_signal(|| crate::ui::space::first_run(&[]));
-    let name = format!("run {label}");
     rsx! {
         button {
-            "aria-label": name,
-            onclick: move |_| run_action(shell, pages, &mut revision, &mut side_hidden, spaces, &label),
+            "aria-label": "run",
+            onclick: move |_| run_action(shell, pages, &mut revision, &mut side_hidden, spaces, id),
         }
     }
 }
@@ -269,38 +393,25 @@ fn Runs(label: String) -> Element {
 async fn each_settings_entry_opens_the_settings_window_on_its_page() {
     use crate::ui::settings_window::SettingsWindows;
     use crate::ui::settings_window::tests::Asked;
-    use crate::ui::view::SettingsPage;
-    let offered: Vec<String> = super::items::commands()
-        .into_iter()
-        .map(|command| command.label)
-        .collect();
-    for (label, page) in [
-        ("General Settings", SettingsPage::General),
-        ("Accounts Settings", SettingsPage::Accounts),
-        ("Contacts Settings", SettingsPage::Contacts),
-        ("Rules Settings", SettingsPage::Rules),
-        ("Keys and Certificates Settings", SettingsPage::Keys),
-        ("Keyboard Shortcuts Settings", SettingsPage::Keyboard),
+    for page in [
+        SettingsPage::General,
+        SettingsPage::Accounts,
+        SettingsPage::Contacts,
+        SettingsPage::Rules,
+        SettingsPage::Keys,
+        SettingsPage::Keyboard,
     ] {
-        assert!(
-            offered.iter().any(|one| one == label),
-            "{label:?} is not offered"
-        );
+        let id = CommandId::SettingsAt(page);
         crate::ui::fixtures::dispatching();
         let asked = Arc::new(Asked::default());
-        let mut dom = VirtualDom::new_with_props(
-            Runs,
-            RunsProps {
-                label: label.to_owned(),
-            },
-        )
-        .with_root_context(SettingsWindows(asked.clone()));
+        let mut dom = VirtualDom::new_with_props(Runs, RunsProps { id })
+            .with_root_context(SettingsWindows(asked.clone()));
         let seen = crate::ui::fixtures::rebuild_into(&mut dom);
-        crate::ui::fixtures::click(&mut dom, seen.one("aria-label", &format!("run {label}")));
+        crate::ui::fixtures::click(&mut dom, seen.one("aria-label", "run"));
         assert_eq!(
             asked.asks(),
             [Some(crate::ui::settings_window::SettingsAt::Page(page))],
-            "{label:?}"
+            "{id:?}"
         );
     }
 }
@@ -321,9 +432,9 @@ fn a_command_s_hint_is_drawn_for_the_platform() {
             })
     };
     const CASES: &[(&str, &str, &str)] = &[
-        ("action:Compose", "\u{2318}N", "Ctrl+N"),
-        ("action:Print conversation", "\u{2318}P", "Ctrl+P"),
-        ("action:Hide sidebar", "\u{2303}\u{2318}S", "F9"),
+        ("action:compose", "\u{2318}N", "Ctrl+N"),
+        ("action:print", "\u{2318}P", "Ctrl+P"),
+        ("action:sidebar", "\u{2303}\u{2318}S", "F9"),
     ];
     for (key, mac, windows) in CASES {
         assert_eq!(

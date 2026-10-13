@@ -11,8 +11,9 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use mail_core::SqliteStore;
+use mail_core::place::{pending_snooze, place_filter};
 use mail_core::transfer::{self, IoCause, Refusal, Seen};
-use mail_domain::Filter;
+use mail_domain::{Filter, MailboxRole, Star};
 use porter_core::AccountId;
 
 use crate::ui::view::{Shell, Source as Listed};
@@ -291,12 +292,39 @@ pub(in crate::ui) fn prefill(shell: &Shell) -> String {
             format!("label:{name}")
         };
     }
-    match place.name.as_str() {
-        "Starred" => "is:starred".to_owned(),
-        "Snoozed" => "is:snoozed".to_owned(),
-        "Pinned" => "is:pinned".to_owned(),
-        other => other.to_lowercase(),
+    if let Some(words) = place_words(&place.source) {
+        return words.to_owned();
     }
+    place.name.to_lowercase()
+}
+
+/// A built-in place in the words `export::select` reads, found by what the place lists, not
+/// by what it is called. `None` for a folder, whose name is its word.
+fn place_words(source: &Listed) -> Option<&'static str> {
+    if *source == Listed::Drafts {
+        return Some("drafts");
+    }
+    let Listed::Mail(filter) = source else {
+        return None;
+    };
+    match filter {
+        Filter::Starred(Star::Starred) => return Some("is:starred"),
+        Filter::Pinned => return Some("is:pinned"),
+        _ => {}
+    }
+    if *filter == pending_snooze() {
+        return Some("is:snoozed");
+    }
+    [
+        (MailboxRole::Inbox, "inbox"),
+        (MailboxRole::Archive, "archive"),
+        (MailboxRole::Sent, "sent"),
+        (MailboxRole::Trash, "trash"),
+        (MailboxRole::Spam, "spam"),
+    ]
+    .into_iter()
+    .find(|(role, _)| *filter == place_filter(*role))
+    .map(|(_, words)| words)
 }
 
 /// How many messages `query` means, as the sheet says it, or why it means none.

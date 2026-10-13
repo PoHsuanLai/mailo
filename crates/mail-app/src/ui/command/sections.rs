@@ -10,7 +10,7 @@ use ds::prelude::Icon;
 use mail_core::search::{Results, match_list};
 
 use super::super::menu::{MenuItem, Right, Tile};
-use super::items::{Pick, interpret};
+use super::items::{self, Pick, interpret};
 
 /// The section titles, in the order the panel draws them.
 pub(in crate::ui) const TOP: &str = "Top Hit";
@@ -60,10 +60,10 @@ pub(in crate::ui) fn sections(
     for row in rows {
         let section = match row.group.as_deref() {
             // An empty field has no top hit: the newest thread is the first of the recent.
-            Some("Top hit") if empty => RECENT,
-            Some("Top hit") => TOP,
-            Some("Actions") => COMMANDS,
-            Some("People") => PLACES,
+            Some(items::TOP_HIT) if empty => RECENT,
+            Some(items::TOP_HIT) => TOP,
+            Some(items::ACTIONS) => COMMANDS,
+            Some(items::PEOPLE) => PLACES,
             _ if empty => RECENT,
             _ => MAIL,
         };
@@ -97,14 +97,15 @@ pub(in crate::ui) fn sections(
 }
 
 /// The places and Spaces whose names `query` matches, best first, by the matcher the ⌘K menu
-/// marks names with. A place a command already goes to (`offered`, "Go to Inbox") and the
-/// Space the window is in are left out: each would be a second row doing what one does.
+/// marks names with. A place a command already goes to (`offered`, the indices of the places a
+/// Go command opens, as Inbox) and the Space the window is in are left out: each would be a
+/// second row doing what one does.
 pub(in crate::ui) fn places_for(
     query: &str,
     places: &[Destination],
     spaces: &[String],
     current: usize,
-    offered: &[String],
+    offered: &[usize],
 ) -> Vec<MenuItem> {
     let names: Vec<&str> = places
         .iter()
@@ -115,7 +116,7 @@ pub(in crate::ui) fn places_for(
         .into_iter()
         .filter_map(|hit| {
             let (key, icon, help) = match places.get(hit.index) {
-                Some(place) if offered.contains(&format!("Go to {}", place.name)) => return None,
+                Some(_) if offered.contains(&hit.index) => return None,
                 Some(place) => (format!("place:{}", hit.index), place.icon, None),
                 None => {
                     let space = hit.index - places.len();

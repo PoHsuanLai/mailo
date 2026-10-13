@@ -22,6 +22,7 @@ use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::tokens::hex::{Colour, Hex};
 use ds::style::tokens::person::PersonSwatch;
+use mail_core::place::{pending_snooze, place_filter};
 use mail_core::profile::ProfileId;
 use mail_core::provider::{Provider, provider};
 use mail_core::query::{self};
@@ -113,19 +114,21 @@ pub(in crate::ui) fn hex_colour(text: &str) -> Colour {
     Colour::Solid(Hex::parse(text).unwrap_or_else(|| PersonSwatch::nth(0).hex()))
 }
 
-fn place_icon(name: &str) -> Icon {
-    match name {
-        "Inbox" => Icon::Inbox,
-        "Starred" => Icon::Star,
-        "Snoozed" => Icon::Clock,
-        "Archive" => Icon::Archive,
-        "Trash" => Icon::Trash,
-        "Drafts" => Icon::FilePen,
-        "Sent" => Icon::Send,
-        "Spam" => Icon::OctagonAlert,
-        "Pinned" => Icon::Pin,
-        "Waiting" => Icon::Bell,
-        "History" => Icon::RotateLeft,
+/// A built-in place's glyph, found by what the place lists rather than by what it is called.
+fn place_icon(source: &Source) -> Icon {
+    let role = |role: MailboxRole| *source == Source::Mail(place_filter(role));
+    match source {
+        Source::Drafts => Icon::FilePen,
+        Source::Waiting => Icon::Bell,
+        Source::History => Icon::RotateLeft,
+        Source::Mail(Filter::Starred(Star::Starred)) => Icon::Star,
+        Source::Mail(Filter::Pinned) => Icon::Pin,
+        Source::Mail(filter) if *filter == pending_snooze() => Icon::Clock,
+        _ if role(MailboxRole::Inbox) => Icon::Inbox,
+        _ if role(MailboxRole::Archive) => Icon::Archive,
+        _ if role(MailboxRole::Trash) => Icon::Trash,
+        _ if role(MailboxRole::Sent) => Icon::Send,
+        _ if role(MailboxRole::Spam) => Icon::OctagonAlert,
         _ => Icon::Tag,
     }
 }
@@ -382,7 +385,7 @@ pub(super) fn PlaceList(
         items.push(place_item(
             index,
             &place.name,
-            place_icon(&place.name),
+            place_icon(&place.source),
             shell,
             pages,
             badges,
