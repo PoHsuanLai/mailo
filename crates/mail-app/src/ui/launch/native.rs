@@ -66,7 +66,7 @@ pub(super) fn run(opening: Opening) -> Result<(), ds_blitz::LaunchError> {
         .with_app_id(AppId(APP_ID.to_owned()))
         .with_net(original.net())
         .with_frame_links(original.links())
-        .with_contexts(contexts(store, look, Some(spaces), dirs, start))
+        .with_contexts(window_contexts(store, look, Some(spaces), dirs, start))
         .with_context(original.consent())
         .with_context(original.pill())
         .with_context(original.menus())
@@ -117,7 +117,23 @@ pub(super) fn run(opening: Opening) -> Result<(), ds_blitz::LaunchError> {
 /// The provider icons and the brand logo cache are left out: a test has no cache to read them
 /// from, and the window then draws each provider's letter and each sender's initial. A test that
 /// wants logos adds a `BrandCache` of its own.
+///
+/// A window built from these never syncs: each account's pass ends at once having fetched
+/// nothing, so a test's window reaches no server and no keyring, and an account of its fixture
+/// is never found wanting a sign-in it was never going to get. The launched window passes for
+/// real.
 pub fn contexts(
+    store: Arc<SqliteStore>,
+    look: Appearance,
+    spaces: Option<Spaces>,
+    dirs: Option<WindowDirs>,
+    start: crate::ui::Start,
+) -> RootContexts {
+    window_contexts(store, look, spaces, dirs, start).with(crate::ui::fetching::Passer::idle())
+}
+
+/// [`contexts`] as the launched window has them: its passes go to the servers.
+fn window_contexts(
     store: Arc<SqliteStore>,
     look: Appearance,
     spaces: Option<Spaces>,

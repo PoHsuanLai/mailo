@@ -30,6 +30,11 @@ impl Passer {
         }))
     }
 
+    /// A pass that ends at once having fetched nothing: a window that must reach no server.
+    pub(in crate::ui) fn idle() -> Self {
+        Self(Arc::new(|_, _, _, _| Ok(Vec::new())))
+    }
+
     /// Not in a test build: a pass reads the keyring and opens sockets, and a test that forgot
     /// to provide its own must fail in words rather than reach either.
     #[cfg(test)]
