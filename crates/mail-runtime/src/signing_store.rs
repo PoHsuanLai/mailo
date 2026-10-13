@@ -244,6 +244,7 @@ pub(crate) struct Keyring {
 impl Keyring {
     /// The entry's name in the scenario directory, which has no services: the default's is the
     /// name alone, as it always was, and another service's is told apart by a prefix.
+    #[cfg(debug_assertions)]
     fn scenario_name(&self, name: &str) -> String {
         if self.service == SERVICE {
             name.to_owned()

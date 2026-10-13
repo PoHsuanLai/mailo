@@ -4,9 +4,14 @@ use mail_core::SqliteStore;
 /// they printed it before they logged: no level, no target, the text is the whole message.
 struct Stderr;
 
+/// Libraries whose warnings are about the input they were handed, not about a fault: an HTML
+/// parser warns of malformed markup, which is what most mail is, and nothing anyone can act on.
+const INPUT_PARSERS: &[&str] = &["html5ever", "markup5ever", "xml5ever"];
+
 impl log::Log for Stderr {
     fn enabled(&self, metadata: &log::Metadata<'_>) -> bool {
-        metadata.level() <= log::Level::Warn
+        let root = metadata.target().split("::").next().unwrap_or_default();
+        metadata.level() <= log::Level::Warn && !INPUT_PARSERS.contains(&root)
     }
 
     fn log(&self, record: &log::Record<'_>) {
