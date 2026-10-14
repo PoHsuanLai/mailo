@@ -292,14 +292,6 @@ fn a_press_is_the_action_the_platform_s_chord_names() {
             Some(Chord(Own::Send)),
         ),
         (
-            "⇧⌘F",
-            ours(),
-            character("F"),
-            SUPER | SHIFT,
-            true,
-            Some(Chord(Own::Focus)),
-        ),
-        (
             "⌥⌘C is Cc",
             ours(),
             character("c"),

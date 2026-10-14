@@ -2,8 +2,8 @@
 //!
 //! Every choice about how the message goes out is one step away rather than a row drawn on every
 //! message (docs/design-language.md §2.1): Send ▾ holds Send Later, Remind Me If No Reply and Ask
-//! for Read Receipt; ⋯ holds Security, Show Plain Text, Save as Template…, Keep for Later and
-//! Delete Draft. A choice that is not the default is then said by its row (`props.rs`), whose menu
+//! for Read Receipt; ⋯ holds Security, Show Plain Text, Save as Template…, Open in Main Window (in
+//! a compose window), Keep for Later and Delete Draft. A choice that is not the default is then said by its row (`props.rs`), whose menu
 //! sets it back. What the menus list and what a pick does are pure ([`send_items`], [`pick_send`],
 //! [`more_items`], [`pick_more`]), so the tests can say them without a window.
 
@@ -38,6 +38,7 @@ const REMIND: &str = "remind:";
 const SECURITY: &str = "security:";
 const PLAIN: &str = "plain";
 const KEEP: &str = "keep";
+const MAIN: &str = "main";
 const DELETE: &str = "delete";
 
 /// What Send ▾ is called, by its tip and to assistive technology. Not "Send": that is the button.
@@ -123,8 +124,9 @@ pub(in crate::ui) fn pick_send(page: &mut Page, key: &str) {
 }
 
 /// The foot's ⋯: Security ▸ (None, OpenPGP ▸, S/MIME ▸), Show Plain Text, Save as Template…, then
-/// Keep for Later (Esc) and Delete Draft, which has an undo.
-pub(in crate::ui) fn more_items(page: &Page) -> Vec<Line<String>> {
+/// Open in Main Window when the page is in a compose window (`windowed`), Keep for Later (Esc) and
+/// Delete Draft, which has an undo.
+pub(in crate::ui) fn more_items(page: &Page, windowed: bool) -> Vec<Line<String>> {
     let check = |on: bool| if on { Check::On } else { Check::Off };
     let mut security = Vec::new();
     let mut schemes: Vec<(&'static str, Vec<Line<String>>)> = Vec::new();
@@ -144,7 +146,7 @@ pub(in crate::ui) fn more_items(page: &Page) -> Vec<Line<String>> {
         availability: Availability::Enabled,
         children,
     }));
-    vec![
+    let mut items = vec![
         Line::Submenu {
             title: copy::menus::SECURITY.to_owned(),
             image: Some(MenuImage::Icon(Icon::Key)),
@@ -156,12 +158,21 @@ pub(in crate::ui) fn more_items(page: &Page) -> Vec<Line<String>> {
         Line::new(SAVE_KEY.to_owned(), copy::menus::SAVE_AS_TEMPLATE)
             .with_image(MenuImage::Icon(Icon::FilePen)),
         Line::Separator,
+    ];
+    if windowed {
+        items.push(
+            Line::new(MAIN.to_owned(), copy::menus::OPEN_IN_MAIN_WINDOW)
+                .with_image(MenuImage::Icon(Icon::Window)),
+        );
+    }
+    items.extend([
         Line::new(KEEP.to_owned(), copy::menus::KEEP_FOR_LATER)
             .with_image(MenuImage::Icon(Icon::Clock))
             .with_key(actions::escape()),
         Line::new(DELETE.to_owned(), copy::menus::DELETE_DRAFT)
             .with_image(MenuImage::Icon(Icon::Trash)),
-    ]
+    ]);
+    items
 }
 
 /// What a pick from ⋯ leaves for the page to do with its desk and shell.
@@ -171,6 +182,8 @@ pub(in crate::ui) enum More {
     Done,
     /// Keep for Later: park the draft, as Esc does.
     Keep,
+    /// Open in Main Window: the page moves to the main window's reader column.
+    ToMain,
     /// Delete Draft, with an undo.
     Delete,
 }
@@ -195,6 +208,7 @@ pub(in crate::ui) fn pick_more(page: &mut Page, key: &str) -> More {
             More::Done
         }
         KEEP => More::Keep,
+        MAIN => More::ToMain,
         DELETE => More::Delete,
         _ => More::Done,
     }
@@ -261,18 +275,20 @@ pub(super) fn SendButton(page: Signal<Page>, on_send: EventHandler<()>) -> Eleme
     }
 }
 
-/// The foot's ⋯ and its menu. Keep for Later and Delete Draft reach past the page, so the page
-/// hands in what they do.
+/// The foot's ⋯ and its menu. Open in Main Window, Keep for Later and Delete Draft reach past the
+/// page, so the page hands in what they do. `windowed`: the page is in a compose window.
 #[component]
 pub(super) fn MoreButton(
     page: Signal<Page>,
+    windowed: bool,
+    on_main: EventHandler<()>,
     on_keep: EventHandler<()>,
     on_delete: EventHandler<()>,
 ) -> Element {
     let mut at = use_signal(|| None::<MountedRef>);
     let open = page.read().float == Float::More;
     let items = if open {
-        more_items(&page.read())
+        more_items(&page.read(), windowed)
     } else {
         Vec::new()
     };
@@ -315,6 +331,7 @@ pub(super) fn MoreButton(
                                 crate::ui::host::Host::focus_after_task(".tpl-name input");
                             }
                         }
+                        More::ToMain => on_main.call(()),
                         More::Keep => on_keep.call(()),
                         More::Delete => on_delete.call(()),
                     }

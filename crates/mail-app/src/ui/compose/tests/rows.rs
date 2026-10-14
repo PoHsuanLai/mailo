@@ -260,7 +260,7 @@ fn send_menu_and_more_hold_every_choice_once() {
         ]
     );
     assert_eq!(
-        titles(&more_items(&page)),
+        titles(&more_items(&page, false)),
         [
             "Security",
             "Show Plain Text",
@@ -270,9 +270,23 @@ fn send_menu_and_more_hold_every_choice_once() {
             "Delete Draft",
         ]
     );
+    // In a compose window, ⋯ also moves the draft to the main window.
+    assert_eq!(
+        titles(&more_items(&page, true)),
+        [
+            "Security",
+            "Show Plain Text",
+            "Save as Template\u{2026}",
+            "—",
+            "Open in Main Window",
+            "Keep for Later",
+            "Delete Draft",
+        ]
+    );
     let mut page = page;
     assert_eq!(pick_more(&mut page, "plain"), More::Done);
     assert_eq!(page.plain, super::super::page::Fold::Open);
+    assert_eq!(pick_more(&mut page, "main"), More::ToMain);
     assert_eq!(pick_more(&mut page, "keep"), More::Keep);
     assert_eq!(pick_more(&mut page, "delete"), More::Delete);
     assert_eq!(page.float, Float::Closed);

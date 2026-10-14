@@ -10,14 +10,11 @@
   display: flex; flex-direction: column; min-height: 0; height: 100%; background: var(--surface-2); position: relative;
 }
 .cpage.sending { opacity: 0; transition: opacity var(--t-quick) var(--e-exit); }
-.cpage.focus { position: absolute; inset: 0; z-index: var(--z-focus-page); }
-.cpage.focus .c-scroll > * { padding-inline: max(var(--s-18), calc((100% - 66ch) / 2)); }
-/* the bar: Focus alone, at the right edge every trailing control shares */
-.c-top { display: flex; align-items: center; gap: var(--s-6); padding: var(--s-10) var(--s-18); }
-.c-top .grow, .c-foot .grow { flex: 1; }
+.c-foot .grow { flex: 1; }
 .c-scroll { flex: 1; overflow-y: auto; scrollbar-width: none; min-height: 0; display: flex; flex-direction: column; }
-/* the head band: `.reader-head`'s, the subject the reader's subject (20/700 in the display face) */
-.c-head { padding: var(--s-6) var(--s-18) 0; }
+/* the head band: `.reader-head`'s, the subject the reader's subject (20/700 in the display face),
+   at the top of the page as a message's title is at the top of the reader: there is no bar above */
+.c-head { padding: var(--s-16) var(--s-18) 0; }
 .c-title { display: flex; width: 100%; font-family: var(--font-display); font-size: var(--fs-subject); line-height: 1.15; font-weight: 700; }
 
 /* the header lines (`props::Line`): each label starts on the pane's leading edge, where the

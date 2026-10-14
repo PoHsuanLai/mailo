@@ -8,3 +8,5 @@ pub const INBOX: &str = "Inbox";
 pub const ADD_TO_SPACE: &str = "Add to This Space";
 /// The menu of accounts a new folder can go on.
 pub const NEW_FOLDER: &str = "New Folder";
+/// A compose window's title until its message has a subject.
+pub const NEW_MESSAGE: &str = "New Message";
