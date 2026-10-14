@@ -76,8 +76,8 @@ async fn every_icon_button_in_the_composer_has_a_tip() {
 /// Every icon-only button in `page` has one tip, and there are at least `least` of them.
 fn every_tip(page: &str, least: usize) {
     // A tip is quire's: no element carries a bare `title` the browser would draw its own way. An
-    // iframe's title is its accessible name, not a tip. gap(quire): quire's own provider mark,
-    // pin tile and Space dot still write one.
+    // iframe's title is its accessible name, not a tip. gap(quire): quire's own provider mark
+    // and Space dot still write one.
     let raw: Vec<&str> = page
         .split('<')
         .filter_map(|tag| tag.split('>').next())

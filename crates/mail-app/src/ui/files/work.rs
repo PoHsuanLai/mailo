@@ -309,7 +309,7 @@ fn place_words(source: &Listed) -> Option<&'static str> {
         return None;
     };
     if *filter == kept_filter() {
-        return Some("kept");
+        return Some("is:kept");
     }
     if *filter == pending_snooze() {
         return Some("is:snoozed");

@@ -228,7 +228,7 @@ fn PageHarness(draft: Draft) -> Element {
                     ComposerPage { key: "{id}", draft: id, shell, revision }
                 }
                 SendPill { shell }
-                // The sidebar's Today is where drafts put aside and messages waiting are listed.
+                // The sidebar's Today is where drafts put aside are listed.
                 crate::ui::sidebar::TodaySection {
                     shell,
                     today,
@@ -236,6 +236,25 @@ fn PageHarness(draft: Draft) -> Element {
                     revision,
                     dirs,
                 }
+                // And the Scheduled place's rows, the messages waiting for their time.
+                ScheduledRows { shell, revision }
+            }
+        }
+    }
+}
+
+/// The rows the Scheduled place lists, as the list draws them.
+#[component]
+fn ScheduledRows(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
+    let desk = use_context::<Desk>();
+    let _ = desk.outbox.read();
+    let _ = revision();
+    let store = consume_context::<Arc<SqliteStore>>();
+    let held = super::scheduled(&store, &crate::ui::space::Scope::All);
+    rsx! {
+        for draft in held {
+            if let SendState::Scheduled { at } = draft.state {
+                crate::ui::row::scheduled::ScheduledRow { key: "{draft.id}", draft, at, shell, revision }
             }
         }
     }

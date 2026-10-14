@@ -329,8 +329,9 @@ async fn a_today_entry_is_listed_when_opened_gone_when_cleared_and_never_on_the_
         "the opened thread is not in Today: {:?}",
         today_rows(&page)
     );
-    // Clear Today is in Today's right-click menu.
-    let asked = crate::ui::fixtures::right_click(&mut dom, opened.one("data-today", RELEASE));
+    // Clear Today is in the right-click menu of Today's heading.
+    let asked =
+        crate::ui::fixtures::right_click(&mut dom, seen.merge(opened).one("data-section", "today"));
     let menu = crate::ui::fixtures::settle(&mut dom, asked);
     crate::ui::fixtures::pick_named(&mut dom, &menu, "Clear Today").await;
     settle(&mut dom).await;

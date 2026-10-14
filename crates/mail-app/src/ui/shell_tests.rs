@@ -139,9 +139,10 @@ async fn clear_today_in_its_menu_writes_the_file_and_not_the_mail() {
     );
     let second = seen.one("aria-label", "Open Notes from the sync review");
     let opened = super::fixtures::click(&mut dom, first);
-    let second = follow(&mut dom, opened, "Open Notes from the sync review", second).await;
+    let (second, followed) =
+        follow(&mut dom, opened, "Open Notes from the sync review", second).await;
     let shown = super::fixtures::click(&mut dom, second);
-    let mut drawn = shown;
+    let mut drawn = followed.merge(shown);
     loop {
         let more = tokio::time::timeout(std::time::Duration::from_millis(200), dom.wait_for_work());
         if more.await.is_err() {
@@ -157,7 +158,8 @@ async fn clear_today_in_its_menu_writes_the_file_and_not_the_mail() {
     );
     let before = changes(&built.store);
 
-    // The sidebar's Today lists both, newest first, and its right-click menu clears them.
+    // The sidebar's Today lists both, newest first, and its heading's right-click menu clears
+    // them. A row's right click offers no Clear Today.
     let page = dioxus_ssr::render(&dom);
     let listed: Vec<&str> = page
         .split("data-today=\"")
@@ -176,6 +178,10 @@ async fn clear_today_in_its_menu_writes_the_file_and_not_the_mail() {
         &mut dom,
         drawn.one("data-today", "Notes from the sync review"),
     );
+    let _ = super::fixtures::settle(&mut dom, asked);
+    let names = super::fixtures::menu_names(&dioxus_ssr::render(&dom));
+    assert!(names.is_empty(), "a Today row offers {names:?}");
+    let asked = super::fixtures::right_click(&mut dom, drawn.one("data-section", "today"));
     let menu = super::fixtures::settle(&mut dom, asked);
     let names = super::fixtures::menu_names(&dioxus_ssr::render(&dom));
     assert_eq!(names, ["Clear Today"], "{names:?}");
@@ -214,14 +220,16 @@ async fn follow(
     mut latest: super::fixtures::Seen,
     label: &str,
     mut was: dioxus_core::ElementId,
-) -> dioxus_core::ElementId {
+) -> (dioxus_core::ElementId, super::fixtures::Seen) {
+    let mut all = super::fixtures::Seen::default();
     loop {
         if let Some(id) = latest.get("aria-label", label) {
             was = id;
         }
+        all = all.merge(latest);
         let more = tokio::time::timeout(std::time::Duration::from_millis(200), dom.wait_for_work());
         if more.await.is_err() {
-            return was;
+            return (was, all);
         }
         latest = paint(dom);
     }
@@ -248,4 +256,66 @@ async fn render_the_frame_to_a_file() {
         let body = dioxus_ssr::render(&dom);
         super::fixtures::write_page(&format!("frame{suffix}"), &super::fixtures::page(&body, ""));
     }
+}
+
+/// The Scheduled place is drawn while a message waits for its time on one of the Space's
+/// accounts, and not otherwise: not before one is scheduled, and not for another Space's.
+#[tokio::test]
+async fn scheduled_is_in_the_sidebar_only_while_a_send_waits_in_the_space() {
+    use mail_core::Store as _;
+    dispatching();
+    let (store, _dir) = seeded();
+    async fn sidebar(
+        store: &std::sync::Arc<mail_core::SqliteStore>,
+        spaces: crate::ui::space::Spaces,
+    ) -> bool {
+        let mut dom = VirtualDom::new(App)
+            .with_root_context(store.clone())
+            .with_root_context(spaces);
+        let _ = rebuild_into(&mut dom);
+        // The Space's accounts reach the shell after the first frame, through work the window
+        // queues: wait until it is quiet, not for a fixed number of renders.
+        for _ in 0..40 {
+            let quiet = std::time::Duration::from_millis(150);
+            if tokio::time::timeout(quiet, dom.wait_for_work())
+                .await
+                .is_err()
+            {
+                break;
+            }
+            dom.render_immediate(&mut dioxus::core::NoOpMutations);
+        }
+        super::fixtures::drain(&mut dom);
+        dioxus_ssr::render(&dom).contains(r#"data-place="Scheduled""#)
+    }
+    let mine = super::fixtures::acct_account();
+    let theirs = mail_domain::id::new_account_id();
+    let over = |account: &porter_core::AccountId| {
+        crate::ui::space::first_run(std::slice::from_ref(account))
+    };
+    assert!(
+        !sidebar(&store, over(&mine)).await,
+        "Scheduled with nothing waiting"
+    );
+
+    let now = chrono::Utc::now();
+    let draft = mail_core::compose::draft_new(&store, mine.clone(), &[], "Friday", "", now)
+        .unwrap_or_else(|why| panic!("{why}"));
+    store
+        .set_send_state(
+            draft.id,
+            &mail_domain::SendState::Scheduled {
+                at: now + chrono::TimeDelta::days(1),
+            },
+            now,
+        )
+        .unwrap_or_else(|why| panic!("{why}"));
+    assert!(
+        sidebar(&store, over(&mine)).await,
+        "no Scheduled with a message waiting"
+    );
+    assert!(
+        !sidebar(&store, over(&theirs)).await,
+        "another Space's message drew Scheduled"
+    );
 }

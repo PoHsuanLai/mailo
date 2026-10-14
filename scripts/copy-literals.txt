@@ -36,7 +36,7 @@ crates/mail-app/src/ui/add_account/map.rs 11
 crates/mail-app/src/ui/add_account/mod.rs 2
 crates/mail-app/src/ui/add_account/provider.rs 2
 crates/mail-app/src/ui/command/bar.rs 3
-crates/mail-app/src/ui/command/items.rs 31
+crates/mail-app/src/ui/command/items.rs 26
 crates/mail-app/src/ui/command/mod.rs 2
 crates/mail-app/src/ui/command/sections.rs 6
 crates/mail-app/src/ui/command/spotlight.rs 2
@@ -47,7 +47,7 @@ crates/mail-app/src/ui/compose/desk.rs 2
 crates/mail-app/src/ui/compose/emoji.rs 6
 crates/mail-app/src/ui/compose/float.rs 2
 crates/mail-app/src/ui/compose/items.rs 6
-crates/mail-app/src/ui/compose/later.rs 7
+crates/mail-app/src/ui/compose/later.rs 6
 crates/mail-app/src/ui/compose/life.rs 1
 crates/mail-app/src/ui/compose/mod.rs 11
 crates/mail-app/src/ui/compose/page.rs 3

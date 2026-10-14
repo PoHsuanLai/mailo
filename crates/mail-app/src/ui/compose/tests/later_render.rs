@@ -14,7 +14,7 @@ use crate::ui::fixtures::{Work, key, work};
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Before {
     Nothing,
-    /// The page is sent for tomorrow 08:00, so the pill and Today show it.
+    /// The page is sent for tomorrow 08:00, so the pill and the Scheduled place show it.
     Schedule,
     /// Two templates are kept on the page's account, and the page is left empty.
     KeepTemplates,
@@ -115,7 +115,10 @@ fn styled(markup: &str) {
 async fn every_class_send_later_and_templates_draw_is_styled() {
     let (markup, _built) = window(|_| {}, Before::Schedule);
     assert!(markup.contains("Scheduled for tomorrow 08:00"), "{markup}");
-    assert!(markup.contains("data-today="), "not in Today: {markup}");
+    assert!(
+        markup.contains(r#"data-place="Scheduled""#),
+        "no Scheduled place: {markup}"
+    );
     styled(&markup);
 
     let (markup, _built) = window(

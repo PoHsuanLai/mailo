@@ -342,7 +342,7 @@ fn the_export_opens_on_the_search_or_the_place_being_shown() {
     assert_eq!(place(&shell), "Inbox");
     assert_eq!(prefill(&shell), "inbox");
     for (name, wanted) in [
-        ("Kept", "kept"),
+        ("Kept", "is:kept"),
         ("Done", "archive"),
         ("Sent", "sent"),
         ("Trash", "trash"),
@@ -360,7 +360,7 @@ fn the_export_opens_on_the_search_or_the_place_being_shown() {
     // What the field opens with means what the place lists.
     let built = crate::ui::fixtures::work();
     assert!(matches!(
-        work::counted(&built.store, "kept", now()),
+        work::counted(&built.store, "is:kept", now()),
         Counted::Some(n) if n > 0
     ));
 }

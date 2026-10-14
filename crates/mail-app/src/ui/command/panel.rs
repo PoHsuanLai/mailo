@@ -83,6 +83,7 @@ fn place_icon(source: &Source) -> Icon {
         Source::Saved(_) => Icon::Search,
         Source::Waiting => Icon::Clock,
         Source::History => Icon::RotateLeft,
+        Source::Scheduled => Icon::Send,
     }
 }
 

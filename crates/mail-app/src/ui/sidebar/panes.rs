@@ -5,7 +5,7 @@ use super::tagged;
 use crate::ui::copy;
 use crate::ui::space::{Pinned, Space};
 use crate::ui::text::sender;
-use crate::ui::view::{Reach, Shell, Source, folder_of, is_label_place, saved_of};
+use crate::ui::view::{Reach, Shell, SideList, Source, folder_of, is_label_place, saved_of};
 use dioxus::prelude::*;
 use ds::base::vocab::{Emphasis, RowState};
 use ds::components::content::avatar::{AvatarFace, AvatarShape, AvatarSize, AvatarTone};
@@ -134,6 +134,7 @@ fn place_icon(source: &Source) -> Icon {
         Source::Drafts => Icon::FilePen,
         Source::Waiting => Icon::Bell,
         Source::History => Icon::RotateLeft,
+        Source::Scheduled => Icon::Send,
         Source::Mail(filter) if *filter == kept_filter() => Icon::Star,
         Source::Mail(filter) if *filter == pending_snooze() => Icon::Clock,
         _ if role(MailboxRole::Inbox) => Icon::Inbox,
@@ -163,6 +164,8 @@ pub(super) fn PlaceList(
     pages: Signal<u32>,
     badges: Memo<Vec<Option<u64>>>,
     folded: Vec<LabelId>,
+    /// Whether a message is waiting for its time in this Space, which is when Scheduled is drawn.
+    scheduled: bool,
 ) -> Element {
     let places = shell.read().places.clone();
     // Labels, folders and then saved views follow the default places; folders are drawn under
@@ -191,9 +194,10 @@ pub(super) fn PlaceList(
         .map(|(index, place)| (index, place.name.clone()))
         .collect();
     // The lifecycle places. Where mail is stored (Sent, Drafts, Spam, Trash) and History are one
-    // step away, in the list title's menu and ⌘K.
+    // step away, in the list title's menu and ⌘K. Scheduled only while a message is waiting.
     let lifecycle: Vec<usize> = (0..split)
         .filter(|index| places[*index].reach == Reach::Sidebar)
+        .filter(|index| scheduled || places[*index].source != Source::Scheduled)
         .collect();
     let selected = shell.read().selected;
     let listed = |index: usize| {
@@ -239,7 +243,7 @@ pub(super) fn PlaceList(
             label: copy::aria::PLACES,
             items,
             style: ListStyle::SourceList,
-            cursor: (listed(selected) && !shell.read().from_today).then_some(PlaceKey::Place(selected)),
+            cursor: (listed(selected) && shell.read().from_side.is_none()).then_some(PlaceKey::Place(selected)),
             onselect: move |key: PlaceKey| {
                 if let PlaceKey::Place(index) = key {
                     shell.write().select(index);
@@ -339,6 +343,9 @@ pub(super) fn Favourites(
     space: Space,
     counted: Counts,
 ) -> Element {
+    // Only which pinned conversation is open is read, so another write to the shell (a key in
+    // the search box) does not draw Favourites again.
+    let open = use_memo(move || shell.read().selected_in(SideList::Favourites));
     // No pins, no heading: a source list does not show an empty group.
     if counted.pinned.is_empty() && space.payload.pins.is_empty() {
         return rsx! {};
@@ -347,7 +354,6 @@ pub(super) fn Favourites(
         FavouriteKey::Head,
         rsx! { SectionHeader { title: copy::headers::FAVOURITES } },
     )];
-    let open = shell.read().selected_tab();
     for (index, pinned) in counted.pinned.iter().enumerate() {
         let thread = pinned.thread;
         let content = rsx! {
@@ -356,11 +362,11 @@ pub(super) fn Favourites(
                 title: pinned.title.clone(),
                 common: tagged("favourite", pinned.title.clone()),
                 state: RowState {
-                    selection: if open == Some(thread) { Selection::Selected } else { Selection::Unselected },
+                    selection: if open() == Some(thread) { Selection::Selected } else { Selection::Unselected },
                     emphasis: if pinned.unread { Emphasis::Strong } else { Emphasis::Plain },
                     ..RowState::default()
                 },
-                onclick: move |_| shell.write().open_from_today(thread),
+                onclick: move |_| shell.write().open_from(thread, SideList::Favourites),
             }
         };
         items.push(ListItem::row(

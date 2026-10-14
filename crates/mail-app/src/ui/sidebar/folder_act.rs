@@ -82,6 +82,7 @@ pub(in crate::ui) fn perform(
         forward: applied.forward,
         inverse: applied.inverse,
         remote: applied.remote,
+        resend: None,
     });
     Ok(Done { said, undo })
 }

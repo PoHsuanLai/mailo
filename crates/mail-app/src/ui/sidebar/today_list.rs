@@ -1,21 +1,21 @@
 //! Today, at the top of the sidebar: the conversations opened in this Space and the drafts put
-//! aside, with the messages waiting for their time under them.
+//! aside. A message waiting for its time is in the Scheduled place, not here.
 //!
-//! Nothing leaves Today by time. An entry stays until Clear Today, in the section's right-click
-//! menu, which forgets the shortcuts and does not touch the mail. A parked draft stays until it
-//! is reopened, sent or discarded, and a scheduled message until it leaves or is taken back. What
-//! the section lists is data ([`gather`], [`rows`]) and pure, so a table test can say it.
+//! Nothing leaves Today by time. An entry stays until Clear Today, in the right-click menu of
+//! Today's own heading, which forgets the shortcuts and does not touch the mail; a row's right
+//! click offers nothing that clears the whole section. A parked draft stays until it is reopened,
+//! sent or discarded. What the section lists is data ([`gather`], [`rows`]) and pure, so a table
+//! test can say it.
 
 use super::panes::{face, initial, titled};
 use super::tagged;
 use crate::ui::appearance::WindowDirs;
-use crate::ui::compose::{Desk, cancel_waiting, reopen, waiting};
+use crate::ui::compose::{Desk, reopen};
 use crate::ui::copy;
-use crate::ui::menus::when_words;
 use crate::ui::space::SpaceId;
 use crate::ui::text::sender;
 use crate::ui::today::Today;
-use crate::ui::view::Shell;
+use crate::ui::view::{Shell, SideList};
 use dioxus::prelude::*;
 use ds::base::press::{PointerButton, Press};
 use ds::base::vocab::RowState;
@@ -43,8 +43,6 @@ pub(super) struct Gathered {
     pub today: Vec<Recent>,
     /// The drafts put aside in this Space, newest first, by title.
     pub parked: Vec<(DraftId, String)>,
-    /// The messages waiting for their time, soonest first: draft, title and when.
-    pub scheduled: Vec<(DraftId, String, String)>,
 }
 
 /// A row of the section, by what it stands for.
@@ -53,27 +51,23 @@ pub(super) enum TodayKey {
     Head,
     Thread(ThreadId),
     Draft(DraftId),
-    Scheduled(DraftId),
 }
 
-/// What the section's right-click menu asks for.
+/// What Today's right-click menu asks for.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) enum TodayPick {
     /// Forget this Space's Today conversations.
     Clear,
-    /// Take a message waiting for its time back.
-    CancelSend(DraftId),
 }
 
-/// The section's rows in order, as (key, words, glyph or face): the conversations, the drafts,
-/// then the messages waiting, with what each says beside it.
-pub(super) fn rows(gathered: &Gathered) -> Vec<(TodayKey, String, RowLeading, Option<String>)> {
+/// The section's rows in order, as (key, words, glyph or face): the conversations, then the
+/// drafts.
+pub(super) fn rows(gathered: &Gathered) -> Vec<(TodayKey, String, RowLeading)> {
     let opened = gathered.today.iter().map(|recent| {
         (
             TodayKey::Thread(recent.thread),
             recent.title.clone(),
             RowLeading::Avatar(recent.face),
-            None,
         )
     });
     let parked = gathered.parked.iter().map(|(draft, title)| {
@@ -81,42 +75,22 @@ pub(super) fn rows(gathered: &Gathered) -> Vec<(TodayKey, String, RowLeading, Op
             TodayKey::Draft(*draft),
             title.clone(),
             RowLeading::Icon(Icon::Pen),
-            None,
         )
     });
-    let scheduled = gathered.scheduled.iter().map(|(draft, title, when)| {
-        (
-            TodayKey::Scheduled(*draft),
-            title.clone(),
-            RowLeading::Icon(Icon::Clock),
-            Some(when.clone()),
-        )
-    });
-    opened.chain(parked).chain(scheduled).collect()
+    opened.chain(parked).collect()
 }
 
-/// The right-click menu over `key`: Cancel Sending on a message waiting for its time, and Clear
-/// Today while there is a conversation to clear.
+/// The right-click menu over `key`: on Today's heading, Clear Today while there is a
+/// conversation to clear; on a row, nothing. Clearing the whole section is never a row's to
+/// offer.
 pub(super) fn menu_for(key: &TodayKey, gathered: &Gathered) -> Vec<MenuItem<TodayPick>> {
-    let mut out = Vec::new();
-    if let TodayKey::Scheduled(draft) = key
-        && let Some((_, title, _)) = gathered.scheduled.iter().find(|(at, _, _)| at == draft)
-    {
-        out.push(
-            MenuItem::new(
-                TodayPick::CancelSend(*draft),
-                copy::menus::cancel_sending(title),
-            )
-            .with_image(MenuImage::Icon(Icon::Clock)),
-        );
-    }
-    if !gathered.today.is_empty() {
-        out.push(
+    match key {
+        TodayKey::Head if !gathered.today.is_empty() => vec![
             MenuItem::new(TodayPick::Clear, copy::menus::CLEAR_TODAY)
                 .with_image(MenuImage::Icon(Icon::X)),
-        );
+        ],
+        _ => Vec::new(),
     }
-    out
 }
 
 /// `opened` Today conversations, newest first. The kit lists them in the order they were
@@ -127,9 +101,8 @@ pub(super) fn newest_first(mut opened: Vec<(ThreadId, Epoch)>) -> Vec<ThreadId> 
 }
 
 /// What the section lists now: every one of `space`'s Today conversations still in the store,
-/// however long ago it was opened, its parked drafts, and the messages waiting for their time.
+/// however long ago it was opened, and its parked drafts.
 pub(super) fn gather(store: &SqliteStore, today: &Today, space: SpaceId) -> Gathered {
-    let now = chrono::Utc::now();
     let opened = today
         .all(space)
         .into_iter()
@@ -154,16 +127,6 @@ pub(super) fn gather(store: &SqliteStore, today: &Today, space: SpaceId) -> Gath
             .into_iter()
             .map(|parked| (parked.item, parked.title.clone()))
             .collect(),
-        scheduled: waiting(store)
-            .into_iter()
-            .map(|one| {
-                (
-                    one.draft,
-                    one.title,
-                    when_words(one.at, now, &chrono::Local),
-                )
-            })
-            .collect(),
     }
 }
 
@@ -178,23 +141,37 @@ pub(in crate::ui) fn TodayList(
 ) -> Element {
     let desk = try_use_context::<Desk>();
     let mut menu = use_signal(|| None::<(TodayKey, Point)>);
-    // Read so a send scheduled or taken back, and a conversation archived, are drawn.
-    if let Some(desk) = desk {
-        let _ = desk.outbox.read();
-    }
-    let _ = revision();
-    let store = consume_context::<Arc<SqliteStore>>();
-    let gathered = gather(&store, &today.read(), space);
-    let shown = rows(&gathered);
+    // Gathered again only when what it reads changes: Today, the Space, a conversation archived
+    // (the revision). Not on every write to the shell, which a keystroke in the search box is.
+    let gathered = use_memo(use_reactive!(|space| {
+        let _ = revision();
+        let store = consume_context::<Arc<SqliteStore>>();
+        gather(&store, &today.read(), space)
+    }));
+    // Only which Today row is open is read from the shell.
+    let open = use_memo(move || shell.read().selected_in(SideList::Today));
+    let shown = rows(&gathered.read());
     if shown.is_empty() {
         return rsx! {};
     }
-    let open = shell.read().selected_tab();
+    let open = open();
+    // Where a test finds Today's heading.
+    let section = "today";
     let mut items = vec![ListItem::heading(
         TodayKey::Head,
-        rsx! { SectionHeader { title: copy::headers::TODAY } },
+        rsx! {
+            // Today's own menu, Clear Today, is a right click on its heading.
+            div { "data-section": section,
+                oncontextmenu: move |event: MouseEvent| {
+                    event.prevent_default();
+                    let at = event.client_coordinates();
+                    menu.set(Some((TodayKey::Head, Point { x: Px(at.x as f32), y: Px(at.y as f32) })));
+                },
+                SectionHeader { title: copy::headers::TODAY }
+            }
+        },
     )];
-    for (key, title, leading, when) in shown {
+    for (key, title, leading) in shown {
         let on = matches!(key, TodayKey::Thread(thread) if open == Some(thread));
         let pressed = key.clone();
         let content = rsx! {
@@ -202,35 +179,32 @@ pub(in crate::ui) fn TodayList(
                 leading,
                 title: title.clone(),
                 common: tagged("today", title.clone()),
-                accessory: when.map_or(Accessory::None, Accessory::Text),
                 state: RowState {
                     selection: if on { Selection::Selected } else { Selection::Unselected },
                     ..RowState::default()
                 },
                 onclick: move |press: Press| {
-                    // A right click is the section's menu. So is a click on a message waiting
-                    // for its time: taking it back is said in words before it is done.
-                    let asks = press.button == PointerButton::Secondary
-                        || matches!(pressed, TodayKey::Scheduled(_));
-                    if asks {
-                        menu.set(Some((pressed.clone(), press.at)));
+                    // A row's right click offers nothing: Clear Today is the heading's.
+                    if press.button == PointerButton::Secondary {
                         return;
                     }
                     match &pressed {
-                        TodayKey::Thread(thread) => shell.write().open_from_today(*thread),
+                        TodayKey::Thread(thread) => {
+                            shell.write().open_from(*thread, SideList::Today)
+                        }
                         TodayKey::Draft(draft) => {
                             if let Some(desk) = desk {
                                 reopen(desk, shell, *draft);
                             }
                         }
-                        TodayKey::Head | TodayKey::Scheduled(_) => {}
+                        TodayKey::Head => {}
                     }
                 },
             }
         };
         items.push(ListItem::row(key, title, content));
     }
-    let asked = menu().map(|(key, at)| (menu_for(&key, &gathered), at));
+    let asked = menu().map(|(key, at)| (menu_for(&key, &gathered.read()), at));
     rsx! {
         List::<TodayKey> {
             label: copy::aria::TODAY,
@@ -249,12 +223,6 @@ pub(in crate::ui) fn TodayList(
                             today.write().clear(space);
                             if let Some(dirs) = &dirs {
                                 let _ = crate::ui::today::save(&dirs.state, &today.read());
-                            }
-                        }
-                        TodayPick::CancelSend(draft) => {
-                            if let Some(desk) = desk {
-                                // A refusal is said in the toast; the message stays as it was.
-                                let _ = cancel_waiting(desk, shell, draft);
                             }
                         }
                     }

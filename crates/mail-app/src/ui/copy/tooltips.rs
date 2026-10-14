@@ -10,6 +10,9 @@ pub fn sync_saying(said: &str) -> String {
     format!("{SYNC} · {said}")
 }
 
+/// The sync mark while an account in view waits for its sign-in: a press asks about it again.
+pub const SIGN_IN_AGAIN: &str = "Sign In Again";
+
 pub const MORE: &str = "More";
 pub const SHOW_SIDEBAR: &str = "Show Sidebar";
 pub const SAVE_AS_VIEW: &str = "Save as View";

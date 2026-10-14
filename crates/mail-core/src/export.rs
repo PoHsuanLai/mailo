@@ -63,7 +63,6 @@ pub fn select(
     let place = place_named(words);
     let (filter, regex) = match (place, words) {
         (Some(Chosen::Role(role)), _) => (Filter::InMailbox(role), None),
-        (Some(Chosen::Kept), _) => (crate::view::kept_filter(), None),
         (Some(Chosen::All), _) => (Filter::All, None),
         (None, "") => return Err(CoreError::NoSelection),
         (None, _) => {
@@ -105,8 +104,7 @@ pub fn select(
                 .collect();
             let fits: Vec<&Message> = match place {
                 Some(Chosen::Role(role)) => messages.iter().filter(|m| m.mailbox == role).collect(),
-                // Kept is a conversation's, so the whole conversation goes.
-                Some(Chosen::All | Chosen::Kept) => messages.iter().collect(),
+                Some(Chosen::All) => messages.iter().collect(),
                 None => {
                     let alone: Vec<&Message> = messages
                         .iter()
@@ -134,17 +132,13 @@ pub fn select(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Chosen {
     Role(MailboxRole),
-    /// The sidebar's Kept: starred and pinned.
-    Kept,
     All,
 }
 
 fn place_named(words: &str) -> Option<Chosen> {
     Some(match words.to_ascii_lowercase().as_str() {
         "inbox" => Chosen::Role(MailboxRole::Inbox),
-        // Done is the sidebar's name for the archive.
-        "archive" | "done" => Chosen::Role(MailboxRole::Archive),
-        "kept" => Chosen::Kept,
+        "archive" => Chosen::Role(MailboxRole::Archive),
         "sent" => Chosen::Role(MailboxRole::Sent),
         "drafts" => Chosen::Role(MailboxRole::Drafts),
         "trash" => Chosen::Role(MailboxRole::Trash),

@@ -29,35 +29,21 @@ fn read(rows: &[MenuItem<TodayPick>]) -> Vec<String> {
 }
 
 #[test]
-fn today_lists_its_conversations_then_drafts_then_messages_waiting() {
+fn today_lists_its_conversations_then_drafts() {
     let gathered = Gathered {
         today: vec![recent(1), recent(2)],
         parked: vec![(draft(7), "Offsite".to_owned())],
-        scheduled: vec![(draft(8), "Friday".to_owned(), "Tomorrow 08:00".to_owned())],
     };
-    let listed: Vec<(TodayKey, String, Option<String>)> = rows(&gathered)
+    let listed: Vec<(TodayKey, String)> = rows(&gathered)
         .into_iter()
-        .map(|(key, title, _, when)| (key, title, when))
+        .map(|(key, title, _)| (key, title))
         .collect();
     assert_eq!(
         listed,
         [
-            (
-                TodayKey::Thread(thread(1)),
-                "Conversation 1".to_owned(),
-                None
-            ),
-            (
-                TodayKey::Thread(thread(2)),
-                "Conversation 2".to_owned(),
-                None
-            ),
-            (TodayKey::Draft(draft(7)), "Offsite".to_owned(), None),
-            (
-                TodayKey::Scheduled(draft(8)),
-                "Friday".to_owned(),
-                Some("Tomorrow 08:00".to_owned())
-            ),
+            (TodayKey::Thread(thread(1)), "Conversation 1".to_owned()),
+            (TodayKey::Thread(thread(2)), "Conversation 2".to_owned()),
+            (TodayKey::Draft(draft(7)), "Offsite".to_owned()),
         ]
     );
     assert!(
@@ -66,36 +52,23 @@ fn today_lists_its_conversations_then_drafts_then_messages_waiting() {
     );
 }
 
-/// Clear Today is Today's only removal, in its right-click menu; a message waiting is taken back
-/// only by an item that says so.
+/// Clear Today is in Today's own menu, on its heading, and on no row.
 #[test]
-fn the_right_click_menu_clears_today_and_takes_a_message_back_by_name() {
+fn clear_today_is_on_the_heading_and_never_on_a_row() {
     let gathered = Gathered {
         today: vec![recent(1)],
         parked: vec![(draft(7), "Offsite".to_owned())],
-        scheduled: vec![(draft(8), "Friday".to_owned(), "Tomorrow 08:00".to_owned())],
     };
-    assert_eq!(
-        read(&menu_for(&TodayKey::Thread(thread(1)), &gathered)),
-        ["Clear Today"]
-    );
-    assert_eq!(
-        read(&menu_for(&TodayKey::Draft(draft(7)), &gathered)),
-        ["Clear Today"]
-    );
-    assert_eq!(
-        read(&menu_for(&TodayKey::Scheduled(draft(8)), &gathered)),
-        [
-            copy::menus::cancel_sending("Friday"),
-            "Clear Today".to_owned()
-        ]
-    );
+    assert_eq!(read(&menu_for(&TodayKey::Head, &gathered)), ["Clear Today"]);
+    for row in [TodayKey::Thread(thread(1)), TodayKey::Draft(draft(7))] {
+        assert!(menu_for(&row, &gathered).is_empty(), "{row:?}");
+    }
     let nothing_opened = Gathered {
         today: Vec::new(),
         ..gathered
     };
     assert!(
-        menu_for(&TodayKey::Draft(draft(7)), &nothing_opened).is_empty(),
+        menu_for(&TodayKey::Head, &nothing_opened).is_empty(),
         "Clear Today with nothing to clear"
     );
 }

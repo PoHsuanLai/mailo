@@ -28,7 +28,6 @@
   background: var(--f-solid);
 }
 .slide { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: none; display: flex; flex-direction: column; gap: var(--s-4); }
-/* The accounts: quire's `PinTile`s, four to a row. */
 /* A folder the person does not follow is drawn quieter. */
 .dim:not([*|aria-selected="true"]) { color: var(--ink-faint); }
 /* The sidebar's head and foot are quire's Spaces kit (`SpaceHead`, `SpacesFoot`). The head is

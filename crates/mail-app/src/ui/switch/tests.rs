@@ -48,11 +48,10 @@ fn dotted(dots: &[Dot]) -> SpaceLook {
 /// quire's kit hands back what [`recall_of`] took when the Space was left; [`restore`] shows it
 /// again, and what belonged to the Space left (a search, a selection) does not follow.
 #[test]
-fn a_space_gets_its_place_thread_and_tile_back_and_nothing_else() {
+fn a_space_gets_its_place_and_thread_back_and_nothing_else() {
     let mut shell = Shell::default();
     select(&mut shell, "Done");
     shell.open(thread(7));
-    shell.account = Some(account(1));
     let left = recall_of(&shell);
 
     let mut elsewhere = Shell::default();
@@ -62,7 +61,6 @@ fn a_space_gets_its_place_thread_and_tile_back_and_nothing_else() {
     restore(&mut elsewhere, &left);
     assert_eq!(place(&elsewhere), "Done");
     assert_eq!(elsewhere.open, Some(thread(7)));
-    assert_eq!(elsewhere.account, Some(account(1)));
     assert!(
         elsewhere.search.is_empty(),
         "the search followed into the Space"
@@ -79,11 +77,70 @@ fn a_space_gets_its_place_thread_and_tile_back_and_nothing_else() {
         assert_eq!(place(&elsewhere), now, "{stored}");
     }
 
-    // A Space never left opens on the first place, with nothing open and every account.
+    // A Space never left opens on the first place, with nothing open.
     restore(&mut elsewhere, &space::Recall::default());
     assert_eq!(place(&elsewhere), "Inbox");
     assert_eq!(elsewhere.open, None);
-    assert_eq!(elsewhere.account, None);
+}
+
+/// A label called Done is left as the label and comes back as the label, not as the Done place.
+#[test]
+fn a_space_left_on_a_label_called_done_comes_back_on_the_label() {
+    let label = mail_domain::LabelId::generate();
+    let places = crate::ui::view::places_with(&[("Done".to_owned(), label)], &[], &[]);
+    let at = |source: &crate::ui::view::Source| {
+        places
+            .iter()
+            .position(|place| place.source == *source)
+            .unwrap_or_else(|| panic!("no place {source:?}"))
+    };
+    let theirs = at(&crate::ui::view::Source::Mail(
+        mail_domain::Filter::HasLabel(label),
+    ));
+    let ours = at(&crate::ui::view::Source::Mail(
+        mail_core::place::place_filter(mail_domain::MailboxRole::Archive),
+    ));
+    assert_ne!(theirs, ours);
+    for left in [theirs, ours] {
+        let mut shell = Shell {
+            places: places.clone(),
+            ..Shell::default()
+        };
+        shell.select(left);
+        let recall = recall_of(&shell);
+        let mut back = Shell {
+            places: places.clone(),
+            ..Shell::default()
+        };
+        restore(&mut back, &recall);
+        assert_eq!(back.selected, left, "{recall:?}");
+    }
+}
+
+/// A Space left while accounts had tiles stored the tile left pressed. It still reads, and
+/// arriving shows the whole Space: a Space is the only narrowing of accounts.
+#[test]
+fn a_space_left_on_an_account_tile_comes_back_whole() {
+    let scope = Scope::Accounts(vec![account(1), account(2)]);
+    let stored = format!(
+        r#"{{"place":"Done","open":"{}","account":"{}"}}"#,
+        thread(7),
+        account(1)
+    );
+    let recall: space::Recall =
+        serde_json::from_str(&stored).unwrap_or_else(|e| panic!("an old recall failed: {e}"));
+    let mut shell = Shell {
+        scope: scope.clone(),
+        ..Shell::default()
+    };
+    restore(&mut shell, &recall);
+    assert_eq!(place(&shell), "Done");
+    assert_eq!(shell.open, Some(thread(7)));
+    assert_eq!(
+        shell.account_filter(),
+        scope.filter(),
+        "the list is narrower than the Space"
+    );
 }
 
 fn rows(page: &str) -> usize {

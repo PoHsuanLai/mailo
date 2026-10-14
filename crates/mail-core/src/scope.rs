@@ -29,14 +29,6 @@ impl Scope {
         }
     }
 
-    /// Only `pressed`, when an account tile is pressed; else this.
-    pub fn narrowed(&self, pressed: Option<AccountId>) -> Scope {
-        match pressed {
-            Some(id) => Scope::Accounts(vec![id]),
-            None => self.clone(),
-        }
-    }
-
     /// As a store filter. `None` is every account, and no accounts is [`Filter::Nothing`].
     pub fn filter(&self) -> Option<Filter> {
         match self {
@@ -74,20 +66,6 @@ mod tests {
         assert!(some.shows(account(2)));
         assert!(!some.shows(account(3)));
         assert!(!Scope::Accounts(Vec::new()).shows(account(1)));
-    }
-
-    #[test]
-    fn a_pressed_account_narrows_the_scope_and_nothing_pressed_leaves_it() {
-        let some = Scope::Accounts(vec![account(1), account(2)]);
-        assert_eq!(some.narrowed(None), some);
-        assert_eq!(
-            some.narrowed(Some(account(2))),
-            Scope::Accounts(vec![account(2)])
-        );
-        assert_eq!(
-            Scope::All.narrowed(Some(account(1))),
-            Scope::Accounts(vec![account(1)])
-        );
     }
 
     #[test]

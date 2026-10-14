@@ -5,7 +5,7 @@
 //! links say is waiting ([`crate::ui::fetching::needs_you`]), once they have all said how they
 //! stand. Sign In goes where the Connections sheet's Sign In goes. Later puts the dialog off for
 //! the rest of the session: it comes back for an account only when that account recovers and
-//! needs the person again, or when its tile is pressed. A lone account is asked in quire's
+//! needs the person again, or when the sidebar foot's sync mark is pressed. A lone account is asked in quire's
 //! alert; several are asked in a sheet with a row, and a Sign In, for each.
 
 use crate::ui::common::in_card;
@@ -67,6 +67,13 @@ fn still_put_off(
         })
         .map(|(id, _)| id.clone())
         .collect()
+}
+
+/// `accounts` taken out of `put_off`, so the prompt asks about them again. Whether there was one
+/// to ask about.
+fn asked_again(put_off: &mut BTreeSet<AccountId>, accounts: &[AccountId]) -> bool {
+    put_off.retain(|id| !accounts.contains(id));
+    !accounts.is_empty()
 }
 
 /// The dialog's state, shared by the window. Copy, so a handler can take it.
@@ -192,6 +199,13 @@ impl Reauth {
             Need::SignIn => crate::ui::add_account::again(address.to_owned()),
             Need::Allow => crate::ui::add_account::allow_again(),
         }
+    }
+
+    /// Ask again about `accounts`, put off with Later: the foot's sync mark pressed while an
+    /// account in view needs the person. Returns whether one of them is asked about.
+    pub(in crate::ui) fn ask_again(self, accounts: &[AccountId]) -> bool {
+        let mut put_off = self.put_off;
+        asked_again(&mut put_off.write(), accounts)
     }
 
     /// `account`'s sign-in has begun.
@@ -336,6 +350,25 @@ mod tests {
             let put_off: BTreeSet<AccountId> = put_off.into_iter().collect();
             assert_eq!(to_ask(&both, &put_off), want, "{put_off:?}");
         }
+    }
+
+    /// Later puts the question away; the foot's mark, pressed, brings it back for the accounts
+    /// in view, and only those.
+    #[test]
+    fn the_sync_mark_asks_again_about_an_account_put_off() {
+        let both = [(id(1), Need::SignIn), (id(2), Need::SignIn)];
+        let mut put_off: BTreeSet<AccountId> = [id(1), id(2)].into_iter().collect();
+        assert!(
+            to_ask(&both, &put_off).is_empty(),
+            "Later kept nothing away"
+        );
+        assert!(asked_again(&mut put_off, &[id(1)]));
+        assert_eq!(to_ask(&both, &put_off), [(id(1), Need::SignIn)]);
+        assert!(
+            !asked_again(&mut put_off, &[]),
+            "a press with nobody waiting asked"
+        );
+        assert_eq!(put_off, [id(2)].into_iter().collect());
     }
 
     #[test]

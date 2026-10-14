@@ -15,27 +15,22 @@ pub(super) fn recall_of(shell: &Shell) -> Recall {
         place: shell
             .places
             .get(shell.selected)
-            .map(|place| place.name.clone())
+            .map(crate::ui::view::place_key)
             .unwrap_or_default(),
         open: shell.open,
-        account: shell.account.clone(),
     }
 }
 
 /// Show in `shell` where `recall` says a Space was left.
 ///
 /// A place that no longer exists is the first place: a Space can lose a label while you are
-/// elsewhere, and coming back must not show a list that cannot exist. A name the sidebar no
-/// longer uses (Archive, Starred) is read as the place that replaced it. An account tile outside
-/// the Space's accounts goes when the Space's scope is copied in, and a removed account leaves
-/// every Space's recall (`space::forget_account`).
+/// elsewhere, and coming back must not show a list that cannot exist. The place is found by its
+/// key, so a label called Done comes back as the label and not as the Done place; a name stored
+/// before keys, and one the sidebar no longer uses (Archive, Starred), is read as the place it
+/// meant. The whole Space is
+/// shown: a Space is the only narrowing of accounts there is.
 pub(super) fn restore(shell: &mut Shell, recall: &Recall) {
-    shell.account = recall.account.clone();
-    shell.selected = shell
-        .places
-        .iter()
-        .position(|place| place.name == crate::ui::view::renamed(&recall.place))
-        .unwrap_or(0);
+    shell.selected = crate::ui::view::find_place(&shell.places, &recall.place).unwrap_or(0);
     shell.open = recall.open;
     shell.picked = crate::ui::selection::Picked::none();
     shell.show_remote_images = false;

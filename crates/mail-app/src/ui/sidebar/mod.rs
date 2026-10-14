@@ -70,6 +70,17 @@ pub(super) fn Places(
     // The accounts the Folders section is for. A memo, so a keystroke in the search box — a
     // shell change — does not read the folders again.
     let in_scope = use_memo(move || scope(&shell.read()));
+    // Whether a message is waiting for its time on this Space's accounts: the Scheduled place is
+    // drawn only then. Read again as a send is scheduled or taken back.
+    let desk = try_use_context::<crate::ui::compose::Desk>();
+    let scheduled = use_memo(move || {
+        let _ = revision();
+        if let Some(desk) = desk {
+            let _ = desk.outbox.read();
+        }
+        let store = consume_context::<std::sync::Arc<mail_core::SqliteStore>>();
+        !crate::ui::compose::scheduled(&store, &in_scope()).is_empty()
+    });
     let show = use_signal(|| Show::Followed);
     let folders = use_memo(move || {
         let _ = revision();
@@ -82,7 +93,7 @@ pub(super) fn Places(
         .map(|section| section.labels.clone())
         .unwrap_or_default();
     let space_id = space.id;
-    let tiles = counted.read().clone();
+    let counts_now = counted.read().clone();
     let pinned = if side_hidden() {
         Shown::Hidden
     } else {
@@ -114,9 +125,9 @@ pub(super) fn Places(
             div { class: "slide",
                 // A sign-in in the browser, while it waits: a quiet row at the top.
                 crate::ui::add_account::PendingSignIn {}
-                Favourites { shell, pages, space: space.clone(), counted: tiles }
+                Favourites { shell, pages, space: space.clone(), counted: counts_now }
                 TodayList { shell, today, space: space_id, revision, dirs: dirs.clone() }
-                PlaceList { shell, pages, badges, folded }
+                PlaceList { shell, pages, badges, folded, scheduled: scheduled() }
                 if let Some(section) = folders() {
                     FolderList { shell, pages, badges, revision, section, show }
                 }

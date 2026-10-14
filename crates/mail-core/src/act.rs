@@ -20,6 +20,10 @@ use porter_core::AccountId;
 /// cannot be told is not taken back here either, or the two would disagree until the next sync
 /// put the operation back without a word.
 pub fn take_back(store: &SqliteStore, entry: &Undo) -> bool {
+    // A send to queue again is the window's to undo (`Undo::resend`).
+    if entry.resend.is_some() {
+        return false;
+    }
     let reverse = entry
         .remote
         .as_ref()
@@ -259,6 +263,7 @@ pub fn perform(store: &SqliteStore, thread: ThreadId, op: Op) -> Option<Undo> {
         forward: applied.forward,
         inverse: applied.inverse,
         remote: applied.remote,
+        resend: None,
     })
 }
 

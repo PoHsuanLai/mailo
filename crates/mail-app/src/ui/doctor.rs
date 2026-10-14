@@ -3,8 +3,8 @@
 //!
 //! It is the full view and nothing routes to it by itself: an account that needs signing in is
 //! asked about in a dialog (`reauth`), and the sidebar, the list and Settings each say it in their
-//! own words with a Sign In beside it. This sheet is reached from the command menu, from
-//! Settings' account page, and from an account tile that has trouble a sign-in cannot fix. The
+//! own words with a Sign In beside it. This sheet is reached from the command menu and from
+//! Settings' account page. The
 //! words of each line are [`crate::ui::fetching::account_line`]'s.
 //!
 //! Sign In is the dialog's (`Reauth::sign_in`): straight to the browser for an account that signs

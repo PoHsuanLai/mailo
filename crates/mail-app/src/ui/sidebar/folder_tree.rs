@@ -85,9 +85,9 @@ pub(in crate::ui) struct Tree {
     pub nodes: Vec<Node>,
 }
 
-/// The accounts the section is for: the pressed tile, or the Space's.
+/// The accounts the section is for: the Space's.
 pub(in crate::ui) fn scope(shell: &Shell) -> crate::ui::space::Scope {
-    shell.scope.narrowed(shell.account.clone())
+    shell.scope.clone()
 }
 
 /// Lay out the section, or `None` when nothing in scope has folders to show.

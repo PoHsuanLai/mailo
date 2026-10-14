@@ -2,7 +2,7 @@
 //!
 //! The Spaces are quire's kit (`ds::components::app::spaces`): the list, its ids, switching,
 //! the look, the menu and Today are the same in every app. What a Space holds that is mail's is
-//! its [`Mail`] payload: whose mail it shows, what stays pinned, and each account's colour. Where
+//! its [`Mail`] payload: whose mail it shows and what stays pinned. Where
 //! a Space was left is mailo's [`Recall`].
 //!
 //! Stored in `spaces.json` under the config directory, beside appearance and not in the mail
@@ -12,13 +12,11 @@
 use crate::ui::appearance::{Legacy, WindowDirs};
 use ds::components::app::spaces;
 use ds::prelude::SpaceLook;
-use ds::style::tokens::person::PersonSwatch;
 use ds_settings::{Fixup, SpacesStorage};
 use mail_core::profile::ProfileId;
 use porter_core::AccountId;
 use serde::de::Deserializer;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 
 mod forget;
 mod member;
@@ -53,7 +51,8 @@ pub enum Pinned {
 
 /// What a Space holds that is mail's. Written flat beside the Space's own fields in
 /// `spaces.json`, as mailo always wrote them; a field that is missing or unreadable is its
-/// default, never a failure of the whole file.
+/// default, never a failure of the whole file, and a field no longer read (each account's
+/// colour, from when accounts had tiles) is passed over.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct Mail {
@@ -66,15 +65,10 @@ pub struct Mail {
     pub scope: Scope,
     /// People and saved searches that stay put.
     pub pins: Vec<Pinned>,
-    /// Each account's avatar colour, stored so three blue providers do not look alike.
-    ///
-    /// Missing entries take quire's person swatches (`ds::PersonSwatch`) in order. The colour is
-    /// the account's, not the provider's.
-    pub colors: BTreeMap<AccountId, String>,
 }
 
 impl Mail {
-    /// A Space's mail over `scope`, nothing pinned and no colour chosen.
+    /// A Space's mail over `scope`, nothing pinned.
     pub fn over(scope: Scope) -> Mail {
         Mail {
             scope,
@@ -136,28 +130,6 @@ where
     })
 }
 
-/// The swatch an account at `index` takes when a Space has not chosen one, as stored.
-fn swatch(index: usize) -> String {
-    PersonSwatch::nth(index).hex().css()
-}
-
-/// Fill any of `profile`'s accounts that has no colour yet. Returns whether the Space changed;
-/// a Space of another Profile is never changed.
-pub fn ensure_colors(mail: &mut Mail, profile: &ProfileId, accounts: &[AccountId]) -> bool {
-    if mail.profile != *profile {
-        return false;
-    }
-    let mut changed = false;
-    for (index, id) in accounts.iter().enumerate() {
-        if mail.colors.contains_key(id) {
-            continue;
-        }
-        mail.colors.insert(id.clone(), swatch(index));
-        changed = true;
-    }
-    changed
-}
-
 /// One Space per account, named "Space 1" onward and tinted from quire's presets in order; no
 /// accounts is one Space over every account, so the window has somewhere to put the mail.
 /// Nothing is pinned.
@@ -200,9 +172,8 @@ pub fn storage(dirs: Option<&WindowDirs>) -> SpacesStorage {
     )
 }
 
-/// The window's first Spaces: the stored ones, else a first run over `accounts`; the current
-/// Space's accounts given a colour each. Written when that was a first run or a colour was
-/// filled.
+/// The window's first Spaces: the stored ones, else a first run over `accounts`. Written when
+/// that was a first run.
 ///
 /// The theme moved from `appearance.json` into each Space. A Space written before that has
 /// none, and takes the window-wide one `legacy` read, so the first read after the upgrade looks
@@ -218,17 +189,9 @@ pub fn boot(dirs: Option<&WindowDirs>, accounts: &[AccountId], legacy: &Legacy) 
         }
         spaces
     };
-    // The window opens the default Profile until it can open others.
-    let profile = ProfileId::default();
-    let colour = |spaces: &mut Spaces| {
-        let current = spaces.current().id;
-        let mut changed = false;
-        spaces.edit(current, |space| {
-            changed = ensure_colors(&mut space.payload, &profile, accounts);
-        });
-        if changed { Fixup::Changed } else { Fixup::Kept }
-    };
-    storage(dirs).boot_spaces(raw_fix, made, colour).0
+    storage(dirs)
+        .boot_spaces(raw_fix, made, |_: &mut Spaces| Fixup::Kept)
+        .0
 }
 
 /// Give each stored Space that has no `theme` of its own `theme`.

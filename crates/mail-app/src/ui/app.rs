@@ -76,7 +76,7 @@ pub(super) fn App() -> Element {
     super::handoff::use_handoff(shell);
     let boot = use_hook(frame::load_boot);
     // quire's Spaces: the list, switching, the look and the menu. Where a Space was left is the
-    // shell's place, open thread and account tile; arriving shows where the Space was left.
+    // shell's place and open thread; arriving shows where the Space was left.
     // How many pages of the list have been asked for. Reset whenever the list itself changes,
     // because "page 3" of the Inbox means nothing once the user is looking at Archive.
     let mut pages = use_signal(|| 1u32);
@@ -148,8 +148,8 @@ pub(super) fn App() -> Element {
     // counts never changes — only the answer does.
     // Mailbox badges are fixed. Label badges join them when the label list changes, which is
     // a signal of its own so a keystroke — a shell change — does not recount.
-    // The accounts the list is showing. A memo of its own, so only a change of tile or Space
-    // reaches the counts, never a keystroke.
+    // The accounts the list is showing. A memo of its own, so only a change of Space reaches the
+    // counts, never a keystroke.
     let badge_scope = use_memo(move || shell.read().account_filter());
     let badge_filters = use_memo(move || {
         let scope = badge_scope();
@@ -257,21 +257,12 @@ pub(super) fn App() -> Element {
         }
     });
 
-    // The Space's account list, whenever the Spaces change: the Space's menu (Accounts) and
-    // the tiles' menus edit it. Read through `peek`, so a tile press (a shell change) does not
-    // run this, and a pressed tile whose account left the Space goes back to every account.
+    // The Space's account list, whenever the Spaces change: the Space's menu (Accounts) edits
+    // it. Read through `peek`, so a shell change does not run this.
     use_effect(move || {
         let scope = spaces.read().current().payload.scope.clone();
         if shell.peek().scope != scope {
-            let mut write = shell.write();
-            if write
-                .account
-                .as_ref()
-                .is_some_and(|id| !scope.shows(id.clone()))
-            {
-                write.account = None;
-            }
-            write.scope = scope;
+            shell.write().scope = scope;
         }
     });
 
@@ -288,7 +279,7 @@ pub(super) fn App() -> Element {
     // `settings.toml` needs nothing here: the window's root watches it.
     super::frame::use_followed_configuration(shell, spaces, Some(handle), keys);
 
-    // An account removed, here or from a terminal, leaves every Space, and the tile pressed. Not
+    // An account removed, here or from a terminal, leaves every Space. Not
     // while a part of the Space's menu is open: its close writes the Spaces. Run again when the
     // part closes, which also takes the account out of the Space it kept.
     use_effect(move || {
@@ -310,10 +301,6 @@ pub(super) fn App() -> Element {
             let mut spaces = spaces;
             spaces.set(next);
             shell.write().scope = scope;
-        }
-        let pressed = shell.peek().account.clone();
-        if pressed.is_some_and(|id| !known.contains(&id)) {
-            shell.write().account = None;
         }
     });
 
@@ -355,15 +342,16 @@ pub(super) fn App() -> Element {
 
     let drafts = use_memo(move || {
         let _ = revision();
-        if !matches!(shell.read().listing(PAGE), Listing::Drafts) {
-            return Vec::new();
-        }
         let store = consume_context::<Arc<SqliteStore>>();
-        accounts(&store)
-            .into_iter()
-            .filter_map(|account| store.drafts(account).ok())
-            .flatten()
-            .collect::<Vec<_>>()
+        match shell.read().listing(PAGE) {
+            Listing::Drafts => accounts(&store)
+                .into_iter()
+                .filter_map(|account| store.drafts(account).ok())
+                .flatten()
+                .collect::<Vec<_>>(),
+            Listing::Scheduled => super::compose::scheduled(&store, &shell.read().scope),
+            _ => Vec::new(),
+        }
     });
 
     // One more row than asked for means there is another page. Asking the store for the count

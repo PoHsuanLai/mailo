@@ -65,7 +65,7 @@ pub(in crate::ui) use desk::{Desk, park_current, reopen, show_queued, unpark, us
 use hand::Handed;
 pub use hand::Hub;
 pub(in crate::ui) use hand::use_handed;
-pub(in crate::ui) use later::{cancel_waiting, waiting};
+pub(in crate::ui) use later::{cancel_scheduled, scheduled, send_again};
 pub(in crate::ui) use page::Page;
 pub(in crate::ui) use page::PageKind;
 pub(in crate::ui) use pill::SendPill;
@@ -576,6 +576,7 @@ fn delete_draft(
                     changes: vec![Change::DraftUpsert(Box::new(stored))],
                 },
                 remote: None,
+                resend: None,
             };
             shell.write().close_composer();
             revision += 1;

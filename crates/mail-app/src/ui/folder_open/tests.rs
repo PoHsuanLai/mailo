@@ -165,15 +165,6 @@ fn the_title_names_the_account_only_when_several_are_in_view() {
         title_address(&pair, &accounts).as_deref(),
         Some("me@two.example")
     );
-    let tile = Shell {
-        account: Some(acct_two()),
-        ..shell.clone()
-    };
-    assert_eq!(
-        title_address(&tile, &accounts),
-        None,
-        "the tile names it already"
-    );
     let inbox = Shell {
         selected: 0,
         ..shell

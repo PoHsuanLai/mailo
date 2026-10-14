@@ -182,9 +182,21 @@ async fn a_refused_account_is_asked_about_once_and_signs_in_from_the_dialog_or_t
     // Later, in another window, puts the question off: it is not asked again.
     let (mut dom, seen, _script, _dir) = after_a_pass(refused).await;
     click(&mut dom, seen.one("data-answer", "later"));
-    settle_seen(&mut dom).await;
+    let seen = seen.merge(settle_seen(&mut dom).await);
     let page = dioxus_ssr::render(&dom);
     assert!(!page.contains("again?"), "asked after Later: {page}");
+
+    // The sidebar foot's mark is the way back: it says so, and a press asks again.
+    click(
+        &mut dom,
+        seen.one("aria-label", crate::ui::copy::aria::SIGN_IN_AGAIN),
+    );
+    settle(&mut dom).await;
+    let page = dioxus_ssr::render(&dom);
+    assert!(
+        page.contains("again?"),
+        "the mark did not ask again: {page}"
+    );
 }
 
 /// A warning is the sidebar's sync mark's: plain words in its tip and a dot on it, and no line
@@ -193,11 +205,12 @@ async fn a_refused_account_is_asked_about_once_and_signs_in_from_the_dialog_or_t
 async fn a_warning_is_said_by_the_sync_mark_and_not_over_the_list() {
     let (dom, _seen, _script, _dir) = after_a_pass(refused).await;
     let page = dioxus_ssr::render(&dom);
+    // The account waits for a sign-in, so the mark is the way to it.
     let mark = tag_with(
         &page,
-        &format!("aria-label=\"{}\"", crate::ui::copy::aria::SYNC_NOW),
+        &format!("aria-label=\"{}\"", crate::ui::copy::aria::SIGN_IN_AGAIN),
     );
-    assert!(mark.contains("Sync \u{b7} Sign-in needed"), "{mark}");
+    assert!(mark.contains("Sign In Again"), "{mark}");
     assert!(
         page.contains(r#"class="sync-dot""#),
         "no warning dot on the sync mark: {page}"

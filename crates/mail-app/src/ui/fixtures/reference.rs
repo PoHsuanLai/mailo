@@ -15,7 +15,6 @@ use mail_core::{SqliteStore, Store};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use porter_core::AccountId;
-use std::collections::BTreeMap;
 use std::sync::Arc;
 
 pub(in crate::ui) struct Work {
@@ -229,10 +228,6 @@ pub(in crate::ui) fn work() -> Work {
         sam = sam.or(built.sam);
         ingest(&store, account, built.messages, built.names);
     }
-    let mut colors = BTreeMap::new();
-    colors.insert(acct_google(), "#5B4FC4".to_owned());
-    colors.insert(acct_microsoft(), "#2F7F6E".to_owned());
-    colors.insert(acct_fastmail(), "#B0662E".to_owned());
     let work = SpaceLook {
         grain: ds::prelude::Grain(35),
         dots: vec![
@@ -267,7 +262,6 @@ pub(in crate::ui) fn work() -> Work {
                 email: "ci@example.com".to_owned(),
             },
         ],
-        colors,
         profile: mail_core::profile::ProfileId::default(),
     };
     let spaces = space::built(vec![("Work".to_owned(), work, mail)], 0);

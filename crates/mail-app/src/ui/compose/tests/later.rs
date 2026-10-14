@@ -1,15 +1,16 @@
 //! Send later in the window: the Sends choice as the outbox reads it, a scheduled send on the
-//! pill and in the sidebar's menu, and Cancel, against a real store.
+//! pill and in the Scheduled place, and Cancel, against a real store.
 
 use mail_core::Store;
 
-use super::super::later::{choose_time, leaves, pick_time, waiting};
+use super::super::later::{choose_time, leaves, pick_time, scheduled};
 use super::super::page::{Float, Phase, When};
 use super::super::props::pick_sends;
 use super::*;
 use crate::ui::fixtures::{acct_account, click, pick_named, seeded, settle};
+use crate::ui::space::Scope;
 use mail_core::compose::Leaves;
-use mail_core::editor::{to_flowed, to_html};
+use mail_core::editor::to_html;
 
 /// 2026-09-23 10:00 UTC, a Wednesday, read in UTC.
 fn wednesday(hour: u32, minute: u32) -> DateTime<Utc> {
@@ -195,18 +196,22 @@ async fn scheduling_holds_the_draft_until_its_time_and_cancel_brings_back_the_pa
         markup.contains(r#"class="cpage sending""#),
         "the page did not fold:\n{markup}"
     );
-    // And it is waiting in the store, and listed in the sidebar's Today.
+    // And it is waiting in the store, and listed in the Scheduled place.
     assert_eq!(
-        waiting(&store)
+        scheduled(&store, &Scope::All)
             .into_iter()
-            .map(|one| (one.draft, one.at))
+            .map(|one| (one.id, one.state))
             .collect::<Vec<_>>(),
-        [(draft.id, at)]
+        [(draft.id, SendState::Scheduled { at })]
     );
     let listed = window.render();
     assert!(
-        listed.contains("data-today=\"Friday\""),
-        "not in Today:\n{listed}"
+        listed.contains("data-scheduled=\"Friday\""),
+        "not in Scheduled:\n{listed}"
+    );
+    assert!(
+        !listed.contains("data-today=\"Friday\""),
+        "a scheduled send is in Today:\n{listed}"
     );
 
     click(
@@ -241,22 +246,24 @@ async fn scheduling_holds_the_draft_until_its_time_and_cancel_brings_back_the_pa
     );
     let listed = window.render();
     assert!(
-        !listed.contains("data-today=\"Friday\""),
-        "Today still lists it:\n{listed}"
+        !listed.contains("data-scheduled=\"Friday\""),
+        "Scheduled still lists it:\n{listed}"
     );
 }
 
+/// Cancel Sending, in a scheduled message's menu, makes it a draft again; a click on the row
+/// only opens the menu, and the undo queues it again for its time.
 #[tokio::test]
-async fn cancel_from_today_opens_the_draft_as_the_store_has_it() {
+async fn cancel_sending_from_scheduled_is_undone_to_its_time() {
     let (store, _dir) = seeded();
     let draft = fresh(&store);
     let at = a_day_from_now();
     let (mut window, seen) = Window::open(store.clone(), draft.clone(), None);
     scheduled_page(&mut window, at);
     let sent = click(&mut window.dom, seen.one("aria-label", "Send"));
-    let stored = store.draft(draft.id).unwrap_or_else(|why| panic!("{why}"));
-    // The pill has gone: the message's row in Today is the only way back, and a click on it
-    // asks before it takes the message back.
+    let far = at + chrono::TimeDelta::days(1);
+    let queued = outbox(&store, far);
+    let early = outbox(&store, at - chrono::TimeDelta::seconds(1));
     let desk = window.desk;
     window.dom.in_runtime(|| {
         let mut outbox = desk.outbox;
@@ -264,26 +271,86 @@ async fn cancel_from_today_opens_the_draft_as_the_store_has_it() {
     });
     let drawn = sent.merge(crate::ui::fixtures::drain_seen(&mut window.dom));
 
-    let asked = click(&mut window.dom, drawn.one("data-today", "Friday"));
+    // A plain click asks; it takes nothing back by itself.
+    let asked = click(&mut window.dom, drawn.one("data-scheduled", "Friday"));
+    assert_eq!(
+        store.draft(draft.id).map(|d| d.state).ok(),
+        Some(SendState::Scheduled { at }),
+        "a click took the message back"
+    );
     let opened = settle(&mut window.dom, asked);
     pick_named(
         &mut window.dom,
         &opened,
-        &crate::ui::copy::menus::cancel_sending("Friday"),
+        crate::ui::copy::menus::CANCEL_SENDING,
     )
     .await;
-    window.render();
+    let markup = window.render();
     assert_eq!(
         store.draft(draft.id).map(|d| d.state).ok(),
         Some(SendState::Editing)
     );
-    let page = window.page();
-    let (text, phase) = window
+    assert_eq!(outbox(&store, far), queued - 1, "the send is still queued");
+    assert!(scheduled(&store, &Scope::All).is_empty());
+    assert!(
+        !markup.contains("data-scheduled=\"Friday\""),
+        "Scheduled still lists it:\n{markup}"
+    );
+
+    // The undo, as ⌘Z or the toast's Undo takes it: queued again for the same time.
+    let shell = window.shell;
+    let entry = window
         .dom
-        .in_runtime(|| (to_flowed(&page.peek().session.doc), page.peek().phase));
-    assert_eq!(text, stored.text, "the reopened page has another body");
-    assert_eq!(phase, Phase::Writing);
-    assert!(waiting(&store).is_empty());
+        .in_runtime(|| {
+            let mut shell = shell;
+            shell.write().undo.pop()
+        })
+        .unwrap_or_else(|| panic!("Cancel Sending left no undo"));
+    let resent = window.dom.in_scope(dioxus_core::ScopeId::APP, || {
+        entry
+            .iter()
+            .filter_map(|part| part.resend)
+            .all(|resend| super::super::send_again(&store, resend))
+    });
+    assert!(resent, "the undo was refused");
+    assert_eq!(
+        store.draft(draft.id).map(|d| d.state).ok(),
+        Some(SendState::Scheduled { at }),
+        "the undo did not hold it for its time"
+    );
+    assert_eq!(outbox(&store, far), queued, "the undo queued nothing");
+    assert_eq!(
+        outbox(&store, at - chrono::TimeDelta::seconds(1)),
+        early,
+        "the undone send may leave before its time"
+    );
+}
+
+/// The Scheduled place is the Space's: a message held on an account outside it is not listed.
+#[test]
+fn scheduled_lists_only_the_spaces_accounts() {
+    let (store, _dir) = seeded();
+    let draft = fresh(&store);
+    let at = a_day_from_now();
+    store
+        .set_send_state(draft.id, &SendState::Scheduled { at }, Utc::now())
+        .unwrap_or_else(|why| panic!("{why}"));
+    let ids = |scope: &Scope| -> Vec<DraftId> {
+        scheduled(&store, scope)
+            .into_iter()
+            .map(|one| one.id)
+            .collect()
+    };
+    assert_eq!(ids(&Scope::All), [draft.id]);
+    assert_eq!(
+        ids(&Scope::Accounts(vec![draft.account.clone()])),
+        [draft.id]
+    );
+    assert!(
+        ids(&Scope::Accounts(vec![mail_domain::id::new_account_id()])).is_empty(),
+        "another Space's message is listed"
+    );
+    assert!(ids(&Scope::Accounts(Vec::new())).is_empty());
 }
 
 #[tokio::test]

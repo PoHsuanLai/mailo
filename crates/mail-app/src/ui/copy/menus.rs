@@ -9,10 +9,15 @@ pub const SHOW_SIDEBAR: &str = "Show Sidebar";
 
 // Today's right-click menu.
 pub const CLEAR_TODAY: &str = "Clear Today";
-/// A message waiting for its time, as the item that takes it back.
-pub fn cancel_sending(title: &str) -> String {
-    format!("Cancel Sending {title}")
-}
+// A scheduled message's menu: it goes back to Drafts, with undo, so nothing more is asked.
+pub const CANCEL_SENDING: &str = "Cancel Sending";
+
+// ⌘K's commands that go to a place.
+pub const GO_TO_INBOX: &str = "Go to Inbox";
+pub const GO_TO_KEPT: &str = "Go to Kept";
+pub const GO_TO_SNOOZED: &str = "Go to Snoozed";
+pub const GO_TO_DONE: &str = "Go to Done";
+pub const GO_TO_TRASH: &str = "Go to Trash";
 
 // The Space's menu › Accounts.
 pub const ACCOUNTS: &str = "Accounts";

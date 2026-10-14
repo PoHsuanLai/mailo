@@ -8,6 +8,8 @@ pub const SIDEBAR: &str = "Sidebar";
 pub const SIDEBAR_MENU: &str = "Sidebar Menu";
 /// The foot's sync mark.
 pub const SYNC_NOW: &str = "Sync Now";
+/// The sync mark while an account in view waits for its sign-in: a press asks about it again.
+pub const SIGN_IN_AGAIN: &str = "Sign In Again";
 pub const FAVOURITES: &str = "Favourites";
 pub const TODAY: &str = "Today";
 pub const PLACES: &str = "Places";

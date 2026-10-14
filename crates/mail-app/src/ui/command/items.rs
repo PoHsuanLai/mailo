@@ -12,6 +12,7 @@ use std::collections::HashMap;
 use super::super::menu::{MenuItem, Right, Run, Tile, Tone};
 use crate::ui::actions;
 use crate::ui::bin::Bin;
+use crate::ui::copy;
 use crate::ui::view::{SettingsPage, Source};
 use chordkit::{Keymap, StandardAction};
 use chrono::{DateTime, Utc};
@@ -143,35 +144,35 @@ pub(in crate::ui) const ENTRIES: &[Entry] = &[
     entry(
         CommandId::Go(Goes::Inbox),
         "go-inbox",
-        "Go to Inbox",
+        copy::menus::GO_TO_INBOX,
         Icon::Inbox,
         None,
     ),
     entry(
         CommandId::Go(Goes::Kept),
         "go-kept",
-        "Go to Kept",
+        copy::menus::GO_TO_KEPT,
         Icon::Star,
         None,
     ),
     entry(
         CommandId::Go(Goes::Snoozed),
         "go-snoozed",
-        "Go to Snoozed",
+        copy::menus::GO_TO_SNOOZED,
         Icon::Clock,
         None,
     ),
     entry(
         CommandId::Go(Goes::Done),
         "go-done",
-        "Go to Done",
+        copy::menus::GO_TO_DONE,
         Icon::Archive,
         None,
     ),
     entry(
         CommandId::Go(Goes::Trash),
         "go-trash",
-        "Go to Trash",
+        copy::menus::GO_TO_TRASH,
         Icon::Trash,
         None,
     ),

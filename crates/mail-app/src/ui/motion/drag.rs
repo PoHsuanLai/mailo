@@ -50,7 +50,7 @@ pub(in crate::ui) fn view_kind(place: &Place) -> ViewKind {
         },
         // A saved view says what it is; one made in the editor is a query, and takes no drop.
         Source::Saved(view) => view.kind.clone(),
-        Source::Drafts | Source::Waiting | Source::History => ViewKind::Query,
+        Source::Drafts | Source::Waiting | Source::History | Source::Scheduled => ViewKind::Query,
     }
 }
 

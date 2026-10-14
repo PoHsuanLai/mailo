@@ -47,14 +47,11 @@ impl Fetcher {
 }
 
 /// The address the list's title names beside a folder, when the folder's account is one of
-/// several in view. A pressed tile names its own address already.
+/// several in view.
 pub(in crate::ui) fn title_address(
     shell: &Shell,
     accounts: &[(AccountId, String)],
 ) -> Option<String> {
-    if shell.account.is_some() {
-        return None;
-    }
     let mailbox = folder_of(shell.places.get(shell.selected)?)?;
     let several = match &shell.scope {
         crate::ui::space::Scope::All => accounts.len() > 1,

@@ -450,6 +450,11 @@ pub enum Source {
     /// Not a `Filter` either: what was opened and when is the store's own record
     /// ([`mail_store::Store::opened`]), which no summary carries.
     History,
+    /// The messages held to leave at a time the person chose, soonest first.
+    ///
+    /// Drafts, like [`Source::Drafts`]: a message that has not left is not mail yet. Drawn in
+    /// the sidebar only while one is waiting.
+    Scheduled,
 }
 
 fn source_for(role: MailboxRole) -> Source {
@@ -472,7 +477,8 @@ pub fn kept_filter() -> Filter {
 ///
 /// Inbox is `place_filter(Inbox)` rather than anything special, which is the plan's claim that a
 /// place is just a saved filter, made true here rather than asserted. Positions are not stored:
-/// a Space remembers its place by name ([`renamed`] reads the names it used to have), and a
+/// a Space remembers its place by [`place_key`] ([`find_place`] reads the names it used to
+/// store), and a
 /// running window finds a place again by its source.
 pub fn default_places() -> Vec<Place> {
     [
@@ -483,6 +489,8 @@ pub fn default_places() -> Vec<Place> {
         // Only the ones still away. A due thread is back in the inbox, and showing it here as
         // well would make "snoozed" mean two different things in two places.
         ("Snoozed", Source::Mail(pending_snooze()), Reach::Sidebar),
+        // Only while a message is waiting for its time: the sidebar draws it then and not before.
+        ("Scheduled", Source::Scheduled, Reach::Sidebar),
         ("Done", source_for(MailboxRole::Archive), Reach::Sidebar),
         ("Kept", Source::Mail(kept_filter()), Reach::Sidebar),
         ("Sent", source_for(MailboxRole::Sent), Reach::TitleMenu),
@@ -509,6 +517,52 @@ pub fn renamed(stored: &str) -> &str {
         "Starred" | "Pinned" => "Kept",
         other => other,
     }
+}
+
+/// What a Space remembers a place by: a key that tells mailo's own places apart from a label,
+/// folder or saved view the person named the same. A label called "Done" and the Done place
+/// share a name and nothing else.
+///
+/// A label, folder or view is keyed by what it is, not what it is called, so renaming one keeps
+/// it remembered; one of mailo's own places by its name, which mailo chose.
+pub fn place_key(place: &Place) -> String {
+    if let Some(view) = saved_of(place) {
+        return format!("view:{}", view.id);
+    }
+    if let Some(mailbox) = folder_of(place) {
+        return format!("folder:{}:{}", mailbox.account, mailbox.path);
+    }
+    match &place.source {
+        Source::Mail(Filter::HasLabel(label)) => format!("label:{label}"),
+        _ => format!("place:{}", place.name),
+    }
+}
+
+/// The names mailo's own places had before the sidebar became lifecycle, when a Space stored a
+/// place by its name alone. A stored name among them was one of mailo's places; any other was
+/// the person's label, folder or view.
+const NAMED_BEFORE_KEYS: &[&str] = &[
+    "Inbox", "Starred", "Snoozed", "Archive", "Sent", "Drafts", "Spam", "Trash", "Pinned",
+    "Waiting", "History",
+];
+
+/// Where among `places` the place a Space stored as `stored` is now, if it is still there.
+///
+/// `stored` is a [`place_key`]. A Space left before keys stored the place's name: one of mailo's
+/// own names then ([`renamed`] to the place that replaced it) is mailo's place, and any other
+/// name is the person's, so a label called "Done" left before Done was a place is still that
+/// label.
+pub fn find_place(places: &[Place], stored: &str) -> Option<usize> {
+    if let Some(at) = places.iter().position(|place| place_key(place) == stored) {
+        return Some(at);
+    }
+    let name = renamed(stored);
+    let own = |place: &Place| place_key(place) == format!("place:{}", place.name);
+    let theirs = !NAMED_BEFORE_KEYS.contains(&stored);
+    places
+        .iter()
+        .position(|place| place.name == name && own(place) != theirs)
+        .or_else(|| places.iter().position(|place| place.name == name))
 }
 
 /// A place that lists one label, as opposed to a mailbox.
@@ -588,7 +642,11 @@ pub fn saved_place(view: &View) -> Place {
 pub fn saved_of(place: &Place) -> Option<&View> {
     match &place.source {
         Source::Saved(view) => Some(view),
-        Source::Mail(_) | Source::Drafts | Source::Waiting | Source::History => None,
+        Source::Mail(_)
+        | Source::Drafts
+        | Source::Waiting
+        | Source::History
+        | Source::Scheduled => None,
     }
 }
 
@@ -622,7 +680,7 @@ pub fn badge_filter(source: &Source) -> Option<Filter> {
         Source::Mail(filter) => Some(crate::place::unread_in(filter.clone())),
         Source::Saved(view) => Some(crate::place::unread_in(view.filter.clone())),
         // Nothing in it is news: the user wrote the last word and is waiting for someone else's.
-        Source::Drafts | Source::Waiting | Source::History => None,
+        Source::Drafts | Source::Waiting | Source::History | Source::Scheduled => None,
     }
 }
 
@@ -1026,7 +1084,7 @@ mod tests {
     /// step away, and History is in ⌘K alone.
     #[test]
     fn the_places_are_the_lifecycle_then_the_mailboxes_one_step_away() {
-        let want: [(&str, Source, Reach); 10] = [
+        let want: [(&str, Source, Reach); 11] = [
             (
                 "Inbox",
                 Source::Mail(place_filter(MailboxRole::Inbox)),
@@ -1034,6 +1092,7 @@ mod tests {
             ),
             ("Waiting", Source::Waiting, Reach::Sidebar),
             ("Snoozed", Source::Mail(pending_snooze()), Reach::Sidebar),
+            ("Scheduled", Source::Scheduled, Reach::Sidebar),
             (
                 "Done",
                 Source::Mail(place_filter(MailboxRole::Archive)),
@@ -1124,6 +1183,32 @@ mod tests {
             assert!(at(kept).is_some(), "{kept} is gone");
         }
     }
+
+    /// A label called Done is not the Done place: each is remembered by its own key and found
+    /// again by it, and a name stored before keys finds the one that bore it then.
+    #[test]
+    fn a_label_called_done_is_not_the_done_place() {
+        let label = LabelId::generate();
+        let places = places_with(&[("Done".to_owned(), label)], &[], &[]);
+        let theirs = places
+            .iter()
+            .position(|place| place.source == Source::Mail(Filter::HasLabel(label)))
+            .expect("the label's place");
+        let ours = places
+            .iter()
+            .position(|place| place.source == Source::Mail(place_filter(MailboxRole::Archive)))
+            .expect("Done");
+        assert_ne!(place_key(&places[theirs]), place_key(&places[ours]));
+        for at in [theirs, ours] {
+            assert_eq!(find_place(&places, &place_key(&places[at])), Some(at));
+        }
+        // Stored by name before keys: "Done" was the label then, and "Archive" was mailo's.
+        assert_eq!(find_place(&places, "Done"), Some(theirs));
+        assert_eq!(find_place(&places, "Archive"), Some(ours));
+        // Without the label, an old "Done" has only mailo's place to land on.
+        assert_eq!(find_place(&default_places(), "Done"), Some(ours));
+        assert_eq!(find_place(&places, "place:Gone"), None);
+    }
 }
 
 #[cfg(test)]
@@ -1159,12 +1244,14 @@ mod badge_tests {
                 // The user wrote the last word in each of them: nothing there is unread news.
                 // "3 unread drafts" is not a thing: a draft did not arrive and nobody failed to
                 // read it.
-                Source::Drafts | Source::Waiting | Source::History => assert_eq!(
-                    badge_filter(&place.source),
-                    None,
-                    "{} has a badge",
-                    place.name
-                ),
+                Source::Drafts | Source::Waiting | Source::History | Source::Scheduled => {
+                    assert_eq!(
+                        badge_filter(&place.source),
+                        None,
+                        "{} has a badge",
+                        place.name
+                    )
+                }
             }
         }
     }
