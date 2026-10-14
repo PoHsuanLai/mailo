@@ -51,8 +51,8 @@ impl Hub {
         }))
     }
 
-    /// Hand `handed` to the main window. With the main window gone it goes nowhere: the draft is
-    /// in the store either way.
+    /// Hand `handed` to the main window. The main window closes every compose window as it goes
+    /// (`use_handed`), so there is always one to take it.
     pub(in crate::ui) fn hand(&self, handed: Handed) {
         let _ = self.0.give.send(handed);
     }
@@ -87,6 +87,8 @@ pub(in crate::ui) fn use_handed(desk: Desk, shell: Signal<Shell>, revision: Sign
     let hub = use_hook(|| try_consume_context::<Hub>().unwrap_or_default());
     use_context_provider(|| hub.clone());
     let window = ds_blitz::use_window_handle();
+    // No compose window outlives this one: its hand-overs would go nowhere.
+    use_drop(crate::ui::window::close_all);
     use_future(move || {
         let hub = hub.clone();
         let window = window.clone();

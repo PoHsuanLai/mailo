@@ -119,6 +119,21 @@ fn open(draft: DraftId, page: Option<Page>, subject: &str) -> Opened {
     }
 }
 
+/// Close every compose window, each keeping its draft as it was left. The main window does this
+/// as it closes: what a compose window hands over (Today, the send pill, Delete Draft's undo) has
+/// nowhere to go once the main window is gone.
+pub(in crate::ui) fn close_all() {
+    let open: Vec<WindowHandle> = OPEN.with(|open| {
+        open.borrow_mut()
+            .drain()
+            .map(|(_, handle)| handle)
+            .collect()
+    });
+    for handle in open {
+        handle.close();
+    }
+}
+
 /// Send a new message this window is asked to compose to a window of its own. Called once by each
 /// window that composes: the main window and a conversation's (whose forward is a new message).
 pub(in crate::ui) fn use_compose_windows(shell: Signal<Shell>, desk: Desk) {
