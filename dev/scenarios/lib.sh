@@ -16,7 +16,7 @@
 # - Only the processes a script started are killed (`track`, `cleanup`); the nested compositor is
 #   reused when one is up and stopped only when this script started it.
 #
-# Needs: a Wayland session to nest in, cosmic-comp, grim, dbus-daemon, dbus-monitor, python3 with
+# Needs: a Wayland session to nest in, a nested compositor, grim, dbus-daemon, dbus-monitor, python3 with
 # PIL, uv (for the fake server's Twisted), and the sill checkout beside this one (../sill, or
 # MAILO_SILL) with quire, shell-host, blitz-kit, keycap and palmrest beside it, as sill's own
 # scripts need. MAILO_BIN and SILL_BIN name already built debug binaries.
@@ -68,7 +68,7 @@ build_all() {
 
 # ---- the nested compositor ----
 
-# Reuses the nested cosmic-comp when one is up; otherwise starts one (shell-host's nested.sh on
+# Reuses the nested compositor when one is up; otherwise starts one (shell-host's nested.sh on
 # Mesa) and adopts it, because nested.sh can exit before it has written its env file.
 ensure_compositor() {
   say "nested compositor"
