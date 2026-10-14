@@ -74,8 +74,6 @@ pub(in crate::ui) enum Own {
     Code,
     /// Send the message.
     Send,
-    /// Focus mode in the composer.
-    Focus,
     /// ⌥⌘C, as in Apple Mail: the composer's Cc row, drawn and given the keyboard.
     AddCc,
     /// ⌥⌘B, as in Apple Mail: the composer's Bcc row, the same way.
@@ -99,7 +97,6 @@ const OWN: &[(Own, &str, &[&str])] = &[
     ),
     (Own::Code, "mail.code", &["Primary+E"]),
     (Own::Send, "mail.send", &["Primary+Enter"]),
-    (Own::Focus, "mail.focus", &["Primary+Shift+F"]),
     (Own::AddCc, "mail.add-cc", &["Alt+Primary+C"]),
     (Own::AddBcc, "mail.add-bcc", &["Alt+Primary+B"]),
     (Own::OpenInWindow, "mail.open-in-window", &["Shift+Enter"]),

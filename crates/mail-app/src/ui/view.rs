@@ -563,6 +563,11 @@ pub struct Composing {
     /// else. One extra click is the whole of the protection, which is what every client that
     /// cannot offer undo does.
     pub confirming_discard: bool,
+    /// Drawn in this window's reader column. A new message (or a forward) opens in a compose
+    /// window of its own (`ui/window/compose.rs`); it stays here only once "Open in Main Window"
+    /// brought it here, in the compose window itself, or where no second window can open. A reply
+    /// is always drawn under its thread, whatever this says.
+    pub in_place: bool,
 }
 
 impl Composing {
@@ -578,6 +583,7 @@ impl Composing {
             attachments: Vec::new(),
             notice: None,
             confirming_discard: false,
+            in_place: false,
         }
     }
 
@@ -869,6 +875,16 @@ impl Shell {
     /// Open the composer on `draft`.
     pub fn compose(&mut self, draft: &Draft) {
         self.composing = Some(Composing::of(draft));
+    }
+
+    /// Open the composer on `draft` in this window's reader column, where a new message would
+    /// otherwise open in a window of its own: "Open in Main Window", and the compose window's own
+    /// page.
+    pub fn compose_in_place(&mut self, draft: &Draft) {
+        self.composing = Some(Composing {
+            in_place: true,
+            ..Composing::of(draft)
+        });
     }
 
     /// Drop the composer's widgets without writing them anywhere.
@@ -1920,6 +1936,7 @@ mod discarding {
             attachments: Vec::new(),
             notice: None,
             confirming_discard: false,
+            in_place: false,
         }
     }
 

@@ -195,13 +195,6 @@ pub(in crate::ui) enum Phase {
     Closed,
 }
 
-/// Focus mode: the page takes the whole card.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(in crate::ui) enum Focus {
-    Off,
-    On,
-}
-
 /// The folded original on a reply.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::ui) enum Fold {
@@ -259,7 +252,6 @@ pub(in crate::ui) struct Page {
     /// Bumped on every change, so a debounced save can tell whether it is still the latest.
     pub edits: u64,
     pub phase: Phase,
-    pub focus: Focus,
     pub quoted: Fold,
     /// The plain text the message will carry, shown under the body from ⋯ › Show Plain Text.
     pub plain: Fold,
@@ -324,7 +316,6 @@ impl Page {
             saved: Saved::Opened,
             edits: 0,
             phase: Phase::Writing,
-            focus: Focus::Off,
             quoted: Fold::Folded,
             plain: Fold::Folded,
             people,

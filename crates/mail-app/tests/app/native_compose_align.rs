@@ -2,7 +2,7 @@
 //! new message's subject sits where a message's title does, at its size (20) and weight; its
 //! header lines start at the reader's left edge, as a message's header does, each label on that
 //! edge and every value at one x; its body starts where the reader's body
-//! does, at the reader's size; and every trailing control (Focus, the To row's Bcc, Send ▾) ends
+//! does, at the reader's size; and every trailing control (the To row's Bcc, Send ▾) ends
 //! on one right edge. A reply under the thread lines up the same way, and its bar of buttons is
 //! drawn inside the window.
 //!
@@ -11,20 +11,11 @@
 
 use ds::prelude::*;
 use ds_harness::{Clock, DocQuery, Driver, Harness, HarnessConfig, Query, Viewport};
-use mail_core::SqliteStore;
-use mail_core::{Arrival, absorb};
-use mail_domain::id::account_id_from_uuid;
-use mail_domain::*;
-use porter_core::AccountId;
-use std::sync::Arc;
 use std::time::Duration;
 
 use crate::drive;
+use crate::one_message::seeded;
 use drive::{Drive, Key};
-
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000c7"))
-}
 
 const VIEW: Viewport = Viewport {
     width: 1200,
@@ -37,46 +28,6 @@ const SLACK: f32 = 2.0;
 
 fn ms(n: u64) -> Duration {
     Duration::from_millis(n)
-}
-
-fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
-    std::fs::create_dir_all(dir.join("blobs")).unwrap();
-    let store = SqliteStore::open(dir.join("mail.db"), dir.join("blobs")).unwrap();
-    {
-        mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
-        mail_store::testing::seed_identity_for(
-            &store,
-            IdentityId::generate(),
-            acct_account(),
-            "me@example.test",
-            None,
-        );
-    }
-    let now = chrono::Utc::now();
-    let date = (now - chrono::Duration::hours(1)).to_rfc2822();
-    let raw = format!(
-        "From: ada@example.test\r\nTo: me@example.test\r\nSubject: Flight to the conference\r\n\
-         Date: {date}\r\nMessage-ID: <align@example.test>\r\n\r\nThe gate changed to B12.\r\n"
-    );
-    absorb(
-        &store,
-        acct_account(),
-        MailboxRef {
-            account: acct_account(),
-            path: "INBOX".to_owned(),
-        },
-        Some(SyncCursor::Pop),
-        vec![Arrival {
-            remote: RemoteRef::Pop {
-                uidl: "align".to_owned(),
-            },
-            raw: raw.into_bytes(),
-        }],
-        false,
-        now,
-    )
-    .unwrap();
-    Arc::new(store)
 }
 
 fn open() -> (Harness, tempfile::TempDir) {
@@ -307,21 +258,13 @@ fn a_new_message_is_set_as_the_reader_sets_a_message() {
     near("the body", body_left, model.body_left);
     assert_eq!(body_font, model.body_font, "the body's size");
 
-    // Every trailing control ends on one right edge: the bar's Focus, the To row's Bcc, Send ▾.
-    let edge = right(&harness, ".cpage .c-top .ds-button");
-    for (what, selector) in [
-        (
-            "Bcc at the To row's end",
-            ".cpage [*|aria-label=\"Add Bcc\"]",
-        ),
-        ("Send ▾", ".cpage .c-foot .c-send"),
-    ] {
-        let x = right(&harness, selector);
-        assert!(
-            (x - edge).abs() <= SLACK,
-            "{what} ends at {x}, Focus at {edge}"
-        );
-    }
+    // Every trailing control ends on one right edge: the To row's Bcc and Send ▾.
+    let edge = right(&harness, ".cpage [*|aria-label=\"Add Bcc\"]");
+    let send = right(&harness, ".cpage .c-foot .c-send");
+    assert!(
+        (send - edge).abs() <= SLACK,
+        "Send ▾ ends at {send}, Bcc at the To row's end at {edge}"
+    );
 
     // Cc and Bcc added: three rows, one label column, every value at one x.
     press(&mut harness, ".cpage [*|aria-label=\"Add Cc\"]");

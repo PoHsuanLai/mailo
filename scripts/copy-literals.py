@@ -9,7 +9,8 @@ What is a visible literal is a heuristic, kept simple and deterministic:
 - Not counted at all: comments, byte strings, ui/copy/ itself, test code (files named tests.rs or
   *_tests.rs, anything under a tests/ or fixtures/ directory, a file a `#[cfg(test)] mod x;`
   declares, and the item that follows any `#[cfg(test)]`).
-- Not visible by where it stands: inside an attribute (`#[path = "..."]`), inside a log, panic or
+- Not visible by where it stands: inside an `impl Debug for` block, inside an attribute
+  (`#[path = "..."]`), inside a log, panic or
   assert macro or an `.expect(...)`, as the argument of a string test (`starts_with`, `contains`,
   `strip_prefix`, ...), as a match pattern (`"Escape" =>`, `"a" | "b"`), beside `==` or `!=`, or
   as the value of a markup property that is never read out (`class:`, `key:`, `id:`, `role:`,
@@ -73,6 +74,8 @@ FONT = re.compile(
     r"Segoe|Menlo|Consolas|Courier|DejaVu|Liberation|Cantarell|Inter$)"
 )
 CHORD = re.compile(r"^(?:(?:Primary|Shift|Alt|Ctrl|Control|Super|Meta|Cmd|Option)\+)+[A-Za-z0-9]+$")
+# The head of an `impl Debug for T` block, up to its `{`: what it writes is for a developer.
+DEBUG_IMPL = re.compile(r"\bimpl\b[^{};]*\bDebug\s+for\b[^{};]*$")
 PLACEHOLDER = re.compile(r"\{[^{}]*\}")
 ESCAPE = re.compile(r"\\(?:u\{[0-9a-fA-F]+\}|x[0-9a-fA-F]{2}|.)")
 
@@ -211,6 +214,8 @@ class Lexer:
                 if skip_item and skipping is None and c == "{":
                     skipping = len(self.frames)
                     skip_item = False
+                elif skipping is None and c == "{" and DEBUG_IMPL.search(self.tail(200)):
+                    skipping = len(self.frames)  # what a Debug impl writes is never shown
                 self.frames.append((c, self.callee()))
             elif c in ")]}":
                 if self.frames:

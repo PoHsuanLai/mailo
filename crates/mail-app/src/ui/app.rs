@@ -101,7 +101,11 @@ pub(super) fn App() -> Element {
     super::downloads::use_provide_shelf(dirs.as_ref());
     let mut side_hidden = use_signal(|| false);
     let prefs = super::prefs::use_prefs(dirs.as_ref());
-    let desk = compose::use_desk(today_list, spaces, dirs.clone(), side_hidden);
+    let desk = compose::use_desk(today_list, spaces, dirs.clone(), None);
+    // What compose windows hand back (a parked page, a send, an undo), and a new message sent to
+    // a window of its own.
+    compose::use_handed(desk, shell, revision);
+    super::window::use_compose_windows(shell, desk);
     compose::use_test_dictionaries();
     let mut seen_open = use_signal(|| None::<mail_domain::ThreadId>);
     let mut label_ids = use_signal(Vec::<mail_domain::LabelId>::new);
@@ -643,7 +647,9 @@ pub(super) fn App() -> Element {
     let frame_class = if side_hidden() { "app no-side" } else { "app" };
     // The open thread or the composer: a column of the card, or, floating, quire's `Peek` over it.
     let reading = rsx! {
-        // A new message is a page in this column; a reply sits under its thread.
+        // A reply sits under its thread. A new message opens in a compose window of its own, and
+        // is a page in this column only once Open in Main Window brought it here (or where no
+        // window can open).
         match (compose::composing(&shell.read()), shell.read().open) {
             (Some((draft, PageKind::Reply)), Some(thread)) => rsx! {
                 Reader { thread, shell, revision,

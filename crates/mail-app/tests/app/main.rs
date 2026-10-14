@@ -11,6 +11,8 @@ mod cli_mail;
 mod drive;
 #[path = "../support/latency_inbox.rs"]
 mod latency_inbox;
+#[path = "../support/one_message.rs"]
+mod one_message;
 #[path = "../support/row_menu.rs"]
 mod row_menu;
 #[path = "../support/settle.rs"]
@@ -33,6 +35,7 @@ mod native_account_pane;
 mod native_add_account;
 mod native_brand;
 mod native_compose_align;
+mod native_compose_window;
 mod native_control_sizes;
 mod native_copy;
 mod native_desktop_appearance;

@@ -349,14 +349,13 @@ pub(in crate::ui) mod tests {
 
     /// Spacing rule: the reader and the composer share one content inset, `--s-18`, on both
     /// edges of every band, so a subject, a header line, a body and a bar start at one x; and a
-    /// bar (the composer's, the composer's foot, the viewer's) is `--s-10` above and below.
+    /// bar (the composer's foot, the viewer's) is `--s-10` above and below.
     #[test]
     fn the_reader_and_the_composer_share_one_inset() {
         const INSET: &str = "var(--s-18)";
         // (selector, property): each band's shorthand.
         const BANDS: &[(&str, &str)] = &[
             (".reader-head", "padding"),
-            (".c-top", "padding"),
             (".c-head", "padding"),
             (".c-props", "padding"),
             (".c-main", "padding"),
@@ -380,7 +379,7 @@ pub(in crate::ui) mod tests {
         ] {
             assert_eq!(values_of(selector, property), [INSET], "{selector}");
         }
-        for selector in [".c-top", ".c-foot", ".viewer-head"] {
+        for selector in [".c-foot", ".viewer-head"] {
             let value = values_of(selector, "padding");
             assert_eq!(words(&value[0])[0], "var(--s-10)", "{selector}: a bar");
         }

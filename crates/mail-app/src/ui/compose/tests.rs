@@ -210,8 +210,12 @@ fn PageHarness(draft: Draft) -> Element {
     let side = use_signal(|| false);
     let pages = use_signal(|| 1u32);
     let dirs = try_consume_context::<WindowDirs>();
-    let desk = use_desk(today, spaces, dirs.clone(), side);
-    use_hook(|| shell.write().compose(&draft));
+    let desk = use_desk(today, spaces, dirs.clone(), None);
+    // In place, as the main window holds a page Open in Main Window brought it.
+    use_hook(|| shell.write().compose_in_place(&draft));
+    // A page brought back (Undo on the pill) asks for a compose window, and, with none to open
+    // here, is drawn in place.
+    crate::ui::window::use_compose_windows(shell, desk);
     DESK.with(|slot| slot.set(Some(desk)));
     SHELL.with(|slot| slot.set(Some(shell)));
     let open = composing(&shell.read());
