@@ -197,10 +197,11 @@ pub fn turns_off(kind: OpKind, summary: &ThreadSummary, now: DateTime<Utc>) -> O
 ///
 /// Derived from where the thread is ([`Whereabouts`]) and its state, one side of each pair:
 /// Archive in the inbox, Move to Inbox out of Archive or Trash, Not Spam out of Spam (both
-/// [`OpKind::Restore`]), Trash anywhere but Trash, Spam anywhere but Spam, and read and star as
-/// the conversation needs them. Pin, mute, snooze, the follow-up, a label and a forward are
-/// always offered; [`says`] names which way the first four go. Returns [`OpKind`] rather than
-/// [`Op`] because a menu item cannot carry a payload that does not exist yet.
+/// [`OpKind::Restore`]), Trash anywhere but Trash, Spam anywhere but Spam or the person's own
+/// mail, and read and star as the conversation needs them. Pin, mute, snooze, the follow-up, a
+/// label and a forward are always offered; [`says`] names which way the first four go. Returns
+/// [`OpKind`] rather than [`Op`] because a menu item cannot carry a payload that does not exist
+/// yet.
 pub fn hover_actions(summary: &ThreadSummary) -> Vec<OpKind> {
     let here = Whereabouts::of(summary.mailboxes);
     let mut out = Vec::new();
@@ -209,7 +210,8 @@ pub fn hover_actions(summary: &ThreadSummary) -> Vec<OpKind> {
         Whereabouts::Archive | Whereabouts::Trash | Whereabouts::Spam => out.push(OpKind::Restore),
         Whereabouts::Elsewhere => {}
     }
-    if here != Whereabouts::Spam {
+    // Spam is what someone else sent: not offered from Spam, nor for only the person's own mail.
+    if !matches!(here, Whereabouts::Spam | Whereabouts::Elsewhere) {
         out.push(OpKind::Spam);
     }
     if here != Whereabouts::Trash {
@@ -741,11 +743,7 @@ mod tests {
                 &[Archive, Trash],
                 &[Say::MoveToInbox, Say::Spam],
             ),
-            (
-                "only my own mail, in Sent",
-                &[Sent],
-                &[Say::Spam, Say::Trash],
-            ),
+            ("only my own mail, in Sent", &[Sent], &[Say::Trash]),
         ];
         let removal = [
             Say::Archive,
