@@ -348,11 +348,13 @@ fn a_search_with_nothing_here_offers_the_server_and_lists_what_it_finds() {
     );
     let html = harness.html();
     let server = mail_app::ui::copy::headers::FROM_SERVER;
+    // The heading over the server's finds says where they came from, and the row does not
+    // repeat it.
     assert!(html.contains(server), "{html}");
     assert_eq!(
         harness.count(&format!("[*|data-chip=\"{server}\"]")),
-        1,
-        "the row says where it came from:\n{html}"
+        0,
+        "the row repeats its heading:\n{html}"
     );
     let said = harness
         .text_of(".server-search-one .status")

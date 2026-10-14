@@ -12,7 +12,6 @@ crates/mail-app/src/ui/doctor.rs 15
 crates/mail-app/src/ui/follow_up.rs 9
 crates/mail-app/src/ui/keyboard.rs 12
 crates/mail-app/src/ui/keymap.rs 20
-crates/mail-app/src/ui/list_search.rs 1
 crates/mail-app/src/ui/move_to.rs 6
 crates/mail-app/src/ui/no_account.rs 4
 crates/mail-app/src/ui/ops.rs 2
