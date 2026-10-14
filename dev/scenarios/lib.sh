@@ -1,8 +1,13 @@
 # shellcheck shell=bash
 # Shared by the cross-component scenarios (dev/scenarios/*.sh; sourced, never run): mailo, the real
-# `mailo watch` and the real window, against the real sill, on a nested compositor, with a private
-# D-Bus, a scratch HOME and a fake IMAP server. Nothing here reaches the person's session, their
+# `mailo watch` and the real window, against the real sill, on a headless compositor (casement in
+# the desktop jail, or shell-host's headless KWin with SILL_COMPOSITOR=kwin), with a private D-Bus,
+# a scratch HOME and a fake IMAP server. Nothing here reaches the person's session, their
 # ~/.config, their keyring or any mail.
+#
+# Nothing inside the jail calls cargo or the network, so everything is built beforehand, outside
+# it (`prebuild`, which `dev/scenarios/all.sh --build` runs), and a scenario under the jail
+# (SCN_PREBUILT=1) only checks that the artefacts are there.
 #
 # SAFETY, the rules of sill's dev/lib/bus.sh, which this file builds on:
 # - ONE private dbus-daemon is both the session and the system bus of everything started, so
@@ -13,13 +18,14 @@
 # - Credentials are plain files in the scratch tree (`MAILO_TEST_SECRETS_DIR`, a debug-build seam
 #   of mail-runtime), so no keyring is asked, and the IMAP account is the fake server's.
 # - sill runs with its fake DDC (`--fake-ddc`): no /dev/i2c-*.
-# - Only the processes a script started are killed (`track`, `cleanup`); the nested compositor is
-#   reused when one is up and stopped only when this script started it.
+# - Only the processes a script started are killed (`track`, `cleanup`), and the compositor is the
+#   one this script started (sill's dev/lib/compositor.sh: start_compositor, stop_compositor).
 #
-# Needs: a Wayland session to nest in, a nested compositor, grim, dbus-daemon, dbus-monitor, python3 with
-# PIL, uv (for the fake server's Twisted), and the sill checkout beside this one (../sill, or
-# MAILO_SILL) with quire, shell-host, blitz-kit, keycap and palmrest beside it, as sill's own
-# scripts need. MAILO_BIN and SILL_BIN name already built debug binaries.
+# Needs: dbus-daemon, dbus-monitor, python3 with PIL, uv (for the fake server's Twisted, installed
+# by prebuild), the sill checkout beside this one (../sill, or MAILO_SILL) with casement,
+# shell-host, quire, blitz-kit, keycap and palmrest beside it, as sill's own scripts need, and for
+# casement the desktop jail (../desktop/harness/jail.sh). MAILO_BIN and SILL_BIN name already
+# built debug binaries.
 
 SCN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MAILO_REPO="$(cd "$SCN_DIR/../.." && pwd)"
@@ -30,20 +36,24 @@ SILL_CHECKOUT="${MAILO_SILL:-$MAILO_REPO/../sill}"
 }
 # shellcheck source=/dev/null
 source "$SILL_CHECKOUT/dev/lib/all.sh"
-MAILO_BIN="${MAILO_BIN:-$MAILO_REPO/target/debug/mailo}"
-VENV="${MAILO_VENV:-${TMPDIR:-/tmp}/mailo-scenarios-venv}"
-# What the nested compositor needs to render on Mesa (nested.sh sets the same itself). Not given to sill
-# or mailo: forcing Mesa's EGL on sill's own GPU path segfaults it, and the accept scripts run both on
-# the host's drivers.
-MESA_ENV=(
-  __EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/50_mesa.json DRI_PRIME=1
-  __GL_SYNC_TO_VBLANK=0 vblank_mode=0
-)
+# mailo's own target dir: CARGO_TARGET_DIR is sill's in sill's scripts, so it is never read here.
+MAILO_TARGET="${MAILO_TARGET:-$MAILO_REPO/target}"
+MAILO_BIN="${MAILO_BIN:-$MAILO_TARGET/debug/mailo}"
+# What prebuild leaves for the jailed run: the fake server's venv and the path of the seeding
+# fixture's test binary. Both live in the target dir, which the jail reads; its /tmp is its own.
+PREBUILT="$MAILO_TARGET/scenarios-prebuilt"
+VENV="${MAILO_VENV:-$PREBUILT/venv}"
+SEED_BIN_FILE="$PREBUILT/seed-bin"
 
 FAILED=0
 TRACKED=()
-STARTED_COMPOSITOR=0
-OUT_DIR="${OUT_DIR:-$MAILO_REPO/target/scenarios/$(basename "${0%.sh}")}"
+# Logs and captures: the target dir in a checkout, the jail's own scratch inside one (the
+# checkout is read-only there).
+if [ -n "${JAIL_SCRATCH:-}" ]; then
+  OUT_DIR="${OUT_DIR:-$JAIL_SCRATCH/mailo/$(basename "${0%.sh}")}"
+else
+  OUT_DIR="${OUT_DIR:-$MAILO_TARGET/scenarios/$(basename "${0%.sh}")}"
+fi
 mkdir -p "$OUT_DIR"
 
 die() { echo "scenario: $*" >&2; exit 1; }
@@ -58,39 +68,48 @@ track() { TRACKED+=("$1"); }
 
 # ---- builds ----
 
-build_all() {
+# Everything a scenario runs, built outside the jail: sill with its debug feature, the mailo
+# binary, the seeding fixture's test binary (its path kept in $SEED_BIN_FILE) and the fake
+# server's venv. Casement's own tools come from its dev/bootstrap.sh.
+prebuild() {
   say "build"
-  [ -x "$SILL_BIN" ] || (cd "$SILL_REPO" && cargo build -p sill --features debug) || die "sill did not build"
-  (cd "$MAILO_REPO" && cargo build -p mail-app --bin mailo \
-    && cargo test -p mail-core --test seed_scenario --no-run) >"$OUT_DIR/build.log" 2>&1 \
-    || die "mailo did not build (see $OUT_DIR/build.log)"
+  mkdir -p "$PREBUILT"
+  {
+    (cd "$SILL_REPO" && cargo build -p sill --features debug) || return 1
+    (cd "$MAILO_REPO" && cargo build --target-dir "$MAILO_TARGET" -p mail-app --bin mailo) || return 1
+    (cd "$MAILO_REPO" && cargo test --target-dir "$MAILO_TARGET" -p mail-core --test seed_scenario --no-run \
+      --message-format=json) \
+      | python3 -c '
+import json, sys
+for line in sys.stdin:
+    m = json.loads(line)
+    if m.get("reason") == "compiler-artifact" and m.get("executable") and m["target"]["name"] == "seed_scenario":
+        print(m["executable"])' >"$SEED_BIN_FILE" || return 1
+    [ -s "$SEED_BIN_FILE" ] || return 1
+    if [ ! -x "$VENV/bin/python" ]; then
+      uv venv -q "$VENV" && uv pip install -q --python "$VENV/bin/python" twisted || return 1
+    fi
+  } >"$OUT_DIR/build.log" 2>&1
 }
 
-# ---- the nested compositor ----
-
-# Reuses the nested compositor when one is up; otherwise starts one (shell-host's nested.sh on
-# Mesa) and adopts it, because nested.sh can exit before it has written its env file.
-ensure_compositor() {
-  say "nested compositor"
-  if use_nested_socket 2>/dev/null; then return 0; fi
-  local env_file="$SHELL_HOST_DEV/.nested-env" before after pid sock
-  before=$(ls "${XDG_RUNTIME_DIR:?}" | grep -E '^wayland-[0-9]+$' | sort)
-  env "${MESA_ENV[@]}" "$SILL_REPO/dev/nested.sh" start >"$OUT_DIR/nested.log" 2>&1 || true
-  STARTED_COMPOSITOR=1
-  for _ in $(seq 60); do
-    if [ ! -f "$env_file" ]; then
-      after=$(ls "$XDG_RUNTIME_DIR" | grep -E '^wayland-[0-9]+$' | sort)
-      sock=$(comm -13 <(echo "$before") <(echo "$after") | head -1)
-      if [ -n "$sock" ]; then
-        pid=$(ss -xlp 2>/dev/null | grep "/$sock " | grep -o 'pid=[0-9]*' | head -1 | cut -d= -f2)
-        [ -n "$pid" ] && printf 'WAYLAND_DISPLAY=%s\nNESTED_COMPOSITOR_PID=%s\nNESTED_XDG_CONFIG_HOME=%s/xdg-config\n' \
-          "$sock" "$pid" "$SHELL_HOST_DEV" >"$env_file"
-      fi
-    fi
-    use_nested_socket 2>/dev/null && return 0
-    sleep 0.5
+# Builds outside the jail; under it (SCN_PREBUILT=1) only checks that prebuild has run.
+build_all() {
+  if [ -z "${SCN_PREBUILT:-}" ]; then
+    prebuild || die "the build failed (see $OUT_DIR/build.log)"
+  fi
+  local artefact
+  for artefact in "$SILL_BIN" "$MAILO_BIN" "$VENV/bin/python" "$(cat "$SEED_BIN_FILE" 2>/dev/null)"; do
+    [ -x "$artefact" ] || die "$artefact is missing: run dev/scenarios/all.sh --build (outside the jail)"
   done
-  die "no nested compositor (see $OUT_DIR/nested.log)"
+}
+
+# ---- the compositor ----
+
+# Brings up the compositor (casement by default, SILL_COMPOSITOR=kwin for shell-host's headless
+# KWin) and sets WL. The session's private bus comes after it, from new_session.
+ensure_compositor() {
+  say "compositor"
+  start_compositor || die "no compositor (see $OUT_DIR)"
 }
 
 # ---- the session: bus, scratch tree, environment ----
@@ -114,7 +133,7 @@ new_session() {
     "MAILO_TEST_SECRETS_DIR=$SECRETS"
     "PATH=$(dirname "$MAILO_BIN"):$PATH"
   )
-  # A wallpaper-less nested output is fine; sill only needs the compositor.
+  # A wallpaper-less output is fine; sill only needs the compositor.
 }
 
 # The installer, run for real into the scratch prefix with a stub binary (the debug build is
@@ -137,9 +156,6 @@ install_mailo() {
 # whoever is idling. Sets IMAP_PORT and IMAP_PID.
 start_imap() {
   say "fake IMAP server"
-  if [ ! -x "$VENV/bin/python" ]; then
-    uv venv -q "$VENV" && uv pip install -q --python "$VENV/bin/python" twisted || die "no Twisted for the fake server"
-  fi
   IMAP_PORT=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
   MAILO_EXTRA_MAIL="$SPOOL" "$VENV/bin/python" "$MAILO_REPO/scripts/live-imapd.py" "$IMAP_PORT" \
     >"$OUT_DIR/imap.log" 2>&1 &
@@ -155,11 +171,10 @@ start_imap() {
 # The account for ada@example.test on that server, in the scratch data home.
 seed_account() {
   say "seed the account"
-  # Not through `in_env`: cargo needs the real HOME for its toolchain, and the fixture reads
-  # nothing from the environment but the three variables it is given.
+  # The fixture's test binary, built by prebuild, reads nothing from the environment but the
+  # three variables it is given.
   env MAILO_SEED_DIR="$DATA" MAILO_SCENARIO_IMAP_PORT="$IMAP_PORT" MAILO_TEST_SECRETS_DIR="$SECRETS" \
-    cargo test --manifest-path "$MAILO_REPO/Cargo.toml" -p mail-core --test seed_scenario \
-    -- --ignored >"$OUT_DIR/seed.log" 2>&1 || die "seeding failed (see $OUT_DIR/seed.log)"
+    "$(cat "$SEED_BIN_FILE")" --ignored >"$OUT_DIR/seed.log" 2>&1 || die "seeding failed (see $OUT_DIR/seed.log)"
 }
 
 # drop_mail SUBJECT: a message from grace@example.test appears on the server.
@@ -181,7 +196,7 @@ EOF
 
 # ---- sill ----
 
-# The daemon on the nested compositor, and what it names its surfaces.
+# The daemon on the compositor, and what it names its surfaces.
 start_sill() {
   say "sill"
   OUT_W=
@@ -328,10 +343,10 @@ banner_up() {
   sill debug capture "$BANNERS" "$png" >/dev/null 2>&1 && [ -s "$png" ] && [ "$(opaque_pixels "$png")" -gt 1000 ]
 }
 
-# The mean luminance (0..255) of the middle of the nested output, as grim draws it.
+# The mean luminance (0..255) of the middle of the output, as the compositor's `shot` draws it.
 screen_luminance() {
   local png="$OUT_DIR/screen-$1.png"
-  WAYLAND_DISPLAY="$WL" grim "$png" 2>/dev/null || return 1
+  shot "$png" 2>/dev/null || return 1
   python3 - "$png" <<'PY'
 import sys
 from PIL import Image
@@ -378,7 +393,7 @@ cleanup() {
     kill -9 "$pid" 2>/dev/null
   done
   [ -z "${DAEMON:-}" ] || stop_daemon >/dev/null 2>&1
-  if [ "$STARTED_COMPOSITOR" = 1 ]; then "$SHELL_HOST_DEV/nested.sh" stop >/dev/null 2>&1; fi
+  stop_compositor >/dev/null 2>&1
   stop_private_bus
   scratch_drop
 }
