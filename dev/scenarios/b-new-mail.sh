@@ -3,7 +3,7 @@
 #
 # `mailo watch`, the session's sync daemon, runs with no window. A fake IMAP server (the Twisted
 # one in scripts/live-imapd.py) gains a message while the watch idles on it; the real sill, on a
-# nested compositor, is the notification server and the dock. Checked:
+# compositor, is the notification server and the dock. Checked:
 #
 #   1. dist/install.sh puts the desktop entry and the icon where sill reads them, and a second
 #      run changes nothing.

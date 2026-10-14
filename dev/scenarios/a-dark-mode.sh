@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Scenario (a): a dark-mode switch restyles a running mailo.
 #
-# The real window, on a nested compositor, reads the desktop's one appearance file
+# The real window, on a headless compositor, reads the desktop's one appearance file
 # (`$XDG_CONFIG_HOME/quire/appearance.toml`, the store the shell and detent write). The file is
 # changed from outside while the window runs, as detent's Appearance page or the control centre
-# change it, and the window's own pixels are read back through the compositor (grim):
+# change it, and the window's own pixels are read back through the compositor's screenshot:
 #
 #   1. mailo's old `mailo/appearance.toml` (dark) and no desktop file: the window starts dark
 #      (the one-time migration), `quire/appearance.toml` now exists, and mailo's own copy is

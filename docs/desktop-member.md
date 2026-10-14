@@ -123,8 +123,8 @@ its anchor over (`Picked<T>`), and pdfrum moved to the rev quire's pinned block 
 
 ## The scenarios
 
-`dev/scenarios/` runs the real binaries against the real sill on a nested compositor, with a
-private bus, a scratch HOME and a fake IMAP server (`scripts/live-imapd.py`, which pushes a
+`dev/scenarios/` runs the real binaries against the real sill on a headless compositor (casement in
+the desktop jail, or shell-host's headless KWin), with a private bus, a scratch HOME and a fake IMAP server (`scripts/live-imapd.py`, which pushes a
 message dropped into `$MAILO_EXTRA_MAIL` to whoever is idling). Credentials in a scenario are
 plain files in the scratch tree: a debug build reads `MAILO_TEST_SECRETS_DIR` instead of the
 keyring (`mail-runtime/src/secrets.rs`, compiled out of release builds).
@@ -135,7 +135,9 @@ keyring (`mail-runtime/src/secrets.rs`, compiled out of release builds).
 - `d-daemon-survives.sh`: the window closes; the daemon and the badge carry on.
 - `e-intents.sh`: the installed D-Bus service starts `mailo intents` on a bus of its own, and only the
   router's name may call it. No window or mail server.
-- `all.sh` runs them in turn.
+- `all.sh` runs them in turn: `dev/scenarios/all.sh --build` builds everything outside the jail
+  (nothing in it calls cargo or the network), then runs each scenario in its own jail on casement;
+  `--compositor kwin` runs them directly on the headless KWin instead.
 
 ## Who fetches when a watch runs
 
