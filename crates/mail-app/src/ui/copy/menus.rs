@@ -55,3 +55,61 @@ pub const SHOW_PLAIN_TEXT: &str = "Show Plain Text";
 pub const SAVE_AS_TEMPLATE: &str = "Save as Template\u{2026}";
 pub const KEEP_FOR_LATER: &str = "Keep for Later";
 pub const DELETE_DRAFT: &str = "Delete Draft";
+
+// A conversation's actions, in its row's menu, the reader's ⋯ and the selection bar: each named
+// by the side the conversation is offered (`mail_core::view::Say`), never the side it is on.
+pub const ARCHIVE: &str = "Archive";
+/// Out of Archive or Trash, back to the inbox.
+pub const MOVE_TO_INBOX: &str = "Move to Inbox";
+/// Out of Spam, back to the inbox.
+pub const NOT_SPAM: &str = "Not Spam";
+pub const MARK_AS_SPAM: &str = "Mark as Spam";
+pub const MOVE_TO_TRASH: &str = "Move to Trash";
+pub const DELETE_FOREVER: &str = "Delete Forever…";
+pub const MARK_AS_READ: &str = "Mark as Read";
+pub const MARK_AS_UNREAD: &str = "Mark as Unread";
+pub const STAR: &str = "Star";
+pub const UNSTAR: &str = "Unstar";
+pub const PIN: &str = "Pin";
+pub const UNPIN: &str = "Unpin";
+pub const MUTE: &str = "Mute";
+pub const UNMUTE: &str = "Unmute";
+pub const SNOOZE: &str = "Snooze…";
+pub const UNSNOOZE: &str = "Unsnooze";
+pub const REMIND: &str = "Remind Me If No Reply…";
+pub const STOP_REMINDING: &str = "Stop Reminding";
+pub const LABEL: &str = "Label…";
+pub const REPLY: &str = "Reply";
+pub const REPLY_ALL: &str = "Reply All";
+pub const FORWARD: &str = "Forward";
+pub const MOVE_TO: &str = "Move to…";
+pub const DOWNLOAD: &str = "Download";
+
+/// The word for the side of an action a conversation is offered.
+pub fn offered(say: mail_core::view::Say) -> &'static str {
+    use mail_core::view::Say;
+    match say {
+        Say::Archive => ARCHIVE,
+        Say::MoveToInbox => MOVE_TO_INBOX,
+        Say::NotSpam => NOT_SPAM,
+        Say::Spam => MARK_AS_SPAM,
+        Say::Trash => MOVE_TO_TRASH,
+        Say::DeleteForever => DELETE_FOREVER,
+        Say::MarkRead => MARK_AS_READ,
+        Say::MarkUnread => MARK_AS_UNREAD,
+        Say::Star => STAR,
+        Say::Unstar => UNSTAR,
+        Say::Pin => PIN,
+        Say::Unpin => UNPIN,
+        Say::Mute => MUTE,
+        Say::Unmute => UNMUTE,
+        Say::Snooze => SNOOZE,
+        Say::Unsnooze => UNSNOOZE,
+        Say::Remind => REMIND,
+        Say::StopReminding => STOP_REMINDING,
+        Say::Label => LABEL,
+        Say::Reply => REPLY,
+        Say::ReplyAll => REPLY_ALL,
+        Say::Forward => FORWARD,
+    }
+}

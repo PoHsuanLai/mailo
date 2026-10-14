@@ -152,7 +152,11 @@ fn the_window_counts_its_inbox_and_counts_again_when_one_is_read_and_unread() {
     settle_until(&mut harness, |_| recorder.seen() == [3]);
 
     // Read the second conversation from its menu.
-    row_menu::row_action(&mut harness, &row(2), "Mark as read");
+    row_menu::row_action(
+        &mut harness,
+        &row(2),
+        mail_app::ui::copy::menus::MARK_AS_READ,
+    );
     settle_until(&mut harness, |_| recorder.seen() == [3, 2]);
 
     // Ctrl Z makes it unread again, and the count follows.

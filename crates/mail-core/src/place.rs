@@ -32,8 +32,23 @@ pub fn place_filter(role: MailboxRole) -> Filter {
             Filter::InMailbox(MailboxRole::Inbox),
             Filter::Not(Box::new(pending_snooze())),
         ]),
+        // Archived is filed in Archive with nothing in the inbox ([`crate::view::Whereabouts`]).
+        // A thread's mailboxes are the union over its messages, and on Gmail All Mail is filed
+        // as Archive and holds the inbox's mail too, so "has a message in Archive" listed every
+        // inbox conversation here as well, and its menu offered Archive to what looked archived.
+        MailboxRole::Archive => Filter::And(vec![
+            Filter::InMailbox(MailboxRole::Archive),
+            Filter::Not(Box::new(Filter::InMailbox(MailboxRole::Inbox))),
+        ]),
         other => Filter::InMailbox(other),
     }
+}
+
+/// The mailbox a place's filter lists, when it is one of [`place_filter`]'s: its inverse.
+pub fn place_role(filter: &Filter) -> Option<MailboxRole> {
+    MailboxRole::ALL
+        .into_iter()
+        .find(|role| place_filter(*role) == *filter)
 }
 
 /// What a click on the pin does to a conversation, given what it is now.

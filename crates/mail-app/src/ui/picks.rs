@@ -151,6 +151,10 @@ pub(super) fn PickBar(
         _ => "Star",
     };
     let mute = mute_label(&summaries);
+    // The way back for what is archived, binned or in Spam: Move to Inbox, or Not Spam when all
+    // of it is spam. Never Archive's other side drawn beside Archive for the same conversation.
+    let back = mail_core::view::says_for_all(OpKind::Restore, &summaries, chrono::Utc::now())
+        .map(crate::ui::copy::menus::offered);
     // In Trash or Spam, and only there, the picked mail can be deleted forever, once asked.
     let bin = crate::ui::bin::bin_shown(&shell.read());
     let destroyable = summaries
@@ -199,6 +203,26 @@ pub(super) fn PickBar(
                     onclick: on_primary(move || {
                         let store = consume_context::<Arc<SqliteStore>>();
                         act_on_picked(&store, shell, revision, action, &threads.peek());
+                    }),
+                }
+            }
+            if let Some(back) = back {
+                Button {
+                    bezel: Bezel::Toolbar,
+                    image: ImagePosition::Only,
+                    size: ControlSize::Large,
+                    label: back.to_owned(),
+                    icon: Icon::Corner,
+                    title: Some(back.to_owned()),
+                    common: Common {
+                        aria_label: Some(crate::ui::copy::aria::on_selected(back, count)),
+                        ..Common::default()
+                    },
+                    onclick: on_primary(move || {
+                        let store = consume_context::<Arc<SqliteStore>>();
+                        let ids: Vec<ThreadId> = threads.peek().iter().map(|summary| summary.id).collect();
+                        let targets = shell.peek().acted_on(&ids);
+                        act_kind_all(&store, shell, revision, &targets, OpKind::Restore);
                     }),
                 }
             }

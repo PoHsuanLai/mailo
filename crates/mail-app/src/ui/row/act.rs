@@ -1,14 +1,13 @@
 //! What a row's actions do once picked from its menu: the op, at once, over the selection
 //! when the row is picked; or the menu, sheet or composer the op needs first.
 
-use super::super::motion::{act_kind, act_kind_all};
+use super::super::motion::{act_all, act_kind, act_kind_all};
 use super::super::ops::{composes, start_composing};
 use super::super::picks::{mute_all, with_selection};
-use super::super::text::label;
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::prelude::*;
-use mail_core::SqliteStore;
+use mail_core::{SqliteStore, Store as _};
 use mail_domain::*;
 use std::sync::Arc;
 
@@ -39,6 +38,10 @@ pub(in crate::ui) fn press(
     if kind == OpKind::AddLabel {
         let already = shell.peek().labelling == Some(id);
         shell.write().labelling = if already { None } else { Some(id) };
+        return;
+    }
+    // Offered as the way out of a state (Unsnooze, Stop Reminding): at once, with no menu.
+    if turn_off(&store, shell, revision, id, kind) {
         return;
     }
     if kind == OpKind::Snooze {
@@ -81,13 +84,34 @@ pub(in crate::ui) fn press(
     }
 }
 
-/// An action's name. Mute says what picking it does to this row, as Read and Star do by being
-/// two kinds.
-pub(super) fn strip_label(kind: OpKind, muted: bool) -> &'static str {
-    match kind {
-        OpKind::Mute if muted => "Unmute",
-        other => label(other),
+/// `kind` picked where the conversation is offered it as the way out of a state it is in
+/// ([`mail_core::view::turns_off`]): that, for it and for whatever is picked with it and in the
+/// same state, as one gesture. Returns whether it was; when not, `kind` opens its menu of times.
+pub(in crate::ui) fn turn_off(
+    store: &SqliteStore,
+    shell: Signal<Shell>,
+    revision: Signal<u64>,
+    id: ThreadId,
+    kind: OpKind,
+) -> bool {
+    // Only these two turn a state off; anything else needs no load to say no.
+    if !matches!(kind, OpKind::Snooze | OpKind::FollowUp) {
+        return false;
     }
+    let now = chrono::Utc::now();
+    let off = |thread: ThreadId| {
+        let loaded = store.thread(thread).ok()?;
+        mail_core::view::turns_off(kind, &loaded.summary, now)
+    };
+    if off(id).is_none() {
+        return false;
+    }
+    let ops = with_selection(shell, id)
+        .into_iter()
+        .filter_map(|thread| off(thread).map(|op| (thread, op)))
+        .collect();
+    act_all(store, shell, revision, ops);
+    true
 }
 
 pub(super) fn op_icon(kind: OpKind) -> Icon {

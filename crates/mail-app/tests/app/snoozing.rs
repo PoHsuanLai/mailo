@@ -188,14 +188,17 @@ mod one_definition {
 
     #[test]
     fn every_other_place_is_still_just_its_mailbox() {
-        // The inbox is the only one that hides anything. A conversation you snoozed is not a
-        // conversation you lost, so Archive, Sent, Spam and Trash show everything.
-        for role in [
-            MailboxRole::Archive,
-            MailboxRole::Sent,
-            MailboxRole::Spam,
-            MailboxRole::Trash,
-        ] {
+        // The inbox is the only one that hides a snooze. A conversation you snoozed is not a
+        // conversation you lost, so Archive, Sent, Spam and Trash show everything. Archive
+        // leaves out what is in the inbox, snoozed or not: that is not archived.
+        assert_eq!(
+            mail_core::place::place_filter(MailboxRole::Archive),
+            Filter::And(vec![
+                Filter::InMailbox(MailboxRole::Archive),
+                Filter::Not(Box::new(Filter::InMailbox(MailboxRole::Inbox))),
+            ])
+        );
+        for role in [MailboxRole::Spam, MailboxRole::Trash] {
             assert_eq!(
                 mail_core::place::place_filter(role),
                 Filter::InMailbox(role)

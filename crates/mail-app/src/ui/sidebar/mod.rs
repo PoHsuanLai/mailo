@@ -96,8 +96,12 @@ pub(super) fn Places(
             onpin: move |()| side_hidden.set(false),
             common: Common { extra_class: ExtraClass::parse("side").ok(), ..Common::default() },
             // The Space's name heads the sidebar, as a browser's does; a right click on it is the
-            // Space's menu, and a plain press does nothing.
-            SpaceHead { handle }
+            // Space's menu, and a plain press does nothing. Downloads stands at the row's right
+            // end, its list opening below it; a right click on it is nobody's.
+            div { class: "side-head",
+                div { class: "side-title", SpaceHead { handle } }
+                crate::ui::downloads::DownloadsButton { shell }
+            }
             div { class: "slide",
                 AccountTiles { shell, pages, spaces, space: space.clone(), counted: tiles.clone() }
                 PlaceList { shell, pages, badges, folded }
@@ -106,7 +110,7 @@ pub(super) fn Places(
                 }
                 PinnedList { shell, pages, space: space.clone(), pins: tiles.pins.clone() }
             }
-            // Sync and Downloads on the left, the Space dots, and one chevron on the right that
+            // Sync on the left, the Space dots, and one chevron on the right that
             // opens everything else (`foot::MoreMenu`): Today, History, New Space, Settings and
             // the sidebar's toggle. The foot's own `+` is left out: the menu's New Space replaces
             // it. Sync's mark says how fresh the mail is, and warns when it is not (`sync`).
@@ -119,7 +123,6 @@ pub(super) fn Places(
                 leading: rsx! {
                     div { class: "foot-lead",
                         sync::SyncMark { shell, revision }
-                        crate::ui::downloads::DownloadsButton { shell }
                     }
                 },
                 trailing: rsx! {

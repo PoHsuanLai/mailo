@@ -6,9 +6,10 @@
 //! conversation and not about how it is shown, so they live here where a table can test them.
 
 use crate::place::{pending_snooze, place_filter};
+use chrono::{DateTime, Utc};
 use mail_domain::{
-    Filter, LabelId, MailboxRef, MailboxRole, Membership, Message, Mute, Op, OpKind, ReadState,
-    Star, ThreadId, ThreadSummary, View,
+    Filter, FollowUp, LabelId, MailboxRef, MailboxRole, MailboxSet, Membership, Message, Mute, Op,
+    OpKind, Pin, ReadState, Snooze, Star, ThreadId, ThreadSummary, View,
 };
 
 /// What Mute does to a conversation, given what it is now: mute it, or unmute it if it is muted.
@@ -33,23 +34,187 @@ pub fn mute_for_all(summaries: &[ThreadSummary]) -> Mute {
     }
 }
 
-/// What a row offers for a thread, in its menu (once the hover strip's buttons; the name stays).
+/// Where a conversation is, as the person sees it: one answer for a thread whose messages are
+/// in several mailboxes.
 ///
-/// Derived from where the thread is, so Archive does not offer "archive" and Trash offers
-/// "restore". Returns [`OpKind`] rather than [`Op`] because a menu item cannot carry a payload
-/// that does not exist yet.
+/// A thread's `mailboxes` is the union over its messages, so it can say Inbox and Archive at
+/// once, and that is common: on Gmail `[Gmail]/All Mail` is filed as Archive and holds every
+/// message, the inbox's too, and on any server a reply into an archived conversation arrives in
+/// the inbox beside the archived ones. The rule, in this order:
+///
+/// 1. **Inbox** when any message is in the inbox. That is what the inbox lists and what a new
+///    reply means everywhere: the conversation is back. Being in All Mail (or an Archive folder)
+///    as well is not being archived.
+/// 2. **Trash**, then **Spam**, when any message is in one: what is in a bin is on its way out,
+///    and the way back or Delete Forever is what it needs, not another throw.
+/// 3. **Archive** when any message is filed there and none is in the inbox or a bin.
+/// 4. **Elsewhere**: only Sent or Drafts, the person's own mail that was never filed.
+///
+/// The Archive place lists by the same rule ([`crate::place::place_filter`]), so what it lists is
+/// always offered Move to Inbox and never Archive.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Whereabouts {
+    Inbox,
+    Trash,
+    Spam,
+    Archive,
+    Elsewhere,
+}
+
+impl Whereabouts {
+    pub fn of(mailboxes: MailboxSet) -> Self {
+        if mailboxes.contains(MailboxRole::Inbox) {
+            Whereabouts::Inbox
+        } else if mailboxes.contains(MailboxRole::Trash) {
+            Whereabouts::Trash
+        } else if mailboxes.contains(MailboxRole::Spam) {
+            Whereabouts::Spam
+        } else if mailboxes.contains(MailboxRole::Archive) {
+            Whereabouts::Archive
+        } else {
+            Whereabouts::Elsewhere
+        }
+    }
+}
+
+/// The word an offered action is shown with: which side of a two-sided action it is.
+///
+/// The window names each by its kind (`ui::copy::menus`); this is the key. A conversation is
+/// never offered the side it is already on: an unread one is offered Mark as Read, a pinned one
+/// Unpin, an archived one Move to Inbox, one in Spam Not Spam.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Say {
+    Archive,
+    /// Restore, out of Archive or Trash.
+    MoveToInbox,
+    /// Restore, out of Spam.
+    NotSpam,
+    Spam,
+    Trash,
+    DeleteForever,
+    MarkRead,
+    MarkUnread,
+    Star,
+    Unstar,
+    Pin,
+    Unpin,
+    Mute,
+    Unmute,
+    /// Opens the times to snooze until.
+    Snooze,
+    /// Snoozed and not yet due: bring it back now.
+    Unsnooze,
+    /// Opens the times to be reminded at.
+    Remind,
+    /// A reminder set or come back: let it go.
+    StopReminding,
+    Label,
+    Reply,
+    ReplyAll,
+    Forward,
+}
+
+/// The side `kind` is offered as for this conversation at `now`.
+///
+/// Read and star are two kinds, and [`hover_actions`] picks the one the conversation needs.
+/// Restore, pin, mute, snooze and the follow-up are one kind each whose direction the
+/// conversation's state decides, and this names that direction. `now` is for the snooze alone:
+/// one whose time has passed is back, and is offered Snooze again.
+pub fn says(kind: OpKind, summary: &ThreadSummary, now: DateTime<Utc>) -> Say {
+    match kind {
+        OpKind::Archive => Say::Archive,
+        OpKind::Restore => match Whereabouts::of(summary.mailboxes) {
+            Whereabouts::Spam => Say::NotSpam,
+            _ => Say::MoveToInbox,
+        },
+        OpKind::Spam => Say::Spam,
+        OpKind::Trash => Say::Trash,
+        OpKind::Destroy => Say::DeleteForever,
+        OpKind::MarkRead => Say::MarkRead,
+        OpKind::MarkUnread => Say::MarkUnread,
+        OpKind::Star => Say::Star,
+        OpKind::Unstar => Say::Unstar,
+        OpKind::Pin => match summary.pin {
+            Pin::Rank(_) => Say::Unpin,
+            Pin::Unpinned => Say::Pin,
+        },
+        OpKind::Mute => match summary.mute {
+            Mute::Muted => Say::Unmute,
+            Mute::Unmuted => Say::Mute,
+        },
+        OpKind::Snooze if away(summary, now) => Say::Unsnooze,
+        OpKind::Snooze => Say::Snooze,
+        OpKind::FollowUp => match summary.follow_up {
+            FollowUp::Inactive => Say::Remind,
+            FollowUp::Until { .. } | FollowUp::Returned { .. } => Say::StopReminding,
+        },
+        OpKind::AddLabel | OpKind::RemoveLabel => Say::Label,
+        OpKind::Reply => Say::Reply,
+        OpKind::ReplyAll => Say::ReplyAll,
+        OpKind::Forward => Say::Forward,
+    }
+}
+
+/// The side a selection is offered `kind` as: the side every conversation that is offered it
+/// shares, else the first one's. `None` when none of them is offered it.
+///
+/// For a bar over several conversations: Not Spam when everything it reaches is in Spam, Move to
+/// Inbox when some of it is archived.
+pub fn says_for_all(kind: OpKind, summaries: &[ThreadSummary], now: DateTime<Utc>) -> Option<Say> {
+    let mut sides = summaries
+        .iter()
+        .filter(|summary| offers(summary, kind))
+        .map(|summary| says(kind, summary, now));
+    let first = sides.next()?;
+    let generic = match kind {
+        OpKind::Restore => Say::MoveToInbox,
+        _ => first,
+    };
+    Some(if sides.all(|side| side == first) {
+        first
+    } else {
+        generic
+    })
+}
+
+/// Snoozed, and its time not yet come.
+fn away(summary: &ThreadSummary, now: DateTime<Utc>) -> bool {
+    matches!(summary.snooze, Snooze::Until(at) if at > now)
+}
+
+/// What picking `kind` does at once when it is offered as the way out of a state the
+/// conversation is in: Unsnooze and Stop Reminding. `None` when it opens its menu of times
+/// instead, and for every other kind.
+pub fn turns_off(kind: OpKind, summary: &ThreadSummary, now: DateTime<Utc>) -> Option<Op> {
+    match says(kind, summary, now) {
+        Say::Unsnooze => Some(Op::SetSnooze(Snooze::Inactive)),
+        Say::StopReminding => Some(Op::SetFollowUp(FollowUp::Inactive)),
+        _ => None,
+    }
+}
+
+/// What a row offers for a thread, in its menu, the reader's ⋯ and the keyboard.
+///
+/// Derived from where the thread is ([`Whereabouts`]) and its state, one side of each pair:
+/// Archive in the inbox, Move to Inbox out of Archive or Trash, Not Spam out of Spam (both
+/// [`OpKind::Restore`]), Trash anywhere but Trash, Spam anywhere but Spam or the person's own
+/// mail, and read and star as the conversation needs them. Pin, mute, snooze, the follow-up, a
+/// label and a forward are always offered; [`says`] names which way the first four go. Returns
+/// [`OpKind`] rather than [`Op`] because a menu item cannot carry a payload that does not exist
+/// yet.
 pub fn hover_actions(summary: &ThreadSummary) -> Vec<OpKind> {
+    let here = Whereabouts::of(summary.mailboxes);
     let mut out = Vec::new();
-    if summary.mailboxes.contains(MailboxRole::Inbox) {
-        out.push(OpKind::Archive);
+    match here {
+        Whereabouts::Inbox => out.push(OpKind::Archive),
+        Whereabouts::Archive | Whereabouts::Trash | Whereabouts::Spam => out.push(OpKind::Restore),
+        Whereabouts::Elsewhere => {}
     }
-    if summary.mailboxes.contains(MailboxRole::Trash)
-        || summary.mailboxes.contains(MailboxRole::Archive)
-        || summary.mailboxes.contains(MailboxRole::Spam)
-    {
-        out.push(OpKind::Restore);
+    // Spam is what someone else sent: not offered from Spam, nor for only the person's own mail.
+    if !matches!(here, Whereabouts::Spam | Whereabouts::Elsewhere) {
+        out.push(OpKind::Spam);
     }
-    if !summary.mailboxes.contains(MailboxRole::Trash) {
+    if here != Whereabouts::Trash {
         out.push(OpKind::Trash);
     }
     out.push(match summary.read {
@@ -60,12 +225,14 @@ pub fn hover_actions(summary: &ThreadSummary) -> Vec<OpKind> {
         Star::Unstarred => OpKind::Star,
         Star::Starred => OpKind::Unstar,
     });
-    // Always offered. None depends on where the conversation is or what state it is in: a
-    // forward is the message being passed on, a pin is a note to yourself about it, a mute is
-    // about the replies still to come, and a label is a name you are giving it.
+    // Always offered, each by the side the conversation needs (`says`). None depends on where
+    // the conversation is: a forward is the message being passed on, a pin is a note to
+    // yourself about it, a mute is about the replies still to come, a snooze and a reminder are
+    // about when you see it next, and a label is a name you are giving it.
     out.push(OpKind::Pin);
     out.push(OpKind::Mute);
     out.push(OpKind::Snooze);
+    out.push(OpKind::FollowUp);
     out.push(OpKind::AddLabel);
     out.push(OpKind::Forward);
     out
@@ -155,12 +322,9 @@ pub fn label_menu(known: &[(String, LabelId)], summary: &ThreadSummary) -> Vec<L
 }
 
 /// Whether `kind` is something this conversation can have done to it now: what its row offers
-/// ([`hover_actions`]), and Spam, which the row has no room for, for anything not already there.
+/// ([`hover_actions`]).
 pub fn offers(summary: &ThreadSummary, kind: OpKind) -> bool {
-    match kind {
-        OpKind::Spam => !summary.mailboxes.contains(MailboxRole::Spam),
-        other => hover_actions(summary).contains(&other),
-    }
+    hover_actions(summary).contains(&kind)
 }
 
 /// The conversation `Next` or `Previous` moves to.
@@ -483,6 +647,230 @@ mod tests {
             s.mailboxes = MailboxSet::only(MailboxRole::Trash)
         }));
         assert!(!trashed.contains(&OpKind::Trash), "{trashed:?}");
+    }
+
+    /// The owner's case: a conversation the Archive lists, right-clicked, offered Archive.
+    ///
+    /// A thread's mailboxes are the union over its messages. On Gmail `[Gmail]/All Mail` is
+    /// filed as Archive and holds the inbox's mail too, and on any server a reply into an
+    /// archived conversation lands in the inbox beside the archived messages; either way the
+    /// thread says Inbox and Archive at once. Each case is listed by the Archive place or not, and
+    /// a conversation it lists must be offered the way back and not Archive.
+    #[test]
+    fn what_the_archive_lists_is_offered_move_to_inbox_and_not_archive() {
+        let set = |roles: &[MailboxRole]| {
+            roles
+                .iter()
+                .fold(MailboxSet::empty(), |set, role| set.with(*role))
+        };
+        let now = Utc.timestamp_opt(1_700_000_000, 0).unwrap();
+        let cases: &[(&str, &[MailboxRole])] = &[
+            (
+                "Gmail: in the inbox, its All Mail copy filed as Archive",
+                &[MailboxRole::Inbox, MailboxRole::Archive],
+            ),
+            (
+                "Gmail: archived, in All Mail alone",
+                &[MailboxRole::Archive],
+            ),
+            ("IMAP: moved to the Archive folder", &[MailboxRole::Archive]),
+            (
+                "IMAP: a reply came into an archived conversation",
+                &[MailboxRole::Archive, MailboxRole::Inbox],
+            ),
+            (
+                "IMAP: archived, with my reply in Sent",
+                &[MailboxRole::Archive, MailboxRole::Sent],
+            ),
+        ];
+        let archive = place_filter(MailboxRole::Archive);
+        for (case, roles) in cases {
+            let thread = summary(|s| s.mailboxes = set(roles));
+            let listed = archive.fit(&mail_domain::filter::MatchCtx {
+                summary: &thread,
+                corpus: None,
+                folders: &[],
+                now,
+            });
+            if !listed {
+                continue;
+            }
+            let offered = hover_actions(&thread);
+            assert!(!offered.contains(&OpKind::Archive), "{case}: {offered:?}");
+            assert!(offered.contains(&OpKind::Restore), "{case}: {offered:?}");
+        }
+    }
+
+    /// Every two-sided action against both of its states, in every place: exactly one side is
+    /// offered, and it is named by the conversation's state.
+    #[test]
+    fn every_pair_is_offered_by_the_side_the_conversation_is_not_on() {
+        use MailboxRole::*;
+        let now = Utc.timestamp_opt(1_700_000_000, 0).unwrap();
+        // Where the conversation's messages are, and the sides of Archive / Move to Inbox,
+        // Spam / Not Spam and Trash it is offered there.
+        type Place<'a> = (&'a str, &'a [MailboxRole], &'a [Say]);
+        let places: &[Place] = &[
+            (
+                "in the inbox",
+                &[Inbox],
+                &[Say::Archive, Say::Spam, Say::Trash],
+            ),
+            (
+                "Gmail: in the inbox, its All Mail copy filed as Archive",
+                &[Inbox, Archive],
+                &[Say::Archive, Say::Spam, Say::Trash],
+            ),
+            (
+                "Gmail: archived, in All Mail alone",
+                &[Archive],
+                &[Say::MoveToInbox, Say::Spam, Say::Trash],
+            ),
+            (
+                "IMAP: in the Archive folder, with my reply in Sent",
+                &[Archive, Sent],
+                &[Say::MoveToInbox, Say::Spam, Say::Trash],
+            ),
+            (
+                "IMAP: a reply came into an archived conversation",
+                &[Archive, Inbox],
+                &[Say::Archive, Say::Spam, Say::Trash],
+            ),
+            ("in Spam", &[Spam], &[Say::NotSpam, Say::Trash]),
+            ("in Trash", &[Trash], &[Say::MoveToInbox, Say::Spam]),
+            (
+                "one message trashed out of an archived conversation",
+                &[Archive, Trash],
+                &[Say::MoveToInbox, Say::Spam],
+            ),
+            ("only my own mail, in Sent", &[Sent], &[Say::Trash]),
+        ];
+        let removal = [
+            Say::Archive,
+            Say::MoveToInbox,
+            Say::NotSpam,
+            Say::Spam,
+            Say::Trash,
+        ];
+        // The conversation's own state, and the side of read, star, pin, mute, snooze and the
+        // follow-up it is offered.
+        type State<'a> = (&'a str, fn(&mut ThreadSummary), [Say; 6]);
+        let states: &[State] = &[
+            (
+                "unread, nothing set",
+                |_| {},
+                [
+                    Say::MarkRead,
+                    Say::Star,
+                    Say::Pin,
+                    Say::Mute,
+                    Say::Snooze,
+                    Say::Remind,
+                ],
+            ),
+            (
+                "read, starred, pinned, muted, snoozed and waiting on a reply",
+                |s| {
+                    s.read = ReadState::Read;
+                    s.star = Star::Starred;
+                    s.pin = Pin::Rank(1);
+                    s.mute = Mute::Muted;
+                    s.snooze = Snooze::Until(Utc.timestamp_opt(1_700_100_000, 0).unwrap());
+                    s.follow_up = FollowUp::Until {
+                        at: Utc.timestamp_opt(1_700_100_000, 0).unwrap(),
+                        set: Utc.timestamp_opt(1_600_000_000, 0).unwrap(),
+                    };
+                },
+                [
+                    Say::MarkUnread,
+                    Say::Unstar,
+                    Say::Unpin,
+                    Say::Unmute,
+                    Say::Unsnooze,
+                    Say::StopReminding,
+                ],
+            ),
+            (
+                "its snooze come due, its reminder come back",
+                |s| {
+                    s.snooze = Snooze::Until(Utc.timestamp_opt(1_600_000_000, 0).unwrap());
+                    s.follow_up = FollowUp::Returned {
+                        at: Utc.timestamp_opt(1_600_000_000, 0).unwrap(),
+                        set: Utc.timestamp_opt(1_500_000_000, 0).unwrap(),
+                    };
+                },
+                [
+                    Say::MarkRead,
+                    Say::Star,
+                    Say::Pin,
+                    Say::Mute,
+                    Say::Snooze,
+                    Say::StopReminding,
+                ],
+            ),
+        ];
+        for (place, roles, sides) in places {
+            for (state, tweak, wanted) in states {
+                let thread = summary(|s| {
+                    s.mailboxes = roles
+                        .iter()
+                        .fold(MailboxSet::empty(), |set, role| set.with(*role));
+                    tweak(s);
+                });
+                let said: Vec<Say> = hover_actions(&thread)
+                    .into_iter()
+                    .map(|kind| says(kind, &thread, now))
+                    .collect();
+                let removed: Vec<Say> = said
+                    .iter()
+                    .copied()
+                    .filter(|say| removal.contains(say))
+                    .collect();
+                assert_eq!(removed, *sides, "{place}, {state}");
+                let kept: Vec<Say> = said
+                    .iter()
+                    .copied()
+                    .filter(|say| !removal.contains(say))
+                    .collect();
+                let mut want = wanted.to_vec();
+                want.extend([Say::Label, Say::Forward]);
+                assert_eq!(kept, want, "{place}, {state}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_way_out_of_a_state_is_one_pick_and_the_way_in_opens_its_times() {
+        let now = Utc.timestamp_opt(1_700_000_000, 0).unwrap();
+        let soon = Utc.timestamp_opt(1_700_100_000, 0).unwrap();
+        let fresh = summary(|_| {});
+        let snoozed = summary(|s| s.snooze = Snooze::Until(soon));
+        let reminding = summary(|s| s.follow_up = FollowUp::Until { at: soon, set: now });
+        assert_eq!(turns_off(OpKind::Snooze, &fresh, now), None);
+        assert_eq!(turns_off(OpKind::FollowUp, &fresh, now), None);
+        assert_eq!(
+            turns_off(OpKind::Snooze, &snoozed, now),
+            Some(Op::SetSnooze(Snooze::Inactive))
+        );
+        assert_eq!(
+            turns_off(OpKind::FollowUp, &reminding, now),
+            Some(Op::SetFollowUp(FollowUp::Inactive))
+        );
+        // Due, it is back: offered Snooze again, which asks when.
+        assert_eq!(turns_off(OpKind::Snooze, &snoozed, soon), None);
+    }
+
+    #[test]
+    fn a_selection_is_offered_not_spam_only_when_all_of_it_is_spam() {
+        let now = Utc.timestamp_opt(1_700_000_000, 0).unwrap();
+        let spam = summary(|s| s.mailboxes = MailboxSet::only(MailboxRole::Spam));
+        let archived = summary(|s| s.mailboxes = MailboxSet::only(MailboxRole::Archive));
+        let inbox = summary(|_| {});
+        let restore = |all: &[ThreadSummary]| says_for_all(OpKind::Restore, all, now);
+        assert_eq!(restore(&[spam.clone(), inbox.clone()]), Some(Say::NotSpam));
+        assert_eq!(restore(&[spam, archived.clone()]), Some(Say::MoveToInbox));
+        assert_eq!(restore(&[archived]), Some(Say::MoveToInbox));
+        assert_eq!(restore(&[inbox]), None);
     }
 
     #[test]

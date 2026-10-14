@@ -296,13 +296,15 @@ fn only_in_trash_a_row_is_deleted_forever_from_its_menu_once_asked() {
     );
     let offered_in_the_inbox = offered(&mut harness, 1);
     assert!(
-        offered_in_the_inbox.iter().any(|op| op == "Trash"),
+        offered_in_the_inbox
+            .iter()
+            .any(|op| op == mail_app::ui::copy::menus::MOVE_TO_TRASH),
         "the inbox's delete is a move to Trash: {offered_in_the_inbox:?}"
     );
     assert!(
         !offered_in_the_inbox
             .iter()
-            .any(|op| op.starts_with("Delete forever")),
+            .any(|op| op == mail_app::ui::copy::menus::DELETE_FOREVER),
         "the inbox offers delete forever: {offered_in_the_inbox:?}"
     );
     harness.key(Key::Escape);
@@ -312,10 +314,12 @@ fn only_in_trash_a_row_is_deleted_forever_from_its_menu_once_asked() {
     press(&mut harness, &place("Trash"));
     let offered = offered(&mut harness, 2);
     assert!(
-        offered.iter().any(|op| op == "Delete forever…"),
+        offered
+            .iter()
+            .any(|op| op == mail_app::ui::copy::menus::DELETE_FOREVER),
         "Trash's row offers no delete forever: {offered:?}"
     );
-    row_menu::press_menu_item(&mut harness, "Delete forever…");
+    row_menu::press_menu_item(&mut harness, mail_app::ui::copy::menus::DELETE_FOREVER);
     harness.advance(ms(600));
     let said = sheet_text(&harness);
     assert!(said.contains("Delete this conversation forever?"), "{said}");

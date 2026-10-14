@@ -45,7 +45,7 @@ use mail_core::provider::Provider;
 use mail_core::view::hover_in;
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
-use menu::{Muted, Opener, Pick, RowMenu};
+use menu::{Opener, Pick, RowMenu};
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -150,8 +150,9 @@ pub(super) fn MailRow(
         offered.push(OpKind::Destroy);
     }
     let menu_rows = menu::rows(
-        &menu::groups(&offered, summary.read, summary.star),
-        if muted { Muted::Yes } else { Muted::No },
+        &menu::groups(&offered, &summary),
+        &summary,
+        chrono::Utc::now(),
     );
     let filing = shell.read().filing == Some(id);
     // Where the menus a pick opens float: where the row's menu stood, else against the row.
@@ -304,7 +305,18 @@ pub(super) fn MailRow(
                         row_menu.set(None);
                         match pick {
                             Pick::Window => super::window::open_in_window(id),
-                            Pick::Remind => reminding.set(Some(opener)),
+                            // Stop Reminding acts at once; Remind me opens its times.
+                            Pick::Remind => {
+                                if !act::turn_off(
+                                    &consume_context::<Arc<SqliteStore>>(),
+                                    shell,
+                                    revision,
+                                    id,
+                                    OpKind::FollowUp,
+                                ) {
+                                    reminding.set(Some(opener));
+                                }
+                            }
                             // Not offered here: the reader's ⋯ holds it.
                             Pick::Download => {}
                             Pick::Press(pressed) => {

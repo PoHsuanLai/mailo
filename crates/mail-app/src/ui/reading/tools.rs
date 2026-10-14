@@ -9,8 +9,8 @@
 //! is written is the stored bytes, never a rendering, so a message that draws wrongly can be
 //! handed on whole.
 
-use super::super::row::act::{Pressed, press};
-use super::super::row::menu::{Muted, Pick, reader_groups, rows};
+use super::super::row::act::{Pressed, press, turn_off};
+use super::super::row::menu::{Pick, reader_groups, rows};
 use super::fetch;
 use crate::ui::downloads::{Origin, Saving};
 use crate::ui::menu::{Floating, MenuItem, Right, Tile, anchor_at};
@@ -126,11 +126,11 @@ pub(super) fn ReaderMore(
     let tool = use_signal(|| None::<MountedRef>);
     let id = summary.id;
     let offered = mail_core::view::hover_in(shell.read().saved_view(), &summary);
-    let muted = match summary.mute {
-        Mute::Muted => Muted::Yes,
-        Mute::Unmuted => Muted::No,
-    };
-    let items = rows(&reader_groups(&offered, summary.read, summary.star), muted);
+    let items = rows(
+        &reader_groups(&offered, &summary),
+        &summary,
+        chrono::Utc::now(),
+    );
     rsx! {
         Button {
             bezel: Bezel::Toolbar,
@@ -154,7 +154,13 @@ pub(super) fn ReaderMore(
                 onpick: move |pick: Pick| {
                     open.set(false);
                     match pick {
-                        Pick::Press(Pressed::Op(OpKind::Snooze)) => further.set(Further::Snooze),
+                        // Unsnooze acts at once; Snooze opens its times.
+                        Pick::Press(Pressed::Op(OpKind::Snooze)) => {
+                            let store = consume_context::<Arc<SqliteStore>>();
+                            if !turn_off(&store, shell, revision, id, OpKind::Snooze) {
+                                further.set(Further::Snooze);
+                            }
+                        }
                         Pick::Press(Pressed::Op(OpKind::AddLabel)) => further.set(Further::Label),
                         Pick::Press(pressed) => press(shell, revision, id, pressed),
                         Pick::Window => super::super::window::open_in_window(id),

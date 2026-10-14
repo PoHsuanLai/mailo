@@ -85,28 +85,6 @@ pub(super) fn sender(summary: &ThreadSummary) -> String {
         .unwrap_or_else(|| summary.from.email.clone())
 }
 
-pub(super) fn label(kind: OpKind) -> &'static str {
-    match kind {
-        OpKind::Archive => "Archive",
-        OpKind::Trash => "Trash",
-        OpKind::Restore => "Restore",
-        OpKind::Spam => "Spam",
-        OpKind::MarkRead => "Read",
-        OpKind::MarkUnread => "Unread",
-        OpKind::Star => "Star",
-        OpKind::Unstar => "Unstar",
-        OpKind::AddLabel | OpKind::RemoveLabel => "Label",
-        OpKind::Snooze => "Snooze",
-        OpKind::Pin => "Pin",
-        OpKind::Mute => "Mute",
-        OpKind::FollowUp => "Remind me",
-        OpKind::Destroy => "Delete forever",
-        OpKind::Reply => "Reply",
-        OpKind::ReplyAll => "Reply all",
-        OpKind::Forward => "Forward",
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::{AttachmentRow, Kept, attachment_rows};

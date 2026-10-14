@@ -338,7 +338,12 @@ fn a_search_saved_as_a_view_is_a_place_grouped_and_offered_as_it_was_saved() {
         mine.contains(&"Snooze…".to_owned()) && mine.contains(&"Archive".to_owned()),
         "{mine:?}"
     );
-    for usual in ["Trash", "Pin", "Label…", "Forward"] {
+    for usual in [
+        mail_app::ui::copy::menus::MOVE_TO_TRASH,
+        "Pin",
+        "Label…",
+        "Forward",
+    ] {
         assert!(
             !mine.contains(&usual.to_owned()),
             "{usual} in the view: {mine:?}"
@@ -353,7 +358,12 @@ fn a_search_saved_as_a_view_is_a_place_grouped_and_offered_as_it_was_saved() {
         lines(&harness)
     );
     let usual = menu_of(&mut harness, INBOX[2].1);
-    for kind in ["Trash", "Pin", "Label…", "Forward"] {
+    for kind in [
+        mail_app::ui::copy::menus::MOVE_TO_TRASH,
+        "Pin",
+        "Label…",
+        "Forward",
+    ] {
         assert!(
             usual.contains(&kind.to_owned()),
             "no {kind} in the inbox: {usual:?}"

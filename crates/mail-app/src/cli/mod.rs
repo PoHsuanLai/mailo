@@ -1867,17 +1867,11 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
         Command::Status => {
             let mut out = String::new();
             for role in MailboxRole::ALL {
-                let total = store
-                    .count(&Filter::InMailbox(role), now)
-                    .map_err(|e| e.to_string())?;
+                // What the window's place lists: Archive is what is not in the inbox too.
+                let place = mail_core::place::place_filter(role);
+                let total = store.count(&place, now).map_err(|e| e.to_string())?;
                 let unread = store
-                    .count(
-                        &Filter::And(vec![
-                            Filter::InMailbox(role),
-                            Filter::Read(ReadState::Unread),
-                        ]),
-                        now,
-                    )
+                    .count(&mail_core::place::unread_in(place), now)
                     .map_err(|e| e.to_string())?;
                 if total > 0 {
                     let _ = writeln!(

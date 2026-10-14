@@ -34,3 +34,8 @@ pub const LIST_OPTIONS: &str = "List options";
 pub const SEND_OPTIONS: &str = "Send Options";
 /// The composer's ⋯ menu.
 pub const MESSAGE_ACTIONS: &str = "Message Actions";
+
+/// A selection bar's button: "Move to Inbox the 3 selected".
+pub fn on_selected(action: &str, count: usize) -> String {
+    format!("{action} the {count} selected")
+}

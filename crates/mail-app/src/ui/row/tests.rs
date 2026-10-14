@@ -3,9 +3,10 @@
 //! further menu open it.
 
 use crate::ui::app::App;
+use crate::ui::copy::menus;
 use crate::ui::fixtures::{
-    INSIDE_THE_SHELL, Seen, chord, dispatching, listed_subjects, menu_names, open_row_menu,
-    rebuild_into, row_action, work,
+    INSIDE_THE_SHELL, Seen, chord, click, dispatching, listed_subjects, menu_names, open_row_menu,
+    rebuild_into, row_action, settle, work,
 };
 use dioxus::html::input_data::keyboard_types::Modifiers;
 use dioxus::prelude::*;
@@ -63,18 +64,19 @@ async fn a_right_click_on_a_row_lists_every_action_it_has() {
     assert_eq!(
         menu_names(&page),
         [
-            "Open in new window",
-            "Forward",
-            "Mark as read",
-            "Star",
-            "Pin",
-            "Mute",
-            "Snooze…",
-            "Remind me if no reply…",
-            "Label…",
-            "Move to…",
-            "Archive",
-            "Trash",
+            crate::ui::window::OPEN_NAME,
+            menus::FORWARD,
+            menus::MARK_AS_READ,
+            menus::STAR,
+            menus::PIN,
+            menus::MUTE,
+            menus::SNOOZE,
+            menus::REMIND,
+            menus::LABEL,
+            menus::MOVE_TO,
+            menus::ARCHIVE,
+            menus::MARK_AS_SPAM,
+            menus::MOVE_TO_TRASH,
         ]
     );
     // A context menu at the pointer, its groups ruled apart.
@@ -92,7 +94,7 @@ async fn mark_as_read_from_the_menu_is_undone_like_any_op() {
         ..
     } = window();
     assert_eq!(store.thread(dana).unwrap().summary.read, ReadState::Unread);
-    row_action(&mut dom, &seen, &subject, "Mark as read").await;
+    row_action(&mut dom, &seen, &subject, menus::MARK_AS_READ).await;
     assert_eq!(store.thread(dana).unwrap().summary.read, ReadState::Read);
     chord(
         &mut dom,
@@ -141,7 +143,7 @@ async fn snooze_from_the_menu_opens_the_snooze_menu() {
         ..
     } = window();
     let changed = changes(&store);
-    row_action(&mut dom, &seen, &subject, "Snooze…").await;
+    row_action(&mut dom, &seen, &subject, menus::SNOOZE).await;
     let page = dioxus_ssr::render(&dom);
     assert!(
         page.contains("Snooze until"),
@@ -233,4 +235,47 @@ fn only_the_primary_button_opens_or_picks_a_row() {
         };
         assert_eq!(super::click_of(press, platform), want, "{case}");
     }
+}
+
+/// The owner's report: right-clicking an archived conversation offered Archive. In the Archive,
+/// its menu offers the way back, Move to Inbox, and not Archive.
+#[tokio::test]
+async fn an_archived_conversation_s_menu_offers_move_to_inbox_and_not_archive() {
+    let Window {
+        mut dom,
+        seen,
+        store,
+        dana,
+        subject,
+        ..
+    } = window();
+    assert!(crate::ui::ops::apply_op(&store, dana, OpKind::Archive));
+    let archive = seen.one("data-place", "Archive");
+    let mut seen = seen.merge(click(&mut dom, archive));
+    for _ in 0..12 {
+        if tokio::time::timeout(std::time::Duration::from_millis(60), dom.wait_for_work())
+            .await
+            .is_err()
+        {
+            break;
+        }
+        let mut more = Seen::default();
+        dom.render_immediate(&mut more);
+        seen = seen.merge(more);
+    }
+    let seen = settle(&mut dom, seen);
+    assert!(
+        listed_subjects(&dioxus_ssr::render(&dom)).contains(&subject),
+        "the Archive does not list the archived conversation"
+    );
+    open_row_menu(&mut dom, &seen, &subject);
+    let names = menu_names(&dioxus_ssr::render(&dom));
+    assert!(
+        names.iter().any(|name| name == menus::MOVE_TO_INBOX),
+        "{names:?}"
+    );
+    assert!(
+        !names.iter().any(|name| name == menus::ARCHIVE),
+        "{names:?}"
+    );
 }
