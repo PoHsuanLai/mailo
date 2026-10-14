@@ -43,27 +43,27 @@ mail-store  = { path = "crates/mail-store" }
 # target in mail-runtime's own Cargo.toml: `oo7` on Linux, `keyring` on macOS and Windows. It
 # enters mail-runtime, the I/O crate, and no pure crate: mail-domain, -mime, -proto and -pim
 # stay free of zbus and tokio (`scripts/check-boundary.sh`).
-porter-core = { git = "https://github.com/PoHsuanLai/porter", rev = "0d7beb6e3151dfd904f4923cb5f7468ac658ecce" }
-porter-provider = { git = "https://github.com/PoHsuanLai/porter", rev = "0d7beb6e3151dfd904f4923cb5f7468ac658ecce" }
-porter-secrets = { git = "https://github.com/PoHsuanLai/porter", rev = "0d7beb6e3151dfd904f4923cb5f7468ac658ecce", default-features = false }
+porter-core = { git = "https://github.com/PoHsuanLai/porter", rev = "e05d46b37b0f1c03e2dd85e5035b3f48c21c5ad2" }
+porter-provider = { git = "https://github.com/PoHsuanLai/porter", rev = "e05d46b37b0f1c03e2dd85e5035b3f48c21c5ad2" }
+porter-secrets = { git = "https://github.com/PoHsuanLai/porter", rev = "e05d46b37b0f1c03e2dd85e5035b3f48c21c5ad2", default-features = false }
 # Step E3: discovery. porter-discover without its `io` feature is pure parsers and two seams (no
 # tokio, no hickory); mail-runtime implements `porter_discover::Dns` and `porter_http::Http` over
 # the resolver and the HTTP client mailo already has, so neither dependency is added for them.
-porter-discover = { git = "https://github.com/PoHsuanLai/porter", rev = "0d7beb6e3151dfd904f4923cb5f7468ac658ecce", default-features = false }
+porter-discover = { git = "https://github.com/PoHsuanLai/porter", rev = "e05d46b37b0f1c03e2dd85e5035b3f48c21c5ad2", default-features = false }
 # Step E4: OAuth. Without its `io` feature porter-oauth is the rules, the registry and the exchanges
 # over `porter_http::Http` (no tokio); only mail-runtime, the I/O crate, turns `io` on, for the
 # loopback listener.
-porter-oauth = { git = "https://github.com/PoHsuanLai/porter", rev = "0d7beb6e3151dfd904f4923cb5f7468ac658ecce", default-features = false }
-porter-http = { git = "https://github.com/PoHsuanLai/porter", rev = "0d7beb6e3151dfd904f4923cb5f7468ac658ecce", default-features = false }
+porter-oauth = { git = "https://github.com/PoHsuanLai/porter", rev = "e05d46b37b0f1c03e2dd85e5035b3f48c21c5ad2", default-features = false }
+porter-http = { git = "https://github.com/PoHsuanLai/porter", rev = "e05d46b37b0f1c03e2dd85e5035b3f48c21c5ad2", default-features = false }
 # Step E5: the add-account window hosts porter's account service in process and draws its sheet
 # (`porter-service`: the sheet's conversation, `Sheets`, `AccountService`; pure, no zbus). It enters
 # `mail-app`, the front-end that draws.
-porter-service = { git = "https://github.com/PoHsuanLai/porter", rev = "0d7beb6e3151dfd904f4923cb5f7468ac658ecce" }
+porter-service = { git = "https://github.com/PoHsuanLai/porter", rev = "e05d46b37b0f1c03e2dd85e5035b3f48c21c5ad2" }
 # porter-client is the app-facing API: the add-account window's in-process transport, and the
 # relay's byte stream `mail-runtime`'s transport can wrap. Its `dbus` feature stays off: mailo keeps
 # its own accounts and credentials, and no zbus comes in through it. (accountd sign-in help, the
 # desktop's "Continue as" sheet, is planned for a later step.)
-porter-client = { git = "https://github.com/PoHsuanLai/porter", rev = "0d7beb6e3151dfd904f4923cb5f7468ac658ecce", default-features = false }
+porter-client = { git = "https://github.com/PoHsuanLai/porter", rev = "e05d46b37b0f1c03e2dd85e5035b3f48c21c5ad2", default-features = false }
 serde       = { version = "1", features = ["derive"] }
 chrono      = { version = "0.4", features = ["serde"] }
 uuid        = { version = "1", features = ["v4", "serde"] }
