@@ -1,6 +1,13 @@
 /* The list inside the card: the header is in shell.css, the rows are quire's `VirtualList` of
    `ThreadRow`s (they enter, leave and close the gap on quire's roster); this is layout only. */
 .list-title { display: flex; flex-direction: column; min-width: 0; flex: 0 1 auto; overflow: hidden; }
+/* The title starts where the rows' words do: a row's text sits the list's margin, the card's
+   hairline, quire's thread padding, its dot column (10 px, one --s-10) and the dot's gap in
+   (quire thread_row.css); the toolbar puts its first item its padding and one gap in. With the
+   sidebar hidden its toggle leads the bar instead, and the title follows it. */
+.list-head > .list-title:first-child {
+  margin-left: calc(var(--s-4) + var(--hair) + var(--s-11) + 2 * var(--s-10) - var(--s-12) - var(--s-8));
+}
 /* A long place name gives way to the tools: it fades out (quire's `.ds-truncate`), never under
    a button. */
 .list-title > * { min-width: 0; overflow: hidden; white-space: nowrap; }

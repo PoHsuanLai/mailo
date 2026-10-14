@@ -75,7 +75,8 @@ pub(super) enum Scope {
     Place,
     /// Searched: the matches in date order, under their top results.
     Searched,
-    /// A bare pattern, over the rows the place had loaded.
+    /// A bare pattern, over the rows the place had loaded. Not said: the marks show what it
+    /// matched.
     OverPage,
     /// The pattern did not compile. The `regex` crate's own message.
     Invalid(String),
@@ -95,8 +96,7 @@ impl Marking {
     /// The note the list bar shows, when there is one.
     pub(super) fn note(&self) -> Option<String> {
         match &self.scope {
-            Scope::Place | Scope::Searched => None,
-            Scope::OverPage => Some("pattern over this page".to_owned()),
+            Scope::Place | Scope::Searched | Scope::OverPage => None,
             Scope::Invalid(why) => Some(why.clone()),
         }
     }

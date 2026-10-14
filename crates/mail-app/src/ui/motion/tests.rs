@@ -452,8 +452,10 @@ fn what_each_place_accepts() {
     );
 }
 
+/// A star is drawn only on a starred conversation, as its mark (starring is in the row's menu
+/// and on its key), and pressing it unstars that conversation and only that one.
 #[tokio::test]
-async fn each_press_on_the_star_flips_the_row_and_only_that() {
+async fn the_star_marks_only_starred_rows_and_a_press_unstars_that_one() {
     let Mounted {
         mut dom,
         store,
@@ -461,23 +463,25 @@ async fn each_press_on_the_star_flips_the_row_and_only_that() {
         seen,
         ..
     } = mounted();
-    let star = seen
-        .all("aria-label", "Star this thread")
-        .into_iter()
-        .chain(seen.all("aria-label", "Unstar this thread"))
-        .next()
-        .expect("a star");
-    let before = store.thread(dana).unwrap().summary.star;
-    click(&mut dom, star);
-    settle(&mut dom).await;
-    let once = store.thread(dana).unwrap().summary.star;
-    assert_ne!(once, before, "the first press did not flip the star");
-    click(&mut dom, star);
+    assert!(
+        seen.all("aria-label", "Star this thread").is_empty(),
+        "an unstarred row draws a star"
+    );
+    let stars = seen.all("aria-label", "Unstar this thread");
+    assert_eq!(stars.len(), 1, "the fixture has one starred conversation");
+    let sam = crate::ui::fixtures::thread_like(&store, "Notes from the sync review");
+    assert_eq!(store.thread(sam).unwrap().summary.star, Star::Starred);
+    click(&mut dom, stars[0]);
     settle(&mut dom).await;
     assert_eq!(
+        store.thread(sam).unwrap().summary.star,
+        Star::Unstarred,
+        "the press did not unstar it"
+    );
+    assert_eq!(
         store.thread(dana).unwrap().summary.star,
-        before,
-        "the second press did not flip it back"
+        Star::Unstarred,
+        "another row changed"
     );
 }
 

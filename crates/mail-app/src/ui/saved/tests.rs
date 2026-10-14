@@ -107,8 +107,8 @@ fn showing_a_view_lists_by_its_filter_and_order_and_groups_by_its_key() {
     assert_eq!(query.sort.dir, SortDir::Asc);
     assert_eq!(shell.grouping(), Grouping::Saved(GroupKey::Star));
     // The page's own menu, once chosen, wins.
-    shell.group = PageGroup::Sender;
-    assert_eq!(shell.grouping(), Grouping::Page(PageGroup::Sender));
+    shell.group = PageGroup::Date;
+    assert_eq!(shell.grouping(), Grouping::Page(PageGroup::Date));
     shell.group = PageGroup::None;
     // A search replaces the place, and with it the view's grouping and strip.
     shell.search = "lunch".to_owned();

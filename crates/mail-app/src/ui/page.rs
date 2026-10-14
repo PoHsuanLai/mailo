@@ -10,14 +10,14 @@ use super::menu::anchor_at;
 use super::press::on_primary;
 use crate::ui::copy;
 use crate::ui::fetching::use_status;
-use crate::ui::view::{PageGroup, PageMenu, PageParts, Place, Reach, Shell};
+use crate::ui::view::{PageGroup, PageMenu, PageParts, Place, Reach, RowPart, Shell};
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
 use ds::components::controls::button_model::{Bezel, ImagePosition};
 use ds::host::measure::{Anchor, MountedRef};
 use ds::root::common::Common;
 use ds::style::tokens::control_size::ControlSize;
-use mail_domain::{LabelId, ReadState, ThreadSummary};
+use mail_domain::ThreadSummary;
 
 /// One band of the loaded page.
 pub(super) struct Band {
@@ -29,7 +29,6 @@ pub(super) struct Band {
 pub(super) fn group_page<Tz: TimeZone>(
     threads: Vec<ThreadSummary>,
     by: PageGroup,
-    names: &BTreeMap<LabelId, String>,
     now: DateTime<Utc>,
     zone: &Tz,
 ) -> Vec<Band>
@@ -41,34 +40,7 @@ where
             title: None,
             threads,
         }],
-        PageGroup::Sender => by_key(threads, |thread| {
-            thread
-                .from
-                .name
-                .clone()
-                .filter(|name| !name.is_empty())
-                .unwrap_or_else(|| thread.from.email.clone())
-        }),
         PageGroup::Date => date_bands(threads, now, zone),
-        PageGroup::Label => by_key(threads, |thread| {
-            thread
-                .labels
-                .iter()
-                .find_map(|id| names.get(id).cloned())
-                .unwrap_or_else(|| copy::headers::NO_LABEL.to_owned())
-        }),
-        PageGroup::Unread => {
-            let mut unread = Vec::new();
-            let mut read = Vec::new();
-            for thread in threads {
-                if thread.read == ReadState::Unread {
-                    unread.push(thread);
-                } else {
-                    read.push(thread);
-                }
-            }
-            titled([(copy::headers::UNREAD, unread), (copy::headers::READ, read)])
-        }
     }
 }
 
@@ -140,20 +112,11 @@ pub(super) fn titled<const N: usize>(bands: [(&str, Vec<ThreadSummary>); N]) -> 
         .collect()
 }
 
-/// The groupings the ⋯'s Group ▸ offers, in its order.
-const GROUPS: [(PageGroup, &str); 5] = [
-    (PageGroup::None, copy::menus::GROUP_NONE),
-    (PageGroup::Sender, copy::menus::GROUP_SENDER),
-    (PageGroup::Date, copy::menus::GROUP_DATE),
-    (PageGroup::Label, copy::menus::GROUP_LABEL),
-    (PageGroup::Unread, copy::menus::GROUP_UNREAD),
-];
-
 /// What a row of the list's ⋯ asks for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum More {
-    /// Band the loaded page this way.
-    Group(PageGroup),
+    /// Band the loaded page by date, or stop.
+    GroupByDate,
     /// Show or hide a part of every row, by its key in [`PageParts::part_mut`].
     Part(&'static str),
     /// Fetch what the list shows.
@@ -164,45 +127,36 @@ fn check(on: bool) -> Check {
     if on { Check::On } else { Check::Off }
 }
 
-/// The ⋯'s rows: Group ▸ with a check on the grouping in use, Row Properties ▸ with a check on
-/// each part a row shows (a pick switches it and leaves the menu up, so several can be), then
-/// Sync Now where there is something to sync, with what the sync mark says under it, since the
-/// sidebar that holds the mark can be hidden. `sync` is `None` with only local folders in view.
+/// The ⋯'s rows: Group by Date with a check while the page is banded, then the snippets' and
+/// the labels' Show or Hide (a pick switches it and leaves the menu up, so both can be), then
+/// Sync Now with what the sync mark says under it. `sync` is `None` while the sidebar, which
+/// holds the mark, is shown, and with only local folders in view.
 pub(super) fn more_items(
     group: PageGroup,
     parts: PageParts,
     sync: Option<String>,
 ) -> Vec<MenuItem<More>> {
-    let groups = GROUPS
-        .iter()
-        .map(|(by, name)| MenuItem::new(More::Group(*by), *name).with_check(check(*by == group)))
-        .collect();
-    let shown = [
-        ("snippet", copy::menus::PART_SNIPPET, parts.snippet),
-        ("provider", copy::menus::PART_PROVIDER, parts.provider),
-        ("chips", copy::menus::PART_CHIPS, parts.chips),
-        ("time", copy::menus::PART_TIME, parts.time),
-    ]
-    .into_iter()
-    .map(|(key, name, part)| {
-        MenuItem::new(More::Part(key), name)
-            .with_check(check(part.shown()))
+    let toggle = |key: &'static str, part: RowPart, show: &str, hide: &str| {
+        MenuItem::new(More::Part(key), if part.shown() { hide } else { show })
             .with_after(AfterPick::KeepOpen)
-    })
-    .collect();
+    };
     let mut rows = vec![
-        MenuItem::Submenu {
-            title: copy::menus::GROUP.to_owned(),
-            image: Some(MenuImage::Icon(Icon::Group)),
-            availability: Availability::Enabled,
-            children: groups,
-        },
-        MenuItem::Submenu {
-            title: copy::menus::ROW_PROPERTIES.to_owned(),
-            image: Some(MenuImage::Icon(Icon::Columns)),
-            availability: Availability::Enabled,
-            children: shown,
-        },
+        MenuItem::new(More::GroupByDate, copy::menus::GROUP_BY_DATE)
+            .with_image(MenuImage::Icon(Icon::Group))
+            .with_check(check(group == PageGroup::Date)),
+        MenuItem::Separator,
+        toggle(
+            "snippet",
+            parts.snippet,
+            copy::menus::SHOW_SNIPPETS,
+            copy::menus::HIDE_SNIPPETS,
+        ),
+        toggle(
+            "chips",
+            parts.chips,
+            copy::menus::SHOW_LABELS,
+            copy::menus::HIDE_LABELS,
+        ),
     ];
     if let Some(said) = sync {
         let item = MenuItem::new(More::Sync, copy::menus::SYNC_NOW)
@@ -217,16 +171,16 @@ pub(super) fn more_items(
 }
 
 /// The list toolbar's ⋯: what the list offers beyond New Message and Search, folded into one
-/// menu so the header is its title and three icons. Group and Row Properties apply to the
-/// loaded page only; Sync Now is the sidebar's sync mark's press. `syncs` is false with only
-/// local folders in view.
+/// menu so the header is its title and three icons. Grouping and the rows' parts apply to the
+/// loaded page only. Sync Now is the sidebar's sync mark's press, so it is here only while the
+/// sidebar is hidden; `syncs` is false with only local folders in view.
 #[component]
-pub(super) fn ListMore(shell: Signal<Shell>, syncs: bool) -> Element {
+pub(super) fn ListMore(shell: Signal<Shell>, syncs: bool, side_hidden: Signal<bool>) -> Element {
     let open = shell.read().page_menu == PageMenu::More;
     let mut tool = use_signal(|| None::<MountedRef>);
     let line = use_status(shell);
     let items = if open {
-        let sync = syncs.then(|| line.map(|line| line.text).unwrap_or_default());
+        let sync = (syncs && side_hidden()).then(|| line.map(|line| line.text).unwrap_or_default());
         more_items(shell.read().group, shell.read().parts, sync)
     } else {
         Vec::new()
@@ -265,9 +219,12 @@ pub(super) fn ListMore(shell: Signal<Shell>, syncs: bool) -> Element {
                     ..Common::default()
                 },
                 onpick: move |pick: More| match pick {
-                    More::Group(by) => {
+                    More::GroupByDate => {
                         let mut written = shell.write();
-                        written.group = by;
+                        written.group = match written.group {
+                            PageGroup::Date => PageGroup::None,
+                            PageGroup::None => PageGroup::Date,
+                        };
                         written.page_menu = PageMenu::Closed;
                     }
                     // The menu stays up for the next toggle (`AfterPick::KeepOpen`).
@@ -402,48 +359,61 @@ mod tests {
             .collect()
     }
 
-    /// The ⋯ holds what the list's toolbar used to spread over three buttons: Group ▸ and Row
-    /// Properties ▸ with their checks, and Sync Now under a rule, saying how fresh the mail is,
-    /// only where there is something to sync.
+    /// The ⋯ holds Group by Date with its check, the snippets' and labels' Show or Hide, and
+    /// Sync Now under a rule, saying how fresh the mail is, only where it is offered (the
+    /// sidebar hidden, something to sync).
     #[test]
-    fn the_more_menu_folds_group_row_properties_and_sync_now() {
-        const GROUP: &str = "Group ▸ [None, Sender, ✓Date, Label, Unread]";
+    fn the_more_menu_holds_group_by_date_the_parts_and_sync_now() {
         let parts = PageParts::default();
-        let shown = read(&more_items(PageGroup::Date, parts, None))[1].clone();
-        let cases: [(Option<&str>, &[&str]); 3] = [
-            (None, &[GROUP, shown.as_str()]),
-            (Some(""), &[GROUP, shown.as_str(), "-", "Sync Now"]),
+        let cases: [(PageGroup, Option<&str>, &[&str]); 4] = [
             (
+                PageGroup::None,
+                None,
+                &["Group by Date", "-", "Hide Snippets", "Hide Labels"],
+            ),
+            (
+                PageGroup::Date,
+                None,
+                &["✓Group by Date", "-", "Hide Snippets", "Hide Labels"],
+            ),
+            (
+                PageGroup::None,
+                Some(""),
+                &[
+                    "Group by Date",
+                    "-",
+                    "Hide Snippets",
+                    "Hide Labels",
+                    "-",
+                    "Sync Now",
+                ],
+            ),
+            (
+                PageGroup::None,
                 Some("Not updated since 14:05"),
                 &[
-                    GROUP,
-                    shown.as_str(),
+                    "Group by Date",
+                    "-",
+                    "Hide Snippets",
+                    "Hide Labels",
                     "-",
                     "Sync Now / Not updated since 14:05",
                 ],
             ),
         ];
-        for (sync, want) in cases {
-            let rows = read(&more_items(PageGroup::Date, parts, sync.map(str::to_owned)));
-            assert_eq!(rows, want, "{sync:?}");
+        for (group, sync, want) in cases {
+            let rows = read(&more_items(group, parts, sync.map(str::to_owned)));
+            assert_eq!(rows, want, "{group:?} {sync:?}");
         }
-        assert!(
-            shown.starts_with("Row Properties ▸ [") && shown.contains("Snippet"),
-            "{shown}"
-        );
-        // A part switched off loses its check, and each part's pick leaves the menu up.
-        let mut hidden = parts;
-        hidden.snippet = RowPart::Hidden;
-        let rows = more_items(PageGroup::None, hidden, None);
-        let MenuItem::Submenu { children, .. } = &rows[1] else {
-            panic!("{:?}", read(&rows));
+        // A part hidden is offered back, and each part's pick leaves the menu up.
+        let hidden = PageParts {
+            snippet: RowPart::Hidden,
+            chips: RowPart::Hidden,
         };
-        assert!(
-            read(children).contains(&"Snippet".to_owned()),
-            "{children:?}"
-        );
-        assert!(children.iter().all(|child| matches!(
-            child,
+        let rows = more_items(PageGroup::None, hidden, None);
+        assert_eq!(read(&rows)[2..], ["Show Snippets", "Show Labels"]);
+        assert!(rows[2..].iter().all(|row| matches!(
+            row,
             MenuItem::Item {
                 after: AfterPick::KeepOpen,
                 ..
@@ -487,7 +457,7 @@ mod tests {
             ),
         ];
         for (name, threads, group, want) in cases {
-            let bands = group_page(threads, group, &BTreeMap::new(), now, &Utc);
+            let bands = group_page(threads, group, now, &Utc);
             let titles: Vec<Option<&str>> =
                 bands.iter().map(|band| band.title.as_deref()).collect();
             assert_eq!(titles, want, "{name}");

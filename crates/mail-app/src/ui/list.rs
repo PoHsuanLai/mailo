@@ -13,7 +13,7 @@ use super::page::{ListMore, ListTitle};
 use super::picks::PickBar;
 use super::press::on_primary;
 use super::row::scheduled::ScheduledRow;
-use super::row::{DraftRow, MailRow};
+use super::row::{AccountMark, DraftRow, MailRow};
 use super::server_search::{Asked, ServerSearch, found_threads};
 use super::view_groups::group_list;
 use crate::ui::copy;
@@ -46,18 +46,26 @@ use self::status::ListProgress;
 /// A `SectionHeader`'s height: its eyebrow line and its padding (27.05 px drawn).
 const HEADING_PITCH: f32 = 27.0;
 
-/// How tall `slot`'s item is. Each is held to its height (`style/list.css`), so a font that sets a
-/// line a fraction taller cannot push the rows off the offsets the window is computed from. A
-/// row's is quire's card `ThreadRow` with `lines` of text and the gap under it, both computed
-/// from quire's own tokens, so a change to its type scale moves the pitch with it.
-fn pitch(slot: &Slot, lines: ThreadLines) -> f32 {
-    match slot {
-        Slot::Draft(_) | Slot::Top(_) | Slot::Thread(_) | Slot::Server(_) => {
-            thread_card_height(lines).0 + thread_card_gap().0
-        }
-        Slot::Band(_) | Slot::TopHeading | Slot::NewestHeading | Slot::ServerHeading => {
-            HEADING_PITCH
-        }
+/// How tall an item is: a row with `lines` of text, or a heading (`None`). Each is held to its
+/// height (`style/list.css`), so a font that sets a line a fraction taller cannot push the rows
+/// off the offsets the window is computed from. A row's is quire's card `ThreadRow` with its
+/// lines of text and the gap under it, both computed from quire's own tokens, so a change to its
+/// type scale moves the pitch with it. A row is as tall as what it draws: one with no snippet
+/// leaves no gap where a snippet would be.
+fn pitch(lines: Option<ThreadLines>) -> f32 {
+    match lines {
+        Some(lines) => thread_card_height(lines).0 + thread_card_gap().0,
+        None => HEADING_PITCH,
+    }
+}
+
+/// How many lines a row draws: its snippet is the third, when the list shows snippets and it has
+/// one.
+fn lines_of(snippets: bool, snippet: &str) -> ThreadLines {
+    if snippets && !snippet.is_empty() {
+        ThreadLines::Three
+    } else {
+        ThreadLines::Two
     }
 }
 
@@ -81,9 +89,8 @@ enum Slot {
     Thread(ThreadId),
     /// A band's title.
     Band(String),
-    /// A search's two headings.
+    /// The heading over a search's top results.
     TopHeading,
-    NewestHeading,
     /// The heading over what a search of the server found.
     ServerHeading,
     /// A conversation a search of the server found that the list does not already hold.
@@ -133,31 +140,12 @@ pub(super) fn ThreadList(
             .map(|thread| thread.summary)
             .collect::<Vec<ThreadSummary>>()
     });
-    // Which of the conversations drawn came here because a search of the server found them.
-    let from_server = use_memo(move || {
-        let _ = revision();
-        let ids: Vec<ThreadId> = threads
-            .read()
-            .iter()
-            .chain(found.read().iter())
-            .map(|t| t.id)
-            .collect();
-        let store = consume_context::<Arc<SqliteStore>>();
-        store.found_in(&ids).unwrap_or_default()
-    });
     let place = shell
         .read()
         .places
         .get(shell.read().selected)
         .map(|place| place.name.clone())
         .unwrap_or_else(|| copy::titles::INBOX.to_owned());
-    let address = {
-        let known: Vec<(AccountId, String)> = rows()
-            .into_iter()
-            .map(|row| (row.id, row.address))
-            .collect();
-        super::folder_open::title_address(&shell.read(), &known)
-    };
     let names: BTreeMap<LabelId, String> = shell
         .read()
         .labels
@@ -182,9 +170,14 @@ pub(super) fn ThreadList(
     let invalid = matches!(marking.read().scope, Scope::Invalid(_));
     let accounts = rows();
     let highlight = marking.read().highlight.clone();
-    let brought = from_server();
+    // A row names its account only while the list shows more than one.
+    let several = accounts
+        .iter()
+        .filter(|row| shell.read().scope.shows(row.id.clone()))
+        .count()
+        > 1;
     let dress_row =
-        |summary: &ThreadSummary| dress(summary, &accounts, &names, &highlight, &brought);
+        |summary: &ThreadSummary| dress(summary, &accounts, several, &names, &highlight);
     // Where a search's list ends, each account in view with a server offers to search it.
     let line = marking.read().line.clone();
     let servers: Vec<(AccountId, String)> = if line.is_empty() || more() {
@@ -217,6 +210,9 @@ pub(super) fn ThreadList(
     // The list's items, top to bottom: drafts, a search's top results, then the bands, then
     // what a search of the server found that the list does not hold.
     let mut items: Vec<ListItem<Slot>> = Vec::new();
+    // Each row's lines, by its key: what its pitch is computed from. A heading has none.
+    let snippets = shell.read().parts.snippet.shown();
+    let mut lines: std::collections::HashMap<Slot, ThreadLines> = std::collections::HashMap::new();
     for draft in drafts() {
         let id = draft.id.to_string();
         let label = if draft.subject.is_empty() {
@@ -225,12 +221,39 @@ pub(super) fn ThreadList(
             draft.subject.clone()
         };
         // One held for a time says when it leaves, and offers Cancel Sending in its menu.
-        let row = match draft.state {
-            SendState::Scheduled { at } => rsx! { ScheduledRow { draft, at, shell, revision } },
-            _ => rsx! { DraftRow { draft, shell } },
+        // A held one says when it leaves on its second line; any other draws its state third.
+        let (row, drawn) = match draft.state {
+            SendState::Scheduled { at } => (
+                rsx! { ScheduledRow { draft, at, shell, revision } },
+                ThreadLines::Two,
+            ),
+            _ => (
+                rsx! { DraftRow { draft, shell } },
+                if snippets {
+                    ThreadLines::Three
+                } else {
+                    ThreadLines::Two
+                },
+            ),
         };
+        lines.insert(Slot::Draft(id.clone()), drawn);
         items.push(ListItem::row(Slot::Draft(id), label, row));
     }
+    let mut mail_row = |slot: Slot, summary: ThreadSummary, items: &mut Vec<ListItem<Slot>>| {
+        let Dress { via, chips, hit } = dress_row(&summary);
+        let snippet = hit
+            .as_ref()
+            .map_or(summary.snippet.as_str(), |hit| hit.snippet.as_str());
+        lines.insert(slot.clone(), lines_of(snippets, snippet));
+        let id = summary.id;
+        let label = summary.subject.clone();
+        let selection = selection_of(id);
+        items.push(ListItem::row(
+            slot,
+            label,
+            rsx! { MailRow { summary, shell, revision, chips, via, hit, selection } },
+        ));
+    };
     let strip = top();
     if !strip.is_empty() {
         items.push(ListItem::heading(
@@ -238,20 +261,8 @@ pub(super) fn ThreadList(
             rsx! { div { class: "band", SectionHeader { title: copy::headers::TOP_RESULTS.to_owned() } } },
         ));
         for summary in strip {
-            let Dress { via, chips, hit } = dress_row(&summary);
-            let id = summary.id;
-            let label = summary.subject.clone();
-            let selection = selection_of(id);
-            items.push(ListItem::row(
-                Slot::Top(id),
-                label,
-                rsx! { MailRow { summary, shell, revision, chips, via, hit, selection } },
-            ));
+            mail_row(Slot::Top(summary.id), summary, &mut items);
         }
-        items.push(ListItem::heading(
-            Slot::NewestHeading,
-            rsx! { div { class: "band", SectionHeader { title: copy::headers::NEWEST_FIRST.to_owned() } } },
-        ));
     }
     for band in group_list(
         shown,
@@ -267,15 +278,7 @@ pub(super) fn ThreadList(
             ));
         }
         for summary in band.threads {
-            let Dress { via, chips, hit } = dress_row(&summary);
-            let id = summary.id;
-            let label = summary.subject.clone();
-            let selection = selection_of(id);
-            items.push(ListItem::row(
-                Slot::Thread(id),
-                label,
-                rsx! { MailRow { summary, shell, revision, chips, via, hit, selection } },
-            ));
+            mail_row(Slot::Thread(summary.id), summary, &mut items);
         }
     }
     if !server_rows.is_empty() {
@@ -284,15 +287,7 @@ pub(super) fn ThreadList(
             rsx! { div { class: "band", SectionHeader { title: copy::headers::FROM_SERVER.to_owned() } } },
         ));
         for summary in server_rows {
-            let Dress { via, chips, hit } = dress_row(&summary);
-            let id = summary.id;
-            let label = summary.subject.clone();
-            let selection = selection_of(id);
-            items.push(ListItem::row(
-                Slot::Server(id),
-                label,
-                rsx! { MailRow { summary, shell, revision, chips, via, hit, selection } },
-            ));
+            mail_row(Slot::Server(summary.id), summary, &mut items);
         }
     }
     let cursor = shell.read().open.map(Slot::Thread);
@@ -310,13 +305,9 @@ pub(super) fn ThreadList(
         .map(|item| (item.key, item.content))
         .collect();
     let row = Callback::new(move |slot: Slot| drawn.get(&slot).cloned().unwrap_or_else(|| rsx! {}));
-    // A row draws its snippet as a third line only while the list's parts show snippets.
-    let lines = if shell.read().parts.snippet.shown() {
-        ThreadLines::Three
-    } else {
-        ThreadLines::Two
-    };
-    let height = RowHeight::PerKey(Callback::new(move |slot: Slot| Px(pitch(&slot, lines))));
+    let height = RowHeight::PerKey(Callback::new(move |slot: Slot| {
+        Px(pitch(lines.get(&slot).copied()))
+    }));
     let nothing_here = threads().is_empty() && drafts().is_empty() && found().is_empty();
     let has_rows = if nothing_here {
         HasRows::No
@@ -416,14 +407,6 @@ pub(super) fn ThreadList(
                             // A right click on the title goes to Sent, Drafts, Spam or Trash.
                             ListTitle { shell, pages,
                                 Label { text: place.clone(), style: LabelStyle::Title, common: classed("ds-truncate") }
-                                if let Some(address) = address {
-                                    Label {
-                                        text: address,
-                                        role: LabelRole::Tertiary,
-                                        style: LabelStyle::Footnote,
-                                        common: classed("ds-truncate"),
-                                    }
-                                }
                             }
                             if let Some(said) = search_note {
                                 Label {
@@ -481,12 +464,15 @@ pub(super) fn ThreadList(
                             // magnifier that brings up the search panel, or the search shown. The
                             // ⋯ closes the row: Group, Row Properties and Sync Now.
                             super::command::SearchBox { shell, pages }
-                            ListMore { shell, syncs: !quiet }
+                            ListMore { shell, syncs: !quiet, side_hidden }
                         }
                     }
                 },
             }
-            ListProgress { shell }
+            // Only while the first mail comes: after it, how a sync goes is the sync mark's.
+            if face == ListFace::FirstSync {
+                ListProgress { shell }
+            }
             // quire's list: it keeps each row by its key, so a row that leaves plays its exit and
             // the rows below close the gap. A `Loadable` decides what the pane holds: outline rows
             // while the first mail comes, the failure when no account can be reached, else the
@@ -533,36 +519,35 @@ pub(super) fn ThreadList(
     }
 }
 
-/// What a row shows beside its summary: the provider mark, the label chips, the search marks.
+/// What a row shows beside its summary: its account's mark, the label chips, the search marks.
 struct Dress {
-    via: Option<mail_core::provider::Provider>,
+    via: Option<AccountMark>,
     chips: Vec<String>,
     hit: Option<RowHit>,
 }
 
-/// The chip on a conversation a search of the server brought here.
-pub(super) const FROM_SERVER: &str = copy::headers::FROM_SERVER;
-
+/// `summary`'s dress. Its account is named only when `several` accounts are in view.
 fn dress(
     summary: &ThreadSummary,
     accounts: &[AccountRow],
+    several: bool,
     names: &BTreeMap<LabelId, String>,
     highlight: &mail_core::search::Highlight,
-    from_server: &[ThreadId],
 ) -> Dress {
-    let mut chips: Vec<String> = summary
+    let chips: Vec<String> = summary
         .labels
         .iter()
         .filter_map(|id| names.get(id).cloned())
         .collect();
-    if from_server.contains(&summary.id) {
-        chips.push(FROM_SERVER.to_owned());
-    }
+    let via = several
+        .then(|| accounts.iter().find(|row| row.id == summary.account))
+        .flatten()
+        .map(|row| AccountMark {
+            provider: provider(&row.plan),
+            name: row.shown(),
+        });
     Dress {
-        via: accounts
-            .iter()
-            .find(|row| row.id == summary.account)
-            .map(|row| provider(&row.plan)),
+        via,
         chips,
         hit: row_hit(summary, highlight),
     }

@@ -1,11 +1,10 @@
-//! Opening a server folder's place: what the list's title says of it, and what fetches it.
+//! Opening a server folder's place: what fetches it.
 //!
 //! A pass fetches the folders the user follows; one opened from "Show all" is fetched by nobody
 //! until it is opened. So choosing a folder fetches it now (`fetching::Fetching::open_folder`
 //! decides when, and keeps where each folder stands). What does the fetching is a context,
 //! [`Fetcher`], so a test can count what the window asks for without a server.
 
-use crate::ui::view::{Shell, folder_of};
 use chrono::{DateTime, Utc};
 use mail_core::SqliteStore;
 use mail_core::sync::report::PassEnd;
@@ -44,23 +43,6 @@ impl Fetcher {
             ))
         }))
     }
-}
-
-/// The address the list's title names beside a folder, when the folder's account is one of
-/// several in view.
-pub(in crate::ui) fn title_address(
-    shell: &Shell,
-    accounts: &[(AccountId, String)],
-) -> Option<String> {
-    let mailbox = folder_of(shell.places.get(shell.selected)?)?;
-    let several = match &shell.scope {
-        crate::ui::space::Scope::All => accounts.len() > 1,
-        crate::ui::space::Scope::Accounts(ids) => ids.len() > 1,
-    };
-    several
-        .then(|| accounts.iter().find(|(id, _)| *id == mailbox.account))
-        .flatten()
-        .map(|(_, address)| address.clone())
 }
 
 #[cfg(test)]

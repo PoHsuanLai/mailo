@@ -123,7 +123,6 @@ fn notes(page: &str) -> Vec<String> {
 
 /// The strip's heading, as markup: the words alone are also in the stylesheet's comments.
 const TOP_RESULTS: &str = r#"class="ds-section-header-title">Top results<"#;
-const NEWEST_FIRST: &str = r#"class="ds-section-header-title">Newest first<"#;
 
 const UIDVAL: &str =
     r#"Re: UIDL stability across a <mark class="ds-mark">UIDVAL</mark>IDITY change"#;
@@ -159,15 +158,18 @@ async fn half_a_word_once_the_box_is_still_puts_its_thread_first_marked() {
     assert!(!page.contains(TOP_RESULTS), "a strip of the one row");
 }
 
+/// The top results lead under their heading, and the matches follow newest first with no heading
+/// of their own: the order says it.
 #[tokio::test(start_paused = true)]
 async fn a_word_lists_newest_first_under_its_top_results() {
     let mut window = window();
     let page = window
         .typed("cursors", |page| page.contains(TOP_RESULTS))
         .await;
-    let (strip, list) = page
-        .split_once(NEWEST_FIRST)
-        .expect("the strip has a heading for the list under it");
+    assert!(!page.contains("Newest first"), "the list is headed");
+    let (_, rows) = page
+        .split_once(TOP_RESULTS)
+        .expect("the strip has its heading");
     let plain = |rows: Vec<String>| -> Vec<String> {
         rows.into_iter()
             .map(|row| {
@@ -176,15 +178,15 @@ async fn a_word_lists_newest_first_under_its_top_results() {
             })
             .collect()
     };
-    assert_eq!(
-        plain(subjects(list)),
-        vec![
+    let all = subjects(rows);
+    assert!(
+        plain(all.clone()).ends_with(&[
             "Notes from the sync review".to_owned(),
             "Re: Re: Keyset cursors, not offsets".to_owned(),
-        ],
-        "the matches, newest first"
+        ]),
+        "the matches, newest first, after the strip: {all:?}"
     );
-    let strip = subjects(strip);
+    let strip = all;
     assert_eq!(
         strip.first().map(String::as_str),
         Some(r#"Re: Re: Keyset <mark class="ds-mark">cursors</mark>, not offsets"#),
@@ -211,10 +213,13 @@ async fn clearing_the_box_gives_the_place_back() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_bare_pattern_runs_over_this_page_and_says_so() {
+async fn a_bare_pattern_runs_over_this_page_and_its_marks_say_so() {
     let mut window = window();
-    let over_page = |page: &str| notes(page).contains(&"pattern over this page".to_owned());
-    let page = window.typed("re:/^Re: /", over_page).await;
+    let page = window
+        .typed("re:/^Re: /", |page| {
+            page.contains(r#"<mark class="ds-mark">Re:</mark>"#)
+        })
+        .await;
     assert_eq!(
         subjects(&page),
         vec![
@@ -222,19 +227,14 @@ async fn a_bare_pattern_runs_over_this_page_and_says_so() {
             r#"<mark class="ds-mark">Re:</mark> Re: Keyset cursors, not offsets"#,
         ],
     );
-    assert!(
-        notes(&page).contains(&"pattern over this page".to_owned()),
-        "the bar did not say where the pattern ran: {:?}",
-        notes(&page)
-    );
+    // The marks show what the pattern matched; the bar adds no words.
+    assert!(notes(&page).is_empty(), "{:?}", notes(&page));
 
-    // Narrowed by a word, it is a search again, and the bar has nothing to add.
+    // Narrowed by a word, it is a search again.
     let page = window
-        .typed("re:/^Re: / keyset", |page| !over_page(page))
+        .typed("re:/^Re: / keyset", |page| subjects(page).len() == 1)
         .await;
     assert_eq!(subjects(&page).len(), 1, "{:?}", subjects(&page));
-    // The bar still says how fresh the mail is (the fetching's line), which is not the search's.
-    assert!(!over_page(&page), "{:?}", notes(&page));
 }
 
 #[tokio::test(start_paused = true)]

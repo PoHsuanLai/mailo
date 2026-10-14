@@ -40,3 +40,5 @@ pub const MESSAGE_ACTIONS: &str = "Message Actions";
 pub fn on_selected(action: &str, count: usize) -> String {
     format!("{action} the {count} selected")
 }
+/// The paperclip on a row whose conversation carries files.
+pub const HAS_ATTACHMENTS: &str = "Has Attachments";

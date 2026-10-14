@@ -27,20 +27,12 @@ pub const ADD_ACCOUNT: &str = "Add Account…";
 pub const ADD_ACCOUNT_SUBMENU: &str = "Add Account";
 
 // The list toolbar's ⋯.
-pub const GROUP: &str = "Group";
-pub const ROW_PROPERTIES: &str = "Row Properties";
+pub const GROUP_BY_DATE: &str = "Group by Date";
+pub const SHOW_SNIPPETS: &str = "Show Snippets";
+pub const HIDE_SNIPPETS: &str = "Hide Snippets";
+pub const SHOW_LABELS: &str = "Show Labels";
+pub const HIDE_LABELS: &str = "Hide Labels";
 pub const SYNC_NOW: &str = "Sync Now";
-// Group ▸, the ways the loaded page is banded.
-pub const GROUP_NONE: &str = "None";
-pub const GROUP_SENDER: &str = "Sender";
-pub const GROUP_DATE: &str = "Date";
-pub const GROUP_LABEL: &str = "Label";
-pub const GROUP_UNREAD: &str = "Unread";
-// Row Properties ▸, the parts a row shows.
-pub const PART_SNIPPET: &str = "Snippet";
-pub const PART_PROVIDER: &str = "Provider";
-pub const PART_CHIPS: &str = "Chips";
-pub const PART_TIME: &str = "Time";
 
 // A folder's ⋯.
 pub const NEW_FOLDER_INSIDE: &str = "New Folder Inside";

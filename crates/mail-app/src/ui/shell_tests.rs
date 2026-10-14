@@ -89,6 +89,28 @@ fn favourites_appear_once_a_conversation_is_pinned() {
     );
 }
 
+/// A row names its account (its provider's mark, the account in its tip) only while the list
+/// shows more than one: with one, the place already says whose mail it is.
+#[test]
+fn a_row_names_its_account_only_with_several_in_view() {
+    let (store, _dir) = seeded();
+    let one = page_of(store, None);
+    assert!(
+        !one.contains("class=\"via\""),
+        "one account, and a row names it"
+    );
+    let built = work();
+    let several = page_of(built.store, Some(built.dirs));
+    assert!(
+        several.contains("class=\"via\""),
+        "several accounts, and no row names its own"
+    );
+    assert!(
+        !several.contains(">imap<"),
+        "the provider's name is spelled out"
+    );
+}
+
 #[test]
 fn the_work_rows_carry_the_read_state_the_chip_and_the_more_button() {
     let built = work();
