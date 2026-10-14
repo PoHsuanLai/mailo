@@ -575,7 +575,7 @@ fn a_row_s_lines_fit_inside_its_slot() {
     // The list places rows a fixed pitch apart, quire's `thread_card_height` for the lines a
     // row draws, and holds each to its slot, so a row whose lines run taller than the slot draws
     // its last line under its own selection ring. With snippets it is three lines; with them
-    // hidden from the ⋯'s Row Properties, two, and the slot shrinks with them.
+    // hidden from the ⋯'s Hide Snippets, two, and the slot shrinks with them.
     let (mut harness, _dir) = open(1200, spaces(1));
     assert_eq!(harness.count(&format!("{ROW} .ds-thread-snip")), 1);
     lines_fit(&harness, "three lines");
@@ -583,17 +583,7 @@ fn a_row_s_lines_fit_inside_its_slot() {
 
     harness.click(centre(&harness, ".list-head [*|aria-label=\"More\"]"));
     settle_until(&mut harness, |h| h.count(".ds-menu .ds-menu-item") > 0);
-    let properties = menu_item(&harness, "Row Properties");
-    settle_until(&mut harness, |h| {
-        h.centre(&properties)
-            .is_some_and(|at| h.hits(at, &properties))
-    });
-    harness.click(centre(&harness, &properties));
-    let sub = ".ds-menu[*|data-depth=\"1\"] .ds-menu-list";
-    settle_until(&mut harness, |h| {
-        h.count(&format!("{sub} .ds-menu-item")) > 0
-    });
-    let snippet = item_in(&harness, sub, "Snippet");
+    let snippet = menu_item(&harness, "Hide Snippets");
     settle_until(&mut harness, |h| {
         h.centre(&snippet).is_some_and(|at| h.hits(at, &snippet))
     });

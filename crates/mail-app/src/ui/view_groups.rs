@@ -24,7 +24,7 @@ where
     Tz::Offset: std::fmt::Display,
 {
     match by {
-        Grouping::Page(page) => group_page(threads, *page, names, now, zone),
+        Grouping::Page(page) => group_page(threads, *page, now, zone),
         Grouping::Saved(key) => saved_bands(threads, key, names, now, zone),
     }
 }
@@ -212,8 +212,8 @@ mod tests {
             (
                 "the page menu's",
                 vec![thread("a", Unread, Unstarred, vec![])],
-                Grouping::Page(PageGroup::Unread),
-                &[("Unread", &["a"])],
+                Grouping::Page(PageGroup::Date),
+                &[("Today", &["a"])],
             ),
         ];
         for (name, threads, grouping, want) in cases {

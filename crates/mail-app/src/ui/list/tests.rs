@@ -171,3 +171,18 @@ mod searching_in_the_window {
         );
     }
 }
+
+/// A row is as tall as what it draws: one with no snippet, or with snippets hidden, is a line
+/// shorter than one that draws its snippet, and a heading is shorter still.
+#[test]
+fn a_row_is_as_tall_as_the_lines_it_draws() {
+    use super::{lines_of, pitch};
+    use ds::components::app::thread_height::ThreadLines;
+    assert_eq!(lines_of(true, "Three blockers left"), ThreadLines::Three);
+    assert_eq!(lines_of(true, ""), ThreadLines::Two);
+    assert_eq!(lines_of(false, "Three blockers left"), ThreadLines::Two);
+    let three = pitch(Some(ThreadLines::Three));
+    let two = pitch(Some(ThreadLines::Two));
+    let heading = pitch(None);
+    assert!(three > two && two > heading, "{three} {two} {heading}");
+}

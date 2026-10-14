@@ -161,10 +161,8 @@ impl Peek {
 pub enum PageGroup {
     #[default]
     None,
-    Sender,
+    /// Today, Yesterday, This week, Older.
     Date,
-    Label,
-    Unread,
 }
 
 /// Whether a row draws one of its parts.
@@ -181,18 +179,15 @@ pub enum RowPart {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PageParts {
     pub snippet: RowPart,
-    pub provider: RowPart,
+    /// The label chips.
     pub chips: RowPart,
-    pub time: RowPart,
 }
 
 impl Default for PageParts {
     fn default() -> Self {
         Self {
             snippet: RowPart::Shown,
-            provider: RowPart::Shown,
             chips: RowPart::Shown,
-            time: RowPart::Shown,
         }
     }
 }
@@ -202,9 +197,7 @@ impl PageParts {
     pub fn part_mut(&mut self, key: &str) -> Option<&mut RowPart> {
         match key {
             "snippet" => Some(&mut self.snippet),
-            "provider" => Some(&mut self.provider),
             "chips" => Some(&mut self.chips),
-            "time" => Some(&mut self.time),
             _ => None,
         }
     }

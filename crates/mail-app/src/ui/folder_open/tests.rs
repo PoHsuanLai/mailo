@@ -1,7 +1,6 @@
-//! Opening a folder, as data: the filter its place lists, when opening it fetches, and what the
-//! list's title names. The window around it is in `sidebar/folder_place_tests.rs`.
+//! Opening a folder, as data: the filter its place lists, and when opening it fetches. The window
+//! around it is in `sidebar/folder_place_tests.rs`.
 
-use super::title_address;
 use crate::ui::view::{Shell, folder_of, places_with};
 use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::id::account_id_from_uuid;
@@ -138,36 +137,4 @@ fn folder_places_come_after_the_labels_so_the_badges_line_up() {
         Some(&mailbox(acct_one(), "Projects/2026"))
     );
     assert!(places[..=defaults].iter().all(|p| folder_of(p).is_none()));
-}
-
-#[test]
-fn the_title_names_the_account_only_when_several_are_in_view() {
-    let accounts = vec![
-        (acct_one(), "me@one.example".to_owned()),
-        (acct_two(), "me@two.example".to_owned()),
-    ];
-    let shell = in_folder(&[("收據".to_owned(), mailbox(acct_two(), "收據"))]);
-    assert_eq!(
-        title_address(&shell, &accounts).as_deref(),
-        Some("me@two.example")
-    );
-    assert_eq!(title_address(&shell, &accounts[1..]), None, "only one");
-    let single = Shell {
-        scope: crate::ui::space::Scope::Accounts(vec![acct_two()]),
-        ..shell.clone()
-    };
-    assert_eq!(title_address(&single, &accounts), None, "a Space of one");
-    let pair = Shell {
-        scope: crate::ui::space::Scope::Accounts(vec![acct_one(), acct_two()]),
-        ..shell.clone()
-    };
-    assert_eq!(
-        title_address(&pair, &accounts).as_deref(),
-        Some("me@two.example")
-    );
-    let inbox = Shell {
-        selected: 0,
-        ..shell
-    };
-    assert_eq!(title_address(&inbox, &accounts), None, "not a folder");
 }

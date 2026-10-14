@@ -21,6 +21,7 @@ use super::motion::{act_kind, drag, motion};
 use super::move_to::MoveMenu;
 use super::picks::drawn_order;
 use super::text::{draft_state, sender};
+use crate::ui::copy;
 use crate::ui::provider_chip::ProvChip;
 use crate::ui::selection::Click;
 use crate::ui::view::Marks;
@@ -35,13 +36,11 @@ use ds::base::vocab::RowState;
 use ds::components::app::row_more::RowMore;
 use ds::components::app::thread_row::ThreadRow;
 use ds::components::content::text_runs::{RunTone, TextRun};
-use ds::components::controls::badge::{Badge, BadgeContent, BadgeTone};
 use ds::components::controls::chip::{Chip, ChipVariant};
 use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::icon::render::Glyph;
-use ds::style::tokens::control_size::ControlSize;
 use mail_core::provider::Provider;
 use mail_core::view::hover_in;
 use mail_core::{SqliteStore, Store};
@@ -67,13 +66,12 @@ pub(super) fn DraftRow(draft: Draft, shell: Signal<Shell>) -> Element {
     };
     let state = draft_state(&draft.state);
     let when = mail_core::when::listed(draft.updated, chrono::Utc::now(), &Local);
-    let parts = shell.read().parts;
-    let snippet = parts.snippet.shown().then(|| TextLine::from(state));
-    let time = if parts.time.shown() {
-        when
-    } else {
-        String::new()
-    };
+    let snippet = shell
+        .read()
+        .parts
+        .snippet
+        .shown()
+        .then(|| TextLine::from(state));
     rsx! {
         div { key: "{id}", class: "row", role: "none",
             ThreadRow {
@@ -81,7 +79,7 @@ pub(super) fn DraftRow(draft: Draft, shell: Signal<Shell>) -> Element {
                 via: None,
                 subject: TextLine::from(subject),
                 snippet,
-                time,
+                time: when,
                 tags: rsx! {},
                 star: None,
                 strip: None,
@@ -120,7 +118,8 @@ pub(super) fn MailRow(
     shell: Signal<Shell>,
     revision: Signal<u64>,
     chips: Vec<String>,
-    via: Option<Provider>,
+    /// Whose conversation it is, drawn only while the list shows more than one account.
+    via: Option<AccountMark>,
     hit: Option<RowHit>,
     /// Picked, or open with nothing picked (`Shell::is_selected`, asked by the list, which
     /// knows what is listed).
@@ -140,10 +139,7 @@ pub(super) fn MailRow(
         Some(hit) => (hit.subject, hit.snippet, hit.snippet_marks),
         None => (Vec::new(), summary.snippet.clone(), Vec::new()),
     };
-    let files = match summary.attachments {
-        Attachments::Present { count } => Some(count),
-        Attachments::None => None,
-    };
+    let files = matches!(summary.attachments, Attachments::Present { .. });
     // The menu offers what the old hover strip did: the saved view's own actions, or the usual ones,
     // and, in Trash or Spam and only there, Delete forever, which asks first.
     let mut offered: Vec<OpKind> = hover_in(shell.read().saved_view(), &summary);
@@ -173,33 +169,23 @@ pub(super) fn MailRow(
     let parts = shell.read().parts;
     let snippet =
         (parts.snippet.shown() && !snippet.is_empty()).then(|| runs(&snippet, &snippet_marks));
-    let time = if parts.time.shown() {
-        when
-    } else {
-        String::new()
-    };
-    let via = if parts.provider.shown() {
-        via.map(|via| rsx! { ViaChip { via, marks: shell.read().appearance.marks } })
-    } else {
-        None
-    };
-    let star = (
-        if starred { Check::On } else { Check::Off },
-        EventHandler::new(move |_: Check| {
-            let store = consume_context::<Arc<SqliteStore>>();
-            let kind = if starred {
-                OpKind::Unstar
-            } else {
-                OpKind::Star
-            };
-            act_kind(&store, shell, revision, id, kind);
-        }),
-    );
+    let via = via.map(|via| rsx! { ViaChip { via, marks: shell.read().appearance.marks } });
+    // A star is drawn only on a starred conversation, as its mark: starring is in the row's menu
+    // and on its key, and nothing appears under the pointer. Pressing the mark unstars.
+    let star = starred.then(|| {
+        (
+            Check::On,
+            EventHandler::new(move |_: Check| {
+                let store = consume_context::<Arc<SqliteStore>>();
+                act_kind(&store, shell, revision, id, OpKind::Unstar);
+            }),
+        )
+    });
     let tags = rsx! {
         if parts.chips.shown() {
             for name in chips {
                 span { key: "{name}", "data-chip": "{name}",
-                    Chip { variant: ChipVariant::Accent, text: name.clone() }
+                    Chip { variant: ChipVariant::Neutral, text: name.clone() }
                 }
             }
         }
@@ -216,10 +202,9 @@ pub(super) fn MailRow(
                 "{words}"
             }
         }
-        if let Some(count) = files {
-            span { class: "clip",
+        if files {
+            span { class: "clip", aria_label: copy::aria::HAS_ATTACHMENTS,
                 Glyph { icon: Icon::Paperclip, size: IconSize::Compact }
-                Badge { content: BadgeContent::Number(count), tone: BadgeTone::Quiet, size: ControlSize::Small }
             }
         }
     };
@@ -276,9 +261,9 @@ pub(super) fn MailRow(
                 via,
                 subject: runs(&subject, &subject_marks),
                 snippet,
-                time,
+                time: when,
                 tags,
-                star: Some(star),
+                star,
                 star_shortcut: crate::ui::actions::tip(crate::ui::view::Shortcut::ToggleStar),
                 strip: None,
                 more: Some(more),
@@ -399,15 +384,20 @@ fn click_of(press: Press, platform: Platform) -> Option<Click> {
     })
 }
 
+/// Which account a conversation is on: its provider's mark, and the account's name in its tip.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct AccountMark {
+    pub provider: Provider,
+    /// The account as the window names it: its address, or the name it was given.
+    pub name: String,
+}
+
 #[component]
-fn ViaChip(via: Provider, marks: Marks) -> Element {
-    let short = via.short();
-    let title = via.title();
+fn ViaChip(via: AccountMark, marks: Marks) -> Element {
     rsx! {
-        Tooltip { text: title,
-            span { class: "via",
-                ProvChip { provider: via, marks }
-                "{short}"
+        Tooltip { text: via.name.clone(),
+            span { class: "via", aria_label: via.name.clone(),
+                ProvChip { provider: via.provider, marks }
             }
         }
     }
