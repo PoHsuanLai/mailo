@@ -230,8 +230,8 @@ fn a_click_on_a_row_opens_the_thread_and_never_acts_on_it() {
     );
 }
 
-/// The row's one button is the ⋯ in its tail, under the time, and a click on it opens the row's
-/// menu and nothing else: the thread neither leaves nor opens.
+/// The row's one button is the ⋯ in its tail, after the time on the name's line, and a click on
+/// it opens the row's menu and nothing else: the thread neither leaves nor opens.
 #[test]
 fn the_more_button_sits_in_the_tail_and_only_opens_the_menu() {
     let (mut harness, _dir) = open(1200, spaces(1));
@@ -243,7 +243,7 @@ fn the_more_button_sits_in_the_tail_and_only_opens_the_menu() {
         harness.attr(&more, "aria-label").as_deref(),
         Some("More actions")
     );
-    // At the row's trailing edge, inside the row, and below the time rather than over it.
+    // At the row's trailing edge, inside the row, and after the time rather than over it.
     let (button, row) = (rect(&harness, &more), rect(&harness, ROW));
     let time = rect(&harness, &format!("{ROW} .ds-thread-time"));
     assert!(within(&button, &row), "the ⋯ is not inside its row");
@@ -252,7 +252,7 @@ fn the_more_button_sits_in_the_tail_and_only_opens_the_menu() {
         "the ⋯ is not at the row's trailing edge"
     );
     assert!(
-        top(&button) >= bottom(&time) - 0.5,
+        left(&button) >= left(&time) + time.size.width.0 - 0.5,
         "the ⋯ {button:?} covers the time {time:?}"
     );
     harness.pointer_move(centre(&harness, &format!("{ROW} .ds-thread-sub")));

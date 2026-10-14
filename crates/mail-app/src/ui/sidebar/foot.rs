@@ -162,12 +162,12 @@ fn face(initial: char, tone: AvatarTone) -> AvatarFace {
 /// parked drafts, and the messages waiting for their time.
 fn gather(store: &SqliteStore, today: &Today, space: SpaceId, sidebar: Shown) -> Foot {
     let now = chrono::Utc::now();
-    let live = today
-        .live(space, crate::ui::today::at(now))
+    let opened = today
+        .all(space)
         .into_iter()
-        .map(|(entry, _)| (entry.item, entry.last_opened))
+        .map(|entry| (entry.item, entry.last_opened))
         .collect();
-    let recent = newest_first(live)
+    let recent = newest_first(opened)
         .into_iter()
         .enumerate()
         .filter_map(|(index, thread)| {

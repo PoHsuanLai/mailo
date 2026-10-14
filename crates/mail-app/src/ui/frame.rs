@@ -36,15 +36,11 @@ pub(super) fn load_boot() -> Boot {
         (None, Some(handed)) => handed,
         _ => space::boot(dirs.as_ref(), &ids, &legacy),
     };
-    let mut today = dirs
+    // Today keeps an entry until it is cleared: nothing is pruned for being idle.
+    let today = dirs
         .as_ref()
         .map(|dirs| today::load(&dirs.state))
         .unwrap_or_default();
-    if today.prune(today::at(chrono::Utc::now())) > 0
-        && let Some(dirs) = &dirs
-    {
-        let _ = today::save(&dirs.state, &today);
-    }
     Boot {
         spaces,
         today,

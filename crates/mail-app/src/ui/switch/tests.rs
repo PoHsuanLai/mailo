@@ -9,7 +9,6 @@ use dioxus::prelude::*;
 use dioxus_core::{ElementId, VirtualDom};
 use ds::prelude::{Scheme, SpaceLook, Theme, Word};
 use ds::style::space::frame_vars::FrameVars;
-use ds::style::space::look::CardAccent;
 use ds::style::space::palette::{Dot, derive, gradient};
 use ds::style::space::presets::PRESETS;
 use mail_domain::ThreadId;
@@ -228,12 +227,11 @@ async fn the_first_frame_and_a_switch_paint_a_space_the_same() {
     dispatching();
     let cases = [
         (
-            "dark, the card follows the Space",
+            "dark, a preset's dots",
             SpaceLook {
                 grain: ds::prelude::Grain(35),
                 dots: PRESETS[1].dots.to_vec(),
                 theme: Theme::Dark,
-                card_accent: CardAccent::SpaceHue,
             },
             Scheme::Dark,
         ),
@@ -321,28 +319,23 @@ async fn a_switch_keeps_the_old_gradient_behind_the_new_one() {
     );
 }
 
-/// A Space whose card follows its hue writes `--accent` on the root, a Space that keeps the
-/// chosen accent writes none, and switching from one to the other takes it away rather than
-/// leaving the last Space's behind.
+/// No Space writes `--accent` on the root: the card wears the desktop's accent, before a switch
+/// and after it.
 #[tokio::test]
-async fn the_chosen_accent_writes_none_and_a_switch_to_it_clears_the_hue() {
+async fn no_space_writes_an_accent_before_or_after_a_switch() {
     dispatching();
     let built = work();
-    let mut stored = space::load(&built.dirs);
-    let first = stored.current().id;
-    stored.edit(first, |space| space.look.card_accent = CardAccent::SpaceHue);
-    space::save(Some(&built.dirs), &stored).unwrap_or_else(|e| panic!("{e}"));
-    let chosen = SpaceLook {
-        card_accent: CardAccent::Chosen,
-        ..SpaceLook::default()
+    let dotted = SpaceLook {
+        theme: Theme::Dark,
+        ..dotted(PRESETS[1].dots)
     };
-    with_second(&built, "Plain", chosen, Mail::default());
+    with_second(&built, "Plain", dotted, Mail::default());
     let mut dom = app_on(&built);
-    let hue = root_attr(&dioxus_ssr::render(&dom), "style").unwrap_or_default();
-    assert!(hue.contains("--accent:"), "Work lends its hue: {hue}");
-    let plain = root_attr(&switch_to(&mut dom, "2"), "style").unwrap_or_default();
+    let first = root_attr(&dioxus_ssr::render(&dom), "style").unwrap_or_default();
+    assert!(!first.contains("--accent"), "Work wrote an accent: {first}");
+    let switched = root_attr(&switch_to(&mut dom, "2"), "style").unwrap_or_default();
     assert!(
-        !plain.contains("--accent"),
-        "the chosen accent kept a hue: {plain}"
+        !switched.contains("--accent"),
+        "the switch wrote an accent: {switched}"
     );
 }

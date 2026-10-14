@@ -148,6 +148,15 @@ fn open(width: u32, spaces: Spaces) -> (Harness, tempfile::TempDir) {
 }
 
 const DOTS: &str = ".ds-spaces-dots > *";
+
+/// How many Spaces the foot draws: a dot each, or, with one Space, no dots and the gap that
+/// holds their place.
+fn spaces_drawn(harness: &Harness) -> usize {
+    match harness.count(DOTS) {
+        0 if harness.count(".ds-spaces-gap") == 1 => 1,
+        dots => dots,
+    }
+}
 const NAME: &str = ".ds-space-head";
 const MENU: &str = ".ds-menu-item";
 /// The menu's last row: Delete Space… while another Space remains, New Space otherwise.
@@ -177,7 +186,7 @@ fn press(harness: &mut Harness, selector: &str) {
 #[test]
 fn deleting_a_space_from_its_name_s_right_click_asks_first_and_escape_keeps_it() {
     let (mut harness, _dir) = open(1200, spaces(2));
-    assert_eq!(harness.count(DOTS), 2, "the fixture is not two Spaces");
+    assert_eq!(spaces_drawn(&harness), 2, "the fixture is not two Spaces");
 
     // A plain click opens nothing; a right click opens the menu.
     press(&mut harness, NAME);
@@ -204,7 +213,7 @@ fn deleting_a_space_from_its_name_s_right_click_asks_first_and_escape_keeps_it()
     harness.advance(ms(400));
     assert_eq!(harness.count(ASKING), 0, "Esc did not close the question");
     assert_eq!(
-        harness.count(DOTS),
+        spaces_drawn(&harness),
         2,
         "closing the question removed a Space"
     );
@@ -219,13 +228,13 @@ fn deleting_a_space_from_its_name_s_right_click_asks_first_and_escape_keeps_it()
     assert_eq!(harness.count(ASKING), 1, "Delete Space did not ask again");
     assert_eq!(harness.count(MENU), 0, "the menu stayed under the question");
     assert_eq!(
-        harness.count(DOTS),
+        spaces_drawn(&harness),
         2,
         "the Space went before it was confirmed"
     );
     press(&mut harness, CONFIRM);
     assert_eq!(
-        harness.count(DOTS),
+        spaces_drawn(&harness),
         1,
         "confirming did not remove the Space"
     );
@@ -249,5 +258,5 @@ fn the_only_space_has_no_delete_row() {
         Some("New Space"),
         "the last Space's menu offers Delete"
     );
-    assert_eq!(harness.count(DOTS), 1, "the last Space was removed");
+    assert_eq!(spaces_drawn(&harness), 1, "the last Space was removed");
 }

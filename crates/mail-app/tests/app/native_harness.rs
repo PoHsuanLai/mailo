@@ -596,7 +596,8 @@ fn renaming(fallback: FocusFallback) -> (Harness, tempfile::TempDir, Arc<SqliteS
         1,
         "the folder's menu did not open"
     );
-    // New Folder Inside, then Rename.
+    // The menu opens with nothing highlighted: Down to New Folder Inside, Down to Rename.
+    harness.key(Key::Down);
     harness.key(Key::Down);
     harness.key(Key::Enter);
     // A fixed wait lands before select-all on a loaded runner: the field is focused and the
@@ -1314,14 +1315,6 @@ fn a_rested_pointer_shows_each_controls_tip() {
         );
     }
 
-    // The Space dot, rested on after the pointer has been away.
-    harness.pointer_move(Point {
-        x: Px(5.0),
-        y: Px(790.0),
-    });
-    harness.advance(ms(2500));
-    harness.pointer_move(centre(&harness, ".ds-space-dot"));
-    harness.advance(ms(1300));
-    let tip = harness.text_of(".ds-tooltip").unwrap_or_default();
-    assert_eq!(tip, "Space 1  \u{2318}1", "the Space dot's tip");
+    // One Space draws no dot, so there is no Space control to rest on.
+    assert_eq!(harness.count(".ds-space-dot"), 0, "one Space draws a dot");
 }

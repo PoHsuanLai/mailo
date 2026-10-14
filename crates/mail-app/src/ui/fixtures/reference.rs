@@ -10,7 +10,6 @@ use crate::ui::space::{self, Pinned, Scope};
 use crate::ui::today::{self, Today};
 use chrono::Datelike;
 use ds::prelude::{SpaceLook, Theme};
-use ds::style::space::look::CardAccent;
 use ds::style::space::palette::Dot;
 use mail_core::{SqliteStore, Store};
 use mail_domain::id::account_id_from_uuid;
@@ -247,7 +246,6 @@ pub(in crate::ui) fn work() -> Work {
             },
         ],
         theme: Theme::System,
-        card_accent: CardAccent::SpaceHue,
     };
     let mail = space::Mail {
         scope: Scope::All,

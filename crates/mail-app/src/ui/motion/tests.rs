@@ -341,7 +341,7 @@ async fn a_today_entry_is_listed_when_opened_gone_when_cleared_and_expires_on_th
         "Clear Today left it: {names:?}"
     );
 
-    // Expiry is the kit's: an entry idle past `IDLE` is not live, whatever was drawn.
+    // Nothing drops off by time: an entry idle past the kit's `IDLE` is still listed.
     let space = crate::ui::space::SpaceId(0);
     let now = chrono::Utc::now();
     let mut today = crate::ui::today::Today::default();
@@ -350,13 +350,17 @@ async fn a_today_entry_is_listed_when_opened_gone_when_cleared_and_expires_on_th
         space,
         thread,
         crate::ui::today::at(
-            now - chrono::Duration::from_std(crate::ui::today::IDLE).unwrap()
+            now - chrono::Duration::from_std(ds::components::app::spaces::IDLE).unwrap()
                 - chrono::TimeDelta::seconds(5),
         ),
     );
-    assert!(today.live(space, crate::ui::today::at(now)).is_empty());
+    assert_eq!(today.all(space).len(), 1);
     today.opened(space, thread, crate::ui::today::at(now));
-    assert_eq!(today.live(space, crate::ui::today::at(now)).len(), 1);
+    assert_eq!(
+        today.all(space).len(),
+        1,
+        "opening it again keeps one entry"
+    );
 }
 
 #[tokio::test]

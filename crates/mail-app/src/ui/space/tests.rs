@@ -5,7 +5,6 @@
 use super::{Mail, Pinned, Recall, Scope, SpaceId, Spaces, boot, ensure_colors, first_run, load};
 use crate::ui::appearance::{Legacy, WindowDirs};
 use ds::prelude::{SpaceLook, Theme};
-use ds::style::space::look::CardAccent;
 use ds::style::space::palette::Dot;
 use ds::style::space::presets::PRESETS;
 use mail_core::profile::ProfileId;
@@ -76,7 +75,6 @@ fn a_spaces_file_from_before_quire_still_loads_and_round_trips() {
                     },
                 ],
                 theme: Theme::Dark,
-                card_accent: CardAccent::SpaceHue,
             },
             Mail {
                 scope: Scope::All,
@@ -97,7 +95,6 @@ fn a_spaces_file_from_before_quire_still_loads_and_round_trips() {
                     chroma: 0.62,
                 }],
                 theme: Theme::System,
-                card_accent: CardAccent::Chosen,
             },
             Mail::over(Scope::All),
         ),
@@ -116,7 +113,8 @@ fn a_spaces_file_from_before_quire_still_loads_and_round_trips() {
     assert!(work.get("payload").is_none(), "{work}");
     assert_eq!(work["grain"], 35, "{work}");
     assert!(work.get("motion").is_none(), "{work}");
-    assert_eq!(work["card_accent"], "space_hue", "{work}");
+    // The retired card accent is read and not written back.
+    assert!(work.get("card_accent").is_none(), "{work}");
     assert_eq!(work["scope"]["kind"], "all", "{work}");
     assert_eq!(work["pins"][0]["email"], "dana@example.com", "{work}");
     assert_eq!(shown(&load(&dirs)), want, "after saving");
