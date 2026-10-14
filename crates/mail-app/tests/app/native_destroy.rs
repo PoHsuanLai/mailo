@@ -296,7 +296,9 @@ fn only_in_trash_a_row_is_deleted_forever_from_its_menu_once_asked() {
     );
     let offered_in_the_inbox = offered(&mut harness, 1);
     assert!(
-        offered_in_the_inbox.iter().any(|op| op == "Trash"),
+        offered_in_the_inbox
+            .iter()
+            .any(|op| op == mail_app::ui::copy::menus::MOVE_TO_TRASH),
         "the inbox's delete is a move to Trash: {offered_in_the_inbox:?}"
     );
     assert!(

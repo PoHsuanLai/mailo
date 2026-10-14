@@ -99,7 +99,7 @@ pub(super) fn Places(
             // Space's menu, and a plain press does nothing. Downloads stands at the row's right
             // end, its list opening below it; a right click on it is nobody's.
             div { class: "side-head",
-                SpaceHead { handle }
+                div { class: "side-title", SpaceHead { handle } }
                 crate::ui::downloads::DownloadsButton { shell }
             }
             div { class: "slide",

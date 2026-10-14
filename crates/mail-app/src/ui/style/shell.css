@@ -33,7 +33,7 @@
    a row of mailo's: the Space's name takes what is free on the left, Downloads stands at the
    right inset, where the foot's chevron stands below it. */
 .side-head { display: flex; align-items: center; gap: var(--s-6); min-width: 0; }
-.side-head > .ds-space-head { flex: 1 1 auto; }
+.side-head > .side-title { flex: 1 1 auto; min-width: 0; }
 .side-head > .downloads-hold { flex: none; }
 /* The foot's two ends are mailo's holds. quire's dots group takes the foot's free width and
    sets its dots from its start; the ends here outweigh it a thousand to one for that width and

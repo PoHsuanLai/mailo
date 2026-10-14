@@ -373,7 +373,7 @@ fn downloads_stands_at_the_right_of_the_sidebar_s_title_row_and_opens_below_it()
         "Downloads is still in the foot"
     );
     let head = rect(&harness, ".side-head");
-    let name = rect(&harness, ".side-head > .ds-space-head");
+    let name = rect(&harness, ".side-head > .side-title");
     let button = rect(&harness, BUTTON);
     assert!(
         within(&button, &head),
@@ -423,7 +423,7 @@ fn downloads_stands_at_the_right_of_the_sidebar_s_title_row_and_opens_below_it()
         "a right click on Downloads opened its list"
     );
     harness.press(
-        centre(&harness, ".side-head > .ds-space-head"),
+        centre(&harness, ".side-head > .side-title"),
         PointerButton::Secondary,
     );
     harness.advance(ms(400));
