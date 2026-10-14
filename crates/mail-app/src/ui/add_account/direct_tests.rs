@@ -1,14 +1,13 @@
 //! Adding an account straight in the browser: which entry goes where, the add menu, what the toast
-//! says, and the main window's "+" end to end with a sign-in of the test's.
+//! says, and the Space menu's Add Account end to end with a sign-in of the test's.
 
 use super::direct::{
     AddPick, DirectSignIns, Entry, SignInDirectly, Signing, add_menu, entry, entry_for_plan,
-    offered_redirects, redirects, told, waiting_words,
+    offered_redirects, picked, redirects, told, waiting_words,
 };
 use super::provider::offered_specs;
 use super::{AddAccountWindows, Ask, OpenAddAccount};
-use crate::ui::fixtures::{Seen, click, dispatching, empty, rebuild_into};
-use crate::ui::fixtures::{menu_names, pick_named, settle as settle_menu};
+use crate::ui::fixtures::{Seen, dispatching, empty, rebuild_into};
 use crate::ui::motion::Follow;
 use dioxus::prelude::*;
 use dioxus_core::{NoOpMutations, VirtualDom};
@@ -276,8 +275,36 @@ async fn settle(dom: &mut VirtualDom) -> Seen {
     seen
 }
 
+/// The Space menu's Add Account, as the window offers it now: its rows' words and what each
+/// asks for.
+fn add_rows(dom: &VirtualDom) -> Vec<(String, AddPick)> {
+    let offered = dom.in_scope(ScopeId::APP, offered_redirects);
+    add_menu(&offered)
+        .into_iter()
+        .filter_map(|row| match row {
+            MenuItem::Item { title, value, .. } => Some((title, value)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Pick the Add Account row named `name`, as the Space's menu does.
+fn pick_add(dom: &VirtualDom, name: &str) {
+    let rows = add_rows(dom);
+    let pick = rows
+        .iter()
+        .find(|(title, _)| title == name)
+        .map(|(_, pick)| *pick)
+        .unwrap_or_else(|| panic!("no Add Account row is named {name:?}: {rows:?}"));
+    dom.in_scope(ScopeId::APP, || picked(pick));
+}
+
+fn names(rows: &[(String, AddPick)]) -> Vec<&str> {
+    rows.iter().map(|(title, _)| title.as_str()).collect()
+}
+
 #[tokio::test]
-async fn google_from_the_plus_menu_signs_in_in_the_browser_with_no_window() {
+async fn google_from_the_space_menu_signs_in_in_the_browser_with_no_window() {
     dispatching();
     let (store, _dir) = empty();
     let fake = Arc::new(Fake::with(mail_core::testing::fake_clients_for(&[
@@ -289,19 +316,12 @@ async fn google_from_the_plus_menu_signs_in_in_the_browser_with_no_window() {
         .with_root_context(crate::ui::revisions::Revisions::new())
         .with_root_context(DirectSignIns(fake.clone()))
         .with_root_context(AddAccountWindows(Arc::new(windows.clone())));
-    let seen = rebuild_into(&mut dom);
-    let seen = seen.merge(settle(&mut dom).await);
+    let _ = rebuild_into(&mut dom);
+    settle(&mut dom).await;
 
-    // "+" is a menu: Google, which has a client, then Other Account….
-    let plus = *seen
-        .all("aria-label", crate::ui::copy::aria::ADD_ACCOUNT)
-        .last()
-        .expect("the + tile");
-    let asked = click(&mut dom, plus);
-    let opened = settle_menu(&mut dom, asked);
-    let names = menu_names(&dioxus_ssr::render(&dom));
-    assert_eq!(names, ["Google", "Other Account\u{2026}"]);
-    pick_named(&mut dom, &opened, "Google").await;
+    // Add Account is a menu: Google, which has a client, then Other Account….
+    assert_eq!(names(&add_rows(&dom)), ["Google", "Other Account\u{2026}"]);
+    pick_add(&dom, "Google");
     settle(&mut dom).await;
 
     // The page is asked for once, no window is, and the row says what it waits for.
@@ -318,7 +338,9 @@ async fn google_from_the_plus_menu_signs_in_in_the_browser_with_no_window() {
     assert!(page.contains("Cancel sign-in"), "no way to stop it: {page}");
 
     // A second pick while it waits opens no second page.
-    super::direct::start(Issuer::Google, Mode::Add);
+    dom.in_scope(ScopeId::APP, || {
+        super::direct::start(Issuer::Google, Mode::Add)
+    });
     settle(&mut dom).await;
     assert_eq!(
         fake.asked.lock().unwrap().len(),
@@ -326,7 +348,7 @@ async fn google_from_the_plus_menu_signs_in_in_the_browser_with_no_window() {
         "a second page was opened"
     );
 
-    // The browser comes back: the account is in the store, the toast says so, the tile draws it.
+    // The browser comes back: the account is in the store and the toast says so.
     keep_account(&store, "you@example.test").await;
     let end = fake.end.lock().unwrap().take().expect("the sign-in waits");
     end.send(Ok("you@example.test".to_owned())).unwrap();
@@ -339,10 +361,6 @@ async fn google_from_the_plus_menu_signs_in_in_the_browser_with_no_window() {
         }
     }
     assert!(page.contains("Added you@example.test"), "no toast: {page}");
-    assert!(
-        page.contains("aria-label=\"you@example.test\""),
-        "no tile for the account: {page}"
-    );
     assert!(
         !page.contains("Signing in with Google"),
         "the row stayed: {page}"
@@ -365,15 +383,9 @@ async fn other_account_and_a_provider_without_a_client_open_the_window() {
         .with_root_context(store)
         .with_root_context(DirectSignIns(fake.clone()))
         .with_root_context(AddAccountWindows(Arc::new(windows.clone())));
-    let seen = rebuild_into(&mut dom);
-    let seen = seen.merge(settle(&mut dom).await);
-    let plus = *seen
-        .all("aria-label", crate::ui::copy::aria::ADD_ACCOUNT)
-        .last()
-        .expect("the + tile");
-    let asked = click(&mut dom, plus);
-    let opened = settle_menu(&mut dom, asked);
-    pick_named(&mut dom, &opened, "Other Account\u{2026}").await;
+    let _ = rebuild_into(&mut dom);
+    settle(&mut dom).await;
+    pick_add(&dom, "Other Account\u{2026}");
     settle(&mut dom).await;
     assert_eq!(
         *windows.0.lock().unwrap(),
@@ -395,7 +407,7 @@ async fn other_account_and_a_provider_without_a_client_open_the_window() {
 }
 
 #[tokio::test]
-async fn with_clients_at_hand_the_plus_menu_names_google_and_microsoft() {
+async fn with_clients_at_hand_add_account_names_google_and_microsoft() {
     dispatching();
     let (store, _dir) = empty();
     // Both stand-ins at hand, as an installation with both clients has: each is named, and a pick goes
@@ -407,17 +419,13 @@ async fn with_clients_at_hand_the_plus_menu_names_google_and_microsoft() {
         .with_root_context(crate::ui::revisions::Revisions::new())
         .with_root_context(DirectSignIns(fake.clone()))
         .with_root_context(AddAccountWindows(Arc::new(windows.clone())));
-    let seen = rebuild_into(&mut dom);
-    let seen = seen.merge(settle(&mut dom).await);
-    let plus = *seen
-        .all("aria-label", crate::ui::copy::aria::ADD_ACCOUNT)
-        .last()
-        .expect("the + tile");
-    let asked = click(&mut dom, plus);
-    let opened = settle_menu(&mut dom, asked);
-    let names = menu_names(&dioxus_ssr::render(&dom));
-    assert_eq!(names, ["Google", "Microsoft", "Other Account\u{2026}"]);
-    pick_named(&mut dom, &opened, "Microsoft").await;
+    let _ = rebuild_into(&mut dom);
+    settle(&mut dom).await;
+    assert_eq!(
+        names(&add_rows(&dom)),
+        ["Google", "Microsoft", "Other Account\u{2026}"]
+    );
+    pick_add(&dom, "Microsoft");
     settle(&mut dom).await;
     assert_eq!(
         *fake.asked.lock().unwrap(),
@@ -430,7 +438,7 @@ async fn with_clients_at_hand_the_plus_menu_names_google_and_microsoft() {
 }
 
 /// A window whose root was not handed the program's sign-in (every test's, unless it hands a
-/// recorder) offers no provider by name and has nothing to sign in with: "+" and a sign-in again
+/// recorder) offers no provider by name and has nothing to sign in with: Add Account and a sign-in again
 /// open the add-account window, and nothing reaches a browser or an issuer. Nor has the edge any
 /// client, since only `main` installs them.
 #[tokio::test]
@@ -455,8 +463,8 @@ async fn a_root_without_the_programs_sign_in_offers_no_redirect_and_reaches_noth
         if *recorded {
             dom = dom.with_root_context(AddAccountWindows(Arc::new(windows.clone())));
         }
-        let seen = rebuild_into(&mut dom);
-        let seen = seen.merge(settle(&mut dom).await);
+        let _ = rebuild_into(&mut dom);
+        settle(&mut dom).await;
         let offered = dom.in_scope(ScopeId::APP, offered_redirects);
         assert!(offered.is_empty(), "{name}: offered {offered:?}");
         // The keys' seams too: no lookup and no keyring of the user's.
@@ -469,12 +477,9 @@ async fn a_root_without_the_programs_sign_in_offers_no_redirect_and_reaches_noth
         if !*recorded {
             continue;
         }
-        // "+" is the window, with no menu, and so is a sign-in asked for by name.
-        let plus = *seen
-            .all("aria-label", crate::ui::copy::aria::ADD_ACCOUNT)
-            .last()
-            .expect("the + tile");
-        let _ = click(&mut dom, plus);
+        // Add Account is the window, with no menu, and so is a sign-in asked for by name.
+        assert_eq!(names(&add_rows(&dom)), ["Other Account\u{2026}"], "{name}");
+        pick_add(&dom, "Other Account\u{2026}");
         settle(&mut dom).await;
         dom.in_scope(ScopeId::APP, || {
             super::direct::start(Issuer::Google, Mode::Add);
@@ -483,7 +488,7 @@ async fn a_root_without_the_programs_sign_in_offers_no_redirect_and_reaches_noth
         assert_eq!(
             *windows.0.lock().unwrap(),
             [Ask::default(), Ask::default()],
-            "{name}: + and Google each open the window"
+            "{name}: Add Account and Google each open the window"
         );
     }
 }

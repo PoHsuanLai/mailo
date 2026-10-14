@@ -141,17 +141,19 @@ async fn typing_shows_the_mail_and_the_commands_it_names() {
 }
 
 #[tokio::test]
-async fn an_empty_bar_offers_recent_mail_and_commands() {
+/// Nothing opened yet: the empty panel offers the commands, and no Recent. Recent is where the
+/// person was, not the newest mail, which the list already shows.
+async fn an_empty_bar_with_nothing_opened_offers_commands_and_no_recent() {
     let recorder = Recorder::default();
     let mut bar = alone(&recorder);
     let page = until(&mut bar.dom, "", |page| {
-        has(page, "Compose")
-            && has(page, &format!(">{RECENT}<"))
-            && has(page, &format!(">{COMMANDS}<"))
+        has(page, "Compose") && has(page, &format!(">{COMMANDS}<"))
     })
     .await;
-    assert!(has(&page, &format!(">{RECENT}<")), "no Recent:\n{page}");
-    assert!(has(&page, &format!(">{COMMANDS}<")), "no Commands:\n{page}");
+    assert!(
+        !has(&page, &format!(">{RECENT}<")),
+        "Recent with nothing opened:\n{page}"
+    );
 }
 
 #[tokio::test]

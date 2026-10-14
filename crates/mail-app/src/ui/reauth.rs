@@ -5,7 +5,7 @@
 //! links say is waiting ([`crate::ui::fetching::needs_you`]), once they have all said how they
 //! stand. Sign In goes where the Connections sheet's Sign In goes. Later puts the dialog off for
 //! the rest of the session: it comes back for an account only when that account recovers and
-//! needs the person again, or when its tile is pressed. A lone account is asked in quire's
+//! needs the person again, or when the sidebar foot's sync mark is pressed. A lone account is asked in quire's
 //! alert; several are asked in a sheet with a row, and a Sign In, for each.
 
 use crate::ui::common::in_card;
@@ -69,13 +69,11 @@ fn still_put_off(
         .collect()
 }
 
-/// What pressing a tile's mark came to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(in crate::ui) enum Pressed {
-    /// An account in question needs the person: the dialog asks about it.
-    Asked,
-    /// None does: the Connections sheet is the place to look.
-    Nobody,
+/// `accounts` taken out of `put_off`, so the prompt asks about them again. Whether there was one
+/// to ask about.
+fn asked_again(put_off: &mut BTreeSet<AccountId>, accounts: &[AccountId]) -> bool {
+    put_off.retain(|id| !accounts.contains(id));
+    !accounts.is_empty()
 }
 
 /// The dialog's state, shared by the window. Copy, so a handler can take it.
@@ -203,32 +201,19 @@ impl Reauth {
         }
     }
 
+    /// Ask again about `accounts`, put off with Later: the foot's sync mark pressed while an
+    /// account in view needs the person. Returns whether one of them is asked about.
+    pub(in crate::ui) fn ask_again(self, accounts: &[AccountId]) -> bool {
+        let mut put_off = self.put_off;
+        asked_again(&mut put_off.write(), accounts)
+    }
+
     /// `account`'s sign-in has begun.
     fn began(self, account: AccountId) {
         let (mut put_off, mut signing) = (self.put_off, self.signing);
         put_off.write().insert(account.clone());
         let revision = *self.revision.peek();
         signing.write().insert(account, revision);
-    }
-
-    /// A tile's mark was pressed, for `account`, or for all of them. Those that need the person
-    /// are asked about again, though they were put off.
-    pub(in crate::ui) fn press(self, account: Option<&AccountId>) -> Pressed {
-        let Some(fetching) = try_consume_context::<Fetching>() else {
-            return Pressed::Nobody;
-        };
-        let wanted: Vec<AccountId> = fetching
-            .needs()
-            .into_iter()
-            .map(|(id, _)| id)
-            .filter(|id| account.is_none_or(|only| only == id))
-            .collect();
-        if wanted.is_empty() {
-            return Pressed::Nobody;
-        }
-        let mut put_off = self.put_off;
-        put_off.write().retain(|id| !wanted.contains(id));
-        Pressed::Asked
     }
 }
 
@@ -365,6 +350,25 @@ mod tests {
             let put_off: BTreeSet<AccountId> = put_off.into_iter().collect();
             assert_eq!(to_ask(&both, &put_off), want, "{put_off:?}");
         }
+    }
+
+    /// Later puts the question away; the foot's mark, pressed, brings it back for the accounts
+    /// in view, and only those.
+    #[test]
+    fn the_sync_mark_asks_again_about_an_account_put_off() {
+        let both = [(id(1), Need::SignIn), (id(2), Need::SignIn)];
+        let mut put_off: BTreeSet<AccountId> = [id(1), id(2)].into_iter().collect();
+        assert!(
+            to_ask(&both, &put_off).is_empty(),
+            "Later kept nothing away"
+        );
+        assert!(asked_again(&mut put_off, &[id(1)]));
+        assert_eq!(to_ask(&both, &put_off), [(id(1), Need::SignIn)]);
+        assert!(
+            !asked_again(&mut put_off, &[]),
+            "a press with nobody waiting asked"
+        );
+        assert_eq!(put_off, [id(2)].into_iter().collect());
     }
 
     #[test]

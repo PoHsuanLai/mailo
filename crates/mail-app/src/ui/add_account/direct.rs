@@ -1,14 +1,14 @@
 //! Signing in straight in the browser, from the main window, with no window of mailo's own.
 //!
 //! On the web, "Sign in with Google" goes to Google's page and comes back signed in. A provider
-//! whose accounts sign in with an OAuth redirect needs nothing more here either, so the "+" after
-//! the account tiles and Settings' Add Account… are a small menu: each such provider by name
+//! whose accounts sign in with an OAuth redirect needs nothing more here either, so Add Account in
+//! the Space's menu and in Settings is a small menu: each such provider by name
 //! (which of them, [`entry`] decides from its provider file and whether a client is at hand),
 //! then Other Account…, which opens the add-account window for every provider that needs a form.
 //!
 //! The sign-in itself is `mail_core::account::sign_in_with`. What is here is its one-at-a-time
-//! state ([`Phase`], shared by every window on the event loop's thread), the quiet row under the
-//! account tiles while it waits ([`PendingSignIn`]), and what the main window says when it ends
+//! state ([`Phase`], shared by every window on the event loop's thread), the quiet row at the top
+//! of the sidebar while it waits ([`PendingSignIn`]), and what the main window says when it ends
 //! ([`DirectSignInWatch`]): a toast, the shared revision moved so every window draws the account,
 //! and the current Space taking it in, as the add-account window does.
 
@@ -516,7 +516,7 @@ pub(in crate::ui) fn waiting_words(issuer: Issuer) -> String {
     format!("Signing in with {}\u{2026}", name_of(issuer))
 }
 
-/// The quiet row under the account tiles while a direct sign-in waits: a spinner, what it waits
+/// The quiet row at the top of the sidebar while a direct sign-in waits: a spinner, what it waits
 /// for, and a button that stops it. Draws nothing otherwise.
 #[component]
 pub(in crate::ui) fn PendingSignIn() -> Element {

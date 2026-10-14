@@ -17,8 +17,8 @@ use serde::de::Deserializer;
 use serde::{Deserialize, Serialize};
 
 pub use mail_core::view::{
-    Place, Source, badge_filter, default_places, folder_filter, folder_of, is_label_place,
-    places_with, saved_of, saved_place, scoped_badge,
+    Place, Reach, Source, badge_filter, default_places, find_place, folder_filter, folder_of,
+    is_label_place, place_key, places_with, saved_of, saved_place, scoped_badge,
 };
 
 /// What a Mute button or menu item says for these conversations: what pressing it would do.
@@ -417,6 +417,12 @@ impl Viewing {
     }
 }
 
+/// A list in the sidebar that opens conversations by their rows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SideList {
+    Favourites,
+}
+
 /// Everything the shell is currently showing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Shell {
@@ -425,9 +431,9 @@ pub struct Shell {
     /// What the user typed in the search box.
     pub search: String,
     pub open: Option<ThreadId>,
-    /// Whether the open thread was opened from its Today tab. The sidebar has one selected row:
-    /// that tab while this holds, the place otherwise.
-    pub from_today: bool,
+    /// The sidebar list the open thread was opened from, if one was. The sidebar has one
+    /// selected row: that list's row for the thread while this holds, the place otherwise.
+    pub from_side: Option<SideList>,
     /// The conversations picked for an action on several at once. Empty: actions mean `open`.
     ///
     /// Dropped with the place ([`Self::select`]), and replaced by a plain click
@@ -480,8 +486,6 @@ pub struct Shell {
     /// Remembered in the config directory, not in the mail database; a shell built with no
     /// stored choice is [`Appearance::default`].
     pub appearance: Appearance,
-    /// The account tile that is pressed. `None` is every account in [`Self::scope`].
-    pub account: Option<AccountId>,
     /// Accounts the current Space shows.
     pub scope: crate::ui::space::Scope,
     /// How this page's rows are grouped. Not a store query.
@@ -617,7 +621,7 @@ impl Default for Shell {
             selected: 0,
             search: String::new(),
             open: None,
-            from_today: false,
+            from_side: None,
             picked: Picked::none(),
             show_remote_images: false,
             peek: Peek::Side,
@@ -628,7 +632,6 @@ impl Default for Shell {
             accounts: Vec::new(),
             labels: Vec::new(),
             appearance: Appearance::default(),
-            account: None,
             scope: crate::ui::space::Scope::All,
             group: PageGroup::None,
             parts: PageParts::default(),
@@ -673,9 +676,11 @@ impl Shell {
                 // Reachable only if a caller asks for a query while Drafts is selected.
                 // `listing` is the method that knows the difference; this stays total rather
                 // than panicking, and `All` is the least surprising thing to show.
-                Some(Source::Drafts) | Some(Source::Waiting) | Some(Source::History) | None => {
-                    Filter::All
-                }
+                Some(Source::Drafts)
+                | Some(Source::Waiting)
+                | Some(Source::History)
+                | Some(Source::Scheduled)
+                | None => Filter::All,
             }
         } else {
             mail_core::query::parse_with(
@@ -726,6 +731,7 @@ impl Shell {
         }
         match self.places.get(self.selected).map(|p| &p.source) {
             Some(Source::Drafts) => Listing::Drafts,
+            Some(Source::Scheduled) => Listing::Scheduled,
             Some(Source::Waiting) => Listing::Waiting {
                 scope: self.account_filter(),
             },
@@ -742,20 +748,17 @@ impl Shell {
         }
     }
 
-    /// Narrow `filter` to the pressed account tile, or to the Space when it names accounts.
-    ///
-    /// A tile wins over the Space: pressing one account inside a Space of three shows that
-    /// account. No tile and an empty scope leave the filter alone, which is every account.
+    /// Narrow `filter` to the Space's accounts. A Space over every account leaves it alone.
     fn with_account(&self, filter: Filter) -> Filter {
         mail_core::view::scoped(self.account_filter(), filter)
     }
 
-    /// The pressed tile, or the Space's accounts, as a filter. `None` is every account.
+    /// The Space's accounts, as a filter. `None` is every account.
     ///
     /// The search pipeline narrows its candidates with this, so a search inside a Space finds
     /// what [`Self::query`] would, and nothing from an account the Space leaves out.
     pub fn account_filter(&self) -> Option<Filter> {
-        self.scope.narrowed(self.account.clone()).filter()
+        self.scope.filter()
     }
 
     /// Select a place, and drop any open thread that no longer belongs to the new list.
@@ -763,7 +766,7 @@ impl Shell {
         if index < self.places.len() {
             self.selected = index;
             self.open = None;
-            self.from_today = false;
+            self.from_side = None;
             // What was picked was picked in the old list.
             self.picked = Picked::none();
             // Consent is per thread, so changing what is shown revokes it.
@@ -776,27 +779,28 @@ impl Shell {
     /// selection in any list, and a Shift range measures from it next.
     pub fn open(&mut self, thread: ThreadId) {
         self.open = Some(thread);
-        self.from_today = false;
+        self.from_side = None;
         self.picked = Picked::clicked(thread);
         self.show_remote_images = false;
         self.viewing = None;
     }
 
-    /// Open a thread from its Today tab: the tab is then the sidebar's selected row.
-    pub fn open_from_today(&mut self, thread: ThreadId) {
+    /// Open a thread from its row in one of the sidebar's lists: that row is then the sidebar's
+    /// selected row.
+    pub fn open_from(&mut self, thread: ThreadId, list: SideList) {
         self.open(thread);
-        self.from_today = true;
+        self.from_side = Some(list);
     }
 
-    /// Whether place `index` is the sidebar's selected row: the list's place, unless a Today tab
-    /// took the selection by opening its thread.
+    /// Whether place `index` is the sidebar's selected row: the list's place, unless a row of
+    /// Favourites took the selection by opening its thread.
     pub fn place_selected(&self, index: usize) -> bool {
-        self.selected == index && !self.from_today
+        self.selected == index && self.from_side.is_none()
     }
 
-    /// The Today tab that is the sidebar's selected row, if one took it.
-    pub fn selected_tab(&self) -> Option<ThreadId> {
-        self.open.filter(|_| self.from_today)
+    /// The thread whose row in `list` is the sidebar's selected row, if one took it.
+    pub fn selected_in(&self, list: SideList) -> Option<ThreadId> {
+        self.open.filter(|_| self.from_side == Some(list))
     }
 
     /// Close the reader.
@@ -805,7 +809,7 @@ impl Shell {
     /// [`Self::select`] do. A remote image is a read receipt.
     pub fn close(&mut self) {
         self.open = None;
-        self.from_today = false;
+        self.from_side = None;
         self.show_remote_images = false;
         self.viewing = None;
     }
@@ -1047,6 +1051,8 @@ pub enum Listing {
     },
     /// The drafts table, which no `Query` can express.
     Drafts,
+    /// The drafts held to leave at a time, soonest first, on the Space's accounts.
+    Scheduled,
     /// The conversations waiting on a reply, on the accounts `scope` narrows to.
     Waiting {
         scope: Option<Filter>,
@@ -1162,34 +1168,35 @@ mod tests {
 
     #[test]
     fn the_sidebar_has_one_selected_row() {
-        // The place the list shows, or the Today tab the open thread came from: never both.
+        // The place the list shows, or the Favourite the open thread came from: never both.
         let mut shell = Shell::default();
         let thread = ThreadId::generate();
+        let favourites = SideList::Favourites;
         assert!(shell.place_selected(0));
-        assert_eq!(shell.selected_tab(), None);
+        assert_eq!(shell.selected_in(favourites), None);
 
         shell.open(thread);
         assert!(
             shell.place_selected(0),
             "a thread from the list keeps the place"
         );
-        assert_eq!(shell.selected_tab(), None);
+        assert_eq!(shell.selected_in(favourites), None);
 
-        shell.open_from_today(thread);
+        shell.open_from(thread, favourites);
         assert!(
             !shell.place_selected(0),
-            "a tab and a place are both selected"
+            "a Favourite and a place are both selected"
         );
-        assert_eq!(shell.selected_tab(), Some(thread));
+        assert_eq!(shell.selected_in(favourites), Some(thread));
 
         shell.select(1);
         assert!(shell.place_selected(1), "choosing a place takes it back");
-        assert_eq!(shell.selected_tab(), None);
+        assert_eq!(shell.selected_in(favourites), None);
 
-        shell.open_from_today(thread);
+        shell.open_from(thread, favourites);
         shell.close();
         assert!(shell.place_selected(1));
-        assert_eq!(shell.selected_tab(), None);
+        assert_eq!(shell.selected_in(favourites), None);
     }
 
     #[test]
@@ -1330,10 +1337,10 @@ mod listing_tests {
         }
         let text = |words: &str| Filter::Text(TextMatch::Contains(words.to_owned()));
         let cases = [
-            // Searching while in Archive must not hide a result that lives in the Inbox.
+            // Searching while in Done must not hide a result that lives in the Inbox.
             (
                 "a search replaces the place",
-                "Archive",
+                "Done",
                 "  lunch  ",
                 Want::Threads(text("lunch")),
             ),
@@ -1417,19 +1424,13 @@ mod listing_tests {
     }
 
     #[test]
-    fn the_history_place_follows_waiting_and_lists_history_and_a_search_does_not() {
+    fn the_history_place_lists_history_and_a_search_does_not() {
         let mut shell = Shell::default();
-        let waiting = shell
-            .places
-            .iter()
-            .position(|p| p.source == Source::Waiting)
-            .expect("there is a Waiting place");
         let history = shell
             .places
             .iter()
             .position(|p| p.source == Source::History)
             .expect("there is a History place");
-        assert_eq!(history, waiting + 1, "History comes after Waiting");
         shell.select(history);
         assert_eq!(shell.listing(50), Listing::History { scope: None });
         shell.search = "invoice".to_owned();

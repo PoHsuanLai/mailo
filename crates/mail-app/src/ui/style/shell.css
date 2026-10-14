@@ -15,7 +15,8 @@
    and its peek live in a zero-width host at the window's left edge, which the peek floats from. */
 .edge-host { position: absolute; left: 0; top: 0; bottom: 0; width: 0; }
 /* The frame's two gradient layers are the `Ds` root's (`.ds-layer`): it cross-fades them itself
-   when the Space changes. */
+   when the Space changes. The sidebar covers them flat, in the Space's first colour: no tint
+   gradient (docs/design-language.md, 0.5). */
 .side, .card { min-height: 0; min-width: 0; }
 /* Pinned, the sidebar fills its pane; peeking it is placed by its own rule. */
 .side[*|data-side="shown"] { height: 100%; box-sizing: border-box; }
@@ -24,9 +25,9 @@
 .side {
   display: flex; flex-direction: column; gap: var(--s-8);
   padding: var(--s-10) var(--s-10) var(--s-8); min-height: 0; color: var(--f-ink); overflow: hidden;
+  background: var(--f-solid);
 }
 .slide { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: none; display: flex; flex-direction: column; gap: var(--s-4); }
-/* The accounts: quire's `PinTile`s, four to a row. */
 /* A folder the person does not follow is drawn quieter. */
 .dim:not([*|aria-selected="true"]) { color: var(--ink-faint); }
 /* The sidebar's head and foot are quire's Spaces kit (`SpaceHead`, `SpacesFoot`). The head is

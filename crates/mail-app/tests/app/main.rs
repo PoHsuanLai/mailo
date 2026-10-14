@@ -46,7 +46,6 @@ mod native_fetch;
 mod native_follow_up;
 mod native_frame;
 mod native_harness;
-mod native_join;
 mod native_keyboard;
 mod native_latency;
 mod native_launcher;

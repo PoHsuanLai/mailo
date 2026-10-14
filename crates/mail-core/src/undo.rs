@@ -9,8 +9,8 @@
 
 use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::{
-    Change, FolderWork, FollowUp, LabelId, MailboxRole, Membership, MessageId, Mute, NonEmpty, Op,
-    Patch, Pin, ReadState, RemoteIntent, Snooze, Star, Subscription, ThreadId,
+    Change, DraftId, FolderWork, FollowUp, LabelId, MailboxRole, Membership, MessageId, Mute,
+    NonEmpty, Op, Patch, Pin, ReadState, RemoteIntent, Snooze, Star, Subscription, ThreadId,
 };
 use porter_core::AccountId;
 use std::collections::BTreeMap;
@@ -33,6 +33,19 @@ pub struct Undo {
     pub inverse: Patch,
     /// What the forward op queued for the server, if anything.
     pub remote: Option<RemoteIntent>,
+    /// A scheduled send the op took back, to be queued again for its time when this is undone.
+    ///
+    /// Not a patch: what the outbox holds is the message sealed as it was sent, and only the
+    /// window, which holds the keys to seal it again, can queue it. [`crate::act::take_back`]
+    /// refuses an entry that has one.
+    pub resend: Option<Resend>,
+}
+
+/// A send held for a time, taken back: the draft, and when it was to leave.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Resend {
+    pub draft: DraftId,
+    pub at: DateTime<Utc>,
 }
 
 /// Which entry of the stack an undo means: what the toast carries back when it is pulled, so

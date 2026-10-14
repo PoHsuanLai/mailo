@@ -207,8 +207,6 @@ fn PageHarness(draft: Draft) -> Element {
     let revision = use_signal(|| 0u64);
     let today = use_signal(crate::ui::today::Today::default);
     let spaces = use_signal(|| crate::ui::space::first_run(&[]));
-    let side = use_signal(|| false);
-    let pages = use_signal(|| 1u32);
     let dirs = try_consume_context::<WindowDirs>();
     let desk = use_desk(today, spaces, dirs.clone(), None);
     // In place, as the main window holds a page Open in Main Window brought it.
@@ -230,16 +228,25 @@ fn PageHarness(draft: Draft) -> Element {
                     ComposerPage { key: "{id}", draft: id, shell, revision }
                 }
                 SendPill { shell }
-                // The sidebar's menu is where drafts put aside and messages waiting are listed.
-                crate::ui::sidebar::MoreMenu {
-                    shell,
-                    pages,
-                    today,
-                    space: crate::ui::space::SpaceId(0),
-                    dirs,
-                    side_hidden: side,
-                    on_new_space: |_| {},
-                }
+                // The Scheduled place's rows, the messages waiting for their time.
+                ScheduledRows { shell, revision }
+            }
+        }
+    }
+}
+
+/// The rows the Scheduled place lists, as the list draws them.
+#[component]
+fn ScheduledRows(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
+    let desk = use_context::<Desk>();
+    let _ = desk.outbox.read();
+    let _ = revision();
+    let store = consume_context::<Arc<SqliteStore>>();
+    let held = super::scheduled(&store, &crate::ui::space::Scope::All);
+    rsx! {
+        for draft in held {
+            if let SendState::Scheduled { at } = draft.state {
+                crate::ui::row::scheduled::ScheduledRow { key: "{draft.id}", draft, at, shell, revision }
             }
         }
     }

@@ -268,11 +268,15 @@ mod pinning {
 
     #[test]
     fn the_sidebar_offers_somewhere_to_find_a_pinned_conversation() {
+        // Kept: starred and pinned side by side.
         let places = view::default_places();
-        let pinned = places
+        let kept = places
             .iter()
-            .find(|p| p.name == "Pinned")
-            .expect("no Pinned place");
-        assert_eq!(pinned.source, view::Source::Mail(Filter::Pinned));
+            .find(|p| p.name == "Kept")
+            .expect("no Kept place");
+        assert_eq!(
+            kept.source,
+            view::Source::Mail(mail_core::view::kept_filter())
+        );
     }
 }

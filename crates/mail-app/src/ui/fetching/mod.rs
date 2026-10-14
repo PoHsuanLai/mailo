@@ -43,7 +43,7 @@ pub(in crate::ui) use delegate::Delegate;
 pub(in crate::ui) use face::{CANNOT_LOAD, HasRows, ListFace, list_face};
 pub(in crate::ui) use folder::opened;
 pub(in crate::ui) use line::{AccountLine, Remedy, Standing, account_line, offered};
-pub(in crate::ui) use marks::{Mark, sync_availability};
+pub(in crate::ui) use marks::sync_availability;
 pub(in crate::ui) use need::{Need, Needing, needs_you, use_needs};
 pub(in crate::ui) use pass::Passer;
 pub(in crate::ui) use status::{StatusLine, Tone, status_line, thousandths};
@@ -168,14 +168,6 @@ impl Fetching {
                 every: mail_core::sync::due::IDLE,
             }),
         }
-    }
-
-    /// `account`'s mark for a row or a tile, now.
-    pub(in crate::ui) fn mark(&self, account: AccountId) -> Option<Mark> {
-        let pace = self.pace(&account);
-        let now = crate::ui::clock::now();
-        self.link(account)
-            .map(|link| marks::account_mark(&link, pace, now, &chrono::Local))
     }
 
     pub(in crate::ui) fn status(&self, shell: &Shell, now: DateTime<Utc>) -> StatusLine {

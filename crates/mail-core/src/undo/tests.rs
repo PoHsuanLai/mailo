@@ -89,6 +89,7 @@ fn the_stack_forgets_the_oldest_past_its_depth() {
             forward: patch(vec![]),
             inverse: patch(vec![]),
             remote: None,
+            resend: None,
         });
     }
     assert_eq!(stack.len(), DEPTH);
@@ -116,6 +117,7 @@ fn a_handle_takes_back_its_own_entry_and_only_once() {
         forward: patch(vec![]),
         inverse: patch(vec![]),
         remote: None,
+        resend: None,
     };
     let (first, second) = (ThreadId::generate(), ThreadId::generate());
     let named = stack.push(entry(first));
@@ -138,6 +140,7 @@ fn one_gesture_on_several_conversations_is_one_entry() {
         forward: patch(vec![]),
         inverse: patch(vec![]),
         remote: None,
+        resend: None,
     };
     let before = stack.push(entry(ThreadId::generate()));
     let threads: Vec<ThreadId> = (0..3).map(|_| ThreadId::generate()).collect();
@@ -200,6 +203,7 @@ fn mail_deleted_forever_is_forgotten_by_the_stack() {
         forward: patch(vec![Change::MessageMailbox(m, MailboxRole::Trash)]),
         inverse: patch(vec![Change::MessageMailbox(m, MailboxRole::Inbox)]),
         remote: None,
+        resend: None,
     };
     let alone = stack.push(trashed(gone));
     let both = stack

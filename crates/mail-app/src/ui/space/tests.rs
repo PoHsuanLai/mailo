@@ -2,7 +2,7 @@
 //! that every `spaces.json` mailo ever wrote still reads as it did. How quire's kit reads a file
 //! field by field is quire's to test; these are mailo's files through it.
 
-use super::{Mail, Pinned, Recall, Scope, SpaceId, Spaces, boot, ensure_colors, first_run, load};
+use super::{Mail, Pinned, Recall, Scope, SpaceId, Spaces, boot, first_run, load};
 use crate::ui::appearance::{Legacy, WindowDirs};
 use ds::prelude::{SpaceLook, Theme};
 use ds::style::space::palette::Dot;
@@ -11,7 +11,6 @@ use mail_core::profile::ProfileId;
 use mail_domain::ThreadId;
 use mail_domain::id::account_id_from_uuid;
 use porter_core::AccountId;
-use std::collections::BTreeMap;
 use uuid::Uuid;
 
 fn account(n: u128) -> AccountId {
@@ -82,7 +81,6 @@ fn a_spaces_file_from_before_quire_still_loads_and_round_trips() {
                     name: "Dana".to_owned(),
                     email: "dana@example.com".to_owned(),
                 }],
-                colors: BTreeMap::new(),
                 profile: ProfileId::default(),
             },
         ),
@@ -156,16 +154,13 @@ fn the_last_file_before_the_kit_keeps_its_spaces_current_and_recall() {
         Scope::Accounts(vec![one.clone()])
     );
     assert_eq!(read.list()[3].payload.scope, Scope::All);
-    assert_eq!(
-        read.list()[0].payload.colors.get(&one).map(String::as_str),
-        Some("#5B4FC4")
-    );
+    // Each account's colour and the account tile left pressed are no longer kept, and are passed
+    // over rather than failing the file.
     assert_eq!(
         read.recall().of(SpaceId(1)),
         Recall {
             place: "Archive".to_owned(),
             open: Some(thread),
-            account: Some(one),
         }
     );
     assert_eq!(read.recall().of(SpaceId(0)).place, "Sent");
@@ -237,9 +232,9 @@ fn first_run_follows_the_accounts() {
 }
 
 /// The window's boot: a first run is written; a stored Space with no theme takes the window-wide
-/// one mailo kept before themes were the Spaces'; the current Space's accounts get a colour each.
+/// one mailo kept before themes were the Spaces'.
 #[test]
-fn boot_writes_a_first_run_inherits_a_missing_theme_and_colours_the_accounts() {
+fn boot_writes_a_first_run_and_inherits_a_missing_theme() {
     let ids = [account(1), account(2)];
     let legacy = Legacy {
         theme: Theme::Dark,
@@ -271,40 +266,6 @@ fn boot_writes_a_first_run_inherits_a_missing_theme_and_colours_the_accounts() {
         themes,
         [Theme::Dark, Theme::Light],
         "only a missing theme inherits"
-    );
-    let colours = &read.current().payload.colors;
-    assert!(ids.iter().all(|id| colours.contains_key(id)), "{colours:?}");
-    assert_eq!(
-        load(&stored).current().payload.colors,
-        *colours,
-        "the colours were not written"
-    );
-}
-
-#[test]
-fn colours_fill_only_the_accounts_without_one() {
-    let profile = ProfileId::default();
-    let mut mail = Mail::default();
-    mail.colors.insert(account(1), "#000000".to_owned());
-    assert!(ensure_colors(
-        &mut mail,
-        &profile,
-        &[account(1), account(2)]
-    ));
-    assert_eq!(mail.colors[&account(1)], "#000000");
-    assert!(mail.colors.contains_key(&account(2)));
-    assert!(
-        !ensure_colors(&mut mail, &profile, &[account(1), account(2)]),
-        "twice"
-    );
-    let mut foreign = Mail {
-        profile: other_profile(),
-        ..Mail::default()
-    };
-    assert!(!ensure_colors(&mut foreign, &profile, &[account(1)]));
-    assert!(
-        foreign.colors.is_empty(),
-        "another Profile's Space is left alone"
     );
 }
 

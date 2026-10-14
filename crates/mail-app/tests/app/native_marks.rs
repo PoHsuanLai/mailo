@@ -1,5 +1,5 @@
-//! Provider marks on the real window at scale 2: the row's `@ imap` chip, a cached icon on a
-//! row, and the account badge on the Space tile. Painted headlessly by Blitz over a store seeded
+//! Provider marks on the real window at scale 2: the row's `@ imap` chip and a cached icon on a
+//! row. Painted headlessly by Blitz over a store seeded
 //! in a `TempDir`, with the icons handed in as a `Loaded` read from a `TempDir` too, so nothing
 //! here reads or touches the real store, config or cache.
 
@@ -177,26 +177,22 @@ fn png_size(uri: &str) -> (u32, u32) {
 #[test]
 fn each_icon_is_a_picture_as_many_pixels_across_as_the_screen_draws_it() {
     // The renderer resamples a picture to its box with a bilinear filter: one bigger or smaller
-    // than the box's device pixels comes out soft. A row's mark and a tile's badge are each
-    // handed one exactly their size at scale 2.
+    // than the box's device pixels comes out soft. A row's mark is handed one exactly its size
+    // at scale 2.
     let opened = open();
     let harness = &opened.harness;
-    for selector in [
-        ".via .ds-provider[*|data-kind=image] img",
-        ".ds-pin-tile .ds-provider[*|data-kind=image] img",
-    ] {
-        let rect = harness
-            .rect(selector)
-            .unwrap_or_else(|| panic!("{selector} is not drawn:\n{}", harness.html()));
-        let src = harness
-            .attr(selector, "src")
-            .unwrap_or_else(|| panic!("{selector} has no src"));
-        let drawn = (
-            (rect.size.width.0 * 2.0).round() as u32,
-            (rect.size.height.0 * 2.0).round() as u32,
-        );
-        assert_eq!(png_size(&src), drawn, "{selector}");
-    }
+    let selector = ".via .ds-provider[*|data-kind=image] img";
+    let rect = harness
+        .rect(selector)
+        .unwrap_or_else(|| panic!("{selector} is not drawn:\n{}", harness.html()));
+    let src = harness
+        .attr(selector, "src")
+        .unwrap_or_else(|| panic!("{selector} has no src"));
+    let drawn = (
+        (rect.size.width.0 * 2.0).round() as u32,
+        (rect.size.height.0 * 2.0).round() as u32,
+    );
+    assert_eq!(png_size(&src), drawn, "{selector}");
 }
 
 #[test]
@@ -212,14 +208,6 @@ fn marks_at_scale_two() {
     for (name, selector) in [
         ("row-letter", ".via .ds-provider[*|data-kind=letter]"),
         ("row-image", ".via .ds-provider[*|data-kind=image]"),
-        (
-            "tile-badge-letter",
-            ".ds-pin-tile .ds-provider[*|data-kind=letter]",
-        ),
-        (
-            "tile-badge-image",
-            ".ds-pin-tile .ds-provider[*|data-kind=image]",
-        ),
     ] {
         let Some(rect) = harness.rect(selector) else {
             eprintln!("{name}: {selector} is not drawn");

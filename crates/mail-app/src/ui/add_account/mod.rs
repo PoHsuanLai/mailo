@@ -1,5 +1,5 @@
-//! Adding an account from the window: "Add account…" from the search bar, the "+" after the
-//! account tiles, Settings, and the dialog's and Connections' sign-in again.
+//! Adding an account from the window: "Add account…" from the search bar, the Space's menu ›
+//! Accounts, Settings, and the dialog's and Connections' sign-in again.
 //!
 //! The add-account window is a window of its own, as Settings is: a separate top-level window,
 //! raised when it is already open, that draws porter's accounts sheet with quire's
@@ -12,7 +12,7 @@
 //! opened.
 //!
 //! **Straight to the browser** (`direct`). A provider whose accounts sign in with an OAuth redirect
-//! needs no window: the "+" after the account tiles and Settings' Add Account… are a menu that
+//! needs no window: the Space menu's Add Account and Settings' Add Account… are a menu that
 //! names each such provider and signs in with it in the browser, as a sign-in button on the web
 //! does, and Connections signs such an account in again the same way. Other Account…,
 //! and every provider that needs a form, is the window.
@@ -28,7 +28,8 @@ mod size;
 mod window;
 
 pub(in crate::ui) use direct::{
-    AddMenu, DirectSignInWatch, PendingSignIn, Retry, add_from, again, retry,
+    AddMenu, AddPick, DirectSignInWatch, PendingSignIn, Retry, add_from, add_menu, again,
+    offered_redirects, picked, retry,
 };
 pub use direct::{DirectSignIns, SignInDirectly};
 pub use provider::{Request, Seams};

@@ -10,6 +10,7 @@
 
 pub(in crate::ui) mod act;
 pub(in crate::ui) mod menu;
+pub(in crate::ui) mod scheduled;
 #[cfg(test)]
 mod tests;
 

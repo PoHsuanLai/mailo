@@ -234,7 +234,7 @@ async fn dragging_a_row_onto_archive_archives_it() {
         ..
     } = mounted();
     let row = seen.one("aria-label", &format!("Open {DANA}"));
-    let archive = seen.one("data-place", "Archive");
+    let archive = seen.one("data-place", "Done");
 
     pointer(&mut dom, "pointerdown", row, at(420.0, 120.0));
     pointer(&mut dom, "pointermove", row, at(300.0, 160.0));
@@ -247,8 +247,8 @@ async fn dragging_a_row_onto_archive_archives_it() {
     pointer(&mut dom, "pointerenter", archive, at(120.0, 300.0));
     let page = dioxus_ssr::render(&dom);
     assert!(
-        page.contains("data-drop=\"target\" data-place=\"Archive\""),
-        "Archive did not light up as the target"
+        page.contains("data-drop=\"target\" data-place=\"Done\""),
+        "Done did not light up as the target"
     );
     pointer(&mut dom, "pointerup", archive, at(120.0, 300.0));
 
@@ -287,15 +287,9 @@ async fn a_row_dropped_on_a_label_wears_it() {
     );
 }
 
-/// The foot menu's rows, after opening it from the button the first paint gave out.
-async fn foot_menu(dom: &mut VirtualDom, seen: &Seen) -> (Seen, Vec<String>) {
-    let asked = click(
-        dom,
-        seen.one("aria-label", crate::ui::copy::aria::SIDEBAR_MENU),
-    );
-    // The renders that draw the menu are kept, so a pick can find its items by id: `settle`
-    // above throws them away.
-    let mut opened = crate::ui::fixtures::settle(dom, asked);
+/// Draw until no background work is left, keeping what the renders set: a Today row drawn after
+/// the first paint is found by its id.
+async fn drawn(dom: &mut VirtualDom, mut seen: Seen) -> Seen {
     for _ in 0..8 {
         if tokio::time::timeout(std::time::Duration::from_millis(40), dom.wait_for_work())
             .await
@@ -305,40 +299,48 @@ async fn foot_menu(dom: &mut VirtualDom, seen: &Seen) -> (Seen, Vec<String>) {
         }
         let mut more = Seen::default();
         dom.render_immediate(&mut more);
-        opened = opened.merge(more);
+        seen = seen.merge(more);
     }
-    let names = crate::ui::fixtures::menu_names(&dioxus_ssr::render(dom));
-    (opened, names)
+    seen
+}
+
+/// The page's words with its tags taken out, from `from` on.
+fn words_after(page: &str, from: &str) -> String {
+    let mut words = String::new();
+    let mut inside = false;
+    for ch in page.chars() {
+        match ch {
+            '<' => inside = true,
+            '>' => inside = false,
+            ch if !inside => words.push(ch),
+            _ => {}
+        }
+    }
+    words
+        .split_once(from)
+        .map(|(_, rest)| rest.to_owned())
+        .unwrap_or_default()
 }
 
 #[tokio::test]
-async fn a_today_entry_is_listed_when_opened_gone_when_cleared_and_expires_on_the_clock() {
+async fn an_opened_conversation_is_in_command_k_recent_and_never_leaves_on_the_clock() {
     let Mounted { mut dom, seen, .. } = mounted();
-    // A thread Today does not hold yet: the release thread.
-    let (_, names) = foot_menu(&mut dom, &seen).await;
-    assert!(
-        !names.iter().any(|name| name == RELEASE),
-        "already in Today"
-    );
-    // Close the menu again by its button.
-    click(
-        &mut dom,
-        seen.one("aria-label", crate::ui::copy::aria::SIDEBAR_MENU),
-    );
     let row = seen.one("aria-label", &format!("Open {RELEASE}"));
-    click(&mut dom, row);
-    settle(&mut dom).await;
-    let (opened, names) = foot_menu(&mut dom, &seen).await;
-    assert!(
-        names.iter().any(|name| name == RELEASE),
-        "the opened thread is not in Today: {names:?}"
+    let opened = click(&mut dom, row);
+    drawn(&mut dom, opened).await;
+    // ⌘K with nothing typed: Recent is where the person was.
+    chord(
+        &mut dom,
+        "k",
+        crate::ui::fixtures::PRIMARY,
+        ElementId(INSIDE_THE_SHELL as usize),
     );
-    crate::ui::fixtures::pick_named(&mut dom, &opened, "Clear Today").await;
     settle(&mut dom).await;
-    let (_, names) = foot_menu(&mut dom, &seen).await;
+    let recent = words_after(&dioxus_ssr::render(&dom), "Recent");
+    let recent = recent.split("Commands").next().unwrap_or_default();
     assert!(
-        !names.iter().any(|name| name == RELEASE),
-        "Clear Today left it: {names:?}"
+        recent.contains(RELEASE),
+        "the opened conversation is not in Recent: {recent}"
     );
 
     // Nothing drops off by time: an entry idle past the kit's `IDLE` is still listed.
@@ -373,7 +375,7 @@ async fn dropping_onto_a_saved_search_writes_nothing() {
         ..
     } = mounted();
     let row = seen.one("aria-label", &format!("Open {DANA}"));
-    let starred = seen.one("data-place", "Starred");
+    let starred = seen.one("data-place", "Kept");
     let before = changes(&store);
 
     pointer(&mut dom, "pointerdown", row, at(420.0, 120.0));
@@ -398,7 +400,7 @@ async fn escape_drops_nothing() {
         ..
     } = mounted();
     let row = seen.one("aria-label", &format!("Open {DANA}"));
-    let archive = seen.one("data-place", "Archive");
+    let archive = seen.one("data-place", "Done");
     let before = changes(&store);
 
     pointer(&mut dom, "pointerdown", row, at(420.0, 120.0));
@@ -421,13 +423,13 @@ fn what_each_place_accepts() {
     let label = LabelId::generate();
     let cases: Vec<(&str, Option<Op>)> = vec![
         ("Inbox", Some(Op::Restore)),
-        ("Archive", Some(Op::Archive)),
+        ("Done", Some(Op::Archive)),
         ("Trash", Some(Op::Trash)),
         ("Spam", Some(Op::Spam)),
         // Saved searches and places nothing is filed into refuse.
-        ("Starred", None),
+        ("Kept", None),
         ("Snoozed", None),
-        ("Pinned", None),
+        ("Waiting", None),
         ("Sent", None),
         ("Drafts", None),
     ];
@@ -442,6 +444,7 @@ fn what_each_place_accepts() {
         name: "spec".to_owned(),
         source: crate::ui::view::Source::Mail(Filter::HasLabel(label)),
         unread: None,
+        reach: crate::ui::view::Reach::Sidebar,
     };
     assert_eq!(
         drop_op(&view_kind(&labelled)),

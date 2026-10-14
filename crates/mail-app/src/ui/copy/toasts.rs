@@ -26,3 +26,6 @@ pub fn following(name: &str) -> String {
 pub fn stopped_following(name: &str) -> String {
     format!("Stopped following “{name}”")
 }
+
+/// Cancel Sending, done: the message is a draft again.
+pub const SENDING_CANCELLED: &str = "Sending cancelled";

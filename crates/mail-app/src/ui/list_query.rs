@@ -1,7 +1,7 @@
 //! What the list pane shows, fetched off the thread that draws, a pause after the last keystroke.
 //!
 //! Split from [`super::app`] (`CONVENTIONS.md` §8). The place's list follows the shell at once:
-//! choosing a place, a tile or another page is one query. A search follows the box through
+//! choosing a place, a Space or another page is one query. A search follows the box through
 //! [`super::debounce`]: it runs once the box has been still for its quiet period, and a result
 //! for text a newer keystroke has replaced is dropped rather than drawn.
 

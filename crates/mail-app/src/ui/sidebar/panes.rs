@@ -1,53 +1,48 @@
-//! Account tiles, places, labels and pinned people.
+//! Favourites, the places and labels.
 
-use super::super::data::account_rows;
 use super::super::motion::{drag, motion};
-use super::join::{self, Plus};
 use super::tagged;
 use crate::ui::copy;
-use crate::ui::fetching::{Fetching, Mark};
-use crate::ui::menu::Floating;
-use crate::ui::provider_chip::{MarkAt, mark_of, mark_style};
-use crate::ui::reauth::{Pressed, Reauth};
-use crate::ui::space::{self, Pinned, Space, Spaces};
-use crate::ui::view::{Shell, Source, folder_of, is_label_place, saved_of};
+use crate::ui::space::{Pinned, Space};
+use crate::ui::text::sender;
+use crate::ui::view::{Reach, Shell, SideList, Source, folder_of, is_label_place, saved_of};
 use dioxus::prelude::*;
-use ds::base::vocab::RowState;
-use ds::components::app::pin_tile::{PinFace, PinStatus};
-use ds::components::app::pin_tiles::{PinAdd, PinItem, PinTiles};
+use ds::base::vocab::{Emphasis, RowState};
 use ds::components::content::avatar::{AvatarFace, AvatarShape, AvatarSize, AvatarTone};
-use ds::components::content::provider_mark::{MarkProvider, MarkStyle};
 use ds::components::lists::list::model::{ListItem, ListStyle};
-use ds::host::measure::MountedRef;
 use ds::prelude::*;
-use ds::root::common::Common;
 use ds::style::tokens::hex::{Colour, Hex};
 use ds::style::tokens::person::PersonSwatch;
 use mail_core::place::{pending_snooze, place_filter};
-use mail_core::profile::ProfileId;
-use mail_core::provider::{Provider, provider};
 use mail_core::query::{self};
+use mail_core::view::kept_filter;
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
-use porter_core::AccountId;
 
-#[derive(Clone, PartialEq, Eq)]
+/// The most pinned conversations Favourites shows: the most recently pinned. Every pinned
+/// conversation is in Kept.
+pub(super) const FAVOURITES_SHOWN: u32 = 8;
+
+/// A pinned conversation as Favourites draws it.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct Favourite {
+    pub thread: ThreadId,
+    pub title: String,
+    pub initial: char,
+    pub unread: bool,
+}
+
+#[derive(Clone, PartialEq)]
 pub(super) struct Counts {
-    /// Each account's id, its name as the tile says it, its unread count, and its provider —
-    /// none for local folders, which are on no provider.
-    pub rows: Vec<(AccountId, String, u64, Option<Provider>)>,
-    pub all: u64,
+    /// The Space's pinned people and searches: each one's unread count.
     pub pins: Vec<u64>,
+    /// The pinned conversations in the Space's accounts, most recently pinned first.
+    pub pinned: Vec<Favourite>,
 }
 
 pub(super) fn counts(store: &SqliteStore, space: &Space) -> Counts {
-    let rows = account_rows(store);
-    let shown: Vec<_> = rows
-        .into_iter()
-        .filter(|row| space.payload.scope.shows(row.id.clone()))
-        .collect();
     let labels = query::known_labels(store);
-    let scope = scope_filter(space);
+    let scope = space.payload.scope.filter();
     let now = chrono::Utc::now();
     let unread = |extra: Filter| {
         let mut parts = vec![Filter::Read(ReadState::Unread), extra];
@@ -56,44 +51,47 @@ pub(super) fn counts(store: &SqliteStore, space: &Space) -> Counts {
         }
         store.count(&Filter::And(parts), now).unwrap_or(0)
     };
-    let all = match &scope {
-        Some(scope) => store
-            .count(
-                &Filter::And(vec![Filter::Read(ReadState::Unread), scope.clone()]),
-                now,
-            )
-            .unwrap_or(0),
-        None => store
-            .count(&Filter::Read(ReadState::Unread), now)
-            .unwrap_or(0),
-    };
-    let rows = shown
-        .iter()
-        .map(|row| {
-            let n = store
-                .count(
-                    &Filter::And(vec![
-                        Filter::Read(ReadState::Unread),
-                        Filter::Account(row.id.clone()),
-                    ]),
-                    now,
-                )
-                .unwrap_or(0);
-            let via = (!row.is_local()).then(|| provider(&row.plan));
-            (row.id.clone(), row.shown(), n, via)
-        })
-        .collect();
     let pins = space
         .payload
         .pins
         .iter()
         .map(|pin| unread(pin_filter(pin, &labels)))
         .collect();
-    Counts { rows, all, pins }
+    let pinned = store
+        .threads(
+            &Query {
+                filter: mail_core::view::scoped(scope.clone(), Filter::Pinned),
+                sort: Sort {
+                    property: Property::Pin,
+                    dir: SortDir::Desc,
+                },
+                page: PageReq {
+                    after: None,
+                    limit: FAVOURITES_SHOWN,
+                },
+            },
+            now,
+        )
+        .map(|page| page.items)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|summary| Favourite {
+            thread: summary.id,
+            title: titled(&summary.subject),
+            initial: initial(&sender(&summary)),
+            unread: summary.read == ReadState::Unread,
+        })
+        .collect();
+    Counts { pins, pinned }
 }
 
-fn scope_filter(space: &Space) -> Option<Filter> {
-    space.payload.scope.filter()
+/// A conversation's subject as a sidebar row says it.
+pub(super) fn titled(subject: &str) -> String {
+    if subject.trim().is_empty() {
+        copy::empty::NO_SUBJECT.to_owned()
+    } else {
+        subject.to_owned()
+    }
 }
 
 fn pin_filter(pin: &Pinned, labels: &[(String, LabelId)]) -> Filter {
@@ -105,8 +103,22 @@ fn pin_filter(pin: &Pinned, labels: &[(String, LabelId)]) -> Filter {
     }
 }
 
-fn initial(text: &str) -> char {
-    super::foot::initial(text)
+/// The first character of `name`, upper-cased, or `?` for an empty name.
+pub(super) fn initial(name: &str) -> char {
+    name.chars()
+        .next()
+        .and_then(|ch| ch.to_uppercase().next())
+        .unwrap_or('?')
+}
+
+/// A sidebar row's face: one letter on the `index`th swatch, the sidebar's rounded square.
+pub(super) fn face(initial: char, index: usize) -> AvatarFace {
+    AvatarFace {
+        initial,
+        size: AvatarSize::Size16,
+        tone: AvatarTone::Account(PersonSwatch::nth(index).colour()),
+        shape: AvatarShape::Square,
+    }
 }
 
 /// A stored `#rrggbb` as quire's colour. A Space file hand-edited to something else draws in
@@ -122,8 +134,8 @@ fn place_icon(source: &Source) -> Icon {
         Source::Drafts => Icon::FilePen,
         Source::Waiting => Icon::Bell,
         Source::History => Icon::RotateLeft,
-        Source::Mail(Filter::Starred(Star::Starred)) => Icon::Star,
-        Source::Mail(Filter::Pinned) => Icon::Pin,
+        Source::Scheduled => Icon::Send,
+        Source::Mail(filter) if *filter == kept_filter() => Icon::Star,
         Source::Mail(filter) if *filter == pending_snooze() => Icon::Clock,
         _ if role(MailboxRole::Inbox) => Icon::Inbox,
         _ if role(MailboxRole::Archive) => Icon::Archive,
@@ -134,200 +146,7 @@ fn place_icon(source: &Source) -> Icon {
     }
 }
 
-#[component]
-pub(super) fn AccountTiles(
-    shell: Signal<Shell>,
-    pages: Signal<u32>,
-    spaces: Signal<Spaces>,
-    space: Space,
-    counted: Counts,
-) -> Element {
-    // The "+" menu while it is open: the accounts it offers, hung from the row of tiles.
-    let mut joining = use_signal(|| None::<Vec<(AccountId, String)>>);
-    // The add menu while it is open: the providers that sign in straight in the browser.
-    let mut adding = use_signal(|| None::<Vec<(porter_provider::Issuer, String)>>);
-    let mut row_at = use_signal(|| None::<MountedRef>);
-    let colors = space.clone();
-    let several = counted.rows.len() > 1;
-    let marks = shell.read().appearance.marks;
-    // One tile per account (and "All" before them when there are several), each with its own
-    // provider's mark: quire's `PinTiles`, keyed by the account, `None` being all of them.
-    let mut items: Vec<PinItem<Option<AccountId>>> = Vec::new();
-    // Each tile carries its account's mark, as Mail's sidebar carries it beside the account:
-    // the spinner while it syncs, the warning when it needs the person.
-    let statuses: Vec<PinStatus> = counted
-        .rows
-        .iter()
-        .map(|row| status_of(row.0.clone()))
-        .collect();
-    if several {
-        items.push(
-            PinItem::new(None, PinFace::All)
-                .unread(count_of(counted.all))
-                .mark(MarkStyle::Letter)
-                .status(all_status(&statuses)),
-        );
-    }
-    for (index, row) in counted.rows.iter().enumerate() {
-        let (id, address, unread, via) = (row.0.clone(), row.1.clone(), row.2, row.3);
-        // Local folders are on no provider: quire's neutral folder mark.
-        let (provider, mark) = match via {
-            Some(via) => (mark_of(via), mark_style(via, marks, MarkAt::Tile)),
-            None => (MarkProvider::Local, MarkStyle::Letter),
-        };
-        let face = PinFace::Account {
-            initial: initial(&address),
-            colour: hex_colour(&space::avatar_color(&space, id.clone(), index)),
-            provider,
-            address: Some(address),
-        };
-        items.push(
-            PinItem::new(Some(id), face)
-                .unread(count_of(unread))
-                .mark(mark)
-                .status(statuses.get(index).cloned().unwrap_or_default()),
-        );
-    }
-    let selected = if several {
-        shell.read().account.clone()
-    } else {
-        counted.rows.first().map(|row| row.0.clone())
-    };
-    rsx! {
-        PinTiles::<Option<AccountId>> {
-            label: copy::aria::ACCOUNTS_IN_SPACE,
-            items,
-            selected: Some(selected),
-            add: PinAdd {
-                label: copy::aria::ADD_ACCOUNT.to_owned(),
-                hint: Some(copy::tooltips::ADD_ACCOUNT.to_owned()),
-                onadd: EventHandler::new(move |()| {
-                    let store = consume_context::<std::sync::Arc<SqliteStore>>();
-                    let all: Vec<(AccountId, String)> = account_rows(&store)
-                        .into_iter()
-                        .map(|row| (row.id.clone(), row.shown()))
-                        .collect();
-                    match join::plus(spaces.peek().current(), &all) {
-                        Plus::AddNew => {
-                            super::super::add_account::add_from(|offered| adding.set(Some(offered)))
-                        }
-                        Plus::Offer(outside) => joining.set(Some(outside)),
-                    }
-                }),
-            },
-            common: Common {
-                mounted: Some(EventHandler::new(move |event: MountedEvent| {
-                    row_at.set(Some(MountedRef(event.data())));
-                })),
-                ..Common::default()
-            },
-            onpick: move |account: Option<AccountId>| {
-                shell.write().account = account;
-                pages.set(1);
-            },
-            // The mark is a button: an account that needs signing in is asked about again, the
-            // rest are Connections', which lists every account.
-            onstatus: move |account: Option<AccountId>| {
-                let asked = try_consume_context::<Reauth>()
-                    .map_or(Pressed::Nobody, |reauth| reauth.press(account.as_ref()));
-                if asked == Pressed::Nobody {
-                    super::super::doctor::open(shell);
-                }
-            },
-        }
-        if let Some(outside) = joining() {
-            Floating {
-                anchor: row_at(),
-                title: copy::titles::ADD_TO_SPACE.to_owned(),
-                items: {
-                    // The swatch an account takes is by its place among every account, as its
-                    // tile's is: two uncoloured accounts do not share one.
-                    let store = consume_context::<std::sync::Arc<SqliteStore>>();
-                    let all: Vec<AccountId> =
-                        account_rows(&store).into_iter().map(|row| row.id).collect();
-                    join::items(&outside, |id| {
-                        let index = all.iter().position(|each| *each == id).unwrap_or(0);
-                        space::avatar_color(&colors, id, index)
-                    })
-                },
-                on_pick: move |key: String| {
-                    joining.set(None);
-                    match join::picked(&key, &outside) {
-                        Some(account) => bring_in(shell, spaces, account),
-                        None => super::super::add_account::add_from(|offered| {
-                            adding.set(Some(offered))
-                        }),
-                    }
-                },
-                on_close: move |_| joining.set(None),
-            }
-        }
-        if let Some(redirects) = adding() {
-            super::super::add_account::AddMenu {
-                anchor: row_at(),
-                redirects,
-                on_close: move |()| adding.set(None),
-            }
-        }
-        // A sign-in in the browser, while it waits: a quiet row under the tiles.
-        super::super::add_account::PendingSignIn {}
-    }
-}
-
-/// Put `account` in the current Space's scope, write the Spaces, and show it.
-fn bring_in(mut shell: Signal<Shell>, mut spaces: Signal<Spaces>, account: AccountId) {
-    let widened = {
-        let mut all = spaces.write();
-        let current = all.current().id;
-        let mut widened = false;
-        all.edit(current, |space| {
-            widened = space.payload.widen(&ProfileId::default(), account)
-        });
-        widened
-    };
-    if widened {
-        super::super::frame::keep(&spaces.read());
-        shell.write().scope = spaces.read().current().payload.scope.clone();
-    }
-}
-
-/// What an account's tile says of its fetching.
-fn status_of(account: AccountId) -> PinStatus {
-    let Some(fetching) = try_consume_context::<Fetching>() else {
-        return PinStatus::Quiet;
-    };
-    match fetching.mark(account) {
-        // A sync shows as the toolbar's turning Sync icon, as Mail's does: no spinner on the tile.
-        None | Some(Mark::Quiet | Mark::Busy) => PinStatus::Quiet,
-        Some(Mark::Warn(why) | Mark::Offline(why)) => PinStatus::Attention { why },
-    }
-}
-
-/// What the "All" tile says: an account that needs the person first, else any that is working.
-pub(super) fn all_status(statuses: &[PinStatus]) -> PinStatus {
-    let troubled: Vec<&String> = statuses
-        .iter()
-        .filter_map(|status| match status {
-            PinStatus::Attention { why } => Some(why),
-            PinStatus::Quiet | PinStatus::Busy(_) => None,
-        })
-        .collect();
-    match troubled.as_slice() {
-        [] => statuses
-            .iter()
-            .find(|status| matches!(status, PinStatus::Busy(_)))
-            .cloned()
-            .unwrap_or_default(),
-        [one] => PinStatus::Attention {
-            why: (*one).clone(),
-        },
-        many => PinStatus::Attention {
-            why: copy::status::accounts_need_attention(many.len()),
-        },
-    }
-}
-
-/// An unread count as a tile's badge holds it.
+/// An unread count as a badge holds it.
 fn count_of(n: u64) -> u32 {
     u32::try_from(n).unwrap_or(u32::MAX)
 }
@@ -345,6 +164,8 @@ pub(super) fn PlaceList(
     pages: Signal<u32>,
     badges: Memo<Vec<Option<u64>>>,
     folded: Vec<LabelId>,
+    /// Whether a message is waiting for its time in this Space, which is when Scheduled is drawn.
+    scheduled: bool,
 ) -> Element {
     let places = shell.read().places.clone();
     // Labels, folders and then saved views follow the default places; folders are drawn under
@@ -372,9 +193,15 @@ pub(super) fn PlaceList(
         })
         .map(|(index, place)| (index, place.name.clone()))
         .collect();
+    // The lifecycle places. Where mail is stored (Sent, Drafts, Spam, Trash) and History are one
+    // step away, in the list title's menu and ⌘K. Scheduled only while a message is waiting.
+    let lifecycle: Vec<usize> = (0..split)
+        .filter(|index| places[*index].reach == Reach::Sidebar)
+        .filter(|index| scheduled || places[*index].source != Source::Scheduled)
+        .collect();
     let selected = shell.read().selected;
     let listed = |index: usize| {
-        index < split
+        lifecycle.contains(&index)
             || labels.iter().any(|(at, _)| *at == index)
             || views.iter().any(|(at, _)| *at == index)
     };
@@ -382,9 +209,10 @@ pub(super) fn PlaceList(
         PlaceKey::Head("places"),
         rsx! { SectionHeader { title: copy::headers::PLACES } },
     )];
-    for (index, place) in places.iter().take(split).enumerate() {
+    for index in &lifecycle {
+        let place = &places[*index];
         items.push(place_item(
-            index,
+            *index,
             &place.name,
             place_icon(&place.source),
             shell,
@@ -415,7 +243,7 @@ pub(super) fn PlaceList(
             label: copy::aria::PLACES,
             items,
             style: ListStyle::SourceList,
-            cursor: (listed(selected) && !shell.read().from_today).then_some(PlaceKey::Place(selected)),
+            cursor: (listed(selected) && shell.read().from_side.is_none()).then_some(PlaceKey::Place(selected)),
             onselect: move |key: PlaceKey| {
                 if let PlaceKey::Place(index) = key {
                     shell.write().select(index);
@@ -496,21 +324,58 @@ fn drop_of(state: &super::super::motion::Motion, index: usize, accepts: bool) ->
     }
 }
 
+/// A Favourites row's key: a pinned conversation, or one of the Space's pinned people and
+/// searches by its place in the Space's list.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum FavouriteKey {
+    Head,
+    Thread(ThreadId),
+    Pin(usize),
+}
+
+/// Favourites, at the top of the sidebar: the conversations pinned most recently, then the
+/// Space's pinned people and searches. Drawn only once something is pinned. A conversation with
+/// unread mail is drawn heavier, and a person or search is badged only while it holds unread.
 #[component]
-pub(super) fn PinnedList(
+pub(super) fn Favourites(
     shell: Signal<Shell>,
     pages: Signal<u32>,
     space: Space,
-    pins: Vec<u64>,
+    counted: Counts,
 ) -> Element {
+    // Only which pinned conversation is open is read, so another write to the shell (a key in
+    // the search box) does not draw Favourites again.
+    let open = use_memo(move || shell.read().selected_in(SideList::Favourites));
     // No pins, no heading: a source list does not show an empty group.
-    if space.payload.pins.is_empty() {
+    if counted.pinned.is_empty() && space.payload.pins.is_empty() {
         return rsx! {};
     }
     let mut items = vec![ListItem::heading(
-        "head".to_owned(),
-        rsx! { SectionHeader { title: copy::headers::PINNED } },
+        FavouriteKey::Head,
+        rsx! { SectionHeader { title: copy::headers::FAVOURITES } },
     )];
+    for (index, pinned) in counted.pinned.iter().enumerate() {
+        let thread = pinned.thread;
+        let content = rsx! {
+            Row {
+                leading: RowLeading::Avatar(face(pinned.initial, index)),
+                title: pinned.title.clone(),
+                common: tagged("favourite", pinned.title.clone()),
+                state: RowState {
+                    selection: if open() == Some(thread) { Selection::Selected } else { Selection::Unselected },
+                    emphasis: if pinned.unread { Emphasis::Strong } else { Emphasis::Plain },
+                    ..RowState::default()
+                },
+                onclick: move |_| shell.write().open_from(thread, SideList::Favourites),
+            }
+        };
+        items.push(ListItem::row(
+            FavouriteKey::Thread(thread),
+            pinned.title.clone(),
+            content,
+        ));
+    }
+    let first = counted.pinned.len();
     for (index, pin) in space.payload.pins.iter().enumerate() {
         let name = match pin {
             Pinned::Person { name, .. } | Pinned::Search { name, .. } => name.clone(),
@@ -519,16 +384,10 @@ pub(super) fn PinnedList(
             Pinned::Person { email, .. } => format!("from:{email}"),
             Pinned::Search { query, .. } => query.clone(),
         };
-        let avatar = AvatarFace {
-            initial: initial(&name),
-            size: AvatarSize::Size16,
-            tone: AvatarTone::Account(PersonSwatch::nth(index + 3).colour()),
-            shape: AvatarShape::Square,
-        };
-        let n = pins.get(index).copied().unwrap_or(0);
+        let n = counted.pins.get(index).copied().unwrap_or(0);
         let content = rsx! {
             Row {
-                leading: RowLeading::Avatar(avatar),
+                leading: RowLeading::Avatar(face(initial(&name), first + index + 3)),
                 title: name.clone(),
                 accessory: if n > 0 { Accessory::Badge(count_of(n)) } else { Accessory::None },
                 onclick: move |_| {
@@ -537,11 +396,11 @@ pub(super) fn PinnedList(
                 },
             }
         };
-        items.push(ListItem::row(format!("pin-{index}-{name}"), name, content));
+        items.push(ListItem::row(FavouriteKey::Pin(index), name, content));
     }
     rsx! {
-        List::<String> {
-            label: copy::aria::PINNED,
+        List::<FavouriteKey> {
+            label: copy::aria::FAVOURITES,
             items,
             style: ListStyle::SourceList,
         }

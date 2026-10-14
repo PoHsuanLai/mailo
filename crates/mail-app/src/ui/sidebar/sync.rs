@@ -7,11 +7,16 @@
 //! A warning also puts a dot on the icon, in the warning's colour, so a stale or broken account
 //! is seen without a line of words over the list. With only local folders in view there is
 //! nothing to sync, and no mark.
+//!
+//! While an account in view waits for the person to sign in again, and was put off with Later,
+//! the mark is the way back: its tip says Sign In Again, and a press asks about it again in the
+//! sign-in prompt instead of syncing.
 
 use crate::ui::copy;
 use crate::ui::data::{account_rows, syncs_nothing};
 use crate::ui::fetching::{Fetching, StatusLine, Tone, sync_availability, use_status};
 use crate::ui::press::on_primary;
+use crate::ui::reauth::Reauth;
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::components::controls::button_model::{Bezel, BusyLook, ImagePosition};
@@ -27,6 +32,16 @@ pub(super) fn sync_tip(line: &StatusLine) -> String {
         return copy::tooltips::SYNC.to_owned();
     }
     copy::tooltips::sync_saying(&line.tip)
+}
+
+/// The mark's whole tip: Sign In Again while a press would ask about a sign-in (`asks`), else
+/// what the line says.
+pub(super) fn mark_tip(line: Option<&StatusLine>, asks: bool) -> String {
+    match line {
+        _ if asks => copy::tooltips::SIGN_IN_AGAIN.to_owned(),
+        Some(line) => sync_tip(line),
+        None => copy::tooltips::SYNC.to_owned(),
+    }
 }
 
 /// The class of the dot a line puts on the mark: none when all is well or busy, else the
@@ -50,7 +65,7 @@ pub(super) fn SyncMark(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
     });
     let line = use_status(shell);
     // Local folders are never synced: with only them in view there is no Sync, and no word of one.
-    if syncs_nothing(&rows(), shell.read().account.clone(), &shell.read().scope) {
+    if syncs_nothing(&rows(), &shell.read().scope) {
         return rsx! {};
     }
     let links: Vec<Link> = try_consume_context::<Fetching>()
@@ -62,10 +77,20 @@ pub(super) fn SyncMark(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
                 .collect()
         })
         .unwrap_or_default();
-    let availability = sync_availability(&links.iter().collect::<Vec<&Link>>());
-    let tip = line
-        .as_ref()
-        .map_or_else(|| copy::tooltips::SYNC.to_owned(), sync_tip);
+    // The accounts in view waiting for a sign-in: a press asks about them again.
+    let needing: Vec<porter_core::AccountId> = try_consume_context::<Fetching>()
+        .map(|fetching| fetching.needs_in_view(&shell.read()))
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(id, _)| id)
+        .collect();
+    let asks = !needing.is_empty();
+    let availability = if asks {
+        Availability::Enabled
+    } else {
+        sync_availability(&links.iter().collect::<Vec<&Link>>())
+    };
+    let tip = mark_tip(line.as_ref(), asks);
     let warned = line.as_ref().and_then(dot);
     rsx! {
         span { class: "sync-hold",
@@ -77,12 +102,18 @@ pub(super) fn SyncMark(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
             Button {
                 bezel: Bezel::Toolbar,
                 image: ImagePosition::Only,
-                label: copy::aria::SYNC_NOW,
+                label: if asks { copy::aria::SIGN_IN_AGAIN } else { copy::aria::SYNC_NOW },
                 icon: Some(IconSource::Glyph(Icon::Refresh)),
                 title: Some(tip),
                 availability,
                 busy: BusyLook::TurnIcon,
-                onclick: on_primary(move || crate::ui::fetching::sync_now(&shell.read())),
+                onclick: on_primary(move || {
+                    let asked = try_consume_context::<Reauth>()
+                        .is_some_and(|reauth| reauth.ask_again(&needing));
+                    if !asked {
+                        crate::ui::fetching::sync_now(&shell.read());
+                    }
+                }),
             }
             if let Some(class) = warned {
                 span { class, aria_hidden: "true" }
@@ -139,7 +170,17 @@ mod tests {
         ];
         for (line, tip, warned) in cases {
             assert_eq!(sync_tip(&line), tip, "{:?}", line.text);
+            assert_eq!(mark_tip(Some(&line), false), tip, "{:?}", line.text);
             assert_eq!(dot(&line), warned, "{:?}", line.text);
         }
+    }
+
+    /// While an account in view waits for its sign-in, the tip says what a press does.
+    #[test]
+    fn the_mark_says_sign_in_again_while_a_press_would_ask() {
+        let failing = line("Can\u{2019}t fetch mail", Tone::Danger, None);
+        assert_eq!(mark_tip(Some(&failing), true), "Sign In Again");
+        assert_eq!(mark_tip(None, true), "Sign In Again");
+        assert_eq!(mark_tip(None, false), "Sync");
     }
 }

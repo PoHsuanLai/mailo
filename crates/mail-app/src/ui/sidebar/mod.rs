@@ -4,25 +4,20 @@ mod folder_row;
 mod folder_tree;
 mod folders;
 mod foot;
-mod join;
 mod panes;
 mod sync;
 
 pub(super) use self::folder_act::folder_places;
 use self::folder_tree::{Show, arrange, scope};
 use self::folders::FolderList;
-#[cfg(test)]
-pub(in crate::ui) use self::foot::MoreMenu;
 pub(in crate::ui) use self::panes::hex_colour;
-use self::panes::{AccountTiles, PinnedList, PlaceList, counts};
-use crate::ui::appearance::WindowDirs;
+use self::panes::{Favourites, PlaceList, counts};
 use crate::ui::copy;
 use crate::ui::space::{Handle, Mail};
-use crate::ui::today::Today;
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::components::app::edge_peek::EdgePeek;
-use ds::components::app::spaces::{Showing, SpaceHead, SpacesFoot};
+use ds::components::app::spaces::{SpaceHead, SpacesFoot};
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::root::pass_through::{DataAttr, DataName, ExtraClass};
@@ -55,8 +50,6 @@ pub(super) fn Places(
     badges: Memo<Vec<Option<u64>>>,
     revision: Signal<u64>,
     handle: Handle,
-    today: Signal<Today>,
-    dirs: Option<WindowDirs>,
     side_hidden: Signal<bool>,
 ) -> Element {
     let spaces = handle.spaces();
@@ -69,6 +62,17 @@ pub(super) fn Places(
     // The accounts the Folders section is for. A memo, so a keystroke in the search box — a
     // shell change — does not read the folders again.
     let in_scope = use_memo(move || scope(&shell.read()));
+    // Whether a message is waiting for its time on this Space's accounts: the Scheduled place is
+    // drawn only then. Read again as a send is scheduled or taken back.
+    let desk = try_use_context::<crate::ui::compose::Desk>();
+    let scheduled = use_memo(move || {
+        let _ = revision();
+        if let Some(desk) = desk {
+            let _ = desk.outbox.read();
+        }
+        let store = consume_context::<std::sync::Arc<mail_core::SqliteStore>>();
+        !crate::ui::compose::scheduled(&store, &in_scope()).is_empty()
+    });
     let show = use_signal(|| Show::Followed);
     let folders = use_memo(move || {
         let _ = revision();
@@ -81,12 +85,16 @@ pub(super) fn Places(
         .map(|section| section.labels.clone())
         .unwrap_or_default();
     let space_id = space.id;
-    let tiles = counted.read().clone();
+    let counts_now = counted.read().clone();
     let pinned = if side_hidden() {
         Shown::Hidden
     } else {
         Shown::Visible
     };
+    // With one Space there is no Space to tell apart: no name heads the sidebar and no dot
+    // stands in the foot (quire's `SpacesFoot` draws none for one). Its menu is a right click on
+    // the foot, wherever it lands that is nobody else's.
+    let several = spaces.read().count() > 1;
     rsx! {
         // Hidden, the sidebar floats over the card from the edge while the pointer is there
         // (quire's `EdgePeek`), and a click on the edge pins it again.
@@ -95,56 +103,53 @@ pub(super) fn Places(
             pinned,
             onpin: move |()| side_hidden.set(false),
             common: Common { extra_class: ExtraClass::parse("side").ok(), ..Common::default() },
-            // The Space's name heads the sidebar, as a browser's does; a right click on it is the
-            // Space's menu, and a plain press does nothing. Downloads stands at the row's right
-            // end, its list opening below it; a right click on it is nobody's.
+            // With several Spaces the current one's name heads the sidebar, as a browser's does;
+            // a right click on it is the Space's menu, and a plain press does nothing. Downloads
+            // stands at the row's right end, its list opening below it.
             div { class: "side-head",
-                div { class: "side-title", SpaceHead { handle } }
+                div { class: "side-title",
+                    if several {
+                        SpaceHead { handle }
+                    }
+                }
                 crate::ui::downloads::DownloadsButton { shell }
             }
             div { class: "slide",
-                AccountTiles { shell, pages, spaces, space: space.clone(), counted: tiles.clone() }
-                PlaceList { shell, pages, badges, folded }
+                // A sign-in in the browser, while it waits: a quiet row at the top.
+                crate::ui::add_account::PendingSignIn {}
+                Favourites { shell, pages, space: space.clone(), counted: counts_now }
+                PlaceList { shell, pages, badges, folded, scheduled: scheduled() }
                 if let Some(section) = folders() {
                     FolderList { shell, pages, badges, revision, section, show }
                 }
-                PinnedList { shell, pages, space: space.clone(), pins: tiles.pins.clone() }
             }
-            // Sync on the left, the Space dots, and one chevron on the right that
-            // opens everything else (`foot::MoreMenu`): Today, History, New Space, Settings and
-            // the sidebar's toggle. The foot's own `+` is left out: the menu's New Space replaces
-            // it. Sync's mark says how fresh the mail is, and warns when it is not (`sync`).
-            // Each end is a hold of mailo's own, as wide as the other (`style/shell.css`), so the
-            // dots stand at the foot's centre whatever either end holds.
-            SpacesFoot {
-                handle,
-                new_payload: move |()| Mail::new_in(&ProfileId::default()),
-                new_space: NewSpace::Hidden,
-                leading: rsx! {
-                    div { class: "foot-lead",
-                        sync::SyncMark { shell, revision }
-                    }
+            // Sync on the left, the Space dots once there are several, and one chevron on the
+            // right that opens Settings and the sidebar's toggle (`foot::MoreMenu`). The foot's
+            // own `+` is left out: the Space's menu holds New Space. Sync's mark says how fresh
+            // the mail is, and warns when it is not (`sync`). Each end is a hold of mailo's own,
+            // as wide as the other (`style/shell.css`), so the dots stand at the foot's centre
+            // whatever either end holds.
+            div {
+                oncontextmenu: move |event: MouseEvent| {
+                    event.prevent_default();
+                    let at = event.client_coordinates();
+                    handle.open_menu(space_id, Point { x: Px(at.x as f32), y: Px(at.y as f32) });
                 },
-                trailing: rsx! {
-                    div { class: "foot-end",
-                        foot::MoreMenu {
-                            shell,
-                            pages,
-                            today,
-                            space: space_id,
-                            dirs: dirs.clone(),
-                            side_hidden,
-                            // The same path the foot's `+` takes: add the Space, then open its
-                            // name.
-                            on_new_space: move |at: Point| {
-                                if handle.editing().is_none() {
-                                    let made = handle.add(Mail::new_in(&ProfileId::default()));
-                                    handle.show(made, at, Showing::Rename);
-                                }
-                            },
+                SpacesFoot {
+                    handle,
+                    new_payload: move |()| Mail::new_in(&ProfileId::default()),
+                    new_space: NewSpace::Hidden,
+                    leading: rsx! {
+                        div { class: "foot-lead",
+                            sync::SyncMark { shell, revision }
                         }
-                    }
-                },
+                    },
+                    trailing: rsx! {
+                        div { class: "foot-end",
+                            foot::MoreMenu { side_hidden }
+                        }
+                    },
+                }
             }
         }
     }

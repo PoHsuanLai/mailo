@@ -12,7 +12,7 @@
 //! ```text
 //! from:ada  to:bob  subject:lunch      a word in that field
 //! is:unread is:read is:starred         state
-//! is:pinned is:snoozed
+//! is:pinned is:snoozed is:kept       is:kept is starred or pinned, the Kept place
 //! in:inbox  in:archive in:sent         where it lives
 //! in:spam   in:trash
 //! has:attachment                       what it carries
@@ -236,6 +236,8 @@ fn term<Tz: TimeZone>(
             "unstarred" => Filter::Starred(Star::Unstarred),
             "pinned" => Filter::Pinned,
             "snoozed" => Filter::Snoozed,
+            // The Kept place, in words: starred or pinned. The one `Or` a term stands for.
+            "kept" => crate::view::kept_filter(),
             _ => return None,
         },
         "in" => Filter::InMailbox(mailbox(value)?),

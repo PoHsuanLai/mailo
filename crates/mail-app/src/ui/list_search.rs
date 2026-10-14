@@ -33,7 +33,7 @@ pub(super) struct Search {
     pub input: String,
     /// `label:` resolves against these, as it does everywhere else in the window.
     pub labels: Vec<(String, LabelId)>,
-    /// The tile or Space narrowing, applied to every candidate.
+    /// The Space's narrowing, applied to every candidate.
     pub scope: Option<Filter>,
     /// The place's own query, for a bare pattern. `None` while Drafts is selected.
     pub page: Option<Query>,
@@ -52,7 +52,10 @@ impl Request {
         }
         let page = match place.listing(limit) {
             Listing::Threads(query) | Listing::Inbox { query, .. } => Some(query),
-            Listing::Drafts | Listing::Waiting { .. } | Listing::History { .. } => None,
+            Listing::Drafts
+            | Listing::Scheduled
+            | Listing::Waiting { .. }
+            | Listing::History { .. } => None,
         };
         Self::Search(Search {
             input: text.to_owned(),
@@ -203,7 +206,7 @@ fn invalid(why: String) -> Listed {
 /// The store, narrowed to the accounts on screen.
 ///
 /// `search_list` has no account in its signature, and should not: the terminal searches every
-/// account. The window's tile and Space narrowing is applied here, to both calls that return
+/// account. The Space's narrowing is applied here, to both calls that return
 /// threads, so it is the same `And(account, …)` that [`Shell::query`] builds.
 struct Scoped<'a> {
     store: &'a SqliteStore,

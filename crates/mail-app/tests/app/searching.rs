@@ -66,6 +66,11 @@ mod what_it_builds {
             ("is:pinned", "is:pinned", Filter::Pinned),
             ("is:snoozed", "is:snoozed", Filter::Snoozed),
             (
+                "is:kept is the Kept place",
+                "is:kept",
+                Filter::Or(vec![Filter::Starred(Star::Starred), Filter::Pinned]),
+            ),
+            (
                 "in:archive",
                 "in:archive",
                 Filter::InMailbox(MailboxRole::Archive),

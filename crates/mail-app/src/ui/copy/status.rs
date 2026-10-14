@@ -11,11 +11,6 @@ pub fn messages(count: u64) -> String {
     }
 }
 
-/// Several of a Space's accounts are in trouble, as its tiles' mark says.
-pub fn accounts_need_attention(count: usize) -> String {
-    format!("{count} accounts need attention.")
-}
-
 // How fresh the mail is, in the sync mark's tip's fewer words.
 pub const JUST_NOW: &str = "just now";
 

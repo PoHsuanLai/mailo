@@ -2,17 +2,21 @@
 //!
 //! Rename, Colour, Appearance, the card's accent, New Space and Delete are the kit's. Accounts
 //! lists every account with a check on the ones the Space shows; a pick puts it in or takes it
-//! out and leaves the menu open, so several can be switched. Deleting a Space says the mail is
-//! not affected, and forgets the Space's Today.
+//! out and leaves the menu open, so several can be switched. Under them is Add Account: the
+//! providers that sign in straight in the browser, then Other Account…, or with none of those
+//! the window itself. Deleting a Space says the mail is not affected, and forgets the Space's
+//! Today.
 
+use crate::ui::add_account::{AddPick, add_menu, offered_redirects, picked};
 use crate::ui::appearance::WindowDirs;
+use crate::ui::copy;
 use crate::ui::data::account_rows;
 use crate::ui::space::{Handle, Mail, Member, Recall, Scope, SpaceId, with_member};
 use crate::ui::today::Today;
 use dioxus::prelude::*;
 use ds::components::app::spaces::SpaceMenu;
 use ds::components::menus::item::item::{AfterPick, MenuItem};
-use ds::prelude::{Availability, Check};
+use ds::prelude::{Availability, Check, Icon, MenuImage};
 use mail_core::SqliteStore;
 use mail_core::profile::ProfileId;
 use porter_core::AccountId;
@@ -30,16 +34,22 @@ fn accounts() -> Vec<(AccountId, String)> {
         .unwrap_or_default()
 }
 
-/// Accounts ▸ for a Space over `scope`: one row per account, checked when the Space shows it.
-/// Nothing when there are no accounts.
+/// A pick in Accounts ▸: an account put in or taken out, or a way to add one.
+#[derive(Debug, Clone, PartialEq)]
+pub(in crate::ui) enum AccountPick {
+    Toggle(AccountId),
+    Add(AddPick),
+}
+
+/// Accounts ▸ for a Space over `scope`: one row per account, checked when the Space shows it,
+/// then Add Account. `redirects` are the providers that sign in straight in the browser: with
+/// any, Add Account is a submenu of them and Other Account…; with none, it opens the window.
 pub(in crate::ui) fn accounts_menu(
     scope: &Scope,
     accounts: &[(AccountId, String)],
-) -> Vec<MenuItem<AccountId>> {
-    if accounts.is_empty() {
-        return Vec::new();
-    }
-    let rows = accounts
+    redirects: &[(porter_provider::Issuer, String)],
+) -> Vec<MenuItem<AccountPick>> {
+    let mut rows: Vec<MenuItem<AccountPick>> = accounts
         .iter()
         .map(|(id, name)| {
             let on = if scope.shows(id.clone()) {
@@ -47,13 +57,30 @@ pub(in crate::ui) fn accounts_menu(
             } else {
                 Check::Off
             };
-            MenuItem::new(id.clone(), name.clone())
+            MenuItem::new(AccountPick::Toggle(id.clone()), name.clone())
                 .with_check(on)
                 .with_after(AfterPick::KeepOpen)
         })
         .collect();
+    if !rows.is_empty() {
+        rows.push(MenuItem::Separator);
+    }
+    rows.push(if redirects.is_empty() {
+        MenuItem::new(AccountPick::Add(AddPick::Other), copy::menus::ADD_ACCOUNT)
+            .with_image(MenuImage::Icon(Icon::Plus))
+    } else {
+        MenuItem::Submenu {
+            title: copy::menus::ADD_ACCOUNT_SUBMENU.to_owned(),
+            image: Some(MenuImage::Icon(Icon::Plus)),
+            availability: Availability::Enabled,
+            children: add_menu(redirects)
+                .into_iter()
+                .map(|item| item.map(&AccountPick::Add))
+                .collect(),
+        }
+    });
     vec![MenuItem::Submenu {
-        title: "Accounts".to_owned(),
+        title: copy::menus::ACCOUNTS.to_owned(),
         image: None,
         availability: Availability::Enabled,
         children: rows,
@@ -82,19 +109,22 @@ pub(in crate::ui) fn MailSpaceMenu(handle: Handle, mut today: Signal<Today>) -> 
                 .spaces()
                 .read()
                 .get(open.space)
-                .map(|space| accounts_menu(&space.payload.scope, &every))
+                .map(|space| accounts_menu(&space.payload.scope, &every, &offered_redirects()))
         })
         .unwrap_or_default();
     rsx! {
-        SpaceMenu::<Mail, Recall, AccountId> {
+        SpaceMenu::<Mail, Recall, AccountPick> {
             handle,
             new_payload: move |()| Mail::new_in(&ProfileId::default()),
             extra,
-            on_extra: move |(space, account): (SpaceId, AccountId)| {
-                let all: Vec<AccountId> = accounts().into_iter().map(|(id, _)| id).collect();
-                handle.apply(space, |one| {
-                    one.payload.scope = toggled(&one.payload.scope, account, &all);
-                });
+            on_extra: move |(space, pick): (SpaceId, AccountPick)| match pick {
+                AccountPick::Toggle(account) => {
+                    let all: Vec<AccountId> = accounts().into_iter().map(|(id, _)| id).collect();
+                    handle.apply(space, |one| {
+                        one.payload.scope = toggled(&one.payload.scope, account, &all);
+                    });
+                }
+                AccountPick::Add(pick) => picked(pick),
             },
             kept: "Your mail".to_owned(),
             on_deleted: move |space: SpaceId| {

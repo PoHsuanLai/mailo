@@ -34,6 +34,8 @@ pub(in crate::ui) enum Choice {
     Place(usize),
     /// The Space at this index.
     Space(usize),
+    /// A draft put aside, from Recent: back exactly as it was left.
+    Draft(mail_domain::DraftId),
 }
 
 /// One place a person can go: what it is called, and its glyph.
@@ -59,7 +61,7 @@ pub(in crate::ui) fn sections(
     let mut people = Vec::new();
     for row in rows {
         let section = match row.group.as_deref() {
-            // An empty field has no top hit: the newest thread is the first of the recent.
+            // An empty field has no top hit: what one would be is listed with the recent.
             Some(items::TOP_HIT) if empty => RECENT,
             Some(items::TOP_HIT) => TOP,
             Some(items::ACTIONS) => COMMANDS,
@@ -151,6 +153,10 @@ pub(in crate::ui) fn choice_of(results: &Results, key: &str) -> Option<Choice> {
     match key.split_once(':') {
         Some(("place", rest)) => index(rest).map(Choice::Place),
         Some(("space", rest)) => index(rest).map(Choice::Space),
+        Some(("recent", rest)) => {
+            super::recent::thread_of(rest).map(|id| Choice::Pick(Pick::Open(id)))
+        }
+        Some(("draft", rest)) => super::recent::draft_of(rest).map(Choice::Draft),
         _ => interpret(results, key).map(Choice::Pick),
     }
 }

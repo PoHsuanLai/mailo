@@ -9,9 +9,10 @@ use super::data::{AccountRow, account_rows, syncs_nothing};
 use super::list_search::{Marking, RowHit, Scope, row_hit};
 use super::motion::{Ghost, Toast};
 use super::ops::compose_new;
-use super::page::ListMore;
+use super::page::{ListMore, ListTitle};
 use super::picks::PickBar;
 use super::press::on_primary;
+use super::row::scheduled::ScheduledRow;
 use super::row::{DraftRow, MailRow};
 use super::server_search::{Asked, ServerSearch, found_threads};
 use super::view_groups::group_list;
@@ -150,27 +151,13 @@ pub(super) fn ThreadList(
         .get(shell.read().selected)
         .map(|place| place.name.clone())
         .unwrap_or_else(|| copy::titles::INBOX.to_owned());
-    let address = shell.read().account.clone().and_then(|id| {
-        shell
-            .read()
-            .accounts
-            .iter()
-            .find(|(_, account)| *account == id)
-            .map(|(address, _)| address.clone())
-            .or_else(|| {
-                rows()
-                    .iter()
-                    .find(|row| row.id == id)
-                    .map(|row| row.shown())
-            })
-    });
-    let address = address.or_else(|| {
+    let address = {
         let known: Vec<(AccountId, String)> = rows()
             .into_iter()
             .map(|row| (row.id, row.address))
             .collect();
         super::folder_open::title_address(&shell.read(), &known)
-    });
+    };
     let names: BTreeMap<LabelId, String> = shell
         .read()
         .labels
@@ -178,7 +165,7 @@ pub(super) fn ThreadList(
         .map(|(name, id)| (*id, name.clone()))
         .collect();
     // Local folders are never synced: with only them in view the ⋯ has no Sync Now.
-    let quiet = syncs_nothing(&rows(), shell.read().account.clone(), &shell.read().scope);
+    let quiet = syncs_nothing(&rows(), &shell.read().scope);
     // Said by the links of the accounts in view, and said of nothing when they have none.
     let fetching = try_consume_context::<Fetching>();
     let links: Vec<Link> = fetching
@@ -205,10 +192,7 @@ pub(super) fn ThreadList(
     } else {
         accounts
             .iter()
-            .filter(|row| match shell.read().account.clone() {
-                Some(id) => row.id == id,
-                None => shell.read().scope.shows(row.id.clone()),
-            })
+            .filter(|row| shell.read().scope.shows(row.id.clone()))
             .filter(|row| mail_core::server_search::searchable(&row.plan))
             .map(|row| (row.id.clone(), row.shown()))
             .collect()
@@ -240,11 +224,12 @@ pub(super) fn ThreadList(
         } else {
             draft.subject.clone()
         };
-        items.push(ListItem::row(
-            Slot::Draft(id),
-            label,
-            rsx! { DraftRow { draft, shell } },
-        ));
+        // One held for a time says when it leaves, and offers Cancel Sending in its menu.
+        let row = match draft.state {
+            SendState::Scheduled { at } => rsx! { ScheduledRow { draft, at, shell, revision } },
+            _ => rsx! { DraftRow { draft, shell } },
+        };
+        items.push(ListItem::row(Slot::Draft(id), label, row));
     }
     let strip = top();
     if !strip.is_empty() {
@@ -428,7 +413,8 @@ pub(super) fn ThreadList(
                         if picking {
                             PickBar { shell, revision, threads }
                         } else {
-                            div { class: "list-title",
+                            // A right click on the title goes to Sent, Drafts, Spam or Trash.
+                            ListTitle { shell, pages,
                                 Label { text: place.clone(), style: LabelStyle::Title, common: classed("ds-truncate") }
                                 if let Some(address) = address {
                                     Label {

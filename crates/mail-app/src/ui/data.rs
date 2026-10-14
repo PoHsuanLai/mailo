@@ -29,7 +29,7 @@ pub(super) fn list_for(
         ),
         Listing::Waiting { scope } => mail_core::follow_up::waiting(store, scope.as_ref(), now),
         Listing::History { scope } => mail_core::history::listed(store, scope.as_ref(), now),
-        Listing::Drafts => Vec::new(),
+        Listing::Drafts | Listing::Scheduled => Vec::new(),
     }
 }
 
@@ -64,7 +64,7 @@ pub(super) struct AccountRow {
 }
 
 /// Every account, oldest first. A plan that does not parse becomes a plain IMAP account so the
-/// tile still has a host to name; `'{}'` is what the oldest fixtures wrote.
+/// account still has a host to name; `'{}'` is what the oldest fixtures wrote.
 pub(super) fn account_rows(store: &SqliteStore) -> Vec<AccountRow> {
     store
         .list_accounts()
@@ -100,20 +100,13 @@ impl AccountRow {
     }
 }
 
-/// Whether nothing the list shows has a server, so there is nothing for a sync to do: the
-/// pressed tile is local folders, or no tile is pressed and every account in the Space's `scope`
-/// (empty meaning all) is, or there is no account at all. The sidebar then has no sync mark and
+/// Whether nothing the list shows has a server, so there is nothing for a sync to do: every
+/// account in the Space's `scope` is local folders, or there is no account at all. The sidebar then has no sync mark and
 /// the list's ⋯ no Sync Now.
-pub(super) fn syncs_nothing(
-    rows: &[AccountRow],
-    pressed: Option<AccountId>,
-    scope: &crate::ui::space::Scope,
-) -> bool {
-    let in_view: Vec<&AccountRow> = rows
-        .iter()
-        .filter(|row| scope.narrowed(pressed.clone()).shows(row.id.clone()))
-        .collect();
-    in_view.iter().all(|row| row.is_local())
+pub(super) fn syncs_nothing(rows: &[AccountRow], scope: &crate::ui::space::Scope) -> bool {
+    rows.iter()
+        .filter(|row| scope.shows(row.id.clone()))
+        .all(|row| row.is_local())
 }
 
 /// What the window calls the local-only account, wherever it names it.
@@ -205,8 +198,8 @@ mod badge_tests {
         }
     }
 
-    /// One source of truth: in every scope the window can show (all accounts, or one account
-    /// pressed), each place's badge is the number of unread conversations opening it lists. A
+    /// One source of truth: in every scope the window can show (every account, or a Space of
+    /// one), each place's badge is the number of unread conversations opening it lists. A
     /// badge counted over every account beside a list of one said Trash held a message that
     /// was in another account's Trash.
     #[test]
@@ -226,12 +219,18 @@ mod badge_tests {
         );
 
         let mut differed = false;
-        for pressed in std::iter::once(None).chain(accounts.iter().cloned().map(Some)) {
-            shell.account = pressed.clone();
+        let scopes = std::iter::once(crate::ui::space::Scope::All).chain(
+            accounts
+                .iter()
+                .cloned()
+                .map(|id| crate::ui::space::Scope::Accounts(vec![id])),
+        );
+        for scope in scopes {
+            shell.scope = scope.clone();
             for (index, place) in default_places().iter().enumerate() {
                 if matches!(
                     place.source,
-                    Source::Drafts | Source::Waiting | Source::History
+                    Source::Drafts | Source::Waiting | Source::History | Source::Scheduled
                 ) {
                     continue;
                 }
@@ -253,7 +252,7 @@ mod badge_tests {
                 differed |= unscoped != badge;
                 assert_eq!(
                     badge, unread,
-                    "{:?} with {pressed:?} pressed: the badge says {badge}, the list has {unread} unread",
+                    "{:?} over {scope:?}: the badge says {badge}, the list has {unread} unread",
                     place.source
                 );
             }

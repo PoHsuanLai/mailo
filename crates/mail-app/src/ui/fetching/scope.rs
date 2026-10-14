@@ -4,16 +4,14 @@ use crate::ui::view::Shell;
 use porter_core::AccountId;
 use std::collections::BTreeSet;
 
-/// The accounts in view that have something to fetch, from the pressed tile or the Space.
+/// The accounts in the Space's `scope` that have something to fetch.
 ///
-/// A pressed tile is that one account; otherwise the Space's `scope`. Only accounts in `with_links` can be fetched, which leaves out the one that keeps
-/// its mail on this computer.
+/// Only accounts in `with_links` can be fetched, which leaves out the one that keeps its mail
+/// on this computer.
 pub(super) fn in_scope(
     with_links: &BTreeSet<AccountId>,
-    pressed: Option<AccountId>,
     scope: &crate::ui::space::Scope,
 ) -> Vec<AccountId> {
-    let scope = scope.narrowed(pressed);
     with_links
         .iter()
         .filter(|&id| scope.shows(id.clone()))
@@ -23,7 +21,7 @@ pub(super) fn in_scope(
 
 /// [`in_scope`] for what the window is showing.
 pub(super) fn in_view(with_links: &BTreeSet<AccountId>, shell: &Shell) -> Vec<AccountId> {
-    in_scope(with_links, shell.account.clone(), &shell.scope)
+    in_scope(with_links, &shell.scope)
 }
 
 #[cfg(test)]

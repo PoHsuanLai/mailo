@@ -262,10 +262,12 @@ fn restore(
     entry: Vec<Undo>,
 ) -> bool {
     // Newest first, as the parts were done oldest first.
-    let (back, refused): (Vec<Undo>, Vec<Undo>) = entry
-        .into_iter()
-        .rev()
-        .partition(|part| take_back(store, part));
+    let (back, refused): (Vec<Undo>, Vec<Undo>) =
+        entry.into_iter().rev().partition(|part| match part.resend {
+            // A send taken back goes again for its time: the window seals and queues it.
+            Some(resend) => crate::ui::compose::send_again(store, resend),
+            None => take_back(store, part),
+        });
     let _ = shell
         .write()
         .undo
