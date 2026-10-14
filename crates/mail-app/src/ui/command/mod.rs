@@ -12,6 +12,7 @@ mod items;
 mod keys;
 mod panel;
 pub(in crate::ui) mod people;
+mod recent;
 mod sections;
 mod spotlight;
 mod suggest;
@@ -64,6 +65,7 @@ fn act(ctx: Ctx, choice: Option<Choice>) {
         mut revision,
         mut side_hidden,
         spaces,
+        desk,
         ..
     } = ctx;
     let Some(choice) = choice else {
@@ -84,6 +86,12 @@ fn act(ctx: Ctx, choice: Option<Choice>) {
             shell.write().select(index);
             pages.set(1);
             close(shell);
+        }
+        Choice::Draft(draft) => {
+            close(shell);
+            if let Some(desk) = desk {
+                crate::ui::compose::reopen(desk, shell, draft);
+            }
         }
         Choice::Space(index) => {
             restore(shell, pages);

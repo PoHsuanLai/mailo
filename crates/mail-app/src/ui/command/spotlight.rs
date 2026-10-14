@@ -48,6 +48,9 @@ pub(in crate::ui) fn Spotlight(
     let store = use_hook(consume_context::<Arc<SqliteStore>>);
     let keys = use_keys();
     let drawn = use_signal(Drawn::default);
+    let desk = try_use_context::<crate::ui::compose::Desk>();
+    // What was opened and put aside, for Recent. The window provides it; a test may not.
+    let today = try_use_context::<Signal<crate::ui::today::Today>>();
     let mut top = use_signal(|| None::<MountedRef>);
     let open = match &shell.read().bar {
         Bar::Open(open) => Some(open.clone()),
@@ -60,11 +63,14 @@ pub(in crate::ui) fn Spotlight(
     };
     let rows = open.as_ref().map_or_else(Vec::new, |open| {
         keys.with_keymap(|keymap| {
+            let none = crate::ui::today::Today::default();
+            let today = today.map(|today| today.read().clone());
             let world = World {
                 shell: &shell.read(),
                 spaces: &spaces.read(),
                 store: &store,
                 keymap,
+                today: today.as_ref().unwrap_or(&none),
             };
             panel_rows(&world, &drawn.read(), &open.listing, sidebar)
         })
@@ -76,6 +82,7 @@ pub(in crate::ui) fn Spotlight(
         side_hidden,
         spaces,
         drawn,
+        desk,
     };
     let line = rsx! {
         // The line the card hangs from, centred under it: the width of the window, a little
@@ -213,6 +220,9 @@ pub(super) struct Ctx {
     pub side_hidden: Signal<bool>,
     pub spaces: Signal<Spaces>,
     pub drawn: Signal<Drawn>,
+    /// Where a draft put aside comes back from, picked in Recent. Taken when the panel is made,
+    /// as a handler may run outside the window's scope.
+    pub desk: Option<crate::ui::compose::Desk>,
 }
 
 /// Run the row keyed `key`: a template while the panel lists them, else what the search's row

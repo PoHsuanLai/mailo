@@ -209,10 +209,6 @@ async fn scheduling_holds_the_draft_until_its_time_and_cancel_brings_back_the_pa
         listed.contains("data-scheduled=\"Friday\""),
         "not in Scheduled:\n{listed}"
     );
-    assert!(
-        !listed.contains("data-today=\"Friday\""),
-        "a scheduled send is in Today:\n{listed}"
-    );
 
     click(
         &mut window.dom,

@@ -1,4 +1,4 @@
-//! The frame, Favourites, the rows and Today, rendered from the real `App`.
+//! The frame, Favourites and the rows, rendered from the real `App`.
 
 use super::app::App;
 use super::fixtures::{dispatching, rebuild_into, seeded, work};
@@ -122,8 +122,9 @@ fn the_work_rows_carry_the_read_state_the_chip_and_the_more_button() {
     );
 }
 
+/// Opening a conversation keeps a shortcut to it for ⌘K's Recent, in the window's own file.
 #[tokio::test]
-async fn clear_today_in_its_menu_writes_the_file_and_not_the_mail() {
+async fn opening_conversations_keeps_shortcuts_for_recent() {
     dispatching();
     let built = work();
     // The fixture seeds Today for the screenshot. This test starts from an empty list
@@ -139,16 +140,14 @@ async fn clear_today_in_its_menu_writes_the_file_and_not_the_mail() {
     );
     let second = seen.one("aria-label", "Open Notes from the sync review");
     let opened = super::fixtures::click(&mut dom, first);
-    let (second, followed) =
-        follow(&mut dom, opened, "Open Notes from the sync review", second).await;
-    let shown = super::fixtures::click(&mut dom, second);
-    let mut drawn = followed.merge(shown);
+    let (second, _) = follow(&mut dom, opened, "Open Notes from the sync review", second).await;
+    let _ = super::fixtures::click(&mut dom, second);
     loop {
         let more = tokio::time::timeout(std::time::Duration::from_millis(200), dom.wait_for_work());
         if more.await.is_err() {
             break;
         }
-        drawn = drawn.merge(paint(&mut dom));
+        let _ = paint(&mut dom);
     }
     let stored = std::fs::read_to_string(built.dirs.state.join("today.json")).unwrap_or_default();
     assert_eq!(
@@ -156,51 +155,6 @@ async fn clear_today_in_its_menu_writes_the_file_and_not_the_mail() {
         2,
         "opening two threads did not store two shortcuts: {stored}"
     );
-    let before = changes(&built.store);
-
-    // The sidebar's Today lists both, newest first, and its heading's right-click menu clears
-    // them. A row's right click offers no Clear Today.
-    let page = dioxus_ssr::render(&dom);
-    let listed: Vec<&str> = page
-        .split("data-today=\"")
-        .skip(1)
-        .filter_map(|rest| rest.split('"').next())
-        .collect();
-    assert_eq!(
-        listed,
-        [
-            "Notes from the sync review",
-            "Re: UIDL stability across a UIDVALIDITY change",
-        ],
-        "{listed:?}"
-    );
-    let asked = super::fixtures::right_click(
-        &mut dom,
-        drawn.one("data-today", "Notes from the sync review"),
-    );
-    let _ = super::fixtures::settle(&mut dom, asked);
-    let names = super::fixtures::menu_names(&dioxus_ssr::render(&dom));
-    assert!(names.is_empty(), "a Today row offers {names:?}");
-    let asked = super::fixtures::right_click(&mut dom, drawn.one("data-section", "today"));
-    let menu = super::fixtures::settle(&mut dom, asked);
-    let names = super::fixtures::menu_names(&dioxus_ssr::render(&dom));
-    assert_eq!(names, ["Clear Today"], "{names:?}");
-    super::fixtures::pick_named(&mut dom, &menu, "Clear Today").await;
-    let stored = std::fs::read_to_string(built.dirs.state.join("today.json")).unwrap_or_default();
-    assert_eq!(
-        stored.matches("\"item\"").count(),
-        0,
-        "Clear Today left {stored}"
-    );
-    assert_eq!(
-        changes(&built.store),
-        before,
-        "clearing Today wrote to the mail store"
-    );
-}
-
-fn changes(store: &SqliteStore) -> i64 {
-    mail_store::testing::total_changes(store)
 }
 
 fn paint(dom: &mut VirtualDom) -> super::fixtures::Seen {
@@ -314,8 +268,11 @@ async fn scheduled_is_in_the_sidebar_only_while_a_send_waits_in_the_space() {
         sidebar(&store, over(&mine)).await,
         "no Scheduled with a message waiting"
     );
+    // Another Space's: what the row is drawn from lists nothing there. Asked of the store, as
+    // the window reaches a Space's accounts through effects whose order a test should not race.
     assert!(
-        !sidebar(&store, over(&theirs)).await,
-        "another Space's message drew Scheduled"
+        crate::ui::compose::scheduled(&store, &crate::ui::space::Scope::Accounts(vec![theirs]))
+            .is_empty(),
+        "another Space's message would draw Scheduled"
     );
 }

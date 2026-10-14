@@ -6,6 +6,7 @@ use super::super::menu::{MenuItem, Right};
 use super::items::{gone_to, restate_sidebar, rows_of, search_now};
 use super::sections::{Destination, TEMPLATES, places_for, sections};
 use crate::ui::space::Spaces;
+use crate::ui::today::Today;
 use crate::ui::view::{BarListing, Shell, Source};
 use chrono::Utc;
 use dioxus::prelude::*;
@@ -22,6 +23,8 @@ pub(super) struct World<'a> {
     pub store: &'a SqliteStore,
     /// The window's keymap, for the hints beside the commands.
     pub keymap: &'a chordkit::Keymap,
+    /// What was opened and put aside, for Recent while nothing is typed.
+    pub today: &'a Today,
 }
 
 /// The panel's rows for what it lists.
@@ -36,6 +39,7 @@ pub(super) fn panel_rows(
         spaces,
         store,
         keymap,
+        today,
     } = world;
     match listing {
         BarListing::Templates(typed) => super::templates::rows(store, typed)
@@ -48,10 +52,17 @@ pub(super) fn panel_rows(
             .collect(),
         BarListing::Search => {
             let query = drawn.settled.text.as_str();
-            let rows: Vec<MenuItem> = rows_of(&drawn.results, &drawn.names, query, keymap)
+            let mut rows: Vec<MenuItem> = rows_of(&drawn.results, &drawn.names, query, keymap)
                 .into_iter()
                 .map(|row| restate_sidebar(row, sidebar, query))
                 .collect();
+            // Nothing typed: Recent is where the person was, not the newest mail.
+            if query.trim().is_empty() {
+                rows.retain(|row| !row.key.starts_with("mail:"));
+                let mut recent = super::recent::rows(store, today, spaces.current().id);
+                recent.append(&mut rows);
+                rows = recent;
+            }
             let offered: Vec<usize> = shell
                 .places
                 .iter()

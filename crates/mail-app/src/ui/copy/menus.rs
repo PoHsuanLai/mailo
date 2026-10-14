@@ -7,8 +7,6 @@ pub const SETTINGS: &str = "Settings…";
 pub const HIDE_SIDEBAR: &str = "Hide Sidebar";
 pub const SHOW_SIDEBAR: &str = "Show Sidebar";
 
-// Today's right-click menu.
-pub const CLEAR_TODAY: &str = "Clear Today";
 // A scheduled message's menu: it goes back to Drafts, with undo, so nothing more is asked.
 pub const CANCEL_SENDING: &str = "Cancel Sending";
 

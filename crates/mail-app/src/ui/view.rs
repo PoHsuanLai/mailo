@@ -420,7 +420,6 @@ impl Viewing {
 /// A list in the sidebar that opens conversations by their rows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SideList {
-    Today,
     Favourites,
 }
 
@@ -433,8 +432,7 @@ pub struct Shell {
     pub search: String,
     pub open: Option<ThreadId>,
     /// The sidebar list the open thread was opened from, if one was. The sidebar has one
-    /// selected row: that list's row for the thread while this holds, the place otherwise. A
-    /// pinned conversation in Today is in both lists, and only the one clicked is selected.
+    /// selected row: that list's row for the thread while this holds, the place otherwise.
     pub from_side: Option<SideList>,
     /// The conversations picked for an action on several at once. Empty: actions mean `open`.
     ///
@@ -795,7 +793,7 @@ impl Shell {
     }
 
     /// Whether place `index` is the sidebar's selected row: the list's place, unless a row of
-    /// Today or Favourites took the selection by opening its thread.
+    /// Favourites took the selection by opening its thread.
     pub fn place_selected(&self, index: usize) -> bool {
         self.selected == index && self.from_side.is_none()
     }
@@ -1170,45 +1168,35 @@ mod tests {
 
     #[test]
     fn the_sidebar_has_one_selected_row() {
-        // The place the list shows, or the Today tab the open thread came from: never both.
+        // The place the list shows, or the Favourite the open thread came from: never both.
         let mut shell = Shell::default();
         let thread = ThreadId::generate();
-        let today = SideList::Today;
         let favourites = SideList::Favourites;
         assert!(shell.place_selected(0));
-        assert_eq!(shell.selected_in(today), None);
+        assert_eq!(shell.selected_in(favourites), None);
 
         shell.open(thread);
         assert!(
             shell.place_selected(0),
             "a thread from the list keeps the place"
         );
-        assert_eq!(shell.selected_in(today), None);
-
-        shell.open_from(thread, today);
-        assert!(
-            !shell.place_selected(0),
-            "a tab and a place are both selected"
-        );
-        assert_eq!(shell.selected_in(today), Some(thread));
-        assert_eq!(
-            shell.selected_in(favourites),
-            None,
-            "a pinned conversation in Today is selected in both lists"
-        );
+        assert_eq!(shell.selected_in(favourites), None);
 
         shell.open_from(thread, favourites);
+        assert!(
+            !shell.place_selected(0),
+            "a Favourite and a place are both selected"
+        );
         assert_eq!(shell.selected_in(favourites), Some(thread));
-        assert_eq!(shell.selected_in(today), None);
 
         shell.select(1);
         assert!(shell.place_selected(1), "choosing a place takes it back");
         assert_eq!(shell.selected_in(favourites), None);
 
-        shell.open_from(thread, today);
+        shell.open_from(thread, favourites);
         shell.close();
         assert!(shell.place_selected(1));
-        assert_eq!(shell.selected_in(today), None);
+        assert_eq!(shell.selected_in(favourites), None);
     }
 
     #[test]

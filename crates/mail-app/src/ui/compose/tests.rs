@@ -228,15 +228,7 @@ fn PageHarness(draft: Draft) -> Element {
                     ComposerPage { key: "{id}", draft: id, shell, revision }
                 }
                 SendPill { shell }
-                // The sidebar's Today is where drafts put aside are listed.
-                crate::ui::sidebar::TodaySection {
-                    shell,
-                    today,
-                    space: crate::ui::space::SpaceId(0),
-                    revision,
-                    dirs,
-                }
-                // And the Scheduled place's rows, the messages waiting for their time.
+                // The Scheduled place's rows, the messages waiting for their time.
                 ScheduledRows { shell, revision }
             }
         }

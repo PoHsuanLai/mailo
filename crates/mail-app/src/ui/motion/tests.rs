@@ -304,42 +304,43 @@ async fn drawn(dom: &mut VirtualDom, mut seen: Seen) -> Seen {
     seen
 }
 
-/// The words of the sidebar's Today rows, in order.
-fn today_rows(page: &str) -> Vec<String> {
-    page.split("data-today=\"")
-        .skip(1)
-        .filter_map(|rest| rest.split('"').next().map(str::to_owned))
-        .collect()
+/// The page's words with its tags taken out, from `from` on.
+fn words_after(page: &str, from: &str) -> String {
+    let mut words = String::new();
+    let mut inside = false;
+    for ch in page.chars() {
+        match ch {
+            '<' => inside = true,
+            '>' => inside = false,
+            ch if !inside => words.push(ch),
+            _ => {}
+        }
+    }
+    words
+        .split_once(from)
+        .map(|(_, rest)| rest.to_owned())
+        .unwrap_or_default()
 }
 
 #[tokio::test]
-async fn a_today_entry_is_listed_when_opened_gone_when_cleared_and_never_on_the_clock() {
+async fn an_opened_conversation_is_in_command_k_recent_and_never_leaves_on_the_clock() {
     let Mounted { mut dom, seen, .. } = mounted();
-    // A thread Today does not hold yet: the release thread.
-    assert!(
-        !today_rows(&dioxus_ssr::render(&dom)).contains(&RELEASE.to_owned()),
-        "already in Today"
-    );
     let row = seen.one("aria-label", &format!("Open {RELEASE}"));
     let opened = click(&mut dom, row);
-    let opened = drawn(&mut dom, opened).await;
-    let page = dioxus_ssr::render(&dom);
-    assert!(
-        today_rows(&page).contains(&RELEASE.to_owned()),
-        "the opened thread is not in Today: {:?}",
-        today_rows(&page)
+    drawn(&mut dom, opened).await;
+    // ⌘K with nothing typed: Recent is where the person was.
+    chord(
+        &mut dom,
+        "k",
+        crate::ui::fixtures::PRIMARY,
+        ElementId(INSIDE_THE_SHELL as usize),
     );
-    // Clear Today is in the right-click menu of Today's heading.
-    let asked =
-        crate::ui::fixtures::right_click(&mut dom, seen.merge(opened).one("data-section", "today"));
-    let menu = crate::ui::fixtures::settle(&mut dom, asked);
-    crate::ui::fixtures::pick_named(&mut dom, &menu, "Clear Today").await;
     settle(&mut dom).await;
-    let page = dioxus_ssr::render(&dom);
+    let recent = words_after(&dioxus_ssr::render(&dom), "Recent");
+    let recent = recent.split("Commands").next().unwrap_or_default();
     assert!(
-        !today_rows(&page).contains(&RELEASE.to_owned()),
-        "Clear Today left it: {:?}",
-        today_rows(&page)
+        recent.contains(RELEASE),
+        "the opened conversation is not in Recent: {recent}"
     );
 
     // Nothing drops off by time: an entry idle past the kit's `IDLE` is still listed.

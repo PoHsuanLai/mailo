@@ -1,8 +1,8 @@
 //! A new message in a window of its own, driven in the real window on Blitz
 //! (`ds_harness::Harness`): New Message, ⌘N and ⌘K's Compose ask for a compose window and leave
 //! the reader as it was; a reply stays under its thread; the compose window parks into the main
-//! window's Today and hands its page back for Open in Main Window; and neither window draws a
-//! Focus control.
+//! window, where ⌘K's Recent brings it back, and hands its page back for Open in Main Window; and
+//! neither window draws a Focus control.
 //!
 //! quire's harness has no event loop to open a second window on, so the main window is handed a
 //! recorder as its `ComposeWindows` and the asks are read from it; the compose window is its root
@@ -318,11 +318,14 @@ fn esc_in_a_compose_window_parks_the_draft_in_the_main_window() {
     window.key(Key::Escape);
     settle_until(&mut window, |h| h.count(".cpage") == 0);
 
-    // The main window takes the parked page and lists it in Today.
+    // The main window takes the parked page: ⌘K with nothing typed lists it under Recent, and
+    // Return brings it back.
     main.advance(ms(300));
-    let parked = r#"[*|data-today="Lunch plans"]"#;
-    settle_until(&mut main, |h| h.count(parked) == 1);
-    main.click(centre(&main, parked));
+    main.chord(&[PRIMARY], Key::Char('k'));
+    settle_until(&mut main, |h| {
+        h.is_focused(".ds-search-card input") && h.html().contains("Lunch plans")
+    });
+    main.key(Key::Enter);
     settle_until(&mut main, |_| recorder.asked().len() == 2);
     assert_eq!(
         recorder.asked()[1],

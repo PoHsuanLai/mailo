@@ -66,7 +66,7 @@ Every concept falls into one of four tiers. When a concept isn't in this table, 
 
 A new person with one Google account sees only this:
 
-- **Sidebar:** Today, Inbox, Waiting, Snoozed, Done, Kept; Labels and Folders collapsed; nothing else (§0.6).
+- **Sidebar:** Inbox, Waiting, Snoozed, Done, Kept (and Scheduled while a send waits); Favourites once something is pinned; Labels and Folders collapsed; nothing else (§0.6).
 - **List:** the place's title; New Message, Search, ⋯; the rows.
 - **Reader:** Reply, Archive, Delete, ⋯; the subject; the conversation.
 - **Composer:** To, Subject, the message; Attach, ⋯, Send ▾.
@@ -90,9 +90,9 @@ Each idea **replaces** something mailo already has. None adds a surface, and the
 
 | Arc idea | What it replaces in mailo | Net effect |
 | --- | --- | --- |
-| **The sidebar is the working set.** At the top: Today, the conversations opened recently plus parked drafts. An entry stays until the person clears it (Clear Today, or Tidy Up…); nothing drops off by itself. | The foot menu's Today list, the History and Pinned places, and the account tile row. | One section replaces three places and a menu list. History stays one step away in ⌘K. |
+| **Where you were is one keystroke away.** Arc keeps the tabs you opened under a divider and archives them by itself. mailo moves nothing by time, so a list like that would only grow; instead ⌘K, with nothing typed, lists Recent: the conversations opened in this Space and the drafts put aside, newest first. | The foot menu's Today list, a Today section in the sidebar, the History and Pinned places, and the account tile row. | Nothing at rest in the sidebar; History stays one step away in ⌘K. |
 | **Favourites.** Pinned people or conversations as a short row of tiles, badged only when unread. | The account tile with its "9" badge and "+". Add Account moves to the Space's menu. | The tile row is shown only once something is pinned. Pin and Star stay side by side, per §0.4. |
-| **⌘K goes anywhere.** One field: empty, it shows Today, recent items, places and verbs with their keys; typed, it searches mail, and results fill the list. | The list toolbar's separate Search field and mode, the Connections sheet's ⌘K entry, and "Go to" commands repeated elsewhere. | One field for search and navigation. The toolbar's Search icon opens ⌘K. |
+| **⌘K goes anywhere.** One field: empty, it shows Recent (where you were), places and verbs with their keys; typed, it searches mail, and results fill the list. | The list toolbar's separate Search field and mode, the Connections sheet's ⌘K entry, and "Go to" commands repeated elsewhere. | One field for search and navigation. The toolbar's Search icon opens ⌘K. |
 | **Peek is the one preview.** Attachments, inline images, a forwarded message and a link's destination card all open in one overlay; Esc closes it, ⌘↩ opens the item in its app. | The attachment viewer pane, the link hover card and the trust pill's details. | One preview grammar instead of three. |
 | **Little Arc.** New Message, a `mailto:` link or the quick-compose key opens a small composer window; "Open in Main Window" moves it to the main window. Replies stay inline under the thread. | The composer taking over the reader pane, and the Focus button. | The reader stays readable while you write; Focus goes. |
 | **Spaces are contexts.** A Space holds any accounts (Work: work Gmail plus Exchange). With one Space there is no Space UI at all. | One Space per account, the "Space 1" head and the lone dot. | Space UI only once a second Space exists. |
@@ -111,19 +111,19 @@ Mail's standards name where a message is stored: Inbox, Archive, Sent, Drafts, J
 
 | Sidebar | What it holds | Stored as |
 | --- | --- | --- |
-| **Today** | Conversations opened and drafts parked, until the person clears them | mailo's own list; nothing on the server |
 | **Inbox** | What still needs a look | the Inbox |
 | **Waiting** | Sent mail the person asked to be reminded about | a reminder on the conversation |
 | **Snoozed** | Conversations put off until a time the person chose | a snooze on the conversation |
 | **Done** | Everything dealt with | Archive (or All Mail on Gmail) |
 | **Kept** | Starred and pinned conversations, side by side | the server's flag, mailo's pin |
+| **Scheduled** | Messages waiting for their send time; the row is drawn only while one waits | a send time on the draft |
 
 Labels and Folders follow, collapsed. Sent, Drafts, Junk and Trash are not in the sidebar: they are reached through ⌘K and the list title's menu, and a conversation's menu says where it is ("Move to Inbox" in Done, "Not Spam" in Junk).
 
 Rules for the fold:
 
 - One action, one word: Archive moves to Done, Delete moves to Trash, and the word on every menu is the one for the side the conversation is offered, never the side it is on.
-- Nothing moves by time alone. Today keeps an entry until the person clears it. **Tidy Up…** (in the sidebar's foot menu) is the only bulk clean-up: it lists exactly what it would archive or clear, runs only when asked, and can be undone.
+- Nothing moves by time alone. Where the person was is ⌘K's Recent, not a sidebar list that grows. **Tidy Up…** (in the sidebar's foot menu) is the only bulk clean-up: it lists exactly what it would archive or clear, runs only when asked, and can be undone.
 - Server work is never a step the person takes. Rules are pushed to the server when saved, and only a failure is shown.
 - A protocol word (IMAP, JMAP, Graph, POP) is shown only where the person sets up a server by hand.
 

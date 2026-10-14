@@ -6,20 +6,14 @@ mod folders;
 mod foot;
 mod panes;
 mod sync;
-mod today_list;
 
 pub(super) use self::folder_act::folder_places;
 use self::folder_tree::{Show, arrange, scope};
 use self::folders::FolderList;
 pub(in crate::ui) use self::panes::hex_colour;
 use self::panes::{Favourites, PlaceList, counts};
-use self::today_list::TodayList;
-#[cfg(test)]
-pub(in crate::ui) use self::today_list::TodayList as TodaySection;
-use crate::ui::appearance::WindowDirs;
 use crate::ui::copy;
 use crate::ui::space::{Handle, Mail};
-use crate::ui::today::Today;
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::components::app::edge_peek::EdgePeek;
@@ -56,8 +50,6 @@ pub(super) fn Places(
     badges: Memo<Vec<Option<u64>>>,
     revision: Signal<u64>,
     handle: Handle,
-    today: Signal<Today>,
-    dirs: Option<WindowDirs>,
     side_hidden: Signal<bool>,
 ) -> Element {
     let spaces = handle.spaces();
@@ -126,7 +118,6 @@ pub(super) fn Places(
                 // A sign-in in the browser, while it waits: a quiet row at the top.
                 crate::ui::add_account::PendingSignIn {}
                 Favourites { shell, pages, space: space.clone(), counted: counts_now }
-                TodayList { shell, today, space: space_id, revision, dirs: dirs.clone() }
                 PlaceList { shell, pages, badges, folded, scheduled: scheduled() }
                 if let Some(section) = folders() {
                     FolderList { shell, pages, badges, revision, section, show }

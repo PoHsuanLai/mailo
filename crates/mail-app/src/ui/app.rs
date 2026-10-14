@@ -96,6 +96,8 @@ pub(super) fn App() -> Element {
     use_context_provider(|| handle);
     let spaces = handle.spaces();
     let mut today_list = use_signal(|| boot.today.clone());
+    // ⌘K's Recent reads it: what was opened and put aside in each Space.
+    use_context_provider(|| today_list);
     let dirs = boot.dirs.clone();
     // The files this window saves, behind the sidebar's Downloads button.
     super::downloads::use_provide_shelf(dirs.as_ref());
@@ -665,7 +667,7 @@ pub(super) fn App() -> Element {
     } else {
         rsx! {
             Places {
-                shell, pages, badges, revision, handle, today: today_list, dirs: dirs.clone(),
+                shell, pages, badges, revision, handle,
                 side_hidden,
             }
         }
@@ -729,7 +731,7 @@ pub(super) fn App() -> Element {
             if side_hidden() {
                 div { class: "edge-host",
                     Places {
-                        shell, pages, badges, revision, handle, today: today_list, dirs: dirs.clone(),
+                        shell, pages, badges, revision, handle,
                         side_hidden,
                     }
                 }
