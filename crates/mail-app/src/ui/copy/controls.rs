@@ -10,3 +10,14 @@ pub const NEW: &str = "New";
 pub const DELETE_FOLDER_AND_MAIL: &str = "Delete Folder and Mail";
 /// The composer's one filled button.
 pub const SEND: &str = "Send";
+/// A sheet's way out that does nothing.
+pub const CANCEL: &str = "Cancel";
+/// Tidy Up's button: archive the conversations it lists.
+pub fn archive_count(count: usize) -> String {
+    format!("Archive {count}")
+}
+/// Tidy Up's ages, as its choice names them.
+pub const ONE_WEEK: &str = "1 Week";
+pub const TWO_WEEKS: &str = "2 Weeks";
+pub const ONE_MONTH: &str = "1 Month";
+pub const THREE_MONTHS: &str = "3 Months";

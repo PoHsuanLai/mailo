@@ -8,3 +8,5 @@ pub const INBOX: &str = "Inbox";
 pub const NEW_FOLDER: &str = "New Folder";
 /// A compose window's title until its message has a subject.
 pub const NEW_MESSAGE: &str = "New Message";
+/// The sheet that archives the Inbox's old read conversations.
+pub const TIDY_UP: &str = "Tidy Up";

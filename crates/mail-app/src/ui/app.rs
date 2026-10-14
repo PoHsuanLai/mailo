@@ -445,6 +445,13 @@ pub(super) fn App() -> Element {
             }
             return;
         }
+        // Tidy Up likewise: Esc cancels it, and only its button archives.
+        if shell.read().tidying.is_some() {
+            if key == "Escape" {
+                super::tidy::close(shell);
+            }
+            return;
+        }
         // A Space's menu, or the part it opened, owns the keyboard while it shows: the name
         // field takes letters, the colour field's handles the arrows, and quire's layer stack
         // closes it on Escape. A part that holds no focus (the colour, the Delete question)
@@ -755,6 +762,9 @@ pub(super) fn App() -> Element {
             }
             if shell.read().destroying.is_some() {
                 super::destroy::DestroySheet { shell, revision }
+            }
+            if shell.read().tidying.is_some() {
+                super::tidy::TidySheet { shell, revision }
             }
             if shell.read().no_account {
                 super::no_account::NoAccountAlert { shell }

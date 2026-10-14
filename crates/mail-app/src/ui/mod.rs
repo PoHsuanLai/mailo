@@ -14,6 +14,7 @@ pub mod saved;
 pub mod selection;
 pub mod space;
 pub mod spelling;
+pub mod tidy;
 pub mod today;
 pub mod view;
 

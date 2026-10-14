@@ -4,6 +4,8 @@
 
 // The sidebar's menu, under the foot's chevron.
 pub const SETTINGS: &str = "Settings…";
+/// The sidebar's menu: archive the read conversations the Inbox has kept too long.
+pub const TIDY_UP: &str = "Tidy Up…";
 pub const HIDE_SIDEBAR: &str = "Hide Sidebar";
 pub const SHOW_SIDEBAR: &str = "Show Sidebar";
 

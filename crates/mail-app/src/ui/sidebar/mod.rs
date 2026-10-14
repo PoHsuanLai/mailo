@@ -124,7 +124,7 @@ pub(super) fn Places(
                 }
             }
             // Sync on the left, the Space dots once there are several, and one chevron on the
-            // right that opens Settings and the sidebar's toggle (`foot::MoreMenu`). The foot's
+            // right that opens Tidy Up…, Settings and the sidebar's toggle (`foot::MoreMenu`). The foot's
             // own `+` is left out: the Space's menu holds New Space. Sync's mark says how fresh
             // the mail is, and warns when it is not (`sync`). Each end is a hold of mailo's own,
             // as wide as the other (`style/shell.css`), so the dots stand at the foot's centre
@@ -146,7 +146,7 @@ pub(super) fn Places(
                     },
                     trailing: rsx! {
                         div { class: "foot-end",
-                            foot::MoreMenu { side_hidden }
+                            foot::MoreMenu { shell, side_hidden }
                         }
                     },
                 }

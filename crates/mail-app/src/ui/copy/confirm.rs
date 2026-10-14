@@ -6,3 +6,13 @@
 pub fn delete_folder(name: &str, messages: &str) -> String {
     format!("Delete “{name}” and the {messages} in it?")
 }
+
+/// What Tidy Up will archive: the read Inbox conversations older than the age chosen.
+pub fn tidy_up(count: usize) -> String {
+    let stay = "Starred, pinned, snoozed and waiting ones stay.";
+    match count {
+        0 => "No read conversations in the Inbox are that old.".to_owned(),
+        1 => format!("1 read conversation in the Inbox is that old. {stay}"),
+        _ => format!("{count} read conversations in the Inbox are that old. {stay}"),
+    }
+}
