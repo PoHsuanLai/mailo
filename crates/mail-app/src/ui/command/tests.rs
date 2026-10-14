@@ -243,6 +243,7 @@ const EVERY_COMMAND: &[(CommandId, &str)] = &[
     (CommandId::Go(Goes::Trash), "action:go-trash"),
     (CommandId::Empty(Bin::Trash), "action:empty-trash"),
     (CommandId::Empty(Bin::Spam), "action:empty-spam"),
+    (CommandId::TidyUp, "action:tidy-up"),
     (CommandId::Sidebar, "action:sidebar"),
     (CommandId::AddAccount, "action:add-account"),
     (CommandId::Import, "action:import"),
