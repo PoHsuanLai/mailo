@@ -198,8 +198,14 @@ fn labelled(label: &str) -> String {
     format!("[*|aria-label=\"{label}\"]")
 }
 
-fn place(name: &str) -> String {
-    format!("[*|data-place=\"{name}\"]")
+/// Go to the place named `name` through the list title's right-click menu, where Trash, Sent,
+/// Drafts and Spam are kept off the sidebar.
+fn go_to(harness: &mut Harness, name: &str) {
+    let at = centre(harness, ".list-title");
+    harness.press(at, ds::base::press::PointerButton::Secondary);
+    settle_until(harness, |h| h.count(".ds-menu .ds-menu-item") > 0);
+    row_menu::press_menu_item(harness, name);
+    harness.advance(ms(600));
 }
 
 fn row(n: usize) -> String {
@@ -225,7 +231,7 @@ fn offered(harness: &mut Harness, n: usize) -> Vec<String> {
 #[test]
 fn empty_trash_asks_naming_the_count_and_then_the_list_empties_with_no_undo() {
     let (mut harness, _dir, store) = open();
-    press(&mut harness, &place("Trash"));
+    go_to(&mut harness, "Trash");
     assert_eq!(rows(&harness), 3, "Trash shows its three conversations");
     let before = held_in(&store, MailboxRole::Trash);
     assert_eq!(before.len(), 3);
@@ -311,7 +317,7 @@ fn only_in_trash_a_row_is_deleted_forever_from_its_menu_once_asked() {
     settle_until(&mut harness, |h| h.count(".ds-menu") == 0);
 
     // In Trash, the second row from its menu.
-    press(&mut harness, &place("Trash"));
+    go_to(&mut harness, "Trash");
     let offered = offered(&mut harness, 2);
     assert!(
         offered

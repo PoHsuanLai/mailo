@@ -223,16 +223,16 @@ fn syncs(page: &str) -> bool {
 }
 
 #[tokio::test]
-async fn local_folders_are_named_so_and_have_nothing_to_sync() {
+async fn local_folders_leak_no_address_and_have_nothing_to_sync() {
     dispatching();
     let (store, dir) = crate::ui::fixtures::seeded();
-    import_locally(&store, &a_maildir(dir.path()));
-    // One Space over every account, so both tiles are drawn side by side.
+    let local = import_locally(&store, &a_maildir(dir.path()));
+    // One Space over every account, the IMAP one among them.
     let everything = crate::ui::space::first_run(&[]);
     let mut dom = VirtualDom::new(crate::ui::app::App)
         .with_root_context(store.clone())
         .with_root_context(everything);
-    let seen = landed(&mut dom).await;
+    landed(&mut dom).await;
     let page = dioxus_ssr::render(&dom);
     assert!(
         syncs(&page),
@@ -243,13 +243,15 @@ async fn local_folders_are_named_so_and_have_nothing_to_sync() {
         "the address leaked: {page}"
     );
 
-    click(&mut dom, seen.one("aria-label", "Local folders"));
+    // A Space over the local folders alone.
+    let alone = crate::ui::space::first_run(std::slice::from_ref(&local));
+    let mut dom = VirtualDom::new(crate::ui::app::App)
+        .with_root_context(store.clone())
+        .with_root_context(alone);
+    landed(&mut dom).await;
     let page = dioxus_ssr::render(&dom);
+    // One Space draws no name over the sidebar, so nothing here says whose mail it is.
     assert!(!syncs(&page), "local folders offered a sync");
-    assert!(
-        page.contains(">Local folders<"),
-        "the header does not say Local folders: {page}"
-    );
 
     // Local folders alone: nothing in the window syncs.
     let (only, dir) = crate::ui::fixtures::empty();

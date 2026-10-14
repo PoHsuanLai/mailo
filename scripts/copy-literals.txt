@@ -23,7 +23,7 @@ crates/mail-app/src/ui/remedy.rs 16
 crates/mail-app/src/ui/row.rs 5
 crates/mail-app/src/ui/saved.rs 30
 crates/mail-app/src/ui/server_search.rs 10
-crates/mail-app/src/ui/space_menu.rs 2
+crates/mail-app/src/ui/space_menu.rs 1
 crates/mail-app/src/ui/spelling.rs 3
 crates/mail-app/src/ui/start.rs 3
 crates/mail-app/src/ui/text.rs 1
@@ -74,7 +74,6 @@ crates/mail-app/src/ui/fetching/face.rs 4
 crates/mail-app/src/ui/fetching/folder.rs 3
 crates/mail-app/src/ui/fetching/host.rs 2
 crates/mail-app/src/ui/fetching/line.rs 12
-crates/mail-app/src/ui/fetching/marks.rs 7
 crates/mail-app/src/ui/fetching/mod.rs 1
 crates/mail-app/src/ui/fetching/status.rs 20
 crates/mail-app/src/ui/files/export_sheet.rs 21

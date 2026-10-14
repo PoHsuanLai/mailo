@@ -245,13 +245,16 @@ fn deleting_a_space_from_its_name_s_right_click_asks_first_and_escape_keeps_it()
     );
 }
 
+/// One Space draws no name over the sidebar: its menu is the foot's right click, and has no
+/// Delete Space….
 #[test]
 fn the_only_space_has_no_delete_row() {
     let (mut harness, _dir) = open(1200, spaces(1));
-    right_press(&mut harness, NAME);
+    assert_eq!(harness.count(NAME), 0, "one Space drew its name");
+    right_press(&mut harness, ".ds-spaces-foot");
     assert!(
         harness.count(MENU) > 0,
-        "the Space's name did not open its menu"
+        "the foot's right click did not open the Space's menu"
     );
     assert_eq!(
         harness.text_of(LAST_ROW).as_deref().map(str::trim),

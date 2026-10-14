@@ -318,10 +318,11 @@ fn esc_in_a_compose_window_parks_the_draft_in_the_main_window() {
     window.key(Key::Escape);
     settle_until(&mut window, |h| h.count(".cpage") == 0);
 
-    // The main window takes the parked page and lists it.
+    // The main window takes the parked page and lists it in Today.
     main.advance(ms(300));
-    main.click(centre(&main, &labelled("Sidebar Menu")));
-    pick(&mut main, "Lunch plans");
+    let parked = r#"[*|data-today="Lunch plans"]"#;
+    settle_until(&mut main, |h| h.count(parked) == 1);
+    main.click(centre(&main, parked));
     settle_until(&mut main, |_| recorder.asked().len() == 2);
     assert_eq!(
         recorder.asked()[1],

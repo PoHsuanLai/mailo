@@ -231,7 +231,7 @@ fn rows_are_picked_by_ctrl_a_shift_and_ctrl_clicks_and_shift_j_and_k() {
     assert_eq!(selected(&harness), Vec::<usize>::new(), "Escape");
     assert_eq!(said(&harness), None, "Escape");
 
-    // Ctrl+A, then to Starred and back: the selection does not follow.
+    // Ctrl+A, then to Kept and back: the selection does not follow.
     harness.chord(&[PRIMARY], Key::Char('a'));
     harness.advance(ms(300));
     assert_eq!(
@@ -241,8 +241,8 @@ fn rows_are_picked_by_ctrl_a_shift_and_ctrl_clicks_and_shift_j_and_k() {
     );
     let place = |name: &str| format!("[*|data-place=\"{name}\"]");
     let at = harness
-        .centre(&place("Starred"))
-        .unwrap_or_else(|| panic!("no Starred place:\n{}", harness.html()));
+        .centre(&place("Kept"))
+        .unwrap_or_else(|| panic!("no Kept place:\n{}", harness.html()));
     harness.click(at);
     harness.advance(ms(600));
     let at = harness.centre(&place("Inbox")).expect("the Inbox place");

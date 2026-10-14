@@ -18,7 +18,8 @@ use chrono::{DateTime, Utc};
 use mail_core::SqliteStore;
 use mail_core::place::{pending_snooze, place_filter};
 use mail_core::search::{self, ActionHit, Command, MailHit, PersonHit, Results, Top};
-use mail_domain::{Filter, MailboxRole, Star, ThreadId};
+use mail_core::view::kept_filter;
+use mail_domain::{MailboxRole, ThreadId};
 
 /// A command the panel offers, by what it does. A row is dispatched on this, never on its
 /// words: its label is looked up from [`ENTRIES`], so renaming one changes no behaviour.
@@ -47,9 +48,9 @@ pub(in crate::ui) enum CommandId {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::ui) enum Goes {
     Inbox,
-    Starred,
+    Kept,
     Snoozed,
-    Archive,
+    Done,
     Trash,
 }
 
@@ -58,9 +59,9 @@ impl Goes {
     pub(in crate::ui) fn source(self) -> Source {
         match self {
             Goes::Inbox => Source::Mail(place_filter(MailboxRole::Inbox)),
-            Goes::Starred => Source::Mail(Filter::Starred(Star::Starred)),
+            Goes::Kept => Source::Mail(kept_filter()),
             Goes::Snoozed => Source::Mail(pending_snooze()),
-            Goes::Archive => Source::Mail(place_filter(MailboxRole::Archive)),
+            Goes::Done => Source::Mail(place_filter(MailboxRole::Archive)),
             Goes::Trash => Source::Mail(place_filter(MailboxRole::Trash)),
         }
     }
@@ -147,9 +148,9 @@ pub(in crate::ui) const ENTRIES: &[Entry] = &[
         None,
     ),
     entry(
-        CommandId::Go(Goes::Starred),
-        "go-starred",
-        "Go to Starred",
+        CommandId::Go(Goes::Kept),
+        "go-kept",
+        "Go to Kept",
         Icon::Star,
         None,
     ),
@@ -161,9 +162,9 @@ pub(in crate::ui) const ENTRIES: &[Entry] = &[
         None,
     ),
     entry(
-        CommandId::Go(Goes::Archive),
-        "go-archive",
-        "Go to Archive",
+        CommandId::Go(Goes::Done),
+        "go-done",
+        "Go to Done",
         Icon::Archive,
         None,
     ),

@@ -69,15 +69,6 @@ fn still_put_off(
         .collect()
 }
 
-/// What pressing a tile's mark came to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(in crate::ui) enum Pressed {
-    /// An account in question needs the person: the dialog asks about it.
-    Asked,
-    /// None does: the Connections sheet is the place to look.
-    Nobody,
-}
-
 /// The dialog's state, shared by the window. Copy, so a handler can take it.
 #[derive(Clone, Copy)]
 pub(in crate::ui) struct Reauth {
@@ -209,26 +200,6 @@ impl Reauth {
         put_off.write().insert(account.clone());
         let revision = *self.revision.peek();
         signing.write().insert(account, revision);
-    }
-
-    /// A tile's mark was pressed, for `account`, or for all of them. Those that need the person
-    /// are asked about again, though they were put off.
-    pub(in crate::ui) fn press(self, account: Option<&AccountId>) -> Pressed {
-        let Some(fetching) = try_consume_context::<Fetching>() else {
-            return Pressed::Nobody;
-        };
-        let wanted: Vec<AccountId> = fetching
-            .needs()
-            .into_iter()
-            .map(|(id, _)| id)
-            .filter(|id| account.is_none_or(|only| only == id))
-            .collect();
-        if wanted.is_empty() {
-            return Pressed::Nobody;
-        }
-        let mut put_off = self.put_off;
-        put_off.write().retain(|id| !wanted.contains(id));
-        Pressed::Asked
     }
 }
 

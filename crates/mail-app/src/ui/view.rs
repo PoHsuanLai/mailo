@@ -17,8 +17,8 @@ use serde::de::Deserializer;
 use serde::{Deserialize, Serialize};
 
 pub use mail_core::view::{
-    Place, Source, badge_filter, default_places, folder_filter, folder_of, is_label_place,
-    places_with, saved_of, saved_place, scoped_badge,
+    Place, Reach, Source, badge_filter, default_places, folder_filter, folder_of, is_label_place,
+    places_with, renamed, saved_of, saved_place, scoped_badge,
 };
 
 /// What a Mute button or menu item says for these conversations: what pressing it would do.
@@ -1330,10 +1330,10 @@ mod listing_tests {
         }
         let text = |words: &str| Filter::Text(TextMatch::Contains(words.to_owned()));
         let cases = [
-            // Searching while in Archive must not hide a result that lives in the Inbox.
+            // Searching while in Done must not hide a result that lives in the Inbox.
             (
                 "a search replaces the place",
-                "Archive",
+                "Done",
                 "  lunch  ",
                 Want::Threads(text("lunch")),
             ),
@@ -1417,19 +1417,13 @@ mod listing_tests {
     }
 
     #[test]
-    fn the_history_place_follows_waiting_and_lists_history_and_a_search_does_not() {
+    fn the_history_place_lists_history_and_a_search_does_not() {
         let mut shell = Shell::default();
-        let waiting = shell
-            .places
-            .iter()
-            .position(|p| p.source == Source::Waiting)
-            .expect("there is a Waiting place");
         let history = shell
             .places
             .iter()
             .position(|p| p.source == Source::History)
             .expect("there is a History place");
-        assert_eq!(history, waiting + 1, "History comes after Waiting");
         shell.select(history);
         assert_eq!(shell.listing(50), Listing::History { scope: None });
         shell.search = "invoice".to_owned();

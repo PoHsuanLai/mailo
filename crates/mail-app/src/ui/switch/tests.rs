@@ -50,7 +50,7 @@ fn dotted(dots: &[Dot]) -> SpaceLook {
 #[test]
 fn a_space_gets_its_place_thread_and_tile_back_and_nothing_else() {
     let mut shell = Shell::default();
-    select(&mut shell, "Archive");
+    select(&mut shell, "Done");
     shell.open(thread(7));
     shell.account = Some(account(1));
     let left = recall_of(&shell);
@@ -60,13 +60,24 @@ fn a_space_gets_its_place_thread_and_tile_back_and_nothing_else() {
     elsewhere.open(thread(9));
     elsewhere.search = "from:dana".to_owned();
     restore(&mut elsewhere, &left);
-    assert_eq!(place(&elsewhere), "Archive");
+    assert_eq!(place(&elsewhere), "Done");
     assert_eq!(elsewhere.open, Some(thread(7)));
     assert_eq!(elsewhere.account, Some(account(1)));
     assert!(
         elsewhere.search.is_empty(),
         "the search followed into the Space"
     );
+
+    // A Space left before the sidebar became lifecycle stored the old names; each lands on the
+    // place that replaced it.
+    for (stored, now) in [("Archive", "Done"), ("Starred", "Kept"), ("Pinned", "Kept")] {
+        let old = space::Recall {
+            place: stored.to_owned(),
+            ..space::Recall::default()
+        };
+        restore(&mut elsewhere, &old);
+        assert_eq!(place(&elsewhere), now, "{stored}");
+    }
 
     // A Space never left opens on the first place, with nothing open and every account.
     restore(&mut elsewhere, &space::Recall::default());

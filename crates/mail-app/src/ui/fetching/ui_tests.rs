@@ -73,24 +73,54 @@ async fn after_a_pass(ending: Ending) -> (VirtualDom, Seen, Script, tempfile::Te
     (dom, seen, script, dir)
 }
 
-/// What the tile's mark of an offline account says, up to the time it will try again.
-const OFFLINE: &str = "Can\u{2019}t reach the server. Trying again at";
-
-/// Press the tile's mark of an account that is offline. Nothing there needs signing in, so it
-/// opens Connections.
-async fn open_connections(dom: &mut VirtualDom, seen: &Seen) -> Seen {
-    let page = dioxus_ssr::render(dom);
-    let from = page
-        .find(OFFLINE)
-        .unwrap_or_else(|| panic!("no mark on the tile: {page}"));
-    let why = &page[from..from + page[from..].find('"').unwrap_or(0)];
-    click(dom, seen.one("aria-label", why)).merge(settle_seen(dom).await)
+/// Open Connections the way a person reaches it now: ⌘K, its name, Return.
+async fn open_connections(dom: &mut VirtualDom) -> Seen {
+    use crate::ui::command::LABEL;
+    use crate::ui::fixtures::{INSIDE_THE_SHELL, PRIMARY, chord, drain_seen, type_into};
+    use dioxus::html::input_data::keyboard_types::Modifiers;
+    chord(
+        dom,
+        "k",
+        PRIMARY,
+        dioxus::core::ElementId(INSIDE_THE_SHELL as usize),
+    );
+    let seen = drain_seen(dom);
+    let field = *seen
+        .all("aria-label", LABEL)
+        .last()
+        .expect("the panel's field");
+    type_into(dom, field, crate::ui::doctor::TITLE);
+    // The panel answers once the field is still: wait for its rows to name the sheet and to have
+    // dropped Compose, the first row before it filters, or Return runs Compose instead.
+    let start = std::time::Instant::now();
+    loop {
+        let page = dioxus_ssr::render(dom);
+        let mut words = String::new();
+        let mut inside = false;
+        for ch in page.chars() {
+            match ch {
+                '<' => inside = true,
+                '>' => inside = false,
+                ch if !inside => words.push(ch),
+                _ => {}
+            }
+        }
+        if words.contains(crate::ui::doctor::TITLE) && !words.contains("Compose") {
+            break;
+        }
+        assert!(
+            start.elapsed() < Duration::from_secs(10),
+            "the panel never answered: {page}"
+        );
+        settle_seen(dom).await;
+    }
+    chord(dom, "Enter", Modifiers::empty(), field).merge(settle_seen(dom).await)
 }
 
 /// An account that must sign in again is asked about once, in a dialog, with no banner over the
-/// messages. Later puts the question off; the tile's mark brings it back; Sign In, in the dialog
-/// and in the pane that has nothing to list, asks for the Add Account window with the address
-/// typed in. Nothing opens Connections by itself.
+/// messages. Later puts the question off for good; Sign In, in the dialog and in the pane that has
+/// nothing to list, asks for the Add Account window with the address typed in. Nothing opens
+/// Connections by itself.
 #[tokio::test]
 async fn a_refused_account_is_asked_about_once_and_signs_in_from_the_dialog_or_the_pane() {
     let (mut dom, seen, _script, _dir) = after_a_pass(refused).await;
@@ -120,29 +150,10 @@ async fn a_refused_account_is_asked_about_once_and_signs_in_from_the_dialog_or_t
     );
     assert!(!page.contains("Connection Doctor"), "{page}");
 
-    // Later: the question is not asked again, and the tile still says why.
-    let mark = seen.one("aria-label", "Sign in again to keep receiving mail.");
-    click(&mut dom, seen.one("data-answer", "later"));
-    settle_seen(&mut dom).await;
-    let page = dioxus_ssr::render(&dom);
-    assert!(!page.contains("again?"), "asked after Later: {page}");
-
-    // The tile asks again, though it was put off.
-    let asked = click(&mut dom, mark).merge(settle_seen(&mut dom).await);
-    let page = dioxus_ssr::render(&dom);
-    assert!(
-        page.contains("Sign in to me@nowhere.example again?"),
-        "{page}"
-    );
-    assert!(
-        !page.contains("Check All"),
-        "the mark opened Connections: {page}"
-    );
-
     // Sign In asks for the Add Account window, with the account's address typed in.
     click(
         &mut dom,
-        asked.one("aria-label", "Sign In to me@nowhere.example"),
+        seen.one("aria-label", "Sign In to me@nowhere.example"),
     );
     settle(&mut dom).await;
     let page = dioxus_ssr::render(&dom);
@@ -167,6 +178,13 @@ async fn a_refused_account_is_asked_about_once_and_signs_in_from_the_dialog_or_t
     click(&mut dom, seen.one("data-sign-in", "mailbox"));
     settle(&mut dom).await;
     assert_eq!(asked_for(&dom), [ask.clone(), ask], "the pane's Sign In");
+
+    // Later, in another window, puts the question off: it is not asked again.
+    let (mut dom, seen, _script, _dir) = after_a_pass(refused).await;
+    click(&mut dom, seen.one("data-answer", "later"));
+    settle_seen(&mut dom).await;
+    let page = dioxus_ssr::render(&dom);
+    assert!(!page.contains("again?"), "asked after Later: {page}");
 }
 
 /// A warning is the sidebar's sync mark's: plain words in its tip and a dot on it, and no line
@@ -195,11 +213,11 @@ async fn a_warning_is_said_by_the_sync_mark_and_not_over_the_list() {
     assert!(!page.contains("data-opens"), "it is a way in again: {page}");
 }
 
-/// Connections is reached from a tile with trouble a sign-in cannot fix: its Try Again asks for a
+/// Connections, reached from ⌘K, for trouble a sign-in cannot fix: its Try Again asks for a
 /// manual pass, and its gear asks for Settings on the account's own page.
 #[tokio::test]
 async fn try_again_in_connections_asks_for_a_manual_pass_and_its_gear_opens_settings() {
-    let (mut dom, seen, script, _dir) = after_a_pass(unreachable).await;
+    let (mut dom, _seen, script, _dir) = after_a_pass(unreachable).await;
     let settings = Arc::new(crate::ui::settings_window::tests::Asked::default());
     dom.provide_root_context(crate::ui::settings_window::SettingsWindows(
         settings.clone(),
@@ -217,7 +235,7 @@ async fn try_again_in_connections_asks_for_a_manual_pass_and_its_gear_opens_sett
     );
     assert!(!page.contains("Check All"), "open unasked: {page}");
 
-    let seen = open_connections(&mut dom, &seen).await;
+    let seen = open_connections(&mut dom).await;
     let page = dioxus_ssr::render(&dom);
     assert!(page.contains("Check All"), "no sheet: {page}");
     assert!(
@@ -303,8 +321,8 @@ async fn an_account_removed_in_settings_leaves_the_links_and_connections() {
     super::tests::fetching(&dom).sync_all(Trigger::Manual);
     settle(&mut dom).await;
     script.release.lock().unwrap().send(unreachable).unwrap();
-    let seen = settle_seen(&mut dom).await;
-    open_connections(&mut dom, &seen).await;
+    settle_seen(&mut dom).await;
+    open_connections(&mut dom).await;
     assert!(dioxus_ssr::render(&dom).contains("Check All"));
 
     let account = acct_account();

@@ -25,7 +25,8 @@ pub(super) fn recall_of(shell: &Shell) -> Recall {
 /// Show in `shell` where `recall` says a Space was left.
 ///
 /// A place that no longer exists is the first place: a Space can lose a label while you are
-/// elsewhere, and coming back must not show a list that cannot exist. An account tile outside
+/// elsewhere, and coming back must not show a list that cannot exist. A name the sidebar no
+/// longer uses (Archive, Starred) is read as the place that replaced it. An account tile outside
 /// the Space's accounts goes when the Space's scope is copied in, and a removed account leaves
 /// every Space's recall (`space::forget_account`).
 pub(super) fn restore(shell: &mut Shell, recall: &Recall) {
@@ -33,7 +34,7 @@ pub(super) fn restore(shell: &mut Shell, recall: &Recall) {
     shell.selected = shell
         .places
         .iter()
-        .position(|place| place.name == recall.place)
+        .position(|place| place.name == crate::ui::view::renamed(&recall.place))
         .unwrap_or(0);
     shell.open = recall.open;
     shell.picked = crate::ui::selection::Picked::none();

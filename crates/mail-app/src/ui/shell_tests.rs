@@ -1,4 +1,4 @@
-//! The frame, the account tiles, the rows and the foot's menu, rendered from the real `App`.
+//! The frame, Favourites, the rows and Today, rendered from the real `App`.
 
 use super::app::App;
 use super::fixtures::{dispatching, rebuild_into, seeded, work};
@@ -14,15 +14,6 @@ fn page_of(store: Arc<SqliteStore>, dirs: Option<crate::ui::appearance::WindowDi
     }
     dom.rebuild_in_place();
     dioxus_ssr::render(&dom)
-}
-
-/// Each account tile on `page`, as the markup after its class: quire's `AccountTile`s (not the
-/// Add tile after them), local folders' among them, on quire's folder mark.
-fn account_tiles(page: &str) -> Vec<&str> {
-    page.split("class=\"ds-pin-tile\"")
-        .skip(1)
-        .filter(|rest| !rest.starts_with(" data-face=\"add\""))
-        .collect()
 }
 
 fn row_containing(page: &str, subject: &str) -> String {
@@ -51,81 +42,51 @@ fn row_containing(page: &str, subject: &str) -> String {
     page[start..end].to_owned()
 }
 
-#[tokio::test]
-async fn three_accounts_show_an_all_tile_and_the_microsoft_tile_filters() {
-    dispatching();
+/// The sidebar holds no account tile, badge, provider letter or "+", with one account or three:
+/// Add Account is in the Space's menu, and an account is told apart on its rows.
+#[test]
+fn the_sidebar_has_no_account_tiles() {
+    let (store, _dir) = seeded();
+    let one = page_of(store, None);
     let built = work();
-    let mut dom = VirtualDom::new(App)
-        .with_root_context(built.store)
-        .with_root_context(built.dirs);
-    let seen = rebuild_into(&mut dom);
-    let page = dioxus_ssr::render(&dom);
-    let tiles = account_tiles(&page).len();
-    assert_eq!(tiles, 4, "three accounts and All:\n{page}");
-    let tile_pressed = account_tiles(&page)
-        .into_iter()
-        .filter(|rest| {
-            rest.split_once('>')
-                .unwrap_or_default()
-                .0
-                .contains("aria-pressed=\"true\"")
-        })
-        .count();
-    assert_eq!(tile_pressed, 1, "more than one tile is pressed:\n{page}");
-    assert!(page.contains("aria-label=\"All accounts\""), "{page}");
-    let marks: Vec<&str> = page
-        .split("class=\"ds-provider\" data-size=\"regular\"")
-        .skip(1)
-        .filter_map(|rest| {
-            rest.split_once('>')?
-                .1
-                .split_once('<')
-                .map(|(mark, _)| mark)
-        })
-        .collect();
-    assert_eq!(
-        marks,
-        ["G", "M", "F"],
-        "each account tile names its provider:\n{page}"
-    );
-
-    let tile = seen.one("aria-label", "p.lai@corp.example");
-    let _ = super::fixtures::click(&mut dom, tile);
-    // The list's query answers off the render, so one render after the click can still show the
-    // rows from before it. Draw as work arrives until only Microsoft's rows are left, or give up.
-    let only_microsoft = |page: &str| {
-        page.contains("m365</span>")
-            && !page.contains("gmail</span>")
-            && !page.contains("fastmail</span>")
-    };
-    let give_up = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
-    let mut filtered = dioxus_ssr::render(&dom);
-    while !only_microsoft(&filtered) && tokio::time::Instant::now() < give_up {
-        let more = tokio::time::timeout(std::time::Duration::from_millis(200), dom.wait_for_work());
-        if more.await.is_ok() {
-            dom.render_immediate(&mut dioxus_core::NoOpMutations);
-        }
-        filtered = dioxus_ssr::render(&dom);
+    let three = page_of(built.store, Some(built.dirs));
+    for page in [one, three] {
+        // An element's class, not the word: the page carries quire's stylesheet, which names it.
+        assert!(
+            !page.contains("class=\"ds-pin-tile"),
+            "a tile is drawn:\n{page}"
+        );
+        assert!(!page.contains("All accounts"), "All is offered:\n{page}");
+        assert!(
+            !page.contains("aria-label=\"Add Account\""),
+            "the + is drawn:\n{page}"
+        );
     }
-    assert!(
-        filtered.contains("m365</span>"),
-        "the Microsoft tile did not show its rows:\n{filtered}"
-    );
-    assert!(
-        !filtered.contains("gmail</span>") && !filtered.contains("fastmail</span>"),
-        "rows outside Microsoft stayed on screen:\n{filtered}"
-    );
 }
 
+/// Favourites is drawn only once a conversation is pinned, and then lists it.
 #[test]
-fn one_account_has_no_all_tile() {
+fn favourites_appear_once_a_conversation_is_pinned() {
     let (store, _dir) = seeded();
-    let page = page_of(store, None);
+    let page = page_of(store.clone(), None);
     assert!(
-        !page.contains("All accounts"),
-        "a single account still offered All:\n{page}"
+        !page.contains(crate::ui::copy::headers::FAVOURITES),
+        "Favourites with nothing pinned:\n{page}"
     );
-    assert_eq!(account_tiles(&page).len(), 1, "{page}");
+    let hi = super::fixtures::thread_like(&store, "hi");
+    assert!(mail_core::snooze::pin(&store, hi, chrono::Utc::now()).unwrap_or(false));
+    let page = page_of(store.clone(), None);
+    assert!(
+        page.contains(crate::ui::copy::headers::FAVOURITES),
+        "no Favourites with a pinned conversation:\n{page}"
+    );
+    let subject = mail_core::Store::thread(store.as_ref(), hi)
+        .map(|thread| thread.summary.subject)
+        .unwrap_or_default();
+    assert!(
+        page.contains(&format!("data-favourite=\"{subject}\"")),
+        "the pinned conversation is not a favourite:\n{page}"
+    );
 }
 
 #[test]
@@ -162,7 +123,7 @@ fn the_work_rows_carry_the_read_state_the_chip_and_the_more_button() {
 }
 
 #[tokio::test]
-async fn clear_today_in_the_foot_menu_writes_the_file_and_not_the_mail() {
+async fn clear_today_in_its_menu_writes_the_file_and_not_the_mail() {
     dispatching();
     let built = work();
     // The fixture seeds Today for the screenshot. This test starts from an empty list
@@ -177,11 +138,17 @@ async fn clear_today_in_the_foot_menu_writes_the_file_and_not_the_mail() {
         "Open Re: UIDL stability across a UIDVALIDITY change",
     );
     let second = seen.one("aria-label", "Open Notes from the sync review");
-    let menu = seen.one("aria-label", crate::ui::copy::aria::SIDEBAR_MENU);
     let opened = super::fixtures::click(&mut dom, first);
     let second = follow(&mut dom, opened, "Open Notes from the sync review", second).await;
     let shown = super::fixtures::click(&mut dom, second);
-    let menu = follow(&mut dom, shown, crate::ui::copy::aria::SIDEBAR_MENU, menu).await;
+    let mut drawn = shown;
+    loop {
+        let more = tokio::time::timeout(std::time::Duration::from_millis(200), dom.wait_for_work());
+        if more.await.is_err() {
+            break;
+        }
+        drawn = drawn.merge(paint(&mut dom));
+    }
     let stored = std::fs::read_to_string(built.dirs.state.join("today.json")).unwrap_or_default();
     assert_eq!(
         stored.matches("\"item\"").count(),
@@ -190,20 +157,29 @@ async fn clear_today_in_the_foot_menu_writes_the_file_and_not_the_mail() {
     );
     let before = changes(&built.store);
 
-    // The menu lists both, newest first, and has no Today group in the sidebar's body.
-    let asked = super::fixtures::click(&mut dom, menu);
-    let listed = super::fixtures::settle(&mut dom, asked);
-    let names = super::fixtures::menu_names(&dioxus_ssr::render(&dom));
+    // The sidebar's Today lists both, newest first, and its right-click menu clears them.
+    let page = dioxus_ssr::render(&dom);
+    let listed: Vec<&str> = page
+        .split("data-today=\"")
+        .skip(1)
+        .filter_map(|rest| rest.split('"').next())
+        .collect();
     assert_eq!(
-        names.iter().take(3).map(String::as_str).collect::<Vec<_>>(),
+        listed,
         [
             "Notes from the sync review",
             "Re: UIDL stability across a UIDVALIDITY change",
-            "Clear Today",
         ],
-        "{names:?}"
+        "{listed:?}"
     );
-    super::fixtures::pick_named(&mut dom, &listed, "Clear Today").await;
+    let asked = super::fixtures::right_click(
+        &mut dom,
+        drawn.one("data-today", "Notes from the sync review"),
+    );
+    let menu = super::fixtures::settle(&mut dom, asked);
+    let names = super::fixtures::menu_names(&dioxus_ssr::render(&dom));
+    assert_eq!(names, ["Clear Today"], "{names:?}");
+    super::fixtures::pick_named(&mut dom, &menu, "Clear Today").await;
     let stored = std::fs::read_to_string(built.dirs.state.join("today.json")).unwrap_or_default();
     assert_eq!(
         stored.matches("\"item\"").count(),

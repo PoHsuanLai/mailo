@@ -29,7 +29,7 @@ fn window(dress: impl FnOnce(&mut Page), before: Before) -> (String, Work) {
     let mut dom = VirtualDom::new(App)
         .with_root_context(built.store.clone())
         .with_root_context(built.dirs.clone());
-    let seen = crate::ui::fixtures::rebuild_into(&mut dom);
+    let _ = crate::ui::fixtures::rebuild_into(&mut dom);
     key(&mut dom, "c");
     let mut desk = dom.in_scope(dioxus_core::ScopeId::APP, consume_context::<Desk>);
     let mut page = dom.in_runtime(|| {
@@ -101,13 +101,6 @@ fn window(dress: impl FnOnce(&mut Page), before: Before) -> (String, Work) {
         });
     }
     dom.in_runtime(|| dress(&mut page.write()));
-    if schedule {
-        // The waiting message is listed in the sidebar's menu, which is shut until it is asked.
-        crate::ui::fixtures::click(
-            &mut dom,
-            seen.one("aria-label", crate::ui::copy::aria::SIDEBAR_MENU),
-        );
-    }
     // A menu floats in the root's overlay, drawn on the renders after the one that asks.
     crate::ui::fixtures::drain(&mut dom);
     (dioxus_ssr::render(&dom), built)
@@ -122,10 +115,7 @@ fn styled(markup: &str) {
 async fn every_class_send_later_and_templates_draw_is_styled() {
     let (markup, _built) = window(|_| {}, Before::Schedule);
     assert!(markup.contains("Scheduled for tomorrow 08:00"), "{markup}");
-    assert!(
-        markup.contains(crate::ui::copy::headers::SCHEDULED),
-        "{markup}"
-    );
+    assert!(markup.contains("data-today="), "not in Today: {markup}");
     styled(&markup);
 
     let (markup, _built) = window(

@@ -1,7 +1,7 @@
 //! Group and Row Properties, applied to the loaded page only, and the list toolbar's ⋯ that
-//! holds them with Sync Now.
+//! holds them with Sync Now; and the list title's menu, the way to where mail is stored.
 //!
-//! Neither asks the store for a different query.
+//! Neither of the first asks the store for a different query.
 
 use ds::prelude::*;
 use std::collections::BTreeMap;
@@ -10,11 +10,11 @@ use super::menu::anchor_at;
 use super::press::on_primary;
 use crate::ui::copy;
 use crate::ui::fetching::use_status;
-use crate::ui::view::{PageGroup, PageMenu, PageParts, Shell};
+use crate::ui::view::{PageGroup, PageMenu, PageParts, Place, Reach, Shell};
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
 use ds::components::controls::button_model::{Bezel, ImagePosition};
-use ds::host::measure::MountedRef;
+use ds::host::measure::{Anchor, MountedRef};
 use ds::root::common::Common;
 use ds::style::tokens::control_size::ControlSize;
 use mail_domain::{LabelId, ReadState, ThreadSummary};
@@ -282,6 +282,58 @@ pub(super) fn ListMore(shell: Signal<Shell>, syncs: bool) -> Element {
                     }
                 },
                 onclose: move |()| shell.write().page_menu = PageMenu::Closed,
+            }
+        }
+    }
+}
+
+/// The list title's menu: the places where mail is stored that the sidebar leaves out (Sent,
+/// Drafts, Spam, Trash), each by its index among `places`, with a check on the one shown.
+pub(super) fn title_items(places: &[Place], selected: usize) -> Vec<MenuItem<usize>> {
+    places
+        .iter()
+        .enumerate()
+        .filter(|(_, place)| place.reach == Reach::TitleMenu)
+        .map(|(index, place)| {
+            MenuItem::new(index, place.name.clone()).with_check(check(index == selected))
+        })
+        .collect()
+}
+
+/// The list's title, whose right click is the menu of the places one step away
+/// ([`title_items`]).
+#[component]
+pub(super) fn ListTitle(shell: Signal<Shell>, pages: Signal<u32>, children: Element) -> Element {
+    let mut at = use_signal(|| None::<Point>);
+    let items = match at() {
+        Some(_) => title_items(&shell.read().places, shell.read().selected),
+        None => Vec::new(),
+    };
+    rsx! {
+        div {
+            class: "list-title",
+            oncontextmenu: move |event: MouseEvent| {
+                event.prevent_default();
+                let point = event.client_coordinates();
+                at.set(Some(Point { x: Px(point.x as f32), y: Px(point.y as f32) }));
+            },
+            {children}
+        }
+        if let Some(point) = at() {
+            Menu::<usize> {
+                placement: MenuPlacement::default(),
+                anchor: Anchor::Point(point),
+                items,
+                common: Common {
+                    aria_label: Some(copy::aria::GO_TO.to_owned()),
+                    ..Common::default()
+                },
+                onpick: move |index: usize| {
+                    at.set(None);
+                    shell.write().select(index);
+                    pages.set(1);
+                },
+                onclose: move |()| at.set(None),
             }
         }
     }

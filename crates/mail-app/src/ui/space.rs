@@ -141,16 +141,6 @@ fn swatch(index: usize) -> String {
     PersonSwatch::nth(index).hex().css()
 }
 
-/// The colour `id` wears in `space`, or the swatch at `index` when none was stored.
-pub fn avatar_color(space: &Space, id: AccountId, index: usize) -> String {
-    space
-        .payload
-        .colors
-        .get(&id)
-        .cloned()
-        .unwrap_or_else(|| swatch(index))
-}
-
 /// Fill any of `profile`'s accounts that has no colour yet. Returns whether the Space changed;
 /// a Space of another Profile is never changed.
 pub fn ensure_colors(mail: &mut Mail, profile: &ProfileId, accounts: &[AccountId]) -> bool {

@@ -195,7 +195,7 @@ async fn scheduling_holds_the_draft_until_its_time_and_cancel_brings_back_the_pa
         markup.contains(r#"class="cpage sending""#),
         "the page did not fold:\n{markup}"
     );
-    // And it is waiting in the store, and listed in the sidebar's menu.
+    // And it is waiting in the store, and listed in the sidebar's Today.
     assert_eq!(
         waiting(&store)
             .into_iter()
@@ -203,16 +203,11 @@ async fn scheduling_holds_the_draft_until_its_time_and_cancel_brings_back_the_pa
             .collect::<Vec<_>>(),
         [(draft.id, at)]
     );
-    let menu = seen.one("aria-label", crate::ui::copy::aria::SIDEBAR_MENU);
-    click(&mut window.dom, menu);
     let listed = window.render();
     assert!(
-        listed.contains(crate::ui::copy::headers::SCHEDULED)
-            && listed.contains(&crate::ui::copy::menus::cancel_sending("Friday")),
-        "not in the menu:\n{listed}"
+        listed.contains("data-today=\"Friday\""),
+        "not in Today:\n{listed}"
     );
-    click(&mut window.dom, menu);
-    window.render();
 
     click(
         &mut window.dom,
@@ -244,35 +239,32 @@ async fn scheduling_holds_the_draft_until_its_time_and_cancel_brings_back_the_pa
         !markup.contains("Scheduled for"),
         "the pill stayed:\n{markup}"
     );
-    click(&mut window.dom, menu);
     let listed = window.render();
     assert!(
-        !listed.contains(&crate::ui::copy::menus::cancel_sending("Friday")),
-        "the menu still lists it:\n{listed}"
+        !listed.contains("data-today=\"Friday\""),
+        "Today still lists it:\n{listed}"
     );
 }
 
 #[tokio::test]
-async fn cancel_from_the_menu_opens_the_draft_as_the_store_has_it() {
+async fn cancel_from_today_opens_the_draft_as_the_store_has_it() {
     let (store, _dir) = seeded();
     let draft = fresh(&store);
     let at = a_day_from_now();
     let (mut window, seen) = Window::open(store.clone(), draft.clone(), None);
     scheduled_page(&mut window, at);
-    click(&mut window.dom, seen.one("aria-label", "Send"));
+    let sent = click(&mut window.dom, seen.one("aria-label", "Send"));
     let stored = store.draft(draft.id).unwrap_or_else(|why| panic!("{why}"));
-    // The pill has gone: the sidebar's menu is the only way back.
+    // The pill has gone: the message's row in Today is the only way back, and a click on it
+    // asks before it takes the message back.
     let desk = window.desk;
     window.dom.in_runtime(|| {
         let mut outbox = desk.outbox;
         outbox.set(None);
     });
-    window.render();
+    let drawn = sent.merge(crate::ui::fixtures::drain_seen(&mut window.dom));
 
-    let asked = click(
-        &mut window.dom,
-        seen.one("aria-label", crate::ui::copy::aria::SIDEBAR_MENU),
-    );
+    let asked = click(&mut window.dom, drawn.one("data-today", "Friday"));
     let opened = settle(&mut window.dom, asked);
     pick_named(
         &mut window.dom,

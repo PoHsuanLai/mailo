@@ -403,12 +403,24 @@ pub struct Place {
     pub source: Source,
     /// Shown as a badge. `None` until counted, which is not the same as zero.
     pub unread: Option<u64>,
+    /// Where the person reaches it from.
+    pub reach: Reach,
 }
 
-/// The default sidebar.
+/// Where a place is reached from.
 ///
-/// Inbox is `Filter::InMailbox(Inbox)` rather than anything special, which is the plan's claim
-/// that a place is just a saved filter — made true here rather than asserted.
+/// The sidebar shows what a conversation needs from the person (Inbox, Waiting, Snoozed, Done,
+/// Kept); where mail is stored is one step away. Every place is found in ⌘K by its name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reach {
+    /// A row in the sidebar: the lifecycle places, labels, folders and saved views.
+    Sidebar,
+    /// The special-use mailboxes (Sent, Drafts, Spam, Trash): the list title's menu and ⌘K.
+    TitleMenu,
+    /// ⌘K alone: History.
+    Search,
+}
+
 /// Where a sidebar place gets its rows.
 ///
 /// Two variants because drafts are genuinely not mail yet. A draft has no thread, no server
@@ -447,38 +459,56 @@ fn source_for(role: MailboxRole) -> Source {
     }
 }
 
+/// What Kept lists: the conversations the person keeps handy, starred or pinned, side by side.
+///
+/// One place for both, because both say "I want this again" and the person should not have to
+/// remember which mark they gave it.
+pub fn kept_filter() -> Filter {
+    Filter::Or(vec![Filter::Starred(Star::Starred), Filter::Pinned])
+}
+
+/// The default places, in the sidebar's order: what a conversation needs from the person, then
+/// where mail is stored.
+///
+/// Inbox is `place_filter(Inbox)` rather than anything special, which is the plan's claim that a
+/// place is just a saved filter, made true here rather than asserted. Positions are not stored:
+/// a Space remembers its place by name ([`renamed`] reads the names it used to have), and a
+/// running window finds a place again by its source.
 pub fn default_places() -> Vec<Place> {
-    // Starred sits with the places that ask "what is this mail", ahead of the folders.
-    // Snoozed stays with them: a conversation that was put off is looked for there, not beside
-    // Trash. Pinned threads stay a place of their own, distinct from a Space's pinned people.
     [
-        ("Inbox", source_for(MailboxRole::Inbox)),
-        ("Starred", Source::Mail(Filter::Starred(Star::Starred))),
-        (
-            "Snoozed",
-            // Only the ones still away. A due thread is back in the inbox, and showing it here
-            // as well would make "snoozed" mean two different things in two places.
-            Source::Mail(pending_snooze()),
-        ),
-        ("Archive", source_for(MailboxRole::Archive)),
-        ("Sent", source_for(MailboxRole::Sent)),
-        ("Drafts", source_for(MailboxRole::Drafts)),
-        ("Spam", source_for(MailboxRole::Spam)),
-        ("Trash", source_for(MailboxRole::Trash)),
-        ("Pinned", Source::Mail(Filter::Pinned)),
-        // Last, so every place before it keeps the index it had: conversations the user is
-        // waiting on an answer to, which come back to the inbox if none arrives.
-        ("Waiting", Source::Waiting),
-        // After Waiting, for the same reason: the places before it keep their index.
-        ("History", Source::History),
+        ("Inbox", source_for(MailboxRole::Inbox), Reach::Sidebar),
+        // Sent mail the person asked to be reminded about: it comes back to the inbox if no
+        // answer arrives.
+        ("Waiting", Source::Waiting, Reach::Sidebar),
+        // Only the ones still away. A due thread is back in the inbox, and showing it here as
+        // well would make "snoozed" mean two different things in two places.
+        ("Snoozed", Source::Mail(pending_snooze()), Reach::Sidebar),
+        ("Done", source_for(MailboxRole::Archive), Reach::Sidebar),
+        ("Kept", Source::Mail(kept_filter()), Reach::Sidebar),
+        ("Sent", source_for(MailboxRole::Sent), Reach::TitleMenu),
+        ("Drafts", source_for(MailboxRole::Drafts), Reach::TitleMenu),
+        ("Spam", source_for(MailboxRole::Spam), Reach::TitleMenu),
+        ("Trash", source_for(MailboxRole::Trash), Reach::TitleMenu),
+        ("History", Source::History, Reach::Search),
     ]
     .into_iter()
-    .map(|(name, source)| Place {
+    .map(|(name, source, reach)| Place {
         name: name.to_owned(),
         source,
         unread: None,
+        reach,
     })
     .collect()
+}
+
+/// The name a place has now, for a name a Space may have stored before the sidebar became
+/// lifecycle: Archive is Done, and Starred and Pinned are both Kept. Any other name is itself.
+pub fn renamed(stored: &str) -> &str {
+    match stored {
+        "Archive" => "Done",
+        "Starred" | "Pinned" => "Kept",
+        other => other,
+    }
 }
 
 /// A place that lists one label, as opposed to a mailbox.
@@ -528,11 +558,13 @@ pub fn places_with(
         name: name.clone(),
         source: Source::Mail(Filter::HasLabel(*id)),
         unread: None,
+        reach: Reach::Sidebar,
     });
     let foldered = folders.iter().map(|(name, mailbox)| Place {
         name: name.clone(),
         source: Source::Mail(folder_filter(mailbox)),
         unread: None,
+        reach: Reach::Sidebar,
     });
     default_places()
         .into_iter()
@@ -548,6 +580,7 @@ pub fn saved_place(view: &View) -> Place {
         name: view.name.clone(),
         source: Source::Saved(Box::new(view.clone())),
         unread: None,
+        reach: Reach::Sidebar,
     }
 }
 
@@ -987,6 +1020,109 @@ mod tests {
             .find(|p| p.name == "Snoozed")
             .expect("no Snoozed place");
         assert_eq!(snoozed.source, Source::Mail(pending_snooze()));
+    }
+
+    /// The sidebar is the conversation's lifecycle, in this order; where mail is stored is one
+    /// step away, and History is in ⌘K alone.
+    #[test]
+    fn the_places_are_the_lifecycle_then_the_mailboxes_one_step_away() {
+        let want: [(&str, Source, Reach); 10] = [
+            (
+                "Inbox",
+                Source::Mail(place_filter(MailboxRole::Inbox)),
+                Reach::Sidebar,
+            ),
+            ("Waiting", Source::Waiting, Reach::Sidebar),
+            ("Snoozed", Source::Mail(pending_snooze()), Reach::Sidebar),
+            (
+                "Done",
+                Source::Mail(place_filter(MailboxRole::Archive)),
+                Reach::Sidebar,
+            ),
+            ("Kept", Source::Mail(kept_filter()), Reach::Sidebar),
+            (
+                "Sent",
+                Source::Mail(place_filter(MailboxRole::Sent)),
+                Reach::TitleMenu,
+            ),
+            ("Drafts", Source::Drafts, Reach::TitleMenu),
+            (
+                "Spam",
+                Source::Mail(place_filter(MailboxRole::Spam)),
+                Reach::TitleMenu,
+            ),
+            (
+                "Trash",
+                Source::Mail(place_filter(MailboxRole::Trash)),
+                Reach::TitleMenu,
+            ),
+            ("History", Source::History, Reach::Search),
+        ];
+        let got: Vec<(String, Source, Reach)> = default_places()
+            .into_iter()
+            .map(|place| (place.name, place.source, place.reach))
+            .collect();
+        let want: Vec<(String, Source, Reach)> = want
+            .into_iter()
+            .map(|(name, source, reach)| (name.to_owned(), source, reach))
+            .collect();
+        assert_eq!(got, want);
+    }
+
+    /// Kept lists what is starred and what is pinned, together, and nothing else.
+    #[test]
+    fn kept_lists_starred_and_pinned_conversations() {
+        let now = Utc.timestamp_opt(1_700_000_000, 0).unwrap();
+        let kept = kept_filter();
+        type Case = (&'static str, fn(&mut ThreadSummary), bool);
+        let cases: [Case; 4] = [
+            ("starred", |s| s.star = Star::Starred, true),
+            ("pinned", |s| s.pin = Pin::Rank(1), true),
+            (
+                "starred and pinned",
+                |s| {
+                    s.star = Star::Starred;
+                    s.pin = Pin::Rank(1);
+                },
+                true,
+            ),
+            ("neither", |_| {}, false),
+        ];
+        for (case, tweak, listed) in cases {
+            let thread = summary(tweak);
+            let fits = kept.fit(&mail_domain::filter::MatchCtx {
+                summary: &thread,
+                corpus: None,
+                folders: &[],
+                now,
+            });
+            assert_eq!(fits, listed, "{case}");
+        }
+    }
+
+    /// A Space remembers its place by name; the names it stored before the sidebar became
+    /// lifecycle still land on the same place.
+    #[test]
+    fn an_old_place_name_lands_on_the_place_that_replaced_it() {
+        let places = default_places();
+        let at = |stored: &str| {
+            places
+                .iter()
+                .find(|place| place.name == renamed(stored))
+                .map(|place| place.source.clone())
+        };
+        assert_eq!(
+            at("Archive"),
+            Some(Source::Mail(place_filter(MailboxRole::Archive)))
+        );
+        assert_eq!(at("Starred"), Some(Source::Mail(kept_filter())));
+        assert_eq!(at("Pinned"), Some(Source::Mail(kept_filter())));
+        for kept in [
+            "Inbox", "Snoozed", "Sent", "Drafts", "Spam", "Trash", "Waiting", "History",
+        ] {
+            assert_eq!(renamed(kept), kept);
+            assert!(at(kept).is_some(), "{kept} is gone");
+        }
     }
 }
 

@@ -271,8 +271,13 @@ fn screens() {
         // The list, nothing open: the reader's empty state.
         let (mut h, _d) = open(dark);
         shot(&mut h, &out, "inbox-list", dark);
-        // An empty folder: the list's empty state.
-        click(&mut h, "[*|data-place=\"Trash\"]");
+        // An empty folder: the list's empty state, reached through the list title's menu.
+        if let Some(at) = h.centre(".list-title") {
+            h.press(at, ds::base::press::PointerButton::Secondary);
+            h.advance(ms(400));
+        }
+        row_menu::press_menu_item(&mut h, "Trash");
+        h.advance(ms(400));
         shot(&mut h, &out, "empty-state", dark);
 
         // The reader, then the same message in the centre peek.
@@ -346,10 +351,11 @@ fn screens() {
         h.advance(ms(200));
         h.key(Key::Enter);
         shot(&mut h, &out, "add-account-sheet", dark);
-        // The Space's menu, through a right click on the Space's name.
+        // The Space's menu, through a right click on the sidebar's foot (one Space draws no
+        // name).
         h.key(Key::Escape);
         h.advance(ms(400));
-        if let Some(at) = h.centre(".ds-space-head") {
+        if let Some(at) = h.centre(".ds-spaces-foot") {
             h.press(at, ds::base::press::PointerButton::Secondary);
             h.advance(ms(400));
         }

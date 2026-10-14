@@ -8,11 +8,9 @@ pub const SIDEBAR: &str = "Sidebar";
 pub const SIDEBAR_MENU: &str = "Sidebar Menu";
 /// The foot's sync mark.
 pub const SYNC_NOW: &str = "Sync Now";
-pub const ACCOUNTS_IN_SPACE: &str = "Accounts in this Space";
-/// The "+" after a Space's account tiles.
-pub const ADD_ACCOUNT: &str = "Add Account";
+pub const FAVOURITES: &str = "Favourites";
+pub const TODAY: &str = "Today";
 pub const PLACES: &str = "Places";
-pub const PINNED: &str = "Pinned";
 pub const FOLDERS: &str = "Folders";
 
 /// A row's ⋯: "Actions for Projects".
@@ -28,6 +26,8 @@ pub const NEW_MESSAGE: &str = "New Message";
 pub const MORE: &str = "More";
 /// The menu the ⋯ opens.
 pub const LIST_OPTIONS: &str = "List options";
+/// The menu a right click on the list's title opens: the places one step away.
+pub const GO_TO: &str = "Go To";
 
 // The composer's foot.
 /// Send ▾: not "Send", which is the button beside it.

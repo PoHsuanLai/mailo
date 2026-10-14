@@ -3,20 +3,23 @@
 //! Case: Title Case verb phrases with no article ("Mark as Read", "Move to…"). "…" only when more input follows.
 
 // The sidebar's menu, under the foot's chevron.
-pub const CLEAR_TODAY: &str = "Clear Today";
-pub const HISTORY: &str = "History";
-pub const NEW_SPACE: &str = "New Space";
 pub const SETTINGS: &str = "Settings…";
 pub const HIDE_SIDEBAR: &str = "Hide Sidebar";
 pub const SHOW_SIDEBAR: &str = "Show Sidebar";
 
-/// A message waiting for its time, as the row that takes it back.
+// Today's right-click menu.
+pub const CLEAR_TODAY: &str = "Clear Today";
+/// A message waiting for its time, as the item that takes it back.
 pub fn cancel_sending(title: &str) -> String {
     format!("Cancel Sending {title}")
 }
 
-// The "+" after a Space's account tiles.
+// The Space's menu › Accounts.
+pub const ACCOUNTS: &str = "Accounts";
+/// Add Account when it opens the window itself.
 pub const ADD_ACCOUNT: &str = "Add Account…";
+/// Add Account when it is a submenu of the providers that sign in in the browser.
+pub const ADD_ACCOUNT_SUBMENU: &str = "Add Account";
 
 // The list toolbar's ⋯.
 pub const GROUP: &str = "Group";

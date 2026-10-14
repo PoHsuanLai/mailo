@@ -15,5 +15,3 @@ pub const SHOW_SIDEBAR: &str = "Show Sidebar";
 pub const SAVE_AS_VIEW: &str = "Save as View";
 pub const EDIT_VIEW: &str = "Edit View";
 pub const NEW_MESSAGE: &str = "New Message";
-/// The "+" after a Space's account tiles.
-pub const ADD_ACCOUNT: &str = "Add Account…";

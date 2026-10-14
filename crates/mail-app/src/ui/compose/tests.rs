@@ -207,8 +207,6 @@ fn PageHarness(draft: Draft) -> Element {
     let revision = use_signal(|| 0u64);
     let today = use_signal(crate::ui::today::Today::default);
     let spaces = use_signal(|| crate::ui::space::first_run(&[]));
-    let side = use_signal(|| false);
-    let pages = use_signal(|| 1u32);
     let dirs = try_consume_context::<WindowDirs>();
     let desk = use_desk(today, spaces, dirs.clone(), None);
     // In place, as the main window holds a page Open in Main Window brought it.
@@ -230,15 +228,13 @@ fn PageHarness(draft: Draft) -> Element {
                     ComposerPage { key: "{id}", draft: id, shell, revision }
                 }
                 SendPill { shell }
-                // The sidebar's menu is where drafts put aside and messages waiting are listed.
-                crate::ui::sidebar::MoreMenu {
+                // The sidebar's Today is where drafts put aside and messages waiting are listed.
+                crate::ui::sidebar::TodaySection {
                     shell,
-                    pages,
                     today,
                     space: crate::ui::space::SpaceId(0),
+                    revision,
                     dirs,
-                    side_hidden: side,
-                    on_new_space: |_| {},
                 }
             }
         }

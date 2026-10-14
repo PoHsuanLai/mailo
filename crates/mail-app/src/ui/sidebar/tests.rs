@@ -95,6 +95,40 @@ async fn the_foot_holds_the_dots_and_one_menu_button_and_no_settings_or_sidebar_
     }
 }
 
+/// With one Space there is no Space to tell apart: no name heads the sidebar and no dot stands in
+/// the foot. A second Space brings both.
+#[tokio::test]
+async fn one_space_draws_no_space_name_and_no_dot() {
+    let page = |names: &[&str]| {
+        let (store, _dir) = empty();
+        let spaces = built(
+            names
+                .iter()
+                .map(|name| {
+                    (
+                        (*name).to_owned(),
+                        SpaceLook::default(),
+                        Mail::over(Scope::All),
+                    )
+                })
+                .collect(),
+            0,
+        );
+        let mut dom = VirtualDom::new(App)
+            .with_root_context(store)
+            .with_root_context(spaces);
+        dom.rebuild_in_place();
+        dioxus_ssr::render(&dom)
+    };
+    let one = page(&["Work"]);
+    assert!(!one.contains("class=\"ds-space-head\""), "{one}");
+    assert!(!one.contains("class=\"ds-spaces-dots\""), "{one}");
+    assert!(!one.contains("The Work Space"), "{one}");
+    let two = page(&["Work", "Home"]);
+    assert!(two.contains("The Work Space"), "{two}");
+    assert!(two.contains("class=\"ds-spaces-dots\""), "{two}");
+}
+
 /// With an account that has a server, Sync is the foot's mark, at its start; the list's header
 /// is its title, New Message, Search and the ⋯ that holds Group, Row Properties and Sync Now.
 #[tokio::test]
@@ -249,34 +283,4 @@ fn attributes(raw: &str) -> Vec<(String, String)> {
         }
     }
     out
-}
-
-mod tile_status {
-    use super::super::panes::all_status;
-    use ds::components::app::pin_tile::PinStatus;
-    use ds::motion::detail::operation::Operation;
-
-    fn attention(why: &str) -> PinStatus {
-        PinStatus::Attention { why: why.into() }
-    }
-
-    #[test]
-    fn the_all_tile_speaks_for_the_accounts_in_scope() {
-        let busy = PinStatus::Busy(Operation::default());
-        assert_eq!(all_status(&[]), PinStatus::Quiet);
-        assert_eq!(
-            all_status(&[PinStatus::Quiet, PinStatus::Quiet]),
-            PinStatus::Quiet
-        );
-        assert_eq!(
-            all_status(&[PinStatus::Quiet, busy.clone()]),
-            busy,
-            "work shows when nothing needs the person"
-        );
-        assert_eq!(all_status(&[busy.clone(), attention("a")]), attention("a"));
-        assert_eq!(
-            all_status(&[attention("a"), attention("b"), busy]),
-            attention("2 accounts need attention.")
-        );
-    }
 }
