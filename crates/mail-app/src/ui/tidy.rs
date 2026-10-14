@@ -1,6 +1,6 @@
 //! Tidy Up…: archive the read conversations the Inbox has kept longer than an age chosen.
 //!
-//! Opened from the sidebar's menu. The sheet lists what its button archives, in the Space shown:
+//! Opened from the sidebar's menu or ⌘K. The sheet lists what its button archives, in the Space shown:
 //! read, in the Inbox, and last written to before the age chosen. A conversation someone marked
 //! to keep in view is left be: starred, pinned, snoozed, or waiting on a reply. What the sheet
 //! counts is what its button archives ([`candidates`] is both), as one gesture with one undo.

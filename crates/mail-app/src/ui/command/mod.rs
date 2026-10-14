@@ -226,6 +226,10 @@ fn run_action(
             let search = shell.peek().search.clone();
             super::views::open_new(shell, &search);
         }
+        CommandId::TidyUp => {
+            close(shell);
+            super::tidy::open(shell);
+        }
         CommandId::Connections => {
             close(shell);
             super::doctor::open(shell);

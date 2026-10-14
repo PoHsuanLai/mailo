@@ -166,3 +166,38 @@ async fn opening_a_mail_keeps_its_search_shown_in_the_toolbar_until_it_is_cleare
         "{head}"
     );
 }
+
+/// "tidy" in ⌘K finds Tidy Up…, and Return opens its sheet in place of the panel.
+#[tokio::test]
+async fn tidy_up_is_a_command() {
+    let recorder = Recorder::default();
+    let (mut dom, _built, _seen) = window(&recorder);
+    chord(
+        &mut dom,
+        "k",
+        crate::ui::fixtures::PRIMARY,
+        ElementId(INSIDE_THE_SHELL as usize),
+    );
+    let seen = drain_seen(&mut dom);
+    let field = *seen
+        .all("aria-label", LABEL)
+        .last()
+        .expect("the panel's field");
+    type_into(&mut dom, field, "tidy");
+    until(&mut dom, "tidy", |page| {
+        words(page)
+            .split_once(TOP)
+            .is_some_and(|(_, top)| top.contains(crate::ui::copy::menus::TIDY_UP))
+    })
+    .await;
+    let _ = chord(&mut dom, "Enter", Modifiers::empty(), field).merge(drain_seen(&mut dom));
+    let page = dioxus_ssr::render(&dom);
+    assert!(
+        !has(&page, "class=\"ds-search-card\""),
+        "the panel stayed up:\n{page}"
+    );
+    assert!(
+        has(&page, "data-answer=\"archive\""),
+        "no Tidy Up sheet:\n{page}"
+    );
+}

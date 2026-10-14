@@ -34,6 +34,7 @@ pub(in crate::ui) enum CommandId {
     Connections,
     Go(Goes),
     Empty(Bin),
+    TidyUp,
     Sidebar,
     AddAccount,
     Import,
@@ -188,6 +189,13 @@ pub(in crate::ui) const ENTRIES: &[Entry] = &[
         "empty-spam",
         "Empty Spam\u{2026}",
         Icon::Command,
+        None,
+    ),
+    entry(
+        CommandId::TidyUp,
+        "tidy-up",
+        copy::menus::TIDY_UP,
+        Icon::Archive,
         None,
     ),
     entry(
