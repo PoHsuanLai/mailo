@@ -6,3 +6,5 @@
 pub const FOLDER_NAME: &str = "Folder name";
 /// A new folder's row and its field's placeholder.
 pub const NEW_FOLDER: &str = "New folder";
+/// Tidy Up's choice of how old a conversation must be.
+pub const OLDER_THAN: &str = "Older than";

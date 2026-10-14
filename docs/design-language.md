@@ -84,7 +84,7 @@ The owner's decisions (2026-10-14):
 
 ### 0.5 What we take from Arc
 
-We take Arc's ideas, not its look. There is no gradient, no frosted glass and no colour across the window frame. Nothing changes by time alone: mailo never ages out, expires or moves anything on its own, mail or shortcuts. Time acts only where the person set it, as in Snooze, a reminder or Send Later. Clearing up happens only when the person asks: a **Tidy Up…** tool shows exactly what it would archive or clear, and runs only on their say-so, with undo.
+We take Arc's ideas, not its look. There is no gradient, no frosted glass and no colour across the window frame. Nothing changes by time alone: mailo never ages out, expires or moves anything on its own, mail or shortcuts. Time acts only where the person set it, as in Snooze, a reminder or Send Later. Clearing up happens only when the person asks: a **Tidy Up…** tool shows exactly which old read Inbox conversations it would archive, and runs only on their say-so, with undo.
 
 Each idea **replaces** something mailo already has. None adds a surface, and the window ends with fewer elements than it had.
 
@@ -123,7 +123,7 @@ Labels and Folders follow, collapsed. Sent, Drafts, Junk and Trash are not in th
 Rules for the fold:
 
 - One action, one word: Archive moves to Done, Delete moves to Trash, and the word on every menu is the one for the side the conversation is offered, never the side it is on.
-- Nothing moves by time alone. Where the person was is ⌘K's Recent, not a sidebar list that grows. **Tidy Up…** (in the sidebar's foot menu) is the only bulk clean-up: it lists exactly what it would archive or clear, runs only when asked, and can be undone.
+- Nothing moves by time alone. Where the person was is ⌘K's Recent, not a sidebar list that grows. **Tidy Up…** (in the sidebar's foot menu) is the only bulk clean-up: it lists the read Inbox conversations older than an age the person picks (starred, pinned, snoozed and waiting ones stay), archives exactly those only when asked, and can be undone.
 - Server work is never a step the person takes. Rules are pushed to the server when saved, and only a failure is shown.
 - A protocol word (IMAP, JMAP, Graph, POP) is shown only where the person sets up a server by hand.
 

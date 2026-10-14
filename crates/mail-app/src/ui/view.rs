@@ -518,6 +518,8 @@ pub struct Shell {
     pub keyboard: KeyboardPage,
     /// The Delete forever / Empty Trash confirmation while it is open. `None` is closed.
     pub destroying: Option<crate::ui::bin::Destroying>,
+    /// The Tidy Up sheet while it is open, at the age chosen. `None` is closed.
+    pub tidying: Option<crate::ui::tidy::Age>,
     /// A new message was asked for with no account to send it from: the alert that says so,
     /// and offers Add Account, is up.
     pub no_account: bool,
@@ -647,6 +649,7 @@ impl Default for Shell {
             accounts_pane: AccountsPane::default(),
             settings: None,
             destroying: None,
+            tidying: None,
             no_account: false,
             undo: mail_core::undo::UndoStack::default(),
             viewing: None,

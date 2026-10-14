@@ -1,8 +1,8 @@
-//! The sidebar's one menu, under the chevron at the right of the foot: Settings and the
-//! sidebar's own toggle.
+//! The sidebar's one menu, under the chevron at the right of the foot: Tidy Up…, Settings and
+//! the sidebar's own toggle.
 //!
-//! Everything else the foot once listed has a home of its own: Today and the drafts put aside
-//! head the sidebar (`today_list`), History is in ⌘K, and New Space is in the Space's menu, a
+//! Everything else the foot once listed has a home of its own: what was opened lately and the
+//! drafts put aside are ⌘K's Recent, History is in ⌘K, and New Space is in the Space's menu, a
 //! right click on the foot. What the rows are is data ([`menu_items`]) and pure, so a table test
 //! can say what the menu lists; [`MoreMenu`] draws the button and acts on a pick.
 
@@ -16,13 +16,15 @@ use ds::root::common::Common;
 /// What a row of the menu asks for.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) enum Pick {
+    /// Open Tidy Up, which archives the Inbox's old read conversations.
+    TidyUp,
     /// Open the settings window.
     Settings,
     /// Hide the sidebar, or show it again.
     ToggleSidebar,
 }
 
-/// The menu's rows: Settings and the sidebar's toggle, named by whether the sidebar is pinned
+/// The menu's rows: Tidy Up…, Settings and the sidebar's toggle, named by whether the sidebar is pinned
 /// open (`sidebar`).
 pub(super) fn menu_items(sidebar: Shown) -> Vec<MenuItem<Pick>> {
     let toggle = match sidebar {
@@ -30,6 +32,9 @@ pub(super) fn menu_items(sidebar: Shown) -> Vec<MenuItem<Pick>> {
         Shown::Hidden => copy::menus::SHOW_SIDEBAR,
     };
     vec![
+        MenuItem::new(Pick::TidyUp, copy::menus::TIDY_UP)
+            .with_image(MenuImage::Icon(Icon::Archive)),
+        MenuItem::Separator,
         MenuItem::new(Pick::Settings, copy::menus::SETTINGS)
             .with_image(MenuImage::Icon(Icon::Settings))
             .with_key(tip_standard(chordkit::StandardAction::Settings)),
@@ -41,7 +46,10 @@ pub(super) fn menu_items(sidebar: Shown) -> Vec<MenuItem<Pick>> {
 
 /// The chevron at the foot's right and the menu it opens: quire's pull-down in its chevron face.
 #[component]
-pub(in crate::ui) fn MoreMenu(side_hidden: Signal<bool>) -> Element {
+pub(in crate::ui) fn MoreMenu(
+    shell: Signal<crate::ui::view::Shell>,
+    side_hidden: Signal<bool>,
+) -> Element {
     let mut open = use_signal(|| Shown::Hidden);
     let mut tool = use_signal(|| None::<MountedRef>);
     let items = if open() == Shown::Visible {
@@ -69,6 +77,7 @@ pub(in crate::ui) fn MoreMenu(side_hidden: Signal<bool>) -> Element {
                 ..Common::default()
             },
             onpick: move |pick: Pick| match pick {
+                Pick::TidyUp => crate::ui::tidy::open(shell),
                 Pick::Settings => crate::ui::settings_window::open(),
                 Pick::ToggleSidebar => side_hidden.set(!side_hidden()),
             },

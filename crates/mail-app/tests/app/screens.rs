@@ -145,6 +145,44 @@ fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
         now,
     )
     .unwrap();
+    // Old conversations already read, for Tidy Up to list.
+    for (n, subject) in [
+        "Quarterly report",
+        "Your order has shipped",
+        "Book club in May",
+    ]
+    .iter()
+    .enumerate()
+    {
+        let date = (now - chrono::Duration::days(30 + n as i64)).to_rfc2822();
+        let id = format!("old{n}@example.test");
+        let raw = format!(
+            "From: Old Friends <old@example.test>\r\nTo: me@example.test\r\nSubject: {subject}\r\nDate: {date}\r\nMessage-ID: <{id}>\r\n\r\nFrom a while ago.\r\n"
+        );
+        absorb(
+            &store,
+            acct_account(),
+            MailboxRef {
+                account: acct_account(),
+                path: "INBOX".to_owned(),
+            },
+            Some(SyncCursor::Pop),
+            vec![Arrival {
+                remote: RemoteRef::Pop {
+                    uidl: format!("old{n}"),
+                },
+                raw: raw.into_bytes(),
+            }],
+            false,
+            now,
+        )
+        .unwrap();
+        let thread = store
+            .thread_by_rfc_id(acct_account(), &id)
+            .unwrap()
+            .expect("the old conversation was stored");
+        mail_core::act::perform(&store, thread, Op::SetRead(ReadState::Read));
+    }
     // A few labels, for the label picker.
     {
         for name in ["Travel", "Receipts", "Family"] {
@@ -360,5 +398,13 @@ fn screens() {
             h.advance(ms(400));
         }
         shot(&mut h, &out, "space-menu", dark);
+
+        // Tidy Up…, from the sidebar's menu: what it would archive, and its one button.
+        let (mut h, _d) = open(dark);
+        click(&mut h, "[*|aria-label=\"Sidebar Menu\"]");
+        h.advance(ms(300));
+        row_menu::press_menu_item(&mut h, "Tidy Up\u{2026}");
+        h.advance(ms(400));
+        shot(&mut h, &out, "tidy-up", dark);
     }
 }
