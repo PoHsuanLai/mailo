@@ -1289,24 +1289,22 @@ mod tests {
         ("Side peek", "side", false),
     ];
 
-    /// The view menu's row for `label`, in the order the menu lists them.
-    /// A press on the reader's View button, then on `label` in its menu, once quire's blink has
-    /// passed and the pick has acted: what the window drew.
+    /// A press on the reader's ⋯, its View row, then `label` in the view menu, once quire's
+    /// blink has passed and the pick has acted: what the window drew.
     async fn pick_view(
         dom: &mut VirtualDom,
         seen: crate::ui::fixtures::Seen,
         label: &str,
     ) -> crate::ui::fixtures::Seen {
         use crate::ui::fixtures::{click, drain_seen, pick_named};
-        let view = *seen
-            .all("aria-label", "View")
-            .last()
-            .expect("no View button");
-        click(dom, view);
+        let more = *seen.all("aria-label", "More").last().expect("no reader ⋯");
+        click(dom, more);
         // Only the rows this menu drew: what was seen before may hold an earlier menu's.
         let drawn = drain_seen(dom);
-        let after = pick_named(dom, &drawn, label).await;
-        seen.merge(drawn).merge(after)
+        let viewing = pick_named(dom, &drawn, "View").await;
+        let viewing = viewing.merge(drain_seen(dom));
+        let after = pick_named(dom, &viewing, label).await;
+        seen.merge(drawn).merge(viewing).merge(after)
     }
 
     #[tokio::test]

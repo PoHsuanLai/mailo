@@ -248,12 +248,12 @@ fn the_command_key_and_super_c_copy_a_messages_selection() {
         h.frame(FRAME)
             .is_some_and(|f| f.text().contains("Thursday at noon"))
     });
-    // A plain body is a frame too, its text straight in its `body` (16 px of margin, 14 px
+    // A plain body is a frame too, its text straight in its `body` (18 px of margin, 14 px
     // type): drag along its first line.
     let frame = harness.rect(FRAME).expect("the frame is drawn");
-    let y = Px(frame.origin.y.0 + 16.0 + 10.0);
+    let y = Px(frame.origin.y.0 + 18.0 + 10.0);
     let from = Point {
-        x: Px(frame.origin.x.0 + 17.0),
+        x: Px(frame.origin.x.0 + 19.0),
         y,
     };
     let to = Point {

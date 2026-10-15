@@ -64,8 +64,8 @@ article.frame + article.frame { border-top: var(--hair) solid var(--line-soft); 
    font-weight: 700; font-size: var(--fs-title); font-style: normal; color: var(--ink-soft);
 }
 .html { width: 100%; min-height: 320px; flex: 1 0 320px; border: 0; background: var(--foreign-ground); display: block; }
-/* A plain-text message has no page of its own: the reader's ground shows through. */
-.html.plain { background: none; }
+/* A plain-text message has no page of its own: it sits on the reader's ground. */
+.html[*|data-plain="true"] { background: var(--surface); }
 .attachments { margin: 0 0 var(--s-13); }
 /* A stored attachment's preview and its row, side by side; the row takes what is left. */
 .att-line { display: flex; align-items: center; gap: var(--s-4); padding-left: var(--s-12); }

@@ -322,7 +322,9 @@ fn screens() {
         let (mut h, _d) = open(dark);
         open_row(&mut h, 1);
         shot(&mut h, &out, "reader", dark);
-        click(&mut h, ".reader-head [*|aria-label=\"View\"]");
+        click(&mut h, ".reader-head [*|aria-label=\"More\"]");
+        shot(&mut h, &out, "reader-more", dark);
+        row_menu::press_menu_item(&mut h, "View");
         h.advance(ms(300));
         click(&mut h, ".ds-menu .ds-menu-item:nth-child(2)");
         shot(&mut h, &out, "peek", dark);

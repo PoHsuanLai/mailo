@@ -294,7 +294,8 @@ mod tests {
         let yours = vec!["me@example.test".to_owned()];
         let me = person("Me", "Me@Example.test");
         let ada = person("Ada", "ada@example.test");
-        let cases: &[(&str, Vec<Address>, Vec<Address>, Option<&str>)] = &[
+        type Case<'a> = (&'a str, Vec<Address>, Vec<Address>, Option<&'a str>);
+        let cases: &[Case] = &[
             ("only you", vec![me.clone()], vec![], None),
             (
                 "you and another",

@@ -1265,7 +1265,7 @@ fn going_to_another_folder_ends_a_rename() {
 
 /// Every tipped control in the window, the pointer rested on it past the tip delay, shows its
 /// tip through quire's hover hub: the buttons whose tip is their name, those whose short tip
-/// (a name and its key, "Print  ⌘P") is their description, and the message's time, whose tip
+/// (a name and its key, "Reply  R") is their description, and the message's time, whose tip
 /// is the full date. Then a Space dot's tip names the Space and the key that switches to it,
 /// tersely as every tip is (`Name  Key`).
 #[test]
@@ -1287,8 +1287,8 @@ fn a_rested_pointer_shows_each_controls_tip() {
     tipped.dedup();
     assert!(tipped.len() >= 4, "too few tipped controls: {tipped:?}");
     assert!(
-        tipped.iter().any(|(_, tip)| tip == "Print  \u{2318}P"),
-        "Print's tip is not its name and key: {tipped:?}"
+        tipped.iter().any(|(_, tip)| tip == "Reply  R"),
+        "Reply's tip is not its name and key: {tipped:?}"
     );
     let full = harness
         .attr("time.msg-when", "aria-label")

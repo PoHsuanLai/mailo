@@ -16,7 +16,8 @@ pub(super) fn Sandbox(
 ) -> Element {
     rsx! {
         iframe {
-            class: if plain { "html plain" } else { "html" },
+            class: "html",
+            "data-plain": plain,
             "data-frame-tag": tag,
             "sandbox": "",
             srcdoc: "{html}",

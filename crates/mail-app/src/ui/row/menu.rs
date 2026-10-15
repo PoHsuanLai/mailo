@@ -172,10 +172,8 @@ pub(in crate::ui) fn reader_groups(
     ];
     let offered: Vec<OpKind> = always.iter().chain(offered).copied().collect();
     let mut picks: Vec<Vec<Pick>> = groups(&offered, summary);
-    if view {
-        if let Some(open) = picks.first_mut() {
-            open.push(Pick::View);
-        }
+    if let (true, Some(open)) = (view, picks.first_mut()) {
+        open.push(Pick::View);
     }
     picks
         .into_iter()
