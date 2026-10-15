@@ -74,8 +74,8 @@ log         = "0.4"
 # copied verbatim: only the lines mailo names itself. The window reaches the Blitz
 # document through these to focus, select or scroll an element found by selector
 # (`ui/host/native.rs`).
-blitz-dom = { git = "https://github.com/PoHsuanLai/blitz", rev = "531fb43d41aa897c5e35eb5536275d31f5e9d544", default-features = false, features = ["svg", "system-fonts", "custom-widget", "accessibility"] }
-dioxus-native-dom = { git = "https://github.com/PoHsuanLai/blitz", rev = "531fb43d41aa897c5e35eb5536275d31f5e9d544", default-features = false, features = ["svg", "system-fonts", "accessibility"] }
+blitz-dom = { git = "https://github.com/PoHsuanLai/blitz", rev = "063ff2b6495cbdc4a410a84e52079914e9637042", default-features = false, features = ["svg", "system-fonts", "custom-widget", "accessibility"] }
+dioxus-native-dom = { git = "https://github.com/PoHsuanLai/blitz", rev = "063ff2b6495cbdc4a410a84e52079914e9637042", default-features = false, features = ["svg", "system-fonts", "accessibility"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
@@ -172,11 +172,11 @@ vello_cpu = { git = "https://github.com/PoHsuanLai/vello", rev = "3e43d4af1f1955
 vello_hybrid = { git = "https://github.com/PoHsuanLai/vello", rev = "3e43d4af1f1955f2efc2cd52e50350811a1386ca" }
 vello_sparse_shaders = { git = "https://github.com/PoHsuanLai/vello", rev = "3e43d4af1f1955f2efc2cd52e50350811a1386ca" }
 glifo = { git = "https://github.com/PoHsuanLai/vello", rev = "3e43d4af1f1955f2efc2cd52e50350811a1386ca" }
-anyrender = { git = "https://github.com/PoHsuanLai/anyrender", rev = "a1c328cc6084cd3a4580d16a7ecdc939bd68f50e" }
-anyrender_vello_cpu = { git = "https://github.com/PoHsuanLai/anyrender", rev = "a1c328cc6084cd3a4580d16a7ecdc939bd68f50e" }
-anyrender_vello_hybrid = { git = "https://github.com/PoHsuanLai/anyrender", rev = "a1c328cc6084cd3a4580d16a7ecdc939bd68f50e" }
-wgpu_context = { git = "https://github.com/PoHsuanLai/anyrender", rev = "a1c328cc6084cd3a4580d16a7ecdc939bd68f50e" }
-pixels_window_renderer = { git = "https://github.com/PoHsuanLai/anyrender", rev = "a1c328cc6084cd3a4580d16a7ecdc939bd68f50e" }
+anyrender = { git = "https://github.com/PoHsuanLai/anyrender", rev = "d4ae3885f89a58351ff7e99cd75d9b7de5865337" }
+anyrender_vello_cpu = { git = "https://github.com/PoHsuanLai/anyrender", rev = "d4ae3885f89a58351ff7e99cd75d9b7de5865337" }
+anyrender_vello_hybrid = { git = "https://github.com/PoHsuanLai/anyrender", rev = "d4ae3885f89a58351ff7e99cd75d9b7de5865337" }
+wgpu_context = { git = "https://github.com/PoHsuanLai/anyrender", rev = "d4ae3885f89a58351ff7e99cd75d9b7de5865337" }
+pixels_window_renderer = { git = "https://github.com/PoHsuanLai/anyrender", rev = "d4ae3885f89a58351ff7e99cd75d9b7de5865337" }
 # dioxus-core 0.7.10 can spin forever in VirtualDom::wait_for_work: a task woken and then cancelled
 # before it is polled (a use_resource restart) leaves an empty entry in the dirty-task queue that
 # pop_task never removes. Fixed upstream in DioxusLabs/dioxus#5554 (0.8-alpha only); this fork
