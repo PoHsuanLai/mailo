@@ -1,7 +1,7 @@
 //! Inline images, and the media type that must never be echoed back.
 
 use mail_domain::Inline;
-use mail_mime::{INLINE_BUDGET, ParsedPart, embed_inline};
+use mail_mime::{INLINE_BUDGET, ParsedPart, embed_inline, embed_inline_listed};
 
 fn part(cid: &str, mime: &str, bytes: &[u8]) -> ParsedPart {
     ParsedPart {
@@ -37,6 +37,43 @@ fn an_inline_image_becomes_the_bytes_it_names() {
     );
 }
 
+/// Each embedded image is listed by its part's `cid`, and knows the URI it was written as, and no
+/// other: two parts' URIs are told apart, and a reference left as `cid:` is not listed.
+#[test]
+fn each_embedded_image_is_listed_with_the_uri_it_was_written_as() {
+    let html =
+        r#"<img src="cid:<logo@example>"><img src="cid:icon@example"><img src="cid:gone@x">"#;
+    let (out, listed) = embed_inline_listed(
+        html,
+        &[
+            part("<logo@example>", "image/png", PNG),
+            part("icon@example", "image/gif", b"GIF89a-pretend"),
+        ],
+        INLINE_BUDGET,
+    );
+    let uris: Vec<&str> = out
+        .split('"')
+        .filter(|piece| piece.starts_with("data:"))
+        .collect();
+    assert_eq!(uris.len(), 2, "{out}");
+    let cids: Vec<&str> = listed.iter().map(|image| image.cid.as_str()).collect();
+    assert_eq!(cids, ["logo@example", "icon@example"]);
+    assert!(listed[0].written_as(uris[0]) && !listed[0].written_as(uris[1]));
+    assert!(listed[1].written_as(uris[1]) && !listed[1].written_as(uris[0]));
+    assert!(!listed[0].written_as("cid:logo@example"));
+    assert_eq!(
+        out,
+        embed_inline(
+            html,
+            &[
+                part("<logo@example>", "image/png", PNG),
+                part("icon@example", "image/gif", b"GIF89a-pretend"),
+            ],
+            INLINE_BUDGET
+        )
+    );
+}
+
 #[test]
 fn angle_brackets_around_the_id_are_tolerated() {
     // A Content-ID header carries them and some senders copy them into the reference.
@@ -45,7 +82,14 @@ fn angle_brackets_around_the_id_are_tolerated() {
         &[part("<logo@example>", "image/png", PNG)],
         INLINE_BUDGET,
     );
-    assert!(out.contains("data:image/png;base64,"), "{out}");
+    assert!(
+        out.starts_with("<img src=\"data:image/png;base64,"),
+        "{out}"
+    );
+    assert!(
+        out.ends_with("\">"),
+        "the closing bracket trails the URI: {out}"
+    );
 }
 
 /// Nothing here can be embedded, so the HTML comes back exactly as it was.

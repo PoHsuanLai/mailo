@@ -21,6 +21,8 @@ pub enum FrameBody {
         fetches: Vec<String>,
         /// A plain-text message's lines: no ground of its own, so the reader's shows through.
         plain: bool,
+        /// The message's own parts the html embeds as `data:` URIs, for [`FrameBody::inline_part`].
+        inline: Vec<mail_mime::EmbeddedImage>,
     },
 }
 
@@ -43,6 +45,23 @@ impl FrameBody {
         match self {
             FrameBody::Present { fetches, .. } => fetches,
             FrameBody::NotFetched => &[],
+        }
+    }
+
+    /// The message's own parts this frame embeds as `data:` URIs.
+    pub fn embedded(&self) -> &[mail_mime::EmbeddedImage] {
+        match self {
+            FrameBody::Present { inline, .. } => inline,
+            FrameBody::NotFetched => &[],
+        }
+    }
+
+    /// The `Content-ID` of the message's own part an image in this frame drawn from `src` shows
+    /// ([`mail_mime::drawn_from`]). A plain-text message's frame draws no images.
+    pub fn inline_part(&self, src: &str) -> Option<String> {
+        match self {
+            FrameBody::Present { plain: false, .. } => mail_mime::drawn_from(src, self.embedded()),
+            _ => None,
         }
     }
 }
@@ -105,13 +124,17 @@ fn html_frame(html: &str, parsed: &mail_mime::Parsed, policy: SanitizePolicy) ->
     let safe = mail_mime::sanitize(html, policy);
     let blocked_remote = safe.blocked_remote() > 0;
     let fetches = safe.remote_fetches().to_vec();
-    let embedded =
-        mail_mime::embed_inline(safe.as_str(), &parsed.attachments, mail_mime::INLINE_BUDGET);
+    let (embedded, inline) = mail_mime::embed_inline_listed(
+        safe.as_str(),
+        &parsed.attachments,
+        mail_mime::INLINE_BUDGET,
+    );
     FrameBody::Present {
         html: frame_document(&html_sheet(), safe.body_style(), &embedded),
         blocked_remote,
         fetches,
         plain: false,
+        inline,
     }
 }
 
@@ -193,6 +216,7 @@ fn plain_frame(text: &str) -> FrameBody {
         blocked_remote: false,
         fetches: Vec::new(),
         plain: true,
+        inline: Vec::new(),
     }
 }
 
@@ -239,5 +263,35 @@ mod tests {
             panic!("a plain frame is present");
         };
         assert!(html.contains("a &lt;b&gt; &amp; &quot;c&quot;"), "{html}");
+    }
+
+    /// An image the frame embedded reads back as its part, by the URI the frame reports it with
+    /// (parsed as a URL, as the renderer resolves it); a reference left as `cid:` reads as the
+    /// part it names; a remote image, or a `data:` URI the sender wrote, reads as nothing.
+    #[test]
+    fn an_embedded_image_reads_back_as_its_part() {
+        let raw = "From: a@example.test\r\nMIME-Version: 1.0\r\n\
+             Content-Type: multipart/related; boundary=\"b\"\r\n\r\n\
+             --b\r\nContent-Type: text/html\r\n\r\n\
+             <img src=\"cid:logo@x\"><img src=\"cid:gone@x\">\
+             <img src=\"https://cdn.example.test/a.png\">\r\n\
+             --b\r\nContent-Type: image/png\r\nContent-ID: <logo@x>\r\n\
+             Content-Transfer-Encoding: base64\r\n\r\niVBORw0KGgo=\r\n--b--\r\n";
+        let parsed = mail_mime::parse(raw.as_bytes()).expect("a message");
+        let body = html_frame(
+            parsed.html.as_deref().expect("html"),
+            &parsed,
+            SanitizePolicy::FRAME,
+        );
+        let html = body.frame_html().expect("present");
+        let at = html.find("data:image/png;base64,").expect("embedded");
+        let uri = &html[at..at + html[at..].find('"').expect("closed")];
+        assert_eq!(body.inline_part(uri).as_deref(), Some("logo@x"));
+        let resolved = url::Url::parse(uri).expect("a URL").to_string();
+        assert_eq!(body.inline_part(&resolved).as_deref(), Some("logo@x"));
+        assert_eq!(body.inline_part("cid:<gone@x>").as_deref(), Some("gone@x"));
+        assert_eq!(body.inline_part("https://cdn.example.test/a.png"), None);
+        assert_eq!(body.inline_part("data:image/png;base64,R0lGODlh"), None);
+        assert_eq!(plain_frame("cid:logo@x").inline_part("cid:logo@x"), None);
     }
 }

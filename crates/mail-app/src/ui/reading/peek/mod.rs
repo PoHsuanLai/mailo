@@ -7,8 +7,9 @@
 //! Primary+Return opens the item in its own app, as Open and Open Link do. Opening another
 //! conversation or closing the reader closes it.
 //!
-//! The strip opens a part through [`open`], and the link menu a link's card through
-//! [`open_link`]; nothing else writes `Shell::preview`.
+//! The strip opens a part through [`open`], a click on an inline image in a message's frame the
+//! part it shows through [`open_inline`], and the link menu a link's card through [`open_link`];
+//! nothing else writes `Shell::preview`.
 
 mod link;
 mod own;
@@ -16,7 +17,7 @@ mod part;
 
 use dioxus::prelude::*;
 use ds::prelude::Keys;
-use mail_core::SqliteStore;
+use mail_core::{SqliteStore, Store};
 use mail_domain::MessageId;
 use std::sync::Arc;
 
@@ -27,6 +28,34 @@ use crate::ui::view::{LinkCard, Preview, Shell, Viewing};
 pub(in crate::ui) fn open(mut shell: Signal<Shell>, message: MessageId, index: usize) {
     shell.write().preview = Some(Preview::Part(Viewing::of(message, index)));
     crate::ui::host::Host::focus_app();
+}
+
+/// Open in Peek the part of `message` (as stored) whose `Content-ID` is `cid`, an inline image
+/// clicked in its frame; nothing when it has none. `cid` came from that message's own markup and
+/// is only ever matched against that message's parts.
+pub(in crate::ui) fn open_inline(
+    shell: Signal<Shell>,
+    store: &SqliteStore,
+    message: MessageId,
+    cid: &str,
+) {
+    let Ok(stored) = store.message(message) else {
+        return;
+    };
+    if let Some(index) = inline_index(&stored.attachments, cid) {
+        open(shell, message, index);
+    }
+}
+
+/// Where the part whose `Content-ID` is `cid` sits among `attachments`: the first, as the frame
+/// embeds the first part a reference names (`mail_mime::embed_inline`).
+fn inline_index(attachments: &[mail_domain::Attachment], cid: &str) -> Option<usize> {
+    attachments.iter().position(|part| match &part.inline {
+        mail_domain::Inline::Embedded { cid: own } => {
+            own.trim_start_matches('<').trim_end_matches('>') == cid
+        }
+        mail_domain::Inline::Attached => false,
+    })
 }
 
 /// Open a link's destination card in Peek.

@@ -78,6 +78,7 @@ pub(super) fn run(opening: Opening) -> Result<(), ds_blitz::LaunchError> {
         .with_context(original.consent())
         .with_context(original.pill())
         .with_context(original.menus())
+        .with_context(original.clicked_images())
         .with_context(original.images())
         .with_context(sign_ins)
         .with_context(keys)

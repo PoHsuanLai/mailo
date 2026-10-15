@@ -1,6 +1,7 @@
 //! The reader's Original view on Blitz (`native`), in the real window: the sender's sanitized
 //! markup is a sealed document of its own, its remote images are fetched only for the thread
-//! the reader consented to, and a link in it opens in the browser.
+//! the reader consented to, a link in it opens in the browser, and a click on its inline image
+//! opens that image in Peek.
 //!
 //! The window is `mail_app::ui::native::root` over a store seeded in a `TempDir`, with an
 //! `Original` whose fetcher and browser are recorders: nothing here touches the network, the
@@ -499,6 +500,68 @@ fn a_link_in_the_frame_shows_where_it_goes_on_hover_and_opens_in_the_browser() {
     assert_eq!(frame.id(), before, "the frame navigated");
     assert_eq!(frame.count(HERO), 1, "the frame lost its hero");
     assert_eq!(window.fetched.count(), 0, "the click fetched");
+}
+
+const PEEK: &str = ".ds-peek";
+
+/// Advance until `done`, or fail saying `what` never came.
+fn until(harness: &mut Harness, what: &str, done: impl Fn(&Harness) -> bool) {
+    let start = std::time::Instant::now();
+    while !done(harness) {
+        assert!(
+            start.elapsed() < Duration::from_secs(10),
+            "{what} never came:\n{}",
+            harness.html()
+        );
+        harness.advance(ms(50));
+    }
+}
+
+/// A click on the frame's inline image opens it in Peek, drawn as a picture, as a click on its
+/// tile would; Esc closes it. A click on a remote image, once consent has loaded it, opens
+/// nothing: it is not the message's own. Neither click fetches anything or opens the browser.
+#[test]
+fn a_click_on_an_inline_image_in_the_frame_opens_it_in_peek() {
+    let mut window = newsletter_original();
+    let logo = {
+        let frame = window.harness.frame(FRAME).expect("a frame document");
+        frame.centre(LOGO).expect("the inline logo is drawn")
+    };
+    assert_eq!(window.harness.count(PEEK), 0, "Peek open before the click");
+    window.harness.click(logo);
+    until(&mut window.harness, "Peek's picture", |h| {
+        h.count(".ds-peek .peek-picture") == 1
+    });
+    window.harness.key(Key::Escape);
+    until(&mut window.harness, "Peek to close", |h| h.count(PEEK) == 0);
+
+    click(&mut window.harness, SHOW_IMAGES);
+    until(&mut window.harness, "the hero to load", |h| {
+        h.frame(FRAME)
+            .and_then(|frame| frame.width(HERO))
+            .is_some_and(|width| width.0 == 7.0)
+    });
+    let hero = {
+        let frame = window.harness.frame(FRAME).expect("a frame document");
+        frame.centre(HERO).expect("the hero is drawn")
+    };
+    window.harness.click(hero);
+    window.harness.advance(ms(300));
+    assert_eq!(window.harness.count(PEEK), 0, "a remote image opened Peek");
+    assert!(
+        window
+            .opened
+            .0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .is_empty(),
+        "an image click opened the browser"
+    );
+    assert_eq!(
+        window.fetched.urls(),
+        vec![BADGE_URL.to_owned(), HERO_URL.to_owned()],
+        "only the consented images were fetched"
+    );
 }
 
 /// Every request any document of the window makes, refused and kept.

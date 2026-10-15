@@ -53,10 +53,23 @@ const EMBEDDABLE: [&str; 4] = ["image/png", "image/jpeg", "image/gif", "image/we
 /// A reference with no matching part is left alone. Substituting a placeholder would mean the
 /// reader inventing content for a message, and leaving it is exactly as broken as it was.
 pub fn embed_inline(html: &str, parts: &[ParsedPart], budget: usize) -> String {
+    embed_inline_listed(html, parts, budget).0
+}
+
+/// [`embed_inline`], and each image it embedded: which part, and the `data:` URI it was written
+/// as. The reader opens a click on an inline image in its preview, and the frame reports the click
+/// with the URI the image was drawn from; this list turns that URI back into the part, without
+/// keeping the URI or reading the bytes again.
+pub fn embed_inline_listed(
+    html: &str,
+    parts: &[ParsedPart],
+    budget: usize,
+) -> (String, Vec<EmbeddedImage>) {
     if !html.contains("cid:") {
-        return html.to_owned();
+        return (html.to_owned(), Vec::new());
     }
     let mut out = String::with_capacity(html.len());
+    let mut embedded = Vec::new();
     let mut rest = html;
     let mut spent = 0usize;
 
@@ -66,17 +79,26 @@ pub fn embed_inline(html: &str, parts: &[ParsedPart], budget: usize) -> String {
         let end = after
             .find(['"', '\'', '>', ' ', ')', '\t', '\n', '\r'])
             .unwrap_or(after.len());
+        // `cid:<id>`'s closing bracket is the reference's own, not the end of a tag: left
+        // behind, it would trail the `data:` URI written in its place.
+        let end = if after.starts_with('<') && after[end..].starts_with('>') {
+            end + 1
+        } else {
+            end
+        };
         let (reference, tail) = after.split_at(end);
 
         match resolve(reference, parts) {
             // Budget checked against the encoded length, since that is what actually lands in
             // the document.
-            Some((mime, bytes)) if spent + encoded_len(bytes.len()) <= budget => {
+            Some((mime, cid, bytes)) if spent + encoded_len(bytes.len()) <= budget => {
                 spent += encoded_len(bytes.len());
+                let from = out.len();
                 out.push_str("data:");
                 out.push_str(mime);
                 out.push_str(";base64,");
                 out.push_str(&STANDARD.encode(bytes));
+                embedded.push(EmbeddedImage::new(&out[from..], cid));
             }
             _ => {
                 // Unknown reference, unembeddable type, or out of budget: leave it as it was.
@@ -87,7 +109,66 @@ pub fn embed_inline(html: &str, parts: &[ParsedPart], budget: usize) -> String {
         rest = tail;
     }
     out.push_str(rest);
-    out
+    (out, embedded)
+}
+
+/// One image [`embed_inline_listed`] wrote into a document: the `Content-ID` of the part it came
+/// from, and a digest of the `data:` URI it was written as, so a URI read back from the document
+/// can be told apart without holding a second copy of it.
+///
+/// The digest is not a secret and not collision-proof against a sender who tries, and it need not
+/// be: it is only ever compared within one message's own list, so the most a forged match could
+/// do is name another part of that same message.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EmbeddedImage {
+    /// The part's `Content-ID`, without angle brackets: untrusted, and only ever matched against
+    /// the same message's parts.
+    pub cid: String,
+    len: usize,
+    digest: u64,
+}
+
+impl EmbeddedImage {
+    fn new(uri: &str, cid: &str) -> Self {
+        EmbeddedImage {
+            cid: cid.to_owned(),
+            len: uri.len(),
+            digest: digest(uri),
+        }
+    }
+
+    /// Whether `uri` is the `data:` URI this image was written as.
+    pub fn written_as(&self, uri: &str) -> bool {
+        uri.len() == self.len && digest(uri) == self.digest
+    }
+}
+
+/// The `Content-ID` (without angle brackets) of the part an image drawn from `src` shows, in a
+/// document whose embedded images are `embedded`: a `data:` URI listed there, or a `cid:`
+/// reference left as written (past the budget, or of a type never embedded). `None` for anything
+/// else: a remote image, or a `data:` URI the sender wrote. The `cid` is the message's own, and
+/// only for matching against that same message's parts.
+pub fn drawn_from(src: &str, embedded: &[EmbeddedImage]) -> Option<String> {
+    let src = src.trim();
+    if let Some(reference) = src
+        .get(..4)
+        .filter(|scheme| scheme.eq_ignore_ascii_case("cid:"))
+        .and_then(|_| src.get(4..))
+    {
+        let cid = reference.trim_start_matches('<').trim_end_matches('>');
+        return (!cid.is_empty()).then(|| cid.to_owned());
+    }
+    embedded
+        .iter()
+        .find(|image| image.written_as(src))
+        .map(|image| image.cid.clone())
+}
+
+fn digest(uri: &str) -> u64 {
+    use std::hash::{DefaultHasher, Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    uri.hash(&mut hasher);
+    hasher.finish()
 }
 
 fn encoded_len(bytes: usize) -> usize {
@@ -104,19 +185,26 @@ pub fn embeddable(declared: &str) -> Option<&'static str> {
     EMBEDDABLE.iter().copied().find(|known| *known == primary)
 }
 
-/// The part a `cid` names, if it is one this module will embed.
-fn resolve<'a>(reference: &str, parts: &'a [ParsedPart]) -> Option<(&'static str, &'a [u8])> {
+/// The part a `cid` names, if it is one this module will embed: its type, its `cid` without
+/// angle brackets, and its bytes.
+fn resolve<'a>(
+    reference: &str,
+    parts: &'a [ParsedPart],
+) -> Option<(&'static str, &'a str, &'a [u8])> {
     // Some senders write `cid:<id>` with the angle brackets a Content-ID header carries.
     let wanted = reference.trim_start_matches('<').trim_end_matches('>');
     if wanted.is_empty() {
         return None;
     }
-    let part = parts.iter().find(|part| match &part.inline {
-        Inline::Embedded { cid } => cid.trim_start_matches('<').trim_end_matches('>') == wanted,
-        Inline::Attached => false,
+    let (part, cid) = parts.iter().find_map(|part| match &part.inline {
+        Inline::Embedded { cid } => {
+            let cid = cid.trim_start_matches('<').trim_end_matches('>');
+            (cid == wanted).then_some((part, cid))
+        }
+        Inline::Attached => None,
     })?;
     // The declared type decides only whether we embed, never what we emit: the string written
     // into the document is the matching entry from EMBEDDABLE, not anything from the message.
     let mime = embeddable(&part.mime)?;
-    Some((mime, part.bytes.as_slice()))
+    Some((mime, cid, part.bytes.as_slice()))
 }
