@@ -1,4 +1,4 @@
-//! One OpenPGP key on the Keys and certificates page, its actions, and the questions the page
+//! One OpenPGP key in the keys Settings lists, its actions, and the questions the page
 //! asks again before an act that cannot be undone — for the certificates' rows too.
 
 use ds::components::content::label::LabelRole;

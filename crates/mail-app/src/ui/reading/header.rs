@@ -98,6 +98,8 @@ pub(super) fn MessageHead(
 ) -> Element {
     let name = from_name(&message);
     let addr = address(&message);
+    // What the right click's contact editor starts from: the name the mail gave, and whom.
+    let (given, email) = (name.clone(), message.from.email.clone());
     // A sender who gave no name is named by their address, once.
     let (name, addr) = if name.trim().is_empty() {
         (addr, String::new())
@@ -145,10 +147,10 @@ pub(super) fn MessageHead(
                     div { class: "reader-who",
                         div { class: "msg-line",
                             if addr.is_empty() {
-                                Label { text: name, style: LabelStyle::Headline, common: crate::ui::common::classed("ds-truncate") }
+                                super::super::contacts::SenderName { shown: name, in_mail: given, address: email }
                             } else {
                                 Tooltip { text: addr,
-                                    Label { text: name, style: LabelStyle::Headline, common: crate::ui::common::classed("ds-truncate") }
+                                    super::super::contacts::SenderName { shown: name, in_mail: given, address: email }
                                 }
                             }
                             if let Some(Extras { checked: (id, raw), .. }) = &extras {

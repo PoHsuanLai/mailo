@@ -294,11 +294,30 @@ pub enum FileSheet {
     Export { query: String },
 }
 
-/// The Rules page of Settings: which account's rules, vacation reply and server script it
-/// shows. `None` is the first account there is.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+/// The Rules page of Settings: which account's rules and vacation reply it shows (`None` is the
+/// first account there is), and the pages of its pane (quire's `PanePath`, the list at its root).
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RulesPage {
     pub account: Option<AccountId>,
+    pub path: PanePath<RulesAt>,
+}
+
+impl Default for RulesPage {
+    fn default() -> Self {
+        RulesPage {
+            account: None,
+            path: PanePath::new(RulesAt::List),
+        }
+    }
+}
+
+/// A page of Settings' Rules pane: the list, a rule's own page pushed over it (`None` is a new
+/// rule), or the vacation reply's.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RulesAt {
+    List,
+    Rule(Option<RuleId>),
+    Vacation,
 }
 
 /// The Connections sheet while it is open. It keeps nothing: it reads every account's
@@ -306,12 +325,13 @@ pub struct RulesPage {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DoctorSheet;
 
-/// A page of Settings' Accounts pane: the list of accounts, or one account's own page pushed
-/// over it.
+/// A page of Settings' Accounts pane: the list of accounts, one account's own page pushed over
+/// it, or the keys and certificates no account here owns.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AccountsPage {
     List,
     Account(AccountId),
+    OtherKeys,
 }
 
 /// Settings' Accounts pane: the pages shown (quire's `PanePath`, the list at its root), and how
@@ -337,12 +357,11 @@ impl Default for AccountsPane {
 pub enum SettingsPage {
     #[default]
     General,
+    /// Every account, each with its own page: its mail, its encryption keys and its removal.
+    /// Nothing about a key is kept in the shell: the page reads the store, and a passphrase, a
+    /// password or a secret key never passes through it.
     Accounts,
-    Contacts,
     Rules,
-    /// OpenPGP keys and S/MIME certificates. Nothing about a key is kept in the shell: the page
-    /// reads the store, and a passphrase, a password or a secret key never passes through it.
-    Keys,
     Keyboard,
 }
 
@@ -489,8 +508,6 @@ pub struct Shell {
     pub page_menu: PageMenu,
     /// The search bar's panel of suggestions.
     pub bar: Bar,
-    /// What the Contacts page of Settings is filtered by.
-    pub contacts: String,
     /// The Import or Export sheet while it is open, with the text its field holds. `None` is
     /// closed.
     pub files: Option<FileSheet>,
@@ -632,7 +649,6 @@ impl Default for Shell {
             parts: PageParts::default(),
             page_menu: PageMenu::Closed,
             bar: Bar::Closed,
-            contacts: String::new(),
             files: None,
             rules: RulesPage::default(),
             view_editor: None,

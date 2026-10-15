@@ -1,6 +1,7 @@
-//! The Keys and certificates page's S/MIME half as drawn: the user's own certificates first, an
-//! identity file's password asked for in a sheet and never drawn, deleting a private key asked
-//! again in an alert, trust given and taken back — and the OpenPGP half's dates.
+//! The certificates Settings lists, as drawn on an account's page then on Other Keys: the user's
+//! own certificates first, an identity file's password asked for in a sheet and never drawn,
+//! deleting a private key asked again in an alert, trust given and taken back — and the OpenPGP
+//! half's dates.
 
 use std::sync::Arc;
 
@@ -15,7 +16,7 @@ use mail_domain::*;
 
 use super::certs::ordered;
 use super::key_row::lifetime;
-use super::keys::KeysPage;
+use super::keys::{KeysPage, Whose};
 use super::keys_tests::{alert_button, asking, settle};
 use super::smime_tests::{PASSWORD, identity_file, trust_root, with_identity};
 use super::tests::{own_key, seams_with};
@@ -28,7 +29,14 @@ use crate::ui::fixtures::{
 /// The page inside a quire root, as the Settings window has it.
 #[component]
 fn Page() -> Element {
-    rsx! { ds::prelude::Ds { appearance: ds::prelude::Appearance::default(), material: ds::prelude::Material::Window, KeysPage {} } }
+    rsx! {
+        ds::prelude::Ds { appearance: ds::prelude::Appearance::default(), material: ds::prelude::Material::Window,
+            ds::prelude::Form {
+                KeysPage { whose: Whose::Account(super::tests::ME.to_owned()) }
+                KeysPage { whose: Whose::Others }
+            }
+        }
+    }
 }
 
 fn sheet(store: &Arc<SqliteStore>, seams: Seams) -> (VirtualDom, Seen) {
@@ -87,22 +95,19 @@ fn the_users_own_certificates_come_first() {
 }
 
 #[tokio::test]
-async fn the_sheet_lists_keys_then_certificates_own_first_with_what_is_known_of_each() {
+async fn certificates_are_listed_own_first_with_what_is_known_of_each() {
     let (store, _dir) = seeded();
     let secrets = Arc::new(MapSigningStore::default());
     trust_root(&store, &secrets);
     let mine = with_identity(&store, &secrets);
     let (dom, _) = sheet(&store, seams_with(secrets));
     let page = markup(&dom);
-    let at_pgp = page.find(">OpenPGP<").unwrap();
-    let at_smime = page.find(">S/MIME<").unwrap();
-    assert!(at_pgp < at_smime, "{page}");
     // Mine, then the authorities its file carried, then the root imported first of all.
     let at_mine = page.find(&cert_short(mine.fingerprint)).unwrap();
     let at_root = page
         .find(&cert_short(pki().root.cert.fingerprint()))
         .unwrap();
-    assert!(at_smime < at_mine && at_mine < at_root, "{page}");
+    assert!(at_mine < at_root, "{page}");
     assert!(page.contains("CN=Me"), "{page}");
     assert!(
         page.contains(
@@ -129,7 +134,7 @@ async fn an_identity_files_password_is_asked_in_a_sheet_and_never_drawn() {
 
     let mut asked = click(
         &mut dom,
-        seen.one("aria-label", "Import a certificate or identity…"),
+        seen.all("aria-label", "Import a certificate or identity…")[0],
     );
     settle(&mut dom, &mut asked).await;
     let prompt = "me.p12 is an identity file. Type the password it was saved with to import it.";
@@ -300,7 +305,7 @@ async fn every_class_of_the_certificates_half_is_styled() {
     let (mut dom, seen) = sheet(&store, seams);
     let mut asked = click(
         &mut dom,
-        seen.one("aria-label", "Import a certificate or identity…"),
+        seen.all("aria-label", "Import a certificate or identity…")[0],
     );
     settle(&mut dom, &mut asked).await;
     let mut page = markup(&dom);

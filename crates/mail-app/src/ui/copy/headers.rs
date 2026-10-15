@@ -26,3 +26,11 @@ pub const NEWEST_FIRST: &str = "Newest first";
 /// What a search of the server found that the list does not hold: the band's header and the
 /// chip on each of its rows.
 pub const FROM_SERVER: &str = "Server";
+
+// Settings › General's two groups.
+pub const READING: &str = "Reading";
+pub const MAIL: &str = "Mail";
+/// An account's keys and certificates, on its page in Settings.
+pub const ENCRYPTION: &str = "Encryption";
+/// An account's servers and sign-in, on its page in Settings: the one place a protocol is named.
+pub const SERVERS: &str = "Servers";

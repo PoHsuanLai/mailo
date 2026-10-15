@@ -1,7 +1,7 @@
-/* The layout of the sheets that ask for a file, a book or a rule: quire's `Sheet` is the panel, and
+/* The layout of the sheets that ask for a file or a rule: quire's `Sheet` is the panel, and
    what is here places the parts inside it. A column of form rows, then a row of buttons at the
    trailing end with the default one last. */
-.sheet-form, .book, .rules { display: grid; gap: var(--s-12); padding: var(--s-16); min-width: 0; }
+.sheet-form, .rules { display: grid; gap: var(--s-12); padding: var(--s-16); min-width: 0; }
 .sheet-path { display: flex; align-items: center; gap: var(--s-6); min-width: 0; width: 100%; }
 .sheet-path-field { flex: 1; min-width: 0; }
 .sheet-actions {

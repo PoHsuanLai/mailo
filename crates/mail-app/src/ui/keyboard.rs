@@ -3,7 +3,8 @@
 //! Opened from Settings' sidebar and from the search bar's "Keyboard Shortcuts Settings". Each
 //! action's keys sit in quire's shortcut recorder, in its single-key mode: a click makes it
 //! listen, the next key is offered to the action, and the row says, under the action, which
-//! action holds it already. Each action can be put back as it ships, and so can all of them. Every
+//! action holds it already. Each action can be put back as it ships, and so can all of them
+//! (Restore Defaults, drawn only while something differs). Every
 //! change is kept at once in `keyboard.json`, like notifications and provider marks: what a key
 //! means is the window's, not a Space's. What a key may be given is [`crate::ui::keymap`]'s; this
 //! only draws the map and hands it the presses.
@@ -14,6 +15,7 @@
 use super::press::{available, on_primary};
 use crate::ui::actions::{chord_of_key, key_of_chord};
 use crate::ui::appearance::WindowDirs;
+use crate::ui::copy;
 use crate::ui::keymap::{self, DEFAULTS, Keymap, Refused};
 use crate::ui::view::{KeySaid, KeyboardPage as Showing, Shell, Shortcut};
 use dioxus::prelude::*;
@@ -21,8 +23,8 @@ use ds::components::content::label::LabelRole;
 use ds::components::controls::key_equivalent::{KeyEquivalent, KeyStyle};
 use ds::components::fields::field_row::FieldRow;
 use ds::prelude::{
-    Button, Form, FormSection, Label, Shortcut as Caps, ShortcutField, ShortcutKey as Key,
-    ShortcutKinds, ShortcutRecorded, TextLine, Tooltip, use_keys,
+    Button, Form, FormSection, Label, PageHeader, Shortcut as Caps, ShortcutField,
+    ShortcutKey as Key, ShortcutKinds, ShortcutRecorded, TextLine, Tooltip, use_keys,
 };
 use ds::root::common::Common;
 
@@ -136,7 +138,8 @@ fn said_for(page: &Showing, about: Option<Shortcut>) -> Option<TextLine> {
         .map(|said| TextLine::from(said.text.clone()))
 }
 
-/// The page: Back, which is always Esc, each action with its keys, and Reset All.
+/// The page: Back, which is always Esc, each action with its keys, and Restore Defaults while
+/// any differs from the shipped keys.
 #[component]
 pub(in crate::ui) fn KeyboardPage(shell: Signal<Shell>) -> Element {
     let page = shell.read().keyboard.clone();
@@ -146,57 +149,57 @@ pub(in crate::ui) fn KeyboardPage(shell: Signal<Shell>) -> Element {
     // in its own words.
     let problems = use_keys().problems();
     rsx! {
+        PageHeader { title: copy::titles::KEYBOARD }
         Form {
-        FormSection {
-            title: Some("Shortcuts".to_owned()),
-            footer: Some(
-                "Letters work while you read, never while you type."
-                    .to_owned(),
-            ),
-            FieldRow {
-                label: keymap::name(Shortcut::Back),
-                help: Some(TextLine::from("Always")),
-                KeyCaps { named: "Escape" }
-            }
-            for (action, _) in DEFAULTS.iter().copied() {
-                KeyRow {
-                    key: "{action:?}",
-                    shell,
-                    action,
-                    keys: map.keys(action),
-                    changed: map.is_changed(action),
-                    said: said_for(&page, Some(action)),
+            FormSection {
+                footer: Some(
+                    "Letters work while you read, never while you type."
+                        .to_owned(),
+                ),
+                FieldRow {
+                    label: keymap::name(Shortcut::Back),
+                    help: Some(TextLine::from("Always")),
+                    KeyCaps { named: "Escape" }
+                }
+                for (action, _) in DEFAULTS.iter().copied() {
+                    KeyRow {
+                        key: "{action:?}",
+                        shell,
+                        action,
+                        keys: map.keys(action),
+                        changed: map.is_changed(action),
+                        said: said_for(&page, Some(action)),
+                    }
                 }
             }
-        }
-        if !problems.is_empty() {
-            FormSection {
-                title: Some("Not used".to_owned()),
-                for problem in problems {
+            if !problems.is_empty() {
+                FormSection {
+                    title: Some("Not used".to_owned()),
+                    for problem in problems {
+                        FieldRow {
+                            key: "{problem}",
+                            label: "Shortcut",
+                            Label { text: problem.clone(), role: LabelRole::Secondary }
+                        }
+                    }
+                }
+            }
+            // Shown only while a key differs from the shipped ones, or to say why the last
+            // restore did not happen.
+            if any_changed || said_for(&page, None).is_some() {
+                FormSection {
                     FieldRow {
-                        key: "{problem}",
-                        label: "Shortcut",
-                        Label { text: problem.clone(), role: LabelRole::Secondary }
+                        label: "",
+                        help: said_for(&page, None),
+                        Button {
+                            label: copy::controls::RESTORE_DEFAULTS,
+                            availability: available(any_changed),
+                            onclick: on_primary(move || settle(shell, None, Ok(Keymap::default()))),
+                        }
                     }
                 }
             }
         }
-        FormSection {
-            FieldRow {
-                label: "Restore the shipped keys",
-                help: said_for(&page, None),
-                Button {
-                    label: "Reset All",
-                    availability: available(any_changed),
-                    common: Common {
-                        aria_label: Some("Reset every shortcut".to_owned()),
-                        ..Common::default()
-                    },
-                    onclick: on_primary(move || settle(shell, None, Ok(Keymap::default()))),
-                }
-            }
-        }
-    }
     }
 }
 

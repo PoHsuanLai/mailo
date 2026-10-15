@@ -422,9 +422,13 @@ fn seal_act(
         BarAct::Unlock(passphrase) => {
             send_page(page, desk, revision, folding, Anyway::Yes, Some(passphrase));
         }
-        // Making a key or importing a certificate is the Keys and certificates page's.
+        // Making a key or importing a certificate is the sending account's page's, in Settings.
         BarAct::OpenKeys => {
-            super::settings_window::open_at(crate::ui::view::SettingsPage::Keys);
+            let store = consume_context::<Arc<SqliteStore>>();
+            match store.draft(page.peek().draft) {
+                Ok(stored) => super::settings_window::open_account(stored.account),
+                Err(_) => super::settings_window::open_at(crate::ui::view::SettingsPage::Accounts),
+            }
         }
         BarAct::LookUp(addresses) => {
             page.write().seal_bar = SealBar::Looking(addresses.clone());

@@ -43,6 +43,15 @@ pub(in crate::ui) enum CommandId {
     Settings,
     SettingsAt(SettingsPage),
     Theme(Look),
+    /// Contacts in or out as vCard: the book has no page of its own.
+    Contacts(Cards),
+}
+
+/// Which way a Contacts command moves the book.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::ui) enum Cards {
+    Import,
+    Export,
 }
 
 /// A place a Go command opens: one of the sidebar's own, found by what it lists rather than by
@@ -226,6 +235,21 @@ pub(in crate::ui) const ENTRIES: &[Entry] = &[
         Icon::Forward,
         None,
     ),
+    // The contact book in and out, as vCard.
+    entry(
+        CommandId::Contacts(Cards::Import),
+        "import-contacts",
+        copy::menus::IMPORT_CONTACTS,
+        Icon::Group,
+        None,
+    ),
+    entry(
+        CommandId::Contacts(Cards::Export),
+        "export-contacts",
+        copy::menus::EXPORT_CONTACTS,
+        Icon::Group,
+        None,
+    ),
     entry(
         CommandId::NewView,
         "new-view",
@@ -256,24 +280,10 @@ pub(in crate::ui) const ENTRIES: &[Entry] = &[
         None,
     ),
     entry(
-        CommandId::SettingsAt(SettingsPage::Contacts),
-        "settings-contacts",
-        "Contacts Settings",
-        Icon::Group,
-        None,
-    ),
-    entry(
         CommandId::SettingsAt(SettingsPage::Rules),
         "settings-rules",
         "Rules Settings",
         Icon::FolderInput,
-        None,
-    ),
-    entry(
-        CommandId::SettingsAt(SettingsPage::Keys),
-        "settings-keys",
-        "Keys and Certificates Settings",
-        Icon::Key,
         None,
     ),
     entry(

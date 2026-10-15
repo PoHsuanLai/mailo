@@ -1,5 +1,6 @@
-//! The Keys and certificates page as drawn: the user's keys first, and the two acts that cannot
-//! be undone each asked again, in quire's alert, before anything happens.
+//! The keys Settings lists, as drawn on an account's page then on Other Keys: the user's keys
+//! first, and the two acts that cannot be undone each asked again, in quire's alert, before
+//! anything happens.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -14,7 +15,7 @@ use mail_core::{SqliteStore, Store};
 use mail_domain::signing::{SigningKeyId, SigningKeyRef};
 use mail_domain::*;
 
-use super::keys::{KeysPage, ordered};
+use super::keys::{KeysPage, Whose, ordered};
 use super::short;
 use super::tests::{own_key, seams_with, someone_elses};
 use crate::ui::fixtures::{Seen, click, dispatching, drain_seen, rebuild_into, seeded};
@@ -23,7 +24,14 @@ use crate::ui::fixtures::{Seen, click, dispatching, drain_seen, rebuild_into, se
 /// the root's overlay.
 #[component]
 fn Page() -> Element {
-    rsx! { ds::prelude::Ds { appearance: ds::prelude::Appearance::default(), material: ds::prelude::Material::Window, KeysPage {} } }
+    rsx! {
+        ds::prelude::Ds { appearance: ds::prelude::Appearance::default(), material: ds::prelude::Material::Window,
+            ds::prelude::Form {
+                KeysPage { whose: Whose::Account(super::tests::ME.to_owned()) }
+                KeysPage { whose: Whose::Others }
+            }
+        }
+    }
 }
 
 pub(super) fn sheet(store: &Arc<SqliteStore>, seams: super::Seams) -> (VirtualDom, Seen) {
@@ -287,7 +295,8 @@ async fn generate_verify_and_import_go_through_the_keyring_handed_in() {
         .unwrap();
     assert!(held(&secrets, &mine));
 
-    let mut imported = click(&mut dom, seen.one("aria-label", "Import from a file…"));
+    // Someone else's key, from Other Keys' Import: the second page's.
+    let mut imported = click(&mut dom, seen.all("aria-label", "Import from a file…")[1]);
     settle(&mut dom, &mut imported).await;
     let theirs = store.pgp_key(bea.fingerprint()).unwrap().unwrap();
     assert!(dioxus_ssr::render(&dom).contains("Imported Them"));

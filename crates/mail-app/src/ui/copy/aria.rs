@@ -42,3 +42,21 @@ pub fn on_selected(action: &str, count: usize) -> String {
 }
 /// The paperclip on a row whose conversation carries files.
 pub const HAS_ATTACHMENTS: &str = "Has Attachments";
+
+/// The contact editor's Save, for the person it names.
+pub fn save_contact(address: &str) -> String {
+    format!("Save the Name for {address}")
+}
+
+/// A trusted sender's Remove.
+pub fn stop_loading_images(sender: &str) -> String {
+    format!("Stop Loading Images from {sender}")
+}
+
+/// An account's row in Settings, which opens its page.
+pub fn details_for(account: &str) -> String {
+    format!("Details for {account}")
+}
+
+/// A rule page's Save.
+pub const SAVE_RULE: &str = "Save Rule";

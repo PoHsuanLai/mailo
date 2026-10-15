@@ -302,7 +302,8 @@ fn each_certificate_problem_is_named_in_amber_and_says_what_it_means() {
         (
             CertProblem::Untrusted,
             "Untrusted: no authority you trust issued its certificate, so anyone could have \
-             made it. Trust it in Keys and certificates only after checking it with its owner",
+             made it. Trust it in Other Keys, under Accounts in Settings, only after checking \
+             it with its owner",
         ),
         (
             CertProblem::Expired {

@@ -1,6 +1,7 @@
-//! The Rules page as drawn: a condition refused as it is typed, Put on server through a test's
-//! server, the reason where there is no server to put rules on, every class styled, and files of
-//! it to look at.
+//! The Rules page as drawn: the list of rules by name with their switches, a rule's page with a
+//! condition refused as it is typed, a save that puts the rules on the server through a test's
+//! server and says only a failure, the menu that moves a rule, the provider with no server to put
+//! rules on, every class styled, and files of it to look at.
 
 use ds::prelude::*;
 use std::sync::Arc;
@@ -8,7 +9,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use chrono::Utc;
 use dioxus::prelude::*;
-use dioxus_core::{NoOpMutations, VirtualDom};
+use dioxus_core::VirtualDom;
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
 use porter_core::AccountId;
@@ -18,17 +19,18 @@ use super::away_tests::{answering, own_server};
 use super::list::RunProgress;
 use super::server::{Pusher, reach};
 use super::work::{self, Draft};
+use crate::ui::copy;
 use crate::ui::data::account_rows;
 use crate::ui::files::Phase;
 use crate::ui::fixtures::{
-    Seen, acct_account, click, dispatching, drain_seen, rebuild_into, type_into,
+    Seen, acct_account, click, dispatching, drain_seen, rebuild_into, right_click, type_into,
 };
-use crate::ui::view::Shell;
+use crate::ui::view::{RulesAt, Shell};
 
 /// The first render, then the ones after it, keeping every attribute they set: what floats in
-/// quire's overlay is drawn a frame after the one that asked for it, on quire's clock.
-async fn landed(dom: &mut VirtualDom) -> Seen {
-    let mut seen = rebuild_into(dom);
+/// quire's overlay, and a page the stack pushes, are drawn the frames after the one that asked
+/// for them, on quire's clock. Waits too for a push on its blocking thread to land.
+async fn landed(dom: &mut VirtualDom, mut seen: Seen) -> Seen {
     for _ in 0..40 {
         let quiet = std::time::Duration::from_millis(150);
         if tokio::time::timeout(quiet, dom.wait_for_work())
@@ -42,15 +44,18 @@ async fn landed(dom: &mut VirtualDom) -> Seen {
     seen.merge(drain_seen(dom))
 }
 
-/// The page on `account`, alone.
+/// The page on `account`, at `at`.
 #[component]
-fn Page(account: Option<AccountId>) -> Element {
+fn Page(account: Option<AccountId>, at: RulesAt) -> Element {
     let shell = use_signal(|| Shell {
-        rules: crate::ui::view::RulesPage { account },
+        rules: crate::ui::view::RulesPage {
+            account,
+            path: PanePath::new(RulesAt::List).pushed(at.clone()),
+        },
         ..Shell::default()
     });
     let revision = use_signal(|| 0u64);
-    // Inside a quire root, as the window has it: the action menu floats in its overlay.
+    // Inside a quire root, as the window has it: the menus float in its overlay.
     rsx! {
         Ds {
             appearance: Appearance::default(),
@@ -61,35 +66,29 @@ fn Page(account: Option<AccountId>) -> Element {
     }
 }
 
+/// The page on `account`'s list, its pushes through `push`.
 fn sheet(store: &Arc<SqliteStore>, account: AccountId, push: Pusher) -> VirtualDom {
-    VirtualDom::new_with_props(
-        Page,
-        PageProps {
-            account: Some(account),
-        },
-    )
-    .with_root_context(store.clone())
-    .with_root_context(push)
+    sheet_at(store, account, push, RulesAt::List)
+}
+
+fn sheet_at(store: &Arc<SqliteStore>, account: AccountId, push: Pusher, at: RulesAt) -> VirtualDom {
+    let at = match at {
+        RulesAt::List => None,
+        other => Some(other),
+    };
+    let props = PageProps {
+        account: Some(account),
+        at: at.unwrap_or(RulesAt::List),
+    };
+    VirtualDom::new_with_props(Page, props)
+        .with_root_context(store.clone())
+        .with_root_context(push)
 }
 
 /// A pusher that counts, and answers as a server that installed the script.
 fn counting() -> (Pusher, Arc<AtomicUsize>) {
     let calls = Arc::new(AtomicUsize::new(0));
     (Pusher(answering(calls.clone())), calls)
-}
-
-/// Let a push on its blocking thread land and redraw.
-async fn settle(dom: &mut VirtualDom) {
-    for _ in 0..20 {
-        let quiet = std::time::Duration::from_millis(100);
-        if tokio::time::timeout(quiet, dom.wait_for_work())
-            .await
-            .is_err()
-        {
-            break;
-        }
-        dom.render_immediate(&mut NoOpMutations);
-    }
 }
 
 /// The opening tag of the element carrying `attribute`.
@@ -102,8 +101,8 @@ fn tag<'a>(page: &'a str, attribute: &str) -> &'a str {
     &page[start..end]
 }
 
-/// Two rules on the seeded account, the second switched off.
-fn two_rules(store: &SqliteStore) {
+/// Two rules on `account`, the second switched off.
+fn two_rules(store: &SqliteStore, account: AccountId) {
     for (name, query, actions) in [
         (
             "Bills",
@@ -122,14 +121,18 @@ fn two_rules(store: &SqliteStore) {
             actions,
             ..Draft::blank()
         };
-        work::save(store, acct_account(), &draft, &Utc).unwrap();
+        work::save(store, account.clone(), &draft, &Utc).unwrap();
     }
-    let off = work::listed(store, acct_account())
-        .unwrap()
-        .pop()
-        .unwrap()
-        .rule;
+    let off = work::listed(store, account).unwrap().pop().unwrap().rule;
     work::switch(store, &off, RuleState::Disabled).unwrap();
+}
+
+fn names(store: &SqliteStore, account: AccountId) -> Vec<String> {
+    work::listed(store, account)
+        .unwrap()
+        .into_iter()
+        .map(|listed| listed.rule.name)
+        .collect()
 }
 
 #[tokio::test]
@@ -138,8 +141,12 @@ async fn a_condition_the_rules_cannot_read_says_why_and_save_is_refused() {
     let (store, _dir) = crate::ui::fixtures::seeded();
     let (push, _) = counting();
     let mut dom = sheet(&store, acct_account(), push);
-    let seen = landed(&mut dom).await;
-    let opened = click(&mut dom, seen.one("aria-label", "New rule"));
+    let seen = {
+        let first = rebuild_into(&mut dom);
+        landed(&mut dom, first).await
+    };
+    let opened = click(&mut dom, seen.one("aria-label", copy::controls::NEW_RULE));
+    let opened = landed(&mut dom, opened).await;
     let query = opened.one("aria-placeholder", "from:bank.example subject:statement");
 
     type_into(&mut dom, query, "frm:ada");
@@ -148,20 +155,18 @@ async fn a_condition_the_rules_cannot_read_says_why_and_save_is_refused() {
         page.contains("“frm:” is not a word a rule knows."),
         "the refusal is not said: {page}"
     );
+    let save = format!("aria-label=\"{}\"", copy::aria::SAVE_RULE);
     assert!(
-        tag(&page, "aria-label=\"Save New rule\"").contains("disabled"),
+        tag(&page, &save).contains("disabled"),
         "Save is offered for a condition no rule can read: {}",
-        tag(&page, "aria-label=\"Save New rule\"")
+        tag(&page, &save)
     );
 
     // Read, it says how much it matches here now, and Save is back.
     type_into(&mut dom, query, "from:ada");
     let page = dioxus_ssr::render(&dom);
     assert!(page.contains("1 conversation matches"), "{page}");
-    assert!(
-        !tag(&page, "aria-label=\"Save New rule\"").contains("disabled"),
-        "{page}"
-    );
+    assert!(!tag(&page, &save).contains("disabled"), "{page}");
     assert!(
         store.rules(acct_account()).unwrap().is_empty(),
         "typing kept a rule"
@@ -169,81 +174,172 @@ async fn a_condition_the_rules_cannot_read_says_why_and_save_is_refused() {
 }
 
 #[tokio::test]
-async fn the_list_says_each_rule_its_condition_and_what_it_does() {
-    dispatching();
-    let (store, _dir) = crate::ui::fixtures::seeded();
-    two_rules(&store);
-    let (push, _) = counting();
-    let mut dom = sheet(&store, acct_account(), push);
-    let seen = landed(&mut dom).await;
-    let page = dioxus_ssr::render(&dom);
-    let bills = page
-        .find("from:bank.example subject:statement")
-        .expect(&page);
-    let news = page.find("from:news@example.com -is:starred").expect(&page);
-    assert!(bills < news, "not in the order they run");
-    assert!(page.contains("Label “Bills” · Mark read"), "{page}");
-    assert!(
-        tag(&page, "aria-label=\"Newsletters on\"").contains("aria-checked=\"false\""),
-        "the switched-off rule is drawn on"
-    );
-
-    // Down, and the order on the page is the order in the store.
-    click(&mut dom, seen.one("aria-label", "Move Bills down"));
-    let page = dioxus_ssr::render(&dom);
-    let bills = page.find("from:bank.example subject:statement").unwrap();
-    let news = page.find("from:news@example.com -is:starred").unwrap();
-    assert!(news < bills, "the move is not drawn");
-    let names: Vec<String> = work::listed(&store, acct_account())
-        .unwrap()
-        .into_iter()
-        .map(|l| l.rule.name)
-        .collect();
-    assert_eq!(names, ["Newsletters", "Bills"]);
-}
-
-#[tokio::test]
-async fn put_on_server_shows_what_the_server_said() {
+async fn saving_a_rule_puts_the_rules_on_the_server_and_goes_back_to_the_list() {
     dispatching();
     let (store, _dir) = crate::ui::fixtures::empty();
     let row = own_server(&store);
     let (push, calls) = counting();
-    let mut dom = sheet(&store, row.id, push);
-    let seen = landed(&mut dom).await;
-    let button = seen.one("aria-label", "Put me@nowhere.example's rules on the server");
-    assert_eq!(
-        calls.load(Ordering::SeqCst),
-        0,
-        "pushed before it was asked"
+    let mut dom = sheet_at(&store, row.id.clone(), push, RulesAt::Rule(None));
+    let seen = {
+        let first = rebuild_into(&mut dom);
+        landed(&mut dom, first).await
+    };
+    type_into(&mut dom, seen.one("aria-placeholder", "Bills"), "Bank");
+    type_into(
+        &mut dom,
+        seen.one("aria-placeholder", "from:bank.example subject:statement"),
+        "from:bank.example",
     );
-    click(&mut dom, button);
-    settle(&mut dom).await;
-    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    // An action, from the menu the Add button opens.
+    let opened = click(&mut dom, seen.one("aria-expanded", "false"));
+    let opened = landed(&mut dom, opened).await;
+    crate::ui::fixtures::pick_named(&mut dom, &opened, "Archive").await;
+    assert_eq!(calls.load(Ordering::SeqCst), 0, "pushed before a save");
+
+    click(&mut dom, seen.one("aria-label", copy::aria::SAVE_RULE));
+    landed(&mut dom, Seen::default()).await;
+    assert_eq!(
+        names(&store, row.id.clone()),
+        ["Bank"],
+        "the rule was not kept"
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 1, "the save was not pushed");
     let page = dioxus_ssr::render(&dom);
-    for said in [
-        "me@nowhere.example: the server now runs 1 rule(s) and the vacation reply",
-        "runs in this client only: a label exists only in this client",
-    ] {
-        assert!(page.contains(said), "{said:?} is not shown: {page}");
-    }
+    assert!(
+        page.contains(copy::controls::NEW_RULE),
+        "it did not go back to the list: {page}"
+    );
+    // A push that worked says nothing.
+    assert!(!page.contains("the server now runs"), "{page}");
 }
 
 #[tokio::test]
-async fn a_provider_without_sieve_shows_the_reason_and_no_button() {
+async fn a_push_the_server_refuses_is_said_at_the_head_of_the_page() {
+    dispatching();
+    let (store, _dir) = crate::ui::fixtures::empty();
+    let row = own_server(&store);
+    two_rules(&store, row.id.clone());
+    let refusing = Pusher(Arc::new(|_, _, _| Err("the server is down".to_owned())));
+    let mut dom = sheet(&store, row.id.clone(), refusing);
+    let seen = {
+        let first = rebuild_into(&mut dom);
+        landed(&mut dom, first).await
+    };
+    // Bills' switch: the first of the list's, in paint order.
+    click(&mut dom, seen.fixed("role", "switch")[0]);
+    landed(&mut dom, Seen::default()).await;
+    let page = dioxus_ssr::render(&dom);
+    assert!(
+        page.contains(&copy::errors::not_on_server("the server is down")),
+        "the failure is not said: {page}"
+    );
+    assert_eq!(
+        work::listed(&store, row.id).unwrap()[0].rule.state,
+        RuleState::Disabled,
+        "the switch was not kept here"
+    );
+}
+
+#[tokio::test]
+async fn the_list_names_each_rule_with_its_switch_and_its_menu_moves_it() {
+    dispatching();
+    let (store, _dir) = crate::ui::fixtures::empty();
+    let row = own_server(&store);
+    two_rules(&store, row.id.clone());
+    let (push, calls) = counting();
+    let mut dom = sheet(&store, row.id.clone(), push);
+    let seen = {
+        let first = rebuild_into(&mut dom);
+        landed(&mut dom, first).await
+    };
+    let page = dioxus_ssr::render(&dom);
+    let bills = page.find(">Bills<").expect(&page);
+    let news = page.find(">Newsletters<").expect(&page);
+    assert!(bills < news, "not in the order they run");
+    assert!(
+        !page.contains("from:bank.example"),
+        "the list says more than the name: {page}"
+    );
+    // A switch per rule, in the order they run: Bills on, Newsletters off.
+    let switches: Vec<&str> = page
+        .split('<')
+        .filter(|tag| tag.contains("role=\"switch\""))
+        .collect();
+    assert_eq!(switches.len(), 2, "a switch per rule: {page}");
+    assert!(
+        switches[0].contains("aria-checked=\"true\""),
+        "{}",
+        switches[0]
+    );
+    assert!(
+        switches[1].contains("aria-checked=\"false\""),
+        "{}",
+        switches[1]
+    );
+
+    // Right-click Bills: Move Down, and the order on the page is the order in the store.
+    let bills_row = seen.one(
+        "id",
+        &super::row_id(&RulesAt::Rule(Some(
+            work::listed(&store, row.id.clone()).unwrap()[0].rule.id,
+        )))
+        .unwrap(),
+    );
+    let opened = right_click(&mut dom, bills_row);
+    let opened = landed(&mut dom, opened).await;
+    let menu = crate::ui::fixtures::menu_names(&dioxus_ssr::render(&dom));
+    assert_eq!(
+        menu,
+        [
+            copy::menus::RUN_ON_EXISTING_MAIL,
+            copy::menus::MOVE_DOWN,
+            copy::menus::DELETE_RULE
+        ],
+        "the first rule cannot move up"
+    );
+    crate::ui::fixtures::pick_named(&mut dom, &opened, copy::menus::MOVE_DOWN).await;
+    landed(&mut dom, Seen::default()).await;
+    assert_eq!(names(&store, row.id), ["Newsletters", "Bills"]);
+    let page = dioxus_ssr::render(&dom);
+    assert!(
+        page.find(">Newsletters<") < page.find(">Bills<"),
+        "the move is not drawn"
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 1, "the move was not pushed");
+}
+
+#[tokio::test]
+async fn a_provider_without_sieve_keeps_rules_here_and_says_nothing_of_a_server() {
     dispatching();
     let built = crate::ui::fixtures::work();
     let row = account_rows(&built.store)
         .into_iter()
         .find(|row| reach(&row.plan).is_err())
         .expect("the Work Space has a Google account");
+    two_rules(&built.store, row.id.clone());
     let (push, calls) = counting();
-    let mut dom = sheet(&built.store, row.id, push);
-    landed(&mut dom).await;
+    let mut dom = sheet(&built.store, row.id.clone(), push);
+    let seen = {
+        let first = rebuild_into(&mut dom);
+        landed(&mut dom, first).await
+    };
+    click(&mut dom, seen.fixed("role", "switch")[0]);
+    landed(&mut dom, Seen::default()).await;
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        0,
+        "a server without rules was asked"
+    );
     let page = dioxus_ssr::render(&dom);
-    assert!(page.contains("offers no ManageSieve"), "{page}");
+    assert!(!page.contains("server"), "a server is mentioned: {page}");
+
+    let mut away = sheet_at(&built.store, row.id, counting().0, RulesAt::Vacation);
+    {
+        let first = rebuild_into(&mut away);
+        landed(&mut away, first).await
+    };
+    let page = dioxus_ssr::render(&away);
     assert!(page.contains("No vacation reply here"), "{page}");
-    assert!(!page.contains("Put on server"), "a push is offered: {page}");
-    assert_eq!(calls.load(Ordering::SeqCst), 0);
 }
 
 /// "Run on existing mail" in each phase it passes through.
@@ -260,11 +356,11 @@ fn Phases() -> Element {
     }
 }
 
-/// Every state the page draws, as one page: the list, the editor with a refusal and its menu
-/// open, the vacation form, a push said, and a run in each phase.
+/// Every state the page draws, as one page: the list, a rule's page with a refusal and its menu
+/// open, the vacation reply's page, and a run in each phase.
 async fn every_state(store: &Arc<SqliteStore>) -> String {
-    two_rules(store);
     let row = own_server(store);
+    two_rules(store, row.id.clone());
     let kept = mail_core::rules::server::vacation_for(
         &super::server::configured(store, &row, Utc::now()),
         "Away until October",
@@ -278,31 +374,46 @@ async fn every_state(store: &Arc<SqliteStore>) -> String {
     store
         .put_vacation(row.id.clone(), Some(&kept), Utc::now())
         .unwrap();
-
     let (push, _) = counting();
-    let mut rules = sheet(store, acct_account(), push.clone());
-    let seen = landed(&mut rules).await;
-    let editing = click(&mut rules, seen.one("aria-label", "Edit Bills"));
+
+    let mut list = sheet(store, row.id.clone(), push.clone());
+    {
+        let first = rebuild_into(&mut list);
+        landed(&mut list, first).await
+    };
+
+    let first = work::listed(store, row.id.clone()).unwrap()[0].rule.id;
+    let mut rule = sheet_at(
+        store,
+        row.id.clone(),
+        push.clone(),
+        RulesAt::Rule(Some(first)),
+    );
+    let seen = {
+        let first = rebuild_into(&mut rule);
+        landed(&mut rule, first).await
+    };
     type_into(
-        &mut rules,
-        editing.one("aria-placeholder", "from:bank.example subject:statement"),
+        &mut rule,
+        seen.one("aria-placeholder", "from:bank.example subject:statement"),
         "frm:bank",
     );
-    click(&mut rules, editing.one("aria-expanded", "false"));
+    click(&mut rule, seen.one("aria-expanded", "false"));
     // The action menu is quire's, drawn in the root's overlay the render after it asks.
-    crate::ui::fixtures::drain(&mut rules);
+    crate::ui::fixtures::drain(&mut rule);
 
-    let mut away = sheet(store, row.id, push);
-    let seen = landed(&mut away).await;
-    click(
-        &mut away,
-        seen.one("aria-label", "Put me@nowhere.example's rules on the server"),
-    );
-    settle(&mut away).await;
+    let mut away = sheet_at(store, row.id, push, RulesAt::Vacation);
+    {
+        let first = rebuild_into(&mut away);
+        landed(&mut away, first).await
+    };
 
     let mut phases = VirtualDom::new(Phases);
     phases.rebuild_in_place();
-    dioxus_ssr::render(&rules) + &dioxus_ssr::render(&away) + &dioxus_ssr::render(&phases)
+    dioxus_ssr::render(&list)
+        + &dioxus_ssr::render(&rule)
+        + &dioxus_ssr::render(&away)
+        + &dioxus_ssr::render(&phases)
 }
 
 #[tokio::test]
@@ -314,11 +425,11 @@ async fn every_class_the_rules_page_draws_is_styled() {
         "ds-toggle",
         "data-validity=\"invalid\"",
         "rules-action",
-        // The rules are a group of quire's rows now, not a list; the menu is the action menu.
         "role=\"menu\"",
         "ds-field-row",
         "rules-field",
         "ds-progress",
+        "ds-pane-stack",
     ] {
         assert!(markup.contains(class), "{class} was not drawn: {markup}");
     }
@@ -343,22 +454,15 @@ async fn render_the_rules_page_to_files() {
         .with_root_context(built.dirs.clone());
     frame.rebuild_in_place();
     let backdrop = dioxus_ssr::render(&frame);
-    let rows = account_rows(&built.store);
-    let own = rows
-        .iter()
+    let own = account_rows(&built.store)
+        .into_iter()
         .find(|row| reach(&row.plan).is_ok())
-        .expect("the Work Space has an account with its own server")
-        .clone();
+        .expect("the Work Space has an account with its own server");
     for (name, query, actions) in [
         (
             "Rust newsletter",
             "from:newsletter@thisweekinrust.example",
             vec![RuleAction::Label("rust".to_owned()), RuleAction::MarkRead],
-        ),
-        (
-            "Mailing list",
-            "to:rust-users subject:\"[rust-users]\"",
-            vec![RuleAction::File("Lists/rust-users".to_owned())],
         ),
         (
             "Build bot",
@@ -374,59 +478,17 @@ async fn render_the_rules_page_to_files() {
         };
         work::save(&built.store, own.id.clone(), &draft, &Utc).unwrap();
     }
-    let last = work::listed(&built.store, own.id.clone())
-        .unwrap()
-        .pop()
-        .unwrap()
-        .rule;
-    work::switch(&built.store, &last, RuleState::Disabled).unwrap();
-    let kept = mail_core::rules::server::vacation_for(
-        &super::server::configured(&built.store, &own, Utc::now()),
-        "Away until 12 October",
-        "I am away until the 12th and reading mail when I am back.\n\nFor the release, write to release@example.com.",
-        Vacation::DEFAULT_DAYS,
-        DateRange {
-            from: Some(Utc::now() + chrono::TimeDelta::days(3)),
-            to: Some(Utc::now() + chrono::TimeDelta::days(18)),
-        },
-    );
-    built
-        .store
-        .put_vacation(own.id.clone(), Some(&kept), Utc::now())
-        .unwrap();
-
-    // The list, the vacation reply and what the server said.
     let (push, _) = counting();
-    let mut dom = sheet(&built.store, own.id.clone(), push.clone());
-    let seen = landed(&mut dom).await;
-    click(
-        &mut dom,
-        seen.one(
-            "aria-label",
-            &format!("Put {}'s rules on the server", own.address),
-        ),
-    );
-    settle(&mut dom).await;
-    crate::ui::fixtures::dump("rules", &inject(&backdrop, &dioxus_ssr::render(&dom)));
-
-    // Editing a rule, with a condition it cannot read and the action menu open.
-    let mut dom = sheet(&built.store, own.id, push.clone());
-    let seen = landed(&mut dom).await;
-    let editing = click(&mut dom, seen.one("aria-label", "Edit Rust newsletter"));
-    type_into(
-        &mut dom,
-        editing.one("aria-placeholder", "from:bank.example subject:statement"),
-        "from:newsletter@thisweekinrust.example frm:weekly",
-    );
-    click(&mut dom, editing.one("aria-expanded", "false"));
-    crate::ui::fixtures::dump("rules-edit", &inject(&backdrop, &dioxus_ssr::render(&dom)));
-
-    // A provider with no ManageSieve: the reasons, no button.
-    let google = rows.iter().find(|row| reach(&row.plan).is_err()).unwrap();
-    let mut dom = sheet(&built.store, google.id.clone(), push);
-    landed(&mut dom).await;
-    crate::ui::fixtures::dump(
-        "rules-provider",
-        &inject(&backdrop, &dioxus_ssr::render(&dom)),
-    );
+    for (name, at) in [
+        ("rules", RulesAt::List),
+        ("rules-new", RulesAt::Rule(None)),
+        ("rules-vacation", RulesAt::Vacation),
+    ] {
+        let mut dom = sheet_at(&built.store, own.id.clone(), push.clone(), at);
+        {
+            let first = rebuild_into(&mut dom);
+            landed(&mut dom, first).await
+        };
+        crate::ui::fixtures::dump(name, &inject(&backdrop, &dioxus_ssr::render(&dom)));
+    }
 }

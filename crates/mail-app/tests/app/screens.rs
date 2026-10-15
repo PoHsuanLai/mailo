@@ -410,3 +410,88 @@ fn screens() {
         shot(&mut h, &out, "tidy-up", dark);
     }
 }
+
+/// The Settings window, at the size it opens at, over the seeded store with two rules on its
+/// account, as `mailo rules add` keeps them.
+fn settings(dark: bool) -> (Harness, tempfile::TempDir) {
+    let dir = tempfile::tempdir().unwrap();
+    let store = seeded(dir.path());
+    for (name, query, actions) in [
+        (
+            "Receipts",
+            "from:shop.example",
+            vec![
+                RuleAction::Label("Receipts".to_owned()),
+                RuleAction::MarkRead,
+            ],
+        ),
+        (
+            "Newsletters",
+            "from:news@example.test",
+            vec![RuleAction::Archive],
+        ),
+    ] {
+        let draft = mail_core::rules::manage::Draft {
+            name: name.to_owned(),
+            query: query.to_owned(),
+            actions,
+            ..mail_core::rules::manage::Draft::blank()
+        };
+        mail_core::rules::manage::save(&store, acct_account(), &draft, &chrono::Utc).unwrap();
+    }
+    let contexts = mail_app::ui::native::contexts(
+        store,
+        mail_app::ui::view::Appearance::default(),
+        None,
+        None,
+        mail_app::ui::Start::Inbox,
+    );
+    let mut env = Environment::default();
+    if dark {
+        env.system.scheme = Scheme::Dark;
+    }
+    let config = HarnessConfig::new(Viewport {
+        width: 780,
+        height: 720,
+        scale_percent: 100,
+    })
+    .with_clock(Clock::Wall)
+    .with_net(NetPolicy::Local)
+    .with_focus_fallback(FocusFallback::Ancestor)
+    .with_contexts(contexts)
+    .with_context(env);
+    let mut harness = Harness::new(mail_app::ui::native::settings_root, config);
+    harness.advance(ms(400));
+    (harness, dir)
+}
+
+/// Settings' page `page`, by its sidebar row.
+fn settings_page(h: &mut Harness, page: &str) {
+    click(h, &format!(".ds-sidebar [*|aria-label=\"{page}\"]"));
+    h.advance(ms(300));
+}
+
+#[test]
+#[ignore = "picture generator: set MAILO_SHOTS to a directory and run with --ignored"]
+fn settings_screens() {
+    let out = std::env::var("MAILO_SHOTS").expect("MAILO_SHOTS names the directory");
+    for dark in [false, true] {
+        let (mut h, _d) = settings(dark);
+        shot(&mut h, &out, "settings-general", dark);
+        click(&mut h, "[*|id=\"general-pane-open-trusted\"]");
+        shot(&mut h, &out, "settings-trusted-senders", dark);
+
+        settings_page(&mut h, "Accounts");
+        shot(&mut h, &out, "settings-accounts", dark);
+        click(&mut h, "[*|aria-label=\"Details for me@example.test\"]");
+        shot(&mut h, &out, "settings-account", dark);
+
+        settings_page(&mut h, "Rules");
+        shot(&mut h, &out, "settings-rules", dark);
+        click(&mut h, "[*|id^=\"rules-pane-open-\"]");
+        shot(&mut h, &out, "settings-rule", dark);
+
+        settings_page(&mut h, "Keyboard");
+        shot(&mut h, &out, "settings-keyboard", dark);
+    }
+}

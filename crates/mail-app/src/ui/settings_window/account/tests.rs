@@ -24,7 +24,7 @@ fn poh(built: &Work) -> AccountId {
 }
 
 /// The Settings window on Accounts with `ADDRESS`'s page pushed by its row.
-fn pushed(built: &Work) -> (VirtualDom, Seen) {
+pub(in crate::ui) fn pushed(built: &Work) -> (VirtualDom, Seen) {
     let (mut dom, seen) = opened_on(built, SettingsPage::Accounts);
     let row = seen.one("aria-label", &format!("Details for {ADDRESS}"));
     let seen = seen.merge(click(&mut dom, row)).merge(drain_seen(&mut dom));
@@ -78,6 +78,22 @@ async fn an_account_s_row_pushes_its_page_under_a_back_button_to_accounts() {
     let page = dioxus_ssr::render(&dom);
     assert!(!on_account_page(&page), "pushed before a click: {page}");
     assert!(page.contains("Add Account\u{2026}"), "{page}");
+    // The list names each account by its address and its provider's mark, never its protocol.
+    // The page's words: its text, not its stylesheets or attributes.
+    let words: String = page
+        .split("</style>")
+        .map(|part| part.split("<style").next().unwrap_or_default())
+        .collect::<String>()
+        .split('<')
+        .filter_map(|tag| tag.split_once('>').map(|(_, text)| text))
+        .collect::<Vec<_>>()
+        .join(" ");
+    for protocol in ["IMAP", "JMAP", "POP3", "SMTP", "Graph"] {
+        assert!(
+            !words.contains(protocol),
+            "the list says {protocol}: {words}"
+        );
+    }
 
     let (dom, _) = pushed(&built);
     let page = dioxus_ssr::render(&dom);
@@ -88,11 +104,23 @@ async fn an_account_s_row_pushes_its_page_under_a_back_button_to_accounts() {
     );
     assert!(page.contains("Receiving"), "{page}");
     assert!(page.contains("Signs in"), "{page}");
-    assert!(
-        page.contains(&format!(r#"aria-label="Remove {ADDRESS}""#)),
-        "{page}"
-    );
     assert!(page.contains("data-page=\"Accounts\""), "{page}");
+    // Download All Mail, the servers, Encryption, and Remove Account… last, alone.
+    let mut from = 0;
+    for drawn in [
+        crate::ui::copy::fields::DOWNLOAD_ALL_MAIL.to_owned(),
+        "Receiving".to_owned(),
+        crate::ui::copy::headers::ENCRYPTION.to_owned(),
+        format!(r#"aria-label="Remove {ADDRESS}""#),
+    ] {
+        from += page[from..]
+            .find(&drawn)
+            .unwrap_or_else(|| panic!("no {drawn:?} after what comes before it: {page}"));
+    }
+    assert!(
+        !page[from..].contains("ds-form-section"),
+        "a section comes after Remove Account…: {page}"
+    );
 }
 
 #[tokio::test]

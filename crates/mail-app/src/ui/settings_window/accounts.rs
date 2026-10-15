@@ -1,7 +1,8 @@
 //! Accounts: a pane of two levels, as System Settings' Internet Accounts is. Its root lists each
-//! account on this computer, a chevron row that pushes the account's own page ([`super::account`],
-//! its servers and Remove Account…) into the same pane; which accounts keep all their mail here;
-//! and Add Account….
+//! account on this computer by its address and its provider's mark, a chevron row that pushes the
+//! account's own page ([`super::account`]) into the same pane; then Add Account…; then Other
+//! Keys, the keys and certificates no account here owns. No protocol is named here: that is the
+//! account's page's.
 //!
 //! The pages are quire's `PaneStack`; which are shown is the window's `Shell`
 //! (`accounts_pane.path`), so the main window can ask for an account's page
@@ -12,27 +13,29 @@
 //! Which Space shows which account is the Space's menu's; this page is every account at once.
 
 use super::account::{AccountPage, back, row_of};
-use super::offline::OfflineCopy;
-use crate::ui::common::{person_tile, tile};
-use crate::ui::data::account_rows;
-use crate::ui::view::{AccountStep, AccountsPage, Shell};
+use crate::ui::common::tile;
+use crate::ui::copy;
+use crate::ui::data::{AccountRow, account_rows};
+use crate::ui::provider_chip::{self, MarkAt};
+use crate::ui::view::{AccountStep, AccountsPage, Marks, Shell};
 use dioxus::prelude::*;
+use ds::components::content::provider_mark::MarkProvider;
 use ds::components::lists::list::model::ListStyle;
 use ds::components::lists::row::size::RowSize;
 use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::icon::family::PlateFamily;
+use ds::style::tokens::control_size::ControlSize;
 use mail_core::SqliteStore;
-use mail_domain::Incoming;
 use porter_core::AccountId;
 use std::sync::Arc;
 
 /// The key of the Add Account… row, which no account id can be.
 const ADD: &str = " add";
 
-/// The pane's name, the root's title and what an account's back button says.
-const TITLE: &str = "Accounts";
+/// The element id of the Other Keys row, where the keyboard goes back to.
+const OTHER_KEYS_ROW: &str = "accounts-pane-open-other-keys";
 
 /// The stack's element id: its back buttons are `accounts-pane-back-root` and `-detail`.
 const STACK: &str = "accounts-pane";
@@ -47,18 +50,25 @@ fn row_id(account: &AccountId) -> String {
 pub(super) fn Accounts(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
     let path = shell.read().accounts_pane.path.clone();
     let title = use_callback(|page: AccountsPage| match page {
-        AccountsPage::List => TITLE.to_owned(),
+        AccountsPage::List => copy::titles::ACCOUNTS.to_owned(),
         AccountsPage::Account(account) => {
             row_of(&account).map_or_else(|| account.to_string(), |row| row.shown())
         }
+        AccountsPage::OtherKeys => copy::titles::OTHER_KEYS.to_owned(),
     });
     let page = use_callback(move |page: AccountsPage| match page {
         AccountsPage::List => rsx! { AccountList { shell, revision } },
         AccountsPage::Account(account) => rsx! { AccountPage { shell, revision, account } },
+        AccountsPage::OtherKeys => rsx! {
+            Form {
+                crate::ui::pgp::keys::KeysPage { whose: crate::ui::pgp::keys::Whose::Others }
+            }
+        },
     });
     let opener = use_callback(|page: AccountsPage| match page {
         AccountsPage::List => None,
         AccountsPage::Account(account) => Some(row_id(&account)),
+        AccountsPage::OtherKeys => Some(OTHER_KEYS_ROW.to_owned()),
     });
     rsx! {
         PaneStack::<AccountsPage> {
@@ -72,7 +82,7 @@ pub(super) fn Accounts(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
     }
 }
 
-/// The root: every account, Add Account… and which accounts keep all their mail here.
+/// The root: every account, Add Account…, and Other Keys.
 #[component]
 fn AccountList(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
     // Read again when an account comes or goes.
@@ -90,8 +100,8 @@ fn AccountList(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
     if rows.is_empty() {
         items.push(ListItem::row(
             " none".to_owned(),
-            "No accounts yet".to_owned(),
-            rsx! { Row { title: "No accounts yet", size: RowSize::Settings } },
+            copy::empty::NO_ACCOUNTS.to_owned(),
+            rsx! { Row { title: copy::empty::NO_ACCOUNTS, size: RowSize::Settings } },
         ));
     }
     for row in rows {
@@ -105,15 +115,14 @@ fn AccountList(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
             shown.clone(),
             rsx! {
                 Row {
-                    leading: person_tile(&shown, &row.address),
+                    leading: mark_of(&row),
                     title: shown.clone(),
-                    detail: Some(TextLine::from(kind_of(&row.plan.incoming))),
                     size: RowSize::Settings,
                     accessory: if opens { Accessory::Chevron } else { Accessory::None },
                     onclick: opens.then(|| EventHandler::new(move |_| push(shell, id.clone()))),
                     common: Common {
                         id: Some(row_id(&row.id)),
-                        aria_label: opens.then(|| format!("Details for {shown}")),
+                        aria_label: opens.then(|| copy::aria::details_for(&shown)),
                         ..Common::default()
                     },
                 }
@@ -122,18 +131,18 @@ fn AccountList(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
     }
     items.push(ListItem::row(
         ADD.to_owned(),
-        "Add Account\u{2026}".to_owned(),
+        copy::controls::ADD_ACCOUNT.to_owned(),
         rsx! {
             Row {
                 leading: tile(Icon::Plus, PlateFamily::Blue),
-                title: "Add Account\u{2026}",
+                title: copy::controls::ADD_ACCOUNT,
                 size: RowSize::Settings,
                 accessory: Accessory::Chevron,
                 onclick: move |_| {
                     crate::ui::add_account::add_from(|offered| adding.set(Some(offered)))
                 },
                 common: Common {
-                    aria_label: Some("Add Account\u{2026}".to_owned()),
+                    aria_label: Some(copy::controls::ADD_ACCOUNT.to_owned()),
                     mounted: Some(EventHandler::new(move |event: MountedEvent| {
                         add_row.set(Some(MountedRef(event.data())));
                     })),
@@ -142,13 +151,28 @@ fn AccountList(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
             }
         },
     ));
+    let other_keys = vec![ListItem::row(
+        OTHER_KEYS_ROW.to_owned(),
+        copy::titles::OTHER_KEYS.to_owned(),
+        rsx! {
+            Row {
+                leading: tile(Icon::Key, PlateFamily::Amber),
+                title: copy::titles::OTHER_KEYS,
+                size: RowSize::Settings,
+                accessory: Accessory::Chevron,
+                onclick: move |_| other_keys(shell),
+                common: Common { id: Some(OTHER_KEYS_ROW.to_owned()), ..Common::default() },
+            }
+        },
+    )];
     rsx! {
         Form {
             FormSection {
-                footer: Some("Choose which accounts a Space shows from the Space's menu.".to_owned()),
-                List::<String> { label: "Accounts", items, style: ListStyle::Grouped }
+                List::<String> { label: copy::titles::ACCOUNTS, items, style: ListStyle::Grouped }
             }
-            OfflineCopy {}
+            FormSection {
+                List::<String> { label: copy::titles::OTHER_KEYS, items: other_keys, style: ListStyle::Grouped }
+            }
         }
         if let Some(redirects) = adding() {
             crate::ui::add_account::AddMenu {
@@ -171,13 +195,24 @@ pub(super) fn push(mut shell: Signal<Shell>, account: AccountId) {
     }
 }
 
-/// What kind of account a row is, said under its address.
-fn kind_of(incoming: &Incoming) -> &'static str {
-    match incoming {
-        Incoming::Imap { .. } => "IMAP",
-        Incoming::Pop3 { .. } => "POP3",
-        Incoming::Graph => "Microsoft 365",
-        Incoming::Jmap { .. } => "JMAP",
-        Incoming::Local => "Mail kept on this computer",
-    }
+/// Push the Other Keys page over the list.
+fn other_keys(mut shell: Signal<Shell>) {
+    shell.write().accounts_pane.path =
+        PanePath::new(AccountsPage::List).pushed(AccountsPage::OtherKeys);
+}
+
+/// What leads an account's row: its provider's mark, as the provider-marks setting draws it, or
+/// the mark of mail kept on this computer.
+fn mark_of(row: &AccountRow) -> RowLeading {
+    let provider = mail_core::provider::provider(&row.plan);
+    let marks = Marks::from(crate::ui::prefs::current().window.provider_marks);
+    let quire = if row.is_local() {
+        MarkProvider::Local
+    } else {
+        provider_chip::mark_of(provider)
+    };
+    let style = provider_chip::mark_style(provider, marks, MarkAt::List);
+    RowLeading::Element(rsx! {
+        ProviderMark { provider: quire, size: ControlSize::Large, style }
+    })
 }

@@ -1,6 +1,5 @@
-/* The Contacts page of Settings: the people and the groups are each a section of quire's
-   grouped rows, the filter a field in the first row. What is laid out here is the width of the
-   filter, and a name being typed into a row. */
-.book-find { width: 16rem; max-width: 100%; }
-.naming { display: flex; align-items: center; gap: var(--s-6); min-width: 0; }
-.book-name { flex: 1; min-width: 0; }
+/* A person, edited from their name in mail: the sender's name in the reader's header, which a
+   right click turns into Edit Contact…, and the popover that hangs from it, the address over the
+   name field and its Save. */
+.sender-name { display: inline-flex; min-width: 0; }
+.contact-editor { display: grid; gap: var(--s-6); width: 260px; }

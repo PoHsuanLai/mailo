@@ -13,7 +13,7 @@ use crate::ui::fixtures::{Seen, acct_account, click, rebuild_into, seeded, type_
 
 thread_local! {
     /// The Settings windows the page last drawn asked for: the composer's bar sends a key to
-    /// make to the Keys and certificates page.
+    /// make to the sending account's page in Settings.
     static ASKED: std::cell::RefCell<Arc<crate::ui::settings_window::tests::Asked>> =
         std::cell::RefCell::new(Arc::default());
 }
@@ -296,11 +296,11 @@ async fn no_key_of_ones_own_offers_to_make_one() {
     );
     assert!(queued(&store).is_empty());
     click(&mut window.dom, after.one("aria-label", "Create a key…"));
-    // Making a key or importing a certificate is the Keys and certificates page's.
+    // Making a key or importing a certificate is the sending account's page's.
     assert_eq!(
         ASKED.with(|asked| asked.borrow().asks()),
-        [Some(crate::ui::settings_window::SettingsAt::Page(
-            crate::ui::view::SettingsPage::Keys
+        [Some(crate::ui::settings_window::SettingsAt::Account(
+            acct_account()
         ))]
     );
 }

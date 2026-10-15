@@ -1,4 +1,4 @@
-use super::{Control, Pair, control_of, sections, value_of, with_value, word_label};
+use super::{Control, Pair, control_of, value_of, with_value, word_label};
 use ds_settings::schema::KeyKind;
 
 fn words(list: &[&str]) -> Vec<String> {
@@ -108,17 +108,5 @@ fn a_value_is_read_and_set_by_its_path() {
     assert_eq!(
         value_of(&again, &spelling),
         toml::Value::String("on".to_owned())
-    );
-}
-
-#[test]
-fn sections_keep_the_order_their_first_key_comes_in() {
-    let titles: Vec<String> = sections(&crate::settings::schema())
-        .into_iter()
-        .map(|(title, _)| title)
-        .collect();
-    assert_eq!(
-        titles,
-        ["Mail list", "Notifications", "Writing", "Reading", "Search"]
     );
 }

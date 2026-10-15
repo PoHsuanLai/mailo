@@ -208,14 +208,7 @@ fn every_control_in_the_window_is_the_size_its_place_calls_for() {
 fn every_control_in_settings_is_the_size_its_place_calls_for() {
     let dir = tempfile::tempdir().unwrap();
     let mut harness = harness(mail_app::ui::native::settings_root, dir.path());
-    for page in [
-        "General",
-        "Accounts",
-        "Contacts",
-        "Rules",
-        "Keys and certificates",
-        "Keyboard",
-    ] {
+    for page in ["General", "Accounts", "Rules", "Keyboard"] {
         let row = format!(".ds-sidebar [*|aria-label=\"{page}\"]");
         settle_until(&mut harness, |h| h.count(&row) == 1);
         let at = harness.centre(&row).unwrap();

@@ -1,22 +1,17 @@
-//! "Put on server": the account's rules and vacation reply compiled to Sieve and installed, as
-//! `mailo sieve push` does, then said the way it says it.
+//! The account's rules and vacation reply compiled to Sieve and installed on its server, as
+//! `mailo sieve push` does: what every save on the Rules page ends with.
 //!
 //! What pushes is a context, [`Pusher`], so a test can answer for the server; the real one signs
-//! in the way the command line does (`rules::server::pushed`). It runs on a blocking thread,
-//! spawned from the click. A server with no ManageSieve has no button, only the reason.
+//! in the way the command line does (`rules::server::pushed`). It runs on a blocking thread. A
+//! server with no ManageSieve is not asked.
 
 use chrono::{DateTime, Utc};
-use dioxus::prelude::*;
-use ds::components::fields::field_row::FieldRow;
-use ds::prelude::*;
-use ds::root::common::Common;
 use mail_core::Pushed;
 use mail_core::SqliteStore;
 use mail_domain::AccountPlan;
 use std::sync::Arc;
 
 use super::super::data::AccountRow;
-use super::super::press::{available, on_primary};
 use mail_core::sync::Configured;
 
 /// Install an account's script: [`mail_core::RuleOps::push`], with the takeover decided. Given the
@@ -90,95 +85,4 @@ pub(in crate::ui) fn put(
     let account = configured(store, row, now);
     let pushed = push(store, &account, now)?;
     Ok(crate::said::rules::said(&account.address, &pushed))
-}
-
-/// Where a push stands. One that failed is ready again, its reason the page's to say.
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum Pushing {
-    Ready,
-    Running,
-    Said(String),
-}
-
-/// The server's group of the page: Put on Server and what the last push said, or the reason
-/// there is no server to put rules on. A push that failed is said at the head of the page, the
-/// page's `said`.
-#[component]
-pub(super) fn ServerPart(
-    row: AccountRow,
-    mut said: Signal<Option<Result<String, String>>>,
-) -> Element {
-    let mut pushing = use_signal(|| Pushing::Ready);
-    if let Err(why) = reach(&row.plan) {
-        return rsx! {
-            FormSection { title: Some("On the server".to_owned()),
-                FieldRow {
-                    label: "No copy on a server",
-                    help: Some(TextLine::from(format!("{why}."))),
-                }
-            }
-        };
-    }
-    let busy = pushing() == Pushing::Running;
-    let label = format!("Put {}'s rules on the server", row.address);
-    let mut start = {
-        let row = row.clone();
-        move |_| {
-            if *pushing.peek() == Pushing::Running {
-                return;
-            }
-            pushing.set(Pushing::Running);
-            said.set(None);
-            let store = consume_context::<Arc<SqliteStore>>();
-            let push = try_consume_context::<Pusher>()
-                .unwrap_or_else(Pusher::server)
-                .0;
-            let row = row.clone();
-            spawn(async move {
-                let done =
-                    tokio::task::spawn_blocking(move || put(&store, &row, &push, Utc::now())).await;
-                let failed = match done {
-                    Ok(Ok(words)) => {
-                        pushing.set(Pushing::Said(words));
-                        return;
-                    }
-                    Ok(Err(why)) => why,
-                    Err(error) => format!("It stopped before it finished: {error}"),
-                };
-                pushing.set(Pushing::Ready);
-                said.set(Some(Err(failed)));
-            });
-        }
-    };
-    let help = match pushing() {
-        Pushing::Running => "Putting them on the server…",
-        _ => "Keeps your rules and vacation reply working while this computer is off.",
-    };
-    rsx! {
-        FormSection { title: Some("On the server".to_owned()),
-            FieldRow {
-                label: "Put on server",
-                help: Some(TextLine::from(help)),
-                Button {
-                    label: "Put on Server",
-                    icon: Icon::Send,
-                    availability: available(!busy),
-                    onclick: on_primary(move || start(())),
-                    common: Common { aria_label: Some(label.to_string()), ..Common::default() },
-                }
-            }
-            if let Pushing::Said(said) = pushing() {
-                {
-                    let (head, rest) = said.split_once('\n').unwrap_or((said.as_str(), ""));
-                    let rest = rest.lines().map(str::trim).filter(|line| !line.is_empty()).collect::<Vec<_>>().join(" ");
-                    rsx! {
-                        FieldRow {
-                            label: head.to_owned(),
-                            help: (!rest.is_empty()).then(|| TextLine::from(rest)),
-                        }
-                    }
-                }
-            }
-        }
-    }
 }
