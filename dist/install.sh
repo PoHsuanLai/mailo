@@ -69,7 +69,7 @@ else
   note "no icon cache to refresh under $PREFIX/share/icons/hicolor"
 fi
 if command -v restorecon >/dev/null && [ -n "$SUDO" ]; then
-  run sudo restorecon -F "$BIN_DEST" "$DESKTOP_DEST" "$ICON_DEST" "$UNIT_DEST" "$INTENTS_DEST" "$SERVICE_DEST" "$SKILL_DIR/SKILL.md" "$SKILL_DIR/skill.toml"
+  asroot restorecon -F "$BIN_DEST" "$DESKTOP_DEST" "$ICON_DEST" "$UNIT_DEST" "$INTENTS_DEST" "$SERVICE_DEST" "$SKILL_DIR/SKILL.md" "$SKILL_DIR/skill.toml"
 fi
 if manager_present; then
   # --global: every user's graphical-session.target wants the unit, whichever session starts it.

@@ -106,6 +106,42 @@ jobs:
       - name: Every library crate builds with no features
         run: ./scripts/check-nodef.sh
 
+  # The same build and tests on Fedora and Arch, inside their own images: a package name or a
+  # library version that only one distribution has shows up here rather than on a person's
+  # machine. The Ubuntu `check` above is the floor for the gates (formatting, clippy, the
+  # scripts); this one builds the workspace and runs the tests. The libraries are the same set
+  # `check` installs: fontconfig to build, the Noto CJK faces for the print tests, and clang, cmake
+  # and perl for the dependencies that compile C (aws-lc, the vendored OpenSSL under SQLCipher).
+  distros:
+    runs-on: ubuntu-latest
+    container: ${{ matrix.image }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: fedora:latest
+            install: >-
+              dnf install -y git curl tar gcc gcc-c++ make cmake clang perl-core
+              pkgconf-pkg-config fontconfig-devel google-noto-sans-cjk-fonts
+          - image: archlinux:latest
+            install: >-
+              pacman -Syu --noconfirm --needed git curl tar base-devel cmake clang perl
+              fontconfig noto-fonts-cjk
+    # Cold, the same builds as `check` less clippy; 40 matches it.
+    timeout-minutes: 40
+    steps:
+      # Before the checkout, because the images carry neither git nor a compiler.
+      - name: System libraries for the window, and the CJK faces print is tested with
+        run: ${{ matrix.install }}
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.image }}
+          cache-on-failure: true
+      - name: Tests
+        run: cargo test --workspace
+
   # Real sockets, against servers this repository did not write: a Twisted IMAP4Server, an
   # aiosmtpd SMTP server, and a POP3 server. Separate from `check` because it needs Python and a
   # few seconds of setup, and because a failure here means something different — the protocol
