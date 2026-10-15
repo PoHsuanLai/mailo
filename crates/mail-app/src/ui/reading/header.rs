@@ -1,5 +1,5 @@
-//! A message's header in the reader, as Mail draws it: the sender's avatar, their name and
-//! address on one line with the date at its end, and under it whom it was sent to.
+//! A message's header in the reader: the sender's avatar, their name (their address its tooltip)
+//! with the date at the line's end, and under it whom it was sent to, unless that was only you.
 //!
 //! A conversation of one message has one header. In a longer one every message keeps a compact
 //! header (a small avatar, the name, the date) and only the message the conversation opens on,
@@ -61,6 +61,18 @@ pub(super) fn recipients(prefix: &str, people: &[Address]) -> Option<String> {
     })
 }
 
+/// The To line, unless the message went to nobody but `yours` (the person's own addresses,
+/// lowercased), which is what a message in their inbox goes to and needs no saying.
+pub(super) fn to_line(message: &Message, yours: &[String]) -> Option<String> {
+    let only_you = message.cc.is_empty()
+        && message.to.len() == 1
+        && yours.contains(&message.to[0].email.trim().to_lowercase());
+    if only_you {
+        return None;
+    }
+    recipients("To", &message.to)
+}
+
 /// What the newest message's header carries besides the message: the reader's checks line and
 /// logo are keyed by the message and its body, the list's way out by the conversation.
 #[derive(Clone, PartialEq)]
@@ -80,6 +92,9 @@ pub(super) fn MessageHead(
     /// When it came, briefly, and in full for the tooltip.
     when: (String, String),
     #[props(default)] extras: Option<Extras>,
+    /// The person's own addresses, lowercased: a To line of only them is not drawn.
+    #[props(default)]
+    yours: Vec<String>,
 ) -> Element {
     let name = from_name(&message);
     let addr = address(&message);
@@ -110,7 +125,7 @@ pub(super) fn MessageHead(
             }
         },
         Detail::Full => {
-            let to = recipients("To", &message.to);
+            let to = to_line(&message, &yours);
             let cc = recipients("Cc", &message.cc);
             let avatar = match &extras {
                 Some(Extras {
@@ -129,12 +144,15 @@ pub(super) fn MessageHead(
                     {avatar}
                     div { class: "reader-who",
                         div { class: "msg-line",
-                            Label { text: name, style: LabelStyle::Headline, common: crate::ui::common::classed("ds-truncate") }
+                            if addr.is_empty() {
+                                Label { text: name, style: LabelStyle::Headline, common: crate::ui::common::classed("ds-truncate") }
+                            } else {
+                                Tooltip { text: addr,
+                                    Label { text: name, style: LabelStyle::Headline, common: crate::ui::common::classed("ds-truncate") }
+                                }
+                            }
                             if let Some(Extras { checked: (id, raw), .. }) = &extras {
                                 super::super::checks::SenderChecks { key: "{id}-{raw:?}", message: *id, body: *raw }
-                            }
-                            if !addr.is_empty() {
-                                Label { text: addr, role: LabelRole::Secondary, style: LabelStyle::Footnote, common: crate::ui::common::classed("ds-truncate") }
                             }
                             {date}
                         }
@@ -156,7 +174,7 @@ pub(super) fn MessageHead(
 
 #[cfg(test)]
 mod tests {
-    use super::{Detail, MessageHead, detail_at, recipients};
+    use super::{Detail, MessageHead, detail_at, recipients, to_line};
     use dioxus::prelude::*;
     use mail_domain::*;
 
@@ -263,11 +281,39 @@ mod tests {
         );
         assert_eq!(page.matches("class=\"ds-avatar\"").count(), 1, "{page}");
         assert_eq!(page.matches(">Bob<").count(), 1, "{page}");
-        assert!(page.contains(">bob@example.test<"), "{page}");
+        // The address is the name's tooltip, not a word on the line.
+        assert!(!page.contains(">bob@example.test<"), "{page}");
         assert!(page.contains("aria-label=\"2023-11-15 07:13\""), "{page}");
         assert!(page.contains(">07:13<"), "{page}");
         assert!(page.contains(">To: Ada, Grace +3<"), "{page}");
         assert!(page.contains(">Cc: Edsger<"), "{page}");
+    }
+
+    #[test]
+    fn a_message_to_only_you_has_no_to_line() {
+        let yours = vec!["me@example.test".to_owned()];
+        let me = person("Me", "Me@Example.test");
+        let ada = person("Ada", "ada@example.test");
+        let cases: &[(&str, Vec<Address>, Vec<Address>, Option<&str>)] = &[
+            ("only you", vec![me.clone()], vec![], None),
+            (
+                "you and another",
+                vec![me.clone(), ada.clone()],
+                vec![],
+                Some("To: Me, Ada"),
+            ),
+            (
+                "you, copied to another",
+                vec![me.clone()],
+                vec![ada.clone()],
+                Some("To: Me"),
+            ),
+            ("someone else", vec![ada.clone()], vec![], Some("To: Ada")),
+        ];
+        for (name, to, cc, want) in cases {
+            let got = to_line(&message(to.clone(), cc.clone()), &yours);
+            assert_eq!(got.as_deref(), *want, "{name}");
+        }
     }
 
     #[test]

@@ -144,8 +144,8 @@ fn consent_buttons(markup: &str) -> usize {
 
 #[tokio::test]
 async fn showing_images_removes_the_consent_button() {
-    // Counted before and after the click. The bar stays, so "no button" is 0, not an
-    // empty page, and the blocked URL is what the click is allowed to reveal.
+    // The bar asks with one button; the click takes the bar away, and the blocked URL is what
+    // the click is allowed to reveal.
     dispatching();
     let (store, _dir) = realistic();
     let thread = thread_like(&store, "receipt");
@@ -165,14 +165,10 @@ async fn showing_images_removes_the_consent_button() {
     let id = seen.one("aria-label", "Show images");
     click(&mut dom, id);
     let after = dioxus_ssr::render(&dom);
-    assert_eq!(
-        consent_buttons(&after),
-        0,
-        "consent left the Show images button in place:\n{after}"
-    );
+    // Once shown, images say nothing more: the bar goes with the question it asked.
     assert!(
-        after.contains("Showing remote images from stripe.test"),
-        "the bar did not say whose images are loading:\n{after}"
+        !after.contains(r#"class="ds-inline-banner""#) && !after.contains("Showing remote images"),
+        "a banner stayed after consent:\n{after}"
     );
     assert!(
         after.contains("track.stripe.test"),
@@ -606,8 +602,8 @@ async fn always_opens_with_images_and_no_blocked_banner() {
     let markup = dioxus_ssr::render(&dom);
     assert!(loaded_pixel(&markup), "Always still blocked:\n{markup}");
     assert!(
-        markup.contains("Showing remote images from example.test"),
-        "the bar did not say whose images are loading:\n{markup}"
+        !markup.contains(r#"class="ds-inline-banner""#),
+        "a banner over images that were always going to load:\n{markup}"
     );
     assert!(
         !markup.contains("Always load from"),

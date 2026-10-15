@@ -14,7 +14,7 @@ use ds_blitz::{FocusFallback, NetPolicy, PrintOutcome};
 use ds_harness::{Clock, Driver, Harness, HarnessConfig, Query as Read, Viewport};
 
 use crate::drive;
-use drive::{Drive, PRIMARY};
+use drive::Drive;
 use mail_app::ui::native::WallClock;
 use mail_core::notify::{Notification, Notifier, Opens};
 use mail_core::{Arrival, Destination, absorb, absorb_into};
@@ -390,71 +390,4 @@ fn a_reminder_set_in_the_composer_brings_the_conversation_back_with_no_reply_yet
     // A day on, nothing is said again.
     harness.advance(Duration::from_secs(24 * 60 * 60));
     assert_eq!(recorder.0.lock().unwrap().len(), 1, "announced once");
-}
-
-/// The reader's bell sets a reminder on the open conversation, the reader says so, and Ctrl Z
-/// takes it back like any other gesture.
-#[test]
-fn the_reader_s_bell_sets_a_reminder_and_ctrl_z_takes_it_back() {
-    let (mut harness, _dir, store, _recorder, clock) = open();
-    let subject = format!("{} .ds-thread-sub", row(2));
-    let rect = harness
-        .rect(&subject)
-        .unwrap_or_else(|| panic!("{subject} is not drawn:\n{}", harness.html()));
-    harness.click(Point {
-        x: ds::prelude::Px(rect.origin.x.0 + 24.0),
-        y: ds::prelude::Px(rect.origin.y.0 + rect.size.height.0 / 2.0),
-    });
-    until(&mut harness, "the reader opens", |h| {
-        h.count(".reader-head h2") == 1
-    });
-    let thread = |store: &SqliteStore| {
-        let query = Query {
-            filter: Filter::Subject(TextMatch::Contains(INBOX[1].1.to_owned())),
-            sort: Sort {
-                property: Property::Date,
-                dir: SortDir::Desc,
-            },
-            page: PageReq {
-                after: None,
-                limit: 1,
-            },
-        };
-        store.threads(&query, chrono::Utc::now()).unwrap().items[0].follow_up
-    };
-    assert_eq!(thread(&store), FollowUp::Inactive);
-    assert_eq!(harness.count(".reader-head .follow-up-note"), 0);
-
-    let bell = ".reader-head [*|aria-label=\"Remind me if no reply\"]";
-    harness.click(centre(&harness, bell));
-    until(&mut harness, "the menu opens", |h| {
-        h.count(".ds-pick-list-rows > .ds-row") > 0
-    });
-    press_menu_row(&mut harness, "In 3 days");
-    until(&mut harness, "the reader says it", |h| {
-        h.text_of(".reader-head .follow-up-note")
-            .is_some_and(|note| note.contains("if nobody replies"))
-    });
-    let FollowUp::Until { at, set } = thread(&store) else {
-        panic!("no reminder: {:?}", thread(&store));
-    };
-    assert!(
-        set <= clock.now() && clock.now() - set < chrono::TimeDelta::minutes(1),
-        "set as it was asked"
-    );
-    assert_eq!(
-        at.with_timezone(&chrono::Local).date_naive(),
-        set.with_timezone(&chrono::Local).date_naive() + chrono::TimeDelta::days(3)
-    );
-    assert_eq!(
-        harness.attr(bell, "aria-pressed").as_deref(),
-        Some("true"),
-        "the bell is pressed while a reminder stands"
-    );
-
-    harness.chord(&[PRIMARY], Key::Char('z'));
-    until(&mut harness, "Ctrl Z took it back", |h| {
-        h.count(".reader-head .follow-up-note") == 0
-    });
-    assert_eq!(thread(&store), FollowUp::Inactive);
 }

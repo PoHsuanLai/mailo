@@ -37,21 +37,15 @@ pub(in crate::ui) enum Line {
         sentence: String,
         warning: Option<String>,
     },
-    /// Answered on this machine: a quiet note, no buttons.
-    Settled(&'static str),
 }
 
 /// The line for `standing`, or `None` when there is nothing to say.
 ///
-/// An answered message keeps a one-line note rather than going silent. The choice is between
-/// two calm states, and the note is the one that answers the question a person has when they
-/// reopen a message that once asked — "did I send one?" — without a trip to the command line;
-/// it is one line of faint text with nothing to press, which is as quiet as a line can be.
+/// An answered message says nothing more: the toast said what the answer did when it was given,
+/// and the reader keeps no note of a question that is over.
 pub(in crate::ui) fn line(standing: &Standing) -> Option<Line> {
     match &standing.state {
-        ReceiptState::NotAsked | ReceiptState::Unknown => None,
-        ReceiptState::Answered(ReceiptAnswer::Sent) => Some(Line::Settled("Receipt sent")),
-        ReceiptState::Answered(ReceiptAnswer::Declined) => Some(Line::Settled("Receipt declined")),
+        ReceiptState::NotAsked | ReceiptState::Unknown | ReceiptState::Answered(_) => None,
         ReceiptState::Pending(ask) => {
             let to: Vec<&str> = ask.to.iter().map(|a| a.email.as_str()).collect();
             // The receipt goes to the `Disposition-Notification-To` addresses. `Differs` means

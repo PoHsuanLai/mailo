@@ -86,6 +86,8 @@ pub const REPLY_ALL: &str = "Reply All";
 pub const FORWARD: &str = "Forward";
 pub const MOVE_TO: &str = "Move to…";
 pub const DOWNLOAD: &str = "Download";
+pub const PRINT: &str = "Print…";
+pub const VIEW: &str = "View";
 
 /// The word for the side of an action a conversation is offered.
 pub fn offered(say: mail_core::view::Say) -> &'static str {

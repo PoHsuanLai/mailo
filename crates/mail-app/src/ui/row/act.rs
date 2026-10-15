@@ -114,7 +114,7 @@ pub(in crate::ui) fn turn_off(
     true
 }
 
-pub(super) fn op_icon(kind: OpKind) -> Icon {
+pub(in crate::ui) fn op_icon(kind: OpKind) -> Icon {
     match kind {
         OpKind::Archive => Icon::Archive,
         OpKind::Trash => Icon::Trash,

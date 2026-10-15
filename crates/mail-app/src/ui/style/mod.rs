@@ -425,14 +425,14 @@ pub(in crate::ui) mod tests {
         assert!(off.is_empty(), "colours written as literals: {off:#?}");
     }
 
-    /// Colour rule: the reader and the composer are one ground, `--surface-2`, from the head to
-    /// the body and the inline reply under a thread.
+    /// Colour rule: the reader and the composer are one ground, `--surface`, the list's, from the
+    /// head to the body and the inline reply under a thread.
     #[test]
     fn the_reader_and_the_composer_are_on_one_ground() {
         for selector in [".reader", ".cpage", ".c-main", ".inline-reply"] {
             assert_eq!(
                 values_of(selector, "background"),
-                ["var(--surface-2)"],
+                ["var(--surface)"],
                 "{selector}"
             );
         }

@@ -18,12 +18,9 @@ use ds::components::content::avatar::{
     AvatarFace, AvatarShape, AvatarSize, AvatarTone, person_hue,
 };
 use ds::components::content::label::LabelStyle;
-use ds::components::controls::button_model::{Bezel, ImagePosition};
 use ds::components::overlays::inline_banner::InlineBanner;
 use ds::prelude::*;
 use ds::root::common::Common;
-use ds::style::icon::render::Glyph;
-use ds::style::tokens::control_size::ControlSize;
 use mail_core::message::{FrameBody, ON_THE_FRAME, Sent};
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
@@ -60,14 +57,6 @@ fn when_short(message: &Message, now: chrono::DateTime<chrono::Utc>) -> String {
     mail_core::when::listed(message.date, now, &chrono::Local)
 }
 
-/// The host a remote image would report the open to.
-fn host_of(email: &str) -> &str {
-    match email.rsplit_once('@') {
-        Some((_, host)) if !host.is_empty() => host,
-        _ => email,
-    }
-}
-
 fn show_images() -> &'static str {
     "Show images"
 }
@@ -75,32 +64,6 @@ fn show_images() -> &'static str {
 /// The banner's second offer: this sender's images, from now on.
 fn always_load_from(email: &str) -> String {
     format!("Always load from {email}")
-}
-
-/// Mute, in the head's tools: pressed while the conversation is muted, and a press mutes or
-/// unmutes it through the same gesture as the row's button, so Ctrl Z and the toast take it back.
-fn mute_tool(thread: ThreadId, mute: Mute, shell: Signal<Shell>, revision: Signal<u64>) -> Element {
-    let (label, short, pressed) = match mute {
-        Mute::Muted => ("Unmute this conversation", "Unmute", Check::On),
-        Mute::Unmuted => ("Mute this conversation", "Mute", Check::Off),
-    };
-    let keys = crate::ui::actions::tip(crate::ui::view::Shortcut::ToggleMute);
-    rsx! {
-        Button {
-            bezel: Bezel::Toolbar,
-            size: ControlSize::Large,
-            image: ImagePosition::Only,
-            icon: Some(IconSource::Glyph(Icon::BellOff)),
-            label: label.to_owned(),
-            title: Some(short.to_owned()),
-            title_shortcut: keys,
-            value: Some(pressed),
-            onclick: move |_| {
-                let store = consume_context::<Arc<SqliteStore>>();
-                super::picks::mute_all(&store, shell, revision, &[thread]);
-            },
-        }
-    }
 }
 
 /// The key [`super::unsubscribe::Leave`] is mounted under: the thread and what each of its
@@ -296,18 +259,13 @@ pub(super) fn Reader(
     // says everything in its header, the rest who and when.
     let count = shown.len();
     let now = super::clock::now();
-    // The banner: what is still blocked comes first, since that is what it asks about; else the
-    // host whose images are showing. Both name the newest such message's sender.
+    // The banner, only while images are held back: it asks about the newest such message's
+    // sender. Images once shown say nothing more.
     let blocked = shown
         .iter()
         .rev()
         .find(|(_, _, remote, showing)| *remote && !showing)
         .map(|(message, ..)| message.clone());
-    let from_host = shown
-        .iter()
-        .rev()
-        .find(|(_, _, remote, _)| *remote)
-        .map(|(message, ..)| host_of(&message.from.email).to_owned());
     // "Always load from" the blocked sender: offered where it could ever load their images
     // (not under `Always`, which already would; not in Junk, which is always asked about), and
     // never to a sender who is not provably who the address says: trusting a forged address would
@@ -344,50 +302,38 @@ pub(super) fn Reader(
         })
         .collect();
 
+    // The person's own addresses, for the header to leave out a To line of only them.
+    let yours: Vec<String> = super::data::account_rows(&store)
+        .into_iter()
+        .map(|row| row.address.trim().to_lowercase())
+        .collect();
+    let toolbar = tools::toolbar_ops(&mail_core::view::hover_in(
+        shell.read().saved_view(),
+        &loaded.summary,
+    ));
     rsx! {
         div { class: "reader-head",
             div { class: "head-row",
                 span { class: "spacer" }
                 div { class: "bar-tools",
                     if let Some(revision) = revision {
-                        super::move_to::MoveTool { thread, shell, revision }
-                        {mute_tool(thread, loaded.summary.mute, shell, revision)}
-                        super::follow_up::FollowUpTool {
-                            thread,
-                            current: loaded.summary.follow_up,
+                        tools::ReaderTools { summary: loaded.summary.clone(), ops: toolbar.clone(), shell, revision }
+                        tools::ReaderMore {
+                            summary: loaded.summary.clone(),
+                            toolbar: toolbar.clone(),
+                            peek: (place == ReaderIn::Pane).then_some(peek),
                             shell,
                             revision,
                         }
                     }
-                    super::print::PrintTool { thread }
-                    if place == ReaderIn::Pane {
-                        tools::ViewMenu { thread, peek, shell }
-                    }
-                    if let Some(revision) = revision {
-                        tools::ReaderMore { summary: loaded.summary.clone(), shell, revision }
-                    }
                 }
             }
             h2 { Label { text: subject, style: LabelStyle::Title, common: crate::ui::common::classed("reader-subject") } }
-            if loaded.summary.mute == Mute::Muted {
-                div { class: "muted-note", role: "status",
-                    Glyph { icon: Icon::BellOff, size: IconSize::Compact }
-                    span { "Muted — new replies arrive read and skip the inbox" }
-                }
-            }
-            super::follow_up::FollowUpNote { follow_up: loaded.summary.follow_up }
             {rsx! { super::receipt::Receipts { key: "{leave_key}", bodies: bodies.clone() } }}
         }
         div { class: "reader-body",
             div { class: "banners",
-            if let Some(host) = from_host {
-                if blocked.is_none() {
-                    InlineBanner {
-                        severity: Severity::Info,
-                        icon: Some(Icon::Image),
-                        text: format!("Showing remote images from {host}"),
-                    }
-                } else {
+            if blocked.is_some() {
                     InlineBanner {
                         severity: Severity::Warn,
                         icon: Some(Icon::Image),
@@ -423,7 +369,6 @@ pub(super) fn Reader(
                             }
                         },
                     }
-                }
             }
             }
             for (at, ((message, body, ..), attached)) in shown.into_iter().zip(attached).enumerate() {
@@ -447,6 +392,7 @@ pub(super) fn Reader(
                             revision,
                         }),
                         message: message.clone(),
+                        yours: yours.clone(),
                     }
                     super::pgp::Seal {
                         key: "{message.id}-{message.body.raw():?}",
@@ -482,11 +428,12 @@ pub(super) fn Reader(
                                 landed,
                             }
                         },
-                        Some(FrameBody::Present { html, .. }) => rsx! {
+                        Some(FrameBody::Present { html, plain, .. }) => rsx! {
                             blocks::MessageView {
                                 holder: consent.as_ref().map(|(_, holder)| *holder),
                                 message_id: message.id,
                                 html,
+                                plain,
                             }
                         },
                     }

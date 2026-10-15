@@ -1,4 +1,4 @@
-//! Lane 11: printing. The reader's Print menu offers three rows: the conversation as one
+//! Lane 11: printing. Print… in the reader's ⋯ offers three rows: the conversation as one
 //! flowing printout, each message on pages of its own, and the conversation saved as a PDF.
 //! The print dialog is a recorder; the PDF lands where the window saves files.
 
@@ -6,7 +6,7 @@ use ds_harness::Query;
 
 use super::window::{INBOX, Window, deliver, hours_ago};
 
-const PRINT: &str = ".reader-head [*|aria-label=\"Print this conversation\"]";
+const MORE: &str = ".reader-head [*|aria-label=\"More\"]";
 
 /// A second message in the review's conversation, so a printout has two to lay out.
 fn answered(store: &mail_core::SqliteStore) {
@@ -31,9 +31,10 @@ fn pages(pdf: &[u8]) -> u32 {
         .page_count()
 }
 
-/// Pick `row` from the Print menu.
+/// Pick `row` from the Print… menu off the reader's ⋯.
 fn print(window: &mut Window, row: &str) {
-    window.click(PRINT);
+    window.click(MORE);
+    window.menu_item("Print…");
     window.menu_item(row);
 }
 

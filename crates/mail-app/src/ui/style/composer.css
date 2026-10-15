@@ -7,7 +7,7 @@
    inset, `--s-18`, on every edge: the subject in the head band where a message's title is, the
    property lines where its header is, then the body on the same ground. */
 .cpage {
-  display: flex; flex-direction: column; min-height: 0; height: 100%; background: var(--surface-2); position: relative;
+  display: flex; flex-direction: column; min-height: 0; height: 100%; background: var(--surface); position: relative;
 }
 .cpage.sending { opacity: 0; transition: opacity var(--t-quick) var(--e-exit); }
 .c-foot .grow { flex: 1; }
@@ -38,7 +38,7 @@
 
 /* the document: one surface, like writing a letter, set as the reader sets a message (its frame's
    14 px, 1.5 and paragraph gap in `reading::html_sheet`), so what is written is what is read */
-.c-main { flex: 1 0 auto; padding: var(--s-16) var(--s-18) var(--s-18); background: var(--surface-2); }
+.c-main { flex: 1 0 auto; padding: var(--s-16) var(--s-18) var(--s-18); background: var(--surface); }
 .c-edit { position: relative; }
 .c-body {
   display: block; position: relative; outline: none; font-family: var(--font-ui); font-size: var(--fs-reading); line-height: 1.65; color: var(--ink);
@@ -53,7 +53,7 @@
 .c-body h4 { font-size: var(--fs-base); margin: .7em 0 .3em; }
 .c-body blockquote { border-left: var(--s-2) solid var(--ink-soft); padding-left: var(--s-12); margin-left: 0; color: var(--ink-soft); }
 .c-body pre {
-  font-family: var(--font-code); font-size: var(--fs-meta); line-height: 1.65; background: var(--surface);
+  font-family: var(--font-code); font-size: var(--fs-meta); line-height: 1.65; background: var(--surface-2);
   border: var(--hair) solid var(--line-soft); border-radius: var(--r-media); padding: var(--s-10) var(--s-12); white-space: pre-wrap;
 }
 .c-body ul, .c-body ol { padding-left: var(--s-22); }
@@ -72,7 +72,7 @@
 .c-body .m-s { text-decoration: line-through; }
 .c-body .m-u.m-s { text-decoration: underline line-through; }
 .c-body .m-code {
-  font-family: var(--font-code); font-size: var(--fs-meta); background: var(--surface); border: var(--hair) solid var(--line-soft);
+  font-family: var(--font-code); font-size: var(--fs-meta); background: var(--surface-2); border: var(--hair) solid var(--line-soft);
   padding: 0 var(--s-4); border-radius: var(--r-tiny);
 }
 .c-body .m-a { color: var(--accent-text); text-underline-offset: var(--s-2); text-decoration: underline; }
@@ -85,7 +85,7 @@
 .c-sel { position: absolute; background: var(--accent-soft); border-radius: var(--r-micro); }
 .c-caret { position: absolute; width: var(--caret-w); background: var(--accent-text); }
 .c-preedit {
-  position: absolute; white-space: pre; font-size: var(--fs-reading); color: var(--ink); background: var(--surface-2);
+  position: absolute; white-space: pre; font-size: var(--fs-reading); color: var(--ink); background: var(--surface);
   text-decoration: underline;
 }
 
@@ -99,14 +99,14 @@
 .obj:hover > .ograb { opacity: 1; }
 .ograb:hover { color: var(--ink); }
 .o-img { margin-inline: 0; }
-.o-img .imgbox { border-radius: var(--r-media); overflow: hidden; border: var(--hair) solid var(--line-soft); background: var(--surface); }
+.o-img .imgbox { border-radius: var(--r-media); overflow: hidden; border: var(--hair) solid var(--line-soft); background: var(--surface-2); }
 .o-img .imgbox img { display: block; width: 100%; height: auto; }
 .o-img .pick {
   display: flex; align-items: center; gap: var(--s-10); padding: var(--s-14); color: var(--ink-faint); font-size: var(--fs-help);
-  border: var(--hair) dashed var(--line); border-radius: var(--r-media); background: var(--surface);
+  border: var(--hair) dashed var(--line); border-radius: var(--r-media); background: var(--surface-2);
 }
 .o-img figcaption { font-size: var(--fs-help); color: var(--ink-faint); margin-top: var(--s-5); }
-.o-table .tbl { overflow-x: auto; border: var(--hair) solid var(--line-soft); border-radius: var(--r-media); background: var(--surface); }
+.o-table .tbl { overflow-x: auto; border: var(--hair) solid var(--line-soft); border-radius: var(--r-media); background: var(--surface-2); }
 .o-table table { border-collapse: collapse; width: 100%; }
 .o-table td { border: var(--hair) solid var(--line-soft); padding: var(--s-6) var(--s-9); min-width: 80px; vertical-align: top; }
 .o-table tr:first-child td {
@@ -149,7 +149,7 @@
 
 /* reply lives under the thread, set as the next message would be: across the reader, a hairline
    over it, its lines and its body on the header's ground */
-.inline-reply { border-top: var(--hair) solid var(--line-soft); background: var(--surface-2); position: relative; }
+.inline-reply { border-top: var(--hair) solid var(--line-soft); background: var(--surface); position: relative; }
 .inline-reply.parking { opacity: 0; transition: opacity var(--t-quick) var(--e-exit); }
 .inline-reply .c-scroll { overflow: visible; }
 .inline-reply .c-body { min-height: 90px; }

@@ -1,14 +1,11 @@
-//! The reader head's Print tool, and the pop-up menu it opens: the Mac's File menu's printing
-//! commands, hung under the button as the reader's other menus are.
+//! Print…, a further menu off the reader's ⋯: the Mac's File menu's printing commands, hung
+//! under the ⋯ as the reader's other menus are.
 
 use super::super::menu::anchor_at;
 use super::{Job, print, save};
 use dioxus::prelude::*;
-use ds::components::controls::button_model::{Bezel, ImagePosition};
 use ds::host::measure::MountedRef;
 use ds::prelude::*;
-use ds::root::common::Common;
-use ds::style::tokens::control_size::ControlSize;
 use mail_domain::ThreadId;
 use mail_mime::Pages;
 
@@ -51,43 +48,28 @@ fn rows() -> Vec<MenuItem<PrintChoice>> {
         .collect()
 }
 
-/// Print, in the head's tools. It opens a menu rather than printing at once: one page flow or a
-/// page per message, and saving as a PDF. ⌘P prints the whole conversation without asking.
+/// Print…, from the reader's ⋯: one page flow or a page per message, and saving as a PDF, hung
+/// where the ⋯ hangs. ⌘P prints the whole conversation without asking.
 #[component]
-pub(in crate::ui) fn PrintTool(thread: ThreadId) -> Element {
-    let mut open = use_signal(|| Shown::Hidden);
-    let mut tool = use_signal(|| None::<MountedRef>);
+pub(in crate::ui) fn PrintMenu(
+    thread: ThreadId,
+    anchor: Option<MountedRef>,
+    on_close: EventHandler<()>,
+) -> Element {
     rsx! {
-        Button {
-            bezel: Bezel::Toolbar,
-            size: ControlSize::Large,
-            image: ImagePosition::Only,
-            label: "Print this conversation",
-            title: Some("Print".to_owned()),
-            title_shortcut: crate::ui::actions::tip_standard(chordkit::StandardAction::Print),
-            icon: Some(IconSource::Glyph(Icon::Printer)),
-            shown: Some(open()),
-            onclick: move |_| open.set(open().flipped()),
-            common: Common {
-                mounted: Some(EventHandler::new(move |event: MountedEvent| tool.set(Some(MountedRef(event.data()))))),
-                ..Common::default()
+        Menu::<PrintChoice> {
+            placement: MenuPlacement::Popup,
+            anchor: anchor_at(anchor),
+            items: rows(),
+            onpick: move |choice: PrintChoice| {
+                on_close.call(());
+                let job = job_of(thread, choice);
+                match choice {
+                    PrintChoice::Print(_) => print(job),
+                    PrintChoice::Save => save(job),
+                }
             },
-        }
-        if open() == Shown::Visible {
-            Menu::<PrintChoice> {
-                placement: MenuPlacement::Popup,
-                anchor: anchor_at(tool()),
-                items: rows(),
-                onpick: move |choice: PrintChoice| {
-                    open.set(Shown::Hidden);
-                    let job = job_of(thread, choice);
-                    match choice {
-                        PrintChoice::Print(_) => print(job),
-                        PrintChoice::Save => save(job),
-                    }
-                },
-                onclose: move |()| open.set(Shown::Hidden),
-            }
+            onclose: move |()| on_close.call(()),
         }
     }
 }

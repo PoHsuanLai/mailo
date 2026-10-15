@@ -34,6 +34,11 @@ pub(in crate::ui) enum Pick {
     /// Download: the conversation's messages as the server sent them, an `.eml` each, into the
     /// downloads directory. The reader's ⋯ only.
     Download,
+    /// Print…: its ways to print, a further menu. The reader's ⋯ only.
+    Print,
+    /// View: the peek modes and a window of its own, a further menu. The reader's ⋯ only, and
+    /// only in the pane.
+    View,
 }
 
 /// What asked for the menu, which says where it hangs.
@@ -79,7 +84,9 @@ fn slot(pick: Pick) -> (Group, u8) {
         Pick::Window => return (Group::Open, 0),
         Pick::Press(Pressed::MoveTo) => return (Group::Organise, 3),
         Pick::Remind => return (Group::Organise, 1),
-        Pick::Download => return (Group::Keep, 0),
+        Pick::View => return (Group::Open, 1),
+        Pick::Print => return (Group::Keep, 0),
+        Pick::Download => return (Group::Keep, 1),
         Pick::Press(Pressed::Op(kind)) => kind,
     };
     match kind {
@@ -146,9 +153,15 @@ pub(super) fn groups(offered: &[OpKind], summary: &ThreadSummary) -> Vec<Vec<Pic
 }
 
 /// The open conversation's ⋯ in the reader: the row's menu without what the reader's toolbar
-/// already holds (Move, Mute, Remind, and the window, which the view menu offers), and with the
-/// replies and the quieter actions a conversation always has, and Download last.
-pub(in crate::ui) fn reader_groups(offered: &[OpKind], summary: &ThreadSummary) -> Vec<Vec<Pick>> {
+/// already holds (`toolbar`, its Reply, Archive and Delete), without Remind (Send ▾'s alone) and
+/// the window (the view's), with the replies and the quieter actions a conversation always has,
+/// View where the reader is a pane (`view`), and Print and Download last.
+pub(in crate::ui) fn reader_groups(
+    offered: &[OpKind],
+    summary: &ThreadSummary,
+    toolbar: &[OpKind],
+    view: bool,
+) -> Vec<Vec<Pick>> {
     let always = [
         OpKind::Reply,
         OpKind::ReplyAll,
@@ -158,24 +171,27 @@ pub(in crate::ui) fn reader_groups(offered: &[OpKind], summary: &ThreadSummary) 
         OpKind::AddLabel,
     ];
     let offered: Vec<OpKind> = always.iter().chain(offered).copied().collect();
-    groups(&offered, summary)
+    let mut picks: Vec<Vec<Pick>> = groups(&offered, summary);
+    if view {
+        if let Some(open) = picks.first_mut() {
+            open.push(Pick::View);
+        }
+    }
+    picks
         .into_iter()
         .map(|group| {
             group
                 .into_iter()
-                .filter(|pick| {
-                    !matches!(
-                        pick,
-                        Pick::Window
-                            | Pick::Remind
-                            | Pick::Press(Pressed::MoveTo)
-                            | Pick::Press(Pressed::Op(OpKind::Mute | OpKind::FollowUp))
-                    )
+                .filter(|pick| match pick {
+                    Pick::Window | Pick::Remind => false,
+                    Pick::Press(Pressed::Op(OpKind::FollowUp)) => false,
+                    Pick::Press(Pressed::Op(kind)) => !toolbar.contains(kind),
+                    _ => true,
                 })
                 .collect::<Vec<_>>()
         })
         .filter(|group| !group.is_empty())
-        .chain([vec![Pick::Download]])
+        .chain([vec![Pick::Print, Pick::Download]])
         .collect()
 }
 
@@ -187,6 +203,8 @@ pub(super) fn name(pick: Pick, summary: &ThreadSummary, now: DateTime<Utc>) -> &
         Pick::Window => crate::ui::window::OPEN_NAME,
         Pick::Remind => menus::offered(says(OpKind::FollowUp, summary, now)),
         Pick::Download => menus::DOWNLOAD,
+        Pick::Print => menus::PRINT,
+        Pick::View => menus::VIEW,
         Pick::Press(Pressed::MoveTo) => menus::MOVE_TO,
         Pick::Press(Pressed::Op(kind)) => menus::offered(says(kind, summary, now)),
     }
@@ -197,6 +215,8 @@ fn icon(pick: Pick) -> Icon {
         Pick::Window => Icon::Window,
         Pick::Remind => Icon::Bell,
         Pick::Download => Icon::Download,
+        Pick::Print => Icon::Printer,
+        Pick::View => Icon::Panel,
         Pick::Press(Pressed::MoveTo) => Icon::FolderInput,
         Pick::Press(Pressed::Op(kind)) => op_icon(kind),
     }
@@ -426,7 +446,8 @@ mod tests {
     fn the_readers_more_menu_leaves_out_what_its_toolbar_holds() {
         let read = summary(|s| s.read = ReadState::Read);
         let inbox = [OpKind::Archive, OpKind::Trash, OpKind::Spam];
-        let names: Vec<String> = rows(&reader_groups(&inbox, &read), &read, now())
+        let toolbar = [OpKind::Reply, OpKind::Archive, OpKind::Trash];
+        let names: Vec<String> = rows(&reader_groups(&inbox, &read, &toolbar, true), &read, now())
             .into_iter()
             .map(|row| match row {
                 MenuItem::Item { title, .. } => title,
@@ -436,33 +457,35 @@ mod tests {
         assert_eq!(
             names,
             [
-                m::REPLY,
+                m::VIEW,
+                "-",
                 m::REPLY_ALL,
                 m::FORWARD,
                 "-",
                 m::MARK_AS_UNREAD,
                 m::STAR,
                 m::PIN,
+                m::MUTE,
                 "-",
                 m::SNOOZE,
                 m::LABEL,
+                m::MOVE_TO,
                 "-",
-                m::ARCHIVE,
                 m::MARK_AS_SPAM,
-                m::MOVE_TO_TRASH,
                 "-",
+                m::PRINT,
                 m::DOWNLOAD,
             ]
         );
     }
 
     #[test]
-    fn download_is_the_reader_s_last_group_and_not_the_row_s() {
+    fn print_and_download_are_the_reader_s_last_group_and_not_the_row_s() {
         let inbox = summary(|_| {});
-        let reader = reader_groups(&[], &inbox);
+        let reader = reader_groups(&[], &inbox, &[], false);
         assert_eq!(
             reader.last().map(Vec::as_slice),
-            Some(&[Pick::Download][..])
+            Some(&[Pick::Print, Pick::Download][..])
         );
         let row = groups(&[OpKind::Archive], &inbox);
         assert!(

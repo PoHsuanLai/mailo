@@ -18,7 +18,7 @@ mod tool;
 // The printout as a PDF.
 mod paper;
 
-pub(super) use tool::PrintTool;
+pub(super) use tool::PrintMenu;
 
 use super::motion::{motion, tell_through};
 use chrono::{DateTime, TimeZone, Utc};

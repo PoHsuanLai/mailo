@@ -19,6 +19,8 @@ pub enum FrameBody {
         html: String,
         blocked_remote: bool,
         fetches: Vec<String>,
+        /// A plain-text message's lines: no ground of its own, so the reader's shows through.
+        plain: bool,
     },
 }
 
@@ -109,6 +111,7 @@ fn html_frame(html: &str, parsed: &mail_mime::Parsed, policy: SanitizePolicy) ->
         html: frame_document(&html_sheet(), safe.body_style(), &embedded),
         blocked_remote,
         fetches,
+        plain: false,
     }
 }
 
@@ -128,6 +131,8 @@ const FRAME_CODE_SIZE: &str = "12.5px";
 const FRAME_QUOTE_BAR: &str = "2px";
 const FRAME_INK: &str = "#202020";
 const FRAME_INK_SOFT: &str = "#5c5c5c";
+/// The dark scheme's `--ink`, for a plain-text message's lines.
+const FRAME_INK_DARK: &str = "#ececec";
 const FRAME_PAPER: &str = "#ffffff";
 const FRAME_CODE_GROUND: &str = "#f5f5f5";
 const FRAME_LINK: &str = "#0066cc";
@@ -157,12 +162,16 @@ fn html_sheet() -> String {
     )
 }
 
-/// A plain-text message's sheet: its lines as written, in the scheme the desktop is in.
+/// A plain-text message's sheet: its lines as written, on no ground of their own, so the
+/// reader's shows through, in the reader's ink for the scheme the window is in (a frame's
+/// document takes the window's scheme). The inset is the reader's (`--s-18`).
 fn plain_sheet() -> String {
     format!(
-        ":root {{ color-scheme: light dark; }} \
-         body {{ margin: 16px; font-family: {FRAME_FONT}; font-size: {FRAME_TEXT_SIZE}; \
-         line-height: {FRAME_TEXT_LINE}; white-space: pre-wrap; overflow-wrap: anywhere; }}"
+        ":root {{ color-scheme: light dark; }} html, body {{ background: transparent; }} \
+         body {{ margin: 18px; font-family: {FRAME_FONT}; font-size: {FRAME_TEXT_SIZE}; \
+         line-height: {FRAME_TEXT_LINE}; color: {FRAME_INK}; white-space: pre-wrap; \
+         overflow-wrap: anywhere; }} \
+         @media (prefers-color-scheme: dark) {{ body {{ color: {FRAME_INK_DARK}; }} }}"
     )
 }
 
@@ -183,6 +192,7 @@ fn plain_frame(text: &str) -> FrameBody {
         html: frame_document(&plain_sheet(), None, &escape_html(text)),
         blocked_remote: false,
         fetches: Vec::new(),
+        plain: true,
     }
 }
 

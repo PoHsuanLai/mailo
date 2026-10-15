@@ -226,48 +226,31 @@ fn the_row_s_menu_and_the_reader_mute_and_ctrl_z_and_m_unmute() {
         "the mark outlived Ctrl Z"
     );
 
-    // The reader.
+    // The reader: Mute is in its ⋯, and says Unmute once the conversation is muted.
     click_row(&mut harness, 3, &[]);
-    assert_eq!(
-        harness.count(".reader-head .muted-note"),
-        0,
-        "the reader says muted before it is"
-    );
-
-    let tool = "[*|aria-label=\"Mute this conversation\"]";
-    harness.click(centre(&harness, tool));
+    let more = ".reader-head [*|aria-label=\"More\"]";
+    harness.click(centre(&harness, more));
+    harness.advance(ms(300));
+    crate::row_menu::press_menu_item(&mut harness, "Mute");
     harness.advance(ms(600));
     assert_eq!(
         muted(&store),
         vec![INBOX[2].1.to_owned()],
         "the reader's Mute"
     );
-    let note = harness
-        .text_of(".reader-head .muted-note")
-        .unwrap_or_default();
+    harness.click(centre(&harness, more));
+    harness.advance(ms(300));
+    let names = crate::row_menu::menu_names(&harness);
     assert!(
-        note.contains("Muted"),
-        "the reader shows it is muted: {note:?}"
+        names.iter().any(|name| name == "Unmute"),
+        "the ⋯ offers Unmute while it is muted: {names:?}"
     );
-    assert_eq!(
-        harness
-            .attr(
-                "[*|aria-label=\"Unmute this conversation\"]",
-                "aria-pressed"
-            )
-            .as_deref(),
-        Some("true"),
-        "the tool is pressed while it is muted"
-    );
+    harness.key(Key::Escape);
+    harness.advance(ms(300));
 
     harness.key(Key::Char('m'));
     harness.advance(ms(600));
     assert_eq!(muted(&store), Vec::<String>::new(), "`m` unmuted it");
-    assert_eq!(
-        harness.count(".reader-head .muted-note"),
-        0,
-        "the reader says muted after `m`"
-    );
 
     // Each was its own gesture: Ctrl Z takes back the unmute, then the mute.
     harness.chord(&[PRIMARY], Key::Char('z'));
