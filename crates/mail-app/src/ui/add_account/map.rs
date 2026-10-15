@@ -229,11 +229,24 @@ fn form_field(field: &FieldDraft, draft: &Draft, manual: bool) -> FormField {
         out = out.hinted(usual_port(field.kind, draft).to_string());
     }
     // The server form is long enough to be read in parts; the first form (an address, a
-    // password) is one group.
+    // password) is one group. A port and a security choice have a usual answer, so they wait
+    // under Advanced; quire opens it when one of them is marked.
     match manual {
+        true if is_advanced(field.kind) => out.in_part(part_of(field.kind)).advanced(),
         true => out.in_part(part_of(field.kind)),
         false => out,
     }
+}
+
+/// Whether a field of the server form waits under Advanced: one with a usual answer.
+fn is_advanced(kind: FieldKind) -> bool {
+    matches!(
+        kind,
+        FieldKind::Port
+            | FieldKind::Security
+            | FieldKind::OutgoingPort
+            | FieldKind::OutgoingSecurity
+    )
 }
 
 /// The field to mark: what the service said was wrong, or the first field that cannot be right as

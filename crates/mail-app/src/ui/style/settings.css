@@ -4,11 +4,3 @@
 .settings { display: grid; grid-template-columns: 13rem minmax(0, 1fr); height: 100%; min-height: 0; }
 .settings-scroll { height: 100%; min-height: 0; overflow-y: auto; scrollbar-width: none; }
 .settings-page { min-width: 0; }
-/* General's row that opens the trusted senders is a one-row list among the key rows, never the
-   first of its group; quire draws the hairline below a list but not above one, so it is drawn
-   here, where the rows' start. */
-.general-push { position: relative; }
-.general-push::before {
-  content: ""; position: absolute; top: 0; left: var(--s-14); right: 0; height: var(--hair);
-  background: var(--line);
-}

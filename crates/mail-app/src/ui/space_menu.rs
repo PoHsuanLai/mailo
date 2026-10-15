@@ -1,6 +1,6 @@
 //! The Space's menu: quire's (`SpaceMenu`), with mail's Accounts ▸ in its slot.
 //!
-//! Rename, Colour, Appearance, the card's accent, New Space and Delete are the kit's. Accounts
+//! Edit Space…, Appearance, the card's accent, New Space and Delete are the kit's. Accounts
 //! lists every account with a check on the ones the Space shows; a pick puts it in or takes it
 //! out and leaves the menu open, so several can be switched. Under them is Add Account: the
 //! providers that sign in straight in the browser, then Other Account…, or with none of those

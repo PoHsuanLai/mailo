@@ -600,10 +600,10 @@ fn the_typed_servers_form_drops_the_outgoing_part_for_jmap_and_passes_the_lint()
 fn a_wrong_port_is_not_sent_and_is_marked_on_its_field() {
     let mut w = open(no_servers(), None);
     to_server_form(&mut w);
-    // Protocol, server, security, port: the keyboard walks the form in order.
-    for _ in 0..4 {
-        w.harness.key(Key::Tab);
-    }
+    // The port has a usual answer, so it waits under Advanced.
+    click_text(&mut w, ".ds-disclosure-trigger");
+    w.harness.advance(Duration::from_millis(300));
+    click_text(&mut w, "input[aria-label=\"Port\"]");
     type_text(&mut w, "x");
     w.harness.key(Key::Enter);
     w.harness.advance(Duration::from_millis(300));

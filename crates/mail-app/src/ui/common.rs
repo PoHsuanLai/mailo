@@ -37,10 +37,11 @@ pub(in crate::ui) fn Told(said: Option<Result<String, String>>) -> Element {
     }
 }
 
-/// A grouped row's leading tile, as System Settings leads a pane's row: `icon` in white on the
-/// light stop of one of design/08's plate families, so mailo picks a family and never a colour.
+/// A grouped row's leading tile, as System Settings leads a pane's row: `icon` drawn in one of
+/// design/08's plate families, in quire's paint for the scheme, so mailo picks a family and
+/// never a colour.
 pub(in crate::ui) fn tile(icon: Icon, family: PlateFamily) -> RowLeading {
-    RowLeading::Tile(TileFace::Glyph(icon, family.stops().0))
+    RowLeading::Tile(TileFace::Plate(icon, family))
 }
 
 /// A row of mutually exclusive buttons. The caller's options say which is on, and the
