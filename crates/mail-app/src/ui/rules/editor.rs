@@ -1,5 +1,7 @@
-//! New rule and Edit: a name, a condition in the search language read as it is typed, the
-//! actions as rows chosen from the one [`Menu`], and whether later rules still run.
+//! A rule's page, pushed over the Rules list: a name, a condition in the search language read as it
+//! is typed, the actions as rows chosen from the one [`Menu`], and whether later rules still run.
+//! Save keeps it, puts the account's rules on its server and goes back to the list; the back
+//! button leaves it as it was.
 
 use chrono::Utc;
 use dioxus::prelude::*;
@@ -18,10 +20,15 @@ use mail_domain::{AfterMatch, RuleAction};
 use porter_core::AccountId;
 use std::sync::Arc;
 
+use super::super::data::AccountRow;
 use super::super::menu::{Floating, MenuItem, Right, Tile, anchor_at, narrowed, palette_groups};
 use super::super::move_to::destinations;
 use super::super::press::{available, on_primary};
 use super::work::{self, Draft};
+use super::{Failed, Said, back};
+use crate::ui::copy;
+use crate::ui::view::Shell;
+use mail_domain::RuleId;
 
 /// Which menu the "Add an action" button has open.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -117,13 +124,55 @@ pub(in crate::ui) fn label_items(names: &[String], typed: &str) -> Vec<MenuItem>
     out
 }
 
-/// The editor for `editing`, while it holds a draft.
+/// The page of the rule `id` on `row`'s account, or of a new one for `None`.
 #[component]
-pub(super) fn RuleEditor(
+pub(super) fn RulePage(
+    shell: Signal<Shell>,
+    row: AccountRow,
+    id: Option<RuleId>,
+    said: Said,
+    changed: Signal<u64>,
+    pushed: Callback<AccountRow>,
+) -> Element {
+    let editing = use_signal(|| {
+        let store = consume_context::<Arc<SqliteStore>>();
+        let kept = id.and_then(|id| {
+            work::listed(&store, row.id.clone())
+                .ok()?
+                .into_iter()
+                .find(|listed| listed.rule.id == id)
+        });
+        Some(kept.map_or_else(Draft::blank, |listed| {
+            Draft::of(&mail_core::rules::ListedRule {
+                rule: listed.rule,
+                condition: listed.when,
+            })
+        }))
+    });
+    let account = row.id.clone();
+    rsx! {
+        Form {
+            Failed { said }
+            RuleEditor {
+                account,
+                editing,
+                on_saved: move |()| {
+                    let mut changed = changed;
+                    pushed.call(row.clone());
+                    changed += 1;
+                    back(shell);
+                },
+            }
+        }
+    }
+}
+
+/// The editor for `editing`, while it holds a draft. `on_saved` hears a rule kept.
+#[component]
+fn RuleEditor(
     account: AccountId,
     editing: Signal<Option<Draft>>,
-    changed: Signal<u64>,
-    said: Signal<Option<Result<String, String>>>,
+    on_saved: EventHandler<()>,
 ) -> Element {
     let mut adding = use_signal(|| Adding::Closed);
     // The Add button, which the action menu floats against.
@@ -148,11 +197,6 @@ pub(super) fn RuleEditor(
                 Err(why) => (refusal(&why), String::new(), true),
             },
         };
-    let title = if draft.id.is_some() {
-        "Edit rule"
-    } else {
-        "New rule"
-    };
     let mut add = move |action: RuleAction| {
         if let Some(draft) = editing.write().as_mut()
             && !draft.actions.contains(&action)
@@ -163,7 +207,7 @@ pub(super) fn RuleEditor(
     };
     let kinds_open = adding() == Adding::Kinds;
     rsx! {
-        FormSection { title: Some(title.to_owned()),
+        FormSection {
             FieldRow {
                 label: "Name",
                 layout: RowLayout::Form,
@@ -295,29 +339,20 @@ pub(super) fn RuleEditor(
                 help: refused().map(TextLine::from),
                 layout: RowLayout::Form,
                 Button {
-                    label: "Cancel".to_owned(),
-                    onclick: on_primary(move || {
-                        editing.set(None);
-                        refused.set(None);
-                    }),
-                }
-                Button {
-                    label: "Save".to_owned(),
+                    label: copy::controls::SAVE,
                     availability: available(readable),
                     onclick: on_primary(move || {
                         let Some(draft) = editing.peek().clone() else { return };
                         let store = consume_context::<Arc<SqliteStore>>();
                         match work::save(&store, account.clone(), &draft, &chrono::Local) {
-                            Ok(rule) => {
-                                said.set(Some(Ok(format!("Kept the rule “{}”.", rule.name))));
+                            Ok(_) => {
                                 refused.set(None);
-                                editing.set(None);
-                                changed += 1;
+                                on_saved.call(());
                             }
                             Err(why) => refused.set(Some(why)),
                         }
                     }),
-                    common: Common { aria_label: Some(format!("Save {title}")), ..Common::default() },
+                    common: Common { aria_label: Some(copy::aria::SAVE_RULE.to_owned()), ..Common::default() },
                 }
             }
         }

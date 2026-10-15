@@ -29,3 +29,8 @@ pub fn stopped_following(name: &str) -> String {
 
 /// Cancel Sending, done: the message is a draft again.
 pub const SENDING_CANCELLED: &str = "Sending cancelled";
+
+/// A file written into the downloads directory.
+pub fn saved_to(path: &std::path::Path) -> String {
+    format!("Saved to {}", path.display())
+}

@@ -1,9 +1,6 @@
 //! What mailo puts on a quire component's own element.
 
 use dioxus::prelude::*;
-use ds::components::content::avatar::{
-    AvatarFace, AvatarShape, AvatarSize, AvatarTone, person_hue,
-};
 use ds::prelude::{Icon, InlineBanner, RowLeading, Severity, TileFace};
 use ds::root::common::Common;
 use ds::root::pass_through::ExtraClass;
@@ -44,21 +41,6 @@ pub(in crate::ui) fn Told(said: Option<Result<String, String>>) -> Element {
 /// light stop of one of design/08's plate families, so mailo picks a family and never a colour.
 pub(in crate::ui) fn tile(icon: Icon, family: PlateFamily) -> RowLeading {
     RowLeading::Tile(TileFace::Glyph(icon, family.stops().0))
-}
-
-/// A grouped row's leading avatar for a person or an account: the first letter of `shown` on the
-/// hue `key` (an address) always gets.
-pub(in crate::ui) fn person_tile(shown: &str, key: &str) -> RowLeading {
-    RowLeading::Tile(TileFace::Avatar(AvatarFace {
-        initial: shown
-            .chars()
-            .next()
-            .and_then(|ch| ch.to_uppercase().next())
-            .unwrap_or('?'),
-        size: AvatarSize::Size28,
-        tone: AvatarTone::Person(person_hue(key)),
-        shape: AvatarShape::Round,
-    }))
 }
 
 /// A row of mutually exclusive buttons. The caller's options say which is on, and the

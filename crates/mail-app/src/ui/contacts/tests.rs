@@ -1,5 +1,5 @@
-//! The book in the window, against a real store in a temporary directory: the sender card's
-//! writes, the sheet's import and export, and how cheap a suggestion is.
+//! The book in the window, against a real store in a temporary directory: the editor's writes,
+//! ⌘K's import and export, and how cheap a suggestion is.
 
 use std::sync::Arc;
 
@@ -179,44 +179,6 @@ fn a_name_in_chinese_survives_import_then_export() {
         named(&fresh, "xiaoming.wang@example.test"),
         Some((Some("王小明".to_owned()), Origin::Manual))
     );
-}
-
-#[test]
-fn the_sheet_filters_by_the_start_of_any_word_and_lists_everyone() {
-    let (store, _dir) = the_book();
-    let addresses = |filter: &str| -> Vec<String> {
-        book::rows(store.as_ref(), filter)
-            .unwrap_or_else(|why| panic!("rows: {why}"))
-            .into_iter()
-            .map(|row| row.address)
-            .collect()
-    };
-    // The sheet is the whole book: the no-reply sender and the user's own address are listed,
-    // and say why they are not suggested.
-    let all = addresses("");
-    assert_eq!(all.len(), store.contacts().unwrap_or_default().len());
-    let rows = book::rows(store.as_ref(), "").unwrap_or_default();
-    let quiet = |address: &str| {
-        rows.iter()
-            .find(|row| row.address == address)
-            .and_then(|row| row.quiet)
-    };
-    assert_eq!(quiet(ME), Some("your address"));
-    assert_eq!(quiet(NO_REPLY), Some("not suggested until you write"));
-    assert_eq!(quiet(ADDED), None);
-
-    const CASES: &[(&str, &[&str])] = &[
-        ("quinn", &[ADDED]),
-        ("QUI", &[ADDED]),
-        ("dara q", &[ADDED]),
-        ("okafor", &[HEARD]),
-        ("uinn", &[]),
-        ("daily.example", &[NO_REPLY]),
-    ];
-    for (filter, want) in CASES {
-        let want: Vec<String> = want.iter().map(|one| (*one).to_owned()).collect();
-        assert_eq!(addresses(filter), want, "filter {filter:?}");
-    }
 }
 
 /// Timing, not correctness, so not run by default: `cargo test -p mail-app suggestion_is_cheap

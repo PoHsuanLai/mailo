@@ -45,7 +45,7 @@ pub struct WindowSettings {
     #[settings(
         label = "Provider marks",
         help = "Show each account's provider as its logo or as a letter.",
-        section = "Mail list"
+        section = "Mail"
     )]
     pub provider_marks: ProviderMarks,
 }
@@ -56,9 +56,9 @@ pub struct WindowSettings {
 #[settings(file = "mailo/settings.toml", domain = "notifications", page = page())]
 pub struct NotificationSettings {
     #[settings(
-        label = "New mail",
+        label = "Notifications",
         help = "Show a notification when new mail arrives.",
-        section = "Notifications"
+        section = "Mail"
     )]
     pub new_mail: NewMail,
 }
@@ -71,7 +71,7 @@ pub struct ComposeSettings {
     #[settings(
         label = "Check spelling",
         help = "Underline misspelt words as you type.",
-        section = "Writing"
+        section = "Mail"
     )]
     pub spelling: Spelling,
 }
@@ -97,7 +97,7 @@ pub struct ReadingSettings {
     /// lowercase, added by "Always load from" in the reader. A key of its own, a list of text, so
     /// the desktop's Settings app can show and edit it like any other.
     #[settings(
-        label = "Senders whose images load",
+        label = "Trusted senders",
         help = "Only for mail verified as really coming from them.",
         section = "Reading"
     )]
@@ -140,9 +140,9 @@ impl ReadingSettings {
 #[settings(file = "mailo/settings.toml", domain = "search", page = page())]
 pub struct SearchSettings {
     #[settings(
-        label = "Search the server automatically",
+        label = "Search server",
         help = "Also search the mail on your servers as you type.",
-        section = "Search"
+        section = "Mail"
     )]
     pub server_automatically: ServerSearch,
 }

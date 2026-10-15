@@ -1,8 +1,9 @@
-//! The vacation reply, on the Rules page: what `mailo vacation on|off` keeps, from fields.
+//! The vacation reply, a page pushed over the Rules list: what `mailo vacation on|off` keeps, from
+//! fields.
 //!
-//! Kept here, run by the server: "Put on server" is what installs it, as `mailo sieve push`
-//! does. A server without ManageSieve cannot run one, and this client does not send one itself
-//! (`rules::server` says why), so on those accounts there is the reason and no form.
+//! Kept here, run by the server: keeping it puts the account's script on its server, as `mailo
+//! sieve push` does. A server without ManageSieve cannot run one, and this client does not send
+//! one itself (`rules::server` says why), so on those accounts there is the reason and no form.
 
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
@@ -19,6 +20,8 @@ use super::super::data::AccountRow;
 use super::super::menus::when_words;
 use super::super::press::on_primary;
 use super::server::{configured, reach};
+use super::{Failed, Said, back};
+use crate::ui::view::Shell;
 
 /// Whether the reply is wanted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -212,14 +215,18 @@ where
     }
 }
 
-/// The vacation reply's group of the page: a switch, and while it is on, the reply's fields and
-/// Keep Reply. Turned off, it is kept off at once; turned on, it is kept when Keep Reply is
-/// pressed, since a reply needs its words first. What keeping it came to is the page's `said`.
+/// The vacation reply's page: a switch, and while it is on, the reply's fields and Keep Reply.
+/// Turned off, it is kept off at once; turned on, it is kept when Keep Reply is pressed, since a
+/// reply needs its words first, and the page goes back to the list. Either is put on the server;
+/// a reply refused is said under its switch, a push that failed at the head of the page.
 #[component]
-pub(super) fn AwayPart(
+pub(super) fn AwayPage(
+    shell: Signal<Shell>,
     row: AccountRow,
-    mut said: Signal<Option<Result<String, String>>>,
+    said: Said,
+    pushed: Callback<AccountRow>,
 ) -> Element {
+    let mut refused = use_signal(|| None::<String>);
     let mut away = use_signal({
         let row = row.clone();
         move || {
@@ -229,10 +236,12 @@ pub(super) fn AwayPart(
     });
     if let Err(why) = reach(&row.plan) {
         return rsx! {
-            FormSection { title: Some("Vacation reply".to_owned()),
-                FieldRow {
-                    label: "Vacation reply",
-                    help: Some(TextLine::from(format!("No vacation reply here: {why}."))),
+            Form {
+                FormSection {
+                    FieldRow {
+                        label: "Vacation reply",
+                        help: Some(TextLine::from(format!("No vacation reply here: {why}."))),
+                    }
                 }
             }
         };
@@ -257,10 +266,12 @@ pub(super) fn AwayPart(
     let off = row.clone();
     let help = |text: String| (!text.is_empty()).then(|| TextLine::from(text));
     rsx! {
-        FormSection { title: Some("Vacation reply".to_owned()),
+        Form {
+        Failed { said }
+        FormSection {
             FieldRow {
                 label: "Vacation reply",
-                help: Some(TextLine::from("Replies to mail for you while you're away.")),
+                help: refused().map(TextLine::from),
                 Toggle {
                     label: "Vacation reply".to_owned(),
                     value: if on { Check::On } else { Check::Off },
@@ -269,10 +280,16 @@ pub(super) fn AwayPart(
                             away.write().reply = Reply::Off;
                             let store = consume_context::<Arc<SqliteStore>>();
                             let form = away.peek().clone();
-                            said.set(Some(save(&store, &off, &form, Utc::now(), &chrono::Local)));
+                            match save(&store, &off, &form, Utc::now(), &chrono::Local) {
+                                Ok(_) => {
+                                    refused.set(None);
+                                    pushed.call(off.clone());
+                                }
+                                Err(why) => refused.set(Some(why)),
+                            }
                         } else {
                             away.write().reply = Reply::On;
-                            said.set(None);
+                            refused.set(None);
                         }
                     },
                 }
@@ -328,18 +345,26 @@ pub(super) fn AwayPart(
                     }
                 }
                 FieldRow {
-                    label: "Keep the reply",
-                    help: Some(TextLine::from("Turns on once it's on the server.")),
+                    label: "",
+                    layout: RowLayout::Form,
                     Button {
                         label: "Keep Reply".to_owned(),
                         onclick: on_primary(move || {
                             let store = consume_context::<Arc<SqliteStore>>();
                             let form = away.peek().clone();
-                            said.set(Some(save(&store, &keep, &form, Utc::now(), &chrono::Local)));
+                            match save(&store, &keep, &form, Utc::now(), &chrono::Local) {
+                                Ok(_) => {
+                                    refused.set(None);
+                                    pushed.call(keep.clone());
+                                    back(shell);
+                                }
+                                Err(why) => refused.set(Some(why)),
+                            }
                         }),
                     }
                 }
             }
+        }
         }
     }
 }

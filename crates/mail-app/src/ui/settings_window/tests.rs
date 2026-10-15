@@ -4,7 +4,7 @@
 //! pane is `account`'s (`account/tests.rs`).
 
 use super::{OpenSettings, SettingsAt, SettingsWindows, settings_root};
-use crate::settings::{BrandLogos, LoadRemoteImages, MailSettings, ProviderMarks, Spelling};
+use crate::settings::{BrandLogos, LoadRemoteImages, MailSettings, Spelling};
 use crate::ui::app::App;
 use crate::ui::fixtures::{
     INSIDE_THE_SHELL, Seen, Work, chord, click, dispatching, drain_seen, rebuild_into, work,
@@ -28,6 +28,14 @@ pub(super) fn opened_on(built: &Work, page: SettingsPage) -> (VirtualDom, Seen) 
             (dom, seen)
         }
     }
+}
+
+/// The Settings window over `built`, on General's trusted senders, pushed from their row.
+fn trusted_senders(built: &Work) -> (VirtualDom, Seen) {
+    let (mut dom, seen) = opened_on(built, SettingsPage::General);
+    let seen =
+        click(&mut dom, seen.one("id", "general-pane-open-trusted")).merge(drain_seen(&mut dom));
+    (dom, seen)
 }
 
 /// What `settings.toml` in the fixture's config directory holds now.
@@ -98,20 +106,59 @@ async fn command_comma_and_the_foot_menu_ask_for_the_settings_window() {
 }
 
 #[tokio::test]
-async fn the_window_has_a_row_per_key() {
+async fn general_draws_reading_then_mail_with_their_rows() {
     let built = work();
     let (dom, _seen) = opened_on(&built, SettingsPage::General);
     let page = dioxus_ssr::render(&dom);
+    let mut from = 0;
     for label in [
-        "Provider marks",
-        "New mail",
-        "Check spelling",
+        "Reading",
+        "Load remote images",
+        "Trusted Senders",
         "Brand logos",
-        "Search the server automatically",
+        "Mail",
+        "Notifications",
+        "Check spelling",
+        "Search server",
     ] {
-        assert!(page.contains(label), "no {label:?} in Settings: {page}");
+        let at = page[from..]
+            .find(&format!(">{label}<"))
+            .unwrap_or_else(|| panic!("no {label:?} after the rows before it: {page}"));
+        from += at;
     }
+    assert!(!page.contains("Mail list"), "{page}");
     assert!(page.contains("data-page=\"General\""), "{page}");
+}
+
+/// Every key of the schema is a row of General, but the two left on purpose: the provider marks
+/// are detent's to set, and the trusted senders are a list with a page of their own.
+#[test]
+fn every_schema_key_is_on_general_or_left_to_detent_on_purpose() {
+    let named: Vec<&str> = super::general::SECTIONS
+        .iter()
+        .flat_map(|section| section.lines.iter())
+        .filter_map(|line| match line {
+            super::general::Line::Key(path) => Some(*path),
+            super::general::Line::TrustedSenders => None,
+        })
+        .collect();
+    let left = ["window.provider_marks", "reading.trusted_image_senders"];
+    for key in crate::settings::schema().key {
+        let path = key.path.0.as_str();
+        assert!(
+            named.contains(&path) != left.contains(&path),
+            "{path} is neither on General nor left to detent"
+        );
+    }
+    for path in named {
+        assert!(
+            crate::settings::schema()
+                .key
+                .iter()
+                .any(|key| key.path.0 == path),
+            "General names {path}, which the schema has not"
+        );
+    }
 }
 
 /// The General page's controls each write `settings.toml`: two switches, then a choice.
@@ -143,26 +190,23 @@ async fn general_controls_write_settings_toml() {
         Spelling::Off,
         "the check spelling switch"
     );
-    // Icons, then Letters: the segments after the control's group.
-    let segments = seen.after("aria-label", "Provider marks", "aria-checked");
-    click(&mut dom, segments[1]);
-    let _ = drain_seen(&mut dom);
-    assert_eq!(
-        stored(&built).window.provider_marks,
-        ProviderMarks::Letters,
-        "the provider marks choice"
-    );
 }
 
 /// Each page, by the sidebar's row, and a line only that page draws.
 const PAGES: &[(SettingsPage, &str)] = &[
     (SettingsPage::General, "Check spelling"),
     (SettingsPage::Accounts, "Add Account\u{2026}"),
-    (SettingsPage::Contacts, "Import vCard\u{2026}"),
-    (SettingsPage::Rules, "Vacation reply"),
-    (SettingsPage::Keys, "S/MIME"),
+    (SettingsPage::Rules, "Vacation Reply"),
     (SettingsPage::Keyboard, "Change the key for"),
 ];
+
+#[test]
+fn settings_has_4_pages_in_that_order() {
+    assert_eq!(
+        SettingsPage::ALL.map(SettingsPage::name),
+        ["General", "Accounts", "Rules", "Keyboard"]
+    );
+}
 
 #[tokio::test]
 async fn every_page_is_drawn_in_the_window_from_its_sidebar_row() {
@@ -235,7 +279,7 @@ async fn each_trusted_sender_is_a_row_whose_remove_stops_its_images() {
     crate::settings::store(crate::settings::root_for(&built.dirs.config))
         .save(&settings)
         .unwrap_or_else(|why| panic!("{why:?}"));
-    let (mut dom, seen) = opened_on(&built, SettingsPage::General);
+    let (mut dom, seen) = trusted_senders(&built);
     let page = dioxus_ssr::render(&dom);
     assert!(page.contains("news@example.test"), "{page}");
     assert!(
@@ -244,7 +288,10 @@ async fn each_trusted_sender_is_a_row_whose_remove_stops_its_images() {
     );
     click(
         &mut dom,
-        seen.one("aria-label", "Stop loading images from news@example.test"),
+        seen.one(
+            "aria-label",
+            &crate::ui::copy::aria::stop_loading_images("news@example.test"),
+        ),
     );
     assert_eq!(
         stored(&built).reading.trusted_image_senders,
@@ -260,6 +307,14 @@ async fn trusting_senders_with_none_yet_says_how_one_is_trusted() {
     crate::settings::store(crate::settings::root_for(&built.dirs.config))
         .save(&settings)
         .unwrap_or_else(|why| panic!("{why:?}"));
-    let (dom, _) = opened_on(&built, SettingsPage::General);
-    assert!(dioxus_ssr::render(&dom).contains("No trusted senders yet"));
+    let (dom, _) = trusted_senders(&built);
+    let page = dioxus_ssr::render(&dom);
+    assert!(
+        page.contains(crate::ui::copy::empty::NO_TRUSTED_SENDERS),
+        "{page}"
+    );
+    assert!(
+        page.contains(crate::ui::copy::fields::HOW_TO_TRUST),
+        "{page}"
+    );
 }

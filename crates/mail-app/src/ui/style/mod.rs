@@ -315,7 +315,7 @@ pub(in crate::ui) mod tests {
     /// three widths (narrow, medium and wide: a time to pick, a list, a grid of emoji).
     #[test]
     fn sheets_and_popovers_keep_their_measures() {
-        let sheets = ".sheet-form, .book, .rules";
+        let sheets = ".sheet-form, .rules";
         assert_eq!(values_of(sheets, "padding"), ["var(--s-16)"], "{sheets}");
         assert_eq!(values_of(sheets, "gap"), ["var(--s-12)"], "{sheets}");
         assert_eq!(values_of(".doctor", "padding"), ["var(--s-16)"]);

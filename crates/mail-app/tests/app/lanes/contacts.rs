@@ -1,80 +1,52 @@
-//! Lane 9: a contact group. Settings → Contacts makes a "Team" of two addresses and imports a
-//! vCard through the file dialog; in a new message, typing Team in To offers the group, and
-//! picking it puts both people in.
+//! Lane 9: contacts, where they are in the window. ⌘K's Import Contacts… brings a vCard in
+//! through the file dialog; a group made as `mailo contacts group` makes one expands in To; and
+//! a sender is renamed from their name in the reader, by Edit Contact… in its right-click menu.
 
-use ds_harness::{Harness, Query};
+use ds_harness::Query;
 use mail_app::ui::native::DialogAsk;
-use mail_core::{SqliteStore, Store};
-use std::sync::Arc;
+use mail_core::Store;
+use mail_core::contacts::groups;
 
-use super::drive::{Drive, Key};
-use super::hands::{click, press, scroll_to, type_text, until};
-use super::window::Window;
+use super::drive::{Drive as _, Key, PRIMARY};
+use super::window::{Window, panel_row, panel_settled};
 
 const CARD: &str =
     "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Lin Wei\r\nEMAIL:lin@example.test\r\nEND:VCARD\r\n";
 
-/// How many members the store's groups have between them.
-fn members(store: &SqliteStore) -> usize {
-    store.groups().map_or(0, |groups| {
-        groups.iter().map(|group| group.members.len()).sum()
-    })
+/// ⌘K, `command` typed, and its row picked.
+fn command(window: &mut Window, command: &str) {
+    window.press(&[PRIMARY], Key::Char('k'), 1);
+    window.until("⌘K opens the panel", |h| {
+        h.count(".ds-search-card input") == 1
+    });
+    window.type_text(command);
+    let what = format!("the panel offers {command}");
+    window.until(&what, |h| {
+        panel_settled(h) && panel_row(h, command).is_some()
+    });
+    let n = panel_row(&window.harness, command).unwrap_or_default();
+    window.click(&format!(".ds-search-card-rows .ds-menu > :nth-child({n})"));
 }
 
-/// In Settings → Contacts: the group, its two members, and the imported card.
-fn make_the_team(settings: &mut Harness, store: &SqliteStore) {
-    click(settings, "[*|aria-label=\"New group\"]");
-    until(settings, "the group's name is asked for", |h| {
-        h.count(".book-name input") == 1
+#[test]
+fn a_vcard_imports_from_the_command_panel_and_a_group_expands_in_to() {
+    // The group, as `mailo contacts group` makes it: the window has no page for groups.
+    let mut window = Window::open(|store| {
+        let team = groups::create(store, "Team").expect("the group");
+        for address in ["ada@example.test", "grace@example.test"] {
+            groups::add(store, &team.id, address).expect("a member");
+        }
     });
-    click(settings, ".book-name input");
-    type_text(settings, "Team\n");
-    until(settings, "the page says it made the group", |h| {
-        h.text_of(".settings-page")
-            .is_some_and(|page| page.contains("Made the group Team."))
-    });
-    click(settings, "[*|aria-label=\"Edit the group Team\"]");
-    for (n, address) in ["ada@example.test", "grace@example.test"]
-        .into_iter()
-        .enumerate()
-    {
-        click(settings, "input[*|aria-label=\"Add an address\"]");
-        type_text(settings, address);
-        click(settings, "[*|aria-label=\"Add to the group\"]");
-        let what = format!("{address} joins the group");
-        until(settings, &what, |_| members(store) == n + 1);
-    }
-    press(settings, &[], Key::Escape, 1);
+    let card = window.file("lin.vcf", CARD.as_bytes());
+    window.answer(vec![card]);
 
-    scroll_to(
-        settings,
-        ".settings-scroll",
-        "[*|aria-label=\"Import vCard…\"]",
-    );
-    click(settings, "[*|aria-label=\"Import vCard…\"]");
-    until(settings, "the card is in the book", |_| {
+    command(&mut window, "Import Contacts\u{2026}");
+    window.until_stored("the card is in the book", |store| {
         store
             .contact("lin@example.test")
             .is_ok_and(|found| found.is_some())
     });
-}
-
-#[test]
-fn a_group_made_in_settings_expands_in_to_and_a_vcard_imports_through_the_dialog() {
-    let mut window = Window::open(|_| {});
-    let card = window.file("lin.vcf", CARD.as_bytes());
-    window.answer(vec![card]);
-    let store = Arc::clone(&window.store);
-    window.in_settings("Contacts", |settings| make_the_team(settings, &store));
     assert_eq!(window.asked(), [DialogAsk::Cards]);
-
-    let groups = window.store.groups().expect("the groups");
-    assert_eq!(groups.len(), 1, "{groups:?}");
-    assert_eq!(groups[0].name, "Team");
-    assert_eq!(
-        groups[0].members,
-        ["mailto:ada@example.test", "mailto:grace@example.test"]
-    );
     let lin = window
         .store
         .contact("lin@example.test")
@@ -97,4 +69,32 @@ fn a_group_made_in_settings_expands_in_to_and_a_vcard_imports_through_the_dialog
         h.count(".c-props [*|aria-label=\"Remove Ada Lovelace\"]") == 1
             && h.count(".c-props [*|aria-label=\"Remove Grace Hopper\"]") == 1
     });
+}
+
+#[test]
+fn a_sender_is_renamed_from_their_name_in_the_reader() {
+    let mut window = Window::open(|_| {});
+    window.open_subject("Flight to the conference");
+    let name = ".msg-head .sender-name";
+    window.until("the reader names the sender", |h| h.count(name) >= 1);
+    let at = window.centre(name);
+    window
+        .harness
+        .press(at, ds::base::press::PointerButton::Secondary);
+    window.menu_item("Edit Contact\u{2026}");
+    window.until("the editor asks for the name", |h| {
+        h.is_focused(".contact-editor input")
+    });
+    // The field starts with the name the mail gave: select it all and type over it.
+    window.press(&[PRIMARY], Key::Char('a'), 1);
+    window.type_text("Ada King\n");
+    window.until_stored("the book holds the new name", |store| {
+        store
+            .contact("ada@example.test")
+            .ok()
+            .flatten()
+            .and_then(|contact| contact.name)
+            .is_some_and(|name| name == "Ada King")
+    });
+    window.until("the editor closes", |h| h.count(".contact-editor") == 0);
 }

@@ -1,5 +1,5 @@
-//! Keep all mail offline on Settings' Accounts page: the setting per account, and the count beside it,
-//! against a temporary config directory only.
+//! Download All Mail on an account's page in Settings: the setting per account, and the count
+//! under it, against a temporary config directory only.
 
 use crate::ui::data::account_rows;
 use crate::ui::fixtures::{Seen, Work, click, work};
@@ -13,21 +13,22 @@ use porter_core::AccountId;
 const ADDRESS: &str = "poh@acme.example";
 
 fn opened(built: &Work) -> (VirtualDom, Seen) {
-    crate::ui::settings_window::tests::opened_on(built, crate::ui::view::SettingsPage::Accounts)
+    crate::ui::settings_window::account::tests::pushed(built)
 }
 
 fn label() -> String {
-    format!("Keep all mail offline for {ADDRESS}")
+    crate::ui::copy::fields::DOWNLOAD_ALL_MAIL.to_owned()
 }
 
-/// Whether the account's switch is drawn on, as the page draws it.
+/// Whether the account's switch is drawn on, as the page draws it: the switch is the button
+/// named for the setting, inside the row of the same name.
 fn shown(page: &str) -> Check {
     let label = format!("aria-label=\"{}\"", label());
-    let at = page
-        .find(&label)
+    let tag = page
+        .match_indices("<button")
+        .map(|(at, _)| &page[at..at + page[at..].find('>').unwrap_or(0)])
+        .find(|tag| tag.contains(&label))
         .unwrap_or_else(|| panic!("no switch for {ADDRESS} in:\n{page}"));
-    let open = page[..at].rfind("<button").unwrap_or(0);
-    let tag = &page[open..at];
     assert!(
         tag.contains("role=\"switch\""),
         "the setting is not a switch: {tag}"
@@ -149,7 +150,7 @@ async fn each_account_says_how_much_is_here_and_the_switch_keeps_the_setting() {
     assert_eq!(said, offline::said(&counted));
     assert!(page.contains(&said), "no {said:?} in:\n{page}");
 
-    let switch = seen.one("aria-label", &label());
+    let switch = seen.after("aria-label", &label(), "aria-checked")[0];
     click(&mut dom, switch);
     assert_eq!(
         offline::load(config).of(id.clone()),

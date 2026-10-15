@@ -1,5 +1,6 @@
 //! OpenPGP and S/MIME in the window: a protected message opened in the reader and said in plain
-//! words, the passphrase asked for inline, and the Keys and certificates page of Settings.
+//! words, the passphrase asked for inline, and the keys and certificates Settings lists: an
+//! account's own on its page, every other on Other Keys under Accounts.
 //!
 //! What a message is — signed, encrypted, by whom — is [`mail_core::pgp`]'s and [`mail_core::smime`]'s,
 //! the modules `mailo show`, `mailo pgp` and `mailo smime` use, so the window and the command

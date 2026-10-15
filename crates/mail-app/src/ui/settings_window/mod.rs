@@ -3,14 +3,16 @@
 //! already open. Laid out as detent lays out a program's page: a sidebar of pages, each a column
 //! of titled groups of rows.
 //!
-//! General draws mailo's settings schema (`crate::settings`) row by row ([`keys`]), the same
-//! keys detent draws on mailo's page and writes to the same `mailo/settings.toml`. Accounts
-//! lists each account, whose row pushes its own page into the pane ([`account`]), which
-//! accounts keep all their mail here, and Add Account…. Contacts, Rules, Keys and certificates
-//! and Keyboard are pages of their own, drawn by their modules (`contacts`, `rules`,
-//! `pgp::keys`, `keyboard`) as rows in titled groups, as System Settings draws a pane; a sheet is
-//! only for making something or asking before something goes. What belongs to one Space (its
-//! name, look and accounts) is the Space's menu's, a right click on the Space.
+//! Four pages: General, Accounts, Rules and Keyboard. General draws mailo's settings schema
+//! (`crate::settings`) as two groups of rows ([`general`], each row a key's, drawn by [`keys`]),
+//! the same keys detent draws on mailo's page and writes to the same `mailo/settings.toml`.
+//! Accounts lists each account, whose row pushes its own page into the pane ([`account`]): its
+//! mail kept here, its encryption keys, and its removal. Rules and Keyboard are drawn by their
+//! modules (`rules`, `keyboard`). A page that has pages of its own pushes them, as System
+//! Settings does, with quire's `PaneStack`; a sheet is only for making something or asking
+//! before something goes. What belongs to one Space (its name, look and accounts) is the Space's
+//! menu's, a right click on the Space. A person is edited from their name in mail, and contacts
+//! come in and go out through ⌘K, so Contacts is not a page here.
 //!
 //! Every way into one of those pages from the main window (⌘K, the composer's bar) opens the
 //! window on that page, or turns the open window to it ([`open_at`]), and Connections'
@@ -36,7 +38,8 @@ pub(in crate::ui) use account::Seams as AccountSeams;
 pub(in crate::ui) use keys::with_value;
 pub use root::settings_root;
 
-use crate::ui::view::{AccountStep, AccountsPage, AccountsPane, SettingsPage, Shell};
+use crate::ui::copy;
+use crate::ui::view::{AccountStep, AccountsPage, AccountsPane, RulesAt, SettingsPage, Shell};
 use dioxus::prelude::*;
 use ds::components::chrome::sidebar::Sidebar;
 use ds::components::chrome::sidebar_model::SidebarSection;
@@ -49,30 +52,26 @@ use std::sync::Arc;
 use tokio::sync::watch;
 
 /// What the window and its command are called.
-pub(in crate::ui) const TITLE: &str = "Settings";
+pub(in crate::ui) const TITLE: &str = copy::titles::SETTINGS;
 
 /// The size the window opens at, in logical pixels.
 const SIZE: (u32, u32) = (780, 620);
 
 impl SettingsPage {
-    pub(in crate::ui) const ALL: [SettingsPage; 6] = [
+    pub(in crate::ui) const ALL: [SettingsPage; 4] = [
         SettingsPage::General,
         SettingsPage::Accounts,
-        SettingsPage::Contacts,
         SettingsPage::Rules,
-        SettingsPage::Keys,
         SettingsPage::Keyboard,
     ];
 
     /// The page's name in the sidebar, which is also the row's accessible name.
     pub(in crate::ui) fn name(self) -> &'static str {
         match self {
-            SettingsPage::General => "General",
-            SettingsPage::Accounts => "Accounts",
-            SettingsPage::Contacts => "Contacts",
-            SettingsPage::Rules => "Rules",
-            SettingsPage::Keys => crate::ui::pgp::keys::TITLE,
-            SettingsPage::Keyboard => "Keyboard",
+            SettingsPage::General => copy::titles::GENERAL,
+            SettingsPage::Accounts => copy::titles::ACCOUNTS,
+            SettingsPage::Rules => copy::titles::RULES,
+            SettingsPage::Keyboard => copy::titles::KEYBOARD,
         }
     }
 
@@ -80,9 +79,7 @@ impl SettingsPage {
         match self {
             SettingsPage::General => Icon::Settings,
             SettingsPage::Accounts => Icon::Mail,
-            SettingsPage::Contacts => Icon::Group,
             SettingsPage::Rules => Icon::FolderInput,
-            SettingsPage::Keys => Icon::Key,
             SettingsPage::Keyboard => Icon::Keyboard,
         }
     }
@@ -215,14 +212,15 @@ fn ask(at: Option<SettingsAt>) {
     }
 }
 
-/// Show `page` in this Settings window, Accounts at its list as System Settings shows a pane
-/// chosen in its sidebar.
+/// Show `page` in this Settings window, Accounts and Rules at their lists as System Settings shows
+/// a pane chosen in its sidebar.
 pub(in crate::ui) fn go(mut shell: Signal<Shell>, page: SettingsPage) {
     let mut write = shell.write();
     write.settings = Some(page);
     if write.accounts_pane.step != AccountStep::Removing {
         write.accounts_pane = AccountsPane::default();
     }
+    write.rules.path = PanePath::new(RulesAt::List);
 }
 
 /// Turn this Settings window to `at`: a page, or an account's page over Accounts.
@@ -300,9 +298,7 @@ pub(in crate::ui) fn SettingsView(shell: Signal<Shell>, revision: Signal<u64>) -
                 match page {
                     SettingsPage::General => rsx! { general::General {} },
                     SettingsPage::Accounts => rsx! { accounts::Accounts { shell, revision } },
-                    SettingsPage::Contacts => rsx! { crate::ui::contacts::ContactsPage { shell } },
                     SettingsPage::Rules => rsx! { crate::ui::rules::RulesPage { shell, revision } },
-                    SettingsPage::Keys => rsx! { crate::ui::pgp::keys::KeysPage {} },
                     SettingsPage::Keyboard => rsx! { crate::ui::keyboard::KeyboardPage { shell } },
                 }
             }

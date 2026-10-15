@@ -10,3 +10,18 @@ pub const NEW_FOLDER: &str = "New Folder";
 pub const NEW_MESSAGE: &str = "New Message";
 /// The sheet that archives the Inbox's old read conversations.
 pub const TIDY_UP: &str = "Tidy Up";
+
+// Settings: the window, its pages, and the pages they push.
+pub const SETTINGS: &str = "Settings";
+pub const GENERAL: &str = "General";
+pub const ACCOUNTS: &str = "Accounts";
+pub const RULES: &str = "Rules";
+pub const KEYBOARD: &str = "Keyboard";
+/// General's page of the senders whose images load.
+pub const TRUSTED_SENDERS: &str = "Trusted Senders";
+/// The page of the keys and certificates no account here owns, under Accounts.
+pub const OTHER_KEYS: &str = "Other Keys";
+/// A rule's page before it is kept.
+pub const NEW_RULE: &str = "New Rule";
+/// The vacation reply's page under Rules.
+pub const VACATION_REPLY: &str = "Vacation Reply";

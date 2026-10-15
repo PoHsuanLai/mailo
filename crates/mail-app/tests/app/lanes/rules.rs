@@ -1,5 +1,6 @@
-//! Lane 10: a rule. Settings → Rules makes "from Edsger → Archive"; a matching message arrives;
-//! running the rule on existing mail files it, and the main window's inbox follows.
+//! Lane 10: a rule. Settings → Rules makes "from Edsger → Archive" on New Rule…'s page; a
+//! matching message arrives; Run on Existing Mail, from the rule's right-click menu, files it,
+//! and the main window's inbox follows.
 
 use ds_harness::{Harness, Query};
 use mail_core::SqliteStore;
@@ -11,10 +12,11 @@ use super::window::{Window, hours_ago, row_of};
 
 const ARRIVING: &str = "Agenda for Monday";
 
-/// In Settings → Rules: a rule archiving whatever Edsger sends.
+/// In Settings → Rules: a rule archiving whatever Edsger sends, made on the page New Rule…
+/// pushes, and kept by Save Rule, which goes back to the list.
 fn make_the_rule(settings: &mut Harness) {
-    click(settings, "[*|aria-label=\"New rule\"]");
-    until(settings, "the rule's form opens", |h| {
+    click(settings, "[*|aria-label=\"New Rule\u{2026}\"]");
+    until(settings, "the rule's page opens", |h| {
         h.count("input[*|aria-label=\"Condition\"]") == 1
     });
     click(settings, "input[*|aria-label=\"Name\"]");
@@ -32,26 +34,24 @@ fn make_the_rule(settings: &mut Harness) {
     );
     click(settings, ".ds-field-row[*|aria-label=\"Do\"] .ds-button");
     super::hands::menu_item(settings, "Archive");
-    scroll_to(
-        settings,
-        ".settings-scroll",
-        "[*|aria-label=\"Save New rule\"]",
-    );
-    click(settings, "[*|aria-label=\"Save New rule\"]");
-    until(settings, "the page says it kept the rule", |h| {
-        h.text_of(".settings-page")
-            .is_some_and(|page| page.contains("Kept the rule"))
+    scroll_to(settings, ".settings-scroll", "[*|aria-label=\"Save Rule\"]");
+    click(settings, "[*|aria-label=\"Save Rule\"]");
+    until(settings, "the list shows the rule", |h| {
+        h.count("input[*|aria-label=\"Condition\"]") == 0
+            && h.text_of(".settings-page")
+                .is_some_and(|page| page.contains("Edsger"))
     });
 }
 
-/// In Settings → Rules: run the rule on the mail already here, and wait for it to end.
+/// In Settings → Rules: run the rule on the mail already here from its row's right-click menu,
+/// and wait for it to end.
 fn run_the_rule(settings: &mut Harness, store: &SqliteStore) {
-    scroll_to(
-        settings,
-        ".settings-scroll",
-        "[*|aria-label=\"Run Edsger on existing mail\"]",
-    );
-    click(settings, "[*|aria-label=\"Run Edsger on existing mail\"]");
+    use super::drive::Drive as _;
+    let row = "[*|role=\"option\"][*|id^=\"rules-pane-open-\"]";
+    until(settings, "the rule's row is drawn", |h| h.count(row) == 1);
+    let at = super::hands::centre(settings, row);
+    settings.press(at, ds::base::press::PointerButton::Secondary);
+    super::hands::menu_item(settings, "Run on Existing Mail");
     until(settings, "the page says the rule ran", |h| {
         h.text_of(".settings-page")
             .is_some_and(|page| page.contains("Ran \u{201c}Edsger\u{201d}"))

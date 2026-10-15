@@ -1,7 +1,9 @@
 //! An account's own page in Settings' Accounts pane, pushed over the list as System Settings
-//! pushes an Internet Account: its servers and sign-in, and Remove Account….
+//! pushes an Internet Account: whether all its mail is downloaded ([`super::offline`]), its
+//! servers and sign-in, its own keys and certificates (`pgp::keys`), and, last and alone,
+//! Remove Account….
 //!
-//! The settings are read, not edited: changing them is the Add account sheet's. Remove asks first
+//! The servers are read, not edited: changing them is the Add account sheet's. Remove asks first
 //! in quire's alert, naming how much mail goes and whether the server still has it. Only the
 //! confirming button removes; Escape and Cancel leave the page as it was. A removal runs off the
 //! thread that draws (the keyring blocks), on the window's own task, so turning to another page
@@ -13,8 +15,10 @@
 mod words;
 
 use crate::ui::appearance::WindowDirs;
+use crate::ui::copy;
 use crate::ui::data::{AccountRow, account_rows};
 use crate::ui::fetching::{Need, Needing, use_needs};
+use crate::ui::pgp::keys::Whose;
 use crate::ui::press::on_primary;
 use crate::ui::reauth::SIGN_IN;
 use crate::ui::view::{AccountStep, AccountsPage, Shell};
@@ -211,23 +215,34 @@ pub(super) fn AccountPage(
                     }
                 }
             }
-            FormSection { title: Some("Servers".to_owned()),
+            if !row.is_local() {
+                FormSection {
+                    super::offline::DownloadAll { row: row.clone() }
+                }
+            }
+            FormSection { title: Some(copy::headers::SERVERS.to_owned()),
                 for line in words::settings(&row.plan) {
                     FieldRow { key: "{line.label}", label: line.label,
                         Label { text: line.value }
                     }
                 }
             }
-            div { class: "acct-actions",
-                if let Some(why) = refused {
-                    Label { text: why, severity: Some(Severity::Warn) }
-                }
-                Button {
-                    label: ASK,
-                    role: ButtonRole::Destructive,
-                    common: Common { aria_label: Some(format!("Remove {name}")), ..Common::default() },
-                    availability: removing,
-                    onclick: on_primary(move || to(shell, AccountStep::Asking)),
+            if !row.is_local() {
+                crate::ui::pgp::keys::KeysPage { whose: Whose::Account(row.address.clone()) }
+            }
+            // Removing is the page's last group, alone: it cannot be undone, so it asks first.
+            FormSection {
+                div { class: "acct-actions",
+                    if let Some(why) = refused {
+                        Label { text: why, severity: Some(Severity::Warn) }
+                    }
+                    Button {
+                        label: ASK,
+                        role: ButtonRole::Destructive,
+                        common: Common { aria_label: Some(format!("Remove {name}")), ..Common::default() },
+                        availability: removing,
+                        onclick: on_primary(move || to(shell, AccountStep::Asking)),
+                    }
                 }
             }
         }
@@ -242,7 +257,7 @@ pub(super) fn AccountPage(
                         move |()| confirm(shell, revision, account.clone())
                     })),
                     AlertButton::new(
-                        "Cancel",
+                        copy::controls::CANCEL,
                         AlertRole::Cancel,
                         EventHandler::new(move |()| to(shell, AccountStep::Showing)),
                     ),
@@ -253,4 +268,4 @@ pub(super) fn AccountPage(
 }
 
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;

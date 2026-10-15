@@ -1,7 +1,8 @@
-//! The Keys and certificates page of Settings: OpenPGP keys, then S/MIME certificates, each a row
-//! of quire's list with its actions, the user's own first; a key to make for each sending account
-//! that has none; Import in each group; and the questions asked before an act that cannot be
-//! undone (`key_row::Asking`).
+//! The keys and certificates Settings lists, as one group of rows: an account's own on its page
+//! (its Encryption group), and every other on the Other Keys page under Accounts. OpenPGP keys
+//! come first, then S/MIME certificates, each a row of quire's list with its actions; a key to
+//! make when the account has none; Import for each kind; and the questions asked before an act
+//! that cannot be undone (`key_row::Asking`).
 
 use dioxus::prelude::*;
 use ds::components::lists::list::model::ListStyle;
@@ -10,18 +11,48 @@ use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::icon::family::PlateFamily;
 use mail_core::{SqliteStore, Store};
+use mail_domain::SecretHeld;
 use std::sync::Arc;
 
 use super::super::common::{Told, tile};
+use super::super::data::account_rows;
 use super::super::press::{available, on_primary};
-use super::certs::{CertPart, IMPORT, quiet_item};
+use super::certs::{IMPORT, cert_items, quiet_item};
 use super::key_row::{Asking, Confirm, KeyRow};
 use super::keys::{Done, Job, keyless, ordered, work};
 use super::{Busy, seams, who};
+use crate::ui::copy;
 
-/// The page.
+/// Whose keys and certificates a [`KeysPage`] lists.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(in crate::ui) enum Whose {
+    /// One account's own, by its address: what signs and decrypts its mail.
+    Account(String),
+    /// Every other: correspondents', authorities', and the user's own for an address no
+    /// account here has.
+    Others,
+}
+
+impl Whose {
+    /// Whether a key or certificate for `emails`, whose secret half is `secret`, is listed here,
+    /// `accounts` being the addresses of the accounts here, lowercased.
+    pub(in crate::ui) fn lists(
+        &self,
+        emails: &[String],
+        secret: SecretHeld,
+        accounts: &[String],
+    ) -> bool {
+        let own = |address: &str| secret == SecretHeld::Held && emails.iter().any(|e| e == address);
+        match self {
+            Whose::Account(address) => own(&address.to_lowercase()),
+            Whose::Others => !accounts.iter().any(|address| own(address)),
+        }
+    }
+}
+
+/// The group: its rows, then what the last act came to under them.
 #[component]
-pub(in crate::ui) fn KeysPage() -> Element {
+pub(in crate::ui) fn KeysPage(whose: Whose) -> Element {
     // Bumped by every change, so the keys are read again.
     let mut changed = use_signal(|| 0u64);
     let mut said = use_signal(|| None::<Result<String, String>>);
@@ -29,6 +60,11 @@ pub(in crate::ui) fn KeysPage() -> Element {
     let mut confirm = use_signal(|| Confirm::Nothing);
     let _ = changed();
     let store = consume_context::<Arc<SqliteStore>>();
+    let accounts: Vec<String> = account_rows(&store)
+        .into_iter()
+        .filter(|row| !row.is_local())
+        .map(|row| row.address.to_lowercase())
+        .collect();
     let (keys, failed) = match store.pgp_keys() {
         Ok(keys) => (ordered(keys), None),
         Err(why) => (Vec::new(), Some(why.to_string())),
@@ -37,7 +73,21 @@ pub(in crate::ui) fn KeysPage() -> Element {
         Ok(certs) => (super::certs::ordered(certs), None),
         Err(why) => (Vec::new(), Some(why.to_string())),
     };
-    let keyless = keyless(&store);
+    let keys: Vec<_> = keys
+        .into_iter()
+        .filter(|key| whose.lists(&key.emails, key.secret, &accounts))
+        .collect();
+    let certs: Vec<_> = certs
+        .into_iter()
+        .filter(|cert| whose.lists(&cert.emails, cert.secret, &accounts))
+        .collect();
+    let make = match &whose {
+        Whose::Account(address) => keyless(&store)
+            .into_iter()
+            .filter(|keyless| keyless.eq_ignore_ascii_case(address))
+            .collect(),
+        Whose::Others => Vec::new(),
+    };
     // Made here, so the task belongs to the page and not to a row a deletion takes away.
     let run = use_callback(move |job: Job| {
         if *busy.peek() == Busy::Working {
@@ -62,6 +112,7 @@ pub(in crate::ui) fn KeysPage() -> Element {
     });
     let working = busy() == Busy::Working;
     let import_label = "Import from a file…";
+    let nothing = keys.is_empty() && certs.is_empty() && make.is_empty();
     let mut items: Vec<ListItem<String>> = keys
         .into_iter()
         .map(|key| {
@@ -74,12 +125,14 @@ pub(in crate::ui) fn KeysPage() -> Element {
             )
         })
         .collect();
-    if items.is_empty() {
-        items.push(quiet_item(
-            failed.unwrap_or_else(|| "No OpenPGP keys yet".to_owned()),
-        ));
+    // Why a list could not be read, or that the others have nothing, is a row of its own.
+    let quiet = failed.or(certs_failed).or_else(|| {
+        (nothing && whose == Whose::Others).then(|| copy::empty::NO_OTHER_KEYS.to_owned())
+    });
+    if let Some(quiet) = quiet {
+        items.push(quiet_item(quiet));
     }
-    for address in keyless {
+    for address in make {
         let label = format!("Make a key for {address}");
         let make = address.clone();
         items.push(ListItem::row(
@@ -103,6 +156,8 @@ pub(in crate::ui) fn KeysPage() -> Element {
             },
         ));
     }
+    let (cert_rows, cert_import) = cert_items(certs, confirm, run, busy());
+    items.extend(cert_rows);
     items.push(ListItem::row(
         IMPORT.to_owned(),
         import_label.to_owned(),
@@ -123,14 +178,16 @@ pub(in crate::ui) fn KeysPage() -> Element {
             }
         },
     ));
+    items.push(cert_import);
+    let title = match whose {
+        Whose::Account(_) => Some(copy::headers::ENCRYPTION.to_owned()),
+        Whose::Others => None,
+    };
     rsx! {
-        Form {
-            Told { said: said() }
-            FormSection { title: Some("OpenPGP".to_owned()),
-                List::<String> { label: "OpenPGP keys", items, style: ListStyle::Grouped }
-            }
-            CertPart { certs, failed: certs_failed, confirm, run, busy: busy() }
-            Asking { confirm, run, busy: busy() }
+        Told { said: said() }
+        FormSection { title,
+            List::<String> { label: copy::headers::ENCRYPTION, items, style: ListStyle::Grouped }
         }
+        Asking { confirm, run, busy: busy() }
     }
 }

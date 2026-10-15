@@ -1,6 +1,5 @@
-//! A settings schema drawn as rows, the way the desktop's Settings app (detent) draws it: one
-//! titled group per section, one row per key, and the control a key's kind gets (quire design/22
-//! section 9.1). Nothing here knows a key by name, so it can move to quire's proposed shared
+//! A settings schema's keys drawn as rows, the way the desktop's Settings app (detent) draws them:
+//! one row per key, and the control a key's kind gets (quire design/22 section 9.1). Nothing here knows a key by name, so it can move to quire's proposed shared
 //! `SettingsPage` whole; the values are the caller's (`value_of`, `with_value`), and a change is
 //! handed back as the new value.
 
@@ -11,7 +10,7 @@ use ds::components::menus::item::item::MenuItem;
 use ds::components::menus::pop_up_button::PopUpButton;
 use ds::prelude::*;
 use ds::root::common::Common;
-use ds_settings::schema::{KeyKind, KeySpec, Schema};
+use ds_settings::schema::{KeyKind, KeySpec};
 
 /// Words that are the off side of a pair (detent's `TogglePair` rule, design/22 section 9.1).
 const OFF_WORDS: [&str; 5] = ["off", "hide", "never", "none", "nothing"];
@@ -138,47 +137,9 @@ pub(in crate::ui) fn with_value(
     values
 }
 
-/// The sections of `schema`, in the order their first key comes, each with its keys.
-pub(super) fn sections(schema: &Schema) -> Vec<(String, Vec<KeySpec>)> {
-    let mut out: Vec<(String, Vec<KeySpec>)> = Vec::new();
-    for key in &schema.key {
-        let title = key.section.0.clone();
-        match out.iter_mut().find(|(name, _)| *name == title) {
-            Some((_, keys)) => keys.push(key.clone()),
-            None => out.push((title, vec![key.clone()])),
-        }
-    }
-    out
-}
-
-/// One section: its title over a row per key, and the note that explains the whole group, if the
-/// caller has one, under it.
+/// A key's row: its label, its help when the schema gives one, and its control.
 #[component]
-pub(super) fn SchemaSection(
-    title: String,
-    keys: Vec<KeySpec>,
-    values: toml::Value,
-    onedit: EventHandler<(String, toml::Value)>,
-    /// What the caller adds under the rows: a row that belongs to the section.
-    #[props(default)]
-    children: Element,
-    /// A note about the group as a whole, drawn under it in the help type.
-    #[props(default)]
-    footer: Option<String>,
-) -> Element {
-    rsx! {
-        FormSection { title: (!title.is_empty()).then(|| title.clone()), footer,
-            for key in keys {
-                KeyRow { key: "{key.path.0}", value: value_of(&values, &key), spec: key.clone(), onedit }
-            }
-            {children}
-        }
-    }
-}
-
-/// A key's row: its label and help, and its control.
-#[component]
-fn KeyRow(
+pub(super) fn KeyRow(
     spec: KeySpec,
     value: toml::Value,
     onedit: EventHandler<(String, toml::Value)>,

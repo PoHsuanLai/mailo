@@ -1,10 +1,11 @@
-//! The work behind the Keys and certificates page of Settings ([`super::keys_page`]): OpenPGP
-//! keys, then S/MIME certificates, the user's own first in each, and what can be done to each.
+//! The work behind the keys and certificates Settings lists ([`super::keys_page`]): OpenPGP keys,
+//! then S/MIME certificates, the user's own first in each, and what can be done to each. An
+//! account's own are on its page; the composer's "Create a key…" opens Settings there.
 //!
-//! The search bar's "Keys and Certificates Settings" opens Settings on it. Every change goes
-//! through [`mail_core::pgp::keys`] or [`mail_core::smime::certs`], the functions `mailo pgp`
-//! and `mailo smime` use, and runs on a blocking thread: a key is made, imported, exported or forgotten in the
-//! keyring, and a file is read or written, none of which the thread that draws may wait on. The
+//! Every change goes through [`mail_core::pgp::keys`] or [`mail_core::smime::certs`], the
+//! functions `mailo pgp` and `mailo smime` use, and runs on a blocking thread: a key is made,
+//! imported, exported or forgotten in the keyring, and a file is read or written, none of which
+//! the thread that draws may wait on. The
 //! acts that cannot be taken back — writing a secret key to a file, and deleting one — are each
 //! asked again by the page, in words, before anything happens.
 //!
@@ -22,10 +23,7 @@ use super::certs::CertJob;
 use super::{Seams, short, who};
 use mail_core::pgp::WithSecret;
 
-/// What the page is called.
-pub(in crate::ui) const TITLE: &str = "Keys and certificates";
-
-pub(in crate::ui) use super::keys_page::KeysPage;
+pub(in crate::ui) use super::keys_page::{KeysPage, Whose};
 
 /// The keys in the order the page lists them: the user's own — those whose secret half the
 /// keyring holds — first, then everyone else's, each group as the store orders it.

@@ -41,7 +41,7 @@ const VIEW: Viewport = Viewport {
     scale_percent: 100,
 };
 
-/// The Settings window at the size it opens at: the Keyboard page's last row, Reset All, is below
+/// The Settings window at the size it opens at: the Keyboard page's last row, Compose, is below
 /// the fold and is reached by scrolling.
 const SETTINGS_VIEW: Viewport = Viewport {
     width: 780,
@@ -228,8 +228,13 @@ const ARCHIVE_SAID: &str = "[*|data-action=Archive] .ds-field-row-help";
 
 const SCROLLER: &str = ".settings-scroll";
 const SIDEBAR_KEYBOARD: &str = ".ds-sidebar [*|aria-label=\"Keyboard\"]";
-const LAST_CARD: &str = "[*|aria-label=\"Restore the shipped keys\"]";
-const RESET_ALL: &str = "button[*|aria-label=\"Reset every shortcut\"]";
+const LAST_CARD: &str = "[*|data-action=Compose]";
+/// Whether the page offers Restore Defaults: a button that says so.
+fn restores(settings: &Harness) -> bool {
+    settings
+        .text_of(".settings-page")
+        .is_some_and(|page| page.contains("Restore Defaults"))
+}
 
 /// Where `selector` is drawn, or a failure that shows the document.
 fn rect(harness: &Harness, selector: &str) -> ds::prelude::Rect {
@@ -410,7 +415,7 @@ fn reset_in_settings_puts_the_shipped_key_back_in_the_open_main_window() {
 }
 
 #[test]
-fn a_keymap_kept_earlier_is_the_one_settings_shows_and_reset_puts_it_back() {
+fn a_keymap_kept_earlier_is_shown_with_restore_defaults_and_reset_puts_it_back() {
     let dir = tempfile::tempdir().unwrap();
     let store = seeded(dir.path());
     let dirs = WindowDirs {
@@ -430,6 +435,8 @@ fn a_keymap_kept_earlier_is_the_one_settings_shows_and_reset_puts_it_back() {
         Some("X"),
         "the page shows the kept key"
     );
+    // A key differs from the shipped ones, so there is something to restore.
+    assert!(restores(&settings), "no Restore Defaults");
     click(&mut settings, "[*|aria-label=\"Reset Archive\"]");
     assert_eq!(settings.text_of(&well).as_deref().map(str::trim), Some("E"));
     assert_eq!(
@@ -438,6 +445,10 @@ fn a_keymap_kept_earlier_is_the_one_settings_shows_and_reset_puts_it_back() {
         "the reset was kept"
     );
     assert_eq!(settings.count("[*|aria-label=\"Reset Archive\"]"), 0);
+    assert!(
+        !restores(&settings),
+        "Restore Defaults stays with nothing to restore"
+    );
 }
 
 #[test]
@@ -456,9 +467,9 @@ fn the_settings_window_scrolls_to_its_last_card() {
         "the wheel stopped with the last card {:?} outside the view {view:?}",
         rect(&settings, LAST_CARD),
     );
-    // Reset All is there, and unavailable with nothing changed, so it takes no pointer: what
-    // must not be under something else is the row's own name.
-    assert_eq!(settings.count(RESET_ALL), 1);
+    // With nothing changed there is nothing to restore, so Restore Defaults is not drawn and the
+    // last row is the last shortcut's: what must not be under something else is its name.
+    assert!(!restores(&settings));
     let title = format!("{LAST_CARD} .ds-field-row-title");
     let name = centre(&settings, &title);
     assert!(

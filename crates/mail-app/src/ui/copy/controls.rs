@@ -21,3 +21,11 @@ pub const ONE_WEEK: &str = "1 Week";
 pub const TWO_WEEKS: &str = "2 Weeks";
 pub const ONE_MONTH: &str = "1 Month";
 pub const THREE_MONTHS: &str = "3 Months";
+/// Keeps what a form or a field holds.
+pub const SAVE: &str = "Save";
+/// Takes one entry out of a list in Settings.
+pub const REMOVE: &str = "Remove";
+/// The Rules page's row that makes a rule.
+pub const NEW_RULE: &str = "New Rule…";
+/// Settings › Keyboard: every key as it ships, shown only while one differs.
+pub const RESTORE_DEFAULTS: &str = "Restore Defaults";

@@ -248,6 +248,8 @@ const EVERY_COMMAND: &[(CommandId, &str)] = &[
     (CommandId::AddAccount, "action:add-account"),
     (CommandId::Import, "action:import"),
     (CommandId::Export, "action:export"),
+    (CommandId::Contacts(Cards::Import), "action:import-contacts"),
+    (CommandId::Contacts(Cards::Export), "action:export-contacts"),
     (CommandId::NewView, "action:new-view"),
     (CommandId::Settings, "action:settings"),
     (
@@ -259,16 +261,8 @@ const EVERY_COMMAND: &[(CommandId, &str)] = &[
         "action:settings-accounts",
     ),
     (
-        CommandId::SettingsAt(SettingsPage::Contacts),
-        "action:settings-contacts",
-    ),
-    (
         CommandId::SettingsAt(SettingsPage::Rules),
         "action:settings-rules",
-    ),
-    (
-        CommandId::SettingsAt(SettingsPage::Keys),
-        "action:settings-keys",
     ),
     (
         CommandId::SettingsAt(SettingsPage::Keyboard),
@@ -399,9 +393,7 @@ async fn each_settings_entry_opens_the_settings_window_on_its_page() {
     for page in [
         SettingsPage::General,
         SettingsPage::Accounts,
-        SettingsPage::Contacts,
         SettingsPage::Rules,
-        SettingsPage::Keys,
         SettingsPage::Keyboard,
     ] {
         let id = CommandId::SettingsAt(page);

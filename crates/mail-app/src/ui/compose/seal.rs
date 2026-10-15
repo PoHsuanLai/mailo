@@ -118,7 +118,7 @@ pub(in crate::ui) enum BarAct {
     /// Take the protection off and send.
     Plain,
     LookUp(Vec<String>),
-    /// Open Settings on Keys and certificates: to make a key, or import a certificate.
+    /// Open Settings on the sending account's page: to make a key, or import a certificate.
     OpenKeys,
     Unlock(Password),
 }

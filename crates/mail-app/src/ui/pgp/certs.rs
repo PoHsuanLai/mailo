@@ -1,5 +1,5 @@
-//! The S/MIME half of the Keys and certificates page: the user's own certificates first, then
-//! their correspondents' and the authorities', and what can be done to each.
+//! The S/MIME half of an Encryption group: the certificates it lists, and what can be done to
+//! each.
 //!
 //! Every change goes through [`mail_core::smime::certs`], the functions `mailo smime` uses, on the
 //! sheet's blocking thread. A PKCS#12 identity file's password is asked for in the sheet only
@@ -8,7 +8,6 @@
 
 use ds::components::content::text_runs::RunTone;
 use ds::components::controls::button_model::{Bezel, ButtonRole};
-use ds::components::lists::list::model::ListStyle;
 use ds::components::lists::row::size::RowSize;
 use ds::prelude::*;
 use ds::root::common::Common;
@@ -152,19 +151,17 @@ pub(in crate::ui) fn validity(cert: &SmimeCert, now: DateTime<Utc>) -> String {
     }
 }
 
-/// The S/MIME group: the certificates, and Import. A file that needs a password is asked for
-/// by the page ([`super::key_row::Asking`]).
-#[component]
-pub(in crate::ui) fn CertPart(
+/// The certificates' rows, and their Import row: what the page's list holds after the keys. A
+/// file that needs a password is asked for by the page ([`super::key_row::Asking`]).
+pub(super) fn cert_items(
     certs: Vec<SmimeCert>,
-    failed: Option<String>,
     confirm: Signal<Confirm>,
     run: Callback<Job>,
     busy: Busy,
-) -> Element {
+) -> (Vec<ListItem<String>>, ListItem<String>) {
     let working = busy == Busy::Working;
     let import_label = "Import a certificate or identity…";
-    let mut items: Vec<ListItem<String>> = certs
+    let items: Vec<ListItem<String>> = certs
         .into_iter()
         .map(|cert| {
             let id = cert.fingerprint.to_string();
@@ -176,12 +173,8 @@ pub(in crate::ui) fn CertPart(
             )
         })
         .collect();
-    if items.is_empty() {
-        let said = failed.unwrap_or_else(|| "No S/MIME certificates yet".to_owned());
-        items.push(quiet_item(said));
-    }
-    items.push(ListItem::row(
-        IMPORT.to_owned(),
+    let import = ListItem::row(
+        IMPORT_CERT.to_owned(),
         import_label.to_owned(),
         rsx! {
             Row {
@@ -199,13 +192,12 @@ pub(in crate::ui) fn CertPart(
                 }),
             }
         },
-    ));
-    rsx! {
-        FormSection { title: Some("S/MIME".to_owned()),
-            List::<String> { label: "S/MIME certificates", items, style: ListStyle::Grouped }
-        }
-    }
+    );
+    (items, import)
 }
+
+/// The key of the certificates' import row, which no fingerprint can be.
+const IMPORT_CERT: &str = " import certificate";
 
 /// The key of the import row, which no fingerprint can be.
 pub(super) const IMPORT: &str = " import";

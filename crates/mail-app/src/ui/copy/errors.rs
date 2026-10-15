@@ -46,3 +46,24 @@ pub const NO_SUBFOLDERS: &str = "This server has no subfolders.";
 pub fn name_has_delimiter(delimiter: char) -> String {
     format!("A folder name can’t contain “{delimiter}”.")
 }
+
+/// A file picked to import that could not be read.
+pub fn cannot_read(name: &str) -> String {
+    format!("Can’t read {name}.")
+}
+
+/// A change in Settings that could not be written: the banner's title, its reason under it.
+pub const NOT_KEPT: &str = "Not kept";
+
+/// Why an account's page cannot say how much of its mail is here.
+pub fn could_not_count(why: &str) -> String {
+    format!("Could not count: {why}")
+}
+
+/// A choice in Settings with nowhere to be written.
+pub const NO_CONFIG_DIRECTORY: &str = "There is no config directory to keep this in.";
+
+/// A rule or vacation reply kept here that its server did not take.
+pub fn not_on_server(why: &str) -> String {
+    format!("Kept here, but not on the server: {why}")
+}

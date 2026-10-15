@@ -1,19 +1,19 @@
-//! Contacts in the window: the book the composer suggests from, a page of Settings to look
-//! through it, and the sender card's part in it.
+//! Contacts in the window: the book the composer suggests from, a person edited from their name
+//! in mail, and the book in and out as vCard from ⌘K.
 //!
 //! [`book`] is every question and every write, as functions of a store, and [`groups`] the
-//! same for contact groups; the page and the card only draw what they answer. CardDAV sync stays
-//! on the command line — it needs a URL and a password — and the page says so, with the command.
+//! same for the groups the composer offers; the editor and the commands only draw and say what
+//! they answer. CardDAV sync stays on the command line: it needs a URL and a password.
 
 pub(in crate::ui) mod book;
-mod group_edit;
-mod group_rows;
+mod cards;
+mod editor;
 pub(in crate::ui) mod groups;
-mod page;
 
-pub(in crate::ui) use page::ContactsPage;
+pub(in crate::ui) use cards::{export_cards, import_cards};
+pub(in crate::ui) use editor::SenderName;
 
 #[cfg(test)]
-mod page_tests;
+mod editor_tests;
 #[cfg(test)]
 pub(in crate::ui) mod tests;

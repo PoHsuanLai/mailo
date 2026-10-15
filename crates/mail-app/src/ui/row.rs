@@ -353,7 +353,7 @@ pub(super) fn MailRow(
 }
 
 /// A point in the window as the rect a context menu is placed against.
-fn point_rect(at: dioxus::html::geometry::ClientPoint) -> Rect {
+pub(in crate::ui) fn point_rect(at: dioxus::html::geometry::ClientPoint) -> Rect {
     Rect {
         origin: Point {
             x: Px(at.x as f32),

@@ -227,8 +227,8 @@ fn certificate(cert: &SmimeCert) -> String {
 pub(in crate::ui) fn doubt(problem: &CertProblem) -> String {
     match problem {
         CertProblem::Untrusted => "Untrusted: no authority you trust issued its certificate, so \
-                                   anyone could have made it. Trust it in Keys and certificates \
-                                   only after checking it with its owner"
+                                   anyone could have made it. Trust it in Other Keys, under \
+                                   Accounts in Settings, only after checking it with its owner"
             .to_owned(),
         CertProblem::Expired { not_after } => format!(
             "Expired: a certificate in its chain stopped being valid on {}, before the message \

@@ -29,7 +29,7 @@ pub(in crate::ui) use spotlight::{Spotlight, summon};
 use super::ops::{Composes, compose_new, start_composing};
 use crate::ui::view::{Bar, BarListing, PageMenu, Shell, Source};
 use dioxus::prelude::*;
-use items::{CommandId, Look, Pick};
+use items::{Cards, CommandId, Look, Pick};
 use mail_core::SqliteStore;
 use mail_core::place::place_filter;
 use sections::Choice;
@@ -219,6 +219,13 @@ fn run_action(
             // was typed into this menu.
             close(shell);
             super::files::open_export(shell);
+        }
+        CommandId::Contacts(cards) => {
+            close(shell);
+            match cards {
+                Cards::Import => super::contacts::import_cards(),
+                Cards::Export => super::contacts::export_cards(),
+            }
         }
         CommandId::NewView => {
             // Closed first, like Export: the view starts from the search the window shows.
