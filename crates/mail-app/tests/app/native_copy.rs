@@ -283,8 +283,8 @@ fn the_command_key_and_super_c_copy_a_messages_selection() {
     );
 }
 
-/// (d) A link in the frame: a right click on it offers Open Link and Copy Link at the pointer,
-/// as a browser does. quire reports the link the press was on just before the reader's own
+/// (d) A link in the frame: a right click on it offers Open Link, Preview Link and Copy Link at
+/// the pointer, as a browser does. quire reports the link the press was on just before the reader's own
 /// `oncontextmenu` (`FrameLinks::with_context_menu`); the reader opens the menu with it.
 fn right_click_link(harness: &mut Harness) {
     let link = harness
@@ -292,12 +292,12 @@ fn right_click_link(harness: &mut Harness) {
         .and_then(|f| f.centre("a"))
         .expect("the link is drawn");
     harness.press(link, PointerButton::Secondary);
-    until(harness, "the link's menu", |h| h.count(LINK_MENU) == 2);
+    until(harness, "the link's menu", |h| h.count(LINK_MENU) == 3);
 }
 
 const LINK_MENU: &str = ".ds-menu .ds-menu-item";
 const OPEN_LINK: &str = ".ds-menu .ds-menu-item:nth-child(1)";
-const COPY_LINK: &str = ".ds-menu .ds-menu-item:nth-child(2)";
+const COPY_LINK: &str = ".ds-menu .ds-menu-item:nth-child(3)";
 
 /// A right click on a link: Copy Link copies where it goes, Open Link opens it as a click would,
 /// and a right click off a link then offers no link, not the last link's menu either: what the
