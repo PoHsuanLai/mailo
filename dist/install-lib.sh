@@ -60,8 +60,9 @@ run() {
   [ "$DRY" = 1 ] || "$@"
 }
 
-# asroot CMD...: run CMD as root through the program need_sudo chose, or as ourselves when MAILO_PREFIX points somewhere we
-# own (the scenario scripts install into a scratch prefix and never need sudo).
+# asroot CMD...: run CMD as root through the program need_sudo chose, or as ourselves when
+# MAILO_PREFIX points somewhere we own (the scenario scripts install into a scratch prefix and never
+# need root).
 asroot() { run ${SUDO:+"$SUDO"} "$@"; }
 
 # put MODE SRC DEST: install SRC at DEST, unless DEST already is a copy of it.
