@@ -40,3 +40,15 @@ pub fn back_at(when: &str) -> String {
 
 /// ⌘K's field, while it is empty.
 pub const SEARCH_EVERYTHING: &str = "Search mail, places and commands";
+
+// Peek's facts about a calendar file, a contact card or a forwarded message.
+pub const WHEN: &str = "When";
+pub const WHERE: &str = "Where";
+pub const ORGANISER: &str = "Organiser";
+pub const REPEATS: &str = "Repeats";
+pub const EMAIL: &str = "Email";
+pub const PHONE: &str = "Phone";
+pub const ORGANISATION: &str = "Organisation";
+pub const FROM: &str = "From";
+pub const TO: &str = "To";
+pub const DATE: &str = "Date";

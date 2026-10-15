@@ -1,10 +1,16 @@
-//! A stored attachment's thumbnail in the reader's strip, and the press that opens the viewer.
+//! A stored attachment's thumbnail in the reader's strip, and the press that opens it in Peek.
 //!
-//! Drawn only for a part whose bytes are here (`Kept::Here`): a part still on the server shows
+//! Every stored part's leading cell opens Peek (`peek.rs`): a click, or Space or Return while it
+//! has the keyboard. Drawn only for a part whose bytes are here (`Kept::Here`): a part still on the server shows
 //! its paperclip until it is downloaded, and nothing is fetched to draw it (`preview.rs`). The
 //! bytes are read and decoded on a blocking thread, from a resource: nothing is spawned from
 //! the render (F140), and what was drawn is remembered, so opening the conversation again draws
 //! at once.
+//!
+//! A picture mailo decodes and a PDF's first page are drawn as they always were. With the
+//! `anyview` feature, a part of any other kind that anyview can show as a picture (a bitmap, an
+//! SVG, a recording's cover) is drawn by anyview's pane, media only; one it has only facts for
+//! keeps the paperclip (`route.rs` says who draws which).
 
 use std::sync::{Arc, Mutex};
 
@@ -15,7 +21,8 @@ use ds::style::icon::render::Glyph;
 use mail_core::SqliteStore;
 use mail_domain::MessageId;
 
-use crate::ui::view::{Shell, Viewing};
+use crate::ui::copy;
+use crate::ui::view::Shell;
 use mail_core::preview::{self, Kind, Picture, Unshown};
 
 /// The thumbnail's room, in logical pixels.
@@ -24,6 +31,11 @@ const ROOM: f32 = 56.0;
 /// How many thumbnails to remember. One is a PNG of at most 112 × 112.
 const KEPT: usize = 64;
 
+/// How many of anyview's to remember: each holds its decoded pixels (up to a megapixel), not a
+/// small PNG, so fewer.
+#[cfg(feature = "anyview")]
+const KEPT_PEEKED: usize = 8;
+
 /// What the strip draws for one part.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Shown {
@@ -31,6 +43,9 @@ pub(super) enum Shown {
     Nothing,
     Image(Picture),
     Pdf(PdfPage),
+    /// A picture anyview made of a part mailo does not decode.
+    #[cfg(feature = "anyview")]
+    Peeked(Arc<anyview_peek::AnyPeeked>),
     /// A picture here that is not drawn, and why.
     Refused(String),
 }
@@ -54,10 +69,36 @@ fn remember(key: (MessageId, usize), shown: &Shown) {
     if cache.len() > KEPT {
         cache.remove(0);
     }
+    #[cfg(feature = "anyview")]
+    {
+        let peeked = |entry: &((MessageId, usize), Shown)| matches!(entry.1, Shown::Peeked(_));
+        while cache.iter().filter(|entry| peeked(entry)).count() > KEPT_PEEKED {
+            // The oldest of them: the cache is oldest first.
+            if let Some(oldest) = cache.iter().position(peeked) {
+                cache.remove(oldest);
+            }
+        }
+    }
+}
+
+/// A part mailo does not decode, as anyview shows it: a picture, or nothing (the paperclip).
+#[cfg(feature = "anyview")]
+fn beyond_mailo(store: &Arc<SqliteStore>, message: MessageId, index: usize) -> Shown {
+    use super::anyview::{Seen, see};
+    match see(store, message, index) {
+        Seen::Ready(peeked) if peeked.still().is_some() => Shown::Peeked(peeked),
+        Seen::Ready(_) | Seen::NotHere | Seen::Own | Seen::Failed(_) => Shown::Nothing,
+    }
+}
+
+/// Without anyview, a part mailo does not decode has no thumbnail.
+#[cfg(not(feature = "anyview"))]
+fn beyond_mailo(_store: &Arc<SqliteStore>, _message: MessageId, _index: usize) -> Shown {
+    Shown::Nothing
 }
 
 /// Attachment `index` of `message` as the strip draws it. Blocking: reads and decodes.
-pub(super) fn thumbnail(store: &SqliteStore, message: MessageId, index: usize) -> Shown {
+pub(super) fn thumbnail(store: &Arc<SqliteStore>, message: MessageId, index: usize) -> Shown {
     if let Some(had) = cached((message, index)) {
         return had;
     }
@@ -76,17 +117,17 @@ pub(super) fn thumbnail(store: &SqliteStore, message: MessageId, index: usize) -
         Err(Unshown::Refused(refusal)) => Shown::Refused(refusal.sentence()),
         // Not remembered: a part downloaded later is drawn when the strip is drawn again.
         Err(Unshown::NotHere | Unshown::Store(_)) => return Shown::Nothing,
-        Err(Unshown::NotAPicture) => Shown::Nothing,
+        Err(Unshown::NotAPicture) => beyond_mailo(store, message, index),
     };
     remember((message, index), &shown);
     shown
 }
 
-/// Open the viewer on attachment `index` of `message`, and give the window the keyboard, so Esc
-/// and the arrows reach it.
-fn open(mut shell: Signal<Shell>, message: MessageId, index: usize) {
-    shell.write().viewing = Some(Viewing::of(message, index));
-    crate::ui::host::Host::focus_app();
+/// Space or Return, alone, on a cell that has the keyboard opens it, as a click does; the key goes
+/// no further, so the reader behind does not scroll. A chord (Primary+Return, which opens the part
+/// in its app once Peek is up) is the window's.
+fn pressed(event: &KeyboardEvent) -> bool {
+    event.modifiers().is_empty() && matches!(event.key().to_string().as_str(), " " | "Enter")
 }
 
 /// The leading cell of a stored part's row: its thumbnail, which opens the viewer, or the
@@ -111,36 +152,49 @@ pub(super) fn Thumb(
         width: Px(ROOM),
         height: Px(ROOM),
     };
-    match shown {
-        // The paperclip stands in a thumbnail's room, so every name in the list starts in line.
-        Shown::Nothing => rsx! {
-            div { class: "att-mark",
-                Glyph { icon: Icon::Paperclip, size: IconSize::Compact }
-            }
-        },
-        Shown::Refused(why) => rsx! {
-            div { class: "att-mark",
-                Glyph { icon: Icon::Paperclip, size: IconSize::Compact }
-            }
+    // The paperclip stands in a thumbnail's room, so every name in the list starts in line.
+    let (class, face) = match &shown {
+        Shown::Nothing | Shown::Refused(_) => (
+            "att-mark",
+            rsx! { Glyph { icon: Icon::Paperclip, size: IconSize::Compact } },
+        ),
+        Shown::Image(picture) => (
+            "att-thumb",
+            rsx! { img { alt: "{name}", src: "{picture.uri}" } },
+        ),
+        Shown::Pdf(page) => (
+            "att-thumb",
+            rsx! { PdfThumb { page: page.clone(), size: room, label: Some(name.clone()) } },
+        ),
+        #[cfg(feature = "anyview")]
+        Shown::Peeked(peeked) => (
+            "att-thumb",
+            rsx! {
+                anyview_peek::Card {
+                    peeked: peeked.clone(),
+                    parts: anyview_peek::Parts::of([anyview_peek::Part::Media]),
+                }
+            },
+        ),
+    };
+    rsx! {
+        div {
+            class,
+            role: "button",
+            tabindex: "0",
+            "aria-label": copy::aria::preview(&name),
+            onclick: move |_| super::peek::open(shell, message, index),
+            onkeydown: move |event: KeyboardEvent| {
+                if pressed(&event) {
+                    event.prevent_default();
+                    event.stop_propagation();
+                    super::peek::open(shell, message, index);
+                }
+            },
+            {face}
+        }
+        if let Shown::Refused(why) = shown {
             span { class: "att-note", "{why}" }
-        },
-        Shown::Image(picture) => rsx! {
-            div {
-                class: "att-thumb",
-                role: "button",
-                "aria-label": "Preview {name}",
-                onclick: move |_| open(shell, message, index),
-                img { alt: "{name}", src: "{picture.uri}" }
-            }
-        },
-        Shown::Pdf(page) => rsx! {
-            div {
-                class: "att-thumb",
-                role: "button",
-                "aria-label": "Preview {name}",
-                onclick: move |_| open(shell, message, index),
-                PdfThumb { page, size: room, label: Some(name.clone()) }
-            }
-        },
+        }
     }
 }

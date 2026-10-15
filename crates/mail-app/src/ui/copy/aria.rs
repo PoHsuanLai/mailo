@@ -67,3 +67,18 @@ pub fn details_for(account: &str) -> String {
 
 /// A rule page's Save.
 pub const SAVE_RULE: &str = "Save Rule";
+
+// Peek.
+/// A stored attachment's tile in the reader's strip, which opens it in Peek.
+pub fn preview(name: &str) -> String {
+    format!("Preview {name}")
+}
+/// A PDF's page buttons in Peek.
+pub const PREVIOUS_PAGE: &str = "Previous Page";
+pub const NEXT_PAGE: &str = "Next Page";
+/// Peek showing a link's card.
+pub const LINK_DESTINATION: &str = "Link Destination";
+/// A PDF's page in Peek, counted from 1: the picture's description.
+pub fn page_picture(name: &str, page: u32) -> String {
+    format!("{name}, page {page}")
+}

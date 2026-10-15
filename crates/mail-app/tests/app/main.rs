@@ -33,6 +33,8 @@ mod lanes;
 mod launcher;
 mod native_account_pane;
 mod native_add_account;
+#[cfg(feature = "anyview")]
+mod native_anyview;
 mod native_brand;
 mod native_compose_align;
 mod native_compose_window;
@@ -53,6 +55,7 @@ mod native_layout;
 mod native_marks;
 mod native_mute;
 mod native_original;
+mod native_peek;
 mod native_preview;
 mod native_reader_scroll;
 mod native_selection;

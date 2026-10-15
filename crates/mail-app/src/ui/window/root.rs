@@ -115,8 +115,8 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
 
     let on_key = move |event: Event<KeyboardData>| {
         let key = event.key().to_string();
-        if shell.read().viewing.is_some() {
-            crate::ui::reading::viewer_key(shell, &key);
+        if shell.read().preview.is_some() {
+            crate::ui::reading::peek_key(shell, keys, &event);
             return;
         }
         let typing = shell.read().composing.is_some();
@@ -193,8 +193,8 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
                 tabindex: "0",
                 onmounted: crate::ui::host::Host::app_mounted,
                 onkeydown: on_key,
-                if shell.read().viewing.is_some() {
-                    crate::ui::reading::AttachmentViewer { shell }
+                if shell.read().preview.is_some() {
+                    crate::ui::reading::PeekView { shell }
                 }
                 div { class: "card",
                     section { class: "reader",

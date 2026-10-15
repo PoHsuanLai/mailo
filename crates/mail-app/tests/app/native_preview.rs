@@ -1,7 +1,9 @@
 //! Attachment previews in the real window: a stored picture's and a stored PDF's thumbnails in
-//! the reader's strip, the viewer they open (Esc closes it, the arrows turn a PDF's pages, Save
-//! stays), no preview and no request for a part still on the server, and a note instead of a
-//! decode for a picture that claims too many pixels.
+//! the reader's strip, Peek, which they open (Esc closes it, the left and right arrows move
+//! between the message's attachments, the up and down arrows turn a PDF's pages, Save stays, and
+//! Space on a tile that has the keyboard opens it as a click does), no preview and no request for
+//! a part still on the server, and a note instead of a decode for a picture that claims too many
+//! pixels.
 //!
 //! The window is `mail_app::ui::native::root` over a store seeded in a `TempDir`, and every
 //! request its documents make beyond inline `data:` goes to a recorder that refuses it.
@@ -26,18 +28,19 @@ use std::io::Cursor;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-fn acct_account() -> AccountId {
+pub(super) fn acct_account() -> AccountId {
     account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000c7"))
 }
 
-const VIEW: Viewport = Viewport {
+pub(super) const VIEW: Viewport = Viewport {
     width: 1280,
     height: 900,
     scale_percent: 100,
 };
 
 /// Two pages: 200 × 100 points, then 200 × 300.
-const TWO_PAGES: &[u8] = include_bytes!("../../../mail-core/tests/fixtures/two-pages.pdf");
+pub(super) const TWO_PAGES: &[u8] =
+    include_bytes!("../../../mail-core/tests/fixtures/two-pages.pdf");
 
 /// Every request a document made that was not inline, refused.
 #[derive(Default)]
@@ -52,7 +55,7 @@ impl AppNet for Recorder {
     fn fetch(&self, _request: NetRequest, _reply: NetReply) {}
 }
 
-fn png(width: u32, height: u32) -> Vec<u8> {
+pub(super) fn png(width: u32, height: u32) -> Vec<u8> {
     let picture = image::RgbImage::from_pixel(width, height, image::Rgb([30, 120, 200]));
     let mut out = Vec::new();
     picture
@@ -87,7 +90,12 @@ fn crc32(bytes: &[u8]) -> u32 {
 }
 
 /// A message carrying `parts`: `(declared type, name, bytes)`.
-fn carrying(subject: &str, id: &str, date: &str, parts: &[(&str, &str, &[u8])]) -> String {
+pub(super) fn carrying(
+    subject: &str,
+    id: &str,
+    date: &str,
+    parts: &[(&str, &str, &[u8])],
+) -> String {
     let mut raw = format!(
         "From: ada@example.test\r\nTo: me@example.test\r\nSubject: {subject}\r\nDate: {date}\r\n\
          Message-ID: <{id}@example.test>\r\nMIME-Version: 1.0\r\n\
@@ -126,20 +134,24 @@ fn rebuilt(date: &str) -> String {
     )
 }
 
-/// Newest first: the photo and the report; the bomb and an SVG; the photo left on the server.
-fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
+/// An empty store under `dir` with the test account and its identity, `me@example.test`.
+pub(super) fn with_account(dir: &std::path::Path) -> SqliteStore {
     std::fs::create_dir_all(dir.join("blobs")).unwrap();
     let store = SqliteStore::open(dir.join("mail.db"), dir.join("blobs")).unwrap();
-    {
-        mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
-        mail_store::testing::seed_identity_for(
-            &store,
-            IdentityId::generate(),
-            acct_account(),
-            "me@example.test",
-            None,
-        );
-    }
+    mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
+    mail_store::testing::seed_identity_for(
+        &store,
+        IdentityId::generate(),
+        acct_account(),
+        "me@example.test",
+        None,
+    );
+    store
+}
+
+/// Newest first: the photo and the report; the bomb and an SVG; the photo left on the server.
+fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
+    let store = with_account(dir);
     let now = chrono::Utc::now();
     let date = |hours: i64| (now - chrono::Duration::hours(hours)).to_rfc2822();
     let inbox = MailboxRef {
@@ -210,7 +222,7 @@ struct Window {
     _dir: tempfile::TempDir,
 }
 
-fn ms(n: u64) -> Duration {
+pub(super) fn ms(n: u64) -> Duration {
     Duration::from_millis(n)
 }
 
@@ -240,7 +252,7 @@ fn open() -> Window {
     }
 }
 
-fn open_row(harness: &mut Harness, n: usize) {
+pub(super) fn open_row(harness: &mut Harness, n: usize) {
     let subject = format!(".list .ds-list-item[*|aria-posinset=\"{n}\"] .ds-row .ds-thread-sub");
     let rect = harness
         .rect(&subject)
@@ -252,7 +264,7 @@ fn open_row(harness: &mut Harness, n: usize) {
     harness.advance(ms(300));
 }
 
-fn click(harness: &mut Harness, selector: &str) {
+pub(super) fn click(harness: &mut Harness, selector: &str) {
     let at = harness
         .centre(selector)
         .unwrap_or_else(|| panic!("{selector} is not drawn:\n{}", harness.html()));
@@ -261,27 +273,32 @@ fn click(harness: &mut Harness, selector: &str) {
 }
 
 /// The strip's `n`th row (1-based). The strip is quire's list.
-fn item(n: usize) -> String {
+pub(super) fn item(n: usize) -> String {
     format!(".attachments .ds-list > .ds-list-item:nth-child({n})")
 }
 
-const VIEWER: &str = ".viewer-wrap .viewer";
-const PICTURE: &str = ".viewer .viewer-picture";
+/// quire's Peek, the one preview.
+pub(super) const PEEK: &str = ".ds-peek";
+const PICTURE: &str = ".ds-peek .peek-picture";
+const PAGE: &str = ".ds-peek .peek-page";
 
-/// The viewer's head button that says `label`.
+/// Peek's head button that says or is named `label`.
 fn head_button(harness: &Harness, label: &str) -> String {
     (1..=6)
-        .map(|n| format!(".viewer-head .ds-button:nth-of-type({n})"))
-        .find(|selector| harness.text_of(selector).as_deref() == Some(label))
-        .unwrap_or_else(|| panic!("no {label} in the viewer's head:\n{}", harness.html()))
+        .map(|n| format!(".peek-head .ds-button:nth-of-type({n})"))
+        .find(|selector| {
+            harness.text_of(selector).as_deref() == Some(label)
+                || harness.attr(selector, "aria-label").as_deref() == Some(label)
+        })
+        .unwrap_or_else(|| panic!("no {label} in Peek's head:\n{}", harness.html()))
 }
 
-/// A stored PNG leads its row with a thumbnail drawn from its bytes, and a press opens the viewer
-/// on it, larger, with Save; Esc closes the viewer and leaves the conversation open. A stored PDF
-/// in the same conversation leads its row with quire's first-page thumbnail; the viewer shows its
-/// pages one at a time, the arrows turn them, and they stop at the last.
+/// A stored PNG leads its row with a thumbnail drawn from its bytes, and a press opens Peek on
+/// it, larger, with Save; Esc closes Peek and leaves the conversation open. A stored PDF in the
+/// same conversation leads its row with quire's first-page thumbnail; Peek shows its pages one at
+/// a time, the up and down arrows turn them, and they stop at the last.
 #[test]
-fn a_stored_picture_and_pdf_show_thumbnails_that_open_the_viewer() {
+fn a_stored_picture_and_pdf_show_thumbnails_that_open_peek() {
     let mut window = open();
     let harness = &mut window.harness;
     open_row(harness, 1);
@@ -299,40 +316,36 @@ fn a_stored_picture_and_pdf_show_thumbnails_that_open_the_viewer() {
         "the thumbnail is drawn at {:?}",
         rect.size
     );
-    assert_eq!(harness.count(VIEWER), 0, "the viewer was open unasked");
+    assert_eq!(harness.count(PEEK), 0, "Peek was open unasked");
 
     click(harness, &format!("{} .att-thumb", item(1)));
     settle_until(harness, |h| h.count(PICTURE) == 1);
     assert_eq!(
-        harness.attr(".viewer", "aria-label").as_deref(),
+        harness.attr(PEEK, "aria-label").as_deref(),
         Some("beach.png"),
-        "the picture's viewer"
+        "the picture's Peek"
     );
     let big = harness.attr(PICTURE, "src").unwrap();
     assert!(
         big.starts_with("data:image/png;base64,"),
-        "the picture's viewer: {big}"
+        "the picture's Peek: {big}"
     );
-    assert_ne!(big, src, "the viewer drew the thumbnail, not the picture");
+    assert_ne!(big, src, "Peek drew the thumbnail, not the picture");
     let drawn = harness.rect(PICTURE).unwrap();
     assert!(
         drawn.size.width.0 > 56.0,
-        "the viewer's picture is no larger than the thumbnail: {:?}",
+        "Peek's picture is no larger than the thumbnail: {:?}",
         drawn.size
     );
-    head_button(harness, "Save");
-    assert_eq!(
-        harness.count(".viewer-page"),
-        0,
-        "a picture was given pages"
-    );
+    head_button(harness, mail_app::ui::copy::controls::SAVE);
+    assert_eq!(harness.count(PAGE), 0, "a picture was given pages");
 
     harness.key(Key::Escape);
-    settle_until(harness, |h| h.count(VIEWER) == 0);
+    settle_until(harness, |h| h.count(PEEK) == 0);
     assert_eq!(
         harness.count(&thumb),
         1,
-        "Esc closed the conversation along with the viewer"
+        "Esc closed the conversation along with Peek"
     );
     assert!(
         window.asked.0.lock().unwrap().is_empty(),
@@ -353,7 +366,7 @@ fn a_stored_picture_and_pdf_show_thumbnails_that_open_the_viewer() {
 
     click(harness, &format!("{} .att-thumb", item(2)));
     settle_until(harness, |h| {
-        h.text_of(".viewer-page").as_deref() == Some("Page 1 of 2")
+        h.text_of(PAGE).as_deref() == Some("Page 1 of 2")
     });
     let first = harness.attr(PICTURE, "src").unwrap();
     // The first page is 2:1, the second 2:3.
@@ -367,9 +380,9 @@ fn a_stored_picture_and_pdf_show_thumbnails_that_open_the_viewer() {
         shape(harness)
     );
 
-    harness.key(Key::Right);
+    harness.key(Key::Down);
     settle_until(harness, |h| {
-        h.text_of(".viewer-page").as_deref() == Some("Page 2 of 2")
+        h.text_of(PAGE).as_deref() == Some("Page 2 of 2")
             && h.attr(PICTURE, "src").as_deref() != Some(first.as_str())
     });
     assert!(
@@ -379,33 +392,33 @@ fn a_stored_picture_and_pdf_show_thumbnails_that_open_the_viewer() {
     );
     let second = harness.attr(PICTURE, "src").unwrap();
 
-    harness.key(Key::Right);
+    harness.key(Key::Down);
     harness.advance(ms(300));
     assert_eq!(
-        harness.text_of(".viewer-page").as_deref(),
+        harness.text_of(PAGE).as_deref(),
         Some("Page 2 of 2"),
-        "the arrow turned past the last page"
+        "the down arrow turned past the last page"
     );
     assert_eq!(
         harness.attr(PICTURE, "src").unwrap(),
         second,
-        "the arrow turned past the last page"
+        "the down arrow turned past the last page"
     );
 
-    harness.key(Key::Left);
+    harness.key(Key::Up);
     settle_until(harness, |h| {
-        h.text_of(".viewer-page").as_deref() == Some("Page 1 of 2")
+        h.text_of(PAGE).as_deref() == Some("Page 1 of 2")
             && h.attr(PICTURE, "src").as_deref() == Some(first.as_str())
     });
-    let next = head_button(harness, "Next page");
+    let next = head_button(harness, mail_app::ui::copy::aria::NEXT_PAGE);
     click(harness, &next);
     settle_until(harness, |h| {
-        h.text_of(".viewer-page").as_deref() == Some("Page 2 of 2")
+        h.text_of(PAGE).as_deref() == Some("Page 2 of 2")
     });
-    head_button(harness, "Save");
+    head_button(harness, mail_app::ui::copy::controls::SAVE);
 
     harness.key(Key::Escape);
-    settle_until(harness, |h| h.count(VIEWER) == 0);
+    settle_until(harness, |h| h.count(PEEK) == 0);
     assert!(
         window.asked.0.lock().unwrap().is_empty(),
         "the PDF: the window asked the network for {:?}",

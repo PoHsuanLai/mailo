@@ -142,3 +142,9 @@ pub const DELETE_RULE: &str = "Delete Rule";
 
 // The sender's name in the reader, right-clicked.
 pub const EDIT_CONTACT: &str = "Edit Contact…";
+
+// A link's menu, at the pointer, in the Mac's order.
+pub const OPEN_LINK: &str = "Open Link";
+/// Where the link goes, in Peek, before going there.
+pub const PREVIEW_LINK: &str = "Preview Link";
+pub const COPY_LINK: &str = "Copy Link";

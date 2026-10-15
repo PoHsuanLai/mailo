@@ -465,6 +465,7 @@ source into it — is not something a dependency gate can check, and lives in §
 |---|---|---|---|
 | `webpki-roots` | CDLA-Permissive-2.0 | `hyper-rustls` → `reqwest` | Mozilla's CA root bundle. The licence covers the *data* — which certificate authorities to trust — rather than code, which is why it is a CDLA and not one of the usual four. Permissive, with nothing reaching what reads it. |
 | `libfuzzer-sys` | `(MIT OR Apache-2.0) AND NCSA` | `rav1e` → `ravif` → `image` → `dioxus-desktop` | The `AND` is why the usual pair is not enough. NCSA is the University of Illinois/NCSA licence, permissive and BSD-shaped. It is the fuzz target of an AV1 encoder the image decoder depends on, and reaches no shipped binary. |
+| `libbz2-rs-sys` | bzip2-1.0.6 | `bzip2` → `anyview-archive` → `anyview-peek` | The bzip2 library's own licence, BSD-shaped and permissive: keep the notice, no obligation on a binary beyond it. Peek reads inside an archive with it; anyview allows the same licence. |
 
 **Bundled assets, which the dependency gate does not see.** `cargo deny` reads `Cargo.lock`,
 so a file vendored into the tree is invisible to it. Each one is listed here with its notice

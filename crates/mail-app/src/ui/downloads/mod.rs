@@ -15,6 +15,8 @@ mod open;
 mod panel;
 
 pub(in crate::ui) use self::log::Origin;
+/// A saved file opened in its app, as a Downloads row opens it: Peek's Open uses it too.
+pub(in crate::ui) use self::open::open as open_file;
 pub(in crate::ui) use self::panel::DownloadsButton;
 
 use self::log::{Entry, Log};

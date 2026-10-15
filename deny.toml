@@ -63,6 +63,13 @@ allow = ["BSL-1.0"]
 name = "error-code"
 allow = ["BSL-1.0"]
 
+# The bzip2 library, ported to Rust: libbz2-rs-sys ← bzip2 ← anyview-archive ← anyview-peek
+# (Peek reading inside an archive). The bzip2 library's own licence, BSD-shaped and permissive,
+# which anyview already allows; scoped to the one crate because it arrives by this one route.
+[[licenses.exceptions]]
+name = "libbz2-rs-sys"
+allow = ["bzip2-1.0.6"]
+
 # Unsupported test DOM, pinned to html5ever 0.39. A second parser generation
 # reading ammonia's 0.40 output is where mutation-XSS lives.
 #
