@@ -24,12 +24,12 @@
 }
 .reader-logo { background: var(--paper); overflow: hidden; }
 .reader-logo img { display: block; width: 100%; height: 100%; }
-.sender-checks {
-  display: inline-flex; align-items: center; gap: var(--s-2); flex: none;
-  color: var(--ink-faint); font-size: var(--fs-help);
-}
-.sender-checks[*|data-standing="pass"] .sender-mark { color: var(--ink-faint); }
-.sender-checks[*|data-standing="fail"] { color: var(--danger); }
+/* The trust glyph beside the sender's name, and the popover it opens. */
+.trust { display: inline-flex; align-items: center; flex: none; color: var(--ink-faint); }
+/* What is wrong with a sender, under the head, as the seal's banners are. */
+.trust-warn { margin-bottom: var(--s-10); }
+/* One quiet line over a message whose remote images are held back: what, then its actions. */
+.images-hidden { margin: 0 0 var(--s-10); display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--s-2) var(--s-8); }
 /* the message body is an opaque sandboxed frame: we animate the container,
    never its contents, because we cannot reach inside it and must not try. */
 /* Each message is its header, what is said about it (seal, invitation, attachments) inset as the
@@ -132,9 +132,9 @@ article.frame + article.frame { border-top: var(--hair) solid var(--line-soft); 
 .html.is-hidden { display: none; }
 
 
-/* ---- leaving a list: the head's button, and the popover that says what it will do ---- */
-.reader-meta .leave { margin-left: auto; position: relative; align-self: flex-start; }
-.leave-ask { display: grid; gap: var(--s-6); width: 320px; }
+/* ---- leaving a list: the popover the ⋯'s Unsubscribe… opens, which says what it will do ---- */
+/* The reader's popovers, the trust glyph's and Unsubscribe…'s, are one width. */
+.leave-ask, .trust-said { display: grid; gap: var(--s-6); width: 320px; }
 .leave-ask .leave-url {
   padding: var(--s-6) var(--s-9); border: var(--hair) solid var(--line); border-radius: var(--r-media);
   background: var(--surface-2); font-family: var(--font-code); font-size: var(--fs-meta); line-height: 1.65;

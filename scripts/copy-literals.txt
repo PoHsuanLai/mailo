@@ -5,7 +5,6 @@
 crates/mail-app/src/ui/app.rs 4
 crates/mail-app/src/ui/bin.rs 11
 crates/mail-app/src/ui/brand.rs 1
-crates/mail-app/src/ui/checks.rs 3
 crates/mail-app/src/ui/data.rs 1
 crates/mail-app/src/ui/destroy.rs 1
 crates/mail-app/src/ui/keyboard.rs 8
@@ -89,10 +88,8 @@ crates/mail-app/src/ui/reading/attachments.rs 6
 crates/mail-app/src/ui/reading/blocks.rs 1
 crates/mail-app/src/ui/reading/fetch.rs 15
 crates/mail-app/src/ui/reading/header.rs 2
-crates/mail-app/src/ui/reading/mod.rs 4
+crates/mail-app/src/ui/reading/mod.rs 1
 crates/mail-app/src/ui/reading/tools.rs 10
-crates/mail-app/src/ui/receipt/bar.rs 5
-crates/mail-app/src/ui/receipt/mod.rs 4
 crates/mail-app/src/ui/row/menu.rs 1
 crates/mail-app/src/ui/rules/away.rs 32
 crates/mail-app/src/ui/rules/editor.rs 31
@@ -100,7 +97,7 @@ crates/mail-app/src/ui/rules/list.rs 4
 crates/mail-app/src/ui/rules/work.rs 28
 crates/mail-app/src/ui/settings_window/account/mod.rs 2
 crates/mail-app/src/ui/settings_window/account/words.rs 35
-crates/mail-app/src/ui/unsubscribe/head.rs 9
+crates/mail-app/src/ui/unsubscribe/head.rs 8
 crates/mail-app/src/ui/unsubscribe/mod.rs 12
 crates/mail-app/src/ui/window/mod.rs 2
 crates/mail-app/src/ui/window/note.rs 3

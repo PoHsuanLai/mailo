@@ -271,7 +271,7 @@ const LINK: &str = "a";
 /// The link beside it, whose text names one domain and whose target is another.
 const LIAR: &str = "a + a";
 
-const SHOW_IMAGES: &str = ".ds-inline-banner .ds-button";
+const SHOW_IMAGES: &str = ".images-hidden .ds-button";
 const FRAME: &str = "article.frame iframe.html";
 
 fn frame_width(harness: &Harness, selector: &str) -> f32 {
@@ -295,7 +295,7 @@ fn newsletter_original() -> Window {
     window
 }
 
-/// (d) Consent, 0 → N → 0: nothing is fetched until "Show images", exactly the newsletter's two
+/// (d) Consent, 0 → N → 0: nothing is fetched until "Load Images", exactly the newsletter's two
 /// images then, and nothing more once opening another thread has revoked it, including when the
 /// newsletter is opened again. Consent is for the thread shown: the other letter's image is never
 /// on the newsletter's list, and closing the reader takes the consent back.
@@ -471,8 +471,8 @@ fn a_link_in_the_frame_shows_where_it_goes_on_hover_and_opens_in_the_browser() {
     // Off every link: the pill goes, and nothing was opened.
     let off = window
         .harness
-        .centre(".ds-inline-banner")
-        .expect("the consent strip");
+        .centre(".images-hidden")
+        .expect("the images line");
     window.harness.pointer_move(off);
     window.harness.advance(ms(100));
     assert_eq!(window.harness.count(".ds-link-pill"), 0, "the pill stayed");

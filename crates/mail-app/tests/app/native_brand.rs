@@ -168,7 +168,8 @@ fn open_row(harness: &mut Harness, n: usize) {
 }
 
 const HEAD_LOGO: &str = ".reader-meta .reader-logo img";
-const HEAD_CHECKS: &str = ".reader-meta .sender-checks";
+/// The newest message's head, once it says the sender's checks.
+const HEAD_CHECKS: &str = ".reader-meta[*|data-standing]";
 
 /// A cached logo takes the initial's place in the reader's head; then a sender DMARC did not pass
 /// for keeps their initial.

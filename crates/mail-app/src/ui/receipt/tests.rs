@@ -1,7 +1,8 @@
-//! Read receipts in the window. Opening never answers; only the bar's buttons do.
+//! Read receipts in the window: answered by the setting, once, and only where it is safe.
 
-use super::{Line, Standing, line};
-use crate::ui::fixtures::{Seen, acct_account, click, dispatching, rebuild_into, seeded};
+use super::{Standing, answer_asked, automatic};
+use crate::settings::{MailSettings, ReadReceipts};
+use crate::ui::fixtures::{Seen, acct_account, dispatching, rebuild_into, seeded};
 use crate::ui::reading::Reader;
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
@@ -112,8 +113,16 @@ fn outbox(store: &SqliteStore) -> usize {
 }
 
 #[component]
-fn Open(thread: ThreadId) -> Element {
+fn Open(thread: ThreadId, policy: Option<ReadReceipts>) -> Element {
     let shell = use_signal(Shell::default);
+    // A window's settings, when the case has one: a reader with none answers nothing.
+    use_hook(|| {
+        if let Some(policy) = policy {
+            let mut settings = MailSettings::default();
+            settings.reading.read_receipts = policy;
+            provide_context(Signal::new(settings));
+        }
+    });
     rsx! { ds::prelude::Ds { appearance: ds::prelude::Appearance::default(), material: ds::prelude::Material::Window, Reader { thread, shell } } }
 }
 
@@ -130,27 +139,21 @@ async fn settle(dom: &mut VirtualDom, seen: &mut Seen, for_ms: u64) {
     }
 }
 
-/// The reader on `thread`, once its lookups have landed, and the lookups it used.
-async fn reader_looking(
+/// The reader on `thread` under `policy` (none: no window's settings), once its lookups have
+/// landed, its markup, and the lookups it used.
+async fn reader_under(
     store: Arc<SqliteStore>,
     thread: ThreadId,
-) -> (VirtualDom, Seen, String, Arc<Looks>) {
+    policy: Option<ReadReceipts>,
+) -> (String, Arc<Looks>) {
     dispatching();
     let looks = Arc::new(Looks::new());
-    let mut dom = VirtualDom::new_with_props(Open, OpenProps { thread })
+    let mut dom = VirtualDom::new_with_props(Open, OpenProps { thread, policy })
         .with_root_context(store)
         .with_root_context(looks.clone());
     let mut seen = rebuild_into(&mut dom);
     settle(&mut dom, &mut seen, 400).await;
-    // The renderer escapes the apostrophe; the words are compared as they read.
-    let markup = dioxus_ssr::render(&dom).replace("&#39;", "'");
-    (dom, seen, markup, looks)
-}
-
-/// [`reader_looking`], without the lookups.
-async fn reader_on(store: Arc<SqliteStore>, thread: ThreadId) -> (VirtualDom, Seen, String) {
-    let (dom, seen, markup, _) = reader_looking(store, thread).await;
-    (dom, seen, markup)
+    (dioxus_ssr::render(&dom), looks)
 }
 
 fn ask(to: &str, return_path: ReturnPath) -> ReceiptState {
@@ -163,201 +166,174 @@ fn ask(to: &str, return_path: ReturnPath) -> ReceiptState {
     })
 }
 
+/// The setting's whole table: only Always sends, and only for an unanswered request whose
+/// receipt goes back where the message came from, outside Junk.
 #[test]
-fn the_bar_says_who_asks_and_warns_when_the_receipt_goes_elsewhere() {
-    let asking = |state| Standing {
-        message: MessageId::generate(),
-        sender: "Ada".to_owned(),
-        state,
-    };
-    let sentence = "Ada asked for a read receipt.".to_owned();
-    let cases = [
+fn the_setting_sends_only_where_it_is_safe() {
+    let agrees = ask("ada@example.test", ReturnPath::Agrees);
+    let differs = ask(
+        "tracker@elsewhere.test",
+        ReturnPath::Differs {
+            return_path: "ada@example.test".to_owned(),
+        },
+    );
+    let unknown = ask("ada@example.test", ReturnPath::Unknown);
+    let sent = Some(ReceiptAnswer::Sent);
+    let cases: Vec<(
+        &str,
+        ReadReceipts,
+        ReceiptState,
+        MailboxRole,
+        Option<ReceiptAnswer>,
+    )> = vec![
         (
-            "agrees",
-            ask("ada@example.test", ReturnPath::Agrees),
-            Some(Line::Asking {
-                sentence: sentence.clone(),
-                warning: None,
-            }),
+            "always",
+            ReadReceipts::Always,
+            agrees.clone(),
+            MailboxRole::Inbox,
+            sent,
         ),
         (
-            "no return path",
-            ask("ada@example.test", ReturnPath::Unknown),
-            Some(Line::Asking {
-                sentence: sentence.clone(),
-                warning: None,
-            }),
+            "always, archived",
+            ReadReceipts::Always,
+            agrees.clone(),
+            MailboxRole::Archive,
+            sent,
         ),
         (
-            "differs",
-            ask(
-                "tracker@elsewhere.test",
-                ReturnPath::Differs {
-                    return_path: "ada@example.test".to_owned(),
-                },
-            ),
-            Some(Line::Asking {
-                sentence,
-                warning: Some(
-                    "The receipt goes to tracker@elsewhere.test, not ada@example.test.".to_owned(),
-                ),
-            }),
-        ),
-        ("sent", ReceiptState::Answered(ReceiptAnswer::Sent), None),
-        (
-            "declined",
-            ReceiptState::Answered(ReceiptAnswer::Declined),
+            "never",
+            ReadReceipts::Never,
+            agrees.clone(),
+            MailboxRole::Inbox,
             None,
         ),
-        ("not asked", ReceiptState::NotAsked, None),
-        ("headers only", ReceiptState::Unknown, None),
+        (
+            "always, in junk",
+            ReadReceipts::Always,
+            agrees.clone(),
+            MailboxRole::Spam,
+            None,
+        ),
+        (
+            "always, to another domain",
+            ReadReceipts::Always,
+            differs,
+            MailboxRole::Inbox,
+            None,
+        ),
+        (
+            "always, no return path",
+            ReadReceipts::Always,
+            unknown,
+            MailboxRole::Inbox,
+            None,
+        ),
+        (
+            "always, already sent",
+            ReadReceipts::Always,
+            ReceiptState::Answered(ReceiptAnswer::Sent),
+            MailboxRole::Inbox,
+            None,
+        ),
+        (
+            "always, already declined",
+            ReadReceipts::Always,
+            ReceiptState::Answered(ReceiptAnswer::Declined),
+            MailboxRole::Inbox,
+            None,
+        ),
+        (
+            "always, not asked",
+            ReadReceipts::Always,
+            ReceiptState::NotAsked,
+            MailboxRole::Inbox,
+            None,
+        ),
+        (
+            "always, headers only",
+            ReadReceipts::Always,
+            ReceiptState::Unknown,
+            MailboxRole::Inbox,
+            None,
+        ),
     ];
-    for (case, state, want) in cases {
-        assert_eq!(line(&asking(state)), want, "{case}");
+    for (case, policy, state, mailbox, want) in cases {
+        assert_eq!(automatic(policy, &state, mailbox), want, "{case}");
     }
 }
 
-/// A message that asks shows the bar under the head, with both answers and no warning; one
-/// whose receipt goes to another domain is warned about, and can still be answered.
+/// Under Never, or with no window's settings, opening a message that asks answers nothing,
+/// queues nothing and reads nothing to find out; the reader says nothing about it either.
 #[tokio::test]
-async fn a_request_shows_the_bar_and_one_to_another_domain_is_warned_about() {
-    let (store, _dir) = seeded();
-    let (asks, _) = put(&store, ASKS, Held::Body);
-    let (elsewhere, _) = put(&store, ASKS_ELSEWHERE, Held::Body);
-
-    let (_, _, markup) = reader_on(store.clone(), asks).await;
-    for needle in [
-        "Ada asked for a read receipt.",
-        "aria-label=\"Send receipt\"",
-        "aria-label=\"Don't send\"",
-    ] {
-        assert!(markup.contains(needle), "a request: no {needle}\n{markup}");
-    }
-    assert!(
-        !markup.contains("class=\"warn\""),
-        "a request: warned\n{markup}"
-    );
-    // Under the head, not among the messages.
-    let head_ends = markup.find("class=\"reader-body\"").unwrap();
-    assert!(
-        markup.find("aria-label=\"Read receipt\"").unwrap() < head_ends,
-        "a request: the bar is not under the head"
-    );
-
-    let (_, _, markup) = reader_on(store, elsewhere).await;
-    assert!(
-        markup.contains("The receipt goes to tracker@elsewhere.test, not ada@example.test."),
-        "another domain: no warning\n{markup}"
-    );
-    assert!(
-        markup.contains("aria-label=\"Send receipt\""),
-        "another domain: no Send receipt\n{markup}"
-    );
-}
-
-#[tokio::test]
-async fn an_answered_request_says_nothing_more() {
-    let (store, _dir) = seeded();
-    let (sent, sent_id) = put(&store, ASKS, Held::Body);
-    let (declined, declined_id) = put(&store, ASKS, Held::Body);
-    let now = chrono::Utc::now();
-    mail_core::receipt::answer(&store, sent_id, ReceiptAnswer::Sent, now).unwrap();
-    mail_core::receipt::answer(&store, declined_id, ReceiptAnswer::Declined, now).unwrap();
-    for thread in [sent, declined] {
-        let (_, _, markup) = reader_on(store.clone(), thread).await;
-        assert!(!markup.contains("aria-label=\"Read receipt\""), "{markup}");
-        assert!(!markup.contains("Send receipt"), "{markup}");
-    }
-}
-
-#[tokio::test]
-async fn a_message_that_does_not_ask_or_is_not_here_yet_shows_nothing() {
-    let (store, _dir) = seeded();
-    let (quiet, _) = put(&store, "", Held::Body);
-    let (unfetched, _) = put(&store, ASKS, Held::HeadersOnly);
-    for thread in [quiet, unfetched] {
-        let (_, _, markup) = reader_on(store.clone(), thread).await;
-        assert!(!markup.contains("receipt"), "{markup}");
-    }
-}
-
-#[tokio::test]
-async fn opening_a_message_that_asks_answers_nothing_and_queues_nothing() {
+async fn opening_under_never_answers_nothing_and_queues_nothing() {
     let (store, _dir) = seeded();
     let (thread, message) = put(&store, ASKS, Held::Body);
     let queued = outbox(&store);
-    let (_, _, markup, looks) = reader_looking(store.clone(), thread).await;
-    // It was looked at and shown — the assertion below is about a reader that did its work.
-    assert!(looks.reads(Read::Receipt) > 0 && markup.contains("Send receipt"));
-    assert_eq!(store.receipt_answer(message).unwrap(), None);
-    assert_eq!(outbox(&store), queued, "opening queued something");
+    for policy in [None, Some(ReadReceipts::Never)] {
+        let (markup, looks) = reader_under(store.clone(), thread, policy).await;
+        assert_eq!(looks.reads(Read::Receipt), 0, "{policy:?}: looked it up");
+        assert!(!markup.contains("receipt"), "{policy:?}: {markup}");
+        assert_eq!(store.receipt_answer(message).unwrap(), None, "{policy:?}");
+        assert_eq!(
+            outbox(&store),
+            queued,
+            "{policy:?}: opening queued something"
+        );
+    }
 }
 
+/// Under Always, the first opening queues exactly one receipt and says nothing on the screen;
+/// opening it again queues no second one.
 #[tokio::test]
-async fn send_receipt_queues_exactly_one_receipt_and_settles_the_bar() {
+async fn opening_under_always_queues_one_receipt_once() {
     let (store, _dir) = seeded();
     let (thread, message) = put(&store, ASKS, Held::Body);
     let before = submissions(&store);
-    let (mut dom, seen, _) = reader_on(store.clone(), thread).await;
-
-    let mut after = click(&mut dom, seen.one("aria-label", "Send receipt"));
-    settle(&mut dom, &mut after, 400).await;
-    let markup = dioxus_ssr::render(&dom);
-
+    let (markup, _) = reader_under(store.clone(), thread, Some(ReadReceipts::Always)).await;
     assert_eq!(submissions(&store), before + 1, "one receipt, queued");
     assert_eq!(
         store.receipt_answer(message).unwrap(),
         Some(ReceiptAnswer::Sent)
     );
-    assert!(!markup.contains("aria-label=\"Read receipt\""), "{markup}");
-    assert!(!markup.contains("aria-label=\"Send receipt\""), "{markup}");
+    assert!(!markup.contains("receipt"), "{markup}");
+
+    let _ = reader_under(store.clone(), thread, Some(ReadReceipts::Always)).await;
+    assert_eq!(submissions(&store), before + 1, "a second receipt");
 }
 
+/// Under Always, a request whose receipt would go to another domain, and a message whose body
+/// is not here yet, are left as they came.
 #[tokio::test]
-async fn dont_send_queues_no_receipt() {
+async fn always_leaves_another_domain_and_an_unfetched_body_alone() {
     let (store, _dir) = seeded();
-    let (thread, message) = put(&store, ASKS, Held::Body);
-    let before = submissions(&store);
-    let (mut dom, seen, _) = reader_on(store.clone(), thread).await;
-
-    let mut after = click(&mut dom, seen.one("aria-label", "Don't send"));
-    settle(&mut dom, &mut after, 400).await;
-
-    assert_eq!(submissions(&store), before, "a declined receipt was queued");
-    assert_eq!(
-        store.receipt_answer(message).unwrap(),
-        Some(ReceiptAnswer::Declined)
-    );
-    assert!(!dioxus_ssr::render(&dom).contains("aria-label=\"Read receipt\""));
+    let (elsewhere, elsewhere_id) = put(&store, ASKS_ELSEWHERE, Held::Body);
+    let (unfetched, unfetched_id) = put(&store, ASKS, Held::HeadersOnly);
+    let queued = outbox(&store);
+    for (thread, message) in [(elsewhere, elsewhere_id), (unfetched, unfetched_id)] {
+        let _ = reader_under(store.clone(), thread, Some(ReadReceipts::Always)).await;
+        assert_eq!(store.receipt_answer(message).unwrap(), None);
+    }
+    assert_eq!(outbox(&store), queued, "something was queued");
 }
 
+/// Answering the same standings twice queues one receipt: the store's answer, read again, is
+/// what the second pass finds.
 #[test]
-fn answering_twice_is_refused_and_queues_nothing_more() {
+fn answering_twice_queues_one_receipt() {
     let (store, _dir) = seeded();
     let (_, message) = put(&store, ASKS, Held::Body);
+    let looks = Looks::new();
+    let standings = vec![Standing {
+        message,
+        sender: "Ada".to_owned(),
+        state: ask("ada@example.test", ReturnPath::Agrees),
+    }];
     let now = chrono::Utc::now();
-    let said = super::answer(&Looks::new(), &store, message, ReceiptAnswer::Sent, now).unwrap();
-    assert_eq!(said, "Queued a read receipt to ada@example.test");
-    let queued = submissions(&store);
-    assert!(super::answer(&Looks::new(), &store, message, ReceiptAnswer::Sent, now).is_err());
-    assert_eq!(submissions(&store), queued);
-}
-
-#[tokio::test]
-#[ignore = "writes target/receipt.html for a person or a headless browser to look at"]
-async fn render_the_receipt_bar_to_a_file() {
-    let (store, _dir) = seeded();
-    let mut body = String::new();
-    let (asking, _) = put(&store, ASKS, Held::Body);
-    let (elsewhere, _) = put(&store, ASKS_ELSEWHERE, Held::Body);
-    let (answered, answered_id) = put(&store, ASKS, Held::Body);
-    mail_core::receipt::answer(&store, answered_id, ReceiptAnswer::Sent, chrono::Utc::now())
-        .unwrap();
-    for thread in [asking, elsewhere, answered] {
-        let (_, _, reader) = reader_on(store.clone(), thread).await;
-        body.push_str(&format!(
-            "<section class=\"reader\" style=\"width:620px;height:250px;margin:16px\">{reader}</section>"
-        ));
-    }
-    crate::ui::fixtures::dump("receipt", &body);
+    let before = submissions(&store);
+    assert_eq!(
+        answer_asked(&looks, &store, &standings, ReadReceipts::Always, now),
+        [message]
+    );
+    assert!(answer_asked(&looks, &store, &standings, ReadReceipts::Always, now).is_empty());
+    assert_eq!(submissions(&store), before + 1);
 }

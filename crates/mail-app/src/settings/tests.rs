@@ -1,8 +1,8 @@
 //! The schema detent reads, and `settings.toml` read, started from the old files and written.
 
 use super::{
-    BrandLogos, LoadRemoteImages, MailSettings, NewMail, ProviderMarks, ReadingSettings,
-    ServerSearch, Spelling, change, load, schema, store,
+    BrandLogos, LoadRemoteImages, MailSettings, NewMail, ProviderMarks, ReadReceipts,
+    ReadingSettings, ServerSearch, Spelling, change, load, schema, store,
 };
 use ds_settings::ConfigRoot;
 use ds_settings::schema::{KeyKind, Page, Schema};
@@ -39,6 +39,7 @@ fn the_schema_names_every_key_on_mailo_s_page_in_mailo_s_file() {
         ("notifications.new_mail", pair("on", "off")),
         ("compose.spelling", pair("on", "off")),
         ("reading.brand_logos", pair("on", "off")),
+        ("reading.read_receipts", pair("never", "always")),
         (
             "reading.remote_images",
             KeyKind::Segmented {
@@ -152,6 +153,25 @@ fn appearance_json_s_marks_count_when_there_is_no_mailo_toml() {
         r#"{"theme":"dark","marks":"letters"}"#,
     );
     assert_eq!(load(&root).window.provider_marks, ProviderMarks::Letters);
+}
+
+/// A file written before read receipts had a key loads as Never, and the key is read once
+/// written.
+#[test]
+fn read_receipts_are_never_sent_until_the_file_says_always() {
+    let (dir, root) = scratch();
+    write(
+        &mailo_dir(&dir),
+        "settings.toml",
+        "[reading]\nbrand_logos = \"on\"\n",
+    );
+    assert_eq!(load(&root).reading.read_receipts, ReadReceipts::Never);
+    write(
+        &mailo_dir(&dir),
+        "settings.toml",
+        "[reading]\nread_receipts = \"always\"\n",
+    );
+    assert_eq!(load(&root).reading.read_receipts, ReadReceipts::Always);
 }
 
 #[test]

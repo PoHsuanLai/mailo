@@ -1,5 +1,10 @@
-//! Under a message's head: what its OpenPGP or S/MIME says, and the passphrase field when its
-//! OpenPGP key is locked.
+//! Under a message's head: what is wrong with its OpenPGP or S/MIME, and the passphrase field
+//! when its OpenPGP key is locked.
+//!
+//! What is right with it is not said here: it is the head's glyph and its popover
+//! (`ui::checks`), which read what this found from the app's `Looks`. Only a signature that does
+//! not check, one that is not to be believed, and a message that could not be opened are drawn
+//! under the head, as banners nobody can miss.
 
 use dioxus::prelude::*;
 use ds::components::content::label::{LabelRole, LabelStyle};
@@ -19,8 +24,8 @@ use mail_core::password::Password;
 /// Draws nothing until then: finding out reads the stored blob and may decrypt, so it runs on a
 /// blocking thread and lands here, or is already kept from the last time the message was open.
 /// Keyed by the reader on the message and its body, so one message's words are never drawn under
-/// another. `landed` is the reader's: moved when a body to show in place of the stored one is
-/// found, so the reader draws it.
+/// another. `landed` is the reader's: moved when anything but a plain message is found, so the
+/// reader draws the body it opened to, and the head its glyph.
 #[component]
 pub(in crate::ui) fn Seal(
     message: MessageId,
@@ -40,7 +45,14 @@ pub(in crate::ui) fn Seal(
             let secrets = seams().secrets;
             let looks = looks.clone();
             async move {
-                if known.peek().is_some() {
+                // Found already, by an earlier reader or by the frame's own rendering off the
+                // thread, which can land between the head's render and this one's: the head
+                // read the cache before it was filled, so it is told all the same.
+                if let Some(had) = known.peek().as_ref() {
+                    if redraws(had) {
+                        let mut landed = landed;
+                        landed += 1;
+                    }
                     return;
                 }
                 let found = tokio::task::spawn_blocking(move || {
@@ -48,7 +60,7 @@ pub(in crate::ui) fn Seal(
                 })
                 .await
                 .unwrap_or_else(|error| Look::Failed(format!("Opening it stopped: {error}")));
-                let shows = matches!(&found, Look::Opened(opened) if opened.shown.is_some());
+                let shows = redraws(&found);
                 known.set(Some(found));
                 if shows {
                     let mut landed = landed;
@@ -77,13 +89,23 @@ pub(in crate::ui) fn Seal(
                 InlineBanner { severity: Severity::Danger, text: why.clone() }
             }
         },
-        Some(Look::Opened(opened)) => rsx! {
-            div { class: "seal", role: "status", aria_label: opened.scheme.name(),
-                for (at, said) in opened.said.into_iter().enumerate() {
-                    {said_line(at, said)}
+        Some(Look::Opened(opened)) => {
+            let wrong: Vec<Said> = opened
+                .said
+                .into_iter()
+                .filter(|said| is_wrong(said.tone))
+                .collect();
+            if wrong.is_empty() {
+                return rsx! {};
+            }
+            rsx! {
+                div { class: "seal", role: "status", aria_label: opened.scheme.name(),
+                    for (at, said) in wrong.into_iter().enumerate() {
+                        {said_line(at, said)}
+                    }
                 }
             }
-        },
+        }
         Some(Look::Locked { key, tried }) => {
             let prompt = format!("Passphrase for key {}", short(key));
             rsx! {
@@ -99,6 +121,18 @@ pub(in crate::ui) fn Seal(
             }
         }
     }
+}
+
+/// Whether what was found changes what the reader draws: a body to show, or a glyph in the
+/// head. A plain message changes nothing.
+fn redraws(found: &Look) -> bool {
+    !matches!(found, Look::Plain)
+}
+
+/// Whether a line about a message's protection says something is wrong, and so is drawn under
+/// its head rather than kept for the popover.
+fn is_wrong(tone: Tone) -> bool {
+    matches!(tone, Tone::Bad | Tone::Warn)
 }
 
 /// Open the message again with `passphrase`, on a blocking thread, and say what that found.
@@ -124,7 +158,7 @@ fn open_with(
         })
         .await
         .unwrap_or_else(|error| Look::Failed(format!("Unlocking stopped: {error}")));
-        let shows = matches!(&found, Look::Opened(opened) if opened.shown.is_some());
+        let shows = redraws(&found);
         known.set(Some(found));
         working.set(Busy::Idle);
         if shows {

@@ -18,7 +18,9 @@
 mod legacy;
 mod words;
 
-pub use words::{BrandLogos, LoadRemoteImages, NewMail, ProviderMarks, ServerSearch, Spelling};
+pub use words::{
+    BrandLogos, LoadRemoteImages, NewMail, ProviderMarks, ReadReceipts, ServerSearch, Spelling,
+};
 
 use ds::prelude::Word;
 use ds_settings::schema::{AppId, FilePath, KeySpec, Page, Schema, SettingsSchema, WordLabels};
@@ -87,6 +89,14 @@ pub struct ReadingSettings {
         section = "Reading"
     )]
     pub brand_logos: BrandLogos,
+    /// Kept above the images' rows, so the senders whose images load stay under the choice
+    /// they belong to.
+    #[settings(
+        label = "Send read receipts",
+        help = "When a message asks, tell the sender you opened it. Never for junk, or to another domain.",
+        section = "Reading"
+    )]
+    pub read_receipts: ReadReceipts,
     #[settings(
         label = "Load remote images",
         help = "Images from the web can tell the sender when you open a message.",

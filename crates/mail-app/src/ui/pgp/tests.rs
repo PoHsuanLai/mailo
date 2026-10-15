@@ -317,6 +317,37 @@ fn severity_of(tag: &str) -> Option<&str> {
     tag[at..].split('"').next()
 }
 
+/// The trust glyph's mark (`data-mark` on the head's `.trust`), once it is drawn.
+pub(super) fn mark(page: &str) -> Option<String> {
+    let at = page.find("class=\"trust\"")?;
+    let tag = &page[at..at + page[at..].find('>')?];
+    let start = tag.find("data-mark=\"")? + "data-mark=\"".len();
+    tag[start..].split('"').next().map(str::to_owned)
+}
+
+/// Open the trust glyph's popover, and what it lists, as [`lines`] reads the seal's: its title
+/// is not a line.
+pub(super) fn trust_lines(dom: &mut VirtualDom, seen: &Seen) -> Vec<(String, String)> {
+    use crate::ui::copy::tooltips::{ENCRYPTED, NOT_VERIFIED, SIGNED};
+    let glyph = [ENCRYPTED, SIGNED, NOT_VERIFIED]
+        .into_iter()
+        .find_map(|name| seen.all("aria-label", name).last().copied())
+        .expect("the trust glyph");
+    let opened = click(dom, glyph);
+    crate::ui::fixtures::settle(dom, opened);
+    let page = markup(dom);
+    let Some(said) = page.find("trust-said") else {
+        panic!("the popover did not open:\n{page}");
+    };
+    let first = said + page[said..].find("class=\"ds-label\"").expect("a line");
+    let open = page[..first].rfind("<div").expect("the popover's lines");
+    let end = close_of(&page[open..]);
+    seal_lines(&page[open..open + end])
+        .into_iter()
+        .skip(1)
+        .collect()
+}
+
 /// Whether the reader draws a line that looks like `class` (`seal-line` alone: any line).
 pub(super) fn shows(page: &str, class: &str) -> bool {
     lines(page)
@@ -506,19 +537,19 @@ async fn a_signed_message_says_who_signed_it_over_its_body() {
         sealed(&raw, OpenPgp::Sign, Some(&mine(&secrets, &key)), &[], 21),
     );
     let (mut dom, mut seen, looks) = reader_looking(store, secrets, message.thread);
-    let page = until(&mut dom, &mut seen, |page| shows(page, "seal-line")).await;
+    let page = until(&mut dom, &mut seen, |page| mark(page).is_some()).await;
     assert!(looks.reads(Read::Seal) > 0);
-    let said = lines(&page);
-    assert_eq!(
-        said[0],
-        ("seal-line".to_owned(), "Not encrypted".to_owned())
-    );
-    assert_eq!(said[1].0, "seal-line good");
+    // Nothing is wrong, so nothing is said under the head: the glyph says it, and its popover
+    // lists what is, never "Not encrypted".
+    assert_eq!(mark(&page).as_deref(), Some("signed"), "{page}");
+    assert!(lines(&page).is_empty(), "{page}");
+    let said = trust_lines(&mut dom, &seen);
+    assert_eq!(said[0].0, "seal-line good", "{said:?}");
     assert!(
-        said[1]
+        said[0]
             .1
             .starts_with("Good signature by &#60;me@example.test&#62; · ")
-            && said[1].1.ends_with("not verified by you"),
+            && said[0].1.ends_with("not verified by you"),
         "{said:?}"
     );
     assert!(page.contains("the owl note is signed"), "{page}");
@@ -539,9 +570,12 @@ async fn a_bad_signature_is_said_on_the_danger_ground() {
     let message = arrive(&store, tampered.into_bytes());
     let (mut dom, mut seen) = reader(store, secrets, message.thread);
     let page = until(&mut dom, &mut seen, |page| shows(page, "seal-line")).await;
+    // The one line under the head is what is wrong.
     let said = lines(&page);
-    assert_eq!(said[1].0, "seal-line bad", "{said:?}");
-    assert!(said[1].1.starts_with("Bad signature"), "{said:?}");
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert_eq!(said[0].0, "seal-line bad", "{said:?}");
+    assert!(said[0].1.starts_with("Bad signature"), "{said:?}");
+    assert_eq!(mark(&page).as_deref(), Some("unconfirmed"), "{page}");
     assert!(page.contains("pay the forged invoice"), "{page}");
 }
 
@@ -553,17 +587,22 @@ async fn a_signature_by_a_key_not_held_cannot_be_checked_and_does_not_look_good(
     let raw = letter("lynx", "the lynx is signed by bea");
     let message = arrive(&store, sealed(&raw, OpenPgp::Sign, Some(&bea), &[], 24));
     let (mut dom, mut seen) = reader(store, secrets, message.thread);
-    let page = until(&mut dom, &mut seen, |page| shows(page, "seal-line")).await;
-    let said = lines(&page);
+    let page = until(&mut dom, &mut seen, |page| mark(page).is_some()).await;
+    assert_eq!(mark(&page).as_deref(), Some("unconfirmed"), "{page}");
+    assert!(lines(&page).is_empty(), "nothing is wrong: {page}");
+    let said = trust_lines(&mut dom, &seen);
     let issuer = super::grouped(&bea.fingerprint().key_id().to_string());
     assert_eq!(
-        said[1],
+        said[0],
         (
             "seal-line unknown".to_owned(),
             format!("Signed by key {issuer}, which you don’t have")
         )
     );
-    assert!(!shows(&page, "seal-line good"), "{page}");
+    assert!(
+        !said.iter().any(|(look, _)| look == "seal-line good"),
+        "{said:?}"
+    );
     assert!(page.contains("the lynx is signed by bea"), "{page}");
 }
 
@@ -582,10 +621,11 @@ async fn an_encrypted_message_shows_what_it_was_encrypted_to_say() {
     assert!(!message.body.text().unwrap_or_default().contains("zebra"));
     let (mut dom, mut seen) = reader(store, secrets, message.thread);
     let page = until(&mut dom, &mut seen, |page| {
-        page.contains("the zebra is under the mat")
+        page.contains("the zebra is under the mat") && mark(page).is_some()
     })
     .await;
-    let said = lines(&page);
+    assert_eq!(mark(&page).as_deref(), Some("encrypted"), "{page}");
+    let said = trust_lines(&mut dom, &seen);
     assert_eq!(
         said[0],
         (
@@ -668,17 +708,12 @@ async fn a_locked_key_is_asked_for_inline_and_opens_with_its_passphrase() {
     let pressed = click(&mut dom, seen.one("aria-label", "Unlock"));
     typed = typed.merge(pressed);
     let page = until(&mut dom, &mut typed, |page| {
-        page.contains("the otter sleeps at noon")
+        page.contains("the otter sleeps at noon") && mark(page).is_some()
     })
     .await;
     assert!(page.contains("the otter sleeps at noon"), "{page}");
-    assert_eq!(
-        lines(&page)[0],
-        (
-            "seal-line good".to_owned(),
-            "Encrypted, and decrypted for reading".to_owned()
-        )
-    );
+    assert_eq!(mark(&page).as_deref(), Some("encrypted"), "{page}");
+    assert!(!page.contains(ASKED), "the field stayed: {page}");
     assert!(
         !page.contains(&passphrase),
         "the passphrase is in the markup"
@@ -753,9 +788,10 @@ async fn a_signature_on_only_part_of_a_message_says_so() {
     );
     let message = arrive(&store, raw.into_bytes());
     let (mut dom, mut seen) = reader(store, secrets, message.thread);
-    let page = until(&mut dom, &mut seen, |page| shows(page, "seal-line")).await;
-    let said = lines(&page);
-    assert_eq!(said[1].0, "seal-line good", "{said:?}");
+    let page = until(&mut dom, &mut seen, |page| mark(page).is_some()).await;
+    assert_eq!(mark(&page).as_deref(), Some("signed"), "{page}");
+    let said = trust_lines(&mut dom, &seen);
+    assert_eq!(said[0].0, "seal-line good", "{said:?}");
     assert_eq!(
         said.last().unwrap(),
         &(

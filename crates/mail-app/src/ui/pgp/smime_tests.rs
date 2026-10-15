@@ -372,14 +372,19 @@ async fn a_good_smime_signature_says_who_signed_and_their_certificate() {
     let raw = letter("owl", "the owl note is signed");
     let message = arrive(&store, sealed(&raw, Smime::Sign, &bea(), &[]));
     let (mut dom, mut seen) = reader(store, secrets, message.thread);
-    let page = until(&mut dom, &mut seen, |page| shows(page, "seal-line")).await;
-    let said = lines(&page);
+    let page = until(&mut dom, &mut seen, |page| {
+        super::tests::mark(page).is_some() && page.contains("map.bin")
+    })
+    .await;
+    assert_eq!(
+        super::tests::mark(&page).as_deref(),
+        Some("signed"),
+        "{page}"
+    );
+    assert!(lines(&page).is_empty(), "nothing is wrong: {page}");
+    let said = super::tests::trust_lines(&mut dom, &seen);
     assert_eq!(
         said[0],
-        ("seal-line".to_owned(), "Not encrypted".to_owned())
-    );
-    assert_eq!(
-        said[1],
         (
             "seal-line good".to_owned(),
             "Good S/MIME signature by bea@example.test, from a certificate an authority you \
@@ -387,14 +392,13 @@ async fn a_good_smime_signature_says_who_signed_and_their_certificate() {
                 .to_owned()
         )
     );
-    assert_eq!(said[2].0, "seal-line detail");
+    assert_eq!(said[1].0, "seal-line detail");
     assert!(
-        said[2].1.starts_with(
+        said[1].1.starts_with(
             "Certificate of CN=Bea · bea@example.test · issued by CN=Example Test Mail CA"
         ),
         "{said:?}"
     );
-    assert!(page.contains("aria-label=\"S/MIME\""), "{page}");
     assert!(page.contains("the owl note is signed"), "{page}");
     // What was signed is listed; the signature itself is not an attachment.
     assert!(page.contains("map.bin"), "{page}");
@@ -418,7 +422,7 @@ async fn a_changed_smime_message_is_said_on_the_danger_ground() {
     let page = until(&mut dom, &mut seen, |page| shows(page, "seal-line bad")).await;
     let said = lines(&page);
     assert_eq!(
-        said[1],
+        said[0],
         (
             "seal-line bad".to_owned(),
             "Bad S/MIME signature: changed after signing".to_owned()
@@ -470,7 +474,7 @@ async fn a_forged_smime_signature_is_said_on_the_danger_ground() {
     let page = until(&mut dom, &mut seen, |page| shows(page, "seal-line bad")).await;
     let said = lines(&page);
     assert_eq!(
-        said[1],
+        said[0],
         (
             "seal-line bad".to_owned(),
             "Bad S/MIME signature: does not match its certificate".to_owned()
@@ -488,11 +492,14 @@ async fn a_signature_from_an_authority_nobody_trusts_is_amber_and_says_why() {
     let raw = letter("crane", "the crane is signed by a stranger");
     let message = arrive(&store, sealed(&raw, Smime::Sign, &stranger, &[]));
     let (mut dom, mut seen) = reader(store, secrets, message.thread);
-    let page = until(&mut dom, &mut seen, |page| shows(page, "seal-line warn")).await;
+    let page = until(&mut dom, &mut seen, |page| {
+        shows(page, "seal-line warn") && super::tests::mark(page).is_some()
+    })
+    .await;
     let said = lines(&page);
-    assert_eq!(said[1].0, "seal-line warn", "{said:?}");
+    assert_eq!(said[0].0, "seal-line warn", "{said:?}");
     assert_eq!(
-        said[2],
+        said[1],
         (
             "seal-line warn".to_owned(),
             doubt(&CertProblem::Untrusted).replace('\'', "&#39;")
@@ -500,8 +507,14 @@ async fn a_signature_from_an_authority_nobody_trusts_is_amber_and_says_why() {
     );
     assert!(!shows(&page, "seal-line good"), "{page}");
     assert!(page.contains("the crane is signed by a stranger"), "{page}");
+    // The certificate's details are the popover's, with what is not wrong.
     let drawn = seals(&page);
-    assert!(shows(&drawn, "seal-line detail"), "{drawn}");
+    assert!(!shows(&drawn, "seal-line detail"), "{drawn}");
+    let listed = super::tests::trust_lines(&mut dom, &seen);
+    assert!(
+        listed.iter().any(|(look, _)| look == "seal-line detail"),
+        "{listed:?}"
+    );
     let offences = crate::ui::style::tests::markup_offences(&drawn);
     assert!(offences.is_empty(), "the markup lint: {offences:#?}");
 }
@@ -520,10 +533,15 @@ async fn an_encrypted_smime_message_shows_its_body_and_lists_what_is_attached_in
     assert!(!message.body.text().unwrap_or_default().contains("zebra"));
     let (mut dom, mut seen, looks) = reader_looking(store, secrets, message.thread);
     let page = until(&mut dom, &mut seen, |page| {
-        page.contains("the zebra is under the mat")
+        page.contains("the zebra is under the mat") && super::tests::mark(page).is_some()
     })
     .await;
-    let said = lines(&page);
+    assert_eq!(
+        super::tests::mark(&page).as_deref(),
+        Some("encrypted"),
+        "{page}"
+    );
+    let said = super::tests::trust_lines(&mut dom, &seen);
     assert_eq!(
         said[0],
         (

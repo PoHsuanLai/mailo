@@ -5,7 +5,10 @@
 use super::head::{Confirm, Phase};
 use super::{Ask, Offer, archive_from, ask, leave};
 use crate::ui::app::App;
-use crate::ui::fixtures::{acct_account, dispatching, rebuild_into, seeded};
+use crate::ui::copy::menus::UNSUBSCRIBE;
+use crate::ui::fixtures::{
+    Seen, acct_account, click, dispatching, menu_names, rebuild_into, seeded,
+};
 use crate::ui::reading::Reader;
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
@@ -142,42 +145,71 @@ async fn settle(dom: &mut VirtualDom, span: Duration) {
 #[component]
 fn Open(thread: ThreadId) -> Element {
     let shell = use_signal(Shell::default);
-    rsx! { ds::prelude::Ds { appearance: ds::prelude::Appearance::default(), material: ds::prelude::Material::Window, Reader { thread, shell } } }
+    let revision = use_signal(|| 0u64);
+    rsx! { ds::prelude::Ds { appearance: ds::prelude::Appearance::default(), material: ds::prelude::Material::Window, Reader { thread, shell, revision: Some(revision) } } }
 }
 
-/// The reader on `thread`, once its lookup has landed, and the lookups it used.
+/// Let the dom's tasks run for `span`, keeping every attribute the renders set.
+async fn settle_seen(dom: &mut VirtualDom, seen: &mut Seen, span: Duration) {
+    let until = tokio::time::Instant::now() + span;
+    loop {
+        let left = until.saturating_duration_since(tokio::time::Instant::now());
+        if left.is_zero() {
+            break;
+        }
+        let _ = tokio::time::timeout(left, dom.wait_for_work()).await;
+        dom.render_immediate(seen);
+    }
+}
+
+/// Open the reader's ⋯ and return the names it lists.
+fn more_names(dom: &mut VirtualDom, seen: &Seen) -> Vec<String> {
+    let more = *seen
+        .all("aria-label", "More")
+        .last()
+        .expect("the reader's ⋯");
+    let opened = click(dom, more);
+    crate::ui::fixtures::settle(dom, opened);
+    menu_names(&dioxus_ssr::render(dom))
+}
+
+/// The reader on `thread`, once its lookups have landed: the names its ⋯ lists, its markup
+/// before the ⋯ was opened, and the lookups it used.
 async fn reader_looking(
     store: Arc<SqliteStore>,
     thread: ThreadId,
-) -> (VirtualDom, String, Arc<Looks>) {
+) -> (Vec<String>, String, Arc<Looks>) {
+    dispatching();
     let looks = Arc::new(Looks::new());
     let mut dom = VirtualDom::new_with_props(Open, OpenProps { thread })
         .with_root_context(store)
         .with_root_context(looks.clone());
-    dom.rebuild_in_place();
-    settle(&mut dom, Duration::from_millis(400)).await;
+    let mut seen = rebuild_into(&mut dom);
+    settle_seen(&mut dom, &mut seen, Duration::from_millis(400)).await;
     let markup = dioxus_ssr::render(&dom);
-    (dom, markup, looks)
+    let names = more_names(&mut dom, &seen);
+    (names, markup, looks)
 }
 
-/// [`reader_looking`], without the lookups.
-async fn reader_on(store: Arc<SqliteStore>, thread: ThreadId) -> (VirtualDom, String) {
-    let (dom, markup, _) = reader_looking(store, thread).await;
-    (dom, markup)
+/// [`reader_looking`]'s markup alone.
+async fn reader_on(store: Arc<SqliteStore>, thread: ThreadId) -> String {
+    reader_looking(store, thread).await.1
 }
 
 #[tokio::test]
-async fn the_head_offers_unsubscribe_only_when_the_thread_has_a_way_out() {
+async fn the_more_menu_offers_unsubscribe_only_when_the_thread_has_a_way_out() {
     let (store, _dir) = seeded();
     let listed = put(&store, "weekly@rust.test", MAILTO, Held::Body);
     let quiet = put(&store, "quiet@example.test", NO_WAY_OUT, Held::Body);
     let unfetched = put(&store, "later@example.test", ONE_CLICK, Held::HeadersOnly);
 
-    let (_, markup) = reader_on(store.clone(), listed).await;
-    assert!(markup.contains("aria-label=\"Unsubscribe\""), "{markup}");
+    let (names, markup, _) = reader_looking(store.clone(), listed).await;
+    assert!(names.iter().any(|name| name == UNSUBSCRIBE), "{names:?}");
+    // The head no longer carries it: the ⋯ is its one home.
+    assert!(!markup.contains("aria-label=\"Unsubscribe\""), "{markup}");
     for thread in [quiet, unfetched] {
-        let (_, markup) = reader_on(store.clone(), thread).await;
-        assert!(!markup.contains("Unsubscribe"), "{markup}");
+        let (names, ..) = reader_looking(store.clone(), thread).await;
+        assert!(!names.iter().any(|name| name == UNSUBSCRIBE), "{names:?}");
     }
 }
 
@@ -185,34 +217,43 @@ async fn the_head_offers_unsubscribe_only_when_the_thread_has_a_way_out() {
 #[component]
 fn Moving(first: ThreadId) -> Element {
     let shell = use_signal(Shell::default);
+    let revision = use_signal(|| 0u64);
     let thread = use_context_provider(|| Signal::new(first));
-    rsx! { ds::prelude::Ds { appearance: ds::prelude::Appearance::default(), material: ds::prelude::Material::Window, Reader { thread: thread(), shell } } }
+    rsx! { ds::prelude::Ds { appearance: ds::prelude::Appearance::default(), material: ds::prelude::Material::Window, Reader { thread: thread(), shell, revision: Some(revision) } } }
 }
 
 #[tokio::test]
-async fn the_answer_for_one_thread_is_never_shown_under_the_next() {
-    // The same reader, moved to another thread, must ask again: `Leave` is keyed on the thread
-    // and its bodies. A key on a nested component is dropped by rsx, which left the listed
-    // thread's Unsubscribe under the quiet one.
+async fn the_answer_for_one_thread_is_never_offered_under_the_next() {
+    // The same reader, moved to another thread, must ask again: the lookout is keyed on the
+    // thread and its bodies, and its answer is read back only under that key.
+    dispatching();
     let (store, _dir) = seeded();
     let listed = put(&store, "weekly@rust.test", MAILTO, Held::Body);
     let quiet = put(&store, "quiet@example.test", NO_WAY_OUT, Held::Body);
     let mut dom =
         VirtualDom::new_with_props(Moving, MovingProps { first: listed }).with_root_context(store);
-    dom.rebuild_in_place();
-    settle(&mut dom, Duration::from_millis(400)).await;
-    let before = dioxus_ssr::render(&dom);
-    assert!(before.contains("aria-label=\"Unsubscribe\""), "{before}");
+    let mut seen = rebuild_into(&mut dom);
+    settle_seen(&mut dom, &mut seen, Duration::from_millis(400)).await;
+    let before = more_names(&mut dom, &seen);
+    assert!(before.iter().any(|name| name == UNSUBSCRIBE), "{before:?}");
     let mut thread = dom.in_scope(
         dioxus_core::ScopeId::APP,
         consume_context::<Signal<ThreadId>>,
     );
     dom.in_runtime(|| thread.set(quiet));
-    settle(&mut dom, Duration::from_millis(400)).await;
-    let after = dioxus_ssr::render(&dom);
+    let mut seen = Seen::default();
+    dom.render_immediate(&mut seen);
+    settle_seen(&mut dom, &mut seen, Duration::from_millis(400)).await;
+    let markup = dioxus_ssr::render(&dom);
+    // The ⋯ opened above is still up, and lists what the quiet thread offers.
+    let after = if markup.contains("class=\"ds-menu-item\"") {
+        menu_names(&markup)
+    } else {
+        more_names(&mut dom, &seen)
+    };
     assert!(
-        !after.contains("aria-label=\"Unsubscribe\""),
-        "the listed thread's way out is drawn under the quiet one: {after}"
+        !after.iter().any(|name| name == UNSUBSCRIBE),
+        "the listed thread's way out is offered under the quiet one: {after:?}"
     );
 }
 
@@ -338,8 +379,8 @@ async fn the_list_does_not_read_a_list_header() {
     settle(&mut dom, Duration::from_millis(50)).await;
     assert_eq!(looks.reads(Read::List), 0, "the list read a list header");
 
-    let (_, markup, reader) = reader_looking(store, thread).await;
-    assert!(reader.reads(Read::List) > 0 && markup.contains("aria-label=\"Unsubscribe\""));
+    let (names, _, reader) = reader_looking(store, thread).await;
+    assert!(reader.reads(Read::List) > 0 && names.iter().any(|name| name == UNSUBSCRIBE));
 }
 
 #[tokio::test]
@@ -347,11 +388,11 @@ async fn the_list_does_not_read_a_list_header() {
 async fn render_the_unsubscribe_to_a_file() {
     let (store, _dir) = seeded();
     let thread = put(&store, "weekly@rust.test", ONE_CLICK, Held::Body);
-    let (_, reader) = reader_on(store, thread).await;
+    let reader = reader_on(store, thread).await;
     let mut body = format!(
         "<section class=\"reader\" style=\"width:620px;height:230px;margin:16px\">{reader}</section>"
     );
-    // Each popover as it opens, under the head's button the way the reader anchors it.
+    // Each popover as it opens, under a stand-in for the ⋯ the reader anchors it to.
     for headers in [ONE_CLICK, MAILTO, WEB] {
         let open = popover(headers);
         body.push_str(&format!(

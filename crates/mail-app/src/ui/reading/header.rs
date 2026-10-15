@@ -3,21 +3,23 @@
 //!
 //! A conversation of one message has one header. In a longer one every message keeps a compact
 //! header (a small avatar, the name, the date) and only the message the conversation opens on,
-//! the newest, says whom it went to, carries the sender's checks and the offer to leave a list.
+//! the newest, says whom it went to and carries the trust glyph beside the sender's name
+//! (`ui::checks`), with one line under the head when the sender may not be who they say.
 
+use super::super::checks::{TrustMark, trust_of, use_checks};
 use super::super::text::{address, from_name};
-use super::super::unsubscribe::Bodies;
 use super::sender_face;
 use dioxus::prelude::*;
 use ds::components::content::avatar::AvatarSize;
 use ds::components::content::label::{LabelRole, LabelStyle};
+use ds::components::overlays::inline_banner::InlineBanner;
 use ds::prelude::*;
-use mail_domain::{Address, BlobId, Message, MessageId, ThreadId};
+use mail_domain::{Address, BlobId, Message, MessageId};
 
 /// How much a message's header says.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Detail {
-    /// The newest message: whom it went to, the sender's checks, the list's way out.
+    /// The newest message: whom it went to, and what is known about its sender.
     Full,
     /// An earlier message: who wrote it and when.
     Compact,
@@ -73,15 +75,13 @@ pub(super) fn to_line(message: &Message, yours: &[String]) -> Option<String> {
     recipients("To", &message.to)
 }
 
-/// What the newest message's header carries besides the message: the reader's checks line and
-/// logo are keyed by the message and its body, the list's way out by the conversation.
+/// What the newest message's header is keyed by in the reader: the message and its body, which
+/// the trust glyph and the logo are looked up for, and the reader's `landed`, moved when the
+/// seal finds what the message's protection says.
 #[derive(Clone, PartialEq)]
 pub(super) struct Extras {
     pub checked: (MessageId, Option<BlobId>),
-    pub thread: ThreadId,
-    pub leave_key: String,
-    pub bodies: Bodies,
-    pub revision: Option<Signal<u64>>,
+    pub landed: Signal<u64>,
 }
 
 /// One message's header.
@@ -96,26 +96,10 @@ pub(super) fn MessageHead(
     #[props(default)]
     yours: Vec<String>,
 ) -> Element {
-    let name = from_name(&message);
-    let addr = address(&message);
-    // What the right click's contact editor starts from: the name the mail gave, and whom.
-    let (given, email) = (name.clone(), message.from.email.clone());
-    // A sender who gave no name is named by their address, once.
-    let (name, addr) = if name.trim().is_empty() {
-        (addr, String::new())
-    } else {
-        (name, addr)
-    };
     let (short, full) = when;
+    let date = when_label(short.clone(), full.clone());
     let face = sender_face(&message);
-    let date = rsx! {
-        Tooltip { text: full.clone(),
-            // The full date is the time's name as well as its tip: what a screen reader says.
-            time { class: "msg-when", aria_label: full,
-                Label { text: short, role: LabelRole::Tertiary, style: LabelStyle::Footnote }
-            }
-        }
-    };
+    let (name, _) = named(&message);
     match detail {
         Detail::Compact => rsx! {
             header { class: "msg-head", "data-detail": "compact",
@@ -126,48 +110,134 @@ pub(super) fn MessageHead(
                 }
             }
         },
-        Detail::Full => {
-            let to = to_line(&message, &yours);
-            let cc = recipients("Cc", &message.cc);
-            let avatar = match &extras {
-                Some(Extras {
-                    checked: (id, raw), ..
-                }) => rsx! {
-                    super::super::brand::ReaderAvatar { key: "{id}-{raw:?}", message: *id, body: *raw, from: message.from.email.clone(), face }
-                },
-                None => rsx! {
-                    div { class: "reader-av",
-                        Avatar { initial: face.initial, size: face.size, tone: face.tone }
-                    }
-                },
-            };
-            rsx! {
-                header { class: "msg-head reader-meta", "data-detail": "full",
-                    {avatar}
-                    div { class: "reader-who",
-                        div { class: "msg-line",
-                            if addr.is_empty() {
-                                super::super::contacts::SenderName { shown: name, in_mail: given, address: email }
-                            } else {
-                                Tooltip { text: addr,
-                                    super::super::contacts::SenderName { shown: name, in_mail: given, address: email }
-                                }
-                            }
-                            if let Some(Extras { checked: (id, raw), .. }) = &extras {
-                                super::super::checks::SenderChecks { key: "{id}-{raw:?}", message: *id, body: *raw }
-                            }
-                            {date}
+        Detail::Full => match extras {
+            Some(Extras {
+                checked: (id, raw),
+                landed,
+            }) => rsx! {
+                FullHead { key: "{id}-{raw:?}", message, when: (short, full), yours, landed }
+            },
+            None => full_head(&message, date, &yours, None, None),
+        },
+    }
+}
+
+/// The newest message's header in a reader: the logo, and what is known about the sender, looked
+/// up off the thread that draws. Keyed by its parent on the message and its body, so a body
+/// arriving asks again and one message's answer is never drawn under another.
+#[component]
+fn FullHead(
+    message: Message,
+    when: (String, String),
+    yours: Vec<String>,
+    landed: Signal<u64>,
+) -> Element {
+    let checks = use_checks(message.id, message.body.raw());
+    let looks = super::use_looks();
+    // Moved by the seal once it knows; what it found is kept in `looks`, and read here.
+    let _ = landed();
+    let look = crate::ui::pgp::last(&looks, message.id, message.body.raw());
+    let results = checks();
+    let trust = trust_of(look.as_ref(), results.as_ref().and_then(Option::as_ref));
+    let (short, full) = when;
+    let date = when_label(short, full);
+    let face = sender_face(&message);
+    let avatar = rsx! {
+        super::super::brand::ReaderAvatar {
+            key: "{message.id}-{message.body.raw():?}",
+            message: message.id,
+            body: message.body.raw(),
+            from: message.from.email.clone(),
+            face,
+        }
+    };
+    let forged = trust
+        .forged()
+        .then(|| crate::ui::copy::errors::may_not_be_from(&named(&message).0));
+    rsx! {
+        {full_head(&message, date, &yours, Some(avatar), Some(trust))}
+        if let Some(said) = forged {
+            div { class: "trust-warn",
+                InlineBanner { severity: Severity::Warn, icon: Some(Icon::TriangleAlert), text: said }
+            }
+        }
+    }
+}
+
+/// What a header calls the sender, and the address its name's tooltip gives: a sender who gave
+/// no name is named by their address, once, with no tooltip.
+fn named(message: &Message) -> (String, String) {
+    let name = from_name(message);
+    let addr = address(message);
+    if name.trim().is_empty() {
+        (addr, String::new())
+    } else {
+        (name, addr)
+    }
+}
+
+/// The date at the end of a header's line: brief, and in full as its tooltip and its name.
+fn when_label(short: String, full: String) -> Element {
+    rsx! {
+        Tooltip { text: full.clone(),
+            // The full date is the time's name as well as its tip: what a screen reader says.
+            time { class: "msg-when", aria_label: full,
+                Label { text: short, role: LabelRole::Tertiary, style: LabelStyle::Footnote }
+            }
+        }
+    }
+}
+
+/// The full header's markup: the avatar (`avatar`, else the sender's initial), the name with the
+/// trust glyph beside it and the date at the line's end, then whom it went to. `data-standing`
+/// says the sender's checks once they are known.
+fn full_head(
+    message: &Message,
+    date: Element,
+    yours: &[String],
+    avatar: Option<Element>,
+    trust: Option<super::super::checks::Trust>,
+) -> Element {
+    let (name, addr) = named(message);
+    // What the right click's contact editor starts from: the name the mail gave, and whom.
+    let (given, email) = (from_name(message), message.from.email.clone());
+    let face = sender_face(message);
+    let to = to_line(message, yours);
+    let cc = recipients("Cc", &message.cc);
+    let avatar = avatar.unwrap_or_else(|| {
+        rsx! {
+            div { class: "reader-av",
+                Avatar { initial: face.initial, size: face.size, tone: face.tone }
+            }
+        }
+    });
+    let standing = trust
+        .as_ref()
+        .and_then(|trust| trust.standing)
+        .map(|standing| standing.word());
+    let mark = trust.and_then(|trust| trust.mark.map(|mark| (mark, trust.lines)));
+    rsx! {
+        header { class: "msg-head reader-meta", "data-detail": "full", "data-standing": standing,
+            {avatar}
+            div { class: "reader-who",
+                div { class: "msg-line",
+                    if addr.is_empty() {
+                        super::super::contacts::SenderName { shown: name, in_mail: given, address: email }
+                    } else {
+                        Tooltip { text: addr,
+                            super::super::contacts::SenderName { shown: name, in_mail: given, address: email }
                         }
-                        if let Some(to) = to {
-                            Label { text: to, role: LabelRole::Secondary, style: LabelStyle::Footnote, common: crate::ui::common::classed("ds-truncate") }
-                        }
-                        if let Some(cc) = cc {
-                            Label { text: cc, role: LabelRole::Secondary, style: LabelStyle::Footnote, common: crate::ui::common::classed("ds-truncate") }
-                        }
                     }
-                    if let Some(Extras { thread, leave_key, bodies, revision, .. }) = extras {
-                        super::super::unsubscribe::Leave { key: "{leave_key}", thread, bodies, revision }
+                    if let Some((mark, lines)) = mark {
+                        TrustMark { mark, lines }
                     }
+                    {date}
+                }
+                if let Some(to) = to {
+                    Label { text: to, role: LabelRole::Secondary, style: LabelStyle::Footnote, common: crate::ui::common::classed("ds-truncate") }
+                }
+                if let Some(cc) = cc {
+                    Label { text: cc, role: LabelRole::Secondary, style: LabelStyle::Footnote, common: crate::ui::common::classed("ds-truncate") }
                 }
             }
         }

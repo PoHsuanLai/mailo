@@ -21,3 +21,11 @@ pub const NEW_MESSAGE: &str = "New Message";
 
 /// The selection bar's last button: unpick every row.
 pub const CLEAR_SELECTION: &str = "Clear Selection";
+
+// The glyph beside a protected message's sender, which opens what is known about it.
+/// Encrypted, and opened for reading.
+pub const ENCRYPTED: &str = "Encrypted";
+/// Signed, and the signature checks.
+pub const SIGNED: &str = "Signed";
+/// Signed or encrypted, and nothing about it could be confirmed.
+pub const NOT_VERIFIED: &str = "Not Verified";

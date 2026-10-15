@@ -325,7 +325,7 @@ pub(in crate::ui) mod tests {
         const WIDE: &str = "516px";
         for (selector, width) in [
             (".pick-time, .tpl-save", NARROW),
-            (".leave-ask", MEDIUM),
+            (".leave-ask, .trust-said", MEDIUM),
             (".downloads", MEDIUM),
             (".em-picker", WIDE),
         ] {
