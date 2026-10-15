@@ -359,6 +359,7 @@ mod tests {
             blocked_remote: false,
             fetches: Vec::new(),
             plain: false,
+            inline: Vec::new(),
         }
     }
 

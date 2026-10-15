@@ -137,6 +137,15 @@ pub(super) fn Reader(
             }
         });
     }
+    // The images each shown message's frame embeds, as last drawn, for a click on one of them in
+    // the frame (`original::FrameImages`) to open in Peek.
+    let embedded = use_hook(|| Rc::new(RefCell::new(Embedded::new())));
+    use_frame_images(
+        shell,
+        consent.as_ref().map(|(_, holder)| *holder),
+        embedded.clone(),
+        store.clone(),
+    );
     let Ok(loaded) = store.thread(thread) else {
         return rsx! {
             div { class: "reader-empty",
@@ -214,6 +223,13 @@ pub(super) fn Reader(
         })
         .collect();
     shown.reverse();
+    *embedded.borrow_mut() = shown
+        .iter()
+        .map(|(message, body, ..)| {
+            let images = body.as_ref().map(FrameBody::embedded).unwrap_or_default();
+            (message.id, images.to_vec())
+        })
+        .collect();
     if !later.is_empty() {
         cache::render_later(
             frames.clone(),
@@ -445,6 +461,50 @@ pub(super) fn Reader(
             {children}
         }
     }
+}
+
+/// Each shown message and the images its frame embeds (`FrameBody::embedded`).
+type Embedded = Vec<(MessageId, Vec<mail_mime::EmbeddedImage>)>;
+
+/// On Blitz, a click on an image in an Original frame is reported by quire outside any component
+/// (`ui/original/links.rs`). One in a frame this reader drew (its tag names `holder`), drawn from
+/// one of that message's own parts, opens the part in Peek, as its tile in the strip does. Any
+/// other image, a remote one among them, does nothing.
+fn use_frame_images(
+    shell: Signal<Shell>,
+    holder: Option<super::original::Holder>,
+    embedded: Rc<RefCell<Embedded>>,
+    store: Arc<SqliteStore>,
+) {
+    let images = use_hook(|| {
+        try_consume_context::<super::original::FrameImages>().map(|images| images.listen())
+    });
+    use_future(move || {
+        let images = images.clone();
+        let embedded = embedded.clone();
+        let store = store.clone();
+        async move {
+            let (Some(mut images), Some(holder)) = (images, holder) else {
+                return;
+            };
+            while let Some(clicked) = images.next().await {
+                let Some((by, message)) = super::original::Holder::of_tag(&clicked.tag) else {
+                    continue;
+                };
+                if by != holder {
+                    continue;
+                }
+                let cid = embedded
+                    .borrow()
+                    .iter()
+                    .find(|(id, _)| *id == message)
+                    .and_then(|(_, images)| mail_mime::drawn_from(&clicked.src, images));
+                if let Some(cid) = cid {
+                    peek::open_inline(shell, &store, message, &cid);
+                }
+            }
+        }
+    });
 }
 
 /// Open Link, Preview Link and Copy Link, at the pointer, for a link a right click in a message's

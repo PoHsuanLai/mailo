@@ -38,7 +38,9 @@ pub use build::{Disclosure, Posting, build, posting};
 pub use error::{MboxError, MimeError, NotHttpsUrl, NotMailto, RecordError, UnsafeUrl};
 pub use graph::{GraphBody, GraphDraft, GraphImportance, graph_draft};
 pub use imip::{CalendarPart, CalendarReply, calendar_part, calendar_reply};
-pub use inline::{INLINE_BUDGET, embed_inline, embeddable};
+pub use inline::{
+    EmbeddedImage, INLINE_BUDGET, drawn_from, embed_inline, embed_inline_listed, embeddable,
+};
 pub use mailto::MailtoUri;
 pub use mdn::{
     Human, OriginalHeaders, ReceiptAsk, Reporting, ReturnPath, Words, receipt, receipt_asked,

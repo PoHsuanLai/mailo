@@ -17,9 +17,13 @@
 //! reader's own `oncontextmenu` for the same press, with where the link goes and where the
 //! pointer is. It is kept, checked as a click is, until the reader takes it for its Copy Link
 //! menu ([`FrameMenus`]).
+//!
+//! A click on an image in a frame (not inside a link, which is the link's click) is reported with
+//! the frame's tag and the `src` the image was drawn from. The reader that drew the frame opens
+//! it in Peek when it is one of that message's own parts ([`FrameImages`]).
 
 use ds::prelude::Point;
-use ds_blitz::{FrameLink, FrameLinkHover, FrameLinkMenu, FrameLinks, HoverPhase};
+use ds_blitz::{FrameImageClick, FrameLink, FrameLinkHover, FrameLinkMenu, FrameLinks, HoverPhase};
 use mail_mime::SafeUrl;
 use std::sync::{Arc, Mutex, PoisonError};
 use tokio::sync::watch;
@@ -139,13 +143,60 @@ impl FrameMenus {
     }
 }
 
+/// An image clicked in a frame: the tag of the frame it is in (`Holder::tag`, written by mailo
+/// on the `iframe`) and the `src` it was drawn from, resolved as the frame resolves it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ImageClicked {
+    pub(crate) tag: String,
+    pub(crate) src: String,
+}
+
+/// The last image clicked in any Original frame, as the window's root context. quire reports the
+/// click on the UI thread, outside any component; the reader that drew the frame hears it here
+/// and opens the image in Peek (`ui/reading`). Cloning shares it.
+#[derive(Clone)]
+pub struct FrameImages(watch::Receiver<Option<ImageClicked>>);
+
+impl std::fmt::Debug for FrameImages {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("FrameImages")
+    }
+}
+
+impl FrameImages {
+    /// Nothing clicked yet, and the sender quire's image handler writes to.
+    pub(crate) fn new() -> (FrameImages, watch::Sender<Option<ImageClicked>>) {
+        let (sender, receiver) = watch::channel(None);
+        (FrameImages(receiver), sender)
+    }
+
+    /// A listener that hears only the clicks after now: a reader that mounts after a click
+    /// must not take it for its own.
+    pub(crate) fn listen(&self) -> FrameImages {
+        let mut receiver = self.0.clone();
+        receiver.mark_unchanged();
+        FrameImages(receiver)
+    }
+
+    /// Wait for the next click on an image; `None` once the frames' reporter is gone for good.
+    pub(crate) async fn next(&mut self) -> Option<ImageClicked> {
+        loop {
+            self.0.changed().await.ok()?;
+            if let Some(clicked) = self.0.borrow_and_update().clone() {
+                return Some(clicked);
+            }
+        }
+    }
+}
+
 /// What a click in any frame does: `browse` opens it, if it is a link a reader may follow. A
 /// crossing goes to `pill`: `Enter` names the link, `Leave` clears it. A context menu over a link
-/// goes to `menus`.
+/// goes to `menus`, and a click on an image in a frame that mailo tagged, to `images`.
 pub(crate) fn frame_links(
     browse: Arc<dyn Browse>,
     pill: watch::Sender<Option<Pointed>>,
     menus: FrameMenus,
+    images: watch::Sender<Option<ImageClicked>>,
 ) -> FrameLinks {
     FrameLinks::intercept(move |link: FrameLink| {
         if let Some(url) = SafeUrl::link(&link.href) {
@@ -164,4 +215,12 @@ pub(crate) fn frame_links(
         pill.send_replace(pointed);
     })
     .with_context_menu(move |menu: FrameLinkMenu| menus.ask(menu))
+    .with_image_click(move |click: FrameImageClick| {
+        if let Some(tag) = click.tag {
+            images.send_replace(Some(ImageClicked {
+                tag: tag.as_str().to_owned(),
+                src: click.src,
+            }));
+        }
+    })
 }

@@ -6,7 +6,8 @@
 //! - [`Consent`]: the reader's consent to remote images, as the network reads it;
 //! - `net.rs`: the frame's network, refusing everything the consent does not admit;
 //! - `links.rs`: a link clicked in the frame, opened in the browser and never in the frame, and
-//!   the link under the pointer in a frame, for the reader's link pill ([`FramePill`]);
+//!   the link under the pointer in a frame, for the reader's link pill ([`FramePill`]), and an
+//!   image clicked in a frame, for the reader's Peek ([`FrameImages`]);
 //! - [`ReaderNet`]: how mailo itself fetches the Reader view's consented images, which
 //!   the window's own document may not (`reading/remote.rs`).
 //!
@@ -19,7 +20,7 @@ mod net;
 pub use consent::Consent;
 pub(crate) use consent::Holder;
 pub(in crate::ui) use links::LinkAsked;
-pub use links::{Browse, FrameMenus, FramePill};
+pub use links::{Browse, FrameImages, FrameMenus, FramePill};
 pub(crate) use net::data_uri;
 pub use net::{Fetch, FetchImage, Got};
 
@@ -42,6 +43,7 @@ pub struct Original {
     links: ds_blitz::FrameLinks,
     pill: FramePill,
     menus: FrameMenus,
+    clicked: FrameImages,
     images: ReaderNet,
 }
 
@@ -61,11 +63,13 @@ impl Original {
         let consent = Consent::new();
         let (pill, hovered) = links::FramePill::new();
         let menus = FrameMenus::new(browse.clone());
+        let (clicked, clicks) = FrameImages::new();
         Original {
             net: std::sync::Arc::new(net::MailNet::new(consent.clone(), fetch)),
-            links: links::frame_links(browse, hovered, menus.clone()),
+            links: links::frame_links(browse, hovered, menus.clone(), clicks),
             pill,
             menus,
+            clicked,
             images: ReaderNet(std::sync::Arc::new(net::Refuse)),
             consent,
         }
@@ -115,6 +119,12 @@ impl Original {
         self.menus.clone()
     }
 
+    /// The image last clicked in a frame, as the window's root context: the reader that drew the
+    /// frame opens it in Peek.
+    pub fn clicked_images(&self) -> FrameImages {
+        self.clicked.clone()
+    }
+
     /// The root contexts the window's own `launch` gives it beside the net and the links: what
     /// a test's `HarnessConfig` takes through `with_contexts`, with `net()` and `links()`.
     pub fn contexts(&self) -> ds_blitz::RootContexts {
@@ -122,6 +132,7 @@ impl Original {
             .with(self.consent())
             .with(self.pill())
             .with(self.menus())
+            .with(self.clicked_images())
             .with(self.images())
     }
 }
