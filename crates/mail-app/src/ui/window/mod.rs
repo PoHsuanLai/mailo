@@ -116,10 +116,13 @@ fn quire(ask: Ask) {
         Ok(handle) => {
             opened.0.borrow_mut().insert(ask.thread, handle);
         }
-        Err(why) => super::motion::tell(
-            format!("Could not open a window: {why}"),
-            super::motion::Follow::Nothing,
-        ),
+        Err(why) => {
+            log::warn!("a conversation's window would not open: {why}");
+            super::motion::tell(
+                super::copy::toasts::would_not_open(super::copy::toasts::A_NEW_WINDOW),
+                super::motion::Follow::Nothing,
+            );
+        }
     }
 }
 

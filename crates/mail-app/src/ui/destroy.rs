@@ -1,16 +1,19 @@
-//! Delete forever and Empty Trash in the window: the sheet that asks, and what opens it.
+//! Delete Forever and Empty Trash in the window: the alert that asks, and what opens it.
 //!
-//! When the window offers either is `crate::ui::bin`'s: only while Trash or Spam is the place
-//! shown. Every way in — a row's menu, the selection bar, the list bar's Empty button, the Ctrl T
-//! menu — opens the same sheet, which names how many messages go and says it cannot be undone;
-//! only its button deletes. Nothing here is on the undo stack, and the toast carries no Undo.
+//! Empty Trash is offered while Trash or Spam is the place shown (`crate::ui::bin`); Delete
+//! Forever wherever a conversation already in one of them is. Every way in (a row's menu, the
+//! selection bar, the list bar's Empty button, ⌘K) opens the same alert, which names how many
+//! messages go and says it cannot be undone; only its button deletes. Nothing here is on the undo
+//! stack, and the toast carries no Undo.
 
 use super::motion::destroy_all;
-use super::press::{SheetClose, on_primary};
+use super::press::on_primary;
 use crate::ui::bin::{Bin, Destroying, Reach, bin_shown, doomed, offered, words};
+use crate::ui::copy;
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::components::controls::button_model::{Bezel, ImagePosition};
+use ds::components::overlays::alert_model::{AlertButton, AlertRole, AlertStyle};
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::tokens::control_size::ControlSize;
@@ -21,14 +24,20 @@ use std::sync::Arc;
 /// How many conversations one page of the Empty count reads.
 const PAGE: u32 = 500;
 
-/// Ask about `threads`: those of them with mail in the bin shown. Nothing opens outside a bin, or
-/// when none of them has mail there.
+/// Ask about `threads`: those of them with mail in the bin shown or, with no bin shown (a
+/// search), in the bin the first of them is in. Nothing opens when none of them has mail there.
 pub(in crate::ui) fn ask_chosen(
     store: &SqliteStore,
     mut shell: Signal<Shell>,
     threads: &[ThreadId],
 ) {
-    let Some(bin) = bin_shown(&shell.peek()) else {
+    let shown = bin_shown(&shell.peek());
+    let Some(bin) = shown.or_else(|| {
+        let first = store.thread(*threads.first()?).ok()?;
+        [Bin::Trash, Bin::Spam]
+            .into_iter()
+            .find(|bin| offered(Some(*bin), &first.summary))
+    }) else {
         return;
     };
     let chosen: Vec<ThreadId> = threads
@@ -89,13 +98,13 @@ fn counted(store: &SqliteStore, bin: Bin, reach: Reach, threads: Vec<ThreadId>) 
     }
 }
 
-/// Close the sheet, deleting nothing, and give the keyboard back to the window.
+/// Close the alert, deleting nothing, and give the keyboard back to the window.
 pub(in crate::ui) fn close(mut shell: Signal<Shell>) {
     shell.write().destroying = None;
     crate::ui::host::Host::focus_app();
 }
 
-/// The sheet's own button: delete what it named, then close.
+/// The alert's own button: delete what it named, then close.
 fn confirm(shell: Signal<Shell>, revision: Signal<u64>) {
     let Some(asked) = shell.peek().destroying.clone() else {
         return;
@@ -105,41 +114,35 @@ fn confirm(shell: Signal<Shell>, revision: Signal<u64>) {
     destroy_all(&store, shell, revision, &asked.threads);
 }
 
-/// The confirmation, over the window while it is open.
+/// The confirmation, quire's critical alert over the window while it is open: its Cancel answers
+/// Escape and only its destructive button deletes.
 #[component]
-pub(in crate::ui) fn DestroySheet(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
+pub(in crate::ui) fn DestroyAlert(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
     let Some(asked) = shell.read().destroying.clone() else {
         return rsx! {};
     };
     let said = words(&asked);
     rsx! {
-        div {
-            class: "rules-wrap",
-            onclick: move |_| close(shell),
-            div {
-                class: "rules destroy-sheet",
-                role: "alertdialog",
-                aria_label: "{said.title}",
-                onclick: move |event| event.stop_propagation(),
-                div { class: "rules-head",
-                    h3 { "{said.title}" }
-                    SheetClose { label: "Cancel", on_close: move |()| close(shell) }
-                }
-                div { class: "rules-part",
-                    p { class: "destroy-body", "{said.body}" }
-                    div { class: "rules-acts",
-                        Button {
-                            label: said.confirm.clone(),
-                            icon: Icon::Trash,
-                            common: Common {
-                                aria_label: Some(said.confirm.clone()),
-                                ..Common::default()
-                            },
-                            onclick: on_primary(move || confirm(shell, revision)),
-                        }
-                    }
-                }
-            }
+        Alert {
+            title: said.title,
+            message: Some(TextLine::from(said.body)),
+            style: AlertStyle::Critical,
+            buttons: vec![
+                AlertButton::new(
+                    said.confirm.clone(),
+                    AlertRole::Destructive,
+                    EventHandler::new(move |()| confirm(shell, revision)),
+                )
+                .with_common(Common {
+                    aria_label: Some(said.confirm),
+                    ..Common::default()
+                }),
+                AlertButton::new(
+                    copy::controls::CANCEL,
+                    AlertRole::Cancel,
+                    EventHandler::new(move |()| close(shell)),
+                ),
+            ],
         }
     }
 }

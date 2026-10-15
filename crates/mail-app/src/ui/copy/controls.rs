@@ -12,6 +12,8 @@ pub const DELETE_FOLDER_AND_MAIL: &str = "Delete Folder and Mail";
 pub const SEND: &str = "Send";
 /// A sheet's way out that does nothing.
 pub const CANCEL: &str = "Cancel";
+/// A toast's button that puts back what was just deleted.
+pub const UNDO: &str = "Undo";
 /// Tidy Up's button: archive the conversations it lists.
 pub fn archive_count(count: usize) -> String {
     format!("Archive {count}")

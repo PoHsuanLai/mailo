@@ -1,5 +1,5 @@
 //! Delete forever and Empty Trash, driven the way their user drives them in the real window on
-//! Blitz (`ds_harness::Harness`): offered only in Trash and Spam, always asked first by a sheet
+//! Blitz (`ds_harness::Harness`): offered only in Trash and Spam, always asked first by an alert
 //! that names how much goes and says it cannot be undone, and never offered an Undo after.
 //!
 //! Every case opens the real window over a store seeded in a `TempDir`. The window is handed no
@@ -216,10 +216,10 @@ fn rows(harness: &Harness) -> usize {
     harness.count(".list .ds-thread")
 }
 
-const SHEET: &str = ".destroy-sheet";
+const ALERT: &str = ".ds-alert";
 
-fn sheet_text(harness: &Harness) -> String {
-    harness.text_of(SHEET).unwrap_or_default()
+fn alert_text(harness: &Harness) -> String {
+    harness.text_of(ALERT).unwrap_or_default()
 }
 
 /// What row `n`'s menu offers, by name, the menu left open.
@@ -241,8 +241,8 @@ fn empty_trash_asks_naming_the_count_and_then_the_list_empties_with_no_undo() {
         &mut harness,
         &format!(".list-col {}", labelled("Empty Trash")),
     );
-    assert_eq!(harness.count(SHEET), 1, "Empty Trash put up no sheet");
-    let said = sheet_text(&harness);
+    assert_eq!(harness.count(ALERT), 1, "Empty Trash put up no alert");
+    let said = alert_text(&harness);
     assert!(said.contains("Empty Trash?"), "{said}");
     assert!(said.contains("3 messages in Trash"), "the count: {said}");
     assert!(said.contains("cannot be undone"), "{said}");
@@ -252,7 +252,7 @@ fn empty_trash_asks_naming_the_count_and_then_the_list_empties_with_no_undo() {
     // Esc answers no.
     harness.key(Key::Escape);
     harness.advance(ms(400));
-    assert_eq!(harness.count(SHEET), 0, "Esc left the sheet up");
+    assert_eq!(harness.count(ALERT), 0, "Esc left the alert up");
     assert_eq!(held_in(&store, MailboxRole::Trash), before);
     assert_eq!(rows(&harness), 3);
 
@@ -263,10 +263,10 @@ fn empty_trash_asks_naming_the_count_and_then_the_list_empties_with_no_undo() {
     );
     press(
         &mut harness,
-        &format!("{SHEET} {}", labelled("Empty Trash")),
+        &format!("{ALERT} {}", labelled("Empty Trash")),
     );
     harness.advance(ms(600));
-    assert_eq!(harness.count(SHEET), 0);
+    assert_eq!(harness.count(ALERT), 0);
     assert_eq!(rows(&harness), 0, "the list is empty");
     assert_eq!(held_in(&store, MailboxRole::Trash), Vec::<String>::new());
     assert_eq!(
@@ -327,7 +327,7 @@ fn only_in_trash_a_row_is_deleted_forever_from_its_menu_once_asked() {
     );
     row_menu::press_menu_item(&mut harness, mail_app::ui::copy::menus::DELETE_FOREVER);
     harness.advance(ms(600));
-    let said = sheet_text(&harness);
+    let said = alert_text(&harness);
     assert!(said.contains("Delete this conversation forever?"), "{said}");
     assert!(said.contains("1 message in Trash"), "{said}");
     assert_eq!(
@@ -338,7 +338,7 @@ fn only_in_trash_a_row_is_deleted_forever_from_its_menu_once_asked() {
 
     press(
         &mut harness,
-        &format!("{SHEET} {}", labelled("Delete forever")),
+        &format!("{ALERT} {}", labelled("Delete Forever")),
     );
     harness.advance(ms(600));
     assert_eq!(rows(&harness), 2, "Trash's rows after the delete");

@@ -1,10 +1,10 @@
-//! Delete forever, and Empty Trash: what the window offers, and what its sheet says.
+//! Delete Forever, and Empty Trash: what the window offers, and what its alert says.
 //!
-//! The user's rule: mail is deleted for good only from Trash or Spam, only while that place is
-//! what the window shows, and only after a sheet that names how much and says it cannot be
-//! undone. Everywhere else, deleting is a move to Trash. [`mail_domain::Op::Destroy`] refuses any
+//! The user's rule: mail is deleted for good only from Trash or Spam, and only after an alert
+//! that names how much and says it cannot be undone. Empty Trash waits for that place to be what
+//! the window shows; Delete Forever is a conversation's own, once it is in one of them. Everywhere else, deleting is a move to Trash. [`mail_domain::Op::Destroy`] refuses any
 //! message outside Trash and Spam whatever asks it; this module is the other half, which decides
-//! when the window asks at all. Pure: the sheet and its buttons are `ui::destroy`.
+//! when the window asks at all. Pure: the alert and its buttons are `ui::destroy`.
 
 use super::view::{Shell, Source};
 use mail_core::place::place_filter;
@@ -26,7 +26,7 @@ impl Bin {
         }
     }
 
-    /// Its name in the sidebar, which the sheet and the buttons use.
+    /// Its name in the sidebar, which the alert and the buttons use.
     pub fn name(self) -> &'static str {
         match self {
             Bin::Trash => "Trash",
@@ -49,12 +49,12 @@ pub fn bin_shown(shell: &Shell) -> Option<Bin> {
         .find(|bin| *filter == place_filter(bin.role()))
 }
 
-/// Whether a row offers Delete forever: while its bin is shown, and it has mail in that bin.
+/// Whether `summary` has mail in `bin`, the bin shown, so Delete Forever reaches it from there.
 pub fn offered(bin: Option<Bin>, summary: &ThreadSummary) -> bool {
     bin.is_some_and(|bin| summary.mailboxes.contains(bin.role()))
 }
 
-/// How many of `messages` a Delete forever from `bin` removes. The rest of a conversation — a
+/// How many of `messages` a Delete Forever from `bin` removes. The rest of a conversation — a
 /// reply in Sent, a copy archived — stays.
 pub fn doomed(messages: &[Message], bin: Bin) -> usize {
     messages.iter().filter(|m| m.mailbox == bin.role()).count()
@@ -69,7 +69,7 @@ pub enum Reach {
     Everything,
 }
 
-/// The confirmation sheet while it is open: what it deletes, counted when it was opened.
+/// The confirmation alert while it is open: what it deletes, counted when it was opened.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Destroying {
     pub bin: Bin,
@@ -79,7 +79,7 @@ pub struct Destroying {
     pub messages: usize,
 }
 
-/// What the sheet says.
+/// What the alert says.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Words {
     pub title: String,
@@ -88,7 +88,7 @@ pub struct Words {
     pub confirm: String,
 }
 
-/// The sheet's words: how much, from where, and that it cannot be undone.
+/// The alert's words: how much, from where, and that it cannot be undone.
 pub fn words(destroying: &Destroying) -> Words {
     let bin = destroying.bin.name();
     let conversations = destroying.threads.len();
@@ -107,7 +107,7 @@ pub fn words(destroying: &Destroying) -> Words {
     );
     let confirm = match destroying.reach {
         Reach::Everything => format!("Empty {bin}"),
-        Reach::Chosen => "Delete forever".to_owned(),
+        Reach::Chosen => "Delete Forever".to_owned(),
     };
     Words {
         title,

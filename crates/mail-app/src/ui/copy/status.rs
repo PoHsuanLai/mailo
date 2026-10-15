@@ -23,3 +23,8 @@ pub fn minutes_ago(minutes: i64) -> String {
 pub fn at_clock(clock: &str) -> String {
     format!("at {clock}")
 }
+
+/// The selection bar's count: "3 selected".
+pub fn selected(count: usize) -> String {
+    format!("{count} selected")
+}

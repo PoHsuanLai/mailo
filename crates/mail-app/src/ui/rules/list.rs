@@ -28,7 +28,7 @@ use super::super::data::AccountRow;
 use super::super::files::work::grouped;
 use super::super::files::{Phase, run};
 use super::super::menu::{Floating, MenuItem, Right, Tile};
-use super::super::motion::{Follow, tell};
+use super::super::motion::{Follow, Restore, tell};
 use super::work::{self, Listed, Step};
 use super::{Failed, Said, open, row_id};
 use crate::ui::copy;
@@ -49,7 +49,9 @@ pub(super) fn RulesList(
     changed: Signal<u64>,
     pushed: Callback<AccountRow>,
 ) -> Element {
+    // The shared revision is read too: the toast's Undo bumps it as it puts a deleted rule back.
     let _ = changed();
+    let _ = revision();
     let phase = use_signal(|| Phase::Ready);
     let running = use_signal(String::new);
     // The rule whose menu is open, and where the right click was.
@@ -336,7 +338,8 @@ fn act(
             wrote(moved, row, said, changed, pushed);
         }
         DELETE => {
-            let deleted = work::delete(&store, rule).map(|text| tell(text, Follow::Nothing));
+            let deleted = work::delete(&store, rule)
+                .map(|text| tell(text, Follow::Restore(Restore::Rule(rule.clone()))));
             wrote(deleted, row, said, changed, pushed);
         }
         _ => {}

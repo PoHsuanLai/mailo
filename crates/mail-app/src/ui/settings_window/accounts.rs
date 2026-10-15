@@ -61,7 +61,7 @@ pub(super) fn Accounts(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
         AccountsPage::Account(account) => rsx! { AccountPage { shell, revision, account } },
         AccountsPage::OtherKeys => rsx! {
             Form {
-                crate::ui::pgp::keys::KeysPage { whose: crate::ui::pgp::keys::Whose::Others }
+                crate::ui::pgp::keys::KeysPage { whose: crate::ui::pgp::keys::Whose::Others, revision }
             }
         },
     });

@@ -27,6 +27,14 @@ pub fn stopped_following(name: &str) -> String {
     format!("Stopped following “{name}”")
 }
 
+/// A window that would not open: `what` is the window, as a person names it. Why goes to the
+/// log; the toast says only what did not happen.
+pub fn would_not_open(what: &str) -> String {
+    format!("Couldn\u{2019}t open {what}.")
+}
+/// The window `would_not_open` names for a conversation's own window.
+pub const A_NEW_WINDOW: &str = "a new window";
+
 /// Cancel Sending, done: the message is a draft again.
 pub const SENDING_CANCELLED: &str = "Sending cancelled";
 

@@ -119,10 +119,13 @@ fn quire(ask: Ask) {
     let spec = WindowSpec::new(TITLE, size::opening(screen));
     match ds_blitz::open_window_with(spec, window::AddAccountWindow, props) {
         Ok(handle) => OPEN.with(|open| *open.borrow_mut() = Some(handle)),
-        Err(why) => crate::ui::motion::tell(
-            format!("Could not open the Add Account window: {why}"),
-            crate::ui::motion::Follow::Nothing,
-        ),
+        Err(why) => {
+            log::warn!("the Add Account window would not open: {why}");
+            crate::ui::motion::tell(
+                crate::ui::copy::toasts::would_not_open(TITLE),
+                crate::ui::motion::Follow::Nothing,
+            );
+        }
     }
 }
 

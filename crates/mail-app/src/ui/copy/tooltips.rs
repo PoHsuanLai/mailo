@@ -18,3 +18,6 @@ pub const SHOW_SIDEBAR: &str = "Show Sidebar";
 pub const SAVE_AS_VIEW: &str = "Save as View";
 pub const EDIT_VIEW: &str = "Edit View";
 pub const NEW_MESSAGE: &str = "New Message";
+
+/// The selection bar's last button: unpick every row.
+pub const CLEAR_SELECTION: &str = "Clear Selection";

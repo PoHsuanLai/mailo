@@ -94,7 +94,14 @@ pub(in crate::ui) fn work(
         CertJob::Delete(cert, with_secret) => {
             mail_core::smime::certs::delete(store, secrets, &cert, with_secret)
                 .map_err(|e| e.to_string())?;
-            format!("Deleted the certificate of {}", whose(&cert))
+            let said = format!("Deleted the certificate of {}", whose(&cert));
+            if cert.secret == SecretHeld::Absent {
+                return Ok(Done::Gone(
+                    said,
+                    Box::new(crate::ui::motion::Restore::Cert(cert)),
+                ));
+            }
+            said
         }
     };
     Ok(Done::Said(said))

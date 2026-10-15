@@ -297,6 +297,12 @@ pub fn delete(store: &SqliteStore, rule: &Rule) -> Result<(), CoreError> {
     Ok(store.delete_rule(rule.id)?)
 }
 
+/// Put back a rule [`delete`] forgot, as it was: its id, its place and its switch. The undo of a
+/// delete.
+pub fn restore(store: &SqliteStore, rule: &Rule) -> Result<(), CoreError> {
+    Ok(store.put_rule(rule)?)
+}
+
 /// The conversations "Run on existing mail" goes through: every one on the account.
 pub fn conversations(store: &SqliteStore, account: AccountId, now: DateTime<Utc>) -> usize {
     store

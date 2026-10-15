@@ -3,7 +3,7 @@
 //! Every toast is quire's, through the window root's host: an undo, plain words, and the one
 //! action that is not an undo (leaving a mailing list offers to archive what it already sent;
 //! blocking a sender offers to take the block back; a sign-in in the browser that did not work
-//! offers to try again). The handlers belong to the scope that made
+//! offers to try again; a rule or a key deleted in Settings offers to put it back). The handlers belong to the scope that made
 //! them and must outlive the toast, which is why this component, mounted as long as the list,
 //! makes them.
 
@@ -44,12 +44,28 @@ pub(in crate::ui) fn Toast(shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                 crate::ui::add_account::retry(retry);
             }
         });
+        let on_restore = EventHandler::new(move |()| {
+            let mut said = state.toast;
+            let offered = said.peek().clone();
+            said.set(None);
+            if let Some(Follow::Restore(restore)) = offered.map(|said| said.follow) {
+                let store = consume_context::<Arc<SqliteStore>>();
+                match restore.put_back(&store) {
+                    Ok(()) => {
+                        let mut revision = revision;
+                        revision += 1;
+                    }
+                    Err(why) => super::tell(why, Follow::Nothing),
+                }
+            }
+        });
         let mut toasts = state.toasts;
         toasts.set(Some(Toasts {
             hub,
             on_undo,
             on_archive,
             on_sign_in,
+            on_restore,
         }));
     });
     rsx! {}

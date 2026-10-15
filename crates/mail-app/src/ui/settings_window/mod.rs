@@ -249,10 +249,13 @@ fn quire() {
         Ok(handle) => {
             *opened.0.borrow_mut() = Some(handle);
         }
-        Err(why) => crate::ui::motion::tell(
-            format!("Could not open Settings: {why}"),
-            crate::ui::motion::Follow::Nothing,
-        ),
+        Err(why) => {
+            log::warn!("the Settings window would not open: {why}");
+            crate::ui::motion::tell(
+                crate::ui::copy::toasts::would_not_open(TITLE),
+                crate::ui::motion::Follow::Nothing,
+            );
+        }
     }
 }
 

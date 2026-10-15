@@ -429,7 +429,7 @@ pub(super) fn App() -> Element {
             }
             return;
         }
-        // The Delete forever sheet: Esc cancels it, and no other key does anything, least of all
+        // The Delete Forever alert: Esc cancels it, and no other key does anything, least of all
         // what it would have done to the rows behind it. Only its button deletes.
         if shell.read().destroying.is_some() {
             if key == "Escape" {
@@ -750,7 +750,7 @@ pub(super) fn App() -> Element {
                 super::reading::AttachmentViewer { shell }
             }
             if shell.read().destroying.is_some() {
-                super::destroy::DestroySheet { shell, revision }
+                super::destroy::DestroyAlert { shell, revision }
             }
             if shell.read().tidying.is_some() {
                 super::tidy::TidySheet { shell, revision }

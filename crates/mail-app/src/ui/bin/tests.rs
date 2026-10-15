@@ -106,14 +106,14 @@ fn the_sheet_names_the_count_and_says_it_cannot_be_undone() {
             1,
             1,
             "Delete this conversation forever?",
-            "Delete forever",
+            "Delete Forever",
         ),
         (
             Reach::Chosen,
             3,
             5,
             "Delete 3 conversations forever?",
-            "Delete forever",
+            "Delete Forever",
         ),
         (Reach::Everything, 12, 20, "Empty Trash?", "Empty Trash"),
     ];

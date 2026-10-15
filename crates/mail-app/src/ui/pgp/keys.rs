@@ -65,6 +65,9 @@ pub(in crate::ui) enum Done {
     Said(String),
     /// The file at this path is an identity that needs its password: the page asks for it.
     Password(PathBuf),
+    /// A key or a certificate with no secret half was deleted: what the page says, with an Undo
+    /// that puts it back.
+    Gone(String, Box<crate::ui::motion::Restore>),
 }
 
 /// Do `job`. Blocks — on the keyring, a file dialog, the disk — so the page runs it on a
@@ -108,7 +111,14 @@ pub(in crate::ui) fn work(store: &SqliteStore, seams: &Seams, job: Job) -> Resul
         Job::Delete(key, with_secret) => {
             mail_core::pgp::keys::delete(store, secrets, &key, with_secret)
                 .map_err(|e| e.to_string())?;
-            format!("Deleted the key of {}", who(&key))
+            let said = format!("Deleted the key of {}", who(&key));
+            if key.secret == SecretHeld::Absent {
+                return Ok(Done::Gone(
+                    said,
+                    Box::new(crate::ui::motion::Restore::Key(key)),
+                ));
+            }
+            said
         }
         Job::Verify(fingerprint) => {
             mail_core::pgp::keys::verify(store, fingerprint).map_err(|e| e.to_string())?;

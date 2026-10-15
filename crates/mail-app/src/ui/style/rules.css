@@ -1,6 +1,6 @@
 /* The Rules page of Settings is quire's groups of rows; what it sizes here is a control in a
    row: the vacation reply's fields, and the bar a run on existing mail fills. The saved-view
-   sheet and delete-forever still hang their own panel in `.rules-wrap`, laid out by the
+   sheet still hangs its own panel in `.rules-wrap`, laid out by the
    `.rules-*` parts below, and the rule editor's actions sit in a run of `.rules-action`. */
 .rules-field { width: 18rem; max-width: 100%; }
 .rules-progress { width: 10rem; }
@@ -26,8 +26,6 @@
 .rules-faint { color: var(--ink-faint); }
 /* The Keyboard page: an action's keys, side by side in its row. */
 .kb-keys, .kb-key { display: inline-flex; align-items: center; gap: var(--s-6); }
-.destroy-sheet { width: min(440px, 92%); }
-.destroy-body { margin: 0; }
 .capnote { margin: 0; color: var(--ink-faint); }
 .files-k { color: var(--ink-soft); }
 .rules-in { min-width: 0; }

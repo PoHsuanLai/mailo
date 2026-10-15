@@ -24,8 +24,8 @@ pub use mail_core::view::{
 /// What a Mute button or menu item says for these conversations: what pressing it would do.
 pub fn mute_label(summaries: &[ThreadSummary]) -> &'static str {
     match mute_for_all(summaries) {
-        Mute::Muted => "Mute",
-        Mute::Unmuted => "Unmute",
+        Mute::Muted => crate::ui::copy::menus::MUTE,
+        Mute::Unmuted => crate::ui::copy::menus::UNMUTE,
     }
 }
 
