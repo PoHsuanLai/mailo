@@ -64,8 +64,15 @@ path = "src/main.rs"
 # anyview, the desktop's viewer, over the session bus (`ui/downloads/open.rs`), with the system's
 # app when anyview does not answer. On by default; a build for another desktop, and the portable
 # gate (`cargo check --workspace --no-default-features`), opens files in the system's app alone.
-default = ["quire-desktop"]
+default = ["quire-desktop", "anyview"]
 quire-desktop = []
+# anyview's peek and card (github.com/PoHsuanLai/anyview) for the attachments mailo does not draw
+# itself: a picture in the reader's strip and a card in Peek, both over the stored bytes
+# (`ui/reading/anyview.rs`). On by default; off, the strip shows a picture's or a PDF's thumbnail
+# and Peek those, the calendars, contacts and messages mailo reads itself, and "no preview" for the
+# rest. Only `mail-app` names it: `mail-core` and below never reach anyview
+# (`scripts/check-boundary.sh`).
+anyview = ["dep:anyview-peek", "dep:anyview-core"]
 
 [dependencies]
 porter-core.workspace = true
@@ -116,6 +123,12 @@ ds-settings = { git = "https://github.com/PoHsuanLai/quire.git", rev = "f47b05c8
 # The account sheets' views (step E5): `ds_shell::accounts`, the parts `sill` draws the same sheet with.
 # Only the accounts module is used; the shell's own surfaces (bar, dock, lock) are not drawn here.
 ds-shell = { git = "https://github.com/PoHsuanLai/quire.git", rev = "f47b05c88af09d4370868b6ee11988bb88386bf1" }  # f47b05c8 (table looks and --stripe, macOS traffic-light tokens, centred cells, PinFace::Glyph, GitBranch and Diff icons)
+# anyview, the viewer's light tier, at the rev of its main that names the quire rev above (the same
+# spelling as quire, so one quire is built). `anyview-core` is the vocabulary (`Input`, `ReadAt`:
+# how the store's bytes go in); `anyview-peek` the peek worker and, with `pane`, the card that draws
+# what was peeked. Headless otherwise: no media player, no D-Bus.
+anyview-core = { git = "https://github.com/PoHsuanLai/anyview.git", rev = "f4c86089813f8a9a564000f16c7680987fa61e75", optional = true }
+anyview-peek = { git = "https://github.com/PoHsuanLai/anyview.git", rev = "f4c86089813f8a9a564000f16c7680987fa61e75", default-features = false, features = ["pane"], optional = true }
 # `mailo.toml`, and the `appearance.toml` written once on the first run after the move.
 toml = "1"
 # The window: quire's Blitz host (the window, its fonts, focus, clipboard, PDF output), and

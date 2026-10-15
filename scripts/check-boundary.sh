@@ -8,14 +8,15 @@ set -uo pipefail
 
 PURE=(mail-domain mail-mime mail-proto mail-pim)
 # Nor porter's client, its bus vocabulary or quire's capability probe: the sans-I/O crates know
-# nothing of the desktop's accountd.
-FORBIDDEN=(tokio rusqlite dioxus reqwest keyring-core porter-client porter-dbus ds-desktop zbus)
+# nothing of the desktop's accountd. Nor anyview (the attachment peek and its card): only
+# `mail-app` draws, behind its `anyview` feature.
+FORBIDDEN=(tokio rusqlite dioxus reqwest keyring-core porter-client porter-dbus ds-desktop zbus anyview-core anyview-peek)
 # `mail-core` is the I/O-capable core: it may use tokio and the network, which the PURE
 # crates may not. What it may never reach is anything that draws, the window's toolkit or the
 # renderer under it, so that `mail-app`'s two front-ends (`ui`, `cli`) sit over one core that
 # knows neither.
 CORE=(mail-core)
-FORBIDDEN_CORE=(dioxus ds ds-settings ds-blitz blitz-dom dioxus-native-dom)
+FORBIDDEN_CORE=(dioxus ds ds-settings ds-blitz blitz-dom dioxus-native-dom anyview-core anyview-peek)
 fail=0
 
 for crate in "${PURE[@]}"; do
@@ -46,6 +47,32 @@ if [ "$core_fail" -eq 0 ]; then
   echo "core boundary holds: ${CORE[*]} reach none of ${FORBIDDEN_CORE[*]}"
 fi
 fail=$((fail | core_fail))
+
+# `mail-store` and `mail-runtime` sit between the pure crates and the core, and draw nothing either:
+# anyview, which peeks at a file and draws a card, is `mail-app`'s alone (its `anyview` feature).
+lower_fail=0
+for crate in mail-store mail-runtime; do
+  for dep in anyview-core anyview-peek; do
+    if cargo tree -p "$crate" -i "$dep" 2>/dev/null | grep -q .; then
+      echo "LEAK: $crate depends on $dep"
+      cargo tree -p "$crate" -i "$dep" 2>/dev/null | head -20
+      lower_fail=1
+    fi
+  done
+done
+if [ "$lower_fail" -eq 0 ]; then
+  echo "anyview boundary holds: mail-store and mail-runtime reach neither anyview-core nor anyview-peek"
+fi
+fail=$((fail | lower_fail))
+
+# Within `mail-app`, anyview is named by the reader's attachment code only (`ui/reading`), behind
+# the `anyview` feature: the strip's thumbnail, Peek's card, and the adapter between them.
+if grep -rnE '\banyview_(core|peek)\b' crates --include='*.rs' \
+  | grep -vE '^crates/mail-app/src/ui/reading/(anyview|thumb|peek/part)\.rs:|^crates/mail-app/tests/app/native_anyview\.rs:' \
+  | grep -vE '^[^:]+:[0-9]+:[[:space:]]*//'; then
+  echo "anyview_core and anyview_peek belong to ui/reading's anyview.rs, thumb.rs and peek/part.rs: see scripts/check-boundary.sh"
+  fail=1
+fi
 
 # The two front-ends sit side by side in `mail-app` and never name each other: what they share
 # is `mail-core`'s. A path through `crate::ui` from the terminal, or `crate::cli` from the
