@@ -156,7 +156,7 @@ fn AccountList(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
         copy::titles::OTHER_KEYS.to_owned(),
         rsx! {
             Row {
-                leading: tile(Icon::Key, PlateFamily::Neutral),
+                leading: tile(Icon::Key, PlateFamily::Amber),
                 title: copy::titles::OTHER_KEYS,
                 size: RowSize::Settings,
                 accessory: Accessory::Chevron,

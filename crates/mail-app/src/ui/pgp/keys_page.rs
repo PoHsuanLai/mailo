@@ -164,7 +164,7 @@ pub(in crate::ui) fn KeysPage(whose: Whose) -> Element {
         rsx! {
             Row {
                 leading: tile(Icon::Plus, PlateFamily::Green),
-                title: "Import",
+                title: copy::fields::OPENPGP_KEY,
                 detail: Some(TextLine::from("Yours sign and decrypt; theirs encrypt and verify.")),
                 size: RowSize::Settings,
                 accessory: Accessory::Slot(rsx! {

@@ -179,7 +179,7 @@ pub(super) fn cert_items(
         rsx! {
             Row {
                 leading: tile(Icon::Plus, PlateFamily::Green),
-                title: "Import",
+                title: crate::ui::copy::fields::SMIME_CERTIFICATE,
                 detail: Some(TextLine::from("A certificate, or your identity as a PKCS#12 file.")),
                 size: RowSize::Settings,
                 accessory: Accessory::Slot(rsx! {

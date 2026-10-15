@@ -230,19 +230,18 @@ pub(super) fn AccountPage(
             if !row.is_local() {
                 crate::ui::pgp::keys::KeysPage { whose: Whose::Account(row.address.clone()) }
             }
-            // Removing is the page's last group, alone: it cannot be undone, so it asks first.
-            FormSection {
-                div { class: "acct-actions",
-                    if let Some(why) = refused {
-                        Label { text: why, severity: Some(Severity::Warn) }
-                    }
-                    Button {
-                        label: ASK,
-                        role: ButtonRole::Destructive,
-                        common: Common { aria_label: Some(format!("Remove {name}")), ..Common::default() },
-                        availability: removing,
-                        onclick: on_primary(move || to(shell, AccountStep::Asking)),
-                    }
+            // Removing is the page's last part, alone and outside any group, as System Settings
+            // puts it: it cannot be undone, so it asks first.
+            div { class: "acct-actions",
+                if let Some(why) = refused {
+                    Label { text: why, severity: Some(Severity::Warn) }
+                }
+                Button {
+                    label: ASK,
+                    role: ButtonRole::Destructive,
+                    common: Common { aria_label: Some(format!("Remove {name}")), ..Common::default() },
+                    availability: removing,
+                    onclick: on_primary(move || to(shell, AccountStep::Asking)),
                 }
             }
         }

@@ -22,3 +22,7 @@ pub const DOWNLOAD_ALL_MAIL: &str = "Download all mail";
 pub const ACCOUNT: &str = "Account";
 /// Under the rules: why their order is theirs to choose.
 pub const RULES_RUN_IN_ORDER: &str = "Rules act on new mail, in this order.";
+/// The keys Settings lists: the row that imports an OpenPGP key.
+pub const OPENPGP_KEY: &str = "OpenPGP Key";
+/// The keys Settings lists: the row that imports an S/MIME certificate or identity.
+pub const SMIME_CERTIFICATE: &str = "S/MIME Certificate";
