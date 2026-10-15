@@ -382,10 +382,7 @@ mod tests {
                     seen.push(names(conversation));
                 }
             }
-            assert!(
-                seen.windows(2).all(|pair| pair[0] == pair[1]),
-                "{seen:?}"
-            );
+            assert!(seen.windows(2).all(|pair| pair[0] == pair[1]), "{seen:?}");
         }
     }
 

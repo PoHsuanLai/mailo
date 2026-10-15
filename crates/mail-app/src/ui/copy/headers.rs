@@ -34,3 +34,13 @@ pub const MAIL: &str = "Mail";
 pub const ENCRYPTION: &str = "Encryption";
 /// An account's servers and sign-in, on its page in Settings: the one place a protocol is named.
 pub const SERVERS: &str = "Servers";
+
+// ⌘K's sections, in the order it draws them.
+/// Where the person was: the conversations opened and the drafts put aside.
+pub const RECENT: &str = "Recent";
+/// The places, and with something typed the people, it names.
+pub const PLACES_AND_PEOPLE: &str = "Places and People";
+pub const COMMANDS: &str = "Commands";
+pub const TEMPLATES: &str = "Templates";
+/// Under a Space's name in ⌘K, saying what it is.
+pub const SPACE: &str = "Space";

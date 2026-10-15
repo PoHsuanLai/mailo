@@ -1,7 +1,7 @@
-//! The window's search: a small affordance in the list's toolbar, and a panel at the top centre
-//! of the window (Spotlight's) with one field that searches the list, and under it the mail,
-//! commands, places and people the text names. What the ⌘K menu offered, it offers, matched
-//! and ranked as the menu did.
+//! ⌘K, the one way in: a small affordance in the list's toolbar, and a panel at the top centre of
+//! the window (Spotlight's) with one field. Empty, it lists Recent, the places and the verbs with
+//! their keys; typed, it is the list's search, and the mail it finds fills the list while the
+//! panel keeps the places, people and commands the text names.
 //!
 //! The rows are built in [`items`], regrouped into the panel's sections in [`sections`] and
 //! drawn as quire's result rows by [`suggest`]; the toolbar's affordance is [`bar`], the panel
@@ -29,7 +29,7 @@ pub(in crate::ui) use spotlight::{Spotlight, summon};
 use super::ops::{Composes, compose_new, start_composing};
 use crate::ui::view::{Bar, BarListing, PageMenu, Shell, Source};
 use dioxus::prelude::*;
-use items::{Cards, CommandId, Look, Pick};
+use items::{Cards, CommandId, Pick};
 use mail_core::SqliteStore;
 use mail_core::place::place_filter;
 use sections::Choice;
@@ -56,15 +56,14 @@ fn restore(mut shell: Signal<Shell>, mut pages: Signal<u32>) {
     }
 }
 
-/// Do what the picked row says. A mail opens with the search that found it still shown; a
-/// person's mail becomes the search; a place, a Space or a command runs on the search there was.
+/// Do what the picked row says. A recent conversation opens; a person's mail becomes the search;
+/// a place, a Space or a command runs on the search there was.
 fn act(ctx: Ctx, choice: Option<Choice>) {
     let Ctx {
         mut shell,
         mut pages,
         mut revision,
         mut side_hidden,
-        spaces,
         desk,
         ..
     } = ctx;
@@ -110,7 +109,7 @@ fn act(ctx: Ctx, choice: Option<Choice>) {
         }
         Choice::Pick(Pick::Action(id)) => {
             restore(shell, pages);
-            run_action(shell, pages, &mut revision, &mut side_hidden, spaces, id);
+            run_action(shell, pages, &mut revision, &mut side_hidden, id);
         }
     }
 }
@@ -121,23 +120,9 @@ fn run_action(
     mut pages: Signal<u32>,
     revision: &mut Signal<u64>,
     side_hidden: &mut Signal<bool>,
-    spaces: Signal<crate::ui::space::Spaces>,
     id: CommandId,
 ) {
     match id {
-        CommandId::Go(goes) => {
-            let source = goes.source();
-            let index = shell
-                .read()
-                .places
-                .iter()
-                .position(|one| one.source == source);
-            if let Some(index) = index {
-                shell.write().select(index);
-                pages.set(1);
-            }
-            close(shell);
-        }
         // Emptying goes to the bin first, so what is being emptied is what the window shows
         // behind the sheet that asks.
         CommandId::Empty(bin) => {
@@ -154,11 +139,6 @@ fn run_action(
                 let store = consume_context::<Arc<SqliteStore>>();
                 super::destroy::ask_everything(&store, shell);
             }
-        }
-        // The entries that are a page of Settings open the window on that page.
-        CommandId::SettingsAt(page) => {
-            close(shell);
-            super::settings_window::open_at(page);
         }
         CommandId::Compose => {
             let store = consume_context::<Arc<SqliteStore>>();
@@ -237,30 +217,9 @@ fn run_action(
             close(shell);
             super::tidy::open(shell);
         }
-        CommandId::Connections => {
-            close(shell);
-            super::doctor::open(shell);
-        }
         CommandId::Settings => {
             close(shell);
             super::settings_window::open();
-        }
-        CommandId::Theme(look) => {
-            let theme: ds::prelude::Theme = match look {
-                Look::Light => ds::prelude::Theme::Light,
-                Look::Dark => ds::prelude::Theme::Dark,
-                Look::System => ds::prelude::Theme::System,
-            };
-            // The theme is the current Space's now, so this is a change to that Space. The
-            // window's `Ds` root reads it from the Spaces; there is nothing to repaint by hand.
-            let mut spaces = spaces;
-            {
-                let mut all = spaces.write();
-                let current = all.current().id;
-                all.edit(current, |space| space.look.theme = theme);
-            }
-            super::frame::keep(&spaces.read());
-            close(shell);
         }
         // Listed in the panel itself, by `act`; run here it has nothing to do.
         CommandId::FromTemplate => close(shell),

@@ -19,12 +19,17 @@ pub const CHOOSE_TIME: &str = "Choose Time…";
 // A scheduled message's menu: it goes back to Drafts, with undo, so nothing more is asked.
 pub const CANCEL_SENDING: &str = "Cancel Sending";
 
-// ⌘K's commands that go to a place.
-pub const GO_TO_INBOX: &str = "Go to Inbox";
-pub const GO_TO_KEPT: &str = "Go to Kept";
-pub const GO_TO_SNOOZED: &str = "Go to Snoozed";
-pub const GO_TO_DONE: &str = "Go to Done";
-pub const GO_TO_TRASH: &str = "Go to Trash";
+// ⌘K's commands: the verbs the window runs, each listed with its key.
+pub const NEW_MESSAGE: &str = "New Message";
+/// Lists the templates in ⌘K itself.
+pub const NEW_FROM_TEMPLATE: &str = "New from Template…";
+pub const FORWARD_AS_ATTACHMENT: &str = "Forward as Attachment";
+pub const PRINT_CONVERSATION: &str = "Print Conversation";
+pub const EMPTY_TRASH: &str = "Empty Trash…";
+pub const EMPTY_SPAM: &str = "Empty Spam…";
+pub const IMPORT_MAIL: &str = "Import Mail…";
+pub const EXPORT_MAIL: &str = "Export Mail…";
+pub const NEW_VIEW: &str = "New View…";
 
 // The Space's menu › Accounts.
 pub const ACCOUNTS: &str = "Accounts";

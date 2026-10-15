@@ -29,3 +29,6 @@ pub const REMOVE: &str = "Remove";
 pub const NEW_RULE: &str = "New Rule…";
 /// Settings › Keyboard: every key as it ships, shown only while one differs.
 pub const RESTORE_DEFAULTS: &str = "Restore Defaults";
+
+/// The sign-in question's answer for an account Microsoft refused over IMAP.
+pub const USE_GRAPH: &str = "Use Microsoft Graph";

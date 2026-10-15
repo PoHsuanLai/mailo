@@ -31,7 +31,6 @@ mod contacts;
 mod data;
 mod debounce;
 mod destroy;
-mod doctor;
 mod downloads;
 mod fetching;
 mod files;

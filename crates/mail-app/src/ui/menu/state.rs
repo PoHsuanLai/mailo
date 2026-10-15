@@ -37,8 +37,6 @@ pub(in crate::ui) enum Right {
 pub(in crate::ui) enum Tone {
     /// The row's own type.
     Plain,
-    /// Ink, heavier: a sender's name on a mail line.
-    Strong,
     /// The data face, faint: an address.
     Faint,
 }

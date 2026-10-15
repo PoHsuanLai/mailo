@@ -240,7 +240,6 @@ fn line_of(parts: &[Run]) -> TextLine {
     for run in parts {
         let tone = match run.tone {
             Tone::Plain => RunTone::Plain,
-            Tone::Strong => RunTone::Strong,
             Tone::Faint => RunTone::Faint,
         };
         for piece in pieces(&run.text, &run.marks) {

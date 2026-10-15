@@ -13,8 +13,8 @@ use crate::ui::copy;
 use crate::ui::view::Shell;
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
-use ds::components::content::avatar::AvatarSize;
 use ds::base::geometry::placement::{Align, Side};
+use ds::components::content::avatar::AvatarSize;
 use ds::components::fields::text_field_model::Invalid;
 use ds::components::overlays::popover::Arrow;
 use ds::host::measure::{Anchor, MountedRef};
@@ -286,7 +286,11 @@ fn ChooseTime(
     let (validity, says) = match &reading {
         Ok(at) => (
             Validity::Valid,
-            Some(copy::fields::back_at(&when_in_sentence(*at, now, &chrono::Local))),
+            Some(copy::fields::back_at(&when_in_sentence(
+                *at,
+                now,
+                &chrono::Local,
+            ))),
         ),
         Err(why) if typed().trim().is_empty() => (Validity::Valid, Some(why.clone())),
         Err(why) => (

@@ -37,3 +37,6 @@ pub const TYPE_A_TIME: &str = "Type a time, like tomorrow 9.";
 pub fn back_at(when: &str) -> String {
     format!("Back {when}")
 }
+
+/// ⌘K's field, while it is empty.
+pub const SEARCH_EVERYTHING: &str = "Search mail, places and commands";

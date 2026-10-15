@@ -128,11 +128,15 @@ fn snooze_help_is_the_time_snooze_until_resolves() {
     // The four times, then Choose Time…, and not a glyph among them.
     assert_eq!(items.len(), expect.len() + 1);
     assert_eq!(
-        items.last().map(|item| (item.key.as_str(), item.name.as_str())),
+        items
+            .last()
+            .map(|item| (item.key.as_str(), item.name.as_str())),
         Some((super::CHOOSE, crate::ui::copy::menus::CHOOSE_TIME))
     );
     assert!(
-        items.iter().all(|item| item.tile == super::super::menu::Tile::None),
+        items
+            .iter()
+            .all(|item| item.tile == super::super::menu::Tile::None),
         "{items:?}"
     );
     for (phrase, name) in expect {

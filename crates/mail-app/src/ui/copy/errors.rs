@@ -72,3 +72,7 @@ pub fn not_on_server(why: &str) -> String {
 pub fn time_passed(when: &str) -> String {
     format!("{when} has already passed. Pick a later time.")
 }
+
+/// Under [`super::titles::use_graph`]: why it is asked.
+pub const IMAP_REFUSED: &str = "Microsoft refused mail access over IMAP for this account. Its \
+    organisation may have switched IMAP off; Microsoft Graph still reads and sends its mail.";

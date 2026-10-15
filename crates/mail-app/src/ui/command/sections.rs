@@ -1,34 +1,35 @@
-//! The search bar's panel, as sections: the rows `items` builds for one `search::run`, the
-//! places and Spaces the text names, regrouped under the titles the panel shows and capped to
-//! a panel's length. Pure: a table of answers in, the panel's rows out.
+//! ⌘K's panel, as sections: the rows `items` builds for one `search::run`, Recent, and the
+//! places and Spaces the text names, regrouped under the titles the panel shows. Pure: a table
+//! of answers in, the panel's rows out.
 //!
-//! The ranker still decides the top hit, as it did for the ⌘K menu; it leads the panel, so
-//! Return runs it. Under it, in a fixed order: Mail (Recent for an empty field), Commands, and
-//! Places and People.
+//! With nothing typed the panel is the one way in: Recent (where the person was), then every
+//! place, then the verbs with their keys. Typed, the text is the list's search and the list shows
+//! the mail; the panel keeps the places, people and commands it names, so Return on one goes
+//! there, and with none of them named Return leaves the panel for the list.
 
 use ds::prelude::Icon;
 use mail_core::search::{Results, match_list};
 
 use super::super::menu::{MenuItem, Right, Tile};
 use super::items::{self, Pick, interpret};
+use crate::ui::copy::headers;
 
 /// The section titles, in the order the panel draws them.
-pub(in crate::ui) const TOP: &str = "Top Hit";
-pub(in crate::ui) const MAIL: &str = "Mail";
-pub(in crate::ui) const RECENT: &str = "Recent";
-pub(in crate::ui) const COMMANDS: &str = "Commands";
-pub(in crate::ui) const PLACES: &str = "Places and People";
-pub(in crate::ui) const TEMPLATES: &str = "Templates";
+pub(in crate::ui) const RECENT: &str = headers::RECENT;
+pub(in crate::ui) const PLACES: &str = headers::PLACES;
+pub(in crate::ui) const PLACES_AND_PEOPLE: &str = headers::PLACES_AND_PEOPLE;
+pub(in crate::ui) const COMMANDS: &str = headers::COMMANDS;
+pub(in crate::ui) const TEMPLATES: &str = headers::TEMPLATES;
 
-/// Rows each section keeps: a panel is a glance, and the list under the bar holds every match.
-const MAIL_CAP: usize = 5;
+/// Rows each section keeps while something is typed: a panel is a glance, and the list under it
+/// holds every match. With nothing typed every place and every command is listed.
 const COMMANDS_CAP: usize = 8;
 const PLACES_CAP: usize = 6;
 
 /// What a pick in the panel does, read back from the row's key.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::ui) enum Choice {
-    /// A mail, a person or a command: what the ⌘K menu's row did.
+    /// A recent conversation, a person or a command.
     Pick(Pick),
     /// The window's place at this index.
     Place(usize),
@@ -38,77 +39,89 @@ pub(in crate::ui) enum Choice {
     Draft(mail_domain::DraftId),
 }
 
-/// One place a person can go: what it is called, and its glyph.
+/// One place a person can go: what it is called, its glyph, and whether it is listed with
+/// nothing typed (one of mailo's own places, not History, and Scheduled only while a send waits).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::ui) struct Destination {
     pub name: String,
     pub icon: Icon,
+    pub at_rest: bool,
 }
 
-/// The panel's rows for `query`: `rows` (the ⌘K menu's, as [`super::items::rows_of`] builds
-/// them) under the panel's titles, then `places`, each section capped, in the panel's order.
-/// A row keeps its tile: a mail and a person lead with their avatar, as quire's result rows draw
-/// one.
+/// The panel's rows for `query`: `rows` (Recent's, and [`super::items::rows_of`]'s people and
+/// commands) and `places` under the panel's titles, in the panel's order. With nothing typed:
+/// Recent, Places, Commands. Typed: Places and People, then Commands, each capped. A row keeps
+/// its tile: a person leads with their avatar, as quire's result rows draw one.
 pub(in crate::ui) fn sections(
     rows: Vec<MenuItem>,
     places: Vec<MenuItem>,
     query: &str,
 ) -> Vec<MenuItem> {
     let empty = query.trim().is_empty();
-    let mut top = Vec::new();
-    let mut mail = Vec::new();
-    let mut commands = Vec::new();
+    let titled = |row: MenuItem, title: &str| MenuItem {
+        group: Some(title.to_owned()),
+        ..row
+    };
+    let mut recent = Vec::new();
     let mut people = Vec::new();
+    let mut commands = Vec::new();
     for row in rows {
-        let section = match row.group.as_deref() {
-            // An empty field has no top hit: what one would be is listed with the recent.
-            Some(items::TOP_HIT) if empty => RECENT,
-            Some(items::TOP_HIT) => TOP,
-            Some(items::ACTIONS) => COMMANDS,
-            Some(items::PEOPLE) => PLACES,
-            _ if empty => RECENT,
-            _ => MAIL,
-        };
-        let row = MenuItem {
-            group: Some(section.to_owned()),
-            ..row
-        };
-        match section {
-            TOP => top.push(row),
-            COMMANDS => commands.push(row),
-            PLACES => people.push(row),
-            _ => mail.push(row),
+        match row.group.as_deref() {
+            Some(items::RECENT) if empty => recent.push(titled(row, RECENT)),
+            Some(items::PEOPLE) if !empty => people.push(row),
+            Some(items::ACTIONS) => commands.push(titled(row, COMMANDS)),
+            _ => {}
         }
     }
-    mail.truncate(MAIL_CAP);
-    commands.truncate(COMMANDS_CAP);
+    let found = if empty { PLACES } else { PLACES_AND_PEOPLE };
     let mut found: Vec<MenuItem> = places
         .into_iter()
-        .map(|row| MenuItem {
-            group: Some(PLACES.to_owned()),
-            ..row
-        })
         .chain(people)
+        .map(|row| titled(row, found))
         .collect();
-    found.truncate(PLACES_CAP);
-    top.into_iter()
-        .chain(mail)
-        .chain(commands)
-        .chain(found)
-        .collect()
+    if !empty {
+        found.truncate(PLACES_CAP);
+        commands.truncate(COMMANDS_CAP);
+    }
+    recent.into_iter().chain(found).chain(commands).collect()
 }
 
-/// The places and Spaces whose names `query` matches, best first, by the matcher the ⌘K menu
-/// marks names with. A place a command already goes to (`offered`, the indices of the places a
-/// Go command opens, as Inbox) and the Space the window is in are left out: each would be a
-/// second row doing what one does.
+/// The places ⌘K lists for `query`: with nothing typed, each place listed at rest, in the
+/// sidebar's order; typed, the places and Spaces whose names it matches, best first, by the
+/// matcher that marks names. The Space the window is in is no place to go, and is left out.
 pub(in crate::ui) fn places_for(
     query: &str,
     places: &[Destination],
     spaces: &[String],
     current: usize,
-    offered: &[usize],
 ) -> Vec<MenuItem> {
+    let row = |key: String, icon, name: String, help, marks| MenuItem {
+        key,
+        tile: Tile::Icon(icon),
+        name,
+        help,
+        right: Right::None,
+        group: Some(PLACES.to_owned()),
+        marks,
+        title: Vec::new(),
+        detail: Vec::new(),
+    };
+    if query.trim().is_empty() {
+        return places
+            .iter()
+            .enumerate()
+            .filter(|(_, place)| place.at_rest)
+            .map(|(index, place)| {
+                row(
+                    format!("place:{index}"),
+                    place.icon,
+                    place.name.clone(),
+                    None,
+                    Vec::new(),
+                )
+            })
+            .collect();
+    }
     let names: Vec<&str> = places
         .iter()
         .map(|place| place.name.as_str())
@@ -117,34 +130,47 @@ pub(in crate::ui) fn places_for(
     match_list(query, &names)
         .into_iter()
         .filter_map(|hit| {
-            let (key, icon, help) = match places.get(hit.index) {
-                Some(_) if offered.contains(&hit.index) => return None,
-                Some(place) => (format!("place:{}", hit.index), place.icon, None),
+            let name = names.get(hit.index)?.to_string();
+            match places.get(hit.index) {
+                Some(place) => Some(row(
+                    format!("place:{}", hit.index),
+                    place.icon,
+                    name,
+                    None,
+                    hit.indices,
+                )),
                 None => {
                     let space = hit.index - places.len();
-                    if space == current {
-                        return None;
-                    }
-                    (
-                        format!("space:{space}"),
-                        Icon::Grid,
-                        Some("Space".to_owned()),
-                    )
+                    (space != current).then(|| {
+                        row(
+                            format!("space:{space}"),
+                            Icon::Grid,
+                            name,
+                            Some(headers::SPACE.to_owned()),
+                            hit.indices,
+                        )
+                    })
                 }
-            };
-            Some(MenuItem {
-                key,
-                tile: Tile::Icon(icon),
-                name: names.get(hit.index)?.to_string(),
-                help,
-                right: Right::None,
-                group: Some(PLACES.to_owned()),
-                marks: hit.indices,
-                title: Vec::new(),
-                detail: Vec::new(),
-            })
+            }
         })
         .collect()
+}
+
+/// Whether typed `query` lights `row` before any key has moved the highlight: when the row's
+/// name, or a word of it, starts with what is typed ("inb" names Inbox, "set" Settings…). A
+/// looser match ("re" inside "Forward") leaves nothing lit, so Return leaves the panel for the
+/// mail the list now shows rather than running a row nobody meant.
+pub(in crate::ui) fn lights(row: &MenuItem, query: &str) -> bool {
+    let typed = query.trim().to_lowercase();
+    let name = row.name.to_lowercase();
+    !typed.is_empty() && words_from(&name).any(|rest| rest.starts_with(&typed))
+}
+
+/// `name` from each of its words on: "add account" and "account".
+fn words_from(name: &str) -> impl Iterator<Item = &str> {
+    name.char_indices()
+        .filter(move |(at, _)| *at == 0 || name[..*at].ends_with(char::is_whitespace))
+        .map(move |(at, _)| &name[at..])
 }
 
 /// What the row keyed `key` does, against the answer that drew it.
@@ -161,8 +187,8 @@ pub(in crate::ui) fn choice_of(results: &Results, key: &str) -> Option<Choice> {
     }
 }
 
-/// The text Tab puts in the field for `row`: a mail's subject, a command's or a place's name,
-/// and a person as the search for their mail.
+/// The text Tab puts in the field for `row`: a command's or a place's name, and a person as the
+/// search for their mail.
 pub(in crate::ui) fn completion(row: &MenuItem) -> String {
     match row.key.split_once(':') {
         Some(("person", email)) => format!("from:{email}"),

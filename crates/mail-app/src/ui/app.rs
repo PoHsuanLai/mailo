@@ -415,18 +415,10 @@ pub(super) fn App() -> Element {
         // The sign-in question: Esc is Later, and no other key does what it would to the rows
         // behind it.
         if let Some(reauth) = try_consume_context::<super::reauth::Reauth>()
-            && !reauth.asked().is_empty()
+            && reauth.asking()
         {
             if key == "Escape" {
                 reauth.later();
-            }
-            return;
-        }
-        // The Connections sheet, behind the Add account sheet when that is open on top of it:
-        // Esc closes it, and no other key does what it would to the rows behind it.
-        if shell.read().doctor.is_some() {
-            if key == "Escape" {
-                super::doctor::close(shell);
             }
             return;
         }
@@ -750,9 +742,6 @@ pub(super) fn App() -> Element {
             super::command::Spotlight { shell, pages, revision, in_a_field, side_hidden, spaces }
             if shell.read().files.is_some() {
                 super::files::FilesSheet { shell, revision }
-            }
-            if shell.read().doctor.is_some() {
-                super::doctor::DoctorView { shell, revision }
             }
             if shell.read().view_editor.is_some() {
                 super::views::ViewSheet { shell, revision, pages }

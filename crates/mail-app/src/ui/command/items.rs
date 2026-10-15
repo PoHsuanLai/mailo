@@ -1,4 +1,5 @@
-//! The search bar's rows, built from one `search::run`, as the ⌘K menu built them.
+//! ⌘K's command and people rows, built from one `search::run`. The mail it finds is the list's:
+//! typing in ⌘K is the list's search, so the panel draws no mail of its own.
 //!
 //! The ranker's sender affinity comes from the one grouped sender history the hover cards read
 //! (`ui::history`): how many conversations, and whether you have written to them.
@@ -12,18 +13,18 @@ use std::collections::HashMap;
 use super::super::menu::{MenuItem, Right, Run, Tile, Tone};
 use crate::ui::actions;
 use crate::ui::bin::Bin;
-use crate::ui::copy;
-use crate::ui::view::{SettingsPage, Source};
+use crate::ui::copy::menus;
 use chordkit::{Keymap, StandardAction};
 use chrono::{DateTime, Utc};
 use mail_core::SqliteStore;
-use mail_core::place::{pending_snooze, place_filter};
-use mail_core::search::{self, ActionHit, Command, MailHit, PersonHit, Results, Top};
-use mail_core::view::kept_filter;
-use mail_domain::{MailboxRole, ThreadId};
+use mail_core::search::{self, ActionHit, Command, PersonHit, Results, Top};
+use mail_domain::ThreadId;
 
 /// A command the panel offers, by what it does. A row is dispatched on this, never on its
 /// words: its label is looked up from [`ENTRIES`], so renaming one changes no behaviour.
+///
+/// Only verbs. A place is found by its own name ([`super::sections::places_for`]), and a page of
+/// Settings, the theme or the state of the connections are Settings' own, one row away.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::ui) enum CommandId {
     Compose,
@@ -31,8 +32,6 @@ pub(in crate::ui) enum CommandId {
     ForwardAttached,
     Print,
     Sync,
-    Connections,
-    Go(Goes),
     Empty(Bin),
     TidyUp,
     Sidebar,
@@ -41,8 +40,6 @@ pub(in crate::ui) enum CommandId {
     Export,
     NewView,
     Settings,
-    SettingsAt(SettingsPage),
-    Theme(Look),
     /// Contacts in or out as vCard: the book has no page of its own.
     Contacts(Cards),
 }
@@ -52,38 +49,6 @@ pub(in crate::ui) enum CommandId {
 pub(in crate::ui) enum Cards {
     Import,
     Export,
-}
-
-/// A place a Go command opens: one of the sidebar's own, found by what it lists rather than by
-/// what it is called.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(in crate::ui) enum Goes {
-    Inbox,
-    Kept,
-    Snoozed,
-    Done,
-    Trash,
-}
-
-impl Goes {
-    /// What the place lists, which is how it is found among the window's places.
-    pub(in crate::ui) fn source(self) -> Source {
-        match self {
-            Goes::Inbox => Source::Mail(place_filter(MailboxRole::Inbox)),
-            Goes::Kept => Source::Mail(kept_filter()),
-            Goes::Snoozed => Source::Mail(pending_snooze()),
-            Goes::Done => Source::Mail(place_filter(MailboxRole::Archive)),
-            Goes::Trash => Source::Mail(place_filter(MailboxRole::Trash)),
-        }
-    }
-}
-
-/// An appearance a Theme command sets.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(in crate::ui) enum Look {
-    Light,
-    Dark,
-    System,
 }
 
 /// One command's row: what it does, the key its row carries, its words, its glyph, and the
@@ -118,120 +83,84 @@ pub(in crate::ui) const ENTRIES: &[Entry] = &[
     entry(
         CommandId::Compose,
         "compose",
-        "Compose",
+        menus::NEW_MESSAGE,
         Icon::Pen,
         Some(StandardAction::New),
     ),
     entry(
         CommandId::FromTemplate,
         "from-template",
-        "New from template",
+        menus::NEW_FROM_TEMPLATE,
         Icon::FilePen,
         None,
     ),
     entry(
         CommandId::ForwardAttached,
         "forward-attached",
-        "Forward as attachment",
+        menus::FORWARD_AS_ATTACHMENT,
         Icon::Forward,
         None,
     ),
     entry(
         CommandId::Print,
         "print",
-        "Print conversation",
+        menus::PRINT_CONVERSATION,
         Icon::Printer,
         Some(StandardAction::Print),
     ),
-    entry(CommandId::Sync, "sync", "Sync now", Icon::Refresh, None),
     entry(
-        CommandId::Connections,
-        "connections",
-        "Connections",
-        Icon::TriangleAlert,
-        None,
-    ),
-    entry(
-        CommandId::Go(Goes::Inbox),
-        "go-inbox",
-        copy::menus::GO_TO_INBOX,
-        Icon::Inbox,
-        None,
-    ),
-    entry(
-        CommandId::Go(Goes::Kept),
-        "go-kept",
-        copy::menus::GO_TO_KEPT,
-        Icon::Star,
-        None,
-    ),
-    entry(
-        CommandId::Go(Goes::Snoozed),
-        "go-snoozed",
-        copy::menus::GO_TO_SNOOZED,
-        Icon::Clock,
-        None,
-    ),
-    entry(
-        CommandId::Go(Goes::Done),
-        "go-done",
-        copy::menus::GO_TO_DONE,
-        Icon::Archive,
-        None,
-    ),
-    entry(
-        CommandId::Go(Goes::Trash),
-        "go-trash",
-        copy::menus::GO_TO_TRASH,
-        Icon::Trash,
+        CommandId::Sync,
+        "sync",
+        menus::SYNC_NOW,
+        Icon::Refresh,
         None,
     ),
     entry(
         CommandId::Empty(Bin::Trash),
         "empty-trash",
-        "Empty Trash\u{2026}",
+        menus::EMPTY_TRASH,
         Icon::Command,
         None,
     ),
     entry(
         CommandId::Empty(Bin::Spam),
         "empty-spam",
-        "Empty Spam\u{2026}",
+        menus::EMPTY_SPAM,
         Icon::Command,
         None,
     ),
     entry(
         CommandId::TidyUp,
         "tidy-up",
-        copy::menus::TIDY_UP,
+        menus::TIDY_UP,
         Icon::Archive,
         None,
     ),
     entry(
         CommandId::Sidebar,
         "sidebar",
-        "Hide sidebar",
+        menus::HIDE_SIDEBAR,
         Icon::PanelLeft,
         Some(StandardAction::ToggleSidebar),
     ),
     entry(
         CommandId::AddAccount,
         "add-account",
-        "Add account\u{2026}",
+        menus::ADD_ACCOUNT,
         Icon::Plus,
         None,
     ),
     entry(
         CommandId::Import,
         "import",
-        "Import mail\u{2026}",
+        menus::IMPORT_MAIL,
         Icon::Plus,
         None,
     ),
     entry(
         CommandId::Export,
         "export",
-        "Export mail\u{2026}",
+        menus::EXPORT_MAIL,
         Icon::Forward,
         None,
     ),
@@ -239,78 +168,28 @@ pub(in crate::ui) const ENTRIES: &[Entry] = &[
     entry(
         CommandId::Contacts(Cards::Import),
         "import-contacts",
-        copy::menus::IMPORT_CONTACTS,
+        menus::IMPORT_CONTACTS,
         Icon::Group,
         None,
     ),
     entry(
         CommandId::Contacts(Cards::Export),
         "export-contacts",
-        copy::menus::EXPORT_CONTACTS,
+        menus::EXPORT_CONTACTS,
         Icon::Group,
         None,
     ),
     entry(
         CommandId::NewView,
         "new-view",
-        "New view\u{2026}",
+        menus::NEW_VIEW,
         Icon::Search,
         None,
     ),
     entry(
         CommandId::Settings,
         "settings",
-        "Settings\u{2026}",
-        Icon::Settings,
-        None,
-    ),
-    // Each page of Settings, named so that "set" finds them all.
-    entry(
-        CommandId::SettingsAt(SettingsPage::General),
-        "settings-general",
-        "General Settings",
-        Icon::Settings,
-        None,
-    ),
-    entry(
-        CommandId::SettingsAt(SettingsPage::Accounts),
-        "settings-accounts",
-        "Accounts Settings",
-        Icon::Mail,
-        None,
-    ),
-    entry(
-        CommandId::SettingsAt(SettingsPage::Rules),
-        "settings-rules",
-        "Rules Settings",
-        Icon::FolderInput,
-        None,
-    ),
-    entry(
-        CommandId::SettingsAt(SettingsPage::Keyboard),
-        "settings-keyboard",
-        "Keyboard Shortcuts Settings",
-        Icon::Keyboard,
-        None,
-    ),
-    entry(
-        CommandId::Theme(Look::Light),
-        "theme-light",
-        "Theme light",
-        Icon::Settings,
-        None,
-    ),
-    entry(
-        CommandId::Theme(Look::Dark),
-        "theme-dark",
-        "Theme dark",
-        Icon::Settings,
-        None,
-    ),
-    entry(
-        CommandId::Theme(Look::System),
-        "theme-system",
-        "Theme system",
+        menus::SETTINGS,
         Icon::Settings,
         None,
     ),
@@ -348,14 +227,6 @@ pub(in crate::ui) fn action_key(entry: &Entry) -> String {
     format!("action:{}", entry.key)
 }
 
-/// Whether a Go command already opens the place listing `source`.
-pub(in crate::ui) fn gone_to(source: &Source) -> bool {
-    ENTRIES.iter().any(|entry| match entry.id {
-        CommandId::Go(goes) => goes.source() == *source,
-        _ => false,
-    })
-}
-
 /// What Enter does with one row.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::ui) enum Pick {
@@ -366,141 +237,57 @@ pub(in crate::ui) enum Pick {
 
 /// The key the row was given, read back against the results that produced it.
 pub(in crate::ui) fn interpret(results: &Results, key: &str) -> Option<Pick> {
-    let mail_id = |hit: &MailHit| format!("mail:{}", hit.summary.id);
-    if let Some(top) = &results.top {
-        match top {
-            Top::Mail(hit) if key == mail_id(hit) => return Some(Pick::Open(hit.summary.id)),
-            Top::Person(hit) if key == format!("person:{}", hit.email.to_ascii_lowercase()) => {
-                return Some(Pick::From(hit.email.to_ascii_lowercase()));
-            }
-            Top::Action(hit) => {
-                if let Some(entry) = entry_hit(hit)
-                    && key == action_key(entry)
-                {
-                    return Some(Pick::Action(entry.id));
-                }
-            }
-            _ => {}
-        }
-    }
-    for hit in &results.mail {
-        if key == mail_id(hit) {
-            return Some(Pick::Open(hit.summary.id));
-        }
-    }
-    for hit in &results.people {
-        if key == format!("person:{}", hit.email.to_ascii_lowercase()) {
+    let person = |email: &str| format!("person:{}", email.to_ascii_lowercase());
+    let top_person = match &results.top {
+        Some(Top::Person(hit)) => Some(hit),
+        _ => None,
+    };
+    for hit in top_person.into_iter().chain(&results.people) {
+        if key == person(&hit.email) {
             return Some(Pick::From(hit.email.to_ascii_lowercase()));
         }
     }
-    for entry in results.actions.iter().filter_map(entry_hit) {
-        if key == action_key(entry) {
-            return Some(Pick::Action(entry.id));
-        }
-    }
-    None
+    let top_action = match &results.top {
+        Some(Top::Action(hit)) => Some(hit),
+        _ => None,
+    };
+    top_action
+        .into_iter()
+        .chain(&results.actions)
+        .filter_map(entry_hit)
+        .find(|entry| key == action_key(entry))
+        .map(|entry| Pick::Action(entry.id))
 }
 
-/// The groups [`rows_of`] files its rows under, which [`super::sections::sections`] regroups
-/// by. Not shown: the panel draws its own titles.
-pub(in crate::ui) const TOP_HIT: &str = "top";
+/// The groups [`rows_of`] and Recent file their rows under, which
+/// [`super::sections::sections`] regroups by. Not shown: the panel draws its own titles.
 pub(in crate::ui) const RECENT: &str = "recent";
-pub(in crate::ui) const MAIL: &str = "mail";
 pub(in crate::ui) const PEOPLE: &str = "people";
 pub(in crate::ui) const ACTIONS: &str = "actions";
 
-/// The rows the menu paints for one `search::run`.
+/// The rows the panel paints for one `search::run`: its people and its commands, the one the
+/// ranker put on top first among its kind. Its mail is not here: what is typed is the list's
+/// search, and the list shows that mail.
 pub(in crate::ui) fn rows_of(
     results: &Results,
     names: &HashMap<String, String>,
     query: &str,
     keymap: &Keymap,
 ) -> Vec<MenuItem> {
-    let mut out = Vec::new();
-    if let Some(top) = &results.top {
-        out.push(top_item(top, names, query, keymap));
-    }
-    let mail_group = if query.trim().is_empty() {
-        RECENT
-    } else {
-        MAIL
+    let (top_person, top_action) = match &results.top {
+        Some(Top::Person(hit)) => (Some(hit), None),
+        Some(Top::Action(hit)) => (None, Some(hit)),
+        Some(Top::Mail(_)) | None => (None, None),
     };
-    for hit in &results.mail {
-        out.push(mail_item(hit, mail_group, query));
-    }
-    for hit in &results.people {
-        out.push(person_item(hit, names, query, PEOPLE));
-    }
-    for hit in &results.actions {
-        out.push(action_item(hit, ACTIONS, keymap));
-    }
-    out
-}
-
-fn top_item(top: &Top, names: &HashMap<String, String>, query: &str, keymap: &Keymap) -> MenuItem {
-    match top {
-        Top::Mail(hit) => mail_item(hit, TOP_HIT, query),
-        Top::Person(hit) => person_item(hit, names, query, TOP_HIT),
-        Top::Action(hit) => action_item(hit, TOP_HIT, keymap),
-    }
-}
-
-fn mail_item(hit: &MailHit, group: &str, query: &str) -> MenuItem {
-    let who = hit
-        .summary
-        .from
-        .name
-        .clone()
-        .filter(|name| !name.is_empty())
-        .unwrap_or_else(|| hit.summary.from.email.clone());
-    let letter = initial(&who);
-    MenuItem {
-        key: format!("mail:{}", hit.summary.id),
-        tile: Tile::Avatar {
-            letter,
-            color: avatar_color(&hit.summary.from.email),
-        },
-        name: hit.summary.subject.clone(),
-        help: None,
-        right: Right::None,
-        group: Some(group.to_owned()),
-        marks: char_marks(&hit.summary.subject, &hit.indices, &hit.marks),
-        title: Vec::new(),
-        detail: mail_detail(who, &hit.preview, query),
-    }
-}
-
-/// A mail row's second line: its sender, then its snippet when it has one.
-fn mail_detail(who: String, preview: &str, query: &str) -> Vec<Run> {
-    let mut runs = vec![Run {
-        marks: query_marks(query, &who),
-        text: who,
-        tone: Tone::Strong,
-    }];
-    if !preview.trim().is_empty() {
-        runs.push(Run {
-            text: format!(" · {preview}"),
-            marks: Vec::new(),
-            tone: Tone::Plain,
-        });
-    }
-    runs
-}
-
-fn char_marks(text: &str, indices: &[u32], ranges: &[std::ops::Range<usize>]) -> Vec<u32> {
-    if !indices.is_empty() {
-        return indices.to_vec();
-    }
-    let mut out = Vec::new();
-    for (index, (byte, _)) in text.char_indices().enumerate() {
-        if ranges
-            .iter()
-            .any(|range| byte >= range.start && byte < range.end)
-        {
-            out.push(index as u32);
-        }
-    }
-    out
+    let people = top_person
+        .into_iter()
+        .chain(&results.people)
+        .map(|hit| person_item(hit, names, query, PEOPLE));
+    let actions = top_action
+        .into_iter()
+        .chain(&results.actions)
+        .map(|hit| action_item(hit, ACTIONS, keymap));
+    people.chain(actions).collect()
 }
 
 fn person_item(
@@ -567,7 +354,7 @@ pub(in crate::ui) fn restate_sidebar(mut item: MenuItem, sidebar: Shown, query: 
     if item.key != SIDEBAR_KEY || sidebar == Shown::Visible {
         return item;
     }
-    item.name = "Show sidebar".to_owned();
+    item.name = menus::SHOW_SIDEBAR.to_owned();
     item.marks = query_marks(query, &item.name);
     item
 }
@@ -615,9 +402,60 @@ fn initial(name: &str) -> char {
     name.chars().next().unwrap_or('·').to_ascii_uppercase()
 }
 
-/// Operator tokens in `query`, as the chips under the field.
-pub(in crate::ui) fn tokens(query: &str) -> Vec<String> {
+/// The search's syntax, as ⌘K suggests it: the operators a person can type, most used first.
+pub(in crate::ui) const SYNTAX: &[&str] = &[
+    "from:",
+    "to:",
+    "subject:",
+    "has:attachment",
+    "is:unread",
+    "is:starred",
+    "label:",
+    "before:",
+    "after:",
+];
+
+/// The chips under the field for `query`: the whole syntax while nothing is typed, the operators
+/// the last word is the start of while it is one ("fr" is offered "from:", "is:" both of its
+/// kinds), and otherwise the operators the search holds, so the person sees what narrows it.
+pub(in crate::ui) fn chips(query: &str) -> Vec<String> {
+    if query.trim().is_empty() {
+        return SYNTAX.iter().map(|chip| (*chip).to_owned()).collect();
+    }
+    let started = starting(query);
+    if !started.is_empty() {
+        return started.into_iter().map(str::to_owned).collect();
+    }
     search::parse(query, &Utc, &|_| Vec::new()).operator_tokens
+}
+
+/// The operators `query`'s last word is the start of, and not yet one of: none when the query
+/// ends in a space, the word is whole, or it starts nothing.
+fn starting(query: &str) -> Vec<&'static str> {
+    if query.ends_with(char::is_whitespace) {
+        return Vec::new();
+    }
+    let last = query
+        .rsplit(char::is_whitespace)
+        .next()
+        .unwrap_or_default()
+        .to_lowercase();
+    if last.is_empty() {
+        return Vec::new();
+    }
+    SYNTAX
+        .iter()
+        .copied()
+        .filter(|chip| chip.starts_with(&last) && *chip != last)
+        .collect()
+}
+
+/// `query` with its last word completed to the first operator it starts, for Tab; `None` when
+/// it starts none.
+pub(in crate::ui) fn complete_syntax(query: &str) -> Option<String> {
+    let chip = starting(query).into_iter().next()?;
+    let kept = query.trim_end_matches(|c: char| !c.is_whitespace());
+    Some(format!("{kept}{chip}"))
 }
 
 /// Run the menu's search. Its People are the contact book's, as [`super::people::from_book`]
@@ -632,25 +470,4 @@ pub(in crate::ui) fn search_now(
     let mut results = search::run(query, store, &affinity, &commands(), now);
     super::people::from_book(&mut results, &mut names, store, query, &history);
     (results, names)
-}
-
-#[cfg(test)]
-mod detail_tests {
-    use super::mail_detail;
-
-    #[test]
-    fn a_mail_with_no_snippet_is_its_sender_alone() {
-        let cases: &[(&str, &str)] = &[
-            ("see you at noon", "Dana · see you at noon"),
-            ("", "Dana"),
-            ("  ", "Dana"),
-        ];
-        for (preview, want) in cases {
-            let line: String = mail_detail("Dana".to_owned(), preview, "")
-                .iter()
-                .map(|run| run.text.as_str())
-                .collect();
-            assert_eq!(line, *want, "{preview:?}");
-        }
-    }
 }
