@@ -4,19 +4,15 @@
 //! The deciding is [`mail_core::follow_up`]'s; this is when it runs and how it is shown.
 
 use super::menu::{MenuItem, Right, Tile, anchor_for, palette_groups};
-use super::menus::{snooze_help, when_words};
+use super::menus::snooze_help;
 use super::motion::act_all;
 use super::picks::with_selection;
 use crate::ui::view::Shell;
 use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
 use ds::components::content::avatar::AvatarSize;
-use ds::components::controls::button_model::{Bezel, ImagePosition};
 use ds::host::measure::MountedRef;
 use ds::prelude::*;
-use ds::root::common::Common;
-use ds::style::icon::render::Glyph;
-use ds::style::tokens::control_size::ControlSize;
 use mail_core::SqliteStore;
 use mail_core::notify::Notifier;
 use mail_domain::{FollowUp, Op, ThreadId};
@@ -204,76 +200,6 @@ pub(in crate::ui) fn FollowUpMenu(
                 on_close.call(());
             },
             onclose: move |()| on_close.call(()),
-        }
-    }
-}
-
-/// The reader's bell: pressed while the conversation has a reminder, and a press opens the menu.
-#[component]
-pub(in crate::ui) fn FollowUpTool(
-    thread: ThreadId,
-    current: FollowUp,
-    shell: Signal<Shell>,
-    revision: Signal<u64>,
-) -> Element {
-    let mut open = use_signal(|| false);
-    let mut tool = use_signal(|| None::<MountedRef>);
-    rsx! {
-        Button {
-            bezel: Bezel::Toolbar,
-            size: ControlSize::Large,
-            image: ImagePosition::Only,
-            icon: Icon::Bell,
-            label: "Remind me if no reply".to_owned(),
-            title: Some("Reminder".to_owned()),
-            value: Some(if current == FollowUp::Inactive { Check::Off } else { Check::On }),
-            shown: Some(if open() { Shown::Visible } else { Shown::Hidden }),
-            common: Common {
-                mounted: Some(EventHandler::new(move |event: MountedEvent| {
-                    tool.set(Some(MountedRef(event.data())));
-                })),
-                ..Common::default()
-            },
-            onclick: move |_| open.toggle(),
-        }
-        if open() {
-            FollowUpMenu {
-                id: thread,
-                current,
-                shell,
-                revision,
-                anchor: tool(),
-                on_close: move |_| open.set(false),
-            }
-        }
-    }
-}
-
-/// The reader's line about a reminder, when there is one.
-pub(in crate::ui) fn note_words(follow_up: FollowUp, now: DateTime<Utc>) -> Option<String> {
-    match follow_up {
-        FollowUp::Inactive => None,
-        FollowUp::Until { at, .. } => Some(format!(
-            "Reminder {} if nobody replies",
-            when_words(at, now, &chrono::Local)
-        )),
-        FollowUp::Returned { set, .. } => Some(format!(
-            "No reply yet — nobody has written since {}",
-            when_words(set, now, &chrono::Local)
-        )),
-    }
-}
-
-/// That line, drawn.
-#[component]
-pub(in crate::ui) fn FollowUpNote(follow_up: FollowUp) -> Element {
-    let Some(words) = note_words(follow_up, super::clock::now()) else {
-        return rsx! {};
-    };
-    rsx! {
-        div { class: "follow-up-note", role: "status",
-            Glyph { icon: Icon::Bell, size: IconSize::Compact }
-            span { "{words}" }
         }
     }
 }

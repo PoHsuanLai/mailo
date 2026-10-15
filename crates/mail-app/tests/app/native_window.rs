@@ -300,10 +300,12 @@ fn a_row_s_menu_the_reader_s_menu_and_shift_enter_ask_for_a_window_of_its_own() 
     want.extend(asked_for(&store, INBOX[2].1));
     assert_eq!(recorder.asked(), want, "the row's context menu");
 
-    // The reader's menu.
+    // The reader's ⋯, View, its window row.
     click_row(&mut harness, 2);
     assert_eq!(recorder.asked(), want, "opening a row asked for a window");
-    harness.click(centre(&harness, ".reader-head [*|aria-label=\"View\"]"));
+    harness.click(centre(&harness, ".reader-head [*|aria-label=\"More\"]"));
+    harness.advance(ms(300));
+    crate::row_menu::press_menu_item(&mut harness, "View");
     press_open_in_window(&mut harness);
     want.extend(asked_for(&store, INBOX[1].1));
     assert_eq!(recorder.asked(), want, "the reader's menu");
@@ -345,7 +347,7 @@ fn the_window_s_root_draws_the_reader_for_its_conversation_and_nothing_else() {
         "the window drew a list"
     );
     assert_eq!(harness.count(".side"), 0, "the window drew the sidebar");
-    // The window is the page: no view menu, so no peek and no second "Open in new window".
+    // The window is the page: no View, so no peek and no second "Open in new window".
     for tool in ["View", "Side peek", "Centre peek", "Full page"] {
         assert_eq!(
             harness.count(&format!(".reader-head [*|aria-label=\"{tool}\"]")),
@@ -371,13 +373,7 @@ fn the_window_follows_what_the_main_window_does_to_its_conversation() {
     let (mut main, _) = main_window_on(Clock::Wall, &store, &revisions);
     let mut window = message_window_on(Clock::Wall, &store, &revisions, invoice);
 
-    // Muted in the main window: the second window's reader says so.
     click_row(&mut main, 2);
-    main.key(Key::Char('m'));
-    settle_until(&mut main, |_| {
-        thread(&store, INBOX[1].1).mute == Mute::Muted
-    });
-    settle_until(&mut window, |h| h.count(".reader-head .muted-note") == 1);
 
     // Archived in the main window: the second window says where it went.
     main.key(Key::Char('e'));

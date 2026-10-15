@@ -1,5 +1,5 @@
 use super::tool::{PrintChoice, ROWS, job_of};
-use super::{Job, PrintTool, SAVED_AS, Sources, build, save_into, started};
+use super::{Job, PrintMenu, SAVED_AS, Sources, build, save_into, started};
 use crate::ui::app::App;
 use crate::ui::fixtures::{
     INSIDE_THE_SHELL, Scripts, acct_account, chord, click, dispatching, rebuild_into, seeded, work,
@@ -232,9 +232,27 @@ async fn ctrl_p_with_nothing_open_does_nothing_and_with_a_thread_starts_printing
     );
 }
 
+/// A button standing for the reader's ⋯ row, and the menu it opens.
 #[component]
 fn Head(thread: ThreadId) -> Element {
-    rsx! { ds::prelude::Ds { appearance: ds::prelude::Appearance::default(), material: ds::prelude::Material::Window, div { class: "bar-tools", PrintTool { thread } } } }
+    let mut open = use_signal(|| false);
+    rsx! {
+        ds::prelude::Ds { appearance: ds::prelude::Appearance::default(), material: ds::prelude::Material::Window,
+            div { class: "bar-tools",
+                ds::prelude::Button {
+                    label: "Print this conversation",
+                    common: ds::root::common::Common {
+                        aria_label: Some("Print this conversation".to_owned()),
+                        ..Default::default()
+                    },
+                    onclick: move |_| open.set(true),
+                }
+                if open() {
+                    PrintMenu { thread, anchor: None, on_close: move |()| open.set(false) }
+                }
+            }
+        }
+    }
 }
 
 #[test]
@@ -312,7 +330,7 @@ async fn print_opens_a_menu_whose_rows_print_the_pages_they_name() {
     }
 }
 
-/// The reader head with Print's menu open, and a printed page, for screenshots.
+/// Print's menu open, and a printed page, for screenshots.
 ///
 /// ```text
 /// cargo test -p mail-app -- --ignored render_printing_to_files
@@ -335,16 +353,7 @@ async fn render_printing_to_files() {
     let target = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
     std::fs::write(target.join("printed.html"), &printed.html).unwrap();
 
-    #[component]
-    fn Opened(thread: ThreadId) -> Element {
-        let shell = use_signal(|| crate::ui::view::Shell {
-            open: Some(thread),
-            ..crate::ui::view::Shell::default()
-        });
-        rsx! { ds::prelude::Ds { appearance: ds::prelude::Appearance::default(), material: ds::prelude::Material::Window, crate::ui::reading::Reader { thread, shell } } }
-    }
-    let mut dom =
-        VirtualDom::new_with_props(Opened, OpenedProps { thread }).with_root_context(store);
+    let mut dom = VirtualDom::new_with_props(Head, HeadProps { thread }).with_root_context(store);
     let seen = rebuild_into(&mut dom);
     click(&mut dom, seen.one("aria-label", "Print this conversation"));
     let body = dioxus_ssr::render(&dom);

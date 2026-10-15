@@ -2,15 +2,11 @@
 .app { position: relative; }
 
 /* ---- reader ---- */
-.reader { position: relative; display: flex; flex-direction: column; height: 100%; min-width: 0; min-height: 0; background: var(--surface-2); }
-.reader-head { padding: var(--s-16) var(--s-18) var(--s-12); border-bottom: var(--hair) solid var(--line-soft); }
+.reader { position: relative; display: flex; flex-direction: column; height: 100%; min-width: 0; min-height: 0; background: var(--surface); }
+.reader-head { padding: var(--s-16) var(--s-18) var(--s-12); }
 .reader-head h2 { margin: 0; }
 /* The subject: the display face at 20, tight, over the metadata lines (`--fs-subject`). */
 .reader-subject { font-size: var(--fs-subject); line-height: 1.15; }
-.reader-head .muted-note, .reader-head .follow-up-note {
-  display: flex; align-items: center; gap: var(--s-4); margin-top: var(--s-4);
-  color: var(--ink-faint);
-}
 .reader-head .head-row { display: flex; gap: var(--s-6); align-items: center; margin-bottom: var(--s-9); }
 /* A message's header, as Mail draws it: the avatar, then the sender's line (name, address, and
    the date at its end) over whom it went to. The compact one, an earlier message's, is a small
@@ -58,7 +54,7 @@ article.frame + article.frame { border-top: var(--hair) solid var(--line-soft); 
 .reader-body .quote {
   border-left: var(--s-2) solid var(--ink-soft); padding-left: var(--s-12); color: var(--ink-soft); font-style: italic;
 }
-.reader-body code { font-family: var(--font-code); font-size: var(--fs-meta); background: var(--surface);
+.reader-body code { font-family: var(--font-code); font-size: var(--fs-meta); background: var(--surface-2);
   padding: var(--s-1) var(--s-5); border-radius: var(--r-tiny); color: var(--ink); }
 .reader-body pre.text {
   white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; border: 0; padding: 0; background: none;
@@ -68,6 +64,8 @@ article.frame + article.frame { border-top: var(--hair) solid var(--line-soft); 
    font-weight: 700; font-size: var(--fs-title); font-style: normal; color: var(--ink-soft);
 }
 .html { width: 100%; min-height: 320px; flex: 1 0 320px; border: 0; background: var(--foreign-ground); display: block; }
+/* A plain-text message has no page of its own: it sits on the reader's ground. */
+.html[*|data-plain="true"] { background: var(--surface); }
 .attachments { margin: 0 0 var(--s-13); }
 /* A stored attachment's preview and its row, side by side; the row takes what is left. */
 .att-line { display: flex; align-items: center; gap: var(--s-4); padding-left: var(--s-12); }

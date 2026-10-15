@@ -16,11 +16,8 @@ use super::picks::with_selection;
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::components::content::avatar::AvatarSize;
-use ds::components::controls::button_model::{Bezel, ImagePosition};
 use ds::host::measure::MountedRef;
 use ds::prelude::*;
-use ds::root::common::Common;
-use ds::style::tokens::control_size::ControlSize;
 use mail_core::{SqliteStore, Store};
 use mail_domain::Label;
 use mail_domain::*;
@@ -220,44 +217,6 @@ pub(in crate::ui) fn MoveMenu(
                 );
             },
             onclose: move |()| on_close.call(()),
-        }
-    }
-}
-
-/// Move to…, in the reader head's tools, for the conversation that is open.
-#[component]
-pub(in crate::ui) fn MoveTool(
-    thread: ThreadId,
-    shell: Signal<Shell>,
-    revision: Signal<u64>,
-) -> Element {
-    let mut open = use_signal(|| Shown::Hidden);
-    let mut button = use_signal(|| None::<MountedRef>);
-    rsx! {
-        Button {
-            bezel: Bezel::Toolbar,
-            size: ControlSize::Large,
-            image: ImagePosition::Only,
-            icon: Some(IconSource::Glyph(Icon::FolderInput)),
-            label: "Move to a folder",
-            title: Some("Move to Folder".to_owned()),
-            shown: open(),
-            common: Common {
-                mounted: Some(EventHandler::new(move |event: MountedEvent| {
-                    button.set(Some(MountedRef(event.data())));
-                })),
-                ..Common::default()
-            },
-            onclick: move |_| open.set(if open() == Shown::Visible { Shown::Hidden } else { Shown::Visible }),
-        }
-        if open() == Shown::Visible {
-            MoveMenu {
-                thread,
-                shell,
-                revision,
-                anchor: button(),
-                on_close: move |_| open.set(Shown::Hidden),
-            }
         }
     }
 }

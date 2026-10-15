@@ -1,17 +1,19 @@
-//! The reader toolbar's two menus: where the conversation is shown, and its quieter actions.
+//! The reader toolbar: Reply, Archive and Delete, and a ⋯ for everything quieter.
 //!
-//! One view button stands for the three peek modes and a window of its own, its icon the mode in
-//! use, as Mail's view pop-up does. The ⋯ is the row's menu less what the toolbar beside it
-//! already holds, so the two never disagree about what a conversation can do.
+//! The ⋯ is the row's menu less what the toolbar beside it already holds, so the two never
+//! disagree about what a conversation can do. Its View row opens the three peek modes and a
+//! window of its own, as Mail's view pop-up does; Move to…, Print…, Snooze… and Label… open
+//! their own menus where the ⋯ hangs.
 //!
 //! The ⋯ ends with Download: each of the conversation's messages as the server sent it, an
 //! `.eml` apiece, into the downloads directory, the way an attachment's Save writes there. What
 //! is written is the stored bytes, never a rendering, so a message that draws wrongly can be
 //! handed on whole.
 
-use super::super::row::act::{Pressed, press, turn_off};
+use super::super::row::act::{Pressed, op_icon, press, turn_off};
 use super::super::row::menu::{Pick, reader_groups, rows};
 use super::fetch;
+use crate::ui::copy::menus::offered;
 use crate::ui::downloads::{Origin, Saving};
 use crate::ui::menu::{Floating, MenuItem, Right, Tile, anchor_at};
 use crate::ui::menus::{LabelMenu, SnoozeMenu};
@@ -22,6 +24,7 @@ use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::tokens::control_size::ControlSize;
+use mail_core::view::says;
 use mail_core::{SqliteStore, Store as _};
 use mail_domain::*;
 use std::path::{Path, PathBuf};
@@ -69,37 +72,82 @@ fn mounted_into(mut at: Signal<Option<MountedRef>>) -> Common {
     }
 }
 
-/// The view button: its icon the mode in use, its menu the modes and a window of its own.
+/// The view menu, a further menu off the ⋯: the modes, the one in use checked, and a window of
+/// its own.
 #[component]
-pub(super) fn ViewMenu(thread: ThreadId, peek: Peek, shell: Signal<Shell>) -> Element {
-    let mut open = use_signal(|| false);
-    let tool = use_signal(|| None::<MountedRef>);
+fn ViewMenu(
+    thread: ThreadId,
+    peek: Peek,
+    shell: Signal<Shell>,
+    anchor: Option<MountedRef>,
+    on_close: EventHandler<()>,
+) -> Element {
     let keys = use_keys();
     rsx! {
-        Button {
-            bezel: Bezel::Toolbar,
-            size: ControlSize::Large,
-            image: ImagePosition::Only,
-            icon: Some(IconSource::Glyph(mode_icon(peek))),
-            label: "View".to_owned(),
-            title: Some(format!("View \u{b7} {}", peek.label())),
-            common: mounted_into(tool),
-            onclick: move |_| open.toggle(),
+        Floating {
+            anchor,
+            title: String::new(),
+            items: keys.with_keymap(|keymap| view_items(peek, keymap)),
+            on_pick: move |key: String| {
+                on_close.call(());
+                if key == super::super::window::OPEN_KEY {
+                    super::super::window::open_in_window(thread);
+                } else if let Some(mode) = MODES.iter().find(|mode| mode.slug() == key) {
+                    shell.write().peek = *mode;
+                }
+            },
+            on_close: move |_| on_close.call(()),
         }
-        if open() {
-            Floating {
-                anchor: tool(),
-                title: String::new(),
-                items: keys.with_keymap(|keymap| view_items(peek, keymap)),
-                on_pick: move |key: String| {
-                    open.set(false);
-                    if key == super::super::window::OPEN_KEY {
-                        super::super::window::open_in_window(thread);
-                    } else if let Some(mode) = MODES.iter().find(|mode| mode.slug() == key) {
-                        shell.write().peek = *mode;
-                    }
-                },
-                on_close: move |_| open.set(false),
+    }
+}
+
+/// What the toolbar holds for `summary` beside its ⋯: Reply, then the side of Archive it is
+/// offered (Move to Inbox once archived), then Move to Trash where it is not already there.
+pub(super) fn toolbar_ops(offered: &[OpKind]) -> Vec<OpKind> {
+    let file = [OpKind::Archive, OpKind::Restore]
+        .into_iter()
+        .find(|kind| offered.contains(kind));
+    let trash = offered.contains(&OpKind::Trash).then_some(OpKind::Trash);
+    std::iter::once(OpKind::Reply)
+        .chain(file)
+        .chain(trash)
+        .collect()
+}
+
+/// The key that does what `kind` does, for its tooltip.
+fn shortcut_of(kind: OpKind) -> Option<crate::ui::view::Shortcut> {
+    use crate::ui::view::Shortcut;
+    match kind {
+        OpKind::Reply => Some(Shortcut::Reply),
+        OpKind::Archive => Some(Shortcut::Archive),
+        OpKind::Trash => Some(Shortcut::Trash),
+        _ => None,
+    }
+}
+
+/// The toolbar's buttons for `ops`, each through the row's own press, so a press lands on the
+/// undo stack and asks first where the row's would.
+#[component]
+pub(super) fn ReaderTools(
+    summary: ThreadSummary,
+    ops: Vec<OpKind>,
+    shell: Signal<Shell>,
+    revision: Signal<u64>,
+) -> Element {
+    let id = summary.id;
+    let now = chrono::Utc::now();
+    rsx! {
+        for kind in ops {
+            Button {
+                key: "{kind:?}",
+                bezel: Bezel::Toolbar,
+                size: ControlSize::Large,
+                image: ImagePosition::Only,
+                icon: Some(IconSource::Glyph(op_icon(kind))),
+                label: offered(says(kind, &summary, now)).to_owned(),
+                title: Some(offered(says(kind, &summary, now)).to_owned()),
+                title_shortcut: shortcut_of(kind).and_then(crate::ui::actions::tip),
+                onclick: move |_| press(shell, revision, id, Pressed::Op(kind)),
             }
         }
     }
@@ -111,13 +159,19 @@ enum Further {
     None,
     Snooze,
     Label,
+    Move,
+    Print,
+    View,
 }
 
 /// The ⋯: the conversation's quieter actions, through the row's own press, so a pick lands on
-/// the undo stack and asks first where the row's would.
+/// the undo stack and asks first where the row's would. `peek` is the pane's mode, and `None` in
+/// a window of its own, which has no View.
 #[component]
 pub(super) fn ReaderMore(
     summary: ThreadSummary,
+    toolbar: Vec<OpKind>,
+    peek: Option<Peek>,
     shell: Signal<Shell>,
     revision: Signal<u64>,
 ) -> Element {
@@ -127,10 +181,11 @@ pub(super) fn ReaderMore(
     let id = summary.id;
     let offered = mail_core::view::hover_in(shell.read().saved_view(), &summary);
     let items = rows(
-        &reader_groups(&offered, &summary),
+        &reader_groups(&offered, &summary, &toolbar, peek.is_some()),
         &summary,
         chrono::Utc::now(),
     );
+    let done = move |()| further.set(Further::None);
     rsx! {
         Button {
             bezel: Bezel::Toolbar,
@@ -162,36 +217,42 @@ pub(super) fn ReaderMore(
                             }
                         }
                         Pick::Press(Pressed::Op(OpKind::AddLabel)) => further.set(Further::Label),
+                        Pick::Press(Pressed::MoveTo) => further.set(Further::Move),
                         Pick::Press(pressed) => press(shell, revision, id, pressed),
                         Pick::Window => super::super::window::open_in_window(id),
                         Pick::Remind => {}
+                        Pick::Print => further.set(Further::Print),
+                        Pick::View => further.set(Further::View),
                         Pick::Download => download(id),
                     }
                 },
                 onclose: move |_| open.set(false),
             }
         }
-        match further() {
-            Further::Snooze => rsx! {
-                SnoozeMenu {
-                    id,
-                    shell,
-                    revision,
-                    anchor: tool(),
-                    on_done: move |()| further.set(Further::None),
-                }
+        match (further(), peek) {
+            (Further::Snooze, _) => rsx! {
+                SnoozeMenu { id, shell, revision, anchor: tool(), on_done: done }
             },
-            Further::Label => rsx! {
+            (Further::Label, _) => rsx! {
                 LabelMenu {
                     id,
                     summary: summary.clone(),
                     shell,
                     revision,
                     anchor: tool(),
-                    on_done: move |()| further.set(Further::None),
+                    on_done: done,
                 }
             },
-            Further::None => rsx! {},
+            (Further::Move, _) => rsx! {
+                super::super::move_to::MoveMenu { thread: id, shell, revision, anchor: tool(), on_close: done }
+            },
+            (Further::Print, _) => rsx! {
+                super::super::print::PrintMenu { thread: id, anchor: tool(), on_close: done }
+            },
+            (Further::View, Some(peek)) => rsx! {
+                ViewMenu { thread: id, peek, shell, anchor: tool(), on_close: done }
+            },
+            (Further::View | Further::None, _) => rsx! {},
         }
     }
 }

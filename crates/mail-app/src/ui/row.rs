@@ -303,8 +303,8 @@ pub(super) fn MailRow(
                                     reminding.set(Some(opener));
                                 }
                             }
-                            // Not offered here: the reader's ⋯ holds it.
-                            Pick::Download => {}
+                            // Not offered here: the reader's ⋯ holds them.
+                            Pick::Download | Pick::Print | Pick::View => {}
                             Pick::Press(pressed) => {
                                 // A menu the pick opens stands where this one stood.
                                 let at = Some(opener.place());

@@ -358,6 +358,7 @@ mod tests {
             html: "x".repeat(n),
             blocked_remote: false,
             fetches: Vec::new(),
+            plain: false,
         }
     }
 

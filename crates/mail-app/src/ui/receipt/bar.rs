@@ -4,7 +4,6 @@ use super::super::motion::{Follow, tell};
 use super::super::press::{available, on_primary};
 use super::{Bodies, Line, Standing, answer, cached, line, lookup};
 use dioxus::prelude::*;
-use ds::components::content::label::{LabelRole, LabelStyle};
 use ds::components::controls::button_model::Answers;
 use ds::components::overlays::inline_banner::InlineBanner;
 use ds::prelude::*;
@@ -64,7 +63,7 @@ pub(in crate::ui) fn Receipts(bodies: Bodies) -> Element {
     }
 }
 
-/// One message's bar: the question and its two buttons, or the note once it is answered.
+/// One message's bar: the question and its two buttons.
 #[component]
 pub(in crate::ui) fn Bar(
     message: MessageId,
@@ -74,9 +73,6 @@ pub(in crate::ui) fn Bar(
     let phase = use_signal(|| Phase::Asking);
     let looks = crate::ui::reading::use_looks();
     match said {
-        Line::Settled(note) => rsx! {
-            Label { text: note, role: LabelRole::Tertiary, style: LabelStyle::Footnote }
-        },
         Line::Asking { sentence, warning } => {
             let working = phase() == Phase::Working;
             let failed = match phase() {

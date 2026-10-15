@@ -203,15 +203,11 @@ fn the_bar_says_who_asks_and_warns_when_the_receipt_goes_elsewhere() {
                 ),
             }),
         ),
-        (
-            "sent",
-            ReceiptState::Answered(ReceiptAnswer::Sent),
-            Some(Line::Settled("Receipt sent")),
-        ),
+        ("sent", ReceiptState::Answered(ReceiptAnswer::Sent), None),
         (
             "declined",
             ReceiptState::Answered(ReceiptAnswer::Declined),
-            Some(Line::Settled("Receipt declined")),
+            None,
         ),
         ("not asked", ReceiptState::NotAsked, None),
         ("headers only", ReceiptState::Unknown, None),
@@ -260,21 +256,16 @@ async fn a_request_shows_the_bar_and_one_to_another_domain_is_warned_about() {
 }
 
 #[tokio::test]
-async fn an_answered_request_is_a_note_and_nothing_to_press() {
+async fn an_answered_request_says_nothing_more() {
     let (store, _dir) = seeded();
     let (sent, sent_id) = put(&store, ASKS, Held::Body);
     let (declined, declined_id) = put(&store, ASKS, Held::Body);
     let now = chrono::Utc::now();
     mail_core::receipt::answer(&store, sent_id, ReceiptAnswer::Sent, now).unwrap();
     mail_core::receipt::answer(&store, declined_id, ReceiptAnswer::Declined, now).unwrap();
-    for (thread, note) in [(sent, "Receipt sent"), (declined, "Receipt declined")] {
+    for thread in [sent, declined] {
         let (_, _, markup) = reader_on(store.clone(), thread).await;
-        assert!(
-            markup.contains(&format!(
-                "data-role=\"tertiary\" data-style=\"footnote\">{note}</span>"
-            )),
-            "{markup}"
-        );
+        assert!(!markup.contains("aria-label=\"Read receipt\""), "{markup}");
         assert!(!markup.contains("Send receipt"), "{markup}");
     }
 }
@@ -318,10 +309,7 @@ async fn send_receipt_queues_exactly_one_receipt_and_settles_the_bar() {
         store.receipt_answer(message).unwrap(),
         Some(ReceiptAnswer::Sent)
     );
-    assert!(
-        markup.contains("data-role=\"tertiary\" data-style=\"footnote\">Receipt sent</span>"),
-        "{markup}"
-    );
+    assert!(!markup.contains("aria-label=\"Read receipt\""), "{markup}");
     assert!(!markup.contains("aria-label=\"Send receipt\""), "{markup}");
 }
 
@@ -340,7 +328,7 @@ async fn dont_send_queues_no_receipt() {
         store.receipt_answer(message).unwrap(),
         Some(ReceiptAnswer::Declined)
     );
-    assert!(dioxus_ssr::render(&dom).contains("Receipt declined"));
+    assert!(!dioxus_ssr::render(&dom).contains("aria-label=\"Read receipt\""));
 }
 
 #[test]

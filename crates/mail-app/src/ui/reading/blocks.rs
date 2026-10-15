@@ -7,10 +7,17 @@ use mail_domain::MessageId;
 /// network reads it to know which reader drew the frame and which message's consented images it
 /// may fetch, and an untagged frame fetches none (`ui/original/net.rs`).
 #[component]
-pub(super) fn Sandbox(html: String, #[props(default)] tag: Option<String>) -> Element {
+pub(super) fn Sandbox(
+    html: String,
+    #[props(default)] tag: Option<String>,
+    /// A plain-text message's frame, which has no ground of its own (`FrameBody::Present`).
+    #[props(default)]
+    plain: bool,
+) -> Element {
     rsx! {
         iframe {
             class: "html",
+            "data-plain": plain,
             "data-frame-tag": tag,
             "sandbox": "",
             srcdoc: "{html}",
@@ -25,10 +32,12 @@ pub(super) fn MessageView(
     message_id: MessageId,
     html: String,
     #[props(default)] holder: Option<crate::ui::original::Holder>,
+    #[props(default)] plain: bool,
 ) -> Element {
     rsx! {
         Sandbox {
             html,
+            plain,
             tag: holder.map(|holder| holder.tag(message_id)),
         }
     }
