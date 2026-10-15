@@ -120,12 +120,25 @@ fn snooze_help_is_the_time_snooze_until_resolves() {
     let zone = chrono::Utc;
     let items = super::snooze_items(now, &zone);
     let expect = [
-        ("later", "Later today"),
-        ("tomorrow", "Tomorrow"),
-        ("weekend", "This weekend"),
-        ("monday", "Next week"),
+        ("later", crate::ui::copy::menus::LATER_TODAY),
+        ("tomorrow", crate::ui::copy::menus::TOMORROW),
+        ("weekend", crate::ui::copy::menus::THIS_WEEKEND),
+        ("monday", crate::ui::copy::menus::NEXT_WEEK),
     ];
-    assert_eq!(items.len(), expect.len());
+    // The four times, then Choose Time…, and not a glyph among them.
+    assert_eq!(items.len(), expect.len() + 1);
+    assert_eq!(
+        items
+            .last()
+            .map(|item| (item.key.as_str(), item.name.as_str())),
+        Some((super::CHOOSE, crate::ui::copy::menus::CHOOSE_TIME))
+    );
+    assert!(
+        items
+            .iter()
+            .all(|item| item.tile == super::super::menu::Tile::None),
+        "{items:?}"
+    );
     for (phrase, name) in expect {
         let item = items
             .iter()
@@ -139,6 +152,23 @@ fn snooze_help_is_the_time_snooze_until_resolves() {
             "{phrase}"
         );
     }
+}
+
+#[test]
+fn a_typed_time_is_read_as_snooze_reads_it_and_must_be_to_come() {
+    let now = chrono::Utc.with_ymd_and_hms(2026, 9, 23, 15, 0, 0).unwrap();
+    let zone = chrono::Utc;
+    assert_eq!(
+        super::chosen_time("+2h", now, &zone),
+        Ok(chrono::Utc.with_ymd_and_hms(2026, 9, 23, 17, 0, 0).unwrap())
+    );
+    assert_eq!(
+        super::chosen_time("  ", now, &zone),
+        Err(crate::ui::copy::fields::TYPE_A_TIME.to_owned())
+    );
+    let gone = super::chosen_time("today 09:00", now, &zone).unwrap_err();
+    assert!(gone.contains("already passed"), "{gone}");
+    assert!(super::chosen_time("whenever", now, &zone).is_err());
 }
 
 #[test]

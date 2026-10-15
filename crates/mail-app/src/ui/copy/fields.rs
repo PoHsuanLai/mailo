@@ -26,3 +26,17 @@ pub const RULES_RUN_IN_ORDER: &str = "Rules act on new mail, in this order.";
 pub const OPENPGP_KEY: &str = "OpenPGP Key";
 /// The keys Settings lists: the row that imports an S/MIME certificate or identity.
 pub const SMIME_CERTIFICATE: &str = "S/MIME Certificate";
+
+// Choose Time…, under Snooze…: a time typed in the words `mailo snooze` takes.
+pub const SNOOZE_UNTIL: &str = "Snooze until";
+pub const A_TIME: &str = "tomorrow 9";
+/// Under the field while nothing is typed.
+pub const TYPE_A_TIME: &str = "Type a time, like tomorrow 9.";
+
+/// Under the field, the time a typed phrase reads as: "Back tomorrow 09:00".
+pub fn back_at(when: &str) -> String {
+    format!("Back {when}")
+}
+
+/// ⌘K's field, while it is empty.
+pub const SEARCH_EVERYTHING: &str = "Search mail, places and commands";

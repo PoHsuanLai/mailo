@@ -6,6 +6,8 @@ use ds::prelude::Icon;
 /// What the tile on the left is.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::ui) enum Tile {
+    /// Nothing: the name starts the row, as in a menu of times or of names.
+    None,
     Icon(Icon),
     Avatar {
         letter: char,
@@ -35,8 +37,6 @@ pub(in crate::ui) enum Right {
 pub(in crate::ui) enum Tone {
     /// The row's own type.
     Plain,
-    /// Ink, heavier: a sender's name on a mail line.
-    Strong,
     /// The data face, faint: an address.
     Faint,
 }

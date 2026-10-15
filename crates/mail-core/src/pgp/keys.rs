@@ -198,6 +198,17 @@ pub fn delete(
     Ok(())
 }
 
+/// Put back a public key [`delete`] forgot, as it was: its trust and where it came from kept. The
+/// undo of deleting a key with no secret half; a secret half, once forgotten, is gone.
+pub fn restore(store: &SqliteStore, key: &PgpKey) -> Result<(), PgpError> {
+    store.put_pgp_key(PgpKey {
+        secret: SecretHeld::Absent,
+        ..key.clone()
+    })?;
+    epoch_changed();
+    Ok(())
+}
+
 /// Mark a key as verified by the user.
 pub fn verify(store: &SqliteStore, fingerprint: Fingerprint) -> Result<(), PgpError> {
     store.set_pgp_trust(fingerprint, KeyTrust::Verified)?;

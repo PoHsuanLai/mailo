@@ -307,10 +307,7 @@ pub(super) fn Reader(
         .into_iter()
         .map(|row| row.address.trim().to_lowercase())
         .collect();
-    let toolbar = tools::toolbar_ops(&mail_core::view::hover_in(
-        shell.read().saved_view(),
-        &loaded.summary,
-    ));
+    let toolbar = tools::toolbar_ops(&mail_core::view::hover_actions(&loaded.summary));
     rsx! {
         div { class: "reader-head",
             div { class: "head-row",

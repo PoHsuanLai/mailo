@@ -24,8 +24,8 @@ pub use mail_core::view::{
 /// What a Mute button or menu item says for these conversations: what pressing it would do.
 pub fn mute_label(summaries: &[ThreadSummary]) -> &'static str {
     match mute_for_all(summaries) {
-        Mute::Muted => "Mute",
-        Mute::Unmuted => "Unmute",
+        Mute::Muted => crate::ui::copy::menus::MUTE,
+        Mute::Unmuted => crate::ui::copy::menus::UNMUTE,
     }
 }
 
@@ -252,6 +252,10 @@ pub enum Bar {
 pub struct BarOpen {
     /// The highlighted suggestion, counted over the rows (the section titles not counted).
     pub active: usize,
+    /// Whether a key or the pointer has moved the highlight since the text last changed. Until
+    /// one has, typed text lights its first row only when it names it (⌘K's `lights`); otherwise
+    /// Return is the search's, and leaves the panel for the list that shows it.
+    pub moved: bool,
     /// What the panel lists.
     pub listing: BarListing,
     /// The search the window showed before the field took the keyboard. What is typed into the
@@ -266,6 +270,7 @@ impl BarOpen {
     pub fn over(before: String) -> Self {
         Self {
             active: 0,
+            moved: false,
             listing: BarListing::Search,
             before,
         }
@@ -275,7 +280,7 @@ impl BarOpen {
 /// What the bar's panel lists.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BarListing {
-    /// Mail, commands, places and people for the field's text, which is the list's search.
+    /// Recent, places, people and commands for the field's text, which is the list's search.
     Search,
     /// The templates, after "New from template", narrowed by the text held here: while it
     /// lists them the field narrows the templates and leaves the list's search alone.
@@ -319,11 +324,6 @@ pub enum RulesAt {
     Rule(Option<RuleId>),
     Vacation,
 }
-
-/// The Connections sheet while it is open. It keeps nothing: it reads every account's
-/// link, and a sign-in it starts is the Add account sheet's.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct DoctorSheet;
 
 /// A page of Settings' Accounts pane: the list of accounts, one account's own page pushed over
 /// it, or the keys and certificates no account here owns.
@@ -513,8 +513,6 @@ pub struct Shell {
     pub files: Option<FileSheet>,
     /// Which account the Rules page of Settings shows.
     pub rules: RulesPage,
-    /// The Connections sheet while it is open. `None` is closed.
-    pub doctor: Option<DoctorSheet>,
     /// Settings' Accounts pane: the list, or an account's page over it.
     pub accounts_pane: AccountsPane,
     /// Settings while it is open, on the page shown. `None` is closed.
@@ -654,7 +652,6 @@ impl Default for Shell {
             view_editor: None,
             keymap: crate::ui::keymap::Keymap::default(),
             keyboard: KeyboardPage::default(),
-            doctor: None,
             accounts_pane: AccountsPane::default(),
             settings: None,
             destroying: None,

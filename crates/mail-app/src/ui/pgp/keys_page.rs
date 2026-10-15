@@ -52,9 +52,15 @@ impl Whose {
 
 /// The group: its rows, then what the last act came to under them.
 #[component]
-pub(in crate::ui) fn KeysPage(whose: Whose) -> Element {
+pub(in crate::ui) fn KeysPage(
+    whose: Whose,
+    /// The shared revision, bumped by a toast's Undo that puts a deleted key back.
+    #[props(default)]
+    revision: Option<Signal<u64>>,
+) -> Element {
     // Bumped by every change, so the keys are read again.
     let mut changed = use_signal(|| 0u64);
+    let _ = revision.map(|revision| revision());
     let mut said = use_signal(|| None::<Result<String, String>>);
     let mut busy = use_signal(|| Busy::Idle);
     let mut confirm = use_signal(|| Confirm::Nothing);
@@ -97,6 +103,7 @@ pub(in crate::ui) fn KeysPage(whose: Whose) -> Element {
         said.set(None);
         let store = consume_context::<Arc<SqliteStore>>();
         let seams = seams();
+        let motion = crate::ui::motion::motion();
         spawn(async move {
             let done = tokio::task::spawn_blocking(move || work(&store, &seams, job))
                 .await
@@ -104,6 +111,12 @@ pub(in crate::ui) fn KeysPage(whose: Whose) -> Element {
             match done {
                 Ok(Done::Said(text)) => said.set(Some(Ok(text))),
                 Ok(Done::Password(path)) => confirm.set(Confirm::Password(path)),
+                // Said in the toast with its Undo; on the page only with no window to toast in.
+                Ok(Done::Gone(text, restore)) => {
+                    if let Err(text) = crate::ui::motion::offer_restore(motion, text, *restore) {
+                        said.set(Some(Ok(text)));
+                    }
+                }
                 Err(why) => said.set(Some(Err(why))),
             }
             busy.set(Busy::Idle);

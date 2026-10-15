@@ -40,6 +40,13 @@ pub const MESSAGE_ACTIONS: &str = "Message Actions";
 pub fn on_selected(action: &str, count: usize) -> String {
     format!("{action} the {count} selected")
 }
+/// The selection bar's Delete Forever, shown while Trash or Spam is.
+pub const DELETE_FOREVER: &str = "Delete Forever";
+pub fn delete_selected_forever(count: usize) -> String {
+    format!("Delete the {count} selected forever")
+}
+/// The selection bar's last button: unpick every row.
+pub const CLEAR_THE_SELECTION: &str = "Clear the selection";
 /// The paperclip on a row whose conversation carries files.
 pub const HAS_ATTACHMENTS: &str = "Has Attachments";
 

@@ -1,11 +1,12 @@
 //! The search panel as a person drives it: typing brings up the sections, the arrows move
-//! across them, Return runs and Tab completes the highlighted row, Escape empties then closes
-//! the panel, ⌘K or the toolbar's magnifier summons it, the toolbar shows a search the panel
-//! left behind, and the sidebar has no field of its own.
+//! across them, Return runs and Tab completes the highlighted row (or an operator being typed),
+//! Escape empties then closes the panel, ⌘K or the toolbar's magnifier summons it, the toolbar
+//! shows a search the panel left behind, and the sidebar has no field of its own.
 
 use super::pictures::{BarAlone, BarAloneProps, held};
-use super::sections::{COMMANDS, MAIL, RECENT, TOP};
+use super::sections::{COMMANDS, PLACES, PLACES_AND_PEOPLE, RECENT};
 use super::*;
+use crate::ui::copy::menus;
 use crate::ui::fixtures::{chord, dispatching, drain_seen, rebuild_into, type_into, work};
 use crate::ui::host::{Ask, Recorder};
 use crate::ui::view::{BarListing, BarOpen};
@@ -119,49 +120,62 @@ fn search(dom: &VirtualDom) -> String {
     dom.in_runtime(|| held().shell.peek().search.clone())
 }
 
+/// Typed text is the list's search: the panel names the commands it matches and draws none of
+/// the mail, which the list shows.
 #[tokio::test]
-async fn typing_shows_the_mail_and_the_commands_it_names() {
+async fn typing_names_the_commands_and_leaves_the_mail_to_the_list() {
     let recorder = Recorder::default();
     let mut bar = alone(&recorder);
-    // The commands answer at once; the mail comes later, from the search off the thread. Wait
-    // for all of what is asserted, not the first of it to land.
-    let titles = [COMMANDS, "Notes from the sync review", "Sync now"];
-    let mail = |page: &str| has(page, &format!(">{MAIL}<")) || has(page, &format!(">{TOP}<"));
     let page = bar
         .typed("sync", |page| {
-            titles.iter().all(|title| has(page, title)) && mail(page)
+            has(page, &format!(">{COMMANDS}<")) && has(page, menus::SYNC_NOW)
         })
         .await;
-    for title in titles {
-        assert!(has(&page, title), "no {title:?} for sync:\n{page}");
-    }
-    assert!(mail(&page), "no Mail section for sync:\n{page}");
-    // What is typed is the list's search too.
+    assert!(
+        !has(&page, "Notes from the sync review"),
+        "the panel drew mail:\n{page}"
+    );
     assert_eq!(search(&bar.dom), "sync");
 }
 
+/// Nothing typed and nothing opened yet: the places, then the commands with their keys, and no
+/// Recent. Recent is where the person was, not the newest mail, which the list already shows.
 #[tokio::test]
-/// Nothing opened yet: the empty panel offers the commands, and no Recent. Recent is where the
-/// person was, not the newest mail, which the list already shows.
-async fn an_empty_bar_with_nothing_opened_offers_commands_and_no_recent() {
+async fn an_empty_bar_with_nothing_opened_offers_places_then_commands_and_no_recent() {
     let recorder = Recorder::default();
     let mut bar = alone(&recorder);
     let page = until(&mut bar.dom, "", |page| {
-        has(page, "Compose") && has(page, &format!(">{COMMANDS}<"))
+        has(page, menus::NEW_MESSAGE) && has(page, &format!(">{COMMANDS}<"))
     })
     .await;
     assert!(
         !has(&page, &format!(">{RECENT}<")),
         "Recent with nothing opened:\n{page}"
     );
+    let text = words(&page);
+    let places = text.find(PLACES).expect("no Places");
+    let commands = text.find(COMMANDS).expect("no Commands");
+    assert!(places < commands, "{text}");
+    // Where mail is stored is one step away here, as the sidebar leaves it.
+    for place in ["Inbox", "Sent", "Drafts", "Spam", "Trash"] {
+        assert!(text[places..commands].contains(place), "no {place}: {text}");
+    }
+}
+
+/// Whether the panel still lists what it lists with nothing typed: every row a typed test waits
+/// for is there too, so it waits for this to go.
+fn at_rest(page: &str) -> bool {
+    has(page, &format!(">{PLACES}<"))
 }
 
 #[tokio::test]
 async fn return_on_a_command_runs_it_on_the_search_there_was() {
     let recorder = Recorder::default();
     let mut bar = alone(&recorder);
-    bar.typed("hide sidebar", |page| has(page, "Hide sidebar"))
-        .await;
+    bar.typed("hide sidebar", |page| {
+        has(page, menus::HIDE_SIDEBAR) && !at_rest(page)
+    })
+    .await;
     bar.key("Enter");
     assert!(
         bar.dom.in_runtime(|| *held().side_hidden.peek()),
@@ -181,10 +195,10 @@ async fn return_on_a_command_runs_it_on_the_search_there_was() {
 async fn the_arrows_move_across_the_sections_and_stop_at_the_ends() {
     let recorder = Recorder::default();
     let mut bar = alone(&recorder);
-    // One letter: mail, commands and places all match it.
+    // One letter that starts a place's name: places and commands both match it.
     let page = bar
-        .typed("e", |page| {
-            has(page, &format!(">{COMMANDS}<")) && has(page, &format!(">{TOP}<"))
+        .typed("s", |page| {
+            has(page, &format!(">{COMMANDS}<")) && has(page, &format!(">{PLACES_AND_PEOPLE}<"))
         })
         .await;
     let rows = page.matches("role=\"menuitem\"").count();
@@ -199,31 +213,36 @@ async fn the_arrows_move_across_the_sections_and_stop_at_the_ends() {
     for _ in 0..rows + 3 {
         bar.key("ArrowDown");
     }
-    // The last row is a command, past the mail: the arrows went from one section to the next.
+    // The last row is a command, past the places: the arrows went from one section to the next.
     assert_eq!(active(&bar), Some(rows - 1));
     for _ in 0..rows + 3 {
         bar.key("ArrowUp");
     }
     assert_eq!(active(&bar), Some(0));
     // The arrows typed nothing.
-    assert_eq!(search(&bar.dom), "e");
+    assert_eq!(search(&bar.dom), "s");
 }
 
 #[tokio::test]
-async fn tab_completes_the_top_row() {
+async fn tab_completes_the_lit_row_and_an_operator() {
     let recorder = Recorder::default();
     let mut bar = alone(&recorder);
-    bar.typed("settings", |page| has(page, "Settings…")).await;
+    bar.typed("settings", |page| has(page, "Settings…") && !at_rest(page))
+        .await;
     bar.key("Tab");
-    assert_eq!(search(&bar.dom), "Settings…");
+    assert_eq!(search(&bar.dom), menus::SETTINGS);
     assert!(open(&bar.dom).is_some(), "Tab closed the panel");
+    // The start of an operator is completed first.
+    bar.typed("lunch fr", |page| has(page, "from:")).await;
+    bar.key("Tab");
+    assert_eq!(search(&bar.dom), "lunch from:");
 }
 
 #[tokio::test]
 async fn escape_empties_the_field_then_closes_the_panel() {
     let recorder = Recorder::default();
     let mut bar = alone(&recorder);
-    bar.typed("sync", |page| has(page, "Sync now")).await;
+    bar.typed("sync", |page| has(page, menus::SYNC_NOW)).await;
     bar.key("Escape");
     assert_eq!(search(&bar.dom), "");
     assert!(
@@ -260,8 +279,8 @@ async fn new_from_template_lists_the_templates_in_the_panel_and_starts_one() {
     // The row, not the field's own value, which holds the same words.
     let action = items::entry_of(items::CommandId::FromTemplate).label;
     bar.typed(action, |page| {
-        // The answer to the words typed, not the empty field's: the action is the top hit.
-        words(page).contains(&format!("{TOP}{action}"))
+        // The answer to the words typed, not the empty field's: the action leads its section.
+        words(page).contains(&format!("{COMMANDS}{action}"))
     })
     .await;
     bar.key("Enter");
@@ -292,7 +311,7 @@ async fn new_from_template_lists_the_templates_in_the_panel_and_starts_one() {
 async fn command_k_in_the_panel_selects_what_is_typed() {
     let recorder = Recorder::default();
     let mut bar = alone(&recorder);
-    bar.typed("sync", |page| has(page, "Sync now")).await;
+    bar.typed("sync", |page| has(page, menus::SYNC_NOW)).await;
     chord(&mut bar.dom, "k", crate::ui::fixtures::PRIMARY, bar.field);
     assert!(
         recorder.asked().contains(&Ask::FocusAll(FIELD)),

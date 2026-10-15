@@ -76,7 +76,7 @@ fn image(tile: &Tile) -> Option<MenuImage> {
             tone: AvatarTone::Account(hex_colour(color)),
             shape: AvatarShape::Round,
         })),
-        Tile::Glyph(_) | Tile::Text(_) => None,
+        Tile::None | Tile::Glyph(_) | Tile::Text(_) => None,
     }
 }
 
@@ -103,9 +103,9 @@ mod tests {
     #[test]
     fn sections_get_a_header_each_and_a_rule_between_them() {
         let rows = vec![
-            row("mail:1", "Lunch", "Top Hit"),
-            row("mail:2", "Lunch again", "Mail"),
-            row("mail:3", "Lunch, third", "Mail"),
+            row("recent:1", "Lunch", "Recent"),
+            row("place:2", "Inbox", "Places"),
+            row("place:3", "Done", "Places"),
             row("action:compose", "Compose", "Commands"),
         ];
         let shape: Vec<String> = suggestions(&rows)
@@ -120,12 +120,12 @@ mod tests {
         assert_eq!(
             shape,
             [
-                "# Top Hit",
-                "mail:1",
+                "# Recent",
+                "recent:1",
                 "---",
-                "# Mail",
-                "mail:2",
-                "mail:3",
+                "# Places",
+                "place:2",
+                "place:3",
                 "---",
                 "# Commands",
                 "action:compose"
@@ -133,8 +133,9 @@ mod tests {
         );
     }
 
-    /// What each kind of row draws as: a mail row is its subject marked over its sender, with
-    /// an avatar; a command keeps its glyph and its shortcut; a Space says so under its name.
+    /// What each kind of row draws as: a row with a second line (a person's address) has it under
+    /// its marked name, with an avatar; a command keeps its glyph and its shortcut; a Space says
+    /// so under its name.
     #[test]
     fn each_row_becomes_its_menu_line() {
         let mail = MenuItem {
@@ -147,7 +148,7 @@ mod tests {
                 Run {
                     text: "Dana".to_owned(),
                     marks: Vec::new(),
-                    tone: Tone::Strong,
+                    tone: Tone::Plain,
                 },
                 Run {
                     text: " · see you at noon".to_owned(),
@@ -155,7 +156,7 @@ mod tests {
                     tone: Tone::Plain,
                 },
             ],
-            ..row("mail:1", "Lunch", "Mail")
+            ..row("person:1", "Lunch", "Places and People")
         };
         let compose = MenuItem {
             tile: Tile::Icon(Icon::Pen),
@@ -168,9 +169,9 @@ mod tests {
         };
         let cases = [
             (
-                "a mail",
+                "a row with a second line",
                 mail,
-                Line::new("mail:1".to_owned(), "Lunch")
+                Line::new("person:1".to_owned(), "Lunch")
                     .with_marks(Marks::of_query("Lunch", "lun"))
                     .with_subtitle("Dana · see you at noon")
                     .with_image(MenuImage::Avatar(AvatarFace {

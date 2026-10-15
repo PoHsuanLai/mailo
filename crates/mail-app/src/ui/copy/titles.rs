@@ -1,6 +1,6 @@
 //! Window, sheet, popover and page titles.
 //!
-//! Case: Title Case ("Connection Doctor", "Settings").
+//! Case: Title Case ("Edit Space", "Settings").
 
 /// The list's title when no place is chosen.
 pub const INBOX: &str = "Inbox";
@@ -25,3 +25,8 @@ pub const OTHER_KEYS: &str = "Other Keys";
 pub const NEW_RULE: &str = "New Rule";
 /// The vacation reply's page under Rules.
 pub const VACATION_REPLY: &str = "Vacation Reply";
+
+/// The question when Microsoft refused an account mail over IMAP and Graph would serve it.
+pub fn use_graph(name: &str) -> String {
+    format!("Use Microsoft Graph for {name}?")
+}

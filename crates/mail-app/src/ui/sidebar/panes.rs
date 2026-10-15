@@ -127,8 +127,9 @@ pub(in crate::ui) fn hex_colour(text: &str) -> Colour {
     Colour::Solid(Hex::parse(text).unwrap_or_else(|| PersonSwatch::nth(0).hex()))
 }
 
-/// A built-in place's glyph, found by what the place lists rather than by what it is called.
-fn place_icon(source: &Source) -> Icon {
+/// A built-in place's glyph, found by what the place lists rather than by what it is called: the
+/// sidebar's and ⌘K's.
+pub(in crate::ui) fn place_icon(source: &Source) -> Icon {
     let role = |role: MailboxRole| *source == Source::Mail(place_filter(role));
     match source {
         Source::Drafts => Icon::FilePen,

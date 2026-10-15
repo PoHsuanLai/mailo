@@ -1,7 +1,7 @@
 //! Which accounts need the person, read from the links and nowhere else.
 //!
 //! The dialog that asks on launch, the account tiles, the list's failure, Settings' account page
-//! and the Connections sheet all say "sign in again" about the same accounts. They agree because
+//! and the sidebar foot's mark all say "sign in again" about the same accounts. They agree because
 //! each asks [`needs_you`] of the same links, instead of keeping a state of its own.
 
 use dioxus::prelude::*;

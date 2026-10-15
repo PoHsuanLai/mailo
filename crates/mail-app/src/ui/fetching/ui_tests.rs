@@ -9,7 +9,6 @@ use super::tests::{
 use crate::ui::fixtures::{Seen, click};
 use dioxus::prelude::{ScopeId, VirtualDom, consume_context};
 use mail_core::fetch::{Link, Trigger};
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
@@ -73,54 +72,9 @@ async fn after_a_pass(ending: Ending) -> (VirtualDom, Seen, Script, tempfile::Te
     (dom, seen, script, dir)
 }
 
-/// Open Connections the way a person reaches it now: ⌘K, its name, Return.
-async fn open_connections(dom: &mut VirtualDom) -> Seen {
-    use crate::ui::command::LABEL;
-    use crate::ui::fixtures::{INSIDE_THE_SHELL, PRIMARY, chord, drain_seen, type_into};
-    use dioxus::html::input_data::keyboard_types::Modifiers;
-    chord(
-        dom,
-        "k",
-        PRIMARY,
-        dioxus::core::ElementId(INSIDE_THE_SHELL as usize),
-    );
-    let seen = drain_seen(dom);
-    let field = *seen
-        .all("aria-label", LABEL)
-        .last()
-        .expect("the panel's field");
-    type_into(dom, field, crate::ui::doctor::TITLE);
-    // The panel answers once the field is still: wait for its rows to name the sheet and to have
-    // dropped Compose, the first row before it filters, or Return runs Compose instead.
-    let start = std::time::Instant::now();
-    loop {
-        let page = dioxus_ssr::render(dom);
-        let mut words = String::new();
-        let mut inside = false;
-        for ch in page.chars() {
-            match ch {
-                '<' => inside = true,
-                '>' => inside = false,
-                ch if !inside => words.push(ch),
-                _ => {}
-            }
-        }
-        if words.contains(crate::ui::doctor::TITLE) && !words.contains("Compose") {
-            break;
-        }
-        assert!(
-            start.elapsed() < Duration::from_secs(10),
-            "the panel never answered: {page}"
-        );
-        settle_seen(dom).await;
-    }
-    chord(dom, "Enter", Modifiers::empty(), field).merge(settle_seen(dom).await)
-}
-
 /// An account that must sign in again is asked about once, in a dialog, with no banner over the
 /// messages. Later puts the question off for good; Sign In, in the dialog and in the pane that has
-/// nothing to list, asks for the Add Account window with the address typed in. Nothing opens
-/// Connections by itself.
+/// nothing to list, asks for the Add Account window with the address typed in.
 #[tokio::test]
 async fn a_refused_account_is_asked_about_once_and_signs_in_from_the_dialog_or_the_pane() {
     let (mut dom, seen, _script, _dir) = after_a_pass(refused).await;
@@ -137,10 +91,6 @@ async fn a_refused_account_is_asked_about_once_and_signs_in_from_the_dialog_or_t
     assert!(
         page.contains("can\u{2019}t fetch new mail until you do."),
         "{page}"
-    );
-    assert!(
-        !page.contains("Check All"),
-        "Connections opened unasked: {page}"
     );
     // Nothing can be loaded, and the pane says so with a Sign In of its own.
     assert!(page.contains("Couldn\u{2019}t load this mailbox"), "{page}");
@@ -226,62 +176,6 @@ async fn a_warning_is_said_by_the_sync_mark_and_not_over_the_list() {
     assert!(!page.contains("data-opens"), "it is a way in again: {page}");
 }
 
-/// Connections, reached from ⌘K, for trouble a sign-in cannot fix: its Try Again asks for a
-/// manual pass, and its gear asks for Settings on the account's own page.
-#[tokio::test]
-async fn try_again_in_connections_asks_for_a_manual_pass_and_its_gear_opens_settings() {
-    let (mut dom, _seen, script, _dir) = after_a_pass(unreachable).await;
-    let settings = Arc::new(crate::ui::settings_window::tests::Asked::default());
-    dom.provide_root_context(crate::ui::settings_window::SettingsWindows(
-        settings.clone(),
-    ));
-    assert!(matches!(link(&dom), Link::Waiting { .. }));
-    assert_eq!(script.runs.load(Ordering::SeqCst), 1);
-    let page = dioxus_ssr::render(&dom);
-    assert!(
-        !page.contains(r#"class="ds-inline-banner"#),
-        "a banner is back: {page}"
-    );
-    assert!(
-        !page.contains("again?"),
-        "asked about a server that is down: {page}"
-    );
-    assert!(!page.contains("Check All"), "open unasked: {page}");
-
-    let seen = open_connections(&mut dom).await;
-    let page = dioxus_ssr::render(&dom);
-    assert!(page.contains("Check All"), "no sheet: {page}");
-    assert!(
-        page.contains("Can\u{2019}t reach the server \u{2014} trying again at"),
-        "{page}"
-    );
-    click(
-        &mut dom,
-        seen.one("aria-label", "Try Again for me@nowhere.example"),
-    );
-    settle(&mut dom).await;
-    assert_eq!(
-        script.runs.load(Ordering::SeqCst),
-        2,
-        "Try Again did not start a pass"
-    );
-
-    // The gear asks for Settings on the account's page, and Connections stays.
-    click(
-        &mut dom,
-        seen.one("aria-label", "Account settings for me@nowhere.example"),
-    );
-    settle_seen(&mut dom).await;
-    assert_eq!(
-        settings.asks(),
-        [Some(crate::ui::settings_window::SettingsAt::Account(
-            acct_account()
-        ))],
-        "the gear"
-    );
-    assert!(dioxus_ssr::render(&dom).contains("Check All"));
-}
-
 #[tokio::test]
 async fn the_sync_button_is_busy_while_a_pass_runs_and_not_after() {
     let (store, _dir) = account(true);
@@ -319,9 +213,9 @@ async fn the_sync_button_is_busy_while_a_pass_runs_and_not_after() {
 }
 
 /// An account removed in the Settings window, which moves the shared revision, leaves this
-/// window's links and its Connections sheet.
+/// window's links.
 #[tokio::test]
-async fn an_account_removed_in_settings_leaves_the_links_and_connections() {
+async fn an_account_removed_in_settings_leaves_the_links() {
     let (store, _dir) = account(true);
     let (passer, script) = passer();
     let revisions = crate::ui::revisions::Revisions::new();
@@ -335,8 +229,6 @@ async fn an_account_removed_in_settings_leaves_the_links_and_connections() {
     settle(&mut dom).await;
     script.release.lock().unwrap().send(unreachable).unwrap();
     settle_seen(&mut dom).await;
-    open_connections(&mut dom).await;
-    assert!(dioxus_ssr::render(&dom).contains("Check All"));
 
     let account = acct_account();
     let secrets = porter_secrets::MemorySecrets::default();
@@ -348,9 +240,6 @@ async fn an_account_removed_in_settings_leaves_the_links_and_connections() {
     settle_seen(&mut dom).await;
     let links = dom.in_scope(ScopeId::APP, || super::tests::fetching(&dom).all_links());
     assert!(links.is_empty(), "its link is still running: {links:?}");
-    let page = dioxus_ssr::render(&dom);
-    assert!(page.contains("No accounts to check."), "{page}");
-    assert!(!page.contains("me@nowhere.example"), "{page}");
 }
 
 /// Sync pressed while a pass runs starts no second one, and says so: a press that does nothing

@@ -228,7 +228,7 @@ pub(super) fn AccountPage(
                 }
             }
             if !row.is_local() {
-                crate::ui::pgp::keys::KeysPage { whose: Whose::Account(row.address.clone()) }
+                crate::ui::pgp::keys::KeysPage { whose: Whose::Account(row.address.clone()), revision }
             }
             // Removing is the page's last part, alone and outside any group, as System Settings
             // puts it: it cannot be undone, so it asks first.

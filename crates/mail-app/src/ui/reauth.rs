@@ -3,12 +3,18 @@
 //! One account that needs the person is told once, in a dialog when the window opens, instead of
 //! by a mark on every surface that happens to list it. The dialog asks about every account the
 //! links say is waiting ([`crate::ui::fetching::needs_you`]), once they have all said how they
-//! stand. Sign In goes where the Connections sheet's Sign In goes. Later puts the dialog off for
+//! stand. Sign In goes to the browser or the Add Account window. Later puts the dialog off for
 //! the rest of the session: it comes back for an account only when that account recovers and
-//! needs the person again, or when the sidebar foot's sync mark is pressed. A lone account is asked in quire's
-//! alert; several are asked in a sheet with a row, and a Sign In, for each.
+//! needs the person again, or when the sidebar foot's sync mark is pressed. A lone account is
+//! asked in quire's alert; several are asked in a sheet with a row, and a Sign In, for each.
+//!
+//! The one other thing only the person can answer is asked the same way, after any sign-in: a
+//! work or school Microsoft account whose organisation switched IMAP off is offered Microsoft
+//! Graph, which signs it in again for Graph in the browser. Everything else a connection can
+//! suffer it retries by itself, and the sidebar foot's mark says while it does.
 
 use crate::ui::common::in_card;
+use crate::ui::copy;
 use crate::ui::data::account_rows;
 use crate::ui::fetching::{Fetching, Need, Needing};
 use crate::ui::press::{SheetClose, on_primary};
@@ -22,6 +28,7 @@ use ds::root::common::Common;
 use ds::style::tokens::control_size::ControlSize;
 use mail_core::SqliteStore;
 use mail_core::fetch::Link;
+use mail_core::sync::report::Offer;
 use porter_core::AccountId;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -86,6 +93,8 @@ pub(in crate::ui) struct Reauth {
     signing: Signal<BTreeMap<AccountId, u64>>,
     /// Whether the links have all said how they stand, once; it stays so.
     settled: Signal<bool>,
+    /// The accounts offered Microsoft Graph that the person answered, either way, this session.
+    answered: Signal<BTreeSet<AccountId>>,
     revision: Signal<u64>,
 }
 
@@ -97,10 +106,12 @@ pub(in crate::ui) fn use_reauth(revision: Signal<u64>) -> Reauth {
     let put_off = use_signal(BTreeSet::new);
     let signing = use_signal(BTreeMap::new);
     let settled = use_signal(|| false);
+    let answered = use_signal(BTreeSet::new);
     let reauth = use_context_provider(|| Reauth {
         put_off,
         signing,
         settled,
+        answered,
         revision,
     });
     // The first moment nobody is still at the beginning: from then on it can be said who waits.
@@ -173,16 +184,113 @@ impl Reauth {
         to_ask(&fetching.needs(), &self.put_off.read())
     }
 
+    /// The account to offer Microsoft Graph now, once no sign-in is asked: one whose last pass
+    /// broke on Microsoft refusing IMAP and left that offer, not yet answered.
+    pub(in crate::ui) fn graph(self) -> Option<AccountId> {
+        let fetching = try_consume_context::<Fetching>()?;
+        if !(self.settled)() || !self.asked().is_empty() {
+            return None;
+        }
+        let answered = self.answered.read();
+        fetching
+            .all_links()
+            .into_iter()
+            .filter(|(id, link)| {
+                matches!(link, Link::Broken { .. })
+                    && fetching.offer(id) == Some(Offer::UseGraph)
+                    && !answered.contains(id)
+            })
+            .map(|(id, _)| id)
+            .min()
+    }
+
+    /// Whether the window is asking the person something: a sign-in, or Microsoft Graph.
+    pub(in crate::ui) fn asking(self) -> bool {
+        !self.asked().is_empty() || self.graph().is_some()
+    }
+
     /// Later: the accounts asked about now are not asked about again this session, until they
-    /// recover.
+    /// recover; with no sign-in asked, the account offered Microsoft Graph is not offered it again
+    /// this session.
     pub(in crate::ui) fn later(self) {
         let asked: Vec<AccountId> = self.asked().into_iter().map(|(id, _)| id).collect();
+        if asked.is_empty() {
+            if let Some(account) = self.graph() {
+                let mut answered = self.answered;
+                answered.write().insert(account);
+            }
+            return;
+        }
         let mut put_off = self.put_off;
         put_off.write().extend(asked);
     }
 
-    /// Sign `address`'s account in again, as the Connections sheet's Sign In does: straight in
-    /// the browser when its plan signs in with a redirect, else in the Add Account window. The
+    /// Use Microsoft Graph for `account`: set it up again to read and send through Graph and sign
+    /// it in for that in the browser (`mail_core::account::switch_to_graph`), then fetch with the
+    /// new sign-in. It is not offered again while that runs, nor after.
+    ///
+    /// The sign-in waits on a browser, so it runs on a thread of its own, as the Add account
+    /// sheet's does; what it came to is said, and a sign-in that worked is told to the account's
+    /// link.
+    pub(in crate::ui) fn use_graph(self, account: AccountId, name: String) {
+        let (Some(store), Some(fetching)) = (
+            try_consume_context::<Arc<SqliteStore>>(),
+            try_consume_context::<Fetching>(),
+        ) else {
+            return;
+        };
+        let mut answered = self.answered;
+        answered.write().insert(account.clone());
+        let mut revision = self.revision;
+        dioxus::core::spawn_forever(async move {
+            let (done, answer) = tokio::sync::oneshot::channel();
+            let switching = account.clone();
+            std::thread::spawn(move || {
+                let environment = crate::edge::environment();
+                let secrets = crate::edge::secrets();
+                let saved = crate::edge::clients().saved();
+                let browse = |url: &str| {
+                    if let Err(why) = webbrowser::open(url) {
+                        log::warn!("the browser would not open the Microsoft sign-in: {why}");
+                    }
+                };
+                let switched = crate::edge::block_on(mail_core::account::switch_to_graph(
+                    &store,
+                    switching,
+                    chrono::Utc::now(),
+                    mail_core::account::Credentials {
+                        password: None,
+                        saved: &saved,
+                        secrets: secrets.as_ref(),
+                        environment: &environment,
+                        on_url: &browse,
+                        signed: None,
+                    },
+                ));
+                // The window that asked may have closed; then nobody is left to tell.
+                let _ = done.send(switched.map(|added| added.outcome).map_err(String::from));
+            });
+            let said = match answer.await {
+                Ok(Ok(mail_core::account::Outcome::SignedIn { .. })) => {
+                    revision += 1;
+                    fetching.signed_in(account);
+                    copy::toasts::graph_signed_in(&name)
+                }
+                Ok(Ok(_)) => {
+                    revision += 1;
+                    copy::toasts::graph_waits(&name)
+                }
+                Ok(Err(why)) => copy::toasts::graph_refused(&name, &why),
+                Err(_) => copy::toasts::graph_refused(&name, ""),
+            };
+            crate::ui::motion::tell(
+                said.trim_end().to_owned(),
+                crate::ui::motion::Follow::Nothing,
+            );
+        });
+    }
+
+    /// Sign `address`'s account in again: straight in the browser when its plan signs in with a redirect, else in the Add Account window. The
     /// account is not asked about again while it is being signed in. Call it from an event
     /// handler.
     pub(in crate::ui) fn sign_in(self, address: &str, need: Need) {
@@ -234,7 +342,35 @@ pub(in crate::ui) fn ReauthPrompt() -> Element {
         .filter_map(|(id, need)| names.get(&id).map(|name| (id, name.clone(), need)))
         .collect();
     match asked.as_slice() {
-        [] => rsx! {},
+        [] => match reauth.graph() {
+            Some(account) => {
+                let name = names.get(&account).cloned().unwrap_or_default();
+                let switching = name.clone();
+                rsx! {
+                    Alert {
+                        title: copy::titles::use_graph(&name),
+                        message: Some(TextLine::from(copy::errors::IMAP_REFUSED)),
+                        style: AlertStyle::Warning,
+                        buttons: vec![
+                            AlertButton::new(
+                                copy::controls::USE_GRAPH,
+                                AlertRole::Normal,
+                                EventHandler::new(move |()| {
+                                    reauth.use_graph(account.clone(), switching.clone())
+                                }),
+                            ),
+                            AlertButton::new(
+                                LATER,
+                                AlertRole::Cancel,
+                                EventHandler::new(move |()| reauth.later()),
+                            )
+                            .with_common(crate::ui::sidebar::tagged("answer", "later")),
+                        ],
+                    }
+                }
+            }
+            None => rsx! {},
+        },
         [(_, name, need)] => {
             let (signing, need) = (name.clone(), *need);
             rsx! {

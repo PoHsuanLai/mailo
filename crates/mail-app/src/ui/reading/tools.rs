@@ -179,9 +179,8 @@ pub(super) fn ReaderMore(
     let mut further = use_signal(|| Further::None);
     let tool = use_signal(|| None::<MountedRef>);
     let id = summary.id;
-    let offered = mail_core::view::hover_in(shell.read().saved_view(), &summary);
     let items = rows(
-        &reader_groups(&offered, &summary, &toolbar, peek.is_some()),
+        &reader_groups(&summary, &toolbar, peek.is_some()),
         &summary,
         chrono::Utc::now(),
     );
@@ -219,8 +218,6 @@ pub(super) fn ReaderMore(
                         Pick::Press(Pressed::Op(OpKind::AddLabel)) => further.set(Further::Label),
                         Pick::Press(Pressed::MoveTo) => further.set(Further::Move),
                         Pick::Press(pressed) => press(shell, revision, id, pressed),
-                        Pick::Window => super::super::window::open_in_window(id),
-                        Pick::Remind => {}
                         Pick::Print => further.set(Further::Print),
                         Pick::View => further.set(Further::View),
                         Pick::Download => download(id),

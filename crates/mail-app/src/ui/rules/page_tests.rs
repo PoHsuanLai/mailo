@@ -55,13 +55,16 @@ fn Page(account: Option<AccountId>, at: RulesAt) -> Element {
         ..Shell::default()
     });
     let revision = use_signal(|| 0u64);
-    // Inside a quire root, as the window has it: the menus float in its overlay.
+    crate::ui::motion::use_motion();
+    // Inside a quire root, as the window has it: the menus float in its overlay, and a toast is
+    // said through the window's host.
     rsx! {
         Ds {
             appearance: Appearance::default(),
             material: Material::Window,
             stylesheet: ds::assembly::ds::Inject::Host,
             RulesPage { shell, revision }
+            crate::ui::motion::Toast { shell, revision }
         }
     }
 }
@@ -491,4 +494,57 @@ async fn render_the_rules_page_to_files() {
         };
         crate::ui::fixtures::dump(name, &inject(&backdrop, &dioxus_ssr::render(&dom)));
     }
+}
+
+/// Delete Rule says so in a toast with an Undo, and the Undo puts the rule back as it was: its
+/// name, its place in the order and its switch.
+#[tokio::test]
+async fn undo_puts_a_deleted_rule_back_as_it_was() {
+    use crate::ui::motion::{Follow, Motion, Restore};
+    dispatching();
+    let (store, _dir) = crate::ui::fixtures::empty();
+    let row = own_server(&store);
+    two_rules(&store, row.id.clone());
+    let before = store.rules(row.id.clone()).unwrap();
+    let (push, _) = counting();
+    let mut dom = sheet(&store, row.id.clone(), push);
+    let seen = {
+        let first = rebuild_into(&mut dom);
+        landed(&mut dom, first).await
+    };
+    let news = work::listed(&store, row.id.clone()).unwrap()[1].rule.id;
+    let news_row = seen.one("id", &super::row_id(&RulesAt::Rule(Some(news))).unwrap());
+    let opened = right_click(&mut dom, news_row);
+    let opened = landed(&mut dom, opened).await;
+    crate::ui::fixtures::pick_named(&mut dom, &opened, copy::menus::DELETE_RULE).await;
+    landed(&mut dom, Seen::default()).await;
+    assert_eq!(names(&store, row.id.clone()), ["Bills"]);
+    assert!(
+        !dioxus_ssr::render(&dom).contains(">Newsletters<"),
+        "the deleted rule is still listed"
+    );
+    let motion = dom.in_scope(ScopeId::APP, consume_context::<Motion>);
+    let offered = motion
+        .toast
+        .peek()
+        .clone()
+        .map(|said| (said.text, said.follow));
+    assert!(
+        matches!(
+            &offered,
+            Some((text, Follow::Restore(Restore::Rule(rule))))
+                if text == "Deleted the rule \u{201c}Newsletters\u{201d}" && rule.name == "Newsletters"
+        ),
+        "{offered:?}"
+    );
+
+    // The toast's Undo, as its button calls it.
+    let toasts = motion.toasts.peek().expect("the window's toast host");
+    dom.in_scope(ScopeId::APP, || toasts.on_restore.call(()));
+    landed(&mut dom, Seen::default()).await;
+    assert_eq!(store.rules(row.id).unwrap(), before);
+    assert!(
+        dioxus_ssr::render(&dom).contains(">Newsletters<"),
+        "the rule is back in the store and not on the page"
+    );
 }

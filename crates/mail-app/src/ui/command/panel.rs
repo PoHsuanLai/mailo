@@ -3,11 +3,11 @@
 
 use super::super::debounce::{Settled, use_debounced};
 use super::super::menu::{MenuItem, Right};
-use super::items::{gone_to, restate_sidebar, rows_of, search_now};
+use super::items::{restate_sidebar, rows_of, search_now};
 use super::sections::{Destination, TEMPLATES, places_for, sections};
 use crate::ui::space::Spaces;
 use crate::ui::today::Today;
-use crate::ui::view::{BarListing, Shell, Source};
+use crate::ui::view::{BarListing, Reach, Shell, Source, place_key};
 use chrono::Utc;
 use dioxus::prelude::*;
 use ds::prelude::*;
@@ -56,45 +56,31 @@ pub(super) fn panel_rows(
                 .into_iter()
                 .map(|row| restate_sidebar(row, sidebar, query))
                 .collect();
-            // Nothing typed: Recent is where the person was, not the newest mail.
+            // Nothing typed: Recent leads, where the person was.
             if query.trim().is_empty() {
-                rows.retain(|row| !row.key.starts_with("mail:"));
                 let mut recent = super::recent::rows(store, today, spaces.current().id);
                 recent.append(&mut rows);
                 rows = recent;
             }
-            let offered: Vec<usize> = shell
-                .places
-                .iter()
-                .enumerate()
-                .filter(|(_, place)| gone_to(&place.source))
-                .map(|(index, _)| index)
-                .collect();
+            // Scheduled is a place only while a send waits, as the sidebar draws it.
+            let waiting = query.trim().is_empty()
+                && !crate::ui::compose::scheduled(store, &shell.scope).is_empty();
             let places: Vec<Destination> = shell
                 .places
                 .iter()
                 .map(|place| Destination {
                     name: place.name.clone(),
-                    icon: place_icon(&place.source),
+                    icon: crate::ui::sidebar::place_icon(&place.source),
+                    at_rest: place_key(place) == format!("place:{}", place.name)
+                        && place.reach != Reach::Search
+                        && (waiting || place.source != Source::Scheduled),
                 })
                 .collect();
             let names: Vec<String> = spaces.list().iter().map(|one| one.name.clone()).collect();
             let current = spaces.index_of(spaces.current().id).unwrap_or(0);
-            let found = places_for(query, &places, &names, current, &offered);
+            let found = places_for(query, &places, &names, current);
             sections(rows, found, query)
         }
-    }
-}
-
-/// A place's glyph in the panel.
-fn place_icon(source: &Source) -> Icon {
-    match source {
-        Source::Mail(_) => Icon::Folder,
-        Source::Drafts => Icon::FilePen,
-        Source::Saved(_) => Icon::Search,
-        Source::Waiting => Icon::Clock,
-        Source::History => Icon::RotateLeft,
-        Source::Scheduled => Icon::Send,
     }
 }
 

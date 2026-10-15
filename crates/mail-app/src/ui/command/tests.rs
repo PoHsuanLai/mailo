@@ -2,12 +2,11 @@
 //! screenshots are taken from. How the bar itself behaves is `bar_tests.rs`.
 
 use super::super::app::App;
-use super::items::{CommandId, Goes, Look, Pick, interpret, rows_of, search_now, tokens};
+use super::items::{CommandId, Pick, chips, complete_syntax, interpret, rows_of, search_now};
 use super::*;
 use crate::ui::bin::Bin;
 use crate::ui::fixtures::work;
 use crate::ui::menu::Right;
-use crate::ui::view::SettingsPage;
 use crate::ui::view::Shell;
 use chordkit::Platform;
 use chrono::Utc;
@@ -49,20 +48,23 @@ fn a_person_the_ranker_put_on_top_is_the_books_best_match() {
     assert_eq!(people_for(&store, "from:dana"), Vec::<String>::new());
 }
 
+/// Typed text is the list's search: the panel's rows are people and commands, never mail, even
+/// where the ranker's top hit was a conversation.
 #[test]
-fn enter_on_the_top_hit_opens_that_thread() {
+fn the_panel_draws_no_mail_of_its_own() {
     let built = work();
-    let (results, _) = at_dana(&built.store);
-    let Top::Mail(hit) = results.top.as_ref().expect("dana has a top hit") else {
-        panic!("the top hit is not the thread, got {:?}", results.top);
-    };
-    let mut shell = Shell::default();
-    let key = format!("mail:{}", hit.summary.id);
-    match interpret(&results, &key) {
-        Some(Pick::Open(id)) => shell.open(id),
-        other => panic!("enter did not open the thread: {other:?}"),
-    }
-    assert_eq!(shell.open, Some(hit.summary.id));
+    let (results, names) = at_dana(&built.store);
+    assert!(
+        matches!(results.top, Some(Top::Mail(_))) || !results.mail.is_empty(),
+        "dana finds no mail in the fixture"
+    );
+    let rows = rows_of(&results, &names, "dana", &conventional(Platform::MacOs));
+    assert!(
+        rows.iter()
+            .all(|row| row.key.starts_with("person:") || row.key.starts_with("action:")),
+        "{:?}",
+        rows.iter().map(|row| &row.key).collect::<Vec<_>>()
+    );
 }
 
 /// The sidebar's row reads as what picking it does: "Hide sidebar" while it is pinned, "Show
@@ -87,8 +89,16 @@ fn the_sidebar_row_names_what_a_pick_does() {
             .map(|(_, name)| name.clone())
     };
     const CASES: &[(&str, Shown, &str)] = &[
-        ("pinned", Shown::Visible, "Hide sidebar"),
-        ("hidden", Shown::Hidden, "Show sidebar"),
+        (
+            "pinned",
+            Shown::Visible,
+            crate::ui::copy::menus::HIDE_SIDEBAR,
+        ),
+        (
+            "hidden",
+            Shown::Hidden,
+            crate::ui::copy::menus::SHOW_SIDEBAR,
+        ),
     ];
     for (name, sidebar, want) in CASES {
         let rows = wording(*sidebar, "");
@@ -116,7 +126,7 @@ fn the_renamed_sidebar_row_is_marked_for_its_own_wording() {
         .find(|item| item.key == SIDEBAR_KEY)
         .expect("the sidebar row matches");
     let renamed = restate_sidebar(row, Shown::Hidden, "sidebar");
-    assert_eq!(renamed.name, "Show sidebar");
+    assert_eq!(renamed.name, crate::ui::copy::menus::SHOW_SIDEBAR);
     let marked: String = renamed
         .name
         .chars()
@@ -124,12 +134,33 @@ fn the_renamed_sidebar_row_is_marked_for_its_own_wording() {
         .filter(|(index, _)| renamed.marks.contains(&(*index as u32)))
         .map(|(_, c)| c)
         .collect();
-    assert_eq!(marked, "sidebar");
+    assert_eq!(marked, "Sidebar");
 }
 
+/// The chips under the field: the syntax while nothing is typed or while the last word starts an
+/// operator, which Tab completes; otherwise the operators the search holds.
 #[test]
-fn from_dana_is_a_chip() {
-    assert_eq!(tokens("from:dana spec"), vec!["from:dana".to_owned()]);
+fn the_chips_offer_the_syntax_until_a_search_holds_operators() {
+    let syntax: Vec<String> = super::items::SYNTAX
+        .iter()
+        .map(|chip| (*chip).to_owned())
+        .collect();
+    const CASES: &[(&str, &[&str])] = &[
+        ("lunch fr", &["from:"]),
+        ("is:", &["is:unread", "is:starred"]),
+        ("lunch is:u", &["is:unread"]),
+        ("from:dana spec", &["from:dana"]),
+        ("lunch ", &[]),
+        ("from:", &[]),
+    ];
+    assert_eq!(chips(""), syntax);
+    assert_eq!(chips("   "), syntax);
+    for (query, want) in CASES {
+        assert_eq!(chips(query), *want, "{query:?}");
+    }
+    assert_eq!(complete_syntax("lunch fr").as_deref(), Some("lunch from:"));
+    assert_eq!(complete_syntax("is:u").as_deref(), Some("is:unread"));
+    assert_eq!(complete_syntax("lunch"), None);
 }
 
 /// The People row's name keeps the typed characters marked, as the ⌘K menu drew them. quire's
@@ -235,12 +266,6 @@ const EVERY_COMMAND: &[(CommandId, &str)] = &[
     (CommandId::ForwardAttached, "action:forward-attached"),
     (CommandId::Print, "action:print"),
     (CommandId::Sync, "action:sync"),
-    (CommandId::Connections, "action:connections"),
-    (CommandId::Go(Goes::Inbox), "action:go-inbox"),
-    (CommandId::Go(Goes::Kept), "action:go-kept"),
-    (CommandId::Go(Goes::Snoozed), "action:go-snoozed"),
-    (CommandId::Go(Goes::Done), "action:go-done"),
-    (CommandId::Go(Goes::Trash), "action:go-trash"),
     (CommandId::Empty(Bin::Trash), "action:empty-trash"),
     (CommandId::Empty(Bin::Spam), "action:empty-spam"),
     (CommandId::TidyUp, "action:tidy-up"),
@@ -252,25 +277,6 @@ const EVERY_COMMAND: &[(CommandId, &str)] = &[
     (CommandId::Contacts(Cards::Export), "action:export-contacts"),
     (CommandId::NewView, "action:new-view"),
     (CommandId::Settings, "action:settings"),
-    (
-        CommandId::SettingsAt(SettingsPage::General),
-        "action:settings-general",
-    ),
-    (
-        CommandId::SettingsAt(SettingsPage::Accounts),
-        "action:settings-accounts",
-    ),
-    (
-        CommandId::SettingsAt(SettingsPage::Rules),
-        "action:settings-rules",
-    ),
-    (
-        CommandId::SettingsAt(SettingsPage::Keyboard),
-        "action:settings-keyboard",
-    ),
-    (CommandId::Theme(Look::Light), "action:theme-light"),
-    (CommandId::Theme(Look::Dark), "action:theme-dark"),
-    (CommandId::Theme(Look::System), "action:theme-system"),
 ];
 
 /// Each row the panel draws for a command carries its id's key, and that key reads back as
@@ -342,29 +348,6 @@ fn no_two_commands_share_a_label() {
     assert_eq!(sorted.len(), labels.len(), "{labels:?}");
 }
 
-/// A Go command finds its place by what the place lists, so each one names a place the
-/// window has.
-#[test]
-fn each_go_command_finds_its_place() {
-    let shell = Shell::default();
-    for (id, key) in EVERY_COMMAND {
-        let CommandId::Go(goes) = id else {
-            continue;
-        };
-        assert!(
-            shell
-                .places
-                .iter()
-                .any(|place| place.source == goes.source()),
-            "{key} goes nowhere"
-        );
-        assert!(
-            super::items::gone_to(&goes.source()),
-            "{key} is not offered"
-        );
-    }
-}
-
 /// A button that runs the command `id`, as Enter on its row in the menu does.
 #[component]
 fn Runs(id: CommandId) -> Element {
@@ -375,40 +358,29 @@ fn Runs(id: CommandId) -> Element {
     let pages = use_signal(|| 1u32);
     let mut revision = use_signal(|| 0u64);
     let mut side_hidden = use_signal(|| false);
-    let spaces = use_signal(|| crate::ui::space::first_run(&[]));
     // Named by its id, not a fixed word: the fixture sees only attributes the template fills in.
     let name = format!("run {id:?}");
     rsx! {
         button {
             "aria-label": name,
-            onclick: move |_| run_action(shell, pages, &mut revision, &mut side_hidden, spaces, id),
+            onclick: move |_| run_action(shell, pages, &mut revision, &mut side_hidden, id),
         }
     }
 }
 
+/// Settings… is the one row for Settings: it opens the window, which keeps its own pages.
 #[tokio::test]
-async fn each_settings_entry_opens_the_settings_window_on_its_page() {
+async fn settings_opens_the_settings_window() {
     use crate::ui::settings_window::SettingsWindows;
     use crate::ui::settings_window::tests::Asked;
-    for page in [
-        SettingsPage::General,
-        SettingsPage::Accounts,
-        SettingsPage::Rules,
-        SettingsPage::Keyboard,
-    ] {
-        let id = CommandId::SettingsAt(page);
-        crate::ui::fixtures::dispatching();
-        let asked = Arc::new(Asked::default());
-        let mut dom = VirtualDom::new_with_props(Runs, RunsProps { id })
-            .with_root_context(SettingsWindows(asked.clone()));
-        let seen = crate::ui::fixtures::rebuild_into(&mut dom);
-        crate::ui::fixtures::click(&mut dom, seen.one("aria-label", &format!("run {id:?}")));
-        assert_eq!(
-            asked.asks(),
-            [Some(crate::ui::settings_window::SettingsAt::Page(page))],
-            "{id:?}"
-        );
-    }
+    let id = CommandId::Settings;
+    crate::ui::fixtures::dispatching();
+    let asked = Arc::new(Asked::default());
+    let mut dom = VirtualDom::new_with_props(Runs, RunsProps { id })
+        .with_root_context(SettingsWindows(asked.clone()));
+    let seen = crate::ui::fixtures::rebuild_into(&mut dom);
+    crate::ui::fixtures::click(&mut dom, seen.one("aria-label", &format!("run {id:?}")));
+    assert_eq!(asked.asks().len(), 1, "{:?}", asked.asks());
 }
 
 /// The chord beside a command is the one the keymap binds, in the platform's own words: a Mac

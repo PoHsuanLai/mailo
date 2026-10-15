@@ -3,9 +3,10 @@
 //! behind is shown in the toolbar until it is cleared.
 
 use super::bar_tests::{has, until, words};
-use super::sections::{COMMANDS, MAIL, PLACES, RECENT, TOP};
+use super::sections::COMMANDS;
 use super::*;
 use crate::ui::app::App;
+use crate::ui::copy::menus;
 use crate::ui::fixtures::{
     INSIDE_THE_SHELL, Seen, chord, click, dispatching, drain_seen, rebuild_into, type_into, work,
 };
@@ -42,10 +43,9 @@ async fn command_k_brings_up_the_panel_with_the_keyboard_in_its_field() {
     );
     // The panel is up over the empty search: what it offers before anything is typed.
     let page = until(&mut dom, "⌘K", |page| {
-        has(page, &format!(">{RECENT}<")) && has(page, "Compose")
+        has(page, &format!(">{COMMANDS}<")) && has(page, menus::NEW_MESSAGE)
     })
     .await;
-    assert!(has(&page, "Compose"), "{page}");
     assert!(has(&page, "class=\"ds-search-card\""), "no panel:\n{page}");
     assert!(
         !has(&page, "class=\"ds-palette"),
@@ -96,8 +96,10 @@ async fn the_toolbar_holds_only_a_magnifier_and_the_sidebar_has_no_field() {
     assert!(!has(&page, "class=\"ds-search-card\""));
 }
 
+/// Typed text with no row it names: Return leaves the panel for the list, which shows the mail
+/// the search found, and the toolbar keeps the search shown until it is cleared.
 #[tokio::test]
-async fn opening_a_mail_keeps_its_search_shown_in_the_toolbar_until_it_is_cleared() {
+async fn return_on_a_search_leaves_it_in_the_list_until_it_is_cleared() {
     let recorder = Recorder::default();
     let (mut dom, _built, _seen) = window(&recorder);
     chord(
@@ -111,24 +113,20 @@ async fn opening_a_mail_keeps_its_search_shown_in_the_toolbar_until_it_is_cleare
         .all("aria-label", LABEL)
         .last()
         .expect("the panel's field");
-    type_into(&mut dom, field, "sync");
-    // The list shows the mail before the panel does: wait for the panel's top hit, which comes
-    // from the search off the thread, so Return opens the mail rather than the first command.
-    until(&mut dom, "sync", |page| {
-        let words = words(page);
-        let Some((_, top)) = words.split_once(TOP) else {
-            return false;
-        };
-        // The top hit's own section, up to whichever section comes next.
-        let top = [MAIL, COMMANDS, PLACES]
-            .iter()
-            .filter_map(|next| top.find(next))
-            .min()
-            .map_or(top, |end| &top[..end]);
-        top.contains("Notes from the sync review")
+    type_into(&mut dom, field, "review");
+    // The list behind the panel shows the mail; the panel shows none of it.
+    let page = until(&mut dom, "review", |page| {
+        has(page, "Keyset cursors, not offsets")
+            && page.find("class=\"ds-search-card\"").is_some_and(|card| {
+                !page[card..].contains(&format!(">{}<", super::sections::PLACES))
+            })
     })
     .await;
-    // The top hit is the mail; Return opens it and the panel goes.
+    let card = &page[page.find("class=\"ds-search-card\"").expect("the panel")..];
+    assert!(
+        !words(card).contains("Keyset cursors, not offsets"),
+        "{card}"
+    );
     let seen = chord(&mut dom, "Enter", Modifiers::empty(), field).merge(drain_seen(&mut dom));
     assert!(
         recorder.asked().contains(&Ask::FocusApp),
@@ -140,14 +138,11 @@ async fn opening_a_mail_keeps_its_search_shown_in_the_toolbar_until_it_is_cleare
         !has(&page, "class=\"ds-search-card\""),
         "the panel stayed up"
     );
-    assert!(
-        has(&page, "class=\"reader-head\""),
-        "no mail opened:\n{page}"
-    );
+    assert!(has(&page, "Keyset cursors, not offsets"), "{page}");
     let head = &page[page.find("list-head").expect("the list's toolbar")..];
     let head = &head[..head.find("class=\"list\"").unwrap_or(head.len())];
     assert!(
-        head.contains(">sync<"),
+        head.contains(">review<"),
         "the toolbar hides the search:\n{head}"
     );
     assert!(head.contains(&format!("aria-label=\"{CLEAR_LABEL}\"")));
@@ -186,8 +181,8 @@ async fn tidy_up_is_a_command() {
     type_into(&mut dom, field, "tidy");
     until(&mut dom, "tidy", |page| {
         words(page)
-            .split_once(TOP)
-            .is_some_and(|(_, top)| top.contains(crate::ui::copy::menus::TIDY_UP))
+            .split_once(COMMANDS)
+            .is_some_and(|(_, commands)| commands.starts_with(menus::TIDY_UP))
     })
     .await;
     let _ = chord(&mut dom, "Enter", Modifiers::empty(), field).merge(drain_seen(&mut dom));

@@ -14,7 +14,6 @@ mod external;
 mod face;
 mod folder;
 mod host;
-mod line;
 mod live;
 mod marks;
 mod need;
@@ -42,7 +41,6 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 pub(in crate::ui) use delegate::Delegate;
 pub(in crate::ui) use face::{CANNOT_LOAD, HasRows, ListFace, list_face};
 pub(in crate::ui) use folder::opened;
-pub(in crate::ui) use line::{AccountLine, Remedy, Standing, account_line, offered};
 pub(in crate::ui) use marks::sync_availability;
 pub(in crate::ui) use need::{Need, Needing, needs_you, use_needs};
 pub(in crate::ui) use pass::Passer;
@@ -74,7 +72,8 @@ impl Fetching {
         }
     }
 
-    /// Ask every account for a pass.
+    /// Ask every account for a pass, as the tests start one.
+    #[cfg(test)]
     pub(in crate::ui) fn sync_all(&self, trigger: Trigger) {
         let all: Vec<AccountId> = self.links.peek().keys().cloned().collect();
         self.sync(&all, trigger);
@@ -91,7 +90,8 @@ impl Fetching {
         self.links.read().get(&account).cloned()
     }
 
-    /// What `account`'s last pass offered beside its failure, if anything ([`offered`]).
+    /// What `account`'s last pass offered beside its failure, if anything: the sign-in
+    /// question's Use Microsoft Graph (`reauth`).
     pub(in crate::ui) fn offer(&self, account: &AccountId) -> Option<Offer> {
         self.offers.read().get(account).copied()
     }

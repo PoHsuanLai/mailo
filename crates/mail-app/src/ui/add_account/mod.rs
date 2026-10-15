@@ -1,5 +1,5 @@
 //! Adding an account from the window: "Add account…" from the search bar, the Space's menu ›
-//! Accounts, Settings, and the dialog's and Connections' sign-in again.
+//! Accounts, Settings, and the dialog's sign-in again.
 //!
 //! The add-account window is a window of its own, as Settings is: a separate top-level window,
 //! raised when it is already open, that draws porter's accounts sheet with quire's
@@ -14,7 +14,7 @@
 //! **Straight to the browser** (`direct`). A provider whose accounts sign in with an OAuth redirect
 //! needs no window: the Space menu's Add Account and Settings' Add Account… are a menu that
 //! names each such provider and signs in with it in the browser, as a sign-in button on the web
-//! does, and Connections signs such an account in again the same way. Other Account…,
+//! does, and the dialog signs such an account in again the same way. Other Account…,
 //! and every provider that needs a form, is the window.
 //!
 //! The window is the host on every platform: mailo keeps its own accounts and credentials. Signing
@@ -119,10 +119,13 @@ fn quire(ask: Ask) {
     let spec = WindowSpec::new(TITLE, size::opening(screen));
     match ds_blitz::open_window_with(spec, window::AddAccountWindow, props) {
         Ok(handle) => OPEN.with(|open| *open.borrow_mut() = Some(handle)),
-        Err(why) => crate::ui::motion::tell(
-            format!("Could not open the Add Account window: {why}"),
-            crate::ui::motion::Follow::Nothing,
-        ),
+        Err(why) => {
+            log::warn!("the Add Account window would not open: {why}");
+            crate::ui::motion::tell(
+                crate::ui::copy::toasts::would_not_open(TITLE),
+                crate::ui::motion::Follow::Nothing,
+            );
+        }
     }
 }
 

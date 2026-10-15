@@ -165,6 +165,17 @@ pub fn delete(
     Ok(())
 }
 
+/// Put back a certificate [`delete`] forgot, as it was: its trust and where it came from kept.
+/// The undo of deleting one with no private key; a private key, once forgotten, is gone.
+pub fn restore(store: &SqliteStore, cert: &SmimeCert) -> Result<(), SmimeError> {
+    store.put_smime_cert(SmimeCert {
+        secret: SecretHeld::Absent,
+        ..cert.clone()
+    })?;
+    epoch_changed();
+    Ok(())
+}
+
 /// The account a private key was kept for: that of an identity with an address on the
 /// certificate. Only a label — the keyring entry is named by the fingerprint alone.
 fn account_of(store: &SqliteStore, cert: &SmimeCert) -> AccountId {

@@ -170,9 +170,11 @@
 }
 .app.no-side .send-at { left: 0; }
 
-/* send later: the popover that reads a time, and the one that names a template */
-.pick-time, .tpl-save { display: grid; gap: var(--s-6); width: 260px; }
-.pick-field, .tpl-name, .remind-field { min-width: 0; }
+/* send later, snooze's Choose Time and remind: the popover that reads a time, and the one that
+   names a template. One column the popover's width, so the field and the line under it that says
+   what it read fill it rather than shrinking to their longest word. */
+.pick-time, .tpl-save { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s-6); width: 260px; padding: var(--s-8); }
+.pick-field, .tpl-name, .remind-field { min-width: 0; width: 100%; }
 .p-menu { position: relative; }
 .pick-time .g { color: var(--ink-soft); }
 .pick-in { display: flex; align-items: center; gap: var(--s-6); min-width: 0; }

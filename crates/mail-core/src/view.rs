@@ -238,43 +238,6 @@ pub fn hover_actions(summary: &ThreadSummary) -> Vec<OpKind> {
     out
 }
 
-/// What a row's menu offers for a thread in `view`: the view's own actions where it names any,
-/// else [`hover_actions`].
-///
-/// A view names kinds, not directions, so its Star or Mark read is drawn as whichever of the
-/// pair the conversation needs, and a button the conversation cannot take (Archive on one not in
-/// the inbox) is left out, as [`hover_actions`] leaves it out. The keyboard is not narrowed by a
-/// view: [`offers`] still asks [`hover_actions`].
-pub fn hover_in(view: Option<&View>, summary: &ThreadSummary) -> Vec<OpKind> {
-    let offered = hover_actions(summary);
-    let Some(view) = view.filter(|view| !view.hover.is_empty()) else {
-        return offered;
-    };
-    let mut out: Vec<OpKind> = Vec::new();
-    for kind in &view.hover {
-        let kind = match kind {
-            OpKind::Star | OpKind::Unstar => match summary.star {
-                Star::Unstarred => OpKind::Star,
-                Star::Starred => OpKind::Unstar,
-            },
-            OpKind::MarkRead | OpKind::MarkUnread => match summary.read {
-                ReadState::Unread => OpKind::MarkRead,
-                ReadState::Read => OpKind::MarkUnread,
-            },
-            other => *other,
-        };
-        let allowed = match kind {
-            // Neither needs a place to be allowed from; a reply is a draft.
-            OpKind::Reply | OpKind::ReplyAll => true,
-            other => offers(summary, other),
-        };
-        if allowed && !out.contains(&kind) {
-            out.push(kind);
-        }
-    }
-    out
-}
-
 /// One row of the label menu: the name, which label it is, and whether this conversation has it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LabelChoice {
@@ -434,10 +397,10 @@ pub enum Source {
     Mail(Filter),
     /// The drafts table.
     Drafts,
-    /// A view the user saved: its filter, and how its list is grouped and what its rows offer.
+    /// A view the user saved: its filter, and how its list is grouped.
     ///
     /// The whole [`View`] rather than its filter, because the rest of it is what makes it a
-    /// view: `Shell::grouping` and [`hover_in`] read it while it is the place shown.
+    /// view: `Shell::grouping` reads it while it is the place shown.
     Saved(Box<View>),
     /// The conversations with a follow-up reminder, soonest due first ([`mail_core::follow_up`]).
     ///

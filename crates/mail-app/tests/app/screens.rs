@@ -347,6 +347,9 @@ fn screens() {
         h.advance(ms(400));
         row_menu::row_action(&mut h, &row(1), "Snooze…");
         shot(&mut h, &out, "snooze-menu", dark);
+        row_menu::press_menu_item(&mut h, mail_app::ui::copy::menus::CHOOSE_TIME);
+        h.advance(ms(400));
+        shot(&mut h, &out, "snooze-choose-time", dark);
 
         // A toast with its action: Archive, then Undo on the toast.
         let (mut h, _d) = open(dark);
@@ -373,10 +376,12 @@ fn screens() {
         }
         shot(&mut h, &out, "compose-window", dark);
 
-        // The search bar's panel (⌘K), then the Add Account sheet from it.
+        // The search bar's panel (⌘K) with nothing typed, then with a query, then the Add Account
+        // sheet from it.
         let (mut h, _d) = open(dark);
         h.chord(&[PRIMARY], Key::Char('k'));
         h.advance(ms(400));
+        shot(&mut h, &out, "command-empty", dark);
         for c in "ar".chars() {
             h.key(Key::Char(c));
         }

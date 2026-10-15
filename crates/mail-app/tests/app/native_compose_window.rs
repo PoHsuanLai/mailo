@@ -1,5 +1,5 @@
 //! A new message in a window of its own, driven in the real window on Blitz
-//! (`ds_harness::Harness`): New Message, ⌘N and ⌘K's Compose ask for a compose window and leave
+//! (`ds_harness::Harness`): New Message, ⌘N and ⌘K's New Message ask for a compose window and leave
 //! the reader as it was; a reply stays under its thread; the compose window parks into the main
 //! window, where ⌘K's Recent brings it back, and hands its page back for Open in Main Window; and
 //! neither window draws a Focus control.
@@ -205,7 +205,7 @@ fn assert_no_focus(harness: &Harness, what: &str) {
     );
 }
 
-/// New Message, ⌘N and ⌘K's Compose each ask for a compose window on a draft of its own, titled
+/// New Message, ⌘N and ⌘K's New Message each ask for a compose window on a draft of its own, titled
 /// New Message, and the reader keeps the conversation it had open.
 #[test]
 fn every_way_to_a_new_message_asks_for_a_compose_window_and_keeps_the_reader() {
@@ -231,16 +231,16 @@ fn every_way_to_a_new_message_asks_for_a_compose_window_and_keeps_the_reader() {
 
     harness.chord(&[PRIMARY], Key::Char('k'));
     settle_until(&mut harness, |h| h.is_focused(".ds-search-card input"));
-    type_text(&mut harness, "compose");
-    // Enter runs the selected row once the search has answered, and Compose is its Top Hit.
+    type_text(&mut harness, "new message");
+    // Enter runs the highlighted row once the panel has answered: the text starts New Message.
     settle_until(&mut harness, |h| {
         h.text_of(".ds-search-card .ds-menu-item[*|data-selected=true] .ds-menu-title")
-            .is_some_and(|title| title.trim() == "Compose")
+            .is_some_and(|title| title.trim() == "New Message")
     });
     harness.key(Key::Enter);
     settle_until(&mut harness, |_| recorder.asked().len() == 3);
     settle_until(&mut harness, |h| h.count(".ds-search-card") == 0);
-    assert_reader_kept(&harness, "⌘K's Compose");
+    assert_reader_kept(&harness, "⌘K's New Message");
 
     let asked = recorder.asked();
     for ask in &asked {

@@ -1,8 +1,6 @@
 use super::*;
 use crate::ui::view::{Grouping, PageGroup, Source, places_with};
 use chrono::Utc;
-use mail_core::view::{hover_actions, hover_in};
-use mail_domain::id::new_account_id;
 use mail_domain::*;
 
 fn labels() -> Vec<(String, LabelId)> {
@@ -12,71 +10,10 @@ fn labels() -> Vec<(String, LabelId)> {
     )]
 }
 
-fn summary(read: ReadState, star: Star, role: MailboxRole) -> ThreadSummary {
-    ThreadSummary {
-        id: ThreadId::generate(),
-        account: new_account_id(),
-        subject: "s".to_owned(),
-        snippet: String::new(),
-        from: Address {
-            name: None,
-            email: "a@example.test".to_owned(),
-        },
-        participants: Vec::new(),
-        recipients: Vec::new(),
-        last_date: Utc::now(),
-        message_count: 1,
-        read,
-        star,
-        mailboxes: MailboxSet::only(role),
-        labels: Vec::new(),
-        attachments: Attachments::None,
-        snooze: Snooze::Inactive,
-        pin: Pin::Unpinned,
-        mute: Mute::Unmuted,
-        follow_up: mail_domain::FollowUp::Inactive,
-    }
-}
-
 fn saved(name: &str, query: &str) -> View {
     let mut draft = ViewDraft::from_search(query);
     draft.name = name.to_owned();
     draft.build(&labels(), &Utc).unwrap()
-}
-
-#[test]
-fn a_view_with_no_hover_buttons_offers_the_usual_strip() {
-    let thread = summary(ReadState::Unread, Star::Unstarred, MailboxRole::Inbox);
-    let view = saved("Plain", "is:unread");
-    assert_eq!(hover_in(Some(&view), &thread), hover_actions(&thread));
-    assert_eq!(hover_in(None, &thread), hover_actions(&thread));
-}
-
-#[test]
-fn a_views_hover_buttons_follow_the_conversation_they_are_drawn_on() {
-    let mut view = saved("Mine", "is:unread");
-    view.hover = vec![
-        OpKind::MarkRead,
-        OpKind::Archive,
-        OpKind::Star,
-        OpKind::Reply,
-    ];
-    let unread = summary(ReadState::Unread, Star::Unstarred, MailboxRole::Inbox);
-    assert_eq!(
-        hover_in(Some(&view), &unread),
-        vec![
-            OpKind::MarkRead,
-            OpKind::Archive,
-            OpKind::Star,
-            OpKind::Reply
-        ]
-    );
-    // Read, starred and already archived: the pair flip, and Archive is not offered.
-    let archived = summary(ReadState::Read, Star::Starred, MailboxRole::Archive);
-    assert_eq!(
-        hover_in(Some(&view), &archived),
-        vec![OpKind::MarkUnread, OpKind::Unstar, OpKind::Reply]
-    );
 }
 
 #[test]

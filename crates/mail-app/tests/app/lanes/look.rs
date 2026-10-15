@@ -35,7 +35,7 @@ pub fn panel_row(harness: &Harness, text: &str) -> Option<usize> {
 }
 
 /// Whether the search panel's rows answer what its field holds: an empty field lists Recent
-/// mail first, and the rows for typed text come once the search has run on it.
+/// mail or the places first, and the rows for typed text come once the search has run on it.
 pub fn panel_settled(harness: &Harness) -> bool {
     let typed = harness
         .attr(".ds-search-card input", "value")
@@ -43,7 +43,7 @@ pub fn panel_settled(harness: &Harness) -> bool {
     let first = harness
         .text_of(".ds-search-card-rows .ds-menu > :nth-child(1)")
         .unwrap_or_default();
-    !typed || first != "Recent"
+    !typed || !["Recent", "Places"].contains(&first.trim())
 }
 
 /// The position of the open menu's item named `name`.

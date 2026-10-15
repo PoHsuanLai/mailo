@@ -244,8 +244,8 @@ fn place(name: &str) -> String {
     format!("[*|data-place=\"{name}\"]")
 }
 
-/// Search for `in:inbox`, save it as "Mine" grouped by read state with Archive and Snooze on
-/// hover, and return with the view shown.
+/// Search for `in:inbox`, save it as "Mine" grouped by read state, and return with the view
+/// shown.
 fn make_the_view(harness: &mut Harness) {
     summon(harness);
     type_text(harness, "in:inbox");
@@ -279,15 +279,13 @@ fn make_the_view(harness: &mut Harness) {
         "the second grouping was not chosen:\n{}",
         harness.html()
     );
-    press(harness, &labelled("Offer Snooze on hover"));
-    press(harness, &labelled("Offer Archive on hover"));
     press(harness, &labelled("Save new view"));
     harness.advance(ms(600));
     assert_eq!(harness.count(&sheet), 0, "Save left the sheet open");
 }
 
 #[test]
-fn a_search_saved_as_a_view_is_a_place_grouped_and_offered_as_it_was_saved() {
+fn a_search_saved_as_a_view_is_a_place_grouped_as_it_was_saved() {
     let (mut harness, _dir, store) = open();
     // Two read, two not: pick the first two and mark them read.
     click_subject(&mut harness, INBOX[0].1, &[]);
@@ -306,7 +304,6 @@ fn a_search_saved_as_a_view_is_a_place_grouped_and_offered_as_it_was_saved() {
     assert_eq!(views.len(), 1);
     assert_eq!(views[0].name, "Mine");
     assert_eq!(views[0].group_by, Some(GroupKey::Read));
-    assert_eq!(views[0].hover, vec![OpKind::Snooze, OpKind::Archive]);
 
     // In the sidebar, and shown, the search empty again: the toolbar's magnifier, no search.
     assert_eq!(
@@ -331,26 +328,10 @@ fn a_search_saved_as_a_view_is_a_place_grouped_and_offered_as_it_was_saved() {
         ]
     );
 
-    // The row's actions are the view's (Archive and Snooze), not the usual ones, beside what
-    // every row's menu has.
+    // The row's menu is the one every row has: a view does not change it.
     let mine = menu_of(&mut harness, INBOX[2].1);
-    assert!(
-        mine.contains(&"Snooze…".to_owned()) && mine.contains(&"Archive".to_owned()),
-        "{mine:?}"
-    );
-    for usual in [
-        mail_app::ui::copy::menus::MOVE_TO_TRASH,
-        "Pin",
-        "Label…",
-        "Forward",
-    ] {
-        assert!(
-            !mine.contains(&usual.to_owned()),
-            "{usual} in the view: {mine:?}"
-        );
-    }
 
-    // Somewhere else, the usual strip and no bands.
+    // Somewhere else, no bands, and the same menu for the same conversation.
     press(&mut harness, &place("Inbox"));
     assert!(
         !lines(&harness).iter().any(|line| line.starts_with('#')),
@@ -358,17 +339,7 @@ fn a_search_saved_as_a_view_is_a_place_grouped_and_offered_as_it_was_saved() {
         lines(&harness)
     );
     let usual = menu_of(&mut harness, INBOX[2].1);
-    for kind in [
-        mail_app::ui::copy::menus::MOVE_TO_TRASH,
-        "Pin",
-        "Label…",
-        "Forward",
-    ] {
-        assert!(
-            usual.contains(&kind.to_owned()),
-            "no {kind} in the inbox: {usual:?}"
-        );
-    }
+    assert_eq!(mine, usual, "the view changed the row's menu");
 }
 
 /// Several rows picked in a view are archived as one gesture, and one Ctrl Z puts both back.

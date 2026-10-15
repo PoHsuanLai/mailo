@@ -1,21 +1,12 @@
-//! Remind me if no reply, in the window: the sweep that brings a conversation back, the menu that
-//! sets a reminder on one, the reader's tool and the line that says where a reminder stands.
+//! Remind me if no reply, in the window: the sweep that brings a conversation back. A reminder is
+//! set under the composer's Send ▾ alone.
 //!
 //! The deciding is [`mail_core::follow_up`]'s; this is when it runs and how it is shown.
 
-use super::menu::{MenuItem, Right, Tile, anchor_for, palette_groups};
-use super::menus::snooze_help;
-use super::motion::act_all;
-use super::picks::with_selection;
-use crate::ui::view::Shell;
 use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
-use ds::components::content::avatar::AvatarSize;
-use ds::host::measure::MountedRef;
-use ds::prelude::*;
 use mail_core::SqliteStore;
 use mail_core::notify::Notifier;
-use mail_domain::{FollowUp, Op, ThreadId};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -80,130 +71,6 @@ pub(in crate::ui) fn use_reminders(mut revision: Signal<u64>) {
     });
 }
 
-/// The follow-up menu's key for "Don't remind me".
-const OFF: &str = "off";
-/// And for the time typed into its field.
-const TYPED: &str = "typed";
-
-/// The menu's rows: the named times with the date each means, a typed time when it reads as
-/// one, and "Don't remind me" when there is a reminder to let go.
-pub(in crate::ui) fn follow_up_items<Tz: chrono::TimeZone>(
-    current: FollowUp,
-    typed: &str,
-    now: DateTime<Utc>,
-    zone: &Tz,
-) -> Vec<MenuItem>
-where
-    Tz::Offset: std::fmt::Display,
-{
-    let row = |key: String, icon, name: String, help: Option<String>| MenuItem {
-        key,
-        tile: Tile::Icon(icon),
-        name,
-        help,
-        right: Right::None,
-        group: None,
-        marks: Vec::new(),
-        title: Vec::new(),
-        detail: Vec::new(),
-    };
-    let mut items: Vec<MenuItem> = mail_core::follow_up::CHOICES
-        .iter()
-        .filter_map(|(key, says)| {
-            let at = mail_core::follow_up::due(key, now, zone).ok()?;
-            Some(row(
-                (*key).to_owned(),
-                Icon::Bell,
-                (*says).to_owned(),
-                Some(snooze_help(at, zone)),
-            ))
-        })
-        .collect();
-    if !typed.trim().is_empty() {
-        let help = match mail_core::follow_up::due(typed, now, zone) {
-            Ok(at) => snooze_help(at, zone),
-            Err(why) => why.to_string(),
-        };
-        items.push(row(
-            TYPED.to_owned(),
-            Icon::Clock,
-            format!("Remind me “{}”", typed.trim()),
-            Some(help),
-        ));
-    }
-    if current != FollowUp::Inactive {
-        items.push(row(
-            OFF.to_owned(),
-            Icon::X,
-            "Don't remind me".to_owned(),
-            None,
-        ));
-    }
-    items
-}
-
-/// What a pick in the follow-up menu sets, asked for at `now`: `None` when the typed time does
-/// not read as one to come.
-pub(in crate::ui) fn picked<Tz: chrono::TimeZone>(
-    key: &str,
-    typed: &str,
-    now: DateTime<Utc>,
-    zone: &Tz,
-) -> Option<FollowUp>
-where
-    Tz::Offset: std::fmt::Display,
-{
-    let choice = match key {
-        OFF => return Some(FollowUp::Inactive),
-        TYPED => typed,
-        named => named,
-    };
-    let at = mail_core::follow_up::due(choice, now, zone).ok()?;
-    Some(FollowUp::Until { at, set: now })
-}
-
-/// "Remind me if no reply", for a conversation and whatever is picked with it: one gesture with
-/// one undo, anchored to what opened it.
-#[component]
-pub(in crate::ui) fn FollowUpMenu(
-    id: ThreadId,
-    current: FollowUp,
-    shell: Signal<Shell>,
-    revision: Signal<u64>,
-    anchor: Option<MountedRef>,
-    #[props(default)] placed: Option<Rect>,
-    on_close: EventHandler<()>,
-) -> Element {
-    let mut typed = use_signal(String::new);
-    let now = super::clock::now();
-    let items = follow_up_items(current, &typed(), now, &chrono::Local);
-    rsx! {
-        PickList::<String> {
-            anchor: anchor_for(anchor, placed),
-            label: "Remind me if no reply".to_owned(),
-            placeholder: "Or type a time: fri 17:00, +3d".to_owned(),
-            query: typed(),
-            groups: palette_groups(&items, AvatarSize::Size22, None),
-            empty: "No time matches.".to_owned(),
-            oninput: move |value: String| typed.set(value),
-            onpick: move |key: String| {
-                let now = super::clock::now();
-                let Some(wanted) = picked(&key, &typed(), now, &chrono::Local) else {
-                    return;
-                };
-                let store = consume_context::<Arc<SqliteStore>>();
-                let ops = with_selection(shell, id)
-                    .into_iter()
-                    .map(|thread| (thread, Op::SetFollowUp(wanted)))
-                    .collect();
-                act_all(&store, shell, revision, ops);
-                on_close.call(());
-            },
-            onclose: move |()| on_close.call(()),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -238,44 +105,5 @@ mod tests {
         for (name, next, want) in cases {
             assert_eq!(wait(next, now), want, "{name}");
         }
-    }
-
-    #[test]
-    fn a_pick_sets_a_reminder_from_now_or_lets_it_go() {
-        let now = at(12);
-        assert_eq!(
-            picked("tomorrow", "", now, &Utc),
-            Some(FollowUp::Until {
-                at: Utc.with_ymd_and_hms(2026, 9, 29, 9, 0, 0).unwrap(),
-                set: now
-            })
-        );
-        assert_eq!(
-            picked(TYPED, "+2h", now, &Utc),
-            Some(FollowUp::Until {
-                at: at(14),
-                set: now
-            })
-        );
-        assert_eq!(picked(TYPED, "yesterday-ish", now, &Utc), None);
-        assert_eq!(picked(OFF, "", now, &Utc), Some(FollowUp::Inactive));
-        // "Don't remind me" is offered only when there is something to let go.
-        let keys = |current| -> Vec<String> {
-            follow_up_items(current, "", now, &Utc)
-                .into_iter()
-                .map(|item| item.key)
-                .collect()
-        };
-        assert_eq!(
-            keys(FollowUp::Inactive),
-            ["tomorrow", "three-days", "next-week"]
-        );
-        assert_eq!(
-            keys(FollowUp::Until {
-                at: at(14),
-                set: now
-            }),
-            ["tomorrow", "three-days", "next-week", OFF]
-        );
     }
 }

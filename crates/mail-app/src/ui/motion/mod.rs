@@ -42,8 +42,36 @@ pub(in crate::ui) enum Follow {
     /// After a sign-in in the browser that did not work: try it again, or open the add-account
     /// window, which says what is missing.
     SignIn(crate::ui::add_account::Retry),
+    /// Undo for something deleted in Settings that is not mail: put it back as it was.
+    Restore(Restore),
     /// Nothing to take back: an unsubscribe, once made, is the list's.
     Nothing,
+}
+
+/// Something deleted in Settings that a toast's Undo puts back as it was. Mail goes on the undo
+/// stack as a patch; these are records of their own, so each keeps the whole record instead.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(in crate::ui) enum Restore {
+    Rule(Rule),
+    Key(PgpKey),
+    Cert(SmimeCert),
+}
+
+impl Restore {
+    /// Put it back in `store`, or say why not.
+    pub(in crate::ui) fn put_back(&self, store: &SqliteStore) -> Result<(), String> {
+        match self {
+            Restore::Rule(rule) => {
+                mail_core::rules::manage::restore(store, rule).map_err(|e| e.to_string())
+            }
+            Restore::Key(key) => {
+                mail_core::pgp::keys::restore(store, key).map_err(|e| e.to_string())
+            }
+            Restore::Cert(cert) => {
+                mail_core::smime::certs::restore(store, cert).map_err(|e| e.to_string())
+            }
+        }
+    }
 }
 
 /// quire's toast host, and what its buttons do: made by a component that lives as long as the
@@ -58,6 +86,9 @@ pub(super) struct Toasts {
     /// What the button of a sign-in that did not work does ("Try Again", "Use Add Account…"):
     /// it reads what it offered from [`Motion::toast`] when pressed.
     pub on_sign_in: EventHandler<()>,
+    /// What the Undo of a deletion in Settings does: it reads what to put back from
+    /// [`Motion::toast`] when pressed.
+    pub on_restore: EventHandler<()>,
 }
 
 /// The motion state the window shares.
@@ -226,6 +257,23 @@ pub(in crate::ui) fn tell_through(motion: Option<Motion>, text: String) {
     }
 }
 
+/// Say `text` through motion state looked up earlier, with an Undo that puts `restore` back: for
+/// a task that outlives the component that started it. Hands the words back when there is no
+/// window to say them in.
+pub(in crate::ui) fn offer_restore(
+    motion: Option<Motion>,
+    text: String,
+    restore: Restore,
+) -> Result<(), String> {
+    match motion {
+        Some(motion) => {
+            motion.say(text, Follow::Restore(restore));
+            Ok(())
+        }
+        None => Err(text),
+    }
+}
+
 /// Take back the newest op: ⌘Z.
 pub(super) fn undo_last(
     store: &SqliteStore,
@@ -339,6 +387,19 @@ impl Motion {
                 toasts
                     .hub
                     .push_action(text, ToastAction::new("Archive All"), toasts.on_archive);
+            }
+            (follow @ Follow::Restore(_), Some(toasts)) => {
+                let serial = self.toast.peek().as_ref().map_or(0, |said| said.serial) + 1;
+                self.toast.set(Some(Said {
+                    text: text.clone(),
+                    serial,
+                    follow,
+                }));
+                toasts.hub.push_action(
+                    text,
+                    ToastAction::new(crate::ui::copy::controls::UNDO),
+                    toasts.on_restore,
+                );
             }
             (Follow::SignIn(retry), Some(toasts)) => {
                 let serial = self.toast.peek().as_ref().map_or(0, |said| said.serial) + 1;

@@ -481,6 +481,12 @@ fn the_list_s_title_and_search_give_way_to_its_tools_in_a_narrow_list() {
                 harness.key(drive::Key::Char(key));
             }
             harness.advance(ms(400));
+            // The panel answers once the field is still: until then it lists the places, as tall
+            // as the list, and the press below would land on one of them.
+            settle_until(&mut harness, |h| {
+                h.text_of(".ds-search-card")
+                    .is_some_and(|card| !card.contains("Places"))
+            });
             // A press outside the panel puts it away and leaves the search.
             let column = rect(&harness, ".list-col");
             harness.click(Point {

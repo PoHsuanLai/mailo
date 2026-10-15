@@ -225,6 +225,13 @@ async fn a_key_without_a_secret_is_deleted_at_once() {
     );
     settle(&mut dom, &mut done).await;
     assert!(store.pgp_key(theirs.fingerprint).unwrap().is_none());
+    // With no window to toast in, the page says it; the toast's Undo puts the key back whole.
+    let page = dioxus_ssr::render(&dom);
+    assert!(page.contains("Deleted the key of"), "{page}");
+    crate::ui::motion::Restore::Key(theirs.clone())
+        .put_back(&store)
+        .unwrap();
+    assert_eq!(store.pgp_key(theirs.fingerprint).unwrap(), Some(theirs));
 }
 
 #[tokio::test]

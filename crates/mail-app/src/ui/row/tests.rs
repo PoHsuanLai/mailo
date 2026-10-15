@@ -64,18 +64,16 @@ async fn a_right_click_on_a_row_lists_every_action_it_has() {
     assert_eq!(
         menu_names(&page),
         [
-            crate::ui::window::OPEN_NAME,
+            menus::REPLY,
+            menus::REPLY_ALL,
             menus::FORWARD,
             menus::MARK_AS_READ,
             menus::STAR,
             menus::PIN,
-            menus::MUTE,
             menus::SNOOZE,
-            menus::REMIND,
             menus::LABEL,
             menus::MOVE_TO,
             menus::ARCHIVE,
-            menus::MARK_AS_SPAM,
             menus::MOVE_TO_TRASH,
         ]
     );
@@ -146,7 +144,7 @@ async fn snooze_from_the_menu_opens_the_snooze_menu() {
     row_action(&mut dom, &seen, &subject, menus::SNOOZE).await;
     let page = dioxus_ssr::render(&dom);
     assert!(
-        page.contains("Snooze until"),
+        page.contains(menus::CHOOSE_TIME),
         "Snooze… did not open the snooze menu:\n{page}"
     );
     assert_eq!(changes(&store), changed, "opening the snooze menu snoozed");

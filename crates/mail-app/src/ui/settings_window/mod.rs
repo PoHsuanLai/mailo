@@ -15,9 +15,9 @@
 //! come in and go out through ⌘K, so Contacts is not a page here.
 //!
 //! Every way into one of those pages from the main window (⌘K, the composer's bar) opens the
-//! window on that page, or turns the open window to it ([`open_at`]), and Connections'
-//! gear opens it on an account's page ([`open_account`]): where it is asked to be is put in
-//! [`SettingsAsked`], which every window shares, and the Settings window follows it.
+//! window on that page, or turns the open window to it ([`open_at`]), and the composer's way to
+//! an account's keys opens it on that account's page ([`open_account`]): where it is asked to be
+//! is put in [`SettingsAsked`], which every window shares, and the Settings window follows it.
 //!
 //! The window is quire's (`ds_blitz::open_window`), with the root contexts every window of the
 //! app is given. It keeps its own `Shell` for its pages and the sheets it opens, and tells the other windows
@@ -249,10 +249,13 @@ fn quire() {
         Ok(handle) => {
             *opened.0.borrow_mut() = Some(handle);
         }
-        Err(why) => crate::ui::motion::tell(
-            format!("Could not open Settings: {why}"),
-            crate::ui::motion::Follow::Nothing,
-        ),
+        Err(why) => {
+            log::warn!("the Settings window would not open: {why}");
+            crate::ui::motion::tell(
+                crate::ui::copy::toasts::would_not_open(TITLE),
+                crate::ui::motion::Follow::Nothing,
+            );
+        }
     }
 }
 

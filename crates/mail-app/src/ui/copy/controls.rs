@@ -12,6 +12,8 @@ pub const DELETE_FOLDER_AND_MAIL: &str = "Delete Folder and Mail";
 pub const SEND: &str = "Send";
 /// A sheet's way out that does nothing.
 pub const CANCEL: &str = "Cancel";
+/// A toast's button that puts back what was just deleted.
+pub const UNDO: &str = "Undo";
 /// Tidy Up's button: archive the conversations it lists.
 pub fn archive_count(count: usize) -> String {
     format!("Archive {count}")
@@ -29,3 +31,6 @@ pub const REMOVE: &str = "Remove";
 pub const NEW_RULE: &str = "New Rule…";
 /// Settings › Keyboard: every key as it ships, shown only while one differs.
 pub const RESTORE_DEFAULTS: &str = "Restore Defaults";
+
+/// The sign-in question's answer for an account Microsoft refused over IMAP.
+pub const USE_GRAPH: &str = "Use Microsoft Graph";

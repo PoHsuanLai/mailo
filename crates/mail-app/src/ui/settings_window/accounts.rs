@@ -5,8 +5,8 @@
 //! account's page's.
 //!
 //! The pages are quire's `PaneStack`; which are shown is the window's `Shell`
-//! (`accounts_pane.path`), so the main window can ask for an account's page
-//! ([`super::open_account`]) and a removal can go back to the list. The stack takes the back
+//! (`accounts_pane.path`), so a window can be asked onto an account's page (`SettingsAt::Account`)
+//! and a removal can go back to the list. The stack takes the back
 //! button, Escape and ⌘[, moves the keyboard to the pushed page's back button and, on the way
 //! back, to the row that opened it.
 //!
@@ -61,7 +61,7 @@ pub(super) fn Accounts(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
         AccountsPage::Account(account) => rsx! { AccountPage { shell, revision, account } },
         AccountsPage::OtherKeys => rsx! {
             Form {
-                crate::ui::pgp::keys::KeysPage { whose: crate::ui::pgp::keys::Whose::Others }
+                crate::ui::pgp::keys::KeysPage { whose: crate::ui::pgp::keys::Whose::Others, revision }
             }
         },
     });

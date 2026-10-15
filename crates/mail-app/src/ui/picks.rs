@@ -8,6 +8,7 @@
 
 use super::motion::{act_all, act_kind_all, motion};
 use super::press::on_primary;
+use crate::ui::copy::{aria, menus, status, tooltips};
 use crate::ui::view::{Shell, Shortcut, mute_label, op_for_selection};
 use dioxus::prelude::*;
 use ds::components::controls::button_model::{Bezel, ImagePosition};
@@ -143,12 +144,12 @@ pub(super) fn PickBar(
         .collect();
     let offered = |action| op_for_selection(action, &summaries);
     let read = match offered(Shortcut::ToggleRead) {
-        Some(OpKind::MarkUnread) => (Icon::Mail, "Mark unread", "Mark as Unread"),
-        _ => (Icon::MailOpen, "Mark read", "Mark as Read"),
+        Some(OpKind::MarkUnread) => (Icon::Mail, menus::MARK_AS_UNREAD),
+        _ => (Icon::MailOpen, menus::MARK_AS_READ),
     };
     let star = match offered(Shortcut::ToggleStar) {
-        Some(OpKind::Unstar) => "Unstar",
-        _ => "Star",
+        Some(OpKind::Unstar) => menus::UNSTAR,
+        _ => menus::STAR,
     };
     let mute = mute_label(&summaries);
     // The way back for what is archived, binned or in Spam: Move to Inbox, or Not Spam when all
@@ -161,32 +162,22 @@ pub(super) fn PickBar(
         .iter()
         .any(|summary| crate::ui::bin::offered(bin, summary));
     let keys_for = crate::ui::actions::tip;
-    let buttons: Vec<(Shortcut, Icon, &'static str, &'static str)> = [
-        (Shortcut::Archive, Icon::Archive, "Archive", "Archive"),
-        (
-            Shortcut::Trash,
-            Icon::Trash,
-            "Move to Trash",
-            "Move to Trash",
-        ),
-        (
-            Shortcut::Spam,
-            Icon::OctagonAlert,
-            "Mark as spam",
-            "Mark as Spam",
-        ),
-        (Shortcut::ToggleRead, read.0, read.1, read.2),
-        (Shortcut::ToggleStar, Icon::Star, star, star),
+    let buttons: Vec<(Shortcut, Icon, &'static str)> = [
+        (Shortcut::Archive, Icon::Archive, menus::ARCHIVE),
+        (Shortcut::Trash, Icon::Trash, menus::MOVE_TO_TRASH),
+        (Shortcut::Spam, Icon::OctagonAlert, menus::MARK_AS_SPAM),
+        (Shortcut::ToggleRead, read.0, read.1),
+        (Shortcut::ToggleStar, Icon::Star, star),
     ]
     .into_iter()
-    .filter(|(action, _, _, _)| offered(*action).is_some())
+    .filter(|(action, _, _)| offered(*action).is_some())
     .collect();
     let mute_keys = keys_for(Shortcut::ToggleMute);
     rsx! {
-        span { class: "status", "{count} selected" }
+        span { class: "status", {status::selected(count)} }
         // The actions wrap within the list column when it is too narrow for one line.
         div { class: "pick-tools",
-            for (action, icon, name, short) in buttons {
+            for (action, icon, name) in buttons {
                 Button {
                     key: "{name}",
                     bezel: Bezel::Toolbar,
@@ -194,10 +185,10 @@ pub(super) fn PickBar(
                     size: ControlSize::Large,
                     label: name.to_owned(),
                     icon,
-                    title: Some(short.to_owned()),
+                    title: Some(name.to_owned()),
                     title_shortcut: keys_for(action),
                     common: Common {
-                        aria_label: Some(format!("{name} the {count} selected")),
+                        aria_label: Some(aria::on_selected(name, count)),
                         ..Common::default()
                     },
                     onclick: on_primary(move || {
@@ -215,7 +206,7 @@ pub(super) fn PickBar(
                     icon: Icon::Corner,
                     title: Some(back.to_owned()),
                     common: Common {
-                        aria_label: Some(crate::ui::copy::aria::on_selected(back, count)),
+                        aria_label: Some(aria::on_selected(back, count)),
                         ..Common::default()
                     },
                     onclick: on_primary(move || {
@@ -235,7 +226,7 @@ pub(super) fn PickBar(
                 title: Some(mute.to_owned()),
                 title_shortcut: mute_keys,
                 common: Common {
-                    aria_label: Some(format!("{mute} the {count} selected")),
+                    aria_label: Some(aria::on_selected(mute, count)),
                     ..Common::default()
                 },
                 onclick: on_primary(move || {
@@ -248,11 +239,11 @@ pub(super) fn PickBar(
                     bezel: Bezel::Toolbar,
                     image: ImagePosition::Only,
                     size: ControlSize::Large,
-                    label: "Delete forever".to_owned(),
+                    label: aria::DELETE_FOREVER.to_owned(),
                     icon: Icon::Trash,
-                    title: Some("Delete Forever".to_owned()),
+                    title: Some(aria::DELETE_FOREVER.to_owned()),
                     common: Common {
-                        aria_label: Some(format!("Delete the {count} selected forever")),
+                        aria_label: Some(aria::delete_selected_forever(count)),
                         ..Common::default()
                     },
                     onclick: on_primary(move || {
@@ -267,12 +258,12 @@ pub(super) fn PickBar(
                 bezel: Bezel::Toolbar,
                 image: ImagePosition::Only,
                 size: ControlSize::Large,
-                label: "Clear the selection".to_owned(),
+                label: aria::CLEAR_THE_SELECTION.to_owned(),
                 icon: Icon::X,
-                title: Some("Clear Selection".to_owned()),
+                title: Some(tooltips::CLEAR_SELECTION.to_owned()),
                 title_shortcut: Some(crate::ui::actions::escape()),
                 common: Common {
-                    aria_label: Some("Clear the selection".to_owned()),
+                    aria_label: Some(aria::CLEAR_THE_SELECTION.to_owned()),
                     ..Common::default()
                 },
                 onclick: on_primary(move || {

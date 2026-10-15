@@ -42,7 +42,6 @@ use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::icon::render::Glyph;
 use mail_core::provider::Provider;
-use mail_core::view::hover_in;
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
 use menu::{Opener, Pick, RowMenu};
@@ -129,8 +128,7 @@ pub(super) fn MailRow(
     let unread = summary.read == ReadState::Unread;
     let starred = summary.star == Star::Starred;
     let muted = summary.mute == Mute::Muted;
-    let follow_up = summary.follow_up;
-    let no_reply = mail_core::follow_up::row_words(&follow_up);
+    let no_reply = mail_core::follow_up::row_words(&summary.follow_up);
     let who = sender(&summary);
     let when = mail_core::when::listed(summary.last_date, chrono::Utc::now(), &Local);
     let subject = summary.subject.clone();
@@ -140,17 +138,8 @@ pub(super) fn MailRow(
         None => (Vec::new(), summary.snippet.clone(), Vec::new()),
     };
     let files = matches!(summary.attachments, Attachments::Present { .. });
-    // The menu offers what the old hover strip did: the saved view's own actions, or the usual ones,
-    // and, in Trash or Spam and only there, Delete forever, which asks first.
-    let mut offered: Vec<OpKind> = hover_in(shell.read().saved_view(), &summary);
-    if crate::ui::bin::offered(crate::ui::bin::bin_shown(&shell.read()), &summary) {
-        offered.push(OpKind::Destroy);
-    }
-    let menu_rows = menu::rows(
-        &menu::groups(&offered, &summary),
-        &summary,
-        chrono::Utc::now(),
-    );
+    // The same menu in every place: what the conversation's state offers, and nothing else.
+    let menu_rows = menu::rows(&menu::groups(&summary), &summary, chrono::Utc::now());
     let filing = shell.read().filing == Some(id);
     // Where the menus a pick opens float: where the row's menu stood, else against the row.
     let keys = use_keys();
@@ -164,8 +153,6 @@ pub(super) fn MailRow(
     let mut more_shown = use_signal(|| None::<Shown>);
     // The row's menu, and what opened it.
     let mut row_menu = use_signal(|| None::<Opener>);
-    // "Remind me if no reply", opened from the row's menu where it stood.
-    let mut reminding = use_signal(|| None::<Opener>);
     let parts = shell.read().parts;
     let snippet =
         (parts.snippet.shown() && !snippet.is_empty()).then(|| runs(&snippet, &snippet_marks));
@@ -290,19 +277,6 @@ pub(super) fn MailRow(
                     on_pick: move |pick: Pick| {
                         row_menu.set(None);
                         match pick {
-                            Pick::Window => super::window::open_in_window(id),
-                            // Stop Reminding acts at once; Remind me opens its times.
-                            Pick::Remind => {
-                                if !act::turn_off(
-                                    &consume_context::<Arc<SqliteStore>>(),
-                                    shell,
-                                    revision,
-                                    id,
-                                    OpKind::FollowUp,
-                                ) {
-                                    reminding.set(Some(opener));
-                                }
-                            }
                             // Not offered here: the reader's ⋯ holds them.
                             Pick::Download | Pick::Print | Pick::View => {}
                             Pick::Press(pressed) => {
@@ -319,17 +293,6 @@ pub(super) fn MailRow(
                         }
                     },
                     on_close: move |_| row_menu.set(None),
-                }
-            }
-            if let Some(opener) = reminding() {
-                super::follow_up::FollowUpMenu {
-                    id,
-                    current: follow_up,
-                    shell,
-                    revision,
-                    anchor: row_box(),
-                    placed: Some(opener.place()),
-                    on_close: move |_| reminding.set(None),
                 }
             }
             if shell.read().snoozing == Some(id) {

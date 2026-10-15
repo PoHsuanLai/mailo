@@ -1,8 +1,10 @@
 //! The search panel: Spotlight inside the window. ⌘K, or a press on the toolbar's search,
 //! brings up a card at the top centre of the window holding a large search field, and under it
-//! the mail, commands, places and people the text names.
+//! Recent, the places and the commands; typed, the places, people and commands the text names.
 //!
-//! What is typed is the list's search, so the list behind the card narrows as it always did.
+//! What is typed is the list's search, so the mail it finds fills the list behind the card, and
+//! the card shows none. Under the field, chips show the search's syntax while nothing is typed or
+//! while the last word starts an operator, which Tab completes.
 //! The card is quire's `SearchField` in its card form (the field and its rows as one surface,
 //! floated from the line at the top; a press outside it closes it, with no scrim). The rows show
 //! at once (`Panel::Shown`) and the arrows stop at the ends (`Ends::Stop`); the keyboard stays in
@@ -12,12 +14,13 @@
 //! [`QUIET`](super::super::debounce::QUIET), and an answer to text a newer keystroke has replaced
 //! is dropped, so Return runs a row on screen, not one from a query run afresh.
 
-use super::items::tokens;
+use super::items::{chips, complete_syntax};
 use super::keys::{BarKey, Plain, Step, Typed, bar_key, step};
 use super::panel::{Drawn, Fetch, World, panel_rows};
-use super::sections::completion;
+use super::sections::{completion, lights};
 use super::suggest::suggestions;
 use crate::ui::actions::{self, Heard, Own};
+use crate::ui::copy;
 use crate::ui::menu::anchor_at;
 use crate::ui::space::Spaces;
 use crate::ui::view::{Bar, BarListing, BarOpen, Shell};
@@ -80,7 +83,6 @@ pub(in crate::ui) fn Spotlight(
         pages,
         revision,
         side_hidden,
-        spaces,
         drawn,
         desk,
     };
@@ -98,11 +100,13 @@ pub(in crate::ui) fn Spotlight(
     let text = field_text(&shell.read());
     let chips = match &open.listing {
         BarListing::Templates(_) => Vec::new(),
-        BarListing::Search => tokens(&text),
+        BarListing::Search => chips(&text),
     };
     // The highlighted row, by its key: quire's cursor names a row by what picking it hands back.
+    // Typed text lights a row only once it names it, or once a key or the pointer chose one.
     let lit = rows
         .get(open.active.min(rows.len().saturating_sub(1)))
+        .filter(|row| text.trim().is_empty() || open.moved || lights(row, &text))
         .map(|row| row.key.clone());
     let keyed = rows.clone();
     let keyed_on = rows.clone();
@@ -112,7 +116,7 @@ pub(in crate::ui) fn Spotlight(
         Fetch { shell, drawn }
         SearchField::<String> {
             label: LABEL.to_owned(),
-            placeholder: "Search mail, commands, places and people".to_owned(),
+            placeholder: copy::fields::SEARCH_EVERYTHING.to_owned(),
             size: ControlSize::ExtraLarge,
             value: text,
             tokens: chips,
@@ -140,6 +144,8 @@ pub(in crate::ui) fn Spotlight(
             ondismiss: move |()| leave(shell),
             oninput: move |value: String| set_text(shell, pages, value),
             onpick: move |key: String| run_row(ctx, &key),
+            // Return with no row lit: the search is what was asked for, and the list shows it.
+            onsubmit: move |_: String| leave(shell),
             onkey: move |event: KeyboardEvent| on_key(ctx, keys, &keyed_on, event),
             onfocus: move |()| in_a_field.set(true),
             onblur: move |()| in_a_field.set(false),
@@ -167,6 +173,16 @@ fn on_key(ctx: Ctx, keys: Keys, rows: &[crate::ui::menu::MenuItem], event: Keybo
     let Some(key) = bar_key(&event.key().to_string(), plain) else {
         return;
     };
+    // Tab completes an operator the last word starts ("fr" to "from:") before it completes a row.
+    let typed = field_text(&shell.peek());
+    if key == BarKey::Tab
+        && let Some(done) = complete_syntax(&typed)
+    {
+        event.prevent_default();
+        event.stop_propagation();
+        set_text(shell, ctx.pages, done);
+        return;
+    }
     // Return runs the highlighted row through the field's own pick, which quire makes before it
     // lets this hear the key, so this only keeps the key from the window. The arrows are
     // quire's too: they reach here only with no rows to move over, where they do nothing.
@@ -218,7 +234,6 @@ pub(super) struct Ctx {
     pub pages: Signal<u32>,
     pub revision: Signal<u64>,
     pub side_hidden: Signal<bool>,
-    pub spaces: Signal<Spaces>,
     pub drawn: Signal<Drawn>,
     /// Where a draft put aside comes back from, picked in Recent. Taken when the panel is made,
     /// as a handler may run outside the window's scope.
@@ -258,6 +273,7 @@ fn set_text(mut shell: Signal<Shell>, mut pages: Signal<u32>, text: String) {
     match &mut write.bar {
         Bar::Open(open) => {
             open.active = 0;
+            open.moved = false;
             if let BarListing::Templates(typed) = &mut open.listing {
                 *typed = text;
                 return;
@@ -276,6 +292,7 @@ fn set_text(mut shell: Signal<Shell>, mut pages: Signal<u32>, text: String) {
 fn set_active(mut shell: Signal<Shell>, to: usize) {
     if let Bar::Open(open) = &mut shell.write().bar {
         open.active = to;
+        open.moved = true;
     }
 }
 
