@@ -348,8 +348,9 @@ pub(in crate::ui) mod tests {
     }
 
     /// Spacing rule: the reader and the composer share one content inset, `--s-18`, on both
-    /// edges of every band, so a subject, a header line, a body and a bar start at one x; and a
-    /// bar (the composer's foot, the viewer's) is `--s-10` above and below.
+    /// edges of every band, so a subject, a header line, a body and a bar start at one x (Peek's
+    /// head starts there too, its right taken by Peek's close tool); and a bar (the composer's
+    /// foot) is `--s-10` above and below.
     #[test]
     fn the_reader_and_the_composer_share_one_inset() {
         const INSET: &str = "var(--s-18)";
@@ -360,7 +361,7 @@ pub(in crate::ui) mod tests {
             (".c-props", "padding"),
             (".c-main", "padding"),
             (".c-foot", "padding"),
-            (".viewer-head", "padding"),
+            (".peek-main", "padding"),
             (".banners", "margin"),
         ];
         for (selector, property) in BANDS {
@@ -379,10 +380,13 @@ pub(in crate::ui) mod tests {
         ] {
             assert_eq!(values_of(selector, property), [INSET], "{selector}");
         }
-        for selector in [".c-foot", ".viewer-head"] {
-            let value = values_of(selector, "padding");
-            assert_eq!(words(&value[0])[0], "var(--s-10)", "{selector}: a bar");
-        }
+        assert_eq!(
+            values_of(".peek-head", "padding-left"),
+            [INSET],
+            ".peek-head"
+        );
+        let foot = values_of(".c-foot", "padding");
+        assert_eq!(words(&foot[0])[0], "var(--s-10)", ".c-foot: a bar");
     }
 
     /// Colour rule: the stylesheet names no colour. A hex, a colour function or a named colour in

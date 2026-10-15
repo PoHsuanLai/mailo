@@ -92,7 +92,7 @@ article.frame + article.frame { border-top: var(--hair) solid var(--line-soft); 
   margin: var(--s-8) calc(var(--s-10) + var(--ctl-h-l) + var(--s-8)) 0 0; padding-left: var(--s-18);
 }
 .peek-name {
-  margin: 0; margin-right: auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  margin: 0; margin-right: auto; min-width: 0; overflow: hidden; white-space: nowrap;
   font-size: var(--fs-title); font-weight: 700;
 }
 .peek-page { color: var(--ink-faint); font-variant-numeric: tabular-nums; }
