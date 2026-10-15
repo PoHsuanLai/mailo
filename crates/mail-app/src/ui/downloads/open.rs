@@ -1,7 +1,8 @@
 //! A saved file, opened in the app the system gives its kind, or shown in its folder. On the
-//! desktop the system's own open-a-file service is asked first, which hands the file to the app the
-//! person chose for its kind; then anyview, the quire desktop's viewer, which shows nearly every
-//! kind an attachment comes in; the system's opener program is the way when neither answers.
+//! quire desktop a file opens in anyview, the desktop's viewer, which shows nearly every kind an
+//! attachment comes in. Elsewhere, or when anyview does not answer, the desktop's own
+//! open-a-file service hands it to the app the person chose for its kind; the system's opener
+//! program is the way when no such service runs.
 //!
 //! Both block until the system has taken the request, so the window calls them off the thread
 //! that draws. What they answer on failure is a sentence the window shows as it is.
@@ -14,12 +15,12 @@ pub(in crate::ui) fn open(path: &Path) -> Result<(), String> {
     if !path.exists() {
         return Err(gone(path));
     }
-    #[cfg(not(any(target_os = "macos", windows)))]
-    if by_service(path).is_ok() {
-        return Ok(());
-    }
     #[cfg(all(feature = "quire-desktop", not(any(target_os = "macos", windows))))]
     if in_anyview(path).is_ok() {
+        return Ok(());
+    }
+    #[cfg(not(any(target_os = "macos", windows)))]
+    if by_service(path).is_ok() {
         return Ok(());
     }
     run(opener(path))
