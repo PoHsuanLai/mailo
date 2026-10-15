@@ -76,7 +76,7 @@ fn image(tile: &Tile) -> Option<MenuImage> {
             tone: AvatarTone::Account(hex_colour(color)),
             shape: AvatarShape::Round,
         })),
-        Tile::Glyph(_) | Tile::Text(_) => None,
+        Tile::None | Tile::Glyph(_) | Tile::Text(_) => None,
     }
 }
 

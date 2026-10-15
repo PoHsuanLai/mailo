@@ -86,10 +86,10 @@ pub struct View {
     pub threading: Threading,
     /// Columns, in display order.
     pub shown: Vec<Property>,
-    /// The hover strip's buttons.
-    ///
-    /// [`crate::OpKind`], not [`crate::Op`]: a saved view can say "offer Reply here" but
-    /// cannot carry the draft that a reply would produce, because it does not exist yet.
+    /// The actions a view once chose for its rows. Not read any more: a row's menu is the same
+    /// in every view, built from the conversation alone. Kept, and empty in a view saved now, so
+    /// that a view saved before still loads.
+    #[serde(default)]
     pub hover: Vec<crate::op::OpKind>,
 }
 

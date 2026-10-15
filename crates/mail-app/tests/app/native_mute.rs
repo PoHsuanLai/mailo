@@ -1,6 +1,6 @@
 //! Muting a conversation, driven the way its user drives it in the real window on Blitz
-//! (`ds_harness::Harness`): the row's Mute button, the reader's, `m` on the open conversation and
-//! on a selection, and Ctrl Z taking each back.
+//! (`ds_harness::Harness`): the reader's Mute, `m` on the open conversation and on a selection,
+//! and Ctrl Z taking each back.
 //!
 //! Every case opens the real window over a store seeded in a `TempDir`. The window is handed no
 //! directories, so it writes no file anywhere; nothing here touches the real store or config.
@@ -13,7 +13,6 @@ use crate::settle;
 use settle::settle_until;
 
 use crate::drive;
-use crate::row_menu;
 use drive::{Drive, PRIMARY};
 use mail_core::{Arrival, absorb};
 use mail_core::{SqliteStore, Store};
@@ -190,24 +189,25 @@ fn toast(harness: &Harness) -> String {
     harness.text_of(".ds-toast").unwrap_or_default()
 }
 
-/// The row's Mute mutes it and marks it, and Ctrl Z unmutes it. Then the reader mutes the open
-/// conversation and says so, and `m` unmutes it, each its own gesture to take back.
+/// `m` mutes the open conversation and marks its row, and Ctrl Z unmutes it. Then the reader
+/// mutes the open conversation and says so, and `m` unmutes it, each its own gesture to take
+/// back.
 #[test]
-fn the_row_s_menu_and_the_reader_mute_and_ctrl_z_and_m_unmute() {
+fn m_and_the_reader_mute_and_ctrl_z_and_m_unmute() {
     let (mut harness, _dir, store) = open();
     assert_eq!(muted(&store), Vec::<String>::new(), "muted at the start");
     assert_eq!(marked(&harness), Vec::<usize>::new(), "marked at the start");
 
-    // The row's menu.
-    click_row(&mut harness, 1, &[]);
-    row_menu::row_action(&mut harness, &row(2), "Mute");
+    // `m` on the open conversation. Mute is not in a row's menu: the reader's ⋯ holds it.
+    click_row(&mut harness, 2, &[]);
+    harness.key(Key::Char('m'));
     harness.advance(ms(600));
 
-    assert_eq!(muted(&store), vec![INBOX[1].1.to_owned()], "the row's Mute");
+    assert_eq!(muted(&store), vec![INBOX[1].1.to_owned()], "`m` muted it");
     assert_eq!(marked(&harness), vec![2], "the row shows it is muted");
     assert!(
         toast(&harness).contains("Muted"),
-        "the row's Mute: {}",
+        "`m`: {}",
         toast(&harness)
     );
     // Muting leaves the conversation where it is: it is about the replies still to come.

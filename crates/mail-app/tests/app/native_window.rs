@@ -11,7 +11,6 @@
 //! Every store is seeded in a `TempDir`, and no window is handed directories, so nothing here
 //! writes a file anywhere else.
 
-use ds::base::press::PointerButton;
 use ds::prelude::{Point, ShortcutKey as Key};
 use ds_blitz::{NetPolicy, PrintOutcome, RootContexts};
 use ds_harness::{Clock, Driver, Harness, HarnessConfig, Query as Read, Viewport};
@@ -283,22 +282,15 @@ fn asked_for(store: &SqliteStore, subject: &str) -> Vec<Ask> {
     }]
 }
 
-/// Three ways to ask for a conversation in a window of its own, each asking once: a row's context
-/// menu, with nothing open, asks for that row's conversation; the reader's menu asks for the open
-/// one; Shift+Enter asks for the focused one, and Enter alone opens no window.
+/// Two ways to ask for a conversation in a window of its own, each asking once: the reader's
+/// menu asks for the open one; Shift+Enter asks for the focused one, and Enter alone opens no
+/// window. A row's menu has no window row: the reader's ⋯ holds it.
 #[test]
-fn a_row_s_menu_the_reader_s_menu_and_shift_enter_ask_for_a_window_of_its_own() {
+fn the_reader_s_menu_and_shift_enter_ask_for_a_window_of_its_own() {
     let dir = tempfile::tempdir().unwrap();
     let store = seeded(dir.path());
     let (mut harness, recorder) = main_window(&store, &Revisions::new());
     let mut want = Vec::<Ask>::new();
-
-    // A row's context menu. Nothing open: the row right-clicked is the one asked for.
-    let at = on_row(&harness, 3);
-    harness.press(at, PointerButton::Secondary);
-    press_open_in_window(&mut harness);
-    want.extend(asked_for(&store, INBOX[2].1));
-    assert_eq!(recorder.asked(), want, "the row's context menu");
 
     // The reader's ⋯, View, its window row.
     click_row(&mut harness, 2);

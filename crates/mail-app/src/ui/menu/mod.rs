@@ -255,6 +255,7 @@ fn line_of(parts: &[Run]) -> TextLine {
 
 fn leading(tile: &Tile, size: AvatarSize) -> RowLeading {
     match tile {
+        Tile::None => RowLeading::None,
         Tile::Icon(icon) => RowLeading::Icon(*icon),
         Tile::Avatar { letter, color } => RowLeading::Avatar(AvatarFace {
             initial: *letter,

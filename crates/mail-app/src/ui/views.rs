@@ -9,7 +9,7 @@
 use super::common::Seg;
 use super::menu::{Floating, MenuItem, Right, Tile};
 use super::press::{SheetClose, on_primary};
-use crate::ui::saved::{self, HOVER_CHOICES, ViewDraft, group_choices, group_name, hover_name};
+use crate::ui::saved::{self, ViewDraft, group_choices, group_name};
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::components::controls::button_model::Answers;
@@ -18,7 +18,7 @@ use ds::prelude::*;
 use ds::root::common::Common;
 use ds::root::pass_through::ExtraClass;
 use mail_core::{SqliteStore, Store};
-use mail_domain::{OpKind, SortDir, View};
+use mail_domain::{SortDir, View};
 use std::sync::Arc;
 
 /// Open the sheet on a new view of what `search` finds.
@@ -210,21 +210,6 @@ pub(in crate::ui) fn ViewSheet(
                             },
                         }
                     }
-                    div { class: "rules-part",
-                        h4 { "Row actions" }
-                        p { class: "rules-faint",
-                            if draft.hover.is_empty() {
-                                "None chosen: each row's menu offers the usual actions."
-                            } else {
-                                "Each row's menu offers these, where the conversation can take them."
-                            }
-                        }
-                        ul { class: "rules-actions",
-                            for kind in HOVER_CHOICES {
-                                HoverChoice { key: "{hover_name(kind)}", kind, on: draft.hover.contains(&kind), shell }
-                            }
-                        }
-                    }
                 }
                 div { class: "rules-part",
                     div { class: "rules-acts",
@@ -257,25 +242,6 @@ pub(in crate::ui) fn ViewSheet(
                         }
                     }
                 }
-            }
-        }
-    }
-}
-
-/// One hover button the view can offer: a button that stays pressed while it is in.
-#[component]
-fn HoverChoice(kind: OpKind, on: bool, shell: Signal<Shell>) -> Element {
-    let name = hover_name(kind);
-    rsx! {
-        li {
-            Button {
-                label: name,
-                value: Some(if on { Check::On } else { Check::Off }),
-                common: Common {
-                    aria_label: Some(format!("Offer {name} on hover")),
-                    ..Common::default()
-                },
-                onclick: on_primary(move || edit(shell, |draft| draft.toggle_hover(kind))),
             }
         }
     }

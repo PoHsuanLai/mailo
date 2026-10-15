@@ -6,7 +6,7 @@
 
 use chrono::TimeZone;
 use mail_domain::{
-    Filter, GroupKey, LabelId, OpKind, Property, Sort, SortDir, Threading, View, ViewId, ViewKind,
+    Filter, GroupKey, LabelId, Property, Sort, SortDir, Threading, View, ViewId, ViewKind,
 };
 
 /// A view being made or changed.
@@ -25,10 +25,6 @@ pub struct Draft {
     /// what it lists.
     pub kept: Option<Filter>,
     pub group: Option<GroupKey>,
-    /// The actions a row's menu offers, in the order they were chosen (the menu keeps its own
-    /// order). Empty is the usual set. Named `hover` for the strip that once drew them, as the
-    /// store keeps it.
-    pub hover: Vec<OpKind>,
     pub dir: SortDir,
 }
 
@@ -52,7 +48,6 @@ impl Draft {
             query: search.to_owned(),
             kept: None,
             group: None,
-            hover: Vec::new(),
             dir: SortDir::Desc,
         }
     }
@@ -66,18 +61,7 @@ impl Draft {
             kept: words.is_none().then(|| view.filter.clone()),
             query: words.unwrap_or_default(),
             group: view.group_by.clone(),
-            hover: view.hover.clone(),
             dir: view.sort.dir,
-        }
-    }
-
-    /// Put a hover button in, or take it out.
-    pub fn toggle_hover(&mut self, kind: OpKind) {
-        match self.hover.iter().position(|one| *one == kind) {
-            Some(at) => {
-                self.hover.remove(at);
-            }
-            None => self.hover.push(kind),
         }
     }
 
@@ -111,7 +95,7 @@ impl Draft {
             group_by: self.group.clone(),
             threading: Threading::Threaded,
             shown: Vec::new(),
-            hover: self.hover.clone(),
+            hover: Vec::new(),
         })
     }
 }
@@ -237,15 +221,5 @@ mod tests {
         // A label nothing knows by name any more cannot be written back.
         let gone = Filter::HasLabel(LabelId::from_uuid(uuid::Uuid::from_u128(99)));
         assert_eq!(written(&gone, &labels(), &Utc), None);
-    }
-
-    #[test]
-    fn a_hover_button_is_put_in_and_taken_out_in_the_order_chosen() {
-        let mut draft = Draft::from_search("is:unread");
-        draft.toggle_hover(OpKind::Snooze);
-        draft.toggle_hover(OpKind::Archive);
-        assert_eq!(draft.hover, vec![OpKind::Snooze, OpKind::Archive]);
-        draft.toggle_hover(OpKind::Snooze);
-        assert_eq!(draft.hover, vec![OpKind::Archive]);
     }
 }

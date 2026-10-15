@@ -1,21 +1,21 @@
 //! Saved views, as the editor holds one and as the store keeps it.
 //!
-//! A view is a search that stays: its filter, how its list is grouped, and which actions its
-//! rows' menu offers beside the ones every row's menu has. It is a sidebar place ([`crate::ui::view::saved_place`]) and a row in
-//! the store ([`mail_core::Store::views`]). Free of Dioxus, like [`crate::ui::view`]: turning what
-//! was typed into a [`View`] can be wrong without a window.
+//! A view is a search that stays: its filter and how its list is grouped. It is a sidebar place
+//! ([`crate::ui::view::saved_place`]) and a row in the store ([`mail_core::Store::views`]). Free
+//! of Dioxus, like [`crate::ui::view`]: turning what was typed into a [`View`] can be wrong
+//! without a window.
 
 use crate::ui::view::{Place, Shell, saved_of, saved_place};
 use chrono::TimeZone;
 use mail_core::views::{Draft, Refusal};
-use mail_domain::{GroupKey, LabelId, OpKind, Property, View, ViewId};
+use mail_domain::{GroupKey, LabelId, Property, View, ViewId};
 
 pub use mail_core::views::written;
 
 /// A view being made or changed, as the editor holds it: [`mail_core::views::Draft`] and what the
 /// last Save or Delete refused, in words.
 ///
-/// The draft's fields read and write through this (`draft.name`, `draft.hover`), so the editor
+/// The draft's fields read and write through this (`draft.name`, `draft.group`), so the editor
 /// holds one value.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ViewDraft {
@@ -112,45 +112,6 @@ pub fn show_forgotten(shell: &mut Shell, id: ViewId) {
 
 fn is_view(place: &Place, id: ViewId) -> bool {
     saved_of(place).is_some_and(|view| view.id == id)
-}
-
-/// The actions a view's rows can be given, in the order the editor offers them.
-///
-/// Star is not here: every row draws its own star. Mark read stands for the pair, and is drawn
-/// as whichever the conversation needs ([`mail_core::view::hover_in`]).
-pub const HOVER_CHOICES: [OpKind; 10] = [
-    OpKind::Archive,
-    OpKind::Trash,
-    OpKind::Spam,
-    OpKind::MarkRead,
-    OpKind::Snooze,
-    OpKind::AddLabel,
-    OpKind::Pin,
-    OpKind::Mute,
-    OpKind::Reply,
-    OpKind::Forward,
-];
-
-/// What the editor calls a hover button.
-pub fn hover_name(kind: OpKind) -> &'static str {
-    match kind {
-        OpKind::Archive => "Archive",
-        OpKind::Trash => "Trash",
-        OpKind::Restore => "Restore",
-        OpKind::Spam => "Spam",
-        OpKind::MarkRead | OpKind::MarkUnread => "Read or unread",
-        OpKind::Star | OpKind::Unstar => "Star",
-        OpKind::AddLabel => "Label",
-        OpKind::RemoveLabel => "Remove label",
-        OpKind::Snooze => "Snooze",
-        OpKind::Pin => "Pin",
-        OpKind::Mute => "Mute",
-        OpKind::FollowUp => "Remind me",
-        OpKind::Destroy => "Delete forever",
-        OpKind::Reply => "Reply",
-        OpKind::ReplyAll => "Reply all",
-        OpKind::Forward => "Forward",
-    }
 }
 
 /// Every grouping the editor offers, as `(key, name, grouping)`: none, the fixed ones, then

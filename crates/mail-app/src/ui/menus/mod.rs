@@ -2,16 +2,26 @@
 //!
 //! A label and a snooze time are not things a button can carry, so the row opens one of these
 //! instead of performing the operation itself. Split from [`super::app`] (`CONVENTIONS.md` §8).
+//!
+//! Both are plain lists of words: no header restating what was picked to open them, and no
+//! glyph repeated down every row (design-language §2.2, §2.6).
 
-use super::menu::{Floating, MenuItem, Right, Tile, anchor_for, palette_groups};
+use super::menu::{Floating, MenuItem, MenuKey, Right, Tile, anchor_for, menu_key, palette_groups};
 use super::motion::{act, act_all};
 use super::picks::{label_all, with_selection};
+use crate::ui::copy;
 use crate::ui::view::Shell;
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
 use ds::components::content::avatar::AvatarSize;
-use ds::host::measure::MountedRef;
+use ds::base::geometry::placement::{Align, Side};
+use ds::components::fields::text_field_model::Invalid;
+use ds::components::overlays::popover::Arrow;
+use ds::host::measure::{Anchor, MountedRef};
+use ds::motion::detail::stamp::EventStamp;
 use ds::prelude::*;
+use ds::root::common::Common;
+use ds::root::pass_through::ExtraClass;
 use mail_core::SqliteStore;
 use mail_domain::*;
 use porter_core::AccountId;
@@ -19,11 +29,14 @@ use std::sync::Arc;
 
 /// The four times the snooze menu offers, as `(what it says, the phrase it means)`.
 const SNOOZE: &[(&str, &str)] = &[
-    ("Later today", "later"),
-    ("Tomorrow", "tomorrow"),
-    ("This weekend", "weekend"),
-    ("Next week", "monday"),
+    (copy::menus::LATER_TODAY, "later"),
+    (copy::menus::TOMORROW, "tomorrow"),
+    (copy::menus::THIS_WEEKEND, "weekend"),
+    (copy::menus::NEXT_WEEK, "monday"),
 ];
+
+/// The snooze menu's key for Choose Time…, which no phrase is.
+pub(super) const CHOOSE: &str = "choose";
 
 /// How a resolved snooze time is written on the row.
 pub(super) fn snooze_help<Tz: TimeZone>(at: DateTime<Utc>, zone: &Tz) -> String
@@ -91,28 +104,51 @@ where
     words
 }
 
-/// The snooze menu's rows. The hint is [`snooze_hint`] of [`mail_core::snooze::snooze_until`].
+/// The snooze menu's rows: the four times, each with [`snooze_hint`] of
+/// [`mail_core::snooze::snooze_until`] at its end, then Choose Time….
 pub(super) fn snooze_items<Tz: TimeZone>(now: DateTime<Utc>, zone: &Tz) -> Vec<MenuItem>
 where
     Tz::Offset: std::fmt::Display,
 {
+    let row = |key: &str, name: &str, right: Right| MenuItem {
+        key: key.to_owned(),
+        tile: Tile::None,
+        name: name.to_owned(),
+        help: None,
+        right,
+        group: None,
+        marks: Vec::new(),
+        title: Vec::new(),
+        detail: Vec::new(),
+    };
     SNOOZE
         .iter()
         .filter_map(|(says, phrase)| {
             let at = mail_core::snooze::snooze_until(phrase, now, zone).ok()?;
-            Some(MenuItem {
-                key: (*phrase).to_owned(),
-                tile: Tile::Icon(Icon::Clock),
-                name: (*says).to_owned(),
-                help: None,
-                right: Right::Hint(snooze_hint(at, now, zone)),
-                group: None,
-                marks: Vec::new(),
-                title: Vec::new(),
-                detail: Vec::new(),
-            })
+            Some(row(phrase, says, Right::Hint(snooze_hint(at, now, zone))))
         })
+        .chain([row(CHOOSE, copy::menus::CHOOSE_TIME, Right::None)])
         .collect()
+}
+
+/// The time a phrase typed into Choose Time… names, if it is one still to come. Read as
+/// `mailo snooze` reads it, so "fri 17:00" means the same in both.
+pub(super) fn chosen_time<Tz: TimeZone>(
+    typed: &str,
+    now: DateTime<Utc>,
+    zone: &Tz,
+) -> Result<DateTime<Utc>, String>
+where
+    Tz::Offset: std::fmt::Display,
+{
+    if typed.trim().is_empty() {
+        return Err(copy::fields::TYPE_A_TIME.to_owned());
+    }
+    let at = mail_core::snooze::snooze_until(typed, now, zone)?;
+    if at <= now {
+        return Err(copy::errors::time_passed(&when_words(at, now, zone)));
+    }
+    Ok(at)
 }
 
 /// The label menu's rows, including "Create “…”" when `typed` names nothing we have.
@@ -125,7 +161,7 @@ pub(super) fn label_items(
         .into_iter()
         .map(|choice| MenuItem {
             key: choice.id.to_string(),
-            tile: Tile::Icon(Icon::Tag),
+            tile: Tile::None,
             name: choice.name,
             help: None,
             right: Right::Check(choice.membership == Membership::In),
@@ -142,7 +178,7 @@ pub(super) fn label_items(
     if !typed.is_empty() && !known_name {
         items.push(MenuItem {
             key: format!("create:{typed}"),
-            tile: Tile::Icon(Icon::Tag),
+            tile: Tile::None,
             name: format!("Create “{typed}”"),
             help: Some("New label".to_owned()),
             right: Right::None,
@@ -155,7 +191,8 @@ pub(super) fn label_items(
     items
 }
 
-/// When to bring a conversation back, anchored to the button that asked.
+/// When to bring a conversation back, anchored to the button that asked: four times, and
+/// Choose Time… for any other, typed where the menu stood.
 #[component]
 pub(super) fn SnoozeMenu(
     id: ThreadId,
@@ -176,6 +213,30 @@ pub(super) fn SnoozeMenu(
             on_done.call(());
         }
     };
+    // Choose Time… picked: the field stands where the menu stood.
+    let mut choosing = use_signal(|| false);
+    // The whole selection when this row is picked, as one gesture, through the op `mailo snooze`
+    // applies; only the undo, the curl and the toast are the window's.
+    let snooze = move |at: DateTime<Utc>| {
+        let store = consume_context::<Arc<SqliteStore>>();
+        let ops = with_selection(shell, id)
+            .into_iter()
+            .map(|thread| (thread, Op::SetSnooze(Snooze::Until(at))))
+            .collect();
+        act_all(&store, shell, revision, ops);
+    };
+    if choosing() {
+        return rsx! {
+            ChooseTime {
+                anchor: anchor_for(anchor, placed),
+                on_chosen: move |at: DateTime<Utc>| {
+                    done();
+                    snooze(at);
+                },
+                on_close: move |()| done(),
+            }
+        };
+    }
     let now = Utc::now();
     // The Mac's menu has no second line, so each choice says its time at its trailing end.
     let items = snooze_items(now, &chrono::Local);
@@ -183,28 +244,94 @@ pub(super) fn SnoozeMenu(
         Floating {
             anchor,
             placed,
-            title: "Snooze until".to_owned(),
+            title: String::new(),
             items,
             on_pick: move |phrase: String| {
-                let store = consume_context::<Arc<SqliteStore>>();
-                // The same time `mailo snooze` resolves, applied through the same op; only the
-                // undo, the curl and the toast are the window's.
+                if phrase == CHOOSE {
+                    choosing.set(true);
+                    return;
+                }
                 match mail_core::snooze::snooze_until(&phrase, Utc::now(), &chrono::Local) {
                     Ok(at) => {
                         done();
-                        // The whole selection when this row is picked, as one gesture.
-                        let ops = with_selection(shell, id)
-                            .into_iter()
-                            .map(|thread| (thread, Op::SetSnooze(Snooze::Until(at))))
-                            .collect();
-                        act_all(&store, shell, revision, ops);
+                        snooze(at);
                     }
                     // The vocabulary is fixed and the clock is the only other input, so this
                     // is "the year 262143 has no tomorrow".
                     Err(why) => eprintln!("snooze: {why}"),
                 }
             },
-            on_close: move |_| done(),
+            // A pick closes the menu after it is heard; Choose Time… leaves its field up.
+            on_close: move |_| {
+                if !choosing() {
+                    done();
+                }
+            },
+        }
+    }
+}
+
+/// Choose Time…: a popover with one field taking a time in words, and under it the time it reads
+/// or why it reads none. Return snoozes until it; Esc or a click away closes it, snoozing nothing.
+#[component]
+fn ChooseTime(
+    anchor: Anchor,
+    on_chosen: EventHandler<DateTime<Utc>>,
+    on_close: EventHandler<()>,
+) -> Element {
+    let mut typed = use_signal(String::new);
+    let now = Utc::now();
+    let reading = chosen_time(&typed(), now, &chrono::Local);
+    // What it reads is help under the field; a phrase it cannot read is the field's own refusal.
+    let (validity, says) = match &reading {
+        Ok(at) => (
+            Validity::Valid,
+            Some(copy::fields::back_at(&when_in_sentence(*at, now, &chrono::Local))),
+        ),
+        Err(why) if typed().trim().is_empty() => (Validity::Valid, Some(why.clone())),
+        Err(why) => (
+            Validity::Invalid(Invalid {
+                message: why.clone().into(),
+                stamp: EventStamp(u32::try_from(typed().len()).unwrap_or(0)),
+            }),
+            None,
+        ),
+    };
+    rsx! {
+        Popover {
+            anchor,
+            placement: Placement::new(Side::Bottom, Align::Start),
+            gap: Px(4.0),
+            arrow: Arrow::None,
+            onclose: move |()| on_close.call(()),
+            div {
+                class: "pick-time",
+                onkeydown: move |event: KeyboardEvent| {
+                    match menu_key(&event.key().to_string()) {
+                        Some(MenuKey::Enter) => {
+                            event.prevent_default();
+                            if let Ok(at) = chosen_time(&typed(), Utc::now(), &chrono::Local) {
+                                on_chosen.call(at);
+                            }
+                        }
+                        Some(MenuKey::Escape) => {
+                            event.stop_propagation();
+                            on_close.call(());
+                        }
+                        _ => {}
+                    }
+                },
+                TextField {
+                    label: copy::fields::SNOOZE_UNTIL.to_owned(),
+                    placeholder: copy::fields::A_TIME.to_owned(),
+                    value: typed(),
+                    validity,
+                    help: says.map(TextLine::from),
+                    focus: FieldFocus::OnMount,
+                    oninput: move |value: String| typed.set(value),
+                    common: Common { extra_class: ExtraClass::parse("pick-field").ok(), ..Common::default() },
+                }
+            }
         }
     }
 }

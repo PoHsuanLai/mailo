@@ -9,6 +9,13 @@ pub const TIDY_UP: &str = "Tidy Up…";
 pub const HIDE_SIDEBAR: &str = "Hide Sidebar";
 pub const SHOW_SIDEBAR: &str = "Show Sidebar";
 
+// The snooze menu's times, then the row that asks for one typed.
+pub const LATER_TODAY: &str = "Later Today";
+pub const TOMORROW: &str = "Tomorrow";
+pub const THIS_WEEKEND: &str = "This Weekend";
+pub const NEXT_WEEK: &str = "Next Week";
+pub const CHOOSE_TIME: &str = "Choose Time…";
+
 // A scheduled message's menu: it goes back to Drafts, with undo, so nothing more is asked.
 pub const CANCEL_SENDING: &str = "Cancel Sending";
 
