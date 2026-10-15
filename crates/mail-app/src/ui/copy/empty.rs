@@ -12,3 +12,6 @@ pub const NO_OTHER_KEYS: &str = "No other keys or certificates yet";
 pub const NO_ACCOUNTS: &str = "No accounts yet";
 /// Settings › Rules with no account to make a rule on.
 pub const ADD_AN_ACCOUNT_FIRST: &str = "Add an account first.";
+
+/// A contact card with no name in it.
+pub const NO_NAME: &str = "(no name)";

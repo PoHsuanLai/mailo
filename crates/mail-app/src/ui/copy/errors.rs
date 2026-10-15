@@ -76,3 +76,8 @@ pub fn time_passed(when: &str) -> String {
 /// Under [`super::titles::use_graph`]: why it is asked.
 pub const IMAP_REFUSED: &str = "Microsoft refused mail access over IMAP for this account. Its \
     organisation may have switched IMAP off; Microsoft Graph still reads and sends its mail.";
+
+/// A link's card, when the link's text names another place than the one it goes to.
+pub fn link_goes_elsewhere(goes_to: &str, claims: &str) -> String {
+    format!("This link says {claims} but goes to {goes_to}.")
+}

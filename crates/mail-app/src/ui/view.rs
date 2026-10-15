@@ -394,8 +394,25 @@ pub struct KeySaid {
     pub text: String,
 }
 
-/// The attachment viewer while it is open: which stored part of which message, and for a PDF
-/// which page, from 0.
+/// What Peek shows while it is open: one stored attachment, or where a link goes. One preview,
+/// so opening one replaces the other.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Preview {
+    /// A stored part of a message, and for a PDF which page.
+    Part(Viewing),
+    /// A link's destination card.
+    Link(LinkCard),
+}
+
+/// A link's destination, as Peek's card draws it: what its anchor said, and where it goes,
+/// already checked as a click on it would be (`mail_mime::SafeUrl::link`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinkCard {
+    pub text: String,
+    pub href: String,
+}
+
+/// An attachment in Peek: which stored part of which message, and for a PDF which page, from 0.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Viewing {
     pub message: MessageId,
@@ -533,9 +550,9 @@ pub struct Shell {
     pub no_account: bool,
     /// What the undo toast and ⌘Z can take back, newest last.
     pub undo: mail_core::undo::UndoStack,
-    /// The attachment viewer, over the window. `None` is closed. Belongs to the open thread:
-    /// [`Self::open`], [`Self::close`] and [`Self::select`] drop it.
-    pub viewing: Option<Viewing>,
+    /// Peek, over the window: an attachment or a link's card. `None` is closed. Belongs to the
+    /// open thread: [`Self::open`], [`Self::close`] and [`Self::select`] drop it.
+    pub preview: Option<Preview>,
 }
 
 /// A message being edited, as the widgets hold it.
@@ -658,7 +675,7 @@ impl Default for Shell {
             tidying: None,
             no_account: false,
             undo: mail_core::undo::UndoStack::default(),
-            viewing: None,
+            preview: None,
         }
     }
 }
@@ -780,7 +797,7 @@ impl Shell {
             self.picked = Picked::none();
             // Consent is per thread, so changing what is shown revokes it.
             self.show_remote_images = false;
-            self.viewing = None;
+            self.preview = None;
         }
     }
 
@@ -791,7 +808,7 @@ impl Shell {
         self.from_side = None;
         self.picked = Picked::clicked(thread);
         self.show_remote_images = false;
-        self.viewing = None;
+        self.preview = None;
     }
 
     /// Open a thread from its row in one of the sidebar's lists: that row is then the sidebar's
@@ -820,7 +837,7 @@ impl Shell {
         self.open = None;
         self.from_side = None;
         self.show_remote_images = false;
-        self.viewing = None;
+        self.preview = None;
     }
 
     /// A click on a conversation's row, among the listed `ids`: a plain one opens it, Ctrl
@@ -2054,11 +2071,11 @@ mod appearance {
 
 #[cfg(test)]
 mod viewing_tests {
-    use super::{Shell, Viewing};
+    use super::{LinkCard, Preview, Shell, Viewing};
     use mail_domain::{MessageId, ThreadId};
 
     #[test]
-    fn a_viewer_turns_only_within_the_pages_it_knows() {
+    fn a_part_turns_only_within_the_pages_it_knows() {
         let message = MessageId::generate();
         let at = |page: u32, pages: Option<u32>| Viewing {
             page,
@@ -2080,19 +2097,27 @@ mod viewing_tests {
     }
 
     #[test]
-    fn opening_or_closing_a_conversation_closes_the_viewer() {
-        let viewing = Some(Viewing::of(MessageId::generate(), 0));
-        let mut shell = Shell {
-            viewing,
-            ..Shell::default()
-        };
-        shell.open(ThreadId::generate());
-        assert_eq!(shell.viewing, None, "open");
-        shell.viewing = viewing;
-        shell.close();
-        assert_eq!(shell.viewing, None, "close");
-        shell.viewing = viewing;
-        shell.select(1);
-        assert_eq!(shell.viewing, None, "select");
+    fn opening_or_closing_a_conversation_closes_peek() {
+        let shown = [
+            Preview::Part(Viewing::of(MessageId::generate(), 0)),
+            Preview::Link(LinkCard {
+                text: "the agenda".to_owned(),
+                href: "https://example.test/agenda".to_owned(),
+            }),
+        ];
+        for preview in shown {
+            let mut shell = Shell {
+                preview: Some(preview.clone()),
+                ..Shell::default()
+            };
+            shell.open(ThreadId::generate());
+            assert_eq!(shell.preview, None, "open: {preview:?}");
+            shell.preview = Some(preview.clone());
+            shell.close();
+            assert_eq!(shell.preview, None, "close: {preview:?}");
+            shell.preview = Some(preview.clone());
+            shell.select(1);
+            assert_eq!(shell.preview, None, "select: {preview:?}");
+        }
     }
 }

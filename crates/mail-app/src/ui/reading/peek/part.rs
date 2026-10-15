@@ -1,0 +1,340 @@
+//! An attachment in Peek: a stored picture, or a PDF a page at a time, larger; a calendar file,
+//! a contact card or a forwarded message as mailo reads it (`own.rs`); with the `anyview` feature,
+//! anyview's card for any other part (`route.rs` says who draws which). An SVG, and every other
+//! part in a build without the feature, says there is no preview.
+//!
+//! The part is read and drawn on a blocking thread from a resource that runs again only when the
+//! part or the page changes. Save writes the same part as the strip's Save; Open writes it to a
+//! folder of its own and opens it in the app the system gives its kind.
+
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use dioxus::prelude::*;
+use ds::components::controls::button_model::{Bezel, ImagePosition};
+use ds::prelude::*;
+use ds::style::appearance::peek::PeekMode;
+use mail_core::{SqliteStore, Store};
+use mail_domain::MessageId;
+
+use super::super::route::{self, Own};
+use super::own::{self, Sheet};
+use crate::ui::copy;
+use crate::ui::view::{Preview, Shell, Viewing};
+use mail_core::preview::{self, Kind, Page, Picture, Unshown};
+
+/// The most of a calendar, a contact or a message that is read whole to draw it.
+const OWN_LIMIT: u64 = 16 << 20;
+
+/// What Peek draws for a part.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum Drawn {
+    Picture(Picture),
+    Page(Page),
+    /// A calendar, a contact or a message, as mailo reads it.
+    Sheet(Sheet),
+    /// What anyview made of a part mailo does not draw itself.
+    #[cfg(feature = "anyview")]
+    Peeked(Arc<anyview_peek::AnyPeeked>),
+    /// Why nothing is drawn.
+    Said(String),
+}
+
+/// Attachment `index` of `message`, page `page` if it is a PDF. Blocking: reads and decodes.
+pub(super) fn draw(store: &Arc<SqliteStore>, message: MessageId, index: usize, page: u32) -> Drawn {
+    let stored = match store.message(message) {
+        Ok(stored) => stored,
+        Err(why) => return Drawn::Said(copy::status::no_preview(&why.to_string())),
+    };
+    let Some(attachment) = stored.attachments.get(index) else {
+        return Drawn::Said(copy::status::NO_PREVIEW.to_owned());
+    };
+    let Some(blob) = attachment.blob() else {
+        return Drawn::Said(copy::status::NOT_DOWNLOADED.to_owned());
+    };
+    let head = match store.blobs().head(blob, route::HEAD) {
+        Ok(head) => head,
+        Err(why) => return Drawn::Said(copy::status::no_preview(&why.to_string())),
+    };
+    let read: fn(MessageId, &[u8]) -> Option<Sheet> = match route::own(&attachment.name, &head) {
+        Some(Own::Svg) => return Drawn::Said(copy::status::NO_PREVIEW.to_owned()),
+        Some(Own::Calendar) => own::calendar,
+        Some(Own::Contact) => |_, bytes| own::contact(bytes),
+        Some(Own::Message) => |_, bytes| own::message(bytes),
+        Some(Own::Picture) | None => return picture(store, message, index, page),
+    };
+    let whole = match store.blobs().size(blob) {
+        Ok(size) if size <= OWN_LIMIT => store.blobs().get(blob),
+        Ok(_) => return Drawn::Said(copy::status::NO_PREVIEW.to_owned()),
+        Err(why) => Err(why),
+    };
+    match whole {
+        Ok(bytes) => read(message, &bytes).map_or_else(
+            || Drawn::Said(copy::status::NO_PREVIEW.to_owned()),
+            Drawn::Sheet,
+        ),
+        Err(why) => Drawn::Said(copy::status::no_preview(&why.to_string())),
+    }
+}
+
+/// A picture or a PDF page `mail_core::preview` decodes; anything else is anyview's.
+fn picture(store: &Arc<SqliteStore>, message: MessageId, index: usize, page: u32) -> Drawn {
+    match preview::load(store, message, index) {
+        Ok((Kind::Pdf, bytes)) => match preview::pdf_page(bytes, page, preview::PAGE) {
+            Ok(page) => Drawn::Page(page),
+            Err(refusal) => Drawn::Said(refusal.sentence()),
+        },
+        Ok((kind, bytes)) => match preview::picture(&bytes, kind, preview::VIEW) {
+            Ok(picture) => Drawn::Picture(picture),
+            Err(refusal) => Drawn::Said(refusal.sentence()),
+        },
+        Err(Unshown::Refused(refusal)) => Drawn::Said(refusal.sentence()),
+        Err(Unshown::NotHere) => Drawn::Said(copy::status::NOT_DOWNLOADED.to_owned()),
+        Err(Unshown::NotAPicture) => beyond_mailo(store, message, index),
+        Err(Unshown::Store(why)) => Drawn::Said(copy::status::no_preview(&why.to_string())),
+    }
+}
+
+/// A part mailo does not draw itself, as anyview draws it.
+#[cfg(feature = "anyview")]
+fn beyond_mailo(store: &Arc<SqliteStore>, message: MessageId, index: usize) -> Drawn {
+    use super::super::anyview::{Seen, see};
+    match see(store, message, index) {
+        Seen::Ready(peeked) => Drawn::Peeked(peeked),
+        Seen::NotHere => Drawn::Said(copy::status::NOT_DOWNLOADED.to_owned()),
+        Seen::Own => Drawn::Said(copy::status::NO_PREVIEW.to_owned()),
+        Seen::Failed(why) => Drawn::Said(copy::status::no_preview(&why)),
+    }
+}
+
+/// Without anyview, a part mailo does not draw itself has no preview.
+#[cfg(not(feature = "anyview"))]
+fn beyond_mailo(_store: &Arc<SqliteStore>, _message: MessageId, _index: usize) -> Drawn {
+    Drawn::Said(copy::status::NO_PREVIEW.to_owned())
+}
+
+/// The stored attachment `by` places on from `viewing`'s among its message's, held to the ones
+/// there are; `None` when there is none that way. A part still on the server is passed over:
+/// Peek opens only what is here, as the strip does.
+pub(super) fn stepped(store: &SqliteStore, viewing: Viewing, by: i32) -> Option<Viewing> {
+    let attachments = store.message(viewing.message).ok()?.attachments;
+    let here = |index: &usize| attachments.get(*index).and_then(|a| a.blob()).is_some();
+    let next = if by > 0 {
+        (viewing.index + 1..attachments.len()).find(here)
+    } else {
+        (0..viewing.index).rev().find(here)
+    }?;
+    Some(Viewing::of(viewing.message, next))
+}
+
+/// What Peek shows, when it is an attachment.
+fn viewing_of(shell: &Shell) -> Option<Viewing> {
+    match &shell.preview {
+        Some(Preview::Part(viewing)) => Some(*viewing),
+        _ => None,
+    }
+}
+
+/// The attachment's name, as it would be written.
+fn name_of(store: &SqliteStore, viewing: Viewing) -> String {
+    store
+        .message(viewing.message)
+        .ok()
+        .and_then(|message| {
+            message
+                .attachments
+                .get(viewing.index)
+                .map(|a| mail_core::attach::safe_name(&a.name))
+        })
+        .unwrap_or_default()
+}
+
+type Toasts = Option<ds::stack::toast_hub::ToastHub>;
+
+/// Save the part to the downloads folder, as the strip's Save does, and say where in a toast.
+fn save(viewing: Viewing, toasts: Toasts) {
+    let store = consume_context::<Arc<SqliteStore>>();
+    let dir = crate::ui::files::save_dir();
+    let said = match mail_core::attach::save(&store, viewing.message, viewing.index, &dir) {
+        Ok(path) => {
+            let origin = crate::ui::downloads::origin(&store, viewing.message);
+            crate::ui::downloads::Saving::quick().end(Some(&path), origin);
+            super::super::fetch::saved_toast(&path)
+        }
+        Err(why) => why.to_string(),
+    };
+    if let Some(toasts) = toasts {
+        toasts.push(said, None);
+    }
+}
+
+/// Where Open writes a part before the system opens it: a folder of the message's own under the
+/// system's temporary one, so nothing lands among the person's downloads unasked.
+fn open_dir(message: MessageId) -> PathBuf {
+    std::env::temp_dir()
+        .join("mailo-open")
+        .join(message.to_string())
+}
+
+/// Open the part in the app the system gives its kind. From a press or a key: the write and the
+/// opener run off the thread that draws, and only a failure is said.
+pub(super) fn open_in_app(viewing: Viewing) {
+    let store = consume_context::<Arc<SqliteStore>>();
+    let toasts = try_consume_context::<ds::stack::toast_hub::ToastHub>();
+    spawn(async move {
+        let opened = tokio::task::spawn_blocking(move || {
+            let dir = open_dir(viewing.message);
+            std::fs::create_dir_all(&dir).map_err(|why| why.to_string())?;
+            let path = mail_core::attach::save(&store, viewing.message, viewing.index, &dir)
+                .map_err(|why| why.to_string())?;
+            crate::ui::downloads::open_file(&path)
+        })
+        .await
+        .unwrap_or_else(|why| Err(why.to_string()));
+        if let (Err(why), Some(toasts)) = (opened, toasts) {
+            toasts.push(why, None);
+        }
+    });
+}
+
+/// Peek on an attachment. Mounted while `shell.preview` is a part.
+#[component]
+pub(super) fn PartPeek(shell: Signal<Shell>) -> Element {
+    let store = use_context::<Arc<SqliteStore>>();
+    let toasts = use_hook(try_consume_context::<ds::stack::toast_hub::ToastHub>);
+    // The part and the page, and nothing else of the shell: the count written back below must
+    // not draw the page again.
+    let wanted = use_memo(move || {
+        viewing_of(&shell.read()).map(|viewing| (viewing.message, viewing.index, viewing.page))
+    });
+    let drawn = use_resource(move || {
+        let store = consume_context::<Arc<SqliteStore>>();
+        let wanted = wanted();
+        async move {
+            let (message, index, page) = wanted?;
+            let drawn = tokio::task::spawn_blocking(move || draw(&store, message, index, page))
+                .await
+                .unwrap_or_else(|error| Drawn::Said(copy::status::no_preview(&error.to_string())));
+            if let Drawn::Page(page) = &drawn {
+                let mut shell = shell;
+                let known = viewing_of(&shell.peek());
+                if let Some(viewing) = known.filter(|v| (v.message, v.index) == (message, index)) {
+                    let settled = Viewing {
+                        page: page.number,
+                        pages: Some(page.count),
+                        ..viewing
+                    };
+                    if settled != viewing {
+                        shell.write().preview = Some(Preview::Part(settled));
+                    }
+                }
+            }
+            Some(drawn)
+        }
+    });
+    let Some(viewing) = viewing_of(&shell.read()) else {
+        return rsx! {};
+    };
+    let name = name_of(&store, viewing);
+    // What was drawn for another part (the arrows moved on) is not shown under this one's name.
+    let drawn = drawn
+        .read()
+        .clone()
+        .flatten()
+        .filter(|_| wanted() == Some((viewing.message, viewing.index, viewing.page)));
+    let pages = matches!(drawn, Some(Drawn::Page(_)))
+        .then_some(viewing.pages)
+        .flatten();
+    let main = match drawn {
+        None => rsx! { p { class: "peek-note", {copy::status::LOADING} } },
+        Some(Drawn::Picture(picture)) => rsx! {
+            img { class: "peek-picture", alt: "{name}", src: "{picture.uri}" }
+        },
+        Some(Drawn::Page(page)) => rsx! {
+            img {
+                class: "peek-picture peek-sheet",
+                alt: copy::aria::page_picture(&name, page.number + 1),
+                src: "{page.picture.uri}",
+            }
+        },
+        Some(Drawn::Sheet(sheet)) => rsx! { SheetView { sheet } },
+        #[cfg(feature = "anyview")]
+        Some(Drawn::Peeked(peeked)) => rsx! {
+            div { class: "peek-card",
+                anyview_peek::Card {
+                    peeked,
+                    // The name is in the head already.
+                    parts: anyview_peek::Parts::of([
+                        anyview_peek::Part::Media,
+                        anyview_peek::Part::Facts,
+                    ]),
+                }
+            }
+        },
+        Some(Drawn::Said(why)) => rsx! { p { class: "peek-note", "{why}" } },
+    };
+    rsx! {
+        ds::components::app::peek::Peek {
+            mode: PeekMode::Center,
+            label: name.clone(),
+            onclose: move |()| super::close(shell),
+            div { class: "peek-body",
+                div { class: "peek-head",
+                    h3 { class: "peek-name", "{name}" }
+                    if let Some(count) = pages {
+                        Button {
+                            bezel: Bezel::Toolbar,
+                            image: ImagePosition::Only,
+                            icon: Some(IconSource::Glyph(Icon::ChevronUp)),
+                            label: copy::aria::PREVIOUS_PAGE.to_owned(),
+                            title: Some(copy::aria::PREVIOUS_PAGE.to_owned()),
+                            title_shortcut: Some(ds::prelude::Shortcut(vec![ShortcutKey::Up])),
+                            availability: crate::ui::press::available(viewing.page > 0),
+                            onclick: crate::ui::press::on_primary(move || super::pressed(|| super::turn(shell, -1))),
+                        }
+                        span { class: "peek-page", {copy::status::page_of(viewing.page + 1, count)} }
+                        Button {
+                            bezel: Bezel::Toolbar,
+                            image: ImagePosition::Only,
+                            icon: Some(IconSource::Glyph(Icon::ChevronDown)),
+                            label: copy::aria::NEXT_PAGE.to_owned(),
+                            title: Some(copy::aria::NEXT_PAGE.to_owned()),
+                            title_shortcut: Some(ds::prelude::Shortcut(vec![ShortcutKey::Down])),
+                            availability: crate::ui::press::available(viewing.page + 1 < count),
+                            onclick: crate::ui::press::on_primary(move || super::pressed(|| super::turn(shell, 1))),
+                        }
+                    }
+                    Button {
+                        label: copy::controls::SAVE.to_owned(),
+                        onclick: crate::ui::press::on_primary(move || super::pressed(|| save(viewing, toasts))),
+                    }
+                    Button {
+                        label: copy::controls::OPEN.to_owned(),
+                        title_shortcut: crate::ui::actions::open_in_app_tip(),
+                        onclick: crate::ui::press::on_primary(move || super::pressed(|| open_in_app(viewing))),
+                    }
+                }
+                div { class: "peek-main", {main} }
+            }
+        }
+    }
+}
+
+/// A calendar, a contact or a message: its title, its facts and its text.
+#[component]
+fn SheetView(sheet: Sheet) -> Element {
+    let facts: Vec<ds::components::fields::fact_list::Fact> = sheet
+        .facts
+        .iter()
+        .map(|(label, value)| ds::components::fields::fact_list::Fact::new(*label, value.as_str()))
+        .collect();
+    rsx! {
+        div { class: "peek-own",
+            h2 { class: "peek-own-title", "{sheet.title}" }
+            ds::components::fields::fact_list::FactList { facts }
+            if let Some(text) = sheet.text {
+                p { class: "peek-own-text", "{text}" }
+            }
+        }
+    }
+}

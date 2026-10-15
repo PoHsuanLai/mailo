@@ -482,6 +482,27 @@ pub(in crate::ui) fn tip_standard(action: StandardAction) -> Tip {
     Tip::standard(action)
 }
 
+/// Primary+Return, which opens what Peek shows in its own app (⌘↩ on a Mac, Ctrl+Return
+/// elsewhere): a key of Peek, not an action of the keymap.
+fn open_in_app() -> DefaultChord {
+    DefaultChord::new(
+        chordkit::PrimaryUse::Held,
+        Chord::new(Mods::NONE, ChordKey::Named(NamedKey::Enter)),
+    )
+}
+
+/// The tip of [`open_in_app`], in the platform's words.
+pub(in crate::ui) fn open_in_app_tip() -> Option<Tip> {
+    Tip::from_default_chord(open_in_app())
+}
+
+/// Whether a press is [`open_in_app`] on `keys`' platform.
+pub(in crate::ui) fn is_open_in_app(keys: Keys, key: &Key, modifiers: Modifiers) -> bool {
+    let platform = keys.platform();
+    chord_of(platform, key, modifiers)
+        .is_some_and(|chord| open_in_app().resolve(platform, Context::Normal) == Some(chord))
+}
+
 /// Esc, which closes: a key of the window and not an action of the keymap.
 pub(in crate::ui) fn escape() -> Tip {
     Tip(vec![ShortcutKey::Escape])

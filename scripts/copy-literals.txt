@@ -89,10 +89,8 @@ crates/mail-app/src/ui/reading/attachments.rs 6
 crates/mail-app/src/ui/reading/blocks.rs 1
 crates/mail-app/src/ui/reading/fetch.rs 15
 crates/mail-app/src/ui/reading/header.rs 2
-crates/mail-app/src/ui/reading/mod.rs 6
-crates/mail-app/src/ui/reading/thumb.rs 2
+crates/mail-app/src/ui/reading/mod.rs 4
 crates/mail-app/src/ui/reading/tools.rs 10
-crates/mail-app/src/ui/reading/viewer.rs 12
 crates/mail-app/src/ui/receipt/bar.rs 5
 crates/mail-app/src/ui/receipt/mod.rs 4
 crates/mail-app/src/ui/row/menu.rs 1

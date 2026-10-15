@@ -34,3 +34,11 @@ pub const RESTORE_DEFAULTS: &str = "Restore Defaults";
 
 /// The sign-in question's answer for an account Microsoft refused over IMAP.
 pub const USE_GRAPH: &str = "Use Microsoft Graph";
+
+// Peek: an attachment or a link's card, over the window.
+/// Open the part in the app the system gives its kind.
+pub const OPEN: &str = "Open";
+/// A link's card: go there in the browser.
+pub const OPEN_LINK: &str = "Open Link";
+/// A link's card: put the address on the clipboard.
+pub const COPY_LINK: &str = "Copy Link";

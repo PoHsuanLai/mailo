@@ -79,6 +79,8 @@ impl FramePill {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct LinkAsked {
     pub(crate) href: String,
+    /// What the anchor said (its title when it has no text): what Preview Link's card is titled.
+    pub(crate) text: String,
     pub(crate) at: Point,
 }
 
@@ -118,8 +120,14 @@ impl FrameMenus {
     /// A menu asked over `menu`'s link: kept when a click could follow it, else forgotten (a
     /// `javascript:` or `file:` link has nothing a reader may copy or open).
     fn ask(&self, menu: FrameLinkMenu) {
+        let text = if menu.text.trim().is_empty() {
+            menu.title.clone().unwrap_or_default()
+        } else {
+            menu.text.clone()
+        };
         let asked = SafeUrl::link(&menu.href).map(|url| LinkAsked {
             href: url.as_str().to_owned(),
+            text,
             at: menu.at,
         });
         *self.asked.lock().unwrap_or_else(PoisonError::into_inner) = asked;

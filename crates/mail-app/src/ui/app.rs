@@ -399,10 +399,10 @@ pub(super) fn App() -> Element {
     let on_key = move |event: Event<KeyboardData>| {
         // `Key`'s Display is the DOM key name: "e", "ArrowDown", "Escape".
         let key = event.key().to_string();
-        // The attachment viewer owns it while it is open: Esc closes it, the arrows turn a
-        // PDF's pages, and nothing reaches the conversation behind it.
-        if shell.read().viewing.is_some() {
-            super::reading::viewer_key(shell, &key);
+        // Peek owns it while it is open: Esc closes it, the arrows move between attachments and
+        // turn a PDF's pages, and nothing reaches the conversation behind it.
+        if shell.read().preview.is_some() {
+            super::reading::peek_key(shell, keys, &event);
             return;
         }
         // The Import and Export sheets likewise: their fields take letters, Esc closes them.
@@ -746,8 +746,8 @@ pub(super) fn App() -> Element {
             if shell.read().view_editor.is_some() {
                 super::views::ViewSheet { shell, revision, pages }
             }
-            if shell.read().viewing.is_some() {
-                super::reading::AttachmentViewer { shell }
+            if shell.read().preview.is_some() {
+                super::reading::PeekView { shell }
             }
             if shell.read().destroying.is_some() {
                 super::destroy::DestroyAlert { shell, revision }

@@ -1,12 +1,15 @@
+#[cfg(feature = "anyview")]
+mod anyview;
 mod attachments;
 pub(super) mod blocks;
 mod cache;
 mod fetch;
 mod header;
 mod images;
+mod peek;
+mod route;
 mod thumb;
 mod tools;
-mod viewer;
 
 use super::press::on_primary;
 use super::text::{attachment_rows, stamp};
@@ -24,10 +27,10 @@ use ds::root::common::Common;
 use mail_core::message::{FrameBody, ON_THE_FRAME, Sent};
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
+pub(super) use peek::{PeekView, peek_key};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
-pub(super) use viewer::{AttachmentViewer, viewer_key};
 
 /// The first character of `name`, uppercased.
 ///
@@ -437,19 +440,21 @@ pub(super) fn Reader(
                 }
             }
             if let Some(asked) = link_menu() {
-                LinkMenu { asked, menus: frame_menus, open: link_menu }
+                LinkMenu { asked, menus: frame_menus, open: link_menu, shell }
             }
             {children}
         }
     }
 }
 
-/// Copy Link and Open Link, at the pointer, for a link a right click in a message's frame was on.
+/// Open Link, Preview Link and Copy Link, at the pointer, for a link a right click in a message's
+/// frame was on. Preview Link shows where it goes in Peek (`peek::open_link`).
 #[component]
 fn LinkMenu(
     asked: super::original::LinkAsked,
     menus: Signal<Option<super::original::FrameMenus>>,
     open: Signal<Option<super::original::LinkAsked>>,
+    shell: Signal<Shell>,
 ) -> Element {
     let mut open = open;
     let at = Rect {
@@ -460,6 +465,7 @@ fn LinkMenu(
         },
     };
     let href = asked.href.clone();
+    let text = asked.text.clone();
     rsx! {
         super::menu::Floating {
             anchor: None,
@@ -470,6 +476,10 @@ fn LinkMenu(
                 open.set(None);
                 match key.as_str() {
                     COPY_LINK => super::host::Host::copy(&href),
+                    PREVIEW_LINK => peek::open_link(
+                        shell,
+                        crate::ui::view::LinkCard { text: text.clone(), href: href.clone() },
+                    ),
                     OPEN_LINK => {
                         if let Some(menus) = menus.peek().as_ref() {
                             menus.open(&href);
@@ -484,13 +494,15 @@ fn LinkMenu(
 }
 
 const OPEN_LINK: &str = "open-link";
+const PREVIEW_LINK: &str = "preview-link";
 const COPY_LINK: &str = "copy-link";
 
 /// The link menu's rows, in the Mac's order.
 fn link_items() -> Vec<super::menu::MenuItem> {
     [
-        (OPEN_LINK, "Open Link", Icon::Link),
-        (COPY_LINK, "Copy Link", Icon::Copy),
+        (OPEN_LINK, super::copy::menus::OPEN_LINK, Icon::Link),
+        (PREVIEW_LINK, super::copy::menus::PREVIEW_LINK, Icon::Globe),
+        (COPY_LINK, super::copy::menus::COPY_LINK, Icon::Copy),
     ]
     .into_iter()
     .map(|(key, name, icon)| super::menu::MenuItem {

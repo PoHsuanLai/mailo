@@ -28,3 +28,24 @@ pub fn at_clock(clock: &str) -> String {
 pub fn selected(count: usize) -> String {
     format!("{count} selected")
 }
+
+// Peek, while it draws an attachment or when it cannot.
+/// A PDF's page, counted from 1.
+pub fn page_of(page: u32, count: u32) -> String {
+    format!("Page {page} of {count}")
+}
+pub const LOADING: &str = "Loading…";
+pub const NOT_DOWNLOADED: &str = "Not downloaded yet";
+pub const NO_PREVIEW: &str = "No preview for this file";
+/// Why a part that should have drawn did not.
+pub fn no_preview(why: &str) -> String {
+    format!("No preview: {why}")
+}
+/// A forwarded message with no plain text to show.
+pub const NO_TEXT: &str = "This message has no plain text";
+/// Why anyview drew no card: what follows "No preview: ".
+pub const TOOK_TOO_LONG: &str = "it took too long";
+pub const TOO_LARGE_TO_PEEK: &str = "the part is larger than a peek reads";
+pub fn no_attachment(index: usize) -> String {
+    format!("there is no attachment {index}")
+}

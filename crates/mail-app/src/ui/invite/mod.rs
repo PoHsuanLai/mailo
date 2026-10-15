@@ -17,7 +17,9 @@
 mod card;
 mod draw;
 
-use card::{CHIPS, Card, Stand, card_of};
+/// The card for an invitation, which Peek draws for a calendar file as well.
+pub(in crate::ui) use card::card_of;
+use card::{CHIPS, Card, Stand};
 pub(in crate::ui) use draw::Invitation;
 
 use chrono::{DateTime, Utc};
