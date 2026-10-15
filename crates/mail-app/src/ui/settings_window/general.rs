@@ -179,7 +179,6 @@ fn Groups(on_trusted: EventHandler<()>) -> Element {
                                 List::<&'static str> {
                                     label: copy::titles::TRUSTED_SENDERS,
                                     style: ListStyle::Grouped,
-                                    common: crate::ui::common::classed("general-push"),
                                     items: vec![ListItem::row(
                                         "trusted",
                                         copy::titles::TRUSTED_SENDERS,

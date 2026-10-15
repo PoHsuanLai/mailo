@@ -117,25 +117,25 @@ dioxus = { version = "0.7" }
 # display). quire re-exports only `StandardAction`; mailo names `Action`, `AppAction`, `Context` and
 # `Chord` as well. The rev quire pins (`docs/workspace-deps.toml`), so one chordkit is built.
 chordkit = { git = "https://github.com/PoHsuanLai/chordkit.git", rev = "55a62b2366d6ee1994d95f7cb5a195217807099c" }
-ds = { git = "https://github.com/PoHsuanLai/quire.git", rev = "f47b05c88af09d4370868b6ee11988bb88386bf1" }  # f47b05c8 (table looks and --stripe, macOS traffic-light tokens, centred cells, PinFace::Glyph, GitBranch and Diff icons)
+ds = { git = "https://github.com/PoHsuanLai/quire.git", rev = "b7e42c447c20256c57b0b9bfd8e745184adce559" }  # b7e42c44 (Edit Space… sheet, sign-in Advanced fold, FormSection hairline, TileFace::Plate, frame image click, Spaces bar)
 # Settings I/O: `appearance.toml` (imported once from `appearance.json`), the settings portal.
-ds-settings = { git = "https://github.com/PoHsuanLai/quire.git", rev = "f47b05c88af09d4370868b6ee11988bb88386bf1", features = ["dioxus"] }  # f47b05c8 (table looks and --stripe, macOS traffic-light tokens, centred cells, PinFace::Glyph, GitBranch and Diff icons)
+ds-settings = { git = "https://github.com/PoHsuanLai/quire.git", rev = "b7e42c447c20256c57b0b9bfd8e745184adce559", features = ["dioxus"] }  # b7e42c44 (Edit Space… sheet, sign-in Advanced fold, FormSection hairline, TileFace::Plate, frame image click, Spaces bar)
 # The account sheets' views (step E5): `ds_shell::accounts`, the parts `sill` draws the same sheet with.
 # Only the accounts module is used; the shell's own surfaces (bar, dock, lock) are not drawn here.
-ds-shell = { git = "https://github.com/PoHsuanLai/quire.git", rev = "f47b05c88af09d4370868b6ee11988bb88386bf1" }  # f47b05c8 (table looks and --stripe, macOS traffic-light tokens, centred cells, PinFace::Glyph, GitBranch and Diff icons)
+ds-shell = { git = "https://github.com/PoHsuanLai/quire.git", rev = "b7e42c447c20256c57b0b9bfd8e745184adce559" }  # b7e42c44 (Edit Space… sheet, sign-in Advanced fold, FormSection hairline, TileFace::Plate, frame image click, Spaces bar)
 # anyview, the viewer's light tier, at the rev of its main that names the quire rev above (the same
 # spelling as quire, so one quire is built). `anyview-core` is the vocabulary (`Input`, `ReadAt`:
 # how the store's bytes go in); `anyview-peek` the peek worker and, with `pane`, the card that draws
 # what was peeked. Headless otherwise: no media player, no D-Bus.
-anyview-core = { git = "https://github.com/PoHsuanLai/anyview.git", rev = "f4c86089813f8a9a564000f16c7680987fa61e75", optional = true }
-anyview-peek = { git = "https://github.com/PoHsuanLai/anyview.git", rev = "f4c86089813f8a9a564000f16c7680987fa61e75", default-features = false, features = ["pane"], optional = true }
+anyview-core = { git = "https://github.com/PoHsuanLai/anyview.git", rev = "5ac64c973d9904b1fe0e811d126137020f5fd12a", optional = true }
+anyview-peek = { git = "https://github.com/PoHsuanLai/anyview.git", rev = "5ac64c973d9904b1fe0e811d126137020f5fd12a", default-features = false, features = ["pane"], optional = true }
 # `mailo.toml`, and the `appearance.toml` written once on the first run after the move.
 toml = "1"
 # The window: quire's Blitz host (the window, its fonts, focus, clipboard, PDF output), and
 # `print`: the system's print dialog for a PDF (the desktop portal on Linux, else the PDF opened
 # in the viewer); `spell`: the composer's spelling, against the system's Hunspell dictionaries
 # (none is bundled); `pdf` also rasterises a PDF attachment's first page (`PdfFileThumb`).
-ds-blitz = { git = "https://github.com/PoHsuanLai/quire.git", rev = "f47b05c88af09d4370868b6ee11988bb88386bf1", features = ["pdf", "print", "spell"] }  # f47b05c8 (table looks and --stripe, macOS traffic-light tokens, centred cells, PinFace::Glyph, GitBranch and Diff icons)
+ds-blitz = { git = "https://github.com/PoHsuanLai/quire.git", rev = "b7e42c447c20256c57b0b9bfd8e745184adce559", features = ["pdf", "print", "spell"] }  # b7e42c44 (Edit Space… sheet, sign-in Advanced fold, FormSection hairline, TileFace::Plate, frame image click, Spaces bar)
 blitz-dom = { workspace = true }
 dioxus-native-dom = { workspace = true }
 base64 = "0.22"
@@ -227,8 +227,8 @@ proptest = "1"
 # The linter (`lint::assert_clean`, the markup lint) and the test driver (`Harness`, `Driver`,
 # `Query`, `snapshot`; `pdf` is `Harness::pdf` for the print tests): quire's own crates, at the
 # same tag.
-ds-lint = { git = "https://github.com/PoHsuanLai/quire.git", rev = "f47b05c88af09d4370868b6ee11988bb88386bf1" }  # f47b05c8 (table looks and --stripe, macOS traffic-light tokens, centred cells, PinFace::Glyph, GitBranch and Diff icons)
-ds-harness = { git = "https://github.com/PoHsuanLai/quire.git", rev = "f47b05c88af09d4370868b6ee11988bb88386bf1", features = ["pdf"] }  # f47b05c8 (table looks and --stripe, macOS traffic-light tokens, centred cells, PinFace::Glyph, GitBranch and Diff icons)
+ds-lint = { git = "https://github.com/PoHsuanLai/quire.git", rev = "b7e42c447c20256c57b0b9bfd8e745184adce559" }  # b7e42c44 (Edit Space… sheet, sign-in Advanced fold, FormSection hairline, TileFace::Plate, frame image click, Spaces bar)
+ds-harness = { git = "https://github.com/PoHsuanLai/quire.git", rev = "b7e42c447c20256c57b0b9bfd8e745184adce559", features = ["pdf"] }  # b7e42c44 (Edit Space… sheet, sign-in Advanced fold, FormSection hairline, TileFace::Plate, frame image click, Spaces bar)
 
 [lints]
 workspace = true
