@@ -166,7 +166,7 @@ fn FullHead(
 
 /// What a header calls the sender, and the address its name's tooltip gives: a sender who gave
 /// no name is named by their address, once, with no tooltip.
-fn named(message: &Message) -> (String, String) {
+pub(super) fn named(message: &Message) -> (String, String) {
     let name = from_name(message);
     let addr = address(message);
     if name.trim().is_empty() {
@@ -177,7 +177,7 @@ fn named(message: &Message) -> (String, String) {
 }
 
 /// The date at the end of a header's line: brief, and in full as its tooltip and its name.
-fn when_label(short: String, full: String) -> Element {
+pub(super) fn when_label(short: String, full: String) -> Element {
     rsx! {
         Tooltip { text: full.clone(),
             // The full date is the time's name as well as its tip: what a screen reader says.

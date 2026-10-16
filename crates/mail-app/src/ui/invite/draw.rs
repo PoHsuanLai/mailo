@@ -1,5 +1,6 @@
 //! The invitation card: what the event is, who is asked, and the three answers.
 
+use crate::ui::copy::{aria, controls};
 use super::super::menu::{MenuKey, menu_key};
 use super::super::motion::{Follow, tell};
 use super::super::press::{available, on_primary};
@@ -45,6 +46,23 @@ pub(in crate::ui) enum Phase {
     Failed(String),
 }
 
+/// Whether the card shows more than its one row: the event's facts, its people and its file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum Disclosure {
+    #[default]
+    Closed,
+    Open,
+}
+
+impl Disclosure {
+    fn toggled(self) -> Self {
+        match self {
+            Self::Closed => Self::Open,
+            Self::Open => Self::Closed,
+        }
+    }
+}
+
 /// The card for one message, once its invitation is known.
 ///
 /// Draws nothing until then: finding out reads the stored blob, so it runs on a blocking thread
@@ -83,6 +101,7 @@ pub(in crate::ui) fn Invitation(message: MessageId, body: Option<BlobId>) -> Ele
 pub(in crate::ui) fn InviteCard(card: Card, known: Signal<Option<Option<Card>>>) -> Element {
     let looks = crate::ui::reading::use_looks();
     let mut phase = use_signal(|| Phase::Resting);
+    let mut disclosure = use_signal(Disclosure::default);
     let mut more = use_signal(|| false);
     let mut everyone = use_signal(|| false);
     let message = card.message;
@@ -123,85 +142,18 @@ pub(in crate::ui) fn InviteCard(card: Card, known: Signal<Option<Option<Card>>>)
     let send = use_callback(move |(attendance, note): (Attendance, String)| {
         give(looks.clone(), message, attendance, note, phase, known)
     });
+    let open = disclosure() == Disclosure::Open;
+    let details_name = match disclosure() {
+        Disclosure::Closed => aria::SHOW_DETAILS,
+        Disclosure::Open => aria::HIDE_DETAILS,
+    };
     rsx! {
-            section { class: "invite", role: "group", aria_label: "Calendar invitation",
-                div { class: "inv-head",
-                    span { class: card.tag.class(), Chip { variant: card.tag.chip(), text: card.tag.word().to_owned() } }
-                    h3 { class: "inv-title", Label { text: card.title.clone(), style: LabelStyle::Title } }
-                    Button {
-        label: save,
-        availability: available(!working),
-        onclick: on_primary(move || save_file(message, title.clone(), phase)),
-        common: Common { extra_class: ExtraClass::parse("inv-save").ok(), aria_label: Some(save.to_owned()), ..Common::default() },
-    }
-                }
-                FactList { facts: facts_of(&card) }
-                if !card.attendees.is_empty() {
-                    ul { class: "inv-people", aria_label: "Attendees",
-                        for chip in card.attendees.iter().take(shown) {
-                            li { class: "{chip.class}", title: "{chip.name}: {chip.said}",
-                                Chip {
-                                    variant: ChipVariant::Person(AvatarFace {
-                                        initial: chip.name.chars().next().unwrap_or('?'),
-                                        size: AvatarSize::Size18,
-                                        tone: AvatarTone::Person(person_hue(&chip.name)),
-                                        shape: AvatarShape::Round,
-                                    }),
-                                    text: chip.name.clone(),
-                                }
-                            }
-                        }
-                        if hidden > 0 {
-                            li { class: "att rest",
-                                Button {
-        bezel: Bezel::Inline,
-        label: format!("+{hidden}"),
-    common: Common { aria_label: Some(format!("Show {hidden} more attendees")), ..Common::default() },
-        onclick: on_primary(move || everyone.set(true)),
-    }
-                            }
-                        }
-                    }
-                }
-                if let Some(summary) = &card.summary {
-                    p { class: "inv-summary", Label { text: summary.clone(), style: LabelStyle::Headline } }
-                }
-                if let Some(comment) = &card.comment {
-                    p { class: "inv-comment", Label { text: format!("“{comment}”"), role: LabelRole::Secondary } }
-                }
-                if let Some(description) = &card.description {
-                    div { class: "inv-about",
-                        p { class: "{desc_class}", Label { text: description.clone(), role: LabelRole::Secondary } }
-                        if long {
-                            Button {
-        bezel: Bezel::Inline,
-        label: more_label,
-    common: Common { aria_label: Some(more_label.to_owned()), ..Common::default() },
-        onclick: on_primary(move || more.toggle()),
-    }
-                        }
-                    }
-                }
-                match &card.stand {
-                    Stand::Closed(Some(why)) => rsx! { InlineBanner { severity: Severity::Info, text: (*why).to_owned() } },
-                    Stand::Closed(None) => rsx! {},
-                    Stand::Answered { said, note } if now == Phase::Resting => rsx! {
-                        InlineBanner {
-                            severity: Severity::Ok,
-                            text: said.clone(),
-                            detail: note.as_ref().map(|note| TextLine::from(format!("\u{201c}{note}\u{201d}"))),
-                            actions: rsx! {
-                                Button {
-                                    label: change,
-                                    onclick: on_primary(move || phase.set(Phase::Changing)),
-                                    common: Common { aria_label: Some(change.to_owned()), ..Common::default() },
-                                }
-                            },
-                        }
-                    },
-                    Stand::Answered { said, .. } => rsx! { p { class: "inv-before", Label { text: format!("{said}."), role: LabelRole::Secondary } } },
-                    Stand::Open { before: Some(before) } => rsx! { p { class: "inv-before", Label { text: before.clone(), role: LabelRole::Secondary } } },
-                    Stand::Open { before: None } => rsx! {},
+        section { class: "invite", role: "group", aria_label: "Calendar invitation",
+            div { class: "inv-row",
+                span { class: card.tag.class(), Chip { variant: card.tag.chip(), text: card.tag.word().to_owned() } }
+                div { class: "inv-what",
+                    h3 { class: "inv-title", Label { text: card.title.clone(), style: LabelStyle::Headline } }
+                    Label { text: card.when.clone(), role: LabelRole::Secondary, style: LabelStyle::Footnote }
                 }
                 if offered {
                     div { class: "inv-acts",
@@ -217,17 +169,105 @@ pub(in crate::ui) fn InviteCard(card: Card, known: Signal<Option<Option<Card>>>)
                         }
                     }
                 }
-                if let Phase::Noting { attendance, note } = now.clone() {
-                    Noting { attendance, note, phase, on_send: send }
+                Button {
+                    bezel: Bezel::Inline,
+                    label: controls::DETAILS,
+                    common: Common { aria_label: Some(details_name.to_owned()), ..Common::default() },
+                    onclick: on_primary(move || disclosure.set(disclosure().toggled())),
                 }
-                if working {
-                    p { class: "inv-before", Label { text: "Sending…", role: LabelRole::Secondary } }
-                }
-                if let Phase::Failed(why) = now {
-                    InlineBanner { severity: Severity::Danger, text: why }
+            }
+            match &card.stand {
+                Stand::Closed(Some(why)) => rsx! { InlineBanner { severity: Severity::Info, text: (*why).to_owned() } },
+                Stand::Closed(None) => rsx! {},
+                Stand::Answered { said, note } if now == Phase::Resting => rsx! {
+                    InlineBanner {
+                        severity: Severity::Ok,
+                        text: said.clone(),
+                        detail: note.as_ref().map(|note| TextLine::from(format!("\u{201c}{note}\u{201d}"))),
+                        actions: rsx! {
+                            Button {
+                                label: change,
+                                onclick: on_primary(move || phase.set(Phase::Changing)),
+                                common: Common { aria_label: Some(change.to_owned()), ..Common::default() },
+                            }
+                        },
+                    }
+                },
+                Stand::Answered { said, .. } => rsx! { p { class: "inv-before", Label { text: format!("{said}."), role: LabelRole::Secondary } } },
+                Stand::Open { before: Some(before) } => rsx! { p { class: "inv-before", Label { text: before.clone(), role: LabelRole::Secondary } } },
+                Stand::Open { before: None } => rsx! {},
+            }
+            if let Phase::Noting { attendance, note } = now.clone() {
+                Noting { attendance, note, phase, on_send: send }
+            }
+            if working {
+                p { class: "inv-before", Label { text: "Sending\u{2026}", role: LabelRole::Secondary } }
+            }
+            if let Phase::Failed(why) = now {
+                InlineBanner { severity: Severity::Danger, text: why }
+            }
+            if open {
+                div { class: "inv-details",
+                    FactList { facts: facts_of(&card) }
+                    if !card.attendees.is_empty() {
+                        ul { class: "inv-people", aria_label: "Attendees",
+                            for chip in card.attendees.iter().take(shown) {
+                                li { class: "{chip.class}", title: "{chip.name}: {chip.said}",
+                                    Chip {
+                                        variant: ChipVariant::Person(AvatarFace {
+                                            initial: chip.name.chars().next().unwrap_or('?'),
+                                            size: AvatarSize::Size18,
+                                            tone: AvatarTone::Person(person_hue(&chip.name)),
+                                            shape: AvatarShape::Round,
+                                        }),
+                                        text: chip.name.clone(),
+                                    }
+                                }
+                            }
+                            if hidden > 0 {
+                                li { class: "att rest",
+                                    Button {
+                                        bezel: Bezel::Inline,
+                                        label: format!("+{hidden}"),
+                                        common: Common { aria_label: Some(format!("Show {hidden} more attendees")), ..Common::default() },
+                                        onclick: on_primary(move || everyone.set(true)),
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if let Some(summary) = &card.summary {
+                        p { class: "inv-summary", Label { text: summary.clone(), style: LabelStyle::Headline } }
+                    }
+                    if let Some(comment) = &card.comment {
+                        p { class: "inv-comment", Label { text: format!("\u{201c}{comment}\u{201d}"), role: LabelRole::Secondary } }
+                    }
+                    if let Some(description) = &card.description {
+                        div { class: "inv-about",
+                            p { class: "{desc_class}", Label { text: description.clone(), role: LabelRole::Secondary } }
+                            if long {
+                                Button {
+                                    bezel: Bezel::Inline,
+                                    label: more_label,
+                                    common: Common { aria_label: Some(more_label.to_owned()), ..Common::default() },
+                                    onclick: on_primary(move || more.toggle()),
+                                }
+                            }
+                        }
+                    }
+                    div { class: "inv-save",
+                        Button {
+                            bezel: Bezel::Inline,
+                            label: save,
+                            availability: available(!working),
+                            onclick: on_primary(move || save_file(message, title.clone(), phase)),
+                            common: Common { aria_label: Some(save.to_owned()), ..Common::default() },
+                        }
+                    }
                 }
             }
         }
+    }
 }
 
 /// What the card states about the event, a label and its value each: when, in whose time, and
