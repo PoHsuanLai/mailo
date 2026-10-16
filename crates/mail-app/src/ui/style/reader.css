@@ -42,10 +42,10 @@ article.frame header { margin-top: var(--s-14); margin-bottom: var(--s-12); }
 article.frame header[*|data-detail="compact"] { margin-top: var(--s-10); margin-bottom: var(--s-10); }
 /* An earlier message folded to one line: who, a snippet of what, and when; a press opens it. */
 .fold-line { display: flex; align-items: center; gap: var(--s-8); min-width: 0; margin-top: var(--s-10); margin-bottom: var(--s-10); }
-/* They fade out at the end, as quire's `.ds-truncate` does (Blitz draws no ellipsis); a mask reads only the alpha. */
-.fold-name, .fold-snippet { overflow: hidden; white-space: nowrap; min-width: 0; mask-image: linear-gradient(to right, var(--ink) calc(100% - 1.5em), transparent); }
-.fold-name { flex: 0 1 auto; max-width: 40%; }
-.fold-snippet { flex: 1 1 0; }
+/* The name is drawn whole; the snippet takes what is left and fades out at its end, as quire's
+   `.ds-truncate` does (Blitz draws no ellipsis; a mask reads only the alpha). */
+.fold-name { flex: none; white-space: nowrap; }
+.fold-snippet { flex: 1 1 0; overflow: hidden; white-space: nowrap; min-width: 0; mask-image: linear-gradient(to right, var(--ink) calc(100% - 1.5em), transparent); }
 article.frame + article.frame { border-top: var(--hair) solid var(--line-soft); }
 /* Whatever else the reader puts under the messages (the inline reply) is inset as their heads are. */
 .reader-body > :not(.frame):not(.banners):not(.inline-reply) { margin-left: var(--s-18); margin-right: var(--s-18); margin-bottom: var(--s-18); }

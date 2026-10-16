@@ -274,7 +274,7 @@ mod tests {
         };
         assert!(
             html.contains("Yes.\n\n<details class=\"mailo-quote\">")
-                && html.contains("On Mon, Ada wrote:\n&gt; Ten?\n</details>"),
+                && html.contains("On Mon, Ada wrote:\n&gt; Ten?\n</div></details>"),
             "{html}"
         );
         let parsed = mail_mime::parse(
@@ -290,7 +290,7 @@ mod tests {
         };
         assert!(
             html.contains("<details class=\"mailo-quote\">")
-                && html.contains("<blockquote>Ten?</blockquote></details>"),
+                && html.contains("<blockquote>Ten?</blockquote></div></details>"),
             "{html}"
         );
     }
