@@ -98,7 +98,10 @@ pub(super) fn use_followed_configuration(
         if shell.peek().keymap != keymap {
             shell.write().keymap = keymap;
         }
-        let Some(stored) = space::storage(Some(&dirs)).load_spaces(|_| {}) else {
+        // A missing or damaged file changes nothing here: the main window's own load says why.
+        let ds_settings::SpacesLoad::Stored(stored) =
+            space::storage(Some(&dirs)).load_spaces(|_| {})
+        else {
             return;
         };
         match handle {
