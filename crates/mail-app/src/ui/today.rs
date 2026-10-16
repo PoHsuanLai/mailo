@@ -46,7 +46,7 @@ pub fn save(dir: &Path, today: &Today) -> Result<(), String> {
     let saved = storage(dir)
         .save_today(today)
         .map_err(|why| why.to_string())?;
-    super::space::kept(&saved, "Today");
+    super::space::kept(&saved);
     Ok(())
 }
 

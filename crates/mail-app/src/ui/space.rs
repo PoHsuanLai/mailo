@@ -225,15 +225,16 @@ pub fn save(dirs: Option<&WindowDirs>, spaces: &Spaces) -> Result<(), String> {
     let saved = storage(dirs)
         .save_spaces(spaces)
         .map_err(|why| why.to_string())?;
-    kept(&saved, "Spaces");
+    kept(&saved);
     Ok(())
 }
 
-/// Says where a file that could not be read was moved before a new one took its place.
-pub(super) fn kept(saved: &ds_settings::Saved, what: &str) {
+/// Says where a file that could not be read was moved before a new one took its place (the
+/// moved file's name says which it was).
+pub(super) fn kept(saved: &ds_settings::Saved) {
     if let Some(at) = &saved.kept_at {
         eprintln!(
-            "mailo: the {what} file could not be read; it was kept at {} and a new one written",
+            "mailo: a file that could not be read was kept at {} and a new one written",
             at.display()
         );
     }
