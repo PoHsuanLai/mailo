@@ -503,3 +503,32 @@ fn a_reconstructed_text_part_keeps_its_flowed_parameters() {
     );
     assert_eq!(parsed.flowed, Flowed::Flowed { delsp: Delsp::Yes });
 }
+
+/// An invitation's calendar alternative is the message in a calendar's form, not a file: no
+/// attachment. A calendar the sender attached stays one, and a part sent without a name is
+/// called as a person would call it, never by its position.
+#[test]
+fn an_invitations_calendar_is_no_attachment_and_an_unnamed_part_has_a_plain_name() {
+    let invite = b"From: ada@example.test\r\nSubject: Invitation\r\nMIME-Version: 1.0\r\n\
+Content-Type: multipart/alternative; boundary=\"alt\"\r\n\r\n--alt\r\n\
+Content-Type: text/plain; charset=UTF-8\r\n\r\nYou are invited.\r\n--alt\r\n\
+Content-Type: text/calendar; charset=UTF-8; method=REQUEST\r\n\r\n\
+BEGIN:VCALENDAR\r\nVERSION:2.0\r\nMETHOD:REQUEST\r\nEND:VCALENDAR\r\n--alt--\r\n";
+    let parsed = parse(invite).expect("parsed");
+    assert!(parsed.attachments.is_empty(), "{:?}", parsed.attachments);
+    assert!(mail_mime::calendar_part(invite).is_some());
+
+    let attached = b"From: ada@example.test\r\nSubject: Event\r\nMIME-Version: 1.0\r\n\
+Content-Type: multipart/mixed; boundary=\"mix\"\r\n\r\n--mix\r\n\
+Content-Type: text/plain\r\n\r\nThe event.\r\n--mix\r\n\
+Content-Type: text/calendar\r\nContent-Disposition: attachment\r\n\r\n\
+BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n--mix\r\n\
+Content-Type: application/pdf\r\nContent-Transfer-Encoding: base64\r\n\r\naGVsbG8=\r\n--mix--\r\n";
+    let parsed = parse(attached).expect("parsed");
+    let names: Vec<&str> = parsed
+        .attachments
+        .iter()
+        .map(|part| part.name.as_str())
+        .collect();
+    assert_eq!(names, ["Attachment 1.ics", "Attachment 2.pdf"]);
+}

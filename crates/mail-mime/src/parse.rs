@@ -281,6 +281,9 @@ fn bodies(
             html = part.text_contents().map(str::to_owned);
             continue;
         }
+        if is_calendar_alternative(part) {
+            continue;
+        }
         let index = attachments.len() + 1;
         attachments.push(ParsedPart {
             name: part_name(part, index),
@@ -396,12 +399,51 @@ fn is_attachment(part: &mail_parser::MessagePart<'_>) -> bool {
         .is_some_and(|disposition| disposition.is_attachment())
 }
 
+/// An iMIP invitation's `text/calendar` alternative (RFC 6047 §2.4): the message itself in a
+/// calendar's form, beside the text a person reads, as `text/html` is beside `text/plain`. It is
+/// no file the sender attached, so it is no attachment; the invitation is read from the raw
+/// message (`imip::calendar_part`). A calendar the sender did attach (by disposition or by
+/// name) stays one.
+fn is_calendar_alternative(part: &mail_parser::MessagePart<'_>) -> bool {
+    let calendar = part.content_type().is_some_and(|ct| {
+        ct.ctype().trim().eq_ignore_ascii_case("text")
+            && ct
+                .subtype()
+                .is_some_and(|sub| sub.trim().eq_ignore_ascii_case("calendar"))
+    });
+    calendar && !is_attachment(part) && part.attachment_name().is_none()
+}
+
+/// The part's own file name, or, for one sent without a name, "Attachment N" with the
+/// extension its type usually has, as a person would name it.
 fn part_name(part: &mail_parser::MessagePart<'_>, index: usize) -> String {
     part.attachment_name()
         .map(str::trim)
         .filter(|name| !name.is_empty())
         .map(str::to_owned)
-        .unwrap_or_else(|| format!("part-{index}"))
+        .unwrap_or_else(|| {
+            let extension = extension_of(&part_mime(part));
+            format!("Attachment {index}{extension}")
+        })
+}
+
+/// The extension a file of type `mime` usually has, with its dot; none for a type without one.
+fn extension_of(mime: &str) -> &'static str {
+    match mime {
+        "application/pdf" => ".pdf",
+        "text/calendar" | "application/ics" => ".ics",
+        "text/vcard" | "text/x-vcard" => ".vcf",
+        "text/plain" => ".txt",
+        "text/html" => ".html",
+        "text/csv" => ".csv",
+        "image/png" => ".png",
+        "image/jpeg" => ".jpg",
+        "image/gif" => ".gif",
+        "image/webp" => ".webp",
+        "application/zip" => ".zip",
+        "message/rfc822" => ".eml",
+        _ => "",
+    }
 }
 
 fn part_mime(part: &mail_parser::MessagePart<'_>) -> String {
