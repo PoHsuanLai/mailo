@@ -3,6 +3,9 @@
 //!
 //! A pure function of the stored body, the sanitize policy and, for a message OpenPGP or S/MIME
 //! opened, the body it opened to. [`super::Frames`] remembers the answers.
+//!
+//! What a reply quotes of the message it answers is folded behind a small toggle in the
+//! document itself ([`super::quote`]), so the reader keeps no state for it.
 
 use crate::error::Logged;
 use mail_domain::{Body, Message};
@@ -124,11 +127,9 @@ fn html_frame(html: &str, parsed: &mail_mime::Parsed, policy: SanitizePolicy) ->
     let safe = mail_mime::sanitize(html, policy);
     let blocked_remote = safe.blocked_remote() > 0;
     let fetches = safe.remote_fetches().to_vec();
-    let (embedded, inline) = mail_mime::embed_inline_listed(
-        safe.as_str(),
-        &parsed.attachments,
-        mail_mime::INLINE_BUDGET,
-    );
+    let folded = super::quote::fold_html(safe.as_str());
+    let (embedded, inline) =
+        mail_mime::embed_inline_listed(&folded, &parsed.attachments, mail_mime::INLINE_BUDGET);
     FrameBody::Present {
         html: frame_document(&html_sheet(), safe.body_style(), &embedded),
         blocked_remote,
@@ -181,7 +182,8 @@ fn html_sheet() -> String {
          pre {{ background: {FRAME_CODE_GROUND}; border-radius: 6px; padding: 10px 12px; white-space: pre-wrap; }} \
          h2 {{ font-size: 1.3em; line-height: 1.25; margin: .9em 0 .35em; }} \
          h3 {{ font-size: 1.15em; margin: .8em 0 .3em; }} h4 {{ font-size: 1em; margin: .7em 0 .3em; }} \
-         a {{ color: {FRAME_LINK}; }}"
+         a {{ color: {FRAME_LINK}; }} {}",
+        super::quote::sheet(FRAME_INK_SOFT)
     )
 }
 
@@ -193,8 +195,10 @@ fn plain_sheet() -> String {
         ":root {{ color-scheme: light dark; }} html, body {{ background: transparent; }} \
          body {{ margin: 18px; font-family: {FRAME_FONT}; font-size: {FRAME_TEXT_SIZE}; \
          line-height: {FRAME_TEXT_LINE}; color: {FRAME_INK}; white-space: pre-wrap; \
-         overflow-wrap: anywhere; }} \
-         @media (prefers-color-scheme: dark) {{ body {{ color: {FRAME_INK_DARK}; }} }}"
+         overflow-wrap: anywhere; }} {} \
+         @media (prefers-color-scheme: dark) {{ body {{ color: {FRAME_INK_DARK}; }} \
+         details.mailo-quote > summary {{ color: {FRAME_INK_DARK}; }} }}",
+        super::quote::sheet(FRAME_INK_SOFT)
     )
 }
 
@@ -212,7 +216,11 @@ fn frame_document(sheet: &str, body_style: Option<&str>, body: &str) -> String {
 
 fn plain_frame(text: &str) -> FrameBody {
     FrameBody::Present {
-        html: frame_document(&plain_sheet(), None, &escape_html(text)),
+        html: frame_document(
+            &plain_sheet(),
+            None,
+            &super::quote::fold_plain(text, escape_html),
+        ),
         blocked_remote: false,
         fetches: Vec::new(),
         plain: true,
@@ -255,6 +263,36 @@ mod tests {
             "{page}"
         );
         assert!(!html_sheet().contains("height: auto"), "{}", html_sheet());
+    }
+
+    /// A reply's quoted tail reaches both frames folded, behind the toggle.
+    #[test]
+    fn a_quoted_tail_is_folded_in_either_frame() {
+        let FrameBody::Present { html, .. } = plain_frame("Yes.\n\nOn Mon, Ada wrote:\n> Ten?\n")
+        else {
+            panic!("a plain frame is present");
+        };
+        assert!(
+            html.contains("Yes.\n\n<details class=\"mailo-quote\">")
+                && html.contains("On Mon, Ada wrote:\n&gt; Ten?\n</details>"),
+            "{html}"
+        );
+        let parsed = mail_mime::parse(
+            b"Content-Type: text/html\r\n\r\n<p>Yes.</p><blockquote>Ten?</blockquote>",
+        )
+        .unwrap();
+        let FrameBody::Present { html, .. } = html_frame(
+            parsed.html.as_deref().unwrap(),
+            &parsed,
+            SanitizePolicy::FRAME,
+        ) else {
+            panic!("an html frame is present");
+        };
+        assert!(
+            html.contains("<details class=\"mailo-quote\">")
+                && html.contains("<blockquote>Ten?</blockquote></details>"),
+            "{html}"
+        );
     }
 
     #[test]
