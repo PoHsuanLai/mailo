@@ -402,7 +402,8 @@ pub(super) fn into_scope(spaces: &mut Signal<Spaces>, account: AccountId) {
     // The Spaces as they are on disk: this window's copy may be older than a Space another
     // window added or switched to meanwhile, and keeping it would undo that.
     if let Some(dirs) = try_consume_context::<crate::ui::appearance::WindowDirs>()
-        && let Some(stored) = space::storage(Some(&dirs)).load_spaces(|_| {})
+        && let ds_settings::SpacesLoad::Stored(stored) =
+            space::storage(Some(&dirs)).load_spaces(|_| {})
         && *spaces.peek() != stored
     {
         spaces.set(stored);
