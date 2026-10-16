@@ -51,3 +51,7 @@ pub const LOAD_IMAGES: &str = "Load Images";
 pub fn always_load_from(email: &str) -> String {
     format!("Always Load from {email}")
 }
+
+// The reader: a calendar invitation's one row.
+/// The invitation row's disclosure: the event's facts, its people and its file.
+pub const DETAILS: &str = "Details";

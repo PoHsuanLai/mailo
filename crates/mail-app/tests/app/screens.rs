@@ -69,6 +69,28 @@ const INBOX: [(&str, &str, &str); 8] = [
     ),
 ];
 
+/// Stores `raw` in the Inbox as POP message `uidl`.
+fn arrive(store: &SqliteStore, uidl: &str, raw: Vec<u8>, now: chrono::DateTime<chrono::Utc>) {
+    absorb(
+        store,
+        acct_account(),
+        MailboxRef {
+            account: acct_account(),
+            path: "INBOX".to_owned(),
+        },
+        Some(SyncCursor::Pop),
+        vec![Arrival {
+            remote: RemoteRef::Pop {
+                uidl: uidl.to_owned(),
+            },
+            raw,
+        }],
+        false,
+        now,
+    )
+    .unwrap();
+}
+
 fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
     std::fs::create_dir_all(dir.join("blobs")).unwrap();
     let store = SqliteStore::open(dir.join("mail.db"), dir.join("blobs")).unwrap();
@@ -145,6 +167,46 @@ fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
         now,
     )
     .unwrap();
+    // A conversation of three, read: the older two fold to a line each, the newest quotes the one
+    // it answers and carries a file (rows 3; the reader's thread shots).
+    let said = |hours: i64| (now - chrono::Duration::minutes(hours)).to_rfc2822();
+    let thread = [
+        (
+            "offsite1",
+            format!(
+                "From: Alan Turing <alan@example.test>\r\nTo: me@example.test\r\nSubject: Venue for the offsite\r\nDate: {}\r\nMessage-ID: <offsite1@example.test>\r\n\r\nShall we hold the offsite at the lake house? It has room for twelve and a long table.\r\n\r\nAlan\r\n",
+                said(26 * 60)
+            ),
+        ),
+        (
+            "offsite2",
+            format!(
+                "From: Grace Hopper <grace@example.test>\r\nTo: me@example.test\r\nSubject: Re: Venue for the offsite\r\nDate: {}\r\nMessage-ID: <offsite2@example.test>\r\nIn-Reply-To: <offsite1@example.test>\r\nReferences: <offsite1@example.test>\r\n\r\nThe lake house works. The 14th and 15th are free.\r\n\r\nOn Monday, Alan Turing wrote:\r\n> Shall we hold the offsite at the lake house? It has room for twelve and a long table.\r\n>\r\n> Alan\r\n",
+                said(5 * 60)
+            ),
+        ),
+        (
+            "offsite3",
+            format!(
+                "From: Ada Lovelace <ada@example.test>\r\nTo: me@example.test\r\nSubject: Re: Venue for the offsite\r\nDate: {}\r\nMessage-ID: <offsite3@example.test>\r\nIn-Reply-To: <offsite2@example.test>\r\nReferences: <offsite1@example.test> <offsite2@example.test>\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=\"mix\"\r\n\r\n--mix\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\nBooked for the 14th. The floor plan is attached; the long table is in the east room.\r\n\r\nAda\r\n\r\nOn Tuesday, Grace Hopper wrote:\r\n> The lake house works. The 14th and 15th are free.\r\n--mix\r\nContent-Type: application/pdf; name=\"Floor plan.pdf\"\r\nContent-Disposition: attachment; filename=\"Floor plan.pdf\"\r\nContent-Transfer-Encoding: base64\r\n\r\nJVBERi0xLjQKJWZha2UK\r\n--mix--\r\n",
+                said(100)
+            ),
+        ),
+    ];
+    for (uidl, raw) in thread {
+        arrive(&store, uidl, raw.into_bytes(), now);
+    }
+    let offsite = store
+        .thread_by_rfc_id(acct_account(), "offsite3@example.test")
+        .unwrap()
+        .expect("the offsite conversation was stored");
+    mail_core::act::perform(&store, offsite, Op::SetRead(ReadState::Read));
+    // An invitation: one row of answers and Details (row 4).
+    let invite = format!(
+        "From: Ada Lovelace <ada@example.test>\r\nTo: me@example.test\r\nSubject: Invitation: Design review\r\nDate: {}\r\nMessage-ID: <review-mail@example.test>\r\nMIME-Version: 1.0\r\nContent-Type: multipart/alternative; boundary=\"alt\"\r\n\r\n--alt\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\nYou are invited to Design review.\r\n--alt\r\nContent-Type: text/calendar; charset=UTF-8; method=REQUEST\r\n\r\nBEGIN:VCALENDAR\r\nPRODID:-//Example//Calendar//EN\r\nVERSION:2.0\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\nUID:review-shots@example.test\r\nSEQUENCE:0\r\nDTSTAMP:20260920T101500Z\r\nDTSTART;TZID=Europe/Berlin:20261105T140000\r\nDTEND;TZID=Europe/Berlin:20261105T150000\r\nSUMMARY:Design review\r\nLOCATION:Room 2\r\nDESCRIPTION:We walk through the new reader and the compose window.\r\nSTATUS:CONFIRMED\r\nORGANIZER;CN=Ada Lovelace:mailto:ada@example.test\r\nATTENDEE;CN=Ada Lovelace;PARTSTAT=ACCEPTED;ROLE=CHAIR:mailto:ada@example.test\r\nATTENDEE;CN=Me;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:me@example.test\r\nATTENDEE;CN=Grace Hopper;PARTSTAT=TENTATIVE:mailto:grace@example.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n--alt--\r\n",
+        said(110)
+    );
+    arrive(&store, "review", invite.into_bytes(), now);
     // Old conversations already read, for Tidy Up to list.
     for (n, subject) in [
         "Quarterly report",
@@ -333,6 +395,21 @@ fn screens() {
         let (mut h, _d) = open(dark);
         open_row(&mut h, 2);
         shot(&mut h, &out, "reader-banners", dark);
+
+        // A read conversation of three: the older two one line each, the newest open with its
+        // quote folded and its file in the strip; then an older one opened by a press.
+        let (mut h, _d) = open(dark);
+        open_row(&mut h, 3);
+        shot(&mut h, &out, "reader-thread", dark);
+        click(&mut h, ".reader-body .fold-line");
+        shot(&mut h, &out, "reader-thread-opened", dark);
+
+        // An invitation: one row, then its Details.
+        let (mut h, _d) = open(dark);
+        open_row(&mut h, 4);
+        shot(&mut h, &out, "reader-invite", dark);
+        click(&mut h, "[*|aria-label=\"Show Details\"]");
+        shot(&mut h, &out, "reader-invite-details", dark);
 
         // The row's menus: its actions, then labels and snooze picked from them.
         let (mut h, _d) = open(dark);

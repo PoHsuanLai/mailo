@@ -4,6 +4,7 @@ mod attachments;
 pub(super) mod blocks;
 mod cache;
 mod fetch;
+mod fold;
 mod header;
 mod images;
 mod peek;
@@ -27,6 +28,7 @@ use mail_core::{SqliteStore, Store};
 use mail_domain::*;
 pub(super) use peek::{PeekView, peek_key};
 use std::cell::RefCell;
+use std::collections::HashSet;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -111,6 +113,10 @@ pub(super) fn Reader(
     // menu it opens.
     let frame_menus = use_signal(try_consume_context::<super::original::FrameMenus>);
     let mut link_menu = use_signal(|| None::<super::original::LinkAsked>);
+    // The earlier messages a press opened, and those that were unread when the conversation was
+    // opened (`fold`): an earlier message is one line unless it is in either.
+    let unfolded = use_signal(HashSet::<MessageId>::new);
+    let unread = use_hook(|| Rc::new(RefCell::new(HashSet::<MessageId>::new())));
     // The conversation's way out of its list, as the lookout found it, under the key it was
     // found for (`leave_key`): the ⋯ offers it only under this conversation's key.
     let way_out = use_signal(|| None::<(String, super::unsubscribe::Offer)>);
@@ -275,14 +281,38 @@ pub(super) fn Reader(
     // How many messages there are, and the moment their dates are written against: the newest
     // says everything in its header, the rest who and when.
     let count = shown.len();
+    unread.borrow_mut().extend(
+        shown
+            .iter()
+            .filter(|(message, ..)| message.read == ReadState::Unread)
+            .map(|(message, ..)| message.id),
+    );
+    let folds: Vec<fold::Fold> = shown
+        .iter()
+        .enumerate()
+        .map(|(at, (message, ..))| {
+            let held =
+                unread.borrow().contains(&message.id) || unfolded.read().contains(&message.id);
+            fold::fold_at(
+                at,
+                count,
+                if held {
+                    fold::Hold::Open
+                } else {
+                    fold::Hold::Nothing
+                },
+            )
+        })
+        .collect();
     let now = super::clock::now();
     // The images line, only while images are held back: it is drawn on the newest such message
     // and asks about its sender. Images once shown say nothing more.
     let blocked = shown
         .iter()
+        .zip(&folds)
         .rev()
-        .find(|(_, _, remote, showing)| *remote && !showing)
-        .map(|(message, ..)| message.clone());
+        .find(|((_, _, remote, showing), fold)| **fold == fold::Fold::Open && *remote && !showing)
+        .map(|((message, ..), _)| message.clone());
     // "Always load from" the blocked sender: offered where it could ever load their images
     // (not under `Always`, which already would; not in Junk, which is always asked about), and
     // never to a sender who is not provably who the address says: trusting a forged address would
@@ -348,7 +378,7 @@ pub(super) fn Reader(
             super::unsubscribe::Lookout { key: "{leave_key}", thread, bodies: bodies.clone(), tag: leave_key.clone(), found: way_out }
         }
         div { class: "reader-body",
-            for (at, ((message, body, ..), attached)) in shown.into_iter().zip(attached).enumerate() {
+            for (at, (((message, body, ..), attached), fold)) in shown.into_iter().zip(attached).zip(folds).enumerate() {
                 article { key: "{message.id}", class: "frame",
                     oncontextmenu: move |event: MouseEvent| {
                         let asked = frame_menus.peek().as_ref().and_then(|menus| menus.take());
@@ -358,61 +388,76 @@ pub(super) fn Reader(
                             link_menu.set(Some(asked));
                         }
                     },
-                    header::MessageHead {
-                        detail: header::detail_at(at, count),
-                        when: (when_short(&message, now), stamp(&message)),
-                        extras: (header::detail_at(at, count) == header::Detail::Full).then(|| header::Extras {
-                            checked: (message.id, message.body.raw()),
-                            landed,
-                        }),
-                        message: message.clone(),
-                        yours: yours.clone(),
+                    if fold == fold::Fold::Folded {
+                        fold::FoldedLine {
+                            message: message.clone(),
+                            when: (when_short(&message, now), stamp(&message)),
+                            unfolded,
+                        }
                     }
-                    if blocked.as_ref().is_some_and(|blocked| blocked.id == message.id) {
-                        ImagesHidden { shell, offer: offer.clone() }
+                    if fold != fold::Fold::Folded {
+                        header::MessageHead {
+                            detail: header::detail_at(at, count),
+                            when: (when_short(&message, now), stamp(&message)),
+                            extras: (header::detail_at(at, count) == header::Detail::Full).then(|| header::Extras {
+                                checked: (message.id, message.body.raw()),
+                                landed,
+                            }),
+                            message: message.clone(),
+                            yours: yours.clone(),
+                        }
                     }
-                    super::pgp::Seal {
-                        key: "{message.id}-{message.body.raw():?}",
-                        message: message.id,
-                        body: message.body.raw(),
-                        landed,
+                    if fold != fold::Fold::Folded && blocked.as_ref().is_some_and(|blocked| blocked.id == message.id) {
+                            ImagesHidden { shell, offer: offer.clone() }
                     }
-                    super::invite::Invitation {
-                        key: "{message.id}-{message.body.raw():?}",
-                        message: message.id,
-                        body: message.body.raw(),
-                    }
-                    if !attached.is_empty() {
-                        Attachments {
+                    if fold != fold::Fold::Folded {
+                        super::pgp::Seal {
                             key: "{message.id}-{message.body.raw():?}",
                             message: message.id,
                             body: message.body.raw(),
-                            rows: attached,
-                            shell,
+                            landed,
                         }
                     }
-                    match body {
-                        // Being rendered off the thread: the frame's own box, so nothing moves
-                        // when it lands.
-                        None => rsx! {
-                            div { key: "{message.id}-rendering", class: "html", aria_busy: "true" }
-                        },
-                        Some(FrameBody::NotFetched) => rsx! {
-                            fetch::BodyPane {
-                                key: "{message.id}-pane",
+                    if fold != fold::Fold::Folded {
+                        super::invite::Invitation {
+                            key: "{message.id}-{message.body.raw():?}",
+                            message: message.id,
+                            body: message.body.raw(),
+                        }
+                    }
+                    if fold != fold::Fold::Folded && !attached.is_empty() {
+                            Attachments {
+                                key: "{message.id}-{message.body.raw():?}",
                                 message: message.id,
-                                account: message.account,
-                                landed,
+                                body: message.body.raw(),
+                                rows: attached,
+                                shell,
                             }
-                        },
-                        Some(FrameBody::Present { html, plain, .. }) => rsx! {
-                            blocks::MessageView {
-                                holder: consent.as_ref().map(|(_, holder)| *holder),
-                                message_id: message.id,
-                                html,
-                                plain,
-                            }
-                        },
+                    }
+                    if fold != fold::Fold::Folded {
+                        match body {
+                            // Being rendered off the thread: the frame's own box, so nothing moves
+                            // when it lands.
+                            None => rsx! {
+                                div { key: "{message.id}-rendering", class: "html", aria_busy: "true" }
+                            },
+                            Some(FrameBody::NotFetched) => rsx! {
+                                fetch::BodyPane {
+                                    key: "{message.id}-pane",
+                                    message: message.id,
+                                    account: message.account,
+                                    landed,
+                                }
+                            },
+                            Some(FrameBody::Present { html, plain, .. }) => rsx! {
+                                blocks::MessageView {
+                                    holder: consent.as_ref().map(|(_, holder)| *holder),
+                                    message_id: message.id,
+                                    html,
+                                    plain,
+                                }
+                            },
+                        }
                     }
                 }
             }
