@@ -1,6 +1,6 @@
 //! The card, drawn for every kind of invitation and every place the reader can stand in one.
 
-use super::draw::InviteCard;
+use super::draw::{Disclosure, InviteCard};
 use super::tests::{ME, ics, request};
 use super::{Card, card_of};
 use chrono::{FixedOffset, TimeZone, Utc};
@@ -10,9 +10,10 @@ use mail_domain::*;
 
 /// The card alone, as the reader would draw it.
 #[component]
+/// The card with its Details open, so every part of it is drawn.
 fn Alone(card: Card) -> Element {
     let known = use_signal(|| None);
-    rsx! { ds::prelude::Ds { appearance: ds::prelude::Appearance::default(), material: ds::prelude::Material::Window, InviteCard { card, known } } }
+    rsx! { ds::prelude::Ds { appearance: ds::prelude::Appearance::default(), material: ds::prelude::Material::Window, InviteCard { card, known, opens: Disclosure::Open } } }
 }
 
 /// Nine hours east of UTC: never Berlin's offset, so the organiser's time always differs.
