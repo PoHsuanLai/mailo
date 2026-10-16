@@ -126,7 +126,7 @@ pub(super) fn thumbnail(store: &Arc<SqliteStore>, message: MessageId, index: usi
 /// Space or Return, alone, on a cell that has the keyboard opens it, as a click does; the key goes
 /// no further, so the reader behind does not scroll. A chord (Primary+Return, which opens the part
 /// in its app once Peek is up) is the window's.
-fn pressed(event: &KeyboardEvent) -> bool {
+pub(super) fn pressed(event: &KeyboardEvent) -> bool {
     event.modifiers().is_empty() && matches!(event.key().to_string().as_str(), " " | "Enter")
 }
 

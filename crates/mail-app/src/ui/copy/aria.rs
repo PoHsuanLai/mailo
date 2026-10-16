@@ -82,3 +82,12 @@ pub const LINK_DESTINATION: &str = "Link Destination";
 pub fn page_picture(name: &str, page: u32) -> String {
     format!("{name}, page {page}")
 }
+
+// The reader: a calendar invitation's disclosure, named for what pressing it does.
+pub const SHOW_DETAILS: &str = "Show Details";
+pub const HIDE_DETAILS: &str = "Hide Details";
+
+// The reader: an earlier message folded to one line, named for what pressing it does.
+pub fn open_message(sender: &str) -> String {
+    format!("Show Message from {sender}")
+}

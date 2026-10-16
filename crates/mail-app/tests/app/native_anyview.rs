@@ -96,7 +96,7 @@ fn a_part_mailo_does_not_draw_gets_anyviews_card_and_an_svg_stays_unpreviewed() 
     settle_until(&mut harness, |h| h.count(".list .ds-thread") > 0);
     let harness = &mut harness;
     open_row(harness, 1);
-    settle_until(harness, |h| h.count(".attachments .ds-list-item") == 3);
+    settle_until(harness, |h| h.count(".attachments .att-tile") == 3);
 
     // The bitmap: anyview's card, its picture alone.
     let card = format!("{} .att-thumb .anyview-pane", item(1));

@@ -272,9 +272,9 @@ pub(super) fn click(harness: &mut Harness, selector: &str) {
     harness.advance(ms(100));
 }
 
-/// The strip's `n`th row (1-based). The strip is quire's list.
+/// The strip's `n`th tile (1-based).
 pub(super) fn item(n: usize) -> String {
-    format!(".attachments .ds-list > .ds-list-item:nth-child({n})")
+    format!(".attachments .att-strip > .att-tile:nth-child({n})")
 }
 
 /// quire's Peek, the one preview.
@@ -439,7 +439,7 @@ fn a_remote_part_an_oversized_picture_and_an_svg_draw_no_preview() {
 
     // The part still on the server.
     open_row(harness, 3);
-    settle_until(harness, |h| h.count(".attachments .ds-list-item") == 1);
+    settle_until(harness, |h| h.count(".attachments .att-tile") == 1);
     harness.advance(ms(600));
     assert_eq!(
         harness.count(".attachments .att-thumb"),

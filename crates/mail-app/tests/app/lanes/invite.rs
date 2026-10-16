@@ -93,7 +93,8 @@ fn an_invitation_is_accepted_with_a_note_then_declined_and_saved_as_ics() {
         "no answer declines"
     );
 
-    // Save .ics: the event lands where the window saves files, named for it.
+    // Save .ics, one of the Details: the event lands where the window saves files, named for it.
+    window.click(&format!("{CARD} [*|aria-label=\"Show Details\"]"));
     window.click(&format!("{CARD} [*|aria-label=\"Save .ics\"]"));
     let saved = window.saves().join("Design review.ics");
     window.until("the toast says where it was saved", |h| {

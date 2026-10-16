@@ -206,7 +206,7 @@ fn a_calendar_a_card_and_a_forward_open_in_peek_and_the_arrows_move_between_them
     let harness = &mut harness;
     open_row(harness, 1);
     until(harness, "the strip", |h| {
-        h.count(".attachments .ds-list-item") == 3
+        h.count(".attachments .att-tile") == 3
     });
     let tile = format!("{} .att-mark", item(1));
     until(harness, "the calendar's tile", |h| h.count(&tile) == 1);
@@ -253,7 +253,7 @@ fn a_calendar_a_card_and_a_forward_open_in_peek_and_the_arrows_move_between_them
     harness.key(Key::Escape);
     until(harness, "Peek to close", |h| h.count(PEEK) == 0);
     assert_eq!(
-        harness.count(".attachments .ds-list-item"),
+        harness.count(".attachments .att-tile"),
         3,
         "Esc closed the conversation along with Peek"
     );

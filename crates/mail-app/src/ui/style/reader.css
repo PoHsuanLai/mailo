@@ -40,6 +40,12 @@ article.frame:last-of-type { flex: 1 0 auto; }
 article.frame > :not(.html) { margin-left: var(--s-18); margin-right: var(--s-18); }
 article.frame header { margin-top: var(--s-14); margin-bottom: var(--s-12); }
 article.frame header[*|data-detail="compact"] { margin-top: var(--s-10); margin-bottom: var(--s-10); }
+/* An earlier message folded to one line: who, a snippet of what, and when; a press opens it. */
+.fold-line { display: flex; align-items: center; gap: var(--s-8); min-width: 0; margin-top: var(--s-10); margin-bottom: var(--s-10); }
+/* The name is drawn whole; the snippet takes what is left and fades out at its end, as quire's
+   `.ds-truncate` does (Blitz draws no ellipsis; a mask reads only the alpha). */
+.fold-name { flex: none; white-space: nowrap; }
+.fold-snippet { flex: 1 1 0; overflow: hidden; white-space: nowrap; min-width: 0; mask-image: linear-gradient(to right, var(--ink) calc(100% - 1.5em), transparent); }
 article.frame + article.frame { border-top: var(--hair) solid var(--line-soft); }
 /* Whatever else the reader puts under the messages (the inline reply) is inset as their heads are. */
 .reader-body > :not(.frame):not(.banners):not(.inline-reply) { margin-left: var(--s-18); margin-right: var(--s-18); margin-bottom: var(--s-18); }
@@ -63,17 +69,24 @@ article.frame + article.frame { border-top: var(--hair) solid var(--line-soft); 
 .reader-body .pending {
    font-weight: 700; font-size: var(--fs-title); font-style: normal; color: var(--ink-soft);
 }
-.html { width: 100%; min-height: 320px; flex: 1 0 320px; border: 0; background: var(--foreign-ground); display: block; }
+/* An earlier message that is open takes a modest box; the last one takes the room left (a single
+   message fills the pane). */
+.html { width: 100%; height: 240px; flex: none; border: 0; background: var(--foreign-ground); display: block; }
+article.frame:last-of-type .html { height: auto; min-height: 320px; flex: 1 0 320px; }
 /* A plain-text message has no page of its own: it sits on the reader's ground. */
 .html[*|data-plain="true"] { background: var(--surface); }
-.attachments { margin: 0 0 var(--s-13); }
-/* A stored attachment's preview and its row, side by side; the row takes what is left. */
-.att-line { display: flex; align-items: center; gap: var(--s-4); padding-left: var(--s-12); }
-.att-line > :last-child { flex: 1 1 auto; min-width: 0; }
+.attachments { margin: 0 0 var(--s-13); display: grid; gap: var(--s-8); }
+/* Under the body, one strip of tiles: a preview over the name and the size, then Save. */
+.att-strip { display: flex; flex-wrap: nowrap; gap: var(--s-10); overflow-x: auto; padding-bottom: var(--s-2); }
+.att-tile {
+  flex: none; width: 120px; display: flex; flex-direction: column; align-items: center; gap: var(--s-4);
+  padding: var(--s-8); border: var(--hair) solid var(--line); border-radius: var(--r-media); background: var(--surface-2);
+}
+.att-text { display: grid; width: 100%; min-width: 0; text-align: center; }
+.att-mark, .att-away { width: 56px; height: 56px; flex: none; display: grid; place-items: center; color: var(--ink-soft); }
 .att-thumb {
   width: 56px; height: 56px; flex: none; display: grid; place-items: center; overflow: hidden;
 }
-.att-mark { width: 56px; flex: none; display: grid; place-items: center; color: var(--ink-soft); }
 .att-thumb img { max-width: 100%; max-height: 100%; display: block; }
 .att-note { color: var(--ink-faint); }
 /* anyview's card in the tile, its picture alone: the media box takes the tile, not its own room. */
