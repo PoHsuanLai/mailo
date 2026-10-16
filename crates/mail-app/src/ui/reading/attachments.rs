@@ -60,7 +60,11 @@ pub(super) fn Attachments(
     let mut failures = Vec::new();
     for row in &rows {
         let index = row.index;
-        let state = downloads.read().get(&index).cloned().unwrap_or(Download::Idle);
+        let state = downloads
+            .read()
+            .get(&index)
+            .cloned()
+            .unwrap_or(Download::Idle);
         let busy = matches!(state, Download::Running { .. });
         let label = match row.kept {
             Kept::Here | Kept::Opened => "Save",

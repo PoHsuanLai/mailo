@@ -1,10 +1,10 @@
 //! The invitation card: what the event is, who is asked, and the three answers.
 
-use crate::ui::copy::{aria, controls};
 use super::super::menu::{MenuKey, menu_key};
 use super::super::motion::{Follow, tell};
 use super::super::press::{available, on_primary};
 use super::{CHIPS, Card, Stand, answer, cached, lookup, save_ics};
+use crate::ui::copy::{aria, controls};
 use dioxus::prelude::*;
 use ds::components::content::avatar::{
     AvatarFace, AvatarShape, AvatarSize, AvatarTone, person_hue,
