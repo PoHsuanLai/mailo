@@ -123,6 +123,7 @@ jobs:
             install: >-
               dnf install -y git curl tar gcc gcc-c++ make cmake clang perl-core
               pkgconf-pkg-config fontconfig-devel google-noto-sans-cjk-fonts
+              google-noto-serif-cjk-fonts dbus-daemon
           - image: archlinux:latest
             install: >-
               pacman -Syu --noconfirm --needed git curl tar base-devel cmake clang perl
