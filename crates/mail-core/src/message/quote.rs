@@ -21,12 +21,14 @@ const TOGGLE_TIP: &str = "Show Quoted Text";
 fn opening() -> String {
     format!(
         "<details class=\"mailo-quote\"><summary title=\"{TOGGLE_TIP}\" \
-         aria-label=\"{TOGGLE_TIP}\">{TOGGLE}</summary>"
+         aria-label=\"{TOGGLE_TIP}\">{TOGGLE}</summary><div class=\"mailo-quoted\">"
     )
 }
 
-/// What closes the fold, after the quoted tail.
-const CLOSING: &str = "</details>";
+/// What closes the fold, after the quoted tail. The tail sits in an element of its own: a closed
+/// `<details>` hides the elements after its `<summary>`, never bare text, on Blitz as in the spec's
+/// rendering rules, so a plain message's quote would otherwise stay in view.
+const CLOSING: &str = "</div></details>";
 
 /// The rules for the toggle, in the frame's own sheet: a small quiet pill on its own line, and
 /// the quote under it once open. `ink` is the soft ink of the sheet it joins.
@@ -609,14 +611,14 @@ mod tests {
         let folded = fold_html(html);
         assert!(
             folded.starts_with("<p>Yes.</p><details class=\"mailo-quote\"><summary")
-                && folded.ends_with("<blockquote>Ten?</blockquote></details>"),
+                && folded.ends_with("<blockquote>Ten?</blockquote></div></details>"),
             "{folded}"
         );
         assert_eq!(fold_html("<p>Thanks.</p>"), "<p>Thanks.</p>");
         let plain = fold_plain("Yes.\n> Ten?\n", |text| text.replace('>', "&gt;"));
         assert!(
             plain.starts_with("Yes.\n<details class=\"mailo-quote\">")
-                && plain.ends_with("&gt; Ten?\n</details>"),
+                && plain.ends_with("&gt; Ten?\n</div></details>"),
             "{plain}"
         );
     }
