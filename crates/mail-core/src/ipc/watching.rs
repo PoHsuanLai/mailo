@@ -175,8 +175,10 @@ mod tests {
         )
         .unwrap_or_else(|e| panic!("{e}"));
         assert!(!agent.is_running());
-        let first = latchkey::lock::take(&agent.address().lock).unwrap_or_else(|e| panic!("{e}"));
-        assert!(agent.is_running(), "held, so running");
+        // Running means answering a knock (latchkey 99cc9de), so the watch listens, as the real
+        // one does: holding the lock alone is not enough.
+        let first = agent.listen().unwrap_or_else(|e| panic!("{e}"));
+        assert!(agent.is_running(), "listening, so running");
         assert!(matches!(
             latchkey::lock::take(&agent.address().lock),
             Err(latchkey::Error::AlreadyRunning)
