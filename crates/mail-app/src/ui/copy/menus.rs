@@ -100,6 +100,8 @@ pub const MOVE_TO: &str = "Move to…";
 pub const DOWNLOAD: &str = "Download";
 pub const PRINT: &str = "Print…";
 pub const VIEW: &str = "View";
+/// The reader's ⋯, when the conversation's list offers a way out: it asks before it acts.
+pub const UNSUBSCRIBE: &str = "Unsubscribe…";
 
 /// The word for the side of an action a conversation is offered.
 pub fn offered(say: mail_core::view::Say) -> &'static str {

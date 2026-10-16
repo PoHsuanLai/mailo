@@ -1,8 +1,8 @@
-//! The reader head's "Unsubscribe", and the popover that says what it will do before it does it.
+//! Unsubscribe… in the reader's ⋯: whether the open thread offers a way out, and the popover
+//! that says what it will do before it does it.
 
 use super::super::compose::{Desk, show_queued};
 use super::super::hover::{copy, url_spans};
-use super::super::menu::anchor_at;
 use super::super::motion::{Follow, tell};
 use super::super::press::{available, on_primary};
 use super::{Ask, Bodies, Offer, ask, cached, client, leave, lookup, said};
@@ -10,7 +10,7 @@ use dioxus::prelude::*;
 use ds::base::geometry::placement::{Align, Side};
 use ds::components::content::label::{LabelRole, LabelStyle};
 use ds::components::controls::button_model::Answers;
-use ds::host::measure::{Anchor, MountedRef};
+use ds::host::measure::Anchor;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::root::pass_through::ExtraClass;
@@ -30,72 +30,49 @@ pub(in crate::ui) enum Phase {
     Failed(String),
 }
 
-/// "Unsubscribe", when the open thread offers a way out.
+/// Whether the open thread offers a way out of its list, found for the reader's ⋯. Draws
+/// nothing.
 ///
-/// Draws nothing until the answer is known: the lookup reads a stored blob, so it runs on a
-/// blocking thread and lands here, or is already in the cache from the last time this thread
-/// was open. Keyed by the reader on the thread and its bodies, so an answer for one thread can
-/// never be drawn, or acted on, under another.
+/// The lookup reads a stored blob, so it runs on a blocking thread and lands in `found`, or is
+/// already in the cache from the last time this thread was open. Keyed by the reader on the
+/// thread and its bodies, and the answer is put down with that key (`tag`), so an answer for one
+/// thread can never be offered, or acted on, under another: the reader reads it back only under
+/// its own key.
 #[component]
-pub(in crate::ui) fn Leave(
+pub(in crate::ui) fn Lookout(
     thread: ThreadId,
     bodies: Bodies,
-    revision: Option<Signal<u64>>,
+    tag: String,
+    found: Signal<Option<(String, Offer)>>,
 ) -> Element {
     let looks = crate::ui::reading::use_looks();
-    let mut known = use_signal({
-        let (looks, bodies) = (looks.clone(), bodies.clone());
-        move || cached(&looks, thread, &bodies)
-    });
     let _look = use_resource(move || {
         let bodies = bodies.clone();
         let looks = looks.clone();
+        let tag = tag.clone();
         let store = consume_context::<Arc<SqliteStore>>();
+        let mut found = found;
         async move {
-            if known.peek().is_some() {
-                return;
-            }
-            let offer =
-                tokio::task::spawn_blocking(move || lookup(&looks, &store, thread, &bodies))
-                    .await
-                    .ok()
-                    .flatten();
-            known.set(Some(offer));
+            let offer = match cached(&looks, thread, &bodies) {
+                Some(offer) => offer,
+                None => {
+                    tokio::task::spawn_blocking(move || lookup(&looks, &store, thread, &bodies))
+                        .await
+                        .ok()
+                        .flatten()
+                }
+            };
+            // Only a way out this client can say something about is offered.
+            let offer = offer.filter(|offer| ask(offer).is_some());
+            found.set(offer.map(|offer| (tag, offer)));
         }
     });
-    let mut phase = use_signal(|| Phase::Closed);
-    let Some(Some(offer)) = known() else {
-        return rsx! {};
-    };
-    let Some(asked) = ask(&offer) else {
-        return rsx! {};
-    };
-    let open = phase() != Phase::Closed;
-    let mut anchor = use_signal(|| None::<MountedRef>);
-    let label = "Unsubscribe";
-    rsx! {
-        div { class: "leave",
-            Button {
-                label,
-                shown: Some(if open { Shown::Visible } else { Shown::Hidden }),
-                onclick: on_primary(move || {
-                    let next = if *phase.peek() == Phase::Closed { Phase::Asking } else { Phase::Closed };
-                    phase.set(next);
-                }),
-                common: Common { aria_label: Some(label.to_owned()),
-                    mounted: Some(EventHandler::new(move |event: MountedEvent| anchor.set(Some(MountedRef(event.data()))))),
-                    ..Common::default()
-                },
-            }
-            if open {
-                Confirm { offer, asked, phase, revision, anchor: anchor_at(anchor()) }
-            }
-        }
-    }
+    rsx! {}
 }
 
-/// What will happen, and the one button that does it: a quire popover under the button. A page
-/// gets its address and Copy instead: this client never opens it and never fetches it.
+/// What will happen, and the one button that does it: a quire popover under the ⋯ it was picked
+/// from. A page gets its address and Copy instead: this client never opens it and never fetches
+/// it.
 #[component]
 pub(in crate::ui) fn Confirm(
     offer: Offer,

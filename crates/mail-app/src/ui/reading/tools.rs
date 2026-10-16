@@ -5,6 +5,9 @@
 //! window of its own, as Mail's view pop-up does; Move to…, Print…, Snooze… and Label… open
 //! their own menus where the ⋯ hangs.
 //!
+//! While the conversation's list offers a way out, the ⋯ has Unsubscribe…, which opens the
+//! popover that says what leaving will do (`unsubscribe::Confirm`) where the ⋯ hangs.
+//!
 //! The ⋯ ends with Download: each of the conversation's messages as the server sent it, an
 //! `.eml` apiece, into the downloads directory, the way an attachment's Save writes there. What
 //! is written is the stored bytes, never a rendering, so a message that draws wrongly can be
@@ -17,6 +20,7 @@ use crate::ui::copy::menus::offered;
 use crate::ui::downloads::{Origin, Saving};
 use crate::ui::menu::{Floating, MenuItem, Right, Tile, anchor_at};
 use crate::ui::menus::{LabelMenu, SnoozeMenu};
+use crate::ui::unsubscribe::{Confirm, Offer, Phase, ask};
 use crate::ui::view::{Peek, Shell};
 use dioxus::prelude::*;
 use ds::components::controls::button_model::{Bezel, ImagePosition};
@@ -162,11 +166,13 @@ enum Further {
     Move,
     Print,
     View,
+    Unsubscribe,
 }
 
 /// The ⋯: the conversation's quieter actions, through the row's own press, so a pick lands on
 /// the undo stack and asks first where the row's would. `peek` is the pane's mode, and `None` in
-/// a window of its own, which has no View.
+/// a window of its own, which has no View. `leave` is the conversation's way out of its list,
+/// once the reader has found one.
 #[component]
 pub(super) fn ReaderMore(
     summary: ThreadSummary,
@@ -174,13 +180,16 @@ pub(super) fn ReaderMore(
     peek: Option<Peek>,
     shell: Signal<Shell>,
     revision: Signal<u64>,
+    #[props(default)] leave: Option<Offer>,
 ) -> Element {
     let mut open = use_signal(|| false);
     let mut further = use_signal(|| Further::None);
     let tool = use_signal(|| None::<MountedRef>);
     let id = summary.id;
+    // Asked through the popover's own phase, so Unsubscribe's sending state is the popover's.
+    let mut leaving = use_signal(|| Phase::Closed);
     let items = rows(
-        &reader_groups(&summary, &toolbar, peek.is_some()),
+        &reader_groups(&summary, &toolbar, peek.is_some(), leave.is_some()),
         &summary,
         chrono::Utc::now(),
     );
@@ -220,6 +229,10 @@ pub(super) fn ReaderMore(
                         Pick::Press(pressed) => press(shell, revision, id, pressed),
                         Pick::Print => further.set(Further::Print),
                         Pick::View => further.set(Further::View),
+                        Pick::Unsubscribe => {
+                            leaving.set(Phase::Asking);
+                            further.set(Further::Unsubscribe);
+                        }
                         Pick::Download => download(id),
                     }
                 },
@@ -248,6 +261,12 @@ pub(super) fn ReaderMore(
             },
             (Further::View, Some(peek)) => rsx! {
                 ViewMenu { thread: id, peek, shell, anchor: tool(), on_close: done }
+            },
+            (Further::Unsubscribe, _) => match leave.clone().and_then(|offer| ask(&offer).map(|asked| (offer, asked))) {
+                Some((offer, asked)) if leaving() != Phase::Closed => rsx! {
+                    Confirm { offer, asked, phase: leaving, revision: Some(revision), anchor: anchor_at(tool()) }
+                },
+                _ => rsx! {},
             },
             (Further::View | Further::None, _) => rsx! {},
         }

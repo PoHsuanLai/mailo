@@ -42,3 +42,12 @@ pub const OPEN: &str = "Open";
 pub const OPEN_LINK: &str = "Open Link";
 /// A link's card: put the address on the clipboard.
 pub const COPY_LINK: &str = "Copy Link";
+
+// The line over a message whose remote images are held back.
+/// This conversation's images, now.
+pub const LOAD_IMAGES: &str = "Load Images";
+
+/// This sender's images, from now on.
+pub fn always_load_from(email: &str) -> String {
+    format!("Always Load from {email}")
+}

@@ -21,9 +21,7 @@ use ds::components::content::avatar::{
     AvatarFace, AvatarShape, AvatarSize, AvatarTone, person_hue,
 };
 use ds::components::content::label::LabelStyle;
-use ds::components::overlays::inline_banner::InlineBanner;
 use ds::prelude::*;
-use ds::root::common::Common;
 use mail_core::message::{FrameBody, ON_THE_FRAME, Sent};
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
@@ -60,17 +58,9 @@ fn when_short(message: &Message, now: chrono::DateTime<chrono::Utc>) -> String {
     mail_core::when::listed(message.date, now, &chrono::Local)
 }
 
-fn show_images() -> &'static str {
-    "Show images"
-}
-
-/// The banner's second offer: this sender's images, from now on.
-fn always_load_from(email: &str) -> String {
-    format!("Always load from {email}")
-}
-
-/// The key [`super::unsubscribe::Leave`] is mounted under: the thread and what each of its
-/// messages holds, so a body arriving asks again and another thread never shows this one's answer.
+/// The key [`super::unsubscribe::Lookout`] and [`super::receipt::Receipts`] are mounted under:
+/// the thread and what each of its messages holds, so a body arriving asks again and another
+/// thread never shows this one's answer.
 fn leave_key(thread: ThreadId, bodies: &super::unsubscribe::Bodies) -> String {
     use std::hash::{Hash, Hasher};
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -121,6 +111,9 @@ pub(super) fn Reader(
     // menu it opens.
     let frame_menus = use_signal(try_consume_context::<super::original::FrameMenus>);
     let mut link_menu = use_signal(|| None::<super::original::LinkAsked>);
+    // The conversation's way out of its list, as the lookout found it, under the key it was
+    // found for (`leave_key`): the ⋯ offers it only under this conversation's key.
+    let way_out = use_signal(|| None::<(String, super::unsubscribe::Offer)>);
     // The window's consent to remote images, and this reader's claim on it; closing the reader
     // takes back what it granted.
     let consent = use_hook(|| {
@@ -268,6 +261,11 @@ pub(super) fn Reader(
         .map(|(message, ..)| (message.id, message.body.raw()))
         .collect();
     let leave_key = leave_key(thread, &bodies);
+    let leave = way_out
+        .read()
+        .as_ref()
+        .filter(|(found, _)| *found == leave_key)
+        .map(|(_, offer)| offer.clone());
     // An encrypted message's subject travels inside it; the outside says `...`.
     let subject = shown
         .iter()
@@ -278,8 +276,8 @@ pub(super) fn Reader(
     // says everything in its header, the rest who and when.
     let count = shown.len();
     let now = super::clock::now();
-    // The banner, only while images are held back: it asks about the newest such message's
-    // sender. Images once shown say nothing more.
+    // The images line, only while images are held back: it is drawn on the newest such message
+    // and asks about its sender. Images once shown say nothing more.
     let blocked = shown
         .iter()
         .rev()
@@ -340,53 +338,16 @@ pub(super) fn Reader(
                             peek: (place == ReaderIn::Pane).then_some(peek),
                             shell,
                             revision,
+                            leave,
                         }
                     }
                 }
             }
             h2 { Label { text: subject, style: LabelStyle::Title, common: crate::ui::common::classed("reader-subject") } }
-            {rsx! { super::receipt::Receipts { key: "{leave_key}", bodies: bodies.clone() } }}
+            super::receipt::Receipts { key: "{leave_key}", bodies: bodies.clone() }
+            super::unsubscribe::Lookout { key: "{leave_key}", thread, bodies: bodies.clone(), tag: leave_key.clone(), found: way_out }
         }
         div { class: "reader-body",
-            div { class: "banners",
-            if blocked.is_some() {
-                    InlineBanner {
-                        severity: Severity::Warn,
-                        icon: Some(Icon::Image),
-                        text: "Remote images blocked",
-                        actions: rsx! {
-                            Button {
-                                label: show_images(),
-                                common: Common { aria_label: Some(show_images().to_owned()), ..Common::default() },
-                                onclick: on_primary(move || {
-                                    shell.write().show_remote_images = true;
-                                    super::host::Host::focus_app();
-                                }),
-                            }
-                            if let Some(email) = offer {
-                                Button {
-                                    label: always_load_from(&email),
-                                    common: Common { aria_label: Some(always_load_from(&email)), ..Common::default() },
-                                    onclick: on_primary(move || {
-                                        // The sender joins the list, and under Ask the mode
-                                        // becomes Trusted (`ReadingSettings::trust_images_from`);
-                                        // written to settings.toml and told to the other windows.
-                                        let email = email.clone();
-                                        if let Err(why) = crate::ui::prefs::change(|settings| {
-                                            settings.reading.trust_images_from(&email);
-                                        }) {
-                                            eprintln!("remote images: {why}");
-                                        }
-                                        // This conversation's images now, whatever the write did.
-                                        shell.write().show_remote_images = true;
-                                        super::host::Host::focus_app();
-                                    }),
-                                }
-                            }
-                        },
-                    }
-            }
-            }
             for (at, ((message, body, ..), attached)) in shown.into_iter().zip(attached).enumerate() {
                 article { key: "{message.id}", class: "frame",
                     oncontextmenu: move |event: MouseEvent| {
@@ -402,13 +363,13 @@ pub(super) fn Reader(
                         when: (when_short(&message, now), stamp(&message)),
                         extras: (header::detail_at(at, count) == header::Detail::Full).then(|| header::Extras {
                             checked: (message.id, message.body.raw()),
-                            thread,
-                            leave_key: leave_key.clone(),
-                            bodies: bodies.clone(),
-                            revision,
+                            landed,
                         }),
                         message: message.clone(),
                         yours: yours.clone(),
+                    }
+                    if blocked.as_ref().is_some_and(|blocked| blocked.id == message.id) {
+                        ImagesHidden { shell, offer: offer.clone() }
                     }
                     super::pgp::Seal {
                         key: "{message.id}-{message.body.raw():?}",
@@ -505,6 +466,51 @@ fn use_frame_images(
             }
         }
     });
+}
+
+/// One quiet line over the newest message whose remote images are held back: they are hidden,
+/// and Load Images shows this conversation's. `offer` is the sender whose images could load from
+/// now on, where that is safe to offer (Always Load from). Not a banner: nothing is wrong.
+#[component]
+fn ImagesHidden(shell: Signal<Shell>, offer: Option<String>) -> Element {
+    use super::copy::{controls, status};
+    use ds::components::controls::button_model::Bezel;
+    use ds::root::common::Common;
+    rsx! {
+        p { class: "images-hidden", role: "status",
+            Label { text: status::IMAGES_HIDDEN, role: ds::components::content::label::LabelRole::Tertiary, style: LabelStyle::Footnote }
+            Button {
+                bezel: Bezel::Inline,
+                label: controls::LOAD_IMAGES,
+                common: Common { aria_label: Some(controls::LOAD_IMAGES.to_owned()), ..Common::default() },
+                onclick: on_primary(move || {
+                    shell.write().show_remote_images = true;
+                    super::host::Host::focus_app();
+                }),
+            }
+            if let Some(email) = offer {
+                Button {
+                    bezel: Bezel::Inline,
+                    label: controls::always_load_from(&email),
+                    common: Common { aria_label: Some(controls::always_load_from(&email)), ..Common::default() },
+                    onclick: on_primary(move || {
+                        // The sender joins the list, and under Ask the mode becomes Trusted
+                        // (`ReadingSettings::trust_images_from`); written to settings.toml and told
+                        // to the other windows.
+                        let email = email.clone();
+                        if let Err(why) = crate::ui::prefs::change(|settings| {
+                            settings.reading.trust_images_from(&email);
+                        }) {
+                            eprintln!("remote images: {why}");
+                        }
+                        // This conversation's images now, whatever the write did.
+                        shell.write().show_remote_images = true;
+                        super::host::Host::focus_app();
+                    }),
+                }
+            }
+        }
+    }
 }
 
 /// Open Link, Preview Link and Copy Link, at the pointer, for a link a right click in a message's

@@ -1,7 +1,7 @@
 //! Read receipts from the command line: `show` says a message asks, `receipt` answers it.
 //!
-//! Every answer is one the user typed. Nothing here, or anywhere, sends a receipt because a
-//! message was opened.
+//! Every answer here is one the user typed. The window answers by itself only under the
+//! `reading.read_receipts = "always"` setting (`ui::receipt`), never by default.
 
 use chrono::{DateTime, TimeZone, Utc};
 use mail_app::cli;

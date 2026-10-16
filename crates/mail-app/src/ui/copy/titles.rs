@@ -30,3 +30,8 @@ pub const VACATION_REPLY: &str = "Vacation Reply";
 pub fn use_graph(name: &str) -> String {
     format!("Use Microsoft Graph for {name}?")
 }
+
+// The popover a protected message's glyph opens, titled as the glyph's tip names it.
+pub const ENCRYPTED: &str = "Encrypted";
+pub const SIGNED: &str = "Signed";
+pub const NOT_VERIFIED: &str = "Not Verified";

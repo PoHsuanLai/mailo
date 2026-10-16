@@ -49,3 +49,12 @@ pub const TOO_LARGE_TO_PEEK: &str = "the part is larger than a peek reads";
 pub fn no_attachment(index: usize) -> String {
     format!("there is no attachment {index}")
 }
+
+/// The trust popover's last line: what the receiving server checked about the sender, in the
+/// checks' own words ("SPF pass · DKIM pass · DMARC pass — checked by mx.example.com").
+pub fn sender_checks(said: &str) -> String {
+    format!("Sender checks: {said}")
+}
+
+/// The quiet line over a message whose remote images are held back; its actions follow it.
+pub const IMAGES_HIDDEN: &str = "Images hidden";

@@ -40,6 +40,9 @@ pub(in crate::ui) enum Pick {
     /// View: the peek modes and a window of its own, a further menu. The reader's ⋯ only, and
     /// only in the pane.
     View,
+    /// Unsubscribe…: the popover that says what leaving the list will do. The reader's ⋯ only,
+    /// and only while the conversation offers a way out.
+    Unsubscribe,
 }
 
 /// What asked for the menu, which says where it hangs.
@@ -110,16 +113,21 @@ pub(in crate::ui) fn groups(summary: &ThreadSummary) -> Vec<Vec<Pick>> {
 /// The open conversation's ⋯ in the reader: the row's menu without what the reader's toolbar
 /// already holds (`toolbar`, its Reply, Archive and Delete), with the quieter actions that are
 /// the reader's alone (Mute beside Pin, Mark as Spam where the conversation can be), View first
-/// where the reader is a pane (`view`), and Print and Download last.
+/// where the reader is a pane (`view`), Unsubscribe… with what takes the conversation away while
+/// its list offers a way out (`leave`), and Print and Download last.
 pub(in crate::ui) fn reader_groups(
     summary: &ThreadSummary,
     toolbar: &[OpKind],
     view: bool,
+    leave: bool,
 ) -> Vec<Vec<Pick>> {
     let mut picks = groups(summary);
     picks[1].push(op(OpKind::Mute));
     if offers(summary, OpKind::Spam) {
         picks[3].push(op(OpKind::Spam));
+    }
+    if leave {
+        picks[3].push(Pick::Unsubscribe);
     }
     let open = view.then(|| vec![Pick::View]);
     open.into_iter()
@@ -145,6 +153,7 @@ pub(super) fn name(pick: Pick, summary: &ThreadSummary, now: DateTime<Utc>) -> &
         Pick::Download => menus::DOWNLOAD,
         Pick::Print => menus::PRINT,
         Pick::View => menus::VIEW,
+        Pick::Unsubscribe => menus::UNSUBSCRIBE,
         Pick::Press(Pressed::MoveTo) => menus::MOVE_TO,
         Pick::Press(Pressed::Op(kind)) => menus::offered(says(kind, summary, now)),
     }
@@ -155,6 +164,7 @@ fn icon(pick: Pick) -> Icon {
         Pick::Download => Icon::Download,
         Pick::Print => Icon::Printer,
         Pick::View => Icon::Panel,
+        Pick::Unsubscribe => Icon::LogOut,
         Pick::Press(Pressed::MoveTo) => Icon::FolderInput,
         Pick::Press(Pressed::Op(kind)) => op_icon(kind),
     }
@@ -438,7 +448,7 @@ mod tests {
         let read = summary(|s| s.read = ReadState::Read);
         let toolbar = [OpKind::Reply, OpKind::Archive, OpKind::Trash];
         assert_eq!(
-            named(&reader_groups(&read, &toolbar, true), &read),
+            named(&reader_groups(&read, &toolbar, true, false), &read),
             [
                 m::VIEW,
                 "-",
@@ -462,10 +472,54 @@ mod tests {
         );
     }
 
+    /// Unsubscribe… is offered only while the list offers a way out, beside what else takes the
+    /// conversation away, and never on a row's menu.
+    #[test]
+    fn the_readers_more_menu_offers_unsubscribe_only_when_there_is_a_way_out() {
+        let read = summary(|s| s.read = ReadState::Read);
+        let toolbar = [OpKind::Reply, OpKind::Archive, OpKind::Trash];
+        let spam = Pick::Press(Pressed::Op(OpKind::Spam));
+        let archive = Pick::Press(Pressed::Op(OpKind::Archive));
+        let trash = Pick::Press(Pressed::Op(OpKind::Trash));
+        // (case, what the toolbar holds, whether the list has a way out, the group Unsubscribe…
+        // is in)
+        type Case<'a> = (&'a str, &'a [OpKind], bool, Option<Vec<Pick>>);
+        let cases: &[Case] = &[
+            ("no way out", &toolbar, false, None),
+            (
+                "beside Mark as Spam",
+                &toolbar,
+                true,
+                Some(vec![spam, Pick::Unsubscribe]),
+            ),
+            (
+                "after Archive and Move to Trash where the toolbar has neither",
+                &[],
+                true,
+                Some(vec![archive, trash, spam, Pick::Unsubscribe]),
+            ),
+        ];
+        for (case, toolbar, leave, want) in cases {
+            let groups = reader_groups(&read, toolbar, true, *leave);
+            let found = groups
+                .iter()
+                .find(|group| group.contains(&Pick::Unsubscribe))
+                .cloned();
+            assert_eq!(found, *want, "{case}: {groups:?}");
+            assert_eq!(
+                groups.last().map(Vec::as_slice),
+                Some(&[Pick::Print, Pick::Download][..]),
+                "{case}"
+            );
+        }
+        let row = groups(&read);
+        assert!(!row.iter().flatten().any(|pick| *pick == Pick::Unsubscribe));
+    }
+
     #[test]
     fn print_and_download_are_the_reader_s_last_group_and_not_the_row_s() {
         let inbox = summary(|_| {});
-        let reader = reader_groups(&inbox, &[], false);
+        let reader = reader_groups(&inbox, &[], false, false);
         assert_eq!(
             reader.last().map(Vec::as_slice),
             Some(&[Pick::Print, Pick::Download][..])
@@ -483,7 +537,10 @@ mod tests {
             summary(|_| {}),
             summary(|s| s.mailboxes = MailboxSet::only(MailboxRole::Trash)),
         ] {
-            let listed = named(&reader_groups(&conversation, &[], true), &conversation);
+            let listed = named(
+                &reader_groups(&conversation, &[], true, false),
+                &conversation,
+            );
             let rows: Vec<&String> = listed.iter().filter(|name| *name != "-").collect();
             for row in &rows {
                 assert_eq!(

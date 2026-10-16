@@ -278,7 +278,7 @@ pub(super) fn MailRow(
                         row_menu.set(None);
                         match pick {
                             // Not offered here: the reader's ⋯ holds them.
-                            Pick::Download | Pick::Print | Pick::View => {}
+                            Pick::Download | Pick::Print | Pick::View | Pick::Unsubscribe => {}
                             Pick::Press(pressed) => {
                                 // A menu the pick opens stands where this one stood.
                                 let at = Some(opener.place());

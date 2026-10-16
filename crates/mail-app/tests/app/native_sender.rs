@@ -1,5 +1,6 @@
-//! Sender trust on the real window (Blitz, through `ds_harness::Harness`): the reader shows what
-//! the receiving server checked about the sender, and the sender card blocks them.
+//! Sender trust on the real window (Blitz, through `ds_harness::Harness`): the reader warns when
+//! the receiving server's checks say the sender may not be who they say, and the sender card
+//! blocks them.
 //!
 //! The window is opened over a store seeded in a `TempDir` and handed no directories, so it
 //! writes no file anywhere; nothing here reads or touches the real mail store or config. The
@@ -139,53 +140,40 @@ fn open_row(harness: &mut Harness, n: usize) {
     harness.advance(ms(300));
 }
 
-const HEAD_CHECKS: &str = ".reader-meta .sender-checks";
+/// The newest message's head, which says the sender's checks once they are known.
+const HEAD: &str = ".reader-meta";
 
-/// The reader shows what the receiving server checked: nothing before a thread is open; a pass
-/// as a mark beside the name, named for a screen reader; and a forged pass under the server's
-/// fail as a fail, in words.
+/// The reader says what the receiving server checked only when it is wrong: a pass is nothing
+/// on the screen (no glyph, no words), and a forged pass under the server's fail is one line
+/// under the head, naming the sender it may not be from.
 #[test]
-fn the_reader_shows_what_the_receiving_server_checked() {
+fn the_reader_says_what_the_receiving_server_checked_only_when_it_failed() {
     let (mut harness, _dir, _store) = open();
     assert_eq!(
-        harness.count(".sender-checks"),
+        harness.count(".trust-warn"),
         0,
-        "checks before any thread was open"
+        "a warning before any thread was open"
     );
 
     // A pass.
     open_row(&mut harness, 1);
     // Read from the stored message on a blocking thread, so it lands a frame or two later.
-    settle_until(&mut harness, |harness| harness.count(HEAD_CHECKS) == 1);
-    assert_eq!(
-        harness.attr(HEAD_CHECKS, "data-standing").as_deref(),
-        Some("pass"),
-        "the first row's standing"
-    );
-    // A pass is a mark beside the name, named for a screen reader; no method names, no words.
-    assert_eq!(
-        harness.text_of(HEAD_CHECKS).unwrap_or_default().trim(),
-        "",
-        "a pass says nothing"
-    );
-    assert_eq!(
-        harness
-            .attr(&format!("{HEAD_CHECKS} .sender-mark"), "aria-label")
-            .as_deref(),
-        Some("Verified sender"),
-        "the pass's mark is not named"
-    );
+    settle_until(&mut harness, |harness| {
+        harness.attr(HEAD, "data-standing").as_deref() == Some("pass")
+    });
+    assert_eq!(harness.count(".trust"), 0, "a glyph for ordinary mail");
+    assert_eq!(harness.count(".trust-warn"), 0, "a pass warned about");
 
     // A forged pass under the server's fail.
     open_row(&mut harness, 2);
     settle_until(&mut harness, |harness| {
-        harness.attr(HEAD_CHECKS, "data-standing").as_deref() == Some("fail")
+        harness.attr(HEAD, "data-standing").as_deref() == Some("fail")
     });
-    assert_eq!(harness.count(HEAD_CHECKS), 1, "the second row's checks");
-    let said = harness.text_of(HEAD_CHECKS).unwrap_or_default();
+    assert_eq!(harness.count(".trust-warn"), 1, "the second row's warning");
+    let said = harness.text_of(".trust-warn").unwrap_or_default();
     assert_eq!(
         said.trim(),
-        "May not be from this sender",
+        "This may not be from grace@bank.example.",
         "the forged pass's words"
     );
 }

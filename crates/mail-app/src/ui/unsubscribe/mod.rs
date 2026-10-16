@@ -3,7 +3,7 @@
 //!
 //! The way out is in the stored raw message, so finding it reads a blob. That is done once per
 //! thread, off the thread that draws, and only for the thread the reader has open: the lookup is
-//! reached from [`head::Leave`] and from nowhere on the list's or the hover cards' paths, and a
+//! reached from [`head::Lookout`] and from nowhere on the list's or the hover cards' paths, and a
 //! test counts the reads of the app's [`Looks`] to keep it that way. A thread whose body has not been fetched offers
 //! nothing here — fetching it to find out would be a POP3 `RETR`, which marks it read.
 //!
@@ -12,7 +12,7 @@
 
 mod head;
 
-pub(super) use head::Leave;
+pub(in crate::ui) use head::{Confirm, Lookout, Phase};
 
 use super::motion::Follow;
 use super::ops;

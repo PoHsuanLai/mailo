@@ -26,10 +26,14 @@ mod said;
 mod seal;
 mod unlock;
 
-pub(in crate::ui) use look::{Look, attachments, cached, lookup, save_attachment, unlock};
-pub(in crate::ui) use said::{Said, said, said_smime, whose};
 #[cfg(test)]
-pub(in crate::ui) use said::{Tone, doubt};
+pub(in crate::ui) use look::Opened;
+pub(in crate::ui) use look::{
+    Look, Mark, attachments, cached, last, lookup, save_attachment, unlock,
+};
+#[cfg(test)]
+pub(in crate::ui) use said::doubt;
+pub(in crate::ui) use said::{Said, Tone, said, said_smime, whose};
 pub(in crate::ui) use seal::Seal;
 pub(in crate::ui) use unlock::{Passphrase, Unlock, WRONG};
 

@@ -81,3 +81,8 @@ pub const IMAP_REFUSED: &str = "Microsoft refused mail access over IMAP for this
 pub fn link_goes_elsewhere(goes_to: &str, claims: &str) -> String {
     format!("This link says {claims} but goes to {goes_to}.")
 }
+
+/// Under a message's head when the sender's domain says the server that sent it is not its own.
+pub fn may_not_be_from(sender: &str) -> String {
+    format!("This may not be from {sender}.")
+}

@@ -89,11 +89,11 @@ async fn the_reader_does_not_offer_to_load_images_a_message_does_not_have() {
         "offered to load images for a message that has none:\n{markup}"
     );
     assert!(
-        !markup.contains("Show images"),
+        !markup.contains(crate::ui::copy::controls::LOAD_IMAGES),
         "offered to load images for a message that has none:\n{markup}"
     );
     assert!(
-        !markup.contains("Remote images blocked"),
+        !markup.contains(crate::ui::copy::status::IMAGES_HIDDEN),
         "a consent bar for a message with nothing remote:\n{markup}"
     );
     assert_eq!(text_of(&markup, "reader-av"), "G", "{markup}");
@@ -113,11 +113,11 @@ async fn the_reader_offers_to_load_images_when_it_blocked_some() {
     let markup = reader_markup(store, thread);
 
     assert!(
-        markup.contains("Show images"),
+        markup.contains(crate::ui::copy::controls::LOAD_IMAGES),
         "a tracking pixel was blocked and nothing said so:\n{markup}"
     );
     assert!(
-        markup.contains("Remote images blocked"),
+        markup.contains(crate::ui::copy::status::IMAGES_HIDDEN),
         "the offer does not say what agreeing does:\n{markup}"
     );
     assert!(
@@ -134,11 +134,11 @@ fn Open(thread: ThreadId) -> Element {
 }
 
 fn consent_buttons(markup: &str) -> usize {
-    let Some(at) = markup.find(r#"class="ds-inline-banner""#) else {
-        panic!("no consent bar:\n{markup}");
+    let Some(at) = markup.find(r#"class="images-hidden""#) else {
+        panic!("no images line:\n{markup}");
     };
     let rest = &markup[at..];
-    let end = rest.find("<article").unwrap_or(rest.len());
+    let end = rest.find("<iframe").unwrap_or(rest.len());
     rest[..end].matches("<button").count()
 }
 
@@ -162,12 +162,12 @@ async fn showing_images_removes_the_consent_button() {
         "the URL was on the page before consent:\n{before}"
     );
 
-    let id = seen.one("aria-label", "Show images");
+    let id = seen.one("aria-label", crate::ui::copy::controls::LOAD_IMAGES);
     click(&mut dom, id);
     let after = dioxus_ssr::render(&dom);
     // Once shown, images say nothing more: the bar goes with the question it asked.
     assert!(
-        !after.contains(r#"class="ds-inline-banner""#) && !after.contains("Showing remote images"),
+        !after.contains(r#"class="images-hidden""#) && !after.contains("Showing remote images"),
         "a banner stayed after consent:\n{after}"
     );
     assert!(
@@ -485,11 +485,11 @@ async fn blocked_remote_images_trigger_consent_banner() {
     let (store, thread, _dir) = thread_of(&[("tracker test", html_message("tracker test", html))]);
     let markup = reader_markup(store, thread);
     assert!(
-        markup.contains("Remote images blocked"),
+        markup.contains(crate::ui::copy::status::IMAGES_HIDDEN),
         "banner missing:\n{markup}"
     );
     assert!(
-        markup.contains("Show images"),
+        markup.contains(crate::ui::copy::controls::LOAD_IMAGES),
         "show images button missing:\n{markup}"
     );
     let srcdoc = iframe_srcdoc(&markup);
@@ -535,7 +535,7 @@ fn stored(dirs: &crate::ui::appearance::WindowDirs) -> crate::settings::MailSett
 }
 
 /// The reader over `thread`, under the settings in the `WindowDirs` it is handed, as a window
-/// provides them (`prefs::use_prefs`), so "Always load from" has somewhere to write.
+/// provides them (`prefs::use_prefs`), so "Always Load from" has somewhere to write.
 #[component]
 fn OpenConfigured(thread: ThreadId) -> Element {
     let dirs = try_consume_context::<crate::ui::appearance::WindowDirs>();
@@ -588,7 +588,7 @@ fn ada() -> Address {
 /// Whether the reader drew the pixel: in the frame, not blocked, with nothing asking about it.
 fn loaded_pixel(markup: &str) -> bool {
     iframe_srcdoc(markup).contains("remote.example/pixel.png")
-        && !markup.contains("Remote images blocked")
+        && !markup.contains(crate::ui::copy::status::IMAGES_HIDDEN)
 }
 
 #[tokio::test]
@@ -602,11 +602,11 @@ async fn always_opens_with_images_and_no_blocked_banner() {
     let markup = dioxus_ssr::render(&dom);
     assert!(loaded_pixel(&markup), "Always still blocked:\n{markup}");
     assert!(
-        !markup.contains(r#"class="ds-inline-banner""#),
-        "a banner over images that were always going to load:\n{markup}"
+        !markup.contains(r#"class="images-hidden""#),
+        "a line over images that were always going to load:\n{markup}"
     );
     assert!(
-        !markup.contains("Always load from"),
+        !markup.contains("Always Load from"),
         "offered to trust a sender under Always:\n{markup}"
     );
 }
@@ -623,7 +623,7 @@ async fn a_trusted_sender_opens_with_images_once_the_checks_land() {
     let (mut dom, mut seen, _dir) = open_configured(&dirs, &ada(), pixel_from_ada(true));
     let first = dioxus_ssr::render(&dom);
     assert!(
-        first.contains("Remote images blocked"),
+        first.contains(crate::ui::copy::status::IMAGES_HIDDEN),
         "the first frame waited for the checks, or trusted without them:\n{first}"
     );
     assert!(
@@ -631,7 +631,7 @@ async fn a_trusted_sender_opens_with_images_once_the_checks_land() {
         "the pixel loaded before the checks were known:\n{first}"
     );
     assert!(
-        !first.contains("Always load from"),
+        !first.contains("Always Load from"),
         "offered trust before the checks were known:\n{first}"
     );
     let landed = settle(&mut dom, &mut seen).await;
@@ -650,12 +650,12 @@ async fn an_untrusted_sender_still_asks_and_is_offered_trust() {
     let (mut dom, mut seen, _dir) = open_configured(&dirs, &ada(), pixel_from_ada(true));
     let first = dioxus_ssr::render(&dom);
     assert!(
-        !first.contains("Always load from"),
+        !first.contains("Always Load from"),
         "offered trust before the checks were known:\n{first}"
     );
     let markup = settle(&mut dom, &mut seen).await;
     assert!(
-        markup.contains("Remote images blocked"),
+        markup.contains(crate::ui::copy::status::IMAGES_HIDDEN),
         "a stranger's images loaded:\n{markup}"
     );
     assert!(
@@ -663,7 +663,7 @@ async fn an_untrusted_sender_still_asks_and_is_offered_trust() {
         "the blocked URL reached the frame:\n{markup}"
     );
     assert!(
-        markup.contains("Always load from ada@example.test"),
+        markup.contains("Always Load from ada@example.test"),
         "a sender DMARC vouches for was not offered trust:\n{markup}"
     );
 }
@@ -687,7 +687,7 @@ async fn a_trusted_address_that_cannot_be_believed_still_asks() {
         let (mut dom, mut seen, _dir) = open_configured(&dirs, &from, raw);
         let markup = settle(&mut dom, &mut seen).await;
         assert!(
-            markup.contains("Remote images blocked"),
+            markup.contains(crate::ui::copy::status::IMAGES_HIDDEN),
             "{why}: images loaded on the list's word:\n{markup}"
         );
         assert!(
@@ -695,11 +695,11 @@ async fn a_trusted_address_that_cannot_be_believed_still_asks() {
             "{why}: the blocked URL reached the frame:\n{markup}"
         );
         assert!(
-            markup.contains("Show images"),
+            markup.contains(crate::ui::copy::controls::LOAD_IMAGES),
             "{why}: the press for this thread is gone:\n{markup}"
         );
         assert!(
-            !markup.contains("Always load from"),
+            !markup.contains("Always Load from"),
             "{why}: offered to trust a sender who could be anyone:\n{markup}"
         );
     }
@@ -712,10 +712,13 @@ async fn always_load_from_trusts_the_sender_and_shows_the_images() {
     let (_config, dirs) = configured(|_| {});
     let (mut dom, mut seen, _dir) = open_configured(&dirs, &ada(), pixel_from_ada(true));
     let before = settle(&mut dom, &mut seen).await;
-    assert!(before.contains("Remote images blocked"), "{before}");
+    assert!(
+        before.contains(crate::ui::copy::status::IMAGES_HIDDEN),
+        "{before}"
+    );
     click(
         &mut dom,
-        seen.one("aria-label", "Always load from ada@example.test"),
+        seen.one("aria-label", "Always Load from ada@example.test"),
     );
     let settings = stored(&dirs);
     assert_eq!(

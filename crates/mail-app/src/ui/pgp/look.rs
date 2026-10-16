@@ -18,11 +18,35 @@ use super::super::text::{AttachmentRow, Kept as Where};
 use super::{Said, Scheme, Tried, said, said_smime};
 use mail_core::password::Password;
 
+/// What a protected message's glyph in the reader's head says at a glance: the best thing that
+/// can be said for it. What went wrong is a banner of its own (`seal::Seal`), not a glyph.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::ui) enum Mark {
+    /// Encrypted, and opened for reading.
+    Encrypted,
+    /// Signed, and the signature checks.
+    Signed,
+    /// Protected, and nothing about it could be confirmed: a key or a certificate this client
+    /// does not hold, or a signature that does not check.
+    Unconfirmed,
+}
+
+/// The mark for `encrypted` (opened for reading) and `signed` (a signature that checks).
+fn mark_of(encrypted: bool, signed: bool) -> Mark {
+    match (encrypted, signed) {
+        (true, _) => Mark::Encrypted,
+        (false, true) => Mark::Signed,
+        (false, false) => Mark::Unconfirmed,
+    }
+}
+
 /// A message opened: what to say about it, and the body to show in place of the stored one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::ui) struct Opened {
     /// Which protection it carries.
     pub scheme: Scheme,
+    /// Its glyph in the head.
+    pub mark: Mark,
     pub said: Vec<Said>,
     /// The decrypted or unwrapped message, parsed. `None` when there is nothing to show but
     /// what is stored: it could not be read.
@@ -55,12 +79,27 @@ fn look_of(opening: Opening) -> Look {
         )),
         Opening::Opened(sealed) => {
             let Sealed { protection, shown } = *sealed;
-            let (scheme, said) = match protection {
-                Protection::OpenPgp(protected) => (Scheme::OpenPgp, said(&protected)),
-                Protection::Smime(protected) => (Scheme::Smime, said_smime(&protected)),
+            let (scheme, mark, said) = match protection {
+                Protection::OpenPgp(protected) => (
+                    Scheme::OpenPgp,
+                    mark_of(
+                        protected.encryption == Encryption::Decrypted,
+                        matches!(protected.verification, Verification::Good { .. }),
+                    ),
+                    said(&protected),
+                ),
+                Protection::Smime(protected) => (
+                    Scheme::Smime,
+                    mark_of(
+                        protected.encryption == SmimeEncryption::Decrypted,
+                        matches!(protected.verification, SmimeVerification::Good { .. }),
+                    ),
+                    said_smime(&protected),
+                ),
             };
             Look::Opened(Box::new(Opened {
                 scheme,
+                mark,
                 said,
                 shown,
             }))
@@ -82,6 +121,14 @@ pub(in crate::ui) fn cached(
     body: Option<BlobId>,
 ) -> Option<Look> {
     looks.sealed_cached(message, body).map(look_of)
+}
+
+/// What was last found for `message` holding `body`, under whichever keys: what the reader draws
+/// beside the body that opening showed, until the message is opened again. The head's glyph
+/// reads this, so a key added or removed elsewhere never leaves the glyph saying less than the
+/// body it sits over.
+pub(in crate::ui) fn last(looks: &Looks, message: MessageId, body: Option<BlobId>) -> Option<Look> {
+    looks.sealed_last(message, body).map(look_of)
 }
 
 /// [`cached`], else the message opened with no passphrase, remembered. This decrypts and may
