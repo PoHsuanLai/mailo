@@ -425,15 +425,6 @@ pub(super) fn Reader(
                             body: message.body.raw(),
                         }
                     }
-                    if fold != fold::Fold::Folded && !attached.is_empty() {
-                            Attachments {
-                                key: "{message.id}-{message.body.raw():?}",
-                                message: message.id,
-                                body: message.body.raw(),
-                                rows: attached,
-                                shell,
-                            }
-                    }
                     if fold != fold::Fold::Folded {
                         match body {
                             // Being rendered off the thread: the frame's own box, so nothing moves
@@ -458,6 +449,17 @@ pub(super) fn Reader(
                                 }
                             },
                         }
+                    }
+                    // After the body, where Mail shows a message's files: Tab passes through the
+                    // frame to them (Blitz 4ca21b12).
+                    if fold != fold::Fold::Folded && !attached.is_empty() {
+                            Attachments {
+                                key: "{message.id}-{message.body.raw():?}",
+                                message: message.id,
+                                body: message.body.raw(),
+                                rows: attached,
+                                shell,
+                            }
                     }
                 }
             }

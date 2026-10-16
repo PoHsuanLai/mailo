@@ -75,7 +75,7 @@ article.frame + article.frame { border-top: var(--hair) solid var(--line-soft); 
 article.frame:last-of-type .html { height: auto; min-height: 320px; flex: 1 0 320px; }
 /* A plain-text message has no page of its own: it sits on the reader's ground. */
 .html[*|data-plain="true"] { background: var(--surface); }
-.attachments { margin: 0 0 var(--s-13); display: grid; gap: var(--s-8); }
+.attachments { margin: var(--s-13) 0 0; display: grid; gap: var(--s-8); }
 /* Under the body, one strip of tiles: a preview over the name and the size, then Save. */
 .att-strip { display: flex; flex-wrap: nowrap; gap: var(--s-10); overflow-x: auto; padding-bottom: var(--s-2); }
 .att-tile {

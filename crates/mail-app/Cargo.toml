@@ -117,25 +117,25 @@ dioxus = { version = "0.7" }
 # display). quire re-exports only `StandardAction`; mailo names `Action`, `AppAction`, `Context` and
 # `Chord` as well. The rev quire pins (`docs/workspace-deps.toml`), so one chordkit is built.
 chordkit = { git = "https://github.com/PoHsuanLai/chordkit.git", rev = "934a2d71f6516bee5919ee29278003702a4ea5e1" }
-ds = { git = "https://github.com/PoHsuanLai/quire.git", rev = "b9ced242eaf1f1777de2c8c4d7823e7499ac4e13" }  # b9ced242 (v0.3.30: Page::Privacy, Alert arm_after; chordkit 934a2d71, forks blitz 5c755366, anyrender d4ae3885)
+ds = { git = "https://github.com/PoHsuanLai/quire.git", rev = "9234da1dc89bfe98516d77f7dc5c6bd05d18fd07" }  # 9234da1d (v0.3.31: DesktopFile; Tab and the wheel through frames; chordkit 934a2d71, forks blitz 4ca21b12, anyrender d4ae3885)
 # Settings I/O: `appearance.toml` (imported once from `appearance.json`), the settings portal.
-ds-settings = { git = "https://github.com/PoHsuanLai/quire.git", rev = "b9ced242eaf1f1777de2c8c4d7823e7499ac4e13", features = ["dioxus"] }  # b9ced242 (v0.3.30: Page::Privacy, Alert arm_after; chordkit 934a2d71, forks blitz 5c755366, anyrender d4ae3885)
+ds-settings = { git = "https://github.com/PoHsuanLai/quire.git", rev = "9234da1dc89bfe98516d77f7dc5c6bd05d18fd07", features = ["dioxus"] }  # 9234da1d (v0.3.31: DesktopFile; Tab and the wheel through frames; chordkit 934a2d71, forks blitz 4ca21b12, anyrender d4ae3885)
 # The account sheets' views (step E5): `ds_shell::accounts`, the parts `sill` draws the same sheet with.
 # Only the accounts module is used; the shell's own surfaces (bar, dock, lock) are not drawn here.
-ds-shell = { git = "https://github.com/PoHsuanLai/quire.git", rev = "b9ced242eaf1f1777de2c8c4d7823e7499ac4e13" }  # b9ced242 (v0.3.30: Page::Privacy, Alert arm_after; chordkit 934a2d71, forks blitz 5c755366, anyrender d4ae3885)
+ds-shell = { git = "https://github.com/PoHsuanLai/quire.git", rev = "9234da1dc89bfe98516d77f7dc5c6bd05d18fd07" }  # 9234da1d (v0.3.31: DesktopFile; Tab and the wheel through frames; chordkit 934a2d71, forks blitz 4ca21b12, anyrender d4ae3885)
 # anyview, the viewer's light tier, at the rev of its main that names the quire rev above (the same
 # spelling as quire, so one quire is built). `anyview-core` is the vocabulary (`Input`, `ReadAt`:
 # how the store's bytes go in); `anyview-peek` the peek worker and, with `pane`, the card that draws
 # what was peeked. Headless otherwise: no media player, no D-Bus.
-anyview-core = { git = "https://github.com/PoHsuanLai/anyview.git", rev = "4f1f3da0c1b77f55c388ed2b461cb2ce0c15b1e8", optional = true }
-anyview-peek = { git = "https://github.com/PoHsuanLai/anyview.git", rev = "4f1f3da0c1b77f55c388ed2b461cb2ce0c15b1e8", default-features = false, features = ["pane"], optional = true }
+anyview-core = { git = "https://github.com/PoHsuanLai/anyview.git", rev = "6133767a7130ec6d069250b419f2327b2bec64c0", optional = true }
+anyview-peek = { git = "https://github.com/PoHsuanLai/anyview.git", rev = "6133767a7130ec6d069250b419f2327b2bec64c0", default-features = false, features = ["pane"], optional = true }
 # `mailo.toml`, and the `appearance.toml` written once on the first run after the move.
 toml = "1"
 # The window: quire's Blitz host (the window, its fonts, focus, clipboard, PDF output), and
 # `print`: the system's print dialog for a PDF (the desktop portal on Linux, else the PDF opened
 # in the viewer); `spell`: the composer's spelling, against the system's Hunspell dictionaries
 # (none is bundled); `pdf` also rasterises a PDF attachment's first page (`PdfFileThumb`).
-ds-blitz = { git = "https://github.com/PoHsuanLai/quire.git", rev = "b9ced242eaf1f1777de2c8c4d7823e7499ac4e13", features = ["pdf", "print", "spell"] }  # b9ced242 (v0.3.30: Page::Privacy, Alert arm_after; chordkit 934a2d71, forks blitz 5c755366, anyrender d4ae3885)
+ds-blitz = { git = "https://github.com/PoHsuanLai/quire.git", rev = "9234da1dc89bfe98516d77f7dc5c6bd05d18fd07", features = ["pdf", "print", "spell"] }  # 9234da1d (v0.3.31: DesktopFile; Tab and the wheel through frames; chordkit 934a2d71, forks blitz 4ca21b12, anyrender d4ae3885)
 blitz-dom = { workspace = true }
 dioxus-native-dom = { workspace = true }
 base64 = "0.22"
@@ -227,8 +227,8 @@ proptest = "1"
 # The linter (`lint::assert_clean`, the markup lint) and the test driver (`Harness`, `Driver`,
 # `Query`, `snapshot`; `pdf` is `Harness::pdf` for the print tests): quire's own crates, at the
 # same tag.
-ds-lint = { git = "https://github.com/PoHsuanLai/quire.git", rev = "b9ced242eaf1f1777de2c8c4d7823e7499ac4e13" }  # b9ced242 (v0.3.30: Page::Privacy, Alert arm_after; chordkit 934a2d71, forks blitz 5c755366, anyrender d4ae3885)
-ds-harness = { git = "https://github.com/PoHsuanLai/quire.git", rev = "b9ced242eaf1f1777de2c8c4d7823e7499ac4e13", features = ["pdf"] }  # b9ced242 (v0.3.30: Page::Privacy, Alert arm_after; chordkit 934a2d71, forks blitz 5c755366, anyrender d4ae3885)
+ds-lint = { git = "https://github.com/PoHsuanLai/quire.git", rev = "9234da1dc89bfe98516d77f7dc5c6bd05d18fd07" }  # 9234da1d (v0.3.31: DesktopFile; Tab and the wheel through frames; chordkit 934a2d71, forks blitz 4ca21b12, anyrender d4ae3885)
+ds-harness = { git = "https://github.com/PoHsuanLai/quire.git", rev = "9234da1dc89bfe98516d77f7dc5c6bd05d18fd07", features = ["pdf"] }  # 9234da1d (v0.3.31: DesktopFile; Tab and the wheel through frames; chordkit 934a2d71, forks blitz 4ca21b12, anyrender d4ae3885)
 
 [lints]
 workspace = true
