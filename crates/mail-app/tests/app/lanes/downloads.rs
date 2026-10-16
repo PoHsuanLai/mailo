@@ -69,27 +69,18 @@ fn a_saved_attachment_is_listed_opened_shown_and_cleared() {
         h.text_of(".reader .attachments")
             .is_some_and(|rows| rows.contains(NAME))
     });
-    // The attachment's paperclip stands beside its name, on the row's line, not above it.
-    let line = window
-        .harness
-        .rect(".reader .att-line")
-        .expect("no attachment line");
+    // The attachment is a tile: its paperclip stands over its name.
     let mark = window
         .harness
-        .rect(".reader .att-line > :first-child")
+        .rect(".reader .att-tile > :first-child")
         .expect("no paperclip");
     let name = window
         .harness
-        .rect(".reader .att-line > :last-child")
-        .expect("no row");
+        .rect(".reader .att-tile .att-text")
+        .expect("no name");
     assert!(
-        mark.origin.x.0 + mark.size.width.0 <= name.origin.x.0 + 0.5,
-        "the paperclip is not before the name: {mark:?} {name:?}"
-    );
-    assert!(
-        mark.origin.y.0 >= line.origin.y.0 - 0.5
-            && mark.origin.y.0 + mark.size.height.0 <= line.origin.y.0 + line.size.height.0 + 0.5,
-        "the paperclip is not on the row's line: {mark:?} in {line:?}"
+        mark.origin.y.0 + mark.size.height.0 <= name.origin.y.0 + 0.5,
+        "the paperclip is not over the name: {mark:?} {name:?}"
     );
     window.click(&format!(".reader [*|aria-label=\"Save {NAME}\"]"));
     let saved = window.saves().join(NAME);

@@ -6,11 +6,14 @@
   border: var(--hair) solid var(--line); border-radius: var(--r-media); background: var(--surface);
   box-shadow: var(--shadow-1);
 }
-.inv-head { display: flex; align-items: center; gap: var(--s-9); flex-wrap: wrap; }
+/* The one row: the tag, what and when, the three answers, then Details. */
+.inv-row { display: flex; align-items: center; gap: var(--s-9); flex-wrap: wrap; }
 .inv-tag, .inv-tag.updated, .inv-tag.answer { flex: none; }
-.inv-title { flex: 1 1 200px; min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.inv-what { flex: 1 1 200px; min-width: 0; display: grid; gap: var(--s-1); }
+.inv-title { margin: 0; overflow-wrap: anywhere; }
 .invite:has(.inv-tag.cancelled) .inv-title { text-decoration: line-through; }
-.inv-head .inv-save { margin-left: auto; }
+.inv-details { display: grid; gap: var(--s-10); padding-top: var(--s-9); border-top: var(--hair) solid var(--line-soft); }
+.inv-save { display: flex; justify-content: flex-end; }
 
 
 .inv-people { display: flex; flex-wrap: wrap; gap: var(--s-4); margin: 0; padding: 0; list-style: none; }

@@ -176,53 +176,42 @@ async fn showing_images_removes_the_consent_button() {
     );
 }
 
-/// The `<li>` elements of the attachment list, each as rendered.
+/// The tiles of the attachment strip, each as rendered.
 ///
-/// Taken from that list alone. A `contains("Download")` over the whole page would pass for
+/// Taken from that strip alone. A `contains("Download")` over the whole page would pass for
 /// any screen that mentioned the word.
-fn attachment_items(markup: &str) -> Vec<&str> {
-    let Some((_, rest)) = markup.split_once(r#"class="attachments""#) else {
-        panic!("the reader drew no attachment list:\n{markup}");
+fn attachment_tiles(markup: &str) -> Vec<&str> {
+    let Some((_, rest)) = markup.split_once(r#"class="att-strip""#) else {
+        panic!("the reader drew no attachment strip:\n{markup}");
     };
-    // A quire `List` of `Row`s: one `ds-list-item` each, the list ending where the next
-    // section of the reader starts.
-    let list = rest.split("</article>").next().unwrap_or(rest);
-    let mut items: Vec<&str> = list.split(r#"<div class="ds-list-item""#).skip(1).collect();
-    // What follows the last row is the rest of the message, not part of it.
-    if let Some(last) = items.last_mut() {
+    let strip = rest.split("</article>").next().unwrap_or(rest);
+    let mut tiles: Vec<&str> = strip.split(r#"<div class="att-tile""#).skip(1).collect();
+    // What follows the last tile is the rest of the message, not part of it.
+    if let Some(last) = tiles.last_mut() {
         *last = last.split("<iframe").next().unwrap_or(last);
     }
-    items
+    tiles
 }
 
-fn row_has(item: &str, name: &str, size: &str, action: &str) -> Result<(), String> {
-    let name_cell = format!(r#"class="ds-row-title ds-truncate">{name}</b>"#);
-    let size_cell = format!(r#"class="ds-row-detail ds-truncate">{size}</small>"#);
+fn tile_has(tile: &str, name: &str, size: &str, action: &str) -> Result<(), String> {
     // quire's Button sets its label in a span.
     let button = format!(">{action}</span></button>");
     let mut missing = Vec::new();
-    for needle in [
-        name_cell.as_str(),
-        size_cell.as_str(),
-        button.as_str(),
-        // A drawn glyph marks the row (quire's icon, not an emoji). Not its path: quire's glyphs
-        // change shape between releases (v0.2.21 made them solid).
-        r#"class="ds-ic""#,
-    ] {
-        if !item.contains(needle) {
+    for needle in [name, size, button.as_str()] {
+        if !tile.contains(needle) {
             missing.push(needle.to_owned());
         }
     }
-    if item.contains('📎') {
+    if tile.contains('\u{1f4ce}') {
         missing.push("emoji paperclip".to_owned());
     }
-    if item.matches("<button").count() != 1 {
-        missing.push(format!("{} buttons", item.matches("<button").count()));
+    if tile.matches("<button").count() != 1 {
+        missing.push(format!("{} buttons", tile.matches("<button").count()));
     }
     if missing.is_empty() {
         Ok(())
     } else {
-        Err(format!("missing {} in {item}", missing.join(", ")))
+        Err(format!("missing {} in {tile}", missing.join(", ")))
     }
 }
 
@@ -231,26 +220,59 @@ async fn a_held_part_offers_save_and_a_remote_part_offers_download() {
     let (store, _dir) = held_and_remote();
     let thread = thread_like(&store, "quarterly");
     let markup = reader_markup(store, thread);
-    let items = attachment_items(&markup);
-    assert_eq!(items.len(), 2, "expected two rows:\n{markup}");
+    let tiles = attachment_tiles(&markup);
+    assert_eq!(tiles.len(), 2, "expected two tiles:\n{markup}");
     let mut failures = Vec::new();
-    for (item, name, size, action) in [
-        (items[0], "notes.txt", "1.5 kB", "Save"),
-        (items[1], "report.pdf", "up to 5.0 MB", "Download"),
+    for (tile, name, size, action) in [
+        (tiles[0], "notes.txt", "1.5 kB", "Save"),
+        (tiles[1], "report.pdf", "up to 5.0 MB", "Download"),
     ] {
-        if let Err(why) = row_has(item, name, size, action) {
+        if let Err(why) = tile_has(tile, name, size, action) {
             failures.push(why);
         }
     }
     assert!(
         failures.is_empty(),
-        "the rows are not Save for the held part and Download for the remote one:\n{}",
+        "the tiles are not Save for the held part and Download for the remote one:\n{}",
         failures.join("\n")
     );
     assert!(
         !markup.contains("frame-note"),
         "a plain-text message claimed a sandboxed frame:\n{markup}"
     );
+}
+
+#[tokio::test]
+async fn older_messages_are_one_line_and_a_press_opens_one() {
+    dispatching();
+    let (store, _dir) = seeded();
+    let thread = ThreadId::generate();
+    // Newest first, as `add_from` dates them. All read, so only the last is open of itself.
+    add_read(
+        &store,
+        thread,
+        "fold",
+        &[
+            ("newest words", html_message("newest", "<p>newest words</p>")),
+            ("middle words", html_message("middle", "<p>middle words</p>")),
+            ("oldest words", html_message("oldest", "<p>oldest words</p>")),
+        ],
+    );
+    let mut dom = VirtualDom::new_with_props(Open, OpenProps { thread }).with_root_context(store);
+    let seen = rebuild_into(&mut dom);
+    let page = dioxus_ssr::render(&dom);
+    assert_eq!(page.matches("class=\"fold-line\"").count(), 2, "{page}");
+    assert_eq!(page.matches("<iframe").count(), 1, "{page}");
+    assert!(iframe_srcdoc(&page).contains("newest words"), "{page}");
+    // The line says who and a snippet of what.
+    assert!(page.contains("oldest words") && page.contains("middle words"), "{page}");
+
+    let lines = seen.all("aria-label", crate::ui::copy::aria::open_message("Ada").as_str());
+    assert_eq!(lines.len(), 2, "{page}");
+    click(&mut dom, lines[0]);
+    let after = dioxus_ssr::render(&dom);
+    assert_eq!(after.matches("class=\"fold-line\"").count(), 1, "{after}");
+    assert_eq!(after.matches("<iframe").count(), 2, "{after}");
 }
 
 pub(super) fn html_message(subject: &str, html: &str) -> Vec<u8> {
@@ -304,6 +326,23 @@ pub(super) fn add_from(
     from: &Address,
     parts: &[(&str, Vec<u8>)],
 ) {
+    add_as(store, thread, tag, from, parts, ReadState::Unread);
+}
+
+/// [`add_to`], every message read already.
+fn add_read(store: &SqliteStore, thread: ThreadId, tag: &str, parts: &[(&str, Vec<u8>)]) {
+    add_as(store, thread, tag, &ada(), parts, ReadState::Read);
+}
+
+/// [`add_from`], each message stored as `read`.
+fn add_as(
+    store: &SqliteStore,
+    thread: ThreadId,
+    tag: &str,
+    from: &Address,
+    parts: &[(&str, Vec<u8>)],
+    read: ReadState,
+) {
     // `body{index}`, not `m{index}`: the seeded store already holds `m1@example.test`,
     // and a second message under that key is the same message to the store.
     let mut fetched = Vec::new();
@@ -324,7 +363,7 @@ pub(super) fn add_from(
             in_reply_to: None,
             references: vec![],
             rfc_message_id: Some(format!("{tag}{index}@example.test")),
-            read: ReadState::Unread,
+            read,
             star: Star::Unstarred,
             mailbox: MailboxRole::Inbox,
             labels: vec![],

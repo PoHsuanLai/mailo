@@ -1,22 +1,24 @@
 //! What a message has attached, and saving it.
 //!
-//! A stored picture or PDF leads its row with a thumbnail that opens the viewer (`thumb.rs`,
-//! `viewer.rs`); every other row leads with a paperclip.
+//! The parts are a strip of tiles under the body: a thumbnail (`thumb.rs`) that opens Peek, or a
+//! paperclip for a part not yet here, over the name and the size, with Save or Download.
 //!
 //! Save writes a part that is already here; Download fetches one still on the server and then
 //! writes it. The name is the one the file will be written under. There is no file chooser: it
 //! lands in the downloads directory, and a toast says which folder.
 //!
-//! Each row's progress is a `mail_core::fetch::Download`: Running turns its button Busy, Saved
-//! says so in a toast, Failed says why under the row until it is dismissed or tried again.
+//! Each tile's progress is a `mail_core::fetch::Download`: Running turns its button Busy, Saved
+//! says so in a toast, Failed says why under the strip until it is dismissed or tried again.
 //!
 //! A message OpenPGP or S/MIME opened to a body of its own lists what is attached inside it —
 //! what is stored is only its wrapping, the signature or the ciphertext. Those parts are in
 //! memory, in what the reader was opened to; Save writes one off the thread that draws.
 
-use ds::components::lists::list::model::ListStyle;
+use ds::components::content::label::{LabelRole, LabelStyle};
+use ds::components::controls::button_model::Bezel;
 use ds::prelude::*;
 use ds::root::common::Common;
+use ds::style::icon::render::Glyph;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -29,12 +31,13 @@ use mail_domain::{BlobId, MessageId, Retry};
 use super::super::text::{AttachmentRow, Kept};
 use super::fetch::{self, Again};
 use super::thumb::Thumb;
+use crate::ui::common::classed;
 use crate::ui::reauth::{Reauth, SIGN_IN};
 use crate::ui::view::Shell;
 
 type Downloads = Signal<HashMap<usize, Download>>;
 
-/// The rows for one message. Each row's download is its own state, kept here by index.
+/// The strip for one message. Each tile's download is its own state, kept here by index.
 #[component]
 pub(super) fn Attachments(
     message: MessageId,
@@ -53,26 +56,50 @@ pub(super) fn Attachments(
             .map(|m| fetch::account_address(&store, m.account))
             .unwrap_or_default()
     });
-    let items: Vec<ListItem<usize>> = rows
-        .iter()
-        .map(|row| {
-            let index = row.index;
-            let state = downloads.read().get(&index).cloned().unwrap_or(Download::Idle);
-            let busy = matches!(state, Download::Running { .. });
-            let label = match row.kept {
-                Kept::Here | Kept::Opened => "Save",
-                Kept::OnServer => "Download",
-            };
-            let name = row.name.clone();
-            let kept = row.kept;
-            let here = kept == Kept::Here;
-            let saved_name = name.clone();
-            let again_name = name.clone();
-            let sign_in_account = account.clone();
-            let saved_looks = looks.clone();
-            let again_looks = looks.clone();
-            let button = rsx! {
+    let mut tiles = Vec::new();
+    let mut failures = Vec::new();
+    for row in &rows {
+        let index = row.index;
+        let state = downloads.read().get(&index).cloned().unwrap_or(Download::Idle);
+        let busy = matches!(state, Download::Running { .. });
+        let label = match row.kept {
+            Kept::Here | Kept::Opened => "Save",
+            Kept::OnServer => "Download",
+        };
+        let name = row.name.clone();
+        let kept = row.kept;
+        let saved_name = name.clone();
+        let again_name = name.clone();
+        let sign_in_account = account.clone();
+        let saved_looks = looks.clone();
+        let again_looks = looks.clone();
+        // A stored part leads with its preview (a picture's, a PDF's first page, or the
+        // paperclip), which opens Peek; one still on the server, with the paperclip alone.
+        let (face, opens) = match kept {
+            Kept::Here => (
+                rsx! { Thumb { message, index, name: name.clone(), shell } },
+                true,
+            ),
+            Kept::OnServer | Kept::Opened => (
+                rsx! { div { class: "att-away", Glyph { icon: Icon::Paperclip, size: IconSize::Compact } } },
+                false,
+            ),
+        };
+        tiles.push(rsx! {
+            div { key: "{index}", class: "att-tile", role: "listitem",
+                {face}
+                div {
+                    class: "att-text",
+                    onclick: move |_| {
+                        if opens {
+                            super::peek::open(shell, message, index);
+                        }
+                    },
+                    Label { text: name.clone(), style: LabelStyle::Footnote, common: classed("ds-truncate") }
+                    Label { text: row.size.clone(), role: LabelRole::Tertiary, style: LabelStyle::Footnote, common: classed("ds-truncate") }
+                }
                 Button {
+                    bezel: Bezel::Inline,
                     label,
                     common: Common { aria_label: Some(format!("{label} {name}")), ..Common::default() },
                     availability: if busy { Availability::Busy } else { Availability::Enabled },
@@ -80,77 +107,49 @@ pub(super) fn Attachments(
                         start(&saved_looks, message, body, index, kept, &saved_name, downloads, toasts);
                     }),
                 }
-            };
-            let failure = match &state {
-                Download::Failed { retry, why } => {
-                    Some(fetch::download_failure(&name, retry, why, &account))
-                }
-                _ => None,
-            };
-            let thumb_name = row.name.clone();
-            ListItem::row(
-                row.index,
-                row.name.clone(),
-                rsx! {
-                    // A stored part leads with its preview (a picture's, a PDF's first page, or the
-                    // paperclip) beside the row, on one line; one still on the server, with the
-                    // row's own paperclip.
-                    if here {
-                        div { class: "att-line",
-                            Thumb { message, index, name: thumb_name, shell }
-                            Row {
-                                title: row.name.clone(),
-                                detail: Some(TextLine::from(row.size.clone())),
-                                accessory: Accessory::Slot(button),
+            }
+        });
+        if let Download::Failed { retry, why } = &state {
+            let failure = fetch::download_failure(&name, retry, why, &account);
+            failures.push(rsx! {
+                InlineBanner {
+                    key: "{index}-failed",
+                    severity: Severity::Danger,
+                    text: failure.text,
+                    detail: Some(failure.detail).filter(|d| !d.is_empty()).map(TextLine::from),
+                    actions: match failure.again {
+                        Again::Offer => Some(rsx! {
+                            Button {
+                                label: "Try Again",
+                                common: Common { aria_label: Some(format!("Try again to download {name}")), ..Common::default() },
+                                onclick: super::super::press::on_primary(move || {
+                                    start(&again_looks, message, body, index, kept, &again_name, downloads, toasts);
+                                }),
                             }
-                        }
-                    } else {
-                        Row {
-                            leading: RowLeading::Icon(Icon::Paperclip),
-                            title: row.name.clone(),
-                            detail: Some(TextLine::from(row.size.clone())),
-                            accessory: Accessory::Slot(button),
-                        }
-                    }
-                    if let Some(failure) = failure {
-                        InlineBanner {
-                            severity: Severity::Danger,
-                            text: failure.text,
-                            detail: Some(failure.detail).filter(|d| !d.is_empty()).map(TextLine::from),
-                            actions: match failure.again {
-                                Again::Offer => Some(rsx! {
-                                    Button {
-                                        label: "Try Again",
-                                        common: Common { aria_label: Some(format!("Try again to download {name}")), ..Common::default() },
-                                        onclick: super::super::press::on_primary(move || {
-                                            start(&again_looks, message, body, index, kept, &again_name, downloads, toasts);
-                                        }),
-                                    }
+                        }),
+                        Again::SignIn(need) => reauth.map(|reauth| rsx! {
+                            Button {
+                                label: SIGN_IN,
+                                common: Common { aria_label: Some(format!("{SIGN_IN} to {sign_in_account}")), ..Common::default() },
+                                onclick: super::super::press::on_primary({
+                                    let sign_in_account = sign_in_account.clone();
+                                    move || reauth.sign_in(&sign_in_account, need)
                                 }),
-                                Again::SignIn(need) => reauth.map(|reauth| rsx! {
-                                    Button {
-                                        label: SIGN_IN,
-                                        common: Common { aria_label: Some(format!("{SIGN_IN} to {sign_in_account}")), ..Common::default() },
-                                        onclick: super::super::press::on_primary({
-                                            let sign_in_account = sign_in_account.clone();
-                                            move || reauth.sign_in(&sign_in_account, need)
-                                        }),
-                                    }
-                                }),
-                                Again::Withhold => None,
-                            },
-                            onclose: move |()| {
-                                send(downloads, index, DownloadEvent::Dismiss);
-                            },
-                        }
-                    }
-                },
-            )
-        })
-        .collect();
+                            }
+                        }),
+                        Again::Withhold => None,
+                    },
+                    onclose: move |()| {
+                        send(downloads, index, DownloadEvent::Dismiss);
+                    },
+                }
+            });
+        }
+    }
     rsx! {
         div { class: "attachments",
-            List::<usize> { label: "Attachments", items, style: ListStyle::Inset }
+            div { class: "att-strip", role: "list", aria_label: "Attachments", {tiles.into_iter()} }
+            {failures.into_iter()}
         }
     }
 }
