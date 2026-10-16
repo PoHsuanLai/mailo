@@ -210,19 +210,33 @@ fn inherit_theme(value: &mut serde_json::Value, theme: &serde_json::Value) {
 }
 
 /// The Spaces as stored in `dirs`, for a window that only wears them (Settings, a message
-/// window): no first run is written, and with no file the one default Space stands in.
+/// window): nothing is written, and with no file, or one that cannot be used, the one default
+/// Space stands in.
 pub fn load(dirs: &WindowDirs) -> Spaces {
-    storage(Some(dirs))
-        .load_spaces(|_| {})
-        .unwrap_or_else(|| first_run(&[]))
+    match storage(Some(dirs)).load_spaces(|_| {}) {
+        ds_settings::SpacesLoad::Stored(spaces) => spaces,
+        _ => first_run(&[]),
+    }
 }
 
 /// Write `spaces` where the window keeps them. A write that cannot happen leaves them for the
 /// session.
 pub fn save(dirs: Option<&WindowDirs>, spaces: &Spaces) -> Result<(), String> {
-    storage(dirs)
+    let saved = storage(dirs)
         .save_spaces(spaces)
-        .map_err(|why| why.to_string())
+        .map_err(|why| why.to_string())?;
+    kept(&saved, "Spaces");
+    Ok(())
+}
+
+/// Says where a file that could not be read was moved before a new one took its place.
+pub(super) fn kept(saved: &ds_settings::Saved, what: &str) {
+    if let Some(at) = &saved.kept_at {
+        eprintln!(
+            "mailo: the {what} file could not be read; it was kept at {} and a new one written",
+            at.display()
+        );
+    }
 }
 
 #[cfg(test)]

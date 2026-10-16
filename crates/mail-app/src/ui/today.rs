@@ -43,9 +43,11 @@ pub fn load(dir: &Path) -> Today {
 
 /// Write `today` to `dir/today.json`, creating `dir` if needed.
 pub fn save(dir: &Path, today: &Today) -> Result<(), String> {
-    storage(dir)
+    let saved = storage(dir)
         .save_today(today)
-        .map_err(|why| why.to_string())
+        .map_err(|why| why.to_string())?;
+    super::space::kept(&saved, "Today");
+    Ok(())
 }
 
 #[cfg(test)]

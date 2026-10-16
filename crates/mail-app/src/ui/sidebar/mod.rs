@@ -25,7 +25,7 @@ use mail_core::profile::ProfileId;
 
 /// A `data-<name>` of mailo's own on a quire component: where a hover card or a test finds the
 /// thing the element stands for.
-pub(super) fn tagged(name: &str, value: impl Into<String>) -> Common {
+pub(super) fn tagged(name: &'static str, value: impl Into<String>) -> Common {
     Common {
         data: DataName::parse(name)
             .map(|name| vec![DataAttr::new(name, value)])
