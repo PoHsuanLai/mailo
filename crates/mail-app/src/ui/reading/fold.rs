@@ -72,7 +72,8 @@ pub(super) fn FoldedLine(
     let face = sender_face(&message);
     let (name, _) = named(&message);
     let id = message.id;
-    let open = move || {
+    let label = aria::open_message(&name);
+    let mut open = move || {
         unfolded.write().insert(id);
     };
     let (short, full) = when;
@@ -81,7 +82,7 @@ pub(super) fn FoldedLine(
             class: "fold-line",
             role: "button",
             tabindex: "0",
-            "aria-label": aria::open_message(&name),
+            "aria-label": label,
             onclick: move |_| open(),
             onkeydown: move |event: KeyboardEvent| {
                 if pressed(&event) {

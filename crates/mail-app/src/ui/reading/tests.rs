@@ -253,9 +253,18 @@ async fn older_messages_are_one_line_and_a_press_opens_one() {
         thread,
         "fold",
         &[
-            ("newest words", html_message("newest", "<p>newest words</p>")),
-            ("middle words", html_message("middle", "<p>middle words</p>")),
-            ("oldest words", html_message("oldest", "<p>oldest words</p>")),
+            (
+                "newest words",
+                html_message("newest", "<p>newest words</p>"),
+            ),
+            (
+                "middle words",
+                html_message("middle", "<p>middle words</p>"),
+            ),
+            (
+                "oldest words",
+                html_message("oldest", "<p>oldest words</p>"),
+            ),
         ],
     );
     let mut dom = VirtualDom::new_with_props(Open, OpenProps { thread }).with_root_context(store);
@@ -265,9 +274,15 @@ async fn older_messages_are_one_line_and_a_press_opens_one() {
     assert_eq!(page.matches("<iframe").count(), 1, "{page}");
     assert!(iframe_srcdoc(&page).contains("newest words"), "{page}");
     // The line says who and a snippet of what.
-    assert!(page.contains("oldest words") && page.contains("middle words"), "{page}");
+    assert!(
+        page.contains("oldest words") && page.contains("middle words"),
+        "{page}"
+    );
 
-    let lines = seen.all("aria-label", crate::ui::copy::aria::open_message("Ada").as_str());
+    let lines = seen.all(
+        "aria-label",
+        crate::ui::copy::aria::open_message("Ada").as_str(),
+    );
     assert_eq!(lines.len(), 2, "{page}");
     click(&mut dom, lines[0]);
     let after = dioxus_ssr::render(&dom);

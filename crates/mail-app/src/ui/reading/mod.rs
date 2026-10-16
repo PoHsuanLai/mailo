@@ -291,8 +291,17 @@ pub(super) fn Reader(
         .iter()
         .enumerate()
         .map(|(at, (message, ..))| {
-            let held = unread.borrow().contains(&message.id) || unfolded.read().contains(&message.id);
-            fold::fold_at(at, count, if held { fold::Hold::Open } else { fold::Hold::Nothing })
+            let held =
+                unread.borrow().contains(&message.id) || unfolded.read().contains(&message.id);
+            fold::fold_at(
+                at,
+                count,
+                if held {
+                    fold::Hold::Open
+                } else {
+                    fold::Hold::Nothing
+                },
+            )
         })
         .collect();
     let now = super::clock::now();
@@ -302,9 +311,7 @@ pub(super) fn Reader(
         .iter()
         .zip(&folds)
         .rev()
-        .find(|((_, _, remote, showing), fold)| {
-            **fold == fold::Fold::Open && *remote && !showing
-        })
+        .find(|((_, _, remote, showing), fold)| **fold == fold::Fold::Open && *remote && !showing)
         .map(|((message, ..), _)| message.clone());
     // "Always load from" the blocked sender: offered where it could ever load their images
     // (not under `Always`, which already would; not in Junk, which is always asked about), and
@@ -387,7 +394,8 @@ pub(super) fn Reader(
                             when: (when_short(&message, now), stamp(&message)),
                             unfolded,
                         }
-                    } else {
+                    }
+                    if fold != fold::Fold::Folded {
                         header::MessageHead {
                             detail: header::detail_at(at, count),
                             when: (when_short(&message, now), stamp(&message)),
@@ -398,21 +406,26 @@ pub(super) fn Reader(
                             message: message.clone(),
                             yours: yours.clone(),
                         }
-                        if blocked.as_ref().is_some_and(|blocked| blocked.id == message.id) {
+                    }
+                    if fold != fold::Fold::Folded && blocked.as_ref().is_some_and(|blocked| blocked.id == message.id) {
                             ImagesHidden { shell, offer: offer.clone() }
-                        }
+                    }
+                    if fold != fold::Fold::Folded {
                         super::pgp::Seal {
                             key: "{message.id}-{message.body.raw():?}",
                             message: message.id,
                             body: message.body.raw(),
                             landed,
                         }
+                    }
+                    if fold != fold::Fold::Folded {
                         super::invite::Invitation {
                             key: "{message.id}-{message.body.raw():?}",
                             message: message.id,
                             body: message.body.raw(),
                         }
-                        if !attached.is_empty() {
+                    }
+                    if fold != fold::Fold::Folded && !attached.is_empty() {
                             Attachments {
                                 key: "{message.id}-{message.body.raw():?}",
                                 message: message.id,
@@ -420,7 +433,8 @@ pub(super) fn Reader(
                                 rows: attached,
                                 shell,
                             }
-                        }
+                    }
+                    if fold != fold::Fold::Folded {
                         match body {
                             // Being rendered off the thread: the frame's own box, so nothing moves
                             // when it lands.

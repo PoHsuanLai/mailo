@@ -471,7 +471,7 @@ fn tail_in(html: &str, nodes: &[Node], children: &[usize], before: bool) -> Opti
         }
         return (before || first > 0).then(|| (nodes[said[first]].start, end));
     }
-    let (at, &last) = said.iter().enumerate().last()?;
+    let (at, &last) = said.iter().enumerate().next_back()?;
     if is_quote(html, nodes, last) {
         let first = if at > 0 && is_attribution(html, nodes, said[at - 1]) {
             at - 1
