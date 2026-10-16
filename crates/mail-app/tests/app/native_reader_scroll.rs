@@ -1,6 +1,7 @@
 //! The reader's message body scrolls on Blitz (`native`), in the real window: a body longer
 //! than the pane moves under a mouse wheel turned over it, as the window delivers it (through
-//! quire's scroll engine), for a plain-text body, an HTML body and the last message of a thread.
+//! quire's scroll engine), for a plain-text body, an HTML body and the last message of a thread. A quick run of wheel
+//! clicks that starts over an earlier message moves the conversation, not that message's frame.
 //! A touchpad is not driven here: the harness's `Input::Fingers` drops a wheel the engine passes
 //! on, where the window hands it to the document (gap(quire)).
 //!
@@ -237,4 +238,44 @@ fn each_long_letter_scrolls_under_the_wheel() {
             "{what} (row {n}): the body did not move under the wheel (frame {frame:?}, reader-body {body:?})"
         );
     }
+}
+
+#[test]
+fn a_wheel_burst_over_an_earlier_message_moves_the_conversation() {
+    let (mut harness, _dir) = open();
+    open_row(&mut harness, 3, "body");
+    harness.advance(ms(1500));
+    let early = ".reader-body article.frame:first-of-type iframe.html";
+    let frame = harness.rect(early).expect("the first message's frame");
+    let at = Point {
+        x: Px(frame.origin.x.0 + frame.size.width.0 / 2.0),
+        y: Px((frame.origin.y.0 + 20.0).max(130.0)),
+    };
+    // Where the first message's text sits, and where the last message starts: the text keeps its
+    // place in the frame when the conversation, not the frame, moves.
+    let text = |h: &Harness| h.frame(early).and_then(|f| f.centre("body")).map(|p| p.y.0);
+    let last = |h: &Harness| {
+        h.rect(".reader-body article.frame:last-of-type")
+            .map(|r| r.origin.y.0)
+    };
+    let (text_was, last_was) = (text(&harness).expect("text"), last(&harness).expect("last"));
+    for _ in 0..6 {
+        harness.send(Input::Detents {
+            at,
+            x: 0.0,
+            y: -3.0,
+            held: Modifiers::empty(),
+        });
+        harness.advance(ms(16));
+    }
+    harness.advance(ms(800));
+    let (text_now, last_now) = (text(&harness).expect("text"), last(&harness).expect("last"));
+    assert!(
+        last_was - last_now > 500.0,
+        "the conversation moved: {last_was} -> {last_now}"
+    );
+    assert!(
+        ((text_was - text_now) - (last_was - last_now)).abs() < 1.0,
+        "the frame kept its own place: text {text_was} -> {text_now}, last {last_was} -> {last_now}"
+    );
 }

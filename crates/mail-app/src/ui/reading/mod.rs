@@ -4,6 +4,7 @@ mod attachments;
 pub(super) mod blocks;
 mod cache;
 mod fetch;
+mod fit;
 mod fold;
 mod header;
 mod images;
@@ -446,6 +447,7 @@ pub(super) fn Reader(
                                     message_id: message.id,
                                     html,
                                     plain,
+                                    fit: at + 1 < count,
                                 }
                             },
                         }

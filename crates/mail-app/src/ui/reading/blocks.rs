@@ -13,11 +13,27 @@ pub(super) fn Sandbox(
     /// A plain-text message's frame, which has no ground of its own (`FrameBody::Present`).
     #[props(default)]
     plain: bool,
+    /// An earlier message's frame, as tall as what it holds (`super::fit`); the last message's
+    /// takes the room left instead.
+    #[props(default)]
+    fit: bool,
 ) -> Element {
+    let height = use_signal(|| None::<f32>);
+    let style = match (fit, height()) {
+        (true, Some(px)) => format!("height: {px}px;"),
+        _ => String::new(),
+    };
     rsx! {
         iframe {
             class: "html",
             "data-plain": plain,
+            "data-fit": fit,
+            style,
+            onmounted: move |event: MountedEvent| {
+                if fit {
+                    super::fit::follow(event.data(), height);
+                }
+            },
             "data-frame-tag": tag,
             "sandbox": "",
             srcdoc: "{html}",
@@ -33,11 +49,13 @@ pub(super) fn MessageView(
     html: String,
     #[props(default)] holder: Option<crate::ui::original::Holder>,
     #[props(default)] plain: bool,
+    #[props(default)] fit: bool,
 ) -> Element {
     rsx! {
         Sandbox {
             html,
             plain,
+            fit,
             tag: holder.map(|holder| holder.tag(message_id)),
         }
     }

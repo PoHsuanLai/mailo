@@ -1,5 +1,6 @@
 //! Picture generator (ignored): the main window, the composer, the search bar's panel, a menu and
 //! a sheet, in light and dark, over fake mail in a scratch store. Set MAILO_SHOTS to a directory.
+//! One test runs on its fake mail as an ordinary one: an older message opened in a thread.
 
 use ds::prelude::*;
 use ds_blitz::{FocusFallback, NetPolicy, PrintOutcome};
@@ -576,4 +577,27 @@ fn settings_screens() {
         settings_page(&mut h, "Keyboard");
         shot(&mut h, &out, "settings-keyboard", dark);
     }
+}
+
+/// An older message opened in a conversation is as tall as what it holds, as Mail draws it: no
+/// box of its own to scroll, and no empty room under a short one.
+#[test]
+fn an_opened_older_message_is_as_tall_as_its_content() {
+    let (mut h, _d) = open(false);
+    open_row(&mut h, 3);
+    click(&mut h, ".reader-body .fold-line");
+    let frame = ".reader-body article.frame:not(:last-of-type) .html";
+    let height = |h: &Harness| h.rect(frame).map(|rect| rect.size.height.0);
+    for _ in 0..40 {
+        if height(&h).is_some_and(|px| px > 48.5) {
+            break;
+        }
+        h.advance(ms(120));
+    }
+    let fitted = height(&h).unwrap_or_else(|| panic!("{frame} is not drawn:\n{}", h.html()));
+    // Two short lines of plain text: taller than the frame's start, far shorter than the old box.
+    assert!(
+        fitted > 48.5 && fitted < 200.0,
+        "the older message's frame is {fitted}px tall"
+    );
 }

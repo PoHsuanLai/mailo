@@ -69,9 +69,11 @@ article.frame + article.frame { border-top: var(--hair) solid var(--line-soft); 
 .reader-body .pending {
    font-weight: 700; font-size: var(--fs-title); font-style: normal; color: var(--ink-soft);
 }
-/* An earlier message that is open takes a modest box; the last one takes the room left (a single
-   message fills the pane). */
+/* An earlier message that is open is as tall as what it holds (`reading/fit.rs` sets its height
+   once its page is laid out, from a short start so a page that fills its viewport measures its
+   content); the last one takes the room left (a single message fills the pane). */
 .html { width: 100%; height: 240px; flex: none; border: 0; background: var(--foreign-ground); display: block; }
+.html[*|data-fit="true"] { height: 48px; }
 article.frame:last-of-type .html { height: auto; min-height: 320px; flex: 1 0 320px; }
 /* A plain-text message has no page of its own: it sits on the reader's ground. */
 .html[*|data-plain="true"] { background: var(--surface); }
