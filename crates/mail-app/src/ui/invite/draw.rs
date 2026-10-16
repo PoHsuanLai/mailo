@@ -48,7 +48,7 @@ pub(in crate::ui) enum Phase {
 
 /// Whether the card shows more than its one row: the event's facts, its people and its file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-enum Disclosure {
+pub(in crate::ui) enum Disclosure {
     #[default]
     Closed,
     Open,
@@ -98,10 +98,16 @@ pub(in crate::ui) fn Invitation(message: MessageId, body: Option<BlobId>) -> Ele
 
 /// The card itself. `known` is where an answer's fresh card is put.
 #[component]
-pub(in crate::ui) fn InviteCard(card: Card, known: Signal<Option<Option<Card>>>) -> Element {
+pub(in crate::ui) fn InviteCard(
+    card: Card,
+    known: Signal<Option<Option<Card>>>,
+    /// How the card first opens: the reader draws it closed.
+    #[props(default)]
+    opens: Disclosure,
+) -> Element {
     let looks = crate::ui::reading::use_looks();
     let mut phase = use_signal(|| Phase::Resting);
-    let mut disclosure = use_signal(Disclosure::default);
+    let mut disclosure = use_signal(|| opens);
     let mut more = use_signal(|| false);
     let mut everyone = use_signal(|| false);
     let message = card.message;
