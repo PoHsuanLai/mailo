@@ -159,21 +159,24 @@ mod tests {
     #[test]
     fn one_watch_per_user_and_the_lock_goes_with_it() {
         let scratch = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
-        // The address the lock would have in a runtime directory of its own, asked for rather than
-        // reached by changing this process's environment.
+        // The address this platform would give the watch in a directory of its own (a socket there,
+        // or on Windows a named pipe with its lock there), asked for rather than reached by
+        // changing this process's environment. The directory's name keeps two runs' pipes apart.
+        let unique = scratch
+            .path()
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("test");
         let environment = latchkey::Environment {
             runtime_dir: Some(scratch.path().as_os_str()),
-            tmpdir: None,
+            tmpdir: Some(scratch.path().as_os_str()),
             home: None,
-            local_app_data: None,
-            user: None,
+            local_app_data: Some(scratch.path().as_os_str()),
+            user: Some(unique),
         };
-        let agent = latchkey::Agent::in_environment(
-            "mailo-watch-test",
-            latchkey::Host::Linux,
-            &environment,
-        )
-        .unwrap_or_else(|e| panic!("{e}"));
+        let agent =
+            latchkey::Agent::in_environment("mailo-watch-test", latchkey::here(), &environment)
+                .unwrap_or_else(|e| panic!("{e}"));
         assert!(!agent.is_running());
         // Running means answering a knock (latchkey 99cc9de), so the watch listens, as the real
         // one does: holding the lock alone is not enough.
