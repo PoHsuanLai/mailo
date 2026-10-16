@@ -1,0 +1,45 @@
+# Maintainer: Po Hsuan Lai <pohsuanlai0208@gmail.com>
+#
+# An Arch package of mailo built from this checkout, the way package.sh builds the .deb and the
+# .rpm: one release build, and the same files in the same places. Run it from this directory:
+#
+#   cd scripts && makepkg -si
+#
+# It builds the tree it sits in rather than a downloaded archive, so there is no source to fetch
+# and no checksum to keep.
+
+pkgname=mailo
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='A desktop mail client'
+arch=('x86_64')
+url='https://github.com/PoHsuanLai/mailo'
+license=('MIT' 'Apache-2.0')
+# fontconfig is linked at build time; Wayland, X11, xkbcommon and the GPU drivers are opened at
+# run time and are the desktop's.
+depends=('fontconfig' 'gcc-libs' 'glibc')
+makedepends=('rust' 'cargo' 'cmake' 'clang' 'perl')
+optdepends=('xdg-desktop-portal: opening a saved file in the app you chose for it'
+            'xdg-utils: opening a saved file when nothing else answers'
+            'noto-fonts-cjk: Chinese, Japanese and Korean mail when printed')
+options=('!lto')
+
+_root() { cd "$startdir/.." && pwd; }
+
+build() {
+  cd "$(_root)"
+  export CARGO_TARGET_DIR="$srcdir/target"
+  cargo build --release --locked -p mail-app --bin mailo
+}
+
+package() {
+  cd "$(_root)"
+  install -Dm755 "$srcdir/target/release/mailo" "$pkgdir/usr/bin/mailo"
+  install -Dm644 packaging/mailo.desktop "$pkgdir/usr/share/applications/mailo.desktop"
+  install -Dm644 dist/intents/org.quire.Mail.toml "$pkgdir/usr/share/quire/intents/org.quire.Mail.toml"
+  install -Dm644 dist/skills/mail/SKILL.md "$pkgdir/usr/share/quire/skills/mail/SKILL.md"
+  install -Dm644 dist/skills/mail/skill.toml "$pkgdir/usr/share/quire/skills/mail/skill.toml"
+  install -Dm644 packaging/org.quire.Mail.service "$pkgdir/usr/share/dbus-1/services/org.quire.Mail.service"
+  install -Dm644 packaging/icons/hicolor/scalable/apps/mailo.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/mailo.svg"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/mailo/README.md"
+}

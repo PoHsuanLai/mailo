@@ -1,6 +1,8 @@
 //! A saved file, opened in the app the system gives its kind, or shown in its folder. On the
 //! quire desktop a file opens in anyview, the desktop's viewer, which shows nearly every kind an
-//! attachment comes in; the system's app is the way when anyview does not answer.
+//! attachment comes in. Elsewhere, or when anyview does not answer, the desktop's own
+//! open-a-file service hands it to the app the person chose for its kind; the system's opener
+//! program is the way when no such service runs.
 //!
 //! Both block until the system has taken the request, so the window calls them off the thread
 //! that draws. What they answer on failure is a sentence the window shows as it is.
@@ -15,6 +17,10 @@ pub(in crate::ui) fn open(path: &Path) -> Result<(), String> {
     }
     #[cfg(all(feature = "quire-desktop", not(any(target_os = "macos", windows))))]
     if in_anyview(path).is_ok() {
+        return Ok(());
+    }
+    #[cfg(not(any(target_os = "macos", windows)))]
+    if by_service(path).is_ok() {
         return Ok(());
     }
     run(opener(path))
@@ -81,6 +87,27 @@ fn run(mut command: Command) -> Result<(), String> {
             "Couldn\u{2019}t open it: the opener exited with {status}"
         ))
     }
+}
+
+/// The desktop's open-a-file service on the session bus (`org.freedesktop.portal.Desktop`,
+/// `OpenFile`). It is given the open file rather than a path, so it works for an app that is
+/// sandboxed from the folder the file is in, and it answers an error when no such service runs.
+#[cfg(not(any(target_os = "macos", windows)))]
+fn by_service(path: &Path) -> Result<(), String> {
+    let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let fd = zbus::zvariant::OwnedFd::from(std::os::fd::OwnedFd::from(file));
+    let options = std::collections::HashMap::<&str, zbus::zvariant::Value<'_>>::new();
+    let connection = zbus::blocking::Connection::session().map_err(|e| e.to_string())?;
+    connection
+        .call_method(
+            Some("org.freedesktop.portal.Desktop"),
+            "/org/freedesktop/portal/desktop",
+            Some("org.freedesktop.portal.OpenURI"),
+            "OpenFile",
+            &("", fd, options),
+        )
+        .map(|_| ())
+        .map_err(|e| e.to_string())
 }
 
 /// anyview's `Open` on the session bus (`org.quire.Anyview1`, which starts anyview when it is not

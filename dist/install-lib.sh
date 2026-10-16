@@ -26,7 +26,11 @@ SKILL_DIR="$PREFIX/share/quire/skills/mail"
 # build, which is what carries their test seams).
 BUILT="${MAILO_BIN:-${CARGO_TARGET_DIR:-$ROOT/target}/release/mailo}"
 ICON_SRC="$ROOT/packaging/icons/hicolor/scalable/apps/mailo.svg"
-# Set to "sudo" by need_sudo when the destination is not ours to write; empty for a scratch prefix.
+# What the person asked to escalate with, if anything (SUDO=doas ./install.sh), read before SUDO is
+# reset below.
+ASKED_SUDO="${SUDO:-}"
+# Set by need_sudo to the program that gains root when the destination is not ours to write;
+# empty for a scratch prefix.
 SUDO=
 
 DRY=0
@@ -56,8 +60,9 @@ run() {
   [ "$DRY" = 1 ] || "$@"
 }
 
-# asroot CMD...: run CMD as root through sudo, or as ourselves when MAILO_PREFIX points somewhere we
-# own (the scenario scripts install into a scratch prefix and never need sudo).
+# asroot CMD...: run CMD as root through the program need_sudo chose, or as ourselves when
+# MAILO_PREFIX points somewhere we own (the scenario scripts install into a scratch prefix and never
+# need root).
 asroot() { run ${SUDO:+"$SUDO"} "$@"; }
 
 # put MODE SRC DEST: install SRC at DEST, unless DEST already is a copy of it.
@@ -77,20 +82,42 @@ gone() {
 
 refuse_root() {
   [ "$(id -u)" -ne 0 ] || {
-    echo "run this as yourself, not root: it builds as you and uses sudo only to install" >&2
+    echo "run this as yourself, not root: it builds as you and asks for root only to install" >&2
     exit 1
   }
 }
 
-# need_sudo: ask for the password once, unless both destinations were redirected (MAILO_PREFIX and
-# MAILO_UNIT_DIR, a scratch directory the caller owns) or this is a dry run.
+# escalator: print the program that gains root here: the one asked for in $SUDO, else sudo, doas
+# or pkexec, whichever is installed first. Prints nothing when there is none.
+escalator() {
+  local want
+  for want in "$ASKED_SUDO" sudo doas pkexec; do
+    [ -n "$want" ] && command -v "$want" >/dev/null && { echo "$want"; return 0; }
+  done
+  return 1
+}
+
+# need_sudo: pick the program that gains root, and ask for the password once, unless both
+# destinations were redirected (MAILO_PREFIX and MAILO_UNIT_DIR, a scratch directory the caller
+# owns) or this is a dry run. With none to be had, say which commands to run as root instead.
 need_sudo() {
   if [ -n "${MAILO_PREFIX:-}" ] && [ -n "${MAILO_UNIT_DIR:-}" ]; then SUDO=; return 0; fi
-  SUDO=sudo
+  if ! SUDO="$(escalator)"; then
+    SUDO=sudo
+    [ "$DRY" = 1 ] && return 0
+    {
+      echo "this needs root to install, and this computer has no sudo, doas or pkexec."
+      echo "Either install one of them and run this again, or list the steps and run each"
+      echo "line that starts with \$ yourself, as root:"
+      echo "    $0 --dry-run"
+    } >&2
+    exit 1
+  fi
   [ "$DRY" = 1 ] && return 0
-  command -v sudo >/dev/null || { echo "sudo is needed" >&2; exit 1; }
-  note "sudo will ask for your password once"
-  sudo -v
+  case "$SUDO" in
+    sudo) note "sudo will ask for your password once"; sudo -v ;;
+    *) note "$SUDO will ask for your password" ;;
+  esac
 }
 
 # manager_present: whether there is a systemd manager to tell (not for a scratch unit directory).
