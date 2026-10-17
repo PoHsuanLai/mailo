@@ -303,7 +303,7 @@ dependencies = [
 [[package]]
 name = "anyview-archive"
 version = "0.1.0-beta.1"
-source = "git+https://github.com/PoHsuanLai/anyview.git?rev=6133767a7130ec6d069250b419f2327b2bec64c0#6133767a7130ec6d069250b419f2327b2bec64c0"
+source = "git+https://github.com/PoHsuanLai/anyview.git?rev=aa76b06906b1539a9ca280e9bac697fd7effc9b6#aa76b06906b1539a9ca280e9bac697fd7effc9b6"
 dependencies = [
  "anyview-core",
  "bzip2",
@@ -321,11 +321,10 @@ dependencies = [
 [[package]]
 name = "anyview-book"
 version = "0.1.0-beta.1"
-source = "git+https://github.com/PoHsuanLai/anyview.git?rev=6133767a7130ec6d069250b419f2327b2bec64c0#6133767a7130ec6d069250b419f2327b2bec64c0"
+source = "git+https://github.com/PoHsuanLai/anyview.git?rev=aa76b06906b1539a9ca280e9bac697fd7effc9b6#aa76b06906b1539a9ca280e9bac697fd7effc9b6"
 dependencies = [
  "anyview-archive",
  "anyview-core",
- "ds-core",
  "roxmltree 0.21.1",
  "thiserror 2.0.21",
 ]
@@ -333,7 +332,7 @@ dependencies = [
 [[package]]
 name = "anyview-core"
 version = "0.1.0-beta.1"
-source = "git+https://github.com/PoHsuanLai/anyview.git?rev=6133767a7130ec6d069250b419f2327b2bec64c0#6133767a7130ec6d069250b419f2327b2bec64c0"
+source = "git+https://github.com/PoHsuanLai/anyview.git?rev=aa76b06906b1539a9ca280e9bac697fd7effc9b6#aa76b06906b1539a9ca280e9bac697fd7effc9b6"
 dependencies = [
  "chordkit",
  "ds-core",
@@ -346,7 +345,7 @@ dependencies = [
 [[package]]
 name = "anyview-font"
 version = "0.1.0-beta.1"
-source = "git+https://github.com/PoHsuanLai/anyview.git?rev=6133767a7130ec6d069250b419f2327b2bec64c0#6133767a7130ec6d069250b419f2327b2bec64c0"
+source = "git+https://github.com/PoHsuanLai/anyview.git?rev=aa76b06906b1539a9ca280e9bac697fd7effc9b6#aa76b06906b1539a9ca280e9bac697fd7effc9b6"
 dependencies = [
  "anyview-core",
  "miniz_oxide 0.8.9",
@@ -357,7 +356,7 @@ dependencies = [
 [[package]]
 name = "anyview-fs"
 version = "0.1.0-beta.1"
-source = "git+https://github.com/PoHsuanLai/anyview.git?rev=6133767a7130ec6d069250b419f2327b2bec64c0#6133767a7130ec6d069250b419f2327b2bec64c0"
+source = "git+https://github.com/PoHsuanLai/anyview.git?rev=aa76b06906b1539a9ca280e9bac697fd7effc9b6#aa76b06906b1539a9ca280e9bac697fd7effc9b6"
 dependencies = [
  "anyview-core",
  "ds-helpers",
@@ -367,7 +366,7 @@ dependencies = [
 [[package]]
 name = "anyview-image"
 version = "0.1.0-beta.1"
-source = "git+https://github.com/PoHsuanLai/anyview.git?rev=6133767a7130ec6d069250b419f2327b2bec64c0#6133767a7130ec6d069250b419f2327b2bec64c0"
+source = "git+https://github.com/PoHsuanLai/anyview.git?rev=aa76b06906b1539a9ca280e9bac697fd7effc9b6#aa76b06906b1539a9ca280e9bac697fd7effc9b6"
 dependencies = [
  "anyview-core",
  "ds-core",
@@ -385,7 +384,7 @@ dependencies = [
 [[package]]
 name = "anyview-peek"
 version = "0.1.0-beta.1"
-source = "git+https://github.com/PoHsuanLai/anyview.git?rev=6133767a7130ec6d069250b419f2327b2bec64c0#6133767a7130ec6d069250b419f2327b2bec64c0"
+source = "git+https://github.com/PoHsuanLai/anyview.git?rev=aa76b06906b1539a9ca280e9bac697fd7effc9b6#aa76b06906b1539a9ca280e9bac697fd7effc9b6"
 dependencies = [
  "anyview-archive",
  "anyview-book",
@@ -405,7 +404,7 @@ dependencies = [
 [[package]]
 name = "anyview-text"
 version = "0.1.0-beta.1"
-source = "git+https://github.com/PoHsuanLai/anyview.git?rev=6133767a7130ec6d069250b419f2327b2bec64c0#6133767a7130ec6d069250b419f2327b2bec64c0"
+source = "git+https://github.com/PoHsuanLai/anyview.git?rev=aa76b06906b1539a9ca280e9bac697fd7effc9b6#aa76b06906b1539a9ca280e9bac697fd7effc9b6"
 dependencies = [
  "anyview-core",
  "anyview-fs",
