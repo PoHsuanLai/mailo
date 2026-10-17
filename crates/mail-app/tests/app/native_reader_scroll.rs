@@ -143,8 +143,35 @@ fn row(n: usize) -> String {
     format!(".list .ds-list-item[*|aria-posinset=\"{n}\"] .ds-thread")
 }
 
-/// Open row `n` and wait until its last frame has a document with `marker` in it.
+/// Open row `n`, wait until its last frame has a document with `marker` in it, and then until
+/// the conversation has settled: an earlier message's frame grows to its content after it loads,
+/// which moves the last one down, and a wheel turned while that happens can look like no scroll.
 fn open_row(harness: &mut Harness, n: usize, marker: &str) {
+    shown(harness, n, marker);
+    settle(harness);
+}
+
+/// Where the last message starts, until it is in the same place for three reads in a row.
+fn settle(harness: &mut Harness) {
+    let last = |h: &Harness| {
+        h.rect(".reader-body article.frame:last-of-type")
+            .map(|r| r.origin.y.0)
+    };
+    let (mut was, mut same) = (last(harness), 0);
+    for _ in 0..100 {
+        harness.advance(ms(100));
+        let now = last(harness);
+        same = if now == was { same + 1 } else { 0 };
+        if same == 3 {
+            return;
+        }
+        was = now;
+    }
+    panic!("the conversation never settled:\n{}", harness.html());
+}
+
+/// Open row `n` and wait until its last frame has a document with `marker` in it.
+fn shown(harness: &mut Harness, n: usize, marker: &str) {
     let subject = format!("{} .ds-thread-sub", row(n));
     for _ in 0..50 {
         if harness.rect(&subject).is_some() {
@@ -186,15 +213,27 @@ fn place(harness: &Harness, marker: &str) -> (f32, f32) {
     (inner, outer)
 }
 
-/// A point over the last frame, in the window's coordinates.
+/// A point over the part of the last frame the window shows, in the window's coordinates; over
+/// the middle of the reader's body when the last frame starts below the window (a thread whose
+/// earlier messages are drawn in full), where the wheel moves the whole conversation.
 fn over_body(harness: &Harness) -> Point {
     let rect = harness
         .rect(FRAME)
         .unwrap_or_else(|| panic!("{FRAME} is not drawn:\n{}", harness.html()));
-    let bottom = (rect.origin.y.0 + rect.size.height.0).min(VIEW.height as f32 - 20.0);
+    let body = harness
+        .rect(".reader-body")
+        .unwrap_or_else(|| panic!(".reader-body is not drawn:\n{}", harness.html()));
+    let floor = VIEW.height as f32 - 20.0;
+    let top = rect.origin.y.0.max(body.origin.y.0);
+    let bottom = (rect.origin.y.0 + rect.size.height.0).min(floor);
+    let y = if top < bottom {
+        (top + bottom) / 2.0
+    } else {
+        (body.origin.y.0 + floor) / 2.0
+    };
     Point {
         x: Px(rect.origin.x.0 + rect.size.width.0 / 2.0),
-        y: Px((rect.origin.y.0 + bottom) / 2.0),
+        y: Px(y),
     }
 }
 
