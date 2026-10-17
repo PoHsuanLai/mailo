@@ -303,7 +303,7 @@ dependencies = [
 [[package]]
 name = "anyview-archive"
 version = "0.1.0-beta.1"
-source = "git+https://github.com/PoHsuanLai/anyview.git?rev=aa76b06906b1539a9ca280e9bac697fd7effc9b6#aa76b06906b1539a9ca280e9bac697fd7effc9b6"
+source = "git+https://github.com/PoHsuanLai/anyview.git?rev=e337c00bd71a3443319f0a88b6a1a5fbfe6b0f0d#e337c00bd71a3443319f0a88b6a1a5fbfe6b0f0d"
 dependencies = [
  "anyview-core",
  "bzip2",
@@ -321,7 +321,7 @@ dependencies = [
 [[package]]
 name = "anyview-book"
 version = "0.1.0-beta.1"
-source = "git+https://github.com/PoHsuanLai/anyview.git?rev=aa76b06906b1539a9ca280e9bac697fd7effc9b6#aa76b06906b1539a9ca280e9bac697fd7effc9b6"
+source = "git+https://github.com/PoHsuanLai/anyview.git?rev=e337c00bd71a3443319f0a88b6a1a5fbfe6b0f0d#e337c00bd71a3443319f0a88b6a1a5fbfe6b0f0d"
 dependencies = [
  "anyview-archive",
  "anyview-core",
@@ -332,7 +332,7 @@ dependencies = [
 [[package]]
 name = "anyview-core"
 version = "0.1.0-beta.1"
-source = "git+https://github.com/PoHsuanLai/anyview.git?rev=aa76b06906b1539a9ca280e9bac697fd7effc9b6#aa76b06906b1539a9ca280e9bac697fd7effc9b6"
+source = "git+https://github.com/PoHsuanLai/anyview.git?rev=e337c00bd71a3443319f0a88b6a1a5fbfe6b0f0d#e337c00bd71a3443319f0a88b6a1a5fbfe6b0f0d"
 dependencies = [
  "chordkit",
  "ds-core",
@@ -345,7 +345,7 @@ dependencies = [
 [[package]]
 name = "anyview-font"
 version = "0.1.0-beta.1"
-source = "git+https://github.com/PoHsuanLai/anyview.git?rev=aa76b06906b1539a9ca280e9bac697fd7effc9b6#aa76b06906b1539a9ca280e9bac697fd7effc9b6"
+source = "git+https://github.com/PoHsuanLai/anyview.git?rev=e337c00bd71a3443319f0a88b6a1a5fbfe6b0f0d#e337c00bd71a3443319f0a88b6a1a5fbfe6b0f0d"
 dependencies = [
  "anyview-core",
  "miniz_oxide 0.8.9",
@@ -356,7 +356,7 @@ dependencies = [
 [[package]]
 name = "anyview-fs"
 version = "0.1.0-beta.1"
-source = "git+https://github.com/PoHsuanLai/anyview.git?rev=aa76b06906b1539a9ca280e9bac697fd7effc9b6#aa76b06906b1539a9ca280e9bac697fd7effc9b6"
+source = "git+https://github.com/PoHsuanLai/anyview.git?rev=e337c00bd71a3443319f0a88b6a1a5fbfe6b0f0d#e337c00bd71a3443319f0a88b6a1a5fbfe6b0f0d"
 dependencies = [
  "anyview-core",
  "ds-helpers",
@@ -366,7 +366,7 @@ dependencies = [
 [[package]]
 name = "anyview-image"
 version = "0.1.0-beta.1"
-source = "git+https://github.com/PoHsuanLai/anyview.git?rev=aa76b06906b1539a9ca280e9bac697fd7effc9b6#aa76b06906b1539a9ca280e9bac697fd7effc9b6"
+source = "git+https://github.com/PoHsuanLai/anyview.git?rev=e337c00bd71a3443319f0a88b6a1a5fbfe6b0f0d#e337c00bd71a3443319f0a88b6a1a5fbfe6b0f0d"
 dependencies = [
  "anyview-core",
  "ds-core",
@@ -384,7 +384,7 @@ dependencies = [
 [[package]]
 name = "anyview-peek"
 version = "0.1.0-beta.1"
-source = "git+https://github.com/PoHsuanLai/anyview.git?rev=aa76b06906b1539a9ca280e9bac697fd7effc9b6#aa76b06906b1539a9ca280e9bac697fd7effc9b6"
+source = "git+https://github.com/PoHsuanLai/anyview.git?rev=e337c00bd71a3443319f0a88b6a1a5fbfe6b0f0d#e337c00bd71a3443319f0a88b6a1a5fbfe6b0f0d"
 dependencies = [
  "anyview-archive",
  "anyview-book",
@@ -404,7 +404,7 @@ dependencies = [
 [[package]]
 name = "anyview-text"
 version = "0.1.0-beta.1"
-source = "git+https://github.com/PoHsuanLai/anyview.git?rev=aa76b06906b1539a9ca280e9bac697fd7effc9b6#aa76b06906b1539a9ca280e9bac697fd7effc9b6"
+source = "git+https://github.com/PoHsuanLai/anyview.git?rev=e337c00bd71a3443319f0a88b6a1a5fbfe6b0f0d#e337c00bd71a3443319f0a88b6a1a5fbfe6b0f0d"
 dependencies = [
  "anyview-core",
  "anyview-fs",
@@ -4815,10 +4815,11 @@ dependencies = [
 [[package]]
 name = "latchkey"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/latchkey?rev=99cc9deb198860293253c534c4d26b382ec8b87e#99cc9deb198860293253c534c4d26b382ec8b87e"
+source = "git+https://github.com/PoHsuanLai/latchkey?rev=c6cad1521f1efdc66fcc0f398029324e315a12ab#c6cad1521f1efdc66fcc0f398029324e315a12ab"
 dependencies = [
  "interprocess",
  "rustix",
+ "widestring",
 ]
 
 [[package]]
@@ -7085,7 +7086,7 @@ dependencies = [
 [[package]]
 name = "porter-client"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=7e05cbf78edf66318de94d47e556b2feb88802f1#7e05cbf78edf66318de94d47e556b2feb88802f1"
+source = "git+https://github.com/PoHsuanLai/porter?rev=abb164b9d8e876dba394cce8de38bebff8af424e#abb164b9d8e876dba394cce8de38bebff8af424e"
 dependencies = [
  "porter-core",
  "thiserror 2.0.21",
@@ -7095,7 +7096,7 @@ dependencies = [
 [[package]]
 name = "porter-core"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=7e05cbf78edf66318de94d47e556b2feb88802f1#7e05cbf78edf66318de94d47e556b2feb88802f1"
+source = "git+https://github.com/PoHsuanLai/porter?rev=abb164b9d8e876dba394cce8de38bebff8af424e#abb164b9d8e876dba394cce8de38bebff8af424e"
 dependencies = [
  "serde",
  "serde_json",
@@ -7106,7 +7107,7 @@ dependencies = [
 [[package]]
 name = "porter-discover"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=7e05cbf78edf66318de94d47e556b2feb88802f1#7e05cbf78edf66318de94d47e556b2feb88802f1"
+source = "git+https://github.com/PoHsuanLai/porter?rev=abb164b9d8e876dba394cce8de38bebff8af424e#abb164b9d8e876dba394cce8de38bebff8af424e"
 dependencies = [
  "porter-core",
  "porter-http",
@@ -7120,12 +7121,12 @@ dependencies = [
 [[package]]
 name = "porter-fs"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=7e05cbf78edf66318de94d47e556b2feb88802f1#7e05cbf78edf66318de94d47e556b2feb88802f1"
+source = "git+https://github.com/PoHsuanLai/porter?rev=abb164b9d8e876dba394cce8de38bebff8af424e#abb164b9d8e876dba394cce8de38bebff8af424e"
 
 [[package]]
 name = "porter-http"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=7e05cbf78edf66318de94d47e556b2feb88802f1#7e05cbf78edf66318de94d47e556b2feb88802f1"
+source = "git+https://github.com/PoHsuanLai/porter?rev=abb164b9d8e876dba394cce8de38bebff8af424e#abb164b9d8e876dba394cce8de38bebff8af424e"
 dependencies = [
  "porter-core",
  "thiserror 2.0.21",
@@ -7134,7 +7135,7 @@ dependencies = [
 [[package]]
 name = "porter-oauth"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=7e05cbf78edf66318de94d47e556b2feb88802f1#7e05cbf78edf66318de94d47e556b2feb88802f1"
+source = "git+https://github.com/PoHsuanLai/porter?rev=abb164b9d8e876dba394cce8de38bebff8af424e#abb164b9d8e876dba394cce8de38bebff8af424e"
 dependencies = [
  "base64 0.22.1",
  "porter-core",
@@ -7151,7 +7152,7 @@ dependencies = [
 [[package]]
 name = "porter-provider"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=7e05cbf78edf66318de94d47e556b2feb88802f1#7e05cbf78edf66318de94d47e556b2feb88802f1"
+source = "git+https://github.com/PoHsuanLai/porter?rev=abb164b9d8e876dba394cce8de38bebff8af424e#abb164b9d8e876dba394cce8de38bebff8af424e"
 dependencies = [
  "porter-core",
  "serde",
@@ -7162,7 +7163,7 @@ dependencies = [
 [[package]]
 name = "porter-secrets"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=7e05cbf78edf66318de94d47e556b2feb88802f1#7e05cbf78edf66318de94d47e556b2feb88802f1"
+source = "git+https://github.com/PoHsuanLai/porter?rev=abb164b9d8e876dba394cce8de38bebff8af424e#abb164b9d8e876dba394cce8de38bebff8af424e"
 dependencies = [
  "apple-native-keyring-store",
  "keyring-core",
@@ -7179,7 +7180,7 @@ dependencies = [
 [[package]]
 name = "porter-service"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=7e05cbf78edf66318de94d47e556b2feb88802f1#7e05cbf78edf66318de94d47e556b2feb88802f1"
+source = "git+https://github.com/PoHsuanLai/porter?rev=abb164b9d8e876dba394cce8de38bebff8af424e#abb164b9d8e876dba394cce8de38bebff8af424e"
 dependencies = [
  "porter-core",
  "porter-provider",
