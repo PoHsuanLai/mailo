@@ -347,6 +347,10 @@ pub enum CoreError {
         said: String,
         hint: String,
     },
+    /// The incoming server could not be reached to try the sign-in: nothing answered, or it would
+    /// not finish the handshake. Not a refusal, so the person is not told the password was wrong.
+    #[error("{host} could not be reached: {why}")]
+    ServerUnreachable { host: String, why: String },
     /// A pass could not run, in the words the classifier gave it, with what to do about it.
     #[error("{why}")]
     PassFailed {

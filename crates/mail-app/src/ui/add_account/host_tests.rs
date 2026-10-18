@@ -150,7 +150,7 @@ async fn a_whole_browser_add_over_the_service_and_open_again_shows_the_page_agai
 #[tokio::test]
 async fn a_failed_step_tries_again_from_the_form() {
     let script = Script {
-        add: Err("cannot save the account".to_owned()),
+        add: Err("cannot save the account".to_owned().into()),
         ..Script::default()
     };
     let (mut end, task, _log, added) = serve(&script);

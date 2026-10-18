@@ -758,7 +758,10 @@ pub async fn check_sign_in(
                 hint,
             })
         }
-        Err(other) => Err(CoreError::cannot(format!("reach {host}"), other)),
+        Err(other) => Err(CoreError::ServerUnreachable {
+            host,
+            why: other.to_string(),
+        }),
     }
 }
 

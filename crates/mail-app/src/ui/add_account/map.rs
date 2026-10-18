@@ -99,10 +99,26 @@ pub(super) enum Step {
     Failed {
         provider: String,
         why: ShellFault,
+        /// What the sentence of `why` leaves out: the server's own words and the user name it
+        /// was given. The window fills it in from what the add was told ([`Step::said`]); the
+        /// sheet's view of a failure carries only the fault.
+        detail: Option<String>,
     },
 }
 
 impl Step {
+    /// This step with what the last failed add said under it, if it is the failure.
+    pub(super) fn said(self, said: Option<String>) -> Step {
+        match self {
+            Step::Failed { provider, why, .. } => Step::Failed {
+                provider,
+                why,
+                detail: said,
+            },
+            other => other,
+        }
+    }
+
     /// The step's word, for its key and its `data-step`.
     pub(super) fn slug(&self) -> &'static str {
         match self {
@@ -206,6 +222,7 @@ pub(super) fn step_of(sheet: &Sheet) -> Option<Step> {
         } => Step::Failed {
             provider: provider_label(provider),
             why: fault_of(*fault),
+            detail: None,
         },
         SheetView::Done | SheetView::Consent(_) => return None,
     })

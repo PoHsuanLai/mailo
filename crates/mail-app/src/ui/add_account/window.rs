@@ -209,12 +209,13 @@ fn AddAccountShell(wiring: Wiring, prefill: Option<String>) -> Element {
 
     // The service ended: an account added is the app's to draw, and the window is done.
     let handle = ds_blitz::use_window_handle();
+    let added_to = added.clone();
     use_effect(move || {
         let Some(ended) = finished() else { return };
         // Nothing is left to draw (and nothing typed is kept) while the window goes.
         sheet.set(Sheet::default());
         if ended == Ended::Added {
-            if let Some(account) = added.take().and_then(|address| account_at(&address)) {
+            if let Some(account) = added_to.take().and_then(|address| account_at(&address)) {
                 into_scope(&mut spaces, account);
             }
             revision += 1;
@@ -224,7 +225,7 @@ fn AddAccountShell(wiring: Wiring, prefill: Option<String>) -> Element {
         }
     });
 
-    let step = map::step_of(&sheet.read());
+    let step = map::step_of(&sheet.read()).map(|step| step.said(added.said()));
     // The window is as big as the step it shows, capped to the screen: asked again only when the
     // size changes, and not at all once the person has resized the window themselves.
     let screen = ds_blitz::use_app_handle().and_then(|app| app.screen_extent());
@@ -375,7 +376,11 @@ fn body(step: Step, send: Callback<Action>, marks: Marks) -> Element {
                 title: StepTitle::Own,
             }
         },
-        Step::Failed { provider, why } => rsx! {
+        Step::Failed {
+            provider,
+            why,
+            detail,
+        } => rsx! {
             SignInFailed {
                 provider,
                 why,
@@ -383,6 +388,10 @@ fn body(step: Step, send: Callback<Action>, marks: Marks) -> Element {
                 on_back: back,
                 on_cancel: cancel,
                 title: StepTitle::Own,
+            }
+            if let Some(detail) = detail {
+                // What the sentence leaves out: the server's own words, under the buttons.
+                p { class: "add-account-detail", role: "alert", "{detail}" }
             }
         },
     }

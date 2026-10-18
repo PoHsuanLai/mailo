@@ -32,7 +32,7 @@ pub(in crate::ui) use direct::{
     offered_redirects, picked, retry,
 };
 pub use direct::{DirectSignIns, SignInDirectly};
-pub use provider::{Request, Seams};
+pub use provider::{AddError, AddFault, Request, Seams};
 pub use window::{Browse, Fit, Opened, Wiring, add_account_root};
 
 use std::cell::RefCell;

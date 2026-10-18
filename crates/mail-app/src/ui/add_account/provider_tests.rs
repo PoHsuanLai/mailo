@@ -17,7 +17,7 @@ use porter_core::{Credential, ProviderId, SecretText};
 use porter_provider::{Issuer, Provider, SignIn, SignInMode, SignInStart, SignInStep};
 use tokio::sync::Notify;
 
-use super::provider::{Added, MailProvider, Request, Seams, offered};
+use super::provider::{AddError, AddFault, Added, MailProvider, Request, Seams, offered};
 
 pub(super) const PASSWORD: &str = "s3cret-pass-4417";
 pub(super) const AUTHORIZE: &str =
@@ -36,7 +36,7 @@ pub(super) struct Log {
 pub(super) struct Script {
     pub lookup: Result<(), Failed>,
     pub jmap: Result<String, String>,
-    pub add: Result<String, String>,
+    pub add: Result<String, AddError>,
     pub client: bool,
     /// A browser sign-in finishes when this is notified; `None` refuses it.
     pub release: Arc<Notify>,
@@ -537,6 +537,85 @@ async fn what_is_not_an_address_is_never_looked_up() {
         .await;
     assert_eq!(step, SignInStep::Failed(SignInFault::Refused));
     assert!(log.lookups.lock().unwrap().is_empty());
+}
+
+/// What the sheet says when the add fails for `fault`, and what the window is told to say under it.
+async fn failed_add(fault: AddFault, detail: &str) -> (SignInStep, Added) {
+    let log = Arc::new(Log::default());
+    let added = Added::default();
+    let script = Script {
+        add: Err(AddError {
+            fault,
+            detail: detail.to_owned(),
+        }),
+        ..Script::default()
+    };
+    let fakes = seams(&script, &log);
+    let mut sign_in = start(&provider("generic-imap", &fakes, &added, None));
+    sign_in.next(SignInInput::Start).await;
+    sign_in
+        .next(SignInInput::Fields(vec![
+            address("ada@example.test"),
+            password(PASSWORD),
+        ]))
+        .await;
+    let ended = sign_in.next(SignInInput::Confirm(vec![])).await;
+    (ended, added)
+}
+
+#[tokio::test]
+async fn a_refused_login_is_the_refused_sentence_with_the_servers_words_beside_it() {
+    let (ended, added) = failed_add(
+        AddFault::Refused,
+        "mail.example.test did not accept the sign-in as ada: -ERR [AUTH] no",
+    )
+    .await;
+    assert!(
+        matches!(ended, SignInStep::Failed(SignInFault::Refused)),
+        "{ended:?}"
+    );
+    assert_eq!(
+        added.said().as_deref(),
+        Some("mail.example.test did not accept the sign-in as ada: -ERR [AUTH] no")
+    );
+    assert_eq!(added.take(), None, "nothing was added");
+}
+
+#[tokio::test]
+async fn a_server_that_did_not_answer_is_the_unreachable_sentence() {
+    let (ended, added) = failed_add(
+        AddFault::Unreachable,
+        "mail.example.test could not be reached: connection refused",
+    )
+    .await;
+    assert!(
+        matches!(ended, SignInStep::Failed(SignInFault::Unreachable)),
+        "{ended:?}"
+    );
+    assert!(
+        added
+            .said()
+            .is_some_and(|said| said.contains("connection refused"))
+    );
+}
+
+#[tokio::test]
+async fn only_a_failure_to_keep_the_account_says_it_could_not_be_saved() {
+    let (ended, _) = failed_add(AddFault::Unsaved, "disk full").await;
+    assert!(
+        matches!(ended, SignInStep::Failed(SignInFault::StoreFailed)),
+        "{ended:?}"
+    );
+}
+
+#[tokio::test]
+async fn asking_the_form_again_forgets_what_the_last_failure_said() {
+    let (_, added) = failed_add(AddFault::Refused, "no").await;
+    assert!(added.said().is_some());
+    let fakes = seams(&Script::default(), &Arc::new(Log::default()));
+    let mut again = start(&provider("generic-imap", &fakes, &added, None));
+    again.next(SignInInput::Start).await;
+    assert_eq!(added.said(), None, "the old words stayed under a new form");
 }
 
 #[tokio::test]

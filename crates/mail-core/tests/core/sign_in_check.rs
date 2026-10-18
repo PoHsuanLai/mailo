@@ -174,7 +174,7 @@ async fn a_server_nobody_listens_on_is_unreachable_not_refused() {
         .await
         .expect_err("nothing answers");
     assert!(
-        !matches!(failed, CoreError::SignInRefused { .. }),
+        matches!(failed, CoreError::ServerUnreachable { .. }),
         "an unreachable server is not a refused login: {failed}"
     );
     assert!(failed.to_string().contains("127.0.0.1"), "{failed}");
