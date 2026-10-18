@@ -525,7 +525,7 @@ fn a_whole_typed_pop3_add_through_the_window() {
         "Outgoing",
         "Sign in",
         "Server type",
-        "(IMAP)",
+        ">IMAP<",
         "(SSL/TLS)",
     ] {
         assert!(html.contains(word), "{word}:\n{html}");
@@ -536,7 +536,7 @@ fn a_whole_typed_pop3_add_through_the_window() {
     // POP3: the form changes at once (no sending): the guessed host and the ports follow.
     pick_protocol(&mut w, 2);
     let html = w.harness.html();
-    assert!(html.contains("Older servers (POP)"), "{html}");
+    assert!(html.contains(">POP3<"), "{html}");
     assert!(html.contains("pop.example.test"), "{html}");
     assert!(html.contains("995"), "{html}");
     assert_eq!(
