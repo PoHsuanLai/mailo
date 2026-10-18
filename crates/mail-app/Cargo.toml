@@ -117,25 +117,25 @@ dioxus = { version = "0.7" }
 # display). quire re-exports only `StandardAction`; mailo names `Action`, `AppAction`, `Context` and
 # `Chord` as well. The rev quire pins (`docs/workspace-deps.toml`), so one chordkit is built.
 chordkit = { git = "https://github.com/PoHsuanLai/chordkit.git", rev = "934a2d71f6516bee5919ee29278003702a4ea5e1" }
-ds = { git = "https://github.com/PoHsuanLai/quire.git", rev = "098e21681ced220ca49f01ae3f6a38904f0774a9" }  # 098e2168 (v0.3.32: an input method deletes and reads the text around the caret; forks blitz 4b236792, blitz-kit 8570d0f)
+ds = { git = "https://github.com/PoHsuanLai/quire.git", rev = "3882bc95979b9fcb65aa17d596f6628c1bb982b8" }  # 3882bc95 (v0.3.33: context-menu key equivalents, the palette pointer fix; forks blitz 4b236792, blitz-kit 8570d0f)
 # Settings I/O: `appearance.toml` (imported once from `appearance.json`), the settings portal.
-ds-settings = { git = "https://github.com/PoHsuanLai/quire.git", rev = "098e21681ced220ca49f01ae3f6a38904f0774a9", features = ["dioxus"] }  # 098e2168 (v0.3.32: an input method deletes and reads the text around the caret; forks blitz 4b236792, blitz-kit 8570d0f)
+ds-settings = { git = "https://github.com/PoHsuanLai/quire.git", rev = "3882bc95979b9fcb65aa17d596f6628c1bb982b8", features = ["dioxus"] }  # 3882bc95 (v0.3.33: context-menu key equivalents, the palette pointer fix; forks blitz 4b236792, blitz-kit 8570d0f)
 # The account sheets' views (step E5): `ds_shell::accounts`, the parts `sill` draws the same sheet with.
 # Only the accounts module is used; the shell's own surfaces (bar, dock, lock) are not drawn here.
-ds-shell = { git = "https://github.com/PoHsuanLai/quire.git", rev = "098e21681ced220ca49f01ae3f6a38904f0774a9" }  # 098e2168 (v0.3.32: an input method deletes and reads the text around the caret; forks blitz 4b236792, blitz-kit 8570d0f)
+ds-shell = { git = "https://github.com/PoHsuanLai/quire.git", rev = "3882bc95979b9fcb65aa17d596f6628c1bb982b8" }  # 3882bc95 (v0.3.33: context-menu key equivalents, the palette pointer fix; forks blitz 4b236792, blitz-kit 8570d0f)
 # anyview, the viewer's light tier, at the rev of its main that names the quire rev above (the same
 # spelling as quire, so one quire is built). `anyview-core` is the vocabulary (`Input`, `ReadAt`:
 # how the store's bytes go in); `anyview-peek` the peek worker and, with `pane`, the card that draws
 # what was peeked. Headless otherwise: no media player, no D-Bus.
-anyview-core = { git = "https://github.com/PoHsuanLai/anyview.git", rev = "957fc9489bcc347ada5278b2fb097007ff6ebd69", optional = true }
-anyview-peek = { git = "https://github.com/PoHsuanLai/anyview.git", rev = "957fc9489bcc347ada5278b2fb097007ff6ebd69", default-features = false, features = ["pane"], optional = true }
+anyview-core = { git = "https://github.com/PoHsuanLai/anyview.git", rev = "0927e4a8fcb9ad92f54aeeeddd7c983a13ecc20a", optional = true }
+anyview-peek = { git = "https://github.com/PoHsuanLai/anyview.git", rev = "0927e4a8fcb9ad92f54aeeeddd7c983a13ecc20a", default-features = false, features = ["pane"], optional = true }
 # `mailo.toml`, and the `appearance.toml` written once on the first run after the move.
 toml = "1"
 # The window: quire's Blitz host (the window, its fonts, focus, clipboard, PDF output), and
 # `print`: the system's print dialog for a PDF (the desktop portal on Linux, else the PDF opened
 # in the viewer); `spell`: the composer's spelling, against the system's Hunspell dictionaries
 # (none is bundled); `pdf` also rasterises a PDF attachment's first page (`PdfFileThumb`).
-ds-blitz = { git = "https://github.com/PoHsuanLai/quire.git", rev = "098e21681ced220ca49f01ae3f6a38904f0774a9", features = ["pdf", "print", "spell"] }  # 098e2168 (v0.3.32: an input method deletes and reads the text around the caret; forks blitz 4b236792, blitz-kit 8570d0f)
+ds-blitz = { git = "https://github.com/PoHsuanLai/quire.git", rev = "3882bc95979b9fcb65aa17d596f6628c1bb982b8", features = ["pdf", "print", "spell"] }  # 3882bc95 (v0.3.33: context-menu key equivalents, the palette pointer fix; forks blitz 4b236792, blitz-kit 8570d0f)
 blitz-dom = { workspace = true }
 dioxus-native-dom = { workspace = true }
 base64 = "0.22"
@@ -227,8 +227,8 @@ proptest = "1"
 # The linter (`lint::assert_clean`, the markup lint) and the test driver (`Harness`, `Driver`,
 # `Query`, `snapshot`; `pdf` is `Harness::pdf` for the print tests): quire's own crates, at the
 # same tag.
-ds-lint = { git = "https://github.com/PoHsuanLai/quire.git", rev = "098e21681ced220ca49f01ae3f6a38904f0774a9" }  # 098e2168 (v0.3.32: an input method deletes and reads the text around the caret; forks blitz 4b236792, blitz-kit 8570d0f)
-ds-harness = { git = "https://github.com/PoHsuanLai/quire.git", rev = "098e21681ced220ca49f01ae3f6a38904f0774a9", features = ["pdf"] }  # 098e2168 (v0.3.32: an input method deletes and reads the text around the caret; forks blitz 4b236792, blitz-kit 8570d0f)
+ds-lint = { git = "https://github.com/PoHsuanLai/quire.git", rev = "3882bc95979b9fcb65aa17d596f6628c1bb982b8" }  # 3882bc95 (v0.3.33: context-menu key equivalents, the palette pointer fix; forks blitz 4b236792, blitz-kit 8570d0f)
+ds-harness = { git = "https://github.com/PoHsuanLai/quire.git", rev = "3882bc95979b9fcb65aa17d596f6628c1bb982b8", features = ["pdf"] }  # 3882bc95 (v0.3.33: context-menu key equivalents, the palette pointer fix; forks blitz 4b236792, blitz-kit 8570d0f)
 
 [lints]
 workspace = true
