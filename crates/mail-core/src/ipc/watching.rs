@@ -168,11 +168,11 @@ mod tests {
             .and_then(|name| name.to_str())
             .unwrap_or("test");
         let environment = latchkey::Environment {
-            runtime_dir: Some(scratch.path().as_os_str()),
-            tmpdir: Some(scratch.path().as_os_str()),
+            runtime_dir: Some(scratch.path().as_os_str().to_owned()),
+            tmpdir: Some(scratch.path().as_os_str().to_owned()),
             home: None,
-            local_app_data: Some(scratch.path().as_os_str()),
-            user: Some(unique),
+            local_app_data: Some(scratch.path().as_os_str().to_owned()),
+            user: Some(unique.to_owned()),
         };
         let agent =
             latchkey::Agent::in_environment("mailo-watch-test", latchkey::here(), &environment)
