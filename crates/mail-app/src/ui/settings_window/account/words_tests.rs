@@ -178,7 +178,7 @@ fn the_confirmation_counts_the_mail_and_says_when_it_is_the_only_copy() {
     for (incoming, held, has, lacks) in cases {
         let asked = asking(ADDRESS, held, &incoming);
         assert_eq!(asked.title, "Remove ada@example.com?");
-        assert_eq!(asked.confirm, "Remove Account");
+        assert_eq!(asked.confirm, "Remove");
         assert!(asked.body.contains(has), "{incoming:?}: {}", asked.body);
         assert!(!asked.body.contains(lacks), "{incoming:?}: {}", asked.body);
         assert!(
