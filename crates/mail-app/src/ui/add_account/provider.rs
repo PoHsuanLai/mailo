@@ -18,7 +18,7 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Utc};
-use mail_core::account::Setup;
+use mail_core::account::{Outcome, Setup};
 use mail_core::discover::{Failed, Found, Looked as Resolved};
 use mail_core::password::Password;
 use mail_core::{OAuthClients, SqliteStore};
@@ -142,7 +142,7 @@ impl Seams {
                     signed,
                 } = request;
                 let environment = crate::edge::environment();
-                crate::edge::block_on(mail_core::account::add_with_password(
+                let added = crate::edge::block_on(mail_core::account::add_with_password(
                     &store,
                     &address,
                     Some(&setup),
@@ -159,8 +159,41 @@ impl Seams {
                         signed: signed.as_ref(),
                     },
                 ))
-                .map(|added| added.address)
-                .map_err(String::from)
+                .map_err(String::from)?;
+                // A password is only filed by the add, so the server has not seen it yet. Try it
+                // now, while the form is still up: a wrong user name or password is said here in
+                // the server's words, not found at the first sync as "sign in again".
+                if matches!(added.outcome, Outcome::PasswordStored { bearer: false, .. }) {
+                    let secrets = crate::edge::secrets();
+                    let checked = crate::edge::block_on(mail_core::sync::check_sign_in(
+                        &store,
+                        &added.address,
+                        secrets.clone(),
+                        Utc::now(),
+                    ));
+                    if let Err(why) = checked {
+                        // An account that is new and cannot sign in is not kept, so the person
+                        // is not left with one that says "sign in again" and can only be
+                        // removed. One that was already here keeps what it had.
+                        let removed = if added.updated {
+                            Ok(None)
+                        } else {
+                            crate::edge::block_on(mail_core::account::remove(
+                                &store,
+                                secrets.as_ref(),
+                                added.account.clone(),
+                            ))
+                            .map(Some)
+                        };
+                        if let Err(trouble) = removed {
+                            log::warn!(
+                                "could not remove the account that could not sign in: {trouble}"
+                            );
+                        }
+                        return Err(why.to_string());
+                    }
+                }
+                Ok(added.address)
             }),
         }
     }

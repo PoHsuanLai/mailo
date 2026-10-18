@@ -591,32 +591,7 @@ async fn one(
         // arrives here anyway.
         Incoming::Local => Ok(Done::default()),
         Incoming::Pop3 { .. } => {
-            let username = username_for(&account.plan);
-            let Credential::Password(password) = held.current() else {
-                return Err(Failure::fatal("POP3 needs a password credential"));
-            };
-            let sasl = sasl_for(&account.plan);
-            let backend = Pop3Backend::new(
-                account.id.clone(),
-                account.caps.clone(),
-                Box::new(move |auth, commands| {
-                    // The factory owns authentication, because it is the only thing holding the
-                    // credential and the only thing that knows the mechanism.
-                    let mut all = Vec::new();
-                    if auth == Authenticate::First {
-                        all.extend(auth_prelude(&sasl));
-                    }
-                    all.extend(commands);
-                    Pop3Session::new(username.clone(), password.expose().to_owned(), all)
-                }),
-            );
-            let mut engine = AccountEngine::new(
-                account.id.clone(),
-                account.plan.clone(),
-                backend,
-                store.clone(),
-                secrets,
-            );
+            let mut engine = pop3_engine(store, account, &held, secrets)?;
             if let Some(source) = renewal {
                 engine = engine.with_tokens(source);
             }
@@ -724,6 +699,102 @@ async fn sending_token_typed(
         .await
         .map(|_| ())
         .map_err(|e| Failure::of("cannot sign in to Microsoft Graph for sending: ", &e))
+}
+
+/// Sign in to `address`'s incoming server once, as a pass would, and say what it answered.
+///
+/// Adding an account only files its password, so a wrong user name or password was first met
+/// at the first sync, and arrived as "sign in again" with nothing to say what the server had
+/// refused. This is run when the account is added, while the person still has the form in front
+/// of them. It reads POP3's `USER`/`PASS` and IMAP's `LOGIN`, and nothing else: an account that
+/// signs in in a browser has just done so, and the rest reach their server some other way.
+///
+/// What it learns of the server (its capabilities and folders) is kept, as a first sync would.
+pub async fn check_sign_in(
+    store: &Arc<SqliteStore>,
+    address: &str,
+    secrets: Arc<dyn AccountSecrets>,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<(), CoreError> {
+    let address = address.to_lowercase();
+    let account = configured(store)?
+        .into_iter()
+        .find(|account| account.address == address)
+        .ok_or_else(|| CoreError::UnknownAccount(address.clone()))?;
+    let (host, login) = match (&account.plan.incoming, &account.plan.auth) {
+        (Incoming::Pop3 { host, .. } | Incoming::Imap { host, .. }, AuthPlan::Password { .. }) => {
+            (host.clone(), username_for(&account.plan))
+        }
+        _ => return Ok(()),
+    };
+    let held = Held::new(
+        stored_credential(&account, secrets.as_ref())
+            .await
+            .map_err(pass_error)?,
+    );
+    let (_tx, mut cancel) = watch::channel(false);
+    let asked = match &account.plan.incoming {
+        Incoming::Pop3 { .. } => {
+            let mut engine = pop3_engine(store, &account, &held, secrets).map_err(pass_error)?;
+            engine.refresh_caps(&mut cancel, now).await
+        }
+        _ => {
+            let mut engine = imap_engine(store, &account, held, secrets);
+            engine.refresh_caps(&mut cancel, now).await
+        }
+    };
+    match asked {
+        Ok(_) => Ok(()),
+        Err(mail_runtime::RuntimeError::Proto(mail_proto::ProtoError::AuthRejected(said))) => {
+            let hint = if login.contains('@') {
+                " Some servers want the user name without the part after the @.".to_owned()
+            } else {
+                String::new()
+            };
+            Err(CoreError::SignInRefused {
+                host,
+                login,
+                said,
+                hint,
+            })
+        }
+        Err(other) => Err(CoreError::cannot(format!("reach {host}"), other)),
+    }
+}
+
+/// An engine for a POP3 account, signed in with the password `held` holds.
+fn pop3_engine(
+    store: &Arc<SqliteStore>,
+    account: &Configured,
+    held: &Held,
+    secrets: Arc<dyn AccountSecrets>,
+) -> Result<AccountEngine<Pop3Backend>, Failure> {
+    let username = username_for(&account.plan);
+    let Credential::Password(password) = held.current() else {
+        return Err(Failure::fatal("POP3 needs a password credential"));
+    };
+    let sasl = sasl_for(&account.plan);
+    let backend = Pop3Backend::new(
+        account.id.clone(),
+        account.caps.clone(),
+        Box::new(move |auth, commands| {
+            // The factory owns authentication, because it is the only thing holding the
+            // credential and the only thing that knows the mechanism.
+            let mut all = Vec::new();
+            if auth == Authenticate::First {
+                all.extend(auth_prelude(&sasl));
+            }
+            all.extend(commands);
+            Pop3Session::new(username.clone(), password.expose().to_owned(), all)
+        }),
+    );
+    Ok(AccountEngine::new(
+        account.id.clone(),
+        account.plan.clone(),
+        backend,
+        store.clone(),
+        secrets,
+    ))
 }
 
 /// An engine for an IMAP account, signed in with whatever `held` holds when it connects.
