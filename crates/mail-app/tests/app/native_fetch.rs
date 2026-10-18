@@ -5,7 +5,7 @@
 //! outside the `TempDir`.
 
 use ds_blitz::{FocusFallback, NetPolicy};
-use ds_harness::{Clock, Driver, Harness, HarnessConfig, Query, Viewport};
+use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
 
 use crate::settle;
 use mail_core::{SqliteStore, Store};

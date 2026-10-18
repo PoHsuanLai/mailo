@@ -2,7 +2,6 @@
 //! through the file dialog; a group made as `mailo contacts group` makes one expands in To; and
 //! a sender is renamed from their name in the reader, by Edit Contact… in its right-click menu.
 
-use ds_harness::Query;
 use mail_app::ui::native::DialogAsk;
 use mail_core::Store;
 use mail_core::contacts::groups;

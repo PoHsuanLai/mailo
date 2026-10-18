@@ -9,7 +9,7 @@
 //! automatic search is off, as it is until someone turns it on.
 
 use ds::prelude::{Point, ShortcutKey as Key};
-use ds_harness::{Clock, Driver, Harness, HarnessConfig, Query, Viewport};
+use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
 
 use crate::settle;
 use settle::settle_until;

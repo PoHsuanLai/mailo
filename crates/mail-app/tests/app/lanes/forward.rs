@@ -1,8 +1,6 @@
 //! Lane 6: forwarding a message that carries a PDF. The reader lists the attachment; `f` forwards
 //! the message with its files, and Forward as attachment encloses the whole message.
 
-use ds_harness::Query;
-
 use super::drive::{Key, PRIMARY};
 use super::window::{Window, deliver, hours_ago, panel_row, panel_settled, parsed, queued};
 

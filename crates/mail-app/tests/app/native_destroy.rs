@@ -7,7 +7,7 @@
 //! nothing is sent anywhere: the deletions wait in the store's outbox, where they are counted.
 
 use ds::prelude::{Point, ShortcutKey as Key};
-use ds_harness::{Clock, Driver, Harness, HarnessConfig, Query as Read, Viewport};
+use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
 
 use crate::settle;
 use settle::settle_until;

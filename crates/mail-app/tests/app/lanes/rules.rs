@@ -2,7 +2,7 @@
 //! matching message arrives; Run on Existing Mail, from the rule's right-click menu, files it,
 //! and the main window's inbox follows.
 
-use ds_harness::{Harness, Query};
+use ds_harness::Harness;
 use mail_core::SqliteStore;
 use std::sync::Arc;
 

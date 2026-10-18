@@ -30,7 +30,7 @@ use crate::typing;
 
 use drive::{Drive, Key, PRIMARY};
 use ds::prelude::{Point, Px};
-use ds_harness::{Driver, Harness, Query as Read};
+use ds_harness::Harness;
 use inbox::{THREADS, TOPICS, VIEW, config, seeded};
 use settle::{WAIT_BOUND, settle_until};
 use std::time::{Duration, Instant};

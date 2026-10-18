@@ -1,7 +1,7 @@
 //! The composer's body as a person reads it, for the formatting lanes: each block's element and
 //! its text, top to bottom.
 
-use ds_harness::{Harness, Query};
+use ds_harness::Harness;
 
 use super::drive::Key;
 use super::window::Window;

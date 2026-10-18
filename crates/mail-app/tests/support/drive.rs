@@ -1,9 +1,9 @@
 //! The words the window's tests drive quire's `Harness` with.
 //!
-//! `ds_harness` has one way in, `Driver::send(Input::..)`, and reads through `Query`. The tests
+//! `ds_harness` has one way in, `Harness::send(Input::..)`, and reads through `Harness`'s query methods. The tests
 //! here click, press and chord hundreds of times, so this names each of those once and leaves
 //! every call a line that reads as what a person did. Nothing here reaches past the harness's
-//! own inputs: each method is one `Input` sent, and the reads are `Query`'s.
+//! own inputs: each method is one `Input` sent, and the reads are `Harness`'s.
 //!
 //! Included by the integration tests as `mod support` and by the unit tests through `#[path]`,
 //! so there is one copy.
@@ -14,7 +14,7 @@ use dioxus::html::Modifiers;
 use ds::base::press::PointerButton;
 use ds::file_drop::drag::{DropAcceptance, FileDragInput};
 use ds::prelude::*;
-use ds_harness::{Driver, FocusState, Harness, Input, PointerAction, PointerInput, Query};
+use ds_harness::{FocusState, Harness, Input, PointerAction, PointerInput};
 use std::time::Duration;
 
 /// A key the tests press: the words the window's own shortcuts are written in.

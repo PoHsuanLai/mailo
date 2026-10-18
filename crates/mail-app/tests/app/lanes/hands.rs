@@ -2,7 +2,7 @@
 //! for, click it, type, press keys. Every wait is for a state, bounded by the machine's time.
 
 use ds::prelude::*;
-use ds_harness::{Driver, Harness, Query};
+use ds_harness::Harness;
 use std::time::{Duration, Instant};
 
 use super::drive::{Drive, Key};
