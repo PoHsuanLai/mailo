@@ -19,6 +19,9 @@ pub(crate) enum MarkAt {
     /// quire's `ProviderMark` at `ControlSize::Small`, on a row or in the composer's From: the
     /// 13 px chip less its padding (`ds/src/components/content/provider_mark.css`).
     Row,
+    /// `ProviderMark` at `ControlSize::Regular`, the badge on an account tile: 14 px less its
+    /// padding.
+    Tile,
     /// A row of Add Account's provider list: quire's `mark_leading` asks for 28 px
     /// (`ds-shell/src/accounts/adapter.rs`), and the settings-density row's leading box,
     /// `--row-avatar`, stretches it to 32 (`ds/src/components/lists/row/row.css`).
@@ -36,6 +39,7 @@ impl MarkAt {
     pub(crate) const fn css(self) -> u32 {
         match self {
             MarkAt::Row => 10,
+            MarkAt::Tile => 11,
             MarkAt::List => 32,
             MarkAt::Header => 48,
         }
@@ -48,8 +52,9 @@ impl MarkAt {
 }
 
 /// Every side a picture is drawn at, in device px: what [`read`] draws each cached icon at.
-pub(crate) const SIDES: [u32; 3] = [
+pub(crate) const SIDES: [u32; 4] = [
     MarkAt::Row.side(),
+    MarkAt::Tile.side(),
     MarkAt::List.side(),
     MarkAt::Header.side(),
 ];
@@ -228,7 +233,7 @@ mod tests {
         std::fs::write(dir.path().join("google.png"), cached_png())
             .unwrap_or_else(|err| panic!("{err}"));
         let loaded = read(dir.path());
-        for at in [MarkAt::Row, MarkAt::List, MarkAt::Header] {
+        for at in [MarkAt::Row, MarkAt::Tile, MarkAt::List, MarkAt::Header] {
             let uri = loaded
                 .uri(Provider::Google, at.side())
                 .unwrap_or_else(|| panic!("{at:?}: no uri"));

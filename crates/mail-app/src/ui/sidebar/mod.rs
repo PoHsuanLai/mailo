@@ -4,14 +4,17 @@ mod folder_row;
 mod folder_tree;
 mod folders;
 mod foot;
+mod join;
 mod panes;
 mod sync;
+mod tiles;
 
 pub(super) use self::folder_act::folder_places;
 use self::folder_tree::{Show, arrange, scope};
 use self::folders::FolderList;
 use self::panes::{Favourites, PlaceList, counts};
 pub(in crate::ui) use self::panes::{hex_colour, place_icon};
+use self::tiles::{AccountTiles, tile_rows};
 use crate::ui::copy;
 use crate::ui::space::{Handle, Mail};
 use crate::ui::view::Shell;
@@ -58,6 +61,12 @@ pub(super) fn Places(
         let _ = revision();
         let store = consume_context::<std::sync::Arc<mail_core::SqliteStore>>();
         counts(&store, spaces.read().current())
+    });
+    // The Space's account tiles, read again as mail arrives or the Space's accounts change.
+    let tiled = use_memo(move || {
+        let _ = revision();
+        let store = consume_context::<std::sync::Arc<mail_core::SqliteStore>>();
+        tile_rows(&store, spaces.read().current())
     });
     // The accounts the Folders section is for. A memo, so a keystroke in the search box — a
     // shell change — does not read the folders again.
@@ -115,6 +124,7 @@ pub(super) fn Places(
             div { class: "slide",
                 // A sign-in in the browser, while it waits: a quiet row at the top.
                 crate::ui::add_account::PendingSignIn {}
+                AccountTiles { shell, pages, handle, rows: tiled() }
                 Favourites { shell, pages, space: space.clone(), counted: counts_now }
                 PlaceList { shell, pages, badges, folded, scheduled: scheduled() }
                 if let Some(section) = folders() {
