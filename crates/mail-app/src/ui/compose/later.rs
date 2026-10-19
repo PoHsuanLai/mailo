@@ -22,8 +22,8 @@ use std::sync::Arc;
 
 use super::super::menu::{MenuKey, menu_key};
 use super::super::menus::{when_in_sentence, when_words};
-use super::super::motion::{Follow, tell};
-use super::desk::{Desk, offer_undo, refusal};
+use super::super::motion::{Follow, record, tell};
+use super::desk::{Desk, refusal};
 use super::page::{Float, Page, When};
 use crate::ui::copy;
 use crate::ui::space::Scope;
@@ -213,9 +213,9 @@ pub(in crate::ui) fn cancel_scheduled(shell: Signal<Shell>, draft: DraftId) -> R
         id: ChangeId::generate(),
         changes: Vec::new(),
     };
-    offer_undo(
+    record(
         shell,
-        Undo {
+        vec![Undo {
             said: copy::toasts::SENDING_CANCELLED.to_owned(),
             thread: None,
             account: held.account,
@@ -223,7 +223,8 @@ pub(in crate::ui) fn cancel_scheduled(shell: Signal<Shell>, draft: DraftId) -> R
             inverse: nothing(),
             remote: None,
             resend: Some(Resend { draft, at }),
-        },
+        }],
+        copy::toasts::SENDING_CANCELLED.to_owned(),
     );
     Ok(())
 }

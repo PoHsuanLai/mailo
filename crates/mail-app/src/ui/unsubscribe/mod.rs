@@ -14,7 +14,6 @@ mod head;
 
 pub(in crate::ui) use head::{Confirm, Lookout, Phase};
 
-use super::motion::Follow;
 use super::ops;
 use crate::ui::view::Shell;
 use chrono::{DateTime, Utc};
@@ -167,27 +166,24 @@ pub(in crate::ui) fn archive_from(store: &SqliteStore, sender: &str) -> Vec<Undo
         .collect()
 }
 
-/// The toast's "Archive all from this list": [`archive_from`], kept for ⌘Z one at a time,
-/// and said.
+/// The toast's "Archive all from this list": [`archive_from`], kept as one undo for ⌘Z and
+/// the toast, and said.
 pub(in crate::ui) fn archive_list(
     store: &SqliteStore,
-    mut shell: Signal<Shell>,
+    shell: Signal<Shell>,
     mut revision: Signal<u64>,
     sender: &str,
     list: &str,
 ) {
     let undone = archive_from(store, sender);
     let count = undone.len();
-    for undo in undone {
-        shell.write().undo.push(undo);
-    }
     revision += 1;
     let text = match count {
         0 => format!("Nothing left from {list}"),
         1 => format!("Archived 1 conversation from {list}"),
         n => format!("Archived {n} conversations from {list}"),
     };
-    super::motion::tell(text, Follow::Nothing);
+    super::motion::record(shell, undone, text);
 }
 
 /// What the toast says once the way out is taken.

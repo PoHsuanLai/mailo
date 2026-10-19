@@ -170,13 +170,6 @@ pub(in crate::ui) fn take_back_said(
     })
 }
 
-/// Put `undo` on the window's stack and say it in the toast, with its Undo.
-pub(in crate::ui) fn offer_undo(mut shell: Signal<Shell>, undo: mail_core::undo::Undo) {
-    let said = undo.said.clone();
-    let handle = shell.write().undo.push(undo);
-    tell(said, Follow::Undo(handle));
-}
-
 /// What a refused Undo or Cancel says.
 pub(in crate::ui) fn refusal(why: &str) -> String {
     format!("Too late to take it back: {why}")

@@ -527,12 +527,7 @@ fn close(mut page: Signal<Page>, mut shell: Signal<Shell>, _desk: Desk) {
 /// Delete the draft, as ⋯ › Delete Draft does, and offer it back. Saved first, so the undo
 /// brings back what was on the page; the undo is the window's (the toast's tab and ⌘Z), and puts
 /// the draft back in Drafts. A draft already on its way is refused, as before (334b758).
-fn delete_draft(
-    mut page: Signal<Page>,
-    mut shell: Signal<Shell>,
-    desk: Desk,
-    mut revision: Signal<u64>,
-) {
+fn delete_draft(mut page: Signal<Page>, shell: Signal<Shell>, desk: Desk, revision: Signal<u64>) {
     let store = consume_context::<Arc<SqliteStore>>();
     let draft = page.peek().draft;
     let kept = life::save(&store, &mut page.write(), chrono::Utc::now());
@@ -546,10 +541,7 @@ fn delete_draft(
     match deleted(&store, stored) {
         Ok(undo) => {
             page.write().phase = Phase::Closed;
-            desk::unpark(desk, draft);
-            shell.write().close_composer();
-            revision += 1;
-            desk::offer_undo(shell, undo);
+            forget(shell, revision, desk, draft, undo);
         }
         Err(why) => page.write().notice = Some(crate::ui::remedy::told(why)),
     }
@@ -578,11 +570,34 @@ fn deleted(
     })
 }
 
+/// The one teardown of a deleted draft, from the foot's ⋯, the row menu or anywhere else: it
+/// leaves Today and the parked pages, its composer closes if it is the one open, the lists are
+/// read again, and its undo is kept and offered.
+fn forget(
+    mut shell: Signal<Shell>,
+    mut revision: Signal<u64>,
+    desk: Desk,
+    draft: DraftId,
+    undo: mail_core::undo::Undo,
+) {
+    desk.parked
+        .clone()
+        .write()
+        .retain(|page| page.draft != draft);
+    desk::unpark(desk, draft);
+    if shell.peek().composing.as_ref().map(|open| open.draft) == Some(draft) {
+        shell.write().close_composer();
+    }
+    revision += 1;
+    let said = undo.said.clone();
+    crate::ui::motion::record(shell, vec![undo], said);
+}
+
 /// Delete the stored draft `draft`, as Drafts' row menu does, and offer it back. Its composer
 /// closes if it is the one open, and Today lists it no more.
 pub(in crate::ui) fn delete_stored_draft(
-    mut shell: Signal<Shell>,
-    mut revision: Signal<u64>,
+    shell: Signal<Shell>,
+    revision: Signal<u64>,
     draft: DraftId,
 ) {
     let store = consume_context::<Arc<SqliteStore>>();
@@ -592,18 +607,7 @@ pub(in crate::ui) fn delete_stored_draft(
         .map_err(mail_core::CoreError::from)
         .and_then(|stored| deleted(&store, stored));
     match outcome {
-        Ok(undo) => {
-            desk.parked
-                .clone()
-                .write()
-                .retain(|page| page.draft != draft);
-            desk::unpark(desk, draft);
-            if shell.peek().composing.as_ref().map(|open| open.draft) == Some(draft) {
-                shell.write().close_composer();
-            }
-            revision += 1;
-            desk::offer_undo(shell, undo);
-        }
+        Ok(undo) => forget(shell, revision, desk, draft, undo),
         Err(why) => crate::ui::motion::tell(
             crate::ui::remedy::told(why),
             crate::ui::motion::Follow::Nothing,

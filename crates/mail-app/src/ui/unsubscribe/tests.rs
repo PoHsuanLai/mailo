@@ -341,6 +341,32 @@ fn archive_all_takes_the_senders_inbox_and_nothing_else() {
     }
 }
 
+#[test]
+fn archive_all_is_one_undo_for_the_whole_list() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    #[derive(Clone)]
+    struct Handed(Arc<SqliteStore>, Arc<AtomicUsize>);
+    #[component]
+    fn Archiver() -> Element {
+        let Handed(store, entries) = consume_context::<Handed>();
+        let shell = use_signal(Shell::default);
+        let revision = use_signal(|| 0u64);
+        use_hook(|| {
+            super::archive_list(&store, shell, revision, "weekly@rust.test", "Rust Weekly");
+            entries.store(shell.peek().undo.len(), Ordering::SeqCst);
+        });
+        rsx! {}
+    }
+    let (store, _dir) = seeded();
+    for _ in 0..2 {
+        put(&store, "weekly@rust.test", ONE_CLICK, Held::Body);
+    }
+    let entries = Arc::new(AtomicUsize::new(usize::MAX));
+    let mut dom = VirtualDom::new(Archiver).with_root_context(Handed(store, entries.clone()));
+    dom.rebuild_in_place();
+    assert_eq!(entries.load(Ordering::SeqCst), 1, "one list, one undo");
+}
+
 #[tokio::test]
 async fn the_list_does_not_read_a_list_header() {
     // The lookup reads a stored blob. The list draws rows; it may not reach it. Only the open reader does.
