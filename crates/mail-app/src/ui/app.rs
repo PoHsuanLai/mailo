@@ -99,6 +99,31 @@ pub(super) fn App() -> Element {
     // ⌘K's Recent reads it: what was opened and put aside in each Space.
     use_context_provider(|| today_list);
     let dirs = boot.dirs.clone();
+    // A Space deleted in another window (Settings › Spaces) takes its Today with it here, as one
+    // deleted from the Space's menu does.
+    let mut known = use_hook(|| CopyValue::new(space_ids(&spaces.peek())));
+    use_effect({
+        let dirs = dirs.clone();
+        move || {
+            let now = space_ids(&spaces.read());
+            let gone: Vec<crate::ui::space::SpaceId> = known
+                .peek()
+                .iter()
+                .filter(|id| !now.contains(id))
+                .copied()
+                .collect();
+            known.set(now);
+            if gone.is_empty() {
+                return;
+            }
+            for id in gone {
+                today_list.write().drop_space(id);
+            }
+            if let Some(dirs) = &dirs {
+                let _ = crate::ui::today::save(&dirs.state, &today_list.peek());
+            }
+        }
+    });
     // The files this window saves, behind the sidebar's Downloads button.
     super::downloads::use_provide_shelf(dirs.as_ref());
     let mut side_hidden = use_signal(|| false);
@@ -856,6 +881,11 @@ pub(super) fn Frame(
 /// the desktop's reduced-motion preference (`Ds { system }`), never a Space's.
 pub(super) fn window_appearance(environment: &Environment) -> ds::prelude::Appearance {
     environment.settings.appearance.appearance()
+}
+
+/// The ids of `spaces`, in order.
+fn space_ids(spaces: &crate::ui::space::Spaces) -> Vec<crate::ui::space::SpaceId> {
+    spaces.list().iter().map(|space| space.id).collect()
 }
 
 #[cfg(test)]

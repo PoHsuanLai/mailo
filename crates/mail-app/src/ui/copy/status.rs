@@ -59,6 +59,15 @@ pub fn sender_checks(said: &str) -> String {
 /// The quiet line over a message whose remote images are held back; its actions follow it.
 pub const IMAGES_HIDDEN: &str = "Images hidden";
 
+/// How many accounts a Space shows, beside its name in Settings › Spaces.
+pub fn accounts_shown(count: usize) -> String {
+    match count {
+        0 => "No accounts".to_owned(),
+        1 => "1 account".to_owned(),
+        many => format!("{many} accounts"),
+    }
+}
+
 /// Several of a Space's accounts are in trouble, as the All tile's mark says.
 pub fn accounts_need_attention(count: usize) -> String {
     format!("{count} accounts need attention.")

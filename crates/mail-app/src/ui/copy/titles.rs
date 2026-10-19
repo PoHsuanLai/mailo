@@ -17,6 +17,7 @@ pub const TIDY_UP: &str = "Tidy Up";
 pub const SETTINGS: &str = "Settings";
 pub const GENERAL: &str = "General";
 pub const ACCOUNTS: &str = "Accounts";
+pub const SPACES: &str = "Spaces";
 pub const RULES: &str = "Rules";
 pub const KEYBOARD: &str = "Keyboard";
 /// General's page of the senders whose images load.

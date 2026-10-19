@@ -325,6 +325,13 @@ pub enum RulesAt {
     Vacation,
 }
 
+/// A page of Settings' Spaces pane: the list of Spaces, or one Space's own page pushed over it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpacesPage {
+    List,
+    Space(crate::ui::space::SpaceId),
+}
+
 /// A page of Settings' Accounts pane: the list of accounts, one account's own page pushed over
 /// it, or the keys and certificates no account here owns.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -361,6 +368,8 @@ pub enum SettingsPage {
     /// Nothing about a key is kept in the shell: the page reads the store, and a passphrase, a
     /// password or a secret key never passes through it.
     Accounts,
+    /// Every Space, each with its own page: its name, colour, theme and accounts, and Delete.
+    Spaces,
     Rules,
     Keyboard,
 }
@@ -535,6 +544,8 @@ pub struct Shell {
     pub rules: RulesPage,
     /// Settings' Accounts pane: the list, or an account's page over it.
     pub accounts_pane: AccountsPane,
+    /// Settings' Spaces pane: the list, or a Space's page over it.
+    pub spaces_pane: PanePath<SpacesPage>,
     /// Settings while it is open, on the page shown. `None` is closed.
     pub settings: Option<SettingsPage>,
     /// The saved-view editor while it is open, with what its fields hold. `None` is closed.
@@ -674,6 +685,7 @@ impl Default for Shell {
             keymap: crate::ui::keymap::Keymap::default(),
             keyboard: KeyboardPage::default(),
             accounts_pane: AccountsPane::default(),
+            spaces_pane: PanePath::new(SpacesPage::List),
             settings: None,
             destroying: None,
             tidying: None,

@@ -196,15 +196,16 @@ async fn general_controls_write_settings_toml() {
 const PAGES: &[(SettingsPage, &str)] = &[
     (SettingsPage::General, "Check spelling"),
     (SettingsPage::Accounts, "Add Account\u{2026}"),
+    (SettingsPage::Spaces, "New Space"),
     (SettingsPage::Rules, "Vacation Reply"),
     (SettingsPage::Keyboard, "Change the key for"),
 ];
 
 #[test]
-fn settings_has_4_pages_in_that_order() {
+fn settings_has_5_pages_in_that_order() {
     assert_eq!(
         SettingsPage::ALL.map(SettingsPage::name),
-        ["General", "Accounts", "Rules", "Keyboard"]
+        ["General", "Accounts", "Spaces", "Rules", "Keyboard"]
     );
 }
 
