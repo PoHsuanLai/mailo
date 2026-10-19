@@ -13,8 +13,9 @@
 //! is written is the stored bytes, never a rendering, so a message that draws wrongly can be
 //! handed on whole.
 
-use super::super::row::act::{Pressed, op_icon, press};
+use super::super::row::act::{Pressed, press};
 use super::super::row::menu::{Pick, reader_groups, rows};
+use super::super::toolbar::{Tool, ToolButton};
 use super::fetch;
 use crate::ui::copy;
 use crate::ui::copy::menus::offered;
@@ -119,17 +120,6 @@ pub(super) fn toolbar_ops(offered: &[OpKind]) -> Vec<OpKind> {
         .collect()
 }
 
-/// The key that does what `kind` does, for its tooltip.
-fn shortcut_of(kind: OpKind) -> Option<crate::ui::view::Shortcut> {
-    use crate::ui::view::Shortcut;
-    match kind {
-        OpKind::Reply => Some(Shortcut::Reply),
-        OpKind::Archive => Some(Shortcut::Archive),
-        OpKind::Trash => Some(Shortcut::Trash),
-        _ => None,
-    }
-}
-
 /// The toolbar's buttons for `ops`, each through the row's own press, so a press lands on the
 /// undo stack and asks first where the row's would.
 #[component]
@@ -143,15 +133,10 @@ pub(super) fn ReaderTools(
     let now = chrono::Utc::now();
     rsx! {
         for kind in ops {
-            Button {
+            Tool {
                 key: "{kind:?}",
-                bezel: Bezel::Toolbar,
-                size: ControlSize::Large,
-                image: ImagePosition::Only,
-                icon: Some(IconSource::Glyph(op_icon(kind))),
-                label: offered(says(kind, &summary, now)).to_owned(),
-                title: Some(offered(says(kind, &summary, now)).to_owned()),
-                title_shortcut: shortcut_of(kind).and_then(crate::ui::actions::tip),
+                tool: ToolButton::of(kind, offered(says(kind, &summary, now))),
+                aria: None,
                 onclick: move |_| press(shell, revision, id, Pressed::Op(kind), Opened::Reader),
             }
         }

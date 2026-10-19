@@ -9,6 +9,7 @@
 use super::motion::{act_all, act_kind_all, motion};
 use super::press::on_primary;
 use crate::ui::copy::{aria, menus, status, tooltips};
+use crate::ui::toolbar::{Tool, ToolButton};
 use crate::ui::view::{Shell, Shortcut, mute_label, op_for_selection};
 use dioxus::prelude::*;
 use ds::components::controls::button_model::{Bezel, ImagePosition};
@@ -143,54 +144,42 @@ pub(super) fn PickBar(
         .cloned()
         .collect();
     let offered = |action| op_for_selection(action, &summaries);
-    let read = match offered(Shortcut::ToggleRead) {
-        Some(OpKind::MarkUnread) => (Icon::Mail, menus::MARK_AS_UNREAD),
-        _ => (Icon::MailOpen, menus::MARK_AS_READ),
-    };
-    let star = match offered(Shortcut::ToggleStar) {
-        Some(OpKind::Unstar) => menus::UNSTAR,
-        _ => menus::STAR,
-    };
-    let mute = mute_label(&summaries);
+    let now = chrono::Utc::now();
+    // Each button is the action's own menu row: the glyph and the side of it the picked mail is
+    // offered, so Mark as Unread and Unstar read as the row's menu would.
+    let buttons: Vec<(Shortcut, ToolButton)> = [
+        Shortcut::Archive,
+        Shortcut::Trash,
+        Shortcut::Spam,
+        Shortcut::ToggleRead,
+        Shortcut::ToggleStar,
+    ]
+    .into_iter()
+    .filter_map(|action| {
+        let kind = offered(action)?;
+        let say = mail_core::view::says_for_all(kind, &summaries, now)?;
+        Some((action, ToolButton::of(kind, menus::offered(say))))
+    })
+    .collect();
+    let mute = ToolButton::of(OpKind::Mute, mute_label(&summaries));
     // The way back for what is archived, binned or in Spam: Move to Inbox, or Not Spam when all
     // of it is spam. Never Archive's other side drawn beside Archive for the same conversation.
-    let back = mail_core::view::says_for_all(OpKind::Restore, &summaries, chrono::Utc::now())
-        .map(crate::ui::copy::menus::offered);
+    let back = mail_core::view::says_for_all(OpKind::Restore, &summaries, now)
+        .map(|say| ToolButton::of(OpKind::Restore, menus::offered(say)));
     // In Trash or Spam, and only there, the picked mail can be deleted forever, once asked.
     let bin = crate::ui::bin::bin_shown(&shell.read());
     let destroyable = summaries
         .iter()
         .any(|summary| crate::ui::bin::offered(bin, summary));
-    let keys_for = crate::ui::actions::tip;
-    let buttons: Vec<(Shortcut, Icon, &'static str)> = [
-        (Shortcut::Archive, Icon::Archive, menus::ARCHIVE),
-        (Shortcut::Trash, Icon::Trash, menus::MOVE_TO_TRASH),
-        (Shortcut::Spam, Icon::OctagonAlert, menus::MARK_AS_SPAM),
-        (Shortcut::ToggleRead, read.0, read.1),
-        (Shortcut::ToggleStar, Icon::Star, star),
-    ]
-    .into_iter()
-    .filter(|(action, _, _)| offered(*action).is_some())
-    .collect();
-    let mute_keys = keys_for(Shortcut::ToggleMute);
     rsx! {
         span { class: "status", {status::selected(count)} }
         // The actions wrap within the list column when it is too narrow for one line.
         div { class: "pick-tools",
-            for (action, icon, name) in buttons {
-                Button {
-                    key: "{name}",
-                    bezel: Bezel::Toolbar,
-                    image: ImagePosition::Only,
-                    size: ControlSize::Large,
-                    label: name.to_owned(),
-                    icon,
-                    title: Some(name.to_owned()),
-                    title_shortcut: keys_for(action),
-                    common: Common {
-                        aria_label: Some(aria::on_selected(name, count)),
-                        ..Common::default()
-                    },
+            for (action, tool) in buttons {
+                Tool {
+                    key: "{tool.label}",
+                    tool,
+                    aria: Some(aria::on_selected(tool.label, count)),
                     onclick: on_primary(move || {
                         let store = consume_context::<Arc<SqliteStore>>();
                         act_on_picked(&store, shell, revision, action, &threads.peek());
@@ -198,17 +187,9 @@ pub(super) fn PickBar(
                 }
             }
             if let Some(back) = back {
-                Button {
-                    bezel: Bezel::Toolbar,
-                    image: ImagePosition::Only,
-                    size: ControlSize::Large,
-                    label: back.to_owned(),
-                    icon: Icon::Corner,
-                    title: Some(back.to_owned()),
-                    common: Common {
-                        aria_label: Some(aria::on_selected(back, count)),
-                        ..Common::default()
-                    },
+                Tool {
+                    tool: back,
+                    aria: Some(aria::on_selected(back.label, count)),
                     onclick: on_primary(move || {
                         let store = consume_context::<Arc<SqliteStore>>();
                         let ids: Vec<ThreadId> = threads.peek().iter().map(|summary| summary.id).collect();
@@ -217,35 +198,18 @@ pub(super) fn PickBar(
                     }),
                 }
             }
-            Button {
-                bezel: Bezel::Toolbar,
-                image: ImagePosition::Only,
-                size: ControlSize::Large,
-                label: mute.to_owned(),
-                icon: Icon::BellOff,
-                title: Some(mute.to_owned()),
-                title_shortcut: mute_keys,
-                common: Common {
-                    aria_label: Some(aria::on_selected(mute, count)),
-                    ..Common::default()
-                },
+            Tool {
+                tool: mute,
+                aria: Some(aria::on_selected(mute.label, count)),
                 onclick: on_primary(move || {
                     let store = consume_context::<Arc<SqliteStore>>();
                     mute_picked(&store, shell, revision, &threads.peek());
                 }),
             }
             if destroyable {
-                Button {
-                    bezel: Bezel::Toolbar,
-                    image: ImagePosition::Only,
-                    size: ControlSize::Large,
-                    label: aria::DELETE_FOREVER.to_owned(),
-                    icon: Icon::Trash,
-                    title: Some(aria::DELETE_FOREVER.to_owned()),
-                    common: Common {
-                        aria_label: Some(aria::delete_selected_forever(count)),
-                        ..Common::default()
-                    },
+                Tool {
+                    tool: ToolButton::of(OpKind::Destroy, aria::DELETE_FOREVER),
+                    aria: Some(aria::delete_selected_forever(count)),
                     onclick: on_primary(move || {
                         let store = consume_context::<Arc<SqliteStore>>();
                         let ids: Vec<ThreadId> = threads.peek().iter().map(|summary| summary.id).collect();

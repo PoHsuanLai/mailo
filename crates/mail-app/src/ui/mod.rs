@@ -79,6 +79,7 @@ mod start;
 mod style;
 mod switch;
 mod text;
+mod toolbar;
 mod unsubscribe;
 mod view_groups;
 mod views;
