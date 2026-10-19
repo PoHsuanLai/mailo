@@ -19,6 +19,16 @@ pub fn minutes_ago(minutes: i64) -> String {
     format!("{minutes} min ago")
 }
 
+/// A draft's row in ⌘K's Recent, under its name: "Draft · 14:05", "Draft · Tue".
+pub fn draft_touched(when: &str) -> String {
+    format!("Draft \u{b7} {when}")
+}
+
+/// A draft's row named by who it goes to, when it has no subject: "To Ada Lovelace".
+pub fn draft_to(who: &str) -> String {
+    format!("To {who}")
+}
+
 /// "at 14:05", for an update an hour or more ago.
 pub fn at_clock(clock: &str) -> String {
     format!("at {clock}")

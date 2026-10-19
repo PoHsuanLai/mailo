@@ -12,6 +12,8 @@ use chrono::{DateTime, Utc};
 use porter_core::AccountId;
 use serde::{Deserialize, Serialize};
 
+mod written;
+
 /// A file the user attached, already read into the blob store.
 ///
 /// A [`BlobId`], never a path: reading the file is I/O and must happen in `mail-runtime`

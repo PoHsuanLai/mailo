@@ -58,7 +58,8 @@ pub(super) fn panel_rows(
                 .collect();
             // Nothing typed: Recent leads, where the person was.
             if query.trim().is_empty() {
-                let mut recent = super::recent::rows(store, today, spaces.current().id);
+                let mut recent =
+                    super::recent::rows(store, today, spaces.current().id, chrono::Utc::now());
                 recent.append(&mut rows);
                 rows = recent;
             }
