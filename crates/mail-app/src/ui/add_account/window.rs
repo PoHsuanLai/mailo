@@ -234,6 +234,11 @@ fn AddAccountShell(wiring: Wiring, prefill: Option<String>) -> Element {
                 into_scope(&mut spaces, account);
             }
             revision += 1;
+            // Told to the other windows now, not by the effect that publishes `revision`: that
+            // runs on the next poll, and the window is closed before it comes.
+            if let Some(revisions) = try_consume_context::<crate::ui::revisions::Revisions>() {
+                revisions.bump();
+            }
         }
         if let Some(handle) = &handle {
             handle.close();

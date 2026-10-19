@@ -35,6 +35,12 @@ pub fn would_not_open(what: &str) -> String {
 /// The window `would_not_open` names for a conversation's own window.
 pub const A_NEW_WINDOW: &str = "a new window";
 
+/// An account that came while the window was open, added in the Add Account window or by
+/// `mailo account add`.
+pub fn account_added(address: &str) -> String {
+    format!("Added {address}")
+}
+
 /// Cancel Sending, done: the message is a draft again.
 pub const SENDING_CANCELLED: &str = "Sending cancelled";
 

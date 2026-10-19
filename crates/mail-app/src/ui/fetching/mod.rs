@@ -225,6 +225,28 @@ pub(in crate::ui) fn use_status(shell: Signal<Shell>) -> Option<StatusLine> {
     Some(fetching.status(&shell.read(), crate::ui::clock::now()))
 }
 
+/// Say which accounts came since the window last looked, once it has looked: an account added in
+/// its own window (or by `mailo account add`) is otherwise seen only as the sidebar changing.
+fn announce_added(
+    known: &RefCell<Option<BTreeSet<AccountId>>>,
+    accounts: &[(AccountId, std::time::Duration)],
+) {
+    let now: BTreeSet<AccountId> = accounts.iter().map(|(id, _)| id.clone()).collect();
+    let before = known.replace(Some(now.clone()));
+    let Some(before) = before else {
+        return;
+    };
+    let store = consume_context::<Arc<SqliteStore>>();
+    for row in crate::ui::data::account_rows(&store) {
+        if now.contains(&row.id) && !before.contains(&row.id) {
+            crate::ui::motion::tell(
+                crate::ui::copy::toasts::account_added(&row.address),
+                crate::ui::motion::Follow::Nothing,
+            );
+        }
+    }
+}
+
 /// Provide [`Fetching`] for the window and start the loop that serves it. Once, from `App`.
 ///
 /// `revision` moves when a pass has stored something, and when an account comes or goes.
@@ -258,8 +280,11 @@ pub(in crate::ui) fn use_fetching(revision: Signal<u64>) -> Fetching {
         tx,
     });
     // The accounts changing is the runner's to hear, since it owns what to do about it.
+    let known = use_hook(|| Rc::new(RefCell::new(None::<BTreeSet<AccountId>>)));
     use_effect(move || {
-        let _ = tx.peek().send(Note::Accounts(accounts.read().clone()));
+        let now: Vec<(AccountId, std::time::Duration)> = accounts.read().clone();
+        announce_added(&known, &now);
+        let _ = tx.peek().send(Note::Accounts(now));
     });
     let inbox: Rc<RefCell<Option<UnboundedReceiver<Note>>>> = channel.1.clone();
     let _runner = use_future(move || {
