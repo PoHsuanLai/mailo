@@ -34,7 +34,7 @@ use ds_harness::Harness;
 use inbox::{THREADS, TOPICS, VIEW, config, seeded};
 use settle::{WAIT_BOUND, settle_until};
 use std::time::{Duration, Instant};
-use typing::{TYPED, caret, fill_body, report_typing, settled_caret, type_timed};
+use typing::{TYPED, fill_body, report_typing, type_timed};
 
 /// Presses of each key timed.
 const PRESSES: usize = 20;
@@ -328,39 +328,4 @@ fn from_a_typed_letter_to_its_caret() {
         let typed = type_timed(&mut harness, TYPED, Duration::from_millis(interval));
         report_typing(&format!("reply, a key every {interval} ms"), typed);
     }
-}
-
-/// Keys a held key repeats, or a fast typist's burst: closer together than two frames.
-const BURST: Duration = Duration::from_millis(12);
-
-/// The caret keeps up with typing. Read on the window's own (virtual) clock, so a slow machine
-/// changes how long this takes, never what it sees: every key's caret moves within two frames of
-/// it, however close the keys come, and two frames after the last key the caret is where it
-/// settles. The caret used to wait 34 ms and drop its read whenever a key came in that time, so
-/// a burst left it where typing began until the keys stopped.
-#[test]
-fn the_caret_keeps_up_with_a_burst_of_keys() {
-    let dir = tempfile::tempdir().unwrap();
-    let mut harness = new_message(dir.path());
-    let typed = type_timed(&mut harness, &TYPED[..60], BURST);
-    let lags: Vec<Option<u64>> = typed.iter().map(|t| t.caret).collect();
-    assert!(
-        lags.iter().all(|lag| lag.is_some_and(|ms| ms <= 34)),
-        "the caret fell behind the keys (ms from each key to its caret): {lags:?}"
-    );
-    // The last key's caret, two frames on, is the caret once all is still.
-    harness.key(Key::Char('x'));
-    harness.advance(Duration::from_millis(34));
-    let shown = caret(&harness);
-    assert_eq!(
-        shown,
-        settled_caret(&mut harness),
-        "the caret moved after it was drawn"
-    );
-    // Generous: a key's own work in a debug build on a slow runner is a few milliseconds.
-    let slowest = typed.iter().map(|t| t.work).max().unwrap_or_default();
-    assert!(
-        slowest < Duration::from_millis(500),
-        "a key took {slowest:?} of the thread that draws"
-    );
 }

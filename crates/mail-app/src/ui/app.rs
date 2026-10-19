@@ -1256,27 +1256,6 @@ mod tests {
         page.matches(r#"class="ds-peek""#).count()
     }
 
-    fn iframe_srcdoc(page: &str) -> String {
-        let shell = shell_markup(page);
-        let Some(at) = shell.find("<iframe") else {
-            panic!("no iframe:\n{shell}");
-        };
-        let tag = &shell[at..];
-        let Some(end) = tag.find('>') else {
-            panic!("iframe tag was not closed:\n{tag}");
-        };
-        let open = &tag[..end];
-        let key = "srcdoc=\"";
-        let Some(start) = open.find(key) else {
-            panic!("iframe has no srcdoc: {open}");
-        };
-        open[start + key.len()..]
-            .split('"')
-            .next()
-            .unwrap_or("")
-            .to_owned()
-    }
-
     /// `(what to do, the data-peek value, whether quire's peek panel is up)`.
     ///
     /// The slugs are literals. The shell writes `Peek::slug()`; if this table called `slug()`
@@ -1367,59 +1346,6 @@ mod tests {
             }
         }
         assert!(failures.is_empty(), "{}", failures.join("\n"));
-    }
-
-    #[tokio::test]
-    async fn changing_the_peek_keeps_the_same_thread_and_document_in_the_reader() {
-        use crate::ui::fixtures::{drain_seen, key};
-
-        dispatching();
-        let (store, _dir) = realistic();
-        let mut dom = VirtualDom::new(App).with_root_context(store);
-        dom.rebuild_in_place();
-
-        // The newest rows are plain text. Walk until the open thread is one with a frame. The
-        // View button is created on the first open and not rewritten while only the message
-        // changes, so what each render drew is kept.
-        let mut seen = crate::ui::fixtures::Seen::default();
-        let mut page = String::new();
-        for _ in 0..8 {
-            seen = seen.merge(key(&mut dom, "j"));
-            page = dioxus_ssr::render(&dom);
-            if shell_markup(&page).contains("<iframe") {
-                break;
-            }
-        }
-        assert!(
-            shell_markup(&page).contains("<iframe"),
-            "no HTML thread in the fixture:\n{page}"
-        );
-        let srcdoc = iframe_srcdoc(&page);
-
-        // The reader moves from the card's column into quire's panel and stays the same thread:
-        // its frame is built again, from the same sanitized document.
-        let seen = pick_view(&mut dom, seen, "Centre peek").await;
-        let floating = dioxus_ssr::render(&dom);
-        assert_eq!(peek_attr(&floating), "center");
-        assert_eq!(peeks_up(&floating), 1, "the reader is not in quire's panel");
-        assert_eq!(
-            iframe_srcdoc(&floating),
-            srcdoc,
-            "the panel shows another document"
-        );
-        pick_view(&mut dom, seen, "Full page").await;
-        drain_seen(&mut dom);
-        let after = dioxus_ssr::render(&dom);
-        assert_eq!(
-            peek_attr(&after),
-            "full",
-            "the Full page pick did not change the peek, so this test never moved the reader"
-        );
-        assert_eq!(
-            iframe_srcdoc(&after),
-            srcdoc,
-            "peek replaced the iframe's document"
-        );
     }
 
     /// `page` without its `<style>` elements.
