@@ -1,6 +1,6 @@
 use super::super::app::App;
 use crate::ui::fixtures::empty;
-use crate::ui::space::{Mail, Scope, built};
+use crate::ui::space::{Mail, built};
 use dioxus::prelude::*;
 use ds::prelude::SpaceLook;
 
@@ -10,13 +10,7 @@ async fn the_foot_dots_are_buttons_that_say_which_space_is_on() {
     let spaces = built(
         ["Work", "Home", "Club"]
             .into_iter()
-            .map(|name| {
-                (
-                    name.to_owned(),
-                    SpaceLook::default(),
-                    Mail::over(Scope::All),
-                )
-            })
+            .map(|name| (name.to_owned(), SpaceLook::default(), Mail::default()))
             .collect(),
         1,
     );
@@ -50,13 +44,7 @@ async fn the_foot_holds_the_dots_and_one_menu_button_and_no_settings_or_sidebar_
     let spaces = built(
         ["Work", "Home", "Club"]
             .into_iter()
-            .map(|name| {
-                (
-                    name.to_owned(),
-                    SpaceLook::default(),
-                    Mail::over(Scope::All),
-                )
-            })
+            .map(|name| (name.to_owned(), SpaceLook::default(), Mail::default()))
             .collect(),
         0,
     );
@@ -104,13 +92,7 @@ async fn one_space_draws_no_space_name_and_no_dot() {
         let spaces = built(
             names
                 .iter()
-                .map(|name| {
-                    (
-                        (*name).to_owned(),
-                        SpaceLook::default(),
-                        Mail::over(Scope::All),
-                    )
-                })
+                .map(|name| ((*name).to_owned(), SpaceLook::default(), Mail::default()))
                 .collect(),
             0,
         );

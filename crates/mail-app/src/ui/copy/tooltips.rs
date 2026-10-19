@@ -13,6 +13,9 @@ pub fn sync_saying(said: &str) -> String {
 /// The sync mark while an account in view waits for its sign-in: a press asks about it again.
 pub const SIGN_IN_AGAIN: &str = "Sign In Again";
 
+/// An account in Accounts ▸ that cannot leave the Space: it is in no other one.
+pub const IN_NO_OTHER_SPACE: &str = "In No Other Space";
+
 pub const MORE: &str = "More";
 pub const SHOW_SIDEBAR: &str = "Show Sidebar";
 pub const SAVE_AS_VIEW: &str = "Save as View";

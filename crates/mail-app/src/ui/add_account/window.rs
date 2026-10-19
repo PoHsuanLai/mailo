@@ -397,13 +397,12 @@ pub(super) fn account_at(address: &str) -> Option<AccountId> {
         .map(|row| row.id)
 }
 
-/// A new account joins the current Space when the Space is limited to some accounts.
+/// A new account joins the current Space, the one it was added from.
 pub(super) fn into_scope(spaces: &mut Signal<Spaces>, account: AccountId) {
     // The Spaces as they are on disk: this window's copy may be older than a Space another
     // window added or switched to meanwhile, and keeping it would undo that.
     if let Some(dirs) = try_consume_context::<crate::ui::appearance::WindowDirs>()
-        && let ds_settings::SpacesLoad::Stored(stored) =
-            space::storage(Some(&dirs)).load_spaces(|_| {})
+        && let Some(stored) = space::stored(&dirs)
         && *spaces.peek() != stored
     {
         spaces.set(stored);

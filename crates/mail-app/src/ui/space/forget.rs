@@ -1,10 +1,10 @@
-//! An account removed from this computer leaves every Space's scope.
+//! An account removed from this computer leaves every Space.
 //!
 //! A Space limited to that account alone is limited to no account afterwards, and shows nothing
 //! until one is added to it: accounts belong to Spaces, so the Space does not widen itself to
 //! everyone else's mail.
 
-use super::{Mail, Scope, SpaceId, Spaces};
+use super::{Mail, SpaceId, Spaces};
 use mail_core::profile::ProfileId;
 use porter_core::AccountId;
 
@@ -32,10 +32,8 @@ fn forget_where(spaces: &mut Spaces, account: AccountId, of: impl Fn(&Mail) -> b
         }
         spaces.edit(id, |space| {
             let mail = &mut space.payload;
-            if let Scope::Accounts(ids) = &mut mail.scope
-                && ids.contains(&account)
-            {
-                ids.retain(|id| *id != account);
+            if mail.shows(&account) {
+                mail.accounts.retain(|id| *id != account);
                 forgot = Forgot::Changed;
             }
         });
@@ -54,9 +52,7 @@ pub fn forget_unknown(spaces: &mut Spaces, profile: &ProfileId, known: &[Account
         .iter()
         .filter(|s| s.payload.profile == *profile)
     {
-        if let Scope::Accounts(ids) = &space.payload.scope {
-            named.extend(ids.iter().cloned());
-        }
+        named.extend(space.payload.accounts.iter().cloned());
     }
     named.sort();
     named.dedup();
@@ -77,7 +73,7 @@ pub fn forget_unknown(spaces: &mut Spaces, profile: &ProfileId, known: &[Account
 #[cfg(test)]
 mod tests {
     use super::{Forgot, forget_account, forget_unknown};
-    use crate::ui::space::{Mail, Scope, Spaces};
+    use crate::ui::space::{Mail, Spaces};
     use mail_core::profile::ProfileId;
     use porter_core::AccountId;
     use uuid::Uuid;
@@ -87,10 +83,7 @@ mod tests {
     }
 
     fn scoped(ids: &[u128]) -> Mail {
-        Mail {
-            scope: Scope::Accounts(ids.iter().copied().map(account).collect()),
-            ..Mail::default()
-        }
+        Mail::of(ids.iter().copied().map(account).collect())
     }
 
     fn spaces(of: Vec<Mail>) -> Spaces {
@@ -112,12 +105,6 @@ mod tests {
             (scoped(&[1, 2]), scoped(&[2]), Forgot::Changed),
             // Its only account gone, the Space is of no account, not of every account.
             (scoped(&[1]), scoped(&[]), Forgot::Changed),
-            // Over every account, there is nothing to take out.
-            (
-                Mail::over(Scope::All),
-                Mail::over(Scope::All),
-                Forgot::Nothing,
-            ),
             (scoped(&[2, 3]), scoped(&[2, 3]), Forgot::Nothing),
         ];
         for (before, after, expect) in cases {
