@@ -15,5 +15,8 @@ pub const NO_ACCOUNTS: &str = "No accounts yet";
 /// Settings › Rules with no account to make a rule on.
 pub const ADD_AN_ACCOUNT_FIRST: &str = "Add an account first.";
 
+/// The reader column with no conversation open.
+pub const NO_MESSAGE_SELECTED: &str = "No message selected";
+
 /// A contact card with no name in it.
 pub const NO_NAME: &str = "(no name)";

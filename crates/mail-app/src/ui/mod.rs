@@ -84,6 +84,7 @@ mod unsubscribe;
 mod view_groups;
 mod views;
 mod window;
+mod window_core;
 
 #[cfg(test)]
 mod fixtures;

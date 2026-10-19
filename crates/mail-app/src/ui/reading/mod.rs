@@ -3,6 +3,7 @@ mod anyview;
 mod attachments;
 pub(super) mod blocks;
 mod cache;
+mod column;
 mod fetch;
 mod fit;
 mod fold;
@@ -18,6 +19,7 @@ use super::text::{attachment_rows, stamp};
 use crate::ui::view::Shell;
 use attachments::Attachments;
 pub(in crate::ui) use cache::{frames, looks, use_frames, use_looks, use_warming};
+pub(in crate::ui) use column::reading_column;
 use dioxus::prelude::*;
 use ds::components::content::avatar::{
     AvatarFace, AvatarShape, AvatarSize, AvatarTone, person_hue,

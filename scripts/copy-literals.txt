@@ -2,7 +2,7 @@
 # as scripts/copy-literals.py counts them. A ratchet (scripts/check-copy.sh): it fails when a
 # count rises or an unlisted file gains one, and when a count falls until this file says so.
 # A new word goes in crates/mail-app/src/ui/copy/. Format: "<file> <count>".
-crates/mail-app/src/ui/app.rs 4
+crates/mail-app/src/ui/app.rs 3
 crates/mail-app/src/ui/bin.rs 11
 crates/mail-app/src/ui/brand.rs 1
 crates/mail-app/src/ui/data.rs 1

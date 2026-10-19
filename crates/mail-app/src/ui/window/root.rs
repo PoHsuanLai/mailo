@@ -9,12 +9,13 @@
 use super::note::left;
 use crate::ui::actions::{self, Heard};
 use crate::ui::app::Frame;
-use crate::ui::compose::{self, ComposerPage, PageKind, SendPill};
+use crate::ui::compose::{self, SendPill};
 use crate::ui::intent::{Intent, Scope, intent, on_thread};
-use crate::ui::reading::{Reader, ReaderIn};
+use crate::ui::reading::{ReaderIn, reading_column};
 use crate::ui::space::Spaces;
 use crate::ui::style::STYLE;
 use crate::ui::view::{Shell, Shortcut};
+use crate::ui::window_core::{use_window_core, use_window_desk};
 use chordkit::StandardAction;
 use dioxus::prelude::*;
 use ds::base::spawner::Spawner;
@@ -61,8 +62,10 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
     let _ = crate::ui::prefs::use_prefs(
         try_consume_context::<crate::ui::appearance::WindowDirs>().as_ref(),
     );
-    // The window's keymap, with mailo's actions in it: this window is its own root.
-    let keys = actions::use_registered();
+    // The window's keymap, with mailo's actions in it, and its revision: this window is its own
+    // root.
+    let core = use_window_core();
+    let (keys, mut revision) = (core.keys, core.revision);
     let shell = use_signal(|| {
         let store = consume_context::<Arc<SqliteStore>>();
         let mut shell = Shell {
@@ -78,8 +81,6 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
         shell.open(thread);
         shell
     });
-    let mut revision = use_signal(|| 0u64);
-    crate::ui::revisions::use_shared_revision(revision);
     // The Spaces, read and never written: the first window owns the file.
     let spaces = use_signal(|| {
         try_consume_context::<crate::ui::appearance::WindowDirs>()
@@ -87,14 +88,10 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
             .or_else(try_consume_context::<Spaces>)
             .unwrap_or_else(|| crate::ui::space::first_run(&[]))
     });
-    crate::ui::frame::use_followed_configuration(shell, spaces, None, keys);
     // A reply's desk. Handed no directories, so nothing here writes Today or the settings,
     // which are the first window's.
     let today = use_signal(crate::ui::today::Today::default);
-    let desk = compose::use_desk(today, spaces, None);
-    compose::use_test_dictionaries();
-    crate::ui::hover::use_hover();
-    crate::ui::motion::use_motion();
+    let desk = use_window_desk(core, shell, spaces, None, today, None);
     // Where the conversation was when the window opened, for [`left`].
     let opened = use_hook(|| {
         let store = consume_context::<Arc<SqliteStore>>();
@@ -165,7 +162,6 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
         }
     };
 
-    let composing = compose::composing(&shell.read());
     rsx! {
         Frame { spaces,
             style { {STYLE} }
@@ -181,17 +177,7 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
                         if let Some(note) = note {
                             div { class: "left-note", role: "status", "{note}" }
                         }
-                        match composing {
-                            Some((draft, PageKind::Reply)) => rsx! {
-                                Reader { thread, shell, revision, place: ReaderIn::Window,
-                                    ComposerPage { key: "{draft}", draft, shell, revision }
-                                }
-                            },
-                            // A forward is a message of its own: the page stands in for the
-                            // reader.
-                            Some((draft, _)) => rsx! { ComposerPage { key: "{draft}", draft, shell, revision } },
-                            None => rsx! { Reader { thread, shell, revision, place: ReaderIn::Window } },
-                        }
+                        {reading_column(Some(thread), shell, revision, ReaderIn::Window)}
                         crate::ui::hover::LinkPill {}
                     }
                     SendPill { shell }

@@ -1,14 +1,15 @@
 use super::actions::{self, Heard};
-use super::compose::{self, ComposerPage, PageKind, SendPill};
+use super::compose::{self, SendPill};
 use super::data::{PAGE, accounts, count_badges};
 use super::frame;
 use super::intent::{Intent, Scope, intent, on_thread};
 use super::list::ThreadList;
 use super::list_query::{ListView, use_list};
 use super::ops::{Writes, open_composer};
-use super::reading::Reader;
+use super::reading::{ReaderIn, reading_column};
 use super::sidebar::Places;
 use super::style::STYLE;
+use super::window_core::{use_window_core, use_window_desk};
 use crate::ui::selection::Toward;
 use crate::ui::space::Spaces;
 use crate::ui::view::{
@@ -60,13 +61,10 @@ pub(super) fn App() -> Element {
         }
         shell
     });
-    // The window's keymap, with mailo's actions in it.
-    let keys = actions::use_registered();
-    // Bumped after any write, to re-run the queries. Explicit rather than implicit so it is
-    // obvious what causes a refresh.
-    let mut revision = use_signal(|| 0u64);
-    // Every other window's moves move it too, and its own reach them (`ui/revisions`).
-    super::revisions::use_shared_revision(revision);
+    // The window's keymap, with mailo's actions in it, and the revision bumped after any write to
+    // re-run the queries, which every other window's moves move too (`ui/revisions`).
+    let core = use_window_core();
+    let (keys, mut revision) = (core.keys, core.revision);
     // The conversations opened in windows of their own, to raise one asked for again.
     super::window::use_opened();
     super::settings_window::use_settings_opened();
@@ -128,17 +126,15 @@ pub(super) fn App() -> Element {
     super::downloads::use_provide_shelf(dirs.as_ref());
     let mut side_hidden = use_signal(|| false);
     let prefs = super::prefs::use_prefs(dirs.as_ref());
-    let desk = compose::use_desk(today_list, spaces, dirs.clone());
-    compose::use_test_dictionaries();
+    // Another window (Settings) may have written a key binding or the Spaces: the desk's hook
+    // reads them again. `settings.toml` needs nothing here: the window's root watches it.
+    let desk = use_window_desk(core, shell, spaces, Some(handle), today_list, dirs.clone());
     let mut seen_open = use_signal(|| None::<mail_domain::ThreadId>);
     let mut label_ids = use_signal(Vec::<mail_domain::LabelId>::new);
     // The server folders that are places, after the labels, as `view::places_with` orders them.
     let mut folder_refs = use_signal(Vec::<(String, MailboxRef)>::new);
     // The saved views, after the folders, as `view::places_with` orders them.
     let mut saved_views = use_signal(Vec::<View>::new);
-    // Hover previews and the motion keyed to ops: shared state, provided once for the window.
-    super::hover::use_hover();
-    super::motion::use_motion();
     // The first frame cannot wait for the effect below: a chip's name is a lookup, and a
     // lookup against an empty list draws an empty chip.
     use_hook(|| {
@@ -309,10 +305,6 @@ pub(super) fn App() -> Element {
             shell.write().appearance.marks = marks;
         }
     });
-
-    // Another window (Settings) may have written a key binding or the Spaces: read them again.
-    // `settings.toml` needs nothing here: the window's root watches it.
-    super::frame::use_followed_configuration(shell, spaces, Some(handle), keys);
 
     // An account removed, here or from a terminal, leaves every Space; one added that no Space
     // holds yet joins the Space on screen. Not while a part of the Space's menu is open: its
@@ -652,22 +644,7 @@ pub(super) fn App() -> Element {
     let frame_class = if side_hidden() { "app no-side" } else { "app" };
     // The open thread or the composer: a column of the card, or, floating, quire's `Peek` over it.
     let reading = rsx! {
-        // A reply sits under its thread; a new message or a forward is a page in this column.
-        match (compose::composing(&shell.read()), shell.read().open) {
-            (Some((draft, PageKind::Reply)), Some(thread)) => rsx! {
-                Reader { thread, shell, revision,
-                    ComposerPage { key: "{draft}", draft, shell, revision }
-                }
-            },
-            (Some((draft, _)), _) => rsx! { ComposerPage { key: "{draft}", draft, shell, revision } },
-            (None, Some(thread)) => rsx! { Reader { thread, shell, revision } },
-            (None, None) => rsx! {
-                EmptyState {
-                    form: ds::components::overlays::empty_state::EmptyForm::Empty,
-                    title: "No message selected",
-                }
-            },
-        }
+        {reading_column(shell.read().open, shell, revision, ReaderIn::Pane)}
     };
     let floating = shell.read().open.is_some() || compose::composing(&shell.read()).is_some();
     let pinned = if side_hidden() {
