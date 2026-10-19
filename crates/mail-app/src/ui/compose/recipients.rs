@@ -10,7 +10,7 @@ use super::super::contacts::book::suggest;
 use super::super::contacts::groups::{self, Offer};
 use super::super::menu::{MenuItem, Right, Tile};
 use super::float::people_rows;
-use super::page::{Float, List, Page, person};
+use super::page::{Float, List, Misread, Page, person};
 use mail_core::editor::Person;
 
 /// Someone typed into `list`'s field. A comma commits what came before it.
@@ -22,6 +22,7 @@ use mail_core::editor::Person;
 /// thousand messages come from 97 senders. A menu that lags the field by a quiet period would
 /// offer people for text that is no longer there.
 pub(in crate::ui) fn typed(page: &mut Page, list: List, value: String, store: &dyn Store) {
+    unmark(page, list);
     if let Some(done) = value.strip_suffix(',') {
         *page.typed_mut(list) = done.to_owned();
         commit_typed(page, list);
@@ -113,10 +114,11 @@ pub(in crate::ui) fn pick_person(page: &mut Page, list: List, address: &str) {
 }
 
 /// Turn what is typed in `list` into chips. An entry that is not an address stays typed and
-/// says why, rather than vanishing or being guessed at.
+/// the field is marked with why, rather than the entry vanishing or being guessed at.
 pub(in crate::ui) fn commit_typed(page: &mut Page, list: List) -> bool {
     let typed = page.typed_mut(list).clone();
     if typed.trim().is_empty() {
+        unmark(page, list);
         return true;
     }
     match mail_core::compose::addresses::parse_addresses(&typed) {
@@ -126,13 +128,25 @@ pub(in crate::ui) fn commit_typed(page: &mut Page, list: List) -> bool {
             }
             page.typed_mut(list).clear();
             page.float = Float::Closed;
-            page.notice = None;
+            unmark(page, list);
             true
         }
         Err(why) => {
-            page.notice = Some(why.to_string());
+            let count = page.misread.as_ref().map_or(0, |misread| misread.count) + 1;
+            page.misread = Some(Misread {
+                list,
+                why: why.to_string(),
+                count,
+            });
             false
         }
+    }
+}
+
+/// Take `list`'s mark off, if it has one.
+fn unmark(page: &mut Page, list: List) {
+    if page.misread(list).is_some() {
+        page.misread = None;
     }
 }
 
