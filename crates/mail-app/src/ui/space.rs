@@ -5,6 +5,10 @@
 //! its [`Mail`] payload: whose mail it shows and what stays pinned. Where
 //! a Space was left is mailo's [`Recall`].
 //!
+//! The accounts are the store's, a level above the Spaces: a Space names the ones it shows, and
+//! only those, so an account added later shows where it is put and nowhere else. Every account is
+//! in at least one Space of its Profile ([`adopt_unplaced`]), so none is out of sight.
+//!
 //! Stored in `spaces.json` under the config directory, beside appearance and not in the mail
 //! database: a cosmetic choice must not be a write against someone's mail. quire reads the file
 //! leniently, field by field; [`Mail`] reads its own fields the same way.
@@ -18,10 +22,13 @@ use porter_core::AccountId;
 use serde::de::Deserializer;
 use serde::{Deserialize, Serialize};
 
+mod adopt;
 mod forget;
 mod member;
 mod recall;
+mod upgrade;
 
+pub use adopt::{adopt_unplaced, held_elsewhere};
 pub use ds::components::app::spaces::SpaceId;
 pub use forget::{Forgot, forget_account, forget_unknown};
 pub use mail_core::scope::Scope;
@@ -52,7 +59,9 @@ pub enum Pinned {
 /// What a Space holds that is mail's. Written flat beside the Space's own fields in
 /// `spaces.json`, as mailo always wrote them; a field that is missing or unreadable is its
 /// default, never a failure of the whole file, and a field no longer read (each account's
-/// colour, from when accounts had tiles) is passed over.
+/// colour, from when accounts had tiles) is passed over. A file from before a Space named its
+/// accounts (a `scope`, which could be every account) is brought up to date as it is read
+/// ([`upgrade`]).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct Mail {
@@ -60,54 +69,52 @@ pub struct Mail {
     /// existed has none, and belongs to the default Profile.
     #[serde(deserialize_with = "de_profile")]
     pub profile: ProfileId,
-    /// Whose mail this Space shows.
-    #[serde(deserialize_with = "de_scope")]
-    pub scope: Scope,
+    /// The accounts whose mail this Space shows, in the order they were put in it. None is a
+    /// Space that shows nothing until one is put in it.
+    #[serde(deserialize_with = "de_accounts")]
+    pub accounts: Vec<AccountId>,
     /// People and saved searches that stay put.
     pub pins: Vec<Pinned>,
 }
 
 impl Mail {
-    /// A Space's mail over `scope`, nothing pinned.
-    pub fn over(scope: Scope) -> Mail {
+    /// A Space's mail over `accounts`, nothing pinned.
+    pub fn of(accounts: Vec<AccountId>) -> Mail {
         Mail {
-            scope,
+            accounts,
             ..Mail::default()
         }
     }
 
-    /// A new Space's mail in `profile`, over every account, nothing pinned.
-    pub fn new_in(profile: &ProfileId) -> Mail {
+    /// A new Space's mail in `profile`, over `accounts` (every account the store has, when the
+    /// menu makes one), nothing pinned.
+    pub fn new_in(profile: &ProfileId, accounts: Vec<AccountId>) -> Mail {
         Mail {
             profile: profile.clone(),
-            ..Mail::over(Scope::All)
+            ..Mail::of(accounts)
         }
     }
 
-    /// Put `account`, one of `profile`'s, in this Space when it belongs to `profile`, shows some
-    /// accounts and not that one yet. Returns whether it changed: a Space over every account
-    /// already shows it, and a Space of another Profile does not take this store's accounts.
+    /// The accounts this Space shows, as a view asks over them.
+    pub fn scope(&self) -> Scope {
+        Scope::Accounts(self.accounts.clone())
+    }
+
+    /// Whether this Space shows `account`'s mail.
+    pub fn shows(&self, account: &AccountId) -> bool {
+        self.accounts.contains(account)
+    }
+
+    /// Put `account`, one of `profile`'s, in this Space when it belongs to `profile` and does
+    /// not show it yet. Returns whether it changed: a Space of another Profile does not take
+    /// this store's accounts.
     pub(in crate::ui) fn widen(&mut self, profile: &ProfileId, account: AccountId) -> bool {
-        if self.profile != *profile {
+        if self.profile != *profile || self.shows(&account) {
             return false;
         }
-        match &mut self.scope {
-            Scope::Accounts(ids) if !ids.contains(&account) => {
-                ids.push(account);
-                true
-            }
-            _ => false,
-        }
+        self.accounts.push(account);
+        true
     }
-}
-
-#[derive(Deserialize)]
-#[serde(tag = "kind", content = "v", rename_all = "snake_case")]
-enum ScopeRaw {
-    All,
-    Accounts(Vec<AccountId>),
-    #[serde(other)]
-    Unknown,
 }
 
 /// A stored Profile id, or the default Profile's when it is not one: the file stays readable.
@@ -119,26 +126,29 @@ where
     Ok(serde_json::from_value(value).unwrap_or_default())
 }
 
-fn de_scope<'de, D>(deserializer: D) -> Result<Scope, D::Error>
+/// The stored accounts, each read on its own: one that is not an account id is passed over, and
+/// a list that is not a list is none.
+fn de_accounts<'de, D>(deserializer: D) -> Result<Vec<AccountId>, D::Error>
 where
     D: Deserializer<'de>,
 {
     let value = serde_json::Value::deserialize(deserializer)?;
-    Ok(match serde_json::from_value::<ScopeRaw>(value) {
-        Ok(ScopeRaw::Accounts(ids)) => Scope::Accounts(ids),
-        Ok(ScopeRaw::All | ScopeRaw::Unknown) | Err(_) => Scope::All,
+    Ok(match value {
+        serde_json::Value::Array(items) => items
+            .into_iter()
+            .filter_map(|item| serde_json::from_value(item).ok())
+            .collect(),
+        _ => Vec::new(),
     })
 }
 
 /// One Space per account, named "Space 1" onward and tinted from quire's presets in order; no
-/// accounts is one Space over every account, so the window has somewhere to put the mail.
+/// accounts is one Space of none, so the window has somewhere to put the first one added.
 /// Nothing is pinned.
 pub fn first_run(accounts: &[AccountId]) -> Spaces {
     Spaces::first_run(
-        accounts
-            .iter()
-            .map(|id| Mail::over(Scope::Accounts(vec![id.clone()]))),
-        || Mail::over(Scope::All),
+        accounts.iter().map(|id| Mail::of(vec![id.clone()])),
+        Mail::default,
     )
 }
 
@@ -172,15 +182,21 @@ pub fn storage(dirs: Option<&WindowDirs>) -> SpacesStorage {
     )
 }
 
-/// The window's first Spaces: the stored ones, else a first run over `accounts`. Written when
-/// that was a first run.
+/// The window's first Spaces: the stored ones, else a first run over `accounts`, the default
+/// Profile's. Written when that was a first run, or when reading them changed them.
 ///
 /// The theme moved from `appearance.json` into each Space. A Space written before that has
 /// none, and takes the window-wide one `legacy` read, so the first read after the upgrade looks
-/// the way the window did; a first run starts from it too.
+/// the way the window did; a first run starts from it too. A Space written before Spaces named
+/// their accounts names them now ([`upgrade`]), and an account no Space holds joins the one on
+/// screen ([`adopt_unplaced`]).
 pub fn boot(dirs: Option<&WindowDirs>, accounts: &[AccountId], legacy: &Legacy) -> Spaces {
     let theme = serde_json::to_value(legacy.theme).unwrap_or(serde_json::Value::Null);
-    let raw_fix = |value: &mut serde_json::Value| inherit_theme(value, &theme);
+    let upgraded = std::cell::Cell::new(Fixup::Kept);
+    let raw_fix = |value: &mut serde_json::Value| {
+        inherit_theme(value, &theme);
+        upgraded.set(upgrade::name_accounts(value, accounts));
+    };
     let made = || {
         let mut spaces = first_run(accounts);
         let ids: Vec<SpaceId> = spaces.list().iter().map(|space| space.id).collect();
@@ -189,9 +205,14 @@ pub fn boot(dirs: Option<&WindowDirs>, accounts: &[AccountId], legacy: &Legacy) 
         }
         spaces
     };
-    storage(dirs)
-        .boot_spaces(raw_fix, made, |_: &mut Spaces| Fixup::Kept)
-        .0
+    let on_load = |spaces: &mut Spaces| match (
+        upgraded.get(),
+        adopt_unplaced(spaces, &ProfileId::default(), accounts),
+    ) {
+        (Fixup::Kept, Fixup::Kept) => Fixup::Kept,
+        _ => Fixup::Changed,
+    };
+    storage(dirs).boot_spaces(raw_fix, made, on_load).0
 }
 
 /// Give each stored Space that has no `theme` of its own `theme`.
@@ -211,11 +232,20 @@ fn inherit_theme(value: &mut serde_json::Value, theme: &serde_json::Value) {
 
 /// The Spaces as stored in `dirs`, for a window that only wears them (Settings, a message
 /// window): nothing is written, and with no file, or one that cannot be used, the one default
-/// Space stands in.
+/// Space stands in. The main window boots first and writes a file it brought up to date, so a
+/// Space here that still says every account is one no window has booted over, and shows none.
 pub fn load(dirs: &WindowDirs) -> Spaces {
-    match storage(Some(dirs)).load_spaces(|_| {}) {
-        ds_settings::SpacesLoad::Stored(spaces) => spaces,
-        _ => first_run(&[]),
+    stored(dirs).unwrap_or_else(|| first_run(&[]))
+}
+
+/// The Spaces stored in `dirs`, if there are any that can be used. Nothing is written.
+pub fn stored(dirs: &WindowDirs) -> Option<Spaces> {
+    let raw_fix = |value: &mut serde_json::Value| {
+        upgrade::name_accounts(value, &[]);
+    };
+    match storage(Some(dirs)).load_spaces(raw_fix) {
+        ds_settings::SpacesLoad::Stored(spaces) => Some(spaces),
+        _ => None,
     }
 }
 

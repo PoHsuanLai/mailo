@@ -14,7 +14,7 @@ use settle::settle_until;
 
 use crate::drive;
 use drive::Drive;
-use mail_app::ui::space::{Mail, Scope, Spaces};
+use mail_app::ui::space::{Mail, Spaces};
 use mail_core::SqliteStore;
 use mail_core::{Arrival, absorb};
 use mail_domain::id::account_id_from_uuid;
@@ -114,7 +114,7 @@ fn spaces(count: usize) -> Spaces {
                 (
                     format!("Space {n}"),
                     ds::style::space::look::SpaceLook::default(),
-                    Mail::over(Scope::All),
+                    Mail::of(vec![acct_account()]),
                 )
             })
             .collect(),

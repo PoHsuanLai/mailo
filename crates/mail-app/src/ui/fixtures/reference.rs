@@ -6,7 +6,7 @@
 
 use super::store::gmail_caps;
 use crate::ui::appearance::WindowDirs;
-use crate::ui::space::{self, Pinned, Scope};
+use crate::ui::space::{self, Pinned};
 use crate::ui::today::{self, Today};
 use chrono::Datelike;
 use ds::prelude::{SpaceLook, Theme};
@@ -243,7 +243,7 @@ pub(in crate::ui) fn work() -> Work {
         theme: Theme::System,
     };
     let mail = space::Mail {
-        scope: Scope::All,
+        accounts: vec![acct_google(), acct_microsoft(), acct_fastmail()],
         pins: vec![
             Pinned::Person {
                 name: "Dana Okafor".to_owned(),

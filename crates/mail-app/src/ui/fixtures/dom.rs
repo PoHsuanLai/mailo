@@ -798,13 +798,13 @@ mod tests {
                 icons.display()
             );
         }
-        // One Space over every account. The first-run layout is one Space per
-        // account, which would hide four of the five tiles.
+        // One Space, which every account joins as the window opens. The first-run layout is
+        // one Space per account, which would hide four of the five tiles.
         let spaces = crate::ui::space::built(
             vec![(
                 "Mail".to_owned(),
                 ds::prelude::SpaceLook::default(),
-                crate::ui::space::Mail::over(crate::ui::space::Scope::All),
+                crate::ui::space::Mail::default(),
             )],
             0,
         );

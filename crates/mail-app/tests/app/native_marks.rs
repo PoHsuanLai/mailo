@@ -138,7 +138,7 @@ fn open() -> Opened {
             vec![(
                 "Mail".to_owned(),
                 ds::prelude::SpaceLook::default(),
-                mail_app::ui::space::Mail::over(mail_app::ui::space::Scope::All),
+                mail_app::ui::space::Mail::default(),
             )],
             0,
         )),

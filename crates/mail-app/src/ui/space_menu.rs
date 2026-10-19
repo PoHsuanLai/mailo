@@ -11,7 +11,7 @@ use crate::ui::add_account::{AddPick, add_menu, offered_redirects, picked};
 use crate::ui::appearance::WindowDirs;
 use crate::ui::copy;
 use crate::ui::data::account_rows;
-use crate::ui::space::{Handle, Mail, Member, Recall, Scope, SpaceId, with_member};
+use crate::ui::space::{Handle, Mail, Member, Recall, SpaceId, held_elsewhere, with_member};
 use crate::ui::today::Today;
 use dioxus::prelude::*;
 use ds::components::app::spaces::SpaceMenu;
@@ -34,6 +34,11 @@ fn accounts() -> Vec<(AccountId, String)> {
         .unwrap_or_default()
 }
 
+/// Every account there is, in order: what a new Space starts with.
+pub(in crate::ui) fn every_id() -> Vec<AccountId> {
+    accounts().into_iter().map(|(id, _)| id).collect()
+}
+
 /// A pick in Accounts ▸: an account put in or taken out, or a way to add one.
 #[derive(Debug, Clone, PartialEq)]
 pub(in crate::ui) enum AccountPick {
@@ -41,25 +46,37 @@ pub(in crate::ui) enum AccountPick {
     Add(AddPick),
 }
 
-/// Accounts ▸ for a Space over `scope`: one row per account, checked when the Space shows it,
-/// then Add Account. `redirects` are the providers that sign in straight in the browser: with
-/// any, Add Account is a submenu of them and Other Account…; with none, it opens the window.
+/// Whether an account the Space shows may leave it: not when it is in no other Space, where it
+/// would be out of sight (and would come straight back, `space::adopt_unplaced`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::ui) enum Leaving {
+    Allowed,
+    LastSpace,
+}
+
+/// Accounts ▸ for a Space showing `shown`: one row per account, checked when the Space shows
+/// it, then Add Account. `leaving` says, for a checked account, whether it may be taken out.
+/// `redirects` are the providers that sign in straight in the browser: with any, Add Account is
+/// a submenu of them and Other Account…; with none, it opens the window.
 pub(in crate::ui) fn accounts_menu(
-    scope: &Scope,
+    shown: &[AccountId],
     accounts: &[(AccountId, String)],
+    leaving: impl Fn(&AccountId) -> Leaving,
     redirects: &[(porter_provider::Issuer, String)],
 ) -> Vec<MenuItem<AccountPick>> {
     let mut rows: Vec<MenuItem<AccountPick>> = accounts
         .iter()
         .map(|(id, name)| {
-            let on = if scope.shows(id.clone()) {
-                Check::On
+            let on = shown.contains(id);
+            let row = MenuItem::new(AccountPick::Toggle(id.clone()), name.clone())
+                .with_check(if on { Check::On } else { Check::Off })
+                .with_after(AfterPick::KeepOpen);
+            if on && leaving(id) == Leaving::LastSpace {
+                row.with_availability(Availability::Disabled)
+                    .with_tip(copy::tooltips::IN_NO_OTHER_SPACE)
             } else {
-                Check::Off
-            };
-            MenuItem::new(AccountPick::Toggle(id.clone()), name.clone())
-                .with_check(on)
-                .with_after(AfterPick::KeepOpen)
+                row
+            }
         })
         .collect();
     if !rows.is_empty() {
@@ -87,15 +104,14 @@ pub(in crate::ui) fn accounts_menu(
     }]
 }
 
-/// `scope` with `account` switched: out when the Space shows it, in when it does not. `all` is
-/// every account, which a Space over every account becomes when one leaves it.
-pub(in crate::ui) fn toggled(scope: &Scope, account: AccountId, all: &[AccountId]) -> Scope {
-    let member = if scope.shows(account.clone()) {
+/// `accounts` with `account` switched: out when the Space shows it, in when it does not.
+pub(in crate::ui) fn toggled(accounts: &[AccountId], account: AccountId) -> Vec<AccountId> {
+    let member = if accounts.contains(&account) {
         Member::Out
     } else {
         Member::In
     };
-    with_member(scope, account, member, all)
+    with_member(accounts, account, member)
 }
 
 /// The Space's menu, wherever it was opened.
@@ -105,23 +121,34 @@ pub(in crate::ui) fn MailSpaceMenu(handle: Handle, mut today: Signal<Today>) -> 
     let extra = handle
         .open()
         .and_then(|open| {
-            handle
-                .spaces()
-                .read()
-                .get(open.space)
-                .map(|space| accounts_menu(&space.payload.scope, &every, &offered_redirects()))
+            let held = handle.spaces();
+            let spaces = held.read();
+            spaces.get(open.space).map(|space| {
+                let leaving = |id: &AccountId| {
+                    if held_elsewhere(&spaces, open.space, id) {
+                        Leaving::Allowed
+                    } else {
+                        Leaving::LastSpace
+                    }
+                };
+                accounts_menu(
+                    &space.payload.accounts,
+                    &every,
+                    leaving,
+                    &offered_redirects(),
+                )
+            })
         })
         .unwrap_or_default();
     rsx! {
         SpaceMenu::<Mail, Recall, AccountPick> {
             handle,
-            new_payload: move |()| Mail::new_in(&ProfileId::default()),
+            new_payload: move |()| Mail::new_in(&ProfileId::default(), every_id()),
             extra,
             on_extra: move |(space, pick): (SpaceId, AccountPick)| match pick {
                 AccountPick::Toggle(account) => {
-                    let all: Vec<AccountId> = accounts().into_iter().map(|(id, _)| id).collect();
                     handle.apply(space, |one| {
-                        one.payload.scope = toggled(&one.payload.scope, account, &all);
+                        one.payload.accounts = toggled(&one.payload.accounts, account);
                     });
                 }
                 AccountPick::Add(pick) => picked(pick),

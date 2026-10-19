@@ -171,12 +171,7 @@ async fn ctrl_2_repaints_the_frame_and_scopes_the_list() {
         theme: Theme::Light,
         ..dotted(PRESETS[4].dots)
     };
-    let solo = with_second(
-        &built,
-        "Solo",
-        home.clone(),
-        Mail::over(Scope::Accounts(vec![ids[0].clone()])),
-    );
+    let solo = with_second(&built, "Solo", home.clone(), Mail::of(vec![ids[0].clone()]));
 
     let scripts = Scripts::default();
     let mut dom = VirtualDom::new(App)
