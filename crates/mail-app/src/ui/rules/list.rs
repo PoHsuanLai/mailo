@@ -25,12 +25,12 @@ use std::sync::Arc;
 
 use super::super::common::{classed, tile};
 use super::super::data::AccountRow;
-use super::super::files::work::grouped;
 use super::super::files::{Phase, run};
 use super::super::menu::{Floating, MenuItem, Right, Tile};
 use super::super::motion::{Follow, Restore, tell};
 use super::work::{self, Listed, Step};
-use super::{Failed, Said, open, row_id};
+use super::{Said, open, row_id};
+use crate::ui::common::Problem;
 use crate::ui::copy;
 use crate::ui::view::{RulesAt, RulesPage as Showing, Shell};
 
@@ -144,7 +144,6 @@ pub(super) fn RulesList(
         .collect();
     rsx! {
         Form {
-            Failed { said }
             if several {
                 FormSection {
                     FieldRow { label: copy::fields::ACCOUNT,
@@ -162,10 +161,10 @@ pub(super) fn RulesList(
                     }
                 }
             }
-            FormSection { footer: Some(copy::fields::RULES_RUN_IN_ORDER.to_owned()),
+            FormSection {
                 List::<String> { label: copy::titles::RULES, items, style: ListStyle::Grouped }
             }
-            RunProgress { phase: phase(), name: running() }
+            RunProgress { phase, name: running() }
             FormSection {
                 List::<String> { label: copy::titles::VACATION_REPLY, items: vacation, style: ListStyle::Grouped }
             }
@@ -346,33 +345,36 @@ fn act(
     }
 }
 
-/// "Run on existing mail" while it runs, and what it said.
+/// "Run on existing mail" while it runs, as a bar; a run that stopped is said in a dialog, which
+/// closing puts back to nothing. A run that finished says nothing: what it did is in the mail.
 #[component]
-pub(super) fn RunProgress(phase: Phase, name: String) -> Element {
-    let line = match phase {
-        Phase::Ready => return rsx! {},
+pub(super) fn RunProgress(phase: Signal<Phase>, name: String) -> Element {
+    match phase() {
+        Phase::Ready | Phase::Finished(_) => rsx! {},
         Phase::Running { done, of } => {
             let share = (done.min(of) * 1000).checked_div(of).unwrap_or(0);
             rsx! {
-                FieldRow {
-                    label: format!("Running “{name}”…"),
-                    help: Some(TextLine::from(format!("{} of {} conversations", grouped(done), grouped(of)))),
-                    ProgressIndicator {
-                        style: ProgressStyle::Bar,
-                        progress: Progress::Known(Fraction(u16::try_from(share).unwrap_or(1000))),
-                        common: classed("rules-progress"),
+                FormSection {
+                    FieldRow {
+                        label: format!("Running “{name}”…"),
+                        ProgressIndicator {
+                            style: ProgressStyle::Bar,
+                            progress: Progress::Known(Fraction(u16::try_from(share).unwrap_or(1000))),
+                            common: classed("rules-progress"),
+                        }
                     }
                 }
             }
         }
-        Phase::Finished(said) => rsx! {
-            FieldRow { label: format!("Ran “{name}”"), help: Some(TextLine::from(said)) }
-        },
-        Phase::Failed(why) => rsx! {
-            FieldRow { label: format!("“{name}” did not run"), help: Some(TextLine::from(why)) }
-        },
-    };
-    rsx! {
-        FormSection { {line} }
+        Phase::Failed(why) => {
+            let mut phase = phase;
+            rsx! {
+                Problem {
+                    title: copy::titles::did_not_run(&name),
+                    why,
+                    onclose: move |()| phase.set(Phase::Ready),
+                }
+            }
+        }
     }
 }

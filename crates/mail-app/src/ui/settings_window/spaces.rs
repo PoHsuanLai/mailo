@@ -5,8 +5,9 @@
 //! and alone, Delete Space…, which asks first and is there only while another Space is.
 //!
 //! The Space's menu, a right click on the Space's name, stays the quick way in; this is where
-//! the same things are found. The window edits the Spaces through its own quire handle
-//! ([`super::root`]): a pick is written at once (`frame::keep`) and the other windows read the
+//! the same things are found. A Space needs a name: an emptied name field is its error and is
+//! not kept, and leaving the field puts the name back. The window edits the Spaces through its
+//! own quire handle ([`super::root`]): a pick is written at once (`frame::keep`) and the other windows read the
 //! file again. A name is changed as it is typed and written when the field is left, on Return,
 //! or when the page is left. The editor's full colour field stays Edit Space…'s, in the menu.
 
@@ -21,9 +22,11 @@ use ds::components::controls::button_model::ButtonRole;
 use ds::components::controls::choice::Choice;
 use ds::components::controls::segmented::{SegmentedControl, Tracking};
 use ds::components::fields::field_row::FieldRow;
+use ds::components::fields::text_field_model::{Invalid, Validity};
 use ds::components::lists::list::model::ListStyle;
 use ds::components::lists::row::size::RowSize;
 use ds::components::overlays::alert_model::{AlertButton, AlertRole, AlertStyle};
+use ds::motion::detail::stamp::EventStamp;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::appearance::theme::Theme;
@@ -44,6 +47,14 @@ const STACK: &str = "spaces-pane";
 /// The element id of the row that pushes `space`, where the keyboard goes back to.
 fn row_id(space: SpaceId) -> String {
     format!("spaces-pane-open-{}", space.0)
+}
+
+/// Whether the name field has been emptied: a Space needs a name, so an empty one is the
+/// field's error and is never kept; leaving the field puts the name back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Named {
+    Named,
+    Emptied,
 }
 
 /// Whether a Space's page is asking before the Space is deleted.
@@ -154,6 +165,7 @@ fn SpaceList(shell: Signal<Shell>, handle: Handle) -> Element {
 #[component]
 fn SpacePage(shell: Signal<Shell>, handle: Handle, space: SpaceId) -> Element {
     let mut deleting = use_signal(|| Deleting::Showing);
+    let mut named = use_signal(|| Named::Named);
     let held = handle.spaces();
     let spaces = held.read();
     let Some(one) = spaces.get(space) else {
@@ -180,11 +192,26 @@ fn SpacePage(shell: Signal<Shell>, handle: Handle, space: SpaceId) -> Element {
                 FieldRow { label: copy::fields::NAME,
                     TextField {
                         label: copy::fields::SPACE_NAME,
-                        value: name.clone(),
+                        value: if named() == Named::Emptied { String::new() } else { name.clone() },
                         placeholder: copy::fields::SPACE_NAME,
-                        oninput: move |typed: String| handle.change(space, |one| one.name = typed),
-                        onblur: move |()| handle.commit(),
-                        onsubmit: move |_| handle.commit(),
+                        validity: name_validity(named()),
+                        oninput: move |typed: String| {
+                            if typed.trim().is_empty() {
+                                named.set(Named::Emptied);
+                            } else {
+                                named.set(Named::Named);
+                                handle.change(space, |one| one.name = typed);
+                            }
+                        },
+                        onblur: move |()| {
+                            named.set(Named::Named);
+                            handle.commit();
+                        },
+                        onsubmit: move |_| {
+                            if named() == Named::Named {
+                                handle.commit();
+                            }
+                        },
                     }
                 }
                 FieldRow { label: copy::fields::COLOUR,
@@ -242,6 +269,17 @@ fn SpacePage(shell: Signal<Shell>, handle: Handle, space: SpaceId) -> Element {
     }
 }
 
+/// The name field's error while it is empty.
+fn name_validity(named: Named) -> Validity {
+    match named {
+        Named::Named => Validity::Valid,
+        Named::Emptied => Validity::Invalid(Invalid {
+            message: copy::errors::SPACE_NEEDS_A_NAME.into(),
+            stamp: EventStamp(0),
+        }),
+    }
+}
+
 /// One account's row on a Space's page: a switch for whether the Space shows it. An account no
 /// other Space shows cannot be switched off, and says so.
 fn account_row(
@@ -265,7 +303,6 @@ fn account_row(
         rsx! {
             Row {
                 title: label.clone(),
-                detail: stays.then(|| TextLine::from(copy::tooltips::IN_NO_OTHER_SPACE)),
                 size: RowSize::Settings,
                 state: RowState { availability, ..RowState::default() },
                 accessory: Accessory::Toggle {

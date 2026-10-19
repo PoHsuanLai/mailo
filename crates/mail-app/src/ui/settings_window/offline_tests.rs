@@ -1,5 +1,5 @@
-//! Download All Mail on an account's page in Settings: the setting per account, and the count
-//! under it, against a temporary config directory only.
+//! Download All Mail on an account's page in Settings: the setting per account, against a
+//! temporary config directory only.
 
 use crate::ui::data::account_rows;
 use crate::ui::fixtures::{Seen, Work, click, work};
@@ -118,7 +118,7 @@ fn with_a_part_on_the_server(built: &Work, id: AccountId) {
 }
 
 #[tokio::test]
-async fn each_account_says_how_much_is_here_and_the_switch_keeps_the_setting() {
+async fn the_switch_keeps_the_setting_per_account_and_draws_no_count() {
     let built = work();
     let id = account(&built);
     let before = built.store.offline(id.clone()).unwrap();
@@ -139,16 +139,11 @@ async fn each_account_says_how_much_is_here_and_the_switch_keeps_the_setting() {
     let (mut dom, seen) = opened(&built);
     let page = dioxus_ssr::render(&dom);
     assert_eq!(shown(&page), Check::Off);
-    // The fixture's own mail has a file left on the server too, so the numbers are the store's.
-    let said = format!(
-        "{} of {} messages offline; {} attachments ({}) on the server",
-        counted.held,
-        counted.messages,
-        counted.parts_remote,
-        mail_core::attach::human_size(counted.remote_bytes)
+    // How much is here is `mailo offline`'s to say: the page draws no caption.
+    assert!(
+        !page.contains(&offline::said(&counted)),
+        "the count is still drawn:\n{page}"
     );
-    assert_eq!(said, offline::said(&counted));
-    assert!(page.contains(&said), "no {said:?} in:\n{page}");
 
     let switch = seen.after("aria-label", &label(), "aria-checked")[0];
     click(&mut dom, switch);

@@ -197,7 +197,7 @@ pub(in crate::ui) fn KeysPage(
         Whose::Others => None,
     };
     rsx! {
-        Told { said: said() }
+        Told { title: crate::ui::copy::titles::KEYS_FAILED, said }
         FormSection { title,
             List::<String> { label: copy::headers::ENCRYPTION, items, style: ListStyle::Grouped }
         }

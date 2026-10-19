@@ -101,28 +101,6 @@ fn refusal(why: &ConditionError) -> String {
     }
 }
 
-/// How many conversations on the account match `filter` now.
-pub(in crate::ui) fn matching(
-    store: &SqliteStore,
-    account: AccountId,
-    filter: Filter,
-    now: DateTime<Utc>,
-) -> Result<u64, String> {
-    manage::matching(store, account, filter, now).map_err(|e| e.to_string())
-}
-
-/// What the live count under the condition says.
-pub(in crate::ui) fn matching_words(count: u64) -> String {
-    match count {
-        0 => "No matches yet".to_owned(),
-        1 => "1 conversation matches".to_owned(),
-        n => format!(
-            "{} conversations match",
-            grouped(usize::try_from(n).unwrap_or(usize::MAX))
-        ),
-    }
-}
-
 /// Keep `draft` as a rule on `account`, or say why not.
 pub(in crate::ui) fn save<Tz: TimeZone>(
     store: &SqliteStore,

@@ -52,20 +52,12 @@ pub fn cannot_read(name: &str) -> String {
     format!("Can’t read {name}.")
 }
 
-/// A change in Settings that could not be written: the banner's title, its reason under it.
-pub const NOT_KEPT: &str = "Not kept";
-
-/// Why an account's page cannot say how much of its mail is here.
-pub fn could_not_count(why: &str) -> String {
-    format!("Could not count: {why}")
-}
-
 /// A choice in Settings with nowhere to be written.
 pub const NO_CONFIG_DIRECTORY: &str = "There is no config directory to keep this in.";
 
 /// A rule or vacation reply kept here that its server did not take.
 pub fn not_on_server(why: &str) -> String {
-    format!("Kept here, but not on the server: {why}")
+    format!("It is kept on this computer, but the server did not take it: {why}")
 }
 
 /// Choose Time… refusing a time that has gone: snoozing until then would bring it straight back.
@@ -86,3 +78,6 @@ pub fn link_goes_elsewhere(goes_to: &str, claims: &str) -> String {
 pub fn may_not_be_from(sender: &str) -> String {
     format!("This may not be from {sender}.")
 }
+
+/// A Space's name field, emptied.
+pub const SPACE_NEEDS_A_NAME: &str = "A Space needs a name.";

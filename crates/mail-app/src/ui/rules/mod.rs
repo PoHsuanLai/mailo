@@ -35,7 +35,7 @@ use editor::RulePage;
 use list::RulesList;
 use server::{Pusher, put, reach};
 
-/// What the last act on the page came to, when it failed: said once, at the head of the page.
+/// What the last act on the page came to, when it failed: said in a dialog until it is closed.
 pub(super) type Said = Signal<Option<Result<String, String>>>;
 
 /// The stack's element id: its back buttons are `rules-pane-back-root` and `-detail`.
@@ -74,11 +74,14 @@ pub(in crate::ui) fn RulesPage(shell: Signal<Shell>, revision: Signal<u64>) -> E
         .cloned();
     let path = shell.read().rules.path.clone();
     let said: Said = use_signal(|| None);
+    // A rule or vacation reply kept here that its server did not take, said apart from a write
+    // that did not happen at all.
+    let unpushed: Said = use_signal(|| None);
     // Bumped by every write, so the list reads the rules again.
     let changed = use_signal(|| 0u64);
     // Every save ends here: the account's script goes to its server, off the thread that draws,
     // and only a failure is said. Made here, so a push outlives the rule's page it was saved on.
-    let pushed = use_callback(move |row: AccountRow| push(row, said));
+    let pushed = use_callback(move |row: AccountRow| push(row, unpushed));
     let named = account.as_ref().map(|row| row.id.clone());
     let title = use_callback(move |at: RulesAt| match at {
         RulesAt::List => copy::titles::RULES.to_owned(),
@@ -117,6 +120,8 @@ pub(in crate::ui) fn RulesPage(shell: Signal<Shell>, revision: Signal<u64>) -> E
             on_back: move |()| back(shell),
             common: Common { id: Some(STACK.to_owned()), ..Common::default() },
         }
+        Told { title: copy::titles::NOT_SAVED, said }
+        Told { title: copy::titles::NOT_ON_SERVER, said: unpushed }
     }
 }
 
@@ -139,13 +144,6 @@ fn push(row: AccountRow, mut said: Said) {
         };
         said.set(Some(Err(copy::errors::not_on_server(&failed))));
     });
-}
-
-/// What a page of the stack says at its head: a failure, and nothing else.
-#[component]
-fn Failed(said: Said) -> Element {
-    let failed = said().filter(Result::is_err);
-    rsx! { Told { said: failed } }
 }
 
 #[cfg(test)]

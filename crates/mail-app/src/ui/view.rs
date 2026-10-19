@@ -390,16 +390,15 @@ pub enum AccountStep {
 /// The Keyboard page of Settings: what the last change came to.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct KeyboardPage {
-    /// Why the last key was not taken, or the keymap not kept, in words, under the row it is
-    /// about.
+    /// Why the last key was not taken, or the keymap not kept, said in a dialog until it is
+    /// closed.
     pub said: Option<KeySaid>,
 }
 
-/// Why a change on the Keyboard page did not happen, and which row says so: an action's, or
-/// `None` for Reset All's.
+/// Why a change on the Keyboard page did not happen: the dialog's title and its reason.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeySaid {
-    pub about: Option<Shortcut>,
+    pub title: &'static str,
     pub text: String,
 }
 

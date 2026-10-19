@@ -1,7 +1,9 @@
 //! What mailo puts on a quire component's own element.
 
+use crate::ui::copy;
 use dioxus::prelude::*;
-use ds::prelude::{Icon, InlineBanner, RowLeading, Severity, TileFace};
+use ds::components::overlays::alert_model::{AlertButton, AlertRole, AlertStyle};
+use ds::prelude::{Alert, Icon, RowLeading, TextLine, TileFace};
 use ds::root::common::Common;
 use ds::root::pass_through::ExtraClass;
 use ds::style::icon::family::PlateFamily;
@@ -22,19 +24,31 @@ pub(in crate::ui) fn in_card() -> Common {
     classed("in-card")
 }
 
-/// What the last act on a page of Settings came to, at the head of the page's `Form`: quire's
-/// banner, a failure as an alert and anything else as a status. Nothing said draws nothing.
+/// A failure the person has to see, as a dialog: `title`, the reason under it, and OK, which
+/// (as Escape does) calls `onclose`. Settings says a failure only so; nothing it says is a
+/// caption or a banner.
 #[component]
-pub(in crate::ui) fn Told(said: Option<Result<String, String>>) -> Element {
-    match said {
-        None => rsx! {},
-        Some(Ok(text)) => rsx! {
-            InlineBanner { severity: Severity::Ok, text }
-        },
-        Some(Err(why)) => rsx! {
-            InlineBanner { severity: Severity::Danger, text: why }
-        },
+pub(in crate::ui) fn Problem(title: String, why: String, onclose: EventHandler<()>) -> Element {
+    rsx! {
+        Alert {
+            title,
+            message: Some(TextLine::from(why)),
+            style: AlertStyle::Warning,
+            buttons: vec![AlertButton::new(copy::controls::OK, AlertRole::Normal, onclose)],
+            on_dismiss: Some(onclose),
+        }
     }
+}
+
+/// The failure `said` holds, if it holds one, as a [`Problem`] titled `title`; OK clears it. A
+/// success is not said: what it did shows on the page.
+#[component]
+pub(in crate::ui) fn Told(title: String, said: Signal<Option<Result<String, String>>>) -> Element {
+    let Some(Err(why)) = said() else {
+        return rsx! {};
+    };
+    let mut said = said;
+    rsx! { Problem { title, why, onclose: move |()| said.set(None) } }
 }
 
 /// A grouped row's leading tile, as System Settings leads a pane's row: `icon` drawn in one of

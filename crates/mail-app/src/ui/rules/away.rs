@@ -18,9 +18,11 @@ use std::sync::Arc;
 use super::super::common::classed;
 use super::super::data::AccountRow;
 use super::super::menus::when_words;
-use super::super::press::on_primary;
+use super::super::press::{available, on_primary};
 use super::server::{configured, reach};
-use super::{Failed, Said, back};
+use super::{Said, back};
+use crate::ui::common::Problem;
+use crate::ui::copy;
 use crate::ui::view::Shell;
 
 /// Whether the reply is wanted.
@@ -217,8 +219,9 @@ where
 
 /// The vacation reply's page: a switch, and while it is on, the reply's fields and Keep Reply.
 /// Turned off, it is kept off at once; turned on, it is kept when Keep Reply is pressed, since a
-/// reply needs its words first, and the page goes back to the list. Either is put on the server;
-/// a reply refused is said under its switch, a push that failed at the head of the page.
+/// reply needs its words first, and the page goes back to the list. Either is put on the server.
+/// A date that cannot be read is its field's error and Keep Reply waits; a reply that could not
+/// be kept is said in a dialog.
 #[component]
 pub(super) fn AwayPage(
     shell: Signal<Shell>,
@@ -234,13 +237,19 @@ pub(super) fn AwayPage(
             load(&store, &row, Utc::now(), &chrono::Local)
         }
     });
-    if let Err(why) = reach(&row.plan) {
+    // An account whose server takes no vacation reply has its switch, greyed: there is nothing
+    // to turn on.
+    if reach(&row.plan).is_err() {
         return rsx! {
             Form {
                 FormSection {
-                    FieldRow {
-                        label: "Vacation reply",
-                        help: Some(TextLine::from(format!("No vacation reply here: {why}."))),
+                    FieldRow { label: "Vacation reply",
+                        Toggle {
+                            label: "Vacation reply".to_owned(),
+                            value: Check::Off,
+                            availability: Availability::Disabled,
+                            onchange: |_| {},
+                        }
                     }
                 }
             }
@@ -249,29 +258,25 @@ pub(super) fn AwayPage(
     let now = Utc::now();
     let form = away();
     let on = form.reply == Reply::On;
-    let hint = |text: &str| match when(text, now, &chrono::Local) {
-        Ok(Some(at)) => (Validity::Valid, when_words(at, now, &chrono::Local)),
-        Ok(None) => (Validity::Valid, String::new()),
-        Err(why) => (
-            Validity::Invalid(Invalid {
-                message: why.clone().into(),
-                stamp: EventStamp(u32::try_from(why.len()).unwrap_or(0)),
-            }),
-            String::new(),
-        ),
+    // A date that cannot be read is its field's error, and Keep Reply waits for both to read.
+    let validity = |text: &str| match when(text, now, &chrono::Local) {
+        Ok(_) => Validity::Valid,
+        Err(why) => Validity::Invalid(Invalid {
+            message: why.clone().into(),
+            stamp: EventStamp(u32::try_from(why.len()).unwrap_or(0)),
+        }),
     };
-    let (from_validity, from_hint) = hint(&form.from);
-    let (until_validity, until_hint) = hint(&form.until);
+    let from_validity = validity(&form.from);
+    let until_validity = validity(&form.until);
+    let readable =
+        matches!(from_validity, Validity::Valid) && matches!(until_validity, Validity::Valid);
     let keep = row.clone();
     let off = row.clone();
-    let help = |text: String| (!text.is_empty()).then(|| TextLine::from(text));
     rsx! {
         Form {
-        Failed { said }
         FormSection {
             FieldRow {
                 label: "Vacation reply",
-                help: refused().map(TextLine::from),
                 Toggle {
                     label: "Vacation reply".to_owned(),
                     value: if on { Check::On } else { Check::Off },
@@ -315,7 +320,7 @@ pub(super) fn AwayPage(
                         oninput: move |value: String| away.write().body = value,
                     }
                 }
-                FieldRow { label: "From", help: help(from_hint), layout: RowLayout::Form,
+                FieldRow { label: "From", layout: RowLayout::Form,
                     TextField {
                         label: "From".to_owned(),
                         value: form.from.clone(),
@@ -325,7 +330,7 @@ pub(super) fn AwayPage(
                         oninput: move |value: String| away.write().from = value,
                     }
                 }
-                FieldRow { label: "Until", help: help(until_hint), layout: RowLayout::Form,
+                FieldRow { label: "Until", layout: RowLayout::Form,
                     TextField {
                         label: "Until".to_owned(),
                         value: form.until.clone(),
@@ -349,6 +354,7 @@ pub(super) fn AwayPage(
                     layout: RowLayout::Form,
                     Button {
                         label: "Keep Reply".to_owned(),
+                        availability: available(readable),
                         onclick: on_primary(move || {
                             let store = consume_context::<Arc<SqliteStore>>();
                             let form = away.peek().clone();
@@ -365,6 +371,9 @@ pub(super) fn AwayPage(
                 }
             }
         }
+        }
+        if let Some(why) = refused() {
+            Problem { title: copy::titles::NOT_SAVED, why, onclose: move |()| refused.set(None) }
         }
     }
 }

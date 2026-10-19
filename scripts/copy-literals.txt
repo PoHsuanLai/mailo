@@ -7,7 +7,7 @@ crates/mail-app/src/ui/bin.rs 11
 crates/mail-app/src/ui/brand.rs 1
 crates/mail-app/src/ui/data.rs 1
 crates/mail-app/src/ui/destroy.rs 1
-crates/mail-app/src/ui/keyboard.rs 8
+crates/mail-app/src/ui/keyboard.rs 5
 crates/mail-app/src/ui/keymap.rs 20
 crates/mail-app/src/ui/move_to.rs 4
 crates/mail-app/src/ui/no_account.rs 4
@@ -19,7 +19,6 @@ crates/mail-app/src/ui/row.rs 5
 crates/mail-app/src/ui/saved.rs 14
 crates/mail-app/src/ui/server_search.rs 10
 crates/mail-app/src/ui/space_menu.rs 1
-crates/mail-app/src/ui/spelling.rs 3
 crates/mail-app/src/ui/start.rs 3
 crates/mail-app/src/ui/text.rs 1
 crates/mail-app/src/ui/view.rs 8
@@ -93,8 +92,8 @@ crates/mail-app/src/ui/reading/tools.rs 10
 crates/mail-app/src/ui/row/menu.rs 1
 crates/mail-app/src/ui/rules/away.rs 32
 crates/mail-app/src/ui/rules/editor.rs 31
-crates/mail-app/src/ui/rules/list.rs 4
-crates/mail-app/src/ui/rules/work.rs 28
+crates/mail-app/src/ui/rules/list.rs 1
+crates/mail-app/src/ui/rules/work.rs 25
 crates/mail-app/src/ui/settings_window/account/mod.rs 2
 crates/mail-app/src/ui/settings_window/account/words.rs 35
 crates/mail-app/src/ui/unsubscribe/head.rs 8

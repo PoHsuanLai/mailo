@@ -23,10 +23,14 @@ fn make_the_rule(settings: &mut Harness) {
     type_text(settings, "Edsger");
     click(settings, "input[*|aria-label=\"Condition\"]");
     type_text(settings, "from:edsger@example.test");
-    until(settings, "the condition matches his conversation", |h| {
-        h.text_of(".settings-page")
-            .is_some_and(|page| page.contains("1 conversation"))
-    });
+    until(
+        settings,
+        "the condition reads, so Save Rule is offered",
+        |h| {
+            h.count("[*|aria-label=\"Save Rule\"][disabled]") == 0
+                && h.count("[*|aria-label=\"Save Rule\"][*|aria-disabled=true]") == 0
+        },
+    );
     scroll_to(
         settings,
         ".settings-scroll",
@@ -52,14 +56,12 @@ fn run_the_rule(settings: &mut Harness, store: &SqliteStore) {
     let at = super::hands::centre(settings, row);
     settings.press(at, ds::base::press::PointerButton::Secondary);
     super::hands::menu_item(settings, "Run on Existing Mail");
-    until(settings, "the page says the rule ran", |h| {
-        h.text_of(".settings-page")
-            .is_some_and(|page| page.contains("Ran \u{201c}Edsger\u{201d}"))
+    // A run says nothing when it ends: what it did is in the mail, and its bar goes.
+    until(settings, "the rule ran to its end", |h| {
+        h.count(".rules-progress") == 0
+            && !inbox_at(store, chrono::Utc::now()).contains(&ARRIVING.to_owned())
     });
-    assert!(
-        !inbox_at(store, chrono::Utc::now()).contains(&ARRIVING.to_owned()),
-        "the rule ran and left the message in the inbox"
-    );
+    assert_eq!(settings.count(".ds-alert"), 0, "the run said it failed");
 }
 
 #[test]

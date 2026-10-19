@@ -223,8 +223,8 @@ const PAGE: &str = ".settings-page[*|data-page=\"Keyboard\"]";
 /// The page the window opens on.
 const GENERAL: &str = ".settings-page[*|data-page=\"General\"]";
 const CHANGE_ARCHIVE: &str = "[*|aria-label=\"Change the key for Archive\"]";
-/// What Archive's row says under its name: why its last key was refused.
-const ARCHIVE_SAID: &str = "[*|data-action=Archive] .ds-field-row-help";
+/// The dialog that says why a key was refused.
+const REFUSED: &str = ".ds-alert";
 
 const SCROLLER: &str = ".settings-scroll";
 const SIDEBAR_KEYBOARD: &str = ".ds-sidebar [*|aria-label=\"Keyboard\"]";
@@ -332,12 +332,16 @@ fn archive_rebound_in_settings_archives_on_its_new_key_in_the_open_main_window()
             let mut settings = settings_window(&store, &dirs, &revisions);
             open_page(&mut settings);
 
-            // A key another action holds is refused, by that action's name, and nothing changes.
+            // A key another action holds is refused in a dialog, by that action's name, and
+            // nothing changes; Escape closes the dialog.
             click(&mut settings, CHANGE_ARCHIVE);
             settings.key(Key::Char('s'));
             settings.advance(ms(200));
-            let said = settings.text_of(ARCHIVE_SAID).unwrap_or_default();
+            let said = settings.text_of(REFUSED).unwrap_or_default();
             assert!(said.contains("Star or unstar"), "{said:?}");
+            settings.key(Key::Escape);
+            settings.advance(ms(300));
+            assert_eq!(settings.count(REFUSED), 0, "Escape left the dialog up");
             assert!(
                 !dirs.config.join(mail_app::ui::keymap::FILE_NAME).exists(),
                 "a refused key wrote the keymap"
@@ -347,7 +351,7 @@ fn archive_rebound_in_settings_archives_on_its_new_key_in_the_open_main_window()
             click(&mut settings, CHANGE_ARCHIVE);
             settings.key(Key::Char('x'));
             settings.advance(ms(200));
-            assert_eq!(settings.count(ARCHIVE_SAID), 0, "{}", settings.html());
+            assert_eq!(settings.count(REFUSED), 0, "{}", settings.html());
             let kept = mail_app::ui::keymap::load(&dirs.config);
             assert_eq!(kept.keys(Shortcut::Archive), ["x"]);
             assert_eq!(kept.action("e", false), None);

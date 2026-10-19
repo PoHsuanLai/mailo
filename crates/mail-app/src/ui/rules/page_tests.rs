@@ -165,10 +165,10 @@ async fn a_condition_the_rules_cannot_read_says_why_and_save_is_refused() {
         tag(&page, &save)
     );
 
-    // Read, it says how much it matches here now, and Save is back.
+    // Read, Save is back, and nothing is said under the field.
     type_into(&mut dom, query, "from:ada");
     let page = dioxus_ssr::render(&dom);
-    assert!(page.contains("1 conversation matches"), "{page}");
+    assert!(!page.contains("conversation matches"), "{page}");
     assert!(!tag(&page, &save).contains("disabled"), "{page}");
     assert!(
         store.rules(acct_account()).unwrap().is_empty(),
@@ -341,8 +341,20 @@ async fn a_provider_without_sieve_keeps_rules_here_and_says_nothing_of_a_server(
         let first = rebuild_into(&mut away);
         landed(&mut away, first).await
     };
+    // Its switch is there, greyed: there is nothing to turn on, and nothing is said.
     let page = dioxus_ssr::render(&away);
-    assert!(page.contains("No vacation reply here"), "{page}");
+    let switch = page
+        .match_indices("role=\"switch\"")
+        .map(|(at, _)| {
+            &page[page[..at].rfind('<').unwrap_or(0)..at + page[at..].find('>').unwrap_or(0)]
+        })
+        .next()
+        .unwrap_or_else(|| panic!("no switch: {page}"));
+    assert!(
+        switch.contains("disabled"),
+        "the switch can be turned on: {switch}"
+    );
+    assert!(!page.contains("No vacation reply here"), "{page}");
 }
 
 /// "Run on existing mail" in each phase it passes through.
@@ -354,9 +366,15 @@ fn Phases() -> Element {
             Phase::Finished("“Bills” looked at 1204 messages and acted on 12.".to_owned()),
             Phase::Failed("It stopped before it finished.".to_owned()),
         ] {
-            RunProgress { phase, name: "Bills".to_owned() }
+            OnePhase { phase }
         }
     }
+}
+
+#[component]
+fn OnePhase(phase: Phase) -> Element {
+    let phase = use_signal(|| phase);
+    rsx! { RunProgress { phase, name: "Bills".to_owned() } }
 }
 
 /// Every state the page draws, as one page: the list, a rule's page with a refusal and its menu

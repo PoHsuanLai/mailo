@@ -3,7 +3,6 @@
 //! Save keeps it, puts the account's rules on its server and goes back to the list; the back
 //! button leaves it as it was.
 
-use chrono::Utc;
 use dioxus::prelude::*;
 use ds::components::content::avatar::AvatarSize;
 use ds::components::controls::button_model::{Bezel, ImagePosition};
@@ -25,7 +24,8 @@ use super::super::menu::{Floating, MenuItem, Right, Tile, anchor_at, narrowed, p
 use super::super::move_to::destinations;
 use super::super::press::{available, on_primary};
 use super::work::{self, Draft};
-use super::{Failed, Said, back};
+use super::{Said, back};
+use crate::ui::common::Problem;
 use crate::ui::copy;
 use crate::ui::view::Shell;
 use mail_domain::RuleId;
@@ -152,7 +152,6 @@ pub(super) fn RulePage(
     let account = row.id.clone();
     rsx! {
         Form {
-            Failed { said }
             RuleEditor {
                 account,
                 editing,
@@ -188,15 +187,12 @@ fn RuleEditor(
         .into_iter()
         .map(|d| d.path)
         .collect();
-    // Read as it is typed: the refusal in words, or how much it matches now.
-    let (validity, look, readable) =
-        match work::read_condition(&draft.query, &index, &chrono::Local) {
-            Err(why) => (refusal(&why), String::new(), false),
-            Ok(filter) => match work::matching(&store, account.clone(), filter, Utc::now()) {
-                Ok(count) => (Validity::Valid, work::matching_words(count), true),
-                Err(why) => (refusal(&why), String::new(), true),
-            },
-        };
+    // Read as it is typed: a condition that cannot be read is the field's error, and Save waits
+    // for one that can.
+    let (validity, readable) = match work::read_condition(&draft.query, &index, &chrono::Local) {
+        Err(why) => (refusal(&why), false),
+        Ok(_) => (Validity::Valid, true),
+    };
     let mut add = move |action: RuleAction| {
         if let Some(draft) = editing.write().as_mut()
             && !draft.actions.contains(&action)
@@ -224,7 +220,6 @@ fn RuleEditor(
             }
             FieldRow {
                 label: "When a message matches",
-                help: Some(look.into()),
                 layout: RowLayout::Form,
                 TextField {
                     label: "Condition".to_owned(),
@@ -336,7 +331,6 @@ fn RuleEditor(
             }
             FieldRow {
                 label: "",
-                help: refused().map(TextLine::from),
                 layout: RowLayout::Form,
                 Button {
                     label: copy::controls::SAVE,
@@ -355,6 +349,9 @@ fn RuleEditor(
                     common: Common { aria_label: Some(copy::aria::SAVE_RULE.to_owned()), ..Common::default() },
                 }
             }
+        }
+        if let Some(why) = refused() {
+            Problem { title: copy::titles::NOT_SAVED, why, onclose: move |()| refused.set(None) }
         }
     }
 }

@@ -301,7 +301,7 @@ async fn each_trusted_sender_is_a_row_whose_remove_stops_its_images() {
 }
 
 #[tokio::test]
-async fn trusting_senders_with_none_yet_says_how_one_is_trusted() {
+async fn trusting_senders_with_none_yet_says_there_are_none() {
     let built = work();
     let mut settings = MailSettings::default();
     settings.reading.remote_images = LoadRemoteImages::Trusted;
@@ -312,10 +312,6 @@ async fn trusting_senders_with_none_yet_says_how_one_is_trusted() {
     let page = dioxus_ssr::render(&dom);
     assert!(
         page.contains(crate::ui::copy::empty::NO_TRUSTED_SENDERS),
-        "{page}"
-    );
-    assert!(
-        page.contains(crate::ui::copy::fields::HOW_TO_TRUST),
         "{page}"
     );
 }

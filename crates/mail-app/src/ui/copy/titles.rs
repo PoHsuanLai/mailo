@@ -38,3 +38,19 @@ pub fn use_graph(name: &str) -> String {
 pub const ENCRYPTED: &str = "Encrypted";
 pub const SIGNED: &str = "Signed";
 pub const NOT_VERIFIED: &str = "Not Verified";
+
+// A failure in Settings, as its dialog's title; the reason is the dialog's message.
+/// A setting, a sender or an account's switch that could not be written: nothing changed.
+pub const NOT_SAVED: &str = "The Change Wasn’t Saved";
+/// A key the Keyboard page cannot take for an action.
+pub const KEY_NOT_USED: &str = "That Key Can’t Be Used";
+/// Remove Account that did not remove it.
+pub const NOT_REMOVED: &str = "The Account Wasn’t Removed";
+/// A rule or vacation reply kept here that its server did not take.
+pub const NOT_ON_SERVER: &str = "Not Saved on the Server";
+/// A rule run on existing mail that stopped.
+pub fn did_not_run(name: &str) -> String {
+    format!("“{name}” Didn’t Run")
+}
+/// A key or certificate job (import, save, delete, verify) that failed.
+pub const KEYS_FAILED: &str = "That Didn’t Work";

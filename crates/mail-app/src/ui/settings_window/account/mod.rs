@@ -15,6 +15,7 @@
 mod words;
 
 use crate::ui::appearance::WindowDirs;
+use crate::ui::common::Problem;
 use crate::ui::copy;
 use crate::ui::data::{AccountRow, account_rows};
 use crate::ui::fetching::{Need, Needing, use_needs};
@@ -95,6 +96,17 @@ pub(super) fn back(mut shell: Signal<Shell>) {
     }
 }
 
+/// Show the list: the account's page has nothing left to show. A removal under way goes back
+/// to it on its own.
+fn to_list(mut shell: Signal<Shell>) {
+    if shell.peek().accounts_pane.step == AccountStep::Removing {
+        return;
+    }
+    let mut write = shell.write();
+    write.accounts_pane.path = PanePath::new(AccountsPage::List);
+    write.accounts_pane.step = AccountStep::Showing;
+}
+
 /// The confirming button: remove the account, then tidy what the window kept of it and go back
 /// to the list.
 fn confirm(mut shell: Signal<Shell>, mut revision: Signal<u64>, account: AccountId) {
@@ -161,15 +173,16 @@ pub(super) fn AccountPage(
     let _ = revision();
     // Whether the account waits for the person: the first window knows, and says so to this one.
     let waiting = use_needs();
-    let Some(row) = row_of(&account) else {
-        // Removed from elsewhere while the page was shown.
-        return rsx! {
-            Form {
-                FormSection {
-                    footer: Some(words::refused(&mail_core::account::RemoveError::Unknown)),
-                }
-            }
-        };
+    let row = row_of(&account);
+    // Removed from elsewhere while the page was shown: the pane goes back to the list.
+    let gone = row.is_none();
+    use_effect(use_reactive!(|gone| {
+        if gone {
+            to_list(shell);
+        }
+    }));
+    let Some(row) = row else {
+        return rsx! {};
     };
     let step = shell.read().accounts_pane.step.clone();
     let name = row.shown();
@@ -233,9 +246,6 @@ pub(super) fn AccountPage(
             // Removing is the page's last part, alone and outside any group, as System Settings
             // puts it: it cannot be undone, so it asks first.
             div { class: "acct-actions",
-                if let Some(why) = refused {
-                    Label { text: why, severity: Some(Severity::Warn) }
-                }
                 Button {
                     label: ASK,
                     role: ButtonRole::Destructive,
@@ -244,6 +254,9 @@ pub(super) fn AccountPage(
                     onclick: on_primary(move || to(shell, AccountStep::Asking)),
                 }
             }
+        }
+        if let Some(why) = refused {
+            Problem { title: copy::titles::NOT_REMOVED, why, onclose: move |()| to(shell, AccountStep::Showing) }
         }
         if let Some(asked) = asking {
             Alert {
