@@ -13,6 +13,7 @@
 //! Which Space shows which account is the Space's menu's; this page is every account at once.
 
 use super::account::{AccountPage, back, row_of};
+use super::rows::link_row;
 use crate::ui::common::tile;
 use crate::ui::copy;
 use crate::ui::data::{AccountRow, account_rows};
@@ -129,40 +130,27 @@ fn AccountList(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
             },
         ));
     }
-    items.push(ListItem::row(
-        ADD.to_owned(),
-        copy::controls::ADD_ACCOUNT.to_owned(),
-        rsx! {
-            Row {
-                leading: tile(Icon::Plus, PlateFamily::Blue),
-                title: copy::controls::ADD_ACCOUNT,
-                size: RowSize::Settings,
-                accessory: Accessory::Chevron,
-                onclick: move |_| {
-                    crate::ui::add_account::add_from(|offered| adding.set(Some(offered)))
-                },
-                common: Common {
-                    aria_label: Some(copy::controls::ADD_ACCOUNT.to_owned()),
-                    mounted: Some(EventHandler::new(move |event: MountedEvent| {
-                        add_row.set(Some(MountedRef(event.data())));
-                    })),
-                    ..Common::default()
-                },
-            }
+    items.push(link_row(
+        ADD,
+        copy::controls::ADD_ACCOUNT,
+        tile(Icon::Plus, PlateFamily::Blue),
+        move |_| crate::ui::add_account::add_from(|offered| adding.set(Some(offered))),
+        Common {
+            aria_label: Some(copy::controls::ADD_ACCOUNT.to_owned()),
+            mounted: Some(EventHandler::new(move |event: MountedEvent| {
+                add_row.set(Some(MountedRef(event.data())));
+            })),
+            ..Common::default()
         },
     ));
-    let other_keys = vec![ListItem::row(
-        OTHER_KEYS_ROW.to_owned(),
-        copy::titles::OTHER_KEYS.to_owned(),
-        rsx! {
-            Row {
-                leading: tile(Icon::Key, PlateFamily::Amber),
-                title: copy::titles::OTHER_KEYS,
-                size: RowSize::Settings,
-                accessory: Accessory::Chevron,
-                onclick: move |_| other_keys(shell),
-                common: Common { id: Some(OTHER_KEYS_ROW.to_owned()), ..Common::default() },
-            }
+    let other_keys = vec![link_row(
+        OTHER_KEYS_ROW,
+        copy::titles::OTHER_KEYS,
+        tile(Icon::Key, PlateFamily::Amber),
+        move |_| other_keys(shell),
+        Common {
+            id: Some(OTHER_KEYS_ROW.to_owned()),
+            ..Common::default()
         },
     )];
     rsx! {

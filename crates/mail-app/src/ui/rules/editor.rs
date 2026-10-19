@@ -19,7 +19,7 @@ use porter_core::AccountId;
 use std::sync::Arc;
 
 use super::super::data::AccountRow;
-use super::super::menu::{Floating, MenuItem, Right, Tile, anchor_at, narrowed, palette_groups};
+use super::super::menu::{Floating, MenuItem, anchor_at, narrowed, palette_groups};
 use super::super::move_to::destinations;
 use super::super::press::{available, on_primary};
 use super::conditions::{self, ConditionRows};
@@ -44,15 +44,8 @@ enum Adding {
 
 fn item(key: &str, icon: Icon, name: &str, help: Option<&str>) -> MenuItem {
     MenuItem {
-        key: key.to_owned(),
-        tile: Tile::Icon(icon),
-        name: name.to_owned(),
         help: help.map(str::to_owned),
-        right: Right::None,
-        group: None,
-        marks: Vec::new(),
-        title: Vec::new(),
-        detail: Vec::new(),
+        ..MenuItem::icon(key, icon, name)
     }
 }
 
@@ -126,16 +119,43 @@ fn icon_of(action: &RuleAction) -> Icon {
     }
 }
 
+/// The key of the picker row that adds `action`: its kind, then the name or path. Only a label
+/// and a folder are picked this way; the rest are kinds ([`kinds`]).
+fn pick_key(action: &RuleAction) -> String {
+    match action {
+        RuleAction::Label(name) => format!("label:{name}"),
+        RuleAction::File(path) => format!("file:{path}"),
+        _ => String::new(),
+    }
+}
+
+/// The action a picker row's key stands for: the inverse of [`pick_key`].
+fn picked(key: &str) -> Option<RuleAction> {
+    if let Some(name) = key.strip_prefix("label:") {
+        Some(RuleAction::Label(name.to_owned()))
+    } else {
+        key.strip_prefix("file:")
+            .map(|path| RuleAction::File(path.to_owned()))
+    }
+}
+
 /// The label menu's rows: the account's labels, and "Create “…”" for a name it has not.
 pub(in crate::ui) fn label_items(names: &[String], typed: &str) -> Vec<MenuItem> {
     let mut out: Vec<MenuItem> = names
         .iter()
-        .map(|name| item(&format!("label:{name}"), Icon::Tag, name, None))
+        .map(|name| {
+            item(
+                &pick_key(&RuleAction::Label(name.clone())),
+                Icon::Tag,
+                name,
+                None,
+            )
+        })
         .collect();
     let typed = typed.trim();
     if !typed.is_empty() && !names.iter().any(|n| n.eq_ignore_ascii_case(typed)) {
         out.push(item(
-            &format!("label:{typed}"),
+            &pick_key(&RuleAction::Label(typed.to_owned())),
             Icon::Plus,
             &format!("Create “{typed}”"),
             Some("Made when the rule first acts"),
@@ -336,10 +356,8 @@ fn RuleEditor(
                             names: names.clone(),
                             folders: folders.clone(),
                             on_pick: move |key: String| {
-                                if let Some(name) = key.strip_prefix("label:") {
-                                    add(RuleAction::Label(name.to_owned()));
-                                } else if let Some(path) = key.strip_prefix("file:") {
-                                    add(RuleAction::File(path.to_owned()));
+                                if let Some(action) = picked(&key) {
+                                    add(action);
                                 }
                             },
                             on_close: move |()| adding.set(Adding::Closed),
@@ -423,7 +441,14 @@ fn ActionPicker(
             "Find a folder",
             folders
                 .iter()
-                .map(|path| item(&format!("file:{path}"), Icon::FolderInput, path, None))
+                .map(|path| {
+                    item(
+                        &pick_key(&RuleAction::File(path.clone())),
+                        Icon::FolderInput,
+                        path,
+                        None,
+                    )
+                })
                 .collect(),
         ),
     };

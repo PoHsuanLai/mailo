@@ -206,7 +206,6 @@ pub(in crate::ui) fn commands() -> Vec<Command> {
 }
 
 /// The entry for `id`. Every id has one; [`ENTRIES`] is checked against them in the tests.
-#[cfg(test)]
 pub(in crate::ui) fn entry_of(id: CommandId) -> &'static Entry {
     ENTRIES
         .iter()
@@ -386,15 +385,14 @@ fn action_item(hit: &ActionHit, group: &str, keymap: &Keymap) -> MenuItem {
         .and_then(|entry| entry.standard)
         .and_then(|action| actions::hint_standard(keymap, action));
     MenuItem {
-        key: entry.map_or_else(String::new, action_key),
-        tile: Tile::Icon(entry.map_or(Icon::Command, |entry| entry.icon)),
-        name: hit.command.label.clone(),
-        help: None,
         right: shortcut.map(Right::Shortcut).unwrap_or(Right::None),
         group: Some(group.to_owned()),
         marks: hit.indices.clone(),
-        title: Vec::new(),
-        detail: Vec::new(),
+        ..MenuItem::icon(
+            entry.map_or_else(String::new, action_key),
+            entry.map_or(Icon::Command, |entry| entry.icon),
+            hit.command.label.clone(),
+        )
     }
 }
 

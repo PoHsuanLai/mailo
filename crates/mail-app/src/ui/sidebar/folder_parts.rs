@@ -1,6 +1,6 @@
 //! The small pieces the rows share: the name fields, a refusal in words, and the menu's items.
 
-use super::super::menu::{MenuItem, Right, Tile};
+use super::super::menu::MenuItem;
 use super::folder_act::child_path;
 use super::folder_row::run;
 use super::folder_tree::{Kind, Node};
@@ -148,14 +148,7 @@ pub(super) fn actions(node: &Node) -> Vec<MenuItem> {
 
 pub(super) fn item(key: &str, icon: Icon, name: &str, help: Option<&str>) -> MenuItem {
     MenuItem {
-        key: key.to_owned(),
-        tile: Tile::Icon(icon),
-        name: name.to_owned(),
         help: help.map(str::to_owned),
-        right: Right::None,
-        group: None,
-        marks: Vec::new(),
-        title: Vec::new(),
-        detail: Vec::new(),
+        ..MenuItem::icon(key, icon, name)
     }
 }

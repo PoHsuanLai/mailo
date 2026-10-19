@@ -5,7 +5,7 @@
 //! to adding a new one.
 
 use crate::ui::copy;
-use crate::ui::menu::{MenuItem, Right, Tile};
+use crate::ui::menu::{MenuItem, Tile};
 use porter_core::AccountId;
 
 /// The menu's key for Add Account….
@@ -40,15 +40,9 @@ pub(super) fn items(
     color: impl Fn(&str) -> String,
 ) -> Vec<MenuItem> {
     let row = |key: String, tile: Tile, name: String, group: &str| MenuItem {
-        key,
         tile,
-        name,
-        help: None,
-        right: Right::None,
         group: Some(group.to_owned()),
-        marks: Vec::new(),
-        title: Vec::new(),
-        detail: Vec::new(),
+        ..MenuItem::plain(key, name)
     };
     let mut rows: Vec<MenuItem> = outside
         .iter()

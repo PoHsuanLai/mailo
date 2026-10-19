@@ -26,7 +26,7 @@ use std::sync::Arc;
 use super::super::common::{classed, tile};
 use super::super::data::AccountRow;
 use super::super::files::Phase;
-use super::super::menu::{Floating, MenuItem, Right, Tile};
+use super::super::menu::{Floating, MenuItem};
 use super::super::motion::{Follow, Restore, tell};
 use super::server::reach;
 use super::work::{self, Listed, Step};
@@ -240,17 +240,7 @@ const DOWN: &str = "down";
 const DELETE: &str = "delete";
 
 fn item(key: &str, icon: Icon, name: &str) -> MenuItem {
-    MenuItem {
-        key: key.to_owned(),
-        tile: Tile::Icon(icon),
-        name: name.to_owned(),
-        help: None,
-        right: Right::None,
-        group: None,
-        marks: Vec::new(),
-        title: Vec::new(),
-        detail: Vec::new(),
-    }
+    MenuItem::icon(key, icon, name)
 }
 
 /// A rule's menu's rows: Move Up and Move Down only where it can move.

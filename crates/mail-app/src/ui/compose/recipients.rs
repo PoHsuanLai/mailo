@@ -8,7 +8,7 @@ use mail_core::Store;
 
 use super::super::contacts::book::suggest;
 use super::super::contacts::groups::{self, Offer};
-use super::super::menu::{MenuItem, Right, Tile};
+use super::super::menu::MenuItem;
 use super::float::people_rows;
 use super::page::{Float, List, Page, person};
 use mail_core::editor::Person;
@@ -74,15 +74,12 @@ fn group_row(offer: &Offer) -> MenuItem {
         help.push_str(&format!(" · {missing} not found"));
     }
     MenuItem {
-        key: format!("{GROUP_KEY}{}", offer.id),
-        tile: Tile::Icon(Icon::Group),
-        name: offer.name.clone(),
         help: Some(help),
-        right: Right::None,
-        group: None,
-        marks: Vec::new(),
-        title: Vec::new(),
-        detail: Vec::new(),
+        ..MenuItem::icon(
+            format!("{GROUP_KEY}{}", offer.id),
+            Icon::Group,
+            offer.name.clone(),
+        )
     }
 }
 

@@ -88,15 +88,8 @@ mod tests {
 
     fn row(key: &str, name: &str, group: &str) -> MenuItem {
         MenuItem {
-            key: key.to_owned(),
-            tile: Tile::Icon(Icon::Command),
-            name: name.to_owned(),
-            help: None,
-            right: Right::None,
             group: Some(group.to_owned()),
-            marks: Vec::new(),
-            title: Vec::new(),
-            detail: Vec::new(),
+            ..MenuItem::icon(key, Icon::Command, name)
         }
     }
 

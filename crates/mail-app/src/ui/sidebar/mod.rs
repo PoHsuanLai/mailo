@@ -38,6 +38,13 @@ pub(super) fn tagged(name: &'static str, value: impl Into<String>) -> Common {
     }
 }
 
+/// Go to the place at `index`, from the first page of its list: the one way a click, a ⌘K pick
+/// or a drop of the sidebar's own rows turns the window to another place.
+pub(in crate::ui) fn go_to(mut shell: Signal<Shell>, mut pages: Signal<u32>, index: usize) {
+    shell.write().select(index);
+    pages.set(1);
+}
+
 /// `common`, with the class that quietens a folder the person does not follow.
 pub(super) fn dimmed(common: Common) -> Common {
     Common {

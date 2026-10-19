@@ -9,7 +9,7 @@
 //! and elsewhere the label a move into it files under, named by its path — the same one a rule
 //! finds or makes (`mail_store::rules`), so a folder is one label whichever way mail got there.
 
-use super::menu::{MenuItem, Right, Tile, anchor_for, narrowed, palette_groups};
+use super::menu::{MenuItem, anchor_for, narrowed, palette_groups};
 use super::motion::drag::Drag;
 use super::motion::{act_all, motion};
 use super::picks::with_selection;
@@ -155,17 +155,7 @@ pub(in crate::ui) fn drop_on(
 pub(in crate::ui) fn items(destinations: &[Destination]) -> Vec<MenuItem> {
     destinations
         .iter()
-        .map(|d| MenuItem {
-            key: d.path.clone(),
-            tile: Tile::Icon(Icon::FolderInput),
-            name: d.path.clone(),
-            help: None,
-            right: Right::None,
-            group: None,
-            marks: Vec::new(),
-            title: Vec::new(),
-            detail: Vec::new(),
-        })
+        .map(|d| MenuItem::icon(d.path.clone(), Icon::FolderInput, d.path.clone()))
         .collect()
 }
 

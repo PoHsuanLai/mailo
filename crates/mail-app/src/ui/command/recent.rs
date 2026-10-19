@@ -7,7 +7,7 @@
 //! is one keystroke away and never in the way. What it lists is [`rows`], pure over the store
 //! and Today, so a table test can say it.
 
-use super::super::menu::{MenuItem, Right, Tile};
+use super::super::menu::{MenuItem, Tile};
 use super::items::{RECENT, avatar_color};
 use crate::ui::copy;
 use crate::ui::space::SpaceId;
@@ -117,15 +117,9 @@ fn draft_name(draft: &Draft) -> String {
 
 fn row(key: String, name: String, tile: Tile) -> MenuItem {
     MenuItem {
-        key,
         tile,
-        name,
-        help: None,
-        right: Right::None,
         group: Some(RECENT.to_owned()),
-        marks: Vec::new(),
-        title: Vec::new(),
-        detail: Vec::new(),
+        ..MenuItem::plain(key, name)
     }
 }
 

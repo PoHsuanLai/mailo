@@ -13,7 +13,7 @@ use dioxus::prelude::*;
 use ds::prelude::*;
 use mail_domain::{Draft, OpenPgp, Smime};
 
-use super::super::menu::{MenuItem, Right, Tile};
+use super::super::menu::{MenuItem, Right};
 use super::page::{Float, Page};
 use super::seal::SealBar;
 
@@ -152,15 +152,10 @@ pub(in crate::ui) fn items(protection: Protection) -> Vec<MenuItem> {
     CHOICES
         .iter()
         .map(|(choice, key, group, name, help)| MenuItem {
-            key: (*key).to_owned(),
-            tile: Tile::Icon(Icon::Key),
-            name: (*name).to_owned(),
             help: Some((*help).to_owned()),
             right: Right::Check(*choice == protection),
             group: group.map(str::to_owned),
-            marks: Vec::new(),
-            title: Vec::new(),
-            detail: Vec::new(),
+            ..MenuItem::icon(*key, Icon::Key, *name)
         })
         .collect()
 }

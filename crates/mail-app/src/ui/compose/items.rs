@@ -34,15 +34,11 @@ fn row(item: &Item, grouped: bool, right: Right) -> MenuItem {
         _ => "Insert".to_owned(),
     });
     MenuItem {
-        key: item.name.to_owned(),
         tile: tile(item),
-        name: item.name.to_owned(),
         help: Some(item.help.to_owned()),
         right,
         group,
-        marks: Vec::new(),
-        title: Vec::new(),
-        detail: Vec::new(),
+        ..MenuItem::plain(item.name, item.name)
     }
 }
 
@@ -83,15 +79,8 @@ pub(in crate::ui) fn emoji_items(page: &Page) -> Vec<MenuItem> {
         .into_iter()
         .take(EMOJI_ROWS)
         .map(|emoji| MenuItem {
-            key: emoji.glyph.to_owned(),
             tile: Tile::Text(emoji.glyph),
-            name: emoji.name.to_owned(),
-            help: None,
-            right: Right::None,
-            group: None,
-            marks: Vec::new(),
-            title: Vec::new(),
-            detail: Vec::new(),
+            ..MenuItem::plain(emoji.glyph, emoji.name)
         })
         .collect()
 }
@@ -101,7 +90,6 @@ pub(in crate::ui) fn people_rows(people: Vec<&Person>) -> Vec<MenuItem> {
     people
         .into_iter()
         .map(|person| MenuItem {
-            key: person.address.clone(),
             tile: Tile::Avatar {
                 letter: person
                     .name
@@ -111,13 +99,8 @@ pub(in crate::ui) fn people_rows(people: Vec<&Person>) -> Vec<MenuItem> {
                     .unwrap_or('?'),
                 color: super::super::command::avatar_color(&person.address),
             },
-            name: person.name.clone(),
             help: Some(person.address.clone()),
-            right: Right::None,
-            group: None,
-            marks: Vec::new(),
-            title: Vec::new(),
-            detail: Vec::new(),
+            ..MenuItem::plain(person.address.clone(), person.name.clone())
         })
         .collect()
 }
@@ -132,19 +115,12 @@ pub(in crate::ui) fn object_items() -> Vec<MenuItem> {
     ]
     .into_iter()
     .map(|(key, name, icon, shortcut)| MenuItem {
-        key: key.to_owned(),
-        tile: Tile::Icon(icon),
-        name: name.to_owned(),
-        help: None,
         right: if shortcut.is_empty() {
             Right::None
         } else {
             Right::Hint(shortcut.to_owned())
         },
-        group: None,
-        marks: Vec::new(),
-        title: Vec::new(),
-        detail: Vec::new(),
+        ..MenuItem::icon(key, icon, name)
     })
     .collect()
 }

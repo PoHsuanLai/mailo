@@ -37,8 +37,7 @@ pub(super) fn FolderRow(
     delimiter: Option<char>,
     wires: Wires,
 ) -> Element {
-    let (mut shell, mut pages, badges, revision) =
-        (wires.shell, wires.pages, wires.badges, wires.revision);
+    let (shell, pages, badges, revision) = (wires.shell, wires.pages, wires.badges, wires.revision);
     let (mut open, mut note) = (wires.open, wires.note);
     let spot = Spot {
         account: account.clone(),
@@ -140,8 +139,7 @@ pub(super) fn FolderRow(
         if matches!(*open.peek(), Open::Renaming { .. }) {
             open.set(Open::Closed);
         }
-        shell.write().select(index);
-        pages.set(1);
+        super::go_to(shell, pages, index);
         if let Some(mailbox) = fetched.clone() {
             fetching::opened(mailbox, revision);
         }

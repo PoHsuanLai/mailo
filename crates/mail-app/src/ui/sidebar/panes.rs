@@ -241,8 +241,7 @@ pub(super) fn PlaceList(
             cursor: (listed(selected) && shell.read().from_side.is_none()).then_some(PlaceKey::Place(selected)),
             onselect: move |key: PlaceKey| {
                 if let PlaceKey::Place(index) = key {
-                    shell.write().select(index);
-                    pages.set(1);
+                    super::go_to(shell, pages, index);
                 }
             },
         }
@@ -291,8 +290,7 @@ fn PlaceRow(
                 ..RowState::default()
             },
             onclick: move |_| {
-                shell.write().select(index);
-                pages.set(1);
+                super::go_to(shell, pages, index);
             },
             onpointerenter: move |_| {
                 if accepts {

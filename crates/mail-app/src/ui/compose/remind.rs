@@ -9,7 +9,7 @@
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
 
-use super::super::menu::{MenuItem, MenuKey, Right, Tile, menu_key};
+use super::super::menu::{MenuItem, MenuKey, Right, menu_key};
 use super::super::menus::{snooze_help, when_in_sentence, when_words};
 use super::page::{Float, Page};
 use super::props::ChoiceRow;
@@ -87,15 +87,9 @@ where
     Tz::Offset: std::fmt::Display,
 {
     let row = |key: &str, icon, name: &str, help: Option<String>, on: bool| MenuItem {
-        key: key.to_owned(),
-        tile: Tile::Icon(icon),
-        name: name.to_owned(),
         help,
         right: Right::Check(on),
-        group: None,
-        marks: Vec::new(),
-        title: Vec::new(),
-        detail: Vec::new(),
+        ..MenuItem::icon(key, icon, name)
     };
     let mut items: Vec<MenuItem> = mail_core::follow_up::CHOICES
         .iter()
@@ -128,15 +122,8 @@ where
     Tz::Offset: std::fmt::Display,
 {
     let mut items = vec![MenuItem {
-        key: OFF_KEY.to_owned(),
-        tile: Tile::Icon(Icon::X),
-        name: "Off".to_owned(),
-        help: None,
         right: Right::Check(remind == Remind::Off),
-        group: None,
-        marks: Vec::new(),
-        title: Vec::new(),
-        detail: Vec::new(),
+        ..MenuItem::icon(OFF_KEY, Icon::X, "Off")
     }];
     items.extend(remind_choices(remind, now, zone));
     items

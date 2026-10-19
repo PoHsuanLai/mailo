@@ -619,17 +619,7 @@ fn link_items() -> Vec<super::menu::MenuItem> {
         (COPY_LINK, super::copy::menus::COPY_LINK, Icon::Copy),
     ]
     .into_iter()
-    .map(|(key, name, icon)| super::menu::MenuItem {
-        key: key.to_owned(),
-        tile: super::menu::Tile::Icon(icon),
-        name: name.to_owned(),
-        help: None,
-        right: super::menu::Right::None,
-        group: None,
-        marks: Vec::new(),
-        title: Vec::new(),
-        detail: Vec::new(),
-    })
+    .map(|(key, name, icon)| super::menu::MenuItem::icon(key, icon, name))
     .collect()
 }
 

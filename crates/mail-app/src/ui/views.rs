@@ -97,13 +97,7 @@ fn group_items(draft: &ViewDraft, labels: &[(String, mail_domain::LabelId)]) -> 
                 Tile::Icon(Icon::Group)
             },
             right: Right::Check(draft.group == group),
-            key,
-            name,
-            help: None,
-            group: None,
-            marks: Vec::new(),
-            title: Vec::new(),
-            detail: Vec::new(),
+            ..MenuItem::plain(key, name)
         })
         .collect()
 }

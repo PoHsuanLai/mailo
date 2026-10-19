@@ -19,7 +19,7 @@ use dioxus::prelude::*;
 use mail_core::SqliteStore;
 use mail_domain::{Draft, Template, TemplateId};
 
-use super::super::menu::{MenuItem, MenuKey, Right, Tile, anchor_at, menu_key, palette_groups};
+use super::super::menu::{MenuItem, MenuKey, Right, anchor_at, menu_key, palette_groups};
 use super::super::motion::{Follow, tell};
 use super::desk::{self, Desk};
 use super::float::{commit, query, slash_items};
@@ -49,15 +49,9 @@ pub(in crate::ui) fn page_slash_items(page: &Page) -> Vec<MenuItem> {
             || words.iter().any(|word| word.starts_with(&wanted));
         if hit {
             items.push(MenuItem {
-                key: key.to_owned(),
-                tile: Tile::Icon(icon),
-                name: name.to_owned(),
                 help: Some(help.to_owned()),
-                right: Right::None,
                 group: wanted.is_empty().then(|| "This message".to_owned()),
-                marks: Vec::new(),
-                title: Vec::new(),
-                detail: Vec::new(),
+                ..MenuItem::icon(key, icon, name)
             });
         }
     };
@@ -132,15 +126,14 @@ pub(in crate::ui) fn template_rows(all: &[(String, Template)], typed: &str) -> V
                     .indices
             };
             Some(MenuItem {
-                key: template.id.to_string(),
-                tile: Tile::Icon(Icon::FilePen),
-                name: template.name.clone(),
                 help: Some(format!("{from} · {}", first_line(template))),
                 right: Right::Remove(format!("Delete template “{}”", template.name)),
-                group: None,
                 marks,
-                title: Vec::new(),
-                detail: Vec::new(),
+                ..MenuItem::icon(
+                    template.id.to_string(),
+                    Icon::FilePen,
+                    template.name.clone(),
+                )
             })
         })
         .collect()

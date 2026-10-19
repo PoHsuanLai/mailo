@@ -9,7 +9,7 @@
 mod further;
 pub(super) use further::FurtherMenus;
 
-use super::menu::{Floating, MenuItem, MenuKey, Right, Tile, anchor_for, menu_key, palette_groups};
+use super::menu::{Floating, MenuItem, MenuKey, Right, anchor_for, menu_key, palette_groups};
 use super::motion::{act, act_all};
 use super::picks::{label_all, with_selection};
 use crate::ui::copy;
@@ -92,15 +92,8 @@ where
     Tz::Offset: std::fmt::Display,
 {
     let row = |key: &str, name: &str, right: Right| MenuItem {
-        key: key.to_owned(),
-        tile: Tile::None,
-        name: name.to_owned(),
-        help: None,
         right,
-        group: None,
-        marks: Vec::new(),
-        title: Vec::new(),
-        detail: Vec::new(),
+        ..MenuItem::plain(key, name)
     };
     SNOOZE
         .iter()
@@ -141,15 +134,8 @@ pub(super) fn label_items(
     let mut items: Vec<MenuItem> = mail_core::view::label_menu(known, summary)
         .into_iter()
         .map(|choice| MenuItem {
-            key: choice.id.to_string(),
-            tile: Tile::None,
-            name: choice.name,
-            help: None,
             right: Right::Check(choice.membership == Membership::In),
-            group: None,
-            marks: Vec::new(),
-            title: Vec::new(),
-            detail: Vec::new(),
+            ..MenuItem::plain(choice.id.to_string(), choice.name)
         })
         .collect();
     let typed = typed.trim();
@@ -158,15 +144,8 @@ pub(super) fn label_items(
         .any(|(name, _)| name.eq_ignore_ascii_case(typed));
     if !typed.is_empty() && !known_name {
         items.push(MenuItem {
-            key: format!("create:{typed}"),
-            tile: Tile::None,
-            name: format!("Create “{typed}”"),
             help: Some("New label".to_owned()),
-            right: Right::None,
-            group: None,
-            marks: Vec::new(),
-            title: Vec::new(),
-            detail: Vec::new(),
+            ..MenuItem::plain(format!("create:{typed}"), format!("Create “{typed}”"))
         });
     }
     items

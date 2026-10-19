@@ -10,7 +10,7 @@
 use ds::prelude::Icon;
 use mail_core::search::{Results, match_list};
 
-use super::super::menu::{MenuItem, Right, Tile};
+use super::super::menu::MenuItem;
 use super::items::{self, Pick, interpret};
 use crate::ui::copy::headers;
 
@@ -96,15 +96,10 @@ pub(in crate::ui) fn places_for(
     current: usize,
 ) -> Vec<MenuItem> {
     let row = |key: String, icon, name: String, help, marks| MenuItem {
-        key,
-        tile: Tile::Icon(icon),
-        name,
         help,
-        right: Right::None,
         group: Some(PLACES.to_owned()),
         marks,
-        title: Vec::new(),
-        detail: Vec::new(),
+        ..MenuItem::icon(key, icon, name)
     };
     if query.trim().is_empty() {
         return places

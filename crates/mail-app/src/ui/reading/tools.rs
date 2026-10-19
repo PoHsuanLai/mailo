@@ -20,7 +20,7 @@ use super::fetch;
 use crate::ui::copy;
 use crate::ui::copy::menus::offered;
 use crate::ui::downloads::{Origin, Saving};
-use crate::ui::menu::{Floating, MenuItem, Right, Tile, anchor_at};
+use crate::ui::menu::{Floating, MenuItem, Right, anchor_at};
 use crate::ui::menus::FurtherMenus;
 use crate::ui::unsubscribe::{Confirm, Offer, Phase, ask};
 use crate::ui::view::{Opened, Peek, Shell};
@@ -53,15 +53,12 @@ pub(super) fn view_items(current: Peek, keymap: &chordkit::Keymap) -> Vec<MenuIt
     let mut items: Vec<MenuItem> = MODES
         .iter()
         .map(|peek| MenuItem {
-            key: peek.slug().to_owned(),
-            tile: Tile::Icon(mode_icon(*peek)),
-            name: peek.label().to_owned(),
-            help: None,
             right: Right::Check(*peek == current),
-            group: None,
-            marks: Vec::new(),
-            title: Vec::new(),
-            detail: Vec::new(),
+            ..MenuItem::icon(
+                peek.slug().to_owned(),
+                mode_icon(*peek),
+                peek.label().to_owned(),
+            )
         })
         .collect();
     items.push(super::super::window::menu_item(keymap));

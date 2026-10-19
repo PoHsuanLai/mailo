@@ -67,6 +67,32 @@ pub(in crate::ui) struct MenuItem {
     pub detail: Vec<Run>,
 }
 
+impl MenuItem {
+    /// A row of just a key and a name: no tile, help, mark or group. Spell out what a row adds
+    /// with struct update (`..MenuItem::plain(key, name)`).
+    pub fn plain(key: impl Into<String>, name: impl Into<String>) -> Self {
+        Self {
+            key: key.into(),
+            tile: Tile::None,
+            name: name.into(),
+            help: None,
+            right: Right::None,
+            group: None,
+            marks: Vec::new(),
+            title: Vec::new(),
+            detail: Vec::new(),
+        }
+    }
+
+    /// A [`plain`](Self::plain) row with an icon tile.
+    pub fn icon(key: impl Into<String>, icon: Icon, name: impl Into<String>) -> Self {
+        Self {
+            tile: Tile::Icon(icon),
+            ..Self::plain(key, name)
+        }
+    }
+}
+
 /// A DOM key name, as `KeyboardEvent.key` reports it.
 pub(in crate::ui) fn menu_key(name: &str) -> Option<MenuKey> {
     match name {

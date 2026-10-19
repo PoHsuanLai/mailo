@@ -11,13 +11,13 @@
 //! per sender with its Remove. The pages are quire's `PaneStack`, its path this page's own.
 
 use super::keys::{KeyRow, value_of};
+use super::rows::link_row;
 use crate::ui::common::Problem;
 use crate::ui::copy;
 use crate::ui::press::on_primary;
 use dioxus::prelude::*;
 use ds::components::fields::field_row::FieldRow;
 use ds::components::lists::list::model::ListStyle;
-use ds::components::lists::row::size::RowSize;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds_settings::schema::{Help, KeySpec};
@@ -146,21 +146,15 @@ fn Groups(on_trusted: EventHandler<()>) -> Element {
                                 None => rsx! {},
                             },
                             Line::TrustedSenders => rsx! {
-                                List::<&'static str> {
+                                List::<String> {
                                     label: copy::titles::TRUSTED_SENDERS,
                                     style: ListStyle::Grouped,
-                                    items: vec![ListItem::row(
+                                    items: vec![link_row(
                                         "trusted",
                                         copy::titles::TRUSTED_SENDERS,
-                                        rsx! {
-                                            Row {
-                                                title: copy::titles::TRUSTED_SENDERS,
-                                                size: RowSize::Settings,
-                                                accessory: Accessory::Chevron,
-                                                onclick: move |_| on_trusted.call(()),
-                                                common: Common { id: Some(TRUSTED_ROW.to_owned()), ..Common::default() },
-                                            }
-                                        },
+                                        RowLeading::None,
+                                        move |_| on_trusted.call(()),
+                                        Common { id: Some(TRUSTED_ROW.to_owned()), ..Common::default() },
                                     )],
                                 }
                             },

@@ -7,6 +7,7 @@
 //! can say what the menu lists; [`MoreMenu`] draws the button and acts on a pick.
 
 use crate::ui::actions::tip_standard;
+use crate::ui::command::{CommandId, entry_of};
 use crate::ui::copy;
 use dioxus::prelude::*;
 use ds::host::measure::MountedRef;
@@ -32,16 +33,28 @@ pub(super) fn menu_items(sidebar: Shown) -> Vec<MenuItem<Pick>> {
         Shown::Hidden => copy::menus::SHOW_SIDEBAR,
     };
     vec![
-        MenuItem::new(Pick::TidyUp, copy::menus::TIDY_UP)
-            .with_image(MenuImage::Icon(Icon::Archive)),
+        row(
+            Pick::TidyUp,
+            CommandId::TidyUp,
+            entry_of(CommandId::TidyUp).label,
+        ),
         MenuItem::Separator,
-        MenuItem::new(Pick::Settings, copy::menus::SETTINGS)
-            .with_image(MenuImage::Icon(Icon::Settings))
-            .with_key(tip_standard(chordkit::StandardAction::Settings)),
-        MenuItem::new(Pick::ToggleSidebar, toggle)
-            .with_image(MenuImage::Icon(Icon::PanelLeft))
+        row(
+            Pick::Settings,
+            CommandId::Settings,
+            entry_of(CommandId::Settings).label,
+        )
+        .with_key(tip_standard(chordkit::StandardAction::Settings)),
+        row(Pick::ToggleSidebar, CommandId::Sidebar, toggle)
             .with_key(tip_standard(chordkit::StandardAction::ToggleSidebar)),
     ]
+}
+
+/// A row for the command `id`, drawn with the icon ⌘K gives it: the foot lists the same
+/// commands, so they look alike in both. `name` is the row's words, which the sidebar's toggle
+/// changes with its state.
+fn row(pick: Pick, id: CommandId, name: &str) -> MenuItem<Pick> {
+    MenuItem::new(pick, name).with_image(MenuImage::Icon(entry_of(id).icon))
 }
 
 /// The chevron at the foot's right and the menu it opens: quire's pull-down in its chevron face.

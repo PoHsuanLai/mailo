@@ -123,15 +123,8 @@ pub(in crate::ui) const OPEN_NAME: &str = "Open in new window";
 pub(in crate::ui) fn menu_item(keymap: &chordkit::Keymap) -> super::menu::MenuItem {
     let shortcut = super::actions::hint_own(keymap, super::actions::Own::OpenInWindow);
     super::menu::MenuItem {
-        key: OPEN_KEY.to_owned(),
-        tile: super::menu::Tile::Icon(Icon::Window),
-        name: OPEN_NAME.to_owned(),
-        help: None,
         right: shortcut.map_or(super::menu::Right::None, super::menu::Right::Shortcut),
-        group: None,
-        marks: Vec::new(),
-        title: Vec::new(),
-        detail: Vec::new(),
+        ..super::menu::MenuItem::icon(OPEN_KEY, Icon::Window, OPEN_NAME)
     }
 }
 
