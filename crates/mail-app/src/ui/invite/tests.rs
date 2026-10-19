@@ -161,8 +161,15 @@ fn submissions(store: &SqliteStore) -> Vec<String> {
         .collect()
 }
 
+/// What is queued for the server beyond flags: opening a conversation marks it read, which is
+/// not an answer.
 fn outbox(store: &SqliteStore) -> usize {
-    store.outbox_due(acct_account(), far()).unwrap().len()
+    store
+        .outbox_due(acct_account(), far())
+        .unwrap()
+        .iter()
+        .filter(|entry| !matches!(entry.op, ProtoOp::SetFlags { .. }))
+        .count()
 }
 
 #[derive(Clone)]

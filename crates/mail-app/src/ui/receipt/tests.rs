@@ -108,8 +108,15 @@ fn submissions(store: &SqliteStore) -> usize {
         .count()
 }
 
+/// What is queued for the server beyond flags: opening a conversation marks it read, which is
+/// not a receipt.
 fn outbox(store: &SqliteStore) -> usize {
-    store.outbox_due(acct_account(), far()).unwrap().len()
+    store
+        .outbox_due(acct_account(), far())
+        .unwrap()
+        .into_iter()
+        .filter(|entry| !matches!(entry.op, ProtoOp::SetFlags { .. }))
+        .count()
 }
 
 #[component]

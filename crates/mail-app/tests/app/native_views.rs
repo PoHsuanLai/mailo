@@ -425,3 +425,25 @@ fn rows_picked_in_a_view_archive_as_one_gesture_and_the_view_deletes_from_its_ed
     let title = harness.text_of(".list-title .ds-label").unwrap_or_default();
     assert!(title.starts_with("Inbox"), "{title}");
 }
+
+/// Opening an unread conversation reads it: its row is drawn read once the reader shows it, and
+/// the others stay unread.
+#[test]
+fn opening_a_conversation_marks_it_read() {
+    let (mut harness, _dir, _store) = open();
+    let strong = |h: &Harness| h.html().matches("data-emphasis=\"strong\"").count();
+    assert_eq!(
+        strong(&harness),
+        INBOX.len(),
+        "every seeded conversation starts unread"
+    );
+    click_subject(&mut harness, INBOX[1].1, &[]);
+    settle_until(&mut harness, |h| h.count(".reader-subject") == 1);
+    settle_until(&mut harness, |h| strong(h) == INBOX.len() - 1);
+    harness.advance(ms(500));
+    assert_eq!(
+        strong(&harness),
+        INBOX.len() - 1,
+        "only the opened one is read"
+    );
+}
