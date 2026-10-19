@@ -186,7 +186,6 @@ fn the_row_pushes_the_page_and_escape_and_command_bracket_come_back_to_it() {
 /// The width the text of the first element matching `selector` wants on one line, and the width
 /// of the box it is drawn in (both at scale 100%).
 fn text_and_box(harness: &Harness, selector: &str) -> (f32, f32) {
-    use ds_harness::DocQuery;
     harness.with_doc(|doc| {
         let id = doc
             .query_selector(selector)
