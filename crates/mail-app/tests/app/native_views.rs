@@ -256,12 +256,9 @@ fn make_the_view(harness: &mut Harness) {
     assert_eq!(harness.count(&sheet), 1, "Save as view opened no sheet");
     // The name starts as the search; replace it.
     press(harness, &format!("{sheet} .rules-part:nth-child(1) input"));
-    // From the start with Delete: on macOS Blitz leaves Backspace in a field to the system's key
-    // bindings, which a headless window never gets.
-    harness.key(Key::Home);
-    for _ in 0.."in:inbox".len() {
-        harness.key(Key::Delete);
-    }
+    // Selected and typed over: on macOS Blitz leaves Backspace, Delete and the arrows in a field to
+    // the system's key bindings, which a headless window never gets.
+    harness.chord(&[PRIMARY], Key::Char('a'));
     type_text(harness, "Mine");
     press(harness, &labelled("Group by: No grouping"));
     assert_eq!(
