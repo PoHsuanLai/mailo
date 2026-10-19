@@ -6,8 +6,8 @@ use ds::prelude::*;
 use ds_blitz::{FocusFallback, NetPolicy, PrintOutcome};
 use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
 use ds_settings::Environment;
-use mail_core::SqliteStore;
 use mail_core::{Arrival, absorb};
+use mail_core::{SqliteStore, Store};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use porter_core::AccountId;
@@ -266,8 +266,14 @@ fn ms(n: u64) -> Duration {
 }
 
 fn open(dark: bool) -> (Harness, tempfile::TempDir) {
+    open_with(dark, |_| {})
+}
+
+/// [`open`], with `prepare` run on the store first.
+fn open_with(dark: bool, prepare: impl FnOnce(&SqliteStore)) -> (Harness, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let store = seeded(dir.path());
+    prepare(&store);
     let contexts = mail_app::ui::native::contexts(
         store,
         mail_app::ui::view::Appearance::default(),
@@ -400,6 +406,30 @@ fn screens() {
             h.key(if c == ' ' { Key::Space } else { Key::Char(c) });
         }
         shot(&mut h, &out, "composer", dark);
+
+        // A message held to leave tomorrow, opened from Scheduled: what it says, and when.
+        let (mut h, _d) = open_with(dark, |store| {
+            let now = chrono::Utc::now();
+            let held = mail_core::compose::draft_new(
+                store,
+                acct_account(),
+                &[Address {
+                    name: Some("Grace Hopper".into()),
+                    email: "grace@example.test".into(),
+                }],
+                "Agenda for the offsite",
+                "Morning: the plan for the year.\nAfternoon: the lake.\n",
+                now,
+            )
+            .unwrap();
+            let at = now + chrono::TimeDelta::days(1);
+            store
+                .set_send_state(held.id, &SendState::Scheduled { at }, now)
+                .unwrap();
+        });
+        click(&mut h, "[*|data-place=\"Scheduled\"]");
+        open_row(&mut h, 1);
+        shot(&mut h, &out, "scheduled-held", dark);
 
         // The search bar's panel (⌘K) with nothing typed, then with a query, then the Add Account
         // sheet from it.

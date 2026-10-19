@@ -24,6 +24,11 @@ pub fn draft_touched(when: &str) -> String {
     format!("Draft \u{b7} {when}")
 }
 
+/// The bar over a message held to leave at a time: "Leaves Tue 09:00".
+pub fn leaves(when: &str) -> String {
+    format!("Leaves {when}")
+}
+
 /// A draft's row named by who it goes to, when it has no subject: "To Ada Lovelace".
 pub fn draft_to(who: &str) -> String {
     format!("To {who}")

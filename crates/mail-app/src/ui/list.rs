@@ -12,8 +12,8 @@ use super::ops::compose_new;
 use super::page::ListMore;
 use super::picks::PickBar;
 use super::press::on_primary;
-use super::row::draft::DraftRow;
-use super::row::{AccountMark, MailRow};
+use super::row::listed::Listed;
+use super::row::{AccountMark, ListRow};
 use super::server_search::{Asked, ServerSearch, found_threads};
 use super::view_groups::group_list;
 use crate::ui::copy;
@@ -61,14 +61,6 @@ fn pitch(lines: Option<ThreadLines>) -> f32 {
 
 /// How many lines a row draws: its snippet is the third, when the list shows snippets and it has
 /// one.
-fn lines_of(snippets: bool, snippet: &str) -> ThreadLines {
-    if snippets && !snippet.is_empty() {
-        ThreadLines::Three
-    } else {
-        ThreadLines::Two
-    }
-}
-
 /// The rows the list mounts beyond the viewport, on each side. The `VirtualDom` fixtures
 /// have no layout, so a viewport there is never measured and would show the overscan alone: they
 /// mount every row, and the windowing itself is tested on Blitz.
@@ -213,37 +205,44 @@ pub(super) fn ThreadList(
     // Each row's lines, by its key: what its pitch is computed from. A heading has none.
     let snippets = shell.read().parts.snippet.shown();
     let mut lines: std::collections::HashMap<Slot, ThreadLines> = std::collections::HashMap::new();
-    for draft in drafts() {
-        let id = draft.id.to_string();
-        let label = if draft.subject.is_empty() {
-            copy::empty::NO_SUBJECT.to_owned()
-        } else {
-            draft.subject.clone()
-        };
-        // A held one says when it leaves on its second line; any other draws its state third.
-        let drawn = match draft.state {
-            SendState::Scheduled { .. } => ThreadLines::Two,
-            _ if snippets => ThreadLines::Three,
-            _ => ThreadLines::Two,
-        };
-        let row = rsx! { DraftRow { draft, shell, revision } };
-        lines.insert(Slot::Draft(id.clone()), drawn);
-        items.push(ListItem::row(Slot::Draft(id), label, row));
-    }
-    let mut mail_row = |slot: Slot, summary: ThreadSummary, items: &mut Vec<ListItem<Slot>>| {
-        let Dress { via, chips, hit } = dress_row(&summary);
-        let snippet = hit
-            .as_ref()
-            .map_or(summary.snippet.as_str(), |hit| hit.snippet.as_str());
-        lines.insert(slot.clone(), lines_of(snippets, snippet));
-        let id = summary.id;
-        let label = summary.subject.clone();
-        let selection = selection_of(id);
+    let composing = shell.read().composing.as_ref().map(|open| open.draft);
+    let now = chrono::Utc::now();
+    // Every row, a conversation or a draft, is the one `ListRow`, drawn from its `RowModel`.
+    let mut push_row = |slot: Slot,
+                        listed: Listed,
+                        dress: Dress,
+                        selection: Selection,
+                        items: &mut Vec<ListItem<Slot>>| {
+        let Dress { via, chips, hit } = dress;
+        let model = listed.row(hit.as_ref(), snippets, now, &chrono::Local);
+        lines.insert(slot.clone(), model.lines);
+        let label = listed.subject();
         items.push(ListItem::row(
             slot,
             label,
-            rsx! { MailRow { summary, shell, revision, chips, via, hit, selection } },
+            rsx! { ListRow { listed, model, shell, revision, chips, via, selection } },
         ));
+    };
+    // A draft is selected while its composer is open.
+    for draft in drafts() {
+        let selection = if composing == Some(draft.id) {
+            Selection::Selected
+        } else {
+            Selection::Unselected
+        };
+        let slot = Slot::Draft(draft.id.to_string());
+        push_row(
+            slot,
+            Listed::Draft(draft),
+            Dress::default(),
+            selection,
+            &mut items,
+        );
+    }
+    let mut mail_row = |slot: Slot, summary: ThreadSummary, items: &mut Vec<ListItem<Slot>>| {
+        let dress = dress_row(&summary);
+        let selection = selection_of(summary.id);
+        push_row(slot, Listed::Thread(summary), dress, selection, items);
     };
     let strip = top();
     if !strip.is_empty() {
@@ -510,6 +509,8 @@ pub(super) fn ThreadList(
 }
 
 /// What a row shows beside its summary: its account's mark, the label chips, the search marks.
+/// A draft's is empty.
+#[derive(Default)]
 struct Dress {
     via: Option<AccountMark>,
     chips: Vec<String>,

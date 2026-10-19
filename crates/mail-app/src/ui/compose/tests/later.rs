@@ -7,7 +7,7 @@ use super::super::later::{choose_time, leaves, pick_time, scheduled};
 use super::super::page::{Float, Phase, When};
 use super::super::props::pick_sends;
 use super::*;
-use crate::ui::fixtures::{acct_account, click, pick_named, seeded, settle};
+use crate::ui::fixtures::{acct_account, click, pick_named, right_click, seeded, settle};
 use crate::ui::space::Scope;
 use mail_core::compose::Leaves;
 use mail_core::editor::to_html;
@@ -247,8 +247,8 @@ async fn scheduling_holds_the_draft_until_its_time_and_cancel_brings_back_the_pa
     );
 }
 
-/// Cancel Sending, in a scheduled message's menu, makes it a draft again; a click on the row
-/// only opens the menu, and the undo queues it again for its time.
+/// Cancel Sending, in a scheduled message's right-click menu, makes it a draft again, and the
+/// undo queues it again for its time.
 #[tokio::test]
 async fn cancel_sending_from_scheduled_is_undone_to_its_time() {
     let (store, _dir) = seeded();
@@ -267,12 +267,12 @@ async fn cancel_sending_from_scheduled_is_undone_to_its_time() {
     });
     let drawn = sent.merge(crate::ui::fixtures::drain_seen(&mut window.dom));
 
-    // A plain click asks; it takes nothing back by itself.
-    let asked = click(&mut window.dom, drawn.one("data-scheduled", "Friday"));
+    // A right click asks; it takes nothing back by itself.
+    let asked = right_click(&mut window.dom, drawn.one("data-scheduled", "Friday"));
     assert_eq!(
         store.draft(draft.id).map(|d| d.state).ok(),
         Some(SendState::Scheduled { at }),
-        "a click took the message back"
+        "a right click took the message back"
     );
     let opened = settle(&mut window.dom, asked);
     pick_named(
@@ -319,6 +319,67 @@ async fn cancel_sending_from_scheduled_is_undone_to_its_time() {
         outbox(&store, at - chrono::TimeDelta::seconds(1)),
         early,
         "the undone send may leave before its time"
+    );
+}
+
+/// A click on a scheduled message opens it, held: what it says and when it leaves, and nothing to
+/// write in. The bar's Cancel Sending makes it a draft again and opens it in the composer.
+#[tokio::test]
+async fn a_scheduled_message_opens_held_and_cancel_writes_it() {
+    let (store, _dir) = seeded();
+    let draft = fresh(&store);
+    let at = a_day_from_now();
+    let (mut window, seen) = Window::open(store.clone(), draft.clone(), None);
+    scheduled_page(&mut window, at);
+    let sent = click(&mut window.dom, seen.one("aria-label", "Send"));
+    // The fold, settled: the page is gone, as its timer takes it away.
+    let shell = window.shell;
+    window.dom.in_runtime(|| {
+        let mut shell = shell;
+        shell.write().close_composer();
+    });
+    let drawn = sent.merge(crate::ui::fixtures::drain_seen(&mut window.dom));
+
+    let opened = click(&mut window.dom, drawn.one("data-scheduled", "Friday"));
+    let opened = settle(&mut window.dom, opened);
+    let markup = window.render();
+    assert!(
+        markup.contains("data-held=\"Friday\""),
+        "not opened held:\n{markup}"
+    );
+    let leaves = crate::ui::copy::status::leaves(&crate::ui::menus::when_words(
+        at,
+        Utc::now(),
+        &chrono::Local,
+    ));
+    assert!(
+        markup.contains(&leaves),
+        "the bar does not say {leaves:?}:\n{markup}"
+    );
+    assert!(
+        !markup.contains("aria-label=\"Send\""),
+        "a held message offers Send:\n{markup}"
+    );
+    assert_eq!(
+        store.draft(draft.id).map(|d| d.state).ok(),
+        Some(SendState::Scheduled { at }),
+        "opening it took it back"
+    );
+
+    click(
+        &mut window.dom,
+        opened.one("aria-label", crate::ui::copy::menus::CANCEL_SENDING),
+    );
+    let markup = window.render();
+    assert_eq!(
+        store.draft(draft.id).map(|d| d.state).ok(),
+        Some(SendState::Editing)
+    );
+    assert!(scheduled(&store, &Scope::All).is_empty());
+    assert!(!markup.contains("data-held"), "still held:\n{markup}");
+    assert!(
+        markup.contains("aria-label=\"Send\""),
+        "the composer did not open on it:\n{markup}"
     );
 }
 

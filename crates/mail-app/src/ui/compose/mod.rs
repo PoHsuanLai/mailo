@@ -19,6 +19,7 @@ mod desk;
 mod emoji;
 mod float;
 mod foot;
+mod held;
 mod items;
 mod later;
 mod life;
@@ -50,7 +51,7 @@ use std::sync::Arc;
 
 use dioxus::prelude::*;
 use mail_core::{SqliteStore, Store};
-use mail_domain::{Change, ChangeId, Draft, DraftId, Patch};
+use mail_domain::{Change, ChangeId, Draft, DraftId, Patch, SendState};
 
 use attach::Attach;
 use body::Body;
@@ -103,13 +104,43 @@ fn kind_of(draft: DraftId) -> PageKind {
     }
 }
 
-/// The page for `draft`. Loads it from where it was parked, else from the store.
+/// The page for `draft`: held for its time, or being written.
 #[component]
 pub(in crate::ui) fn ComposerPage(
     draft: DraftId,
     shell: Signal<Shell>,
     revision: Signal<u64>,
 ) -> Element {
+    // One held to leave at a time when it is opened is read, not written: the outbox has it as
+    // it was sealed. Cancel Sending makes it a draft again, and the page then writes it here.
+    // Asked once: a page scheduled while it is open folds away as it did.
+    let mut held = use_signal(|| {
+        let store = consume_context::<Arc<SqliteStore>>();
+        store
+            .draft(draft)
+            .ok()
+            .and_then(|stored| match stored.state {
+                SendState::Scheduled { at } => Some((stored, at)),
+                _ => None,
+            })
+    });
+    if let Some((stored, at)) = held() {
+        return rsx! {
+            held::HeldPage {
+                draft: stored,
+                at,
+                shell,
+                revision,
+                on_cancelled: move |()| held.set(None),
+            }
+        };
+    }
+    rsx! { Writing { draft, shell, revision } }
+}
+
+/// The composer on `draft`, loaded from where it was parked, else from the store.
+#[component]
+fn Writing(draft: DraftId, shell: Signal<Shell>, revision: Signal<u64>) -> Element {
     let desk = use_context::<Desk>();
     let loaded = use_hook(|| {
         let store = consume_context::<Arc<SqliteStore>>();

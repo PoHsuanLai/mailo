@@ -194,15 +194,10 @@ fn the_work_rows_carry_the_read_state_the_chip_and_the_more_button() {
         "Dana is unread:\n{dana}"
     );
     assert!(dana.contains(">spec<"), "Dana's chip is spec:\n{dana}");
-    // The row's one button is the ⋯: its actions are in the menu it opens.
+    // The row draws no buttons: its actions are in its right-click menu.
     assert!(
-        dana.contains("class=\"ds-row-more\"") && dana.contains("aria-label=\"More actions\""),
-        "the row has no ⋯:\n{dana}"
-    );
-    assert_eq!(
-        dana.matches("aria-haspopup").count(),
-        1,
-        "the row has more than the ⋯:\n{dana}"
+        !dana.contains("class=\"ds-row-more\"") && !dana.contains("aria-haspopup"),
+        "the row draws a button:\n{dana}"
     );
 }
 

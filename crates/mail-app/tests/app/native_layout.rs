@@ -230,49 +230,36 @@ fn a_click_on_a_row_opens_the_thread_and_never_acts_on_it() {
     );
 }
 
-/// The row's one button is the ⋯ in its tail, after the time on the name's line, and a click on
-/// it opens the row's menu and nothing else: the thread neither leaves nor opens.
+/// A row draws no button, and a right click on it opens its menu at the pointer and does
+/// nothing else: the thread neither leaves nor opens.
 #[test]
-fn the_more_button_sits_in_the_tail_and_only_opens_the_menu() {
+fn a_right_click_on_a_row_only_opens_its_menu() {
+    use ds::base::press::PointerButton;
     let (mut harness, _dir) = open(1200, spaces(1));
     let rows = harness.count(".list .ds-thread");
     let readers = harness.count(".reader .ds-empty-state");
-    let more = format!("{ROW} .ds-thread-tail .ds-row-more");
-    assert_eq!(harness.count(&format!("{ROW} .ds-row-more")), 1);
     assert_eq!(
-        harness.attr(&more, "aria-label").as_deref(),
-        Some("More actions")
+        harness.count(&format!("{ROW} .ds-row-more")),
+        0,
+        "a row draws a ⋯"
     );
-    // At the row's trailing edge, inside the row, and after the time rather than over it.
-    let (button, row) = (rect(&harness, &more), rect(&harness, ROW));
-    let time = rect(&harness, &format!("{ROW} .ds-thread-time"));
-    assert!(within(&button, &row), "the ⋯ is not inside its row");
-    assert!(
-        left(&button) > left(&row) + row.size.width.0 * 0.75,
-        "the ⋯ is not at the row's trailing edge"
-    );
-    assert!(
-        left(&button) >= left(&time) + time.size.width.0 - 0.5,
-        "the ⋯ {button:?} covers the time {time:?}"
-    );
-    harness.pointer_move(centre(&harness, &format!("{ROW} .ds-thread-sub")));
-    harness.advance(ms(100));
-    harness.click(centre(&harness, &more));
+    let at = centre(&harness, &format!("{ROW} .ds-thread-sub"));
+    harness.press(at, PointerButton::Secondary);
     settle_until(&mut harness, |h| h.count(".ds-menu .ds-menu-item") > 0);
-    assert_eq!(
-        harness.attr(&more, "aria-expanded").as_deref(),
-        Some("true"),
-        "the ⋯ does not say its menu is open"
+    let menu = rect(&harness, ".ds-menu");
+    assert!(
+        (left(&menu) - at.x.0).abs() < 24.0,
+        "the menu {menu:?} does not hang at the pointer {at:?}"
     );
     assert_eq!(
         harness.count(".list .ds-thread"),
         rows,
-        "the ⋯ acted on the thread"
+        "the right click acted on the thread"
     );
     assert_eq!(
         harness.count(".reader .ds-empty-state"),
         readers,
-        "the ⋯ opened the thread"
+        "the right click opened the thread"
     );
 }
 

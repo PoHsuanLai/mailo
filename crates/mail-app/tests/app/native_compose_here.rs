@@ -197,7 +197,7 @@ fn a_draft_opens_here_selected_and_its_menu_deletes_it() {
     });
 
     harness.press(centre(&harness, &row), PointerButton::Secondary);
-    let menu = ".ds-menu[*|aria-label=\"Draft\"]";
+    let menu = ".ds-menu[*|aria-label=\"Actions for Offsite plans\"]";
     settle_until(&mut harness, |h| h.count(menu) == 1);
     crate::row_menu::press_menu_item(&mut harness, "Delete Draft");
     settle_until(&mut harness, |h| {

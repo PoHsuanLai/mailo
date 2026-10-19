@@ -1,26 +1,25 @@
-//! One row of the list.
+//! One row of the list: a conversation or a draft, drawn alike.
 //!
-//! A draft and a conversation are different rows: a draft opens the composer, a conversation
-//! opens the reader. Split from [`super::app`] (`CONVENTIONS.md` §8).
-//!
-//! Each row is quire's `ThreadRow` inside mailo's `.row`, the box the row's own menus and the
-//! snooze float are placed against. A click anywhere on a row only opens or picks it: the row's
-//! actions are in its menu ([`menu`]), opened by a right click or by the one button the row shows
-//! under the pointer, quire's `RowMore` (the ⋯), which cannot act on the conversation by itself.
+//! What a row says, its menu and what a click opens are worked out in [`listed`]; [`ListRow`]
+//! draws it and does what it asks. Each row is quire's `ThreadRow` inside mailo's `.row`, the box
+//! the row's own menus and the snooze float are placed against. A click anywhere on a row only
+//! opens or picks it, and it draws no buttons: its actions are in its menu ([`menu`]), opened by
+//! a right click. Split from [`super::app`] (`CONVENTIONS.md` §8).
 
 pub(in crate::ui) mod act;
-pub(in crate::ui) mod draft;
+pub(in crate::ui) mod listed;
+#[cfg(test)]
+mod listed_tests;
 pub(in crate::ui) mod menu;
 #[cfg(test)]
 mod tests;
 
-use super::list_search::RowHit;
 use super::marked::{Piece, pieces};
 use super::menus::{LabelMenu, SnoozeMenu};
 use super::motion::{act_kind, drag, motion};
 use super::move_to::MoveMenu;
 use super::picks::drawn_order;
-use super::text::sender;
+use crate::ui::compose::{cancel_scheduled, delete_stored_draft};
 use crate::ui::copy;
 use crate::ui::provider_chip::ProvChip;
 use crate::ui::selection::Click;
@@ -28,23 +27,23 @@ use crate::ui::view::Marks;
 use crate::ui::view::Shell;
 use act::{Pressed, press};
 use chordkit::Platform;
-use chrono::Local;
 use dioxus::prelude::*;
 use ds::base::command::holds_primary;
 use ds::base::press::{PointerButton, Press};
 use ds::base::vocab::RowState;
-use ds::components::app::row_more::RowMore;
 use ds::components::app::thread_row::ThreadRow;
 use ds::components::content::text_runs::{RunTone, TextRun};
 use ds::components::controls::chip::{Chip, ChipVariant};
 use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use ds::root::common::Common;
+use ds::root::pass_through::{DataAttr, DataName};
 use ds::style::icon::render::Glyph;
-use mail_core::SqliteStore;
+use listed::{Listed, Opens, RowModel};
 use mail_core::provider::Provider;
+use mail_core::{SqliteStore, Store};
 use mail_domain::*;
-use menu::{Opener, Pick, RowMenu};
+use menu::{Pick, RowMenu};
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -64,66 +63,186 @@ fn runs(text: &str, marks: &[Range<usize>]) -> TextLine {
     )
 }
 
-/// A conversation, as a row, including its ⋯ and whichever menu it has open.
+/// A row of the list, drawn as `model` says, and whichever menu it has open.
 #[component]
-pub(super) fn MailRow(
-    summary: ThreadSummary,
+pub(super) fn ListRow(
+    listed: Listed,
+    model: RowModel,
     shell: Signal<Shell>,
-    revision: Signal<u64>,
+    mut revision: Signal<u64>,
+    /// A conversation's labels, drawn while the list shows them.
     chips: Vec<String>,
     /// Whose conversation it is, drawn only while the list shows more than one account.
     via: Option<AccountMark>,
-    hit: Option<RowHit>,
-    /// Picked, or open with nothing picked (`Shell::is_selected`, asked by the list, which
-    /// knows what is listed).
+    /// Picked, or open with nothing picked, asked by the list, which knows what is listed.
     selection: Selection,
 ) -> Element {
-    let id = summary.id;
-    let unread = summary.read == ReadState::Unread;
-    let starred = summary.star == Star::Starred;
-    let muted = summary.mute == Mute::Muted;
-    let no_reply = mail_core::follow_up::row_words(&summary.follow_up);
-    let who = sender(&summary);
-    let when = mail_core::when::listed(summary.last_date, chrono::Utc::now(), &Local);
-    let subject = summary.subject.clone();
-    // While a search is active the snippet is cut around its first match, and both lines mark.
-    let (subject_marks, snippet, snippet_marks) = match hit {
-        Some(hit) => (hit.subject, hit.snippet, hit.snippet_marks),
-        None => (Vec::new(), summary.snippet.clone(), Vec::new()),
-    };
-    let files = matches!(summary.attachments, Attachments::Present { .. });
-    // The same menu in every place: what the conversation's state offers, and nothing else.
-    let menu_rows = menu::rows(&menu::groups(&summary), &summary, chrono::Utc::now());
-    let filing = shell.read().filing == Some(id);
-    // Where the menus a pick opens float: where the row's menu stood, else against the row.
-    let keys = use_keys();
     let platform = use_platform();
+    let keys = use_keys();
+    // Where the menus a pick opens float: where the row's menu stood, else against the row.
     let mut snooze_at = use_signal(|| None::<Rect>);
     let mut label_at = use_signal(|| None::<Rect>);
     let mut move_at = use_signal(|| None::<Rect>);
     let mut row_box = use_signal(|| None::<MountedRef>);
-    // The focus inside the row shows its ⋯, as the pointer over it does: Blitz never matches
-    // `:focus-within`, so quire's button is told.
-    let mut more_shown = use_signal(|| None::<Shown>);
-    // The row's menu, and what opened it.
-    let mut row_menu = use_signal(|| None::<Opener>);
-    let parts = shell.read().parts;
-    let snippet =
-        (parts.snippet.shown() && !snippet.is_empty()).then(|| runs(&snippet, &snippet_marks));
+    // The row's menu, and the point it was asked for at.
+    let mut row_menu = use_signal(|| None::<Rect>);
+    let thread = match &listed {
+        Listed::Thread(summary) => Some(summary.clone()),
+        Listed::Draft(_) => None,
+    };
+    let draft = match &listed {
+        Listed::Draft(draft) => Some(draft.id),
+        Listed::Thread(_) => None,
+    };
+    let subject = listed.subject();
+    let menu_rows = listed.menu(chrono::Utc::now());
+    let dragged = thread.as_ref().is_some_and(|summary| {
+        motion().is_some_and(|state| {
+            matches!(*state.drag.read(), drag::Drag::Live { thread, .. } if thread == summary.id)
+        })
+    });
+    let state = RowState {
+        selection,
+        emphasis: model.emphasis,
+        drop: if dragged {
+            DropState::Source
+        } else {
+            DropState::Idle
+        },
+        ..RowState::default()
+    };
+    // Where a test, and a hover card, find a message held for its time: by its subject.
+    let common = Common {
+        aria_label: Some(model.label.clone()),
+        data: listed
+            .held()
+            .and_then(|_| DataName::parse("scheduled").ok())
+            .map(|name| vec![DataAttr::new(name, subject.clone())])
+            .unwrap_or_default(),
+        ..Common::default()
+    };
     let via = via.map(|via| rsx! { ViaChip { via, marks: shell.read().appearance.marks } });
     // A star is drawn only on a starred conversation, as its mark: starring is in the row's menu
     // and on its key, and nothing appears under the pointer. Pressing the mark unstars.
-    let star = starred.then(|| {
-        (
-            Check::On,
-            EventHandler::new(move |_: Check| {
-                let store = consume_context::<Arc<SqliteStore>>();
-                act_kind(&store, shell, revision, id, OpKind::Unstar);
-            }),
-        )
-    });
-    let tags = rsx! {
-        if parts.chips.shown() {
+    let star = thread
+        .as_ref()
+        .filter(|summary| summary.star == Star::Starred)
+        .map(|summary| {
+            let id = summary.id;
+            (
+                Check::On,
+                EventHandler::new(move |_: Check| {
+                    let store = consume_context::<Arc<SqliteStore>>();
+                    act_kind(&store, shell, revision, id, OpKind::Unstar);
+                }),
+            )
+        });
+    let tags = match &thread {
+        Some(summary) => {
+            rsx! { Tags { summary: summary.clone(), chips, shown: shell.read().parts.chips.shown() } }
+        }
+        None => rsx! {},
+    };
+    let open_on = listed.clone();
+    let id = thread.as_ref().map(|summary| summary.id);
+    rsx! {
+        div { key: "{listed.key()}", class: "row", role: "none",
+            onmounted: move |event: MountedEvent| row_box.set(Some(MountedRef(event.data()))),
+            oncontextmenu: move |event: MouseEvent| {
+                event.prevent_default();
+                row_menu.set(Some(point_rect(event.client_coordinates())));
+            },
+            // Shift+Enter on a focused conversation opens it in a window of its own. Stopped
+            // here, so the window's own Shift+Enter does not open the open conversation as well.
+            onkeydown: move |event: KeyboardEvent| {
+                let opens = crate::ui::actions::heard(keys, &event, false)
+                    == Some(crate::ui::actions::Heard::Own(crate::ui::actions::Own::OpenInWindow));
+                if let (true, Some(id)) = (opens, id) {
+                    event.stop_propagation();
+                    super::window::open_in_window(id);
+                }
+            },
+            ThreadRow {
+                state,
+                name: model.name,
+                via,
+                subject: model.subject,
+                snippet: model.snippet,
+                time: model.time,
+                tags,
+                star,
+                star_shortcut: crate::ui::actions::tip(crate::ui::view::Shortcut::ToggleStar),
+                strip: None,
+                more: None,
+                onclick: move |press: Press| {
+                    let Some(click) = click_of(press, platform) else {
+                        return;
+                    };
+                    match open_on.open(click) {
+                        Opens::Thread(id, click) => shell.write().click(id, click, &drawn_order()),
+                        Opens::Draft(id) => {
+                            let store = consume_context::<Arc<SqliteStore>>();
+                            if let Ok(draft) = store.draft(id) {
+                                shell.write().compose(&draft);
+                            }
+                        }
+                    }
+                },
+                onpointerdown: id.map(|id| EventHandler::new(move |event: PointerEvent| {
+                    let point = event.client_coordinates();
+                    drag::press(id, (point.x, point.y));
+                })),
+                common,
+            }
+            if let Some(at) = row_menu() {
+                RowMenu {
+                    at,
+                    anchor: row_box(),
+                    subject: subject.clone(),
+                    items: menu_rows,
+                    on_pick: move |pick: Pick| {
+                        row_menu.set(None);
+                        match (pick, id, draft) {
+                            (Pick::Press(pressed), Some(id), _) => {
+                                // A menu the pick opens stands where this one stood.
+                                match pressed {
+                                    Pressed::Op(OpKind::Snooze) => snooze_at.set(Some(at)),
+                                    Pressed::Op(OpKind::AddLabel) => label_at.set(Some(at)),
+                                    Pressed::MoveTo => move_at.set(Some(at)),
+                                    Pressed::Op(_) => {}
+                                }
+                                press(shell, revision, id, pressed);
+                            }
+                            (Pick::DeleteDraft, _, Some(draft)) => delete_stored_draft(shell, revision, draft),
+                            // A refusal is said in the toast; the message stays as it was.
+                            (Pick::CancelSending, _, Some(draft))
+                                if cancel_scheduled(shell, draft).is_ok() =>
+                            {
+                                revision += 1;
+                            }
+                            // Not offered here: the reader's ⋯ holds them.
+                            _ => {}
+                        }
+                    },
+                    on_close: move |_| row_menu.set(None),
+                }
+            }
+            if let Some(summary) = thread {
+                ThreadFloats { summary, shell, revision, anchor: row_box(), snooze_at: snooze_at(), label_at: label_at(), move_at: move_at() }
+            }
+        }
+    }
+}
+
+/// A conversation's marks at the end of its row: its labels, muted, a reply that never came,
+/// files.
+#[component]
+fn Tags(summary: ThreadSummary, chips: Vec<String>, shown: bool) -> Element {
+    let no_reply = mail_core::follow_up::row_words(&summary.follow_up);
+    let muted = summary.mute == Mute::Muted;
+    let files = matches!(summary.attachments, Attachments::Present { .. });
+    rsx! {
+        if shown {
             for name in chips {
                 span { key: "{name}", "data-chip": "{name}",
                     Chip { variant: ChipVariant::Neutral, text: name.clone() }
@@ -148,122 +267,37 @@ pub(super) fn MailRow(
                 Glyph { icon: Icon::Paperclip, size: IconSize::Compact }
             }
         }
-    };
-    // The ⋯ sits in the row's flow, under the time, and opens the row's menu and does nothing
-    // else, so a click that lands on it by mistake changes nothing. The menu hangs from the
-    // button's own rect, measured as it is pressed.
-    let more = rsx! {
-        RowMore {
-            // Kept up while its own menu is open, so the menu hangs from something drawn.
-            expanded: if matches!(row_menu(), Some(Opener::More(_))) { Shown::Visible } else { Shown::Hidden },
-            shown: more_shown(),
-            onclick: move |rect: Rect| row_menu.set(Some(Opener::More(rect))),
-        }
-    };
-    let dragged = motion().is_some_and(
-        |state| matches!(*state.drag.read(), drag::Drag::Live { thread, .. } if thread == id),
-    );
-    let state = RowState {
-        selection,
-        emphasis: if unread {
-            Emphasis::Strong
-        } else {
-            Emphasis::Plain
-        },
-        drop: if dragged {
-            DropState::Source
-        } else {
-            DropState::Idle
-        },
-        ..RowState::default()
-    };
+    }
+}
+
+/// The menus a conversation's menu opens further: Snooze, Label As and Move To, each standing
+/// where the menu stood, else against the row's box `anchor`.
+#[component]
+fn ThreadFloats(
+    summary: ThreadSummary,
+    shell: Signal<Shell>,
+    revision: Signal<u64>,
+    anchor: Option<MountedRef>,
+    snooze_at: Option<Rect>,
+    label_at: Option<Rect>,
+    move_at: Option<Rect>,
+) -> Element {
+    let id = summary.id;
     rsx! {
-        div { key: "{id}", class: "row", role: "none",
-            onmounted: move |event: MountedEvent| row_box.set(Some(MountedRef(event.data()))),
-            onfocusin: move |_| more_shown.set(Some(Shown::Visible)),
-            onfocusout: move |_| more_shown.set(None),
-            oncontextmenu: move |event: MouseEvent| {
-                event.prevent_default();
-                row_menu.set(Some(Opener::Pointer(point_rect(event.client_coordinates()))));
-            },
-            // Shift+Enter on the focused row opens it in a window of its own. Stopped here, so
-            // the window's own Shift+Enter does not open the open conversation as well.
-            onkeydown: move |event: KeyboardEvent| {
-                let opens = crate::ui::actions::heard(keys, &event, false)
-                    == Some(crate::ui::actions::Heard::Own(crate::ui::actions::Own::OpenInWindow));
-                if opens {
-                    event.stop_propagation();
-                    super::window::open_in_window(id);
-                }
-            },
-            ThreadRow {
-                state,
-                name: who,
-                via,
-                subject: runs(&subject, &subject_marks),
-                snippet,
-                time: when,
-                tags,
-                star,
-                star_shortcut: crate::ui::actions::tip(crate::ui::view::Shortcut::ToggleStar),
-                strip: None,
-                more: Some(more),
-                onclick: move |press: Press| {
-                    if let Some(click) = click_of(press, platform) {
-                        shell.write().click(id, click, &drawn_order());
-                    }
-                },
-                onpointerdown: EventHandler::new(move |event: PointerEvent| {
-                    let point = event.client_coordinates();
-                    drag::press(id, (point.x, point.y));
-                }),
-                common: Common {
-                    aria_label: Some(format!("Open {subject}")),
-                    ..Common::default()
-                },
-            }
-            if let Some(opener) = row_menu() {
-                RowMenu {
-                    opener,
-                    anchor: row_box(),
-                    subject: subject.clone(),
-                    items: menu_rows,
-                    on_pick: move |pick: Pick| {
-                        row_menu.set(None);
-                        match pick {
-                            // Not offered here: the reader's ⋯ holds them.
-                            Pick::Download | Pick::Print | Pick::View | Pick::Unsubscribe => {}
-                            Pick::Press(pressed) => {
-                                // A menu the pick opens stands where this one stood.
-                                let at = Some(opener.place());
-                                match pressed {
-                                    Pressed::Op(OpKind::Snooze) => snooze_at.set(at),
-                                    Pressed::Op(OpKind::AddLabel) => label_at.set(at),
-                                    Pressed::MoveTo => move_at.set(at),
-                                    Pressed::Op(_) => {}
-                                }
-                                press(shell, revision, id, pressed);
-                            }
-                        }
-                    },
-                    on_close: move |_| row_menu.set(None),
-                }
-            }
-            if shell.read().snoozing == Some(id) {
-                SnoozeMenu { id, shell, revision, anchor: row_box(), placed: snooze_at() }
-            }
-            if shell.read().labelling == Some(id) {
-                LabelMenu { id, summary, shell, revision, anchor: row_box(), placed: label_at() }
-            }
-            if filing {
-                MoveMenu {
-                    thread: id,
-                    shell,
-                    revision,
-                    anchor: row_box(),
-                    placed: move_at(),
-                    on_close: move |_| shell.write().filing = None,
-                }
+        if shell.read().snoozing == Some(id) {
+            SnoozeMenu { id, shell, revision, anchor: anchor.clone(), placed: snooze_at }
+        }
+        if shell.read().labelling == Some(id) {
+            LabelMenu { id, summary, shell, revision, anchor: anchor.clone(), placed: label_at }
+        }
+        if shell.read().filing == Some(id) {
+            MoveMenu {
+                thread: id,
+                shell,
+                revision,
+                anchor,
+                placed: move_at,
+                on_close: move |_| shell.write().filing = None,
             }
         }
     }

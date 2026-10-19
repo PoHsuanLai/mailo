@@ -18,7 +18,7 @@ pub const FAVOURITES: &str = "Favourites";
 pub const PLACES: &str = "Places";
 pub const FOLDERS: &str = "Folders";
 
-/// A row's ⋯: "Actions for Projects".
+/// A row's menu: "Actions for Projects".
 pub fn actions_for(name: &str) -> String {
     format!("Actions for {name}")
 }
@@ -103,10 +103,7 @@ pub const REMOVE_CONDITION: &str = "Remove condition";
 pub const ADD_ACTION: &str = "Add an action";
 /// An account tile's right-click menu.
 pub const ACCOUNT_MENU: &str = "Account";
-/// A draft's menu in Drafts (its ⋯ and its right click).
-pub const DRAFT_MENU: &str = "Draft";
-
-/// A draft's row in Drafts, which opens it: "Open Offsite plans".
-pub fn open_draft(subject: &str) -> String {
+/// A row of the list, which opens it: "Open Offsite plans".
+pub fn open_row(subject: &str) -> String {
     format!("Open {subject}")
 }

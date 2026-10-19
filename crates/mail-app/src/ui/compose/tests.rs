@@ -17,6 +17,7 @@ mod smime;
 mod templates;
 mod wire;
 
+use crate::ui::row::listed::Listed;
 use ds::prelude::*;
 use std::cell::Cell;
 use std::sync::Arc;
@@ -240,9 +241,16 @@ fn ScheduledRows(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
     let store = consume_context::<Arc<SqliteStore>>();
     let held = super::scheduled(&store, &crate::ui::space::Scope::All);
     rsx! {
-        for draft in held {
-            if matches!(draft.state, SendState::Scheduled { .. }) {
-                crate::ui::row::draft::DraftRow { key: "{draft.id}", draft, shell, revision }
+        for listed in held.into_iter().filter(|draft| matches!(draft.state, SendState::Scheduled { .. })).map(Listed::Draft) {
+            crate::ui::row::ListRow {
+                key: "{listed.key()}",
+                model: listed.row(None, false, chrono::Utc::now(), &chrono::Local),
+                listed,
+                shell,
+                revision,
+                chips: Vec::new(),
+                via: None,
+                selection: Selection::Unselected,
             }
         }
     }

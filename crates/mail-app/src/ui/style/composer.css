@@ -136,6 +136,9 @@
   margin-top: var(--s-14); border: var(--hair) solid var(--line-soft); border-radius: var(--r-media); background: var(--surface-2);
   padding: var(--s-12) var(--s-14); font-family: var(--font-code); font-size: var(--fs-meta); line-height: 1.65; white-space: pre-wrap; color: var(--ink);
 }
+/* a message held to leave at a time: read, not written (`compose/held.rs`) */
+.held-text { white-space: pre-wrap; font-family: var(--font-ui); font-size: var(--fs-reading); line-height: 1.65; color: var(--ink); }
+
 /* the files on the draft: one strip at the body's end */
 .c-attached { display: flex; flex-wrap: wrap; gap: var(--s-6); margin-top: var(--s-14); }
 

@@ -1,5 +1,5 @@
 //! A row's actions in the running window: a right click lists them all, a pick acts as the old
-//! strip's button did (undo included), the row's one button is the ⋯, and the picks that open a
+//! strip's button did (undo included), the row draws no button, and the picks that open a
 //! further menu open it.
 
 use crate::ui::app::App;
@@ -107,23 +107,16 @@ async fn mark_as_read_from_the_menu_is_undone_like_any_op() {
     );
 }
 
-/// Each row carries one button, quire's `RowMore` (the ⋯), which says it opens a menu and that
-/// the menu is shut. A press on it measures the button to hang the menu from, which a document
-/// with no renderer cannot do, so the press itself is `native_layout`'s, on Blitz.
+/// A row draws no buttons, not even a ⋯: a click on it opens it, and its actions are in its
+/// right-click menu.
 #[tokio::test]
-async fn each_row_carries_the_more_button_alone() {
-    let Window { dom, seen, .. } = window();
+async fn a_row_draws_no_buttons() {
+    let Window { dom, .. } = window();
     let page = dioxus_ssr::render(&dom);
-    let rows = listed_subjects(&page);
-    assert_eq!(
-        page.matches("class=\"ds-row-more\"").count(),
-        rows.len(),
-        "not one ⋯ per row:\n{page}"
-    );
-    assert_eq!(
-        seen.all("aria-label", "More actions").len(),
-        rows.len(),
-        "a ⋯ is not named More actions"
+    assert!(!listed_subjects(&page).is_empty(), "no rows:\n{page}");
+    assert!(
+        !page.contains("class=\"ds-row-more\""),
+        "a row draws a ⋯:\n{page}"
     );
     assert!(
         !page.contains("class=\"ds-strip"),
