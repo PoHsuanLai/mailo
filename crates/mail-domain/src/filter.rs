@@ -11,7 +11,9 @@ use porter_core::AccountId;
 use serde::{Deserialize, Serialize};
 
 mod fold;
+mod spell;
 mod tokens;
+pub use spell::Words;
 pub use tokens::search_tokens;
 
 /// How a text clause matches.

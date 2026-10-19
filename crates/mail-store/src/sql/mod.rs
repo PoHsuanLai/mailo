@@ -6,7 +6,7 @@
 //! filters and corpora. If that test is ever skipped or weakened, the bug ships.
 
 use chrono::{DateTime, SecondsFormat, Utc};
-use mail_domain::{DateRange, Filter, MailboxRole, TextMatch};
+use mail_domain::{DateRange, Filter, TextMatch};
 use serde::Serialize;
 
 mod fts;
@@ -63,7 +63,7 @@ fn predicate(filter: &Filter, now: DateTime<Utc>, params: &mut Vec<SqlValue>) ->
             "(ts.account = ?)".to_owned()
         }
         Filter::InMailbox(role) => {
-            params.push(SqlValue::Text(role_name(*role).to_owned()));
+            params.push(SqlValue::Text(role.as_str().to_owned()));
             "(EXISTS (SELECT 1 FROM json_each(ts.mailboxes) WHERE value = ?))".to_owned()
         }
         Filter::Read(state) => {
@@ -176,18 +176,6 @@ fn combine(
     }
     clause.push(')');
     clause
-}
-
-/// Serde name of a role, the element `json_each` yields from a `MailboxSet` array.
-fn role_name(role: MailboxRole) -> &'static str {
-    match role {
-        MailboxRole::Inbox => "inbox",
-        MailboxRole::Archive => "archive",
-        MailboxRole::Sent => "sent",
-        MailboxRole::Drafts => "drafts",
-        MailboxRole::Trash => "trash",
-        MailboxRole::Spam => "spam",
-    }
 }
 
 /// `sqlite::row::to_json` output. Fieldless enums are JSON strings, quotes included:

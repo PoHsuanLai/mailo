@@ -12,8 +12,7 @@ use crate::{Dispatch, OutboxEntry, Settle, StoreError};
 use chrono::{DateTime, TimeDelta, Utc};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::{
-    Change, FolderWork, Membership, MessageId, OutboxId, Patch, ProtoOp, RemoteIntent, RemoteRef,
-    Retry,
+    FolderWork, MessageId, OutboxId, Patch, ProtoOp, RemoteIntent, RemoteRef, Retry,
 };
 use porter_core::AccountId;
 use rusqlite::{OptionalExtension, params};
@@ -201,79 +200,6 @@ impl SqliteStore {
         }))
     }
 
-    /// The local changes this intent corresponds to, per message.
-    ///
-    /// Derived from the intent rather than taken from the caller's forward patch, because the
-    /// intent is exactly "what the server is being asked to do" — which is precisely what has
-    /// to be re-layered on top of server truth until the server agrees.
-    fn pending_of(intent: &RemoteIntent) -> Vec<(MessageId, Vec<Change>)> {
-        match intent {
-            RemoteIntent::SetFlags {
-                messages,
-                read,
-                star,
-            } => messages
-                .iter()
-                .map(|m| {
-                    let mut changes = Vec::new();
-                    if let Some(read) = read {
-                        changes.push(Change::MessageRead(*m, *read));
-                    }
-                    if let Some(star) = star {
-                        changes.push(Change::MessageStar(*m, *star));
-                    }
-                    (*m, changes)
-                })
-                .collect(),
-            RemoteIntent::SetMailbox { messages, role } => messages
-                .iter()
-                .map(|m| (*m, vec![Change::MessageMailbox(*m, *role)]))
-                .collect(),
-            RemoteIntent::SetLabels {
-                messages,
-                add,
-                remove,
-            } => messages
-                .iter()
-                .map(|m| {
-                    let mut changes = Vec::new();
-                    for l in add {
-                        changes.push(Change::MessageLabel(*m, *l, Membership::In));
-                    }
-                    for l in remove {
-                        changes.push(Change::MessageLabel(*m, *l, Membership::Out));
-                    }
-                    (*m, changes)
-                })
-                .collect(),
-            // Filed: out of the inbox and into the label, as `Op::File` did it locally.
-            RemoteIntent::File { messages, label } => messages
-                .iter()
-                .map(|m| {
-                    (
-                        *m,
-                        vec![
-                            Change::MessageMailbox(*m, mail_domain::MailboxRole::Archive),
-                            Change::MessageLabel(*m, *label, Membership::In),
-                        ],
-                    )
-                })
-                .collect(),
-            // Nothing to re-layer. `pending_changes` exists so a local edit survives the next
-            // ingest overwriting the message it applies to; a submission has no such message,
-            // and the draft's own `SendState` is not a `Change` (FINDINGS F36).
-            // A keyword has no local mirror on the message to re-layer: the answer it records is
-            // kept by the store beside the message, written when the user answered.
-            RemoteIntent::AddKeyword { .. } => Vec::new(),
-            // A destroyed message is not here to be overwritten: its kept addresses are what
-            // stops the next ingest bringing it back (`destroyed`, migration 0025).
-            RemoteIntent::Destroy { .. } => Vec::new(),
-            RemoteIntent::Send { .. } | RemoteIntent::Folder(_) | RemoteIntent::Append { .. } => {
-                Vec::new()
-            }
-        }
-    }
-
     pub(super) fn queue(
         &self,
         account: AccountId,
@@ -315,7 +241,7 @@ impl SqliteStore {
                 }
             }
         }
-        for (message, changes) in Self::pending_of(&intent) {
+        for (message, changes) in crate::pending::pending_of(&intent) {
             if changes.is_empty() {
                 continue;
             }

@@ -12,10 +12,7 @@ pub mod server;
 
 use crate::error::CoreError;
 use chrono::{DateTime, Utc};
-use mail_domain::{
-    AfterMatch, DateRange, Filter, LabelId, MailboxRole, ReadState, Rule, RuleAction, RuleId,
-    RuleState, Star, TextMatch,
-};
+use mail_domain::{AfterMatch, Filter, LabelId, Rule, RuleAction, RuleId, RuleState, Words};
 use mail_store::{SqliteStore, Store};
 
 /// What `mailo rules …` asked for.
@@ -262,65 +259,14 @@ fn named_rule(
 
 /// A filter written back in the search language, as near as it goes.
 pub fn condition(filter: &Filter, label: &dyn Fn(LabelId) -> String) -> String {
-    let text = |m: &TextMatch| match m {
-        TextMatch::Contains(s) if s.contains(char::is_whitespace) => format!("\"{s}\""),
-        TextMatch::Contains(s) => s.clone(),
-        TextMatch::Exact(s) => format!("\"{s}\""),
-    };
-    match filter {
-        Filter::All => "everything".to_owned(),
-        Filter::Nothing => "nothing".to_owned(),
-        Filter::And(fs) => fs
-            .iter()
-            .map(|f| condition(f, label))
-            .collect::<Vec<_>>()
-            .join(" "),
-        Filter::Or(fs) => format!(
-            "({})",
-            fs.iter()
-                .map(|f| condition(f, label))
-                .collect::<Vec<_>>()
-                .join(" or ")
-        ),
-        Filter::Not(f) => format!("-{}", condition(f, label)),
-        Filter::Account(_) => "on this account".to_owned(),
-        Filter::InMailbox(role) => format!("in:{}", role_word(*role)),
+    filter.spelled(&Words {
+        label,
         // The search language has no word for a server folder; said as the path.
-        Filter::InFolder(mailbox) => format!("in folder {:?}", mailbox.path),
-        Filter::Read(ReadState::Read) => "is:read".to_owned(),
-        Filter::Read(ReadState::Unread) => "is:unread".to_owned(),
-        Filter::Starred(Star::Starred) => "is:starred".to_owned(),
-        Filter::Starred(Star::Unstarred) => "is:unstarred".to_owned(),
-        Filter::HasLabel(id) => format!("label:{}", label(*id)),
-        Filter::From(m) => format!("from:{}", text(m)),
-        Filter::To(m) => format!("to:{}", text(m)),
-        Filter::Subject(m) => format!("subject:{}", text(m)),
-        Filter::Text(m) => text(m),
-        Filter::Date(DateRange { from, to }) => {
-            let mut parts = Vec::new();
-            if let Some(from) = from {
-                parts.push(format!("after:{}", from.format("%Y-%m-%d")));
-            }
-            if let Some(to) = to {
-                parts.push(format!("before:{}", to.format("%Y-%m-%d")));
-            }
-            parts.join(" ")
-        }
-        Filter::HasAttachment => "has:attachment".to_owned(),
-        Filter::Snoozed | Filter::SnoozeDue => "is:snoozed".to_owned(),
-        Filter::Pinned => "is:pinned".to_owned(),
-    }
-}
-
-fn role_word(role: MailboxRole) -> &'static str {
-    match role {
-        MailboxRole::Inbox => "inbox",
-        MailboxRole::Archive => "archive",
-        MailboxRole::Sent => "sent",
-        MailboxRole::Drafts => "drafts",
-        MailboxRole::Trash => "trash",
-        MailboxRole::Spam => "spam",
-    }
+        folder: &|path| format!("in folder {path:?}"),
+        account: "on this account",
+        snooze_due: "is:snoozed",
+        any_date: "",
+    })
 }
 
 #[cfg(test)]

@@ -46,7 +46,7 @@ pub use autocrypt::{AutocryptPeer, PreferEncrypt, Sighting};
 pub use content::{Attachment, Body, Inline, Label, PartContent};
 pub use draft::{Draft, PendingAttachment, ReplyScope, SendState};
 pub use error::{FolderError, ParseAddressError, ParseFingerprintError, ParseSectionError};
-pub use filter::{DateRange, Filed, Filter, Leaving, MatchCtx, Placed, TextMatch};
+pub use filter::{DateRange, Filed, Filter, Leaving, MatchCtx, Placed, TextMatch, Words};
 pub use folder::{
     Folder, FolderContents, FolderCtx, FolderWork, Holds, NonEmpty, SpecialUse, Subscription,
 };

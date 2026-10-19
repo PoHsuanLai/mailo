@@ -22,7 +22,7 @@ pub mod imap;
 pub mod jmap;
 
 use chrono::{DateTime, Datelike, NaiveDate, Utc};
-use mail_domain::{DateRange, Filter, MailboxRole, ReadState, Star, TextMatch};
+use mail_domain::{DateRange, Filter, MailboxRole, TextMatch, Words};
 use porter_core::AccountId;
 
 /// What of a query cannot be asked of a server faithfully, each as the words a person typed or
@@ -169,65 +169,20 @@ fn place_of(filter: &Filter) -> Result<(Option<Place>, Vec<Filter>), Unsaid> {
 
 fn place_word(place: &Place) -> String {
     match place {
-        Place::Role(role) => format!("in:{}", role_word(*role)),
+        Place::Role(role) => format!("in:{}", role),
         Place::Folder(path) => format!("the folder {path}"),
-    }
-}
-
-fn role_word(role: MailboxRole) -> &'static str {
-    match role {
-        MailboxRole::Inbox => "inbox",
-        MailboxRole::Archive => "archive",
-        MailboxRole::Sent => "sent",
-        MailboxRole::Drafts => "drafts",
-        MailboxRole::Trash => "trash",
-        MailboxRole::Spam => "spam",
     }
 }
 
 /// A clause as the search line spells it, for saying what could not be asked.
 pub fn describe(filter: &Filter) -> String {
-    let text = |m: &TextMatch| match m {
-        TextMatch::Contains(s) => s.clone(),
-        TextMatch::Exact(s) => format!("\"{s}\""),
-    };
-    match filter {
-        Filter::All => "everything".to_owned(),
-        Filter::Nothing => "nothing".to_owned(),
-        Filter::And(parts) => parts.iter().map(describe).collect::<Vec<_>>().join(" "),
-        Filter::Or(parts) => format!(
-            "({})",
-            parts.iter().map(describe).collect::<Vec<_>>().join(" or ")
-        ),
-        Filter::Not(inner) => format!("-{}", describe(inner)),
-        Filter::Account(_) => "an account".to_owned(),
-        Filter::InMailbox(role) => format!("in:{}", role_word(*role)),
-        Filter::Read(ReadState::Read) => "is:read".to_owned(),
-        Filter::Read(ReadState::Unread) => "is:unread".to_owned(),
-        Filter::Starred(Star::Starred) => "is:starred".to_owned(),
-        Filter::Starred(Star::Unstarred) => "is:unstarred".to_owned(),
-        Filter::HasLabel(_) => "label:".to_owned(),
-        Filter::InFolder(mailbox) => format!("the folder {}", mailbox.path),
-        Filter::From(m) => format!("from:{}", text(m)),
-        Filter::To(m) => format!("to:{}", text(m)),
-        Filter::Subject(m) => format!("subject:{}", text(m)),
-        Filter::Text(m) => text(m),
-        Filter::Date(range) => describe_dates(range),
-        Filter::HasAttachment => "has:attachment".to_owned(),
-        Filter::Snoozed => "is:snoozed".to_owned(),
-        Filter::SnoozeDue => "a snooze that is due".to_owned(),
-        Filter::Pinned => "is:pinned".to_owned(),
-    }
-}
-
-fn describe_dates(range: &DateRange) -> String {
-    let day = |d: &DateTime<Utc>| d.format("%Y-%m-%d").to_string();
-    match (&range.from, &range.to) {
-        (Some(from), Some(to)) => format!("after:{} before:{}", day(from), day(to)),
-        (Some(from), None) => format!("after:{}", day(from)),
-        (None, Some(to)) => format!("before:{}", day(to)),
-        (None, None) => "any date".to_owned(),
-    }
+    filter.spelled(&Words {
+        label: &|_| String::new(),
+        folder: &|path| format!("the folder {path}"),
+        account: "an account",
+        snooze_due: "a snooze that is due",
+        any_date: "any date",
+    })
 }
 
 /// Why a clause is kept on this computer: said once, in the words every protocol uses.

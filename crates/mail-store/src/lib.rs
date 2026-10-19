@@ -20,6 +20,7 @@ mod migrate;
 mod offline;
 mod opened;
 mod passes;
+mod pending;
 mod pgp;
 mod prefix;
 mod remote_row;

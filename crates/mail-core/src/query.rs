@@ -273,15 +273,7 @@ fn term<Tz: TimeZone>(
 }
 
 fn mailbox(value: &str) -> Option<MailboxRole> {
-    Some(match value.to_ascii_lowercase().as_str() {
-        "inbox" => MailboxRole::Inbox,
-        "archive" | "all" => MailboxRole::Archive,
-        "sent" => MailboxRole::Sent,
-        "drafts" | "draft" => MailboxRole::Drafts,
-        "spam" | "junk" => MailboxRole::Spam,
-        "trash" | "bin" | "deleted" => MailboxRole::Trash,
-        _ => return None,
-    })
+    value.parse().ok()
 }
 
 /// The start of a named day, in the reader's zone.

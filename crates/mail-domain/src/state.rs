@@ -27,6 +27,18 @@ impl MailboxRole {
         MailboxRole::Spam,
     ];
 
+    /// The role's word: the name serde writes, the one the search language and the CLI use.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            MailboxRole::Inbox => "inbox",
+            MailboxRole::Archive => "archive",
+            MailboxRole::Sent => "sent",
+            MailboxRole::Drafts => "drafts",
+            MailboxRole::Trash => "trash",
+            MailboxRole::Spam => "spam",
+        }
+    }
+
     const fn bit(self) -> u8 {
         1 << (self as u8)
     }
@@ -52,6 +64,32 @@ impl MailboxRole {
             "junk" | "spam" | "junkemail" | "junkmail" | "bulkmail" => MailboxRole::Spam,
             "archive" | "archives" | "allmail" => MailboxRole::Archive,
             _ => return None,
+        })
+    }
+}
+
+impl std::fmt::Display for MailboxRole {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// A role read from what a person types, ignoring case.
+///
+/// Accepts the words other mail clients use for the same place (`all`, `draft`, `junk`, `bin`,
+/// `deleted`) as well as the canonical ones, so a search says what the reader means.
+impl std::str::FromStr for MailboxRole {
+    type Err = ();
+
+    fn from_str(word: &str) -> Result<Self, ()> {
+        Ok(match word.to_ascii_lowercase().as_str() {
+            "inbox" => MailboxRole::Inbox,
+            "archive" | "all" => MailboxRole::Archive,
+            "sent" => MailboxRole::Sent,
+            "drafts" | "draft" => MailboxRole::Drafts,
+            "spam" | "junk" => MailboxRole::Spam,
+            "trash" | "bin" | "deleted" => MailboxRole::Trash,
+            _ => return Err(()),
         })
     }
 }
