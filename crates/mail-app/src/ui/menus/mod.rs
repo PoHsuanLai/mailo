@@ -6,6 +6,9 @@
 //! Both are plain lists of words: no header restating what was picked to open them, and no
 //! glyph repeated down every row (design-language §2.2, §2.6).
 
+mod further;
+pub(super) use further::FurtherMenus;
+
 use super::menu::{Floating, MenuItem, MenuKey, Right, Tile, anchor_for, menu_key, palette_groups};
 use super::motion::{act, act_all};
 use super::picks::{label_all, with_selection};
@@ -202,17 +205,8 @@ pub(super) fn SnoozeMenu(
     /// The snooze button's rect once measured, which wins over `anchor`.
     #[props(default)]
     placed: Option<Rect>,
-    /// Told when the menu goes, picked or dismissed: a host that opened it itself (the reader's
-    /// ⋯) closes it so.
-    #[props(default)]
-    on_done: Option<EventHandler<()>>,
 ) -> Element {
-    let mut done = move || {
-        shell.write().snoozing = None;
-        if let Some(on_done) = on_done {
-            on_done.call(());
-        }
-    };
+    let mut done = move || shell.write().further = None;
     // Choose Time… picked: the field stands where the menu stood.
     let mut choosing = use_signal(|| false);
     // The whole selection when this row is picked, as one gesture, through the op `mailo snooze`
@@ -352,16 +346,8 @@ pub(super) fn LabelMenu(
     /// The Label button's rect once measured, which wins over `anchor`.
     #[props(default)]
     placed: Option<Rect>,
-    /// Told when the list goes, as [`SnoozeMenu`]'s is.
-    #[props(default)]
-    on_done: Option<EventHandler<()>>,
 ) -> Element {
-    let mut done = move || {
-        shell.write().labelling = None;
-        if let Some(on_done) = on_done {
-            on_done.call(());
-        }
-    };
+    let mut done = move || shell.write().further = None;
     let mut typed = use_signal(String::new);
     let (create, base): (Vec<MenuItem>, Vec<MenuItem>) =
         label_items(&shell.read().labels, &summary, &typed())

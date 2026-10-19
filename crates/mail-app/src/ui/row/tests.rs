@@ -124,6 +124,55 @@ async fn a_row_draws_no_buttons() {
     );
 }
 
+/// Move to…, picked from the reader's ⋯, opens its folders there and nowhere else, and holds
+/// the window's letter keys while it is open, as the row's menus do: an E typed toward its search
+/// does not archive the open conversation. Esc puts it away.
+#[tokio::test]
+async fn the_readers_move_menu_holds_the_keys_and_opens_once() {
+    let Window {
+        mut dom,
+        seen,
+        store,
+        dana,
+        subject,
+        ..
+    } = window();
+    let opened = click(&mut dom, crate::ui::fixtures::row_named(&seen, &subject));
+    let opened = settle(&mut dom, opened);
+    let more = *opened
+        .all("aria-label", "More")
+        .last()
+        .unwrap_or_else(|| panic!("the reader has no ⋯"));
+    let pressed = click(&mut dom, more);
+    let menu = settle(&mut dom, pressed);
+    crate::ui::fixtures::pick_named(&mut dom, &menu, menus::MOVE_TO).await;
+    let page = dioxus_ssr::render(&dom);
+    assert_eq!(
+        page.matches("aria-placeholder=\"Move to…\"").count(),
+        1,
+        "the folders are not open once, under the ⋯:\n{page}"
+    );
+    let changed = changes(&store);
+    crate::ui::fixtures::key(&mut dom, "e");
+    assert_eq!(changes(&store), changed, "E acted with Move to… open");
+    assert!(
+        store
+            .thread(dana)
+            .unwrap()
+            .summary
+            .mailboxes
+            .contains(MailboxRole::Inbox),
+        "E archived the conversation under Move to…"
+    );
+    crate::ui::fixtures::key(&mut dom, "Escape");
+    let page = dioxus_ssr::render(&dom);
+    assert_eq!(
+        page.matches("aria-placeholder=\"Move to…\"").count(),
+        0,
+        "Esc left it open"
+    );
+}
+
 #[tokio::test]
 async fn snooze_from_the_menu_opens_the_snooze_menu() {
     let Window {

@@ -58,7 +58,14 @@ fn a_space_gets_its_place_and_thread_back_and_nothing_else() {
     select(&mut elsewhere, "Sent");
     elsewhere.open(thread(9));
     elsewhere.search = "from:dana".to_owned();
+    // Every further menu, Move To's included, is put away with the Space it was opened in.
+    elsewhere.further = Some(crate::ui::view::FurtherMenu {
+        thread: thread(9),
+        further: crate::ui::view::Further::Move,
+        opened: crate::ui::view::Opened::Reader,
+    });
     restore(&mut elsewhere, &left);
+    assert_eq!(elsewhere.further, None, "a menu followed into the Space");
     assert_eq!(place(&elsewhere), "Archive");
     assert_eq!(elsewhere.open, Some(thread(7)));
     assert!(

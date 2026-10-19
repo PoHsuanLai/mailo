@@ -537,18 +537,13 @@ pub(super) fn App() -> Element {
         // trying to filter for, and the menu's own handler already took the arrows.
         let menu_open = {
             let current = shell.read();
-            current.page_menu != PageMenu::Closed
-                || current.snoozing.is_some()
-                || current.labelling.is_some()
-                || current.filing.is_some()
+            current.page_menu != PageMenu::Closed || current.further.is_some()
         };
         if menu_open {
             if key == "Escape" {
                 let mut write = shell.write();
                 write.page_menu = PageMenu::Closed;
-                write.snoozing = None;
-                write.labelling = None;
-                write.filing = None;
+                write.further = None;
                 super::host::Host::focus_app();
             }
             return;

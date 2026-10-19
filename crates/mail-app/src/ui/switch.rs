@@ -35,8 +35,7 @@ pub(super) fn restore(shell: &mut Shell, recall: &Recall) {
     shell.show_remote_images = false;
     shell.search.clear();
     shell.page_menu = PageMenu::Closed;
-    shell.snoozing = None;
-    shell.labelling = None;
+    shell.further = None;
 }
 
 #[cfg(test)]

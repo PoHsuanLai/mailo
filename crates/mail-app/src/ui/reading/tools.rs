@@ -13,15 +13,15 @@
 //! is written is the stored bytes, never a rendering, so a message that draws wrongly can be
 //! handed on whole.
 
-use super::super::row::act::{Pressed, op_icon, press, turn_off};
+use super::super::row::act::{Pressed, op_icon, press};
 use super::super::row::menu::{Pick, reader_groups, rows};
 use super::fetch;
 use crate::ui::copy::menus::offered;
 use crate::ui::downloads::{Origin, Saving};
 use crate::ui::menu::{Floating, MenuItem, Right, Tile, anchor_at};
-use crate::ui::menus::{LabelMenu, SnoozeMenu};
+use crate::ui::menus::FurtherMenus;
 use crate::ui::unsubscribe::{Confirm, Offer, Phase, ask};
-use crate::ui::view::{Peek, Shell};
+use crate::ui::view::{Opened, Peek, Shell};
 use dioxus::prelude::*;
 use ds::components::controls::button_model::{Bezel, ImagePosition};
 use ds::host::measure::MountedRef;
@@ -151,19 +151,17 @@ pub(super) fn ReaderTools(
                 label: offered(says(kind, &summary, now)).to_owned(),
                 title: Some(offered(says(kind, &summary, now)).to_owned()),
                 title_shortcut: shortcut_of(kind).and_then(crate::ui::actions::tip),
-                onclick: move |_| press(shell, revision, id, Pressed::Op(kind)),
+                onclick: move |_| press(shell, revision, id, Pressed::Op(kind), Opened::Reader),
             }
         }
     }
 }
 
-/// Which of the ⋯'s further menus is up.
+/// Which of the ⋯'s own further menus is up. Snooze, Label and Move are a conversation's,
+/// whichever opened them ([`Shell::further`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Further {
     None,
-    Snooze,
-    Label,
-    Move,
     Print,
     View,
     Unsubscribe,
@@ -211,22 +209,14 @@ pub(super) fn ReaderMore(
                 anchor: anchor_at(tool()),
                 items,
                 common: Common {
-                    aria_label: Some(format!("Actions for {}", summary.subject)),
+                    aria_label: Some(crate::ui::copy::aria::actions_for(&summary.subject)),
                     ..Common::default()
                 },
                 onpick: move |pick: Pick| {
                     open.set(false);
                     match pick {
-                        // Unsnooze acts at once; Snooze opens its times.
-                        Pick::Press(Pressed::Op(OpKind::Snooze)) => {
-                            let store = consume_context::<Arc<SqliteStore>>();
-                            if !turn_off(&store, shell, revision, id, OpKind::Snooze) {
-                                further.set(Further::Snooze);
-                            }
-                        }
-                        Pick::Press(Pressed::Op(OpKind::AddLabel)) => further.set(Further::Label),
-                        Pick::Press(Pressed::MoveTo) => further.set(Further::Move),
-                        Pick::Press(pressed) => press(shell, revision, id, pressed),
+                        // Unsnooze acts at once; Snooze, Label and Move open their menus here.
+                        Pick::Press(pressed) => press(shell, revision, id, pressed, Opened::Reader),
                         Pick::Print => further.set(Further::Print),
                         Pick::View => further.set(Further::View),
                         Pick::Unsubscribe => {
@@ -241,23 +231,8 @@ pub(super) fn ReaderMore(
                 onclose: move |_| open.set(false),
             }
         }
+        FurtherMenus { summary: summary.clone(), opened: Opened::Reader, shell, revision, anchor: tool() }
         match (further(), peek) {
-            (Further::Snooze, _) => rsx! {
-                SnoozeMenu { id, shell, revision, anchor: tool(), on_done: done }
-            },
-            (Further::Label, _) => rsx! {
-                LabelMenu {
-                    id,
-                    summary: summary.clone(),
-                    shell,
-                    revision,
-                    anchor: tool(),
-                    on_done: done,
-                }
-            },
-            (Further::Move, _) => rsx! {
-                super::super::move_to::MoveMenu { thread: id, shell, revision, anchor: tool(), on_close: done }
-            },
             (Further::Print, _) => rsx! {
                 super::super::print::PrintMenu { thread: id, anchor: tool(), on_close: done }
             },

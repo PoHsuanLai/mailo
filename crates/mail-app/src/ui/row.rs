@@ -15,17 +15,16 @@ pub(in crate::ui) mod menu;
 mod tests;
 
 use super::marked::{Piece, pieces};
-use super::menus::{LabelMenu, SnoozeMenu};
+use super::menus::FurtherMenus;
 use super::motion::{act_kind, drag, motion};
-use super::move_to::MoveMenu;
 use super::picks::drawn_order;
 use crate::ui::compose::{cancel_scheduled, delete_stored_draft};
 use crate::ui::copy;
 use crate::ui::provider_chip::ProvChip;
 use crate::ui::selection::Click;
 use crate::ui::view::Marks;
-use crate::ui::view::Shell;
-use act::{Pressed, press};
+use crate::ui::view::{Opened, Shell};
+use act::press;
 use chordkit::Platform;
 use dioxus::prelude::*;
 use ds::base::command::holds_primary;
@@ -79,10 +78,9 @@ pub(super) fn ListRow(
 ) -> Element {
     let platform = use_platform();
     let keys = use_keys();
-    // Where the menus a pick opens float: where the row's menu stood, else against the row.
-    let mut snooze_at = use_signal(|| None::<Rect>);
-    let mut label_at = use_signal(|| None::<Rect>);
-    let mut move_at = use_signal(|| None::<Rect>);
+    // Where the further menu a pick opens floats: where the row's menu stood, else against the
+    // row.
+    let mut further_at = use_signal(|| None::<Rect>);
     let mut row_box = use_signal(|| None::<MountedRef>);
     // The row's menu, and the point it was asked for at.
     let mut row_menu = use_signal(|| None::<Rect>);
@@ -205,13 +203,10 @@ pub(super) fn ListRow(
                         match (pick, id, draft) {
                             (Pick::Press(pressed), Some(id), _) => {
                                 // A menu the pick opens stands where this one stood.
-                                match pressed {
-                                    Pressed::Op(OpKind::Snooze) => snooze_at.set(Some(at)),
-                                    Pressed::Op(OpKind::AddLabel) => label_at.set(Some(at)),
-                                    Pressed::MoveTo => move_at.set(Some(at)),
-                                    Pressed::Op(_) => {}
+                                if act::further(pressed).is_some() {
+                                    further_at.set(Some(at));
                                 }
-                                press(shell, revision, id, pressed);
+                                press(shell, revision, id, pressed, Opened::Row);
                             }
                             (Pick::DeleteDraft, _, Some(draft)) => delete_stored_draft(shell, revision, draft),
                             // A refusal is said in the toast; the message stays as it was.
@@ -228,7 +223,7 @@ pub(super) fn ListRow(
                 }
             }
             if let Some(summary) = thread {
-                ThreadFloats { summary, shell, revision, anchor: row_box(), snooze_at: snooze_at(), label_at: label_at(), move_at: move_at() }
+                FurtherMenus { summary, opened: Opened::Row, shell, revision, anchor: row_box(), placed: further_at() }
             }
         }
     }
@@ -265,39 +260,6 @@ fn Tags(summary: ThreadSummary, chips: Vec<String>, shown: bool) -> Element {
         if files {
             span { class: "clip", aria_label: copy::aria::HAS_ATTACHMENTS,
                 Glyph { icon: Icon::Paperclip, size: IconSize::Compact }
-            }
-        }
-    }
-}
-
-/// The menus a conversation's menu opens further: Snooze, Label As and Move To, each standing
-/// where the menu stood, else against the row's box `anchor`.
-#[component]
-fn ThreadFloats(
-    summary: ThreadSummary,
-    shell: Signal<Shell>,
-    revision: Signal<u64>,
-    anchor: Option<MountedRef>,
-    snooze_at: Option<Rect>,
-    label_at: Option<Rect>,
-    move_at: Option<Rect>,
-) -> Element {
-    let id = summary.id;
-    rsx! {
-        if shell.read().snoozing == Some(id) {
-            SnoozeMenu { id, shell, revision, anchor: anchor.clone(), placed: snooze_at }
-        }
-        if shell.read().labelling == Some(id) {
-            LabelMenu { id, summary, shell, revision, anchor: anchor.clone(), placed: label_at }
-        }
-        if shell.read().filing == Some(id) {
-            MoveMenu {
-                thread: id,
-                shell,
-                revision,
-                anchor,
-                placed: move_at,
-                on_close: move |_| shell.write().filing = None,
             }
         }
     }

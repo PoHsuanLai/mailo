@@ -461,6 +461,34 @@ pub enum SideList {
     Favourites,
 }
 
+/// A menu one of a conversation's actions opens before it acts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Further {
+    /// Snooze's times.
+    Snooze,
+    /// Label's labels.
+    Label,
+    /// Move To's folders.
+    Move,
+}
+
+/// Where a further menu was asked for, which is where it is drawn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Opened {
+    /// The conversation's row, from its menu.
+    Row,
+    /// The reader, from its ⋯.
+    Reader,
+}
+
+/// A further menu, open over one conversation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FurtherMenu {
+    pub thread: ThreadId,
+    pub further: Further,
+    pub opened: Opened,
+}
+
 /// Everything the shell is currently showing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Shell {
@@ -489,16 +517,12 @@ pub struct Shell {
     pub show_remote_images: bool,
     /// Where the reader sits. Per session, not persisted.
     pub peek: Peek,
-    /// The conversation whose label menu is open, if any.
-    ///
-    /// One at a time and identified by thread rather than by row index: a sync can land between
-    /// the click and the choice, and a menu pinned to "the fourth row" would then be labelling
-    /// something else.
-    pub labelling: Option<ThreadId>,
-    /// The conversation whose snooze menu is open, if any.
-    pub snoozing: Option<ThreadId>,
-    /// The conversation whose "Move to…" menu is open, if any. By thread, like `labelling`.
-    pub filing: Option<ThreadId>,
+    /// The further menu one of a conversation's actions opened (Snooze's times, Label's labels,
+    /// Move To's folders), if any. One at a time, and by thread rather than by row index: a sync
+    /// can land between the click and the choice, and a menu pinned to "the fourth row" would
+    /// then act on something else. Every opener sets it and every way out clears it, so the
+    /// window knows a menu has the keyboard whichever opened it.
+    pub further: Option<FurtherMenu>,
     /// The composer, when one is open.
     ///
     /// `Option` rather than a `mode` enum on `Shell`: composing does not replace reading, it
@@ -661,9 +685,7 @@ impl Default for Shell {
             show_remote_images: false,
             peek: Peek::Side,
             composing: None,
-            labelling: None,
-            snoozing: None,
-            filing: None,
+            further: None,
             accounts: Vec::new(),
             labels: Vec::new(),
             appearance: Appearance::default(),
@@ -928,6 +950,16 @@ impl Shell {
     /// Open the composer on `draft`.
     pub fn compose(&mut self, draft: &Draft) {
         self.composing = Some(Composing::of(draft));
+    }
+
+    /// Open `menu`, or close it when that one is already open: a second press on what opened
+    /// it puts it away.
+    pub fn toggle_further(&mut self, menu: FurtherMenu) {
+        self.further = if self.further == Some(menu) {
+            None
+        } else {
+            Some(menu)
+        };
     }
 
     /// Drop the composer's widgets without writing them anywhere.

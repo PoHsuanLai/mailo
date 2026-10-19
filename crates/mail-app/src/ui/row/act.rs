@@ -4,7 +4,7 @@
 use super::super::motion::{act_all, act_kind, act_kind_all};
 use super::super::ops::{composes, start_composing};
 use super::super::picks::{mute_all, with_selection};
-use crate::ui::view::Shell;
+use crate::ui::view::{Further, FurtherMenu, Opened, Shell};
 use dioxus::prelude::*;
 use ds::prelude::*;
 use mail_core::{SqliteStore, Store as _};
@@ -18,37 +18,44 @@ pub(in crate::ui) enum Pressed {
     MoveTo,
 }
 
-/// One of the row's actions picked: the op it names, at once. Label, snooze and move open their
-/// menus (picked while open, they close); a reply opens the composer on its draft.
+/// The further menu `pressed` opens before it acts, if it opens one.
+pub(in crate::ui) fn further(pressed: Pressed) -> Option<Further> {
+    match pressed {
+        Pressed::MoveTo => Some(Further::Move),
+        Pressed::Op(OpKind::AddLabel) => Some(Further::Label),
+        Pressed::Op(OpKind::Snooze) => Some(Further::Snooze),
+        Pressed::Op(_) => None,
+    }
+}
+
+/// One of a conversation's actions picked, from its row (`opened`) or the reader: the op it
+/// names, at once. Label, snooze and move open their menus where they were asked for (picked
+/// while open, they close); a reply opens the composer on its draft.
 pub(in crate::ui) fn press(
     mut shell: Signal<Shell>,
     mut revision: Signal<u64>,
     id: ThreadId,
     pressed: Pressed,
+    opened: Opened,
 ) {
-    let kind = match pressed {
-        Pressed::Op(kind) => kind,
-        Pressed::MoveTo => {
-            let already = shell.peek().filing == Some(id);
-            shell.write().filing = if already { None } else { Some(id) };
-            return;
-        }
-    };
     let store = consume_context::<Arc<SqliteStore>>();
-    if kind == OpKind::AddLabel {
-        let already = shell.peek().labelling == Some(id);
-        shell.write().labelling = if already { None } else { Some(id) };
-        return;
-    }
     // Offered as the way out of a state (Unsnooze, Stop Reminding): at once, with no menu.
-    if turn_off(&store, shell, revision, id, kind) {
+    if let Pressed::Op(kind) = pressed
+        && turn_off(&store, shell, revision, id, kind)
+    {
         return;
     }
-    if kind == OpKind::Snooze {
-        let already = shell.peek().snoozing == Some(id);
-        shell.write().snoozing = if already { None } else { Some(id) };
+    if let Some(further) = further(pressed) {
+        shell.write().toggle_further(FurtherMenu {
+            thread: id,
+            further,
+            opened,
+        });
         return;
     }
+    let Pressed::Op(kind) = pressed else {
+        return;
+    };
     // Never at once: the sheet names how much and asks, over this row and every one picked.
     if kind == OpKind::Destroy {
         crate::ui::destroy::ask_chosen(&store, shell, &with_selection(shell, id));

@@ -88,7 +88,7 @@ crates/mail-app/src/ui/reading/blocks.rs 1
 crates/mail-app/src/ui/reading/fetch.rs 15
 crates/mail-app/src/ui/reading/header.rs 2
 crates/mail-app/src/ui/reading/mod.rs 1
-crates/mail-app/src/ui/reading/tools.rs 10
+crates/mail-app/src/ui/reading/tools.rs 9
 crates/mail-app/src/ui/rules/away.rs 32
 crates/mail-app/src/ui/rules/editor.rs 26
 crates/mail-app/src/ui/rules/list.rs 1
