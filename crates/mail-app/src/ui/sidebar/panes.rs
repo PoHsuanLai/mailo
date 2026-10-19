@@ -1,6 +1,7 @@
 //! Favourites, the places and labels.
 
 use super::super::motion::{drag, motion};
+use super::lit::{Landing, Under, lit};
 use super::tagged;
 use crate::ui::copy;
 use crate::ui::space::{Pinned, Space};
@@ -306,14 +307,15 @@ fn PlaceRow(
 /// pointer.
 fn drop_of(state: &super::super::motion::Motion, index: usize, accepts: bool) -> DropState {
     match &*state.drag.read() {
-        drag::Drag::Live { target, .. } if accepts => {
+        drag::Drag::Live { target, .. } if accepts => lit(
+            Landing::Possible,
             if *target == Some(index) {
-                DropState::Target
+                Under::Yes
             } else {
-                DropState::Accepts
-            }
-        }
-        _ => DropState::Idle,
+                Under::No
+            },
+        ),
+        _ => lit(Landing::Impossible, Under::No),
     }
 }
 

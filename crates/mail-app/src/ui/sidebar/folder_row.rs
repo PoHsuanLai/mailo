@@ -7,6 +7,7 @@ use super::folder_act::{act, refused, renamed_path};
 use super::folder_parts::{NameField, Naming, Said, actions};
 use super::folder_tree::{Kind, Node};
 use super::folders::{Note, Open, Spot, Wires};
+use super::lit::{Landing, Under, lit};
 use super::tagged;
 use crate::ui::copy;
 use crate::ui::view::{Source, folder_of};
@@ -77,29 +78,29 @@ pub(super) fn FolderRow(
             ..
         }
     );
-    let mut over = use_signal(|| DragOver::No);
-    // Outlined while a dragged row could land here, lit under the pointer: quire's drop rules,
-    // the same as a place's.
-    let drop = match (takes && move_to::dragging(), over()) {
-        (true, DragOver::Yes) => DropState::Target,
-        (true, DragOver::No) => DropState::Accepts,
-        (false, _) => DropState::Idle,
+    let mut over = use_signal(|| Under::No);
+    // Outlined while a dragged row could land here, lit under the pointer, as a place's is.
+    let landing = if takes && move_to::dragging() {
+        Landing::Possible
+    } else {
+        Landing::Impossible
     };
+    let drop = lit(landing, over());
     let target = mailbox.clone();
     let on_up = move |event: Event<PointerData>| {
-        over.set(DragOver::No);
+        over.set(Under::No);
         if takes && move_to::drop_on(shell, revision, &target) {
             event.stop_propagation();
         }
     };
     let on_enter = move |_: Event<PointerData>| {
         over.set(if takes && move_to::dragging() {
-            DragOver::Yes
+            Under::Yes
         } else {
-            DragOver::No
+            Under::No
         });
     };
-    let on_leave = move |_: Event<PointerData>| over.set(DragOver::No);
+    let on_leave = move |_: Event<PointerData>| over.set(Under::No);
     let parent = !node.children.is_empty();
     // Open until the person closes it; a folder whose new-folder field or note is showing stays
     // open so they show.
@@ -288,13 +289,6 @@ pub(super) fn FolderRow(
         }
         {menus}
     }
-}
-
-/// Whether the pointer is over a folder that takes the row being dragged.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum DragOver {
-    Yes,
-    No,
 }
 
 /// A menu closed: the section closes it too, unless a pick has already moved on to something
