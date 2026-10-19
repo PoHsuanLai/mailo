@@ -619,16 +619,9 @@ fn open_configured(
 /// draw what landed: until nothing more arrives for a while, or ten seconds. What the renders
 /// gave ids to is added to `seen`.
 async fn settle(dom: &mut VirtualDom, seen: &mut crate::ui::fixtures::Seen) -> String {
-    let give_up = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
-    while tokio::time::Instant::now() < give_up {
-        let more = tokio::time::timeout(std::time::Duration::from_millis(300), dom.wait_for_work());
-        if more.await.is_err() {
-            break;
-        }
-        let mut drawn = crate::ui::fixtures::Seen::default();
-        dom.render_immediate(&mut drawn);
-        *seen = std::mem::take(seen).merge(drawn);
-    }
+    let quiet = std::time::Duration::from_millis(300);
+    let bound = std::time::Duration::from_secs(10);
+    crate::ui::fixtures::settle_until(dom, seen, quiet, bound, |_| true).await;
     dioxus_ssr::render(dom)
 }
 

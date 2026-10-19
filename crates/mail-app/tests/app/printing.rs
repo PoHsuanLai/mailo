@@ -3,18 +3,13 @@
 //! What the document says is `mail-mime/tests/mime/print.rs`. This is the half that reads the store
 //! and writes files.
 
+use crate::store::acct_account;
 use chrono::{DateTime, TimeZone, Utc};
 use mail_app::cli::{self, Command, PrintTo};
 use mail_core::{SqliteStore, Store};
-use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_mime::Pages;
-use porter_core::AccountId;
 use std::sync::Arc;
-
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
 
 fn at(n: i64) -> DateTime<Utc> {
     Utc.timestamp_opt(1_700_000_000 + n, 0).unwrap()

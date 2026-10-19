@@ -81,8 +81,7 @@ pub fn menu_item(harness: &mut Harness, name: &str) {
     until(harness, &what, |h| {
         super::look::menu_item_of(h, name).is_some()
     });
-    let n = super::look::menu_item_of(harness, name).unwrap_or_default();
-    click(harness, &format!(".ds-menu-list > :nth-child({n})"));
+    crate::row_menu::click_menu_item(harness, name);
     harness.advance(ms(300));
 }
 

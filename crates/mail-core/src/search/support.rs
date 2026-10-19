@@ -34,19 +34,10 @@ pub fn summary(
             name: None,
             email: email.to_owned(),
         },
-        participants: vec![],
-        recipients: vec![],
         last_date: at(secs),
-        message_count: 1,
         read,
         star,
-        mailboxes: MailboxSet::only(MailboxRole::Inbox),
-        labels: vec![],
-        attachments: Attachments::None,
-        snooze: Snooze::Inactive,
-        pin: Pin::Unpinned,
-        mute: Mute::Unmuted,
-        follow_up: mail_domain::FollowUp::Inactive,
+        ..mail_domain::testing::summary()
     }
 }
 

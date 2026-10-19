@@ -34,10 +34,10 @@ pub fn menu_names(harness: &Harness) -> Vec<String> {
         .collect()
 }
 
-/// Press the open menu's item named `name` once it stands where it is drawn, and wait for the
-/// menu to go: quire blinks the item, then acts. A pick that opens a further menu (Snooze…,
-/// Label…, Move to…) leaves that one up.
-pub fn press_menu_item(harness: &mut Harness, name: &str) {
+/// Click the open menu's item named `name` once it stands where it is drawn, and say which row
+/// of the menu it was. What happens next is the caller's to wait for: a pick that opens a further
+/// menu or a sheet leaves the item's row standing.
+pub fn click_menu_item(harness: &mut Harness, name: &str) -> String {
     let n = (1..=harness.count(".ds-menu-list > *"))
         .find(|n| {
             harness
@@ -57,6 +57,14 @@ pub fn press_menu_item(harness: &mut Harness, name: &str) {
     });
     let at = harness.centre(&item).unwrap_or_default();
     harness.click(at);
+    item
+}
+
+/// Press the open menu's item named `name` once it stands where it is drawn, and wait for the
+/// menu to go: quire blinks the item, then acts. A pick that opens a further menu (Snooze…,
+/// Label…, Move to…) leaves that one up.
+pub fn press_menu_item(harness: &mut Harness, name: &str) {
+    let item = click_menu_item(harness, name);
     let label = format!("{item} .ds-menu-label");
     settle_until(harness, |h| {
         !h.text_of(&label).is_some_and(|text| text.trim() == name)

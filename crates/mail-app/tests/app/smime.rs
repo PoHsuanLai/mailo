@@ -3,6 +3,7 @@
 //! keyring a [`MapSigningStore`] so the user's own is never touched, and every certificate and key
 //! made by the throwaway authority in `mail-mime/tests/smime_support`.
 
+use crate::sealed::{self, to};
 use crate::smime_support;
 
 use mail_app::cli;
@@ -66,9 +67,7 @@ fn my_identity() -> Identity {
             name: Some("Me".to_owned()),
             email: ME.to_owned(),
         },
-        reply_to: None,
-        signature: None,
-        default: IsDefault::Default,
+        ..mail_domain::testing::identity()
     }
 }
 
@@ -100,59 +99,33 @@ fn trust_root(store: &SqliteStore, secrets: &MapSigningStore) {
     smime::certs::trust(store, pki().root.cert.fingerprint(), KeyTrust::Verified).unwrap();
 }
 
-/// Bea's certificate, as `mailo smime import` of a certificate file keeps it.
-fn import_bea(store: &SqliteStore, secrets: &MapSigningStore) {
-    smime::certs::import(store, secrets, bea().cert.pem().as_bytes(), &|| None, now()).unwrap();
-}
-
-fn to(addresses: &[&str]) -> Vec<Address> {
-    addresses
-        .iter()
-        .map(|email| Address {
-            name: None,
-            email: (*email).to_owned(),
-        })
-        .collect()
-}
-
 fn draft(store: &SqliteStore, mode: Smime, recipients: &[&str], bcc: &[&str]) -> Draft {
-    let mut draft = compose::draft_new(
+    sealed::draft(
         store,
         acct_account(),
-        &to(recipients),
-        "Secret plans",
-        "meet at the usual place",
         now(),
+        |draft| draft.smime = mode,
+        recipients,
+        bcc,
     )
-    .unwrap();
-    draft.smime = mode;
-    draft.bcc = to(bcc);
-    compose::save(store, &draft).unwrap();
-    draft
 }
 
 fn submissions(store: &SqliteStore) -> Vec<mail_store::OutboxEntry> {
-    store
-        .outbox_due(
-            acct_account(),
-            now() + chrono::TimeDelta::try_days(365).unwrap(),
-        )
-        .unwrap()
+    sealed::submissions(store, acct_account(), now())
 }
 
+/// The frozen bytes of the only queued submission.
 fn frozen(store: &SqliteStore) -> Vec<u8> {
-    let entries = submissions(store);
-    assert_eq!(entries.len(), 1, "one submission");
-    let ProtoOp::Submit { raw, .. } = &entries[0].op else {
-        panic!("{:?}", entries[0].op);
-    };
-    store.blobs().get(*raw).unwrap()
+    sealed::frozen(store, acct_account(), now())
 }
 
 fn send(store: &SqliteStore, secrets: &MapSigningStore, draft: DraftId) -> Result<String, String> {
-    compose::send_with(store, secrets, &mail_core::pgp::no_passphrase, draft, now())
-        .map(|(draft, post)| cli::compose::queued(&draft, &post))
-        .map_err(|e| e.to_string())
+    sealed::send(store, secrets, draft, now())
+}
+
+/// Bea's certificate, as `mailo smime import` of a certificate file keeps it.
+fn import_bea(store: &SqliteStore, secrets: &MapSigningStore) {
+    smime::certs::import(store, secrets, bea().cert.pem().as_bytes(), &|| None, now()).unwrap();
 }
 
 /// Store `raw` as a message that arrived in the inbox, the way a sync does, and return it.

@@ -4,19 +4,15 @@
 //! it back while it waits; `mailo template …` keeps drafts to start from. Driven through
 //! `cli::parse` and `cli::run` against a real store, as a user would reach them.
 
+use crate::store::acct_account;
 use chrono::{DateTime, FixedOffset, TimeZone, Utc};
 use mail_app::cli;
 use mail_core::compose;
 use mail_core::template;
 use mail_core::{SqliteStore, Store};
-use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
-use porter_core::AccountId;
 use std::sync::Arc;
 
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
 const IDENTITY: IdentityId =
     IdentityId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b1"));
 

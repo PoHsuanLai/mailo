@@ -644,27 +644,11 @@ mod tests {
 
     fn summary(tweak: impl FnOnce(&mut ThreadSummary)) -> ThreadSummary {
         let mut s = ThreadSummary {
-            id: ThreadId::generate(),
-            account: new_account_id(),
-            subject: "s".into(),
-            snippet: String::new(),
             from: Address {
                 name: None,
                 email: "a@b.test".into(),
             },
-            participants: vec![],
-            recipients: vec![],
-            last_date: Utc.timestamp_opt(1_700_000_000, 0).unwrap(),
-            message_count: 1,
-            read: ReadState::Unread,
-            star: Star::Unstarred,
-            mailboxes: MailboxSet::only(MailboxRole::Inbox),
-            labels: vec![],
-            attachments: Attachments::None,
-            snooze: Snooze::Inactive,
-            pin: Pin::Unpinned,
-            mute: Mute::Unmuted,
-            follow_up: mail_domain::FollowUp::Inactive,
+            ..mail_domain::testing::summary()
         };
         tweak(&mut s);
         s

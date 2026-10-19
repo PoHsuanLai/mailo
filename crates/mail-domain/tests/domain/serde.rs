@@ -154,18 +154,15 @@ fn summary() -> ThreadSummary {
         snippet: "hello".to_owned(),
         from: address("sender@example.test"),
         participants: vec![address("sender@example.test"), address("me@example.test")],
-        recipients: Vec::new(),
         last_date: at(4),
         message_count: 2,
-        read: ReadState::Unread,
         star: Star::Starred,
         mailboxes: MailboxSet::only(MailboxRole::Inbox).with(MailboxRole::Sent),
         labels: vec![LabelId::from_uuid(uuid(3))],
         attachments: Attachments::Present { count: 1 },
         snooze: Snooze::Until(at(9)),
         pin: Pin::Rank(1_000),
-        mute: Mute::Unmuted,
-        follow_up: FollowUp::Inactive,
+        ..mail_domain::testing::summary()
     }
 }
 

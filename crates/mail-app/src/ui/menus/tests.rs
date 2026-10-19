@@ -6,7 +6,6 @@ use chrono::TimeZone;
 use dioxus::prelude::*;
 use dioxus_core::{NoOpMutations, VirtualDom};
 use mail_core::{SqliteStore, Store};
-use mail_domain::id::new_account_id;
 use mail_domain::*;
 
 /// Labels, in both directions — `plan.md` phase 7d.
@@ -177,27 +176,14 @@ fn create_appears_only_for_a_new_name_and_checks_follow_the_thread() {
     let home = LabelId::generate();
     let known = vec![("travel".to_owned(), travel), ("home".to_owned(), home)];
     let mut summary = mail_domain::ThreadSummary {
-        id: ThreadId::generate(),
-        account: new_account_id(),
         subject: "hi".to_owned(),
-        snippet: String::new(),
         from: Address {
             name: None,
             email: "a@b.c".to_owned(),
         },
-        participants: Vec::new(),
-        recipients: Vec::new(),
         last_date: chrono::Utc::now(),
-        message_count: 1,
-        read: ReadState::Unread,
-        star: Star::Unstarred,
-        mailboxes: MailboxSet::only(MailboxRole::Inbox),
         labels: vec![travel],
-        attachments: Attachments::None,
-        snooze: Snooze::Inactive,
-        pin: Pin::Unpinned,
-        mute: Mute::Unmuted,
-        follow_up: mail_domain::FollowUp::Inactive,
+        ..mail_domain::testing::summary()
     };
     let worn = super::label_items(&known, &summary, "");
     assert!(

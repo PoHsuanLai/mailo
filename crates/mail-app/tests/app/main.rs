@@ -11,14 +11,22 @@ mod cli_mail;
 mod drive;
 #[path = "../support/latency_inbox.rs"]
 mod latency_inbox;
+#[path = "../support/native.rs"]
+mod native;
 #[path = "../support/one_message.rs"]
 mod one_message;
+#[path = "../support/opening.rs"]
+mod opening;
 #[path = "../support/row_menu.rs"]
 mod row_menu;
+#[path = "../support/sealed.rs"]
+mod sealed;
 #[path = "../support/settle.rs"]
 mod settle;
 #[path = "../../../mail-mime/tests/smime_support/mod.rs"]
 mod smime_support;
+#[path = "../support/store.rs"]
+mod store;
 #[path = "../support/typing.rs"]
 mod typing;
 

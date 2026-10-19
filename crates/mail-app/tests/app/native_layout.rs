@@ -6,26 +6,20 @@
 //! directories, so it writes no file anywhere; nothing here touches the real store or config.
 
 use ds::prelude::{Point, Px, Rect};
-use ds_blitz::{NetPolicy, PrintOutcome};
-use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
+use ds_harness::{Harness, Viewport};
 
 use crate::settle;
 use settle::settle_until;
 
 use crate::drive;
+use crate::native::ms;
+use crate::opening::{Open, open_window};
+use crate::store::acct_account;
+use crate::store::{Seed, seeded_with};
 use drive::Drive;
 use mail_app::ui::space::{Mail, Spaces};
 use mail_core::SqliteStore;
-use mail_core::{Arrival, absorb};
-use mail_domain::id::account_id_from_uuid;
-use mail_domain::*;
-use porter_core::AccountId;
 use std::sync::Arc;
-use std::time::Duration;
-
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
 
 /// A viewport `width` by 700 at 100% scale.
 fn view(width: u32) -> Viewport {
@@ -44,66 +38,16 @@ const INBOX: [(&str, &str); 4] = [
     ("edsger@example.test", "Notes from the review"),
 ];
 
-fn ms(n: u64) -> Duration {
-    Duration::from_millis(n)
-}
-
 /// A store in `dir` with one account, its identity and capabilities, and [`INBOX`].
 fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
-    std::fs::create_dir_all(dir.join("blobs")).unwrap();
-    let store = SqliteStore::open(dir.join("mail.db"), dir.join("blobs")).unwrap();
-    {
-        mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
-        mail_store::testing::seed_identity_for(
-            &store,
-            IdentityId::generate(),
-            acct_account(),
-            "me@example.test",
-            None,
-        );
-        let caps = AccountCaps {
-            labels: ServerLabels::Supported,
-            threads: ServerThreads::Jwz,
-            watch: WatchMode::Idle,
-            archive: ArchiveMeans::DropInbox,
-            folders: FolderRoles::default(),
-            condstore: Condstore::Supported,
-            move_ext: MoveExt::Supported,
-            expunge: ExpungeMeans::Forbidden,
-            top: Supported::Absent,
-            pipelining: Supported::Yes,
-            connections: ConnectionBudget::default(),
-            observed_at: chrono::Utc::now(),
-        };
-        mail_store::testing::seed_caps(&store, acct_account(), &caps, chrono::Utc::now()).unwrap();
-    }
-    let now = chrono::Utc::now();
-    for (n, (from, subject)) in INBOX.iter().enumerate() {
-        let date = (now - chrono::Duration::hours(n as i64 + 1)).to_rfc2822();
-        let raw = format!(
-            "From: {from}\r\nTo: me@example.test\r\nSubject: {subject}\r\n\
-             Date: {date}\r\nMessage-ID: <lay{n}@example.test>\r\n\r\nThe body of {subject}.\r\n"
-        );
-        absorb(
-            &store,
-            acct_account(),
-            MailboxRef {
-                account: acct_account(),
-                path: "INBOX".to_owned(),
-            },
-            Some(SyncCursor::Pop),
-            vec![Arrival {
-                remote: RemoteRef::Pop {
-                    uidl: format!("lay{n}"),
-                },
-                raw: raw.into_bytes(),
-            }],
-            false,
-            now,
-        )
-        .unwrap();
-    }
-    Arc::new(store)
+    seeded_with(
+        dir,
+        Seed {
+            inbox: &INBOX,
+            prefix: "lay",
+            ..Seed::default()
+        },
+    )
 }
 
 /// `count` Spaces, the first on screen, each showing every account.
@@ -127,23 +71,14 @@ fn spaces(count: usize) -> Spaces {
 fn open(width: u32, spaces: Spaces) -> (Harness, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let store = seeded(dir.path());
-    // No test may open the system's print dialog.
-    let printer = mail_app::ui::native::Printer::with_dialog(|_, _| Ok(PrintOutcome::Cancelled));
-    let contexts = mail_app::ui::native::contexts(
-        store,
-        mail_app::ui::view::Appearance::default(),
-        Some(spaces),
-        None,
-        mail_app::ui::Start::Inbox,
-    )
-    .with(printer);
-    let config = HarnessConfig::new(view(width))
-        .with_net(NetPolicy::Local)
-        .with_clock(Clock::Virtual)
-        .with_contexts(contexts);
-    let mut harness = Harness::new(mail_app::ui::native::root, config);
-    harness.advance(ms(300));
-    settle_until(&mut harness, |h| h.count(".list .ds-thread") > 0);
+    let harness = open_window(
+        &store,
+        Open {
+            view: view(width),
+            spaces: Some(spaces),
+            ..Open::default()
+        },
+    );
     (harness, dir)
 }
 

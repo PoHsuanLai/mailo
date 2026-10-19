@@ -5,6 +5,7 @@
 //! path it needs — a draft that persists, an identity to send as, an envelope that survives
 //! into the outbox — was missing at every one of those three points.
 
+use crate::store::acct_account;
 use chrono::{DateTime, TimeZone, Utc};
 use mail_app::cli::compose as words;
 use mail_app::ui::view;
@@ -14,9 +15,6 @@ use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use porter_core::AccountId;
 
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
 const IDENTITY: IdentityId =
     IdentityId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b1"));
 const ORIGINAL: MessageId =
@@ -30,13 +28,7 @@ fn identity() -> Identity {
     Identity {
         id: IDENTITY,
         account: acct_account(),
-        from: Address {
-            name: None,
-            email: "me@example.test".to_owned(),
-        },
-        reply_to: None,
-        signature: None,
-        default: IsDefault::Default,
+        ..mail_domain::testing::identity()
     }
 }
 

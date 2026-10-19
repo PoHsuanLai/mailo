@@ -6,17 +6,13 @@
 //! a web page is printed rather than fetched. No test here reaches the network: the only paths
 //! that could are the one-click ones, and no fixture below offers one-click to the CLI.
 
+use crate::store::acct_account;
 use chrono::{DateTime, TimeZone, Utc};
 use mail_app::cli::{self, Command, UnsubscribeStep};
 use mail_core::{SqliteStore, Store};
-use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
-use porter_core::AccountId;
 use std::sync::Arc;
 
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
 const DEFAULT_IDENTITY: IdentityId =
     IdentityId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b1"));
 const ALIAS_IDENTITY: IdentityId =

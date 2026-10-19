@@ -7,32 +7,24 @@
 //! mail store or the real config.
 
 use ds::prelude::*;
-use ds_blitz::{FocusFallback, NetPolicy, PrintError, PrintOutcome};
-use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
+use ds_blitz::{FocusFallback, PrintError, PrintOutcome};
+use ds_harness::Harness;
 
 use crate::settle;
-use mail_core::{Arrival, absorb};
 use mail_core::{SqliteStore, Store};
-use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
-use porter_core::AccountId;
 use settle::settle_until;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::drive;
+use crate::native::ms;
+use crate::native::thread;
+use crate::opening::{Open, open_window};
 use crate::row_menu;
+use crate::store::acct_account;
+use crate::store::{Seed, seeded_with};
 use drive::{Drive, Key, PRIMARY};
-
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
-
-const VIEW: Viewport = Viewport {
-    width: 1200,
-    height: 800,
-    scale_percent: 100,
-};
 
 /// The seeded inbox, newest first, as the list draws it: (sender, subject).
 const INBOX: [(&str, &str); 4] = [
@@ -47,70 +39,18 @@ fn delay(token: ds::style::tokens::delay::DelayToken) -> Duration {
     token.delay()
 }
 
-fn ms(n: u64) -> Duration {
-    Duration::from_millis(n)
-}
-
 /// A store in `dir` with one account, its identity and capabilities, and [`INBOX`].
 ///
 /// The capabilities are written because `account add` always writes them, and a store without
 /// them is a state the application cannot reach.
 fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
-    std::fs::create_dir_all(dir.join("blobs")).unwrap();
-    let store = SqliteStore::open(dir.join("mail.db"), dir.join("blobs")).unwrap();
-    {
-        mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
-        mail_store::testing::seed_identity_for(
-            &store,
-            IdentityId::generate(),
-            acct_account(),
-            "me@example.test",
-            None,
-        );
-        let caps = AccountCaps {
-            labels: ServerLabels::Supported,
-            threads: ServerThreads::Jwz,
-            watch: WatchMode::Idle,
-            archive: ArchiveMeans::DropInbox,
-            folders: FolderRoles::default(),
-            condstore: Condstore::Supported,
-            move_ext: MoveExt::Supported,
-            expunge: ExpungeMeans::Forbidden,
-            top: Supported::Absent,
-            pipelining: Supported::Yes,
-            connections: ConnectionBudget::default(),
-            observed_at: chrono::Utc::now(),
-        };
-        mail_store::testing::seed_caps(&store, acct_account(), &caps, chrono::Utc::now()).unwrap();
-    }
-    let now = chrono::Utc::now();
-    for (n, (from, subject)) in INBOX.iter().enumerate() {
-        // Newest first: each an hour older than the one before it.
-        let date = (now - chrono::Duration::hours(n as i64 + 1)).to_rfc2822();
-        let raw = format!(
-            "From: {from}\r\nTo: me@example.test\r\nSubject: {subject}\r\n\
-             Date: {date}\r\nMessage-ID: <seed{n}@example.test>\r\n\r\nThe body of {subject}.\r\n"
-        );
-        absorb(
-            &store,
-            acct_account(),
-            MailboxRef {
-                account: acct_account(),
-                path: "INBOX".to_owned(),
-            },
-            Some(SyncCursor::Pop),
-            vec![Arrival {
-                remote: RemoteRef::Pop {
-                    uidl: format!("seed{n}"),
-                },
-                raw: raw.into_bytes(),
-            }],
-            false,
-            now,
-        )
-        .unwrap();
-    }
-    Arc::new(store)
+    seeded_with(
+        dir,
+        Seed {
+            inbox: &INBOX,
+            ..Seed::default()
+        },
+    )
 }
 
 /// The window over a freshly seeded store, first frame drawn. The `TempDir` must outlive it.
@@ -158,30 +98,21 @@ fn launch_at(
     seed(&store);
     let start = start(&store);
     let printed = Printed::default();
-    let printer = mail_app::ui::native::Printer::with_dialog({
-        let printed = Arc::clone(&printed);
-        move |pdf, title| {
-            printed.lock().unwrap().push((pdf.len(), title.to_owned()));
-            answer()
-        }
-    });
-    let contexts = mail_app::ui::native::contexts(
-        Arc::clone(&store),
-        mail_app::ui::view::Appearance::default(),
-        None,
-        None,
-        start,
-    )
-    .with(printer);
-    let config = HarnessConfig::new(VIEW)
-        .with_net(NetPolicy::Local)
-        .with_focus_fallback(fallback)
-        .with_clock(Clock::Virtual)
-        .with_contexts(contexts);
-    let mut harness = Harness::new(mail_app::ui::native::root, config);
-    // quire's entrances run on a frame's wait after mount.
-    harness.advance(ms(300));
-    settle_until(&mut harness, |h| h.count(".list .ds-thread") > 0);
+    let harness = open_window(
+        &store,
+        Open {
+            start,
+            fallback,
+            printer: Some(mail_app::ui::native::Printer::with_dialog({
+                let printed = Arc::clone(&printed);
+                move |pdf, title| {
+                    printed.lock().unwrap().push((pdf.len(), title.to_owned()));
+                    answer()
+                }
+            })),
+            ..Open::default()
+        },
+    );
     (harness, dir, store, printed)
 }
 
@@ -212,16 +143,11 @@ fn text(html: &str) -> String {
     out
 }
 
-/// The `n`th row of the list (1-based), as the element a click lands on.
-fn row(n: usize) -> String {
-    format!(".list .ds-list-item[*|aria-posinset=\"{n}\"] .ds-thread")
-}
-
 /// Click the `n`th row where a person reads it: the start of its subject line. The row's hover
 /// strip (Archive first) is laid out over the right half of the row from its middle down, and
 /// a click at the row's very centre lands on it.
 fn open_row(harness: &mut Harness, n: usize) {
-    let subject = format!("{} .ds-thread-sub", row(n));
+    let subject = format!("{} .ds-thread-sub", thread(n));
     let rect = harness
         .rect(&subject)
         .unwrap_or_else(|| panic!("{subject} is not drawn:\n{}", harness.html()));
@@ -253,7 +179,7 @@ fn the_window_opens_on_the_seeded_inbox() {
     let want: Vec<String> = INBOX.iter().map(|(_, s)| s.to_string()).collect();
     assert_eq!(subjects(&harness), want);
     for n in 1..=INBOX.len() {
-        let rect = harness.rect(&row(n)).expect("a seeded row is drawn");
+        let rect = harness.rect(&thread(n)).expect("a seeded row is drawn");
         assert!(
             rect.size.height.0 > 20.0 && rect.size.width.0 > 200.0,
             "row {n} is not laid out: {rect:?}"
@@ -379,8 +305,8 @@ fn a_menu_opens_on_click_and_closes_on_escape() {
 #[test]
 fn archiving_a_row_makes_it_leave_and_the_rows_below_heal() {
     let (mut harness, _dir) = open();
-    let second = top(&harness, &row(2));
-    let third = top(&harness, &row(3));
+    let second = top(&harness, &thread(2));
+    let third = top(&harness, &thread(3));
     open_row(&mut harness, 2);
     assert_eq!(subjects(&harness).len(), INBOX.len(), "opening archived");
     // `e` is Archive, heard by the window's own key handler after the click.
@@ -396,12 +322,12 @@ fn archiving_a_row_makes_it_leave_and_the_rows_below_heal() {
         "the archived row did not leave"
     );
     // The row that was third has healed up into the second place, and so on down.
-    let healed = top(&harness, &row(2));
+    let healed = top(&harness, &thread(2));
     assert!(
         (healed - second).abs() < 1.0,
         "the rows below did not heal: row 2 was at {second}, is now at {healed}"
     );
-    let healed = top(&harness, &row(3));
+    let healed = top(&harness, &thread(3));
     assert!(
         (healed - third).abs() < 1.0,
         "the rows below did not heal: row 3 was at {third}, is now at {healed}"
@@ -704,7 +630,7 @@ fn when_the_focused_field_is_removed_the_keys_act_only_by_quire_s_fallback() {
 fn archiving_a_row_from_its_menu_leaves_the_keyboard_working() {
     let (mut harness, _dir) = open();
     open_row(&mut harness, 1);
-    row_menu::row_action(&mut harness, &row(3), "Archive");
+    row_menu::row_action(&mut harness, &thread(3), "Archive");
     // The keyboard must land on the window, never in the leaving row: from there it is lost
     // whenever the focus and the row's removal share a frame, which a loaded machine makes
     // likely (F172).

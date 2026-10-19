@@ -26,7 +26,6 @@ use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
 use dioxus_core::{NoOpMutations, VirtualDom};
 use mail_core::SqliteStore;
-use mail_domain::id::new_account_id;
 use mail_domain::*;
 
 use super::body::Body;
@@ -49,23 +48,9 @@ fn at(minutes: i64) -> DateTime<Utc> {
 /// A draft holding `text`, belonging to nobody in particular.
 fn draft_of(text: &str) -> Draft {
     Draft {
-        id: DraftId::generate(),
-        account: new_account_id(),
-        identity: IdentityId::generate(),
-        to: Vec::new(),
-        cc: Vec::new(),
-        bcc: Vec::new(),
         subject: "Plans".to_owned(),
-        in_reply_to: None,
-        forward_of: None,
         text: text.to_owned(),
-        html: None,
-        attachments: Vec::new(),
-        receipt: ReceiptRequest::Unrequested,
-        openpgp: OpenPgp::None,
-        smime: mail_domain::Smime::None,
-        state: SendState::Editing,
-        updated: at(0),
+        ..Draft::blank(&mail_domain::testing::identity(), at(0))
     }
 }
 

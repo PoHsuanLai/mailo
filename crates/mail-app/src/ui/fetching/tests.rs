@@ -4,10 +4,11 @@
 
 use super::{Fetching, Passer};
 use crate::ui::app::App;
+use crate::ui::fixtures::settle_quiet;
 use crate::ui::fixtures::{Seen, click, dispatching, empty, rebuild_into};
 use chrono::Utc;
 use dioxus::prelude::*;
-use dioxus_core::{NoOpMutations, VirtualDom};
+use dioxus_core::VirtualDom;
 use ds::motion::detail::operation::Operation;
 use mail_core::fetch::{Count, Event, First, Link, Step, Trigger};
 use mail_core::sync::report::{AccountReport, Counts, PassEnd, Progress};
@@ -154,19 +155,6 @@ pub(super) fn window(store: Arc<SqliteStore>, passer: Passer) -> (VirtualDom, Se
     (dom, seen)
 }
 
-/// Let what is waiting land and redraw, as the window would between frames.
-pub(super) async fn settle(dom: &mut VirtualDom) {
-    for _ in 0..12 {
-        if tokio::time::timeout(Duration::from_millis(80), dom.wait_for_work())
-            .await
-            .is_err()
-        {
-            break;
-        }
-        dom.render_immediate(&mut NoOpMutations);
-    }
-}
-
 pub(super) fn fetching(dom: &VirtualDom) -> Fetching {
     dom.in_scope(ScopeId::APP, consume_context::<Fetching>)
 }
@@ -205,7 +193,7 @@ async fn pressing_sync_runs_one_pass_that_reports_and_ends() {
         &mut dom,
         seen.one("aria-label", crate::ui::copy::aria::SYNC_NOW),
     );
-    settle(&mut dom).await;
+    settle_quiet(&mut dom).await;
     assert_eq!(script.runs.load(Ordering::SeqCst), 1);
     match link(&dom) {
         Link::Syncing {
@@ -228,7 +216,7 @@ async fn pressing_sync_runs_one_pass_that_reports_and_ends() {
         &mut dom,
         seen.one("aria-label", crate::ui::copy::aria::SYNC_NOW),
     );
-    settle(&mut dom).await;
+    settle_quiet(&mut dom).await;
     assert_eq!(
         script.runs.load(Ordering::SeqCst),
         1,
@@ -236,7 +224,7 @@ async fn pressing_sync_runs_one_pass_that_reports_and_ends() {
     );
 
     script.release.lock().unwrap().send(finished).unwrap();
-    settle(&mut dom).await;
+    settle_quiet(&mut dom).await;
     assert!(
         matches!(link(&dom), Link::Current { .. }),
         "{:?}",
@@ -253,9 +241,9 @@ async fn a_refused_sign_in_stops_that_account_until_it_is_signed_in_again() {
     let (mut dom, _seen) = window(store, passer);
     let fetching = fetching(&dom);
     fetching.sync_all(Trigger::Manual);
-    settle(&mut dom).await;
+    settle_quiet(&mut dom).await;
     script.release.lock().unwrap().send(refused).unwrap();
-    settle(&mut dom).await;
+    settle_quiet(&mut dom).await;
     assert!(
         matches!(link(&dom), Link::NeedsSignIn { .. }),
         "{:?}",
@@ -273,7 +261,7 @@ async fn a_refused_sign_in_stops_that_account_until_it_is_signed_in_again() {
         fetching.sync_all(trigger);
     }
     fetching.send(acct_account(), Event::Tick);
-    settle(&mut dom).await;
+    settle_quiet(&mut dom).await;
     assert_eq!(
         script.runs.load(Ordering::SeqCst),
         1,
@@ -281,14 +269,14 @@ async fn a_refused_sign_in_stops_that_account_until_it_is_signed_in_again() {
     );
 
     fetching.signed_in(acct_account());
-    settle(&mut dom).await;
+    settle_quiet(&mut dom).await;
     assert_eq!(
         script.runs.load(Ordering::SeqCst),
         2,
         "signing in did not start a pass"
     );
     script.release.lock().unwrap().send(finished).unwrap();
-    settle(&mut dom).await;
+    settle_quiet(&mut dom).await;
     assert!(
         matches!(link(&dom), Link::Current { .. }),
         "{:?}",
@@ -304,7 +292,7 @@ async fn a_first_pass_that_fails_is_still_the_first_when_it_is_tried_again() {
     assert_eq!(link(&dom), Link::Fresh);
     let fetching = fetching(&dom);
     fetching.sync_all(Trigger::Manual);
-    settle(&mut dom).await;
+    settle_quiet(&mut dom).await;
     assert!(matches!(
         link(&dom),
         Link::Syncing {
@@ -313,7 +301,7 @@ async fn a_first_pass_that_fails_is_still_the_first_when_it_is_tried_again() {
         }
     ));
     script.release.lock().unwrap().send(unreachable).unwrap();
-    settle(&mut dom).await;
+    settle_quiet(&mut dom).await;
     assert!(
         matches!(
             link(&dom),
@@ -327,7 +315,7 @@ async fn a_first_pass_that_fails_is_still_the_first_when_it_is_tried_again() {
     );
 
     fetching.sync_all(Trigger::Manual);
-    settle(&mut dom).await;
+    settle_quiet(&mut dom).await;
     assert!(
         matches!(
             link(&dom),
@@ -363,7 +351,7 @@ async fn the_accounts_that_come_and_go_get_and_lose_their_link() {
         .with_root_context(store.clone())
         .with_root_context(passer);
     dom.rebuild_in_place();
-    settle(&mut dom).await;
+    settle_quiet(&mut dom).await;
     assert!(matches!(link(&dom), Link::Current { .. }));
     let changed = |dom: &VirtualDom| {
         dom.in_scope(ScopeId::APP, || {
@@ -392,7 +380,7 @@ async fn the_accounts_that_come_and_go_get_and_lose_their_link() {
         .put_caps(acct_later(), &preset.expected_caps, Utc::now())
         .unwrap();
     changed(&dom);
-    settle(&mut dom).await;
+    settle_quiet(&mut dom).await;
     let added = dom.in_scope(ScopeId::APP, || fetching(&dom).link(acct_later()));
     assert!(
         matches!(
@@ -413,7 +401,7 @@ async fn the_accounts_that_come_and_go_get_and_lose_their_link() {
     // Gone: its link goes, and the pass it was running is cancelled and forgotten.
     mail_store::testing::delete_account_row(&store, acct_later());
     changed(&dom);
-    settle(&mut dom).await;
+    settle_quiet(&mut dom).await;
     assert_eq!(
         dom.in_scope(ScopeId::APP, || fetching(&dom).link(acct_later())),
         None

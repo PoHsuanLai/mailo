@@ -6,13 +6,14 @@ use super::head::{Confirm, Phase};
 use super::{Ask, Offer, archive_from, ask, leave};
 use crate::ui::app::App;
 use crate::ui::copy::menus::UNSUBSCRIBE;
+use crate::ui::fixtures::settle_for;
 use crate::ui::fixtures::{
     Seen, acct_account, click, dispatching, menu_names, rebuild_into, seeded,
 };
 use crate::ui::reading::Reader;
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
-use dioxus_core::{NoOpMutations, VirtualDom};
+use dioxus_core::VirtualDom;
 use ds::prelude::*;
 use mail_core::message::offer_of;
 use mail_core::message::{Looks, Read};
@@ -130,36 +131,11 @@ fn offer_from(raw_headers: &str) -> Option<Offer> {
     )
 }
 
-async fn settle(dom: &mut VirtualDom, span: Duration) {
-    let until = tokio::time::Instant::now() + span;
-    loop {
-        let left = until.saturating_duration_since(tokio::time::Instant::now());
-        if left.is_zero() {
-            break;
-        }
-        let _ = tokio::time::timeout(left, dom.wait_for_work()).await;
-        dom.render_immediate(&mut NoOpMutations);
-    }
-}
-
 #[component]
 fn Open(thread: ThreadId) -> Element {
     let shell = use_signal(Shell::default);
     let revision = use_signal(|| 0u64);
     rsx! { ds::prelude::Ds { appearance: ds::prelude::Appearance::default(), material: ds::prelude::Material::Window, Reader { thread, shell, revision: Some(revision) } } }
-}
-
-/// Let the dom's tasks run for `span`, keeping every attribute the renders set.
-async fn settle_seen(dom: &mut VirtualDom, seen: &mut Seen, span: Duration) {
-    let until = tokio::time::Instant::now() + span;
-    loop {
-        let left = until.saturating_duration_since(tokio::time::Instant::now());
-        if left.is_zero() {
-            break;
-        }
-        let _ = tokio::time::timeout(left, dom.wait_for_work()).await;
-        dom.render_immediate(seen);
-    }
 }
 
 /// Open the reader's ⋯ and return the names it lists.
@@ -185,7 +161,7 @@ async fn reader_looking(
         .with_root_context(store)
         .with_root_context(looks.clone());
     let mut seen = rebuild_into(&mut dom);
-    settle_seen(&mut dom, &mut seen, Duration::from_millis(400)).await;
+    settle_for(&mut dom, &mut seen, Duration::from_millis(400)).await;
     let markup = dioxus_ssr::render(&dom);
     let names = more_names(&mut dom, &seen);
     (names, markup, looks)
@@ -233,7 +209,7 @@ async fn the_answer_for_one_thread_is_never_offered_under_the_next() {
     let mut dom =
         VirtualDom::new_with_props(Moving, MovingProps { first: listed }).with_root_context(store);
     let mut seen = rebuild_into(&mut dom);
-    settle_seen(&mut dom, &mut seen, Duration::from_millis(400)).await;
+    settle_for(&mut dom, &mut seen, Duration::from_millis(400)).await;
     let before = more_names(&mut dom, &seen);
     assert!(before.iter().any(|name| name == UNSUBSCRIBE), "{before:?}");
     let mut thread = dom.in_scope(
@@ -243,7 +219,7 @@ async fn the_answer_for_one_thread_is_never_offered_under_the_next() {
     dom.in_runtime(|| thread.set(quiet));
     let mut seen = Seen::default();
     dom.render_immediate(&mut seen);
-    settle_seen(&mut dom, &mut seen, Duration::from_millis(400)).await;
+    settle_for(&mut dom, &mut seen, Duration::from_millis(400)).await;
     let markup = dioxus_ssr::render(&dom);
     // The ⋯ opened above is still up, and lists what the quiet thread offers.
     let after = if markup.contains("class=\"ds-menu-item\"") {
@@ -376,7 +352,7 @@ async fn the_list_does_not_read_a_list_header() {
         .with_root_context(store.clone())
         .with_root_context(looks.clone());
     let _seen = rebuild_into(&mut dom);
-    settle(&mut dom, Duration::from_millis(50)).await;
+    settle_for(&mut dom, &mut Seen::default(), Duration::from_millis(50)).await;
     assert_eq!(looks.reads(Read::List), 0, "the list read a list header");
 
     let (names, _, reader) = reader_looking(store, thread).await;

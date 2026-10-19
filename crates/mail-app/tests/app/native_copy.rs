@@ -23,6 +23,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::drive;
+use crate::native::ms;
 use drive::{Drive, Key, PRIMARY};
 
 fn acct_account() -> AccountId {
@@ -115,10 +116,6 @@ impl Browse for Opened {
 const COMMAND: Key = Key::Super;
 #[cfg(not(target_os = "macos"))]
 const COMMAND: Key = Key::Ctrl;
-
-fn ms(n: u64) -> Duration {
-    Duration::from_millis(n)
-}
 
 /// The window as `launch` wires it (`FocusFallback::Ancestor`), over the seeded store.
 fn open() -> (Harness, tempfile::TempDir) {

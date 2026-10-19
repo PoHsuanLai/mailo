@@ -9,49 +9,29 @@
 
 use ds::base::press::PointerButton;
 use ds::prelude::{Point, ShortcutKey as Key};
-use ds_blitz::{NetPolicy, PrintOutcome};
-use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
+use ds_harness::Harness;
 
 use crate::settle;
 use settle::settle_until;
 
 use crate::drive;
+use crate::native::ms;
 use crate::one_message;
+use crate::opening::{Open, Wait, open_window};
 use drive::{Drive, PRIMARY};
 use mail_core::{SqliteStore, Store};
 use one_message::{SUBJECT, account, seeded};
 use std::sync::Arc;
-use std::time::Duration;
-
-const VIEW: Viewport = Viewport {
-    width: 1200,
-    height: 800,
-    scale_percent: 100,
-};
-
-fn ms(n: u64) -> Duration {
-    Duration::from_millis(n)
-}
 
 /// The main window over `store`, first frame drawn.
 fn main_window(store: &Arc<SqliteStore>) -> Harness {
-    let printer = mail_app::ui::native::Printer::with_dialog(|_, _| Ok(PrintOutcome::Cancelled));
-    let contexts = mail_app::ui::native::contexts(
-        Arc::clone(store),
-        mail_app::ui::view::Appearance::default(),
-        None,
-        None,
-        mail_app::ui::Start::Inbox,
+    open_window(
+        store,
+        Open {
+            wait: Wait::List(1),
+            ..Open::default()
+        },
     )
-    .with(printer);
-    let config = HarnessConfig::new(VIEW)
-        .with_net(NetPolicy::Local)
-        .with_clock(Clock::Virtual)
-        .with_contexts(contexts);
-    let mut harness = Harness::new(mail_app::ui::native::root, config);
-    harness.advance(ms(300));
-    settle_until(&mut harness, |h| h.count(".list .ds-thread") == 1);
-    harness
 }
 
 fn centre(harness: &Harness, selector: &str) -> Point {

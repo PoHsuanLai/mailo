@@ -2,6 +2,8 @@
 //! encrypted, protected mail opened when it is read — against a real store, with the keyring a
 //! [`MapSigningStore`] so the user's own is never touched.
 
+use crate::sealed::{self, to};
+use crate::store::acct_account;
 use chrono::{DateTime, TimeZone, Utc};
 use mail_app::cli;
 use mail_core::compose;
@@ -9,17 +11,12 @@ use mail_core::pgp;
 use mail_core::testing::MapSigningStore;
 use mail_core::{Arrival, SigningStore};
 use mail_core::{SqliteStore, Store};
-use mail_domain::id::account_id_from_uuid;
 use mail_domain::signing::{SigningKeyId, SigningKeyRef, SigningSecret};
 use mail_domain::*;
 use mail_mime::openpgp::{self, Keys, SecretCert, Unlocking};
-use porter_core::AccountId;
 use rand::SeedableRng;
 use std::sync::Arc;
 
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
 const IDENTITY: IdentityId =
     IdentityId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b1"));
 const ME: &str = "me@example.test";
@@ -61,61 +58,34 @@ fn someone_elses(address: &str, seed: u64) -> SecretCert {
     .unwrap()
 }
 
-/// Import `key`'s public half, as `mailo pgp import` would.
-fn import_public(store: &SqliteStore, secrets: &MapSigningStore, key: &SecretCert) {
-    let armored = key.public().armored().unwrap();
-    pgp::keys::import(store, secrets, armored.as_bytes(), now()).unwrap();
-}
-
-fn to(addresses: &[&str]) -> Vec<Address> {
-    addresses
-        .iter()
-        .map(|email| Address {
-            name: None,
-            email: (*email).to_owned(),
-        })
-        .collect()
-}
-
 fn draft(store: &SqliteStore, openpgp: OpenPgp, recipients: &[&str], bcc: &[&str]) -> Draft {
-    let mut draft = compose::draft_new(
+    sealed::draft(
         store,
         acct_account(),
-        &to(recipients),
-        "Secret plans",
-        "meet at the usual place",
         now(),
+        |draft| draft.openpgp = openpgp,
+        recipients,
+        bcc,
     )
-    .unwrap();
-    draft.openpgp = openpgp;
-    draft.bcc = to(bcc);
-    compose::save(store, &draft).unwrap();
-    draft
 }
 
 fn submissions(store: &SqliteStore) -> Vec<mail_store::OutboxEntry> {
-    store
-        .outbox_due(
-            acct_account(),
-            now() + chrono::TimeDelta::try_days(365).unwrap(),
-        )
-        .unwrap()
+    sealed::submissions(store, acct_account(), now())
 }
 
 /// The frozen bytes of the only queued submission.
 fn frozen(store: &SqliteStore) -> Vec<u8> {
-    let entries = submissions(store);
-    assert_eq!(entries.len(), 1, "one submission queued");
-    let ProtoOp::Submit { raw, .. } = &entries[0].op else {
-        panic!("{:?}", entries[0].op);
-    };
-    store.blobs().get(*raw).unwrap()
+    sealed::frozen(store, acct_account(), now())
 }
 
 fn send(store: &SqliteStore, secrets: &MapSigningStore, draft: DraftId) -> Result<String, String> {
-    compose::send_with(store, secrets, &pgp::no_passphrase, draft, now())
-        .map(|(draft, post)| cli::compose::queued(&draft, &post))
-        .map_err(|e| e.to_string())
+    sealed::send(store, secrets, draft, now())
+}
+
+/// Import `key`'s public half, as `mailo pgp import` would.
+fn import_public(store: &SqliteStore, secrets: &MapSigningStore, key: &SecretCert) {
+    let armored = key.public().armored().unwrap();
+    pgp::keys::import(store, secrets, armored.as_bytes(), now()).unwrap();
 }
 
 /// Store `raw` as a message that arrived in the inbox, the way a sync does, and return it.

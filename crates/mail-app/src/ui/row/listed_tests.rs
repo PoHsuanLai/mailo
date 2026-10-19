@@ -9,7 +9,6 @@ use chrono::{DateTime, TimeZone, Utc};
 use ds::components::app::thread_height::ThreadLines;
 use ds::components::menus::item::item::MenuItem;
 use ds::prelude::*;
-use mail_domain::id::new_account_id;
 use mail_domain::*;
 
 fn now() -> DateTime<Utc> {
@@ -18,42 +17,20 @@ fn now() -> DateTime<Utc> {
 
 fn summary(snippet: &str, read: ReadState) -> ThreadSummary {
     ThreadSummary {
-        id: ThreadId::generate(),
-        account: new_account_id(),
         subject: "Offsite plans".into(),
         snippet: snippet.into(),
         from: Address {
             name: Some("Ada Lovelace".into()),
             email: "ada@example.test".into(),
         },
-        participants: vec![],
-        recipients: vec![],
         last_date: now(),
-        message_count: 1,
         read,
-        star: Star::Unstarred,
-        mailboxes: MailboxSet::only(MailboxRole::Inbox),
-        labels: vec![],
-        attachments: Attachments::None,
-        snooze: Snooze::Inactive,
-        pin: Pin::Unpinned,
-        mute: Mute::Unmuted,
-        follow_up: FollowUp::Inactive,
+        ..mail_domain::testing::summary()
     }
 }
 
 fn draft(subject: &str, to: &[&str], state: SendState) -> Draft {
-    let identity = Identity {
-        id: IdentityId::generate(),
-        account: new_account_id(),
-        from: Address {
-            name: None,
-            email: "me@example.test".into(),
-        },
-        reply_to: None,
-        signature: None,
-        default: IsDefault::Default,
-    };
+    let identity = mail_domain::testing::identity();
     Draft {
         subject: subject.into(),
         to: to

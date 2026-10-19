@@ -10,16 +10,18 @@
 
 use dioxus::prelude::Modifiers;
 use ds::prelude::*;
-use ds_harness::{Clock, Harness, HarnessConfig, Input, Viewport};
+use ds_harness::{Clock, Harness, Input, Viewport};
 use mail_core::SqliteStore;
 use mail_core::{Arrival, absorb};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use porter_core::AccountId;
 use std::sync::Arc;
-use std::time::Duration;
 
 use crate::drive;
+use crate::native::ms;
+use crate::native::thread;
+use crate::opening::{Open, Wait, open_window};
 use drive::Drive;
 
 fn acct_account() -> AccountId {
@@ -31,10 +33,6 @@ const VIEW: Viewport = Viewport {
     height: 800,
     scale_percent: 100,
 };
-
-fn ms(n: u64) -> Duration {
-    Duration::from_millis(n)
-}
 
 /// Eighty numbered lines: far taller than an 800 px window.
 fn lines() -> Vec<String> {
@@ -124,23 +122,15 @@ fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
 
 fn open() -> (Harness, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
-    let contexts = mail_app::ui::native::contexts(
-        seeded(dir.path()),
-        mail_app::ui::view::Appearance::default(),
-        None,
-        None,
-        mail_app::ui::Start::Inbox,
+    let harness = open_window(
+        &seeded(dir.path()),
+        Open {
+            clock: Clock::Wall,
+            wait: Wait::Entrances,
+            ..Open::default()
+        },
     );
-    let config = HarnessConfig::new(VIEW)
-        .with_clock(Clock::Wall)
-        .with_contexts(contexts);
-    let mut harness = Harness::new(mail_app::ui::native::root, config);
-    harness.advance(ms(300));
     (harness, dir)
-}
-
-fn row(n: usize) -> String {
-    format!(".list .ds-list-item[*|aria-posinset=\"{n}\"] .ds-thread")
 }
 
 /// Open row `n`, wait until its last frame has a document with `marker` in it, and then until
@@ -172,7 +162,7 @@ fn settle(harness: &mut Harness) {
 
 /// Open row `n` and wait until its last frame has a document with `marker` in it.
 fn shown(harness: &mut Harness, n: usize, marker: &str) {
-    let subject = format!("{} .ds-thread-sub", row(n));
+    let subject = format!("{} .ds-thread-sub", thread(n));
     for _ in 0..50 {
         if harness.rect(&subject).is_some() {
             break;

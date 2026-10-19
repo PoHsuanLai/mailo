@@ -10,11 +10,12 @@
 //! touches the network, the real mail store or the real config.
 
 use ds::prelude::*;
-use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
-use std::time::Duration;
+use ds_harness::{Harness, Viewport};
 
 use crate::drive;
+use crate::native::ms;
 use crate::one_message::seeded;
+use crate::opening::{Open, Wait, open_window};
 use drive::{Drive, Key};
 
 const VIEW: Viewport = Viewport {
@@ -26,24 +27,15 @@ const VIEW: Viewport = Viewport {
 /// How far apart two edges may be and still read as one.
 const SLACK: f32 = 2.0;
 
-fn ms(n: u64) -> Duration {
-    Duration::from_millis(n)
-}
-
 fn open() -> (Harness, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
-    let contexts = mail_app::ui::native::contexts(
-        seeded(dir.path()),
-        mail_app::ui::view::Appearance::default(),
-        None,
-        None,
-        mail_app::ui::Start::Inbox,
+    let harness = open_window(
+        &seeded(dir.path()),
+        Open {
+            wait: Wait::Entrances,
+            ..Open::default()
+        },
     );
-    let config = HarnessConfig::new(VIEW)
-        .with_clock(Clock::Virtual)
-        .with_contexts(contexts);
-    let mut harness = Harness::new(mail_app::ui::native::root, config);
-    harness.advance(ms(300));
     (harness, dir)
 }
 

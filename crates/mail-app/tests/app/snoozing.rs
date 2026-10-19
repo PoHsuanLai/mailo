@@ -5,19 +5,14 @@
 //! — it is that the conversation *leaves the inbox* and *comes back on its own*, which is the
 //! whole of what snoozing means and the part a pure predicate test cannot show.
 
+use crate::store::acct_account;
 use chrono::{DateTime, TimeDelta, TimeZone, Utc};
 use mail_app::cli;
 use mail_app::ui::view;
 use mail_core::snooze;
 use mail_core::{Arrival, absorb};
 use mail_core::{SqliteStore, Store};
-use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
-use porter_core::AccountId;
-
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
 
 fn now() -> DateTime<Utc> {
     Utc.with_ymd_and_hms(2026, 9, 22, 6, 0, 0).unwrap()

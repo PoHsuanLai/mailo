@@ -3,10 +3,8 @@
 //! go back and the keyboard returns to the row; the Remove question answers Escape itself and
 //! leaves the page where it was. Both pages keep quire's content inset.
 
-use ds::prelude::Point;
-use ds_blitz::{NetPolicy, PrintOutcome};
+use ds_harness::Harness;
 use ds_harness::inset::{Policy, assert_insets};
-use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
 
 use crate::settle;
 use settle::settle_until;
@@ -14,26 +12,21 @@ use settle::settle_until;
 use crate::drive;
 use drive::{Drive, Key};
 
+use crate::native::click;
+use crate::native::ms;
+use crate::opening::{Open, Wait, open_window};
 use mail_app::ui::appearance::WindowDirs;
 use mail_core::SqliteStore;
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::{AccountPlan, AuthPlan, Incoming, Outgoing, SaslMech, Tls, Username};
 use porter_core::AccountId;
 use std::sync::Arc;
-use std::time::Duration;
 
 fn acct_ada() -> AccountId {
     account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
 }
 
 const ADDRESS: &str = "ada@example.test";
-
-/// The Settings window at the size it opens at.
-const VIEW: Viewport = Viewport {
-    width: 780,
-    height: 620,
-    scale_percent: 100,
-};
 
 const SIDEBAR_ACCOUNTS: &str = ".ds-sidebar [*|aria-label=\"Accounts\"]";
 const ACCOUNTS: &str = ".settings-page[*|data-page=\"Accounts\"]";
@@ -42,10 +35,6 @@ const SHOWN: &str = ".ds-pane-stack-page[*|data-presence=present]";
 
 fn row() -> String {
     format!("#accounts-pane-open-{}", acct_ada())
-}
-
-fn ms(n: u64) -> Duration {
-    Duration::from_millis(n)
 }
 
 /// A store in `dir` with one IMAP account.
@@ -82,20 +71,15 @@ fn open() -> (Harness, tempfile::TempDir) {
         config: dir.path().join("config"),
         state: dir.path().join("state"),
     };
-    let printer = mail_app::ui::native::Printer::with_dialog(|_, _| Ok(PrintOutcome::Cancelled));
-    let contexts = mail_app::ui::native::contexts(
-        store,
-        mail_app::ui::view::Appearance::default(),
-        None,
-        Some(dirs),
-        mail_app::ui::Start::Inbox,
-    )
-    .with(printer);
-    let config = HarnessConfig::new(VIEW)
-        .with_net(NetPolicy::Local)
-        .with_clock(Clock::Virtual)
-        .with_contexts(contexts);
-    let mut harness = Harness::new(mail_app::ui::native::settings_root, config);
+    let mut harness = open_window(
+        &store,
+        Open {
+            root: mail_app::ui::native::settings_root,
+            dirs: Some(dirs),
+            wait: Wait::Nothing,
+            ..Open::default()
+        },
+    );
     settle_until(&mut harness, |harness| harness.count(SIDEBAR_ACCOUNTS) == 1);
     click(&mut harness, SIDEBAR_ACCOUNTS);
     let row = row();
@@ -103,18 +87,6 @@ fn open() -> (Harness, tempfile::TempDir) {
         harness.count(ACCOUNTS) == 1 && harness.count(&row) == 1
     });
     (harness, dir)
-}
-
-fn centre(harness: &Harness, selector: &str) -> Point {
-    harness
-        .centre(selector)
-        .unwrap_or_else(|| panic!("{selector} is not drawn:\n{}", harness.html()))
-}
-
-fn click(harness: &mut Harness, selector: &str) {
-    let at = centre(harness, selector);
-    harness.click(at);
-    harness.advance(ms(300));
 }
 
 /// Whether only the list is drawn: one page in the stack, and no back button.

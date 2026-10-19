@@ -1139,31 +1139,14 @@ mod tests {
     use super::*;
     use chrono::{DateTime, TimeZone, Utc};
     use mail_core::place::pending_snooze;
-    use mail_domain::id::new_account_id;
 
     fn summary(tweak: impl FnOnce(&mut ThreadSummary)) -> ThreadSummary {
         let mut s = ThreadSummary {
-            id: ThreadId::generate(),
-            account: new_account_id(),
-            subject: "s".into(),
-            snippet: String::new(),
             from: Address {
                 name: None,
                 email: "a@b.test".into(),
             },
-            participants: vec![],
-            recipients: vec![],
-            last_date: Utc.timestamp_opt(1_700_000_000, 0).unwrap(),
-            message_count: 1,
-            read: ReadState::Unread,
-            star: Star::Unstarred,
-            mailboxes: MailboxSet::only(MailboxRole::Inbox),
-            labels: vec![],
-            attachments: Attachments::None,
-            snooze: Snooze::Inactive,
-            pin: Pin::Unpinned,
-            mute: Mute::Unmuted,
-            follow_up: mail_domain::FollowUp::Inactive,
+            ..mail_domain::testing::summary()
         };
         tweak(&mut s);
         s
@@ -1299,7 +1282,6 @@ mod tests {
 #[cfg(test)]
 mod composer_tests {
     use super::*;
-    use mail_domain::id::new_account_id;
 
     fn addr(name: Option<&str>, email: &str) -> Address {
         Address {
@@ -1310,23 +1292,12 @@ mod composer_tests {
 
     fn draft_of(to: Vec<Address>) -> Draft {
         Draft {
-            id: DraftId::generate(),
-            account: new_account_id(),
-            identity: IdentityId::generate(),
             to,
-            cc: Vec::new(),
             bcc: vec![addr(None, "blind@example.test")],
             subject: "Re: lunch".to_owned(),
             in_reply_to: Some(MessageId::generate()),
-            forward_of: None,
             text: "body".to_owned(),
-            html: None,
-            attachments: Vec::new(),
-            receipt: ReceiptRequest::Unrequested,
-            openpgp: OpenPgp::None,
-            smime: mail_domain::Smime::None,
-            state: SendState::Editing,
-            updated: chrono::Utc::now(),
+            ..Draft::blank(&mail_domain::testing::identity(), chrono::Utc::now())
         }
     }
 
@@ -1596,31 +1567,19 @@ mod keyboard {
     use chrono::{TimeZone, Utc};
     use mail_core::place::pin_op;
     use mail_core::view::{hover_actions, mute_op, op_for, step};
-    use mail_domain::id::new_account_id;
 
     fn summary(read: ReadState, star: Star, mailbox: MailboxRole) -> ThreadSummary {
         ThreadSummary {
-            id: ThreadId::generate(),
-            account: new_account_id(),
             subject: "lunch".to_owned(),
-            snippet: String::new(),
             from: Address {
                 name: None,
                 email: "ada@example.test".to_owned(),
             },
-            participants: vec![],
-            recipients: vec![],
             last_date: Utc.with_ymd_and_hms(2026, 9, 22, 0, 0, 0).unwrap(),
-            message_count: 1,
             read,
             star,
             mailboxes: MailboxSet::only(mailbox),
-            labels: vec![],
-            attachments: Attachments::None,
-            snooze: Snooze::Inactive,
-            pin: Pin::Unpinned,
-            mute: Mute::Unmuted,
-            follow_up: mail_domain::FollowUp::Inactive,
+            ..mail_domain::testing::summary()
         }
     }
 
@@ -2039,23 +1998,11 @@ mod discarding {
         // The flag lives on the composer, so closing and reopening resets it. A confirmation
         // that survives the pane being closed is a trap set for the next draft.
         let draft = Draft {
-            id: DraftId::generate(),
-            account: new_account_id(),
-            identity: IdentityId::generate(),
-            to: vec![],
-            cc: vec![],
-            bcc: vec![],
             subject: "Re: lunch".to_owned(),
-            in_reply_to: None,
-            forward_of: None,
-            text: String::new(),
-            html: None,
-            attachments: vec![],
-            receipt: ReceiptRequest::Unrequested,
-            openpgp: OpenPgp::None,
-            smime: mail_domain::Smime::None,
-            state: SendState::Editing,
-            updated: Utc.with_ymd_and_hms(2026, 9, 22, 0, 0, 0).unwrap(),
+            ..Draft::blank(
+                &mail_domain::testing::identity(),
+                Utc.with_ymd_and_hms(2026, 9, 22, 0, 0, 0).unwrap(),
+            )
         };
         let mut shell = Shell::default();
         shell.compose(&draft);

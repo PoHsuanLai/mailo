@@ -8,19 +8,16 @@ use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
 use ds_settings::Environment;
 use mail_core::{Arrival, absorb};
 use mail_core::{SqliteStore, Store};
-use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
-use porter_core::AccountId;
 use std::sync::Arc;
-use std::time::Duration;
 
 use crate::drive;
+use crate::native::item;
+use crate::native::ms;
 use crate::row_menu;
+use crate::store::acct_account;
 use drive::{Drive, Key, PRIMARY};
 
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
 const VIEW: Viewport = Viewport {
     width: 1200,
     height: 800,
@@ -261,10 +258,6 @@ fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
     Arc::new(store)
 }
 
-fn ms(n: u64) -> Duration {
-    Duration::from_millis(n)
-}
-
 fn open(dark: bool) -> (Harness, tempfile::TempDir) {
     open_with(dark, |_| {})
 }
@@ -325,11 +318,6 @@ fn open_row(h: &mut Harness, n: usize) {
     h.advance(ms(500));
 }
 
-/// Row `n` of the list.
-fn row(n: usize) -> String {
-    format!(".list .ds-list-item[*|aria-posinset=\"{n}\"]")
-}
-
 #[test]
 #[ignore = "picture generator: set MAILO_SHOTS to a directory and run with --ignored"]
 fn screens() {
@@ -375,16 +363,16 @@ fn screens() {
 
         // The row's menus: its actions, then labels and snooze picked from them.
         let (mut h, _d) = open(dark);
-        row_menu::open_row_menu(&mut h, &row(1));
+        row_menu::open_row_menu(&mut h, &item(1));
         h.advance(ms(300));
         shot(&mut h, &out, "row-menu", dark);
         h.key(Key::Escape);
         h.advance(ms(400));
-        row_menu::row_action(&mut h, &row(1), "Label…");
+        row_menu::row_action(&mut h, &item(1), "Label…");
         shot(&mut h, &out, "label-picker", dark);
         h.key(Key::Escape);
         h.advance(ms(400));
-        row_menu::row_action(&mut h, &row(1), "Snooze…");
+        row_menu::row_action(&mut h, &item(1), "Snooze…");
         shot(&mut h, &out, "snooze-menu", dark);
         row_menu::press_menu_item(&mut h, mail_app::ui::copy::menus::CHOOSE_TIME);
         h.advance(ms(400));
@@ -392,7 +380,7 @@ fn screens() {
 
         // A toast with its action: Archive, then Undo on the toast.
         let (mut h, _d) = open(dark);
-        row_menu::row_action(&mut h, &row(1), "Archive");
+        row_menu::row_action(&mut h, &item(1), "Archive");
         h.advance(ms(500));
         shot(&mut h, &out, "toast-action", dark);
 

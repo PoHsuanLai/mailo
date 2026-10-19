@@ -3,14 +3,12 @@
 //! a pass runs and warning when one failed. Passes are the test's own (see `tests`).
 
 use super::tests::{
-    Ending, Script, account, acct_account, finished, link, passer, refused, settle, unreachable,
-    window,
+    Ending, Script, account, acct_account, finished, link, passer, refused, unreachable, window,
 };
-use crate::ui::fixtures::{Seen, click};
+use crate::ui::fixtures::{Seen, click, settle_quiet, settle_quiet_seen};
 use dioxus::prelude::{ScopeId, VirtualDom, consume_context};
 use mail_core::fetch::{Link, Trigger};
 use std::sync::atomic::Ordering;
-use std::time::Duration;
 
 /// The opening tag of the element that carries `needle`.
 fn tag_with<'a>(page: &'a str, needle: &str) -> &'a str {
@@ -28,7 +26,7 @@ async fn a_new_account_with_no_mail_shows_placeholder_rows_and_no_caption() {
     let (passer, _script) = passer();
     let (mut dom, _seen) = window(store, passer);
     assert_eq!(link(&dom), Link::Fresh);
-    settle(&mut dom).await;
+    settle_quiet(&mut dom).await;
     let page = dioxus_ssr::render(&dom);
     assert!(
         page.matches("ds-skeleton-row").count() >= 8,
@@ -45,30 +43,15 @@ async fn a_new_account_with_no_mail_shows_placeholder_rows_and_no_caption() {
     );
 }
 
-/// [`settle`], keeping what the renders set, so that an element that appeared can be clicked.
-async fn settle_seen(dom: &mut VirtualDom) -> Seen {
-    let mut seen = Seen::default();
-    for _ in 0..12 {
-        if tokio::time::timeout(Duration::from_millis(80), dom.wait_for_work())
-            .await
-            .is_err()
-        {
-            break;
-        }
-        dom.render_immediate(&mut seen);
-    }
-    seen
-}
-
 /// A window whose one account ended its first manual pass with `ending`, and what it drew.
 async fn after_a_pass(ending: Ending) -> (VirtualDom, Seen, Script, tempfile::TempDir) {
     let (store, dir) = account(true);
     let (passer, script) = passer();
     let (mut dom, _seen) = window(store, passer);
     super::tests::fetching(&dom).sync_all(Trigger::Manual);
-    settle(&mut dom).await;
+    settle_quiet(&mut dom).await;
     script.release.lock().unwrap().send(ending).unwrap();
-    let seen = settle_seen(&mut dom).await;
+    let seen = settle_quiet_seen(&mut dom).await;
     (dom, seen, script, dir)
 }
 
@@ -105,7 +88,7 @@ async fn a_refused_account_is_asked_about_once_and_signs_in_from_the_dialog_or_t
         &mut dom,
         seen.one("aria-label", "Sign In to me@nowhere.example"),
     );
-    settle(&mut dom).await;
+    settle_quiet(&mut dom).await;
     let page = dioxus_ssr::render(&dom);
     assert!(!page.contains("again?"), "asked after Sign In: {page}");
     let ask = crate::ui::add_account::Ask {
@@ -126,13 +109,13 @@ async fn a_refused_account_is_asked_about_once_and_signs_in_from_the_dialog_or_t
 
     // The pane's Sign In is the same.
     click(&mut dom, seen.one("data-sign-in", "mailbox"));
-    settle(&mut dom).await;
+    settle_quiet(&mut dom).await;
     assert_eq!(asked_for(&dom), [ask.clone(), ask], "the pane's Sign In");
 
     // Later, in another window, puts the question off: it is not asked again.
     let (mut dom, seen, _script, _dir) = after_a_pass(refused).await;
     click(&mut dom, seen.one("data-answer", "later"));
-    let seen = seen.merge(settle_seen(&mut dom).await);
+    let seen = seen.merge(settle_quiet_seen(&mut dom).await);
     let page = dioxus_ssr::render(&dom);
     assert!(!page.contains("again?"), "asked after Later: {page}");
 
@@ -141,7 +124,7 @@ async fn a_refused_account_is_asked_about_once_and_signs_in_from_the_dialog_or_t
         &mut dom,
         seen.one("aria-label", crate::ui::copy::aria::SIGN_IN_AGAIN),
     );
-    settle(&mut dom).await;
+    settle_quiet(&mut dom).await;
     let page = dioxus_ssr::render(&dom);
     assert!(
         page.contains("again?"),
@@ -192,7 +175,7 @@ async fn the_sync_button_is_busy_while_a_pass_runs_and_not_after() {
         &mut dom,
         seen.one("aria-label", crate::ui::copy::aria::SYNC_NOW),
     );
-    settle(&mut dom).await;
+    settle_quiet(&mut dom).await;
     assert_eq!(script.runs.load(Ordering::SeqCst), 1);
     let page = dioxus_ssr::render(&dom);
     assert!(
@@ -204,7 +187,7 @@ async fn the_sync_button_is_busy_while_a_pass_runs_and_not_after() {
     assert!(page.contains("ds-progress"), "no bar for a known count");
 
     script.release.lock().unwrap().send(finished).unwrap();
-    settle(&mut dom).await;
+    settle_quiet(&mut dom).await;
     let page = dioxus_ssr::render(&dom);
     assert!(
         !tag_with(&page, button).contains(r#"aria-busy="true""#),
@@ -226,9 +209,9 @@ async fn an_account_removed_in_settings_leaves_the_links() {
         .with_root_context(revisions.clone());
     let _ = crate::ui::fixtures::rebuild_into(&mut dom);
     super::tests::fetching(&dom).sync_all(Trigger::Manual);
-    settle(&mut dom).await;
+    settle_quiet(&mut dom).await;
     script.release.lock().unwrap().send(unreachable).unwrap();
-    settle_seen(&mut dom).await;
+    settle_quiet_seen(&mut dom).await;
 
     let account = acct_account();
     let secrets = porter_secrets::MemorySecrets::default();
@@ -237,7 +220,7 @@ async fn an_account_removed_in_settings_leaves_the_links() {
         .unwrap_or_else(|why| panic!("{why:?}"));
     let (mut settings, _) = revisions.join(0);
     revisions.publish(&mut settings);
-    settle_seen(&mut dom).await;
+    settle_quiet_seen(&mut dom).await;
     let links = dom.in_scope(ScopeId::APP, || super::tests::fetching(&dom).all_links());
     assert!(links.is_empty(), "its link is still running: {links:?}");
 }
@@ -250,7 +233,7 @@ async fn sync_while_a_pass_runs_says_it_is_already_checking() {
     let (passer, script) = passer();
     let (mut dom, _seen) = window(store, passer);
     super::tests::fetching(&dom).sync_all(Trigger::Manual);
-    settle(&mut dom).await;
+    settle_quiet(&mut dom).await;
     assert!(link(&dom).is_busy(), "no pass running: {:?}", link(&dom));
     let page = dioxus_ssr::render(&dom);
     assert!(!page.contains(super::ALREADY_SYNCING), "said unasked");
@@ -261,7 +244,7 @@ async fn sync_while_a_pass_runs_says_it_is_already_checking() {
     // The toast is quire's, and its host lays it out a frame after the push.
     let mut page = String::new();
     for _ in 0..8 {
-        settle(&mut dom).await;
+        settle_quiet(&mut dom).await;
         page = dioxus_ssr::render(&dom);
         if page.contains(super::ALREADY_SYNCING) {
             break;

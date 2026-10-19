@@ -5,6 +5,7 @@
 //! and the desktop's preferences are fixed, so nothing here reads or watches the real
 //! `~/.config`, and nothing reaches the session bus.
 
+use crate::settle::settle_until;
 use ds::prelude::*;
 use ds_blitz::NetPolicy;
 use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
@@ -12,16 +13,12 @@ use ds_settings::{AppName, AppearanceFile, ConfigRoot, Store, SystemPrefsSource}
 use mail_app::ui::native::DesktopSettings;
 use mail_core::SqliteStore;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 const VIEW: Viewport = Viewport {
     width: 1200,
     height: 800,
     scale_percent: 100,
 };
-
-/// The real time the file watch (a thread, a 30 ms debounce, a task) may take to deliver a change.
-const WAIT_BOUND: Duration = Duration::from_secs(30);
 
 fn desktop(root: &std::path::Path) -> Store {
     Store::new(ConfigRoot::Scratch(root.to_path_buf()), AppName::QUIRE)
@@ -47,21 +44,6 @@ fn stamps(harness: &Harness) -> (String, String, String) {
             .to_owned()
     };
     (attr("data-theme"), attr("data-accent"), attr("data-motion"))
-}
-
-/// Advance the window until `done`, waiting real time for the watch thread, which the virtual
-/// clock cannot reach.
-fn settle_until(harness: &mut Harness, done: impl Fn(&Harness) -> bool) {
-    let deadline = Instant::now() + WAIT_BOUND;
-    while Instant::now() < deadline && !done(harness) {
-        harness.advance(Duration::from_millis(10));
-        std::thread::sleep(Duration::from_millis(5));
-    }
-    assert!(
-        done(harness),
-        "no restyle within {WAIT_BOUND:?}: {:?}",
-        stamps(harness)
-    );
 }
 
 #[test]

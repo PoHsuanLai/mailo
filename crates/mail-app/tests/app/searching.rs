@@ -5,18 +5,13 @@
 //! These tests are in two halves: what the parser builds, and — because a filter that parses and
 //! does not select is worse than no filter — what the store returns for it.
 
+use crate::store::acct_account;
 use chrono::{DateTime, TimeZone, Utc};
 use mail_app::ui::view;
 use mail_core::query;
 use mail_core::{Arrival, absorb};
 use mail_core::{SqliteStore, Store};
-use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
-use porter_core::AccountId;
-
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
 
 fn taipei() -> chrono::FixedOffset {
     chrono::FixedOffset::east_opt(8 * 3600).unwrap()

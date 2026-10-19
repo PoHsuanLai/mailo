@@ -1,31 +1,17 @@
 use super::*;
 use crate::ui::view::Shell;
-use mail_domain::id::new_account_id;
 use mail_domain::*;
 
 fn summary_in(roles: &[MailboxRole]) -> ThreadSummary {
     ThreadSummary {
-        id: ThreadId::generate(),
-        account: new_account_id(),
-        subject: "s".to_owned(),
-        snippet: String::new(),
         from: Address {
             name: None,
             email: "a@example.test".to_owned(),
         },
-        participants: Vec::new(),
-        recipients: Vec::new(),
         last_date: chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
-        message_count: 1,
         read: ReadState::Read,
-        star: Star::Unstarred,
         mailboxes: roles.iter().copied().collect(),
-        labels: Vec::new(),
-        attachments: Attachments::None,
-        snooze: Snooze::Inactive,
-        pin: Pin::Unpinned,
-        mute: Mute::Unmuted,
-        follow_up: mail_domain::FollowUp::Inactive,
+        ..mail_domain::testing::summary()
     }
 }
 

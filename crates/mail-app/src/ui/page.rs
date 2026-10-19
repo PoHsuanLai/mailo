@@ -250,37 +250,24 @@ mod tests {
     use crate::ui::view::RowPart;
     use chrono::TimeZone;
     use ds::prelude::{AfterPick, Check, MenuItem};
-    use mail_domain::id::new_account_id;
+
     use mail_domain::*;
 
     fn thread(name: &str, email: &str, days_ago: i64, unread: bool) -> ThreadSummary {
         let now = Utc.with_ymd_and_hms(2026, 9, 23, 15, 0, 0).unwrap();
         ThreadSummary {
-            id: ThreadId::generate(),
-            account: new_account_id(),
             subject: name.to_owned(),
-            snippet: String::new(),
             from: Address {
                 name: Some(name.to_owned()),
                 email: email.to_owned(),
             },
-            participants: Vec::new(),
-            recipients: Vec::new(),
             last_date: now - chrono::TimeDelta::try_days(days_ago).unwrap_or_default(),
-            message_count: 1,
             read: if unread {
                 ReadState::Unread
             } else {
                 ReadState::Read
             },
-            star: Star::Unstarred,
-            mailboxes: MailboxSet::only(MailboxRole::Inbox),
-            labels: Vec::new(),
-            attachments: Attachments::None,
-            snooze: Snooze::Inactive,
-            pin: Pin::Unpinned,
-            mute: Mute::Unmuted,
-            follow_up: mail_domain::FollowUp::Inactive,
+            ..mail_domain::testing::summary()
         }
     }
 

@@ -2,10 +2,11 @@
 //! first, and the two acts that cannot be undone each asked again, in quire's alert, before
 //! anything happens.
 
+use crate::ui::fixtures::settle_until;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use dioxus::prelude::*;
 use dioxus_core::VirtualDom;
@@ -83,20 +84,8 @@ fn working(dom: &VirtualDom) -> bool {
 /// for a `VirtualDom`). A job's thread wakes nothing while it runs, so a quiet spell alone does
 /// not mean it is done. Panics with the markup if it is still working at the bound.
 pub(super) async fn settle(dom: &mut VirtualDom, seen: &mut Seen) {
-    let started = Instant::now();
-    loop {
-        let quiet = Duration::from_millis(100);
-        match tokio::time::timeout(quiet, dom.wait_for_work()).await {
-            Ok(()) => dom.render_immediate(seen),
-            Err(_) if !working(dom) => return,
-            Err(_) => {}
-        }
-        assert!(
-            started.elapsed() < SETTLE_BOUND,
-            "the sheet was still working after {SETTLE_BOUND:?}:\n{}",
-            dioxus_ssr::render(dom)
-        );
-    }
+    let quiet = Duration::from_millis(100);
+    settle_until(dom, seen, quiet, SETTLE_BOUND, |dom| !working(dom)).await;
 }
 
 fn key(fingerprint: u8, secret: SecretHeld) -> PgpKey {

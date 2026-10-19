@@ -1,6 +1,7 @@
 //! Invitations in the window. Opening shows the card and answers nothing; only Send does.
 
 use crate::ui::files::SaveDir;
+use crate::ui::fixtures::settle_for;
 use crate::ui::fixtures::{
     Seen, acct_account, chord, click, dispatching, rebuild_into, seeded, type_into,
 };
@@ -13,6 +14,7 @@ use mail_core::message::{Looks, Read};
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
 use std::sync::Arc;
+use std::time::Duration;
 
 /// The address the fixture's account sends from.
 pub(super) const ME: &str = "me@example.test";
@@ -182,19 +184,6 @@ fn Open(thread: ThreadId) -> Element {
     rsx! { ds::prelude::Ds { appearance: ds::prelude::Appearance::default(), material: ds::prelude::Material::Window, Reader { thread, shell } } }
 }
 
-/// Let the dom's tasks run for `for_ms`, keeping every attribute the renders set.
-async fn settle(dom: &mut VirtualDom, seen: &mut Seen, for_ms: u64) {
-    let until = tokio::time::Instant::now() + std::time::Duration::from_millis(for_ms);
-    loop {
-        let left = until.saturating_duration_since(tokio::time::Instant::now());
-        if left.is_zero() {
-            break;
-        }
-        let _ = tokio::time::timeout(left, dom.wait_for_work()).await;
-        dom.render_immediate(seen);
-    }
-}
-
 fn markup(dom: &VirtualDom) -> String {
     dioxus_ssr::render(dom).replace("&#39;", "'")
 }
@@ -213,7 +202,7 @@ async fn reader_looking(
         .with_root_context(looks.clone())
         .with_root_context(Saves(saves.to_owned()));
     let mut seen = rebuild_into(&mut dom);
-    settle(&mut dom, &mut seen, 400).await;
+    settle_for(&mut dom, &mut seen, Duration::from_millis(400)).await;
     let page = markup(&dom);
     (dom, seen, page, looks)
 }
@@ -282,14 +271,14 @@ async fn the_invitation_is_one_row_of_three_answers_and_details() {
     // Details opens the rest, and closes it again.
     let details = seen.one("aria-label", crate::ui::copy::aria::SHOW_DETAILS);
     let mut seen = click(&mut dom, details);
-    settle(&mut dom, &mut seen, 50).await;
+    settle_for(&mut dom, &mut seen, Duration::from_millis(50)).await;
     let open = markup(&dom);
     assert!(
         open.contains("class=\"inv-details\"") && open.contains("Save .ics"),
         "{open}"
     );
     let mut seen = click(&mut dom, details);
-    settle(&mut dom, &mut seen, 50).await;
+    settle_for(&mut dom, &mut seen, Duration::from_millis(50)).await;
     assert!(!markup(&dom).contains("class=\"inv-details\""));
 }
 
@@ -302,12 +291,12 @@ async fn accept_with_a_note_queues_one_reply_and_change_answer_queues_another() 
 
     // Choosing an answer opens its note, and sends nothing yet.
     let mut seen = click(&mut dom, answer(&seen, 0));
-    settle(&mut dom, &mut seen, 50).await;
+    settle_for(&mut dom, &mut seen, Duration::from_millis(50)).await;
     assert_eq!(submissions(&store).len(), before, "choosing sent");
     let field = seen.one("aria-placeholder", "Add a note (optional)");
     type_into(&mut dom, field, "See you there");
     let mut seen = chord(&mut dom, "Enter", Modifiers::empty(), field);
-    settle(&mut dom, &mut seen, 400).await;
+    settle_for(&mut dom, &mut seen, Duration::from_millis(400)).await;
 
     let sent = submissions(&store);
     assert_eq!(
@@ -328,11 +317,11 @@ async fn accept_with_a_note_queues_one_reply_and_change_answer_queues_another() 
 
     // Change answer offers the three again; Decline and Send queue one more.
     let mut seen = click(&mut dom, seen.one("aria-label", "Change answer"));
-    settle(&mut dom, &mut seen, 50).await;
+    settle_for(&mut dom, &mut seen, Duration::from_millis(50)).await;
     let mut seen = click(&mut dom, answer(&seen, 2));
-    settle(&mut dom, &mut seen, 50).await;
+    settle_for(&mut dom, &mut seen, Duration::from_millis(50)).await;
     let mut seen = click(&mut dom, seen.one("aria-label", "Send answer"));
-    settle(&mut dom, &mut seen, 400).await;
+    settle_for(&mut dom, &mut seen, Duration::from_millis(400)).await;
     let _ = seen;
 
     let sent = submissions(&store);
@@ -352,10 +341,10 @@ async fn escape_takes_the_note_back_and_sends_nothing() {
     let before = submissions(&store).len();
     let (mut dom, seen, _) = reader_on(store.clone(), thread, dir.path()).await;
     let mut seen = click(&mut dom, answer(&seen, 1));
-    settle(&mut dom, &mut seen, 50).await;
+    settle_for(&mut dom, &mut seen, Duration::from_millis(50)).await;
     let field = seen.one("aria-placeholder", "Add a note (optional)");
     let mut seen = chord(&mut dom, "Escape", Modifiers::empty(), field);
-    settle(&mut dom, &mut seen, 100).await;
+    settle_for(&mut dom, &mut seen, Duration::from_millis(100)).await;
     assert!(!markup(&dom).contains("Add a note"), "the note stayed open");
     assert_eq!(submissions(&store).len(), before);
     assert_eq!(store.invite_answer(message).unwrap(), None);
@@ -411,12 +400,12 @@ async fn save_ics_writes_the_event_beside_what_is_there_and_never_over_it() {
         &mut dom,
         seen.one("aria-label", crate::ui::copy::aria::SHOW_DETAILS),
     );
-    settle(&mut dom, &mut seen, 50).await;
+    settle_for(&mut dom, &mut seen, Duration::from_millis(50)).await;
     let save = seen.one("aria-label", "Save .ics");
     std::fs::write(saves.path().join("Design review.ics"), b"already here").unwrap();
 
     let mut seen = click(&mut dom, save);
-    settle(&mut dom, &mut seen, 300).await;
+    settle_for(&mut dom, &mut seen, Duration::from_millis(300)).await;
 
     let mut names: Vec<String> = std::fs::read_dir(saves.path())
         .unwrap()

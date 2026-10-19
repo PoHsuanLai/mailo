@@ -1,6 +1,7 @@
-use super::super::tests::{account, acct_account, fetching, link, passer, settle};
+use super::super::tests::{account, acct_account, fetching, link, passer};
 use super::*;
 use crate::ui::app::App;
+use crate::ui::fixtures::settle_quiet;
 use crate::ui::fixtures::{dispatching, rebuild_into};
 use dioxus::dioxus_core::VirtualDom;
 use mail_core::SqliteStore;
@@ -44,7 +45,7 @@ async fn a_window_beside_a_watch_fetches_only_when_a_person_asks() {
         fetching.sync_all(trigger);
     }
     fetching.send(acct_account(), Event::Tick);
-    settle(&mut dom).await;
+    settle_quiet(&mut dom).await;
     assert_eq!(script.runs.load(Ordering::SeqCst), 0, "a second fetcher");
     assert!(
         matches!(link(&dom), Link::Current { .. }),
@@ -54,7 +55,7 @@ async fn a_window_beside_a_watch_fetches_only_when_a_person_asks() {
 
     // Sync is a person's, and runs.
     fetching.sync_all(Trigger::Manual);
-    settle(&mut dom).await;
+    settle_quiet(&mut dom).await;
     assert_eq!(script.runs.load(Ordering::SeqCst), 1);
     script
         .release
@@ -62,7 +63,7 @@ async fn a_window_beside_a_watch_fetches_only_when_a_person_asks() {
         .unwrap()
         .send(super::super::tests::finished)
         .unwrap();
-    settle(&mut dom).await;
+    settle_quiet(&mut dom).await;
     assert!(
         matches!(link(&dom), Link::Current { .. }),
         "{:?}",
@@ -72,7 +73,7 @@ async fn a_window_beside_a_watch_fetches_only_when_a_person_asks() {
     // With no watch the same requests are the window's again.
     watching.store(false, Ordering::SeqCst);
     fetching.sync_all(Trigger::Poll);
-    settle(&mut dom).await;
+    settle_quiet(&mut dom).await;
     assert_eq!(
         script.runs.load(Ordering::SeqCst),
         2,
@@ -89,7 +90,7 @@ async fn a_new_account_is_fetched_by_the_window_even_beside_a_watch() {
     fetching(&dom).sync_all(Trigger::Poll);
     // A slow runner can start the fetch after one quiet stretch: wait for the run, not for quiet.
     for _ in 0..50 {
-        settle(&mut dom).await;
+        settle_quiet(&mut dom).await;
         if script.runs.load(Ordering::SeqCst) > 0 {
             break;
         }

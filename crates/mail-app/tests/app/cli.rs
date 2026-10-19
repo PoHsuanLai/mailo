@@ -5,12 +5,11 @@
 //! purpose (`cli_mail`): an OAuth account stops at the advice on getting one, where a client would
 //! open a sign-in and wait.
 
+use crate::store::acct_account;
 use chrono::{DateTime, TimeZone, Utc};
 use mail_app::cli;
 use mail_core::{SqliteStore, Store};
-use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
-use porter_core::AccountId;
 use std::sync::Arc;
 
 /// `cli::run`, at `now`, with no OAuth client at hand.
@@ -20,10 +19,6 @@ fn exercise(
     now: DateTime<Utc>,
 ) -> Result<String, String> {
     cli::run(&crate::cli_mail::mail_at(store, now), command)
-}
-
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
 }
 
 fn seeded() -> (Arc<SqliteStore>, tempfile::TempDir, ThreadId) {

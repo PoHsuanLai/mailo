@@ -7,78 +7,45 @@
 //! The recent emoji are kept in the window's state directory, here a `TempDir`.
 
 use ds::prelude::{Point, ShortcutKey as Key};
-use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
+use ds_harness::{Clock, Harness};
 
 use crate::settle;
 use settle::settle_until;
 
 use crate::drive;
+use crate::native::ms;
+use crate::opening::{Open, Wait, open_window};
+use crate::store::{Seed, seeded_with};
 use drive::{Drive, PRIMARY};
-use ds_blitz::{FocusFallback, NetPolicy, PrintOutcome};
 use mail_app::ui::appearance::WindowDirs;
 use mail_core::SqliteStore;
-use mail_domain::id::account_id_from_uuid;
-use mail_domain::*;
-use porter_core::AccountId;
-use std::path::Path;
 use std::sync::Arc;
-use std::time::Duration;
-
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
-
-const VIEW: Viewport = Viewport {
-    width: 1200,
-    height: 800,
-    scale_percent: 100,
-};
 
 /// A cell of the picker's grid.
 const CELL: &str = ".em-picker .ds-emoji-cell";
 
-fn ms(n: u64) -> Duration {
-    Duration::from_millis(n)
-}
-
 /// One account and its identity: enough for `c` to open a new message.
-fn seeded(dir: &Path) -> Arc<SqliteStore> {
-    std::fs::create_dir_all(dir.join("blobs")).unwrap();
-    let store = SqliteStore::open(dir.join("mail.db"), dir.join("blobs")).unwrap();
-    {
-        mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
-        mail_store::testing::seed_identity_for(
-            &store,
-            IdentityId::generate(),
-            acct_account(),
-            "me@example.test",
-            None,
-        );
-    }
-    Arc::new(store)
+fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
+    seeded_with(
+        dir,
+        Seed {
+            caps: None,
+            ..Seed::default()
+        },
+    )
 }
 
 /// A window over `store` and `dirs`, with a new message open and its body holding the keyboard.
 fn composing_over(store: &Arc<SqliteStore>, dirs: &WindowDirs) -> Harness {
-    // No test may open the system's print dialog.
-    let printer = mail_app::ui::native::Printer::with_dialog(|_, _| Ok(PrintOutcome::Cancelled));
-    let contexts = mail_app::ui::native::contexts(
-        Arc::clone(store),
-        mail_app::ui::view::Appearance::default(),
-        None,
-        Some(dirs.clone()),
-        mail_app::ui::Start::Inbox,
-    )
-    .with(printer);
-    let config = HarnessConfig::new(VIEW)
-        .with_net(NetPolicy::Local)
-        .with_focus_fallback(FocusFallback::Ancestor)
-        // Wall: on the virtual clock the picker opened a second time never takes the keyboard
-        // into its search field. Waits are `settle_until`, bounded by the machine's time.
-        .with_clock(Clock::Wall)
-        .with_contexts(contexts);
-    let mut harness = Harness::new(mail_app::ui::native::root, config);
-    harness.advance(ms(300));
+    let mut harness = open_window(
+        store,
+        Open {
+            dirs: Some(dirs.clone()),
+            clock: Clock::Wall,
+            wait: Wait::Entrances,
+            ..Open::default()
+        },
+    );
     harness.key(Key::Char('c'));
     settle_until(&mut harness, |h| h.count(".cpage .c-body") == 1);
     let body = centre(&harness, ".c-body");

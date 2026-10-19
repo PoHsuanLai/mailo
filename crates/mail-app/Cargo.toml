@@ -186,6 +186,8 @@ objc2-app-kit = { version = "0.3", default-features = false, features = ["std", 
 rfd = { version = "=0.17.2", default-features = false }
 
 [dev-dependencies]
+# The values a test starts from (`mail_domain::testing`): the program never has them.
+mail-domain = { workspace = true, features = ["testing"] }
 # Seeding a store without writing SQL (`mail_store::testing`): the program never has it.
 mail-store = { workspace = true, features = ["testing"] }
 # The doubles at the runtime's seams (`mail_core::testing`): the program never has them.

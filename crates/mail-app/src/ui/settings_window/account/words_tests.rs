@@ -1,9 +1,8 @@
 use super::{asking, refused, settings};
 use mail_core::account::RemoveError;
-use mail_domain::id::new_account_id;
 use mail_domain::{
-    AccountPlan, Address, AuthPlan, HttpAuth, Identity, IdentityId, Incoming, IsDefault,
-    LeaveOnServer, Outgoing, SaslMech, Tls, Username,
+    AccountPlan, Address, AuthPlan, HttpAuth, Identity, Incoming, LeaveOnServer, Outgoing,
+    SaslMech, Tls, Username,
 };
 use porter_provider::Issuer;
 
@@ -122,15 +121,11 @@ fn each_kind_of_account_lists_its_servers_and_how_it_signs_in() {
 #[test]
 fn the_addresses_it_sends_as_follow_with_their_names() {
     let identity = |name: Option<&str>, email: &str| Identity {
-        id: IdentityId::generate(),
-        account: new_account_id(),
         from: Address {
             name: name.map(str::to_owned),
             email: email.to_owned(),
         },
-        reply_to: None,
-        signature: None,
-        default: IsDefault::Default,
+        ..mail_domain::testing::identity()
     };
     let mut plan = plan(
         Incoming::Graph,

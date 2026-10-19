@@ -19,20 +19,16 @@ use crate::settle;
 use settle::settle_until;
 
 use crate::drive;
+use crate::native::item;
+use crate::native::ms;
+use crate::store::acct_account;
+use crate::store::{Seed, seeded_with};
 use drive::{Drive, PRIMARY};
 use mail_app::ui::native::{Ask, MessageOpen, OpenWindow, Revisions, Windows};
-use mail_core::{Arrival, absorb};
 use mail_core::{SqliteStore, Store};
-use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
-use porter_core::AccountId;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
-
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
 
 const VIEW: Viewport = Viewport {
     width: 1200,
@@ -54,10 +50,6 @@ const INBOX: [(&str, &str); 3] = [
     ("alan@example.test", "Lunch on Thursday"),
 ];
 
-fn ms(n: u64) -> Duration {
-    Duration::from_millis(n)
-}
-
 /// What "Open in new window" asked for, in order.
 #[derive(Default)]
 struct Recorder(Mutex<Vec<Ask>>);
@@ -76,60 +68,14 @@ impl Recorder {
 
 /// A store in `dir` with one account, its identity and capabilities, and [`INBOX`].
 fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
-    std::fs::create_dir_all(dir.join("blobs")).unwrap();
-    let store = SqliteStore::open(dir.join("mail.db"), dir.join("blobs")).unwrap();
-    {
-        mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
-        mail_store::testing::seed_identity_for(
-            &store,
-            IdentityId::generate(),
-            acct_account(),
-            "me@example.test",
-            None,
-        );
-        let caps = AccountCaps {
-            labels: ServerLabels::Supported,
-            threads: ServerThreads::Jwz,
-            watch: WatchMode::Idle,
-            archive: ArchiveMeans::DropInbox,
-            folders: FolderRoles::default(),
-            condstore: Condstore::Supported,
-            move_ext: MoveExt::Supported,
-            expunge: ExpungeMeans::Forbidden,
-            top: Supported::Absent,
-            pipelining: Supported::Yes,
-            connections: ConnectionBudget::default(),
-            observed_at: chrono::Utc::now(),
-        };
-        mail_store::testing::seed_caps(&store, acct_account(), &caps, chrono::Utc::now()).unwrap();
-    }
-    let now = chrono::Utc::now();
-    for (n, (from, subject)) in INBOX.iter().enumerate() {
-        let date = (now - chrono::Duration::hours(n as i64 + 1)).to_rfc2822();
-        let raw = format!(
-            "From: {from}\r\nTo: me@example.test\r\nSubject: {subject}\r\n\
-             Date: {date}\r\nMessage-ID: <window{n}@example.test>\r\n\r\nThe body of {subject}.\r\n"
-        );
-        absorb(
-            &store,
-            acct_account(),
-            MailboxRef {
-                account: acct_account(),
-                path: "INBOX".to_owned(),
-            },
-            Some(SyncCursor::Pop),
-            vec![Arrival {
-                remote: RemoteRef::Pop {
-                    uidl: format!("window{n}"),
-                },
-                raw: raw.into_bytes(),
-            }],
-            false,
-            now,
-        )
-        .unwrap();
-    }
-    Arc::new(store)
+    seeded_with(
+        dir,
+        Seed {
+            inbox: &INBOX,
+            prefix: "window",
+            ..Seed::default()
+        },
+    )
 }
 
 /// The conversation whose subject is `subject`, as the store has it.
@@ -225,11 +171,6 @@ fn message_window_on(
     harness
 }
 
-/// The `n`th row of the list (1-based).
-fn row(n: usize) -> String {
-    format!(".list .ds-list-item[*|aria-posinset=\"{n}\"]")
-}
-
 fn centre(harness: &Harness, selector: &str) -> Point {
     harness
         .centre(selector)
@@ -238,7 +179,7 @@ fn centre(harness: &Harness, selector: &str) -> Point {
 
 /// Where a person reads the `n`th row: the start of its subject line, clear of the hover strip.
 fn on_row(harness: &Harness, n: usize) -> Point {
-    let subject = format!("{} .ds-thread-sub", row(n));
+    let subject = format!("{} .ds-thread-sub", item(n));
     let rect = harness
         .rect(&subject)
         .unwrap_or_else(|| panic!("{subject} is not drawn:\n{}", harness.html()));

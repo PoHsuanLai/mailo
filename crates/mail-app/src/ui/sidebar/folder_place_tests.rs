@@ -6,6 +6,7 @@ use super::super::app::App;
 use super::super::folder_open::Fetcher;
 use super::super::motion::belongs;
 use super::folder_tests::{acct_imap, folder};
+use crate::ui::fixtures::settle_quiet;
 use crate::ui::fixtures::{Seen, click, dispatching, empty, rebuild_into};
 use crate::ui::view::{Shell, folder_of, places_with};
 use chrono::Utc;
@@ -172,19 +173,6 @@ fn window(store: Arc<SqliteStore>, fetcher: Fetcher) -> (VirtualDom, Seen) {
     (dom, seen)
 }
 
-/// Let the fetch and the list query land and redraw, as the window would between frames.
-async fn settle(dom: &mut VirtualDom) {
-    for _ in 0..12 {
-        if tokio::time::timeout(std::time::Duration::from_millis(60), dom.wait_for_work())
-            .await
-            .is_err()
-        {
-            break;
-        }
-        dom.render_immediate(&mut NoOpMutations);
-    }
-}
-
 /// Where the on-demand fetch of `path` on the account stands, as the window's fetching has it.
 fn folder_state(dom: &mut VirtualDom, path: &str) -> FolderFetch {
     dom.in_scope(ScopeId::APP, || {
@@ -239,7 +227,7 @@ async fn choosing_a_folder_lists_what_the_server_holds_there_and_its_badge_count
     );
 
     click(&mut dom, seen.folder(PROJECTS));
-    settle(&mut dom).await;
+    settle_quiet(&mut dom).await;
     let page = dioxus_ssr::render(&dom);
     let listed = list(&page);
     assert!(
@@ -272,7 +260,7 @@ async fn opening_fetches_once_per_choice_and_not_again_within_the_minute() {
     let (store, _dir, _) = store();
     let (fetcher, calls) = counting(Ok(()));
     let (mut dom, seen) = window(store, fetcher);
-    settle(&mut dom).await;
+    settle_quiet(&mut dom).await;
     assert_eq!(
         calls.load(Ordering::SeqCst),
         0,
@@ -280,7 +268,7 @@ async fn opening_fetches_once_per_choice_and_not_again_within_the_minute() {
     );
 
     click(&mut dom, seen.folder(PROJECTS));
-    settle(&mut dom).await;
+    settle_quiet(&mut dom).await;
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     // Where the folder stands is the fetching's, not a line in the list bar: opening it no
     // longer writes the status every account shares.
@@ -296,15 +284,15 @@ async fn opening_fetches_once_per_choice_and_not_again_within_the_minute() {
     // Redrawing is not opening.
     dom.mark_dirty(ScopeId::APP);
     dom.render_immediate(&mut NoOpMutations);
-    settle(&mut dom).await;
+    settle_quiet(&mut dom).await;
     assert_eq!(calls.load(Ordering::SeqCst), 1, "a re-render fetched");
 
     click(&mut dom, seen.folder(RECEIPTS));
-    settle(&mut dom).await;
+    settle_quiet(&mut dom).await;
     assert_eq!(calls.load(Ordering::SeqCst), 2, "another folder is fetched");
 
     click(&mut dom, seen.folder(PROJECTS));
-    settle(&mut dom).await;
+    settle_quiet(&mut dom).await;
     assert_eq!(
         calls.load(Ordering::SeqCst),
         2,
@@ -314,7 +302,7 @@ async fn opening_fetches_once_per_choice_and_not_again_within_the_minute() {
     // An unfollowed folder, drawn by Show All Folders, opens and fetches too.
     let shown = click(&mut dom, seen.one("data-toggle", "folders"));
     click(&mut dom, shown.folder(OLD));
-    settle(&mut dom).await;
+    settle_quiet(&mut dom).await;
     assert_eq!(calls.load(Ordering::SeqCst), 3);
     let page = dioxus_ssr::render(&dom);
     assert!(
@@ -330,7 +318,7 @@ async fn a_fetch_that_fails_is_the_folders_to_say() {
     let (fetcher, calls) = counting(Err("the server has no such folder any more"));
     let (mut dom, seen) = window(store, fetcher);
     click(&mut dom, seen.folder(RECEIPTS));
-    settle(&mut dom).await;
+    settle_quiet(&mut dom).await;
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     assert_eq!(
         folder_state(&mut dom, RECEIPTS),
@@ -458,7 +446,7 @@ async fn render_a_folder_place_to_a_file() {
         .with_root_context(fetcher);
     let seen = rebuild_into(&mut dom);
     click(&mut dom, seen.folder(PROJECTS));
-    settle(&mut dom).await;
+    settle_quiet(&mut dom).await;
     let body = dioxus_ssr::render(&dom);
     for (suffix, scheme) in [("", Scheme::Light), ("-dark", Scheme::Dark)] {
         let framed = crate::ui::fixtures::framed(&body, scheme, &space.look);

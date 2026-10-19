@@ -7,32 +7,22 @@
 //! nothing is sent anywhere: the deletions wait in the store's outbox, where they are counted.
 
 use ds::prelude::{Point, ShortcutKey as Key};
-use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
+use ds_harness::Harness;
 
 use crate::settle;
 use settle::settle_until;
 
 use crate::drive;
+use crate::native::item;
+use crate::native::ms;
+use crate::opening::{Open, open_window};
 use crate::row_menu;
+use crate::store::acct_account;
 use drive::{Drive, PRIMARY};
-use ds_blitz::{NetPolicy, PrintOutcome};
 use mail_core::{Arrival, absorb};
 use mail_core::{SqliteStore, Store};
-use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
-use porter_core::AccountId;
 use std::sync::Arc;
-use std::time::Duration;
-
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
-
-const VIEW: Viewport = Viewport {
-    width: 1200,
-    height: 800,
-    scale_percent: 100,
-};
 
 /// The seeded mail, newest first: (sender, subject, where it is).
 const MAIL: [(&str, &str, MailboxRole); 4] = [
@@ -49,10 +39,6 @@ const MAIL: [(&str, &str, MailboxRole); 4] = [
         MailboxRole::Trash,
     ),
 ];
-
-fn ms(n: u64) -> Duration {
-    Duration::from_millis(n)
-}
 
 /// A store in `dir` with one account and [`MAIL`], each where it says.
 fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
@@ -162,23 +148,7 @@ fn queued_deletions(store: &SqliteStore) -> (usize, usize) {
 fn open() -> (Harness, tempfile::TempDir, Arc<SqliteStore>) {
     let dir = tempfile::tempdir().unwrap();
     let store = seeded(dir.path());
-    // No test may open the system's print dialog.
-    let printer = mail_app::ui::native::Printer::with_dialog(|_, _| Ok(PrintOutcome::Cancelled));
-    let contexts = mail_app::ui::native::contexts(
-        Arc::clone(&store),
-        mail_app::ui::view::Appearance::default(),
-        None,
-        None,
-        mail_app::ui::Start::Inbox,
-    )
-    .with(printer);
-    let config = HarnessConfig::new(VIEW)
-        .with_net(NetPolicy::Local)
-        .with_clock(Clock::Virtual)
-        .with_contexts(contexts);
-    let mut harness = Harness::new(mail_app::ui::native::root, config);
-    harness.advance(ms(300));
-    settle_until(&mut harness, |h| h.count(".list .ds-thread") > 0);
+    let harness = open_window(&store, Open::default());
     (harness, dir, store)
 }
 
@@ -203,10 +173,6 @@ fn go_to(harness: &mut Harness, name: &str) {
     press(harness, &format!("[*|data-place=\"{name}\"]"));
 }
 
-fn row(n: usize) -> String {
-    format!(".list .ds-list-item[*|aria-posinset=\"{n}\"]")
-}
-
 fn rows(harness: &Harness) -> usize {
     harness.count(".list .ds-thread")
 }
@@ -219,7 +185,7 @@ fn alert_text(harness: &Harness) -> String {
 
 /// What row `n`'s menu offers, by name, the menu left open.
 fn offered(harness: &mut Harness, n: usize) -> Vec<String> {
-    row_menu::open_row_menu(harness, &row(n));
+    row_menu::open_row_menu(harness, &item(n));
     row_menu::menu_names(harness)
 }
 

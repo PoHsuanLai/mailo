@@ -5,12 +5,12 @@
 //! before connecting, which is the behaviour under test. The push itself is tested against a
 //! loopback server in `mail-runtime/tests/runtime/sieve.rs`.
 
+use crate::store::acct_account;
 use chrono::{DateTime, TimeZone, Utc};
 use mail_app::cli;
 use mail_core::sync;
 use mail_core::sync::report::{AccountReport, PassEnd};
 use mail_core::{SqliteStore, Store};
-use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_proto::backend::{Authenticate, ImapBackend};
 use mail_proto::{ImapAuth, ImapCommand, ImapSession};
@@ -32,9 +32,6 @@ fn run(store: &Arc<SqliteStore>, words: &[&str]) -> Result<String, String> {
     cli::run(&crate::cli_mail::mail_at(store, now()), &command)
 }
 
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
 const ME: &str = "me@example.test";
 
 /// Write an account as `account add` would, without going near a credential.
