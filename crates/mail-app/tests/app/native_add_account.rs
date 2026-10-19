@@ -512,13 +512,14 @@ fn a_refused_login_says_what_the_server_said_under_the_sentence() {
         "the server's words under the sentence"
     );
     assert!(!html.contains(SECRET), "the password reached the markup");
-    // The window grew past the sentence-only steps to hold the extra lines.
-    let asked = asked(&w);
-    let sentence_only = asked.iter().map(|extent| extent.height).min().unwrap_or(0);
-    let failed = asked.last().copied().unwrap();
+    // The window grew to hold the extra lines: the detail ends inside the height asked.
+    w.harness.advance(Duration::from_millis(300));
+    let failed = asked(&w).last().copied().unwrap();
+    let detail = w.harness.rect(".add-account-detail").unwrap();
+    let bottom = detail.origin.y.0 + detail.size.height.0;
     assert!(
-        failed.height > sentence_only,
-        "{failed:?} did not make room for the detail"
+        bottom <= failed.height as f32,
+        "{failed:?} did not make room for the detail, which ends at {bottom}"
     );
 }
 
