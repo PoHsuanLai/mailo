@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// The place is stored by its key (`view::place_key`), not position: a label added while you
 /// were elsewhere moves every label after it, and "the third place" would then be a different
-/// place. Nor by name alone: a label called Done is not the Done place.
+/// place. Nor by name alone: a label called Archive is not the Archive place.
 ///
 /// A recall written while accounts had tiles also names the tile left pressed. It is passed
 /// over: a Space is the only narrowing of accounts, and arriving shows all of it.

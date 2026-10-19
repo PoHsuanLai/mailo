@@ -234,7 +234,7 @@ async fn dragging_a_row_onto_archive_archives_it() {
         ..
     } = mounted();
     let row = seen.one("aria-label", &format!("Open {DANA}"));
-    let archive = seen.one("data-place", "Done");
+    let archive = seen.one("data-place", "Archive");
 
     pointer(&mut dom, "pointerdown", row, at(420.0, 120.0));
     pointer(&mut dom, "pointermove", row, at(300.0, 160.0));
@@ -247,8 +247,8 @@ async fn dragging_a_row_onto_archive_archives_it() {
     pointer(&mut dom, "pointerenter", archive, at(120.0, 300.0));
     let page = dioxus_ssr::render(&dom);
     assert!(
-        page.contains("data-drop=\"target\" data-place=\"Done\""),
-        "Done did not light up as the target"
+        page.contains("data-drop=\"target\" data-place=\"Archive\""),
+        "Archive did not light up as the target"
     );
     pointer(&mut dom, "pointerup", archive, at(120.0, 300.0));
 
@@ -375,7 +375,7 @@ async fn dropping_onto_a_saved_search_writes_nothing() {
         ..
     } = mounted();
     let row = seen.one("aria-label", &format!("Open {DANA}"));
-    let starred = seen.one("data-place", "Kept");
+    let starred = seen.one("data-place", "Starred");
     let before = changes(&store);
 
     pointer(&mut dom, "pointerdown", row, at(420.0, 120.0));
@@ -400,7 +400,7 @@ async fn escape_drops_nothing() {
         ..
     } = mounted();
     let row = seen.one("aria-label", &format!("Open {DANA}"));
-    let archive = seen.one("data-place", "Done");
+    let archive = seen.one("data-place", "Archive");
     let before = changes(&store);
 
     pointer(&mut dom, "pointerdown", row, at(420.0, 120.0));
@@ -423,11 +423,13 @@ fn what_each_place_accepts() {
     let label = LabelId::generate();
     let cases: Vec<(&str, Option<Op>)> = vec![
         ("Inbox", Some(Op::Restore)),
-        ("Done", Some(Op::Archive)),
+        ("Archive", Some(Op::Archive)),
         ("Trash", Some(Op::Trash)),
         ("Spam", Some(Op::Spam)),
         // Saved searches and places nothing is filed into refuse.
-        ("Kept", None),
+        ("Starred", None),
+        ("Pinned", None),
+        ("History", None),
         ("Snoozed", None),
         ("Waiting", None),
         ("Sent", None),
@@ -444,7 +446,6 @@ fn what_each_place_accepts() {
         name: "spec".to_owned(),
         source: crate::ui::view::Source::Mail(Filter::HasLabel(label)),
         unread: None,
-        reach: crate::ui::view::Reach::Sidebar,
     };
     assert_eq!(
         drop_op(&view_kind(&labelled)),

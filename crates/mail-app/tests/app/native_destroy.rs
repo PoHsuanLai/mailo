@@ -198,14 +198,9 @@ fn labelled(label: &str) -> String {
     format!("[*|aria-label=\"{label}\"]")
 }
 
-/// Go to the place named `name` through the list title's right-click menu, where Trash, Sent,
-/// Drafts and Spam are kept off the sidebar.
+/// Go to the place named `name` by its row in the sidebar.
 fn go_to(harness: &mut Harness, name: &str) {
-    let at = centre(harness, ".list-title");
-    harness.press(at, ds::base::press::PointerButton::Secondary);
-    settle_until(harness, |h| h.count(".ds-menu .ds-menu-item") > 0);
-    row_menu::press_menu_item(harness, name);
-    harness.advance(ms(600));
+    press(harness, &format!("[*|data-place=\"{name}\"]"));
 }
 
 fn row(n: usize) -> String {

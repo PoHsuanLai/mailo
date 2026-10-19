@@ -1231,8 +1231,11 @@ mod tests {
         for expected in [
             "Inbox",
             "Waiting",
-            "Done",
-            "Kept",
+            "Starred",
+            "Archive",
+            "Sent",
+            "Pinned",
+            "History",
             crate::ui::command::BOX_LABEL,
             "GitHub",
             "dinner?",

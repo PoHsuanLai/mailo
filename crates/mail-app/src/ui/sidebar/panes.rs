@@ -5,7 +5,7 @@ use super::tagged;
 use crate::ui::copy;
 use crate::ui::space::{Pinned, Space};
 use crate::ui::text::sender;
-use crate::ui::view::{Reach, Shell, SideList, Source, folder_of, is_label_place, saved_of};
+use crate::ui::view::{Shell, SideList, Source, folder_of, is_label_place, saved_of};
 use dioxus::prelude::*;
 use ds::base::vocab::{Emphasis, RowState};
 use ds::components::content::avatar::{AvatarFace, AvatarShape, AvatarSize, AvatarTone};
@@ -15,12 +15,11 @@ use ds::style::tokens::hex::{Colour, Hex};
 use ds::style::tokens::person::PersonSwatch;
 use mail_core::place::{pending_snooze, place_filter};
 use mail_core::query::{self};
-use mail_core::view::kept_filter;
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
 
 /// The most pinned conversations Favourites shows: the most recently pinned. Every pinned
-/// conversation is in Kept.
+/// conversation is in Pinned.
 pub(super) const FAVOURITES_SHOWN: u32 = 8;
 
 /// A pinned conversation as Favourites draws it.
@@ -136,7 +135,8 @@ pub(in crate::ui) fn place_icon(source: &Source) -> Icon {
         Source::Waiting => Icon::Bell,
         Source::History => Icon::RotateLeft,
         Source::Scheduled => Icon::Send,
-        Source::Mail(filter) if *filter == kept_filter() => Icon::Star,
+        Source::Mail(Filter::Starred(Star::Starred)) => Icon::Star,
+        Source::Mail(Filter::Pinned) => Icon::Pin,
         Source::Mail(filter) if *filter == pending_snooze() => Icon::Clock,
         _ if role(MailboxRole::Inbox) => Icon::Inbox,
         _ if role(MailboxRole::Archive) => Icon::Archive,
@@ -194,15 +194,13 @@ pub(super) fn PlaceList(
         })
         .map(|(index, place)| (index, place.name.clone()))
         .collect();
-    // The lifecycle places. Where mail is stored (Sent, Drafts, Spam, Trash) and History are one
-    // step away, in the list title's menu and ⌘K. Scheduled only while a message is waiting.
-    let lifecycle: Vec<usize> = (0..split)
-        .filter(|index| places[*index].reach == Reach::Sidebar)
+    // mailo's own places, History among them. Scheduled only while a message is waiting.
+    let own: Vec<usize> = (0..split)
         .filter(|index| scheduled || places[*index].source != Source::Scheduled)
         .collect();
     let selected = shell.read().selected;
     let listed = |index: usize| {
-        lifecycle.contains(&index)
+        own.contains(&index)
             || labels.iter().any(|(at, _)| *at == index)
             || views.iter().any(|(at, _)| *at == index)
     };
@@ -210,7 +208,7 @@ pub(super) fn PlaceList(
         PlaceKey::Head("places"),
         rsx! { SectionHeader { title: copy::headers::PLACES } },
     )];
-    for index in &lifecycle {
+    for index in &own {
         let place = &places[*index];
         items.push(place_item(
             *index,

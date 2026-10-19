@@ -105,7 +105,7 @@ mod tests {
         let rows = vec![
             row("recent:1", "Lunch", "Recent"),
             row("place:2", "Inbox", "Places"),
-            row("place:3", "Done", "Places"),
+            row("place:3", "Archive", "Places"),
             row("action:compose", "Compose", "Commands"),
         ];
         let shape: Vec<String> = suggestions(&rows)

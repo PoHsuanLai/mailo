@@ -48,9 +48,9 @@ fn only_trash_and_spam_are_bins_and_only_without_a_search() {
         ("Trash", "", Some(Bin::Trash)),
         ("Spam", "", Some(Bin::Spam)),
         ("Inbox", "", None),
-        ("Done", "", None),
+        ("Archive", "", None),
         ("Sent", "", None),
-        ("Kept", "", None),
+        ("Starred", "", None),
         // A search's results are not the bin's, even typed from there.
         ("Trash", "from:ada", None),
         ("Trash", "   ", Some(Bin::Trash)),

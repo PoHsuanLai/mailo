@@ -101,10 +101,27 @@ pub(super) fn Places(
     } else {
         Shown::Visible
     };
-    // The current Space's name heads the sidebar, one Space or several: it says where you are,
-    // and a right click on it is the Space's menu. The dots stand in the foot only once there
-    // are several to tell apart (quire's `SpacesFoot` draws none for one), and the foot's own
-    // right click is the Space's menu too.
+    // The current Space's name heads the sidebar, one Space or several: it says where you are.
+    // The dots stand in the foot only once there are several to tell apart (quire's `SpacesFoot`
+    // draws none for one).
+    //
+    // A right click anywhere in the sidebar is the Space's menu, unless what it landed on has a
+    // menu of its own: an account tile, a folder, a Space's dot. Each of those takes the click
+    // (its `prevent_default`) before it reaches the head, the list or the foot.
+    let space_menu = move |event: MouseEvent| {
+        if !event.default_action_enabled() {
+            return;
+        }
+        event.prevent_default();
+        let at = event.client_coordinates();
+        handle.open_menu(
+            space_id,
+            Point {
+                x: Px(at.x as f32),
+                y: Px(at.y as f32),
+            },
+        );
+    };
     rsx! {
         // Hidden, the sidebar floats over the card from the edge while the pointer is there
         // (quire's `EdgePeek`), and a click on the edge pins it again.
@@ -113,16 +130,15 @@ pub(super) fn Places(
             pinned,
             onpin: move |()| side_hidden.set(false),
             common: Common { extra_class: ExtraClass::parse("side").ok(), ..Common::default() },
-            // The current Space's name heads the sidebar, as a browser's does; a right click on it
-            // is the Space's menu, and a plain press does nothing. Downloads stands at the row's
-            // right end, its list opening below it.
-            div { class: "side-head",
+            // The current Space's name heads the sidebar, as a browser's does; a plain press on it
+            // does nothing. Downloads stands at the row's right end, its list opening below it.
+            div { class: "side-head", oncontextmenu: space_menu,
                 div { class: "side-title",
                     SpaceHead { handle }
                 }
                 crate::ui::downloads::DownloadsButton { shell }
             }
-            div { class: "slide",
+            div { class: "slide", oncontextmenu: space_menu,
                 // A sign-in in the browser, while it waits: a quiet row at the top.
                 crate::ui::add_account::PendingSignIn {}
                 AccountTiles { shell, pages, handle, rows: tiled() }
@@ -138,12 +154,7 @@ pub(super) fn Places(
             // the mail is, and warns when it is not (`sync`). Each end is a hold of mailo's own,
             // as wide as the other (`style/shell.css`), so the dots stand at the foot's centre
             // whatever either end holds.
-            div {
-                oncontextmenu: move |event: MouseEvent| {
-                    event.prevent_default();
-                    let at = event.client_coordinates();
-                    handle.open_menu(space_id, Point { x: Px(at.x as f32), y: Px(at.y as f32) });
-                },
+            div { oncontextmenu: space_menu,
                 SpacesFoot {
                     handle,
                     new_payload: move |()| Mail::new_in(&ProfileId::default(), crate::ui::space_menu::every_id()),

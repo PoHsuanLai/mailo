@@ -66,7 +66,7 @@ mod what_it_builds {
             ("is:pinned", "is:pinned", Filter::Pinned),
             ("is:snoozed", "is:snoozed", Filter::Snoozed),
             (
-                "is:kept is the Kept place",
+                "is:kept is starred or pinned",
                 "is:kept",
                 Filter::Or(vec![Filter::Starred(Star::Starred), Filter::Pinned]),
             ),

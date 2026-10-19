@@ -13,8 +13,7 @@ use chrono::{DateTime, Utc};
 use mail_core::SqliteStore;
 use mail_core::place::{pending_snooze, place_filter};
 use mail_core::transfer::{self, IoCause, Refusal, Seen};
-use mail_core::view::kept_filter;
-use mail_domain::{Filter, MailboxRole};
+use mail_domain::{Filter, MailboxRole, Star};
 use porter_core::AccountId;
 
 use crate::ui::view::{Shell, Source as Listed};
@@ -308,8 +307,11 @@ fn place_words(source: &Listed) -> Option<&'static str> {
     let Listed::Mail(filter) = source else {
         return None;
     };
-    if *filter == kept_filter() {
-        return Some("is:kept");
+    if *filter == Filter::Starred(Star::Starred) {
+        return Some("is:starred");
+    }
+    if *filter == Filter::Pinned {
+        return Some("is:pinned");
     }
     if *filter == pending_snooze() {
         return Some("is:snoozed");

@@ -17,7 +17,7 @@ use serde::de::Deserializer;
 use serde::{Deserialize, Serialize};
 
 pub use mail_core::view::{
-    Place, Reach, Source, badge_filter, default_places, find_place, folder_filter, folder_of,
+    Place, Source, badge_filter, default_places, find_place, folder_filter, folder_of,
     is_label_place, place_key, places_with, saved_of, saved_place, scoped_badge,
 };
 
@@ -1392,10 +1392,10 @@ mod listing_tests {
         }
         let text = |words: &str| Filter::Text(TextMatch::Contains(words.to_owned()));
         let cases = [
-            // Searching while in Done must not hide a result that lives in the Inbox.
+            // Searching while in Archive must not hide a result that lives in the Inbox.
             (
                 "a search replaces the place",
-                "Done",
+                "Archive",
                 "  lunch  ",
                 Want::Threads(text("lunch")),
             ),

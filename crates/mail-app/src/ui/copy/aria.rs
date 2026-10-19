@@ -31,8 +31,6 @@ pub const NEW_MESSAGE: &str = "New Message";
 pub const MORE: &str = "More";
 /// The menu the ⋯ opens.
 pub const LIST_OPTIONS: &str = "List options";
-/// The menu a right click on the list's title opens: the places one step away.
-pub const GO_TO: &str = "Go To";
 
 // The composer's foot.
 /// Send ▾: not "Send", which is the button beside it.

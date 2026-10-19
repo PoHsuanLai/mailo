@@ -6,6 +6,7 @@
 //! directories, so it writes no file anywhere.
 
 use ds::base::press::PointerButton;
+use ds::prelude::{Point, Px};
 use ds_blitz::{NetPolicy, PrintOutcome};
 use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
 
@@ -262,4 +263,38 @@ fn the_only_space_has_no_delete_row() {
         "the last Space's menu offers Delete"
     );
     assert_eq!(spaces_drawn(&harness), 1, "the last Space was removed");
+}
+
+/// A right click on the sidebar where nothing has a menu of its own (the space under the last
+/// place) opens the Space's menu, as a right click on its name does; one on a dot opens that
+/// dot's Space's menu alone.
+#[test]
+fn a_right_click_on_the_bare_sidebar_opens_the_space_s_menu() {
+    let (mut harness, _dir) = open(1200, spaces(2));
+    let slide = harness
+        .rect(".slide")
+        .unwrap_or_else(|| panic!("no sidebar list:\n{}", harness.html()));
+    let below = Point {
+        x: Px(slide.left().0 + slide.size.width.0 / 2.0),
+        y: Px(slide.bottom().0 - 6.0),
+    };
+    harness.press(below, PointerButton::Secondary);
+    harness.advance(ms(400));
+    assert_eq!(
+        harness.count(".ds-menu[*|aria-label=\"Space 1 Space\"]"),
+        1,
+        "a right click under the places did not open the Space's menu"
+    );
+    harness.key(Key::Escape);
+    harness.advance(ms(400));
+    assert_eq!(harness.count(MENU), 0, "Escape left the menu up");
+
+    // The second Space's dot opens the second Space's menu, and only it.
+    right_press(&mut harness, ".ds-spaces-dots > :nth-child(2)");
+    assert_eq!(harness.count(".ds-menu"), 1, "two menus opened");
+    assert_eq!(
+        harness.count(".ds-menu[*|aria-label=\"Space 2 Space\"]"),
+        1,
+        "the dot's menu is its own Space's"
+    );
 }

@@ -9,7 +9,7 @@ use super::data::{AccountRow, account_rows, syncs_nothing};
 use super::list_search::{Marking, RowHit, Scope, row_hit};
 use super::motion::{Ghost, Toast};
 use super::ops::compose_new;
-use super::page::{ListMore, ListTitle};
+use super::page::ListMore;
 use super::picks::PickBar;
 use super::press::on_primary;
 use super::row::scheduled::ScheduledRow;
@@ -404,8 +404,7 @@ pub(super) fn ThreadList(
                         if picking {
                             PickBar { shell, revision, threads }
                         } else {
-                            // A right click on the title goes to Sent, Drafts, Spam or Trash.
-                            ListTitle { shell, pages,
+                            div { class: "list-title",
                                 Label { text: place.clone(), style: LabelStyle::Title, common: classed("ds-truncate") }
                             }
                             if let Some(said) = search_note {
