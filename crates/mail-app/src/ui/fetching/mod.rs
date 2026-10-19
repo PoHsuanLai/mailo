@@ -170,6 +170,21 @@ impl Fetching {
         }
     }
 
+    /// `account`'s own status line, what its tile's mark says: `None` for an account with
+    /// nothing to fetch (local folders).
+    pub(in crate::ui) fn account_line(
+        &self,
+        account: &AccountId,
+        now: DateTime<Utc>,
+    ) -> Option<StatusLine> {
+        let link = self.links.read().get(account).cloned()?;
+        Some(status_line(
+            &[(&link, self.pace(account))],
+            now,
+            &chrono::Local,
+        ))
+    }
+
     pub(in crate::ui) fn status(&self, shell: &Shell, now: DateTime<Utc>) -> StatusLine {
         let links = self.links.read();
         let shown: Vec<(&Link, Pace)> = self

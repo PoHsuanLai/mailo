@@ -8,6 +8,9 @@ pub const FAVOURITES: &str = "Favourites";
 /// The conversations opened and the drafts put aside, until the person clears them.
 pub const TODAY: &str = "Today";
 pub const PLACES: &str = "Places";
+// The "+" menu's groups: accounts to show in the Space, and a new one.
+pub const SHOW_HERE: &str = "Show here";
+pub const NEW_ACCOUNT: &str = "New account";
 pub const LABELS: &str = "Labels";
 pub const VIEWS: &str = "Views";
 pub const FOLDERS: &str = "Folders";

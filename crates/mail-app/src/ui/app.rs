@@ -260,11 +260,23 @@ pub(super) fn App() -> Element {
     });
 
     // The Space's account list, whenever the Spaces change: the Space's menu (Accounts) edits
-    // it. Read through `peek`, so a shell change does not run this.
+    // it. Read through `peek`, so a shell change (a tile pressed) does not run this. Another
+    // Space, or a pressed tile whose account left the Space, goes back to every account.
+    let mut on_space = use_hook(|| CopyValue::new(None::<crate::ui::space::SpaceId>));
     use_effect(move || {
-        let scope = spaces.read().current().payload.scope();
-        if shell.peek().scope != scope {
-            shell.write().scope = scope;
+        let (id, scope) = {
+            let all = spaces.read();
+            (all.current().id, all.current().payload.scope())
+        };
+        let moved = on_space.replace(Some(id)).is_some_and(|was| was != id);
+        let pressed = shell.peek().account.clone();
+        let left = pressed.is_some_and(|account| moved || !scope.shows(account));
+        if shell.peek().scope != scope || left {
+            let mut write = shell.write();
+            write.scope = scope;
+            if left {
+                write.account = None;
+            }
         }
     });
 

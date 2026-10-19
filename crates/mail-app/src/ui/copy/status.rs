@@ -58,3 +58,8 @@ pub fn sender_checks(said: &str) -> String {
 
 /// The quiet line over a message whose remote images are held back; its actions follow it.
 pub const IMAGES_HIDDEN: &str = "Images hidden";
+
+/// Several of a Space's accounts are in trouble, as the All tile's mark says.
+pub fn accounts_need_attention(count: usize) -> String {
+    format!("{count} accounts need attention.")
+}

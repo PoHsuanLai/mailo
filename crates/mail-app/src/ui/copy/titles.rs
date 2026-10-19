@@ -2,6 +2,8 @@
 //!
 //! Case: Title Case ("Edit Space", "Settings").
 
+/// The "+" menu after the account tiles: the accounts the Space can show, and a new one.
+pub const ADD_TO_SPACE: &str = "Add to This Space";
 /// The list's title when no place is chosen.
 pub const INBOX: &str = "Inbox";
 /// The menu of accounts a new folder can go on.

@@ -8,6 +8,10 @@ pub const SIDEBAR: &str = "Sidebar";
 pub const SIDEBAR_MENU: &str = "Sidebar Menu";
 /// The foot's sync mark.
 pub const SYNC_NOW: &str = "Sync Now";
+/// The row of account tiles at the sidebar's top.
+pub const ACCOUNTS_IN_SPACE: &str = "Accounts in This Space";
+/// The "+" after the account tiles.
+pub const ADD_ACCOUNT: &str = "Add Account";
 /// The sync mark while an account in view waits for its sign-in: a press asks about it again.
 pub const SIGN_IN_AGAIN: &str = "Sign In Again";
 pub const FAVOURITES: &str = "Favourites";
