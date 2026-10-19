@@ -96,9 +96,8 @@ pub use launch::run;
 pub mod native {
     pub use super::add_account::{
         AddAccountWindows, AddError, AddFault, Ask as AddAccountAsk, Browse as AddAccountBrowse,
-        DirectSignIns, Fit as AddAccountFit, OpenAddAccount, Opened as AddAccountOpened,
-        Request as AddRequest, Seams as AddAccountSeams, SignInDirectly,
-        Wiring as AddAccountWiring, add_account_root,
+        DirectSignIns, OpenAddAccount, Opened as AddAccountOpened, Request as AddRequest,
+        Seams as AddAccountSeams, SignInDirectly, Wiring as AddAccountWiring, add_account_root,
     };
     pub use super::brand::BrandCache;
     pub use super::clock::WallClock;

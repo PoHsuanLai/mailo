@@ -39,10 +39,6 @@ use crate::ui::style::STYLE;
 /// Open an address in the system browser.
 pub type Browse = dyn Fn(&str) -> Result<(), String> + Send + Sync;
 
-/// Told each size the window asks for: the size of the step it now shows, capped to the screen
-/// (`size`). A test's seam; the window itself resizes through quire's `WindowSizer`.
-pub type Fit = dyn Fn(ds_blitz::Extent) + Send + Sync;
-
 /// What the window reaches the world with: the sign-in's seams, and the system's browser.
 /// Compared by identity, as every other window's props are.
 #[derive(Clone)]
@@ -51,7 +47,6 @@ pub struct Wiring(Arc<Reach>);
 struct Reach {
     seams: Seams,
     browse: Arc<Browse>,
-    fit: Arc<Fit>,
 }
 
 impl PartialEq for Wiring {
@@ -71,18 +66,7 @@ impl Wiring {
 
     /// `seams` and `browse`, which a test makes.
     pub fn new(seams: Seams, browse: Arc<Browse>) -> Wiring {
-        // A test sees the sizes asked; the window resizes itself through quire's sizer.
-        let fit: Arc<Fit> = Arc::new(|_| {});
-        Wiring(Arc::new(Reach { seams, browse, fit }))
-    }
-
-    /// The same wiring, handing each size the window asks for to `fit`.
-    pub fn fitting(self, fit: Arc<Fit>) -> Wiring {
-        Wiring(Arc::new(Reach {
-            seams: self.0.seams.clone(),
-            browse: Arc::clone(&self.0.browse),
-            fit,
-        }))
+        Wiring(Arc::new(Reach { seams, browse }))
     }
 }
 
@@ -226,29 +210,9 @@ fn AddAccountShell(wiring: Wiring, prefill: Option<String>) -> Element {
     });
 
     let step = map::step_of(&sheet.read()).map(|step| step.said(added.said()));
-    // The window is as big as the step it shows, capped to the screen: asked again only when the
-    // size changes, and not at all once the person has resized the window themselves.
-    let screen = ds_blitz::use_app_handle().and_then(|app| app.screen_extent());
-    let wanted = size::fitted(size::extent(step.as_ref()), screen);
-    let fit = Arc::clone(&wiring.0.fit);
-    let sizer = ds_blitz::use_window_sizer();
-    let asked = use_hook(|| std::rc::Rc::new(std::cell::Cell::new(None::<ds_blitz::Extent>)));
-    use_effect(use_reactive!(|wanted| {
-        if asked.get() == Some(wanted) {
-            return;
-        }
-        let person = sizer
-            .as_ref()
-            .is_some_and(|sizer| sizer.origin() == Some(ds_blitz::SizeOrigin::Person));
-        if person {
-            return;
-        }
-        asked.set(Some(wanted));
-        fit(wanted);
-        if let Some(sizer) = &sizer {
-            sizer.request_size(wanted);
-        }
-    }));
+    // The window is as tall as the step it shows, measured after each layout, at the step's
+    // width (`size`).
+    let fit = ds_blitz::use_content_fit(size::width(step.as_ref()), size::least());
     let slug = step.as_ref().map_or("none", Step::slug);
     rsx! {
         Frame { spaces, sheet: Some(ds_shell::stylesheet()),
@@ -265,7 +229,12 @@ fn AddAccountShell(wiring: Wiring, prefill: Option<String>) -> Element {
                 if let Some(step) = step {
                     // One column per step: a new step mounts afresh and the keyboard lands on its
                     // default control again.
-                    div { class: "add-account-step", key: "{slug}", {body(step, send, marks)} }
+                    div {
+                        class: "add-account-step",
+                        key: "{slug}",
+                        onmounted: move |event| fit.on_mounted(event),
+                        {body(step, send, marks)}
+                    }
                 }
             }
         }
