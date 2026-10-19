@@ -299,7 +299,7 @@ pub enum FileSheet {
     Export { query: String },
 }
 
-/// The Rules page of Settings: which account's rules and vacation reply it shows (`None` is the
+/// The Rules page of Settings: which account's rules (and, on its own page, vacation reply) it shows (`None` is the
 /// first account there is), and the pages of its pane (quire's `PanePath`, the list at its root).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RulesPage {
@@ -316,13 +316,12 @@ impl Default for RulesPage {
     }
 }
 
-/// A page of Settings' Rules pane: the list, a rule's own page pushed over it (`None` is a new
-/// rule), or the vacation reply's.
+/// A page of Settings' Rules pane: the list, or a rule's own page pushed over it (`None` is a new
+/// rule).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RulesAt {
     List,
     Rule(Option<RuleId>),
-    Vacation,
 }
 
 /// A page of Settings' Spaces pane: the list of Spaces, or one Space's own page pushed over it.
@@ -371,6 +370,8 @@ pub enum SettingsPage {
     /// Every Space, each with its own page: its name, colour, theme and accounts, and Delete.
     Spaces,
     Rules,
+    /// An account's vacation reply, which its server sends.
+    Vacation,
     Keyboard,
 }
 

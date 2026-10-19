@@ -1,21 +1,20 @@
-//! A rule's page, pushed over the Rules list: a name, a condition in the search language read as it
-//! is typed, the actions as rows chosen from the one [`Menu`], and whether later rules still run.
-//! Save keeps it, puts the account's rules on its server and goes back to the list; the back
-//! button leaves it as it was.
+//! A rule's page, pushed over the Rules list: a name, its conditions ([`super::conditions`]), the
+//! actions as rows chosen from the one [`Menu`], whether later rules still run, and whether to apply
+//! it to the mail already here. Save keeps it, puts the account's rules on its server, starts the
+//! run when asked and goes back to the list; the back button leaves it as it was.
 
 use dioxus::prelude::*;
 use ds::components::content::avatar::AvatarSize;
 use ds::components::controls::button_model::{Bezel, ImagePosition};
+use ds::components::controls::checkbox::Checkbox;
 use ds::components::controls::segmented::Tracking;
 use ds::components::fields::field_row::{FieldRow, RowLayout};
-use ds::components::fields::text_field_model::Invalid;
 use ds::host::measure::MountedRef;
-use ds::motion::detail::stamp::EventStamp;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::icon::render::Glyph;
 use mail_core::SqliteStore;
-use mail_domain::{AfterMatch, RuleAction};
+use mail_domain::{AfterMatch, Rule, RuleAction};
 use porter_core::AccountId;
 use std::sync::Arc;
 
@@ -23,6 +22,7 @@ use super::super::data::AccountRow;
 use super::super::menu::{Floating, MenuItem, Right, Tile, anchor_at, narrowed, palette_groups};
 use super::super::move_to::destinations;
 use super::super::press::{available, on_primary};
+use super::conditions::{self, ConditionRows};
 use super::work::{self, Draft};
 use super::{Said, back};
 use crate::ui::common::Problem;
@@ -133,6 +133,7 @@ pub(super) fn RulePage(
     said: Said,
     changed: Signal<u64>,
     pushed: Callback<AccountRow>,
+    applied: Callback<Rule>,
 ) -> Element {
     let editing = use_signal(|| {
         let store = consume_context::<Arc<SqliteStore>>();
@@ -155,10 +156,13 @@ pub(super) fn RulePage(
             RuleEditor {
                 account,
                 editing,
-                on_saved: move |()| {
+                on_saved: move |(rule, apply): (Rule, Check)| {
                     let mut changed = changed;
                     pushed.call(row.clone());
                     changed += 1;
+                    if apply == Check::On {
+                        applied.call(rule);
+                    }
                     back(shell);
                 },
             }
@@ -166,13 +170,26 @@ pub(super) fn RulePage(
     }
 }
 
-/// The editor for `editing`, while it holds a draft. `on_saved` hears a rule kept.
+/// The editor for `editing`, while it holds a draft. `on_saved` hears a rule kept, and whether it
+/// is to be applied to the mail already here.
 #[component]
 fn RuleEditor(
     account: AccountId,
     editing: Signal<Option<Draft>>,
-    on_saved: EventHandler<()>,
+    on_saved: EventHandler<(Rule, Check)>,
 ) -> Element {
+    let opened = use_hook(|| {
+        conditions::opened(
+            &editing
+                .peek()
+                .as_ref()
+                .map(|draft| draft.query.clone())
+                .unwrap_or_default(),
+        )
+    });
+    let writing = use_signal(|| opened.0);
+    let rows = use_signal(|| opened.1.clone());
+    let mut apply = use_signal(|| Check::Off);
     let mut adding = use_signal(|| Adding::Closed);
     // The Add button, which the action menu floats against.
     let mut add_at = use_signal(|| None::<MountedRef>);
@@ -187,12 +204,13 @@ fn RuleEditor(
         .into_iter()
         .map(|d| d.path)
         .collect();
-    // Read as it is typed: a condition that cannot be read is the field's error, and Save waits
-    // for one that can.
-    let (validity, readable) = match work::read_condition(&draft.query, &index, &chrono::Local) {
-        Err(why) => (refusal(&why), false),
-        Ok(_) => (Validity::Valid, true),
-    };
+    // Read as it is written: a condition that cannot be read is its field's error, and Save waits
+    // for one that can, with every row's value in.
+    let filter = work::read_condition(&draft.query, &index, &chrono::Local).ok();
+    let readable = conditions::ready(writing(), &rows(), filter.is_some());
+    let matching = filter
+        .filter(|_| readable)
+        .and_then(|filter| work::matching(&store, account.clone(), filter, chrono::Utc::now()));
     let mut add = move |action: RuleAction| {
         if let Some(draft) = editing.write().as_mut()
             && !draft.actions.contains(&action)
@@ -218,20 +236,16 @@ fn RuleEditor(
                     },
                 }
             }
-            FieldRow {
-                label: "When a message matches",
-                layout: RowLayout::Form,
-                TextField {
-                    label: "Condition".to_owned(),
-                    value: draft.query.clone(),
-                    placeholder: "from:bank.example subject:statement".to_owned(),
-                    validity,
-                    oninput: move |value: String| {
-                        if let Some(draft) = editing.write().as_mut() {
-                            draft.query = value;
-                        }
-                    },
-                }
+            ConditionRows {
+                writing,
+                rows,
+                query: draft.query.clone(),
+                labels: index.clone(),
+                on_query: move |query: String| {
+                    if let Some(draft) = editing.write().as_mut() {
+                        draft.query = query;
+                    }
+                },
             }
             FieldRow {
                 label: "Do",
@@ -258,7 +272,7 @@ fn RuleEditor(
                         }
                     }
                     Button {
-                        label: "Add an action",
+                        label: copy::aria::ADD_ACTION,
                         icon: Icon::Plus,
                         shown: Some(if kinds_open { Shown::Visible } else { Shown::Hidden }),
                         onclick: on_primary(move || {
@@ -266,6 +280,7 @@ fn RuleEditor(
                             adding.set(next);
                         }),
                         common: Common {
+                            aria_label: Some(copy::aria::ADD_ACTION.to_owned()),
                             mounted: Some(EventHandler::new(move |event: MountedEvent| add_at.set(Some(MountedRef(event.data()))))),
                             ..Common::default()
                         },
@@ -276,7 +291,7 @@ fn RuleEditor(
                         Floating {
                             placement: MenuPlacement::Popup,
                             anchor: add_at(),
-                            title: "Add an action".to_owned(),
+                            title: copy::aria::ADD_ACTION.to_owned(),
                             items: kinds(!folders.is_empty()),
                             on_pick: move |key: String| {
                                 if key == "label" {
@@ -332,6 +347,15 @@ fn RuleEditor(
             FieldRow {
                 label: "",
                 layout: RowLayout::Form,
+                Checkbox {
+                    label: copy::fields::apply_to_existing(matching),
+                    value: apply(),
+                    onchange: move |next: Check| apply.set(next),
+                }
+            }
+            FieldRow {
+                label: "",
+                layout: RowLayout::Form,
                 Button {
                     label: copy::controls::SAVE,
                     availability: available(readable),
@@ -339,9 +363,9 @@ fn RuleEditor(
                         let Some(draft) = editing.peek().clone() else { return };
                         let store = consume_context::<Arc<SqliteStore>>();
                         match work::save(&store, account.clone(), &draft, &chrono::Local) {
-                            Ok(_) => {
+                            Ok(rule) => {
                                 refused.set(None);
-                                on_saved.call(());
+                                on_saved.call((rule, apply()));
                             }
                             Err(why) => refused.set(Some(why)),
                         }
@@ -397,12 +421,4 @@ fn ActionPicker(
             onclose: on_close,
         }
     }
-}
-
-/// A refusal quire's field draws under itself: the words, and one stamp for each phrasing.
-fn refusal(why: &str) -> Validity {
-    Validity::Invalid(Invalid {
-        message: why.to_owned().into(),
-        stamp: EventStamp(u32::try_from(why.len()).unwrap_or(0)),
-    })
 }

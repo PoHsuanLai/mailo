@@ -573,6 +573,12 @@ fn settings_screens() {
         shot(&mut h, &out, "settings-rules", dark);
         click(&mut h, "[*|id^=\"rules-pane-open-\"]");
         shot(&mut h, &out, "settings-rule", dark);
+        settings_page(&mut h, "Rules");
+        click(&mut h, "[*|id=\"rules-pane-new\"]");
+        shot(&mut h, &out, "settings-rule-new", dark);
+
+        settings_page(&mut h, "Vacation Reply");
+        shot(&mut h, &out, "settings-vacation", dark);
 
         settings_page(&mut h, "Keyboard");
         shot(&mut h, &out, "settings-keyboard", dark);

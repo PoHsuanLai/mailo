@@ -60,11 +60,12 @@ pub(in crate::ui) const TITLE: &str = copy::titles::SETTINGS;
 const SIZE: (u32, u32) = (780, 620);
 
 impl SettingsPage {
-    pub(in crate::ui) const ALL: [SettingsPage; 5] = [
+    pub(in crate::ui) const ALL: [SettingsPage; 6] = [
         SettingsPage::General,
         SettingsPage::Accounts,
         SettingsPage::Spaces,
         SettingsPage::Rules,
+        SettingsPage::Vacation,
         SettingsPage::Keyboard,
     ];
 
@@ -75,6 +76,7 @@ impl SettingsPage {
             SettingsPage::Accounts => copy::titles::ACCOUNTS,
             SettingsPage::Spaces => copy::titles::SPACES,
             SettingsPage::Rules => copy::titles::RULES,
+            SettingsPage::Vacation => copy::titles::VACATION_REPLY,
             SettingsPage::Keyboard => copy::titles::KEYBOARD,
         }
     }
@@ -85,6 +87,7 @@ impl SettingsPage {
             SettingsPage::Accounts => Icon::Mail,
             SettingsPage::Spaces => Icon::Grid,
             SettingsPage::Rules => Icon::FolderInput,
+            SettingsPage::Vacation => Icon::Sun,
             SettingsPage::Keyboard => Icon::Keyboard,
         }
     }
@@ -312,6 +315,7 @@ pub(in crate::ui) fn SettingsView(shell: Signal<Shell>, revision: Signal<u64>) -
                         None => rsx! {},
                     },
                     SettingsPage::Rules => rsx! { crate::ui::rules::RulesPage { shell, revision } },
+                    SettingsPage::Vacation => rsx! { crate::ui::rules::VacationPage { shell } },
                     SettingsPage::Keyboard => rsx! { crate::ui::keyboard::KeyboardPage { shell } },
                 }
             }

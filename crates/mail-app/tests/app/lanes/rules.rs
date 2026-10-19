@@ -1,5 +1,5 @@
-//! Lane 10: a rule. Settings → Rules makes "from Edsger → Archive" on New Rule…'s page; a
-//! matching message arrives; Run on Existing Mail, from the rule's right-click menu, files it,
+//! Lane 10: a rule. A message from Edsger arrives; Settings → Rules makes "from Edsger → Archive"
+//! on New Rule…'s page, from its From row, with "Also apply" checked; saving files the message,
 //! and the main window's inbox follows.
 
 use ds_harness::Harness;
@@ -12,17 +12,18 @@ use super::window::{Window, hours_ago, row_of};
 
 const ARRIVING: &str = "Agenda for Monday";
 
+/// The From row's field a new rule opens on.
+const FROM: &str = "input[*|aria-label=\"From\"]";
+
 /// In Settings → Rules: a rule archiving whatever Edsger sends, made on the page New Rule…
-/// pushes, and kept by Save Rule, which goes back to the list.
-fn make_the_rule(settings: &mut Harness) {
+/// pushes, applied to the mail already here, and kept by Save Rule, which goes back to the list.
+fn make_the_rule(settings: &mut Harness, store: &SqliteStore) {
     click(settings, "[*|aria-label=\"New Rule\u{2026}\"]");
-    until(settings, "the rule's page opens", |h| {
-        h.count("input[*|aria-label=\"Condition\"]") == 1
-    });
+    until(settings, "the rule's page opens", |h| h.count(FROM) == 1);
     click(settings, "input[*|aria-label=\"Name\"]");
     type_text(settings, "Edsger");
-    click(settings, "input[*|aria-label=\"Condition\"]");
-    type_text(settings, "from:edsger@example.test");
+    click(settings, FROM);
+    type_text(settings, "edsger@example.test");
     until(
         settings,
         "the condition reads, so Save Rule is offered",
@@ -38,39 +39,34 @@ fn make_the_rule(settings: &mut Harness) {
     );
     click(settings, ".ds-field-row[*|aria-label=\"Do\"] .ds-button");
     super::hands::menu_item(settings, "Archive");
+    scroll_to(settings, ".settings-scroll", ".ds-checkbox");
+    click(settings, ".ds-checkbox");
+    until(settings, "Also apply is checked", |h| {
+        h.count(".ds-checkbox[*|aria-checked=true]") == 1
+    });
     scroll_to(settings, ".settings-scroll", "[*|aria-label=\"Save Rule\"]");
     click(settings, "[*|aria-label=\"Save Rule\"]");
     until(settings, "the list shows the rule", |h| {
-        h.count("input[*|aria-label=\"Condition\"]") == 0
+        h.count(FROM) == 0
             && h.text_of(".settings-page")
                 .is_some_and(|page| page.contains("Edsger"))
     });
-}
-
-/// In Settings → Rules: run the rule on the mail already here from its row's right-click menu,
-/// and wait for it to end.
-fn run_the_rule(settings: &mut Harness, store: &SqliteStore) {
-    use super::drive::Drive as _;
-    let row = "[*|role=\"option\"][*|id^=\"rules-pane-open-\"]";
-    until(settings, "the rule's row is drawn", |h| h.count(row) == 1);
-    let at = super::hands::centre(settings, row);
-    settings.press(at, ds::base::press::PointerButton::Secondary);
-    super::hands::menu_item(settings, "Run on Existing Mail");
     // A run says nothing when it ends: what it did is in the mail, and its bar goes.
     until(settings, "the rule ran to its end", |h| {
         h.count(".rules-progress") == 0
             && !inbox_at(store, chrono::Utc::now()).contains(&ARRIVING.to_owned())
     });
-    assert_eq!(settings.count(".ds-alert"), 0, "the run said it failed");
+    // The fixture's account has no password to reach its server with, so the save's push to it
+    // may be refused in a dialog; a run that failed would say so in one of its own.
+    let said = settings.text_of(".ds-alert").unwrap_or_default();
+    assert!(!said.contains("Run"), "the run said it failed: {said:?}");
 }
 
 #[test]
 fn a_rule_made_in_settings_files_the_mail_it_matches() {
     let mut window = Window::open(|_| {});
-    window.in_settings("Rules", make_the_rule);
 
-    // A message from Edsger arrives, as a sync stores it. A rule runs in the sync that brings
-    // mail (`mail_store::rules::at_arrival`); nothing here syncs, so it lands in the inbox.
+    // A message from Edsger arrives, as a sync stores it, before there is a rule.
     window.arrives(
         "agenda1",
         &format!(
@@ -84,9 +80,9 @@ fn a_rule_made_in_settings_files_the_mail_it_matches() {
         row_of(h, ARRIVING).is_some()
     });
 
-    // Run on existing mail: both of Edsger's conversations leave the inbox.
+    // The rule, applied to the mail already here: both of Edsger's conversations leave the inbox.
     let store = Arc::clone(&window.store);
-    window.in_settings("Rules", |settings| run_the_rule(settings, &store));
+    window.in_settings("Rules", |settings| make_the_rule(settings, &store));
     window.until("the main window's inbox follows", |h| {
         row_of(h, ARRIVING).is_none() && row_of(h, "Notes from the review").is_none()
     });

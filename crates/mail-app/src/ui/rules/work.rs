@@ -44,6 +44,19 @@ pub(in crate::ui) fn listed(
         .collect())
 }
 
+/// How many conversations on the account match `filter` now: what applying a rule to the mail
+/// already here would go through. `None` when they could not be counted.
+pub(in crate::ui) fn matching(
+    store: &SqliteStore,
+    account: AccountId,
+    filter: Filter,
+    now: DateTime<Utc>,
+) -> Option<usize> {
+    manage::matching(store, account, filter, now)
+        .ok()
+        .and_then(|n| usize::try_from(n).ok())
+}
+
 /// One action, as the list and the editor say it.
 pub(in crate::ui) fn action_words(action: &RuleAction) -> String {
     match action {

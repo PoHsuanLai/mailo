@@ -1,4 +1,4 @@
-//! The vacation reply, a page pushed over the Rules list: what `mailo vacation on|off` keeps, from
+//! The vacation reply, Settings' Vacation Reply page: what `mailo vacation on|off` keeps, from
 //! fields.
 //!
 //! Kept here, run by the server: keeping it puts the account's script on its server, as `mailo
@@ -20,10 +20,8 @@ use super::super::data::AccountRow;
 use super::super::menus::when_words;
 use super::super::press::{available, on_primary};
 use super::server::{configured, reach};
-use super::{Said, back};
 use crate::ui::common::Problem;
 use crate::ui::copy;
-use crate::ui::view::Shell;
 
 /// Whether the reply is wanted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -219,16 +217,11 @@ where
 
 /// The vacation reply's page: a switch, and while it is on, the reply's fields and Keep Reply.
 /// Turned off, it is kept off at once; turned on, it is kept when Keep Reply is pressed, since a
-/// reply needs its words first, and the page goes back to the list. Either is put on the server.
+/// reply needs its words first. Either is put on the server.
 /// A date that cannot be read is its field's error and Keep Reply waits; a reply that could not
 /// be kept is said in a dialog.
 #[component]
-pub(super) fn AwayPage(
-    shell: Signal<Shell>,
-    row: AccountRow,
-    said: Said,
-    pushed: Callback<AccountRow>,
-) -> Element {
+pub(super) fn AwayPage(row: AccountRow, pushed: Callback<AccountRow>) -> Element {
     let mut refused = use_signal(|| None::<String>);
     let mut away = use_signal({
         let row = row.clone();
@@ -362,7 +355,6 @@ pub(super) fn AwayPage(
                                 Ok(_) => {
                                     refused.set(None);
                                     pushed.call(keep.clone());
-                                    back(shell);
                                 }
                                 Err(why) => refused.set(Some(why)),
                             }

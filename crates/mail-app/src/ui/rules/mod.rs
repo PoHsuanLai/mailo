@@ -1,5 +1,5 @@
-//! The Rules page of Settings: an account's rules, in the order they run, and its vacation reply,
-//! each a page of its own pushed over the list.
+//! The Rules page of Settings: an account's rules, in the order they run, each a page of its own
+//! pushed over the list; and the Vacation Reply page, Settings' next, which shares its account.
 //!
 //! The search bar's "Rules Settings" opens Settings on it. Everything it writes goes through the
 //! same rows `mailo rules` and `mailo vacation` use — [`work`] and [`away`] are those questions
@@ -14,9 +14,11 @@
 //! The pages are quire's `PaneStack`; which are shown is the window's `Shell` (`rules.path`).
 
 mod away;
+mod conditions;
 mod editor;
 mod list;
 mod server;
+mod when;
 pub(in crate::ui) mod work;
 
 use chrono::Utc;
@@ -28,11 +30,14 @@ use std::sync::Arc;
 
 use super::common::Told;
 use super::data::{AccountRow, account_rows};
+use super::files::{Phase, run};
 use crate::ui::copy;
 use crate::ui::view::{RulesAt, Shell};
 use away::AwayPage;
+use ds::components::fields::field_row::FieldRow;
 use editor::RulePage;
 use list::RulesList;
+use mail_domain::Rule;
 use server::{Pusher, put, reach};
 
 /// What the last act on the page came to, when it failed: said in a dialog until it is closed.
@@ -47,7 +52,6 @@ pub(super) fn row_id(at: &RulesAt) -> Option<String> {
         RulesAt::List => None,
         RulesAt::Rule(Some(id)) => Some(format!("rules-pane-open-{id}")),
         RulesAt::Rule(None) => Some("rules-pane-new".to_owned()),
-        RulesAt::Vacation => Some("rules-pane-vacation".to_owned()),
     }
 }
 
@@ -79,6 +83,11 @@ pub(in crate::ui) fn RulesPage(shell: Signal<Shell>, revision: Signal<u64>) -> E
     let unpushed: Said = use_signal(|| None);
     // Bumped by every write, so the list reads the rules again.
     let changed = use_signal(|| 0u64);
+    // A rule applied to the mail already here, as it runs: started as its page saves it and goes
+    // back, so it is held here, and the list draws its bar.
+    let phase = use_signal(|| Phase::Ready);
+    let running = use_signal(String::new);
+    let applied = use_callback(move |rule: Rule| apply(rule, phase, running, revision));
     // Every save ends here: the account's script goes to its server, off the thread that draws,
     // and only a failure is said. Made here, so a push outlives the rule's page it was saved on.
     let pushed = use_callback(move |row: AccountRow| push(row, unpushed));
@@ -94,20 +103,18 @@ pub(in crate::ui) fn RulesPage(shell: Signal<Shell>, revision: Signal<u64>) -> E
                 .and_then(|rules| rules.into_iter().find(|rule| rule.id == id))
                 .map_or_else(|| copy::titles::RULES.to_owned(), |rule| rule.name)
         }
-        RulesAt::Vacation => copy::titles::VACATION_REPLY.to_owned(),
     });
     let page = use_callback(move |at: RulesAt| {
         let Some(row) = account.clone() else {
-            return rsx! { RulesList { shell, revision, row: None, rows: rows.clone(), said, changed, pushed } };
+            return rsx! { RulesList { shell, revision, row: None, rows: rows.clone(), said, changed, pushed, phase, running } };
         };
         match at {
             RulesAt::List => rsx! {
-                RulesList { shell, revision, row: Some(row), rows: rows.clone(), said, changed, pushed }
+                RulesList { shell, revision, row: Some(row), rows: rows.clone(), said, changed, pushed, phase, running }
             },
             RulesAt::Rule(id) => {
-                rsx! { RulePage { key: "{id:?}", shell, row, id, said, changed, pushed } }
+                rsx! { RulePage { key: "{id:?}", shell, row, id, said, changed, pushed, applied } }
             }
-            RulesAt::Vacation => rsx! { AwayPage { key: "{row.id}", shell, row, said, pushed } },
         }
     });
     let opener = use_callback(|at: RulesAt| row_id(&at));
@@ -123,6 +130,53 @@ pub(in crate::ui) fn RulesPage(shell: Signal<Shell>, revision: Signal<u64>) -> E
         Told { title: copy::titles::NOT_SAVED, said }
         Told { title: copy::titles::NOT_ON_SERVER, said: unpushed }
     }
+}
+
+/// The Vacation Reply page: the account, when there are several (the one the Rules page shows),
+/// and its reply. Whatever is kept goes to the account's server.
+#[component]
+pub(in crate::ui) fn VacationPage(shell: Signal<Shell>) -> Element {
+    let store = consume_context::<Arc<SqliteStore>>();
+    let rows = account_rows(&store);
+    let chosen = shell.read().rules.account.clone();
+    let account = chosen
+        .and_then(|id| rows.iter().find(|row| row.id == id))
+        .or_else(|| rows.first())
+        .cloned();
+    let said: Said = use_signal(|| None);
+    let unpushed: Said = use_signal(|| None);
+    let pushed = use_callback(move |row: AccountRow| push(row, unpushed));
+    let Some(row) = account else {
+        return rsx! {
+            Form {
+                FormSection {
+                    FieldRow { label: copy::empty::ADD_AN_ACCOUNT_FIRST }
+                }
+            }
+        };
+    };
+    rsx! {
+        PageHeader { title: copy::titles::VACATION_REPLY }
+        list::AccountChoice { shell, rows, row: row.clone(), said }
+        // Read again for another account.
+        {rsx! { AwayPage { key: "{row.id}", row, pushed } }}
+        Told { title: copy::titles::NOT_SAVED, said }
+        Told { title: copy::titles::NOT_ON_SERVER, said: unpushed }
+    }
+}
+
+/// Apply `rule` to the mail already here, as `mailo rules run` does, its bar in `phase`; the
+/// window's lists follow once it ends.
+fn apply(rule: Rule, phase: Signal<Phase>, mut running: Signal<String>, mut revision: Signal<u64>) {
+    let store = consume_context::<Arc<SqliteStore>>();
+    let of = work::conversations(&store, rule.account.clone(), Utc::now());
+    running.set(rule.name.clone());
+    run(
+        phase,
+        of,
+        move |report| work::run(&store, &rule, Utc::now(), report),
+        move || revision += 1,
+    );
 }
 
 /// Put `row`'s rules and vacation reply on its server, when it has one that runs them: on a

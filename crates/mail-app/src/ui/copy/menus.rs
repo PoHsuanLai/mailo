@@ -137,7 +137,6 @@ pub const IMPORT_CONTACTS: &str = "Import Contacts…";
 pub const EXPORT_CONTACTS: &str = "Export Contacts…";
 
 // A rule's right-click menu in Settings › Rules.
-pub const RUN_ON_EXISTING_MAIL: &str = "Run on Existing Mail";
 pub const MOVE_UP: &str = "Move Up";
 pub const MOVE_DOWN: &str = "Move Down";
 pub const DELETE_RULE: &str = "Delete Rule";

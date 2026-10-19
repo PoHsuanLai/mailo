@@ -72,3 +72,6 @@ pub fn accounts_shown(count: usize) -> String {
 pub fn accounts_need_attention(count: usize) -> String {
     format!("{count} accounts need attention.")
 }
+
+/// Under the rules of an account whose server cannot run them: mailo runs them as it syncs.
+pub const RULES_RUN_HERE: &str = "Runs only while mailo is open.";

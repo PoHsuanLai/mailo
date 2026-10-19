@@ -44,9 +44,9 @@ async fn landed(dom: &mut VirtualDom, mut seen: Seen) -> Seen {
     seen.merge(drain_seen(dom))
 }
 
-/// The page on `account`, at `at`.
+/// The page on `account`, at `at`; Settings' Vacation Reply page instead, for `vacation`.
 #[component]
-fn Page(account: Option<AccountId>, at: RulesAt) -> Element {
+fn Page(account: Option<AccountId>, at: RulesAt, #[props(default)] vacation: bool) -> Element {
     let shell = use_signal(|| Shell {
         rules: crate::ui::view::RulesPage {
             account,
@@ -63,7 +63,11 @@ fn Page(account: Option<AccountId>, at: RulesAt) -> Element {
             appearance: Appearance::default(),
             material: Material::Window,
             stylesheet: ds::assembly::ds::Inject::Host,
-            RulesPage { shell, revision }
+            if vacation {
+                super::VacationPage { shell }
+            } else {
+                RulesPage { shell, revision }
+            }
             crate::ui::motion::Toast { shell, revision }
         }
     }
@@ -82,6 +86,19 @@ fn sheet_at(store: &Arc<SqliteStore>, account: AccountId, push: Pusher, at: Rule
     let props = PageProps {
         account: Some(account),
         at: at.unwrap_or(RulesAt::List),
+        vacation: false,
+    };
+    VirtualDom::new_with_props(Page, props)
+        .with_root_context(store.clone())
+        .with_root_context(push)
+}
+
+/// Settings' Vacation Reply page on `account`, its pushes through `push`.
+fn vacation_sheet(store: &Arc<SqliteStore>, account: AccountId, push: Pusher) -> VirtualDom {
+    let props = PageProps {
+        account: Some(account),
+        at: RulesAt::List,
+        vacation: true,
     };
     VirtualDom::new_with_props(Page, props)
         .with_root_context(store.clone())
@@ -150,7 +167,20 @@ async fn a_condition_the_rules_cannot_read_says_why_and_save_is_refused() {
     };
     let opened = click(&mut dom, seen.one("aria-label", copy::controls::NEW_RULE));
     let opened = landed(&mut dom, opened).await;
-    let query = opened.one("aria-placeholder", "from:bank.example subject:statement");
+    // A new rule opens on one From row, which Save waits on until it has a value.
+    let page = dioxus_ssr::render(&dom);
+    let save = format!("aria-label=\"{}\"", copy::aria::SAVE_RULE);
+    assert!(
+        tag(&page, &save).contains("disabled"),
+        "{}",
+        tag(&page, &save)
+    );
+    let text = click(
+        &mut dom,
+        opened.one("aria-label", copy::controls::EDIT_AS_TEXT),
+    );
+    let text = landed(&mut dom, text).await;
+    let query = text.one("aria-placeholder", "from:bank.example subject:statement");
 
     type_into(&mut dom, query, "frm:ada");
     let page = dioxus_ssr::render(&dom);
@@ -158,18 +188,24 @@ async fn a_condition_the_rules_cannot_read_says_why_and_save_is_refused() {
         page.contains("“frm:” is not a word a rule knows."),
         "the refusal is not said: {page}"
     );
-    let save = format!("aria-label=\"{}\"", copy::aria::SAVE_RULE);
     assert!(
         tag(&page, &save).contains("disabled"),
         "Save is offered for a condition no rule can read: {}",
         tag(&page, &save)
     );
 
-    // Read, Save is back, and nothing is said under the field.
+    // Read, Save is back, nothing is said under the field, and the rows can hold it again.
     type_into(&mut dom, query, "from:ada");
     let page = dioxus_ssr::render(&dom);
-    assert!(!page.contains("conversation matches"), "{page}");
     assert!(!tag(&page, &save).contains("disabled"), "{page}");
+    assert!(
+        !tag(
+            &page,
+            &format!("aria-label=\"{}\"", copy::controls::EDIT_AS_CONDITIONS)
+        )
+        .contains("disabled"),
+        "{page}"
+    );
     assert!(
         store.rules(acct_account()).unwrap().is_empty(),
         "typing kept a rule"
@@ -188,13 +224,14 @@ async fn saving_a_rule_puts_the_rules_on_the_server_and_goes_back_to_the_list() 
         landed(&mut dom, first).await
     };
     type_into(&mut dom, seen.one("aria-placeholder", "Bills"), "Bank");
+    // The From row a new rule opens on.
     type_into(
         &mut dom,
-        seen.one("aria-placeholder", "from:bank.example subject:statement"),
-        "from:bank.example",
+        seen.one("aria-label", copy::fields::FROM),
+        "bank.example",
     );
     // An action, from the menu the Add button opens.
-    let opened = click(&mut dom, seen.one("aria-expanded", "false"));
+    let opened = click(&mut dom, seen.one("aria-label", copy::aria::ADD_ACTION));
     let opened = landed(&mut dom, opened).await;
     crate::ui::fixtures::pick_named(&mut dom, &opened, "Archive").await;
     assert_eq!(calls.load(Ordering::SeqCst), 0, "pushed before a save");
@@ -205,6 +242,11 @@ async fn saving_a_rule_puts_the_rules_on_the_server_and_goes_back_to_the_list() 
         names(&store, row.id.clone()),
         ["Bank"],
         "the rule was not kept"
+    );
+    assert_eq!(
+        work::listed(&store, row.id.clone()).unwrap()[0].when,
+        "from:bank.example",
+        "the row was not written as the condition"
     );
     assert_eq!(calls.load(Ordering::SeqCst), 1, "the save was not pushed");
     let page = dioxus_ssr::render(&dom);
@@ -293,11 +335,7 @@ async fn the_list_names_each_rule_with_its_switch_and_its_menu_moves_it() {
     let menu = crate::ui::fixtures::menu_names(&dioxus_ssr::render(&dom));
     assert_eq!(
         menu,
-        [
-            copy::menus::RUN_ON_EXISTING_MAIL,
-            copy::menus::MOVE_DOWN,
-            copy::menus::DELETE_RULE
-        ],
+        [copy::menus::MOVE_DOWN, copy::menus::DELETE_RULE],
         "the first rule cannot move up"
     );
     crate::ui::fixtures::pick_named(&mut dom, &opened, copy::menus::MOVE_DOWN).await;
@@ -335,8 +373,10 @@ async fn a_provider_without_sieve_keeps_rules_here_and_says_nothing_of_a_server(
     );
     let page = dioxus_ssr::render(&dom);
     assert!(!page.contains("server"), "a server is mentioned: {page}");
+    // One line says they run only while mailo is open.
+    assert!(page.contains(copy::status::RULES_RUN_HERE), "{page}");
 
-    let mut away = sheet_at(&built.store, row.id, counting().0, RulesAt::Vacation);
+    let mut away = vacation_sheet(&built.store, row.id, counting().0);
     {
         let first = rebuild_into(&mut away);
         landed(&mut away, first).await
@@ -414,16 +454,29 @@ async fn every_state(store: &Arc<SqliteStore>) -> String {
         let first = rebuild_into(&mut rule);
         landed(&mut rule, first).await
     };
+    // Bills' condition as text, given a word no rule knows.
+    let text = click(
+        &mut rule,
+        seen.one("aria-label", copy::controls::EDIT_AS_TEXT),
+    );
+    let text = landed(&mut rule, text).await;
     type_into(
         &mut rule,
-        seen.one("aria-placeholder", "from:bank.example subject:statement"),
+        text.one("aria-placeholder", "from:bank.example subject:statement"),
         "frm:bank",
     );
-    click(&mut rule, seen.one("aria-expanded", "false"));
+    click(&mut rule, seen.one("aria-label", copy::aria::ADD_ACTION));
     // The action menu is quire's, drawn in the root's overlay the render after it asks.
     crate::ui::fixtures::drain(&mut rule);
 
-    let mut away = sheet_at(store, row.id, push, RulesAt::Vacation);
+    // And a new rule's rows, to draw them.
+    let mut rows = sheet_at(store, row.id.clone(), push.clone(), RulesAt::Rule(None));
+    {
+        let first = rebuild_into(&mut rows);
+        landed(&mut rows, first).await
+    };
+
+    let mut away = vacation_sheet(store, row.id, push);
     {
         let first = rebuild_into(&mut away);
         landed(&mut away, first).await
@@ -433,6 +486,7 @@ async fn every_state(store: &Arc<SqliteStore>) -> String {
     phases.rebuild_in_place();
     dioxus_ssr::render(&list)
         + &dioxus_ssr::render(&rule)
+        + &dioxus_ssr::render(&rows)
         + &dioxus_ssr::render(&away)
         + &dioxus_ssr::render(&phases)
 }
@@ -446,6 +500,10 @@ async fn every_class_the_rules_page_draws_is_styled() {
         "ds-toggle",
         "data-validity=\"invalid\"",
         "rules-action",
+        "rules-conditions",
+        "rules-condition",
+        "rules-value",
+        "ds-checkbox",
         "role=\"menu\"",
         "ds-field-row",
         "rules-field",
@@ -501,11 +559,14 @@ async fn render_the_rules_page_to_files() {
     }
     let (push, _) = counting();
     for (name, at) in [
-        ("rules", RulesAt::List),
-        ("rules-new", RulesAt::Rule(None)),
-        ("rules-vacation", RulesAt::Vacation),
+        ("rules", Some(RulesAt::List)),
+        ("rules-new", Some(RulesAt::Rule(None))),
+        ("rules-vacation", None),
     ] {
-        let mut dom = sheet_at(&built.store, own.id.clone(), push.clone(), at);
+        let mut dom = match at {
+            Some(at) => sheet_at(&built.store, own.id.clone(), push.clone(), at),
+            None => vacation_sheet(&built.store, own.id.clone(), push.clone()),
+        };
         {
             let first = rebuild_into(&mut dom);
             landed(&mut dom, first).await

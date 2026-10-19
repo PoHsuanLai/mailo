@@ -95,3 +95,11 @@ pub const HIDE_DETAILS: &str = "Hide Details";
 pub fn open_message(sender: &str) -> String {
     format!("Show Message from {sender}")
 }
+/// A rule's condition row's menu of what it looks at.
+pub const CONDITION_FIELD: &str = "Condition field";
+/// A rule's condition row's menu of how it tests.
+pub const CONDITION_TEST: &str = "Condition test";
+/// A rule's condition row's button that takes it away.
+pub const REMOVE_CONDITION: &str = "Remove condition";
+/// A rule's button that opens the menu of actions.
+pub const ADD_ACTION: &str = "Add an action";

@@ -122,10 +122,19 @@ pub fn parse_with<Tz: TimeZone>(
 
 /// One token: its text, whether it was negated, and whether it was quoted.
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct Token {
-    text: String,
-    negated: bool,
-    quoted: bool,
+pub struct Token {
+    /// The token without its `-` and its quotes: `from:ada`, `lunch on friday`.
+    pub text: String,
+    /// Led by `-`.
+    pub negated: bool,
+    /// Quoted, whole (`"lunch on friday"`) or as a field's value (`subject:"lunch"`).
+    pub quoted: bool,
+}
+
+/// `input` as the search reads it, one token at a time: for a surface that shows a query as
+/// parts (a rule's conditions) and must split it as [`parse_with`] does.
+pub fn tokens(input: &str) -> Vec<Token> {
+    tokenize(input)
 }
 
 /// Split on whitespace, keeping quoted runs together and noticing a leading `-`.

@@ -1,11 +1,11 @@
 //! The root of the Rules page: the account chosen, when there are several; its rules in the order
-//! they run, a row each with its switch and its name, then New Rule…; how a run on existing mail
-//! goes; and the vacation reply's row.
+//! they run, a row each with its switch and its name, then New Rule…; and how a rule being applied
+//! to the mail already here goes. On an account whose server cannot run rules, one line says they
+//! run only while mailo is open.
 //!
-//! A rule's row opens its page. Its right-click menu runs it on the mail already here, moves it
-//! up or down the order (quire's lists have no drag to reorder), or deletes it.
+//! A rule's row opens its page. Its right-click menu moves it up or down the order (quire's lists
+//! have no drag to reorder), or deletes it.
 
-use chrono::Utc;
 use dioxus::prelude::*;
 use ds::base::press::{PointerButton, Press};
 use ds::components::controls::progress::model::{Progress, ProgressStyle};
@@ -25,9 +25,10 @@ use std::sync::Arc;
 
 use super::super::common::{classed, tile};
 use super::super::data::AccountRow;
-use super::super::files::{Phase, run};
+use super::super::files::Phase;
 use super::super::menu::{Floating, MenuItem, Right, Tile};
 use super::super::motion::{Follow, Restore, tell};
+use super::server::reach;
 use super::work::{self, Listed, Step};
 use super::{Said, open, row_id};
 use crate::ui::common::Problem;
@@ -48,23 +49,20 @@ pub(super) fn RulesList(
     said: Said,
     changed: Signal<u64>,
     pushed: Callback<AccountRow>,
+    phase: Signal<Phase>,
+    running: Signal<String>,
 ) -> Element {
     // The shared revision is read too: the toast's Undo bumps it as it puts a deleted rule back.
     let _ = changed();
     let _ = revision();
-    let phase = use_signal(|| Phase::Ready);
-    let running = use_signal(String::new);
     // The rule whose menu is open, and where the right click was.
     let menu = use_signal(|| None::<(Listed, Rect)>);
-    let several = rows.len() > 1;
-    // What a rule's menu asks, done here: a run outlives the menu, which closes as it is picked.
+    // What a rule's menu asks, done here, as the menu closes on the pick.
     let acted = use_callback({
         let row = row.clone();
         move |(key, rule): (String, Rule)| {
             if let Some(row) = &row {
-                act(
-                    &key, &rule, row, said, changed, pushed, phase, running, revision,
-                );
+                act(&key, &rule, row, said, changed, pushed);
             }
         }
     });
@@ -125,52 +123,57 @@ pub(super) fn RulesList(
             }
         },
     ));
-    let vacation = vec![ListItem::row(
-        "vacation".to_owned(),
-        copy::titles::VACATION_REPLY.to_owned(),
-        rsx! {
-            Row {
-                title: copy::titles::VACATION_REPLY,
-                size: RowSize::Settings,
-                accessory: Accessory::Chevron,
-                onclick: move |_| open(shell, RulesAt::Vacation),
-                common: Common { id: row_id(&RulesAt::Vacation), ..Common::default() },
+    // Said only where the server will not run them: elsewhere they run there too, unremarked.
+    let here_only = reach(&row.plan)
+        .is_err()
+        .then(|| copy::status::RULES_RUN_HERE.to_owned());
+    rsx! {
+        AccountChoice { shell, rows, row: row.clone(), said }
+        Form {
+            FormSection { footer: here_only,
+                List::<String> { label: copy::titles::RULES, items, style: ListStyle::Grouped }
             }
-        },
-    )];
+            RunProgress { phase, name: running() }
+        }
+        if let Some((listed, at)) = menu() {
+            RuleMenu { listed, at, row, menu, acted }
+        }
+    }
+}
+
+/// The account whose rules and vacation reply are shown, when there are several: the Rules and
+/// Vacation Reply pages share it.
+#[component]
+pub(super) fn AccountChoice(
+    shell: Signal<Shell>,
+    rows: Vec<AccountRow>,
+    row: AccountRow,
+    said: Said,
+) -> Element {
+    if rows.len() < 2 {
+        return rsx! {};
+    }
     let accounts: Vec<Choice<AccountId>> = rows
         .iter()
         .map(|row| Choice::new(row.id.clone(), row.shown()))
         .collect();
     rsx! {
         Form {
-            if several {
-                FormSection {
-                    FieldRow { label: copy::fields::ACCOUNT,
-                        PopUpButton::<AccountId> {
-                            items: accounts,
-                            value: Some(row.id.clone()),
-                            title: Some(copy::fields::ACCOUNT.to_owned()),
-                            onpick: move |id: AccountId| {
-                                let mut said = said;
-                                said.set(None);
-                                let mut shell = shell;
-                                shell.write().rules = Showing { account: Some(id), ..Showing::default() };
-                            },
-                        }
+            FormSection {
+                FieldRow { label: copy::fields::ACCOUNT,
+                    PopUpButton::<AccountId> {
+                        items: accounts,
+                        value: Some(row.id.clone()),
+                        title: Some(copy::fields::ACCOUNT.to_owned()),
+                        onpick: move |id: AccountId| {
+                            let mut said = said;
+                            said.set(None);
+                            let mut shell = shell;
+                            shell.write().rules = Showing { account: Some(id), ..Showing::default() };
+                        },
                     }
                 }
             }
-            FormSection {
-                List::<String> { label: copy::titles::RULES, items, style: ListStyle::Grouped }
-            }
-            RunProgress { phase, name: running() }
-            FormSection {
-                List::<String> { label: copy::titles::VACATION_REPLY, items: vacation, style: ListStyle::Grouped }
-            }
-        }
-        if let Some((listed, at)) = menu() {
-            RuleMenu { listed, at, row, menu, phase, acted }
         }
     }
 }
@@ -232,7 +235,6 @@ pub(super) fn wrote(
 }
 
 /// The keys of a rule's menu.
-const RUN: &str = "run";
 const UP: &str = "up";
 const DOWN: &str = "down";
 const DELETE: &str = "delete";
@@ -253,7 +255,7 @@ fn item(key: &str, icon: Icon, name: &str) -> MenuItem {
 
 /// A rule's menu's rows: Move Up and Move Down only where it can move.
 pub(super) fn rule_items(first: bool, last: bool) -> Vec<MenuItem> {
-    let mut items = vec![item(RUN, Icon::Play, copy::menus::RUN_ON_EXISTING_MAIL)];
+    let mut items = Vec::new();
     if !first {
         items.push(item(UP, Icon::ChevronUp, copy::menus::MOVE_UP));
     }
@@ -271,7 +273,6 @@ fn RuleMenu(
     at: Rect,
     row: AccountRow,
     menu: Signal<Option<(Listed, Rect)>>,
-    phase: Signal<Phase>,
     acted: Callback<(String, Rule)>,
 ) -> Element {
     let store = consume_context::<Arc<SqliteStore>>();
@@ -279,11 +280,7 @@ fn RuleMenu(
     let place = rules.iter().position(|one| one.rule.id == listed.rule.id);
     let first = place == Some(0);
     let last = place.is_some_and(|at| at + 1 == rules.len());
-    let mut items = rule_items(first, last);
-    // A run is one at a time.
-    if phase.read().running() {
-        items.retain(|item| item.key != RUN);
-    }
+    let items = rule_items(first, last);
     let rule = listed.rule.clone();
     rsx! {
         Floating {
@@ -305,7 +302,6 @@ fn RuleMenu(
 }
 
 /// Do what `key` in a rule's menu asks.
-#[allow(clippy::too_many_arguments)]
 fn act(
     key: &str,
     rule: &Rule,
@@ -313,24 +309,9 @@ fn act(
     said: Said,
     changed: Signal<u64>,
     pushed: Callback<AccountRow>,
-    phase: Signal<Phase>,
-    running: Signal<String>,
-    mut revision: Signal<u64>,
 ) {
     let store = consume_context::<Arc<SqliteStore>>();
     match key {
-        RUN => {
-            let of = work::conversations(&store, rule.account.clone(), Utc::now());
-            let rule = rule.clone();
-            let mut running = running;
-            running.set(rule.name.clone());
-            run(
-                phase,
-                of,
-                move |report| work::run(&store, &rule, Utc::now(), report),
-                move || revision += 1,
-            );
-        }
         UP | DOWN => {
             let step = if key == UP { Step::Up } else { Step::Down };
             let moved = work::reorder(&store, rule.account.clone(), rule.id, step);
@@ -345,7 +326,7 @@ fn act(
     }
 }
 
-/// "Run on existing mail" while it runs, as a bar; a run that stopped is said in a dialog, which
+/// A rule applied to the mail already here, while it runs, as a bar; a run that stopped is said in a dialog, which
 /// closing puts back to nothing. A run that finished says nothing: what it did is in the mail.
 #[component]
 pub(super) fn RunProgress(phase: Signal<Phase>, name: String) -> Element {

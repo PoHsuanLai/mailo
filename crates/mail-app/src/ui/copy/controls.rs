@@ -67,3 +67,9 @@ pub fn always_load_from(email: &str) -> String {
 // The reader: a calendar invitation's one row.
 /// The invitation row's disclosure: the event's facts, its people and its file.
 pub const DETAILS: &str = "Details";
+/// Under a rule's conditions: one more row.
+pub const ADD_CONDITION: &str = "Add Condition";
+/// A rule's conditions, from rows to the search language as text.
+pub const EDIT_AS_TEXT: &str = "Edit as Text";
+/// A rule's condition, from text back to rows.
+pub const EDIT_AS_CONDITIONS: &str = "Edit as Conditions";

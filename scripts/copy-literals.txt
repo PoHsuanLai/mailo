@@ -91,7 +91,7 @@ crates/mail-app/src/ui/reading/mod.rs 1
 crates/mail-app/src/ui/reading/tools.rs 10
 crates/mail-app/src/ui/row/menu.rs 1
 crates/mail-app/src/ui/rules/away.rs 32
-crates/mail-app/src/ui/rules/editor.rs 31
+crates/mail-app/src/ui/rules/editor.rs 26
 crates/mail-app/src/ui/rules/list.rs 1
 crates/mail-app/src/ui/rules/work.rs 25
 crates/mail-app/src/ui/settings_window/account/mod.rs 2
