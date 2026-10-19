@@ -91,10 +91,10 @@ pub(super) fn Places(
     } else {
         Shown::Visible
     };
-    // With one Space there is no Space to tell apart: no name heads the sidebar and no dot
-    // stands in the foot (quire's `SpacesFoot` draws none for one). Its menu is a right click on
-    // the foot, wherever it lands that is nobody else's.
-    let several = spaces.read().count() > 1;
+    // The current Space's name heads the sidebar, one Space or several: it says where you are,
+    // and a right click on it is the Space's menu. The dots stand in the foot only once there
+    // are several to tell apart (quire's `SpacesFoot` draws none for one), and the foot's own
+    // right click is the Space's menu too.
     rsx! {
         // Hidden, the sidebar floats over the card from the edge while the pointer is there
         // (quire's `EdgePeek`), and a click on the edge pins it again.
@@ -103,14 +103,12 @@ pub(super) fn Places(
             pinned,
             onpin: move |()| side_hidden.set(false),
             common: Common { extra_class: ExtraClass::parse("side").ok(), ..Common::default() },
-            // With several Spaces the current one's name heads the sidebar, as a browser's does;
-            // a right click on it is the Space's menu, and a plain press does nothing. Downloads
-            // stands at the row's right end, its list opening below it.
+            // The current Space's name heads the sidebar, as a browser's does; a right click on it
+            // is the Space's menu, and a plain press does nothing. Downloads stands at the row's
+            // right end, its list opening below it.
             div { class: "side-head",
                 div { class: "side-title",
-                    if several {
-                        SpaceHead { handle }
-                    }
+                    SpaceHead { handle }
                 }
                 crate::ui::downloads::DownloadsButton { shell }
             }
