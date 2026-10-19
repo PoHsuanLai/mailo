@@ -7,6 +7,7 @@ mod foot;
 mod join;
 mod panes;
 mod sync;
+mod tile_menu;
 mod tiles;
 
 pub(super) use self::folder_act::folder_places;

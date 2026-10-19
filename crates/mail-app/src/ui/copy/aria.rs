@@ -103,3 +103,5 @@ pub const CONDITION_TEST: &str = "Condition test";
 pub const REMOVE_CONDITION: &str = "Remove condition";
 /// A rule's button that opens the menu of actions.
 pub const ADD_ACTION: &str = "Add an action";
+/// An account tile's right-click menu.
+pub const ACCOUNT_MENU: &str = "Account";

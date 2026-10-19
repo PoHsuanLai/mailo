@@ -149,3 +149,8 @@ pub const OPEN_LINK: &str = "Open Link";
 /// Where the link goes, in Peek, before going there.
 pub const PREVIEW_LINK: &str = "Preview Link";
 pub const COPY_LINK: &str = "Copy Link";
+
+// An account tile's right-click menu at the top of the sidebar.
+pub const SIGN_IN_AGAIN: &str = "Sign In Again…";
+pub const REMOVE_FROM_SPACE: &str = "Remove from This Space";
+pub const ACCOUNT_SETTINGS: &str = "Account Settings…";
