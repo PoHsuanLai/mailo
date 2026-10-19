@@ -87,8 +87,6 @@ pub(super) fn run(opening: Opening) -> Result<(), ds_blitz::LaunchError> {
         .with_context(icons)
         .with_context(found)
         .with_context(revisions)
-        // And the one way a compose window hands the main window its drafts (`ui/compose/hand.rs`).
-        .with_context(crate::ui::compose::Hub::new())
         // And one for the configuration files a window writes (key bindings, Spaces).
         .with_context(crate::ui::revisions::Configured::default())
         // And the page the Settings window shows next, which ⌘K and the composer turn it to.

@@ -11,12 +11,9 @@
 //! what would open: quire's harness has no event loop to open a window on
 //! (`OpenWindowError::NoHost`).
 
-mod compose;
 mod note;
 mod root;
 
-pub use compose::{ComposeAsk, ComposeOpen, ComposeWindows, OpenCompose, compose_root};
-pub(in crate::ui) use compose::{close_all, use_compose_windows};
 pub use root::{MessageOpen, message_root};
 
 use dioxus::prelude::*;

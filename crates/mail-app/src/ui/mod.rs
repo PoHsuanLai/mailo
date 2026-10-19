@@ -101,7 +101,7 @@ pub mod native {
     };
     pub use super::brand::BrandCache;
     pub use super::clock::WallClock;
-    pub use super::compose::{Dictionaries, Hub as ComposeHub};
+    pub use super::compose::Dictionaries;
     pub use super::downloads::Opener as FileOpener;
     pub use super::files::SaveDir;
     pub use super::follow_up::Notices;
@@ -118,10 +118,7 @@ pub mod native {
     pub use super::settings_window::{
         OpenSettings, SettingsAsked, SettingsAt, SettingsWindows, settings_root,
     };
-    pub use super::window::{
-        Ask, ComposeAsk, ComposeOpen, ComposeWindows, MessageOpen, OpenCompose, OpenWindow,
-        Windows, compose_root, message_root,
-    };
+    pub use super::window::{Ask, MessageOpen, OpenWindow, Windows, message_root};
     pub use crate::handoff::{ActivationToken, Request, Requests};
 }
 

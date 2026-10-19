@@ -9,8 +9,8 @@
 //! under the pointer, quire's `RowMore` (the ⋯), which cannot act on the conversation by itself.
 
 pub(in crate::ui) mod act;
+pub(in crate::ui) mod draft;
 pub(in crate::ui) mod menu;
-pub(in crate::ui) mod scheduled;
 #[cfg(test)]
 mod tests;
 
@@ -20,7 +20,7 @@ use super::menus::{LabelMenu, SnoozeMenu};
 use super::motion::{act_kind, drag, motion};
 use super::move_to::MoveMenu;
 use super::picks::drawn_order;
-use super::text::{draft_state, sender};
+use super::text::sender;
 use crate::ui::copy;
 use crate::ui::provider_chip::ProvChip;
 use crate::ui::selection::Click;
@@ -41,58 +41,12 @@ use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::icon::render::Glyph;
+use mail_core::SqliteStore;
 use mail_core::provider::Provider;
-use mail_core::{SqliteStore, Store};
 use mail_domain::*;
 use menu::{Opener, Pick, RowMenu};
 use std::ops::Range;
 use std::sync::Arc;
-
-/// A draft, as a row. Clicking it opens the composer on that draft.
-#[component]
-pub(super) fn DraftRow(draft: Draft, shell: Signal<Shell>) -> Element {
-    let id = draft.id;
-    let subject = if draft.subject.is_empty() {
-        "(no subject)".to_owned()
-    } else {
-        draft.subject.clone()
-    };
-    let who = mail_core::compose::addresses::join_addresses(&draft.to);
-    let who = if who.is_empty() {
-        "(no recipient)".to_owned()
-    } else {
-        who
-    };
-    let state = draft_state(&draft.state);
-    let when = mail_core::when::listed(draft.updated, chrono::Utc::now(), &Local);
-    let snippet = shell
-        .read()
-        .parts
-        .snippet
-        .shown()
-        .then(|| TextLine::from(state));
-    rsx! {
-        div { key: "{id}", class: "row", role: "none",
-            ThreadRow {
-                name: who,
-                via: None,
-                subject: TextLine::from(subject),
-                snippet,
-                time: when,
-                tags: rsx! {},
-                star: None,
-                strip: None,
-                more: None,
-                onclick: move |_| {
-                    let store = consume_context::<Arc<SqliteStore>>();
-                    if let Ok(draft) = store.draft(id) {
-                        shell.write().compose(&draft);
-                    }
-                },
-            }
-        }
-    }
-}
 
 /// `text` as quire's line, with a search's `marks` as `Mark` runs; plain when nothing is marked.
 fn runs(text: &str, marks: &[Range<usize>]) -> TextLine {

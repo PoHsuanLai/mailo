@@ -35,6 +35,9 @@ pub fn would_not_open(what: &str) -> String {
 /// The window `would_not_open` names for a conversation's own window.
 pub const A_NEW_WINDOW: &str = "a new window";
 
+/// Delete Draft, done: the toast that offers it back.
+pub const DRAFT_DELETED: &str = "Draft deleted";
+
 /// Cancel Sending, done: the message is a draft again.
 pub const SENDING_CANCELLED: &str = "Sending cancelled";
 

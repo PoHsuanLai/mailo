@@ -66,8 +66,6 @@ pub const SECURITY: &str = "Security";
 pub const SHOW_PLAIN_TEXT: &str = "Show Plain Text";
 pub const SAVE_AS_TEMPLATE: &str = "Save as Template\u{2026}";
 pub const KEEP_FOR_LATER: &str = "Keep for Later";
-/// In a compose window: the draft moves to the main window's reader column.
-pub const OPEN_IN_MAIN_WINDOW: &str = "Open in Main Window";
 pub const DELETE_DRAFT: &str = "Delete Draft";
 
 // A conversation's actions, in its row's menu, the reader's ⋯ and the selection bar: each named

@@ -291,46 +291,6 @@ fn open(dark: bool) -> (Harness, tempfile::TempDir) {
     (harness, dir)
 }
 
-/// A compose window, as quire opens it at 640×560, on a new draft to Ada about dinner.
-fn compose_window(dark: bool) -> (Harness, tempfile::TempDir) {
-    let dir = tempfile::tempdir().unwrap();
-    let store = seeded(dir.path());
-    let to = Address::parse_list("Ada Lovelace <ada@example.test>").unwrap();
-    let draft = mail_core::compose::draft_new(
-        &store,
-        acct_account(),
-        &to,
-        "Dinner on Friday",
-        "",
-        chrono::Utc::now(),
-    )
-    .unwrap();
-    let contexts = mail_app::ui::native::contexts(
-        store,
-        mail_app::ui::view::Appearance::default(),
-        None,
-        None,
-        mail_app::ui::Start::Inbox,
-    );
-    let mut env = Environment::default();
-    if dark {
-        env.system.scheme = Scheme::Dark;
-    }
-    let config = HarnessConfig::new(Viewport {
-        width: 640,
-        height: 560,
-        scale_percent: 100,
-    })
-    .with_clock(Clock::Wall)
-    .with_net(NetPolicy::Local)
-    .with_focus_fallback(FocusFallback::Ancestor)
-    .with_contexts(contexts.with(mail_app::ui::native::ComposeOpen(draft.id)))
-    .with_context(env);
-    let mut harness = Harness::new(mail_app::ui::native::compose_root, config);
-    harness.advance(ms(400));
-    (harness, dir)
-}
-
 fn shot(harness: &mut Harness, dir: &str, name: &str, dark: bool) {
     harness.advance(ms(600));
     let file = format!("{dir}/{name}-{}.png", if dark { "dark" } else { "light" });
@@ -440,14 +400,6 @@ fn screens() {
             h.key(if c == ' ' { Key::Space } else { Key::Char(c) });
         }
         shot(&mut h, &out, "composer", dark);
-
-        // A new message's own window.
-        let (mut h, _d) = compose_window(dark);
-        click(&mut h, ".c-body");
-        for c in "Are you free at seven?".chars() {
-            h.key(if c == ' ' { Key::Space } else { Key::Char(c) });
-        }
-        shot(&mut h, &out, "compose-window", dark);
 
         // The search bar's panel (⌘K) with nothing typed, then with a query, then the Add Account
         // sheet from it.

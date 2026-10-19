@@ -91,9 +91,7 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
     // A reply's desk. Handed no directories, so nothing here writes Today or the settings,
     // which are the first window's.
     let today = use_signal(crate::ui::today::Today::default);
-    let desk = compose::use_desk(today, spaces, None, None);
-    // A forward is a new message: it opens in a compose window of its own.
-    super::use_compose_windows(shell, desk);
+    let desk = compose::use_desk(today, spaces, None);
     compose::use_test_dictionaries();
     crate::ui::hover::use_hover();
     crate::ui::motion::use_motion();
@@ -207,8 +205,8 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
                                     ComposerPage { key: "{draft}", draft, shell, revision }
                                 }
                             },
-                            // A forward drawn here (where no compose window could open) is a
-                            // message of its own: the page stands in for the reader.
+                            // A forward is a message of its own: the page stands in for the
+                            // reader.
                             Some((draft, _)) => rsx! { ComposerPage { key: "{draft}", draft, shell, revision } },
                             None => rsx! { Reader { thread, shell, revision, place: ReaderIn::Window } },
                         }

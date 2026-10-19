@@ -15,7 +15,7 @@ crates/mail-app/src/ui/ops.rs 2
 crates/mail-app/src/ui/prefs.rs 1
 crates/mail-app/src/ui/reauth.rs 5
 crates/mail-app/src/ui/remedy.rs 16
-crates/mail-app/src/ui/row.rs 5
+crates/mail-app/src/ui/row.rs 3
 crates/mail-app/src/ui/saved.rs 14
 crates/mail-app/src/ui/server_search.rs 10
 crates/mail-app/src/ui/space_menu.rs 1
@@ -42,7 +42,7 @@ crates/mail-app/src/ui/compose/float.rs 2
 crates/mail-app/src/ui/compose/items.rs 6
 crates/mail-app/src/ui/compose/later.rs 6
 crates/mail-app/src/ui/compose/life.rs 1
-crates/mail-app/src/ui/compose/mod.rs 11
+crates/mail-app/src/ui/compose/mod.rs 10
 crates/mail-app/src/ui/compose/page.rs 3
 crates/mail-app/src/ui/compose/pill.rs 10
 crates/mail-app/src/ui/compose/props.rs 12

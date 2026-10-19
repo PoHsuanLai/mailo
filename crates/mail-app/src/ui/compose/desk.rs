@@ -1,9 +1,6 @@
 //! Where drafts wait: the page that is open, the ones parked in Today, and the send that can
 //! still be taken back. One context, provided by the app, so the keyboard, the sidebar and the
 //! outbox pill all reach the same drafts.
-//!
-//! A compose window's desk holds only its page: what outlives the window (a parked page, a send,
-//! a deleted draft's undo) it hands the main window's desk through its [`Hub`].
 
 use std::sync::Arc;
 
@@ -13,7 +10,6 @@ use mail_core::{SqliteStore, Store};
 use mail_domain::DraftId;
 
 use super::super::motion::{Follow, tell};
-use super::hand::{Handed, Hub};
 use super::life;
 use super::page::{Page, Phase, When};
 use crate::ui::appearance::WindowDirs;
@@ -47,9 +43,6 @@ pub(in crate::ui) struct Desk {
     pub today: Signal<Today>,
     pub spaces: Signal<Spaces>,
     pub dirs: Signal<Option<WindowDirs>>,
-    /// A compose window's way to the main window, which keeps Today, the pill and the undo.
-    /// `None` in the main window and a conversation's window, which keep their own.
-    pub hand: Signal<Option<Hub>>,
     /// Whether the body's spelling is checked: `compose.spelling`, followed as it changes.
     pub spelling: Memo<spelling::Setting>,
     /// The emoji picked last, newest first: `emoji.json` in the state directory.
@@ -61,7 +54,6 @@ pub(in crate::ui) fn use_desk(
     today: Signal<Today>,
     spaces: Signal<Spaces>,
     dirs: Option<WindowDirs>,
-    hand: Option<Hub>,
 ) -> Desk {
     let settings = crate::ui::prefs::use_settings();
     let spelling = use_memo(move || settings.read().compose.spelling);
@@ -78,7 +70,6 @@ pub(in crate::ui) fn use_desk(
         today,
         spaces,
         dirs: Signal::new(dirs),
-        hand: Signal::new(hand),
     })
 }
 
@@ -108,23 +99,12 @@ pub(in crate::ui) fn park_current(desk: Desk, shell: Signal<Shell>) {
     }
 }
 
-/// Save the page and list it in Today, without touching what is on screen. A compose window saves
-/// it and hands it to the main window, whose Today it is.
+/// Save the page and list it in Today, without touching what is on screen.
 pub(in crate::ui) fn keep(desk: Desk, page: Signal<Page>) {
-    let Ok(mut snapshot) = page.try_peek().map(|page| page.clone()) else {
+    let Ok(snapshot) = page.try_peek().map(|page| page.clone()) else {
         return;
     };
-    let hand = desk.hand.try_peek().ok().and_then(|hand| hand.clone());
-    match hand {
-        Some(hub) => {
-            let store = consume_context::<Arc<SqliteStore>>();
-            if let Err(why) = life::save(&store, &mut snapshot, Utc::now()) {
-                eprintln!("park: {why}");
-            }
-            hub.hand(Handed::Parked(snapshot));
-        }
-        None => keep_page(desk, snapshot),
-    }
+    keep_page(desk, snapshot);
 }
 
 /// Save `snapshot` and list it in Today, kept exactly as it was left.

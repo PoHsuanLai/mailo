@@ -208,12 +208,8 @@ fn PageHarness(draft: Draft) -> Element {
     let today = use_signal(crate::ui::today::Today::default);
     let spaces = use_signal(|| crate::ui::space::first_run(&[]));
     let dirs = try_consume_context::<WindowDirs>();
-    let desk = use_desk(today, spaces, dirs.clone(), None);
-    // In place, as the main window holds a page Open in Main Window brought it.
-    use_hook(|| shell.write().compose_in_place(&draft));
-    // A page brought back (Undo on the pill) asks for a compose window, and, with none to open
-    // here, is drawn in place.
-    crate::ui::window::use_compose_windows(shell, desk);
+    let desk = use_desk(today, spaces, dirs.clone());
+    use_hook(|| shell.write().compose(&draft));
     DESK.with(|slot| slot.set(Some(desk)));
     SHELL.with(|slot| slot.set(Some(shell)));
     let open = composing(&shell.read());
@@ -245,8 +241,8 @@ fn ScheduledRows(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
     let held = super::scheduled(&store, &crate::ui::space::Scope::All);
     rsx! {
         for draft in held {
-            if let SendState::Scheduled { at } = draft.state {
-                crate::ui::row::scheduled::ScheduledRow { key: "{draft.id}", draft, at, shell, revision }
+            if matches!(draft.state, SendState::Scheduled { .. }) {
+                crate::ui::row::draft::DraftRow { key: "{draft.id}", draft, shell, revision }
             }
         }
     }

@@ -12,8 +12,8 @@ use super::ops::compose_new;
 use super::page::ListMore;
 use super::picks::PickBar;
 use super::press::on_primary;
-use super::row::scheduled::ScheduledRow;
-use super::row::{AccountMark, DraftRow, MailRow};
+use super::row::draft::DraftRow;
+use super::row::{AccountMark, MailRow};
 use super::server_search::{Asked, ServerSearch, found_threads};
 use super::view_groups::group_list;
 use crate::ui::copy;
@@ -220,22 +220,13 @@ pub(super) fn ThreadList(
         } else {
             draft.subject.clone()
         };
-        // One held for a time says when it leaves, and offers Cancel Sending in its menu.
         // A held one says when it leaves on its second line; any other draws its state third.
-        let (row, drawn) = match draft.state {
-            SendState::Scheduled { at } => (
-                rsx! { ScheduledRow { draft, at, shell, revision } },
-                ThreadLines::Two,
-            ),
-            _ => (
-                rsx! { DraftRow { draft, shell } },
-                if snippets {
-                    ThreadLines::Three
-                } else {
-                    ThreadLines::Two
-                },
-            ),
+        let drawn = match draft.state {
+            SendState::Scheduled { .. } => ThreadLines::Two,
+            _ if snippets => ThreadLines::Three,
+            _ => ThreadLines::Two,
         };
+        let row = rsx! { DraftRow { draft, shell, revision } };
         lines.insert(Slot::Draft(id.clone()), drawn);
         items.push(ListItem::row(Slot::Draft(id), label, row));
     }
