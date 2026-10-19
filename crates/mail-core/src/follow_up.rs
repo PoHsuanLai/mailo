@@ -260,11 +260,7 @@ pub fn notifications(returned: &[ThreadSummary]) -> Vec<Notification> {
         .map(|summary| Notification {
             account: summary.account.clone(),
             summary: "No reply yet".to_owned(),
-            body: if summary.subject.trim().is_empty() {
-                "(no subject)".to_owned()
-            } else {
-                summary.subject.clone()
-            },
+            body: mail_domain::subject_or_none(&summary.subject).into_owned(),
             opens: Opens::Thread(summary.id),
         })
         .collect()

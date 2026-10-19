@@ -86,11 +86,7 @@ pub(super) fn counts(store: &SqliteStore, space: &Space) -> Counts {
 
 /// A conversation's subject as a sidebar row says it.
 pub(super) fn titled(subject: &str) -> String {
-    if subject.trim().is_empty() {
-        copy::empty::NO_SUBJECT.to_owned()
-    } else {
-        subject.to_owned()
-    }
+    mail_domain::subject_or_none(subject).into_owned()
 }
 
 fn pin_filter(pin: &Pinned, labels: &[(String, LabelId)]) -> Filter {

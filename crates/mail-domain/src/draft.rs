@@ -53,6 +53,22 @@ pub enum SendState {
     },
 }
 
+impl SendState {
+    /// The one word for where a draft is in its sending, as the command line lists it and the
+    /// window's rows do. A draft still being written is "draft": it is what the user calls it,
+    /// and "editing" described what they were doing rather than what the thing was.
+    pub fn word(&self) -> &'static str {
+        match self {
+            SendState::Editing => "draft",
+            SendState::Queued => "queued",
+            SendState::Scheduled { .. } => "scheduled",
+            SendState::Sending => "sending",
+            SendState::Failed { .. } => "failed",
+            SendState::Sent { .. } => "sent",
+        }
+    }
+}
+
 /// A message being composed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Draft {

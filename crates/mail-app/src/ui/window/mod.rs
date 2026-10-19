@@ -74,19 +74,11 @@ pub(in crate::ui) fn open_in_window(thread: ThreadId) {
     };
     let ask = Ask {
         thread,
-        title: title(&loaded.summary.subject),
+        title: mail_domain::subject_or_none(&loaded.summary.subject).into_owned(),
     };
     match try_consume_context::<Windows>() {
         Some(windows) => windows.0.open(ask),
         None => quire(ask),
-    }
-}
-
-/// A window's title for a conversation whose subject is `subject`.
-pub(in crate::ui) fn title(subject: &str) -> String {
-    match subject.trim() {
-        "" => "(no subject)".to_owned(),
-        said => said.to_owned(),
     }
 }
 
@@ -160,19 +152,6 @@ mod tests {
         ];
         for (life, raised) in CASES {
             assert_eq!(raise(*life), *raised, "{life:?}");
-        }
-    }
-
-    #[test]
-    fn the_title_is_the_subject_and_says_when_there_is_none() {
-        const CASES: &[(&str, &str)] = &[
-            ("Lunch on Thursday", "Lunch on Thursday"),
-            ("  Re: plans \t", "Re: plans"),
-            ("", "(no subject)"),
-            ("   ", "(no subject)"),
-        ];
-        for (subject, want) in CASES {
-            assert_eq!(title(subject), *want, "{subject:?}");
         }
     }
 }

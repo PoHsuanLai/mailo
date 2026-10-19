@@ -29,11 +29,7 @@ pub(super) fn HeldPage(
     on_cancelled: EventHandler<()>,
 ) -> Element {
     let id = draft.id;
-    let subject = if draft.subject.trim().is_empty() {
-        copy::empty::NO_SUBJECT.to_owned()
-    } else {
-        draft.subject.clone()
-    };
+    let subject = mail_domain::subject_or_none(&draft.subject).into_owned();
     let leaves = copy::status::leaves(&when_words(at, Utc::now(), &Local));
     let lines = [
         (List::To, &draft.to),

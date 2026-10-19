@@ -7,6 +7,7 @@ mod blob;
 pub mod contact;
 mod dispatch;
 pub mod error;
+mod file;
 mod filing;
 mod follow_up;
 mod history;
@@ -38,6 +39,7 @@ pub use contact::{
     AddressBook, BookCard, Contact, Edit, Group, GroupHome, GroupId, Kind, Origin, Tally,
 };
 pub use dispatch::{PASSES_TO_FIND, SYNCS_TO_FIND};
+pub use file::write_atomic;
 pub use follow_up::FollowUpHold;
 pub use history::SenderRecord;
 pub use memory::MemoryStore;

@@ -102,18 +102,8 @@ pub(crate) fn store(dir: &Path, provider: Provider, png: &[u8]) -> Result<(), Ic
         .map_err(|err| IconError::Store(format!("{}: {err}", dir.display())))?;
     let name = format!("{}.png", file_stem(provider));
     let dest = dir.join(&name);
-    let part = dir.join(format!(".{name}.part"));
-    if let Err(err) = std::fs::write(&part, png) {
-        // Best-effort cleanup: the write's own error is what is reported.
-        let _ = std::fs::remove_file(&part);
-        return Err(IconError::Store(format!("{}: {err}", part.display())));
-    }
-    if let Err(err) = std::fs::rename(&part, &dest) {
-        // Best-effort cleanup: the rename's own error is what is reported.
-        let _ = std::fs::remove_file(&part);
-        return Err(IconError::Store(format!("{}: {err}", dest.display())));
-    }
-    Ok(())
+    mail_store::write_atomic(&dest, png, None)
+        .map_err(|err| IconError::Store(format!("{}: {err}", dest.display())))
 }
 
 /// The name a provider's file and its report line go by.

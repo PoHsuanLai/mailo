@@ -1615,7 +1615,7 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
             when,
             now,
         )
-        .map(|held| compose::scheduled(&held, &Local))
+        .map(|held| compose::scheduled(&held, now, &Local))
         .map_err(remedy::error),
         Command::Unsend { draft } => mail_core::compose::unsend(store, *draft, now)
             .map(|back| compose::unsent(&back))
@@ -1637,7 +1637,7 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
             .map(|name| format!("deleted template {name:?}\n"))
             .map_err(remedy::error),
         Command::Drafts => mail_core::compose::drafts(store)
-            .map(|all| compose::drafts(&all))
+            .map(|all| compose::drafts(&all, now))
             .map_err(remedy::error),
         Command::ListSnoozed { limit } => {
             let page = store
@@ -1949,7 +1949,7 @@ fn render_list(items: &[ThreadSummary]) -> String {
                 " "
             },
             mail_core::when::stamp(summary.last_date, &Local, Stamp::Row),
-            summary.from.name.as_deref().unwrap_or(&summary.from.email),
+            summary.from.shown(),
             summary.subject,
             summary.id
         );

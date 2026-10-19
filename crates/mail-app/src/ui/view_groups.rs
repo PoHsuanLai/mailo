@@ -55,13 +55,7 @@ where
         GroupKey::Mailbox => by_key(threads, |t| where_it_is(t).to_owned()),
         GroupKey::Property(property) => match property {
             Property::Date => date_bands(threads, now, zone),
-            Property::From | Property::Sender => by_key(threads, |t| {
-                t.from
-                    .name
-                    .clone()
-                    .filter(|name| !name.is_empty())
-                    .unwrap_or_else(|| t.from.email.clone())
-            }),
+            Property::From | Property::Sender => by_key(threads, |t| t.from.shown().to_owned()),
             Property::Subject => by_key(threads, |t| t.subject.clone()),
             Property::Attachments => two(threads, "With attachments", "Without", |t| {
                 matches!(t.attachments, Attachments::Present { .. })

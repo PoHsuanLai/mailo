@@ -363,11 +363,8 @@ pub fn vacation_text(done: &VacationDone) -> String {
 fn shown(kept: &KeptVacation) -> String {
     let v = &kept.vacation;
     let mut out = format!("{}: vacation reply {:?}", kept.address, v.subject);
-    let when = |t: DateTime<Utc>| {
-        t.with_timezone(&chrono::Local)
-            .format("%Y-%m-%d %H:%M")
-            .to_string()
-    };
+    let when =
+        |t: DateTime<Utc>| mail_core::when::stamp(t, &chrono::Local, mail_core::when::Stamp::Full);
     match (v.during.from, v.during.to) {
         (None, None) => out.push_str(", from now until turned off"),
         (Some(a), None) => out.push_str(&format!(", from {}", when(a))),

@@ -3,7 +3,7 @@
 //! Case: Sentence case.
 
 /// A conversation or a draft with no subject, where its subject would be.
-pub const NO_SUBJECT: &str = "(no subject)";
+pub use mail_domain::NO_SUBJECT;
 /// A draft with nobody to go to yet, where its recipients would be.
 pub const NO_RECIPIENT: &str = "(no recipient)";
 /// Settings › General › Trusted Senders, before anyone is trusted.

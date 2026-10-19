@@ -46,9 +46,8 @@ fn initial(name: &str) -> char {
 /// The sender's avatar: their first letter on the hue their address hashes to, as everywhere
 /// else a person is drawn.
 fn sender_face(message: &Message) -> AvatarFace {
-    let named = message.from.name.as_deref().filter(|name| !name.is_empty());
     AvatarFace {
-        initial: initial(named.unwrap_or(message.from.email.as_str())),
+        initial: initial(message.from.shown()),
         size: AvatarSize::Size34,
         tone: AvatarTone::Person(person_hue(&message.from.email)),
         shape: AvatarShape::Round,

@@ -315,7 +315,7 @@ fn when<Tz: TimeZone>(at: DateTime<Utc>, zone: &Tz) -> String
 where
     Tz::Offset: std::fmt::Display,
 {
-    at.with_timezone(zone).format("%a %H:%M").to_string()
+    crate::when::stamp(at, zone, crate::when::Stamp::Weekday)
 }
 
 #[cfg(test)]

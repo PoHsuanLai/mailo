@@ -69,7 +69,7 @@ crates/mail-app/src/ui/files/mod.rs 1
 crates/mail-app/src/ui/files/work.rs 18
 crates/mail-app/src/ui/invite/card.rs 25
 crates/mail-app/src/ui/invite/draw.rs 28
-crates/mail-app/src/ui/menus/mod.rs 12
+crates/mail-app/src/ui/menus/mod.rs 9
 crates/mail-app/src/ui/motion/mod.rs 1
 crates/mail-app/src/ui/pgp/certs.rs 31
 crates/mail-app/src/ui/pgp/key_row.rs 33
@@ -81,7 +81,7 @@ crates/mail-app/src/ui/pgp/said.rs 36
 crates/mail-app/src/ui/pgp/seal.rs 6
 crates/mail-app/src/ui/pgp/unlock.rs 3
 crates/mail-app/src/ui/print/mod.rs 11
-crates/mail-app/src/ui/print/paper.rs 2
+crates/mail-app/src/ui/print/paper.rs 1
 crates/mail-app/src/ui/print/tool.rs 3
 crates/mail-app/src/ui/reading/attachments.rs 6
 crates/mail-app/src/ui/reading/blocks.rs 1
@@ -97,5 +97,5 @@ crates/mail-app/src/ui/settings_window/account/mod.rs 2
 crates/mail-app/src/ui/settings_window/account/words.rs 35
 crates/mail-app/src/ui/unsubscribe/head.rs 8
 crates/mail-app/src/ui/unsubscribe/mod.rs 12
-crates/mail-app/src/ui/window/mod.rs 2
+crates/mail-app/src/ui/window/mod.rs 1
 crates/mail-app/src/ui/window/note.rs 3

@@ -37,7 +37,7 @@ use crate::parse::Parsed;
 use crate::sanitize::{RemoteImages, SanitizePolicy, sanitize};
 use crate::script::{Script, script_of};
 use chrono::{DateTime, TimeZone, Utc};
-use mail_domain::{Address, Body, Message};
+use mail_domain::{Address, Body, Message, human_size};
 use std::collections::BTreeMap;
 use std::fmt::Display;
 use std::fmt::Write as _;
@@ -710,21 +710,10 @@ fn attachments(out: &mut String, message: &Message, labels: &Labels<'_>) {
             out,
             "<li>{} <span class=\"size\">({})</span></li>",
             escape(name),
-            escape(&size(part.size))
+            escape(&human_size(part.size))
         );
     }
     out.push_str("</ul>\n</section>\n");
-}
-
-/// A size a person can read, in the units `mailo attachments` uses.
-fn size(bytes: u64) -> String {
-    const KB: u64 = 1024;
-    const MB: u64 = KB * 1024;
-    match bytes {
-        0..KB => format!("{bytes} B"),
-        KB..MB => format!("{:.1} kB", bytes as f64 / KB as f64),
-        _ => format!("{:.1} MB", bytes as f64 / MB as f64),
-    }
 }
 
 /// Text made safe for both element content and a double-quoted attribute.

@@ -24,7 +24,7 @@ pub const LABELS: Labels<'static> = Labels {
     date: "Date",
     subject: "Subject",
     printed: "Printed {when}",
-    no_subject: "(no subject)",
+    no_subject: mail_domain::NO_SUBJECT,
     thread_count: "({n} messages)",
     image: "[image",
     image_alt: ": {alt}",

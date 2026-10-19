@@ -254,8 +254,8 @@ mod sending_later {
         let draft = a_draft(&store);
         let held =
             compose::send_later_in(&store, draft.id, "2026-09-25 09:00", now(), &utc()).unwrap();
-        let out = cli::compose::scheduled(&held, &utc());
-        assert!(out.contains("2026-09-25 09:00"), "{out}");
+        let out = cli::compose::scheduled(&held, now(), &utc());
+        assert!(out.contains("Tomorrow 09:00"), "{out}");
         assert!(out.contains(&format!("mailo unsend {}", draft.id)), "{out}");
 
         let leaves = Utc.with_ymd_and_hms(2026, 9, 25, 9, 0, 0).unwrap();
@@ -298,9 +298,9 @@ mod sending_later {
         let (store, _dir) = seeded();
         let draft = a_draft(&store);
         compose::send_later_in(&store, draft.id, "2026-09-25 09:00", now(), &utc()).unwrap();
-        let listed = cli::compose::drafts_in(&compose::drafts(&store).unwrap(), &utc());
+        let listed = cli::compose::drafts_in(&compose::drafts(&store).unwrap(), now(), &utc());
         assert!(listed.contains("scheduled"), "{listed}");
-        assert!(listed.contains("leaves 2026-09-25 09:00"), "{listed}");
+        assert!(listed.contains("leaves Tomorrow 09:00"), "{listed}");
     }
 
     #[test]

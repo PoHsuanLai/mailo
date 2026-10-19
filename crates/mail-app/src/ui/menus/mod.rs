@@ -46,7 +46,7 @@ pub(super) fn snooze_help<Tz: TimeZone>(at: DateTime<Utc>, zone: &Tz) -> String
 where
     Tz::Offset: std::fmt::Display,
 {
-    at.with_timezone(zone).format("%Y-%m-%d %H:%M").to_string()
+    mail_core::when::stamp(at, zone, mail_core::when::Stamp::Full)
 }
 
 /// The time a snooze lands on, short enough for the end of a menu row: `7:30 PM` today or
@@ -64,30 +64,8 @@ where
     }
 }
 
-/// A time to come as a person says it: `Today 17:00`, `Tomorrow 08:00`, `Tue 08:00` within the
-/// week, `Tue 6 Oct 08:00` past it, with the year only when it is not this one. The one wording
-/// for a time something waits until: the Sends menu, the outbox pill and the scheduled list.
-pub(in crate::ui) fn when_words<Tz: TimeZone>(
-    at: DateTime<Utc>,
-    now: DateTime<Utc>,
-    zone: &Tz,
-) -> String
-where
-    Tz::Offset: std::fmt::Display,
-{
-    use chrono::Datelike as _;
-    let there = at.with_timezone(zone);
-    let here = now.with_timezone(zone);
-    let clock = there.format("%H:%M");
-    match (there.date_naive() - here.date_naive()).num_days() {
-        -1 => format!("Yesterday {clock}"),
-        0 => format!("Today {clock}"),
-        1 => format!("Tomorrow {clock}"),
-        2..=6 => format!("{} {clock}", there.format("%a")),
-        _ if there.year() == here.year() => format!("{} {clock}", there.format("%a %-d %b")),
-        _ => format!("{} {clock}", there.format("%a %-d %b %Y")),
-    }
-}
+/// The one wording for a time something waits until, which lives in `mail_core::when`.
+pub(in crate::ui) use mail_core::when::upcoming as when_words;
 
 /// [`when_words`] inside a sentence: "Scheduled for tomorrow 08:00".
 pub(in crate::ui) fn when_in_sentence<Tz: TimeZone>(
@@ -98,7 +76,7 @@ pub(in crate::ui) fn when_in_sentence<Tz: TimeZone>(
 where
     Tz::Offset: std::fmt::Display,
 {
-    let words = when_words(at, now, zone);
+    let words = mail_core::when::upcoming(at, now, zone);
     for day in ["Yesterday", "Today", "Tomorrow"] {
         if let Some(rest) = words.strip_prefix(day) {
             return format!("{}{rest}", day.to_lowercase());

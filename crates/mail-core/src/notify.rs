@@ -161,11 +161,7 @@ pub fn batch(account: AccountId, announced: &[&Message]) -> Vec<Notification> {
             .map(|message| Notification {
                 account: account.clone(),
                 summary: sender(message),
-                body: if message.subject.trim().is_empty() {
-                    "(no subject)".to_owned()
-                } else {
-                    message.subject.clone()
-                },
+                body: mail_domain::subject_or_none(&message.subject).into_owned(),
                 opens: Opens::Thread(message.thread),
             })
             .collect();
@@ -201,10 +197,7 @@ pub fn batch(account: AccountId, announced: &[&Message]) -> Vec<Notification> {
 
 /// The name a person would recognise: the display name where there is one, else the address.
 fn sender(message: &Message) -> String {
-    match message.from.name.as_deref().map(str::trim) {
-        Some(name) if !name.is_empty() => name.to_owned(),
-        _ => message.from.email.clone(),
-    }
+    message.from.shown().to_owned()
 }
 
 /// Where notifications go.

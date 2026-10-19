@@ -67,9 +67,7 @@ pub fn write_json(
 pub fn write_text(dir: &Path, file_name: &str, body: &str) -> Result<(), CoreError> {
     std::fs::create_dir_all(dir).map_err(CoreError::at(dir))?;
     let path = dir.join(file_name);
-    let tmp = path.with_extension("part");
-    std::fs::write(&tmp, body).map_err(CoreError::at(&tmp))?;
-    std::fs::rename(&tmp, &path).map_err(CoreError::at(&path))
+    mail_store::write_atomic(&path, body.as_bytes(), None).map_err(CoreError::at(&path))
 }
 
 /// The user's home directory.

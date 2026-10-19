@@ -15,7 +15,11 @@ pub fn saved(kept: &Template) -> String {
 pub fn started(draft: &Draft) -> String {
     let mut out = format!("draft {}\n", draft.id);
     let _ = writeln!(out, "  to      {}", addresses(&draft.to));
-    let _ = writeln!(out, "  subject {}", or_none(&draft.subject));
+    let _ = writeln!(
+        out,
+        "  subject {}",
+        mail_domain::subject_or_none(&draft.subject)
+    );
     if draft.to.is_empty() && draft.cc.is_empty() && draft.bcc.is_empty() {
         let _ = writeln!(
             out,
@@ -41,18 +45,10 @@ pub fn listed(all: &[(String, Template)]) -> String {
             template.id,
             template.name,
             address,
-            or_none(&template.subject)
+            mail_domain::subject_or_none(&template.subject)
         );
     }
     out
-}
-
-fn or_none(subject: &str) -> &str {
-    if subject.is_empty() {
-        "(no subject)"
-    } else {
-        subject
-    }
 }
 
 fn addresses(list: &[Address]) -> String {

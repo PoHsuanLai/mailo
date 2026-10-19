@@ -7,7 +7,7 @@
 //! leaves — and each has its menu on a right click, built here from its own state.
 
 use super::super::list_search::RowHit;
-use super::super::text::{draft_state, sender};
+use super::super::text::sender;
 use super::menu::{self, Pick};
 use super::runs;
 use crate::ui::copy;
@@ -64,11 +64,7 @@ impl Listed {
             Listed::Thread(summary) => &summary.subject,
             Listed::Draft(draft) => &draft.subject,
         };
-        if subject.trim().is_empty() {
-            copy::empty::NO_SUBJECT.to_owned()
-        } else {
-            subject.clone()
-        }
+        mail_domain::subject_or_none(subject).into_owned()
     }
 
     /// When a draft is held to leave; `None` for any other row.
@@ -128,7 +124,7 @@ impl Listed {
                     Some(at) => (when_words(at, now, zone), None),
                     None => (
                         mail_core::when::listed(draft.updated, now, zone),
-                        snippets.then(|| TextLine::from(draft_state(&draft.state))),
+                        snippets.then(|| TextLine::from(draft.state.word())),
                     ),
                 };
                 RowModel {

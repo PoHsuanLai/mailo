@@ -60,17 +60,8 @@ pub(super) fn rows(
         .take(SHOWN)
         .map(|loaded| {
             let summary = &loaded.summary;
-            let who = summary
-                .from
-                .name
-                .clone()
-                .filter(|name| !name.is_empty())
-                .unwrap_or_else(|| summary.from.email.clone());
-            let name = if summary.subject.trim().is_empty() {
-                copy::empty::NO_SUBJECT.to_owned()
-            } else {
-                summary.subject.clone()
-            };
+            let who = summary.from.shown().to_owned();
+            let name = mail_domain::subject_or_none(&summary.subject).into_owned();
             row(
                 thread_key(summary.id),
                 name,
@@ -111,16 +102,11 @@ fn draft_name(draft: &Draft) -> String {
         return draft.subject.trim().to_owned();
     }
     if let Some(to) = draft.to.iter().chain(&draft.cc).chain(&draft.bcc).next() {
-        let who = to
-            .name
-            .as_deref()
-            .filter(|name| !name.is_empty())
-            .unwrap_or(&to.email);
-        return copy::status::draft_to(who);
+        return copy::status::draft_to(to.shown());
     }
     let first = draft.written().lines().next().unwrap_or_default().trim();
     if first.is_empty() {
-        return copy::empty::NO_SUBJECT.to_owned();
+        return mail_domain::NO_SUBJECT.to_owned();
     }
     let mut words: String = first.chars().take(FIRST_WORDS).collect();
     if first.chars().count() > FIRST_WORDS {

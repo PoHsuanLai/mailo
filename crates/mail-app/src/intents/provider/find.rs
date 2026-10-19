@@ -29,11 +29,7 @@ fn thread_id(thread: ThreadId) -> EntityId {
 
 /// Somebody's name, or their address when they gave none.
 fn who(address: &Address) -> String {
-    address
-        .name
-        .clone()
-        .filter(|name| !name.trim().is_empty())
-        .unwrap_or_else(|| address.email.clone())
+    address.shown().to_owned()
 }
 
 fn third_party(value: String, space: &str) -> Labelled<String> {

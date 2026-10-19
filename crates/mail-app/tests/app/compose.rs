@@ -585,16 +585,16 @@ fn the_identity_comes_from_the_table_the_foreign_key_enforces() {
 #[test]
 fn drafts_reports_what_is_waiting() {
     let (store, _dir) = seeded();
-    assert!(words::drafts(&compose::drafts(&store).unwrap()).contains("no drafts"));
+    assert!(words::drafts(&compose::drafts(&store).unwrap(), at(30)).contains("no drafts"));
 
     compose::draft_reply(&store, ORIGINAL, ReplyScope::Sender, "yes", at(10)).unwrap();
-    let listed = words::drafts(&compose::drafts(&store).unwrap());
-    assert!(listed.contains("editing"), "{listed}");
+    let listed = words::drafts(&compose::drafts(&store).unwrap(), at(30));
+    assert!(listed.contains("draft"), "{listed}");
     assert!(listed.contains("Re: lunch on friday"), "{listed}");
 
     let draft = only_draft(&store);
     compose::send(&store, draft.id, at(20)).unwrap();
-    assert!(words::drafts(&compose::drafts(&store).unwrap()).contains("queued"));
+    assert!(words::drafts(&compose::drafts(&store).unwrap(), at(30)).contains("queued"));
 }
 
 /// The composer's round trip, without a window.
