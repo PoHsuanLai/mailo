@@ -68,16 +68,36 @@ pub(in crate::ui) fn kinds(folders: bool) -> Vec<MenuItem> {
         out.push(item("file", Icon::FolderInput, "Move to folder…", None));
     }
     out.extend([
-        item("read", Icon::MailOpen, "Mark read", None),
-        item("star", Icon::Star, "Star", None),
+        item(
+            "read",
+            Icon::MailOpen,
+            &copy::menus::rule_action(&RuleAction::MarkRead),
+            None,
+        ),
+        item(
+            "star",
+            Icon::Star,
+            &copy::menus::rule_action(&RuleAction::Star),
+            None,
+        ),
         item(
             "archive",
             Icon::Archive,
-            "Archive",
+            &copy::menus::rule_action(&RuleAction::Archive),
             Some("Out of the inbox"),
         ),
-        item("trash", Icon::Trash, "Move to Trash", None),
-        item("spam", Icon::OctagonAlert, "Mark as spam", None),
+        item(
+            "trash",
+            Icon::Trash,
+            &copy::menus::rule_action(&RuleAction::Trash),
+            None,
+        ),
+        item(
+            "spam",
+            Icon::OctagonAlert,
+            &copy::menus::rule_action(&RuleAction::Spam),
+            None,
+        ),
     ]);
     out
 }
@@ -254,12 +274,12 @@ fn RuleEditor(
                     for (at, action) in draft.actions.iter().enumerate() {
                         div { key: "{at}", class: "rules-action",
                             Glyph { icon: icon_of(action), size: IconSize::Compact }
-                            Label { text: work::action_words(action) }
+                            Label { text: copy::menus::rule_action(action) }
                             Button {
                                 bezel: Bezel::Toolbar,
                                 image: ImagePosition::Only,
                                 icon: Icon::X,
-                                label: format!("Remove {}", work::action_words(action)),
+                                label: format!("Remove {}", copy::menus::rule_action(action)),
                                 title: Some("Remove".to_owned()),
                                 onclick: on_primary(move || {
                                     if let Some(draft) = editing.write().as_mut()

@@ -17,6 +17,7 @@
 //! the system's keymap (`AppConfig::with_keymap_overrides`), so they are read once, as mailo
 //! opens.
 
+use crate::ui::copy;
 use crate::ui::view::Shortcut;
 use std::path::Path;
 
@@ -238,9 +239,9 @@ pub fn name(action: Shortcut) -> &'static str {
         Shortcut::ExtendNext => "Select the next one too",
         Shortcut::ExtendPrevious => "Select the previous one too",
         Shortcut::Back => "Close",
-        Shortcut::Archive => "Archive",
-        Shortcut::Trash => "Move to Trash",
-        Shortcut::Spam => "Mark as spam",
+        Shortcut::Archive => copy::menus::ARCHIVE,
+        Shortcut::Trash => copy::menus::MOVE_TO_TRASH,
+        Shortcut::Spam => copy::menus::MARK_AS_SPAM,
         Shortcut::ToggleStar => "Star or unstar",
         Shortcut::ToggleRead => "Mark read or unread",
         Shortcut::TogglePin => "Pin or unpin",

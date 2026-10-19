@@ -38,6 +38,9 @@ pub fn back_at(when: &str) -> String {
     format!("Back {when}")
 }
 
+/// The composer's body, while nothing is written in it.
+pub const WRITE_OR_SLASH: &str = "Write, or type / for more";
+
 /// ⌘K's field, while it is empty.
 pub const SEARCH_EVERYTHING: &str = "Search mail, places and commands";
 

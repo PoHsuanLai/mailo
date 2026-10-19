@@ -6,6 +6,7 @@ use ds::prelude::*;
 
 use dioxus::prelude::*;
 
+use crate::ui::copy;
 use crate::ui::view::Shell;
 
 /// "No account to send from", with Add Account… and Cancel.
@@ -22,7 +23,7 @@ pub(super) fn NoAccountAlert(shell: Signal<Shell>) -> Element {
                     shell.write().no_account = false;
                     crate::ui::add_account::open();
                 })),
-                AlertButton::new("Cancel", AlertRole::Cancel, EventHandler::new(move |()| {
+                AlertButton::new(copy::controls::CANCEL, AlertRole::Cancel, EventHandler::new(move |()| {
                     shell.write().no_account = false;
                 })),
             ],

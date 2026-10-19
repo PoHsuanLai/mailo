@@ -734,6 +734,7 @@ pub(super) fn App() -> Element {
         Frame { spaces,
         AppStyle { css: STYLE }
         div { class: frame_class,
+            style: "--side-w: {SIDEBAR_WIDTH}px",
             tabindex: "0",
             onmounted: super::host::Host::app_mounted,
             onkeydown: on_key,
@@ -793,10 +794,14 @@ pub(super) fn App() -> Element {
     }
 }
 
+/// The sidebar's preferred width. The stylesheet reads it as `--side-w` (set on the window's root),
+/// since the send pill is centred over what is right of the sidebar.
+const SIDEBAR_WIDTH: f32 = 232.0;
+
 /// The sidebar pane: 232 wide, 212 to 320, and it folds away past half of its least. 212 is
 /// what the sidebar's rows need; the foot (Downloads, the Space dots, one chevron) needs less.
 const SIDEBAR: PaneSpec = PaneSpec {
-    preferred: PaneSize::Fixed(Px(232.0)),
+    preferred: PaneSize::Fixed(Px(SIDEBAR_WIDTH)),
     min: PaneSize::Fixed(Px(212.0)),
     max: PaneSize::Fixed(Px(320.0)),
     collapsing: Collapsing::Snaps,

@@ -212,7 +212,7 @@ pub(super) fn AccountPage(
         Form {
             if let Some(need) = need {
                 FormSection {
-                    FieldRow { label: words::STATUS,
+                    FieldRow { label: copy::fields::STATUS,
                         div { class: "doctor-acts",
                             Label { text: words::WAITING }
                             Button {

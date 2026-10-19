@@ -16,6 +16,7 @@
 use super::super::row::act::{Pressed, op_icon, press};
 use super::super::row::menu::{Pick, reader_groups, rows};
 use super::fetch;
+use crate::ui::copy;
 use crate::ui::copy::menus::offered;
 use crate::ui::downloads::{Origin, Saving};
 use crate::ui::menu::{Floating, MenuItem, Right, Tile, anchor_at};
@@ -198,8 +199,8 @@ pub(super) fn ReaderMore(
             size: ControlSize::Large,
             image: ImagePosition::Only,
             icon: Some(IconSource::Glyph(Icon::Ellipsis)),
-            label: "More".to_owned(),
-            title: Some("More".to_owned()),
+            label: copy::aria::MORE.to_owned(),
+            title: Some(copy::tooltips::MORE.to_owned()),
             common: mounted_into(tool),
             onclick: move |_| open.toggle(),
         }

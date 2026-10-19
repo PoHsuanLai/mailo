@@ -9,6 +9,7 @@
 use super::common::Seg;
 use super::menu::{Floating, MenuItem, Right, Tile};
 use super::press::{SheetClose, on_primary};
+use crate::ui::copy;
 use crate::ui::saved::{self, ViewDraft, group_choices, group_name};
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
@@ -228,7 +229,7 @@ pub(in crate::ui) fn ViewSheet(
                             }
                         }
                         Button {
-                            label: "Cancel".to_owned(),
+                            label: copy::controls::CANCEL.to_owned(),
                             onclick: on_primary(move || close(shell)),
                         }
                         Button {

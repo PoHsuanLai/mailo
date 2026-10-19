@@ -37,6 +37,7 @@ pub const ONE_MONTH: &str = "1 Month";
 pub const THREE_MONTHS: &str = "3 Months";
 /// Keeps what a form or a field holds.
 pub const SAVE: &str = "Save";
+pub const DOWNLOAD: &str = "Download";
 /// Takes one entry out of a list in Settings.
 pub const REMOVE: &str = "Remove";
 /// The Rules page's row that makes a rule.

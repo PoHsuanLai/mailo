@@ -71,6 +71,7 @@ pub(in crate::ui) use spell::use_test_dictionaries;
 pub(in crate::ui) use templates::{every as every_template, template_rows};
 
 use super::press::on_primary;
+use crate::ui::copy;
 use crate::ui::view::Shell;
 use mail_core::password::Password;
 
@@ -297,9 +298,9 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                 if !reply {
                     div { class: "c-head",
                         TextField {
-                            label: "Subject".to_owned(),
+                            label: copy::fields::SUBJECT.to_owned(),
                             bezel: FieldBezel::Plain,
-                            placeholder: "Subject".to_owned(),
+                            placeholder: copy::fields::SUBJECT.to_owned(),
                             value: subject,
                             oninput: move |value: String| {
                                 let mut write = page.write();

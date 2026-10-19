@@ -15,7 +15,7 @@
 /* the head band: `.reader-head`'s, the subject the reader's subject (20/700 in the display face),
    at the top of the page as a message's title is at the top of the reader: there is no bar above */
 .c-head { padding: var(--s-16) var(--s-18) 0; }
-.c-title { display: flex; width: 100%; font-family: var(--font-display); font-size: var(--fs-subject); line-height: 1.15; font-weight: 700; }
+.c-title { display: flex; width: 100%; font-family: var(--font-display); font-weight: 700; }
 
 /* the header lines (`props::Line`): each label starts on the pane's leading edge, where the
    subject and the body start, in one column as wide as the widest label ("Security"), no colons,
@@ -41,21 +41,18 @@
 .c-main { flex: 1 0 auto; padding: var(--s-16) var(--s-18) var(--s-18); background: var(--surface); }
 .c-edit { position: relative; }
 .c-body {
-  display: block; position: relative; outline: none; font-family: var(--font-ui); font-size: var(--fs-reading); line-height: 1.65; color: var(--ink);
+  display: block; position: relative; outline: none;
   max-width: 66ch; min-height: 180px; padding-left: var(--s-18); margin-left: calc(-1 * var(--s-18)); caret-color: var(--accent-text);
 }
 .c-body > * { margin: 0 0 1em; }
 .c-body p, .c-body li, .c-body blockquote, .c-body h2, .c-body h3, .c-body h4 { white-space: pre-wrap; word-break: break-word; }
-.c-body.ph > p:first-child { position: relative; }
-.c-body.ph > p:first-child::before { content: "Write, or type / for more"; position: absolute; left: 0; top: 0; color: var(--ink-faint); pointer-events: none; }
-.c-body h2 { font-size: var(--fs-heading); line-height: 1.25; margin: .9em 0 .35em; }
+/* The hint over an empty body, where the first paragraph's text starts (`compose/body.rs`). */
+.c-hint { position: absolute; left: 0; top: 0; max-width: 66ch; font-size: var(--fs-reading); line-height: var(--lh-read); color: var(--ink-faint); pointer-events: none; }
+.c-body h2 { font-size: var(--fs-heading); line-height: var(--lh-head); margin: .9em 0 .35em; }
 .c-body h3 { font-size: var(--fs-heading-3); margin: .8em 0 .3em; }
 .c-body h4 { font-size: var(--fs-base); margin: .7em 0 .3em; }
 .c-body blockquote { border-left: var(--s-2) solid var(--ink-soft); padding-left: var(--s-12); margin-left: 0; color: var(--ink-soft); }
-.c-body pre {
-  font-family: var(--font-code); font-size: var(--fs-meta); line-height: 1.65; background: var(--surface-2);
-  border: var(--hair) solid var(--line-soft); border-radius: var(--r-media); padding: var(--s-10) var(--s-12); white-space: pre-wrap;
-}
+.c-body pre { padding: var(--s-10) var(--s-12); white-space: pre-wrap; }
 .c-body ul, .c-body ol { padding-left: var(--s-22); }
 .c-body li { margin: .15em 0; }
 .c-body ul.todo { list-style: none; padding-left: var(--s-4); }
@@ -103,10 +100,10 @@
 .o-img .imgbox img { display: block; width: 100%; height: auto; }
 .o-img .pick {
   display: flex; align-items: center; gap: var(--s-10); padding: var(--s-14); color: var(--ink-faint); font-size: var(--fs-help);
-  border: var(--hair) dashed var(--line); border-radius: var(--r-media); background: var(--surface-2);
+  border-style: dashed;
 }
 .o-img figcaption { font-size: var(--fs-help); color: var(--ink-faint); margin-top: var(--s-5); }
-.o-table .tbl { overflow-x: auto; border: var(--hair) solid var(--line-soft); border-radius: var(--r-media); background: var(--surface-2); }
+.o-table .tbl { overflow-x: auto; }
 .o-table table { border-collapse: collapse; width: 100%; }
 .o-table td { border: var(--hair) solid var(--line-soft); padding: var(--s-6) var(--s-9); min-width: 80px; vertical-align: top; }
 .o-table tr:first-child td {
@@ -132,12 +129,11 @@
 .link-field { width: 220px; }
 
 /* ⋯ › Show Plain Text: what the message carries as plain text, under the body */
-.plain {
-  margin-top: var(--s-14); border: var(--hair) solid var(--line-soft); border-radius: var(--r-media); background: var(--surface-2);
-  padding: var(--s-12) var(--s-14); font-family: var(--font-code); font-size: var(--fs-meta); line-height: 1.65; white-space: pre-wrap; color: var(--ink);
-}
+.plain { margin-top: var(--s-14); padding: var(--s-12) var(--s-14); white-space: pre-wrap; color: var(--ink); }
+/* the inset boxes of `reader.css` that the page draws with the softer line */
+.c-body pre, .plain, .o-table .tbl { border-color: var(--line-soft); }
 /* a message held to leave at a time: read, not written (`compose/held.rs`) */
-.held-text { white-space: pre-wrap; font-family: var(--font-ui); font-size: var(--fs-reading); line-height: 1.65; color: var(--ink); }
+.held-text { white-space: pre-wrap; }
 
 /* the files on the draft: one strip at the body's end */
 .c-attached { display: flex; flex-wrap: wrap; gap: var(--s-6); margin-top: var(--s-14); }
@@ -168,7 +164,7 @@
    pill's own size, centred between the card's edges by its auto margins, so it covers nothing
    the pointer wants and the pill inside it is hit where it is drawn. */
 .send-at {
-  position: absolute; left: 232px; right: 0; bottom: var(--s-8); width: max-content; margin: 0 auto;
+  position: absolute; left: var(--side-w); right: 0; bottom: var(--s-8); width: max-content; margin: 0 auto;
   z-index: var(--z-card);
 }
 .app.no-side .send-at { left: 0; }

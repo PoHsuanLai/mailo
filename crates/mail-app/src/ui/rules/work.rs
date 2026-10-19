@@ -8,10 +8,11 @@
 use chrono::{DateTime, TimeZone, Utc};
 use mail_core::SqliteStore;
 use mail_core::rules::manage::{self, ConditionError, SaveError};
-use mail_domain::{AfterMatch, Filter, LabelId, Rule, RuleAction, RuleId, RuleState};
+use mail_domain::{AfterMatch, Filter, LabelId, Rule, RuleId, RuleState};
 use porter_core::AccountId;
 
 use super::super::files::work::{grouped, messages};
+use crate::ui::copy;
 
 pub(in crate::ui) use mail_core::rules::manage::{Draft, Step, conversations, labels};
 
@@ -57,22 +58,9 @@ pub(in crate::ui) fn matching(
         .and_then(|n| usize::try_from(n).ok())
 }
 
-/// One action, as the list and the editor say it.
-pub(in crate::ui) fn action_words(action: &RuleAction) -> String {
-    match action {
-        RuleAction::Label(name) => format!("Label “{name}”"),
-        RuleAction::File(path) => format!("Move to “{path}”"),
-        RuleAction::Archive => "Archive".to_owned(),
-        RuleAction::Trash => "Move to Trash".to_owned(),
-        RuleAction::Spam => "Mark as spam".to_owned(),
-        RuleAction::MarkRead => "Mark read".to_owned(),
-        RuleAction::Star => "Star".to_owned(),
-    }
-}
-
 /// Everything a rule does, in one line.
 pub(in crate::ui) fn does(rule: &Rule) -> String {
-    let mut parts: Vec<String> = rule.actions.iter().map(action_words).collect();
+    let mut parts: Vec<String> = rule.actions.iter().map(copy::menus::rule_action).collect();
     if rule.after == AfterMatch::Stop {
         parts.push("then no later rule".to_owned());
     }

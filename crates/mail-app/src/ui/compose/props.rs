@@ -39,6 +39,7 @@ use super::receipt::ReceiptRow;
 use super::recipients::{commit_typed, people_items, pick_person, pop_last, remove, typed};
 use super::remind::RemindRow;
 use crate::ui::actions::{self, Own};
+use crate::ui::copy;
 use crate::ui::provider_chip::ProvChip;
 use crate::ui::view::Shell;
 use mail_core::provider::provider;
@@ -264,7 +265,7 @@ fn FromRow(page: Signal<Page>, shell: Signal<Shell>) -> Element {
     let mut value = use_signal(|| None::<MountedRef>);
     rsx! {
         Line {
-            label: "From",
+            label: copy::fields::FROM,
             row: "from",
             Button {
                 bezel: Bezel::Inline,

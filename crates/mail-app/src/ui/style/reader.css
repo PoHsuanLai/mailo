@@ -1,12 +1,21 @@
-/* The edge strip and the peeking sidebar are placed against the window. */
-.app { position: relative; }
-
 /* ---- reader ---- */
 .reader { position: relative; display: flex; flex-direction: column; height: 100%; min-width: 0; min-height: 0; background: var(--surface); }
 .reader-head { padding: var(--s-16) var(--s-18) var(--s-12); }
 .reader-head h2 { margin: 0; }
 /* The subject: the display face at 20, tight, over the metadata lines (`--fs-subject`). */
-.reader-subject { font-size: var(--fs-subject); line-height: 1.15; }
+.reader-subject, .peek-own-title, .peek-link-title, .c-title { font-size: var(--fs-subject); line-height: var(--lh-title); }
+/* Message text, read or written, is one setting: the reader's body and its plain text, a peeked
+   page's text, the composer's body and a held message's. */
+.reader-body, .reader-body pre.text, .peek-own-text, .c-body, .held-text {
+  font-family: var(--font-ui); font-size: var(--fs-reading); line-height: var(--lh-read); color: var(--ink);
+}
+/* Code in a block: the code face, the reading line height. */
+.c-body pre, .plain, .leave-ask .leave-url { font-family: var(--font-code); font-size: var(--fs-meta); line-height: var(--lh-read); }
+/* An inset box: a hairline, the media radius and the second surface. The composer's and the
+   plain text's draw their line softer, and a picker's is dashed (`composer.css`). */
+.img-ph, .att-tile, .unlock, .o-img .pick, .o-table .tbl, .plain, .c-body pre, .leave-ask .leave-url {
+  border: var(--hair) solid var(--line); border-radius: var(--r-media); background: var(--surface-2);
+}
 .reader-head .head-row { display: flex; gap: var(--s-6); align-items: center; margin-bottom: var(--s-9); }
 /* A message's header, as Mail draws it: the avatar, then the sender's line (name, address, and
    the date at its end) over whom it went to. The compact one, an earlier message's, is a small
@@ -50,12 +59,10 @@ article.frame + article.frame { border-top: var(--hair) solid var(--line-soft); 
 /* Whatever else the reader puts under the messages (the inline reply) is inset as their heads are. */
 .reader-body > :not(.frame):not(.banners):not(.inline-reply) { margin-left: var(--s-18); margin-right: var(--s-18); margin-bottom: var(--s-18); }
 .img-ph {
-  margin-top: var(--s-12); height: 86px; border-radius: var(--r-media); background: var(--surface-2);
-  border: var(--hair) solid var(--line); display: grid; place-items: center;
-   font-size: var(--fs-help); color: var(--ink-faint);
+  margin-top: var(--s-12); height: 86px; display: grid; place-items: center;
+  font-size: var(--fs-help); color: var(--ink-faint);
 }
-.reader-body { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; flex: 1; font-family: var(--font-ui); font-size: var(--fs-reading); color: var(--ink);
-  line-height: 1.65; }
+.reader-body { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; flex: 1; }
 .reader-body p + p { margin-top: var(--s-11); }
 .reader-body .quote {
   border-left: var(--s-2) solid var(--ink-soft); padding-left: var(--s-12); color: var(--ink-soft); font-style: italic;
@@ -64,7 +71,6 @@ article.frame + article.frame { border-top: var(--hair) solid var(--line-soft); 
   padding: var(--s-1) var(--s-5); border-radius: var(--r-tiny); color: var(--ink); }
 .reader-body pre.text {
   white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; border: 0; padding: 0; background: none;
-  font-family: var(--font-ui); font-size: var(--fs-reading); line-height: 1.65; color: var(--ink);
 }
 .reader-body .pending {
    font-weight: 700; font-size: var(--fs-title); font-style: normal; color: var(--ink-soft);
@@ -82,7 +88,7 @@ article.frame:last-of-type .html { height: auto; min-height: 320px; flex: 1 0 32
 .att-strip { display: flex; flex-wrap: nowrap; gap: var(--s-10); overflow-x: auto; padding-bottom: var(--s-2); }
 .att-tile {
   flex: none; width: 120px; display: flex; flex-direction: column; align-items: center; gap: var(--s-4);
-  padding: var(--s-8); border: var(--hair) solid var(--line); border-radius: var(--r-media); background: var(--surface-2);
+  padding: var(--s-8);
 }
 .att-text { display: grid; width: 100%; min-width: 0; text-align: center; }
 .att-mark, .att-away { width: 56px; height: 56px; flex: none; display: grid; place-items: center; color: var(--ink-soft); }
@@ -122,38 +128,30 @@ article.frame:last-of-type .html { height: auto; min-height: 320px; flex: 1 0 32
 .peek-card { width: 100%; max-width: 60ch; height: 100%; }
 /* A calendar file, a contact card or a forwarded message: a page of the reader's own type. */
 .peek-own { align-self: start; justify-self: start; width: 100%; max-width: 72ch; display: flex; flex-direction: column; gap: var(--s-13); }
-.peek-own-title { margin: 0; font-size: var(--fs-subject); line-height: 1.15; }
-.peek-own-text {
-  margin: 0; white-space: pre-wrap; overflow-wrap: anywhere;
-  font-size: var(--fs-reading); line-height: 1.65; color: var(--ink);
-}
+.peek-own-title { margin: 0; }
+.peek-own-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 /* A link's card: the link mark, what it said, the site in the ink of a fact and the whole address
    in the faint ink of metadata, then its two actions. */
 .peek-link { align-items: center; justify-content: center; gap: var(--s-10); padding: var(--s-22); text-align: center; }
-.peek-link-title { margin: var(--s-8) 0 0; max-width: 60ch; font-size: var(--fs-subject); line-height: 1.15; overflow-wrap: anywhere; }
+.peek-link-title { margin: var(--s-8) 0 0; max-width: 60ch; overflow-wrap: anywhere; }
 .peek-link-site { margin: 0; color: var(--ink-soft); font-weight: 700; }
 .peek-link-url { margin: 0; max-width: 60ch; color: var(--ink-faint); overflow-wrap: anywhere; }
 .peek-link-url b { color: var(--ink-soft); }
 .peek-link-actions { display: flex; gap: var(--s-8); margin-top: var(--s-10); }
 .reader-empty { flex: 1; display: grid; place-items: center; padding: var(--s-22); }
 
-.bar-tools { display: flex; align-items: center; gap: var(--s-5); position: relative; }
+.reader-head .bar-tools { gap: var(--s-5); }
 /* Banners in the reader's flow: one above another, a gap under the last. */
 .banners { display: grid; gap: var(--s-8); margin: var(--s-10) var(--s-18) 0; }
 .banners:empty { display: none; }
 /* The centre and full peeks are quire's `Peek`, drawn over the window: nothing here places them. */
 
 .is-hidden { display: none; }
-.html.is-hidden { display: none; }
 
 
 /* ---- leaving a list: the popover the ⋯'s Unsubscribe… opens, which says what it will do ---- */
 /* The reader's popovers, the trust glyph's and Unsubscribe…'s, are one width. */
 .leave-ask, .trust-said { display: grid; gap: var(--s-6); width: 320px; }
-.leave-ask .leave-url {
-  padding: var(--s-6) var(--s-9); border: var(--hair) solid var(--line); border-radius: var(--r-media);
-  background: var(--surface-2); font-family: var(--font-code); font-size: var(--fs-meta); line-height: 1.65;
-  color: var(--ink); overflow-wrap: anywhere;
-}
+.leave-ask .leave-url { padding: var(--s-6) var(--s-9); color: var(--ink); overflow-wrap: anywhere; }
 .leave-url .dim { color: var(--ink-faint); }
 .leave-ask .acts { display: flex; justify-content: flex-end; gap: var(--s-6); padding-top: var(--s-4); }

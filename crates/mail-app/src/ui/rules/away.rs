@@ -293,9 +293,9 @@ pub(super) fn AwayPage(row: AccountRow, pushed: Callback<AccountRow>) -> Element
                 }
             }
             if on {
-                FieldRow { label: "Subject", layout: RowLayout::Form,
+                FieldRow { label: copy::fields::SUBJECT, layout: RowLayout::Form,
                     TextField {
-                        label: "Subject".to_owned(),
+                        label: copy::fields::SUBJECT.to_owned(),
                         value: form.subject.clone(),
                         placeholder: "Away until the 12th".to_owned(),
                         common: classed("rules-field"),

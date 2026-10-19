@@ -6,10 +6,7 @@ use mail_core::account::RemoveError;
 use mail_domain::{AccountPlan, AuthPlan, HttpAuth, Incoming, LeaveOnServer, Outgoing, Tls};
 use porter_provider::Issuer;
 
-/// The name of the row that says an account waits for the person.
-pub(super) const STATUS: &str = "Status";
-
-/// What that row says: the same for a sign-in refused and for Mail no longer allowed, since the
+/// What the Status row says while an account waits for the person: the same for a sign-in refused and for Mail no longer allowed, since the
 /// button beside it is the same.
 pub(super) const WAITING: &str = "mailo can\u{2019}t fetch new mail until you sign in again.";
 

@@ -130,6 +130,21 @@ pub fn offered(say: mail_core::view::Say) -> &'static str {
     }
 }
 
+/// One action of a rule, as the rules list and the rule's editor both say it: the conversation
+/// menus' own words for the actions a menu has, and a label's or a folder's name quoted.
+pub fn rule_action(action: &mail_domain::RuleAction) -> String {
+    use mail_domain::RuleAction;
+    match action {
+        RuleAction::Label(name) => format!("Label “{name}”"),
+        RuleAction::File(path) => format!("Move to “{path}”"),
+        RuleAction::Archive => ARCHIVE.to_owned(),
+        RuleAction::Trash => MOVE_TO_TRASH.to_owned(),
+        RuleAction::Spam => MARK_AS_SPAM.to_owned(),
+        RuleAction::MarkRead => MARK_AS_READ.to_owned(),
+        RuleAction::Star => STAR.to_owned(),
+    }
+}
+
 // ⌘K's commands for the contact book, which has no page of its own.
 pub const IMPORT_CONTACTS: &str = "Import Contacts…";
 pub const EXPORT_CONTACTS: &str = "Export Contacts…";

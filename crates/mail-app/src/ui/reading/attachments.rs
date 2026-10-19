@@ -32,6 +32,7 @@ use super::super::text::{AttachmentRow, Kept};
 use super::fetch::{self, Again};
 use super::thumb::Thumb;
 use crate::ui::common::classed;
+use crate::ui::copy;
 use crate::ui::reauth::{Reauth, SIGN_IN};
 use crate::ui::view::Shell;
 
@@ -67,8 +68,8 @@ pub(super) fn Attachments(
             .unwrap_or(Download::Idle);
         let busy = matches!(state, Download::Running { .. });
         let label = match row.kept {
-            Kept::Here | Kept::Opened => "Save",
-            Kept::OnServer => "Download",
+            Kept::Here | Kept::Opened => copy::controls::SAVE,
+            Kept::OnServer => copy::controls::DOWNLOAD,
         };
         let name = row.name.clone();
         let kept = row.kept;

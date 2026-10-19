@@ -22,6 +22,7 @@ use super::super::pick::{Ask, choose};
 use super::super::press::{SheetClose, available, on_primary};
 use super::work::{self, Dest, Looked};
 use super::{Phase, Report, run, tilde_here};
+use crate::ui::copy;
 use crate::ui::view::{FileSheet, Shell};
 
 /// The path the sheet's field holds.
@@ -124,7 +125,7 @@ pub(super) fn ImportSheet(shell: Signal<Shell>, revision: Signal<u64>) -> Elemen
             div { class: "sheet-form",
                 FieldGroup {
                     FieldRow {
-                        label: "From",
+                        label: copy::fields::FROM,
                         help: Some(look_words.into()),
                         layout: RowLayout::Form,
                         div { class: "sheet-path",

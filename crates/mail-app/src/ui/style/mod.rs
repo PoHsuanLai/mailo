@@ -42,8 +42,10 @@ pub(in crate::ui) mod tests {
         format!("{}\n{STYLE}", ds::stylesheet())
     }
 
-    /// The custom properties mailo's own rules declare on an element, each for its own box.
-    const PER_ELEMENT: &[&str] = &[];
+    /// The custom properties mailo's own rules use that the stylesheet does not declare: the
+    /// window's root element carries them as an inline `style`, set from Rust beside the number
+    /// they come from.
+    const PER_ELEMENT: &[&str] = &["--side-w"];
 
     fn config() -> LintConfig {
         LintConfig {
@@ -153,11 +155,15 @@ pub(in crate::ui) mod tests {
             };
             for declaration in body.split(';') {
                 if let Some((property, value)) = declaration.split_once(':') {
-                    found.push((
-                        selector.trim().to_owned(),
-                        property.trim().to_owned(),
-                        value.trim().to_owned(),
-                    ));
+                    // A selector list is one declaration per selector, so a rule shared by
+                    // several is found under each of them.
+                    for each in selector.split(',') {
+                        found.push((
+                            each.trim().to_owned(),
+                            property.trim().to_owned(),
+                            value.trim().to_owned(),
+                        ));
+                    }
                 }
             }
         }
@@ -207,12 +213,6 @@ pub(in crate::ui) mod tests {
     /// proportion (`em`, `%`); never a pixel count. Typed in a number it is a size nobody chose.
     #[test]
     fn spacing_is_a_token_never_a_number() {
-        // (selector, property, why) for the one place that is not a step of the scale.
-        const EXCEPT: &[(&str, &str, &str)] = &[(
-            ".send-at",
-            "left",
-            "the sidebar's width, until the pill is placed by its pane",
-        )];
         const SPACING: &[&str] = &[
             "margin",
             "margin-top",
@@ -236,15 +236,19 @@ pub(in crate::ui) mod tests {
         ];
         let off: Vec<_> = declarations()
             .into_iter()
-            .filter(|(selector, property, value)| {
+            .filter(|(_, property, value)| {
                 SPACING.contains(&property.as_str())
-                    && !EXCEPT
-                        .iter()
-                        .any(|(s, p, _)| s == selector && p == property)
                     && words(value).iter().any(|word| is_literal_length(word))
             })
             .collect();
         assert!(off.is_empty(), "spacing written as a number: {off:#?}");
+    }
+
+    /// The send pill is placed past the sidebar by the width `app.rs` sets on the window
+    /// (`--side-w`), not by a number written here a second time.
+    #[test]
+    fn the_send_pill_clears_the_sidebar_by_its_one_width() {
+        assert_eq!(values_of(".send-at", "left"), ["var(--side-w)"]);
     }
 
     /// Spacing rule: a line is `--hair`, and any other border width is a spacing token. A bare
@@ -315,17 +319,20 @@ pub(in crate::ui) mod tests {
     /// three widths (narrow, medium and wide: a time to pick, a list, a grid of emoji).
     #[test]
     fn sheets_and_popovers_keep_their_measures() {
-        let sheets = ".sheet-form, .rules";
-        assert_eq!(values_of(sheets, "padding"), ["var(--s-16)"], "{sheets}");
-        assert_eq!(values_of(sheets, "gap"), ["var(--s-12)"], "{sheets}");
+        for sheets in [".sheet-form", ".rules"] {
+            assert_eq!(values_of(sheets, "padding"), ["var(--s-16)"], "{sheets}");
+            assert_eq!(values_of(sheets, "gap"), ["var(--s-12)"], "{sheets}");
+        }
         assert_eq!(values_of(".doctor", "padding"), ["var(--s-16)"]);
         assert_eq!(values_of(".doctor", "gap"), ["var(--s-12)"]);
         const NARROW: &str = "260px";
         const MEDIUM: &str = "320px";
         const WIDE: &str = "516px";
         for (selector, width) in [
-            (".pick-time, .tpl-save", NARROW),
-            (".leave-ask, .trust-said", MEDIUM),
+            (".pick-time", NARROW),
+            (".tpl-save", NARROW),
+            (".leave-ask", MEDIUM),
+            (".trust-said", MEDIUM),
             (".downloads", MEDIUM),
             (".em-picker", WIDE),
         ] {
@@ -482,8 +489,10 @@ pub(in crate::ui) mod tests {
             ".c-body .m-a",
             ".c-sel",
             ".c-caret",
-            ".cpage[*|data-drop=\"accepts\"], .inline-reply[*|data-drop=\"accepts\"]",
-            ".cpage[*|data-drop=\"target\"], .inline-reply[*|data-drop=\"target\"]",
+            ".cpage[*|data-drop=\"accepts\"]",
+            ".inline-reply[*|data-drop=\"accepts\"]",
+            ".cpage[*|data-drop=\"target\"]",
+            ".inline-reply[*|data-drop=\"target\"]",
         ];
         let off: Vec<_> = declarations()
             .into_iter()
@@ -621,13 +630,27 @@ pub(in crate::ui) mod tests {
     }
 
     /// Type rule: message text, read or written, is 14 on 1.65 in Inter in `--ink`; the line
-    /// heights in the sheet are that, the reader's subject (1.15) and a written heading (1.25).
+    /// heights in the sheet are that (`--lh-read`), the subject's (`--lh-title`, 1.15) and a
+    /// written heading's (`--lh-head`, 1.25), each a number written once, on `.app`.
     #[test]
     fn message_text_is_set_one_way_and_line_heights_are_three() {
-        for selector in [".reader-body", ".c-body"] {
+        for (name, number) in [
+            ("--lh-read", "1.65"),
+            ("--lh-title", "1.15"),
+            ("--lh-head", "1.25"),
+        ] {
+            assert_eq!(values_of(".app", name), [number], "{name}");
+        }
+        for selector in [
+            ".reader-body",
+            ".reader-body pre.text",
+            ".peek-own-text",
+            ".c-body",
+            ".held-text",
+        ] {
             for (property, want) in [
                 ("font-size", "var(--fs-reading)"),
-                ("line-height", "1.65"),
+                ("line-height", "var(--lh-read)"),
                 ("font-family", "var(--font-ui)"),
                 ("color", "var(--ink)"),
             ] {
@@ -641,7 +664,9 @@ pub(in crate::ui) mod tests {
         let off: Vec<_> = declarations()
             .into_iter()
             .filter(|(_, property, value)| {
-                property == "line-height" && !["1.15", "1.25", "1.65"].contains(&value.as_str())
+                property == "line-height"
+                    && !["var(--lh-title)", "var(--lh-head)", "var(--lh-read)"]
+                        .contains(&value.as_str())
             })
             .collect();
         assert!(off.is_empty(), "line heights off the sheet: {off:#?}");
@@ -657,9 +682,15 @@ pub(in crate::ui) mod tests {
             values_of(".reader-subject", "font-size"),
             ["var(--fs-subject)"]
         );
-        assert_eq!(values_of(".reader-subject", "line-height"), ["1.15"]);
+        for subject in [
+            ".reader-subject",
+            ".peek-own-title",
+            ".peek-link-title",
+            ".c-title",
+        ] {
+            assert_eq!(values_of(subject, "line-height"), ["var(--lh-title)"]);
+        }
         assert_eq!(values_of(".c-title", "font-size"), ["var(--fs-subject)"]);
-        assert_eq!(values_of(".c-title", "line-height"), ["1.15"]);
         assert_eq!(values_of(".c-title", "font-weight"), ["700"]);
         assert_eq!(
             values_of(".c-title", "font-family"),
