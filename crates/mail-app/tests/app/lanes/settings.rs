@@ -2,7 +2,7 @@
 //! save directory, and the same revision, so what it changes the main window hears.
 
 use ds_blitz::{FocusFallback, PrintOutcome, RootContexts};
-use ds_harness::{Clock, Harness, HarnessConfig, Query, Viewport};
+use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
 
 use super::hands::{click, until};
 

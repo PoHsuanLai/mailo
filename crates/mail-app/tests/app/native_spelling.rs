@@ -15,7 +15,7 @@ use ds::prelude::{Point, Px, ShortcutKey as Key};
 use ds::spell::lang::Lang;
 use ds_blitz::spell::SpellConfig;
 use ds_blitz::{FocusFallback, NetPolicy, PrintOutcome, RootContexts};
-use ds_harness::{Clock, Driver, Harness, HarnessConfig, Query, Viewport};
+use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
 
 use crate::settle;
 use settle::settle_until;

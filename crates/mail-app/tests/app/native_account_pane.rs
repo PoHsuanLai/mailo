@@ -6,7 +6,7 @@
 use ds::prelude::Point;
 use ds_blitz::{NetPolicy, PrintOutcome};
 use ds_harness::inset::{Policy, assert_insets};
-use ds_harness::{Clock, Driver, Harness, HarnessConfig, Query as Read, Viewport};
+use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
 
 use crate::settle;
 use settle::settle_until;

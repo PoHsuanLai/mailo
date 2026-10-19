@@ -7,7 +7,7 @@
 //! no GPU, so a picture's pixels are not drawn; the card's own markup says what it was given.
 
 use ds::prelude::ShortcutKey as Key;
-use ds_harness::{Clock, Driver, Harness, HarnessConfig, Query};
+use ds_harness::{Clock, Harness, HarnessConfig};
 
 use super::native_preview::{
     PEEK, VIEW, acct_account, carrying, click, item, ms, open_row, with_account,

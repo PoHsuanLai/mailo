@@ -10,7 +10,7 @@
 
 use dioxus::prelude::Modifiers;
 use ds::prelude::*;
-use ds_harness::{Clock, Driver, Harness, HarnessConfig, Input, Query, Viewport};
+use ds_harness::{Clock, Harness, HarnessConfig, Input, Viewport};
 use mail_core::SqliteStore;
 use mail_core::{Arrival, absorb};
 use mail_domain::id::account_id_from_uuid;

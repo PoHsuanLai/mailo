@@ -5,7 +5,7 @@
 //! add are fakes, the store is a `TempDir`'s, and nothing reaches the network or a keyring.
 
 use ds_blitz::Extent;
-use ds_harness::{Clock, Driver, Harness, HarnessConfig, Query, Viewport};
+use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
 use mail_app::ui::native::{
     AddAccountOpened, AddAccountSeams, AddAccountWiring, AddRequest, add_account_root,
 };

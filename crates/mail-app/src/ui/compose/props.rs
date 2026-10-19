@@ -13,7 +13,7 @@ use ds::components::content::avatar::{
     AvatarFace, AvatarShape, AvatarSize, AvatarTone, person_hue,
 };
 use ds::components::content::label::{LabelRole, LabelStyle};
-use ds::components::controls::button_marks::{Leading, Trailing};
+use ds::components::controls::button_marks::Leading;
 use ds::components::controls::button_model::Bezel;
 use ds::components::controls::chip::{Chip, ChipVariant};
 use ds::components::fields::text_field_model::Invalid;
@@ -191,7 +191,7 @@ pub(super) fn ChoiceRow(
             Button {
                 bezel: Bezel::Inline,
                 label: value.clone(),
-                trailing: Some(Trailing::Glyph(Icon::ChevronDown)),
+                trailing: Some(Icon::ChevronDown),
                 shown: Some(if open { Shown::Visible } else { Shown::Hidden }),
                 onclick: on_primary(move || {
                     let next = if open { Float::Closed } else { toggling.clone() };
@@ -274,7 +274,7 @@ fn FromRow(page: Signal<Page>, shell: Signal<Shell>) -> Element {
                 leading: via.map(|via| Leading::Mark(rsx! {
                     ProvChip { provider: via, marks }
                 })),
-                trailing: Some(Trailing::Glyph(Icon::ChevronDown)),
+                trailing: Some(Icon::ChevronDown),
                 shown: Some(if open { Shown::Visible } else { Shown::Hidden }),
                 onclick: on_primary(move || {
                     let next = if open { Float::Closed } else { Float::From };

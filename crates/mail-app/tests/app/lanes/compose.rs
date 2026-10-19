@@ -2,7 +2,6 @@
 //! Attach button's dialog, one dropped from a file manager), send, take it back, send again.
 
 use ds::file_drop::drag::{DropAcceptance, FileDragInput, Offer};
-use ds_harness::Query;
 use mail_core::Store;
 use std::path::PathBuf;
 

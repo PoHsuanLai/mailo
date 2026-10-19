@@ -8,7 +8,7 @@
 
 use ds::prelude::*;
 use ds_blitz::{FocusFallback, NetPolicy, PrintError, PrintOutcome};
-use ds_harness::{Clock, Driver, Harness, HarnessConfig, Query, Viewport};
+use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
 
 use crate::settle;
 use mail_core::{Arrival, absorb};

@@ -4,7 +4,7 @@
 //! here reads or touches the real store, config or cache.
 
 use ds_blitz::{FocusFallback, NetPolicy};
-use ds_harness::{Backdrop, Clock, Driver, Harness, HarnessConfig, Query, Viewport};
+use ds_harness::{Backdrop, Clock, Harness, HarnessConfig, Viewport};
 
 use crate::settle;
 use settle::settle_until;

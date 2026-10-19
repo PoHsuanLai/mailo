@@ -2,8 +2,6 @@
 //! flowing printout, each message on pages of its own, and the conversation saved as a PDF.
 //! The print dialog is a recorder; the PDF lands where the window saves files.
 
-use ds_harness::Query;
-
 use super::window::{INBOX, Window, deliver, hours_ago};
 
 const MORE: &str = ".reader-head [*|aria-label=\"More\"]";

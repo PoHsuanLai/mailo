@@ -13,7 +13,7 @@
 
 use ds::prelude::*;
 use ds_blitz::{FocusFallback, PrintOutcome, RootContexts};
-use ds_harness::{Clock, Driver, Harness, HarnessConfig, Query, Viewport};
+use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
 use mail_app::ui::appearance::WindowDirs;
 use mail_app::ui::native::{Browse, DialogAsk, Dialogs, Fetch, Original, SaveDir, WallClock};
 use mail_app::ui::native::{Configured, Revisions};

@@ -2,7 +2,6 @@
 //! outbox until then; once it has gone and nobody has answered for three days, the conversation
 //! comes back saying so.
 
-use ds_harness::Query;
 use mail_core::Store;
 use mail_domain::{FollowUp, SendState};
 

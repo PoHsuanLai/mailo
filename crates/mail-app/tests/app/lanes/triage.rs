@@ -2,7 +2,6 @@
 //! e archives, # trashes, Ctrl-Z takes each back; Snooze until puts one away until its time;
 //! Move to… offers the account's folders.
 
-use ds_harness::Query;
 use mail_domain::{Snooze, Star};
 
 use super::drive::{Drive, Key, PRIMARY};

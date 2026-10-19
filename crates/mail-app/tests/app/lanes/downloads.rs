@@ -27,7 +27,6 @@ fn with_notes(store: &mail_core::SqliteStore) {
 /// Right-click the list's first file, and wait for its menu.
 fn row_menu(window: &mut Window) {
     use super::drive::Drive as _;
-    use ds_harness::Query as _;
     let at = window.centre(&format!("{LIST} .ds-row"));
     window
         .harness
@@ -38,13 +37,11 @@ fn row_menu(window: &mut Window) {
 }
 
 fn listed(h: &ds_harness::Harness) -> bool {
-    use ds_harness::Query as _;
     h.text_of(LIST).is_some_and(|list| list.contains(NAME))
 }
 
 #[test]
 fn a_saved_attachment_is_listed_opened_shown_and_cleared() {
-    use ds_harness::Query as _;
     let mut window = Window::open(with_notes);
     assert_eq!(
         window.harness.count(DOT),

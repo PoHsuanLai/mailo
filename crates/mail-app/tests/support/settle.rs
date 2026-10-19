@@ -10,7 +10,7 @@
 
 #![allow(dead_code)]
 
-use ds_harness::{Driver, Harness};
+use ds_harness::Harness;
 use std::time::{Duration, Instant};
 
 /// The most real time a wait may take before the test calls it hung. Far above any runner's

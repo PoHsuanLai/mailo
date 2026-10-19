@@ -2,8 +2,6 @@
 //! quote and send it; the answer to it comes back into the same conversation, and Reply all on
 //! that one addresses everyone on it.
 
-use ds_harness::{Driver, Query};
-
 use super::drive::{Drive, Key, PRIMARY};
 use super::window::{INBOX, Window, hours_ago, parsed, queued};
 

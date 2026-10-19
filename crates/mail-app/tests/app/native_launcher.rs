@@ -6,7 +6,7 @@
 //! it writes no file anywhere.
 
 use ds::prelude::ShortcutKey as Key;
-use ds_harness::{Clock, Driver, Harness, HarnessConfig, Query, Viewport};
+use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
 
 use crate::settle;
 use settle::settle_until;

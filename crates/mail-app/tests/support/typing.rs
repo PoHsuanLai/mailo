@@ -11,7 +11,7 @@
 use super::drive::{Drive, Key};
 use super::settle::settle_until;
 use ds::prelude::Rect;
-use ds_harness::{Driver, Harness, Query};
+use ds_harness::Harness;
 use std::time::{Duration, Instant};
 
 /// The caret the page draws over the body.

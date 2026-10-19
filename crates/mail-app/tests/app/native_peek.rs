@@ -10,7 +10,7 @@
 use ds::base::press::PointerButton;
 use ds::prelude::*;
 use ds_blitz::FocusFallback;
-use ds_harness::{Clock, Driver, Harness, HarnessConfig, Query};
+use ds_harness::{Clock, Harness, HarnessConfig};
 use mail_app::ui::copy;
 use mail_app::ui::native::{Browse, Fetch, Original};
 use mail_core::{Arrival, SqliteStore, absorb};
