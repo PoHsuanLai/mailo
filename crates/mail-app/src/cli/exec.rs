@@ -213,8 +213,38 @@ pub fn prepare(command: Option<Command>) -> Prepared {
     Prepared::Run(command)
 }
 
+/// Whether `command` reads `settings.toml` or `offline.json`: a sync keeps what `offline.json`
+/// says, `watch` and `notify` read the notifications, and adding or removing an account writes
+/// `offline.json`.
+fn reads_settings(command: &Command) -> bool {
+    matches!(
+        command,
+        Command::Sync
+            | Command::SyncFolder { .. }
+            | Command::Watch { .. }
+            | Command::Notify { .. }
+            | Command::AccountAdd { .. }
+            | Command::AccountRemove { .. }
+    )
+}
+
 /// Do `command`, ending the process with a failing status when it fails.
+///
+/// A command that reads a settings file that is there and cannot be used says which and why, and
+/// stops: running on the defaults in its place would hide it, and a write would replace it.
 pub fn execute(store: Arc<SqliteStore>, command: Command) {
+    if reads_settings(&command)
+        && let Some(config) = mail_core::config::config_dir()
+    {
+        let found = crate::damage::of_config(&config);
+        if !found.is_empty() {
+            for damaged in &found {
+                eprintln!("{damaged}");
+            }
+            eprintln!("fix or move the file aside, then run the command again");
+            std::process::exit(1);
+        }
+    }
     // Sync needs an async runtime and the store by Arc, so it is dispatched here rather than
     // inside super::run, which is deliberately synchronous and testable.
     if matches!(command, Command::Sync) {

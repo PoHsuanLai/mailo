@@ -28,3 +28,16 @@ pub fn tidy_up(count: usize) -> String {
         _ => format!("{count} read conversations in the Inbox are that old. {stay}"),
     }
 }
+
+/// Under [`super::titles::SETTINGS_UNREADABLE`]: each file and why, then what each button does.
+pub fn settings_unreadable(files: &[(String, String)]) -> String {
+    let said: Vec<String> = files
+        .iter()
+        .map(|(name, why)| format!("{name}: {why}."))
+        .collect();
+    format!(
+        "{} Use Defaults keeps each file beside itself, renamed to end in “.bad”, and a setting whose \
+         value isn’t valid takes its default. Quit leaves them as they are.",
+        said.join(" ")
+    )
+}

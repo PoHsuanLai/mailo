@@ -54,3 +54,8 @@ pub fn did_not_run(name: &str) -> String {
 }
 /// A key or certificate job (import, save, delete, verify) that failed.
 pub const KEYS_FAILED: &str = "That Didn’t Work";
+
+/// Asked before the window opens over settings files that are there and cannot be read.
+pub const SETTINGS_UNREADABLE: &str = "Some Settings Can’t Be Read";
+/// Use Defaults could not set a damaged settings file aside; the reason is the message.
+pub const NOT_SET_ASIDE: &str = "The Files Weren’t Set Aside";

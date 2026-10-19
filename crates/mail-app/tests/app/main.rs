@@ -40,6 +40,7 @@ mod native_compose_align;
 mod native_compose_window;
 mod native_control_sizes;
 mod native_copy;
+mod native_damaged_settings;
 mod native_desktop_appearance;
 mod native_destroy;
 mod native_drop;

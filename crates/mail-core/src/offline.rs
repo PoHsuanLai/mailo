@@ -9,7 +9,7 @@
 //! account id, as `spaces.json` keys whose mail a Space shows; an id the database no longer has
 //! is simply never asked about.
 
-use crate::config::{read_json, write_json};
+use crate::config::{json_damage, read_json, write_json};
 use crate::error::CoreError;
 use mail_store::{Offline, Store};
 use porter_core::AccountId;
@@ -26,7 +26,8 @@ pub enum Keep {
     Everything,
 }
 
-const FILE_NAME: &str = "offline.json";
+/// The file the setting is kept in, in the config directory.
+pub const FILE_NAME: &str = "offline.json";
 
 /// The stored setting: the accounts kept offline in full. Every other account is [`Keep::Bodies`].
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -55,9 +56,16 @@ impl Kept {
     }
 }
 
-/// The stored setting, or every account off when there is none or it cannot be read.
+/// The stored setting, or every account off when there is none or it cannot be read. The window
+/// and the command line ask about a file that cannot be read ([`damage`]) before anything runs
+/// over it.
 pub fn load(dir: &Path) -> Kept {
     read_json(dir, FILE_NAME)
+}
+
+/// Why `offline.json` in `dir` cannot be read: `None` when it is missing or reads.
+pub fn damage(dir: &Path) -> Option<String> {
+    json_damage::<Kept>(dir, FILE_NAME)
 }
 
 /// The setting in the user's config directory, for a sync the binary or the window starts.
@@ -68,8 +76,15 @@ pub fn load_default() -> Kept {
         .unwrap_or_default()
 }
 
-/// Set what `account` keeps, leaving every other account as it was.
+/// Set what `account` keeps, leaving every other account as it was. A file that cannot be read is
+/// left as it is, and nothing is set: writing would put the defaults in place of what it held.
 pub fn save(dir: &Path, account: AccountId, keep: Keep) -> Result<(), CoreError> {
+    if let Some(why) = damage(dir) {
+        return Err(CoreError::Damaged {
+            path: dir.join(FILE_NAME),
+            why,
+        });
+    }
     write_json(dir, FILE_NAME, &load(dir).with(account, keep))
 }
 
@@ -205,6 +220,22 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join(FILE_NAME), b"{not json").unwrap();
         assert_eq!(load(dir.path()).of(acct_ada()), Keep::Bodies);
+    }
+
+    #[test]
+    fn a_damaged_file_is_said_and_never_written_over() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(damage(dir.path()), None, "no file is not damage");
+        std::fs::write(dir.path().join(FILE_NAME), b"{not json").unwrap();
+        assert!(damage(dir.path()).is_some());
+        assert!(matches!(
+            save(dir.path(), acct_ada(), Keep::Everything),
+            Err(CoreError::Damaged { .. })
+        ));
+        assert_eq!(
+            std::fs::read(dir.path().join(FILE_NAME)).unwrap(),
+            b"{not json"
+        );
     }
 
     #[test]

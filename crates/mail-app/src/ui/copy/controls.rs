@@ -20,6 +20,10 @@ pub const SEND: &str = "Send";
 pub const CANCEL: &str = "Cancel";
 /// A dialog's one button, which closes it.
 pub const OK: &str = "OK";
+/// Opens the window on the defaults in place of settings files that cannot be read.
+pub const USE_DEFAULTS: &str = "Use Defaults";
+/// Ends mailo, leaving unreadable settings files as they are.
+pub const QUIT: &str = "Quit";
 /// A toast's button that puts back what was just deleted.
 pub const UNDO: &str = "Undo";
 /// Tidy Up's button: archive the conversations it lists.

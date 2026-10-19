@@ -81,3 +81,8 @@ pub fn may_not_be_from(sender: &str) -> String {
 
 /// A Space's name field, emptied.
 pub const SPACE_NEEDS_A_NAME: &str = "A Space needs a name.";
+
+/// Why a `keyboard.json` naming one action twice cannot be used.
+pub fn key_given_twice(action: &str) -> String {
+    format!("{action} is given a key twice.")
+}

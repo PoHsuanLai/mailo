@@ -16,6 +16,7 @@ use mail_core::SqliteStore;
 use mail_core::provider::icon::Loaded;
 use std::sync::Arc;
 
+pub(super) mod gate;
 pub(super) mod native;
 
 /// What the window is opened with.
@@ -28,6 +29,8 @@ pub(super) struct Opening {
     pub icons: Loaded,
     /// Where brand logos are cached, when there is a cache directory.
     pub brand: Option<super::brand::BrandCache>,
+    /// The settings files that are there and cannot be read, asked about before the window opens.
+    pub found: gate::Found,
 }
 
 /// Launch the shell, already wearing `look` and `spaces`, open where `start` says. Returns when
@@ -45,6 +48,7 @@ pub fn run(
         .map(|dir| super::provider_chip::read(&dir.join("providers")))
         .unwrap_or_default();
     let brand = cache.map(|dir| super::brand::BrandCache(dir.join("bimi")));
+    let found = gate::Found(dirs.as_ref().map(gate::found).unwrap_or_default());
     let opening = Opening {
         store,
         look,
@@ -53,6 +57,7 @@ pub fn run(
         start,
         icons,
         brand,
+        found,
     };
     native::run(opening)
 }
@@ -124,7 +129,7 @@ pub(super) fn ShellRoot() -> Element {
     // mailo's own settings (`mailo/settings.toml`), watched the same way: detent writes the same
     // file, and the window follows it.
     super::prefs::use_window_settings();
-    rsx! { Shell {} }
+    rsx! { gate::Gate {} }
 }
 
 /// Holds the icon cache in a signal so a refresh can replace it, and names the window's host.

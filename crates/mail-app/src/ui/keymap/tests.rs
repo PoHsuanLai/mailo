@@ -1,4 +1,4 @@
-use super::{DEFAULTS, FILE_NAME, Keymap, Refused, bind, load, reset, save, spoken};
+use super::{DEFAULTS, FILE_NAME, Keymap, Refused, bind, damage, load, reset, save, spoken};
 use crate::ui::view::Shortcut;
 
 /// The keyboard as it was before it became a table: `view::shortcut`'s match, kept here
@@ -234,6 +234,7 @@ fn a_missing_or_damaged_file_is_the_defaults() {
     for (name, body) in CASES {
         std::fs::write(dir.path().join(FILE_NAME), body).unwrap();
         assert_eq!(load(dir.path()), Keymap::default(), "{name}");
+        assert!(damage(dir.path()).is_some(), "{name} is said");
     }
     // And a sound one is read, so the cases above failed for their damage.
     std::fs::write(
@@ -242,6 +243,7 @@ fn a_missing_or_damaged_file_is_the_defaults() {
     )
     .unwrap();
     assert_eq!(load(dir.path()).action("x", false), Some(Shortcut::Archive));
+    assert_eq!(damage(dir.path()), None);
 }
 
 #[test]

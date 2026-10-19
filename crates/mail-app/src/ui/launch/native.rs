@@ -38,6 +38,7 @@ pub(super) fn run(opening: Opening) -> Result<(), ds_blitz::LaunchError> {
         start,
         icons,
         brand,
+        found,
     } = opening;
     // Read once, as the window opens, like the watch reads it.
     let notices = dirs
@@ -84,6 +85,7 @@ pub(super) fn run(opening: Opening) -> Result<(), ds_blitz::LaunchError> {
         .with_context(keys)
         .with_context(removals)
         .with_context(icons)
+        .with_context(found)
         .with_context(revisions)
         // And the one way a compose window hands the main window its drafts (`ui/compose/hand.rs`).
         .with_context(crate::ui::compose::Hub::new())

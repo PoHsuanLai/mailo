@@ -7,6 +7,7 @@
 //! (`main.rs`) is the router between them.
 
 pub mod cli;
+pub mod damage;
 pub mod edge;
 pub mod handoff;
 pub mod intents;
