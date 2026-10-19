@@ -349,10 +349,12 @@ fn body(step: Step, send: Callback<Action>, marks: Marks) -> Element {
             provider,
             why,
             detail,
+            recovery,
         } => rsx! {
             SignInFailed {
                 provider,
                 why,
+                recovery,
                 on_retry: move |()| send.call(Action::Retry),
                 on_back: back,
                 on_cancel: cancel,

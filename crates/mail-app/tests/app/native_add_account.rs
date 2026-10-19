@@ -971,3 +971,28 @@ fn every_step_fits_in_the_window_it_asks_for() {
         });
     }
 }
+
+/// With no client for the provider, asking again cannot help: the failure offers no Try Again,
+/// and Back still goes back to the list.
+#[test]
+fn a_provider_with_no_client_offers_no_try_again_and_back_still_goes_back() {
+    let script = Script {
+        client: false,
+        ..Script::default()
+    };
+    let mut w = open(script, None);
+    on_step(&mut w, "providers");
+    type_text(&mut w, "google");
+    w.harness.key(Key::Enter);
+    on_step(&mut w, "sign-in");
+    type_text(&mut w, "ada@gmail.com");
+    w.harness.key(Key::Enter);
+    on_step(&mut w, "failed");
+    let actions = w.harness.text_of(".ds-acc-actions").unwrap_or_default();
+    assert!(
+        !actions.contains("Try Again"),
+        "a retry that cannot help is offered: {actions}"
+    );
+    click_text(&mut w, ".ds-acc-actions > :nth-child(1)");
+    on_step(&mut w, "providers");
+}

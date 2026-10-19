@@ -13,7 +13,7 @@
 
 use porter_core::sheet::{
     Entry, FieldAnswer, FieldKind, FieldProblem, FieldSpec, FieldValue, Presence, ProviderRow,
-    RowKind, ServiceChoice, ServiceState, SheetInput, SheetView, form_problem, refit,
+    RowKind, ServiceChoice, ServiceState, SheetInput, SheetView, SignInFault, form_problem, refit,
 };
 use porter_core::{ProviderId, SecretText, WebUrl};
 
@@ -253,13 +253,23 @@ pub fn acted(sheet: Sheet, action: Action) -> (Sheet, Option<SheetInput>) {
     )
 }
 
+/// Whether porter's sheet tries a sign-in again after `fault`: not after a refusal by the
+/// organisation or a missing client id, which asking again does not change (its `retryable`).
+/// A retry it would not answer is never sent: the sheet would wait for a view that never comes,
+/// and drop every press after it, Back and all.
+pub fn retries(fault: SignInFault) -> bool {
+    !matches!(fault, SignInFault::Forbidden | SignInFault::NeedsClientId)
+}
+
 fn act(view: &SheetView, draft: Draft, action: Action) -> (Draft, Option<SheetInput>) {
     match (view, action) {
         (_, Action::Cancel) => (draft, Some(SheetInput::Dismiss)),
         (SheetView::SignIn(_) | SheetView::Review(_) | SheetView::Failed { .. }, Action::Back) => {
             (draft, Some(SheetInput::Back))
         }
-        (SheetView::Failed { .. }, Action::Retry) => (draft, Some(SheetInput::Retry)),
+        (SheetView::Failed { fault, .. }, Action::Retry) if retries(*fault) => {
+            (draft, Some(SheetInput::Retry))
+        }
         (SheetView::BrowserWait { .. }, Action::OpenAgain) => (draft, Some(SheetInput::OpenAgain)),
         (SheetView::BrowserWait { .. } | SheetView::ShowCode { .. }, Action::Copied) => (
             Draft {
@@ -603,6 +613,26 @@ mod tests {
                 Some(SheetInput::Retry),
             ),
             ("retry on the form", form(), Action::Retry, None),
+            (
+                "retry without a client id",
+                SheetView::Failed {
+                    row: None,
+                    provider: id("google"),
+                    fault: SignInFault::NeedsClientId,
+                },
+                Action::Retry,
+                None,
+            ),
+            (
+                "retry when the organisation refuses",
+                SheetView::Failed {
+                    row: None,
+                    provider: id("google"),
+                    fault: SignInFault::Forbidden,
+                },
+                Action::Retry,
+                None,
+            ),
             (
                 "open again",
                 browser.clone(),
