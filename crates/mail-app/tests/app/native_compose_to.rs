@@ -1,6 +1,7 @@
 //! What is typed in To that is not an address, driven in the real window on Blitz
 //! (`ds_harness::Harness`): the field keeps it and keeps the keyboard, so it can be mended; it
-//! marks itself invalid when it is left, with no banner; and Send stays put while it is there.
+//! marks itself invalid when it is left, with no banner and no line of text under it; and Send
+//! stays put while it is there.
 //!
 //! The store is seeded in a `TempDir`, and no window is handed directories, so nothing here
 //! writes a file anywhere else.
@@ -115,6 +116,17 @@ fn what_is_not_an_address_marks_to_and_stays_mendable() {
         harness.count(".cpage .ds-inline-banner"),
         0,
         "a banner went up"
+    );
+    assert_eq!(
+        harness.count(".cpage .c-props .ds-text-field-help"),
+        0,
+        "the error is drawn as a line of text under To"
+    );
+    assert!(
+        harness
+            .attr(TO, "aria-description")
+            .is_some_and(|why| why.contains("not an email address")),
+        "To does not say why"
     );
 
     harness.click(harness.centre(TO).unwrap_or_else(|| panic!("no To")));
