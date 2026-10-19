@@ -952,6 +952,13 @@ impl Shell {
         self.composing = Some(Composing::of(draft));
     }
 
+    /// Open the composer on the stored draft `id`, read now. A draft that is gone is the error.
+    pub fn compose_id(&mut self, store: &impl mail_core::Store, id: DraftId) -> Result<(), String> {
+        let draft = mail_core::Store::draft(store, id).map_err(|why| why.to_string())?;
+        self.compose(&draft);
+        Ok(())
+    }
+
     /// Open `menu`, or close it when that one is already open: a second press on what opened
     /// it puts it away.
     pub fn toggle_further(&mut self, menu: FurtherMenu) {

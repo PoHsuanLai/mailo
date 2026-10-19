@@ -8,7 +8,7 @@ use super::common::classed;
 use super::data::{AccountRow, account_rows, syncs_nothing};
 use super::list_search::{Marking, RowHit, Scope, row_hit};
 use super::motion::{Ghost, Toast};
-use super::ops::compose_new;
+use super::ops::{Writes, open_composer};
 use super::page::ListMore;
 use super::picks::PickBar;
 use super::press::on_primary;
@@ -443,7 +443,7 @@ pub(super) fn ThreadList(
                                     title_shortcut: crate::ui::actions::tip_standard(chordkit::StandardAction::New),
                                     onclick: on_primary(move || {
                                         let store = consume_context::<Arc<SqliteStore>>();
-                                        if compose_new(&store, shell) {
+                                        if open_composer(&store, shell, Writes::New).is_ok() {
                                             revision += 1;
                                         }
                                     }),

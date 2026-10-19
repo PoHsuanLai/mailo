@@ -17,6 +17,7 @@ mod tests;
 use super::marked::{Piece, pieces};
 use super::menus::FurtherMenus;
 use super::motion::{act_kind, drag, motion};
+use super::ops::{Writes, open_composer};
 use super::picks::drawn_order;
 use crate::ui::compose::{cancel_scheduled, delete_stored_draft};
 use crate::ui::copy;
@@ -39,8 +40,8 @@ use ds::root::common::Common;
 use ds::root::pass_through::{DataAttr, DataName};
 use ds::style::icon::render::Glyph;
 use listed::{Listed, Opens, RowModel};
+use mail_core::SqliteStore;
 use mail_core::provider::Provider;
-use mail_core::{SqliteStore, Store};
 use mail_domain::*;
 use menu::{Pick, RowMenu};
 use std::ops::Range;
@@ -180,9 +181,7 @@ pub(super) fn ListRow(
                         Opens::Thread(id, click) => shell.write().click(id, click, &drawn_order()),
                         Opens::Draft(id) => {
                             let store = consume_context::<Arc<SqliteStore>>();
-                            if let Ok(draft) = store.draft(id) {
-                                shell.write().compose(&draft);
-                            }
+                            let _ = open_composer(&store, shell, Writes::Draft(id));
                         }
                     }
                 },

@@ -1,10 +1,11 @@
-use super::actions::{self, Heard, Own};
+use super::actions::{self, Heard};
 use super::compose::{self, ComposerPage, PageKind, SendPill};
 use super::data::{PAGE, accounts, count_badges};
 use super::frame;
+use super::intent::{Intent, Scope, intent, on_thread};
 use super::list::ThreadList;
 use super::list_query::{ListView, use_list};
-use super::ops::{Composes, apply_op, compose_new, start_composing};
+use super::ops::{Writes, open_composer};
 use super::reading::Reader;
 use super::sidebar::Places;
 use super::style::STYLE;
@@ -51,9 +52,8 @@ pub(super) fn App() -> Element {
             // one read here, once, puts it in the composer.
             Some(super::Start::Compose(id)) => {
                 let store = consume_context::<Arc<SqliteStore>>();
-                match store.draft(id) {
-                    Ok(draft) => shell.compose(&draft),
-                    Err(why) => eprintln!("compose: {why}"),
+                if let Err(why) = shell.compose_id(&*store, id) {
+                    eprintln!("compose: {why}");
                 }
             }
             Some(super::Start::Inbox) | None => {}
@@ -494,6 +494,12 @@ pub(super) fn App() -> Element {
         // What the press asks, from chordkit's keymap with the user's keys over it: a standard
         // action (⌘F, ⌘P, ⌘Z), one of mailo's chords (⌘K, ⌘1), or a mail key (j, e, #).
         let heard = actions::heard(keys, &event, typing_now);
+        let scope = if typing_now {
+            Scope::Typing
+        } else {
+            Scope::List
+        };
+        let intent = intent(heard, scope);
         if super::motion::key(
             &key,
             heard == Some(Heard::Standard(StandardAction::Undo)),
@@ -510,12 +516,12 @@ pub(super) fn App() -> Element {
             let _ = handle.switch_index(usize::from(number.get()) - 1);
             return;
         }
-        match heard {
-            Some(Heard::Standard(StandardAction::ToggleSidebar)) => {
+        match intent {
+            Some(Intent::ToggleSidebar) => {
                 side_hidden.set(!side_hidden());
                 return;
             }
-            Some(Heard::Standard(StandardAction::Print)) => {
+            Some(Intent::Print) => {
                 // The open conversation, as one flow. Nothing open: nothing printed, nothing said.
                 let open = shell.read().open;
                 if let Some(job) = super::print::job_for(open) {
@@ -523,11 +529,11 @@ pub(super) fn App() -> Element {
                 }
                 return;
             }
-            Some(Heard::Standard(StandardAction::Find) | Heard::Own(Own::Search)) => {
+            Some(Intent::Search) => {
                 super::command::summon(shell);
                 return;
             }
-            Some(Heard::Standard(StandardAction::Settings)) => {
+            Some(Intent::Settings) => {
                 super::settings_window::open();
                 return;
             }
@@ -548,17 +554,14 @@ pub(super) fn App() -> Element {
             }
             return;
         }
-        let typing = in_a_field() || shell.read().composing.is_some();
         let listed = || -> Vec<ThreadId> { threads().iter().map(|t| t.id).collect() };
         // ⌘A picks every listed conversation. In a field it is the field's select-all.
-        if heard == Some(Heard::Standard(StandardAction::SelectAll)) {
-            if !typing {
-                shell.write().pick_all(&listed());
-            }
+        if intent == Some(Intent::SelectAll) {
+            shell.write().pick_all(&listed());
             return;
         }
         // Esc lets go of a selection before it closes anything behind it.
-        if key == "Escape" && !typing && shell.read().picked.any(&listed()) {
+        if key == "Escape" && !typing_now && shell.read().picked.any(&listed()) {
             shell.write().unpick(&listed());
             return;
         }
@@ -576,20 +579,17 @@ pub(super) fn App() -> Element {
         }
         // Shift+Enter opens the open conversation in a window of its own (a focused row's own
         // handler takes it first, for that row).
-        if heard == Some(Heard::Own(Own::OpenInWindow)) {
+        if intent == Some(Intent::OpenInWindow) {
             let open = shell.read().open;
-            if !typing && let Some(open) = open {
+            if let Some(open) = open {
                 super::window::open_in_window(open);
             }
             return;
         }
         // ⌘N writes a message wherever the caret is, ⌘⌫ trashes while reading. No bare letter is
         // a shortcut with ⌘ held: ⌘C is copy, and ⌘A was select-all above. Esc still closes.
-        let action = match heard {
-            Some(Heard::Mail(action)) => action,
-            Some(Heard::Standard(StandardAction::New)) => Shortcut::Compose,
-            Some(Heard::Own(Own::TrashOpen)) if !typing => Shortcut::Trash,
-            _ => return,
+        let Some(Intent::Mail(action)) = intent else {
+            return;
         };
         let store = consume_context::<Arc<SqliteStore>>();
         let open = shell.read().open;
@@ -617,11 +617,9 @@ pub(super) fn App() -> Element {
                     shell.write().open = None;
                 }
             }
-            Shortcut::TogglePin => {
-                if let Some(id) = open
-                    && apply_op(&store, id, OpKind::Pin)
-                {
-                    revision += 1;
+            Shortcut::TogglePin | Shortcut::Reply | Shortcut::ReplyAll | Shortcut::Forward => {
+                if let Some(id) = open {
+                    on_thread(&store, shell, revision, id, action);
                 }
             }
             Shortcut::ToggleMute => {
@@ -633,20 +631,7 @@ pub(super) fn App() -> Element {
                 // Cloned out and the guard dropped before anything writes back. The same
                 // hazard the composer's handlers document, caught here by the borrow checker
                 // rather than at runtime.
-                if compose_new(&store, shell) {
-                    revision += 1;
-                }
-            }
-            Shortcut::Reply | Shortcut::ReplyAll | Shortcut::Forward => {
-                let what = match action {
-                    Shortcut::Reply => Composes::Reply(ReplyScope::Sender),
-                    Shortcut::ReplyAll => Composes::Reply(ReplyScope::All),
-                    _ => Composes::Forward,
-                };
-                if let Some(id) = open
-                    && let Ok(draft) = start_composing(&store, id, what)
-                {
-                    shell.write().compose(&draft);
+                if open_composer(&store, shell, Writes::New).is_ok() {
                     revision += 1;
                 }
             }

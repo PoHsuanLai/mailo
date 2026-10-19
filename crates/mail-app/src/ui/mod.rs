@@ -40,6 +40,7 @@ mod frame;
 mod history;
 mod host;
 mod hover;
+mod intent;
 mod invite;
 mod keyboard;
 mod launch;

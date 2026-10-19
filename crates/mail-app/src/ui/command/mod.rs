@@ -26,7 +26,7 @@ pub(in crate::ui) use items::avatar_color;
 pub(in crate::ui) use spotlight::{FIELD, LABEL};
 pub(in crate::ui) use spotlight::{Spotlight, summon};
 
-use super::ops::{Composes, compose_new, start_composing};
+use super::ops::{Composes, Writes, open_composer};
 use crate::ui::view::{Bar, BarListing, PageMenu, Shell, Source};
 use dioxus::prelude::*;
 use items::{Cards, CommandId, Pick};
@@ -142,7 +142,7 @@ fn run_action(
         }
         CommandId::Compose => {
             let store = consume_context::<Arc<SqliteStore>>();
-            if compose_new(&store, shell) {
+            if open_composer(&store, shell, Writes::New).is_ok() {
                 *revision += 1;
             }
             close(shell);
@@ -164,11 +164,8 @@ fn run_action(
                 return;
             };
             let store = consume_context::<Arc<SqliteStore>>();
-            match start_composing(&store, open, Composes::ForwardAttached) {
-                Ok(draft) => {
-                    shell.write().compose(&draft);
-                    *revision += 1;
-                }
+            match open_composer(&store, shell, Writes::On(open, Composes::ForwardAttached)) {
+                Ok(()) => *revision += 1,
                 Err(why) => super::motion::tell(
                     format!("Not forwarded as an attachment: {why}."),
                     super::motion::Follow::Nothing,

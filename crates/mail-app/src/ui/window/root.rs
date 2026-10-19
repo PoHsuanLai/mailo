@@ -10,7 +10,7 @@ use super::note::left;
 use crate::ui::actions::{self, Heard};
 use crate::ui::app::Frame;
 use crate::ui::compose::{self, ComposerPage, PageKind, SendPill};
-use crate::ui::ops::{Composes, apply_op, start_composing};
+use crate::ui::intent::{Intent, Scope, intent, on_thread};
 use crate::ui::reading::{Reader, ReaderIn};
 use crate::ui::space::Spaces;
 use crate::ui::style::STYLE;
@@ -63,7 +63,7 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
     );
     // The window's keymap, with mailo's actions in it: this window is its own root.
     let keys = actions::use_registered();
-    let mut shell = use_signal(|| {
+    let shell = use_signal(|| {
         let store = consume_context::<Arc<SqliteStore>>();
         let mut shell = Shell {
             appearance: try_consume_context::<crate::ui::view::Appearance>().unwrap_or_default(),
@@ -119,6 +119,7 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
         }
         let typing = shell.read().composing.is_some();
         let heard = actions::heard(keys, &event, typing);
+        let intent = intent(heard, Scope::Window);
         if crate::ui::motion::key(
             &key,
             heard == Some(Heard::Standard(StandardAction::Undo)),
@@ -128,48 +129,29 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
         ) {
             return;
         }
-        if heard == Some(Heard::Standard(StandardAction::Print)) {
+        if intent == Some(Intent::Print) {
             if let Some(job) = crate::ui::print::job_for(Some(thread)) {
                 crate::ui::print::print(job);
             }
             return;
         }
         // The mail keys and Esc; a chord of the main window's (search, Spaces) is not this one's.
-        let Some(Heard::Mail(action)) = heard else {
+        let Some(Intent::Mail(action)) = intent else {
             return;
         };
         let store = consume_context::<Arc<SqliteStore>>();
         match action {
-            // One conversation, and no list to step through or start another from.
-            Shortcut::Next
-            | Shortcut::Previous
-            | Shortcut::ExtendNext
-            | Shortcut::ExtendPrevious
-            | Shortcut::Compose => {}
             Shortcut::Back => {
                 if shell.read().composing.is_some() {
                     compose::park_current(desk, shell);
                     revision += 1;
                 }
             }
-            Shortcut::TogglePin => {
-                if apply_op(&store, thread, OpKind::Pin) {
-                    revision += 1;
-                }
+            Shortcut::TogglePin | Shortcut::Reply | Shortcut::ReplyAll | Shortcut::Forward => {
+                on_thread(&store, shell, revision, thread, action);
             }
             Shortcut::ToggleMute => {
                 crate::ui::picks::mute_all(&store, shell, revision, &[thread]);
-            }
-            Shortcut::Reply | Shortcut::ReplyAll | Shortcut::Forward => {
-                let what = match action {
-                    Shortcut::Reply => Composes::Reply(ReplyScope::Sender),
-                    Shortcut::ReplyAll => Composes::Reply(ReplyScope::All),
-                    _ => Composes::Forward,
-                };
-                if let Ok(draft) = start_composing(&store, thread, what) {
-                    shell.write().compose(&draft);
-                    revision += 1;
-                }
             }
             _ => {
                 // The same gesture the first window's keys make, over the one conversation

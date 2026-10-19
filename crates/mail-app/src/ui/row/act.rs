@@ -2,7 +2,7 @@
 //! when the row is picked; or the menu, sheet or composer the op needs first.
 
 use super::super::motion::{act_all, act_kind, act_kind_all};
-use super::super::ops::{composes, start_composing};
+use super::super::ops::{Writes, composes, open_composer};
 use super::super::picks::{mute_all, with_selection};
 use crate::ui::view::{Further, FurtherMenu, Opened, Shell};
 use dioxus::prelude::*;
@@ -73,13 +73,11 @@ pub(in crate::ui) fn press(
         return;
     }
     match composes(kind) {
-        Some(what) => match start_composing(&store, id, what) {
-            Ok(draft) => {
-                shell.write().compose(&draft);
+        Some(what) => {
+            if open_composer(&store, shell, Writes::On(id, what)).is_ok() {
                 revision += 1;
             }
-            Err(why) => eprintln!("reply: {why}"),
-        },
+        }
         // A press on a picked row acts on everything picked, as one gesture. An op that needs
         // more than the button (a pin's rank) stays with its own row.
         None if mail_core::view::op_for(kind).is_some() => {

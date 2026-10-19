@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
-use mail_core::{SqliteStore, Store};
+use mail_core::SqliteStore;
 use mail_domain::DraftId;
 
 use super::super::motion::{Follow, tell};
@@ -222,8 +222,7 @@ pub(in crate::ui) fn take_back(
 /// Open a parked draft again.
 pub(in crate::ui) fn reopen(desk: Desk, mut shell: Signal<Shell>, draft: DraftId) {
     let store = consume_context::<Arc<SqliteStore>>();
-    match store.draft(draft) {
-        Ok(stored) => shell.write().compose(&stored),
-        Err(_) => unpark(desk, draft),
+    if shell.write().compose_id(&*store, draft).is_err() {
+        unpark(desk, draft);
     }
 }
