@@ -176,6 +176,7 @@ fn AddAccountShell(wiring: Wiring, prefill: Option<String>) -> Element {
         let browse = Arc::clone(&wiring.0.browse);
         move || {
             let mut views = end.views.clone();
+            let inputs = end.inputs.clone();
             let browse = Arc::clone(&browse);
             async move {
                 while views.changed().await.is_ok() {
@@ -184,6 +185,21 @@ fn AddAccountShell(wiring: Wiring, prefill: Option<String>) -> Element {
                         continue;
                     };
                     let (next, out) = map::shown(sheet.peek().clone(), *view);
+                    // A review with nothing on it to choose or to read (mailo adds an account's
+                    // mail and nothing else of what a provider offers) is not drawn: what the
+                    // person typed and sent was the confirmation, and the account is added at
+                    // once. One that says what the provider lacks is still shown.
+                    if matches!(map::step_of(&next), Some(Step::Review(props)) if props.services.is_empty())
+                    {
+                        let (confirming, input) = map::acted(next, Action::Confirm);
+                        sheet.set(confirming);
+                        if let Some(input) = input {
+                            // The service has ended if nobody is receiving, and the window closes
+                            // with it.
+                            let _ = inputs.send(input);
+                        }
+                        continue;
+                    }
                     sheet.set(next);
                     for Out::OpenPage(page) in out {
                         // The address is on screen too, to copy, when no browser takes it.
