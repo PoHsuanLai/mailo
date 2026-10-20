@@ -608,7 +608,7 @@ fn a_wrong_port_is_not_sent_and_is_marked_on_its_field() {
     w.harness.key(Key::Enter);
     w.harness.advance(Duration::from_millis(300));
     let html = w.harness.html();
-    assert!(html.contains("is not valid"), "the port is marked:\n{html}");
+    assert!(html.contains("isn’t valid"), "the port is marked:\n{html}");
     assert_eq!(step(&w).as_deref(), Some("sign-in"), "nothing was sent");
     assert!(w.log.adds.lock().unwrap().is_empty());
 }

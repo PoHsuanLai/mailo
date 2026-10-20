@@ -272,7 +272,7 @@ impl Reader {
             }
             ProtoOp::Folder(work) => self.folder_work(work, token).await,
             ProtoOp::Expunge { .. } => Err(refused_here(
-                "deleting mail for good; this client never does that through Microsoft Graph",
+                "deleting mail for good, which this client doesn’t do through Microsoft Graph",
             )),
             ProtoOp::Destroy { remotes } => self.destroy(&remotes, token).await,
             ProtoOp::Watch { .. } => Ok(ProtoOutcome::Applied),

@@ -93,7 +93,7 @@ pub struct ReadingSettings {
     /// they belong to.
     #[settings(
         label = "Send read receipts",
-        help = "Tell the sender you opened a message that asks. Never for junk or another domain.",
+        help = "Tell the sender you opened a message that asks, except for junk or mail from another domain.",
         section = "Reading"
     )]
     pub read_receipts: ReadReceipts,
