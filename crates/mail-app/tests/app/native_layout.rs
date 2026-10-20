@@ -558,7 +558,7 @@ fn tidy_up_keeps_its_controls_inside_its_sheet_in_a_narrow_window() {
 }
 
 #[test]
-fn tidy_up_springs_back_after_a_two_finger_drag_pulls_it_down() {
+fn tidy_up_does_not_move_under_a_two_finger_drag() {
     use ds::host::gesture::GesturePhase;
     use ds_harness::Input;
     let (mut harness, _dir) = open(1200, spaces(1));
@@ -576,21 +576,20 @@ fn tidy_up_springs_back_after_a_two_finger_drag_pulls_it_down() {
         x: Px(rest.origin.x.0 + 100.0),
         y: Px(rest.origin.y.0 + 60.0),
     };
+    let still = |harness: &Harness, when: &str| {
+        let now = rect(harness, ".tidy-title");
+        assert!(
+            (now.origin.y.0 - rest.origin.y.0).abs() < 0.5,
+            "{when}, the title is where it was, {rest:?}, not at {now:?}"
+        );
+    };
     harness.send(Input::fingers(at, Px(0.0), Px(0.0), GesturePhase::Began));
     for _ in 0..6 {
         harness.send(Input::fingers(at, Px(0.0), Px(40.0), GesturePhase::Changed));
         harness.advance(ms(16));
     }
-    let pulled = rect(&harness, ".tidy-title");
-    assert!(
-        pulled.origin.y.0 > rest.origin.y.0,
-        "the drag stretches it: {pulled:?}"
-    );
+    still(&harness, "while the fingers pull it down");
     harness.send(Input::fingers(at, Px(0.0), Px(0.0), GesturePhase::Ended));
     harness.advance(ms(1500));
-    let after = rect(&harness, ".tidy-title");
-    assert!(
-        (after.origin.y.0 - rest.origin.y.0).abs() < 0.5,
-        "the title is back where it was, {rest:?}, not left at {after:?}"
-    );
+    still(&harness, "after they lift");
 }
