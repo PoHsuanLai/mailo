@@ -331,7 +331,6 @@ pub(in crate::ui) mod tests {
         for (selector, width) in [
             (".pick-time", NARROW),
             (".tpl-save", NARROW),
-            (".leave-ask", MEDIUM),
             (".trust-said", MEDIUM),
             (".downloads", MEDIUM),
             (".em-picker", WIDE),

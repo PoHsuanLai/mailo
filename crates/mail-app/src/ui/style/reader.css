@@ -10,10 +10,10 @@
   font-family: var(--font-ui); font-size: var(--fs-reading); line-height: var(--lh-read); color: var(--ink);
 }
 /* Code in a block: the code face, the reading line height. */
-.c-body pre, .plain, .leave-ask .leave-url { font-family: var(--font-code); font-size: var(--fs-meta); line-height: var(--lh-read); }
+.c-body pre, .plain { font-family: var(--font-code); font-size: var(--fs-meta); line-height: var(--lh-read); }
 /* An inset box: a hairline, the media radius and the second surface. The composer's and the
    plain text's draw their line softer, and a picker's is dashed (`composer.css`). */
-.img-ph, .att-tile, .unlock, .o-img .pick, .o-table .tbl, .plain, .c-body pre, .leave-ask .leave-url {
+.img-ph, .att-tile, .unlock, .o-img .pick, .o-table .tbl, .plain, .c-body pre {
   border: var(--hair) solid var(--line); border-radius: var(--r-media); background: var(--surface-2);
 }
 .reader-head .head-row { display: flex; gap: var(--s-6); align-items: center; margin-bottom: var(--s-9); }
@@ -146,11 +146,5 @@ article.frame:last-of-type .html { height: auto; min-height: 320px; flex: 1 0 32
 /* The centre and full peeks are quire's `Peek`, drawn over the window: nothing here places them. */
 
 .is-hidden { display: none; }
-
-
-/* ---- leaving a list: the popover the ⋯'s Unsubscribe… opens, which says what it will do ---- */
-/* The reader's popovers, the trust glyph's and Unsubscribe…'s, are one width. */
-.leave-ask, .trust-said { display: grid; gap: var(--s-6); width: 320px; }
-.leave-ask .leave-url { padding: var(--s-6) var(--s-9); color: var(--ink); overflow-wrap: anywhere; }
-.leave-url .dim { color: var(--ink-faint); }
-.leave-ask .acts { display: flex; justify-content: flex-end; gap: var(--s-6); padding-top: var(--s-4); }
+/* The reader's trust glyph popover. */
+.trust-said { display: grid; gap: var(--s-6); width: 320px; }

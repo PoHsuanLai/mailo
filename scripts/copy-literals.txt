@@ -95,7 +95,7 @@ crates/mail-app/src/ui/rules/list.rs 1
 crates/mail-app/src/ui/rules/work.rs 18
 crates/mail-app/src/ui/settings_window/account/mod.rs 2
 crates/mail-app/src/ui/settings_window/account/words.rs 34
-crates/mail-app/src/ui/unsubscribe/head.rs 7
+crates/mail-app/src/ui/unsubscribe/head.rs 5
 crates/mail-app/src/ui/unsubscribe/mod.rs 12
 crates/mail-app/src/ui/window/mod.rs 1
 crates/mail-app/src/ui/window/note.rs 3

@@ -1,30 +1,25 @@
-//! Unsubscribe… in the reader's ⋯: whether the open thread offers a way out, and the popover
+//! Unsubscribe… in the reader's ⋯: whether the open thread offers a way out, and the alert
 //! that says what it will do before it does it.
 
 use super::super::compose::{Desk, show_queued};
-use super::super::hover::{copy, url_spans};
+use super::super::hover::copy;
 use super::super::motion::{Follow, tell};
-use super::super::press::{available, on_primary};
 use super::{Ask, Bodies, Offer, ask, cached, client, leave, lookup, said};
 use dioxus::prelude::*;
-use ds::base::geometry::placement::{Align, Side};
-use ds::components::content::label::{LabelRole, LabelStyle};
-use ds::components::controls::button_model::Answers;
-use ds::host::measure::Anchor;
+use ds::components::overlays::alert_model::{AlertButton, AlertRole, AlertStyle};
 use ds::prelude::*;
 use ds::root::common::Common;
-use ds::root::pass_through::ExtraClass;
 use mail_core::SqliteStore;
 use mail_core::unsubscribe::Outcome;
 use mail_domain::ThreadId;
 use std::sync::Arc;
 
-/// Where the popover is.
+/// Where the alert is.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::ui) enum Phase {
     Closed,
     Asking,
-    /// The way out is being taken; its button stays disabled so a second click cannot send twice.
+    /// The way out is being taken; a second press of its button does nothing, so it cannot send twice.
     Working,
     /// It did not go, and why, in words.
     Failed(String),
@@ -70,75 +65,60 @@ pub(in crate::ui) fn Lookout(
     rsx! {}
 }
 
-/// What will happen, and the one button that does it: a quire popover under the ⋯ it was picked
-/// from. A page gets its address and Copy instead: this client never opens it and never fetches
-/// it.
+/// What will happen, and the one button that does it: a quire alert. A page gets its address and
+/// Copy instead: this client never opens it and never fetches it. While the way out is being
+/// taken the alert stays up and says "Working…", and a failure is said in its message.
 #[component]
 pub(in crate::ui) fn Confirm(
     offer: Offer,
     asked: Ask,
     phase: Signal<Phase>,
     revision: Option<Signal<u64>>,
-    anchor: Anchor,
 ) -> Element {
-    let sentence = asked.sentence();
-    let working = phase() == Phase::Working;
-    let failed = match phase() {
-        Phase::Failed(why) => Some(why),
-        _ => None,
+    let message = match (phase(), &asked) {
+        (Phase::Working, _) => "Working\u{2026}".to_owned(),
+        (Phase::Failed(why), _) => why,
+        (_, Ask::Web { url }) => format!("{} {url}", asked.sentence()),
+        _ => asked.sentence(),
     };
-    rsx! {
-            Popover {
-                anchor,
-                placement: Placement::new(Side::Bottom, Align::End),
-                gap: Px(4.0),
-                onclose: move |()| phase.set(Phase::Closed),
-                common: Common {
-                    extra_class: ExtraClass::parse("leave-ask").ok(),
-                    aria_label: Some("Leave this list".to_owned()),
-                    ..Common::default()
-                },
-                Label { text: "Unsubscribe", style: LabelStyle::Headline }
-                Label { text: sentence }
-                if let Ask::Web { url } = &asked {
-                    div { class: "leave-url", {url_spans(url)} }
-                }
-                if let Some(why) = failed {
-                    Label { text: why, role: LabelRole::Secondary }
-                }
-                div { class: "acts",
-                    Button {
-                        label: crate::ui::copy::controls::CANCEL,
-                        answers: Answers::Escape,
-                        onclick: on_primary(move || phase.set(Phase::Closed)),
-        common: Common { aria_label: Some("Cancel".to_owned()), ..Common::default() },
-    }
-                    match (&asked, asked.action()) {
-                        (Ask::Web { url }, _) => {
-                            let url = url.clone();
-                            rsx! {
-                                Button {
-                                    label: "Copy",
-                                    answers: Answers::Return,
-                                    onclick: on_primary(move || copy(&url)),
-        common: Common { aria_label: Some("Copy".to_owned()), ..Common::default() },
-    }
-                            }
-                        }
-                        (_, Some(action)) => rsx! {
-                            Button {
-                                label: if working { "Working…".to_owned() } else { action.to_string() },
-                                answers: Answers::Return,
-                                availability: available(!working),
-                                onclick: on_primary(move || take(offer.clone(), phase, revision)),
-        common: Common { aria_label: Some(action.to_string()), ..Common::default() },
-    }
-                        },
-                        (_, None) => rsx! {},
-                    }
-                }
-            }
+    let close = EventHandler::new(move |()| phase.set(Phase::Closed));
+    let answer = match (&asked, asked.action()) {
+        (Ask::Web { url }, _) => {
+            let url = url.clone();
+            Some(("Copy", EventHandler::new(move |()| copy(&url))))
         }
+        (_, Some(action)) => Some((
+            action,
+            EventHandler::new(move |()| take(offer.clone(), phase, revision)),
+        )),
+        (_, None) => None,
+    };
+    let mut buttons: Vec<AlertButton> = answer
+        .into_iter()
+        .map(|(label, onpress)| {
+            AlertButton::new(label, AlertRole::Normal, onpress).with_common(Common {
+                aria_label: Some(label.to_owned()),
+                ..Common::default()
+            })
+        })
+        .collect();
+    buttons.push(AlertButton::new(
+        crate::ui::copy::controls::CANCEL,
+        AlertRole::Cancel,
+        close,
+    ));
+    rsx! {
+        Alert {
+            title: "Unsubscribe",
+            message: Some(TextLine::from(message)),
+            style: AlertStyle::Informational,
+            buttons,
+            common: Common {
+                aria_label: Some("Leave this list".to_owned()),
+                ..Common::default()
+            },
+        }
+    }
 }
 
 /// Take the way out on a blocking thread, then say what happened.
