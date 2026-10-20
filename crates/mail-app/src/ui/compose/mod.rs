@@ -154,7 +154,7 @@ fn Writing(draft: DraftId, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
         Some(initial) => rsx! { PageView { initial, shell, revision } },
         None => rsx! {
             div { class: "reader-empty",
-                p { "That draft is gone." }
+                EmptyState { title: "That draft is gone." }
             }
         },
     }

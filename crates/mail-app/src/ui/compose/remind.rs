@@ -14,8 +14,10 @@ use super::super::menus::{snooze_help, when_in_sentence, when_words};
 use super::page::{Float, Page};
 use super::props::ChoiceRow;
 use ds::base::geometry::placement::{Align, Side};
+use ds::components::fields::text_field_model::Invalid;
 use ds::components::overlays::popover::Arrow;
 use ds::host::measure::MountedRef;
+use ds::motion::detail::stamp::EventStamp;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::root::pass_through::ExtraClass;
@@ -202,16 +204,23 @@ pub(in crate::ui) fn PickRemind(page: Signal<Page>, anchor: Option<MountedRef>) 
     };
     let now = super::super::clock::now();
     let reading = mail_core::follow_up::due(&typed, now, &chrono::Local);
-    let (class, says) = match &reading {
+    // What it reads is help under the field; a phrase it cannot read is the field's own refusal.
+    let (validity, says) = match &reading {
         Ok(at) => (
-            "pick-says",
-            format!(
+            Validity::Valid,
+            Some(format!(
                 "Back {} if nobody answers",
                 when_in_sentence(*at, now, &chrono::Local)
-            ),
+            )),
         ),
-        Err(why) if typed.trim().is_empty() => ("pick-says", why.to_string()),
-        Err(why) => ("pick-says refused", why.to_string()),
+        Err(why) if typed.trim().is_empty() => (Validity::Valid, Some(why.to_string())),
+        Err(why) => (
+            Validity::Invalid(Invalid {
+                message: why.to_string().into(),
+                stamp: EventStamp(u32::try_from(typed.len()).unwrap_or(0)),
+            }),
+            None,
+        ),
     };
     rsx! {
         Popover {
@@ -240,6 +249,8 @@ pub(in crate::ui) fn PickRemind(page: Signal<Page>, anchor: Option<MountedRef>) 
                     label: "Remind me at".to_owned(),
                     value: typed.clone(),
                     placeholder: "tomorrow 9, fri 17:00, +3d".to_owned(),
+                    validity,
+                    help: says.map(TextLine::from),
                     focus: FieldFocus::OnMount,
                     common: Common {
                         extra_class: ExtraClass::parse("remind-field").ok(),
@@ -247,7 +258,6 @@ pub(in crate::ui) fn PickRemind(page: Signal<Page>, anchor: Option<MountedRef>) 
                     },
                     oninput: move |value: String| page.write().float = Float::PickRemind(value),
                 }
-                p { class: "{class}", role: "status", "{says}" }
             }
         }
     }

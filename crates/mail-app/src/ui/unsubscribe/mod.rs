@@ -25,10 +25,10 @@ use mail_core::{SqliteStore, Store};
 use mail_domain::*;
 use mail_mime::Unsubscribe;
 
-// A thread's way out of its list, with the name the popover and the toast call the list by.
+// A thread's way out of its list, with the name the alert and the toast call the list by.
 pub(in crate::ui) use mail_core::message::Offer;
 
-/// What the confirm popover says will happen, from the preferred way out.
+/// What the confirm alert says will happen, from the preferred way out.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::ui) enum Ask {
     /// An RFC 8058 `POST`, made by this client.
@@ -44,7 +44,7 @@ pub(in crate::ui) enum Ask {
 }
 
 impl Ask {
-    /// The sentence the popover leads with.
+    /// The sentence the alert leads with.
     pub(in crate::ui) fn sentence(&self) -> String {
         match self {
             Ask::OneClick { list } => {
@@ -67,7 +67,7 @@ impl Ask {
     }
 }
 
-/// What the popover says for `offer`.
+/// What the alert says for `offer`.
 pub(in crate::ui) fn ask(offer: &Offer) -> Option<Ask> {
     let list = offer.list.clone();
     Some(match offer.found.list.preferred()? {

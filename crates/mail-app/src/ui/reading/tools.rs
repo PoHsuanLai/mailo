@@ -6,7 +6,7 @@
 //! their own menus where the ⋯ hangs.
 //!
 //! While the conversation's list offers a way out, the ⋯ has Unsubscribe…, which opens the
-//! popover that says what leaving will do (`unsubscribe::Confirm`) where the ⋯ hangs.
+//! alert that says what leaving will do (`unsubscribe::Confirm`).
 //!
 //! The ⋯ ends with Download: each of the conversation's messages as the server sent it, an
 //! `.eml` apiece, into the downloads directory, the way an attachment's Save writes there. What
@@ -167,7 +167,7 @@ pub(super) fn ReaderMore(
     let mut further = use_signal(|| Further::None);
     let tool = use_signal(|| None::<MountedRef>);
     let id = summary.id;
-    // Asked through the popover's own phase, so Unsubscribe's sending state is the popover's.
+    // Asked through the alert's own phase, so Unsubscribe's sending state is the alert's.
     let mut leaving = use_signal(|| Phase::Closed);
     let items = rows(
         &reader_groups(&summary, &toolbar, peek.is_some(), leave.is_some()),
@@ -224,7 +224,7 @@ pub(super) fn ReaderMore(
             },
             (Further::Unsubscribe, _) => match leave.clone().and_then(|offer| ask(&offer).map(|asked| (offer, asked))) {
                 Some((offer, asked)) if leaving() != Phase::Closed => rsx! {
-                    Confirm { offer, asked, phase: leaving, revision: Some(revision), anchor: anchor_at(tool()) }
+                    Confirm { offer, asked, phase: leaving, revision: Some(revision) }
                 },
                 _ => rsx! {},
             },

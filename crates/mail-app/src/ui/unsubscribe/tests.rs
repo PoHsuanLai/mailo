@@ -1,6 +1,6 @@
 //! Leaving a list from the window. No test here reaches the network: one-click is the runtime's
 //! to test against its local listener, and every fixture below that could reach it stops at
-//! the popover.
+//! the alert.
 
 use super::head::{Confirm, Phase};
 use super::{Ask, Offer, archive_from, ask, leave};
@@ -233,19 +233,19 @@ async fn the_answer_for_one_thread_is_never_offered_under_the_next() {
     );
 }
 
-/// The popover for `offer`, as it opens.
+/// The alert for `offer`, as it opens.
 #[component]
 fn Popover(offer: Offer) -> Element {
     let phase = use_signal(|| Phase::Asking);
     let asked = ask(&offer).unwrap();
     rsx! {
         Ds { appearance: Appearance::default(), material: Material::Window,
-            Confirm { offer, asked, phase, anchor: ds::host::measure::Anchor::Point(Point::default()) }
+            Confirm { offer, asked, phase }
         }
     }
 }
 
-fn popover(headers: &str) -> String {
+fn alert(headers: &str) -> String {
     let offer = offer_from(headers).unwrap();
     let mut dom = VirtualDom::new_with_props(Popover, PopoverProps { offer });
     dom.rebuild_in_place();
@@ -255,15 +255,15 @@ fn popover(headers: &str) -> String {
 }
 
 #[test]
-fn the_popover_says_what_each_way_out_will_do() {
-    let one_click = popover(ONE_CLICK);
+fn the_alert_says_what_each_way_out_will_do() {
+    let one_click = alert(ONE_CLICK);
     assert!(one_click.contains("Leave Rust Weekly?"), "{one_click}");
     assert!(
         one_click.contains("aria-label=\"Unsubscribe\""),
         "{one_click}"
     );
 
-    let mailto = popover(MAILTO);
+    let mailto = alert(MAILTO);
     assert!(
         mailto.contains(
             "Leave announce.example.test? A message goes to leave@example.test from \
@@ -273,15 +273,14 @@ fn the_popover_says_what_each_way_out_will_do() {
     );
     assert!(mailto.contains("aria-label=\"Send\""), "{mailto}");
 
-    let web = popover(WEB);
+    let web = alert(WEB);
     assert!(
-        web.contains("This list can only be left on its web page."),
+        web.contains("This list can only be left on its web page. https://www.shop.test/prefs?u=1"),
         "{web}"
     );
-    // The registered domain is the part in bold, as the link pill draws it.
-    assert!(web.contains("<b>shop.test</b>"), "{web}");
     assert!(web.contains("aria-label=\"Copy\""), "{web}");
-    assert!(!web.contains("aria-label=\"Send\"") && !web.contains("aria-label=\"Unsubscribe\""));
+    assert!(!web.contains("aria-label=\"Send\""), "{web}");
+    assert!(!web.contains("data-role=\"destructive\""), "{web}");
 }
 
 #[test]
@@ -394,9 +393,9 @@ async fn render_the_unsubscribe_to_a_file() {
     let mut body = format!(
         "<section class=\"reader\" style=\"width:620px;height:230px;margin:16px\">{reader}</section>"
     );
-    // Each popover as it opens, under a stand-in for the ⋯ the reader anchors it to.
+    // Each alert as it opens, under a stand-in for the ⋯ it was picked from.
     for headers in [ONE_CLICK, MAILTO, WEB] {
-        let open = popover(headers);
+        let open = alert(headers);
         body.push_str(&format!(
             "<section class=\"reader\" style=\"width:620px;height:270px;margin:16px\">\
              <div class=\"reader-head\"><h2>This week in the list</h2><div class=\"reader-meta\">\

@@ -1,23 +1,27 @@
 //! The saved-view sheet: make a view, change one, or forget it.
 //!
 //! Opened by "Save as view" beside a search, by "Edit view" while a view is shown, and by
-//! "New view…" in the search bar. Drawn in the Rules sheet's shape and with its parts: a view
-//! is a search that stays, and the editor that keeps a rule's search is the one people already
-//! know. What it writes is [`crate::ui::saved`]'s to decide; this only draws the draft and hands it
+//! "New view…" in the search bar. Drawn as the other sheets are, in quire's `Sheet` with a form's
+//! rows: a view is a search that stays, and the field that keeps a rule's search is the one
+//! people already know. What it writes is [`crate::ui::saved`]'s to decide; this only draws the draft and hands it
 //! to the store.
 
-use super::common::Seg;
+use super::common::{Seg, in_card};
 use super::menu::{Floating, MenuItem, Right, Tile};
 use super::press::{SheetClose, on_primary};
 use crate::ui::copy;
 use crate::ui::saved::{self, ViewDraft, group_choices, group_name};
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
+use ds::components::content::label::{Label, LabelStyle};
 use ds::components::controls::button_model::Answers;
+use ds::components::fields::field_row::{FieldGroup, FieldRow, RowLayout};
+use ds::components::fields::text_field_model::Invalid;
+use ds::components::overlays::sheet_attach::Attach;
 use ds::host::measure::MountedRef;
+use ds::motion::detail::stamp::EventStamp;
 use ds::prelude::*;
 use ds::root::common::Common;
-use ds::root::pass_through::ExtraClass;
 use mail_core::{SqliteStore, Store};
 use mail_domain::{SortDir, View};
 use std::sync::Arc;
@@ -120,49 +124,51 @@ pub(in crate::ui) fn ViewSheet(
     let group_label = group_name(draft.group.as_ref(), &labels);
     let items = group_items(&draft, &labels);
     let oldest = draft.dir == SortDir::Asc;
+    let name_refused = refusal(
+        draft
+            .refused
+            .as_deref()
+            .filter(|_| draft.name.trim().is_empty()),
+    );
+    let query_refused = refusal(
+        draft
+            .refused
+            .as_deref()
+            .filter(|_| !draft.name.trim().is_empty()),
+    );
+    let query_help = (draft.kept.is_some() && draft.query.trim().is_empty()).then(|| {
+        TextLine::from(
+            "Lists what it was saved with, which a search cannot say. Type one to change it.",
+        )
+    });
     rsx! {
-        div {
-            class: "rules-wrap",
-            onclick: move |_| close(shell),
-            div {
-                class: "rules",
-                role: "dialog",
-                aria_label: "Saved view",
-                onclick: move |event| event.stop_propagation(),
-                div { class: "rules-head",
-                    h3 { "{title}" }
-                    SheetClose { on_close: move |()| close(shell) }
-                }
-                div { class: "rules-main",
-                    div { class: "rules-part",
-                        span { class: "files-k", "Name" }
+        Sheet {
+            label: "Saved view",
+            attach: Attach::Window,
+            common: in_card(),
+            onclose: move |()| close(shell),
+            div { class: "sheet-form",
+                Label { text: title, style: LabelStyle::Title }
+                FieldGroup {
+                    FieldRow { label: "Name", layout: RowLayout::Form,
                         TextField {
                             label: "Name".to_owned(),
                             value: draft.name.clone(),
                             placeholder: "Receipts".to_owned(),
-                            common: Common {
-                                extra_class: ExtraClass::parse("rules-in").ok(),
-                                ..Common::default()
-                            },
+                            validity: name_refused,
                             oninput: move |value: String| edit(shell, |draft| draft.name = value),
                         }
-                        span { class: "files-k", "Lists" }
+                    }
+                    FieldRow { label: "Lists", help: query_help, layout: RowLayout::Form,
                         TextField {
                             label: "Lists".to_owned(),
                             value: draft.query.clone(),
                             placeholder: "from:shop.example has:attachment".to_owned(),
-                            common: Common {
-                                extra_class: ExtraClass::parse("rules-in").ok(),
-                                ..Common::default()
-                            },
+                            validity: query_refused,
                             oninput: move |value: String| edit(shell, |draft| draft.query = value),
                         }
-                        if draft.kept.is_some() && draft.query.trim().is_empty() {
-                            p { class: "rules-faint",
-                                "Lists what it was saved with, which a search cannot say. Type one to change it."
-                            }
-                        }
-                        span { class: "files-k", "Group by" }
+                    }
+                    FieldRow { label: "Group by", layout: RowLayout::Form,
                         div {
                             Button {
                                 label: group_label.clone(),
@@ -196,7 +202,8 @@ pub(in crate::ui) fn ViewSheet(
                                 }
                             }
                         }
-                        span { class: "files-k", "Order" }
+                    }
+                    FieldRow { label: "Order", layout: RowLayout::Form,
                         Seg {
                             label: "Order".to_owned(),
                             options: vec![("Newest first".to_owned(), !oldest), ("Oldest first".to_owned(), oldest)],
@@ -206,38 +213,41 @@ pub(in crate::ui) fn ViewSheet(
                         }
                     }
                 }
-                div { class: "rules-part",
-                    div { class: "rules-acts",
-                        if let Some(why) = draft.refused.clone() {
-                            p { class: "capnote files-bad", role: "alert", "{why}" }
-                        }
-                        if editing {
-                            Button {
-                                label: "Delete view".to_owned(),
-                                icon: Icon::Trash,
-                                common: Common {
-                                    aria_label: Some("Delete view".to_owned()),
-                                    ..Common::default()
-                                },
-                                onclick: on_primary(move || delete(shell, revision, pages)),
-                            }
-                        }
+                div { class: "sheet-actions",
+                    if editing {
                         Button {
-                            label: copy::controls::CANCEL.to_owned(),
-                            onclick: on_primary(move || close(shell)),
-                        }
-                        Button {
-                            answers: Answers::Return,
-                            label: "Save".to_owned(),
+                            label: "Delete view".to_owned(),
+                            icon: Icon::Trash,
                             common: Common {
-                                aria_label: Some(format!("Save {}", title.to_lowercase())),
+                                aria_label: Some("Delete view".to_owned()),
                                 ..Common::default()
                             },
-                            onclick: on_primary(move || save(shell, revision, pages)),
+                            onclick: on_primary(move || delete(shell, revision, pages)),
                         }
+                    }
+                    SheetClose { label: copy::controls::CANCEL, on_close: move |()| close(shell) }
+                    Button {
+                        answers: Answers::Return,
+                        label: "Save".to_owned(),
+                        common: Common {
+                            aria_label: Some(format!("Save {}", title.to_lowercase())),
+                            ..Common::default()
+                        },
+                        onclick: on_primary(move || save(shell, revision, pages)),
                     }
                 }
             }
         }
+    }
+}
+
+/// A refusal quire's field draws under itself: the words, and one stamp for each phrasing.
+fn refusal(why: Option<&str>) -> Validity {
+    match why {
+        None => Validity::Valid,
+        Some(why) => Validity::Invalid(Invalid {
+            message: why.to_owned().into(),
+            stamp: EventStamp(u32::try_from(why.len()).unwrap_or(0)),
+        }),
     }
 }

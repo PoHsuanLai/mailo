@@ -60,7 +60,6 @@
 .sync-dot.bad { background: var(--danger); }
 .downloads { display: flex; flex-direction: column; gap: var(--s-4); width: 320px; max-height: 420px; overflow-y: auto; scrollbar-width: none; padding: var(--s-8); }
 .downloads-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s-8); padding: 0 var(--s-6); }
-.downloads-empty { margin: 0; padding: var(--s-10) var(--s-6); color: var(--ink-soft); }
 .downloads .gone { color: var(--ink-faint); }
 .downloads-row { display: block; }
 .card {
@@ -71,10 +70,6 @@
 .app[*|data-peek="center"] .card, .app[*|data-peek="full"] .card { overflow: visible; }
 .app.message-window { grid-template-columns: minmax(0, 1fr); }
 .message-window .card { grid-template-columns: minmax(0, 1fr); }
-.message-window .left-note {
-  padding: var(--s-8) var(--s-18); border-bottom: var(--hair) solid var(--line-soft);
-  color: var(--ink-soft); background: var(--surface);
-}
 .list-col { position: relative; display: flex; flex-direction: column; height: 100%; min-width: 0; min-height: 0; background: var(--surface); }
 /* The list's header: quire's `Toolbar` holds it as its centre. */
 .list-head { display: flex; align-items: center; gap: var(--s-8); width: 100%; min-width: 0; }

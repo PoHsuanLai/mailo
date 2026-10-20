@@ -193,7 +193,7 @@ fn DownloadsList(
                     Label { text: "Downloads".to_owned(), role: LabelRole::Secondary }
                 }
                 if empty {
-                    p { class: "downloads-empty", "Attachments and files you save show up here." }
+                    EmptyState { title: "Attachments and files you save show up here." }
                 } else {
                     List::<Key> {
                         label: "Downloads",

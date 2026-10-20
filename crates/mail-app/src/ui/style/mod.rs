@@ -319,10 +319,8 @@ pub(in crate::ui) mod tests {
     /// three widths (narrow, medium and wide: a time to pick, a list, a grid of emoji).
     #[test]
     fn sheets_and_popovers_keep_their_measures() {
-        for sheets in [".sheet-form", ".rules"] {
-            assert_eq!(values_of(sheets, "padding"), ["var(--s-16)"], "{sheets}");
-            assert_eq!(values_of(sheets, "gap"), ["var(--s-12)"], "{sheets}");
-        }
+        assert_eq!(values_of(".sheet-form", "padding"), ["var(--s-16)"]);
+        assert_eq!(values_of(".sheet-form", "gap"), ["var(--s-12)"]);
         assert_eq!(values_of(".doctor", "padding"), ["var(--s-16)"]);
         assert_eq!(values_of(".doctor", "gap"), ["var(--s-12)"]);
         const NARROW: &str = "260px";
@@ -331,7 +329,6 @@ pub(in crate::ui) mod tests {
         for (selector, width) in [
             (".pick-time", NARROW),
             (".tpl-save", NARROW),
-            (".leave-ask", MEDIUM),
             (".trust-said", MEDIUM),
             (".downloads", MEDIUM),
             (".em-picker", WIDE),
