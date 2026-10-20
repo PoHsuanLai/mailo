@@ -13,7 +13,6 @@ use crate::settle;
 use settle::settle_until;
 
 use crate::drive;
-use crate::native::ms;
 use crate::opening::{Open, Wait, open_window};
 use crate::store::{Seed, seeded_with};
 use drive::{Drive, PRIMARY};

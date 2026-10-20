@@ -9,7 +9,7 @@
 
 use dioxus::prelude::Modifiers;
 use ds::prelude::*;
-use ds_harness::{Clock, Harness, Input, Viewport};
+use ds_harness::{Clock, Harness, Input};
 use mail_core::SqliteStore;
 use mail_core::{Arrival, absorb};
 use mail_domain::id::account_id_from_uuid;
@@ -26,12 +26,6 @@ use drive::Drive;
 fn acct_account() -> AccountId {
     account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000c3"))
 }
-
-const VIEW: Viewport = Viewport {
-    width: 1200,
-    height: 800,
-    scale_percent: 100,
-};
 
 /// Eighty numbered lines: far taller than an 800 px window.
 fn lines() -> Vec<String> {
