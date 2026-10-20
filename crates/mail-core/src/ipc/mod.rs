@@ -14,9 +14,8 @@
 //! client where it is read by nobody looking for it.
 //!
 //! What is here is the conversation — [`wire`], and the two ends that speak it. That part *is*
-//! about mail, and is the part no library could have chosen for us. [`changes`] is the one
-//! conversation that does not end after an answer: a window that subscribes is told of each pass
-//! as it ends, instead of finding out by looking.
+//! about mail, and is the part no library could have chosen for us. Every conversation is one
+//! request and one answer ([`door`]): nothing that knocks stays connected.
 //!
 //! # Why not a TCP port on loopback
 //!
@@ -27,9 +26,9 @@
 //! authentication, which is why `latchkey` makes that directory `0700`.
 use crate::error::CoreError;
 
-pub mod changes;
 pub mod client;
 pub mod daemon;
+pub mod door;
 pub mod watching;
 pub mod wire;
 

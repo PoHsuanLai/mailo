@@ -9,7 +9,7 @@ use wire::{Mismatch, Request, Response};
 
 #[test]
 fn every_request_and_response_survives_the_round_trip() {
-    for asked in [Request::SyncNow, Request::Subscribe] {
+    for asked in [Request::Ping, Request::SyncNow, Request::Shutdown] {
         let text = wire::line(asked.clone()).unwrap();
         assert!(
             text.ends_with('\n'),
@@ -17,8 +17,7 @@ fn every_request_and_response_survives_the_round_trip() {
         );
         assert_eq!(wire::parse::<Request>(&text).unwrap(), asked, "{asked:?}");
     }
-    let account = mail_domain::id::new_account_id();
-    for said in [Response::Subscribed, Response::Changed { account }] {
+    for said in [Response::Started, Response::Stopping] {
         let text = wire::line(said.clone()).unwrap();
         assert!(text.ends_with('\n'), "{said:?}: the framing is the newline");
         assert_eq!(wire::parse::<Response>(&text).unwrap(), said, "{said:?}");
@@ -90,28 +89,25 @@ fn scratch(dir: &std::path::Path, name: &str) -> latchkey::Agent {
     latchkey::Agent::in_environment(name, latchkey::here(), &environment).unwrap()
 }
 
-/// Wait, briefly, for `ready`; a door's threads answer in their own time.
-fn until(ready: impl Fn() -> bool) -> bool {
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-    while std::time::Instant::now() < deadline {
-        if ready() {
-            return true;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(5));
-    }
-    ready()
+/// Say `line` at `agent`'s door as a client of any build would, and read the one answer.
+fn knock(agent: &latchkey::Agent, line: &str) -> Response {
+    use std::io::{BufRead, BufReader, Write};
+    let mut stream = agent.connect().unwrap().unwrap();
+    stream.write_all(line.as_bytes()).unwrap();
+    let mut reply = String::new();
+    BufReader::new(&mut stream).read_line(&mut reply).unwrap();
+    wire::parse::<Response>(&reply).unwrap()
 }
 
+/// A watch's door holds nothing after it answers: a window from before 2026-10, which asked to
+/// be told of each pass on a connection kept open, is refused and let go, and the door goes on
+/// answering everyone else. Held connections were what ran a watch out of file descriptors.
 #[test]
-fn a_watch_tells_whoever_subscribed_of_each_pass_in_order() {
+fn a_watch_answers_a_subscription_from_an_older_window_and_keeps_nothing() {
     use mail_core::ipc::{client, watching};
     let dir = tempfile::tempdir().unwrap();
-    let agent = scratch(dir.path(), "mailo-watch-test-told");
-    assert!(
-        client::subscribe(&agent).unwrap().is_none(),
-        "no door, so nothing to subscribe to"
-    );
-    let watching = watching::claim_at(&agent).unwrap();
+    let agent = scratch(dir.path(), "mailo-watch-test-old-window");
+    let _watching = watching::claim_at(&agent).unwrap();
     assert!(
         matches!(
             watching::claim_at(&agent),
@@ -120,45 +116,29 @@ fn a_watch_tells_whoever_subscribed_of_each_pass_in_order() {
         "one watch per door"
     );
 
-    let mut first = client::subscribe(&agent).unwrap().unwrap();
-    let mut second = client::subscribe(&agent).unwrap().unwrap();
-    // Subscribed, the door still answers: a listener that never hangs up does not keep it shut.
+    let subscribe = format!("{{\"version\":{},\"body\":\"subscribe\"}}\n", wire::VERSION);
+    for _ in 0..3 {
+        let said = knock(&agent, &subscribe);
+        assert!(matches!(said, Response::Refused(_)), "{said:?}");
+    }
+    // A client of another version is told which way round, and let go the same.
+    let theirs = wire::VERSION + 1;
+    assert_eq!(
+        knock(
+            &agent,
+            &format!("{{\"version\":{theirs},\"body\":\"subscribe\"}}\n")
+        ),
+        Response::WrongVersion {
+            daemon: wire::VERSION,
+            client: theirs
+        }
+    );
     let pong = client::connect_at(&agent)
         .unwrap()
         .unwrap()
         .ask(Request::Ping)
         .unwrap();
     assert!(matches!(pong, Response::Pong { .. }), "{pong:?}");
-    assert_eq!(watching.listeners(), 2);
-
-    let (a, b) = (
-        mail_domain::id::new_account_id(),
-        mail_domain::id::new_account_id(),
-    );
-    watching.changed(a.clone());
-    watching.changed(b.clone());
-    for changes in [&mut first, &mut second] {
-        assert_eq!(changes.wait().unwrap(), a);
-        assert_eq!(changes.wait().unwrap(), b);
-    }
-
-    // One leaves. It is found gone the next time it is written to, so tell until it is.
-    drop(first);
-    assert!(
-        until(|| {
-            watching.changed(a.clone());
-            watching.listeners() == 1
-        }),
-        "a listener that left was kept"
-    );
-    // The one that stayed heard all of those, and goes on hearing.
-    watching.changed(b.clone());
-    assert!(
-        std::iter::from_fn(|| second.wait().ok())
-            .take(10_000)
-            .any(|heard| heard == b),
-        "the listener that stayed stopped hearing"
-    );
 }
 
 /// A pass asked for at the watch's door is started, on the watch's scheduler, rather than
@@ -191,59 +171,4 @@ fn a_watch_starts_a_pass_when_asked_and_is_not_stopped_through_its_door() {
         .ask(Request::Shutdown)
         .unwrap();
     assert!(matches!(said, Response::Refused(_)), "{said:?}");
-}
-
-#[test]
-fn a_subscription_from_another_build_is_told_which_way_round_it_is() {
-    use mail_core::ipc::watching;
-    use std::io::{BufRead, BufReader, Write};
-    let dir = tempfile::tempdir().unwrap();
-    let agent = scratch(dir.path(), "mailo-watch-test-old-client");
-    let watching = watching::claim_at(&agent).unwrap();
-    // A client of another version, asking under its own.
-    let theirs = wire::VERSION + 1;
-    let mut stream = agent.connect().unwrap().unwrap();
-    stream
-        .write_all(format!("{{\"version\":{theirs},\"body\":\"subscribe\"}}\n").as_bytes())
-        .unwrap();
-    let mut reply = String::new();
-    BufReader::new(&mut stream).read_line(&mut reply).unwrap();
-    assert_eq!(
-        wire::parse::<Response>(&reply).unwrap(),
-        Response::WrongVersion {
-            daemon: wire::VERSION,
-            client: theirs
-        }
-    );
-    assert_eq!(
-        watching.listeners(),
-        0,
-        "subscribed under a version it did not speak"
-    );
-}
-
-#[test]
-fn subscribing_to_a_daemon_from_another_build_is_an_error_that_names_the_remedy() {
-    use std::io::{BufRead, BufReader, Write};
-    let dir = tempfile::tempdir().unwrap();
-    let agent = scratch(dir.path(), "mailo-watch-test-old-daemon");
-    let listening = agent.listen().unwrap();
-    let old = std::thread::spawn(move || {
-        let mut stream = listening.accept().unwrap();
-        let mut line = String::new();
-        BufReader::new(&mut stream).read_line(&mut line).unwrap();
-        // What a daemon of another version says to a request under this one.
-        let (theirs, ours) = (wire::VERSION + 1, wire::VERSION);
-        let said = format!(
-            "{{\"version\":{theirs},\"body\":{{\"wrong_version\":{{\"daemon\":{theirs},\"client\":{ours}}}}}}}\n"
-        );
-        stream.write_all(said.as_bytes()).unwrap();
-        stream.flush().unwrap();
-        listening
-    });
-    let why = mail_core::ipc::client::subscribe(&agent)
-        .unwrap_err()
-        .to_string();
-    assert!(why.contains("start it again"), "{why}");
-    drop(old.join().unwrap());
 }

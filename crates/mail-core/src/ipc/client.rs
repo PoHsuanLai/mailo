@@ -2,9 +2,8 @@
 //!
 //! Finding it is [`latchkey`]'s; this is what is said once the door opens.
 
-use super::wire::{self, Mismatch, Request, Response};
+use super::wire::{self, Request, Response};
 use crate::error::CoreError;
-use porter_core::AccountId;
 use std::io::{BufRead, BufReader, Write};
 use std::time::Duration;
 
@@ -49,59 +48,6 @@ fn read(reader: &mut impl BufRead) -> Result<Response, CoreError> {
         // Reported rather than swallowed: a version mismatch is the one failure here with a
         // specific remedy, and it is the expected state after an upgrade.
         Err(mismatch) => Err(mismatch.into()),
-    }
-}
-
-/// A subscription: what a daemon says after each pass, as it says it.
-///
-/// The reader is kept for the life of the connection, not made per line as [`Daemon::ask`] makes
-/// one. A daemon may say [`Response::Changed`] in the same write as [`Response::Subscribed`], and
-/// a reader dropped after the first line would take the second with it.
-#[derive(Debug)]
-pub struct Changes {
-    reader: BufReader<latchkey::Stream>,
-}
-
-impl Changes {
-    /// Wait for the next pass that may have stored something, and say which account it was on.
-    ///
-    /// Blocks, for as long as the daemon is quiet. An error is the subscription's end: the
-    /// daemon went away, or said something that is not a change.
-    pub fn wait(&mut self) -> Result<AccountId, CoreError> {
-        match read(&mut self.reader)? {
-            Response::Changed { account } => Ok(account),
-            said => Err(CoreError::DaemonSaid { said }),
-        }
-    }
-}
-
-/// Subscribe to the daemon at `agent`, if one is there.
-///
-/// `Ok(None)` means nothing is listening, which is the usual state of a session with no watch
-/// running; nothing is started, because a listener has no reason to want a daemon that would
-/// not otherwise run. An error is a daemon that is there and would not subscribe it, most often
-/// one from another build: of another version ([`Response::WrongVersion`]), or from before
-/// subscriptions, which cannot read the request.
-pub fn subscribe(agent: &latchkey::Agent) -> Result<Option<Changes>, CoreError> {
-    let Some(mut stream) = agent.connect()? else {
-        return Ok(None);
-    };
-    let text = wire::line(Request::Subscribe)?;
-    stream
-        .write_all(text.as_bytes())
-        .map_err(|e| CoreError::cannot("reach the daemon", e))?;
-    stream
-        .flush()
-        .map_err(|e| CoreError::cannot("reach the daemon", e))?;
-    let mut reader = BufReader::new(stream);
-    match read(&mut reader)? {
-        Response::Subscribed => Ok(Some(Changes { reader })),
-        Response::WrongVersion { daemon, client } => Err(Mismatch::Version {
-            theirs: daemon,
-            ours: client,
-        }
-        .into()),
-        said => Err(CoreError::DaemonWouldNotSubscribe { said }),
     }
 }
 

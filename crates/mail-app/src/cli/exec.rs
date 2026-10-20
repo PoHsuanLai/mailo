@@ -268,17 +268,8 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) {
                 std::sync::Arc::new(|store| {
                     let mail = crate::edge::mail(&store);
                     match crate::edge::block_on(mail.sync().run(Default::default())) {
-                        Ok(ends) => {
-                            print!("{}", super::sync::run_text(&store, &ends));
-                            ends.iter()
-                                .filter(|end| end.may_have_stored())
-                                .map(|end| end.account())
-                                .collect()
-                        }
-                        Err(why) => {
-                            eprintln!("{}", super::remedy::error(why));
-                            Vec::new()
-                        }
+                        Ok(ends) => print!("{}", super::sync::run_text(&store, &ends)),
+                        Err(why) => eprintln!("{}", super::remedy::error(why)),
                     }
                 }),
                 |listening| match listening {
@@ -467,23 +458,17 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) {
             }
         };
         if let Some(why) = watching.doorless() {
-            eprintln!("an open window will look for new mail rather than be told of it: {why}");
+            eprintln!("Sync in an open window will not reach this watch: {why}");
         }
         // The unread count on the launcher, kept up whether or not a window is open.
         if let Some(Err(e)) = crate::session::keep_the_launchers_badge(store.clone()) {
             eprintln!("the launcher's unread count is off: {e}");
         }
         println!("watching. Ctrl-C to stop.");
-        // Said as it happens, and flushed: a watch is read by someone waiting on it. A window
-        // listening at the watch's door is told too, so it reads what was stored now rather than
-        // at its next look.
+        // Said as it happens, and flushed: a watch is read by someone waiting on it. An open
+        // window sees what was stored from the store's file, not from here.
         let say = |watched: mail_core::sync::report::Watched| {
             use std::io::Write as _;
-            if let mail_core::sync::report::Watched::Pass(end) = &watched
-                && end.may_have_stored()
-            {
-                watching.changed(end.account());
-            }
             print!("{}", super::sync::watched_text(&watched));
             if let mail_core::sync::report::Watched::Pass(end) = &watched {
                 print!("{}", super::sync::sign_in_hint(&store, end));
