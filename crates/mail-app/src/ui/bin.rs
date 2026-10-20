@@ -102,8 +102,8 @@ pub fn words(destroying: &Destroying) -> Words {
         n => format!("{n} messages"),
     };
     let body = format!(
-        "{messages} in {bin} will be deleted from this computer and from the server. \
-         This cannot be undone."
+        "{messages} in {bin} will be deleted from this computer and the server. {}",
+        crate::ui::copy::confirm::CANT_BE_UNDONE
     );
     let confirm = match destroying.reach {
         Reach::Everything => format!("Empty {bin}"),

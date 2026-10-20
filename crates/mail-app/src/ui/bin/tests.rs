@@ -113,6 +113,6 @@ fn the_sheet_names_the_count_and_says_it_cannot_be_undone() {
             format!("{messages} messages in Trash")
         };
         assert!(said.body.starts_with(&count), "{}", said.body);
-        assert!(said.body.contains("cannot be undone"), "{}", said.body);
+        assert!(said.body.contains("can’t be undone"), "{}", said.body);
     }
 }

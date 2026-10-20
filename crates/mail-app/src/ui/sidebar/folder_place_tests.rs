@@ -323,7 +323,7 @@ async fn a_fetch_that_fails_is_the_folders_to_say() {
     assert_eq!(
         folder_state(&mut dom, RECEIPTS),
         FolderFetch::Refused(format!(
-            "{RECEIPTS} was not fetched: the server has no such folder any more"
+            "Couldn’t fetch {RECEIPTS}: the server has no such folder any more"
         ))
     );
     // And it does not reach the list bar as a failure of every account's sync.

@@ -177,7 +177,7 @@ fn following_is_undone_too_and_a_refusal_changes_nothing() {
     let refusal = perform(&store, acct_imap(), taken, Some('/')).unwrap_err();
     assert_eq!(
         refused(&refusal),
-        "There is already a folder called “Projects”."
+        "A folder called “Projects” already exists."
     );
     let sent = FolderWork::Rename {
         from: "Sent".to_owned(),

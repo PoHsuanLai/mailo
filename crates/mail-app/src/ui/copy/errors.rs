@@ -8,10 +8,10 @@ pub const THIS_ACCOUNT: &str = "this account";
 // A folder change refused.
 pub const POP3_NO_FOLDERS: &str = "POP3 has no folders.";
 pub const LOCAL_HAS_LABELS: &str = "Local mail has labels, not folders.";
-pub const ACCOUNT_GONE: &str = "That account is not set up here any more.";
+pub const ACCOUNT_GONE: &str = "That account isn’t here any more.";
 
 pub fn special_folder(path: &str, special: &str) -> String {
-    format!("“{path}” is the account’s {special} folder and stays as it is.")
+    format!("“{path}” is the account’s {special} folder and can’t be changed.")
 }
 
 pub fn folder_holds(path: &str, messages: &str) -> String {
@@ -19,11 +19,11 @@ pub fn folder_holds(path: &str, messages: &str) -> String {
 }
 
 pub fn folder_exists(name: &str) -> String {
-    format!("There is already a folder called “{name}”.")
+    format!("A folder called “{name}” already exists.")
 }
 
 pub fn folder_unknown(name: &str) -> String {
-    format!("“{name}” is not on the server’s list any more. Sync to refresh it.")
+    format!("“{name}” is no longer on the server. Sync to refresh.")
 }
 
 pub fn folder_has_children(name: &str) -> String {
@@ -35,7 +35,7 @@ pub fn bad_folder_name(name: &str, why: &str) -> String {
 }
 
 pub fn nothing_changed(why: &str) -> String {
-    format!("Nothing was changed: {why}")
+    format!("Nothing changed: {why}")
 }
 
 // A new folder's name refused before the server is asked.
@@ -53,21 +53,21 @@ pub fn cannot_read(name: &str) -> String {
 }
 
 /// A choice in Settings with nowhere to be written.
-pub const NO_CONFIG_DIRECTORY: &str = "There is no config directory to keep this in.";
+pub const NO_CONFIG_DIRECTORY: &str = "There’s nowhere to save this.";
 
 /// A rule or vacation reply kept here that its server did not take.
 pub fn not_on_server(why: &str) -> String {
-    format!("It is kept on this computer, but the server did not take it: {why}")
+    format!("Kept on this computer, but the server refused it: {why}")
 }
 
 /// Choose Time… refusing a time that has gone: snoozing until then would bring it straight back.
 pub fn time_passed(when: &str) -> String {
-    format!("{when} has already passed. Pick a later time.")
+    format!("{when} has passed. Pick a later time.")
 }
 
 /// Under [`super::titles::use_graph`]: why it is asked.
-pub const IMAP_REFUSED: &str = "Microsoft refused mail access over IMAP for this account. Its \
-    organisation may have switched IMAP off; Microsoft Graph still reads and sends its mail.";
+pub const IMAP_REFUSED: &str = "Microsoft refused IMAP for this account, perhaps because its \
+    organisation turned it off. Microsoft Graph still works.";
 
 /// A link's card, when the link's text names another place than the one it goes to.
 pub fn link_goes_elsewhere(goes_to: &str, claims: &str) -> String {

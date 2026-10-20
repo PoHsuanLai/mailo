@@ -11,8 +11,10 @@ pub fn delete_space(name: &str) -> String {
 }
 
 /// What deleting a Space leaves: the mail, which is the accounts'.
-pub const DELETE_SPACE_KEEPS: &str =
-    "Your mail is not affected. Only the Space’s name, colour and accounts shown go.";
+pub const DELETE_SPACE_KEEPS: &str = "Your mail won’t be deleted. This can’t be undone.";
+
+/// The last line of an alert before something that has no way back.
+pub const CANT_BE_UNDONE: &str = "This can’t be undone.";
 
 /// Asked in a folder's row before the folder goes with the mail in it.
 pub fn delete_folder(name: &str, messages: &str) -> String {
@@ -21,11 +23,11 @@ pub fn delete_folder(name: &str, messages: &str) -> String {
 
 /// What Tidy Up will archive: the read Inbox conversations older than the age chosen.
 pub fn tidy_up(count: usize) -> String {
-    let stay = "Starred, pinned, snoozed and waiting ones stay.";
+    let stay = "Starred, pinned, snoozed and waiting ones aren’t archived.";
     match count {
-        0 => "No read conversations in the Inbox are that old.".to_owned(),
-        1 => format!("1 read conversation in the Inbox is that old. {stay}"),
-        _ => format!("{count} read conversations in the Inbox are that old. {stay}"),
+        0 => "No read conversations that old in the Inbox.".to_owned(),
+        1 => format!("1 read conversation that old in the Inbox. {stay}"),
+        _ => format!("{count} read conversations that old in the Inbox. {stay}"),
     }
 }
 
@@ -36,8 +38,7 @@ pub fn settings_unreadable(files: &[(String, String)]) -> String {
         .map(|(name, why)| format!("{name}: {why}."))
         .collect();
     format!(
-        "{} Use Defaults keeps each file beside itself, renamed to end in “.bad”, and a setting whose \
-         value isn’t valid takes its default. Quit leaves them as they are.",
+        "{} Use Defaults sets each file aside as “.bad” and starts from defaults. Quit leaves them as they are.",
         said.join(" ")
     )
 }

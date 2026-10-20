@@ -166,7 +166,7 @@ fn a_typed_time_is_read_as_snooze_reads_it_and_must_be_to_come() {
         Err(crate::ui::copy::fields::TYPE_A_TIME.to_owned())
     );
     let gone = super::chosen_time("today 09:00", now, &zone).unwrap_err();
-    assert!(gone.contains("already passed"), "{gone}");
+    assert!(gone.contains("has passed"), "{gone}");
     assert!(super::chosen_time("whenever", now, &zone).is_err());
 }
 
