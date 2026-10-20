@@ -19,11 +19,9 @@ use std::sync::Arc;
 pub(super) fn ended(done: Result<PassEnd, String>, named: &str) -> FolderEvent {
     match done {
         Err(why) | Ok(PassEnd::Failed { why, .. }) => {
-            FolderEvent::Refused(format!("{named} was not fetched: {why}"))
+            FolderEvent::Refused(format!("Couldn’t fetch {named}: {why}"))
         }
-        Ok(PassEnd::Cancelled { .. }) => {
-            FolderEvent::Refused(format!("{named} was not fetched: it was cancelled"))
-        }
+        Ok(PassEnd::Cancelled { .. }) => FolderEvent::Refused(format!("{named} was cancelled")),
         Ok(end @ PassEnd::Finished(_)) => match end.event() {
             Event::Failed {
                 retry: Retry::NeedsReauth,
@@ -171,7 +169,7 @@ mod tests {
             pause: Pause::Unreachable,
             offer: None,
         });
-        let said = FolderEvent::Refused("Archive was not fetched: cannot connect".to_owned());
+        let said = FolderEvent::Refused("Couldn’t fetch Archive: cannot connect".to_owned());
         assert_eq!(ended(failed, "Archive"), said);
         assert_eq!(
             ended(Err("cannot connect".to_owned()), "Archive"),

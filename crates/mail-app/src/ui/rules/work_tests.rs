@@ -118,7 +118,7 @@ fn a_rule_made_in_the_sheet_is_listed_moved_switched_and_deleted() {
 fn a_condition_the_rules_cannot_read_is_refused_in_words_and_not_kept() {
     let (store, _dir) = seeded();
     const CASES: &[(&str, &str)] = &[
-        ("frm:bank.example", "“frm:” is not a word a rule knows"),
+        ("frm:bank.example", "Rules don’t know “frm:”"),
         (
             "from:bank.example before:yesterday",
             "needs a date, like before:2026-10-08",

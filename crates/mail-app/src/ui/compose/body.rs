@@ -503,7 +503,7 @@ fn link(mut page: Signal<Page>) {
         }
     };
     let Ok(url) = typed.parse::<mail_mime::SafeUrl>() else {
-        page.write().notice = Some(format!("“{typed}” is not a web or mail link"));
+        page.write().notice = Some(format!("“{typed}” isn’t a web or mail link"));
         return;
     };
     let caret = page.read().session.caret;

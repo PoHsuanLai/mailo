@@ -225,7 +225,7 @@ pub(in crate::ui) fn Asking(confirm: Signal<Confirm>, run: Callback<Job>, busy: 
             rsx! {
                 Alert {
                     title: format!("Delete {id}?"),
-                    message: Some(TextLine::from(format!("This also deletes its secret key. {}", crate::ui::copy::confirm::CANT_BE_UNDONE))),
+                    message: Some(TextLine::from(format!("Its secret key is deleted too. {}", crate::ui::copy::confirm::CANT_BE_UNDONE))),
                     style: AlertStyle::Critical,
                     buttons: vec![
                         AlertButton::new("Delete", AlertRole::Destructive, EventHandler::new(move |()| {
@@ -245,7 +245,7 @@ pub(in crate::ui) fn Asking(confirm: Signal<Confirm>, run: Callback<Job>, busy: 
             rsx! {
                 Alert {
                     title: format!("Delete {id}?"),
-                    message: Some(TextLine::from(format!("This also deletes its private key. {}", crate::ui::copy::confirm::CANT_BE_UNDONE))),
+                    message: Some(TextLine::from(format!("Its private key is deleted too. {}", crate::ui::copy::confirm::CANT_BE_UNDONE))),
                     style: AlertStyle::Critical,
                     buttons: vec![
                         AlertButton::new("Delete", AlertRole::Destructive, EventHandler::new(move |()| {

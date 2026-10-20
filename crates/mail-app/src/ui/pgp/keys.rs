@@ -151,7 +151,7 @@ fn import(store: &SqliteStore, secrets: &dyn SigningStore, path: &Path) -> Resul
         (0, _) => format!("{} holds no OpenPGP key.", path.display()),
         (_, 0) => format!("Imported {}", names.join(", ")),
         _ => format!(
-            "Imported {}, with {secret} secret key{} now in your keyring",
+            "Imported {}, with {secret} secret key{}",
             names.join(", "),
             if secret == 1 { "" } else { "s" }
         ),

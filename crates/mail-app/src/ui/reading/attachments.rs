@@ -229,7 +229,7 @@ fn start(
             },
             Err(error) => DownloadEvent::Failed {
                 retry: Retry::Now,
-                why: format!("it stopped before it finished: {error}"),
+                why: format!("it stopped early: {error}"),
             },
         };
         let saved = match &event {

@@ -149,7 +149,7 @@ async fn attach_puts_the_files_the_dialog_chose_on_the_draft() {
         .in_runtime(|| (page.peek().attached.clone(), page.peek().notice.clone()));
     let names: Vec<&str> = attached.iter().map(|(name, _)| name.as_str()).collect();
     assert_eq!(names, ["agenda.txt"], "{attached:?}");
-    assert_eq!(notice.as_deref(), Some("huge.bin is too large to send"));
+    assert_eq!(notice.as_deref(), Some("huge.bin is too large to send."));
     let stored = store
         .draft(draft.id)
         .unwrap_or_else(|why| panic!("the draft: {why}"));

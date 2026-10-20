@@ -72,13 +72,13 @@ async fn a_refused_account_is_asked_about_once_and_signs_in_from_the_dialog_or_t
         "no dialog: {page}"
     );
     assert!(
-        page.contains("can\u{2019}t fetch new mail until you do."),
+        page.contains("New mail stops arriving until you do."),
         "{page}"
     );
     // Nothing can be loaded, and the pane says so with a Sign In of its own.
     assert!(page.contains("Couldn\u{2019}t load this mailbox"), "{page}");
     assert!(
-        page.contains("Sign in to me@nowhere.example again to load its mail."),
+        page.contains("Sign in to me@nowhere.example again to load mail."),
         "{page}"
     );
     assert!(!page.contains("Connection Doctor"), "{page}");

@@ -51,7 +51,7 @@ impl Ask {
                 format!("Leave {list}?")
             }
             Ask::Mailto { list, to, from } => {
-                format!("Leave {list}? A message goes to {to} from {from}.")
+                format!("Leave {list}? This sends a message to {to} from {from}.")
             }
             Ask::Web { .. } => "This list can only be left on its web page.".to_owned(),
         }

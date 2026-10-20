@@ -136,11 +136,8 @@ pub(in crate::ui) fn ViewSheet(
             .as_deref()
             .filter(|_| !draft.name.trim().is_empty()),
     );
-    let query_help = (draft.kept.is_some() && draft.query.trim().is_empty()).then(|| {
-        TextLine::from(
-            "Lists what it was saved with, which a search cannot say. Type one to change it.",
-        )
-    });
+    let query_help = (draft.kept.is_some() && draft.query.trim().is_empty())
+        .then(|| TextLine::from("Lists what it was saved with. Type a search to replace that."));
     rsx! {
         Sheet {
             label: "Saved view",

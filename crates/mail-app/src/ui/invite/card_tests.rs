@@ -168,7 +168,7 @@ fn every_kind_and_every_place_draws_what_it_should() {
             &elsewhere,
             None,
             false,
-            &["You are not listed as an attendee."],
+            &["You’re not listed as an attendee."],
         ),
     ];
     for (case, calendar, answered, buttons, says) in cases {

@@ -155,7 +155,7 @@ async fn the_import_sheet_refuses_in_words() {
     landed(&mut dom).await;
     let page = dioxus_ssr::render(&dom);
     assert!(
-        page.contains(&format!("There is nothing at {}.", gone.display())),
+        page.contains(&format!("Nothing at {}.", gone.display())),
         "{page}"
     );
     // The sheet's Import button is the one that answers Return.

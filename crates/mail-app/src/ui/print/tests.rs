@@ -191,7 +191,7 @@ fn a_thread_that_is_gone_says_so_rather_than_saving_nothing() {
         now(),
     )
     .unwrap_err();
-    assert!(said.starts_with("Could not save for printing:"), "{said}");
+    assert!(said.starts_with("Couldn’t save for printing:"), "{said}");
     assert_eq!(std::fs::read_dir(into.path()).unwrap().count(), 0);
 }
 

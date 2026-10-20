@@ -107,17 +107,15 @@ fn attach(mut page: Signal<Page>, paths: Vec<PathBuf>) {
             let bytes = match picked {
                 Picked::Read(bytes) => bytes,
                 Picked::TooLarge => {
-                    refused.push(format!("{name} is too large to send"));
+                    refused.push(format!("{name} is too large to send."));
                     continue;
                 }
                 Picked::Folder => {
-                    refused.push(format!(
-                        "{name} is a folder; attach the files in it instead"
-                    ));
+                    refused.push(format!("{name} is a folder. Attach its files instead."));
                     continue;
                 }
                 Picked::Unreadable => {
-                    refused.push(format!("cannot read {name}"));
+                    refused.push(format!("Can’t read {name}"));
                     continue;
                 }
             };

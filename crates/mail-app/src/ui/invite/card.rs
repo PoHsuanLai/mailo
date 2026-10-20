@@ -170,7 +170,7 @@ fn stand(invite: &Invite, answered: Option<&InviteAnswer>) -> Stand {
             return Stand::Closed(Some("You organised this event."));
         }
         Me::NotListed => {
-            return Stand::Closed(Some("You are not listed as an attendee."));
+            return Stand::Closed(Some("You’re not listed as an attendee."));
         }
         Me::Invited { answer, .. } => *answer,
     };
@@ -211,7 +211,7 @@ fn reply_summary(invite: &Invite) -> String {
                 PartStat::Declined => "declined",
                 PartStat::Tentative => "said maybe",
                 PartStat::Delegated => "delegated it",
-                PartStat::NeedsAction => "has not answered",
+                PartStat::NeedsAction => "hasn’t answered",
             };
             format!("{} {verb}", name_of(&attendee.party))
         })

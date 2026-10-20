@@ -162,12 +162,12 @@ fn the_confirmation_counts_the_mail_and_says_when_it_is_the_only_copy() {
             "only copy",
         ),
         (imap, 1204, "Its 1\u{a0}204 messages", "only copy"),
-        (pop3(LeaveOnServer::Keep), 3, "not touched", "only copy"),
+        (pop3(LeaveOnServer::Keep), 3, "isn’t deleted", "only copy"),
         (
             pop3(LeaveOnServer::DeleteAfterFetch),
             3,
             "these 3 messages are the only copy",
-            "not touched",
+            "isn’t deleted",
         ),
     ];
     for (incoming, held, has, lacks) in cases {
@@ -177,7 +177,7 @@ fn the_confirmation_counts_the_mail_and_says_when_it_is_the_only_copy() {
         assert!(asked.body.contains(has), "{incoming:?}: {}", asked.body);
         assert!(!asked.body.contains(lacks), "{incoming:?}: {}", asked.body);
         assert!(
-            asked.body.contains("Keys and certificates stay"),
+            asked.body.contains("Keys and certificates aren’t removed"),
             "{}",
             asked.body
         );
@@ -187,15 +187,15 @@ fn the_confirmation_counts_the_mail_and_says_when_it_is_the_only_copy() {
 #[test]
 fn a_refusal_says_the_account_was_not_removed_or_already_was() {
     let cases = [
-        (RemoveError::Unknown, "already removed"),
-        (RemoveError::Local, "cannot be removed"),
+        (RemoveError::Unknown, "already gone"),
+        (RemoveError::Local, "can’t be removed"),
         (
             RemoveError::Keyring("locked".to_owned()),
-            "were not removed",
+            "nothing was removed",
         ),
         (
             RemoveError::Store("disk full".to_owned()),
-            "were not removed: disk full",
+            "Nothing was removed: disk full",
         ),
     ];
     for (error, has) in cases {

@@ -172,7 +172,7 @@ pub(in crate::ui) fn take_back_said(
 
 /// What a refused Undo or Cancel says.
 pub(in crate::ui) fn refusal(why: &str) -> String {
-    format!("Too late to take it back: {why}")
+    format!("Too late: {why}")
 }
 
 /// Withdraw a send that has not left, and open its page again: the page as it was sent when the

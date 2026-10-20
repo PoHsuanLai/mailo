@@ -123,8 +123,7 @@ fn a_reply_that_has_already_ended_is_refused_in_words() {
     let row = own_server(&store);
     let past = away::save(&store, &row, &filled("2026-09-01"), now(), &Utc);
     let why = past.unwrap_err();
-    assert!(why.starts_with("“Until” is already past: "), "{why}");
-    assert!(why.contains("answers nobody"), "{why}");
+    assert!(why.starts_with("“Until” has passed: "), "{why}");
     assert_eq!(
         store.vacation(acct_own()).unwrap(),
         None,
@@ -137,7 +136,7 @@ fn a_reply_that_has_already_ended_is_refused_in_words() {
             "2026-10-01",
             "“Until” has to be after “From”.",
         ),
-        ("soon", "", "“soon” is not a time"),
+        ("soon", "", "“soon” isn’t a time"),
     ];
     for (from, until, said) in CASES {
         let form = Away {

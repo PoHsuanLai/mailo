@@ -68,10 +68,9 @@ pub(in crate::ui) fn said(protected: &mail_core::pgp::Protected) -> Vec<Said> {
             Tone::Unknown,
             format!("Encrypted to your key {}: passphrase needed", short(*key)),
         ),
-        Encryption::Unreadable { why } => line(
-            Tone::Bad,
-            format!("Encrypted, and could not be read: {why}"),
-        ),
+        Encryption::Unreadable { why } => {
+            line(Tone::Bad, format!("Encrypted, and couldn’t be read: {why}"))
+        }
     });
     let coverage = match &protected.verification {
         Verification::NoSignature => {
@@ -100,8 +99,7 @@ pub(in crate::ui) fn said(protected: &mail_core::pgp::Protected) -> Vec<Said> {
         Verification::Bad { coverage } => {
             out.push(line(
                 Tone::Bad,
-                "Bad signature: the message was changed after it was signed, or the signature \
-                 is forged",
+                "Bad signature: the message changed after signing, or the signature is forged",
             ));
             Some(*coverage)
         }
@@ -140,14 +138,13 @@ pub(in crate::ui) fn said_smime(protected: &mail_core::smime::Protected) -> Vec<
         SmimeEncryption::CannotDecrypt { to } => line(
             Tone::Unknown,
             format!(
-                "Encrypted with S/MIME to certificates you hold no key for ({}), so it cannot \
-                 be read here",
+                "Encrypted with S/MIME to certificates you hold no key for ({}), so it can’t be read here",
                 to.join("; ")
             ),
         ),
         SmimeEncryption::Unreadable { why } => line(
             Tone::Bad,
-            format!("Encrypted with S/MIME, and could not be read: {why}"),
+            format!("Encrypted with S/MIME, and couldn’t be read: {why}"),
         ),
     });
     let name = protected
@@ -162,10 +159,7 @@ pub(in crate::ui) fn said_smime(protected: &mail_core::smime::Protected) -> Vec<
         SmimeVerification::Good { coverage, .. } => {
             out.push(line(
                 Tone::Good,
-                format!(
-                    "Good S/MIME signature by {name}, from a certificate an authority you trust \
-                     issued"
-                ),
+                format!("Good S/MIME signature by {name}, from a certificate you trust"),
             ));
             Some(*coverage)
         }
@@ -175,8 +169,7 @@ pub(in crate::ui) fn said_smime(protected: &mail_core::smime::Protected) -> Vec<
             out.push(line(
                 Tone::Warn,
                 format!(
-                    "S/MIME signature by {name}: the message is as it was signed, but the \
-                     certificate does not vouch for the sender"
+                    "S/MIME signature by {name}: the message is unchanged, but the certificate doesn’t vouch for the sender"
                 ),
             ));
             out.extend(
@@ -193,8 +186,7 @@ pub(in crate::ui) fn said_smime(protected: &mail_core::smime::Protected) -> Vec<
         SmimeVerification::UnknownSigner { coverage } => {
             out.push(line(
                 Tone::Unknown,
-                "Signed with S/MIME by a certificate neither the message nor you hold, so the \
-                 signature cannot be checked",
+                "Signed with S/MIME by a certificate that isn’t in the message and that you don’t hold, so it can’t be checked",
             ));
             Some(*coverage)
         }
@@ -226,29 +218,24 @@ fn certificate(cert: &SmimeCert) -> String {
 /// One thing wrong with the certificate behind a signature that matches, and what it means.
 pub(in crate::ui) fn doubt(problem: &CertProblem) -> String {
     match problem {
-        CertProblem::Untrusted => "Untrusted: no authority you trust issued its certificate, so \
-                                   anyone could have made it. Trust it in Other Keys, under \
-                                   Accounts in Settings, only after checking it with its owner"
+        CertProblem::Untrusted => "Untrusted: no authority you trust issued its certificate, so anyone could have made it. \
+                                   Trust it in Other Keys (Settings › Accounts) only after checking with its owner"
             .to_owned(),
         CertProblem::Expired { not_after } => format!(
-            "Expired: a certificate in its chain stopped being valid on {}, before the message \
-             says it was signed",
+            "Expired: a certificate in its chain stopped being valid on {}, before the message was signed",
             not_after.format("%Y-%m-%d")
         ),
         CertProblem::NotYetValid { not_before } => format!(
-            "Not yet valid: a certificate in its chain was not valid until {}, after the message \
-             says it was signed",
+            "Not yet valid: a certificate in its chain wasn’t valid until {}, after the message was signed",
             not_before.format("%Y-%m-%d")
         ),
-        CertProblem::NotForEmail => "Not for mail: its certificate was issued for something \
-                                     other than signing mail"
+        CertProblem::NotForEmail => "Not for mail: its certificate wasn’t issued for signing mail"
             .to_owned(),
         CertProblem::NotFrom { from } if from.is_empty() => {
             "No sender to check the certificate against".to_owned()
         }
         CertProblem::NotFrom { from } => format!(
-            "Signed with a certificate for someone else's address: it is not for {from}, who \
-             the message says it is from"
+            "Signed with a certificate for someone else’s address, not {from}"
         ),
     }
 }
@@ -268,11 +255,11 @@ fn bad(why: &BadSignature) -> Said {
         ),
         BadSignature::Unsupported { algorithm } => line(
             Tone::Unknown,
-            format!("S/MIME signature made with {algorithm}, which is not checked"),
+            format!("S/MIME signature made with {algorithm}, which isn’t checked"),
         ),
         BadSignature::Malformed { why } => line(
             Tone::Warn,
-            format!("S/MIME signature that cannot be read: {why}"),
+            format!("S/MIME signature that can’t be read: {why}"),
         ),
     }
 }

@@ -14,14 +14,14 @@ pub(in crate::ui) fn words(remedy: &Remedy) -> String {
         Remedy::Sync => "Sync, then try again".to_owned(),
         Remedy::AddAccount => "Add an account in Settings".to_owned(),
         Remedy::ReAddAccount => "Add the account again in Settings".to_owned(),
-        Remedy::ListAccounts => "Check the address against your accounts in Settings".to_owned(),
+        Remedy::ListAccounts => "Check the address against your accounts".to_owned(),
         Remedy::Folders { folder, .. } => {
             format!("Choose a folder that exists, or make \u{201c}{folder}\u{201d} first")
         }
-        Remedy::StopDaemon => "Stop the daemon that is running".to_owned(),
+        Remedy::StopDaemon => "Stop the running daemon".to_owned(),
         Remedy::SaveInvitation => "Save the invitation to a file instead".to_owned(),
         Remedy::NameJmapSession { .. } => "Enter the JMAP session address".to_owned(),
-        Remedy::NameServers { .. } => "Enter the names of the mail servers".to_owned(),
+        Remedy::NameServers { .. } => "Enter the mail server names".to_owned(),
         Remedy::SignIn { address, with } => match with {
             SignInWith::Password => format!("Enter the password for {address} in Settings"),
             SignInWith::OAuth { .. } | SignInWith::Unknown => {

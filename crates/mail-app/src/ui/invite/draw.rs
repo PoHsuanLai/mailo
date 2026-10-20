@@ -414,8 +414,8 @@ fn save_file(message: MessageId, title: String, mut phase: Signal<Phase>) {
                 saving.end(Some(&path), origin);
                 tell(format!("Saved to {}", path.display()), Follow::Nothing);
             }
-            Ok((Err(why), _)) => phase.set(Phase::Failed(format!("The file was not saved: {why}"))),
-            Err(error) => phase.set(Phase::Failed(format!("The file was not saved: {error}"))),
+            Ok((Err(why), _)) => phase.set(Phase::Failed(format!("Couldn’t save the file: {why}"))),
+            Err(error) => phase.set(Phase::Failed(format!("Couldn’t save the file: {error}"))),
         }
     });
 }

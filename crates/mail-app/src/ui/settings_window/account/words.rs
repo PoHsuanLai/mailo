@@ -138,17 +138,15 @@ pub(super) fn asking(address: &str, held: usize, incoming: &Incoming) -> Asking 
         Incoming::Pop3 {
             leave: LeaveOnServer::DeleteAfterFetch,
             ..
-        } => format!(
-            "This server deletes mail once it is downloaded, so these {mail} are the only copy \
-             and will be gone for good."
-        ),
-        _ => "Mail on the server is not touched.".to_owned(),
+        } => {
+            format!("This server deletes mail once downloaded, so these {mail} are the only copy.")
+        }
+        _ => "Mail on the server isn’t deleted.".to_owned(),
     };
     Asking {
         title: format!("Remove {address}?"),
         body: format!(
-            "Its {mail} on this computer, its folders and rules and its saved sign-in are \
-             removed from mailo. {server} Keys and certificates stay."
+            "Its {mail} on this computer, folders, rules and saved sign-in are removed. {server} Keys and certificates aren’t removed."
         ),
         confirm: REMOVE,
     }
@@ -157,18 +155,16 @@ pub(super) fn asking(address: &str, held: usize, incoming: &Incoming) -> Asking 
 /// Why nothing was removed, as the page says it.
 pub(super) fn refused(error: &RemoveError) -> String {
     match error {
-        RemoveError::Unknown => "This account was already removed.".to_owned(),
+        RemoveError::Unknown => "This account is already gone.".to_owned(),
         RemoveError::Local => {
-            "The mail kept on this computer cannot be removed like an account.".to_owned()
+            "Local mail can’t be removed like an account.".to_owned()
         }
         RemoveError::Keyring(_) => {
-            "The keyring would not forget the saved sign-in, so the account and its mail were not \
-             removed. It may ask you to sign in again. Unlock the keyring and try again."
+            "The keyring wouldn’t forget the saved sign-in, so nothing was removed. Unlock the keyring and try again."
                 .to_owned()
         }
         RemoveError::Store(why) => format!(
-            "The account and its mail were not removed: {why}. Its saved sign-in was already \
-             forgotten, so it will ask you to sign in again."
+            "Nothing was removed: {why}. The saved sign-in is already forgotten, so it will ask you to sign in again."
         ),
     }
 }

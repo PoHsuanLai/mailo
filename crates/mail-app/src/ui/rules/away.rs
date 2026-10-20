@@ -113,7 +113,7 @@ where
         .or_else(|_| mail_core::snooze::snooze_until(text, now, zone))
         .map(Some)
         .map_err(|_| {
-            format!("“{text}” is not a time: write 2026-10-08, 2026-10-08 09:00, or tomorrow")
+            format!("“{text}” isn’t a time. Try 2026-10-08, 2026-10-08 09:00 or tomorrow.")
         })
 }
 
@@ -150,7 +150,7 @@ where
     if let Some(end) = during.to {
         if end <= now {
             return Err(format!(
-                "“Until” is already past: {}. A reply that has ended answers nobody.",
+                "“Until” has passed: {}.",
                 when_words(end, now, zone)
             ));
         }
@@ -188,7 +188,7 @@ fn addresses(typed: &str) -> Result<Vec<String>, String> {
             continue;
         }
         if !word.contains('@') || word.starts_with('@') || word.ends_with('@') {
-            return Err(format!("“{word}” is not an address."));
+            return Err(format!("“{word}” isn’t an address."));
         }
         let address = word.to_lowercase();
         if !out.contains(&address) {

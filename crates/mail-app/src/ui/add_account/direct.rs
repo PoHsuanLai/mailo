@@ -539,7 +539,7 @@ pub(in crate::ui) fn PendingSignIn() -> Element {
                 image: ImagePosition::Only,
                 icon: Icon::X,
                 label: "Cancel sign-in",
-                title: Some("Stop waiting for the browser".to_owned()),
+                title: Some("Stop Waiting for the Browser".to_owned()),
                 onclick: crate::ui::press::on_primary(cancel),
             }
         }

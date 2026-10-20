@@ -155,7 +155,7 @@ fn files_dragged_in_light_the_composer_and_only_files_dropped_on_it_are_attached
     // The Attached row now sits above the body: find the body again.
     let body = centre(&harness, ".c-body");
     drop_at(&mut harness, body, vec![photos]);
-    let note = "photos is a folder; attach the files in it instead";
+    let note = "photos is a folder. Attach its files instead.";
     settle_until(&mut harness, |h| {
         h.text_of(".cpage .ds-inline-banner-body").as_deref() == Some(note)
     });

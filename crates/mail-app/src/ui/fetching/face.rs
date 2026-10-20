@@ -45,14 +45,12 @@ impl Problem {
     /// if anything, to do about it. `account` is the one a sign-in is asked for.
     pub fn description(self, account: &str) -> String {
         match self {
-            Problem::Unreachable => {
-                "Mailo can\u{2019}t reach the server right now. It will keep trying.".to_owned()
-            }
+            Problem::Unreachable => "Can\u{2019}t reach the server. Retrying.".to_owned(),
             Problem::Broken => {
                 "Something is wrong with this account. Check its settings.".to_owned()
             }
             Problem::SignIn | Problem::Allow => {
-                format!("Sign in to {account} again to load its mail.")
+                format!("Sign in to {account} again to load mail.")
             }
         }
     }
@@ -230,7 +228,7 @@ mod tests {
             (
                 Problem::Unreachable,
                 None,
-                "Mailo can\u{2019}t reach the server right now. It will keep trying.",
+                "Can\u{2019}t reach the server. Retrying.",
             ),
             (
                 Problem::Broken,
@@ -240,12 +238,12 @@ mod tests {
             (
                 Problem::SignIn,
                 Some(Need::SignIn),
-                "Sign in to me@x.test again to load its mail.",
+                "Sign in to me@x.test again to load mail.",
             ),
             (
                 Problem::Allow,
                 Some(Need::Allow),
-                "Sign in to me@x.test again to load its mail.",
+                "Sign in to me@x.test again to load mail.",
             ),
         ];
         for (problem, need, said) in cases {

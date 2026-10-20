@@ -137,7 +137,7 @@ async fn an_identity_files_password_is_asked_in_a_sheet_and_never_drawn() {
         seen.all("aria-label", "Import a certificate or identity…")[0],
     );
     settle(&mut dom, &mut asked).await;
-    let prompt = "me.p12 is an identity file. Type the password it was saved with to import it.";
+    let prompt = "me.p12 is an identity file. Type its password to import it.";
     assert!(markup(&dom).contains(prompt), "{}", markup(&dom));
     assert!(store.smime_certs().unwrap().is_empty(), "imported unasked");
 
@@ -174,13 +174,13 @@ async fn deleting_a_certificate_with_its_private_key_is_asked_again_first() {
     let id = cert_short(mine.fingerprint);
 
     let asked = asking(&mut dom, seen.one("aria-label", &format!("Delete {id}")));
-    assert!(markup(&dom).contains("also deletes its private key"));
+    assert!(markup(&dom).contains("private key is deleted too"));
     assert!(store.smime_cert(mine.fingerprint).unwrap().is_some());
     assert!(holds(&secrets, &mine));
     // Cancel, the alert's default, keeps it.
     click(&mut dom, alert_button(&asked, Some("return")));
     let _ = drain_seen(&mut dom);
-    assert!(!markup(&dom).contains("also deletes its private key"));
+    assert!(!markup(&dom).contains("private key is deleted too"));
 
     let asked = asking(&mut dom, seen.one("aria-label", &format!("Delete {id}")));
     let mut done = click(&mut dom, alert_button(&asked, None));
