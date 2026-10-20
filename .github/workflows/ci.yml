@@ -17,6 +17,15 @@ env:
   # cache it restores faster.
   CARGO_PROFILE_DEV_DEBUG: line-tables-only
 
+# A new push to a pull request cancels the run for the push before it, which nobody reads any
+# more. Runs on master each have their own group (the run id), so none is cancelled there.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.head_ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# A pull request runs `check`, `live` and `licences`: the gates, real sockets and licences, all on
+# Linux. The other distributions and macOS and Windows run on master (and by hand), where a
+# failure is fixed forward, so a pull request does not wait on the slowest runner in the file.
 jobs:
   # The gates that need no servers and no window. Everything here must pass for every push.
   check:
@@ -113,6 +122,7 @@ jobs:
   # `check` installs: fontconfig to build, the Noto CJK faces for the print tests, and clang, cmake
   # and perl for the dependencies that compile C (aws-lc, the vendored OpenSSL under SQLCipher).
   distros:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     container: ${{ matrix.image }}
     strategy:
@@ -179,6 +189,7 @@ jobs:
   # A test that cannot hold on a platform says so itself with a `cfg` on the test, rather than
   # being skipped here, so what is not checked where is written beside what it checks.
   portable:
+    if: github.event_name != 'pull_request'
     strategy:
       fail-fast: false
       matrix:
