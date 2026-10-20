@@ -1,6 +1,6 @@
 //! Deleting a Space from its menu, against the real window on Blitz: the Space's name opens the
-//! menu at the pointer, Delete Space… asks in a popover where the menu stood, and only the
-//! popover's button removes the Space. With one Space the menu has no Delete row.
+//! menu at the pointer, Delete Space… asks in a critical alert, and only the
+//! alert's Delete removes the Space. With one Space the menu has no Delete row.
 //!
 //! Every case opens the real window over a store seeded in a `TempDir`. The window is handed no
 //! directories, so it writes no file anywhere.
@@ -94,8 +94,9 @@ const NAME: &str = ".ds-space-head";
 const MENU: &str = ".ds-menu-item";
 /// The menu's last row: Delete Space… while another Space remains, New Space otherwise.
 const LAST_ROW: &str = ".ds-menu-item:last-child";
-const ASKING: &str = ".ds-space-delete";
-const CONFIRM: &str = ".ds-space-delete [*|aria-label=\"Delete Space\"]";
+/// The question, a critical alert; its Delete is the first of its two buttons.
+const ASKING: &str = ".ds-alert[*|data-style=critical]";
+const CONFIRM: &str = ".ds-alert-slot:nth-child(1) > .ds-button";
 
 /// A right click on `selector`: the Space's name opens its menu only so.
 fn right_press(harness: &mut Harness, selector: &str) {
