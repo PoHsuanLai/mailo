@@ -257,7 +257,7 @@ fn run_typed(
                     // still a key file when redirected into one.
                     Ok(format!(
                         "WARNING: this is the SECRET half of {}. Anyone who has it can read \
-                         your encrypted mail and sign as you.\nKeep it offline; never mail it \
+                         your encrypted mail and sign as you.\nKeep it offline, and don't mail it \
                          or paste it anywhere.\n\n{armored}",
                         key.fingerprint
                     ))

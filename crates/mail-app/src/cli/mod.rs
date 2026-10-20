@@ -1331,7 +1331,7 @@ usage: mailo <command>
   unsubscribe <thread-or-message-id> [--show]
                              leave the list it came through: one-click where the
                              list offers it, else a queued message; --show only lists
-                             the ways out. A web page is printed, never opened
+                             the ways out. A web page is printed, not opened
   print <thread-or-message-id> [--out FILE] [--page-per-message]
                              a printable HTML document: to stdout when piped, else a
                              new file here named from the subject; --out - for stdout
