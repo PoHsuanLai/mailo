@@ -204,10 +204,6 @@ pub enum CoreError {
     DaemonSilent,
     #[error("a daemon is already running")]
     DaemonRunning,
-    #[error("the daemon said {said:?} where a change was expected")]
-    DaemonSaid { said: crate::ipc::wire::Response },
-    #[error("the daemon would not subscribe: {said:?}")]
-    DaemonWouldNotSubscribe { said: crate::ipc::wire::Response },
     #[error(transparent)]
     Wire(#[from] crate::ipc::wire::Mismatch),
     #[error(transparent)]

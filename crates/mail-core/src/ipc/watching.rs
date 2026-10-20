@@ -12,18 +12,17 @@
 //!
 //! # A door for the window
 //!
-//! The watch is the process that stores pushed mail while a window is open, so it is the one
-//! that can say the moment it has. It listens behind its lock, as the daemon does behind its
-//! own, and answers [`Request::Ping`] and [`Request::Subscribe`]; [`Watching::changed`] is how
-//! its passes say what they ran. [`Request::SyncNow`] is a person asking for their mail now,
+//! The watch is the process that stores pushed mail while a window is open, and the one whose
+//! passes a window's Sync must reach. It listens behind its lock, as the daemon does behind its
+//! own, and answers [`Request::Ping`]. A window learns what the watch stored from the store's
+//! file, not from here (`super::door`). [`Request::SyncNow`] is a person asking for their mail now,
 //! and is answered with a pass of every account on the watch's own scheduler
 //! ([`Watching::asked`]): a request that is refused, or heard and dropped, is a Sync button that
 //! does nothing. [`Request::Shutdown`] is refused: a watch is stopped by its unit or by Ctrl-C.
 
-use super::changes::{self, Answer, Subscribers};
+use super::door::{self, Answer};
 use super::wire::{Request, Response};
 use crate::error::CoreError;
-use porter_core::AccountId;
 use std::sync::Arc;
 use tokio::sync::watch;
 
@@ -34,13 +33,12 @@ pub type Asked = watch::Receiver<u64>;
 /// The name the watch's lock and door live under, beside the daemon's.
 const NAME: &str = "mailo-watch";
 
-/// Proof that this process is the one watching, and the listeners its passes tell.
+/// Proof that this process is the one watching.
 ///
 /// The lock is held for as long as the process runs, whatever becomes of the door: the process
 /// ending is what lets the next one in.
 #[derive(Debug)]
 pub struct Watching {
-    changes: Subscribers,
     /// Why there is no door, when it could not be opened.
     doorless: Option<String>,
     /// Moved by the door each time a pass is asked for.
@@ -48,17 +46,6 @@ pub struct Watching {
 }
 
 impl Watching {
-    /// A pass on `account` has ended and may have stored something. Never blocks.
-    pub fn changed(&self, account: AccountId) {
-        self.changes.tell(account);
-    }
-
-    /// How many are listening. For tests, which need to know a listener has arrived before
-    /// telling it anything.
-    pub fn listeners(&self) -> usize {
-        self.changes.count()
-    }
-
     /// Why this watch has no door, if it has none: it watches all the same, and a window looks
     /// at the store for what it stores rather than being told.
     pub fn doorless(&self) -> Option<&str> {
@@ -98,7 +85,6 @@ pub fn claim() -> Result<Watching, Refused> {
 /// socket refused, a pipe taken) leaves the watch holding its lock alone, with the reason in
 /// [`Watching::doorless`], rather than ending it — under its unit that would be a restart loop.
 pub fn claim_at(agent: &latchkey::Agent) -> Result<Watching, Refused> {
-    let changes = Subscribers::default();
     let asks = Arc::new(watch::channel(0u64).0);
     let listening = match agent.listen() {
         Ok(listening) => listening,
@@ -111,7 +97,6 @@ pub fn claim_at(agent: &latchkey::Agent) -> Result<Watching, Refused> {
             // Held until the process ends, as a door's would be.
             Box::leak(Box::new(held));
             return Ok(Watching {
-                changes,
                 doorless: Some(door.to_string()),
                 asks,
             });
@@ -120,13 +105,12 @@ pub fn claim_at(agent: &latchkey::Agent) -> Result<Watching, Refused> {
     // Leaked, so that the lock inside it lives as long as the process even if the thread serving
     // the door ends early: a door that stopped answering must not let a second watch in.
     let listening: &'static latchkey::Listening = Box::leak(Box::new(listening));
-    let (serving, asking) = (changes.clone(), asks.clone());
+    let asking = asks.clone();
     std::thread::Builder::new()
         .name("mailo-watch-door".to_owned())
         .spawn(move || {
-            changes::door(listening, &serving, |request| match request {
-                Request::Ping => Answer::Say(changes::pong()),
-                Request::Subscribe => Answer::Subscribe,
+            door::door(listening, |request| match request {
+                Request::Ping => Answer::Say(door::pong()),
                 // Started, not finished: the pass runs on the scheduler, as the daemon's does on
                 // its thread, and the answer goes back before it ends.
                 Request::SyncNow => {
@@ -140,7 +124,6 @@ pub fn claim_at(agent: &latchkey::Agent) -> Result<Watching, Refused> {
         })
         .map_err(|e| Refused::Failed(e.to_string()))?;
     Ok(Watching {
-        changes,
         doorless: None,
         asks,
     })

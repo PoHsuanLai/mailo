@@ -277,8 +277,7 @@ pub(in crate::ui) fn use_fetching(revision: Signal<u64>) -> Fetching {
         move || schedule::initial(&store, &accounts.peek(), Utc::now())
     });
     let delegate = try_consume_context::<Delegate>().unwrap_or_else(Delegate::server);
-    let doors = try_consume_context::<external::Doors>().unwrap_or_else(external::Doors::server);
-    external::use_external_changes(revision, store.clone(), doors);
+    external::use_external_changes(revision, store.clone());
     let ops = use_signal(BTreeMap::new);
     let folders = use_signal(BTreeMap::new);
     let offers = use_signal(BTreeMap::new);
