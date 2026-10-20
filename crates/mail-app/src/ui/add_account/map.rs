@@ -38,8 +38,11 @@ use ds_shell::accounts::model::{
     FormPart, Limitation, ProblemKind as ShellProblemKind, ProviderEntry, ProviderKey,
     ProviderPick, Requirement, ServiceKey, ServiceLine, ServiceOffer, SignInFault as ShellFault,
 };
+use ds_shell::prelude::Recovery;
 pub(super) use mail_core::account::draft::{Action, Out, Sheet, acted, shown};
-use mail_core::account::draft::{CopyMark, Draft, FieldDraft, ListKey, is_manual, problem_of};
+use mail_core::account::draft::{
+    CopyMark, Draft, FieldDraft, ListKey, is_manual, problem_of, retries,
+};
 use porter_core::sheet::{
     FieldKind, FieldProblem, FieldSpec, FieldValue, Presence, ProblemKind, RowKind, ServiceState,
     SheetView, SignInFault,
@@ -103,6 +106,8 @@ pub(super) enum Step {
         /// was given. The window fills it in from what the add was told ([`Step::said`]); the
         /// sheet's view of a failure carries only the fault.
         detail: Option<String>,
+        /// No "Try Again" where porter does not try again ([`retries`]); else quire's default.
+        recovery: Option<Recovery>,
     },
 }
 
@@ -110,10 +115,16 @@ impl Step {
     /// This step with what the last failed add said under it, if it is the failure.
     pub(super) fn said(self, said: Option<String>) -> Step {
         match self {
-            Step::Failed { provider, why, .. } => Step::Failed {
+            Step::Failed {
+                provider,
+                why,
+                recovery,
+                ..
+            } => Step::Failed {
                 provider,
                 why,
                 detail: said,
+                recovery,
             },
             other => other,
         }
@@ -223,6 +234,7 @@ pub(super) fn step_of(sheet: &Sheet) -> Option<Step> {
             provider: provider_label(provider),
             why: fault_of(*fault),
             detail: None,
+            recovery: (!retries(*fault)).then_some(Recovery::NoRetry),
         },
         SheetView::Done | SheetView::Consent(_) => return None,
     })

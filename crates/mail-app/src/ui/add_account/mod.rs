@@ -33,7 +33,7 @@ pub(in crate::ui) use direct::{
 };
 pub use direct::{DirectSignIns, SignInDirectly};
 pub use provider::{AddError, AddFault, Request, Seams};
-pub use window::{Browse, Fit, Opened, Wiring, add_account_root};
+pub use window::{Browse, Opened, Wiring, add_account_root};
 
 use std::cell::RefCell;
 use std::sync::Arc;

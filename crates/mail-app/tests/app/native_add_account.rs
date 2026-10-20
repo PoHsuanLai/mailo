@@ -41,6 +41,8 @@ struct Script {
     hold: Arc<Mutex<()>>,
     /// Whether a lookup finds servers: when it does not, the person types them.
     found: bool,
+    /// Whether the build has a client for a browser provider: without one, the sign-in fails.
+    client: bool,
 }
 
 impl Default for Script {
@@ -50,6 +52,7 @@ impl Default for Script {
             release: Arc::new(Notify::new()),
             hold: Arc::default(),
             found: true,
+            client: true,
         }
     }
 }
@@ -98,7 +101,10 @@ fn seams(script: &Script, log: &Arc<Log>) -> AddAccountSeams {
     AddAccountSeams {
         lookup: Arc::new(lookup),
         jmap: Arc::new(|_| Err("no jmap".to_owned())),
-        client: Arc::new(|_| true),
+        client: Arc::new({
+            let client = script.client;
+            move |_| client
+        }),
         authorize: Arc::new(move |_, _, urls| {
             let s = s.clone();
             Box::pin(async move {
@@ -128,8 +134,6 @@ const SECRET: &str = "s3cretpass4417";
 
 struct Window {
     harness: Harness,
-    /// Every size the window asked its host for, in order.
-    fits: Arc<Mutex<Vec<Extent>>>,
     log: Arc<Log>,
     opened: Arc<Mutex<Vec<String>>>,
     script: Script,
@@ -171,11 +175,7 @@ fn open_with(
         seen.lock().unwrap().push(url.to_owned());
         Ok(())
     });
-    let fits = Arc::new(Mutex::new(Vec::new()));
-    let asked = fits.clone();
-    let fit: Arc<mail_app::ui::native::AddAccountFit> =
-        Arc::new(move |extent| asked.lock().unwrap().push(extent));
-    let wiring = AddAccountWiring::new(seams(&script, &log), browse).fitting(fit);
+    let wiring = AddAccountWiring::new(seams(&script, &log), browse);
     let config = HarnessConfig::new(view)
         .with_clock(Clock::Virtual)
         .with_context(store)
@@ -189,7 +189,6 @@ fn open_with(
     harness.advance(Duration::from_millis(300));
     Window {
         harness,
-        fits,
         log,
         opened,
         script,
@@ -513,13 +512,14 @@ fn a_refused_login_says_what_the_server_said_under_the_sentence() {
         "the server's words under the sentence"
     );
     assert!(!html.contains(SECRET), "the password reached the markup");
-    // The window grew past the sentence-only steps to hold the extra lines.
-    let asked = asked(&w);
-    let sentence_only = asked.iter().map(|extent| extent.height).min().unwrap_or(0);
-    let failed = asked.last().copied().unwrap();
+    // The window grew to hold the extra lines: the detail ends inside the height asked.
+    w.harness.advance(Duration::from_millis(300));
+    let failed = asked(&w).last().copied().unwrap();
+    let detail = w.harness.rect(".add-account-detail").unwrap();
+    let bottom = detail.origin.y.0 + detail.size.height.0;
     assert!(
-        failed.height > sentence_only,
-        "{failed:?} did not make room for the detail"
+        bottom <= failed.height as f32,
+        "{failed:?} did not make room for the detail, which ends at {bottom}"
     );
 }
 
@@ -662,7 +662,7 @@ fn a_wrong_port_is_not_sent_and_is_marked_on_its_field() {
 /// What the window asked for, each size once in a row.
 fn asked(w: &Window) -> Vec<Extent> {
     let mut sizes: Vec<Extent> = Vec::new();
-    for size in w.fits.lock().unwrap().iter() {
+    for size in w.harness.window_requests().iter() {
         if sizes.last() != Some(size) {
             sizes.push(*size);
         }
@@ -791,6 +791,10 @@ fn drive_to(
             ..Script::default()
         },
         "providers" | "sign-in" | "working" | "browser" => Script::default(),
+        "no-client" => Script {
+            client: false,
+            ..Script::default()
+        },
         _ => no_servers(),
     };
     let hold = script.hold.clone();
@@ -799,13 +803,20 @@ fn drive_to(
     if target == "providers" {
         return there(&mut w);
     }
-    if target == "browser" {
+    if target == "browser" || target == "no-client" {
         type_text(&mut w, "google");
         w.harness.key(Key::Enter);
         on_step(&mut w, "sign-in");
         type_text(&mut w, "ada@gmail.com");
         w.harness.key(Key::Enter);
-        on_step(&mut w, "browser");
+        on_step(
+            &mut w,
+            if target == "browser" {
+                "browser"
+            } else {
+                "failed"
+            },
+        );
         return there(&mut w);
     }
     // Everything else goes through "Other…" for a typed server, or Fastmail for a password.
@@ -901,4 +912,75 @@ fn render_the_typed_forms_and_the_resized_steps() {
             }
         }
     }
+}
+
+/// Every step, the failures with a sentence that wraps among them, asks for a window it fits in:
+/// the step's content ends inside the height asked. Each is laid out at the width it asks for.
+#[test]
+fn every_step_fits_in_the_window_it_asks_for() {
+    for target in [
+        "providers",
+        "sign-in",
+        "server-imap",
+        "server-pop3",
+        "server-jmap",
+        "working",
+        "failed",
+        "no-client",
+        "browser",
+    ] {
+        let width = if target.starts_with("server") {
+            560
+        } else {
+            480
+        };
+        let view = Viewport {
+            width,
+            height: 1000,
+            scale_percent: 100,
+        };
+        drive_to(target, ds::prelude::Theme::Light, view, &mut |w| {
+            w.harness.advance(Duration::from_millis(600));
+            let step = w
+                .harness
+                .rect(".add-account-step")
+                .expect("a step is drawn");
+            let bottom = step.origin.y.0 + step.size.height.0;
+            let asked = *asked(w).last().expect("the step asked for a size");
+            assert_eq!(asked.width, width, "{target}");
+            assert!(
+                bottom <= asked.height as f32,
+                "{target}: the content ends at {bottom}, the window asked for {asked:?}"
+            );
+            assert!(
+                asked.height as f32 - bottom < 1.0 || asked.height == 135,
+                "{target}: {asked:?} is taller than the content, which ends at {bottom}"
+            );
+        });
+    }
+}
+
+/// With no client for the provider, asking again cannot help: the failure offers no Try Again,
+/// and Back still goes back to the list.
+#[test]
+fn a_provider_with_no_client_offers_no_try_again_and_back_still_goes_back() {
+    let script = Script {
+        client: false,
+        ..Script::default()
+    };
+    let mut w = open(script, None);
+    on_step(&mut w, "providers");
+    type_text(&mut w, "google");
+    w.harness.key(Key::Enter);
+    on_step(&mut w, "sign-in");
+    type_text(&mut w, "ada@gmail.com");
+    w.harness.key(Key::Enter);
+    on_step(&mut w, "failed");
+    let actions = w.harness.text_of(".ds-acc-actions").unwrap_or_default();
+    assert!(
+        !actions.contains("Try Again"),
+        "a retry that cannot help is offered: {actions}"
+    );
+    click_text(&mut w, ".ds-acc-actions > :nth-child(1)");
+    on_step(&mut w, "providers");
 }
