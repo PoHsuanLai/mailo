@@ -12,7 +12,8 @@
 //! Settings does, with quire's `PaneStack`; a sheet is only for making something or asking
 //! before something goes. Spaces lists each Space, whose row pushes its page: its name, colour,
 //! theme and accounts, and its deletion ([`spaces`]); the Space's menu, a right click on the
-//! Space's name, is the quick way to the same. A person is edited from their name in mail, and contacts
+//! Space's name, is the quick way to the same, and its Edit Space… opens the Space's page here
+//! ([`open_space`]). A person is edited from their name in mail, and contacts
 //! come in and go out through ⌘K, so Contacts is not a page here.
 //!
 //! Every way into one of those pages from the main window (⌘K, the composer's bar) opens the
@@ -42,7 +43,10 @@ pub(in crate::ui) use keys::with_value;
 pub use root::settings_root;
 
 use crate::ui::copy;
-use crate::ui::view::{AccountStep, AccountsPage, AccountsPane, RulesAt, SettingsPage, Shell};
+use crate::ui::space::SpaceId;
+use crate::ui::view::{
+    AccountStep, AccountsPage, AccountsPane, RulesAt, SettingsPage, Shell, SpacesPage,
+};
 use dioxus::prelude::*;
 use ds::components::chrome::sidebar::Sidebar;
 use ds::components::chrome::sidebar_model::SidebarSection;
@@ -94,11 +98,13 @@ impl SettingsPage {
     }
 }
 
-/// Where the Settings window is asked to be: a page, or one account's page pushed over Accounts.
+/// Where the Settings window is asked to be: a page, one account's page pushed over Accounts, or
+/// one Space's pushed over Spaces.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SettingsAt {
     Page(SettingsPage),
     Account(AccountId),
+    Space(SpaceId),
 }
 
 impl SettingsAt {
@@ -107,18 +113,30 @@ impl SettingsAt {
         match self {
             SettingsAt::Page(page) => *page,
             SettingsAt::Account(_) => SettingsPage::Accounts,
+            SettingsAt::Space(_) => SettingsPage::Spaces,
         }
     }
 
     /// The Accounts pane as it stands there: the list, or the account's page over it.
     pub(in crate::ui) fn pane(&self) -> AccountsPane {
         match self {
-            SettingsAt::Page(_) => AccountsPane::default(),
+            SettingsAt::Page(_) | SettingsAt::Space(_) => AccountsPane::default(),
             SettingsAt::Account(account) => AccountsPane {
                 path: PanePath::new(AccountsPage::List)
                     .pushed(AccountsPage::Account(account.clone())),
                 step: AccountStep::Showing,
             },
+        }
+    }
+}
+
+impl SettingsAt {
+    /// The Spaces pane as it stands there: the list, or the Space's page over it.
+    pub(in crate::ui) fn spaces_pane(&self) -> PanePath<SpacesPage> {
+        let list = PanePath::new(SpacesPage::List);
+        match self {
+            SettingsAt::Space(space) => list.pushed(SpacesPage::Space(*space)),
+            SettingsAt::Page(_) | SettingsAt::Account(_) => list,
         }
     }
 }
@@ -209,6 +227,12 @@ pub(in crate::ui) fn open_account(account: AccountId) {
     ask(Some(SettingsAt::Account(account)));
 }
 
+/// Open Settings on `space`'s page, pushed over Spaces, or raise it and turn it there: the
+/// Space's menu's Edit Space….
+pub(in crate::ui) fn open_space(space: SpaceId) {
+    ask(Some(SettingsAt::Space(space)));
+}
+
 fn ask(at: Option<SettingsAt>) {
     match try_consume_context::<SettingsWindows>() {
         Some(windows) => windows.0.open(at),
@@ -230,16 +254,21 @@ pub(in crate::ui) fn go(mut shell: Signal<Shell>, page: SettingsPage) {
         write.accounts_pane = AccountsPane::default();
     }
     write.rules.path = PanePath::new(RulesAt::List);
-    write.spaces_pane = PanePath::new(crate::ui::view::SpacesPage::List);
+    write.spaces_pane = PanePath::new(SpacesPage::List);
 }
 
-/// Turn this Settings window to `at`: a page, or an account's page over Accounts.
+/// Turn this Settings window to `at`: a page, an account's page over Accounts, or a Space's
+/// over Spaces.
 pub(in crate::ui) fn go_to(shell: Signal<Shell>, at: SettingsAt) {
     match at {
         SettingsAt::Page(page) => go(shell, page),
         SettingsAt::Account(account) => {
             go(shell, SettingsPage::Accounts);
             accounts::push(shell, account);
+        }
+        SettingsAt::Space(space) => {
+            go(shell, SettingsPage::Spaces);
+            spaces::push(shell, space);
         }
     }
 }
