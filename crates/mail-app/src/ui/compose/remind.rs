@@ -8,6 +8,7 @@
 
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
+use mail_core::when::Clock;
 
 use super::super::menu::{MenuItem, MenuKey, Right, menu_key};
 use super::super::menus::{snooze_help, when_in_sentence, when_words};
@@ -44,25 +45,31 @@ impl Remind {
         self,
         leaves: DateTime<Utc>,
         zone: &Tz,
+        clock: Clock,
     ) -> Result<Option<DateTime<Utc>>, String>
     where
         Tz::Offset: std::fmt::Display,
     {
         match self {
             Remind::Off => Ok(None),
-            Remind::After(key) => mail_core::follow_up::due(key, leaves, zone)
+            Remind::After(key) => mail_core::follow_up::due(key, leaves, zone, clock)
                 .map(Some)
                 .map_err(String::from),
             Remind::At(at) if at <= leaves => Err(format!(
                 "The reminder, {}, comes before the message leaves. Pick a later time.",
-                when_words(at, leaves, zone)
+                when_words(at, leaves, zone, clock)
             )),
             Remind::At(at) => Ok(Some(at)),
         }
     }
 
     /// What the row's button says.
-    pub(in crate::ui) fn shown<Tz: TimeZone>(self, now: DateTime<Utc>, zone: &Tz) -> String
+    pub(in crate::ui) fn shown<Tz: TimeZone>(
+        self,
+        now: DateTime<Utc>,
+        zone: &Tz,
+        clock: Clock,
+    ) -> String
     where
         Tz::Offset: std::fmt::Display,
     {
@@ -73,7 +80,7 @@ impl Remind {
                 .find(|(choice, _)| *choice == key)
                 .map(|(_, says)| format!("{says}, if no reply"))
                 .unwrap_or_default(),
-            Remind::At(at) => format!("{}, if no reply", when_words(at, now, zone)),
+            Remind::At(at) => format!("{}, if no reply", when_words(at, now, zone, clock)),
         }
     }
 }
@@ -84,6 +91,7 @@ pub(in crate::ui) fn remind_choices<Tz: TimeZone>(
     remind: Remind,
     now: DateTime<Utc>,
     zone: &Tz,
+    clock: Clock,
 ) -> Vec<MenuItem>
 where
     Tz::Offset: std::fmt::Display,
@@ -96,18 +104,18 @@ where
     let mut items: Vec<MenuItem> = mail_core::follow_up::CHOICES
         .iter()
         .filter_map(|(key, says)| {
-            let at = mail_core::follow_up::due(key, now, zone).ok()?;
+            let at = mail_core::follow_up::due(key, now, zone, clock).ok()?;
             Some(row(
                 key,
                 Icon::Bell,
                 says,
-                Some(snooze_help(at, zone)),
+                Some(snooze_help(at, zone, clock)),
                 remind == Remind::After(key),
             ))
         })
         .collect();
     let (help, on) = match remind {
-        Remind::At(at) => (Some(when_words(at, now, zone)), true),
+        Remind::At(at) => (Some(when_words(at, now, zone, clock)), true),
         _ => (None, false),
     };
     items.push(row(PICK_KEY, Icon::Clock, "Pick a Time…", help, on));
@@ -119,6 +127,7 @@ pub(in crate::ui) fn remind_items<Tz: TimeZone>(
     remind: Remind,
     now: DateTime<Utc>,
     zone: &Tz,
+    clock: Clock,
 ) -> Vec<MenuItem>
 where
     Tz::Offset: std::fmt::Display,
@@ -127,7 +136,7 @@ where
         right: Right::Check(remind == Remind::Off),
         ..MenuItem::icon(OFF_KEY, Icon::X, "Off")
     }];
-    items.extend(remind_choices(remind, now, zone));
+    items.extend(remind_choices(remind, now, zone, clock));
     items
 }
 
@@ -155,6 +164,7 @@ pub(in crate::ui) fn choose_remind<Tz: TimeZone>(
     page: &mut Page,
     now: DateTime<Utc>,
     zone: &Tz,
+    clock: Clock,
 ) -> Result<DateTime<Utc>, String>
 where
     Tz::Offset: std::fmt::Display,
@@ -162,7 +172,7 @@ where
     let Float::PickRemind(typed) = &page.float else {
         return Err("Type a time".to_owned());
     };
-    let at = mail_core::follow_up::due(typed, now, zone)?;
+    let at = mail_core::follow_up::due(typed, now, zone, clock)?;
     page.remind = Remind::At(at);
     page.float = Float::Closed;
     page.touch();
@@ -177,8 +187,9 @@ pub(in crate::ui) fn RemindRow(page: Signal<Page>) -> Element {
         return rsx! {};
     }
     let now = super::super::clock::now();
-    let items = remind_items(remind, now, &chrono::Local);
-    let shown = remind.shown(now, &chrono::Local);
+    let hours = super::super::clock::hours();
+    let items = remind_items(remind, now, &chrono::Local, hours);
+    let shown = remind.shown(now, &chrono::Local, hours);
     rsx! {
         ChoiceRow {
             page,
@@ -203,14 +214,15 @@ pub(in crate::ui) fn PickRemind(page: Signal<Page>, anchor: Option<MountedRef>) 
         return rsx! {};
     };
     let now = super::super::clock::now();
-    let reading = mail_core::follow_up::due(&typed, now, &chrono::Local);
+    let hours = super::super::clock::hours();
+    let reading = mail_core::follow_up::due(&typed, now, &chrono::Local, hours);
     // What it reads is help under the field; a phrase it cannot read is the field's own refusal.
     let (validity, says) = match &reading {
         Ok(at) => (
             Validity::Valid,
             Some(format!(
                 "Back {} if nobody answers",
-                when_in_sentence(*at, now, &chrono::Local)
+                when_in_sentence(*at, now, &chrono::Local, hours)
             )),
         ),
         Err(why) if typed.trim().is_empty() => (Validity::Valid, Some(why.to_string())),
@@ -236,7 +248,7 @@ pub(in crate::ui) fn PickRemind(page: Signal<Page>, anchor: Option<MountedRef>) 
                         Some(MenuKey::Enter) => {
                             event.prevent_default();
                             let now = super::super::clock::now();
-                            let _ = choose_remind(&mut page.write(), now, &chrono::Local);
+                            let _ = choose_remind(&mut page.write(), now, &chrono::Local, hours);
                         }
                         Some(MenuKey::Escape) => {
                             event.stop_propagation();

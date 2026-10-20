@@ -41,7 +41,13 @@ pub(super) enum Drawn {
 }
 
 /// Attachment `index` of `message`, page `page` if it is a PDF. Blocking: reads and decodes.
-pub(super) fn draw(store: &Arc<SqliteStore>, message: MessageId, index: usize, page: u32) -> Drawn {
+pub(super) fn draw(
+    store: &Arc<SqliteStore>,
+    message: MessageId,
+    index: usize,
+    page: u32,
+    clock: mail_core::when::Clock,
+) -> Drawn {
     let stored = match store.message(message) {
         Ok(stored) => stored,
         Err(why) => return Drawn::Said(copy::status::no_preview(&why.to_string())),
@@ -56,20 +62,21 @@ pub(super) fn draw(store: &Arc<SqliteStore>, message: MessageId, index: usize, p
         Ok(head) => head,
         Err(why) => return Drawn::Said(copy::status::no_preview(&why.to_string())),
     };
-    let read: fn(MessageId, &[u8]) -> Option<Sheet> = match route::own(&attachment.name, &head) {
-        Some(Own::Svg) => return Drawn::Said(copy::status::NO_PREVIEW.to_owned()),
-        Some(Own::Calendar) => own::calendar,
-        Some(Own::Contact) => |_, bytes| own::contact(bytes),
-        Some(Own::Message) => |_, bytes| own::message(bytes),
-        Some(Own::Picture) | None => return picture(store, message, index, page),
-    };
+    let read: fn(MessageId, &[u8], mail_core::when::Clock) -> Option<Sheet> =
+        match route::own(&attachment.name, &head) {
+            Some(Own::Svg) => return Drawn::Said(copy::status::NO_PREVIEW.to_owned()),
+            Some(Own::Calendar) => own::calendar,
+            Some(Own::Contact) => |_, bytes, _| own::contact(bytes),
+            Some(Own::Message) => |_, bytes, clock| own::message(bytes, clock),
+            Some(Own::Picture) | None => return picture(store, message, index, page),
+        };
     let whole = match store.blobs().size(blob) {
         Ok(size) if size <= OWN_LIMIT => store.blobs().get(blob),
         Ok(_) => return Drawn::Said(copy::status::NO_PREVIEW.to_owned()),
         Err(why) => Err(why),
     };
     match whole {
-        Ok(bytes) => read(message, &bytes).map_or_else(
+        Ok(bytes) => read(message, &bytes, clock).map_or_else(
             || Drawn::Said(copy::status::NO_PREVIEW.to_owned()),
             Drawn::Sheet,
         ),
@@ -207,14 +214,18 @@ pub(super) fn PartPeek(shell: Signal<Shell>) -> Element {
     let wanted = use_memo(move || {
         viewing_of(&shell.read()).map(|viewing| (viewing.message, viewing.index, viewing.page))
     });
+    let hours = crate::ui::clock::hours();
     let drawn = use_resource(move || {
         let store = consume_context::<Arc<SqliteStore>>();
         let wanted = wanted();
         async move {
             let (message, index, page) = wanted?;
-            let drawn = tokio::task::spawn_blocking(move || draw(&store, message, index, page))
-                .await
-                .unwrap_or_else(|error| Drawn::Said(copy::status::no_preview(&error.to_string())));
+            let drawn =
+                tokio::task::spawn_blocking(move || draw(&store, message, index, page, hours))
+                    .await
+                    .unwrap_or_else(|error| {
+                        Drawn::Said(copy::status::no_preview(&error.to_string()))
+                    });
             if let Drawn::Page(page) = &drawn {
                 let mut shell = shell;
                 let known = viewing_of(&shell.peek());

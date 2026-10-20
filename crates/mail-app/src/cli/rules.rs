@@ -327,7 +327,7 @@ pub async fn run_vacation(mail: &Mail, command: &VacationCmd) -> Result<String, 
     mail.rules()
         .run_vacation(command)
         .await
-        .map(|done| vacation_text(&done))
+        .map(|done| vacation_text(&done, mail.environment().hours))
 }
 
 /// `sieve …`: run it, and say what it did.
@@ -339,14 +339,14 @@ pub async fn run_sieve(mail: &Mail, command: &SieveCmd) -> Result<String, CoreEr
 }
 
 /// What a vacation command did, for the terminal.
-pub fn vacation_text(done: &VacationDone) -> String {
+pub fn vacation_text(done: &VacationDone, clock: mail_core::when::Clock) -> String {
     match done {
         VacationDone::Show { address, vacation } => match vacation {
             None => format!("{address}: no vacation reply\n"),
-            Some(kept) => shown(kept),
+            Some(kept) => shown(kept, clock),
         },
         VacationDone::On { kept, pushed } => {
-            let mut out = shown(kept);
+            let mut out = shown(kept, clock);
             out.push_str(&push_text(pushed));
             out
         }
@@ -360,11 +360,13 @@ pub fn vacation_text(done: &VacationDone) -> String {
     }
 }
 
-fn shown(kept: &KeptVacation) -> String {
+fn shown(kept: &KeptVacation, clock: mail_core::when::Clock) -> String {
     let v = &kept.vacation;
     let mut out = format!("{}: vacation reply {:?}", kept.address, v.subject);
-    let when =
-        |t: DateTime<Utc>| mail_core::when::stamp(t, &chrono::Local, mail_core::when::Stamp::Full);
+    // Shown, not read back: `--from` and `--until` are typed afresh, so this follows the clock.
+    let when = |t: DateTime<Utc>| {
+        mail_core::when::stamp(t, &chrono::Local, mail_core::when::Stamp::Full, clock)
+    };
     match (v.during.from, v.during.to) {
         (None, None) => out.push_str(", from now until turned off"),
         (Some(a), None) => out.push_str(&format!(", from {}", when(a))),

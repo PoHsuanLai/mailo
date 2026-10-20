@@ -71,9 +71,10 @@ impl Disclosure {
 #[component]
 pub(in crate::ui) fn Invitation(message: MessageId, body: Option<BlobId>) -> Element {
     let looks = crate::ui::reading::use_looks();
+    let hours = crate::ui::clock::hours();
     let mut known = use_signal({
         let looks = looks.clone();
-        move || cached(&looks, message, body)
+        move || cached(&looks, message, body, hours)
     });
     let _look = use_resource(move || {
         let store = consume_context::<Arc<SqliteStore>>();
@@ -82,9 +83,10 @@ pub(in crate::ui) fn Invitation(message: MessageId, body: Option<BlobId>) -> Ele
             if known.peek().is_some() {
                 return;
             }
-            let found = tokio::task::spawn_blocking(move || lookup(&looks, &store, message, body))
-                .await
-                .unwrap_or_default();
+            let found =
+                tokio::task::spawn_blocking(move || lookup(&looks, &store, message, body, hours))
+                    .await
+                    .unwrap_or_default();
             known.set(Some(found));
         }
     });
@@ -368,6 +370,7 @@ fn give(
     }
     phase.set(Phase::Working);
     let store = consume_context::<Arc<SqliteStore>>();
+    let hours = crate::ui::clock::hours();
     // Spawned from a click or a key, which is where a task is polled (F140).
     spawn(async move {
         let done = tokio::task::spawn_blocking(move || {
@@ -379,6 +382,7 @@ fn give(
                 attendance,
                 note,
                 chrono::Utc::now(),
+                hours,
             )
         })
         .await;

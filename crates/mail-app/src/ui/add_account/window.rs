@@ -39,10 +39,6 @@ use crate::ui::style::STYLE;
 /// Open an address in the system browser.
 pub type Browse = dyn Fn(&str) -> Result<(), String> + Send + Sync;
 
-/// Told each size the window asks for: the size of the step it now shows, capped to the screen
-/// (`size`). A test's seam; the window itself resizes through quire's `WindowSizer`.
-pub type Fit = dyn Fn(ds_blitz::Extent) + Send + Sync;
-
 /// What the window reaches the world with: the sign-in's seams, and the system's browser.
 /// Compared by identity, as every other window's props are.
 #[derive(Clone)]
@@ -51,7 +47,6 @@ pub struct Wiring(Arc<Reach>);
 struct Reach {
     seams: Seams,
     browse: Arc<Browse>,
-    fit: Arc<Fit>,
 }
 
 impl PartialEq for Wiring {
@@ -71,18 +66,7 @@ impl Wiring {
 
     /// `seams` and `browse`, which a test makes.
     pub fn new(seams: Seams, browse: Arc<Browse>) -> Wiring {
-        // A test sees the sizes asked; the window resizes itself through quire's sizer.
-        let fit: Arc<Fit> = Arc::new(|_| {});
-        Wiring(Arc::new(Reach { seams, browse, fit }))
-    }
-
-    /// The same wiring, handing each size the window asks for to `fit`.
-    pub fn fitting(self, fit: Arc<Fit>) -> Wiring {
-        Wiring(Arc::new(Reach {
-            seams: self.0.seams.clone(),
-            browse: Arc::clone(&self.0.browse),
-            fit,
-        }))
+        Wiring(Arc::new(Reach { seams, browse }))
     }
 }
 
@@ -176,6 +160,7 @@ fn AddAccountShell(wiring: Wiring, prefill: Option<String>) -> Element {
         let browse = Arc::clone(&wiring.0.browse);
         move || {
             let mut views = end.views.clone();
+            let inputs = end.inputs.clone();
             let browse = Arc::clone(&browse);
             async move {
                 while views.changed().await.is_ok() {
@@ -184,6 +169,21 @@ fn AddAccountShell(wiring: Wiring, prefill: Option<String>) -> Element {
                         continue;
                     };
                     let (next, out) = map::shown(sheet.peek().clone(), *view);
+                    // A review with nothing on it to choose or to read (mailo adds an account's
+                    // mail and nothing else of what a provider offers) is not drawn: what the
+                    // person typed and sent was the confirmation, and the account is added at
+                    // once. One that says what the provider lacks is still shown.
+                    if matches!(map::step_of(&next), Some(Step::Review(props)) if props.services.is_empty())
+                    {
+                        let (confirming, input) = map::acted(next, Action::Confirm);
+                        sheet.set(confirming);
+                        if let Some(input) = input {
+                            // The service has ended if nobody is receiving, and the window closes
+                            // with it.
+                            let _ = inputs.send(input);
+                        }
+                        continue;
+                    }
                     sheet.set(next);
                     for Out::OpenPage(page) in out {
                         // The address is on screen too, to copy, when no browser takes it.
@@ -209,45 +209,31 @@ fn AddAccountShell(wiring: Wiring, prefill: Option<String>) -> Element {
 
     // The service ended: an account added is the app's to draw, and the window is done.
     let handle = ds_blitz::use_window_handle();
+    let added_to = added.clone();
     use_effect(move || {
         let Some(ended) = finished() else { return };
         // Nothing is left to draw (and nothing typed is kept) while the window goes.
         sheet.set(Sheet::default());
         if ended == Ended::Added {
-            if let Some(account) = added.take().and_then(|address| account_at(&address)) {
+            if let Some(account) = added_to.take().and_then(|address| account_at(&address)) {
                 into_scope(&mut spaces, account);
             }
             revision += 1;
+            // Told to the other windows now, not by the effect that publishes `revision`: that
+            // runs on the next poll, and the window is closed before it comes.
+            if let Some(revisions) = try_consume_context::<crate::ui::revisions::Revisions>() {
+                revisions.bump();
+            }
         }
         if let Some(handle) = &handle {
             handle.close();
         }
     });
 
-    let step = map::step_of(&sheet.read());
-    // The window is as big as the step it shows, capped to the screen: asked again only when the
-    // size changes, and not at all once the person has resized the window themselves.
-    let screen = ds_blitz::use_app_handle().and_then(|app| app.screen_extent());
-    let wanted = size::fitted(size::extent(step.as_ref()), screen);
-    let fit = Arc::clone(&wiring.0.fit);
-    let sizer = ds_blitz::use_window_sizer();
-    let asked = use_hook(|| std::rc::Rc::new(std::cell::Cell::new(None::<ds_blitz::Extent>)));
-    use_effect(use_reactive!(|wanted| {
-        if asked.get() == Some(wanted) {
-            return;
-        }
-        let person = sizer
-            .as_ref()
-            .is_some_and(|sizer| sizer.origin() == Some(ds_blitz::SizeOrigin::Person));
-        if person {
-            return;
-        }
-        asked.set(Some(wanted));
-        fit(wanted);
-        if let Some(sizer) = &sizer {
-            sizer.request_size(wanted);
-        }
-    }));
+    let step = map::step_of(&sheet.read()).map(|step| step.said(added.said()));
+    // The window is as tall as the step it shows, measured after each layout, at the step's
+    // width (`size`).
+    let fit = ds_blitz::use_content_fit(size::width(step.as_ref()), size::least());
     let slug = step.as_ref().map_or("none", Step::slug);
     rsx! {
         Frame { spaces, sheet: Some(ds_shell::stylesheet()),
@@ -264,7 +250,12 @@ fn AddAccountShell(wiring: Wiring, prefill: Option<String>) -> Element {
                 if let Some(step) = step {
                     // One column per step: a new step mounts afresh and the keyboard lands on its
                     // default control again.
-                    div { class: "add-account-step", key: "{slug}", {body(step, send, marks)} }
+                    div {
+                        class: "add-account-step",
+                        key: "{slug}",
+                        onmounted: move |event| fit.on_mounted(event),
+                        {body(step, send, marks)}
+                    }
                 }
             }
         }
@@ -375,14 +366,24 @@ fn body(step: Step, send: Callback<Action>, marks: Marks) -> Element {
                 title: StepTitle::Own,
             }
         },
-        Step::Failed { provider, why } => rsx! {
+        Step::Failed {
+            provider,
+            why,
+            detail,
+            recovery,
+        } => rsx! {
             SignInFailed {
                 provider,
                 why,
+                recovery,
                 on_retry: move |()| send.call(Action::Retry),
                 on_back: back,
                 on_cancel: cancel,
                 title: StepTitle::Own,
+            }
+            if let Some(detail) = detail {
+                // What the sentence leaves out: the server's own words, under the buttons.
+                p { class: "add-account-detail", role: "alert", "{detail}" }
             }
         },
     }

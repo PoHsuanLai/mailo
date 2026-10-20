@@ -1,4 +1,5 @@
 use super::{DEPTH, Undo, UndoStack, reverse_intent, said, said_of};
+use crate::when::Clock;
 use chrono::{TimeZone, Utc};
 use mail_domain::id::new_account_id;
 use mail_domain::*;
@@ -163,10 +164,13 @@ fn one_gesture_on_several_conversations_is_one_entry() {
 
 #[test]
 fn a_toast_for_several_counts_them() {
-    assert_eq!(said_of(&Op::Archive, 1, &Utc), "Archived");
-    assert_eq!(said_of(&Op::Archive, 3, &Utc), "Archived · 3 conversations");
+    assert_eq!(said_of(&Op::Archive, 1, &Utc, Clock::H24), "Archived");
     assert_eq!(
-        said_of(&Op::Trash, 2, &Utc),
+        said_of(&Op::Archive, 3, &Utc, Clock::H24),
+        "Archived · 3 conversations"
+    );
+    assert_eq!(
+        said_of(&Op::Trash, 2, &Utc, Clock::H24),
         "Moved to Trash · 2 conversations"
     );
 }
@@ -185,7 +189,7 @@ fn the_toast_says_what_happened() {
         ),
     ];
     for (make, want) in CASES {
-        assert_eq!(said(&make(at), &Utc), *want);
+        assert_eq!(said(&make(at), &Utc, Clock::H24), *want);
     }
 }
 

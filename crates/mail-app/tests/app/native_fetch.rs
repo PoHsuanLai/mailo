@@ -30,6 +30,19 @@ const VIEW: Viewport = Viewport {
 fn bare(dir: &std::path::Path) -> Arc<SqliteStore> {
     std::fs::create_dir_all(dir.join("blobs")).unwrap();
     let store = SqliteStore::open(dir.join("mail.db"), dir.join("blobs")).unwrap();
+    with_account(&store, acct_account(), "me@example.test");
+    mail_store::testing::seed_identity_for(
+        &store,
+        IdentityId::generate(),
+        acct_account(),
+        "me@example.test",
+        None,
+    );
+    Arc::new(store)
+}
+
+/// An IMAP account at `address` with its link and the capabilities its preset expects.
+fn with_account(store: &SqliteStore, id: AccountId, address: &str) {
     let manual = presets::Manual {
         imap_host: "imap.nowhere.example".to_owned(),
         imap_port: 993,
@@ -37,27 +50,17 @@ fn bare(dir: &std::path::Path) -> Arc<SqliteStore> {
         smtp_port: 465,
         login: None,
     };
-    let preset = presets::manual("me@example.test", &manual, chrono::Utc::now());
-    {
-        mail_store::testing::seed_account_plan(
-            &store,
-            acct_account(),
-            &preset.plan.address,
-            &preset.plan,
-            Some(chrono::Utc::now()),
-        );
-        mail_store::testing::seed_identity_for(
-            &store,
-            IdentityId::generate(),
-            acct_account(),
-            "me@example.test",
-            None,
-        );
-    }
+    let preset = presets::manual(address, &manual, chrono::Utc::now());
+    mail_store::testing::seed_account_plan(
+        store,
+        id.clone(),
+        &preset.plan.address,
+        &preset.plan,
+        Some(chrono::Utc::now()),
+    );
     store
-        .put_caps(acct_account(), &preset.expected_caps, chrono::Utc::now())
+        .put_caps(id, &preset.expected_caps, chrono::Utc::now())
         .unwrap();
-    Arc::new(store)
 }
 
 #[test]
@@ -98,4 +101,41 @@ fn an_account_never_fetched_shows_placeholder_rows_and_no_caption() {
         0,
         "a first fetch is not an empty mailbox"
     );
+}
+
+/// An account added while the window is open (in the Add Account window, which tells every
+/// window through `Revisions` as it closes) is said in a toast, and the window takes it in; the
+/// accounts the window opened with are not.
+#[test]
+fn an_account_added_while_the_window_is_open_is_said() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = bare(dir.path());
+    let revisions = mail_app::ui::native::Revisions::new();
+    let contexts = mail_app::ui::native::contexts(
+        Arc::clone(&store),
+        mail_app::ui::view::Appearance::default(),
+        None,
+        None,
+        mail_app::ui::Start::Inbox,
+    )
+    .with(revisions.clone());
+    let config = HarnessConfig::new(VIEW)
+        .with_net(NetPolicy::Local)
+        .with_focus_fallback(FocusFallback::Ancestor)
+        .with_clock(Clock::Virtual)
+        .with_contexts(contexts);
+    let mut harness = Harness::new(mail_app::ui::native::root, config);
+    harness.advance(Duration::from_millis(300));
+    settle_until(&mut harness, |h| h.count(".ds-skeleton-row") > 0);
+    assert!(
+        !harness.html().contains("Added me@example.test"),
+        "an account the window opened with is not news"
+    );
+
+    let other = account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b8"));
+    with_account(&store, other, "you@example.test");
+    revisions.bump();
+    settle_until(&mut harness, |h| {
+        h.html().contains("Added you@example.test")
+    });
 }

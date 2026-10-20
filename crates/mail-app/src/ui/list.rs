@@ -207,6 +207,7 @@ pub(super) fn ThreadList(
     let mut lines: std::collections::HashMap<Slot, ThreadLines> = std::collections::HashMap::new();
     let composing = shell.read().composing.as_ref().map(|open| open.draft);
     let now = chrono::Utc::now();
+    let hours = super::clock::hours();
     // Every row, a conversation or a draft, is the one `ListRow`, drawn from its `RowModel`.
     let mut push_row = |slot: Slot,
                         listed: Listed,
@@ -214,7 +215,7 @@ pub(super) fn ThreadList(
                         selection: Selection,
                         items: &mut Vec<ListItem<Slot>>| {
         let Dress { via, chips, hit } = dress;
-        let model = listed.row(hit.as_ref(), snippets, now, &chrono::Local);
+        let model = listed.row(hit.as_ref(), snippets, now, &chrono::Local, hours);
         lines.insert(slot.clone(), model.lines);
         let label = listed.subject();
         items.push(ListItem::row(

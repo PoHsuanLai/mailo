@@ -140,6 +140,7 @@ fn place_named(words: &str) -> Option<Chosen> {
     if words.eq_ignore_ascii_case("all") || words.eq_ignore_ascii_case("everything") {
         return Some(Chosen::All);
     }
+    // Words that name no role are not a choice.
     words.parse().ok().map(Chosen::Role)
 }
 

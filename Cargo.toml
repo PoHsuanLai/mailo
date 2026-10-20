@@ -74,8 +74,8 @@ log         = "0.4"
 # copied verbatim: only the lines mailo names itself. The window reaches the Blitz
 # document through these to focus, select or scroll an element found by selector
 # (`ui/host/native.rs`).
-blitz-dom = { git = "https://github.com/PoHsuanLai/blitz", rev = "4b2367921b33981189e4255184dad74c96fc3341", default-features = false, features = ["svg", "system-fonts", "custom-widget", "accessibility"] }
-dioxus-native-dom = { git = "https://github.com/PoHsuanLai/blitz", rev = "4b2367921b33981189e4255184dad74c96fc3341", default-features = false, features = ["svg", "system-fonts", "accessibility"] }
+blitz-dom = { git = "https://github.com/PoHsuanLai/blitz", rev = "851fa7dda55f4086f49ec221a7ac5fcfb1493856", default-features = false, features = ["svg", "system-fonts", "custom-widget", "accessibility"] }
+dioxus-native-dom = { git = "https://github.com/PoHsuanLai/blitz", rev = "851fa7dda55f4086f49ec221a7ac5fcfb1493856", default-features = false, features = ["svg", "system-fonts", "accessibility"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
@@ -167,11 +167,11 @@ opt-level = 2
 # only at a workspace root and mailo builds the renderer (`ds-blitz`). Change it only by pasting
 # that file again; `scripts/check-fork-patches.sh` fails CI when the two differ.
 [patch.crates-io]
-vello_common = { git = "https://github.com/PoHsuanLai/vello", rev = "3e43d4af1f1955f2efc2cd52e50350811a1386ca" }
-vello_cpu = { git = "https://github.com/PoHsuanLai/vello", rev = "3e43d4af1f1955f2efc2cd52e50350811a1386ca" }
-vello_hybrid = { git = "https://github.com/PoHsuanLai/vello", rev = "3e43d4af1f1955f2efc2cd52e50350811a1386ca" }
-vello_sparse_shaders = { git = "https://github.com/PoHsuanLai/vello", rev = "3e43d4af1f1955f2efc2cd52e50350811a1386ca" }
-glifo = { git = "https://github.com/PoHsuanLai/vello", rev = "3e43d4af1f1955f2efc2cd52e50350811a1386ca" }
+vello_common = { git = "https://github.com/PoHsuanLai/vello", rev = "84b2c9f7debed7d15f48d0ec9ea8575c16a56938" }
+vello_cpu = { git = "https://github.com/PoHsuanLai/vello", rev = "84b2c9f7debed7d15f48d0ec9ea8575c16a56938" }
+vello_hybrid = { git = "https://github.com/PoHsuanLai/vello", rev = "84b2c9f7debed7d15f48d0ec9ea8575c16a56938" }
+vello_sparse_shaders = { git = "https://github.com/PoHsuanLai/vello", rev = "84b2c9f7debed7d15f48d0ec9ea8575c16a56938" }
+glifo = { git = "https://github.com/PoHsuanLai/vello", rev = "84b2c9f7debed7d15f48d0ec9ea8575c16a56938" }
 anyrender = { git = "https://github.com/PoHsuanLai/anyrender", rev = "d4ae3885f89a58351ff7e99cd75d9b7de5865337" }
 anyrender_vello_cpu = { git = "https://github.com/PoHsuanLai/anyrender", rev = "d4ae3885f89a58351ff7e99cd75d9b7de5865337" }
 anyrender_vello_hybrid = { git = "https://github.com/PoHsuanLai/anyrender", rev = "d4ae3885f89a58351ff7e99cd75d9b7de5865337" }

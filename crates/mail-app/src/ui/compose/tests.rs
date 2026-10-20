@@ -229,7 +229,13 @@ fn ScheduledRows(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
         for listed in held.into_iter().filter(|draft| matches!(draft.state, SendState::Scheduled { .. })).map(Listed::Draft) {
             crate::ui::row::ListRow {
                 key: "{listed.key()}",
-                model: listed.row(None, false, chrono::Utc::now(), &chrono::Local),
+                model: listed.row(
+                    None,
+                    false,
+                    chrono::Utc::now(),
+                    &chrono::Local,
+                    mail_core::when::Clock::H24,
+                ),
                 listed,
                 shell,
                 revision,

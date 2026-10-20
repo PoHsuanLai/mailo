@@ -163,8 +163,15 @@ fn submissions(store: &SqliteStore) -> Vec<String> {
         .collect()
 }
 
+/// What is queued for the server beyond flags: opening a conversation marks it read, which is
+/// not an answer.
 fn outbox(store: &SqliteStore) -> usize {
-    store.outbox_due(acct_account(), far()).unwrap().len()
+    store
+        .outbox_due(acct_account(), far())
+        .unwrap()
+        .iter()
+        .filter(|entry| !matches!(entry.op, ProtoOp::SetFlags { .. }))
+        .count()
 }
 
 #[derive(Clone)]
@@ -450,6 +457,7 @@ fn the_answer_says_who_it_goes_to() {
         Attendance::Tentative,
         None,
         chrono::Utc::now(),
+        mail_core::when::Clock::H24,
     )
     .unwrap();
     assert_eq!(said, "Queued your answer (tentative) to ada@example.test");

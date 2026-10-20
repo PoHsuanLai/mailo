@@ -3,6 +3,7 @@
 use chrono::{DateTime, Local, TimeZone, Utc};
 use mail_core::error::CoreError;
 use mail_core::invite::{InviteState, repeats_words, show_when};
+use mail_core::when::Clock;
 use mail_domain::{Address, Attendance, InviteAnswer, MessageId};
 use mail_pim::ical::PartStat;
 use mail_pim::{Invite, Kind, Me, Revision};
@@ -76,12 +77,12 @@ pub fn parse(args: &[String]) -> Result<InviteCommand, String> {
 }
 
 /// The lines `mailo show` prints under a message that carries an invitation, or nothing.
-pub fn describe(state: &InviteState, message: MessageId) -> String {
+pub fn describe(state: &InviteState, message: MessageId, clock: Clock) -> String {
     let InviteState::Shown { invite, answered } = state else {
         return String::new();
     };
     let title = invite.title.as_deref().unwrap_or("(no title)");
-    let when = show_when(&invite.when, &Local).yours;
+    let when = show_when(&invite.when, &Local, clock).yours;
     let head = match invite.kind {
         Kind::Request(Revision::First) => "invitation",
         Kind::Request(Revision::Update { .. }) => "updated invitation",
@@ -97,8 +98,13 @@ pub fn describe(state: &InviteState, message: MessageId) -> String {
     out
 }
 
-/// Everything `mailo invite <message-id>` prints, with times in `zone`.
-pub fn render<Z: TimeZone>(invite: &Invite, answered: Option<&InviteAnswer>, zone: &Z) -> String {
+/// Everything `mailo invite <message-id>` prints, with times in `zone` by `clock`.
+pub fn render<Z: TimeZone>(
+    invite: &Invite,
+    answered: Option<&InviteAnswer>,
+    zone: &Z,
+    clock: Clock,
+) -> String {
     let mut out = String::new();
     let title = invite.title.as_deref().unwrap_or("(no title)");
     let _ = writeln!(out, "{title}");
@@ -115,7 +121,7 @@ pub fn render<Z: TimeZone>(invite: &Invite, answered: Option<&InviteAnswer>, zon
     if invite.recurrence_id.is_some() {
         let _ = writeln!(out, "  about one occurrence of a repeating event");
     }
-    let when = show_when(&invite.when, zone);
+    let when = show_when(&invite.when, zone, clock);
     let _ = writeln!(out, "  when:      {}", when.yours);
     if let Some(theirs) = &when.theirs {
         let _ = writeln!(out, "             {theirs}, the organiser's time");
@@ -172,13 +178,14 @@ pub fn run(
     store: &SqliteStore,
     command: &InviteCommand,
     now: DateTime<Utc>,
+    clock: Clock,
 ) -> Result<String, CoreError> {
     match &command.action {
         InviteAction::Show => {
             let message = store.message(command.message)?;
             match mail_core::invite::state(store, &message)? {
                 InviteState::Shown { invite, answered } => {
-                    Ok(render(&invite, answered.as_ref(), &Local))
+                    Ok(render(&invite, answered.as_ref(), &Local, clock))
                 }
                 InviteState::Unknown => Err(CoreError::HeadersOnly),
                 InviteState::NotInvite => Err(CoreError::NoCalendar),

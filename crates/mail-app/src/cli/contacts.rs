@@ -167,9 +167,7 @@ fn shown(name: Option<&str>, address: &str) -> String {
 /// What a sync of address books says: a line for each, and what it wrote back.
 pub fn synced(done: &Synced) -> String {
     match done {
-        Synced::NothingYet => {
-            "no address book has been synced yet: mailo contacts sync <url>\n".to_owned()
-        }
+        Synced::NothingYet => "no address book synced yet: mailo contacts sync <url>\n".to_owned(),
         Synced::Books(books) => books.iter().map(book_synced).collect(),
     }
 }
@@ -323,6 +321,6 @@ mod tests {
 
     #[test]
     fn a_sync_with_nothing_to_go_on_says_how_to_start() {
-        assert!(synced(&Synced::NothingYet).starts_with("no address book has been synced yet"),);
+        assert!(synced(&Synced::NothingYet).starts_with("no address book synced yet"),);
     }
 }

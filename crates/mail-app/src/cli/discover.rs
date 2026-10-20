@@ -95,10 +95,9 @@ pub fn failed(failure: &Failed) -> String {
     match gap {
         Gap::PersonalMicrosoft => return out,
         Gap::StartTlsOnly => out.push_str(
-            "\nThis domain publishes servers that use STARTTLS, which this client does not \
-             use: the upgrade can be stripped by anyone on the path, and the password then \
-             crosses in the clear. Ask the provider whether it also offers IMAP on port 993 \
-             (or POP3 on 995) and submission on port 465; if it does, name them:\n",
+            "\nThis domain's servers use STARTTLS, which mailo doesn't: anyone on the path can \
+             strip the upgrade and read the password. Ask the provider for IMAP on port 993 \
+             (or POP3 on 995) and submission on port 465, then name them:\n",
         ),
         Gap::Nothing => out.push_str("\nName the servers yourself:\n"),
     }
@@ -225,15 +224,15 @@ pub fn before_add(
         Next::Proceed => say(&shown),
         Next::Ask => {
             say(&shown);
-            let answer = ask("Use these servers? Nothing has been sent to them yet. [y/N] ");
+            let answer = ask("Use these servers? [y/N] ");
             if !answer.as_deref().is_some_and(accepted) {
                 return Err("not added; nothing was sent anywhere".to_owned());
             }
         }
         Next::Refuse => {
             return Err(format!(
-                "{shown}\nnot added: there is no terminal to confirm these servers on. Check them, \
-                 then re-run with --yes to accept them:\n\n  mailo account add {address} --yes"
+                "{shown}\nnot added: no terminal to confirm these servers. Check them, \
+                 then re-run with --yes:\n\n  mailo account add {address} --yes"
             ));
         }
     }
@@ -312,15 +311,15 @@ pub fn before_add_jmap(
         Next::Proceed => say(&shown),
         Next::Ask => {
             say(&shown);
-            let answer = ask("Use this server? Nothing has been sent to it yet. [y/N] ");
+            let answer = ask("Use this server? [y/N] ");
             if !answer.as_deref().is_some_and(accepted) {
                 return Err("not added; nothing was sent anywhere".to_owned());
             }
         }
         Next::Refuse => {
             return Err(format!(
-                "{shown}\nnot added: there is no terminal to confirm this server on. Check it, \
-                 then re-run with --yes to accept it:\n\n  \
+                "{shown}\nnot added: no terminal to confirm this server. Check it, \
+                 then re-run with --yes:\n\n  \
                  mailo account add {address} --jmap --yes"
             ));
         }

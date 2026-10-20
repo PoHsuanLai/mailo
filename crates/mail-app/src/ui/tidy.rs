@@ -24,6 +24,7 @@ use ds::components::menus::item::item::MenuItem;
 use ds::components::menus::pop_up_button::PopUpButton;
 use ds::components::overlays::sheet_attach::Attach;
 use ds::prelude::*;
+use mail_core::when::Clock;
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
 use std::sync::Arc;
@@ -140,7 +141,7 @@ fn run(shell: Signal<Shell>, revision: Signal<u64>) {
 
 /// One conversation Tidy Up would archive, drawn as a row like the app's other lists: the
 /// sender's face, the subject, who sent it, and when.
-fn row(summary: &ThreadSummary, now: DateTime<Utc>) -> ListItem<String> {
+fn row(summary: &ThreadSummary, now: DateTime<Utc>, clock: Clock) -> ListItem<String> {
     let subject = mail_domain::subject_or_none(&summary.subject).into_owned();
     let face = AvatarFace {
         initial: summary
@@ -161,7 +162,7 @@ fn row(summary: &ThreadSummary, now: DateTime<Utc>) -> ListItem<String> {
                 leading: RowLeading::Avatar(face),
                 title: subject,
                 detail: Some(TextLine::from(summary.from.shown().to_owned())),
-                accessory: Accessory::Text(mail_core::when::listed(summary.last_date, now, &chrono::Local)),
+                accessory: Accessory::Text(mail_core::when::listed(summary.last_date, now, &chrono::Local, clock)),
                 size: RowSize::Settings,
             }
         },
@@ -179,14 +180,18 @@ pub(in crate::ui) fn TidySheet(shell: Signal<Shell>, revision: Signal<u64>) -> E
     let _ = revision();
     let store = consume_context::<Arc<SqliteStore>>();
     let now = crate::ui::clock::now();
+    let clock = crate::ui::clock::hours();
     let found = candidates(&store, shell.read().account_filter(), age, now);
     let count = found.len();
     let ages: Vec<MenuItem<Age>> = Age::ALL
         .iter()
         .map(|one| MenuItem::new(*one, one.label()))
         .collect();
-    let mut rows: Vec<ListItem<String>> =
-        found.iter().take(SHOWN).map(|one| row(one, now)).collect();
+    let mut rows: Vec<ListItem<String>> = found
+        .iter()
+        .take(SHOWN)
+        .map(|one| row(one, now, clock))
+        .collect();
     if count > SHOWN {
         let more = copy::confirm::tidy_more(count - SHOWN);
         rows.push(ListItem::row(

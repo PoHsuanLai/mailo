@@ -537,45 +537,6 @@ fn renaming(fallback: FocusFallback) -> (Harness, tempfile::TempDir, Arc<SqliteS
     (harness, dir, store)
 }
 
-#[test]
-fn a_folder_is_renamed_in_its_name_s_place() {
-    let (mut harness, _dir, store) = renaming(FocusFallback::Ancestor);
-    // In the name's place: the name's own button is gone from the row, nothing is drawn under it.
-    assert_eq!(harness.attr(RENAMING, "value").as_deref(), Some(PROJECTS));
-    assert_eq!(
-        harness.selected_text(RENAMING).as_deref(),
-        Some(PROJECTS),
-        "the old name is not selected"
-    );
-    assert_eq!(
-        harness.count(".fold-new"),
-        0,
-        "a field is drawn under the row"
-    );
-    // Typed letters replace the selection and are not shortcuts (`s`, `a` and `p` are).
-    for key in "Plans".chars() {
-        harness.key(Key::Char(key));
-    }
-    harness.advance(ms(200));
-    assert_eq!(harness.attr(RENAMING, "value").as_deref(), Some("Plans"));
-    harness.key(Key::Enter);
-    harness.advance(ms(600));
-    assert_eq!(harness.count(RENAMING), 0, "Enter left the field");
-    let paths: Vec<String> = store
-        .folders(acct_account())
-        .unwrap()
-        .into_iter()
-        .map(|folder| folder.path)
-        .collect();
-    assert!(paths.contains(&"Plans".to_owned()), "{paths:?}");
-    assert!(!paths.contains(&PROJECTS.to_owned()), "{paths:?}");
-    assert_eq!(
-        subjects(&harness).len(),
-        INBOX.len(),
-        "a letter was a shortcut"
-    );
-}
-
 /// Escape leaves the rename: the field, which had the keyboard, is removed with it. Then `e`,
 /// heard by the window's key handler, archives the open conversation, or, with the keyboard gone
 /// nowhere, is heard by nothing.

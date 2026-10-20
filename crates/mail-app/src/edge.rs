@@ -20,6 +20,7 @@
 //! - [`mail`] builds the handle over a store from those.
 
 use mail_core::profile::{Profile, Roots};
+use mail_core::when::Clock;
 use mail_core::{Environment, KeyringSigningStore, Mail, OAuthClients, SigningStore};
 use mail_runtime::AccountSecrets;
 use mail_store::SqliteStore;
@@ -140,6 +141,43 @@ pub fn take_profile_flag(
     Ok((rest.collect(), profile))
 }
 
+/// How the person keeps the hours of the day, for what the command line and `mailo intents`
+/// write (`main` hands it down as `Environment::hours`): the desktop's one `[region] hours`
+/// setting in `quire/appearance.toml`, Automatic settled by the session's locale.
+///
+/// Read once, as the process starts. The window does not ask here: it follows the same setting
+/// live, through the desktop settings it already watches (`ui::clock::hours`).
+pub fn clock() -> Clock {
+    // The desktop's store, as the window's `DesktopSettings` opens it.
+    let store = ds_settings::Store::new(ds_settings::ConfigRoot::Xdg, ds_settings::AppName::QUIRE);
+    let hours = store
+        .load::<ds_settings::AppearanceFile>()
+        .value
+        .region
+        .hours;
+    clock_from(hours.resolve(time_locale()))
+}
+
+/// The locale name the session writes times in: `LC_ALL`, then `LC_TIME`, then `LANG`, the first
+/// set and not empty, else `C` (`ds_settings::time_locale`). Read from the process once; a
+/// session does not change its locale under a running program.
+pub fn time_locale() -> &'static str {
+    static LOCALE: OnceLock<String> = OnceLock::new();
+    LOCALE.get_or_init(|| {
+        let get = |name: &str| std::env::var(name).ok();
+        let (all, time, lang) = (get("LC_ALL"), get("LC_TIME"), get("LANG"));
+        ds_settings::time_locale(all.as_deref(), time.as_deref(), lang.as_deref()).to_owned()
+    })
+}
+
+/// The desktop's settled clock as `mail-core`'s, which knows nothing of the desktop.
+pub fn clock_from(hours: ds_settings::ResolvedHours) -> Clock {
+    match hours {
+        ds_settings::ResolvedHours::H12 => Clock::H12,
+        ds_settings::ResolvedHours::H24 => Clock::H24,
+    }
+}
+
 /// mailo's store of account secrets, for the calls that take only that.
 pub fn secrets() -> Arc<dyn AccountSecrets> {
     mail_runtime::platform_secrets(runtime().handle())
@@ -227,6 +265,54 @@ mod tests {
             .collect();
         let got: Vec<i32> = threads.into_iter().map(|t| t.join().unwrap()).collect();
         assert_eq!(got, [0, 2, 4, 6]);
+    }
+
+    #[test]
+    fn the_desktop_setting_and_the_locale_say_which_clock_the_person_keeps() {
+        use ds_settings::{HourCycle, time_locale};
+        const AUTO: HourCycle = HourCycle::Auto;
+        type Case = (
+            HourCycle,
+            Option<&'static str>,
+            Option<&'static str>,
+            Option<&'static str>,
+            Clock,
+        );
+        const CASES: &[Case] = &[
+            (AUTO, None, None, Some("en_US.UTF-8"), Clock::H12),
+            (AUTO, None, None, Some("de_DE.UTF-8"), Clock::H24),
+            // French Canada writes twenty-four hours though Canada is a twelve-hour country.
+            (AUTO, None, None, Some("fr_CA.UTF-8"), Clock::H24),
+            (AUTO, None, None, Some("C"), Clock::H24),
+            (AUTO, None, None, None, Clock::H24),
+            // LC_ALL beats LC_TIME, which beats LANG; an empty one is not set.
+            (
+                AUTO,
+                Some("de_DE.UTF-8"),
+                Some("en_US.UTF-8"),
+                Some("en_US.UTF-8"),
+                Clock::H24,
+            ),
+            (
+                AUTO,
+                None,
+                Some("en_US.UTF-8"),
+                Some("de_DE.UTF-8"),
+                Clock::H12,
+            ),
+            (AUTO, Some(""), Some(""), Some("en_US.UTF-8"), Clock::H12),
+            // The person's choice in the desktop's settings beats the locale.
+            (HourCycle::H24, None, None, Some("en_US.UTF-8"), Clock::H24),
+            (HourCycle::H12, None, None, Some("de_DE.UTF-8"), Clock::H12),
+        ];
+        for (hours, all, time, lang, want) in CASES {
+            let locale = time_locale(*all, *time, *lang);
+            assert_eq!(
+                clock_from(hours.resolve(locale)),
+                *want,
+                "{hours:?} {all:?} {time:?} {lang:?}"
+            );
+        }
     }
 
     #[test]

@@ -13,6 +13,7 @@ pub fn write_atomic(path: &Path, bytes: &[u8], mode: Option<u32>) -> std::io::Re
     let name = path
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
+        // A path with no file name has its part file named ".part" beside it.
         .unwrap_or_default();
     let part = path.with_file_name(format!(".{name}.part"));
     let written = create(&part, mode).and_then(|mut file| {
@@ -36,6 +37,7 @@ fn create(path: &Path, mode: Option<u32>) -> std::io::Result<std::fs::File> {
         options.mode(mode);
     }
     #[cfg(not(unix))]
+    // No permission bits to set off Unix.
     let _ = mode;
     options.open(path)
 }

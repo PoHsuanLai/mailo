@@ -273,6 +273,7 @@ fn term<Tz: TimeZone>(
 }
 
 fn mailbox(value: &str) -> Option<MailboxRole> {
+    // A value that names no mailbox is not a mailbox filter.
     value.parse().ok()
 }
 

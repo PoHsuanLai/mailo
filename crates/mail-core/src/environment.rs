@@ -64,6 +64,10 @@ pub struct Environment {
     pub hostname: Option<String>,
     /// Which program this is. Not a variable: the program says it ([`Program::of_executable`]).
     pub program: Program,
+    /// How the person keeps the hours of the day, for the times the command line writes. Not a
+    /// variable here: the program decides it (`mail-app`'s `edge::clock`), and until it does it
+    /// is twenty-four hours, which is what a test wants.
+    pub hours: crate::when::Clock,
 }
 
 impl Environment {
@@ -81,6 +85,7 @@ impl Environment {
             smime_password: get("MAILO_SMIME_PASSWORD"),
             hostname: text("HOSTNAME").or_else(|| text("COMPUTERNAME")),
             program: Program::Other,
+            hours: crate::when::Clock::default(),
         }
     }
 }
@@ -101,6 +106,7 @@ impl fmt::Debug for Environment {
             .field("smime_password", &said(self.smime_password.is_some()))
             .field("hostname", &self.hostname)
             .field("program", &self.program)
+            .field("hours", &self.hours)
             .finish()
     }
 }

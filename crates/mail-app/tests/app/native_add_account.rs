@@ -34,13 +34,15 @@ struct Log {
 /// How each seam answers.
 #[derive(Clone)]
 struct Script {
-    add: Result<String, String>,
+    add: Result<String, mail_app::ui::native::AddError>,
     /// A browser sign-in finishes when this is notified.
     release: Arc<Notify>,
     /// A lookup waits while a test holds this, to look at the step that is working.
     hold: Arc<Mutex<()>>,
     /// Whether a lookup finds servers: when it does not, the person types them.
     found: bool,
+    /// Whether the build has a client for a browser provider: without one, the sign-in fails.
+    client: bool,
 }
 
 impl Default for Script {
@@ -50,6 +52,7 @@ impl Default for Script {
             release: Arc::new(Notify::new()),
             hold: Arc::default(),
             found: true,
+            client: true,
         }
     }
 }
@@ -98,7 +101,10 @@ fn seams(script: &Script, log: &Arc<Log>) -> AddAccountSeams {
     AddAccountSeams {
         lookup: Arc::new(lookup),
         jmap: Arc::new(|_| Err("no jmap".to_owned())),
-        client: Arc::new(|_| true),
+        client: Arc::new({
+            let client = script.client;
+            move |_| client
+        }),
         authorize: Arc::new(move |_, _, urls| {
             let s = s.clone();
             Box::pin(async move {
@@ -128,8 +134,6 @@ const SECRET: &str = "s3cretpass4417";
 
 struct Window {
     harness: Harness,
-    /// Every size the window asked its host for, in order.
-    fits: Arc<Mutex<Vec<Extent>>>,
     log: Arc<Log>,
     opened: Arc<Mutex<Vec<String>>>,
     script: Script,
@@ -171,11 +175,7 @@ fn open_with(
         seen.lock().unwrap().push(url.to_owned());
         Ok(())
     });
-    let fits = Arc::new(Mutex::new(Vec::new()));
-    let asked = fits.clone();
-    let fit: Arc<mail_app::ui::native::AddAccountFit> =
-        Arc::new(move |extent| asked.lock().unwrap().push(extent));
-    let wiring = AddAccountWiring::new(seams(&script, &log), browse).fitting(fit);
+    let wiring = AddAccountWiring::new(seams(&script, &log), browse);
     let config = HarnessConfig::new(view)
         .with_clock(Clock::Virtual)
         .with_context(store)
@@ -189,7 +189,6 @@ fn open_with(
     harness.advance(Duration::from_millis(300));
     Window {
         harness,
-        fits,
         log,
         opened,
         script,
@@ -211,7 +210,11 @@ fn until(w: &mut Window, what: &str, done: impl Fn(&Harness) -> bool) {
 }
 
 fn step(w: &Window) -> Option<String> {
-    let html = w.harness.html();
+    step_of(&w.harness)
+}
+
+fn step_of(h: &Harness) -> Option<String> {
+    let html = h.html();
     let at = html.find("data-step=\"")? + "data-step=\"".len();
     Some(html[at..].split('"').next()?.to_owned())
 }
@@ -362,16 +365,16 @@ fn a_whole_password_add() {
         !w.harness.html().contains(SECRET),
         "the password reached the markup"
     );
-    w.harness.key(Key::Enter);
-    on_step(&mut w, "review");
-    assert!(
-        w.log.adds.lock().unwrap().is_empty(),
-        "nothing is added before the last button"
-    );
-    assert!(w.harness.html().contains("ada@example.test"));
+    // The form is the confirmation: with nothing to choose, no step of choices comes between it
+    // and the add.
     w.harness.key(Key::Enter);
     let log = w.log.clone();
-    until(&mut w, "the add did not happen", |_| {
+    until(&mut w, "the add did not happen", |h| {
+        assert_ne!(
+            step_of(h).as_deref(),
+            Some("review"),
+            "an empty review was drawn"
+        );
         !log.adds.lock().unwrap().is_empty()
     });
     assert_eq!(
@@ -415,8 +418,6 @@ fn a_whole_browser_add_opens_the_page_copies_the_link_and_adds_when_signed_in() 
     });
 
     w.script.release.notify_one();
-    on_step(&mut w, "review");
-    w.harness.key(Key::Enter);
     let log = w.log.clone();
     until(&mut w, "the add did not happen", |_| {
         !log.adds.lock().unwrap().is_empty()
@@ -447,7 +448,7 @@ fn escape_cancels_and_adds_nothing() {
 #[test]
 fn a_failed_step_offers_try_again_which_asks_the_form_again() {
     let script = Script {
-        add: Err("cannot save the account".to_owned()),
+        add: Err("cannot save the account".to_owned().into()),
         ..Script::default()
     };
     let mut w = open(script, Some("ada@example.test"));
@@ -462,8 +463,6 @@ fn a_failed_step_offers_try_again_which_asks_the_form_again() {
     w.harness.key(Key::Tab);
     type_text(&mut w, SECRET);
     w.harness.key(Key::Enter);
-    on_step(&mut w, "review");
-    w.harness.key(Key::Enter);
     on_step(&mut w, "failed");
     assert_eq!(step(&w).as_deref(), Some("failed"));
     click_text(&mut w, ".ds-acc-actions > :nth-child(3)");
@@ -471,6 +470,56 @@ fn a_failed_step_offers_try_again_which_asks_the_form_again() {
     assert!(
         !w.harness.html().contains(SECRET),
         "the password did not survive the reply"
+    );
+}
+
+#[test]
+fn a_refused_login_says_what_the_server_said_under_the_sentence() {
+    use mail_app::ui::native::{AddError, AddFault};
+    let said = "mail.example.test did not accept the sign-in as ada@example.test: \
+                -ERR [AUTH] Authentication failed. Some servers want the user name without \
+                the part after the @.";
+    let script = Script {
+        add: Err(AddError {
+            fault: AddFault::Refused,
+            detail: said.to_owned(),
+        }),
+        ..Script::default()
+    };
+    let mut w = open(script, Some("ada@example.test"));
+    on_step(&mut w, "providers");
+    type_text(&mut w, "fast");
+    w.harness.key(Key::Enter);
+    on_step(&mut w, "sign-in");
+    w.harness.key(Key::Tab);
+    // A password account has nothing to choose, so the empty review is not drawn and the form's
+    // Return adds the account.
+    type_text(&mut w, SECRET);
+    w.harness.key(Key::Enter);
+    on_step(&mut w, "failed");
+    let html = w.harness.html();
+    assert!(
+        html.contains("The provider did not accept what was entered."),
+        "the sheet's sentence for a refusal:\n{html}"
+    );
+    assert!(
+        !html.contains("could not be saved"),
+        "a refused login is not a failure to save:\n{html}"
+    );
+    assert_eq!(
+        w.harness.text_of(".add-account-detail").as_deref(),
+        Some(said),
+        "the server's words under the sentence"
+    );
+    assert!(!html.contains(SECRET), "the password reached the markup");
+    // The window grew to hold the extra lines: the detail ends inside the height asked.
+    w.harness.advance(Duration::from_millis(300));
+    let failed = asked(&w).last().copied().unwrap();
+    let detail = w.harness.rect(".add-account-detail").unwrap();
+    let bottom = detail.origin.y.0 + detail.size.height.0;
+    assert!(
+        bottom <= failed.height as f32,
+        "{failed:?} did not make room for the detail, which ends at {bottom}"
     );
 }
 
@@ -525,7 +574,7 @@ fn a_whole_typed_pop3_add_through_the_window() {
         "Outgoing",
         "Sign in",
         "Server type",
-        "(IMAP)",
+        ">IMAP<",
         "(SSL/TLS)",
     ] {
         assert!(html.contains(word), "{word}:\n{html}");
@@ -536,7 +585,7 @@ fn a_whole_typed_pop3_add_through_the_window() {
     // POP3: the form changes at once (no sending): the guessed host and the ports follow.
     pick_protocol(&mut w, 2);
     let html = w.harness.html();
-    assert!(html.contains("Older servers (POP)"), "{html}");
+    assert!(html.contains(">POP3<"), "{html}");
     assert!(html.contains("pop.example.test"), "{html}");
     assert!(html.contains("995"), "{html}");
     assert_eq!(
@@ -546,9 +595,6 @@ fn a_whole_typed_pop3_add_through_the_window() {
     );
 
     continue_from_server(&mut w);
-    on_step(&mut w, "review");
-    assert!(w.log.adds.lock().unwrap().is_empty());
-    w.harness.key(Key::Enter);
     let log = w.log.clone();
     until(&mut w, "the add did not happen", |_| {
         !log.adds.lock().unwrap().is_empty()
@@ -607,8 +653,14 @@ fn a_wrong_port_is_not_sent_and_is_marked_on_its_field() {
     type_text(&mut w, "x");
     w.harness.key(Key::Enter);
     w.harness.advance(Duration::from_millis(300));
-    let html = w.harness.html();
-    assert!(html.contains("isn’t valid"), "the port is marked:\n{html}");
+    // The field says so itself, whatever words quire's message uses this release.
+    assert!(
+        w.harness
+            .count("input[aria-label=\"Port\"][aria-invalid=\"true\"]")
+            == 1,
+        "the port is marked:\n{}",
+        w.harness.html()
+    );
     assert_eq!(step(&w).as_deref(), Some("sign-in"), "nothing was sent");
     assert!(w.log.adds.lock().unwrap().is_empty());
 }
@@ -616,7 +668,7 @@ fn a_wrong_port_is_not_sent_and_is_marked_on_its_field() {
 /// What the window asked for, each size once in a row.
 fn asked(w: &Window) -> Vec<Extent> {
     let mut sizes: Vec<Extent> = Vec::new();
-    for size in w.fits.lock().unwrap().iter() {
+    for size in w.harness.window_requests().iter() {
         if sizes.last() != Some(size) {
             sizes.push(*size);
         }
@@ -657,10 +709,10 @@ fn the_window_asks_for_the_size_of_each_step() {
     pick_protocol(&mut w, 1);
     assert_eq!(*asked(&w).last().unwrap(), server, "and back");
     continue_from_server(&mut w);
-    on_step(&mut w, "review");
-    let review = *asked(&w).last().unwrap();
-    assert!(review.height < server.height, "{review:?}");
-    assert_eq!(review.width, list[0].width);
+    let log = w.log.clone();
+    until(&mut w, "the add did not happen", |_| {
+        !log.adds.lock().unwrap().is_empty()
+    });
 }
 
 /// A picture of each step, light and dark, painted headlessly by Blitz: set `MAILO_SHOTS` to the
@@ -702,11 +754,9 @@ fn render_each_step_to_files() {
         on_step(&mut w, "working");
         shoot(&mut w, "working");
         drop(held);
-        on_step(&mut w, "review");
-        shoot(&mut w, "review");
 
         let script = Script {
-            add: Err("cannot save the account".to_owned()),
+            add: Err("cannot save the account".to_owned().into()),
             ..Script::default()
         };
         let mut w = open_in(script, None, theme);
@@ -717,8 +767,6 @@ fn render_each_step_to_files() {
         type_text(&mut w, "ada@example.test");
         w.harness.key(Key::Tab);
         type_text(&mut w, SECRET);
-        w.harness.key(Key::Enter);
-        on_step(&mut w, "review");
         w.harness.key(Key::Enter);
         on_step(&mut w, "failed");
         shoot(&mut w, "failed");
@@ -745,10 +793,14 @@ fn drive_to(
 ) {
     let script = match target {
         "failed" => Script {
-            add: Err("cannot save the account".to_owned()),
+            add: Err("cannot save the account".to_owned().into()),
             ..Script::default()
         },
-        "providers" | "sign-in" | "review" | "working" | "browser" => Script::default(),
+        "providers" | "sign-in" | "working" | "browser" => Script::default(),
+        "no-client" => Script {
+            client: false,
+            ..Script::default()
+        },
         _ => no_servers(),
     };
     let hold = script.hold.clone();
@@ -757,13 +809,20 @@ fn drive_to(
     if target == "providers" {
         return there(&mut w);
     }
-    if target == "browser" {
+    if target == "browser" || target == "no-client" {
         type_text(&mut w, "google");
         w.harness.key(Key::Enter);
         on_step(&mut w, "sign-in");
         type_text(&mut w, "ada@gmail.com");
         w.harness.key(Key::Enter);
-        on_step(&mut w, "browser");
+        on_step(
+            &mut w,
+            if target == "browser" {
+                "browser"
+            } else {
+                "failed"
+            },
+        );
         return there(&mut w);
     }
     // Everything else goes through "Other…" for a typed server, or Fastmail for a password.
@@ -797,11 +856,7 @@ fn drive_to(
         }
         return there(&mut w);
     }
-    on_step(&mut w, "review");
-    if target == "failed" {
-        w.harness.key(Key::Enter);
-        on_step(&mut w, "failed");
-    }
+    on_step(&mut w, "failed");
     there(&mut w)
 }
 
@@ -832,7 +887,6 @@ fn render_the_typed_forms_and_the_resized_steps() {
             "server-pop3",
             "server-jmap",
             "working",
-            "review",
             "failed",
             "browser",
         ] {
@@ -864,4 +918,113 @@ fn render_the_typed_forms_and_the_resized_steps() {
             }
         }
     }
+}
+
+/// Every step, the failures with a sentence that wraps among them, asks for a window it fits in:
+/// the step's content ends inside the height asked. Each is laid out at the width it asks for.
+#[test]
+fn every_step_fits_in_the_window_it_asks_for() {
+    for target in [
+        "providers",
+        "sign-in",
+        "server-imap",
+        "server-pop3",
+        "server-jmap",
+        "working",
+        "failed",
+        "no-client",
+        "browser",
+    ] {
+        let width = if target.starts_with("server") {
+            560
+        } else {
+            480
+        };
+        let view = Viewport {
+            width,
+            height: 1000,
+            scale_percent: 100,
+        };
+        drive_to(target, ds::prelude::Theme::Light, view, &mut |w| {
+            w.harness.advance(Duration::from_millis(600));
+            let step = w
+                .harness
+                .rect(".add-account-step")
+                .expect("a step is drawn");
+            let bottom = step.origin.y.0 + step.size.height.0;
+            let asked = *asked(w).last().expect("the step asked for a size");
+            assert_eq!(asked.width, width, "{target}");
+            assert!(
+                bottom <= asked.height as f32,
+                "{target}: the content ends at {bottom}, the window asked for {asked:?}"
+            );
+            assert!(
+                asked.height as f32 - bottom < 1.0 || asked.height == 135,
+                "{target}: {asked:?} is taller than the content, which ends at {bottom}"
+            );
+        });
+    }
+}
+
+/// With no client for the provider, asking again cannot help: the failure offers no Try Again,
+/// and Back still goes back to the list.
+#[test]
+fn a_provider_with_no_client_offers_no_try_again_and_back_still_goes_back() {
+    let script = Script {
+        client: false,
+        ..Script::default()
+    };
+    let mut w = open(script, None);
+    on_step(&mut w, "providers");
+    type_text(&mut w, "google");
+    w.harness.key(Key::Enter);
+    on_step(&mut w, "sign-in");
+    type_text(&mut w, "ada@gmail.com");
+    w.harness.key(Key::Enter);
+    on_step(&mut w, "failed");
+    let actions = w.harness.text_of(".ds-acc-actions").unwrap_or_default();
+    assert!(
+        !actions.contains("Try Again"),
+        "a retry that cannot help is offered: {actions}"
+    );
+    click_text(&mut w, ".ds-acc-actions > :nth-child(1)");
+    on_step(&mut w, "providers");
+}
+
+/// An input method's preedit is drawn in the field before it is the field's text: the
+/// placeholder goes as composing starts, stays gone while it runs, and the commit is the text.
+#[test]
+fn pinyin_being_composed_hides_the_placeholder() {
+    use ds_harness::{ImeInput, Input};
+    let mut w = open_in(Script::default(), None, ds::prelude::Theme::Light);
+    on_step(&mut w, "providers");
+    type_text(&mut w, "fast");
+    w.harness.key(Key::Enter);
+    on_step(&mut w, "sign-in");
+    const PLACEHOLDER: &str = ".ds-input-placeholder";
+    let before = w.harness.count(PLACEHOLDER);
+    assert!(before > 0, "the sign-in fields have no placeholder");
+    w.harness.send(Input::Ime(ImeInput::Start));
+    w.harness.send(Input::Ime(ImeInput::Update {
+        text: "ni".to_owned(),
+        cursor: 2,
+    }));
+    w.harness.advance(Duration::from_millis(100));
+    assert_eq!(
+        w.harness.count(PLACEHOLDER),
+        before - 1,
+        "the placeholder stayed over the preedit"
+    );
+    w.harness
+        .send(Input::Ime(ImeInput::Commit("你".to_owned())));
+    w.harness.advance(Duration::from_millis(100));
+    assert_eq!(
+        w.harness.count(PLACEHOLDER),
+        before - 1,
+        "the committed text has the placeholder over it"
+    );
+    assert!(
+        w.harness.html().contains("value=\"你\""),
+        "the commit is not the text"
+    );
 }

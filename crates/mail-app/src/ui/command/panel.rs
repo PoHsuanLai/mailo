@@ -25,6 +25,8 @@ pub(super) struct World<'a> {
     pub keymap: &'a chordkit::Keymap,
     /// What was opened and put aside, for Recent while nothing is typed.
     pub today: &'a Today,
+    /// How the person keeps the hours, for the times Recent's rows say.
+    pub hours: mail_core::when::Clock,
 }
 
 /// The panel's rows for what it lists.
@@ -40,6 +42,7 @@ pub(super) fn panel_rows(
         store,
         keymap,
         today,
+        hours,
     } = world;
     match listing {
         BarListing::Templates(typed) => super::templates::rows(store, typed)
@@ -58,8 +61,13 @@ pub(super) fn panel_rows(
                 .collect();
             // Nothing typed: Recent leads, where the person was.
             if query.trim().is_empty() {
-                let mut recent =
-                    super::recent::rows(store, today, spaces.current().id, chrono::Utc::now());
+                let mut recent = super::recent::rows(
+                    store,
+                    today,
+                    spaces.current().id,
+                    chrono::Utc::now(),
+                    *hours,
+                );
                 recent.append(&mut rows);
                 rows = recent;
             }

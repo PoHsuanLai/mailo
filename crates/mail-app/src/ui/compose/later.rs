@@ -16,6 +16,7 @@ use ds::root::pass_through::ExtraClass;
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
 use mail_core::undo::{Resend, Undo};
+use mail_core::when::Clock;
 use mail_core::{SqliteStore, Store};
 use mail_domain::{ChangeId, Draft, DraftId, Patch, SendState};
 use std::sync::Arc;
@@ -44,13 +45,14 @@ pub(in crate::ui) fn leaves<Tz: TimeZone>(
     when: When,
     now: DateTime<Utc>,
     zone: &Tz,
+    clock: Clock,
 ) -> Result<Leaves, String>
 where
     Tz::Offset: std::fmt::Display,
 {
     match when.due(now, zone) {
         None => Ok(Leaves::Now),
-        Some(at) if at <= now => Err(passed(at, now, zone)),
+        Some(at) if at <= now => Err(passed(at, now, zone, clock)),
         Some(at) => Ok(Leaves::At(at)),
     }
 }
@@ -60,6 +62,7 @@ pub(in crate::ui) fn pick_time<Tz: TimeZone>(
     typed: &str,
     now: DateTime<Utc>,
     zone: &Tz,
+    clock: Clock,
 ) -> Result<DateTime<Utc>, String>
 where
     Tz::Offset: std::fmt::Display,
@@ -69,18 +72,18 @@ where
     }
     let at = mail_core::snooze::snooze_until(typed, now, zone)?;
     if at <= now {
-        return Err(passed(at, now, zone));
+        return Err(passed(at, now, zone, clock));
     }
     Ok(at)
 }
 
-fn passed<Tz: TimeZone>(at: DateTime<Utc>, now: DateTime<Utc>, zone: &Tz) -> String
+fn passed<Tz: TimeZone>(at: DateTime<Utc>, now: DateTime<Utc>, zone: &Tz, clock: Clock) -> String
 where
     Tz::Offset: std::fmt::Display,
 {
     format!(
         "{} has passed. Pick a later time, or send it now.",
-        when_words(at, now, zone)
+        when_words(at, now, zone, clock)
     )
 }
 
@@ -90,6 +93,7 @@ pub(in crate::ui) fn choose_time<Tz: TimeZone>(
     page: &mut Page,
     now: DateTime<Utc>,
     zone: &Tz,
+    clock: Clock,
 ) -> Result<DateTime<Utc>, String>
 where
     Tz::Offset: std::fmt::Display,
@@ -97,7 +101,7 @@ where
     let Float::PickTime(typed) = &page.float else {
         return Err(TRY.to_owned());
     };
-    let at = pick_time(typed, now, zone)?;
+    let at = pick_time(typed, now, zone, clock)?;
     page.when = When::At(at);
     page.float = Float::Closed;
     page.touch();
@@ -113,14 +117,15 @@ pub(in crate::ui) fn PickTime(page: Signal<Page>, anchor: Option<MountedRef>) ->
         return rsx! {};
     };
     let now = Utc::now();
-    let reading = pick_time(&typed, now, &chrono::Local);
+    let hours = crate::ui::clock::hours();
+    let reading = pick_time(&typed, now, &chrono::Local, hours);
     // What it reads is help under the field; a phrase it cannot read is the field's own refusal.
     let (validity, says) = match &reading {
         Ok(at) => (
             Validity::Valid,
             Some(format!(
                 "Leaves {}",
-                when_in_sentence(*at, now, &chrono::Local)
+                when_in_sentence(*at, now, &chrono::Local, hours)
             )),
         ),
         Err(why) if typed.trim().is_empty() => (Validity::Valid, Some(why.clone())),
@@ -145,7 +150,7 @@ pub(in crate::ui) fn PickTime(page: Signal<Page>, anchor: Option<MountedRef>) ->
                     match menu_key(&event.key().to_string()) {
                         Some(MenuKey::Enter) => {
                             event.prevent_default();
-                            let _ = choose_time(&mut page.write(), Utc::now(), &chrono::Local);
+                            let _ = choose_time(&mut page.write(), Utc::now(), &chrono::Local, hours);
                         }
                         Some(MenuKey::Escape) => {
                             event.stop_propagation();

@@ -5,7 +5,7 @@
 # is right. Format: "<crate> <pattern> <lines>".
 mail-runtime let_underscore 4
 mail-runtime ok 23
-mail-runtime unwrap_or_default 14
+mail-runtime unwrap_or_default 13
 mail-core let_underscore 0
 mail-core ok 33
 mail-core unwrap_or_default 16

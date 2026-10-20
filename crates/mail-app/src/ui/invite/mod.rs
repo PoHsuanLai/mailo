@@ -25,16 +25,19 @@ pub(in crate::ui) use draw::Invitation;
 use chrono::{DateTime, Utc};
 use mail_core::SqliteStore;
 use mail_core::message::{Invited, Looks};
+use mail_core::when::Clock;
 use mail_domain::*;
 use std::path::Path;
 
-/// The card for what a message was found to invite to, with times in the reader's zone.
-fn card_from(message: MessageId, invited: &Invited) -> Card {
+/// The card for what a message was found to invite to, with times in the reader's zone by
+/// their `clock`.
+fn card_from(message: MessageId, invited: &Invited, clock: Clock) -> Card {
     card_of(
         message,
         &invited.invite,
         invited.answered.as_ref(),
         &chrono::Local,
+        clock,
     )
 }
 
@@ -44,10 +47,11 @@ pub(in crate::ui) fn cached(
     looks: &Looks,
     message: MessageId,
     body: Option<BlobId>,
+    clock: Clock,
 ) -> Option<Option<Card>> {
     looks
         .invite_cached(message, body)
-        .map(|invited| invited.map(|invited| card_from(message, &invited)))
+        .map(|invited| invited.map(|invited| card_from(message, &invited, clock)))
 }
 
 /// [`cached`], else read from the store and remembered. `None` when the message carries no
@@ -58,10 +62,11 @@ pub(in crate::ui) fn lookup(
     store: &SqliteStore,
     message: MessageId,
     body: Option<BlobId>,
+    clock: Clock,
 ) -> Option<Card> {
     looks
         .invite(store, message, body)
-        .map(|invited| card_from(message, &invited))
+        .map(|invited| card_from(message, &invited, clock))
 }
 
 /// Answer `message`'s invitation through [`mail_core::invite::answer`], and read its card back so
@@ -78,12 +83,13 @@ pub(in crate::ui) fn answer(
     attendance: Attendance,
     note: Option<&str>,
     now: DateTime<Utc>,
+    clock: Clock,
 ) -> Result<(String, Option<Card>), String> {
     let answered = mail_core::invite::answer(store, message, attendance, note, now)?;
     let said = crate::said::invite::said(&answered);
     let card = looks
         .invite_again(store, message)
-        .map(|invited| card_from(message, &invited));
+        .map(|invited| card_from(message, &invited, clock));
     Ok((toast_text(&said), card))
 }
 

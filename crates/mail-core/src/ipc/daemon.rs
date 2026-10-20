@@ -5,21 +5,19 @@
 //! going to clients instead of to a terminal. Until then a `mailo watch` holds them, and keeps a
 //! door of its own for the window to listen at (`super::watching`).
 
-use super::changes::{self, Answer, Subscribers};
+use super::door::{self, Answer};
 use super::wire::{Request, Response};
 use crate::error::CoreError;
 use mail_store::SqliteStore;
-use porter_core::AccountId;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-/// What to do when a client asks for a pass, returning the accounts whose pass may have stored
-/// something (`PassEnd::may_have_stored`), which are what the subscribers are told of.
+/// What to do when a client asks for a pass.
 ///
 /// A parameter rather than a call to `sync::run`, because the doorman should not know what is
 /// behind the door: this file is the transport, and a test of it should not have to build a mail
 /// engine in order to knock.
-pub type Pass = Arc<dyn Fn(Arc<SqliteStore>) -> Vec<AccountId> + Send + Sync>;
+pub type Pass = Arc<dyn Fn(Arc<SqliteStore>) + Send + Sync>;
 
 /// Where the daemon is listening, said once the door is bound and before the first client.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42,7 +40,7 @@ pub enum Ended {
 /// Serve clients until told to stop — `mailo daemon`. `announce` is told where the daemon
 /// listens once it does, so whatever started it can say so.
 ///
-/// One connection at a time; see [`changes::door`] for why that is enough.
+/// One connection at a time; see [`door::door`] for why that is enough.
 pub fn serve(
     store: Arc<SqliteStore>,
     pass: Pass,
@@ -64,10 +62,9 @@ pub fn serve(
         None => Listening::Endpoint(agent.address().endpoint.to_string()),
     });
 
-    let subscribers = Subscribers::default();
     let mut stopped = false;
-    changes::door(&listening, &subscribers, |request| match request {
-        Request::Ping => Answer::Say(changes::pong()),
+    door::door(&listening, |request| match request {
+        Request::Ping => Answer::Say(door::pong()),
         Request::SyncNow => {
             // A thread, and the answer goes back before it finishes: a first sync measured
             // 84 seconds against the real accounts, and a doorman that waited for it would
@@ -75,15 +72,9 @@ pub fn serve(
             // could cancel.
             let store = store.clone();
             let pass = pass.clone();
-            let subscribers = subscribers.clone();
-            std::thread::spawn(move || {
-                for account in pass(store) {
-                    subscribers.tell(account);
-                }
-            });
+            std::thread::spawn(move || pass(store));
             Answer::Say(Response::Started)
         }
-        Request::Subscribe => Answer::Subscribe,
         Request::Shutdown => {
             stopped = true;
             Answer::Last(Response::Stopping)

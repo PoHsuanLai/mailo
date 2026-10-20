@@ -78,7 +78,7 @@ impl Listed {
         }
     }
 
-    /// The row as drawn at `now` in `zone`: with a search's marks (`hit`), and a line of
+    /// The row as drawn at `now` in `zone`, its hours by `clock`: with a search's marks (`hit`), and a line of
     /// snippet when `snippets` are shown.
     pub(in crate::ui) fn row<Tz: TimeZone>(
         &self,
@@ -86,6 +86,7 @@ impl Listed {
         snippets: bool,
         now: DateTime<Utc>,
         zone: &Tz,
+        clock: mail_core::when::Clock,
     ) -> RowModel
     where
         Tz::Offset: std::fmt::Display,
@@ -107,7 +108,7 @@ impl Listed {
                     subject: runs(&summary.subject, subject_marks),
                     lines: lines(snippet.is_some()),
                     snippet,
-                    time: mail_core::when::listed(summary.last_date, now, zone),
+                    time: mail_core::when::listed(summary.last_date, now, zone, clock),
                     emphasis: if summary.read == ReadState::Unread {
                         Emphasis::Strong
                     } else {
@@ -121,9 +122,9 @@ impl Listed {
                 // A held one says when it leaves where the time is; any other, when it was last
                 // touched, and its state on the snippet's line.
                 let (time, snippet) = match self.held() {
-                    Some(at) => (when_words(at, now, zone), None),
+                    Some(at) => (when_words(at, now, zone, clock), None),
                     None => (
-                        mail_core::when::listed(draft.updated, now, zone),
+                        mail_core::when::listed(draft.updated, now, zone, clock),
                         snippets.then(|| TextLine::from(draft.state.word())),
                     ),
                 };

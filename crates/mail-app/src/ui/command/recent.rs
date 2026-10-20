@@ -47,6 +47,7 @@ pub(super) fn rows(
     today: &Today,
     space: SpaceId,
     now: DateTime<Utc>,
+    clock: mail_core::when::Clock,
 ) -> Vec<MenuItem> {
     let mut opened: Vec<_> = today
         .all(space)
@@ -82,6 +83,7 @@ pub(super) fn rows(
                 draft.updated,
                 now,
                 &chrono::Local,
+                clock,
             ))),
             ..row(
                 draft_key(draft.id),

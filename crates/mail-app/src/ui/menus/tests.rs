@@ -5,6 +5,7 @@ use crate::ui::fixtures::{acct_account, dispatching, inbox_query, realistic};
 use chrono::TimeZone;
 use dioxus::prelude::*;
 use dioxus_core::{NoOpMutations, VirtualDom};
+use mail_core::when::Clock;
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
 
@@ -117,7 +118,7 @@ mod naming_a_conversation {
 fn snooze_help_is_the_time_snooze_until_resolves() {
     let now = chrono::Utc.with_ymd_and_hms(2026, 9, 23, 15, 0, 0).unwrap();
     let zone = chrono::Utc;
-    let items = super::snooze_items(now, &zone);
+    let items = super::snooze_items(now, &zone, Clock::H24);
     let expect = [
         ("later", crate::ui::copy::menus::LATER_TODAY),
         ("tomorrow", crate::ui::copy::menus::TOMORROW),
@@ -147,10 +148,31 @@ fn snooze_help_is_the_time_snooze_until_resolves() {
         let at = mail_core::snooze::snooze_until(phrase, now, &zone).expect(phrase);
         assert_eq!(
             item.right,
-            Right::Hint(super::snooze_hint(at, now, &zone)),
+            Right::Hint(super::snooze_hint(at, now, &zone, Clock::H24)),
             "{phrase}"
         );
     }
+}
+
+#[test]
+fn the_snooze_menu_writes_its_hours_by_the_persons_clock() {
+    // It alone wrote twelve hours, whatever the person kept; now it follows them either way.
+    let now = chrono::Utc.with_ymd_and_hms(2026, 9, 23, 15, 0, 0).unwrap();
+    let zone = chrono::Utc;
+    let hint = |phrase: &str, clock| {
+        let at = mail_core::snooze::snooze_until(phrase, now, &zone).expect(phrase);
+        super::snooze_hint(at, now, &zone, clock)
+    };
+    assert_eq!(hint("later", Clock::H24), "18:00");
+    assert_eq!(hint("later", Clock::H12), "6:00 PM");
+    assert_eq!(hint("weekend", Clock::H24), "Sat 09:00");
+    assert_eq!(hint("weekend", Clock::H12), "Sat 9:00 AM");
+    // Past the week the day is enough, and there is no hour to write.
+    let far = chrono::Utc.with_ymd_and_hms(2026, 10, 12, 9, 0, 0).unwrap();
+    assert_eq!(
+        super::snooze_hint(far, now, &zone, Clock::H12),
+        "Mon 12 Oct"
+    );
 }
 
 #[test]
@@ -158,16 +180,16 @@ fn a_typed_time_is_read_as_snooze_reads_it_and_must_be_to_come() {
     let now = chrono::Utc.with_ymd_and_hms(2026, 9, 23, 15, 0, 0).unwrap();
     let zone = chrono::Utc;
     assert_eq!(
-        super::chosen_time("+2h", now, &zone),
+        super::chosen_time("+2h", now, &zone, Clock::H24),
         Ok(chrono::Utc.with_ymd_and_hms(2026, 9, 23, 17, 0, 0).unwrap())
     );
     assert_eq!(
-        super::chosen_time("  ", now, &zone),
+        super::chosen_time("  ", now, &zone, Clock::H24),
         Err(crate::ui::copy::fields::TYPE_A_TIME.to_owned())
     );
-    let gone = super::chosen_time("today 09:00", now, &zone).unwrap_err();
+    let gone = super::chosen_time("today 09:00", now, &zone, Clock::H24).unwrap_err();
     assert!(gone.contains("has passed"), "{gone}");
-    assert!(super::chosen_time("whenever", now, &zone).is_err());
+    assert!(super::chosen_time("whenever", now, &zone, Clock::H24).is_err());
 }
 
 #[test]

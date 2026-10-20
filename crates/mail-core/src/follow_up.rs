@@ -45,12 +45,13 @@ const STALE: TimeDelta = TimeDelta::days(7);
 
 /// The instant a reminder chosen as `choice` comes due, counted from `from` in `zone`: one of
 /// [`CHOICES`]' keys, or a time typed the way snooze reads one (`fri 17:00`, `+2h`,
-/// `2026-10-02`). A time that is not after `from` is refused, in words: a reminder for a moment
-/// already gone would come back before anyone could answer.
+/// `2026-10-02`). A time that is not after `from` is refused, in words (its hour as `clock`
+/// writes it): a reminder for a moment already gone would come back before anyone could answer.
 pub fn due<Tz: TimeZone>(
     choice: &str,
     from: DateTime<Utc>,
     zone: &Tz,
+    clock: crate::when::Clock,
 ) -> Result<DateTime<Utc>, TimeError>
 where
     Tz::Offset: std::fmt::Display,
@@ -71,7 +72,7 @@ where
     let at = crate::snooze::snooze_until(&phrase, from, zone)?;
     if at <= from {
         return Err(TimeError::Passed {
-            stamp: crate::when::stamp(at, zone, crate::when::Stamp::Full),
+            stamp: crate::when::stamp(at, zone, crate::when::Stamp::Full, clock),
         });
     }
     Ok(at)

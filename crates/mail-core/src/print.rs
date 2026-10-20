@@ -8,6 +8,7 @@
 
 use crate::error::CoreError;
 use crate::error::Logged;
+use crate::when::Clock;
 use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::{Message, MessageId, ThreadId};
 use mail_mime::{Labels, Options, Pages, Parsed, Remote, Sheet};
@@ -68,20 +69,31 @@ pub fn messages(store: &SqliteStore, id: uuid::Uuid) -> Result<Vec<Message>, Cor
     Ok(messages)
 }
 
-/// The printable document for a message or thread, dates in `zone`.
+/// The printable document for a message or thread, dates in `zone` and hours as `clock` writes
+/// them.
 pub fn document<Tz>(
     store: &SqliteStore,
     id: uuid::Uuid,
     zone: &Tz,
     now: DateTime<Utc>,
     pages: Pages,
+    clock: Clock,
 ) -> Result<Printed, CoreError>
 where
     Tz: TimeZone,
     Tz::Offset: std::fmt::Display,
 {
     let messages = messages(store, id)?;
-    Ok(of_messages(store, &messages, zone, now, pages))
+    Ok(of_messages(store, &messages, zone, now, pages, clock))
+}
+
+/// The document's options for `pages`, with the hours as `clock` writes them: the rest as
+/// [`Options::new`] has them. `mail-mime` is below [`Clock`] and is told it as a bool.
+pub fn options(pages: Pages, clock: Clock) -> Options<'static> {
+    Options {
+        twelve_hour: clock == Clock::H12,
+        ..Options::new(pages, LABELS)
+    }
 }
 
 /// [`document`] for messages already in hand, in the order given.
@@ -93,19 +105,13 @@ pub fn of_messages<Tz>(
     zone: &Tz,
     now: DateTime<Utc>,
     pages: Pages,
+    clock: Clock,
 ) -> Printed
 where
     Tz: TimeZone,
     Tz::Offset: std::fmt::Display,
 {
-    of_messages_with(
-        store,
-        messages,
-        zone,
-        now,
-        &Options::new(pages, LABELS),
-        None,
-    )
+    of_messages_with(store, messages, zone, now, &options(pages, clock), None)
 }
 
 /// Where a printout's consented remote images come from.
@@ -307,4 +313,34 @@ pub fn write_file_into(
         name,
         dir: dir.to_owned(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::when::time_of_day;
+    use chrono::FixedOffset;
+
+    #[test]
+    fn a_printout_writes_its_hours_as_the_rest_of_mail_does() {
+        // `mail-mime` writes the header's date itself, below `when::time_of_day`; this holds the
+        // two to the same words, midnight and noon included.
+        let zone = FixedOffset::east_opt(8 * 3600).unwrap();
+        for (hour, minute) in [(0, 0), (12, 0), (14, 5), (9, 30), (23, 59)] {
+            let at = zone
+                .with_ymd_and_hms(2026, 9, 22, hour, minute, 0)
+                .unwrap()
+                .with_timezone(&Utc);
+            for clock in [Clock::H12, Clock::H24] {
+                let html = mail_mime::print_with(&[], &zone, at, &options(Pages::Flow, clock));
+                let there = at.with_timezone(&zone);
+                let line = format!(
+                    "Printed {} {} +08:00",
+                    there.format("%a, %-d %b %Y"),
+                    time_of_day(&there, clock)
+                );
+                assert!(html.contains(&line), "{clock:?}: {line} not in {html}");
+            }
+        }
+    }
 }

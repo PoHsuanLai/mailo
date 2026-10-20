@@ -331,6 +331,7 @@ pub(in crate::ui) fn sends_items<Tz: chrono::TimeZone>(
     page: &Page,
     now: chrono::DateTime<chrono::Utc>,
     zone: &Tz,
+    clock: mail_core::when::Clock,
 ) -> Vec<MenuItem>
 where
     Tz::Offset: std::fmt::Display,
@@ -344,7 +345,7 @@ where
     let mut items: Vec<MenuItem> = When::ALL
         .into_iter()
         .map(|choice| {
-            let help = choice.due(now, zone).map(|at| snooze_help(at, zone));
+            let help = choice.due(now, zone).map(|at| snooze_help(at, zone, clock));
             let icon = if choice == When::Now {
                 Icon::Send
             } else {
@@ -353,14 +354,17 @@ where
             row(
                 choice.key(),
                 icon,
-                choice.label().to_owned(),
+                choice.label(clock),
                 help,
                 choice == when,
             )
         })
         .collect();
     let (help, on) = match when {
-        When::At(at) => (Some(super::super::menus::when_words(at, now, zone)), true),
+        When::At(at) => (
+            Some(super::super::menus::when_words(at, now, zone, clock)),
+            true,
+        ),
         _ => (None, false),
     };
     items.push(row(PICK_KEY, Icon::Clock, PICK_LABEL.to_owned(), help, on));
@@ -376,13 +380,14 @@ fn SendsRow(page: Signal<Page>) -> Element {
         return rsx! {};
     }
     let now = chrono::Utc::now();
-    let items = sends_items(&page.read(), now, &chrono::Local);
+    let hours = super::super::clock::hours();
+    let items = sends_items(&page.read(), now, &chrono::Local, hours);
     rsx! {
         ChoiceRow {
             page,
             label: "Sends",
             row: "sends",
-            value: when.shown(now, &chrono::Local),
+            value: when.shown(now, &chrono::Local, hours),
             float: Float::Sends,
             items,
             on_pick: move |key: String| {
@@ -451,6 +456,19 @@ fn Recipients(page: Signal<Page>, list: List, refused: Option<u32>) -> Element {
         _ => None,
     };
     let items = people_items(&read, list);
+    // What is typed that is not an address says so first: mended, the field may still be the
+    // empty To a send was refused for.
+    let validity = match (read.misread(list), refused) {
+        (Some(misread), _) => Validity::Invalid(Invalid {
+            message: misread.why.clone().into(),
+            stamp: EventStamp(misread.count),
+        }),
+        (None, Some(count)) => Validity::Invalid(Invalid {
+            message: copy::errors::ADD_A_RECIPIENT.into(),
+            stamp: EventStamp(count),
+        }),
+        (None, None) => Validity::Valid,
+    };
     let placeholder = if people.is_empty() {
         "Add a person"
     } else {
@@ -483,18 +501,20 @@ fn Recipients(page: Signal<Page>, list: List, refused: Option<u32>) -> Element {
             class: "c-pin",
             onmounted: move |event| field_at.set(Some(MountedRef(event.data()))),
             onkeydown: move |event: KeyboardEvent| {
+                // Only a key that changes the page writes it: a write is a render, and one under
+                // every key the field types would race the text the field is editing.
                 let key = event.key().to_string();
-                let mut write = page.write();
                 match (menu_key(&key), menu) {
                     (Some(MenuKey::Down), Some(active)) => {
-                        write.float = Float::People { list, active: active + 1 };
+                        page.write().float = Float::People { list, active: active + 1 };
                         event.prevent_default();
                     }
                     (Some(MenuKey::Up), Some(active)) => {
-                        write.float = Float::People { list, active: active.saturating_sub(1) };
+                        page.write().float = Float::People { list, active: active.saturating_sub(1) };
                         event.prevent_default();
                     }
                     (Some(MenuKey::Enter), Some(active)) => {
+                        let mut write = page.write();
                         let items = people_items(&write, list);
                         if let Some(item) = items.get(active.min(items.len().saturating_sub(1))) {
                             pick_person(&mut write, list, &item.key);
@@ -502,14 +522,20 @@ fn Recipients(page: Signal<Page>, list: List, refused: Option<u32>) -> Element {
                         event.prevent_default();
                     }
                     (Some(MenuKey::Enter), None) => {
-                        commit_typed(&mut write, list);
+                        commit_typed(&mut page.write(), list);
                         event.prevent_default();
                     }
                     (Some(MenuKey::Escape), Some(_)) => {
-                        write.float = Float::Closed;
+                        page.write().float = Float::Closed;
                         event.stop_propagation();
                     }
-                    (Some(MenuKey::Backspace), _) => pop_last(&mut write, list),
+                    // Backspace in an empty field takes the last chip; in a field with text it
+                    // is the field's.
+                    (Some(MenuKey::Backspace), _)
+                        if page.peek().typed(list).is_empty() && !page.peek().list(list).is_empty() =>
+                    {
+                        pop_last(&mut page.write(), list);
+                    }
                     _ => {}
                 }
             },
@@ -518,13 +544,7 @@ fn Recipients(page: Signal<Page>, list: List, refused: Option<u32>) -> Element {
                 bezel: FieldBezel::Plain,
                 placeholder: placeholder.to_owned(),
                 focus,
-                validity: match refused {
-                    None => Validity::Valid,
-                    Some(count) => Validity::Invalid(Invalid {
-                        message: "Add at least one person to send to.".into(),
-                        stamp: EventStamp(count),
-                    }),
-                },
+                validity,
                 value,
                 oninput: move |value: String| {
                     let store = consume_context::<Arc<SqliteStore>>();

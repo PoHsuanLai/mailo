@@ -462,9 +462,9 @@ fn the_server_form_is_drawn_in_parts_with_its_choices_and_the_usual_ports_as_hin
     assert_eq!(
         choices(FieldRole::Protocol),
         Some(vec![
-            pair("imap", "Most servers (IMAP)"),
-            pair("pop3", "Older servers (POP)"),
-            pair("jmap", "Newer servers (JMAP)")
+            pair("imap", "IMAP"),
+            pair("pop3", "POP3"),
+            pair("jmap", "JMAP")
         ])
     );
     for role in [FieldRole::Security, FieldRole::OutgoingSecurity] {

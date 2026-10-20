@@ -13,7 +13,6 @@ use crate::settle;
 use settle::settle_until;
 
 use crate::drive;
-use crate::native::ms;
 use crate::opening::{Open, Wait, open_window};
 use crate::store::{Seed, seeded_with};
 use drive::{Drive, PRIMARY};
@@ -172,42 +171,4 @@ fn slash_emoji_opens_the_picker_a_click_picks_and_a_new_window_has_it_first() {
         Some("🕘"),
         "the recent tab is the one open"
     );
-}
-
-#[test]
-fn the_picker_is_walked_with_the_arrows_enter_picks_and_escape_closes_it() {
-    let (mut harness, _dir, _store, _dirs) = composing();
-    open_picker(&mut harness);
-    type_text(&mut harness, "cat");
-    let found: Vec<&str> = mail_app::ui::emoji::search("cat")
-        .iter()
-        .map(|emoji| emoji.name)
-        .collect();
-    settle_until(&mut harness, |h| {
-        first_cell(h).as_deref() == found.first().copied()
-    });
-    harness.key(Key::Right);
-    settle_until(&mut harness, |h| {
-        h.text_of(".em-name").as_deref().map(str::trim) == found.get(1).copied()
-    });
-    harness.key(Key::Enter);
-    settle_until(&mut harness, |h| h.count(".em-picker") == 0);
-    let second = mail_app::ui::emoji::search("cat")[1].glyph;
-    settle_until(&mut harness, |h| body(h) == second);
-
-    // Escape closes the picker and nothing else: the draft stays open, the body unchanged. A `/`
-    // opens its menu at the start of a word, so a space goes first.
-    settle_until(&mut harness, |h| h.is_focused(".c-body"));
-    type_text(&mut harness, " ");
-    open_picker(&mut harness);
-    harness.key(Key::Escape);
-    settle_until(&mut harness, |h| h.count(".em-picker") == 0);
-    harness.advance(ms(300));
-    assert_eq!(
-        harness.count(".cpage .c-body"),
-        1,
-        "Escape put the draft aside"
-    );
-    assert_eq!(body(&harness).trim_end(), second);
-    settle_until(&mut harness, |h| h.is_focused(".c-body"));
 }

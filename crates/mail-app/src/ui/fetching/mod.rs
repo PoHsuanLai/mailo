@@ -182,6 +182,7 @@ impl Fetching {
             &[(&link, self.pace(account))],
             now,
             &chrono::Local,
+            crate::ui::clock::hours(),
         ))
     }
 
@@ -192,7 +193,7 @@ impl Fetching {
             .iter()
             .filter_map(|id| links.get(id).map(|link| (link, self.pace(id))))
             .collect();
-        status_line(&shown, now, &chrono::Local)
+        status_line(&shown, now, &chrono::Local, crate::ui::clock::hours())
     }
 }
 
@@ -260,6 +261,28 @@ pub(in crate::ui) fn use_status(shell: Signal<Shell>) -> Option<StatusLine> {
     Some(fetching.status(&shell.read(), crate::ui::clock::now()))
 }
 
+/// Say which accounts came since the window last looked, once it has looked: an account added in
+/// its own window (or by `mailo account add`) is otherwise seen only as the sidebar changing.
+fn announce_added(
+    known: &RefCell<Option<BTreeSet<AccountId>>>,
+    accounts: &[(AccountId, std::time::Duration)],
+) {
+    let now: BTreeSet<AccountId> = accounts.iter().map(|(id, _)| id.clone()).collect();
+    let before = known.replace(Some(now.clone()));
+    let Some(before) = before else {
+        return;
+    };
+    let store = consume_context::<Arc<SqliteStore>>();
+    for row in crate::ui::data::account_rows(&store) {
+        if now.contains(&row.id) && !before.contains(&row.id) {
+            crate::ui::motion::tell(
+                crate::ui::copy::toasts::account_added(&row.address),
+                crate::ui::motion::Follow::Nothing,
+            );
+        }
+    }
+}
+
 /// Provide [`Fetching`] for the window and start the loop that serves it. Once, from `App`.
 ///
 /// `revision` moves when a pass has stored something, and when an account comes or goes.
@@ -275,8 +298,7 @@ pub(in crate::ui) fn use_fetching(revision: Signal<u64>) -> Fetching {
         move || schedule::initial(&store, &accounts.peek(), Utc::now())
     });
     let delegate = try_consume_context::<Delegate>().unwrap_or_else(Delegate::server);
-    let doors = try_consume_context::<external::Doors>().unwrap_or_else(external::Doors::server);
-    external::use_external_changes(revision, store.clone(), doors);
+    external::use_external_changes(revision, store.clone());
     let ops = use_signal(BTreeMap::new);
     let folders = use_signal(BTreeMap::new);
     let offers = use_signal(BTreeMap::new);
@@ -293,8 +315,11 @@ pub(in crate::ui) fn use_fetching(revision: Signal<u64>) -> Fetching {
         tx,
     });
     // The accounts changing is the runner's to hear, since it owns what to do about it.
+    let known = use_hook(|| Rc::new(RefCell::new(None::<BTreeSet<AccountId>>)));
     use_effect(move || {
-        let _ = tx.peek().send(Note::Accounts(accounts.read().clone()));
+        let now: Vec<(AccountId, std::time::Duration)> = accounts.read().clone();
+        announce_added(&known, &now);
+        let _ = tx.peek().send(Note::Accounts(now));
     });
     let inbox: Rc<RefCell<Option<UnboundedReceiver<Note>>>> = channel.1.clone();
     let _runner = use_future(move || {

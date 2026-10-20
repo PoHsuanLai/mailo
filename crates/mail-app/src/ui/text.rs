@@ -62,8 +62,8 @@ pub(super) fn address(message: &Message) -> String {
     message.from.email.clone()
 }
 
-pub(super) fn stamp(message: &Message) -> String {
-    mail_core::when::stamp(message.date, &Local, Stamp::Full)
+pub(super) fn stamp(message: &Message, clock: mail_core::when::Clock) -> String {
+    mail_core::when::stamp(message.date, &Local, Stamp::Full, clock)
 }
 
 pub(super) fn sender(summary: &ThreadSummary) -> String {

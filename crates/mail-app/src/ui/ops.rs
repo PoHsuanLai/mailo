@@ -195,7 +195,7 @@ pub(super) fn resolve(store: &SqliteStore, thread: ThreadId, kind: OpKind) -> Op
 
 #[cfg(test)]
 fn apply(store: &SqliteStore, thread: ThreadId, op: Op) -> bool {
-    perform(store, thread, op).is_some()
+    perform(store, thread, op, mail_core::when::Clock::H24).is_some()
 }
 
 // What the window and `mailo intents` both do to conversations lives in the core

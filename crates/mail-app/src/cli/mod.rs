@@ -575,7 +575,7 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
                     )
                 })?
                 .parse()
-                .map_err(|_| "that is not an attachment number".to_owned())?;
+                .map_err(|_| "that isn't an attachment number".to_owned())?;
             Ok(Command::Detach {
                 draft: DraftId::from_uuid(uuid),
                 index,
@@ -1180,8 +1180,8 @@ fn parse_manual(args: &[String]) -> Result<Option<Setup>, String> {
             usage()
         )),
         _ => Err(format!(
-            "manual setup needs --smtp and one of --imap or --pop3; an account that \
-             can only receive, or only send, is not one this can configure\n\n{}",
+            "manual setup needs --smtp and one of --imap or --pop3; mailo can't \
+             set up an account that only receives or only sends\n\n{}",
             usage()
         )),
     }
@@ -1252,7 +1252,7 @@ fn host_port(raw: &str, default: u16) -> Result<(String, u16), String> {
             }
             Ok((host.to_owned(), port))
         }
-        None if raw.is_empty() => Err("a server name cannot be empty".to_owned()),
+        None if raw.is_empty() => Err("a server name can't be empty".to_owned()),
         None => Ok((raw.to_owned(), default)),
     }
 }
@@ -1283,8 +1283,7 @@ usage: mailo <command>
   compose --to a@b[,c@d] [--cc …] [--bcc …] [--subject S] [--from address]
           [--request-receipt] [--sign] [--encrypt] [--smime]
                              a new message; the body is read from stdin. --sign and
-                             --encrypt make it OpenPGP (PGP/MIME) when it is sent, or
-                             S/MIME with --smime
+                             --encrypt use OpenPGP (PGP/MIME), or S/MIME with --smime
   pgp keys                    the OpenPGP keys held, yours and your correspondents'
   pgp generate <address>      make a key for one of your identities
   pgp import <file>           import keys, public or secret, armored or binary
@@ -1332,7 +1331,7 @@ usage: mailo <command>
   unsubscribe <thread-or-message-id> [--show]
                              leave the list it came through: one-click where the
                              list offers it, else a queued message; --show only lists
-                             the ways out. A web page is printed, never opened
+                             the ways out. A web page is printed, not opened
   print <thread-or-message-id> [--out FILE] [--page-per-message]
                              a printable HTML document: to stdout when piped, else a
                              new file here named from the subject; --out - for stdout
@@ -1372,15 +1371,15 @@ usage: mailo <command>
   signature <address> [--clear]
                              set it from stdin, or take it off
   account add <address> [--yes]
-                             (set MAILO_PASSWORD for a password account). For a domain
-                             the preset table does not know, the servers are looked up
-                             and shown for confirmation first; --yes accepts them
+                             (set MAILO_PASSWORD for a password account). An unknown
+                             domain is looked up and its servers shown for
+                             confirmation first; --yes accepts them
   account discover <address> what that lookup finds, without adding anything
   account remove <address> [--yes]
                              what removing it takes from this computer; --yes removes
                              it, its mail here and its saved sign-in
   account add <address> --imap HOST[:PORT] --smtp HOST[:PORT] [--login NAME]
-                             for a server the preset table does not know
+                             for a server with no preset
   account add <address> --pop3 HOST[:PORT] --smtp HOST[:PORT] [--login NAME]
                              the same, for a server that offers only POP3
   account add <address> --jmap [URL] [--login NAME]
@@ -1411,13 +1410,12 @@ usage: mailo <command>
                              this removes a label and deletes no message
   folder subscribe|unsubscribe <account> <name>
   icons refresh              fetch each account's provider icon again
-  watch [--no-notify]        keep fetching until stopped; uses IDLE where the
-                             server offers it, and polls where it does not.
-                             New unread inbox mail raises a desktop notification
-                             unless --no-notify or `notify off`
+  watch [--no-notify]        keep fetching until stopped (IDLE where offered, else
+                             polling); notifies of new unread inbox mail unless
+                             --no-notify or `notify off`
   intents                    answer the desktop's intent router (org.quire.Mail on the
                              session bus) until the session ends; the router starts it
-                             on demand, so it is rarely typed
+                             on demand
   notify [on|off]            turn new-mail notifications on or off (default on)
   --write-schema <dir>       write mailo.settings.toml, the schema the desktop's
                              Settings app draws mailo's page from
@@ -1448,6 +1446,8 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
     // What the process was started with: the commands that take a password or a passphrase from
     // the environment read it here, and the library reads nothing itself.
     let env = mail.environment().clone();
+    // The person's clock, which every time of day this writes follows: `main` decided it.
+    let clock = env.hours;
     // The Profile's own keys: the handle was built over its keyring service.
     let signing = mail.signing();
     match command {
@@ -1464,7 +1464,7 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
             if page.items.is_empty() {
                 return Ok(format!("no threads in {}\n", mailbox));
             }
-            Ok(render_list(&page.items))
+            Ok(render_list(&page.items, clock))
         }
         Command::Show { thread } => {
             let loaded = store.thread(*thread).map_err(|e| e.to_string())?;
@@ -1489,7 +1489,7 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
                     "\n--- {} <{}>  {}\n    {}",
                     message.from.name.as_deref().unwrap_or(""),
                     message.from.email,
-                    mail_core::when::stamp(message.date, &Local, Stamp::Full),
+                    mail_core::when::stamp(message.date, &Local, Stamp::Full, clock),
                     message.id
                 );
                 // Asked here rather than only in a window, so a request is never answered by
@@ -1499,7 +1499,7 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
                 }
                 // Likewise an invitation: said, with how to answer, and never answered for them.
                 if let Ok(state) = mail_core::invite::state(store, &message) {
-                    out.push_str(&invite::describe(&state, message.id));
+                    out.push_str(&invite::describe(&state, message.id, clock));
                 }
                 // OpenPGP: the signature checked and the encryption opened now, as it is shown,
                 // never before. The decrypted text is printed and kept nowhere.
@@ -1561,6 +1561,7 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
             *limit,
             &|name| labels_named(store, name),
             now,
+            clock,
         )),
         // Dispatched in main: it needs an async runtime and the store by Arc, which would make
         // this function untestable without one.
@@ -1615,7 +1616,7 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
             when,
             now,
         )
-        .map(|held| compose::scheduled(&held, now, &Local))
+        .map(|held| compose::scheduled(&held, now, &Local, clock))
         .map_err(remedy::error),
         Command::Unsend { draft } => mail_core::compose::unsend(store, *draft, now)
             .map(|back| compose::unsent(&back))
@@ -1637,7 +1638,7 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
             .map(|name| format!("deleted template {name:?}\n"))
             .map_err(remedy::error),
         Command::Drafts => mail_core::compose::drafts(store)
-            .map(|all| compose::drafts(&all, now))
+            .map(|all| compose::drafts(&all, now, clock))
             .map_err(remedy::error),
         Command::ListSnoozed { limit } => {
             let page = store
@@ -1646,7 +1647,7 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
             if page.items.is_empty() {
                 return Ok("nothing is snoozed\n".to_owned());
             }
-            Ok(render_list(&page.items))
+            Ok(render_list(&page.items, clock))
         }
         Command::ListPinned { limit } => {
             let page = store
@@ -1655,13 +1656,13 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
             if page.items.is_empty() {
                 return Ok("nothing is pinned\n".to_owned());
             }
-            Ok(render_list(&page.items))
+            Ok(render_list(&page.items, clock))
         }
         Command::Pin { thread } => mail_core::snooze::pin(store, *thread, now)
             .map(snooze::pinned)
             .map_err(remedy::error),
         Command::Snooze { thread, when } => mail_core::snooze::snooze(store, *thread, when, now)
-            .map(snooze::snoozed)
+            .map(|at| snooze::snoozed(at, clock))
             .map_err(remedy::error),
         Command::Wake { thread } => mail_core::snooze::wake(store, *thread, now)
             .map(|()| snooze::woke())
@@ -1764,7 +1765,7 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
             crate::edge::block_on(contacts::run(mail, command)).map_err(remedy::error)
         }
         Command::Print { target, out, pages } => {
-            let printed = mail_core::print::document(store, *target, &Local, now, *pages)
+            let printed = mail_core::print::document(store, *target, &Local, now, *pages, clock)
                 .map_err(remedy::error)?;
             match out {
                 PrintTo::Unsaid | PrintTo::Stdout => Ok(printed.html),
@@ -1776,7 +1777,7 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
                     .map_err(remedy::error),
             }
         }
-        Command::Invite(command) => invite::run(store, command, now).map_err(remedy::error),
+        Command::Invite(command) => invite::run(store, command, now, clock).map_err(remedy::error),
         Command::Rules(rules) => rules::run(store, rules, now).map_err(remedy::error),
         Command::Vacation(vacation) => {
             crate::edge::block_on(rules::run_vacation(mail, vacation)).map_err(remedy::error)
@@ -1937,7 +1938,7 @@ fn labels_named(store: &SqliteStore, name: &str) -> Vec<mail_domain::LabelId> {
     mail_core::query::named(&mail_core::query::known_labels(store))(name)
 }
 
-fn render_list(items: &[ThreadSummary]) -> String {
+fn render_list(items: &[ThreadSummary], clock: mail_core::when::Clock) -> String {
     let mut out = String::new();
     for summary in items {
         let _ = writeln!(
@@ -1948,7 +1949,7 @@ fn render_list(items: &[ThreadSummary]) -> String {
             } else {
                 " "
             },
-            mail_core::when::stamp(summary.last_date, &Local, Stamp::Row),
+            mail_core::when::stamp(summary.last_date, &Local, Stamp::Row, clock),
             summary.from.shown(),
             summary.subject,
             summary.id

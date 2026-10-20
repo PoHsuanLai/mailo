@@ -3,7 +3,8 @@
 
 use std::collections::BTreeMap;
 
-use chrono::{DateTime, Datelike, Duration, TimeZone, Utc};
+use chrono::{DateTime, Datelike, Duration, NaiveTime, TimeZone, Utc};
+use mail_core::when::Clock;
 use mail_domain::{Address, Draft, DraftId, ReceiptRequest};
 use porter_core::AccountId;
 
@@ -19,6 +20,11 @@ pub(in crate::ui) enum PageKind {
     Reply,
 }
 
+/// The hour of the morning [`When::Tomorrow`] sends at, which its label says.
+const TOMORROW_HOUR: u32 = 8;
+/// The hour [`When::Monday`] sends at.
+const MONDAY_HOUR: u32 = 9;
+
 /// When Send sends. A scheduled send is held in the outbox until then.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::ui) enum When {
@@ -33,24 +39,34 @@ impl When {
     /// The choices the Sends menu names. [`When::At`] is typed, not listed.
     pub(in crate::ui) const ALL: [When; 3] = [When::Now, When::Tomorrow, When::Monday];
 
-    /// What the Sends menu calls a choice, worded the way the snooze menu words its times.
-    pub(in crate::ui) fn label(self) -> &'static str {
+    /// What the Sends menu calls a choice, worded the way the snooze menu words its times, the
+    /// hour as `clock` writes it: `Tomorrow 08:00`, or `Tomorrow 8:00 AM`.
+    pub(in crate::ui) fn label(self, clock: Clock) -> String {
+        let at = |hour| {
+            let time = NaiveTime::from_hms_opt(hour, 0, 0).unwrap_or(NaiveTime::MIN);
+            mail_core::when::time_of_day(&time, clock)
+        };
         match self {
-            When::Now => "Now",
-            When::Tomorrow => "Tomorrow 08:00",
-            When::Monday => "Monday 09:00",
-            When::At(_) => super::later::PICK_LABEL,
+            When::Now => "Now".to_owned(),
+            When::Tomorrow => format!("Tomorrow {}", at(TOMORROW_HOUR)),
+            When::Monday => format!("Monday {}", at(MONDAY_HOUR)),
+            When::At(_) => super::later::PICK_LABEL.to_owned(),
         }
     }
 
     /// What the Sends row says: the choice's name, or for a typed time, that time.
-    pub(in crate::ui) fn shown<Tz: TimeZone>(self, now: DateTime<Utc>, zone: &Tz) -> String
+    pub(in crate::ui) fn shown<Tz: TimeZone>(
+        self,
+        now: DateTime<Utc>,
+        zone: &Tz,
+        clock: Clock,
+    ) -> String
     where
         Tz::Offset: std::fmt::Display,
     {
         match self {
-            When::At(at) => super::super::menus::when_words(at, now, zone),
-            _ => self.label().to_owned(),
+            When::At(at) => super::super::menus::when_words(at, now, zone, clock),
+            _ => self.label(clock),
         }
     }
 
@@ -78,10 +94,10 @@ impl When {
         let (day, hour) = match self {
             When::Now => return None,
             When::At(at) => return Some(at),
-            When::Tomorrow => (local.succ_opt()?, 8),
+            When::Tomorrow => (local.succ_opt()?, TOMORROW_HOUR),
             When::Monday => {
                 let ahead = 7 - local.weekday().num_days_from_monday() as i64;
-                (local + Duration::days(ahead), 9)
+                (local + Duration::days(ahead), MONDAY_HOUR)
             }
         };
         let at = day.and_hms_opt(hour, 0, 0)?;
@@ -212,6 +228,17 @@ pub(in crate::ui) struct Wire {
     pub composing: Option<Range>,
 }
 
+/// What is typed in a recipient field that is not an address, once it was meant to become one:
+/// the field was left, Enter was pressed, or Send. The field marks itself with why, and Send
+/// waits; typing in the field again takes the mark off.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(in crate::ui) struct Misread {
+    pub list: List,
+    pub why: String,
+    /// Which refusal this is, so a second one is announced again.
+    pub count: u32,
+}
+
 /// The composer page.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::ui) struct Page {
@@ -261,6 +288,7 @@ pub(in crate::ui) struct Page {
     /// The contact groups offered above [`Page::people`] for what is typed in To or Cc, each
     /// already expanded to its members.
     pub groups: Vec<crate::ui::contacts::groups::Offer>,
+    pub misread: Option<Misread>,
     pub notice: Option<String>,
 }
 
@@ -320,8 +348,14 @@ impl Page {
             plain: Fold::Folded,
             people,
             groups: Vec::new(),
+            misread: None,
             notice: None,
         }
+    }
+
+    /// Why what is typed in `list` is not an address, while it is marked so.
+    pub(in crate::ui) fn misread(&self, list: List) -> Option<&Misread> {
+        self.misread.as_ref().filter(|misread| misread.list == list)
     }
 
     /// Something changed: the next debounced save has work.
