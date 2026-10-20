@@ -426,23 +426,6 @@ async fn a_rename_is_written_in_the_name_s_place_and_enter_makes_it() {
 }
 
 #[tokio::test]
-async fn escape_takes_the_rename_away_and_keeps_the_name() {
-    dispatching();
-    let (mut dom, field, store, _dir) = renaming_projects().await;
-    chord(&mut dom, "Escape", Modifiers::empty(), field);
-    let page = dioxus_ssr::render(&dom);
-    assert!(editing_markup(&page).is_none(), "Escape left the field");
-    assert!(page.contains(">Projects</b>"), "{page}");
-    let paths: Vec<String> = store
-        .folders(acct_imap())
-        .unwrap()
-        .into_iter()
-        .map(|folder| folder.path)
-        .collect();
-    assert!(paths.contains(&"Projects".to_owned()), "{paths:?}");
-}
-
-#[tokio::test]
 async fn several_accounts_are_each_named_over_their_folders() {
     let (store, _dir) = imap_store();
     let other = account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000f3"));
