@@ -341,6 +341,19 @@ pub enum CoreError {
     CapsUnreadable { address: String, why: String },
     #[error("{address}: no capabilities recorded. Something has gone wrong with setup.")]
     NoCaps { address: String },
+    /// The incoming server was reached and would not take the sign-in, in its own words.
+    /// `hint` is empty, or a sentence (with its space) about the likeliest thing to try.
+    #[error("{host} did not accept the sign-in as {login}: {said}{hint}")]
+    SignInRefused {
+        host: String,
+        login: String,
+        said: String,
+        hint: String,
+    },
+    /// The incoming server could not be reached to try the sign-in: nothing answered, or it would
+    /// not finish the handshake. Not a refusal, so the person is not told the password was wrong.
+    #[error("{host} could not be reached: {why}")]
+    ServerUnreachable { host: String, why: String },
     /// A pass could not run, in the words the classifier gave it, with what to do about it.
     #[error("{why}")]
     PassFailed {

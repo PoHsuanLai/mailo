@@ -19,6 +19,7 @@ mod search_scale;
 mod seed_live;
 mod sender_standing;
 mod sender_trust;
+mod sign_in_check;
 mod sync_path;
 
 /// The tests that keep a binary of their own, each saying why at its top.

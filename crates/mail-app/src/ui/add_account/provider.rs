@@ -18,8 +18,9 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Utc};
-use mail_core::account::Setup;
+use mail_core::account::{Outcome, Setup};
 use mail_core::discover::{Failed, Found, Looked as Resolved};
+use mail_core::error::CoreError;
 use mail_core::password::Password;
 use mail_core::{OAuthClients, SqliteStore};
 use mail_domain::presets::{self, Preset};
@@ -66,7 +67,38 @@ pub type Authorize = dyn Fn(Issuer, Vec<String>, UrlSink) -> Waiting + Send + Sy
 /// A sign-in in a browser, under way.
 pub type Waiting = Pin<Box<dyn Future<Output = Result<Credential, String>> + Send>>;
 /// Add the account to mailo's store, its secret to the keyring. Blocks.
-pub type Add = dyn Fn(Request) -> Result<String, String> + Send + Sync;
+pub type Add = dyn Fn(Request) -> Result<String, AddError> + Send + Sync;
+
+/// Why an add failed, for the sheet's one sentence, and what the server said, for the line under it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AddError {
+    pub fault: AddFault,
+    /// The words that name the cause: the server's own reply and the user name it was given, a
+    /// host that did not answer. Shown under the sheet's sentence, which is the same for every
+    /// refusal.
+    pub detail: String,
+}
+
+/// Which of the sheet's sentences an add failure is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AddFault {
+    /// The server was reached and would not take the sign-in.
+    Refused,
+    /// The server was not reached.
+    Unreachable,
+    /// The sign-in was good and the account could not be kept.
+    Unsaved,
+}
+
+/// A failure with only words: the account could not be kept.
+impl From<String> for AddError {
+    fn from(detail: String) -> Self {
+        AddError {
+            fault: AddFault::Unsaved,
+            detail,
+        }
+    }
+}
 
 /// What the add is handed. The password, or the credential a browser sign-in made, is moved in
 /// and dropped with it.
@@ -142,7 +174,7 @@ impl Seams {
                     signed,
                 } = request;
                 let environment = crate::edge::environment();
-                crate::edge::block_on(mail_core::account::add_with_password(
+                let added = crate::edge::block_on(mail_core::account::add_with_password(
                     &store,
                     &address,
                     Some(&setup),
@@ -159,8 +191,49 @@ impl Seams {
                         signed: signed.as_ref(),
                     },
                 ))
-                .map(|added| added.address)
-                .map_err(String::from)
+                .map_err(|why| AddError::from(why.to_string()))?;
+                // A password is only filed by the add, so the server has not seen it yet. Try it
+                // now, while the form is still up: a wrong user name or password is said here in
+                // the server's words, not found at the first sync as "sign in again".
+                if matches!(added.outcome, Outcome::PasswordStored { bearer: false, .. }) {
+                    let secrets = crate::edge::secrets();
+                    let checked = crate::edge::block_on(mail_core::sync::check_sign_in(
+                        &store,
+                        &added.address,
+                        secrets.clone(),
+                        Utc::now(),
+                    ));
+                    if let Err(why) = checked {
+                        // An account that is new and cannot sign in is not kept, so the person
+                        // is not left with one that says "sign in again" and can only be
+                        // removed. One that was already here keeps what it had.
+                        let removed = if added.updated {
+                            Ok(None)
+                        } else {
+                            crate::edge::block_on(mail_core::account::remove(
+                                &store,
+                                secrets.as_ref(),
+                                added.account.clone(),
+                            ))
+                            .map(Some)
+                        };
+                        if let Err(trouble) = removed {
+                            log::warn!(
+                                "could not remove the account that could not sign in: {trouble}"
+                            );
+                        }
+                        let fault = match why {
+                            CoreError::SignInRefused { .. } => AddFault::Refused,
+                            CoreError::ServerUnreachable { .. } => AddFault::Unreachable,
+                            _ => AddFault::Unsaved,
+                        };
+                        return Err(AddError {
+                            fault,
+                            detail: why.to_string(),
+                        });
+                    }
+                }
+                Ok(added.address)
             }),
         }
     }
@@ -185,13 +258,17 @@ pub(super) fn offered_specs() -> Vec<ProviderSpec> {
 }
 
 /// The accounts the window has added, by address: what a finished sheet leaves for whoever
-/// opened it (the Space the account joins, the list that draws it).
+/// opened it (the Space the account joins, the list that draws it). And what the last failed add
+/// was told, for the window to say under the sheet's sentence.
 #[derive(Debug, Clone, Default)]
-pub(in crate::ui) struct Added(Arc<Mutex<Vec<String>>>);
+pub(in crate::ui) struct Added {
+    accounts: Arc<Mutex<Vec<String>>>,
+    said: Arc<Mutex<Option<String>>>,
+}
 
 impl Added {
     fn record(&self, address: String) {
-        self.0
+        self.accounts
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .push(address);
@@ -199,10 +276,26 @@ impl Added {
 
     /// The address of the account added last, once.
     pub(in crate::ui) fn take(&self) -> Option<String> {
-        self.0
+        self.accounts
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .pop()
+    }
+
+    /// What the last failed add was told, until the form is asked again.
+    fn say(&self, detail: Option<String>) {
+        *self
+            .said
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = detail;
+    }
+
+    /// What the last failed add was told, if it was told anything.
+    pub(in crate::ui) fn said(&self) -> Option<String> {
+        self.said
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
     }
 }
 
@@ -537,6 +630,7 @@ impl MailSignIn {
 
     /// The form again, with `prefill` in its address.
     fn ask(&mut self, wants: Wants, prefill: Option<&str>) -> SignInStep {
+        self.added.say(None);
         self.state = State::Asked;
         SignInStep::AskFields(form(wants, prefill))
     }
@@ -693,7 +787,15 @@ impl MailSignIn {
                     Restriction::none(),
                 ))
             }
-            Ok(Err(_)) | Err(_) => self.failed(SignInFault::StoreFailed),
+            Ok(Err(error)) => {
+                self.added.say(Some(error.detail));
+                self.failed(match error.fault {
+                    AddFault::Refused => SignInFault::Refused,
+                    AddFault::Unreachable => SignInFault::Unreachable,
+                    AddFault::Unsaved => SignInFault::StoreFailed,
+                })
+            }
+            Err(_) => self.failed(SignInFault::StoreFailed),
         }
     }
 }

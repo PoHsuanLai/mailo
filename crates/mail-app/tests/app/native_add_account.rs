@@ -34,7 +34,7 @@ struct Log {
 /// How each seam answers.
 #[derive(Clone)]
 struct Script {
-    add: Result<String, String>,
+    add: Result<String, mail_app::ui::native::AddError>,
     /// A browser sign-in finishes when this is notified.
     release: Arc<Notify>,
     /// A lookup waits while a test holds this, to look at the step that is working.
@@ -449,7 +449,7 @@ fn escape_cancels_and_adds_nothing() {
 #[test]
 fn a_failed_step_offers_try_again_which_asks_the_form_again() {
     let script = Script {
-        add: Err("cannot save the account".to_owned()),
+        add: Err("cannot save the account".to_owned().into()),
         ..Script::default()
     };
     let mut w = open(script, Some("ada@example.test"));
@@ -471,6 +471,55 @@ fn a_failed_step_offers_try_again_which_asks_the_form_again() {
     assert!(
         !w.harness.html().contains(SECRET),
         "the password did not survive the reply"
+    );
+}
+
+#[test]
+fn a_refused_login_says_what_the_server_said_under_the_sentence() {
+    use mail_app::ui::native::{AddError, AddFault};
+    let said = "mail.example.test did not accept the sign-in as ada@example.test: \
+                -ERR [AUTH] Authentication failed. Some servers want the user name without \
+                the part after the @.";
+    let script = Script {
+        add: Err(AddError {
+            fault: AddFault::Refused,
+            detail: said.to_owned(),
+        }),
+        ..Script::default()
+    };
+    let mut w = open(script, Some("ada@example.test"));
+    on_step(&mut w, "providers");
+    type_text(&mut w, "fast");
+    w.harness.key(Key::Enter);
+    on_step(&mut w, "sign-in");
+    w.harness.key(Key::Tab);
+    // A password account has nothing to choose, so the empty review is not drawn and the form's
+    // Return adds the account.
+    type_text(&mut w, SECRET);
+    w.harness.key(Key::Enter);
+    on_step(&mut w, "failed");
+    let html = w.harness.html();
+    assert!(
+        html.contains("The provider did not accept what was entered."),
+        "the sheet's sentence for a refusal:\n{html}"
+    );
+    assert!(
+        !html.contains("could not be saved"),
+        "a refused login is not a failure to save:\n{html}"
+    );
+    assert_eq!(
+        w.harness.text_of(".add-account-detail").as_deref(),
+        Some(said),
+        "the server's words under the sentence"
+    );
+    assert!(!html.contains(SECRET), "the password reached the markup");
+    // The window grew past the sentence-only steps to hold the extra lines.
+    let asked = asked(&w);
+    let sentence_only = asked.iter().map(|extent| extent.height).min().unwrap_or(0);
+    let failed = asked.last().copied().unwrap();
+    assert!(
+        failed.height > sentence_only,
+        "{failed:?} did not make room for the detail"
     );
 }
 
@@ -701,7 +750,7 @@ fn render_each_step_to_files() {
         drop(held);
 
         let script = Script {
-            add: Err("cannot save the account".to_owned()),
+            add: Err("cannot save the account".to_owned().into()),
             ..Script::default()
         };
         let mut w = open_in(script, None, theme);
@@ -738,7 +787,7 @@ fn drive_to(
 ) {
     let script = match target {
         "failed" => Script {
-            add: Err("cannot save the account".to_owned()),
+            add: Err("cannot save the account".to_owned().into()),
             ..Script::default()
         },
         "providers" | "sign-in" | "working" | "browser" => Script::default(),
