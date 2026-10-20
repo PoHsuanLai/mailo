@@ -21,14 +21,13 @@ pub fn delete_folder(name: &str, messages: &str) -> String {
     format!("Delete “{name}” and the {messages} in it?")
 }
 
-/// What Tidy Up will archive: the read Inbox conversations older than the age chosen.
-pub fn tidy_up(count: usize) -> String {
-    let spared = "Starred, pinned, snoozed and waiting ones aren’t archived.";
-    match count {
-        0 => "No read conversations that old in the Inbox.".to_owned(),
-        1 => format!("1 read conversation that old in the Inbox. {spared}"),
-        _ => format!("{count} read conversations that old in the Inbox. {spared}"),
-    }
+/// Tidy Up with nothing to archive at the age chosen.
+pub const TIDY_NOTHING: &str = "Nothing that old in the Inbox.";
+/// Under Tidy Up's list: what it leaves alone.
+pub const TIDY_SKIPS: &str = "Skips starred, pinned, snoozed and waiting mail.";
+/// Under Tidy Up's list, when it names only some of what it archives.
+pub fn tidy_more(count: usize) -> String {
+    format!("{count} more")
 }
 
 /// Under [`super::titles::SETTINGS_UNREADABLE`]: each file and why, then what each button does.

@@ -1,6 +1,7 @@
 //! The window's layout and chrome against the real window on Blitz (`ds_harness::Harness`): the
 //! row's ⋯ under a resting pointer, the reader's least width, the sidebar's way back and its
-//! footer and account tiles at the sidebar's least width.
+//! footer and account tiles at the sidebar's least width, and Tidy Up's controls in a narrow
+//! window.
 //!
 //! Every case opens the real window over a store seeded in a `TempDir`. The window is handed no
 //! directories, so it writes no file anywhere; nothing here touches the real store or config.
@@ -527,4 +528,31 @@ fn a_row_s_lines_fit_inside_its_slot() {
         two < three - 10.0,
         "the slot did not shrink with the snippet gone: {two} vs {three}"
     );
+}
+
+/// In a narrow window Tidy Up's age is a pop-up that stays inside its sheet, with the sheet's
+/// buttons; a row of four ages ran past the sheet's edge.
+#[test]
+fn tidy_up_keeps_its_controls_inside_its_sheet_in_a_narrow_window() {
+    let (mut harness, _dir) = open(480, spaces(1));
+    let menu = rect(&harness, "[*|aria-label=\"Sidebar Menu\"]");
+    harness.click(Point {
+        x: Px(menu.origin.x.0 + menu.size.width.0 / 2.0),
+        y: Px(menu.origin.y.0 + menu.size.height.0 / 2.0),
+    });
+    harness.advance(ms(300));
+    crate::row_menu::press_menu_item(&mut harness, "Tidy Up\u{2026}");
+    settle_until(&mut harness, |h| h.count(".sheet-form") == 1);
+    let sheet = rect(&harness, ".sheet-form");
+    let right = sheet.origin.x.0 + sheet.size.width.0;
+    for selector in [
+        ".sheet-form [*|aria-label=\"Older than\"]",
+        ".sheet-form .sheet-actions",
+    ] {
+        let part = rect(&harness, selector);
+        assert!(
+            part.origin.x.0 >= sheet.origin.x.0 && part.origin.x.0 + part.size.width.0 <= right,
+            "{selector} at {part:?} runs out of the sheet at {sheet:?}"
+        );
+    }
 }
