@@ -13,6 +13,11 @@ MimeType=x-scheme-handler/mailto;
 Keywords=mail;email;imap;pop3;smtp;
 StartupNotify=true
 StartupWMClass=mailo
+# Who this entry is on the session bus: the name the running window answers on (`handoff.rs`)
+# and the intents app (`dist/intents/org.quire.Mail.toml`), so the shell finds the app behind a
+# bus name or an intent without a table of its own.
+X-Quire-BusNames=io.github.PoHsuanLai.mailo;org.quire.Mail;
+X-Quire-IntentsApp=org.quire.Mail
 # mailo resolves keys to actions itself (chordkit, through quire), so the desktop's key remapper
 # passes ⌘ through as Super rather than rewriting it as Ctrl for this window.
 X-Keycap-Profile=keymap-aware
