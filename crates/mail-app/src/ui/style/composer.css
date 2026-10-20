@@ -177,8 +177,6 @@
 .p-menu { position: relative; }
 .pick-time .g { color: var(--ink-soft); }
 .pick-in { display: flex; align-items: center; gap: var(--s-6); min-width: 0; }
-.pick-says { margin: 0; color: var(--ink-soft); }
-.pick-says.refused { color: var(--danger); }
 
 .today-at.later { font-variant-numeric: tabular-nums; }
 .today-hint.refused { color: var(--danger); }
