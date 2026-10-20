@@ -289,7 +289,7 @@ fn the_window_s_root_draws_the_reader_for_its_conversation_and_nothing_else() {
         );
     }
     assert_eq!(
-        harness.count(".left-note"),
+        harness.count(".reader > .ds-inline-banner"),
         0,
         "nothing has happened to it yet"
     );
@@ -316,7 +316,7 @@ fn the_window_follows_what_the_main_window_does_to_its_conversation() {
             .contains(MailboxRole::Inbox)
     });
     settle_until(&mut window, |h| {
-        h.text_of(".left-note")
+        h.text_of(".reader > .ds-inline-banner .ds-inline-banner-body")
             .is_some_and(|note| note.contains("Archived"))
     });
 
@@ -327,7 +327,7 @@ fn the_window_follows_what_the_main_window_does_to_its_conversation() {
             .mailboxes
             .contains(MailboxRole::Inbox)
     });
-    settle_until(&mut window, |h| h.count(".left-note") == 0);
+    settle_until(&mut window, |h| h.count(".reader > .ds-inline-banner") == 0);
 }
 
 #[test]
@@ -347,7 +347,7 @@ fn an_archive_in_the_window_reaches_the_main_list_and_its_own_ctrl_z_takes_it_ba
     });
     // The window says so, with the toast whose undo is this window's.
     settle_until(&mut window, |h| {
-        h.text_of(".left-note")
+        h.text_of(".reader > .ds-inline-banner .ds-inline-banner-body")
             .is_some_and(|note| note.contains("Archived"))
     });
     assert!(
@@ -369,7 +369,7 @@ fn an_archive_in_the_window_reaches_the_main_list_and_its_own_ctrl_z_takes_it_ba
             .mailboxes
             .contains(MailboxRole::Inbox)
     });
-    settle_until(&mut window, |h| h.count(".left-note") == 0);
+    settle_until(&mut window, |h| h.count(".reader > .ds-inline-banner") == 0);
     settle_until(&mut main, |h| h.count(".list .ds-thread") == INBOX.len());
 }
 

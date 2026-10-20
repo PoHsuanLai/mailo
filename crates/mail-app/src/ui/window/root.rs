@@ -19,6 +19,8 @@ use crate::ui::window_core::{use_window_core, use_window_desk};
 use chordkit::StandardAction;
 use dioxus::prelude::*;
 use ds::base::spawner::Spawner;
+use ds::components::overlays::inline_banner::InlineBanner;
+use ds::prelude::*;
 use ds_settings::use_environment;
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
@@ -175,7 +177,7 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
                 div { class: "card",
                     section { class: "reader",
                         if let Some(note) = note {
-                            div { class: "left-note", role: "status", "{note}" }
+                            InlineBanner { severity: Severity::Info, text: note }
                         }
                         {reading_column(Some(thread), shell, revision, ReaderIn::Window)}
                         crate::ui::hover::LinkPill {}
