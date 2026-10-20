@@ -193,6 +193,8 @@ pub fn schema() -> Schema {
         key,
         // mailo keeps no tables of another app's.
         foreign: Default::default(),
+        // Every key sits on one of the built-in pages; mailo declares none of its own.
+        pages: Vec::new(),
     }
 }
 
