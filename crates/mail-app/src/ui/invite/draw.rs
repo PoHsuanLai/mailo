@@ -4,7 +4,7 @@ use super::super::menu::{MenuKey, menu_key};
 use super::super::motion::{Follow, tell};
 use super::super::press::{available, on_primary};
 use super::{CHIPS, Card, Stand, answer, cached, lookup, save_ics};
-use crate::ui::copy::{aria, controls};
+use crate::ui::copy::{aria, controls, fields};
 use dioxus::prelude::*;
 use ds::components::content::avatar::{
     AvatarFace, AvatarShape, AvatarSize, AvatarTone, person_hue,
@@ -279,7 +279,7 @@ pub(in crate::ui) fn InviteCard(
 /// What the card states about the event, a label and its value each: when, in whose time, and
 /// where, who and how often where the invitation says.
 fn facts_of(card: &Card) -> Vec<Fact> {
-    let mut facts = vec![Fact::new("When", card.when.clone())];
+    let mut facts = vec![Fact::new(fields::WHEN, card.when.clone())];
     if let Some(theirs) = &card.theirs {
         facts.push(Fact::new("Their time", theirs.clone()));
     }
@@ -287,13 +287,13 @@ fn facts_of(card: &Card) -> Vec<Fact> {
         facts.push(Fact::new("About", occurrence));
     }
     if let Some(repeats) = &card.repeats {
-        facts.push(Fact::new("Repeats", repeats.clone()));
+        facts.push(Fact::new(fields::REPEATS, repeats.clone()));
     }
     if let Some(location) = &card.location {
-        facts.push(Fact::new("Where", location.clone()));
+        facts.push(Fact::new(fields::WHERE, location.clone()));
     }
     if let Some(organiser) = &card.organiser {
-        facts.push(Fact::new("Organiser", organiser.clone()));
+        facts.push(Fact::new(fields::ORGANISER, organiser.clone()));
     }
     facts
 }

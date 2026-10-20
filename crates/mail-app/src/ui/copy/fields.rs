@@ -10,18 +10,18 @@ pub const NEW_FOLDER: &str = "New folder";
 pub const OLDER_THAN: &str = "Older than";
 /// A person's name in the contact editor: the field's label and placeholder.
 pub const NAME: &str = "Name";
+/// A Space's page in Settings: its name's field, and what the field is called to a screen reader.
+pub const SPACE_NAME: &str = "Space name";
+/// A Space's page in Settings: the row of its colours.
+pub const COLOUR: &str = "Colour";
+/// A Space's page in Settings: its own theme, System, Light or Dark.
+pub const APPEARANCE: &str = "Appearance";
 
 // Settings › General's footnotes, each said only where a choice is unclear without it.
-pub const LOGOS_UNVERIFIED: &str = "Logos can’t be verified on this computer yet.";
-pub const SEARCH_SERVER_MEANS: &str = "Search server also looks in your servers’ mail as you type.";
-/// The trusted senders' page, while nobody is trusted.
-pub const HOW_TO_TRUST: &str = "Choose Always Load From on a message’s image banner.";
 /// An account's switch: keep every message and attachment on this computer.
 pub const DOWNLOAD_ALL_MAIL: &str = "Download all mail";
 /// Settings › Rules: whose rules the page shows, when there are several accounts.
 pub const ACCOUNT: &str = "Account";
-/// Under the rules: why their order is theirs to choose.
-pub const RULES_RUN_IN_ORDER: &str = "Rules act on new mail, in this order.";
 /// The keys Settings lists: the row that imports an OpenPGP key.
 pub const OPENPGP_KEY: &str = "OpenPGP Key";
 /// The keys Settings lists: the row that imports an S/MIME certificate or identity.
@@ -38,6 +38,9 @@ pub fn back_at(when: &str) -> String {
     format!("Back {when}")
 }
 
+/// The composer's body, while nothing is written in it.
+pub const WRITE_OR_SLASH: &str = "Write, or type / for more";
+
 /// ⌘K's field, while it is empty.
 pub const SEARCH_EVERYTHING: &str = "Search mail, places and commands";
 
@@ -52,3 +55,39 @@ pub const ORGANISATION: &str = "Organisation";
 pub const FROM: &str = "From";
 pub const TO: &str = "To";
 pub const DATE: &str = "Date";
+
+// A rule's conditions, built from menus: what is looked at, how, and (for a state) which.
+pub const SUBJECT: &str = "Subject";
+pub const MESSAGE_TEXT: &str = "Message text";
+pub const LABEL: &str = "Label";
+pub const ATTACHMENT: &str = "Attachment";
+pub const STATUS: &str = "Status";
+pub const RECEIVED_BEFORE: &str = "Received before";
+pub const RECEIVED_AFTER: &str = "Received after";
+pub const CONTAINS: &str = "contains";
+pub const LACKS: &str = "doesn’t contain";
+pub const IS: &str = "is";
+pub const IS_NOT: &str = "isn’t";
+pub const HAS_ONE: &str = "has one";
+pub const HAS_NONE: &str = "has none";
+pub const UNREAD: &str = "Unread";
+pub const READ: &str = "Read";
+pub const STARRED: &str = "Starred";
+pub const NOT_STARRED: &str = "Not starred";
+pub const PINNED: &str = "Pinned";
+pub const SNOOZED: &str = "Snoozed";
+/// A date condition's field, while it is empty.
+pub const A_DATE: &str = "2026-10-08";
+/// The row a rule's conditions sit in: every one has to match.
+pub const WHEN_ALL_MATCH: &str = "When all of these match";
+/// The checkbox under a rule's actions, with how many conversations it would act on now.
+pub fn apply_to_existing(count: Option<usize>) -> String {
+    match count {
+        None => "Also apply to mail already here".to_owned(),
+        Some(1) => "Also apply to the 1 conversation that matches now".to_owned(),
+        Some(n) => format!("Also apply to the {n} conversations that match now"),
+    }
+}
+/// A rule's condition written as text: the field's name and its example.
+pub const CONDITION: &str = "Condition";
+pub const CONDITION_EXAMPLE: &str = "from:bank.example subject:statement";

@@ -219,6 +219,26 @@ pub(in crate::ui) fn sync_now(shell: &Shell) {
     fetching.sync(&fetching.in_view(shell), Trigger::Manual);
 }
 
+/// Sync `account` alone, from its tile's menu, as [`sync_now`] does for what is shown: a second
+/// ask while it fetches starts nothing, and says so.
+pub(in crate::ui) fn sync_account(account: AccountId) {
+    let Some(fetching) = try_consume_context::<Fetching>() else {
+        return;
+    };
+    if fetching
+        .link(account.clone())
+        .is_some_and(|link| link.is_busy())
+    {
+        crate::ui::motion::tell(
+            ALREADY_SYNCING.to_owned(),
+            crate::ui::motion::Follow::Nothing,
+        );
+        return;
+    }
+    fetching.forget_folders();
+    fetching.sync(&[account], Trigger::Manual);
+}
+
 /// How often the status line is read again, so "5 minutes ago" moves on. A minute is the finest
 /// the words go.
 const STATUS_EVERY: std::time::Duration = std::time::Duration::from_secs(30);

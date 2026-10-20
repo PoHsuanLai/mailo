@@ -10,11 +10,12 @@
 use super::{SettingsAsked, SettingsView};
 use crate::ui::app::Frame;
 use crate::ui::appearance::WindowDirs;
-use crate::ui::space::Spaces;
+use crate::ui::space::{Recall, Spaces};
 use crate::ui::style::STYLE;
 use crate::ui::view::{SettingsPage, Shell};
 use dioxus::prelude::*;
 use ds::base::spawner::Spawner;
+use ds::components::app::spaces::{Switched, use_spaces};
 use ds_settings::use_environment;
 use mail_core::SqliteStore;
 use std::sync::Arc;
@@ -85,23 +86,32 @@ fn SettingsShell() -> Element {
     });
     let revision = use_signal(|| 0u64);
     crate::ui::revisions::use_shared_revision(revision);
-    // The Spaces, read so the frame wears the Space on screen; the first window owns the file.
-    let spaces = use_signal({
-        let dirs = dirs.clone();
-        move || {
-            dirs.as_ref()
-                .map(crate::ui::space::load)
-                .or_else(try_consume_context::<Spaces>)
-                .unwrap_or_else(|| crate::ui::space::first_run(&[]))
-        }
-    });
+    // The Spaces, so the frame wears the Space on screen and the Spaces page edits them: a
+    // handle of the window's own, which writes each edit (`frame::keep`) for the other windows to
+    // read again. It never switches Space but by adding one.
+    let handle = use_spaces(
+        {
+            let dirs = dirs.clone();
+            move || {
+                dirs.as_ref()
+                    .map(crate::ui::space::load)
+                    .or_else(try_consume_context::<Spaces>)
+                    .unwrap_or_else(|| crate::ui::space::first_run(&[]))
+            }
+        },
+        |spaces: &Spaces| crate::ui::frame::keep(spaces),
+        Recall::default,
+        |_: Switched<Recall>| {},
+    );
+    use_context_provider(|| handle);
+    let spaces = handle.spaces();
     let _ = crate::ui::prefs::use_prefs(dirs.as_ref());
     crate::ui::hover::use_hover();
     crate::ui::motion::use_motion();
     let keys = crate::ui::actions::use_window_keys();
     // Key bindings and Spaces another window writes; this one tells them its own through
     // `frame::keep` and the Keyboard page. Settings are watched by the root.
-    crate::ui::frame::use_followed_configuration(shell, spaces, None, keys);
+    crate::ui::frame::use_followed_configuration(shell, spaces, Some(handle), keys);
     let on_key = move |event: Event<KeyboardData>| {
         let key = event.key().to_string();
         // Escape with the keyboard outside the Accounts pane (on the window itself, or the
@@ -109,6 +119,10 @@ fn SettingsShell() -> Element {
         let pushed = !shell.read().accounts_pane.path.is_root();
         if key == "Escape" && pushed && shell.read().settings == Some(SettingsPage::Accounts) {
             super::account::back(shell);
+        }
+        let space_pushed = !shell.read().spaces_pane.is_root();
+        if key == "Escape" && space_pushed && shell.read().settings == Some(SettingsPage::Spaces) {
+            super::spaces::back(shell, handle);
         }
     };
 

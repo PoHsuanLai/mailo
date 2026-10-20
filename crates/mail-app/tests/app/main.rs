@@ -11,14 +11,22 @@ mod cli_mail;
 mod drive;
 #[path = "../support/latency_inbox.rs"]
 mod latency_inbox;
+#[path = "../support/native.rs"]
+mod native;
 #[path = "../support/one_message.rs"]
 mod one_message;
+#[path = "../support/opening.rs"]
+mod opening;
 #[path = "../support/row_menu.rs"]
 mod row_menu;
+#[path = "../support/sealed.rs"]
+mod sealed;
 #[path = "../support/settle.rs"]
 mod settle;
 #[path = "../../../mail-mime/tests/smime_support/mod.rs"]
 mod smime_support;
+#[path = "../support/store.rs"]
+mod store;
 #[path = "../support/typing.rs"]
 mod typing;
 
@@ -37,9 +45,10 @@ mod native_add_account;
 mod native_anyview;
 mod native_brand;
 mod native_compose_align;
-mod native_compose_window;
+mod native_compose_here;
 mod native_control_sizes;
 mod native_copy;
+mod native_damaged_settings;
 mod native_desktop_appearance;
 mod native_destroy;
 mod native_drop;

@@ -1,7 +1,7 @@
 //! Writing an instant the way the person reading it keeps time: the list's column, the
 //! reader's header, the attribution line above quoted text.
 
-use chrono::{DateTime, TimeZone, Utc};
+use chrono::{DateTime, Datelike as _, NaiveDate, TimeZone, Utc};
 
 /// Where an instant appears, and therefore how much of it is written.
 ///
@@ -19,6 +19,10 @@ pub enum Stamp {
     /// The one stamp that leaves this machine. It is written into the body of a reply, so a
     /// wrong one is wrong in someone else's mailbox, permanently, and no later fix reaches it.
     Quote,
+    /// A moment a few days off, where the day matters less than the hour: `Tue 08:00`.
+    Weekday,
+    /// The time of day alone: `08:00`.
+    Clock,
 }
 
 impl Stamp {
@@ -27,6 +31,8 @@ impl Stamp {
             Stamp::Row => "%m-%d %H:%M",
             Stamp::Full => "%Y-%m-%d %H:%M",
             Stamp::Quote => "%a, %d %b %Y at %H:%M",
+            Stamp::Weekday => "%a %H:%M",
+            Stamp::Clock => "%H:%M",
         }
     }
 }
@@ -48,10 +54,7 @@ where
     let today = now.with_timezone(zone);
     // Calendar days, not elapsed hours: 23:50 yesterday is not "today" because it is within
     // twenty-four hours, and 00:10 this morning is.
-    let days = today
-        .date_naive()
-        .signed_duration_since(then.date_naive())
-        .num_days();
+    let days = days_between(then.date_naive(), today.date_naive());
     if days == 0 {
         then.format("%H:%M").to_string()
     } else if (1..7).contains(&days) {
@@ -61,6 +64,32 @@ where
     } else {
         // A year old. The year is the only part that still says anything.
         then.format("%Y-%m-%d").to_string()
+    }
+}
+
+/// How many calendar days `to` is after `from`; negative when it is before.
+fn days_between(from: NaiveDate, to: NaiveDate) -> i64 {
+    to.signed_duration_since(from).num_days()
+}
+
+/// A time to come as a person says it: `Today 17:00`, `Tomorrow 08:00`, `Tue 08:00` within the
+/// week, `Tue 6 Oct 08:00` past it, with the year only when it is not this one. The one wording
+/// for a time something waits until: the window's Sends menu and outbox pill, and the command
+/// line's scheduled sends.
+pub fn upcoming<Tz: TimeZone>(instant: DateTime<Utc>, now: DateTime<Utc>, zone: &Tz) -> String
+where
+    Tz::Offset: std::fmt::Display,
+{
+    let there = instant.with_timezone(zone);
+    let here = now.with_timezone(zone);
+    let clock = there.format("%H:%M");
+    match days_between(here.date_naive(), there.date_naive()) {
+        -1 => format!("Yesterday {clock}"),
+        0 => format!("Today {clock}"),
+        1 => format!("Tomorrow {clock}"),
+        2..=6 => format!("{} {clock}", there.format("%a")),
+        _ if there.year() == here.year() => format!("{} {clock}", there.format("%a %-d %b")),
+        _ => format!("{} {clock}", there.format("%a %-d %b %Y")),
     }
 }
 

@@ -2,17 +2,6 @@ use chrono::Local;
 use mail_core::when::Stamp;
 use mail_domain::*;
 
-pub(super) fn draft_state(state: &SendState) -> &'static str {
-    match state {
-        SendState::Editing => "draft",
-        SendState::Queued => "queued",
-        SendState::Scheduled { .. } => "scheduled",
-        SendState::Sending => "sending",
-        SendState::Failed { .. } => "failed",
-        SendState::Sent { .. } => "sent",
-    }
-}
-
 pub(super) fn from_name(message: &Message) -> String {
     message.from.name.clone().unwrap_or_default()
 }
@@ -78,11 +67,7 @@ pub(super) fn stamp(message: &Message) -> String {
 }
 
 pub(super) fn sender(summary: &ThreadSummary) -> String {
-    summary
-        .from
-        .name
-        .clone()
-        .unwrap_or_else(|| summary.from.email.clone())
+    summary.from.shown().to_owned()
 }
 
 #[cfg(test)]

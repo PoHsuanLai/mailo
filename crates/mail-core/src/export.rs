@@ -136,16 +136,11 @@ enum Chosen {
 }
 
 fn place_named(words: &str) -> Option<Chosen> {
-    Some(match words.to_ascii_lowercase().as_str() {
-        "inbox" => Chosen::Role(MailboxRole::Inbox),
-        "archive" => Chosen::Role(MailboxRole::Archive),
-        "sent" => Chosen::Role(MailboxRole::Sent),
-        "drafts" => Chosen::Role(MailboxRole::Drafts),
-        "trash" => Chosen::Role(MailboxRole::Trash),
-        "spam" => Chosen::Role(MailboxRole::Spam),
-        "all" | "everything" => Chosen::All,
-        _ => return None,
-    })
+    // Checked before the role, whose parser reads `all` as the archive.
+    if words.eq_ignore_ascii_case("all") || words.eq_ignore_ascii_case("everything") {
+        return Some(Chosen::All);
+    }
+    words.parse().ok().map(Chosen::Role)
 }
 
 /// Whether one message on its own is what `filter` asks for.

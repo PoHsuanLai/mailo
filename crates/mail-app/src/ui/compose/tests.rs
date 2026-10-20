@@ -17,6 +17,7 @@ mod smime;
 mod templates;
 mod wire;
 
+use crate::ui::row::listed::Listed;
 use ds::prelude::*;
 use std::cell::Cell;
 use std::sync::Arc;
@@ -25,7 +26,6 @@ use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
 use dioxus_core::{NoOpMutations, VirtualDom};
 use mail_core::SqliteStore;
-use mail_domain::id::new_account_id;
 use mail_domain::*;
 
 use super::body::Body;
@@ -48,23 +48,9 @@ fn at(minutes: i64) -> DateTime<Utc> {
 /// A draft holding `text`, belonging to nobody in particular.
 fn draft_of(text: &str) -> Draft {
     Draft {
-        id: DraftId::generate(),
-        account: new_account_id(),
-        identity: IdentityId::generate(),
-        to: Vec::new(),
-        cc: Vec::new(),
-        bcc: Vec::new(),
         subject: "Plans".to_owned(),
-        in_reply_to: None,
-        forward_of: None,
         text: text.to_owned(),
-        html: None,
-        attachments: Vec::new(),
-        receipt: ReceiptRequest::Unrequested,
-        openpgp: OpenPgp::None,
-        smime: mail_domain::Smime::None,
-        state: SendState::Editing,
-        updated: at(0),
+        ..Draft::blank(&mail_domain::testing::identity(), at(0))
     }
 }
 
@@ -208,12 +194,8 @@ fn PageHarness(draft: Draft) -> Element {
     let today = use_signal(crate::ui::today::Today::default);
     let spaces = use_signal(|| crate::ui::space::first_run(&[]));
     let dirs = try_consume_context::<WindowDirs>();
-    let desk = use_desk(today, spaces, dirs.clone(), None);
-    // In place, as the main window holds a page Open in Main Window brought it.
-    use_hook(|| shell.write().compose_in_place(&draft));
-    // A page brought back (Undo on the pill) asks for a compose window, and, with none to open
-    // here, is drawn in place.
-    crate::ui::window::use_compose_windows(shell, desk);
+    let desk = use_desk(today, spaces, dirs.clone());
+    use_hook(|| shell.write().compose(&draft));
     DESK.with(|slot| slot.set(Some(desk)));
     SHELL.with(|slot| slot.set(Some(shell)));
     let open = composing(&shell.read());
@@ -244,9 +226,16 @@ fn ScheduledRows(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
     let store = consume_context::<Arc<SqliteStore>>();
     let held = super::scheduled(&store, &crate::ui::space::Scope::All);
     rsx! {
-        for draft in held {
-            if let SendState::Scheduled { at } = draft.state {
-                crate::ui::row::scheduled::ScheduledRow { key: "{draft.id}", draft, at, shell, revision }
+        for listed in held.into_iter().filter(|draft| matches!(draft.state, SendState::Scheduled { .. })).map(Listed::Draft) {
+            crate::ui::row::ListRow {
+                key: "{listed.key()}",
+                model: listed.row(None, false, chrono::Utc::now(), &chrono::Local),
+                listed,
+                shell,
+                revision,
+                chips: Vec::new(),
+                via: None,
+                selection: Selection::Unselected,
             }
         }
     }

@@ -56,7 +56,9 @@ pub(in crate::ui) fn save(
     Ok(edited)
 }
 
-/// Put the draft aside: saved, kept exactly in `parked`, and listed in Today.
+/// Put the draft aside: saved, kept exactly in `parked`, and listed in Today. A draft nothing was
+/// put in ([`Draft::untouched`]) is thrown away instead: closing a composer opened by mistake
+/// leaves no draft behind.
 pub(in crate::ui) fn park(
     store: &SqliteStore,
     mut page: Page,
@@ -66,6 +68,13 @@ pub(in crate::ui) fn park(
     now: DateTime<Utc>,
 ) -> Result<(), String> {
     let saved = save(store, &mut page, now);
+    if saved.as_ref().is_ok_and(Draft::untouched) {
+        parked.retain(|kept| kept.draft != page.draft);
+        today.unpark(&page.draft);
+        return mail_core::compose::discard(store, page.draft)
+            .map(|_| ())
+            .map_err(|e| e.to_string());
+    }
     let title = if page.subject.trim().is_empty() {
         "Draft".to_owned()
     } else {

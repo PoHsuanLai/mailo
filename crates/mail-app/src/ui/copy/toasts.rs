@@ -41,6 +41,9 @@ pub fn account_added(address: &str) -> String {
     format!("Added {address}")
 }
 
+/// Delete Draft, done: the toast that offers it back.
+pub const DRAFT_DELETED: &str = "Draft deleted";
+
 /// Cancel Sending, done: the message is a draft again.
 pub const SENDING_CANCELLED: &str = "Sending cancelled";
 

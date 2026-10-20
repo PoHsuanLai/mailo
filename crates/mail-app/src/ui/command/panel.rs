@@ -7,7 +7,7 @@ use super::items::{restate_sidebar, rows_of, search_now};
 use super::sections::{Destination, TEMPLATES, places_for, sections};
 use crate::ui::space::Spaces;
 use crate::ui::today::Today;
-use crate::ui::view::{BarListing, Reach, Shell, Source, place_key};
+use crate::ui::view::{BarListing, Shell, Source, place_key};
 use chrono::Utc;
 use dioxus::prelude::*;
 use ds::prelude::*;
@@ -58,7 +58,8 @@ pub(super) fn panel_rows(
                 .collect();
             // Nothing typed: Recent leads, where the person was.
             if query.trim().is_empty() {
-                let mut recent = super::recent::rows(store, today, spaces.current().id);
+                let mut recent =
+                    super::recent::rows(store, today, spaces.current().id, chrono::Utc::now());
                 recent.append(&mut rows);
                 rows = recent;
             }
@@ -72,7 +73,6 @@ pub(super) fn panel_rows(
                     name: place.name.clone(),
                     icon: crate::ui::sidebar::place_icon(&place.source),
                     at_rest: place_key(place) == format!("place:{}", place.name)
-                        && place.reach != Reach::Search
                         && (waiting || place.source != Source::Scheduled),
                 })
                 .collect();

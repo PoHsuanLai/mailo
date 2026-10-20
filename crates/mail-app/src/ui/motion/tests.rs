@@ -3,6 +3,7 @@
 
 use super::drag::{drop_op, view_kind};
 use crate::ui::app::App;
+use crate::ui::fixtures::settle_quiet;
 use crate::ui::fixtures::{
     FakePointer, INSIDE_THE_SHELL, Seen, chord, click, dispatching, open_row_menu, pick_until,
     pointer, rebuild_into, work,
@@ -47,19 +48,6 @@ fn mounted_with(before: impl FnOnce(&SqliteStore, ThreadId)) -> Mounted {
         dana: built.dana,
         seen,
         _root: built.root,
-    }
-}
-
-/// Let the off-thread list query land and redraw, as the window would between frames.
-async fn settle(dom: &mut VirtualDom) {
-    for _ in 0..8 {
-        if tokio::time::timeout(std::time::Duration::from_millis(40), dom.wait_for_work())
-            .await
-            .is_err()
-        {
-            break;
-        }
-        dom.render_immediate(&mut NoOpMutations);
     }
 }
 
@@ -151,7 +139,7 @@ async fn archiving_moves_the_store_at_once_and_the_row_leaves_once_its_exit_sett
     assert!(mailboxes(&store, dana).contains(MailboxRole::Inbox));
 
     archive_dana(&mut dom, &seen, &store, dana).await;
-    settle(&mut dom).await;
+    settle_quiet(&mut dom).await;
 
     assert!(
         !mailboxes(&store, dana).contains(MailboxRole::Inbox),
@@ -200,7 +188,7 @@ async fn undo_restores_the_mailboxes_exactly() {
     // and it names the op and offers the undo.
     let mut page = String::new();
     for _ in 0..8 {
-        settle(&mut dom).await;
+        settle_quiet(&mut dom).await;
         page = dioxus_ssr::render(&dom);
         if page.contains("ds-toast-action") {
             break;
@@ -234,7 +222,7 @@ async fn dragging_a_row_onto_archive_archives_it() {
         ..
     } = mounted();
     let row = seen.one("aria-label", &format!("Open {DANA}"));
-    let archive = seen.one("data-place", "Done");
+    let archive = seen.one("data-place", "Archive");
 
     pointer(&mut dom, "pointerdown", row, at(420.0, 120.0));
     pointer(&mut dom, "pointermove", row, at(300.0, 160.0));
@@ -247,8 +235,8 @@ async fn dragging_a_row_onto_archive_archives_it() {
     pointer(&mut dom, "pointerenter", archive, at(120.0, 300.0));
     let page = dioxus_ssr::render(&dom);
     assert!(
-        page.contains("data-drop=\"target\" data-place=\"Done\""),
-        "Done did not light up as the target"
+        page.contains("data-drop=\"target\" data-place=\"Archive\""),
+        "Archive did not light up as the target"
     );
     pointer(&mut dom, "pointerup", archive, at(120.0, 300.0));
 
@@ -270,7 +258,7 @@ async fn a_row_dropped_on_a_label_wears_it() {
             mail_domain::LabelOrigin::User,
         );
     });
-    settle(&mut dom).await;
+    settle_quiet(&mut dom).await;
     let row = seen.one("aria-label", &format!("Open {DANA}"));
     let travel = seen.one("data-place", "travel");
 
@@ -278,7 +266,7 @@ async fn a_row_dropped_on_a_label_wears_it() {
     pointer(&mut dom, "pointermove", row, at(120.0, 300.0));
     pointer(&mut dom, "pointerenter", travel, at(120.0, 300.0));
     pointer(&mut dom, "pointerup", travel, at(120.0, 300.0));
-    settle(&mut dom).await;
+    settle_quiet(&mut dom).await;
     let page = dioxus_ssr::render(&dom);
     let labelled = row_markup(&page, DANA).expect("Dana's row is drawn");
     assert!(
@@ -335,7 +323,7 @@ async fn an_opened_conversation_is_in_command_k_recent_and_never_leaves_on_the_c
         crate::ui::fixtures::PRIMARY,
         ElementId(INSIDE_THE_SHELL as usize),
     );
-    settle(&mut dom).await;
+    settle_quiet(&mut dom).await;
     let recent = words_after(&dioxus_ssr::render(&dom), "Recent");
     let recent = recent.split("Commands").next().unwrap_or_default();
     assert!(
@@ -375,7 +363,7 @@ async fn dropping_onto_a_saved_search_writes_nothing() {
         ..
     } = mounted();
     let row = seen.one("aria-label", &format!("Open {DANA}"));
-    let starred = seen.one("data-place", "Kept");
+    let starred = seen.one("data-place", "Starred");
     let before = changes(&store);
 
     pointer(&mut dom, "pointerdown", row, at(420.0, 120.0));
@@ -400,7 +388,7 @@ async fn escape_drops_nothing() {
         ..
     } = mounted();
     let row = seen.one("aria-label", &format!("Open {DANA}"));
-    let archive = seen.one("data-place", "Done");
+    let archive = seen.one("data-place", "Archive");
     let before = changes(&store);
 
     pointer(&mut dom, "pointerdown", row, at(420.0, 120.0));
@@ -423,11 +411,13 @@ fn what_each_place_accepts() {
     let label = LabelId::generate();
     let cases: Vec<(&str, Option<Op>)> = vec![
         ("Inbox", Some(Op::Restore)),
-        ("Done", Some(Op::Archive)),
+        ("Archive", Some(Op::Archive)),
         ("Trash", Some(Op::Trash)),
         ("Spam", Some(Op::Spam)),
         // Saved searches and places nothing is filed into refuse.
-        ("Kept", None),
+        ("Starred", None),
+        ("Pinned", None),
+        ("History", None),
         ("Snoozed", None),
         ("Waiting", None),
         ("Sent", None),
@@ -444,7 +434,6 @@ fn what_each_place_accepts() {
         name: "spec".to_owned(),
         source: crate::ui::view::Source::Mail(Filter::HasLabel(label)),
         unread: None,
-        reach: crate::ui::view::Reach::Sidebar,
     };
     assert_eq!(
         drop_op(&view_kind(&labelled)),
@@ -472,7 +461,7 @@ async fn the_star_marks_only_starred_rows_and_a_press_unstars_that_one() {
     let sam = crate::ui::fixtures::thread_like(&store, "Notes from the sync review");
     assert_eq!(store.thread(sam).unwrap().summary.star, Star::Starred);
     click(&mut dom, stars[0]);
-    settle(&mut dom).await;
+    settle_quiet(&mut dom).await;
     assert_eq!(
         store.thread(sam).unwrap().summary.star,
         Star::Unstarred,
@@ -499,7 +488,7 @@ async fn an_undo_mid_exit_keeps_the_row_once_and_heals_nothing() {
         ..
     } = mounted();
     archive_dana(&mut dom, &seen, &store, dana).await;
-    settle(&mut dom).await;
+    settle_quiet(&mut dom).await;
     chord(
         &mut dom,
         "z",
@@ -524,7 +513,7 @@ async fn an_undo_mid_exit_keeps_the_row_once_and_heals_nothing() {
             row_markup(&page, RELEASE).unwrap_or_default()
         );
     }
-    settle(&mut dom).await;
+    settle_quiet(&mut dom).await;
     let page = dioxus_ssr::render(&dom);
     let row = row_markup(&page, DANA).expect("the row an undo brought back is not drawn");
     assert!(

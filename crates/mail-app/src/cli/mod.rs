@@ -1462,7 +1462,7 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
                 )
                 .map_err(|e| e.to_string())?;
             if page.items.is_empty() {
-                return Ok(format!("no threads in {}\n", role_name(*mailbox)));
+                return Ok(format!("no threads in {}\n", mailbox));
             }
             Ok(render_list(&page.items))
         }
@@ -1615,7 +1615,7 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
             when,
             now,
         )
-        .map(|held| compose::scheduled(&held, &Local))
+        .map(|held| compose::scheduled(&held, now, &Local))
         .map_err(remedy::error),
         Command::Unsend { draft } => mail_core::compose::unsend(store, *draft, now)
             .map(|back| compose::unsent(&back))
@@ -1637,7 +1637,7 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
             .map(|name| format!("deleted template {name:?}\n"))
             .map_err(remedy::error),
         Command::Drafts => mail_core::compose::drafts(store)
-            .map(|all| compose::drafts(&all))
+            .map(|all| compose::drafts(&all, now))
             .map_err(remedy::error),
         Command::ListSnoozed { limit } => {
             let page = store
@@ -1874,13 +1874,7 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
                     .count(&mail_core::place::unread_in(place), now)
                     .map_err(|e| e.to_string())?;
                 if total > 0 {
-                    let _ = writeln!(
-                        out,
-                        "{:<8} {:>5} total  {:>5} unread",
-                        role_name(role),
-                        total,
-                        unread
-                    );
+                    let _ = writeln!(out, "{:<8} {:>5} total  {:>5} unread", role, total, unread);
                 }
             }
             if out.is_empty() {
@@ -1955,23 +1949,12 @@ fn render_list(items: &[ThreadSummary]) -> String {
                 " "
             },
             mail_core::when::stamp(summary.last_date, &Local, Stamp::Row),
-            summary.from.name.as_deref().unwrap_or(&summary.from.email),
+            summary.from.shown(),
             summary.subject,
             summary.id
         );
     }
     out
-}
-
-fn role_name(role: MailboxRole) -> &'static str {
-    match role {
-        MailboxRole::Inbox => "inbox",
-        MailboxRole::Archive => "archive",
-        MailboxRole::Sent => "sent",
-        MailboxRole::Drafts => "drafts",
-        MailboxRole::Trash => "trash",
-        MailboxRole::Spam => "spam",
-    }
 }
 
 #[cfg(test)]

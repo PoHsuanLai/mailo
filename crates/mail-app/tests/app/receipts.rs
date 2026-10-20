@@ -3,17 +3,13 @@
 //! Every answer here is one the user typed. The window answers by itself only under the
 //! `reading.read_receipts = "always"` setting (`ui::receipt`), never by default.
 
+use crate::store::acct_account;
 use chrono::{DateTime, TimeZone, Utc};
 use mail_app::cli;
 use mail_core::{SqliteStore, Store};
-use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
-use porter_core::AccountId;
 use std::sync::Arc;
 
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
 const IDENTITY: IdentityId =
     IdentityId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b1"));
 const ASKING: MessageId = MessageId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000c1"));

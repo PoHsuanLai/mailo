@@ -3,10 +3,11 @@
 
 use super::*;
 use crate::ui::fetching::{Fetching, Passer};
+use crate::ui::fixtures::settle_quiet;
 use crate::ui::fixtures::{dispatching, empty};
 use chrono::Utc;
 use dioxus::prelude::*;
-use dioxus_core::{NoOpMutations, VirtualDom};
+use dioxus_core::VirtualDom;
 use mail_core::SqliteStore;
 use mail_core::Store as _;
 use mail_core::fetch::{Link, Live, Pause, Trigger};
@@ -207,24 +208,11 @@ fn window(store: Arc<SqliteStore>, script: &Script) -> VirtualDom {
     dom
 }
 
-/// Let what is waiting land and redraw, as the window would between frames.
-async fn settle(dom: &mut VirtualDom) {
-    for _ in 0..12 {
-        if tokio::time::timeout(Duration::from_millis(80), dom.wait_for_work())
-            .await
-            .is_err()
-        {
-            break;
-        }
-        dom.render_immediate(&mut NoOpMutations);
-    }
-}
-
 /// Settle until `holds`, for up to two seconds: a watch and its reconnects run on threads and
 /// timers the window does not wait for.
 async fn eventually(dom: &mut VirtualDom, what: &str, holds: impl Fn(&VirtualDom) -> bool) {
     for _ in 0..40 {
-        settle(dom).await;
+        settle_quiet(dom).await;
         if holds(dom) {
             return;
         }
@@ -300,7 +288,7 @@ async fn mail_heard_starts_a_pass_and_one_heard_during_it_starts_another_after()
 
     // More mail while it runs: the link ignores the start, and it is not lost.
     script.say(Then::Hear(Heard::Mail));
-    settle(&mut dom).await;
+    settle_quiet(&mut dom).await;
     assert_eq!(script.runs(), 1, "two passes on one account");
 
     script.let_go(ended);
@@ -344,7 +332,7 @@ async fn a_daemon_holding_the_account_means_the_window_does_not_watch() {
     let script = Script::default();
     script.daemon.store(true, Ordering::SeqCst);
     let mut dom = window(store, &script);
-    settle(&mut dom).await;
+    settle_quiet(&mut dom).await;
     fetching(&dom).sync_all(Trigger::Manual);
     eventually(&mut dom, "a pass", |_| script.runs() == 1).await;
     script.let_go(ended);
@@ -358,7 +346,7 @@ async fn a_pass_that_could_not_run_does_not_redraw_the_window() {
     let (store, _dir) = account();
     let script = Script::default();
     let mut dom = window(store, &script);
-    settle(&mut dom).await;
+    settle_quiet(&mut dom).await;
     let before = revision(&dom);
 
     fetching(&dom).sync_all(Trigger::Manual);

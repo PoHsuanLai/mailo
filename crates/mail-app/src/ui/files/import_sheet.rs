@@ -17,11 +17,12 @@ use mail_core::SqliteStore;
 
 use super::super::common::classed;
 use super::super::debounce::use_debounced;
-use super::super::menu::{MenuItem, Right, Tile, anchor_at, narrowed, palette_groups};
+use super::super::menu::{MenuItem, Right, anchor_at, narrowed, palette_groups};
 use super::super::pick::{Ask, choose};
 use super::super::press::{SheetClose, available, on_primary};
 use super::work::{self, Dest, Looked};
 use super::{Phase, Report, run, tilde_here};
+use crate::ui::copy;
 use crate::ui::view::{FileSheet, Shell};
 
 /// The path the sheet's field holds.
@@ -124,7 +125,7 @@ pub(super) fn ImportSheet(shell: Signal<Shell>, revision: Signal<u64>) -> Elemen
             div { class: "sheet-form",
                 FieldGroup {
                     FieldRow {
-                        label: "From",
+                        label: copy::fields::FROM,
                         help: Some(look_words.into()),
                         layout: RowLayout::Form,
                         div { class: "sheet-path",
@@ -232,15 +233,10 @@ pub(in crate::ui) fn dest_items(all: &[Dest], chosen: &Dest) -> Vec<MenuItem> {
                 } => (folder.clone(), address.clone(), Icon::Mail, None),
             };
             MenuItem {
-                key: one.key(),
-                tile: Tile::Icon(icon),
-                name,
                 help,
                 right: Right::Check(one == chosen),
                 group: Some(group),
-                marks: Vec::new(),
-                title: Vec::new(),
-                detail: Vec::new(),
+                ..MenuItem::icon(one.key(), icon, name)
             }
         })
         .collect()

@@ -21,11 +21,11 @@ use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use porter_core::AccountId;
 use std::sync::Arc;
-use std::time::Duration;
 
 use crate::drive;
 use drive::{Drive, Key};
 
+use crate::native::ms;
 use crate::settle;
 use settle::settle_until;
 
@@ -37,10 +37,6 @@ const VIEW: Viewport = Viewport {
 
 fn acct() -> AccountId {
     account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000ca"))
-}
-
-fn ms(n: u64) -> Duration {
-    Duration::from_millis(n)
 }
 
 /// A letter with a file on it, so its row draws the clip and the count.

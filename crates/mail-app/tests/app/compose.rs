@@ -5,6 +5,7 @@
 //! path it needs — a draft that persists, an identity to send as, an envelope that survives
 //! into the outbox — was missing at every one of those three points.
 
+use crate::store::acct_account;
 use chrono::{DateTime, TimeZone, Utc};
 use mail_app::cli::compose as words;
 use mail_app::ui::view;
@@ -14,9 +15,6 @@ use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use porter_core::AccountId;
 
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
 const IDENTITY: IdentityId =
     IdentityId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b1"));
 const ORIGINAL: MessageId =
@@ -30,13 +28,7 @@ fn identity() -> Identity {
     Identity {
         id: IDENTITY,
         account: acct_account(),
-        from: Address {
-            name: None,
-            email: "me@example.test".to_owned(),
-        },
-        reply_to: None,
-        signature: None,
-        default: IsDefault::Default,
+        ..mail_domain::testing::identity()
     }
 }
 
@@ -585,16 +577,16 @@ fn the_identity_comes_from_the_table_the_foreign_key_enforces() {
 #[test]
 fn drafts_reports_what_is_waiting() {
     let (store, _dir) = seeded();
-    assert!(words::drafts(&compose::drafts(&store).unwrap()).contains("no drafts"));
+    assert!(words::drafts(&compose::drafts(&store).unwrap(), at(30)).contains("no drafts"));
 
     compose::draft_reply(&store, ORIGINAL, ReplyScope::Sender, "yes", at(10)).unwrap();
-    let listed = words::drafts(&compose::drafts(&store).unwrap());
-    assert!(listed.contains("editing"), "{listed}");
+    let listed = words::drafts(&compose::drafts(&store).unwrap(), at(30));
+    assert!(listed.contains("draft"), "{listed}");
     assert!(listed.contains("Re: lunch on friday"), "{listed}");
 
     let draft = only_draft(&store);
     compose::send(&store, draft.id, at(20)).unwrap();
-    assert!(words::drafts(&compose::drafts(&store).unwrap()).contains("queued"));
+    assert!(words::drafts(&compose::drafts(&store).unwrap(), at(30)).contains("queued"));
 }
 
 /// The composer's round trip, without a window.

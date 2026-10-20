@@ -50,7 +50,7 @@ fn dotted(dots: &[Dot]) -> SpaceLook {
 #[test]
 fn a_space_gets_its_place_and_thread_back_and_nothing_else() {
     let mut shell = Shell::default();
-    select(&mut shell, "Done");
+    select(&mut shell, "Archive");
     shell.open(thread(7));
     let left = recall_of(&shell);
 
@@ -58,17 +58,30 @@ fn a_space_gets_its_place_and_thread_back_and_nothing_else() {
     select(&mut elsewhere, "Sent");
     elsewhere.open(thread(9));
     elsewhere.search = "from:dana".to_owned();
+    // Every further menu, Move To's included, is put away with the Space it was opened in.
+    elsewhere.further = Some(crate::ui::view::FurtherMenu {
+        thread: thread(9),
+        further: crate::ui::view::Further::Move,
+        opened: crate::ui::view::Opened::Reader,
+    });
     restore(&mut elsewhere, &left);
-    assert_eq!(place(&elsewhere), "Done");
+    assert_eq!(elsewhere.further, None, "a menu followed into the Space");
+    assert_eq!(place(&elsewhere), "Archive");
     assert_eq!(elsewhere.open, Some(thread(7)));
     assert!(
         elsewhere.search.is_empty(),
         "the search followed into the Space"
     );
 
-    // A Space left before the sidebar became lifecycle stored the old names; each lands on the
+    // A Space left while the sidebar was lifecycle stored its names; each lands on the standard
     // place that replaced it.
-    for (stored, now) in [("Archive", "Done"), ("Starred", "Kept"), ("Pinned", "Kept")] {
+    for (stored, now) in [
+        ("Done", "Archive"),
+        ("place:Done", "Archive"),
+        ("Kept", "Starred"),
+        ("place:Kept", "Starred"),
+        ("Pinned", "Pinned"),
+    ] {
         let old = space::Recall {
             place: stored.to_owned(),
             ..space::Recall::default()
@@ -134,7 +147,7 @@ fn a_space_left_on_an_account_tile_comes_back_whole() {
         ..Shell::default()
     };
     restore(&mut shell, &recall);
-    assert_eq!(place(&shell), "Done");
+    assert_eq!(place(&shell), "Archive");
     assert_eq!(shell.open, Some(thread(7)));
     assert_eq!(
         shell.account_filter(),

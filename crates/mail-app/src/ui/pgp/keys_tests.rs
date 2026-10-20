@@ -2,10 +2,11 @@
 //! first, and the two acts that cannot be undone each asked again, in quire's alert, before
 //! anything happens.
 
+use crate::ui::fixtures::settle_until;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use dioxus::prelude::*;
 use dioxus_core::VirtualDom;
@@ -83,20 +84,8 @@ fn working(dom: &VirtualDom) -> bool {
 /// for a `VirtualDom`). A job's thread wakes nothing while it runs, so a quiet spell alone does
 /// not mean it is done. Panics with the markup if it is still working at the bound.
 pub(super) async fn settle(dom: &mut VirtualDom, seen: &mut Seen) {
-    let started = Instant::now();
-    loop {
-        let quiet = Duration::from_millis(100);
-        match tokio::time::timeout(quiet, dom.wait_for_work()).await {
-            Ok(()) => dom.render_immediate(seen),
-            Err(_) if !working(dom) => return,
-            Err(_) => {}
-        }
-        assert!(
-            started.elapsed() < SETTLE_BOUND,
-            "the sheet was still working after {SETTLE_BOUND:?}:\n{}",
-            dioxus_ssr::render(dom)
-        );
-    }
+    let quiet = Duration::from_millis(100);
+    settle_until(dom, seen, quiet, SETTLE_BOUND, |dom| !working(dom)).await;
 }
 
 fn key(fingerprint: u8, secret: SecretHeld) -> PgpKey {
@@ -207,7 +196,6 @@ async fn deleting_a_key_with_its_secret_is_asked_again_first() {
         "the secret half is still in the keyring"
     );
     let page = dioxus_ssr::render(&dom);
-    assert!(page.contains("Deleted the key of"), "{page}");
     // With its key gone, the address may have one made again.
     assert!(page.contains("Make a key for me@example.test"), "{page}");
 }
@@ -225,9 +213,7 @@ async fn a_key_without_a_secret_is_deleted_at_once() {
     );
     settle(&mut dom, &mut done).await;
     assert!(store.pgp_key(theirs.fingerprint).unwrap().is_none());
-    // With no window to toast in, the page says it; the toast's Undo puts the key back whole.
-    let page = dioxus_ssr::render(&dom);
-    assert!(page.contains("Deleted the key of"), "{page}");
+    // The toast's Undo puts the key back whole.
     crate::ui::motion::Restore::Key(theirs.clone())
         .put_back(&store)
         .unwrap();
@@ -278,7 +264,6 @@ async fn exporting_the_secret_key_is_asked_again_and_only_then_written() {
         let mode = std::fs::metadata(&out).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o600, "a secret key readable by others");
     }
-    assert!(dioxus_ssr::render(&dom).contains("Saved the secret key"));
 }
 
 #[tokio::test]
@@ -306,7 +291,6 @@ async fn generate_verify_and_import_go_through_the_keyring_handed_in() {
     let mut imported = click(&mut dom, seen.all("aria-label", "Import from a file…")[1]);
     settle(&mut dom, &mut imported).await;
     let theirs = store.pgp_key(bea.fingerprint()).unwrap().unwrap();
-    assert!(dioxus_ssr::render(&dom).contains("Imported Them"));
 
     let all = seen.merge(made).merge(imported);
     let mut verified = click(

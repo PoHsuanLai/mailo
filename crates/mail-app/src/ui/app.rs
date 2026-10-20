@@ -1,13 +1,15 @@
-use super::actions::{self, Heard, Own};
-use super::compose::{self, ComposerPage, PageKind, SendPill};
+use super::actions::{self, Heard};
+use super::compose::{self, SendPill};
 use super::data::{PAGE, accounts, count_badges};
 use super::frame;
+use super::intent::{Intent, Scope, intent, on_thread};
 use super::list::ThreadList;
 use super::list_query::{ListView, use_list};
-use super::ops::{Composes, apply_op, compose_new, start_composing};
-use super::reading::Reader;
+use super::ops::{Writes, open_composer};
+use super::reading::{ReaderIn, reading_column};
 use super::sidebar::Places;
 use super::style::STYLE;
+use super::window_core::{use_window_core, use_window_desk};
 use crate::ui::selection::Toward;
 use crate::ui::space::Spaces;
 use crate::ui::view::{
@@ -51,22 +53,18 @@ pub(super) fn App() -> Element {
             // one read here, once, puts it in the composer.
             Some(super::Start::Compose(id)) => {
                 let store = consume_context::<Arc<SqliteStore>>();
-                match store.draft(id) {
-                    Ok(draft) => shell.compose(&draft),
-                    Err(why) => eprintln!("compose: {why}"),
+                if let Err(why) = shell.compose_id(&*store, id) {
+                    eprintln!("compose: {why}");
                 }
             }
             Some(super::Start::Inbox) | None => {}
         }
         shell
     });
-    // The window's keymap, with mailo's actions in it.
-    let keys = actions::use_registered();
-    // Bumped after any write, to re-run the queries. Explicit rather than implicit so it is
-    // obvious what causes a refresh.
-    let mut revision = use_signal(|| 0u64);
-    // Every other window's moves move it too, and its own reach them (`ui/revisions`).
-    super::revisions::use_shared_revision(revision);
+    // The window's keymap, with mailo's actions in it, and the revision bumped after any write to
+    // re-run the queries, which every other window's moves move too (`ui/revisions`).
+    let core = use_window_core();
+    let (keys, mut revision) = (core.keys, core.revision);
     // The conversations opened in windows of their own, to raise one asked for again.
     super::window::use_opened();
     super::settings_window::use_settings_opened();
@@ -99,25 +97,44 @@ pub(super) fn App() -> Element {
     // ⌘K's Recent reads it: what was opened and put aside in each Space.
     use_context_provider(|| today_list);
     let dirs = boot.dirs.clone();
+    // A Space deleted in another window (Settings › Spaces) takes its Today with it here, as one
+    // deleted from the Space's menu does.
+    let mut known = use_hook(|| CopyValue::new(space_ids(&spaces.peek())));
+    use_effect({
+        let dirs = dirs.clone();
+        move || {
+            let now = space_ids(&spaces.read());
+            let gone: Vec<crate::ui::space::SpaceId> = known
+                .peek()
+                .iter()
+                .filter(|id| !now.contains(id))
+                .copied()
+                .collect();
+            known.set(now);
+            if gone.is_empty() {
+                return;
+            }
+            for id in gone {
+                today_list.write().drop_space(id);
+            }
+            if let Some(dirs) = &dirs {
+                let _ = crate::ui::today::save(&dirs.state, &today_list.peek());
+            }
+        }
+    });
     // The files this window saves, behind the sidebar's Downloads button.
     super::downloads::use_provide_shelf(dirs.as_ref());
     let mut side_hidden = use_signal(|| false);
     let prefs = super::prefs::use_prefs(dirs.as_ref());
-    let desk = compose::use_desk(today_list, spaces, dirs.clone(), None);
-    // What compose windows hand back (a parked page, a send, an undo), and a new message sent to
-    // a window of its own.
-    compose::use_handed(desk, shell, revision);
-    super::window::use_compose_windows(shell, desk);
-    compose::use_test_dictionaries();
+    // Another window (Settings) may have written a key binding or the Spaces: the desk's hook
+    // reads them again. `settings.toml` needs nothing here: the window's root watches it.
+    let desk = use_window_desk(core, shell, spaces, Some(handle), today_list, dirs.clone());
     let mut seen_open = use_signal(|| None::<mail_domain::ThreadId>);
     let mut label_ids = use_signal(Vec::<mail_domain::LabelId>::new);
     // The server folders that are places, after the labels, as `view::places_with` orders them.
     let mut folder_refs = use_signal(Vec::<(String, MailboxRef)>::new);
     // The saved views, after the folders, as `view::places_with` orders them.
     let mut saved_views = use_signal(Vec::<View>::new);
-    // Hover previews and the motion keyed to ops: shared state, provided once for the window.
-    super::hover::use_hover();
-    super::motion::use_motion();
     // The first frame cannot wait for the effect below: a chip's name is a lookup, and a
     // lookup against an empty list draws an empty chip.
     use_hook(|| {
@@ -288,10 +305,6 @@ pub(super) fn App() -> Element {
             shell.write().appearance.marks = marks;
         }
     });
-
-    // Another window (Settings) may have written a key binding or the Spaces: read them again.
-    // `settings.toml` needs nothing here: the window's root watches it.
-    super::frame::use_followed_configuration(shell, spaces, Some(handle), keys);
 
     // An account removed, here or from a terminal, leaves every Space; one added that no Space
     // holds yet joins the Space on screen. Not while a part of the Space's menu is open: its
@@ -473,6 +486,12 @@ pub(super) fn App() -> Element {
         // What the press asks, from chordkit's keymap with the user's keys over it: a standard
         // action (⌘F, ⌘P, ⌘Z), one of mailo's chords (⌘K, ⌘1), or a mail key (j, e, #).
         let heard = actions::heard(keys, &event, typing_now);
+        let scope = if typing_now {
+            Scope::Typing
+        } else {
+            Scope::List
+        };
+        let intent = intent(heard, scope);
         if super::motion::key(
             &key,
             heard == Some(Heard::Standard(StandardAction::Undo)),
@@ -489,12 +508,12 @@ pub(super) fn App() -> Element {
             let _ = handle.switch_index(usize::from(number.get()) - 1);
             return;
         }
-        match heard {
-            Some(Heard::Standard(StandardAction::ToggleSidebar)) => {
+        match intent {
+            Some(Intent::ToggleSidebar) => {
                 side_hidden.set(!side_hidden());
                 return;
             }
-            Some(Heard::Standard(StandardAction::Print)) => {
+            Some(Intent::Print) => {
                 // The open conversation, as one flow. Nothing open: nothing printed, nothing said.
                 let open = shell.read().open;
                 if let Some(job) = super::print::job_for(open) {
@@ -502,11 +521,11 @@ pub(super) fn App() -> Element {
                 }
                 return;
             }
-            Some(Heard::Standard(StandardAction::Find) | Heard::Own(Own::Search)) => {
+            Some(Intent::Search) => {
                 super::command::summon(shell);
                 return;
             }
-            Some(Heard::Standard(StandardAction::Settings)) => {
+            Some(Intent::Settings) => {
                 super::settings_window::open();
                 return;
             }
@@ -516,33 +535,25 @@ pub(super) fn App() -> Element {
         // trying to filter for, and the menu's own handler already took the arrows.
         let menu_open = {
             let current = shell.read();
-            current.page_menu != PageMenu::Closed
-                || current.snoozing.is_some()
-                || current.labelling.is_some()
-                || current.filing.is_some()
+            current.page_menu != PageMenu::Closed || current.further.is_some()
         };
         if menu_open {
             if key == "Escape" {
                 let mut write = shell.write();
                 write.page_menu = PageMenu::Closed;
-                write.snoozing = None;
-                write.labelling = None;
-                write.filing = None;
+                write.further = None;
                 super::host::Host::focus_app();
             }
             return;
         }
-        let typing = in_a_field() || shell.read().composing.is_some();
         let listed = || -> Vec<ThreadId> { threads().iter().map(|t| t.id).collect() };
         // ⌘A picks every listed conversation. In a field it is the field's select-all.
-        if heard == Some(Heard::Standard(StandardAction::SelectAll)) {
-            if !typing {
-                shell.write().pick_all(&listed());
-            }
+        if intent == Some(Intent::SelectAll) {
+            shell.write().pick_all(&listed());
             return;
         }
         // Esc lets go of a selection before it closes anything behind it.
-        if key == "Escape" && !typing && shell.read().picked.any(&listed()) {
+        if key == "Escape" && !typing_now && shell.read().picked.any(&listed()) {
             shell.write().unpick(&listed());
             return;
         }
@@ -560,20 +571,17 @@ pub(super) fn App() -> Element {
         }
         // Shift+Enter opens the open conversation in a window of its own (a focused row's own
         // handler takes it first, for that row).
-        if heard == Some(Heard::Own(Own::OpenInWindow)) {
+        if intent == Some(Intent::OpenInWindow) {
             let open = shell.read().open;
-            if !typing && let Some(open) = open {
+            if let Some(open) = open {
                 super::window::open_in_window(open);
             }
             return;
         }
         // ⌘N writes a message wherever the caret is, ⌘⌫ trashes while reading. No bare letter is
         // a shortcut with ⌘ held: ⌘C is copy, and ⌘A was select-all above. Esc still closes.
-        let action = match heard {
-            Some(Heard::Mail(action)) => action,
-            Some(Heard::Standard(StandardAction::New)) => Shortcut::Compose,
-            Some(Heard::Own(Own::TrashOpen)) if !typing => Shortcut::Trash,
-            _ => return,
+        let Some(Intent::Mail(action)) = intent else {
+            return;
         };
         let store = consume_context::<Arc<SqliteStore>>();
         let open = shell.read().open;
@@ -601,11 +609,9 @@ pub(super) fn App() -> Element {
                     shell.write().open = None;
                 }
             }
-            Shortcut::TogglePin => {
-                if let Some(id) = open
-                    && apply_op(&store, id, OpKind::Pin)
-                {
-                    revision += 1;
+            Shortcut::TogglePin | Shortcut::Reply | Shortcut::ReplyAll | Shortcut::Forward => {
+                if let Some(id) = open {
+                    on_thread(&store, shell, revision, id, action);
                 }
             }
             Shortcut::ToggleMute => {
@@ -617,20 +623,7 @@ pub(super) fn App() -> Element {
                 // Cloned out and the guard dropped before anything writes back. The same
                 // hazard the composer's handlers document, caught here by the borrow checker
                 // rather than at runtime.
-                if compose_new(&store, shell) {
-                    revision += 1;
-                }
-            }
-            Shortcut::Reply | Shortcut::ReplyAll | Shortcut::Forward => {
-                let what = match action {
-                    Shortcut::Reply => Composes::Reply(ReplyScope::Sender),
-                    Shortcut::ReplyAll => Composes::Reply(ReplyScope::All),
-                    _ => Composes::Forward,
-                };
-                if let Some(id) = open
-                    && let Ok(draft) = start_composing(&store, id, what)
-                {
-                    shell.write().compose(&draft);
+                if open_composer(&store, shell, Writes::New).is_ok() {
                     revision += 1;
                 }
             }
@@ -651,24 +644,7 @@ pub(super) fn App() -> Element {
     let frame_class = if side_hidden() { "app no-side" } else { "app" };
     // The open thread or the composer: a column of the card, or, floating, quire's `Peek` over it.
     let reading = rsx! {
-        // A reply sits under its thread. A new message opens in a compose window of its own, and
-        // is a page in this column only once Open in Main Window brought it here (or where no
-        // window can open).
-        match (compose::composing(&shell.read()), shell.read().open) {
-            (Some((draft, PageKind::Reply)), Some(thread)) => rsx! {
-                Reader { thread, shell, revision,
-                    ComposerPage { key: "{draft}", draft, shell, revision }
-                }
-            },
-            (Some((draft, _)), _) => rsx! { ComposerPage { key: "{draft}", draft, shell, revision } },
-            (None, Some(thread)) => rsx! { Reader { thread, shell, revision } },
-            (None, None) => rsx! {
-                EmptyState {
-                    form: ds::components::overlays::empty_state::EmptyForm::Empty,
-                    title: "No message selected",
-                }
-            },
-        }
+        {reading_column(shell.read().open, shell, revision, ReaderIn::Pane)}
     };
     let floating = shell.read().open.is_some() || compose::composing(&shell.read()).is_some();
     let pinned = if side_hidden() {
@@ -720,6 +696,7 @@ pub(super) fn App() -> Element {
         Frame { spaces,
         AppStyle { css: STYLE }
         div { class: frame_class,
+            style: "--side-w: {SIDEBAR_WIDTH}px",
             tabindex: "0",
             onmounted: super::host::Host::app_mounted,
             onkeydown: on_key,
@@ -779,10 +756,14 @@ pub(super) fn App() -> Element {
     }
 }
 
+/// The sidebar's preferred width. The stylesheet reads it as `--side-w` (set on the window's root),
+/// since the send pill is centred over what is right of the sidebar.
+const SIDEBAR_WIDTH: f32 = 232.0;
+
 /// The sidebar pane: 232 wide, 212 to 320, and it folds away past half of its least. 212 is
 /// what the sidebar's rows need; the foot (Downloads, the Space dots, one chevron) needs less.
 const SIDEBAR: PaneSpec = PaneSpec {
-    preferred: PaneSize::Fixed(Px(232.0)),
+    preferred: PaneSize::Fixed(Px(SIDEBAR_WIDTH)),
     min: PaneSize::Fixed(Px(212.0)),
     max: PaneSize::Fixed(Px(320.0)),
     collapsing: Collapsing::Snaps,
@@ -856,6 +837,11 @@ pub(super) fn Frame(
 /// the desktop's reduced-motion preference (`Ds { system }`), never a Space's.
 pub(super) fn window_appearance(environment: &Environment) -> ds::prelude::Appearance {
     environment.settings.appearance.appearance()
+}
+
+/// The ids of `spaces`, in order.
+fn space_ids(spaces: &crate::ui::space::Spaces) -> Vec<crate::ui::space::SpaceId> {
+    spaces.list().iter().map(|space| space.id).collect()
 }
 
 #[cfg(test)]
@@ -1201,8 +1187,11 @@ mod tests {
         for expected in [
             "Inbox",
             "Waiting",
-            "Done",
-            "Kept",
+            "Starred",
+            "Archive",
+            "Sent",
+            "Pinned",
+            "History",
             crate::ui::command::BOX_LABEL,
             "GitHub",
             "dinner?",

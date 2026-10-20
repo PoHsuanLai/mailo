@@ -181,11 +181,7 @@ pub(in crate::ui) fn TidySheet(shell: Signal<Shell>, revision: Signal<u64>) -> E
                         for summary in found.iter().take(SHOWN) {
                             Row {
                                 key: "{summary.id}",
-                                title: if summary.subject.trim().is_empty() {
-                                    copy::empty::NO_SUBJECT.to_owned()
-                                } else {
-                                    summary.subject.clone()
-                                },
+                                title: mail_domain::subject_or_none(&summary.subject).into_owned(),
                                 outline: Outline::None,
                             }
                         }

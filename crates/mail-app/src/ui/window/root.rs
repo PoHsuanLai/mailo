@@ -9,12 +9,13 @@
 use super::note::left;
 use crate::ui::actions::{self, Heard};
 use crate::ui::app::Frame;
-use crate::ui::compose::{self, ComposerPage, PageKind, SendPill};
-use crate::ui::ops::{Composes, apply_op, start_composing};
-use crate::ui::reading::{Reader, ReaderIn};
+use crate::ui::compose::{self, SendPill};
+use crate::ui::intent::{Intent, Scope, intent, on_thread};
+use crate::ui::reading::{ReaderIn, reading_column};
 use crate::ui::space::Spaces;
 use crate::ui::style::STYLE;
 use crate::ui::view::{Shell, Shortcut};
+use crate::ui::window_core::{use_window_core, use_window_desk};
 use chordkit::StandardAction;
 use dioxus::prelude::*;
 use ds::base::spawner::Spawner;
@@ -61,9 +62,11 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
     let _ = crate::ui::prefs::use_prefs(
         try_consume_context::<crate::ui::appearance::WindowDirs>().as_ref(),
     );
-    // The window's keymap, with mailo's actions in it: this window is its own root.
-    let keys = actions::use_registered();
-    let mut shell = use_signal(|| {
+    // The window's keymap, with mailo's actions in it, and its revision: this window is its own
+    // root.
+    let core = use_window_core();
+    let (keys, mut revision) = (core.keys, core.revision);
+    let shell = use_signal(|| {
         let store = consume_context::<Arc<SqliteStore>>();
         let mut shell = Shell {
             appearance: try_consume_context::<crate::ui::view::Appearance>().unwrap_or_default(),
@@ -78,8 +81,6 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
         shell.open(thread);
         shell
     });
-    let mut revision = use_signal(|| 0u64);
-    crate::ui::revisions::use_shared_revision(revision);
     // The Spaces, read and never written: the first window owns the file.
     let spaces = use_signal(|| {
         try_consume_context::<crate::ui::appearance::WindowDirs>()
@@ -87,16 +88,10 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
             .or_else(try_consume_context::<Spaces>)
             .unwrap_or_else(|| crate::ui::space::first_run(&[]))
     });
-    crate::ui::frame::use_followed_configuration(shell, spaces, None, keys);
     // A reply's desk. Handed no directories, so nothing here writes Today or the settings,
     // which are the first window's.
     let today = use_signal(crate::ui::today::Today::default);
-    let desk = compose::use_desk(today, spaces, None, None);
-    // A forward is a new message: it opens in a compose window of its own.
-    super::use_compose_windows(shell, desk);
-    compose::use_test_dictionaries();
-    crate::ui::hover::use_hover();
-    crate::ui::motion::use_motion();
+    let desk = use_window_desk(core, shell, spaces, None, today, None);
     // Where the conversation was when the window opened, for [`left`].
     let opened = use_hook(|| {
         let store = consume_context::<Arc<SqliteStore>>();
@@ -121,6 +116,7 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
         }
         let typing = shell.read().composing.is_some();
         let heard = actions::heard(keys, &event, typing);
+        let intent = intent(heard, Scope::Window);
         if crate::ui::motion::key(
             &key,
             heard == Some(Heard::Standard(StandardAction::Undo)),
@@ -130,48 +126,29 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
         ) {
             return;
         }
-        if heard == Some(Heard::Standard(StandardAction::Print)) {
+        if intent == Some(Intent::Print) {
             if let Some(job) = crate::ui::print::job_for(Some(thread)) {
                 crate::ui::print::print(job);
             }
             return;
         }
         // The mail keys and Esc; a chord of the main window's (search, Spaces) is not this one's.
-        let Some(Heard::Mail(action)) = heard else {
+        let Some(Intent::Mail(action)) = intent else {
             return;
         };
         let store = consume_context::<Arc<SqliteStore>>();
         match action {
-            // One conversation, and no list to step through or start another from.
-            Shortcut::Next
-            | Shortcut::Previous
-            | Shortcut::ExtendNext
-            | Shortcut::ExtendPrevious
-            | Shortcut::Compose => {}
             Shortcut::Back => {
                 if shell.read().composing.is_some() {
                     compose::park_current(desk, shell);
                     revision += 1;
                 }
             }
-            Shortcut::TogglePin => {
-                if apply_op(&store, thread, OpKind::Pin) {
-                    revision += 1;
-                }
+            Shortcut::TogglePin | Shortcut::Reply | Shortcut::ReplyAll | Shortcut::Forward => {
+                on_thread(&store, shell, revision, thread, action);
             }
             Shortcut::ToggleMute => {
                 crate::ui::picks::mute_all(&store, shell, revision, &[thread]);
-            }
-            Shortcut::Reply | Shortcut::ReplyAll | Shortcut::Forward => {
-                let what = match action {
-                    Shortcut::Reply => Composes::Reply(ReplyScope::Sender),
-                    Shortcut::ReplyAll => Composes::Reply(ReplyScope::All),
-                    _ => Composes::Forward,
-                };
-                if let Ok(draft) = start_composing(&store, thread, what) {
-                    shell.write().compose(&draft);
-                    revision += 1;
-                }
             }
             _ => {
                 // The same gesture the first window's keys make, over the one conversation
@@ -185,7 +162,6 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
         }
     };
 
-    let composing = compose::composing(&shell.read());
     rsx! {
         Frame { spaces,
             style { {STYLE} }
@@ -201,17 +177,7 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
                         if let Some(note) = note {
                             div { class: "left-note", role: "status", "{note}" }
                         }
-                        match composing {
-                            Some((draft, PageKind::Reply)) => rsx! {
-                                Reader { thread, shell, revision, place: ReaderIn::Window,
-                                    ComposerPage { key: "{draft}", draft, shell, revision }
-                                }
-                            },
-                            // A forward drawn here (where no compose window could open) is a
-                            // message of its own: the page stands in for the reader.
-                            Some((draft, _)) => rsx! { ComposerPage { key: "{draft}", draft, shell, revision } },
-                            None => rsx! { Reader { thread, shell, revision, place: ReaderIn::Window } },
-                        }
+                        {reading_column(Some(thread), shell, revision, ReaderIn::Window)}
                         crate::ui::hover::LinkPill {}
                     }
                     SendPill { shell }

@@ -8,8 +8,6 @@ pub const ADD_TO_SPACE: &str = "Add to This Space";
 pub const INBOX: &str = "Inbox";
 /// The menu of accounts a new folder can go on.
 pub const NEW_FOLDER: &str = "New Folder";
-/// A compose window's title until its message has a subject.
-pub const NEW_MESSAGE: &str = "New Message";
 /// The sheet that archives the Inbox's old read conversations.
 pub const TIDY_UP: &str = "Tidy Up";
 
@@ -17,6 +15,7 @@ pub const TIDY_UP: &str = "Tidy Up";
 pub const SETTINGS: &str = "Settings";
 pub const GENERAL: &str = "General";
 pub const ACCOUNTS: &str = "Accounts";
+pub const SPACES: &str = "Spaces";
 pub const RULES: &str = "Rules";
 pub const KEYBOARD: &str = "Keyboard";
 /// General's page of the senders whose images load.
@@ -37,3 +36,24 @@ pub fn use_graph(name: &str) -> String {
 pub const ENCRYPTED: &str = "Encrypted";
 pub const SIGNED: &str = "Signed";
 pub const NOT_VERIFIED: &str = "Not Verified";
+
+// A failure in Settings, as its dialog's title; the reason is the dialog's message.
+/// A setting, a sender or an account's switch that could not be written: nothing changed.
+pub const NOT_SAVED: &str = "The Change Wasn’t Saved";
+/// A key the Keyboard page cannot take for an action.
+pub const KEY_NOT_USED: &str = "That Key Can’t Be Used";
+/// Remove Account that did not remove it.
+pub const NOT_REMOVED: &str = "The Account Wasn’t Removed";
+/// A rule or vacation reply kept here that its server did not take.
+pub const NOT_ON_SERVER: &str = "Not Saved on the Server";
+/// A rule run on existing mail that stopped.
+pub fn did_not_run(name: &str) -> String {
+    format!("“{name}” Didn’t Run")
+}
+/// A key or certificate job (import, save, delete, verify) that failed.
+pub const KEYS_FAILED: &str = "That Didn’t Work";
+
+/// Asked before the window opens over settings files that are there and cannot be read.
+pub const SETTINGS_UNREADABLE: &str = "Some Settings Can’t Be Read";
+/// Use Defaults could not set a damaged settings file aside; the reason is the message.
+pub const NOT_SET_ASIDE: &str = "The Files Weren’t Set Aside";

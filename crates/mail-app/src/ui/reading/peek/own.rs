@@ -90,13 +90,8 @@ pub(super) fn message(bytes: &[u8]) -> Option<Sheet> {
             )
         }),
     ];
-    let subject = parsed.subject.trim();
     Some(Sheet {
-        title: if subject.is_empty() {
-            copy::empty::NO_SUBJECT.to_owned()
-        } else {
-            subject.to_owned()
-        },
+        title: mail_domain::subject_or_none(&parsed.subject).into_owned(),
         facts: facts.into_iter().flatten().collect(),
         text: Some(
             parsed

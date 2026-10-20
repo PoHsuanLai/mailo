@@ -11,12 +11,9 @@
 //! what would open: quire's harness has no event loop to open a window on
 //! (`OpenWindowError::NoHost`).
 
-mod compose;
 mod note;
 mod root;
 
-pub use compose::{ComposeAsk, ComposeOpen, ComposeWindows, OpenCompose, compose_root};
-pub(in crate::ui) use compose::{close_all, use_compose_windows};
 pub use root::{MessageOpen, message_root};
 
 use dioxus::prelude::*;
@@ -77,19 +74,11 @@ pub(in crate::ui) fn open_in_window(thread: ThreadId) {
     };
     let ask = Ask {
         thread,
-        title: title(&loaded.summary.subject),
+        title: mail_domain::subject_or_none(&loaded.summary.subject).into_owned(),
     };
     match try_consume_context::<Windows>() {
         Some(windows) => windows.0.open(ask),
         None => quire(ask),
-    }
-}
-
-/// A window's title for a conversation whose subject is `subject`.
-pub(in crate::ui) fn title(subject: &str) -> String {
-    match subject.trim() {
-        "" => "(no subject)".to_owned(),
-        said => said.to_owned(),
     }
 }
 
@@ -134,15 +123,8 @@ pub(in crate::ui) const OPEN_NAME: &str = "Open in new window";
 pub(in crate::ui) fn menu_item(keymap: &chordkit::Keymap) -> super::menu::MenuItem {
     let shortcut = super::actions::hint_own(keymap, super::actions::Own::OpenInWindow);
     super::menu::MenuItem {
-        key: OPEN_KEY.to_owned(),
-        tile: super::menu::Tile::Icon(Icon::Window),
-        name: OPEN_NAME.to_owned(),
-        help: None,
         right: shortcut.map_or(super::menu::Right::None, super::menu::Right::Shortcut),
-        group: None,
-        marks: Vec::new(),
-        title: Vec::new(),
-        detail: Vec::new(),
+        ..super::menu::MenuItem::icon(OPEN_KEY, Icon::Window, OPEN_NAME)
     }
 }
 
@@ -163,19 +145,6 @@ mod tests {
         ];
         for (life, raised) in CASES {
             assert_eq!(raise(*life), *raised, "{life:?}");
-        }
-    }
-
-    #[test]
-    fn the_title_is_the_subject_and_says_when_there_is_none() {
-        const CASES: &[(&str, &str)] = &[
-            ("Lunch on Thursday", "Lunch on Thursday"),
-            ("  Re: plans \t", "Re: plans"),
-            ("", "(no subject)"),
-            ("   ", "(no subject)"),
-        ];
-        for (subject, want) in CASES {
-            assert_eq!(title(subject), *want, "{subject:?}");
         }
     }
 }

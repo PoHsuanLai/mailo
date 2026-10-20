@@ -6,21 +6,18 @@ use ds::prelude::*;
 use ds_blitz::{FocusFallback, NetPolicy, PrintOutcome};
 use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
 use ds_settings::Environment;
-use mail_core::SqliteStore;
 use mail_core::{Arrival, absorb};
-use mail_domain::id::account_id_from_uuid;
+use mail_core::{SqliteStore, Store};
 use mail_domain::*;
-use porter_core::AccountId;
 use std::sync::Arc;
-use std::time::Duration;
 
 use crate::drive;
+use crate::native::item;
+use crate::native::ms;
 use crate::row_menu;
+use crate::store::acct_account;
 use drive::{Drive, Key, PRIMARY};
 
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
 const VIEW: Viewport = Viewport {
     width: 1200,
     height: 800,
@@ -261,13 +258,15 @@ fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
     Arc::new(store)
 }
 
-fn ms(n: u64) -> Duration {
-    Duration::from_millis(n)
+fn open(dark: bool) -> (Harness, tempfile::TempDir) {
+    open_with(dark, |_| {})
 }
 
-fn open(dark: bool) -> (Harness, tempfile::TempDir) {
+/// [`open`], with `prepare` run on the store first.
+fn open_with(dark: bool, prepare: impl FnOnce(&SqliteStore)) -> (Harness, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let store = seeded(dir.path());
+    prepare(&store);
     let contexts = mail_app::ui::native::contexts(
         store,
         mail_app::ui::view::Appearance::default(),
@@ -287,46 +286,6 @@ fn open(dark: bool) -> (Harness, tempfile::TempDir) {
         .with_contexts(contexts.with(printer))
         .with_context(env);
     let mut harness = Harness::new(mail_app::ui::native::root, config);
-    harness.advance(ms(400));
-    (harness, dir)
-}
-
-/// A compose window, as quire opens it at 640×560, on a new draft to Ada about dinner.
-fn compose_window(dark: bool) -> (Harness, tempfile::TempDir) {
-    let dir = tempfile::tempdir().unwrap();
-    let store = seeded(dir.path());
-    let to = Address::parse_list("Ada Lovelace <ada@example.test>").unwrap();
-    let draft = mail_core::compose::draft_new(
-        &store,
-        acct_account(),
-        &to,
-        "Dinner on Friday",
-        "",
-        chrono::Utc::now(),
-    )
-    .unwrap();
-    let contexts = mail_app::ui::native::contexts(
-        store,
-        mail_app::ui::view::Appearance::default(),
-        None,
-        None,
-        mail_app::ui::Start::Inbox,
-    );
-    let mut env = Environment::default();
-    if dark {
-        env.system.scheme = Scheme::Dark;
-    }
-    let config = HarnessConfig::new(Viewport {
-        width: 640,
-        height: 560,
-        scale_percent: 100,
-    })
-    .with_clock(Clock::Wall)
-    .with_net(NetPolicy::Local)
-    .with_focus_fallback(FocusFallback::Ancestor)
-    .with_contexts(contexts.with(mail_app::ui::native::ComposeOpen(draft.id)))
-    .with_context(env);
-    let mut harness = Harness::new(mail_app::ui::native::compose_root, config);
     harness.advance(ms(400));
     (harness, dir)
 }
@@ -359,11 +318,6 @@ fn open_row(h: &mut Harness, n: usize) {
     h.advance(ms(500));
 }
 
-/// Row `n` of the list.
-fn row(n: usize) -> String {
-    format!(".list .ds-list-item[*|aria-posinset=\"{n}\"]")
-}
-
 #[test]
 #[ignore = "picture generator: set MAILO_SHOTS to a directory and run with --ignored"]
 fn screens() {
@@ -372,13 +326,8 @@ fn screens() {
         // The list, nothing open: the reader's empty state.
         let (mut h, _d) = open(dark);
         shot(&mut h, &out, "inbox-list", dark);
-        // An empty folder: the list's empty state, reached through the list title's menu.
-        if let Some(at) = h.centre(".list-title") {
-            h.press(at, ds::base::press::PointerButton::Secondary);
-            h.advance(ms(400));
-        }
-        row_menu::press_menu_item(&mut h, "Trash");
-        h.advance(ms(400));
+        // An empty folder: the list's empty state.
+        click(&mut h, "[*|data-place=\"Trash\"]");
         shot(&mut h, &out, "empty-state", dark);
 
         // The reader, then the same message in the centre peek.
@@ -414,16 +363,16 @@ fn screens() {
 
         // The row's menus: its actions, then labels and snooze picked from them.
         let (mut h, _d) = open(dark);
-        row_menu::open_row_menu(&mut h, &row(1));
+        row_menu::open_row_menu(&mut h, &item(1));
         h.advance(ms(300));
         shot(&mut h, &out, "row-menu", dark);
         h.key(Key::Escape);
         h.advance(ms(400));
-        row_menu::row_action(&mut h, &row(1), "Label…");
+        row_menu::row_action(&mut h, &item(1), "Label…");
         shot(&mut h, &out, "label-picker", dark);
         h.key(Key::Escape);
         h.advance(ms(400));
-        row_menu::row_action(&mut h, &row(1), "Snooze…");
+        row_menu::row_action(&mut h, &item(1), "Snooze…");
         shot(&mut h, &out, "snooze-menu", dark);
         row_menu::press_menu_item(&mut h, mail_app::ui::copy::menus::CHOOSE_TIME);
         h.advance(ms(400));
@@ -431,7 +380,7 @@ fn screens() {
 
         // A toast with its action: Archive, then Undo on the toast.
         let (mut h, _d) = open(dark);
-        row_menu::row_action(&mut h, &row(1), "Archive");
+        row_menu::row_action(&mut h, &item(1), "Archive");
         h.advance(ms(500));
         shot(&mut h, &out, "toast-action", dark);
 
@@ -446,13 +395,29 @@ fn screens() {
         }
         shot(&mut h, &out, "composer", dark);
 
-        // A new message's own window.
-        let (mut h, _d) = compose_window(dark);
-        click(&mut h, ".c-body");
-        for c in "Are you free at seven?".chars() {
-            h.key(if c == ' ' { Key::Space } else { Key::Char(c) });
-        }
-        shot(&mut h, &out, "compose-window", dark);
+        // A message held to leave tomorrow, opened from Scheduled: what it says, and when.
+        let (mut h, _d) = open_with(dark, |store| {
+            let now = chrono::Utc::now();
+            let held = mail_core::compose::draft_new(
+                store,
+                acct_account(),
+                &[Address {
+                    name: Some("Grace Hopper".into()),
+                    email: "grace@example.test".into(),
+                }],
+                "Agenda for the offsite",
+                "Morning: the plan for the year.\nAfternoon: the lake.\n",
+                now,
+            )
+            .unwrap();
+            let at = now + chrono::TimeDelta::days(1);
+            store
+                .set_send_state(held.id, &SendState::Scheduled { at }, now)
+                .unwrap();
+        });
+        click(&mut h, "[*|data-place=\"Scheduled\"]");
+        open_row(&mut h, 1);
+        shot(&mut h, &out, "scheduled-held", dark);
 
         // The search bar's panel (⌘K) with nothing typed, then with a query, then the Add Account
         // sheet from it.
@@ -573,6 +538,12 @@ fn settings_screens() {
         shot(&mut h, &out, "settings-rules", dark);
         click(&mut h, "[*|id^=\"rules-pane-open-\"]");
         shot(&mut h, &out, "settings-rule", dark);
+        settings_page(&mut h, "Rules");
+        click(&mut h, "[*|id=\"rules-pane-new\"]");
+        shot(&mut h, &out, "settings-rule-new", dark);
+
+        settings_page(&mut h, "Vacation Reply");
+        shot(&mut h, &out, "settings-vacation", dark);
 
         settings_page(&mut h, "Keyboard");
         shot(&mut h, &out, "settings-keyboard", dark);

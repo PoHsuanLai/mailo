@@ -3,9 +3,8 @@
 //! The rules live in [`mail_core::compose`], which hands back the draft and what was queued;
 //! the words, and the `mailo` commands they point at, are this front-end's.
 
-use chrono::{Local, TimeZone};
+use chrono::{DateTime, Local, TimeZone, Utc};
 use mail_core::compose::{AttachedFile, Composed, Scheduled, SignatureChange};
-use mail_core::when::Stamp;
 use mail_domain::{Address, Draft, OpenPgp, ReceiptRequest, SendState, Smime};
 use std::fmt::Write as _;
 
@@ -117,13 +116,14 @@ pub fn queued(draft: &Draft, post: &mail_mime::Posting) -> String {
     out
 }
 
-/// A send held for later, as `mailo send --at` reports it, the time written in `zone`.
-pub fn scheduled<Tz: TimeZone>(held: &Scheduled, zone: &Tz) -> String
+/// A send held for later, as `mailo send --at` reports it, the time written in `zone` as the
+/// window writes it, against `now`.
+pub fn scheduled<Tz: TimeZone>(held: &Scheduled, now: DateTime<Utc>, zone: &Tz) -> String
 where
     Tz::Offset: std::fmt::Display,
 {
     let Scheduled { draft, post, at } = held;
-    let when = mail_core::when::stamp(*at, zone, Stamp::Full);
+    let when = mail_core::when::upcoming(*at, now, zone);
     let mut out = format!("{} will leave at {when}\n", draft.id);
     let _ = writeln!(out, "  from    {}", post.mail_from);
     let _ = writeln!(out, "  to      {}", post.rcpt_to.join(", "));
@@ -146,12 +146,12 @@ pub fn unsent(back: &Draft) -> String {
 }
 
 /// Every draft and where it got to, as `mailo drafts` lists them.
-pub fn drafts(drafts: &[Draft]) -> String {
-    drafts_in(drafts, &Local)
+pub fn drafts(drafts: &[Draft], now: DateTime<Utc>) -> String {
+    drafts_in(drafts, now, &Local)
 }
 
 /// The same, with the zone a scheduled send's time is written in named.
-pub fn drafts_in<Tz: TimeZone>(drafts: &[Draft], zone: &Tz) -> String
+pub fn drafts_in<Tz: TimeZone>(drafts: &[Draft], now: DateTime<Utc>, zone: &Tz) -> String
 where
     Tz::Offset: std::fmt::Display,
 {
@@ -161,18 +161,14 @@ where
             out,
             "{}  {:<9}  {}",
             draft.id,
-            state_word(&draft.state),
-            if draft.subject.is_empty() {
-                "(no subject)"
-            } else {
-                &draft.subject
-            }
+            draft.state.word(),
+            mail_domain::subject_or_none(&draft.subject)
         );
         if let SendState::Scheduled { at } = draft.state {
             let _ = write!(
                 out,
                 "  (leaves {})",
-                mail_core::when::stamp(at, zone, Stamp::Full)
+                mail_core::when::upcoming(at, now, zone)
             );
         }
         out.push('\n');
@@ -181,17 +177,6 @@ where
         out.push_str("no drafts.\n");
     }
     out
-}
-
-fn state_word(state: &SendState) -> &'static str {
-    match state {
-        SendState::Editing => "editing",
-        SendState::Queued => "queued",
-        SendState::Scheduled { .. } => "scheduled",
-        SendState::Sending => "sending",
-        SendState::Failed { .. } => "failed",
-        SendState::Sent { .. } => "sent",
-    }
 }
 
 /// What a draft is carrying, as `mailo attached` lists it.

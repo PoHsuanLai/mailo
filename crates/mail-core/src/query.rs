@@ -12,7 +12,7 @@
 //! ```text
 //! from:ada  to:bob  subject:lunch      a word in that field
 //! is:unread is:read is:starred         state
-//! is:pinned is:snoozed is:kept       is:kept is starred or pinned, the Kept place
+//! is:pinned is:snoozed is:kept       is:kept is starred or pinned
 //! in:inbox  in:archive in:sent         where it lives
 //! in:spam   in:trash
 //! has:attachment                       what it carries
@@ -122,10 +122,19 @@ pub fn parse_with<Tz: TimeZone>(
 
 /// One token: its text, whether it was negated, and whether it was quoted.
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct Token {
-    text: String,
-    negated: bool,
-    quoted: bool,
+pub struct Token {
+    /// The token without its `-` and its quotes: `from:ada`, `lunch on friday`.
+    pub text: String,
+    /// Led by `-`.
+    pub negated: bool,
+    /// Quoted, whole (`"lunch on friday"`) or as a field's value (`subject:"lunch"`).
+    pub quoted: bool,
+}
+
+/// `input` as the search reads it, one token at a time: for a surface that shows a query as
+/// parts (a rule's conditions) and must split it as [`parse_with`] does.
+pub fn tokens(input: &str) -> Vec<Token> {
+    tokenize(input)
 }
 
 /// Split on whitespace, keeping quoted runs together and noticing a leading `-`.
@@ -236,7 +245,7 @@ fn term<Tz: TimeZone>(
             "unstarred" => Filter::Starred(Star::Unstarred),
             "pinned" => Filter::Pinned,
             "snoozed" => Filter::Snoozed,
-            // The Kept place, in words: starred or pinned. The one `Or` a term stands for.
+            // Starred or pinned. The one `Or` a term stands for.
             "kept" => crate::view::kept_filter(),
             _ => return None,
         },
@@ -264,15 +273,7 @@ fn term<Tz: TimeZone>(
 }
 
 fn mailbox(value: &str) -> Option<MailboxRole> {
-    Some(match value.to_ascii_lowercase().as_str() {
-        "inbox" => MailboxRole::Inbox,
-        "archive" | "all" => MailboxRole::Archive,
-        "sent" => MailboxRole::Sent,
-        "drafts" | "draft" => MailboxRole::Drafts,
-        "spam" | "junk" => MailboxRole::Spam,
-        "trash" | "bin" | "deleted" => MailboxRole::Trash,
-        _ => return None,
-    })
+    value.parse().ok()
 }
 
 /// The start of a named day, in the reader's zone.

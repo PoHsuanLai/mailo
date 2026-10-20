@@ -196,15 +196,24 @@ async fn general_controls_write_settings_toml() {
 const PAGES: &[(SettingsPage, &str)] = &[
     (SettingsPage::General, "Check spelling"),
     (SettingsPage::Accounts, "Add Account\u{2026}"),
-    (SettingsPage::Rules, "Vacation Reply"),
+    (SettingsPage::Spaces, "New Space"),
+    (SettingsPage::Rules, "New Rule\u{2026}"),
+    (SettingsPage::Vacation, "Vacation reply"),
     (SettingsPage::Keyboard, "Change the key for"),
 ];
 
 #[test]
-fn settings_has_4_pages_in_that_order() {
+fn settings_has_6_pages_in_that_order() {
     assert_eq!(
         SettingsPage::ALL.map(SettingsPage::name),
-        ["General", "Accounts", "Rules", "Keyboard"]
+        [
+            "General",
+            "Accounts",
+            "Spaces",
+            "Rules",
+            "Vacation Reply",
+            "Keyboard"
+        ]
     );
 }
 
@@ -300,7 +309,7 @@ async fn each_trusted_sender_is_a_row_whose_remove_stops_its_images() {
 }
 
 #[tokio::test]
-async fn trusting_senders_with_none_yet_says_how_one_is_trusted() {
+async fn trusting_senders_with_none_yet_says_there_are_none() {
     let built = work();
     let mut settings = MailSettings::default();
     settings.reading.remote_images = LoadRemoteImages::Trusted;
@@ -311,10 +320,6 @@ async fn trusting_senders_with_none_yet_says_how_one_is_trusted() {
     let page = dioxus_ssr::render(&dom);
     assert!(
         page.contains(crate::ui::copy::empty::NO_TRUSTED_SENDERS),
-        "{page}"
-    );
-    assert!(
-        page.contains(crate::ui::copy::fields::HOW_TO_TRUST),
         "{page}"
     );
 }

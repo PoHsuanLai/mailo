@@ -125,13 +125,15 @@ fn import(
     };
     drop(password);
     let names: Vec<String> = imported.iter().map(|one| whose(&one.cert)).collect();
+    if names.is_empty() {
+        return Err(format!("{} holds no certificate.", path.display()));
+    }
     Ok(Done::Said(
         match imported
             .iter()
             .find(|one| one.cert.secret == SecretHeld::Held)
         {
             Some(own) => format!("Imported your identity for {}", whose(&own.cert)),
-            None if names.is_empty() => format!("{} holds no certificate.", path.display()),
             None => format!("Imported {}", names.join(", ")),
         },
     ))

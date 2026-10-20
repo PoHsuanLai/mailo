@@ -41,6 +41,14 @@ pub fn load(dir: &Path) -> Today {
     storage(dir).load_today()
 }
 
+/// Why `today.json` in `dir` cannot be used: `None` when it is missing or reads.
+pub fn damage(dir: &Path) -> Option<String> {
+    mail_core::config::json_damage::<Today>(dir, FILE_NAME)
+}
+
+/// The file Today is kept in, in the state directory.
+pub const FILE_NAME: &str = "today.json";
+
 /// Write `today` to `dir/today.json`, creating `dir` if needed.
 pub fn save(dir: &Path, today: &Today) -> Result<(), String> {
     let saved = storage(dir)

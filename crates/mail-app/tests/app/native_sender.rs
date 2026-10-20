@@ -9,31 +9,21 @@
 //! `Authentication-Results` is the one read (`mail_core::auth::receiver`).
 
 use ds::prelude::Point;
-use ds_blitz::{FocusFallback, NetPolicy, PrintOutcome};
-use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
+use ds_harness::Harness;
 
 use crate::settle;
 use settle::settle_until;
 
 use crate::drive;
+use crate::native::ms;
+use crate::native::row;
+use crate::opening::{Open, open_window};
+use crate::store::acct_account;
 use drive::Drive;
 use mail_core::SqliteStore;
 use mail_core::{Arrival, absorb};
-use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
-use porter_core::AccountId;
 use std::sync::Arc;
-use std::time::Duration;
-
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
-
-const VIEW: Viewport = Viewport {
-    width: 1200,
-    height: 800,
-    scale_percent: 100,
-};
 
 /// The seeded inbox, newest first: (sender, subject, the fields above its own headers).
 const INBOX: [(&str, &str, &str); 2] = [
@@ -52,10 +42,6 @@ const INBOX: [(&str, &str, &str); 2] = [
          Authentication-Results: mx.provider.example; spf=pass; dkim=pass; dmarc=pass\r\n",
     ),
 ];
-
-fn ms(n: u64) -> Duration {
-    Duration::from_millis(n)
-}
 
 fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
     std::fs::create_dir_all(dir.join("blobs")).unwrap();
@@ -102,29 +88,8 @@ fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
 fn open() -> (Harness, tempfile::TempDir, Arc<SqliteStore>) {
     let dir = tempfile::tempdir().unwrap();
     let store = seeded(dir.path());
-    // Every window here has a print dialog of its own: none may open the system's.
-    let printer = mail_app::ui::native::Printer::with_dialog(|_, _| Ok(PrintOutcome::Cancelled));
-    let contexts = mail_app::ui::native::contexts(
-        Arc::clone(&store),
-        mail_app::ui::view::Appearance::default(),
-        None,
-        None,
-        mail_app::ui::Start::Inbox,
-    )
-    .with(printer);
-    let config = HarnessConfig::new(VIEW)
-        .with_net(NetPolicy::Local)
-        .with_focus_fallback(FocusFallback::Ancestor)
-        .with_clock(Clock::Virtual)
-        .with_contexts(contexts);
-    let mut harness = Harness::new(mail_app::ui::native::root, config);
-    harness.advance(ms(300));
-    settle_until(&mut harness, |h| h.count(".list .ds-thread") > 0);
+    let harness = open_window(&store, Open::default());
     (harness, dir, store)
-}
-
-fn row(n: usize) -> String {
-    format!(".list .ds-list-item[*|aria-posinset=\"{n}\"] .ds-row")
 }
 
 /// Click the `n`th row at the start of its subject line, clear of its hover strip.

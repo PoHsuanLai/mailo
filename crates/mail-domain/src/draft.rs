@@ -12,6 +12,8 @@ use chrono::{DateTime, Utc};
 use porter_core::AccountId;
 use serde::{Deserialize, Serialize};
 
+mod written;
+
 /// A file the user attached, already read into the blob store.
 ///
 /// A [`BlobId`], never a path: reading the file is I/O and must happen in `mail-runtime`
@@ -49,6 +51,22 @@ pub enum SendState {
         /// which has no Sent folder to read, the copy this client kept when it sent.
         message: Option<MessageId>,
     },
+}
+
+impl SendState {
+    /// The one word for where a draft is in its sending, as the command line lists it and the
+    /// window's rows do. A draft still being written is "draft": it is what the user calls it,
+    /// and "editing" described what they were doing rather than what the thing was.
+    pub fn word(&self) -> &'static str {
+        match self {
+            SendState::Editing => "draft",
+            SendState::Queued => "queued",
+            SendState::Scheduled { .. } => "scheduled",
+            SendState::Sending => "sending",
+            SendState::Failed { .. } => "failed",
+            SendState::Sent { .. } => "sent",
+        }
+    }
 }
 
 /// A message being composed.

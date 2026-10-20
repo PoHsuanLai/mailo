@@ -120,33 +120,16 @@ fn drops_rows(was: &Listed, next: &Listed) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::TimeZone;
-    use mail_domain::id::new_account_id;
+
     use mail_domain::*;
 
     fn row() -> ThreadSummary {
         ThreadSummary {
-            id: ThreadId::generate(),
-            account: new_account_id(),
-            subject: "s".into(),
-            snippet: String::new(),
             from: Address {
                 name: None,
                 email: "a@b.test".into(),
             },
-            participants: vec![],
-            recipients: vec![],
-            last_date: chrono::Utc.timestamp_opt(1_700_000_000, 0).unwrap(),
-            message_count: 1,
-            read: ReadState::Unread,
-            star: Star::Unstarred,
-            mailboxes: MailboxSet::only(MailboxRole::Inbox),
-            labels: vec![],
-            attachments: Attachments::None,
-            snooze: Snooze::Inactive,
-            pin: Pin::Unpinned,
-            mute: Mute::Unmuted,
-            follow_up: FollowUp::Inactive,
+            ..mail_domain::testing::summary()
         }
     }
 

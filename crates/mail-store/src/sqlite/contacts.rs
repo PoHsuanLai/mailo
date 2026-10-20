@@ -4,9 +4,11 @@ use super::SqliteStore;
 use super::row::{from_time, json, time, to_json, uuid};
 use crate::StoreError;
 use crate::contact::learn::{self, Event, NameRank, Needle, Row, Seen};
-use crate::contact::{AddressBook, Contact, Kind, Origin, Tally};
+use crate::contact::ledger::{self, Ledger};
+use crate::contact::{AddressBook, Contact, Origin, Tally};
+use chrono::{DateTime, Utc};
 use mail_domain::id::account_id_from_uuid;
-use mail_domain::{Address, BlobId, Draft, DraftId, MailboxRole, Message, MessageId, SendState};
+use mail_domain::{Address, BlobId, DraftId, MailboxRole, Message, MessageId, SendState};
 use porter_core::AccountId;
 use rusqlite::{Connection, OptionalExtension, params};
 
@@ -27,41 +29,16 @@ impl SqliteStore {
         raw: Option<BlobId>,
     ) -> Result<(), StoreError> {
         let db = self.connection();
-        // Asked first, so a body arriving for a message already counted costs one insert and
-        // not a read of its bytes.
-        if !first_sighting(&db, id, message.mailbox)? {
-            return Ok(());
-        }
-        let seen = Seen {
-            mailbox: message.mailbox,
-            date: message.date,
-            from: &message.from,
-            to: &message.to,
-            cc: &message.cc,
-            bcc: &message.bcc,
-            subject: &message.subject,
-            sender: self.sender_of(&db, message.mailbox, raw),
-        };
-        learn_seen(&db, account, &seen)
-    }
-
-    /// Whether a received message's raw bytes, where held, say it came through a list.
-    fn sender_of(&self, db: &Connection, mailbox: MailboxRole, raw: Option<BlobId>) -> Kind {
-        match (mailbox, raw) {
-            (MailboxRole::Inbox | MailboxRole::Archive | MailboxRole::Trash, Some(raw)) => {
-                self.sender_kind(db, raw)
-            }
-            _ => Kind::Person,
-        }
-    }
-
-    /// Whether the raw message's headers say it came through a list. A blob that cannot be read
-    /// says nothing, rather than stopping an ingest over a hint.
-    fn sender_kind(&self, db: &Connection, raw: BlobId) -> Kind {
-        match self.blobs.head(db, raw, HEAD) {
-            Ok(head) if learn::listed(&head) => Kind::Bulk,
-            _ => Kind::Person,
-        }
+        ledger::learn_fetched(
+            &mut Rows {
+                store: self,
+                db: &db,
+            },
+            account,
+            id,
+            message,
+            raw,
+        )
     }
 
     /// What a submission the outbox just confirmed teaches the book: the draft's recipients were
@@ -73,7 +50,7 @@ impl SqliteStore {
         draft: DraftId,
         mail_from: &str,
         rcpt_to: &[String],
-        at: chrono::DateTime<chrono::Utc>,
+        at: DateTime<Utc>,
     ) -> Result<(), StoreError> {
         // A draft gone since it was sent has nothing more to teach; any other failure is one.
         let draft = match self.load_draft(draft) {
@@ -82,7 +59,11 @@ impl SqliteStore {
             Err(error) => return Err(error),
         };
         let db = self.connection();
-        learn_sent(&db, account, draft.as_ref(), mail_from, rcpt_to, at)
+        let mut held = Rows {
+            store: self,
+            db: &db,
+        };
+        ledger::learn_sent(&mut held, account, draft.as_ref(), mail_from, rcpt_to, at)
     }
 
     /// Read every message already held through the book once, if migration 0013 asked for it.
@@ -99,6 +80,10 @@ impl SqliteStore {
             return Ok(());
         }
         let tx = db.unchecked_transaction()?;
+        let mut held = Rows {
+            store: self,
+            db: &db,
+        };
 
         let drafts: Vec<String> = {
             let mut stmt = db.prepare("SELECT id FROM drafts ORDER BY updated_at")?;
@@ -123,7 +108,8 @@ impl SqliteStore {
                 )
                 .optional()?;
             let from = from.unwrap_or_default();
-            learn_sent(&db, draft.account.clone(), Some(&draft), &from, &[], at)?;
+            let account = draft.account.clone();
+            ledger::learn_sent(&mut held, account, Some(&draft), &from, &[], at)?;
         }
 
         type Held = (
@@ -176,10 +162,10 @@ impl SqliteStore {
             let raw = raw
                 .and_then(|r| uuid("messages.body_raw", &r).ok())
                 .map(BlobId::from_uuid);
-            if !first_sighting(&db, id, mailbox)? {
+            if !ledger::first_sighting(&mut held, id, mailbox)? {
                 continue;
             }
-            let sender = self.sender_of(&db, mailbox, raw);
+            let sender = ledger::sender_of(&held, mailbox, raw);
             let from = Address {
                 name: from_name,
                 email: from_email,
@@ -194,7 +180,7 @@ impl SqliteStore {
                 subject: &subject,
                 sender,
             };
-            learn_seen(&db, account, &seen)?;
+            ledger::learn_seen(&mut held, account, &seen)?;
         }
 
         tx.execute("DELETE FROM contacts_to_backfill", [])?;
@@ -321,82 +307,53 @@ impl SqliteStore {
     }
 }
 
-/// Whether message `id` is one the book has yet to count, marking it counted if so. Spam and
-/// drafts are never counted, and never marked.
-fn first_sighting(
-    db: &Connection,
-    id: MessageId,
-    mailbox: MailboxRole,
-) -> Result<bool, StoreError> {
-    if matches!(mailbox, MailboxRole::Spam | MailboxRole::Drafts) {
-        return Ok(false);
-    }
-    let first = db.execute(
-        "INSERT OR IGNORE INTO contacts_counted (message) VALUES (?1)",
-        params![id.to_string()],
-    )?;
-    Ok(first > 0)
+/// The SQLite rows the learning policy runs over, on a connection already held.
+struct Rows<'a> {
+    store: &'a SqliteStore,
+    db: &'a Connection,
 }
 
-/// Count a message seen for the first time, recognising the Sent copy of a submission already
-/// counted.
-fn learn_seen(db: &Connection, account: AccountId, seen: &Seen<'_>) -> Result<(), StoreError> {
-    let mut events = learn::events(seen);
-    if seen.mailbox == MailboxRole::Sent {
-        let print = learn::fingerprint([seen.to, seen.cc], seen.subject);
-        let counted = db.execute(
+impl Ledger for Rows<'_> {
+    fn first_count(&mut self, id: MessageId) -> Result<bool, StoreError> {
+        let first = self.db.execute(
+            "INSERT OR IGNORE INTO contacts_counted (message) VALUES (?1)",
+            params![id.to_string()],
+        )?;
+        Ok(first > 0)
+    }
+
+    fn head(&self, raw: BlobId) -> Option<Vec<u8>> {
+        self.store.blobs.head(self.db, raw, HEAD).ok()
+    }
+
+    fn take_print(&mut self, print: &str) -> Result<bool, StoreError> {
+        let counted = self.db.execute(
             "DELETE FROM contacts_sent WHERE rowid =
                  (SELECT min(rowid) FROM contacts_sent WHERE fingerprint = ?1)",
             params![print],
         )?;
-        if counted > 0 {
-            events.retain(|(_, e)| *e == Event::Own);
+        Ok(counted > 0)
+    }
+
+    fn keep_print(&mut self, print: &str, at: DateTime<Utc>) -> Result<(), StoreError> {
+        self.db.execute(
+            "INSERT INTO contacts_sent (fingerprint, at) VALUES (?1, ?2)",
+            params![print, from_time(at)],
+        )?;
+        Ok(())
+    }
+
+    fn hear(
+        &mut self,
+        account: Option<AccountId>,
+        events: &[(String, Event)],
+    ) -> Result<(), StoreError> {
+        for (address, event) in events {
+            let row = load(self.db, address)?.unwrap_or_else(|| Row::new(address));
+            save(self.db, &learn::apply(row, account.clone(), event))?;
         }
+        Ok(())
     }
-    hear(db, Some(account), &events)
-}
-
-/// Count a confirmed submission: from the draft where it still exists, else from the envelope.
-fn learn_sent(
-    db: &Connection,
-    account: AccountId,
-    draft: Option<&Draft>,
-    mail_from: &str,
-    rcpt_to: &[String],
-    at: chrono::DateTime<chrono::Utc>,
-) -> Result<(), StoreError> {
-    let envelope: Vec<Address> = rcpt_to
-        .iter()
-        .map(|email| Address {
-            name: None,
-            email: email.clone(),
-        })
-        .collect();
-    let (to, cc, bcc, subject) = match draft {
-        Some(d) => (&d.to[..], &d.cc[..], &d.bcc[..], d.subject.as_str()),
-        None => (&envelope[..], &[][..], &[][..], ""),
-    };
-    let from = Address {
-        name: None,
-        email: mail_from.to_owned(),
-    };
-    db.execute(
-        "INSERT INTO contacts_sent (fingerprint, at) VALUES (?1, ?2)",
-        params![learn::fingerprint([to, cc], subject), from_time(at)],
-    )?;
-    hear(db, Some(account), &learn::sent(&from, [to, cc, bcc], at))
-}
-
-fn hear(
-    db: &Connection,
-    account: Option<AccountId>,
-    events: &[(String, Event)],
-) -> Result<(), StoreError> {
-    for (address, event) in events {
-        let row = load(db, address)?.unwrap_or_else(|| Row::new(address));
-        save(db, &learn::apply(row, account.clone(), event))?;
-    }
-    Ok(())
 }
 
 fn load(db: &Connection, address: &str) -> Result<Option<Row>, StoreError> {

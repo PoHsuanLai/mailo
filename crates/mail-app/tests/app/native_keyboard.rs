@@ -15,6 +15,9 @@ use crate::settle;
 use settle::settle_until;
 
 use crate::drive;
+use crate::native::click;
+use crate::native::ms;
+use crate::store::{Seed, seeded_with};
 use drive::Drive;
 use mail_app::ui::appearance::WindowDirs;
 use mail_app::ui::native::{Configured, Revisions};
@@ -22,13 +25,11 @@ use mail_app::ui::native::{Configured, Revisions};
 /// The two counters every window of the app shares: the store's, and the configuration files'.
 type Shared = (Revisions, Configured);
 use mail_app::ui::view::Shortcut;
-use mail_core::{Arrival, absorb};
 use mail_core::{SqliteStore, Store};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use porter_core::AccountId;
 use std::sync::Arc;
-use std::time::Duration;
 
 fn acct_account() -> AccountId {
     account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b7"))
@@ -55,66 +56,17 @@ const INBOX: [(&str, &str); 3] = [
     ("alan@example.test", "Lunch on Thursday"),
 ];
 
-fn ms(n: u64) -> Duration {
-    Duration::from_millis(n)
-}
-
 /// A store in `dir` with one account, its identity and capabilities, and [`INBOX`].
 fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
-    std::fs::create_dir_all(dir.join("blobs")).unwrap();
-    let store = SqliteStore::open(dir.join("mail.db"), dir.join("blobs")).unwrap();
-    {
-        mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
-        mail_store::testing::seed_identity_for(
-            &store,
-            IdentityId::generate(),
-            acct_account(),
-            "me@example.test",
-            None,
-        );
-        let caps = AccountCaps {
-            labels: ServerLabels::Supported,
-            threads: ServerThreads::Jwz,
-            watch: WatchMode::Idle,
-            archive: ArchiveMeans::DropInbox,
-            folders: FolderRoles::default(),
-            condstore: Condstore::Supported,
-            move_ext: MoveExt::Supported,
-            expunge: ExpungeMeans::Forbidden,
-            top: Supported::Absent,
-            pipelining: Supported::Yes,
-            connections: ConnectionBudget::default(),
-            observed_at: chrono::Utc::now(),
-        };
-        mail_store::testing::seed_caps(&store, acct_account(), &caps, chrono::Utc::now()).unwrap();
-    }
-    let now = chrono::Utc::now();
-    for (n, (from, subject)) in INBOX.iter().enumerate() {
-        let date = (now - chrono::Duration::hours(n as i64 + 1)).to_rfc2822();
-        let raw = format!(
-            "From: {from}\r\nTo: me@example.test\r\nSubject: {subject}\r\n\
-             Date: {date}\r\nMessage-ID: <keys{n}@example.test>\r\n\r\nThe body of {subject}.\r\n"
-        );
-        absorb(
-            &store,
-            acct_account(),
-            MailboxRef {
-                account: acct_account(),
-                path: "INBOX".to_owned(),
-            },
-            Some(SyncCursor::Pop),
-            vec![Arrival {
-                remote: RemoteRef::Pop {
-                    uidl: format!("keys{n}"),
-                },
-                raw: raw.into_bytes(),
-            }],
-            false,
-            now,
-        )
-        .unwrap();
-    }
-    Arc::new(store)
+    seeded_with(
+        dir,
+        Seed {
+            inbox: &INBOX,
+            account: acct_account(),
+            prefix: "keys",
+            ..Seed::default()
+        },
+    )
 }
 
 /// What both windows are given: the store, the directories, and one revision between them,
@@ -193,12 +145,6 @@ fn centre(harness: &Harness, selector: &str) -> Point {
         .unwrap_or_else(|| panic!("{selector} is not drawn:\n{}", harness.html()))
 }
 
-fn click(harness: &mut Harness, selector: &str) {
-    let at = centre(harness, selector);
-    harness.click(at);
-    harness.advance(ms(300));
-}
-
 /// Conversations in the inbox, as the store has them.
 fn in_inbox(store: &SqliteStore) -> usize {
     let query = Query {
@@ -223,8 +169,8 @@ const PAGE: &str = ".settings-page[*|data-page=\"Keyboard\"]";
 /// The page the window opens on.
 const GENERAL: &str = ".settings-page[*|data-page=\"General\"]";
 const CHANGE_ARCHIVE: &str = "[*|aria-label=\"Change the key for Archive\"]";
-/// What Archive's row says under its name: why its last key was refused.
-const ARCHIVE_SAID: &str = "[*|data-action=Archive] .ds-field-row-help";
+/// The dialog that says why a key was refused.
+const REFUSED: &str = ".ds-alert";
 
 const SCROLLER: &str = ".settings-scroll";
 const SIDEBAR_KEYBOARD: &str = ".ds-sidebar [*|aria-label=\"Keyboard\"]";
@@ -332,12 +278,16 @@ fn archive_rebound_in_settings_archives_on_its_new_key_in_the_open_main_window()
             let mut settings = settings_window(&store, &dirs, &revisions);
             open_page(&mut settings);
 
-            // A key another action holds is refused, by that action's name, and nothing changes.
+            // A key another action holds is refused in a dialog, by that action's name, and
+            // nothing changes; Escape closes the dialog.
             click(&mut settings, CHANGE_ARCHIVE);
             settings.key(Key::Char('s'));
             settings.advance(ms(200));
-            let said = settings.text_of(ARCHIVE_SAID).unwrap_or_default();
+            let said = settings.text_of(REFUSED).unwrap_or_default();
             assert!(said.contains("Star or unstar"), "{said:?}");
+            settings.key(Key::Escape);
+            settings.advance(ms(300));
+            assert_eq!(settings.count(REFUSED), 0, "Escape left the dialog up");
             assert!(
                 !dirs.config.join(mail_app::ui::keymap::FILE_NAME).exists(),
                 "a refused key wrote the keymap"
@@ -347,7 +297,7 @@ fn archive_rebound_in_settings_archives_on_its_new_key_in_the_open_main_window()
             click(&mut settings, CHANGE_ARCHIVE);
             settings.key(Key::Char('x'));
             settings.advance(ms(200));
-            assert_eq!(settings.count(ARCHIVE_SAID), 0, "{}", settings.html());
+            assert_eq!(settings.count(REFUSED), 0, "{}", settings.html());
             let kept = mail_app::ui::keymap::load(&dirs.config);
             assert_eq!(kept.keys(Shortcut::Archive), ["x"]);
             assert_eq!(kept.action("e", false), None);

@@ -15,18 +15,14 @@ use crate::settle;
 use settle::settle_until;
 
 use crate::drive;
+use crate::native::ms;
+use crate::native::row;
+use crate::store::acct_account;
 use drive::Drive;
 use mail_core::SqliteStore;
 use mail_core::{Arrival, absorb};
-use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
-use porter_core::AccountId;
 use std::sync::Arc;
-use std::time::Duration;
-
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
 
 const VIEW: Viewport = Viewport {
     width: 1200,
@@ -52,10 +48,6 @@ const INBOX: [(&str, &str, &str); 2] = [
          dkim=none; dmarc=fail header.from=brand.example\r\n",
     ),
 ];
-
-fn ms(n: u64) -> Duration {
-    Duration::from_millis(n)
-}
 
 fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
     std::fs::create_dir_all(dir.join("blobs")).unwrap();
@@ -148,10 +140,6 @@ fn open(on: mail_core::bimi::Setting) -> Opened {
         harness,
         _dirs: [mail, config, cache],
     }
-}
-
-fn row(n: usize) -> String {
-    format!(".list .ds-list-item[*|aria-posinset=\"{n}\"] .ds-row")
 }
 
 /// Click the `n`th row at the start of its subject line, clear of its hover strip.

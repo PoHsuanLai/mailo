@@ -5,9 +5,11 @@
 //! is every account the Space shows. Each tile carries its account's trouble as quire's warning
 //! mark, its status line's words as the mark's tip; pressing the mark asks again about a sign-in
 //! put off, or opens the account's settings. The "+" after them brings in an account the Space
-//! does not show yet, or adds a new one ([`super::join`]).
+//! does not show yet, or adds a new one ([`super::join`]). A right click on a tile opens its
+//! menu ([`super::tile_menu`]).
 
 use super::join::{self, Plus};
+use super::tile_menu::TileMenu;
 use crate::ui::copy;
 use crate::ui::data::account_rows;
 use crate::ui::fetching::{Fetching, StatusLine, Tone};
@@ -18,9 +20,10 @@ use crate::ui::space::{Handle, Space};
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::components::app::pin_tile::{PinFace, PinStatus};
-use ds::components::app::pin_tiles::{PinAdd, PinItem, PinTiles};
+use ds::components::app::pin_tiles::{PinAdd, PinItem, PinMenu, PinTiles};
 use ds::components::content::provider_mark::{MarkProvider, MarkStyle};
 use ds::host::measure::MountedRef;
+use ds::prelude::Point;
 use ds::root::common::Common;
 use mail_core::profile::ProfileId;
 use mail_core::provider::{Provider, provider};
@@ -124,6 +127,8 @@ pub(super) fn AccountTiles(
     // The add menu while it is open: the providers that sign in straight in the browser.
     let mut adding = use_signal(|| None::<Vec<(porter_provider::Issuer, String)>>);
     let mut row_at = use_signal(|| None::<MountedRef>);
+    // A tile's right-click menu while it is open: which tile (`None` for All), and where.
+    let mut menu = use_signal(|| None::<(Option<AccountId>, Point)>);
     let several = rows.len() > 1;
     let marks = shell.read().appearance.marks;
     let fetching = try_use_context::<Fetching>();
@@ -199,6 +204,9 @@ pub(super) fn AccountTiles(
                 })),
                 ..Common::default()
             },
+            onmenu: Some(EventHandler::new(move |asked: PinMenu<Option<AccountId>>| {
+                menu.set(Some((asked.key, asked.at)));
+            })),
             onpick: move |account: Option<AccountId>| {
                 if several && shell.peek().account != account {
                     shell.write().account = account;
@@ -228,6 +236,9 @@ pub(super) fn AccountTiles(
                     }
                 }
             },
+        }
+        if let Some((account, at)) = menu() {
+            TileMenu { shell, handle, account, at, onclose: move |()| menu.set(None) }
         }
         if let Some(outside) = joining() {
             Floating {

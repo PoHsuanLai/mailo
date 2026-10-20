@@ -25,10 +25,9 @@ pub(super) fn recall_of(shell: &Shell) -> Recall {
 ///
 /// A place that no longer exists is the first place: a Space can lose a label while you are
 /// elsewhere, and coming back must not show a list that cannot exist. The place is found by its
-/// key, so a label called Done comes back as the label and not as the Done place; a name stored
-/// before keys, and one the sidebar no longer uses (Archive, Starred), is read as the place it
-/// meant. The whole Space is
-/// shown: a Space is the only narrowing of accounts there is.
+/// key, so a label called Archive comes back as the label and not as the Archive place; a name
+/// stored before keys, and one the sidebar no longer uses (Done, Kept), is read as the place it
+/// meant. The whole Space is shown: a Space is the only narrowing of accounts there is.
 pub(super) fn restore(shell: &mut Shell, recall: &Recall) {
     shell.selected = crate::ui::view::find_place(&shell.places, &recall.place).unwrap_or(0);
     shell.open = recall.open;
@@ -36,8 +35,7 @@ pub(super) fn restore(shell: &mut Shell, recall: &Recall) {
     shell.show_remote_images = false;
     shell.search.clear();
     shell.page_menu = PageMenu::Closed;
-    shell.snoozing = None;
-    shell.labelling = None;
+    shell.further = None;
 }
 
 #[cfg(test)]

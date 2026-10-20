@@ -2,7 +2,8 @@
 
 use super::{Standing, answer_asked, automatic};
 use crate::settings::{MailSettings, ReadReceipts};
-use crate::ui::fixtures::{Seen, acct_account, dispatching, rebuild_into, seeded};
+use crate::ui::fixtures::settle_for;
+use crate::ui::fixtures::{acct_account, dispatching, rebuild_into, seeded};
 use crate::ui::reading::Reader;
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
@@ -13,6 +14,7 @@ use mail_core::{SqliteStore, Store};
 use mail_domain::*;
 use mail_mime::{ReceiptAsk, ReturnPath};
 use std::sync::Arc;
+use std::time::Duration;
 
 const ASKS: &str = "Disposition-Notification-To: ada@example.test\r\n";
 const ASKS_ELSEWHERE: &str = "Disposition-Notification-To: tracker@elsewhere.test\r\n";
@@ -133,19 +135,6 @@ fn Open(thread: ThreadId, policy: Option<ReadReceipts>) -> Element {
     rsx! { ds::prelude::Ds { appearance: ds::prelude::Appearance::default(), material: ds::prelude::Material::Window, Reader { thread, shell } } }
 }
 
-/// Let the dom's tasks run for `for_ms`, keeping every attribute the renders set.
-async fn settle(dom: &mut VirtualDom, seen: &mut Seen, for_ms: u64) {
-    let until = tokio::time::Instant::now() + std::time::Duration::from_millis(for_ms);
-    loop {
-        let left = until.saturating_duration_since(tokio::time::Instant::now());
-        if left.is_zero() {
-            break;
-        }
-        let _ = tokio::time::timeout(left, dom.wait_for_work()).await;
-        dom.render_immediate(seen);
-    }
-}
-
 /// The reader on `thread` under `policy` (none: no window's settings), once its lookups have
 /// landed, its markup, and the lookups it used.
 async fn reader_under(
@@ -159,7 +148,7 @@ async fn reader_under(
         .with_root_context(store)
         .with_root_context(looks.clone());
     let mut seen = rebuild_into(&mut dom);
-    settle(&mut dom, &mut seen, 400).await;
+    settle_for(&mut dom, &mut seen, Duration::from_millis(400)).await;
     (dioxus_ssr::render(&dom), looks)
 }
 

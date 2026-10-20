@@ -8,100 +8,46 @@
 
 use ds::file_drop::drag::{DropAcceptance, FileDragInput, Offer};
 use ds::prelude::Point;
-use ds_blitz::{FocusFallback, NetPolicy, PrintOutcome};
-use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
+use ds_harness::Harness;
 
 use crate::settle;
 use settle::settle_until;
 
 use crate::drive;
+use crate::native::ms;
+use crate::opening::{Open, Wait, open_window};
+use crate::store::acct_account;
+use crate::store::{Body, Seed, seeded_with};
 use drive::Drive;
-use mail_core::{Arrival, absorb};
 use mail_core::{SqliteStore, Store};
-use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
-use porter_core::AccountId;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
-
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
-
-const VIEW: Viewport = Viewport {
-    width: 1200,
-    height: 800,
-    scale_percent: 100,
-};
-
-fn ms(n: u64) -> Duration {
-    Duration::from_millis(n)
-}
 
 /// One account, its identity, and one message in the inbox, so the list has a row to drop on.
-fn seeded(dir: &Path) -> Arc<SqliteStore> {
-    std::fs::create_dir_all(dir.join("blobs")).unwrap();
-    let store = SqliteStore::open(dir.join("mail.db"), dir.join("blobs")).unwrap();
-    {
-        mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
-        mail_store::testing::seed_identity_for(
-            &store,
-            IdentityId::generate(),
-            acct_account(),
-            "me@example.test",
-            None,
-        );
-    }
-    let now = chrono::Utc::now();
-    let date = (now - chrono::Duration::hours(1)).to_rfc2822();
-    let raw = format!(
-        "From: ada@example.test\r\nTo: me@example.test\r\nSubject: Flight to the conference\r\n\
-         Date: {date}\r\nMessage-ID: <seed0@example.test>\r\n\r\nThe body.\r\n"
-    );
-    absorb(
-        &store,
-        acct_account(),
-        MailboxRef {
-            account: acct_account(),
-            path: "INBOX".to_owned(),
+fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
+    seeded_with(
+        dir,
+        Seed {
+            caps: None,
+            body: Body::Plain,
+            inbox: &[("ada@example.test", "Flight to the conference")],
+            ..Seed::default()
         },
-        Some(SyncCursor::Pop),
-        vec![Arrival {
-            remote: RemoteRef::Pop {
-                uidl: "seed0".to_owned(),
-            },
-            raw: raw.into_bytes(),
-        }],
-        false,
-        now,
     )
-    .unwrap();
-    Arc::new(store)
 }
 
 /// The window, with a new message open. The `TempDir` holds the store and the files to drop.
 fn composing() -> (Harness, tempfile::TempDir, Arc<SqliteStore>) {
     let dir = tempfile::tempdir().unwrap();
     let store = seeded(dir.path());
-    // No test may open the system's print dialog.
-    let printer = mail_app::ui::native::Printer::with_dialog(|_, _| Ok(PrintOutcome::Cancelled));
-    let contexts = mail_app::ui::native::contexts(
-        Arc::clone(&store),
-        mail_app::ui::view::Appearance::default(),
-        None,
-        None,
-        mail_app::ui::Start::Inbox,
-    )
-    .with(printer);
-    let config = HarnessConfig::new(VIEW)
-        .with_net(NetPolicy::Local)
-        .with_focus_fallback(FocusFallback::Ancestor)
-        .with_clock(Clock::Virtual)
-        .with_contexts(contexts);
-    let mut harness = Harness::new(mail_app::ui::native::root, config);
-    harness.advance(ms(300));
-    settle_until(&mut harness, |h| h.count(".list .ds-thread") == 1);
+    let mut harness = open_window(
+        &store,
+        Open {
+            wait: Wait::List(1),
+            ..Open::default()
+        },
+    );
     harness.key(ds::prelude::ShortcutKey::Char('c'));
     settle_until(&mut harness, |h| h.count(".cpage .c-body") == 1);
     harness.advance(ms(300));

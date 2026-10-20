@@ -272,3 +272,23 @@ fn trusting_a_sender_keeps_one_lowercase_address_and_leaves_ask_for_trusted() {
         "a blank address is no one"
     );
 }
+
+/// A change over a `settings.toml` that cannot be used changes nothing and says why: writing
+/// would put the defaults in place of what the file held.
+#[test]
+fn a_change_over_a_damaged_file_is_refused_and_the_file_stays() {
+    let (dir, root) = scratch();
+    let body = "[reading]\nbrand_logos = \"sometimes\"\n";
+    write(&mailo_dir(&dir), "settings.toml", body);
+    let refused = change(&root, |s| s.notifications.new_mail = NewMail::Off);
+    assert!(
+        refused
+            .as_ref()
+            .is_err_and(|why| why.contains("reading.brand_logos")),
+        "{refused:?}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(mailo_dir(&dir).join("settings.toml")).unwrap(),
+        body
+    );
+}

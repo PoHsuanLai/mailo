@@ -258,7 +258,7 @@ pub(super) fn clock<Tz: TimeZone>(at: DateTime<Utc>, zone: &Tz) -> String
 where
     Tz::Offset: std::fmt::Display,
 {
-    at.with_timezone(zone).format("%H:%M").to_string()
+    mail_core::when::stamp(at, zone, mail_core::when::Stamp::Clock)
 }
 
 #[cfg(test)]

@@ -88,15 +88,8 @@ mod tests {
 
     fn row(key: &str, name: &str, group: &str) -> MenuItem {
         MenuItem {
-            key: key.to_owned(),
-            tile: Tile::Icon(Icon::Command),
-            name: name.to_owned(),
-            help: None,
-            right: Right::None,
             group: Some(group.to_owned()),
-            marks: Vec::new(),
-            title: Vec::new(),
-            detail: Vec::new(),
+            ..MenuItem::icon(key, Icon::Command, name)
         }
     }
 
@@ -105,7 +98,7 @@ mod tests {
         let rows = vec![
             row("recent:1", "Lunch", "Recent"),
             row("place:2", "Inbox", "Places"),
-            row("place:3", "Done", "Places"),
+            row("place:3", "Archive", "Places"),
             row("action:compose", "Compose", "Commands"),
         ];
         let shape: Vec<String> = suggestions(&rows)

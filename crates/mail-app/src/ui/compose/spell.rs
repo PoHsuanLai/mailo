@@ -9,9 +9,9 @@
 
 use dioxus::prelude::*;
 use ds::spell::lang::{Lang, Spell};
-use ds_blitz::spell::{SpellConfig, locale_lang};
+use ds_blitz::spell::SpellConfig;
 
-use crate::ui::spelling::{self, Setting};
+use crate::ui::spelling::Setting;
 
 /// Dictionaries to check against in place of the system's, and the languages a draft is
 /// checked in: a root context, for a test.
@@ -36,20 +36,4 @@ pub(super) fn spell_of(setting: Setting) -> Spell {
         Setting::On => Spell::On { lang: None },
         Setting::Off => Spell::Off,
     }
-}
-
-/// What the checker the window uses has to work with. Reads the dictionary directories, so it
-/// is asked once, when the settings open.
-pub(in crate::ui) fn dictionaries() -> spelling::Dictionaries {
-    let (config, language) = match try_consume_context::<Dictionaries>() {
-        Some(Dictionaries { config, languages }) => (config, languages.into_iter().next()),
-        None => (
-            SpellConfig::system(),
-            locale_lang(
-                std::env::var("LC_ALL").ok().as_deref(),
-                std::env::var("LANG").ok().as_deref(),
-            ),
-        ),
-    };
-    spelling::dictionaries(language.as_ref(), &config.installed())
 }

@@ -154,18 +154,15 @@ fn summary() -> ThreadSummary {
         snippet: "hello".to_owned(),
         from: address("sender@example.test"),
         participants: vec![address("sender@example.test"), address("me@example.test")],
-        recipients: Vec::new(),
         last_date: at(4),
         message_count: 2,
-        read: ReadState::Unread,
         star: Star::Starred,
         mailboxes: MailboxSet::only(MailboxRole::Inbox).with(MailboxRole::Sent),
         labels: vec![LabelId::from_uuid(uuid(3))],
         attachments: Attachments::Present { count: 1 },
         snooze: Snooze::Until(at(9)),
         pin: Pin::Rank(1_000),
-        mute: Mute::Unmuted,
-        follow_up: FollowUp::Inactive,
+        ..mail_domain::testing::summary()
     }
 }
 
@@ -1988,4 +1985,16 @@ fn a_draft_from_before_receipts_asks_for_none() {
     );
     let draft: Draft = serde_json::from_str(&text).expect("still deserializes");
     assert_eq!(draft.receipt, ReceiptRequest::Unrequested);
+}
+
+/// `MailboxRole::as_str` is the persisted name: the SQL layer matches it against what serde
+/// wrote, so the two must never drift apart.
+#[test]
+fn mailbox_role_word_is_its_serde_name() {
+    for role in MailboxRole::ALL {
+        let json = serde_json::to_string(&role).unwrap();
+        assert_eq!(json, format!("\"{}\"", role.as_str()));
+        assert_eq!(role.to_string(), role.as_str());
+        assert_eq!(role.as_str().parse(), Ok(role));
+    }
 }

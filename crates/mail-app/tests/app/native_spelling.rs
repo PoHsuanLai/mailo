@@ -21,22 +21,17 @@ use crate::settle;
 use settle::settle_until;
 
 use crate::drive;
+use crate::native::ms;
+use crate::store::{Seed, seeded_with};
 use drive::{Drive, PRIMARY};
 use mail_app::ui::native::{Configured, Dictionaries, Revisions};
-use mail_domain::id::account_id_from_uuid;
 
 /// The two counters every window of the app shares: the store's, and the configuration files'.
 type Shared = (Revisions, Configured);
 use mail_core::SqliteStore;
-use mail_domain::*;
-use porter_core::AccountId;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
-
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
 
 const VIEW: Viewport = Viewport {
     width: 1200,
@@ -57,10 +52,6 @@ const CHILD: &str = "MAILO_SPELLING_CHILD";
 /// The test dictionary: UTF-8, the letters a suggestion may try, and a few words.
 const AFF: &str = "SET UTF-8\nTRY esianrtolcdugmphbyfvkwz\n";
 const DIC: &str = "7\nthe\ncat\nsat\non\nmat\nhello\nworld\n";
-
-fn ms(n: u64) -> Duration {
-    Duration::from_millis(n)
-}
 
 /// How long quire waits after typing stops before it checks.
 fn debounce() -> Duration {
@@ -102,20 +93,14 @@ fn isolated(name: &str, case: fn()) {
 }
 
 /// One account and its identity: enough for `c` to open a new message.
-fn seeded(dir: &Path) -> Arc<SqliteStore> {
-    std::fs::create_dir_all(dir.join("blobs")).unwrap();
-    let store = SqliteStore::open(dir.join("mail.db"), dir.join("blobs")).unwrap();
-    {
-        mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
-        mail_store::testing::seed_identity_for(
-            &store,
-            IdentityId::generate(),
-            acct_account(),
-            "me@example.test",
-            None,
-        );
-    }
-    Arc::new(store)
+fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
+    seeded_with(
+        dir,
+        Seed {
+            caps: None,
+            ..Seed::default()
+        },
+    )
 }
 
 /// The test dictionary in `dir`, as the window's checker.

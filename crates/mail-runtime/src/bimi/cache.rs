@@ -121,20 +121,7 @@ fn is_hex(text: &str) -> bool {
 }
 
 fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    let name = path
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let part = path.with_file_name(format!(".{name}.part"));
-    if let Err(e) = std::fs::write(&part, bytes) {
-        // Best-effort cleanup: the write's own error is what is reported.
-        let _ = std::fs::remove_file(&part);
-        return Err(e);
-    }
-    std::fs::rename(&part, path).inspect_err(|_| {
-        // Best-effort cleanup: the rename's own error is what is reported.
-        let _ = std::fs::remove_file(&part);
-    })
+    mail_store::write_atomic(path, bytes, None)
 }
 
 #[cfg(test)]

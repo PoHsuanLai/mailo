@@ -255,11 +255,31 @@ pub fn load(root: &ConfigRoot) -> MailSettings {
     carried
 }
 
-/// Change the settings under `root` with `edit` and write them, returning what was written.
+/// Why `settings.toml` under `root` cannot be used as it is: the whole file, or each key whose
+/// value is not one the setting takes, as "key: reason". `None` when it is missing or reads. A key
+/// this build does not know is not damage: it is kept as it is.
+pub fn damage(root: &ConfigRoot) -> Option<String> {
+    let invalid = store(root.clone()).load::<MailSettings>().invalid;
+    let said: Vec<String> = invalid
+        .iter()
+        .map(|key| match key.path.as_str() {
+            "" => key.reason.clone(),
+            path => format!("{path}: {}", key.reason),
+        })
+        .collect();
+    (!said.is_empty()).then(|| said.join("; "))
+}
+
+/// Change the settings under `root` with `edit` and write them, returning what was written. A
+/// `settings.toml` that cannot be used is left as it is, and nothing changes: writing would put
+/// the defaults in place of what it held.
 pub fn change(
     root: &ConfigRoot,
     edit: impl FnOnce(&mut MailSettings),
 ) -> Result<MailSettings, String> {
+    if let Some(why) = damage(root) {
+        return Err(why);
+    }
     let mut settings = load(root);
     edit(&mut settings);
     store(root.clone())

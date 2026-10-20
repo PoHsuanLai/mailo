@@ -205,6 +205,39 @@ async fn autosave_writes_the_documents_two_bodies_once_typing_stops() {
     assert!(!markup.contains("saved just now"), "{markup}");
 }
 
+/// A composer closed with nothing put in it leaves nothing behind: the draft is thrown away and
+/// Today lists nothing to come back to.
+#[tokio::test]
+async fn esc_on_a_draft_with_nothing_in_it_throws_it_away() {
+    let (store, _dir) = seeded();
+    let root = tempfile::tempdir().unwrap_or_else(|why| panic!("{why}"));
+    let dirs = WindowDirs {
+        config: root.path().join("config"),
+        state: root.path().join("state"),
+    };
+    let draft = fresh_draft(&store);
+    let (mut window, seen) = Window::open(store.clone(), draft.clone(), Some(dirs.clone()));
+    let root_id = seen.one("class", "cpage");
+    press(
+        &mut window.dom,
+        "Escape",
+        u32::try_from(root_id.0).unwrap_or(0),
+    );
+    window.render();
+    let shell = window.shell;
+    assert!(
+        window.dom.in_runtime(|| shell.peek().composing.is_none()),
+        "Esc left the page open"
+    );
+    assert!(store.draft(draft.id).is_err(), "the empty draft was kept");
+    assert!(
+        crate::ui::today::load(&dirs.state)
+            .parked_in(crate::ui::space::SpaceId(0))
+            .is_empty(),
+        "Today lists the empty draft"
+    );
+}
+
 #[tokio::test]
 async fn esc_parks_the_draft_in_today_and_the_entry_brings_it_back_exactly() {
     let (store, _dir) = seeded();

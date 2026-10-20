@@ -1,4 +1,5 @@
 use super::*;
+use crate::ui::fixtures::{Seen, settle_until};
 use crate::ui::fixtures::{
     acct_account, click, dispatching, held_and_remote, rebuild_into, seeded,
 };
@@ -215,16 +216,10 @@ fn failing() -> Fetchers {
 }
 
 async fn settle(dom: &mut VirtualDom, done: impl Fn(&str) -> bool) -> String {
-    for _ in 0..40 {
-        let markup = dioxus_ssr::render(dom);
-        if done(&markup) {
-            return markup;
-        }
-        tokio::time::timeout(Duration::from_millis(50), dom.wait_for_work())
-            .await
-            .ok();
-        dom.render_immediate(&mut dioxus_core::NoOpMutations);
-    }
+    let quiet = Duration::from_millis(50);
+    let bound = Duration::from_secs(4);
+    let page = |dom: &VirtualDom| done(&dioxus_ssr::render(dom));
+    settle_until(dom, &mut Seen::default(), quiet, bound, page).await;
     dioxus_ssr::render(dom)
 }
 

@@ -21,15 +21,15 @@ mod templates;
 pub(in crate::ui) use bar::SearchBox;
 #[cfg(test)]
 pub(in crate::ui) use bar::{BOX_LABEL, CLEAR_LABEL};
-pub(in crate::ui) use items::avatar_color;
+pub(in crate::ui) use items::{CommandId, avatar_color, entry_of};
 #[cfg(test)]
 pub(in crate::ui) use spotlight::{FIELD, LABEL};
 pub(in crate::ui) use spotlight::{Spotlight, summon};
 
-use super::ops::{Composes, compose_new, start_composing};
+use super::ops::{Composes, Writes, open_composer};
 use crate::ui::view::{Bar, BarListing, PageMenu, Shell, Source};
 use dioxus::prelude::*;
-use items::{Cards, CommandId, Pick};
+use items::{Cards, Pick};
 use mail_core::SqliteStore;
 use mail_core::place::place_filter;
 use sections::Choice;
@@ -82,8 +82,7 @@ fn act(ctx: Ctx, choice: Option<Choice>) {
         }
         Choice::Place(index) => {
             restore(shell, pages);
-            shell.write().select(index);
-            pages.set(1);
+            crate::ui::sidebar::go_to(shell, pages, index);
             close(shell);
         }
         Choice::Draft(draft) => {
@@ -116,8 +115,8 @@ fn act(ctx: Ctx, choice: Option<Choice>) {
 
 /// Run the command `id`. What it does is decided by the id alone; its words are not read.
 fn run_action(
-    mut shell: Signal<Shell>,
-    mut pages: Signal<u32>,
+    shell: Signal<Shell>,
+    pages: Signal<u32>,
     revision: &mut Signal<u64>,
     side_hidden: &mut Signal<bool>,
     id: CommandId,
@@ -134,15 +133,14 @@ fn run_action(
                 .position(|one| one.source == source);
             close(shell);
             if let Some(index) = index {
-                shell.write().select(index);
-                pages.set(1);
+                crate::ui::sidebar::go_to(shell, pages, index);
                 let store = consume_context::<Arc<SqliteStore>>();
                 super::destroy::ask_everything(&store, shell);
             }
         }
         CommandId::Compose => {
             let store = consume_context::<Arc<SqliteStore>>();
-            if compose_new(&store, shell) {
+            if open_composer(&store, shell, Writes::New).is_ok() {
                 *revision += 1;
             }
             close(shell);
@@ -164,11 +162,8 @@ fn run_action(
                 return;
             };
             let store = consume_context::<Arc<SqliteStore>>();
-            match start_composing(&store, open, Composes::ForwardAttached) {
-                Ok(draft) => {
-                    shell.write().compose(&draft);
-                    *revision += 1;
-                }
+            match open_composer(&store, shell, Writes::On(open, Composes::ForwardAttached)) {
+                Ok(()) => *revision += 1,
                 Err(why) => super::motion::tell(
                     format!("Not forwarded as an attachment: {why}."),
                     super::motion::Follow::Nothing,

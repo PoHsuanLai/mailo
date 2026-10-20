@@ -21,19 +21,15 @@
 //!
 //! `MAILO_BENCH_DB` points it at a real database instead of a generated one, read-only.
 
+use crate::store::acct_account;
 use chrono::{DateTime, TimeZone, Utc};
 use mail_app::ui::view;
 use mail_core::query;
 use mail_core::{SqliteStore, Store};
-use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_mime::{RemoteImages, SanitizePolicy};
 use porter_core::AccountId;
 use std::time::{Duration, Instant};
-
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
 
 /// Messages in the generated store. Larger than the mailbox this was designed around, because
 /// the interesting question is what happens to someone who has used it for a year.

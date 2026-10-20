@@ -19,6 +19,21 @@ pub fn minutes_ago(minutes: i64) -> String {
     format!("{minutes} min ago")
 }
 
+/// A draft's row in ⌘K's Recent, under its name: "Draft · 14:05", "Draft · Tue".
+pub fn draft_touched(when: &str) -> String {
+    format!("Draft \u{b7} {when}")
+}
+
+/// The bar over a message held to leave at a time: "Leaves Tue 09:00".
+pub fn leaves(when: &str) -> String {
+    format!("Leaves {when}")
+}
+
+/// A draft's row named by who it goes to, when it has no subject: "To Ada Lovelace".
+pub fn draft_to(who: &str) -> String {
+    format!("To {who}")
+}
+
 /// "at 14:05", for an update an hour or more ago.
 pub fn at_clock(clock: &str) -> String {
     format!("at {clock}")
@@ -59,7 +74,19 @@ pub fn sender_checks(said: &str) -> String {
 /// The quiet line over a message whose remote images are held back; its actions follow it.
 pub const IMAGES_HIDDEN: &str = "Images hidden";
 
+/// How many accounts a Space shows, beside its name in Settings › Spaces.
+pub fn accounts_shown(count: usize) -> String {
+    match count {
+        0 => "No accounts".to_owned(),
+        1 => "1 account".to_owned(),
+        many => format!("{many} accounts"),
+    }
+}
+
 /// Several of a Space's accounts are in trouble, as the All tile's mark says.
 pub fn accounts_need_attention(count: usize) -> String {
     format!("{count} accounts need attention.")
 }
+
+/// Under the rules of an account whose server cannot run them: mailo runs them as it syncs.
+pub const RULES_RUN_HERE: &str = "Runs only while mailo is open.";

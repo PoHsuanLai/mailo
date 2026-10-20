@@ -275,13 +275,4 @@ pub fn free_path(dir: &Path, name: &str) -> PathBuf {
     dir.join(format!("{stem} ({}){extension}", std::process::id()))
 }
 
-/// A size a person can read.
-pub fn human_size(bytes: u64) -> String {
-    const KB: u64 = 1024;
-    const MB: u64 = KB * 1024;
-    match bytes {
-        0..KB => format!("{bytes} B"),
-        KB..MB => format!("{:.1} kB", bytes as f64 / KB as f64),
-        _ => format!("{:.1} MB", bytes as f64 / MB as f64),
-    }
-}
+pub use mail_domain::human_size;

@@ -10,7 +10,7 @@ use dioxus::prelude::*;
 use ds::prelude::*;
 use mail_domain::ReceiptRequest;
 
-use super::super::menu::{MenuItem, Right, Tile};
+use super::super::menu::{MenuItem, Right};
 use super::page::{Float, Page};
 
 /// Send ▾'s key for the receipt item.
@@ -26,15 +26,8 @@ pub(in crate::ui) const OFF_KEY: &str = "receipt:off";
 /// The Receipt row's menu: "Requested", checked, and "Off", the way back to the default.
 pub(in crate::ui) fn row_items(receipt: ReceiptRequest) -> Vec<MenuItem> {
     let row = |key: &str, name: &str, on: bool| MenuItem {
-        key: key.to_owned(),
-        tile: Tile::Icon(Icon::Check),
-        name: name.to_owned(),
-        help: None,
         right: Right::Check(on),
-        group: None,
-        marks: Vec::new(),
-        title: Vec::new(),
-        detail: Vec::new(),
+        ..MenuItem::icon(key, Icon::Check, name)
     };
     vec![
         row(ON_KEY, "Requested", receipt == ReceiptRequest::Requested),

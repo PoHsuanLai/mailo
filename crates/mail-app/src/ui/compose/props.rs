@@ -39,6 +39,7 @@ use super::receipt::ReceiptRow;
 use super::recipients::{commit_typed, people_items, pick_person, pop_last, remove, typed};
 use super::remind::RemindRow;
 use crate::ui::actions::{self, Own};
+use crate::ui::copy;
 use crate::ui::provider_chip::ProvChip;
 use crate::ui::view::Shell;
 use mail_core::provider::provider;
@@ -242,7 +243,6 @@ fn FromRow(page: Signal<Page>, shell: Signal<Shell>) -> Element {
         .iter()
         .filter(|row| !row.is_local())
         .map(|row| MenuItem {
-            key: row.id.to_string(),
             tile: Tile::Avatar {
                 letter: row
                     .address
@@ -252,19 +252,15 @@ fn FromRow(page: Signal<Page>, shell: Signal<Shell>) -> Element {
                     .to_ascii_uppercase(),
                 color: super::super::command::avatar_color(&row.address),
             },
-            name: row.address.clone(),
             help: Some(provider(&row.plan).title().to_owned()),
             right: Right::Check(row.id == from),
-            group: None,
-            marks: Vec::new(),
-            title: Vec::new(),
-            detail: Vec::new(),
+            ..MenuItem::plain(row.id.to_string(), row.address.clone())
         })
         .collect();
     let mut value = use_signal(|| None::<MountedRef>);
     rsx! {
         Line {
-            label: "From",
+            label: copy::fields::FROM,
             row: "from",
             Button {
                 bezel: Bezel::Inline,
@@ -341,15 +337,9 @@ where
 {
     let when = page.when;
     let row = |key: &str, icon, name: String, help: Option<String>, on: bool| MenuItem {
-        key: key.to_owned(),
-        tile: Tile::Icon(icon),
-        name,
         help,
         right: Right::Check(on),
-        group: None,
-        marks: Vec::new(),
-        title: Vec::new(),
-        detail: Vec::new(),
+        ..MenuItem::icon(key, icon, name)
     };
     let mut items: Vec<MenuItem> = When::ALL
         .into_iter()

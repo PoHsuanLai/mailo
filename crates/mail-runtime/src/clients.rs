@@ -17,7 +17,6 @@
 use crate::RuntimeError;
 use crate::error::Failure;
 #[cfg(unix)]
-use crate::error::Logged;
 use porter_core::{EndpointUrl, SecretText};
 use porter_oauth::ClientRegistry;
 use porter_provider::{
@@ -193,16 +192,12 @@ pub fn remember(
         std::fs::create_dir_all(parent)
             .map_err(|e| RuntimeError::Io(Failure::new(parent.display().to_string(), e)))?;
     }
-    std::fs::write(path, body)
-        .map_err(|e| RuntimeError::Io(Failure::new(path.display().to_string(), e)))?;
     // Owner-only, as it always was: the application secret in here is not the user's credential,
-    // but a config file nobody else can read costs one syscall and removes the question.
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt as _;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
-            .or_log("the OAuth client file could not be made owner-only");
-    }
+    // but a config file nobody else can read costs nothing and removes the question. Written
+    // through a rename, so a crash cannot leave the registry half-written and every client in it
+    // lost.
+    mail_store::write_atomic(path, body.as_bytes(), Some(0o600))
+        .map_err(|e| RuntimeError::Io(Failure::new(path.display().to_string(), e)))?;
     Ok(Some(path.to_owned()))
 }
 

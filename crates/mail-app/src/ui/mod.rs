@@ -40,6 +40,7 @@ mod frame;
 mod history;
 mod host;
 mod hover;
+mod intent;
 mod invite;
 mod keyboard;
 mod launch;
@@ -78,10 +79,12 @@ mod start;
 mod style;
 mod switch;
 mod text;
+mod toolbar;
 mod unsubscribe;
 mod view_groups;
 mod views;
 mod window;
+mod window_core;
 
 #[cfg(test)]
 mod fixtures;
@@ -101,11 +104,12 @@ pub mod native {
     };
     pub use super::brand::BrandCache;
     pub use super::clock::WallClock;
-    pub use super::compose::{Dictionaries, Hub as ComposeHub};
+    pub use super::compose::Dictionaries;
     pub use super::downloads::Opener as FileOpener;
     pub use super::files::SaveDir;
     pub use super::follow_up::Notices;
     pub use super::launch::DesktopSettings;
+    pub use super::launch::gate::{Found, found as damaged_files};
     pub use super::launch::native::{contexts, live_root, root};
     pub use super::original::{Browse, Consent, Fetch, FetchImage, Got, Original};
     pub use super::pick::{Ask as DialogAsk, Dialogs};
@@ -117,10 +121,7 @@ pub mod native {
     pub use super::settings_window::{
         OpenSettings, SettingsAsked, SettingsAt, SettingsWindows, settings_root,
     };
-    pub use super::window::{
-        Ask, ComposeAsk, ComposeOpen, ComposeWindows, MessageOpen, OpenCompose, OpenWindow,
-        Windows, compose_root, message_root,
-    };
+    pub use super::window::{Ask, MessageOpen, OpenWindow, Windows, message_root};
     pub use crate::handoff::{ActivationToken, Request, Requests};
 }
 

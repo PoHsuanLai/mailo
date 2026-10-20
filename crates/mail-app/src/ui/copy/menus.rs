@@ -66,8 +66,6 @@ pub const SECURITY: &str = "Security";
 pub const SHOW_PLAIN_TEXT: &str = "Show Plain Text";
 pub const SAVE_AS_TEMPLATE: &str = "Save as Template\u{2026}";
 pub const KEEP_FOR_LATER: &str = "Keep for Later";
-/// In a compose window: the draft moves to the main window's reader column.
-pub const OPEN_IN_MAIN_WINDOW: &str = "Open in Main Window";
 pub const DELETE_DRAFT: &str = "Delete Draft";
 
 // A conversation's actions, in its row's menu, the reader's ⋯ and the selection bar: each named
@@ -132,12 +130,26 @@ pub fn offered(say: mail_core::view::Say) -> &'static str {
     }
 }
 
+/// One action of a rule, as the rules list and the rule's editor both say it: the conversation
+/// menus' own words for the actions a menu has, and a label's or a folder's name quoted.
+pub fn rule_action(action: &mail_domain::RuleAction) -> String {
+    use mail_domain::RuleAction;
+    match action {
+        RuleAction::Label(name) => format!("Label “{name}”"),
+        RuleAction::File(path) => format!("Move to “{path}”"),
+        RuleAction::Archive => ARCHIVE.to_owned(),
+        RuleAction::Trash => MOVE_TO_TRASH.to_owned(),
+        RuleAction::Spam => MARK_AS_SPAM.to_owned(),
+        RuleAction::MarkRead => MARK_AS_READ.to_owned(),
+        RuleAction::Star => STAR.to_owned(),
+    }
+}
+
 // ⌘K's commands for the contact book, which has no page of its own.
 pub const IMPORT_CONTACTS: &str = "Import Contacts…";
 pub const EXPORT_CONTACTS: &str = "Export Contacts…";
 
 // A rule's right-click menu in Settings › Rules.
-pub const RUN_ON_EXISTING_MAIL: &str = "Run on Existing Mail";
 pub const MOVE_UP: &str = "Move Up";
 pub const MOVE_DOWN: &str = "Move Down";
 pub const DELETE_RULE: &str = "Delete Rule";
@@ -150,3 +162,8 @@ pub const OPEN_LINK: &str = "Open Link";
 /// Where the link goes, in Peek, before going there.
 pub const PREVIEW_LINK: &str = "Preview Link";
 pub const COPY_LINK: &str = "Copy Link";
+
+// An account tile's right-click menu at the top of the sidebar.
+pub const SIGN_IN_AGAIN: &str = "Sign In Again…";
+pub const REMOVE_FROM_SPACE: &str = "Remove from This Space";
+pub const ACCOUNT_SETTINGS: &str = "Account Settings…";

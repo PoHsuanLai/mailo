@@ -45,24 +45,13 @@ fn summary(account: AccountId) -> ThreadSummary {
         id: ThreadId::from_uuid(uuid::Uuid::from_u128(7)),
         account,
         subject: "receipt".to_owned(),
-        snippet: String::new(),
         from: Address {
             name: None,
             email: "shop@example.test".to_owned(),
         },
-        participants: vec![],
-        recipients: vec![],
         last_date: at(0),
-        message_count: 1,
-        read: ReadState::Unread,
-        star: Star::Unstarred,
         mailboxes: MailboxSet::only(MailboxRole::Archive),
-        labels: vec![],
-        attachments: Attachments::None,
-        snooze: Snooze::Inactive,
-        pin: Pin::Unpinned,
-        mute: Mute::Unmuted,
-        follow_up: mail_domain::FollowUp::Inactive,
+        ..mail_domain::testing::summary()
     }
 }
 

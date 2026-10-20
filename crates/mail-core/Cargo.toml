@@ -106,6 +106,8 @@ pdfrum = { version = "0.5", default-features = false, features = ["vello-cpu"], 
 zbus = { version = "5.19", optional = true }
 
 [dev-dependencies]
+# The values a test starts from (`mail_domain::testing`): the program never has them.
+mail-domain = { workspace = true, features = ["testing"] }
 # Seeding a store without writing SQL (`mail_store::testing`): the program never has it.
 mail-store = { workspace = true, features = ["testing"] }
 # The doubles at the runtime's seams (`mail_runtime::testing`): the program never has them.

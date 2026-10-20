@@ -132,17 +132,7 @@ pub(in crate::ui) fn SenderName(shown: String, in_mail: String, address: String)
                     anchor: None,
                     placed: Some(placed),
                     title: String::new(),
-                    items: vec![crate::ui::menu::MenuItem {
-                        key: EDIT.to_owned(),
-                        tile: crate::ui::menu::Tile::Icon(Icon::Pen),
-                        name: copy::menus::EDIT_CONTACT.to_owned(),
-                        help: None,
-                        right: crate::ui::menu::Right::None,
-                        group: None,
-                        marks: Vec::new(),
-                        title: Vec::new(),
-                        detail: Vec::new(),
-                    }],
+                    items: vec![crate::ui::menu::MenuItem::icon(EDIT, Icon::Pen, copy::menus::EDIT_CONTACT)],
                     on_pick: move |_: String| asked.set(Asked::Editing),
                     on_close: move |()| {
                         if matches!(*asked.peek(), Asked::Menu(_)) {

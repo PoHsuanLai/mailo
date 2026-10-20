@@ -35,6 +35,20 @@ where
     })
 }
 
+/// Why `dir/file_name` cannot be read as a `T`: `None` when it is missing or reads. A file that
+/// is there and cannot be used is the person's, so a caller asks before putting the defaults in
+/// its place, and never writes over it.
+pub fn json_damage<T: serde::de::DeserializeOwned>(dir: &Path, file_name: &str) -> Option<String> {
+    let bytes = match std::fs::read(dir.join(file_name)) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(e) => return Some(e.to_string()),
+    };
+    serde_json::from_slice::<T>(&bytes)
+        .err()
+        .map(|e| e.to_string())
+}
+
 /// Write `value` as JSON to `dir/file_name`, creating `dir` if needed.
 ///
 /// The bytes land in a temporary file in `dir` and are renamed into place, so a
@@ -53,9 +67,7 @@ pub fn write_json(
 pub fn write_text(dir: &Path, file_name: &str, body: &str) -> Result<(), CoreError> {
     std::fs::create_dir_all(dir).map_err(CoreError::at(dir))?;
     let path = dir.join(file_name);
-    let tmp = path.with_extension("part");
-    std::fs::write(&tmp, body).map_err(CoreError::at(&tmp))?;
-    std::fs::rename(&tmp, &path).map_err(CoreError::at(&path))
+    mail_store::write_atomic(&path, body.as_bytes(), None).map_err(CoreError::at(&path))
 }
 
 /// The user's home directory.

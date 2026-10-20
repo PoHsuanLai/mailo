@@ -2,6 +2,10 @@
    paper side by side, with no inset, no rounded card and no shadow around either. Focusable for
    the keyboard, without a ring around the entire window. */
 .app:focus { outline: none; }
+/* Line heights, named once: message text 1.65, a title 1.15 (the subject, tight over the lines
+   under it), a heading written in a message 1.25. quire has no line-height token. */
+.app { --lh-read: 1.65; --lh-title: 1.15; --lh-head: 1.25; }
+/* Positioned: the edge strip, the peeking sidebar and the send pill are placed against the window. */
 .app {
   position: relative;
   isolation: isolate;
@@ -75,11 +79,11 @@
 /* The list's header: quire's `Toolbar` holds it as its centre. */
 .list-head { display: flex; align-items: center; gap: var(--s-8); width: 100%; min-width: 0; }
 .list-head h2 { font-size: var(--fs-title); min-width: 0; flex: 0 1 auto; white-space: nowrap; overflow: hidden; }
-.list-head .status {
-  font-size: var(--fs-help); color: var(--ink-faint); min-width: 0; flex: 1 1 0;
-  white-space: nowrap; overflow: hidden;
-}
-.list-head .status.bad { color: var(--danger); font-weight: 600; }
+/* A line of what the list is doing or why it is not: faint, and in the danger ink when it is bad.
+   The header's takes the room left of the title; the server search's is centred (`list.css`). */
+.status { font-size: var(--fs-help); color: var(--ink-faint); }
+.status.bad { color: var(--danger); font-weight: 600; }
+.list-head .status { min-width: 0; flex: 1 1 0; white-space: nowrap; overflow: hidden; }
 /* The selection's actions are toolbar-sized buttons, set close as a toolbar's icon group is.
    They take the room they need before the count does, so the usual set stays on one line in the
    list column and the count gives way first. */
@@ -87,7 +91,9 @@
   display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center;
   gap: var(--s-4); flex: 0 1 auto; min-width: 0;
 }
-.bar-tools { display: flex; gap: var(--s-6); align-items: center; margin-left: auto; position: relative; flex: none; }
+/* A toolbar's icon group at its end. The list's and the reader's are set at different gaps. */
+.bar-tools { display: flex; align-items: center; margin-left: auto; position: relative; flex: none; }
+.list-head .bar-tools { gap: var(--s-6); }
 
 /* A sheet hangs from the card's top edge, which is the window's: the window is flush. */
 .in-card { top: 0; }

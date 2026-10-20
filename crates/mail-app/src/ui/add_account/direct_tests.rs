@@ -7,17 +7,17 @@ use super::direct::{
 };
 use super::provider::offered_specs;
 use super::{AddAccountWindows, Ask, OpenAddAccount};
-use crate::ui::fixtures::{Seen, dispatching, empty, rebuild_into};
+use crate::ui::fixtures::settle_quiet_seen;
+use crate::ui::fixtures::{dispatching, empty, rebuild_into};
 use crate::ui::motion::Follow;
 use dioxus::prelude::*;
-use dioxus_core::{NoOpMutations, VirtualDom};
+use dioxus_core::VirtualDom;
 use ds::prelude::MenuItem;
 use mail_core::account::{Mode, SignInError};
 use mail_core::{ClientRegistry, Environment};
 use mail_domain::AuthPlan;
 use porter_provider::Issuer;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 fn with_clients(clients: &'static [Issuer]) -> impl Fn(Issuer) -> bool {
     move |issuer| clients.contains(&issuer)
@@ -257,24 +257,6 @@ impl OpenAddAccount for Windows {
     }
 }
 
-/// Let what is waiting land and redraw, as the window would between frames.
-async fn settle(dom: &mut VirtualDom) -> Seen {
-    let mut seen = Seen::default();
-    for _ in 0..12 {
-        if tokio::time::timeout(Duration::from_millis(80), dom.wait_for_work())
-            .await
-            .is_err()
-        {
-            break;
-        }
-        let mut more = Seen::default();
-        dom.render_immediate(&mut more);
-        seen = seen.merge(more);
-    }
-    dom.render_immediate(&mut NoOpMutations);
-    seen
-}
-
 /// The Space menu's Add Account, as the window offers it now: its rows' words and what each
 /// asks for.
 fn add_rows(dom: &VirtualDom) -> Vec<(String, AddPick)> {
@@ -317,12 +299,12 @@ async fn google_from_the_space_menu_signs_in_in_the_browser_with_no_window() {
         .with_root_context(DirectSignIns(fake.clone()))
         .with_root_context(AddAccountWindows(Arc::new(windows.clone())));
     let _ = rebuild_into(&mut dom);
-    settle(&mut dom).await;
+    settle_quiet_seen(&mut dom).await;
 
     // Add Account is a menu: Google, which has a client, then Other Account….
     assert_eq!(names(&add_rows(&dom)), ["Google", "Other Account\u{2026}"]);
     pick_add(&dom, "Google");
-    settle(&mut dom).await;
+    settle_quiet_seen(&mut dom).await;
 
     // The page is asked for once, no window is, and the row says what it waits for.
     assert_eq!(*fake.asked.lock().unwrap(), [(Issuer::Google, Mode::Add)]);
@@ -341,7 +323,7 @@ async fn google_from_the_space_menu_signs_in_in_the_browser_with_no_window() {
     dom.in_scope(ScopeId::APP, || {
         super::direct::start(Issuer::Google, Mode::Add)
     });
-    settle(&mut dom).await;
+    settle_quiet_seen(&mut dom).await;
     assert_eq!(
         fake.asked.lock().unwrap().len(),
         1,
@@ -354,7 +336,7 @@ async fn google_from_the_space_menu_signs_in_in_the_browser_with_no_window() {
     end.send(Ok("you@example.test".to_owned())).unwrap();
     let mut page = String::new();
     for _ in 0..10 {
-        settle(&mut dom).await;
+        settle_quiet_seen(&mut dom).await;
         page = dioxus_ssr::render(&dom);
         if page.contains("Added you@example.test") {
             break;
@@ -384,9 +366,9 @@ async fn other_account_and_a_provider_without_a_client_open_the_window() {
         .with_root_context(DirectSignIns(fake.clone()))
         .with_root_context(AddAccountWindows(Arc::new(windows.clone())));
     let _ = rebuild_into(&mut dom);
-    settle(&mut dom).await;
+    settle_quiet_seen(&mut dom).await;
     pick_add(&dom, "Other Account\u{2026}");
-    settle(&mut dom).await;
+    settle_quiet_seen(&mut dom).await;
     assert_eq!(
         *windows.0.lock().unwrap(),
         [Ask::default()],
@@ -397,7 +379,7 @@ async fn other_account_and_a_provider_without_a_client_open_the_window() {
     dom.in_scope(ScopeId::APP, || {
         super::direct::start(Issuer::Microsoft, Mode::Add);
     });
-    settle(&mut dom).await;
+    settle_quiet_seen(&mut dom).await;
     assert!(fake.asked.lock().unwrap().is_empty(), "a page was opened");
     assert_eq!(
         windows.0.lock().unwrap().len(),
@@ -420,13 +402,13 @@ async fn with_clients_at_hand_add_account_names_google_and_microsoft() {
         .with_root_context(DirectSignIns(fake.clone()))
         .with_root_context(AddAccountWindows(Arc::new(windows.clone())));
     let _ = rebuild_into(&mut dom);
-    settle(&mut dom).await;
+    settle_quiet_seen(&mut dom).await;
     assert_eq!(
         names(&add_rows(&dom)),
         ["Google", "Microsoft", "Other Account\u{2026}"]
     );
     pick_add(&dom, "Microsoft");
-    settle(&mut dom).await;
+    settle_quiet_seen(&mut dom).await;
     assert_eq!(
         *fake.asked.lock().unwrap(),
         [(Issuer::Microsoft, Mode::Add)]
@@ -464,7 +446,7 @@ async fn a_root_without_the_programs_sign_in_offers_no_redirect_and_reaches_noth
             dom = dom.with_root_context(AddAccountWindows(Arc::new(windows.clone())));
         }
         let _ = rebuild_into(&mut dom);
-        settle(&mut dom).await;
+        settle_quiet_seen(&mut dom).await;
         let offered = dom.in_scope(ScopeId::APP, offered_redirects);
         assert!(offered.is_empty(), "{name}: offered {offered:?}");
         // The keys' seams too: no lookup and no keyring of the user's.
@@ -480,11 +462,11 @@ async fn a_root_without_the_programs_sign_in_offers_no_redirect_and_reaches_noth
         // Add Account is the window, with no menu, and so is a sign-in asked for by name.
         assert_eq!(names(&add_rows(&dom)), ["Other Account\u{2026}"], "{name}");
         pick_add(&dom, "Other Account\u{2026}");
-        settle(&mut dom).await;
+        settle_quiet_seen(&mut dom).await;
         dom.in_scope(ScopeId::APP, || {
             super::direct::start(Issuer::Google, Mode::Add);
         });
-        settle(&mut dom).await;
+        settle_quiet_seen(&mut dom).await;
         assert_eq!(
             *windows.0.lock().unwrap(),
             [Ask::default(), Ask::default()],

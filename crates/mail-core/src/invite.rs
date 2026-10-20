@@ -230,7 +230,7 @@ fn human_text(
     attendance: Attendance,
     comment: Option<&str>,
 ) -> String {
-    let who = from.name.as_deref().unwrap_or(&from.email);
+    let who = from.shown();
     let title = invite.title.as_deref().unwrap_or("(no title)");
     let when = show_when(&invite.when, &Utc);
     let mut out = format!(

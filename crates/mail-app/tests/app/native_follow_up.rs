@@ -10,30 +10,22 @@
 //! store, config or desktop.
 
 use ds::prelude::{Point, ShortcutKey as Key};
-use ds_blitz::{FocusFallback, NetPolicy, PrintOutcome};
-use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
+use ds_harness::Harness;
 
 use crate::drive;
+use crate::native::item;
+use crate::native::ms;
+use crate::opening::{Open, Wait, open_window};
+use crate::store::acct_account;
+use crate::store::{Seed, seeded_with};
 use drive::Drive;
 use mail_app::ui::native::WallClock;
 use mail_core::notify::{Notification, Notifier, Opens};
-use mail_core::{Arrival, Destination, absorb, absorb_into};
+use mail_core::{Arrival, Destination, absorb_into};
 use mail_core::{SqliteStore, Store};
-use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
-use porter_core::AccountId;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
-
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
-
-const VIEW: Viewport = Viewport {
-    width: 1200,
-    height: 800,
-    scale_percent: 100,
-};
 
 /// The seeded inbox, newest first: (sender, subject).
 const INBOX: [(&str, &str); 3] = [
@@ -45,66 +37,16 @@ const INBOX: [(&str, &str); 3] = [
 /// What the test sends.
 const SUBJECT: &str = "Checking in on the proposal";
 
-fn ms(n: u64) -> Duration {
-    Duration::from_millis(n)
-}
-
 /// A store in `dir` with one account that sends, its identity and capabilities, and [`INBOX`].
 fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
-    std::fs::create_dir_all(dir.join("blobs")).unwrap();
-    let store = SqliteStore::open(dir.join("mail.db"), dir.join("blobs")).unwrap();
-    {
-        mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
-        mail_store::testing::seed_identity_for(
-            &store,
-            IdentityId::generate(),
-            acct_account(),
-            "me@example.test",
-            None,
-        );
-        let caps = AccountCaps {
-            labels: ServerLabels::Supported,
-            threads: ServerThreads::Jwz,
-            watch: WatchMode::Idle,
-            archive: ArchiveMeans::DropInbox,
-            folders: FolderRoles::default(),
-            condstore: Condstore::Supported,
-            move_ext: MoveExt::Supported,
-            expunge: ExpungeMeans::Forbidden,
-            top: Supported::Absent,
-            pipelining: Supported::Yes,
-            connections: ConnectionBudget::default(),
-            observed_at: chrono::Utc::now(),
-        };
-        mail_store::testing::seed_caps(&store, acct_account(), &caps, chrono::Utc::now()).unwrap();
-    }
-    let now = chrono::Utc::now();
-    for (n, (from, subject)) in INBOX.iter().enumerate() {
-        let date = (now - chrono::Duration::hours(n as i64 + 1)).to_rfc2822();
-        let raw = format!(
-            "From: {from}\r\nTo: me@example.test\r\nSubject: {subject}\r\n\
-             Date: {date}\r\nMessage-ID: <inbox{n}@example.test>\r\n\r\nThe body of {subject}.\r\n"
-        );
-        absorb(
-            &store,
-            acct_account(),
-            MailboxRef {
-                account: acct_account(),
-                path: "INBOX".to_owned(),
-            },
-            Some(SyncCursor::Pop),
-            vec![Arrival {
-                remote: RemoteRef::Pop {
-                    uidl: format!("inbox{n}"),
-                },
-                raw: raw.into_bytes(),
-            }],
-            false,
-            now,
-        )
-        .unwrap();
-    }
-    Arc::new(store)
+    seeded_with(
+        dir,
+        Seed {
+            inbox: &INBOX,
+            prefix: "inbox",
+            ..Seed::default()
+        },
+    )
 }
 
 /// What the window was asked to say on the desktop.
@@ -137,25 +79,17 @@ fn open() -> (
         let since = ds::base::time::clock::since(*origin.get_or_init(ds::base::time::clock::now));
         base + chrono::TimeDelta::from_std(since).unwrap()
     });
-    // No test may open the system's print dialog.
-    let printer = mail_app::ui::native::Printer::with_dialog(|_, _| Ok(PrintOutcome::Cancelled));
-    let contexts = mail_app::ui::native::contexts(
-        Arc::clone(&store),
-        mail_app::ui::view::Appearance::default(),
-        None,
-        None,
-        mail_app::ui::Start::Inbox,
-    )
-    .with(printer)
-    .with(clock.clone())
-    .with(mail_app::ui::native::Notices(recorder.clone()));
-    let config = HarnessConfig::new(VIEW)
-        .with_net(NetPolicy::Local)
-        .with_focus_fallback(FocusFallback::Ancestor)
-        .with_clock(Clock::Virtual)
-        .with_contexts(contexts);
-    let mut harness = Harness::new(mail_app::ui::native::root, config);
-    harness.advance(ms(300));
+    let harness = open_window(
+        &store,
+        Open {
+            with: Some(Box::new(|c| {
+                c.with(clock.clone())
+                    .with(mail_app::ui::native::Notices(recorder.clone()))
+            })),
+            wait: Wait::Entrances,
+            ..Open::default()
+        },
+    );
     (harness, dir, store, recorder, clock)
 }
 
@@ -214,11 +148,6 @@ fn press_menu_row(harness: &mut Harness, name: &str) {
         h.centre(&row).is_some_and(|at| h.hits(at, &row))
     });
     harness.click(centre(harness, &row));
-}
-
-/// The `n`th row of the list (1-based).
-fn row(n: usize) -> String {
-    format!(".list .ds-list-item[*|aria-posinset=\"{n}\"]")
 }
 
 /// The reminder on the conversation that holds the message sent from `draft`, if it is here.
@@ -343,7 +272,7 @@ fn a_reminder_set_in_the_composer_brings_the_conversation_back_with_no_reply_yet
     harness.click(centre(&harness, waiting_place));
     until(&mut harness, "the Waiting place lists it", |h| {
         h.count(".list .ds-thread") == 1
-            && h.text_of(&format!("{} .ds-thread-sub", row(1)))
+            && h.text_of(&format!("{} .ds-thread-sub", item(1)))
                 .is_some_and(|subject| subject.contains(SUBJECT))
     });
     harness.click(centre(&harness, "[*|data-place=\"Inbox\"]"));
@@ -373,11 +302,11 @@ fn a_reminder_set_in_the_composer_brings_the_conversation_back_with_no_reply_yet
     ));
     until(&mut harness, "the conversation is back on top", |h| {
         h.count(".list .ds-thread") == inbox_before + 1
-            && h.text_of(&format!("{} .ds-thread-sub", row(1)))
+            && h.text_of(&format!("{} .ds-thread-sub", item(1)))
                 .is_some_and(|subject| subject.contains(SUBJECT))
     });
     let words = harness
-        .text_of(&format!("{} .no-reply", row(1)))
+        .text_of(&format!("{} .no-reply", item(1)))
         .unwrap_or_default();
     assert!(words.contains("No reply yet"), "{words:?}");
     assert_eq!(harness.count(".no-reply"), 1, "only that row says it");

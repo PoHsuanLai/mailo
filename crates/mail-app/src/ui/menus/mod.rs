@@ -6,7 +6,10 @@
 //! Both are plain lists of words: no header restating what was picked to open them, and no
 //! glyph repeated down every row (design-language §2.2, §2.6).
 
-use super::menu::{Floating, MenuItem, MenuKey, Right, Tile, anchor_for, menu_key, palette_groups};
+mod further;
+pub(super) use further::FurtherMenus;
+
+use super::menu::{Floating, MenuItem, MenuKey, Right, anchor_for, menu_key, palette_groups};
 use super::motion::{act, act_all};
 use super::picks::{label_all, with_selection};
 use crate::ui::copy;
@@ -43,7 +46,7 @@ pub(super) fn snooze_help<Tz: TimeZone>(at: DateTime<Utc>, zone: &Tz) -> String
 where
     Tz::Offset: std::fmt::Display,
 {
-    at.with_timezone(zone).format("%Y-%m-%d %H:%M").to_string()
+    mail_core::when::stamp(at, zone, mail_core::when::Stamp::Full)
 }
 
 /// The time a snooze lands on, short enough for the end of a menu row: `7:30 PM` today or
@@ -61,30 +64,8 @@ where
     }
 }
 
-/// A time to come as a person says it: `Today 17:00`, `Tomorrow 08:00`, `Tue 08:00` within the
-/// week, `Tue 6 Oct 08:00` past it, with the year only when it is not this one. The one wording
-/// for a time something waits until: the Sends menu, the outbox pill and the scheduled list.
-pub(in crate::ui) fn when_words<Tz: TimeZone>(
-    at: DateTime<Utc>,
-    now: DateTime<Utc>,
-    zone: &Tz,
-) -> String
-where
-    Tz::Offset: std::fmt::Display,
-{
-    use chrono::Datelike as _;
-    let there = at.with_timezone(zone);
-    let here = now.with_timezone(zone);
-    let clock = there.format("%H:%M");
-    match (there.date_naive() - here.date_naive()).num_days() {
-        -1 => format!("Yesterday {clock}"),
-        0 => format!("Today {clock}"),
-        1 => format!("Tomorrow {clock}"),
-        2..=6 => format!("{} {clock}", there.format("%a")),
-        _ if there.year() == here.year() => format!("{} {clock}", there.format("%a %-d %b")),
-        _ => format!("{} {clock}", there.format("%a %-d %b %Y")),
-    }
-}
+/// The one wording for a time something waits until, which lives in `mail_core::when`.
+pub(in crate::ui) use mail_core::when::upcoming as when_words;
 
 /// [`when_words`] inside a sentence: "Scheduled for tomorrow 08:00".
 pub(in crate::ui) fn when_in_sentence<Tz: TimeZone>(
@@ -95,7 +76,7 @@ pub(in crate::ui) fn when_in_sentence<Tz: TimeZone>(
 where
     Tz::Offset: std::fmt::Display,
 {
-    let words = when_words(at, now, zone);
+    let words = mail_core::when::upcoming(at, now, zone);
     for day in ["Yesterday", "Today", "Tomorrow"] {
         if let Some(rest) = words.strip_prefix(day) {
             return format!("{}{rest}", day.to_lowercase());
@@ -111,15 +92,8 @@ where
     Tz::Offset: std::fmt::Display,
 {
     let row = |key: &str, name: &str, right: Right| MenuItem {
-        key: key.to_owned(),
-        tile: Tile::None,
-        name: name.to_owned(),
-        help: None,
         right,
-        group: None,
-        marks: Vec::new(),
-        title: Vec::new(),
-        detail: Vec::new(),
+        ..MenuItem::plain(key, name)
     };
     SNOOZE
         .iter()
@@ -160,15 +134,8 @@ pub(super) fn label_items(
     let mut items: Vec<MenuItem> = mail_core::view::label_menu(known, summary)
         .into_iter()
         .map(|choice| MenuItem {
-            key: choice.id.to_string(),
-            tile: Tile::None,
-            name: choice.name,
-            help: None,
             right: Right::Check(choice.membership == Membership::In),
-            group: None,
-            marks: Vec::new(),
-            title: Vec::new(),
-            detail: Vec::new(),
+            ..MenuItem::plain(choice.id.to_string(), choice.name)
         })
         .collect();
     let typed = typed.trim();
@@ -177,15 +144,8 @@ pub(super) fn label_items(
         .any(|(name, _)| name.eq_ignore_ascii_case(typed));
     if !typed.is_empty() && !known_name {
         items.push(MenuItem {
-            key: format!("create:{typed}"),
-            tile: Tile::None,
-            name: format!("Create “{typed}”"),
             help: Some("New label".to_owned()),
-            right: Right::None,
-            group: None,
-            marks: Vec::new(),
-            title: Vec::new(),
-            detail: Vec::new(),
+            ..MenuItem::plain(format!("create:{typed}"), format!("Create “{typed}”"))
         });
     }
     items
@@ -202,17 +162,8 @@ pub(super) fn SnoozeMenu(
     /// The snooze button's rect once measured, which wins over `anchor`.
     #[props(default)]
     placed: Option<Rect>,
-    /// Told when the menu goes, picked or dismissed: a host that opened it itself (the reader's
-    /// ⋯) closes it so.
-    #[props(default)]
-    on_done: Option<EventHandler<()>>,
 ) -> Element {
-    let mut done = move || {
-        shell.write().snoozing = None;
-        if let Some(on_done) = on_done {
-            on_done.call(());
-        }
-    };
+    let mut done = move || shell.write().further = None;
     // Choose Time… picked: the field stands where the menu stood.
     let mut choosing = use_signal(|| false);
     // The whole selection when this row is picked, as one gesture, through the op `mailo snooze`
@@ -352,16 +303,8 @@ pub(super) fn LabelMenu(
     /// The Label button's rect once measured, which wins over `anchor`.
     #[props(default)]
     placed: Option<Rect>,
-    /// Told when the list goes, as [`SnoozeMenu`]'s is.
-    #[props(default)]
-    on_done: Option<EventHandler<()>>,
 ) -> Element {
-    let mut done = move || {
-        shell.write().labelling = None;
-        if let Some(on_done) = on_done {
-            on_done.call(());
-        }
-    };
+    let mut done = move || shell.write().further = None;
     let mut typed = use_signal(String::new);
     let (create, base): (Vec<MenuItem>, Vec<MenuItem>) =
         label_items(&shell.read().labels, &summary, &typed())

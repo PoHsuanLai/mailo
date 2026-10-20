@@ -2,12 +2,13 @@
 //! else, a pick files the conversation through `Op::File` with the undo every op has, and a row
 //! dropped on a folder in the sidebar is filed the same way.
 
+use crate::ui::fixtures::settle_quiet;
 use std::sync::Arc;
 
 use chrono::Utc;
 use dioxus::html::input_data::keyboard_types::Modifiers;
 use dioxus::prelude::*;
-use dioxus_core::{NoOpMutations, VirtualDom};
+use dioxus_core::VirtualDom;
 use mail_core::{SqliteStore, Store};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
@@ -218,19 +219,6 @@ fn window(store: Arc<SqliteStore>) -> (VirtualDom, Seen) {
     (dom, seen)
 }
 
-async fn settle(dom: &mut VirtualDom) {
-    for _ in 0..12 {
-        let quiet = std::time::Duration::from_millis(60);
-        if tokio::time::timeout(quiet, dom.wait_for_work())
-            .await
-            .is_err()
-        {
-            break;
-        }
-        dom.render_immediate(&mut NoOpMutations);
-    }
-}
-
 /// Open `FROM`'s place, and return what the list drew.
 async fn open_the_folder(dom: &mut VirtualDom, seen: &Seen) -> Seen {
     let mut drawn = click(dom, seen.folder(FROM));
@@ -292,7 +280,7 @@ async fn moving_to_a_folder_files_it_there_and_undo_brings_it_back() {
         // The list and its field are both named "Move to"; the keys go to the field.
         *menu.all("aria-label", "Move to").last().expect("the field"),
     );
-    settle(&mut dom).await;
+    settle_quiet(&mut dom).await;
     assert_eq!(
         in_folder(&store, FROM),
         from_before - 1,
@@ -318,7 +306,7 @@ async fn moving_to_a_folder_files_it_there_and_undo_brings_it_back() {
         crate::ui::fixtures::PRIMARY,
         dioxus_core::ElementId(INSIDE_THE_SHELL as usize),
     );
-    settle(&mut dom).await;
+    settle_quiet(&mut dom).await;
     assert_eq!(
         in_folder(&store, FROM),
         from_before,
@@ -432,7 +420,7 @@ async fn a_row_dropped_on_a_folder_is_filed_there() {
     assert!(folder_accepts(&lit), "no folder offers to take it: {lit}");
     pointer(&mut dom, "pointerenter", target, at(120.0, 300.0, true));
     pointer(&mut dom, "pointerup", target, at(120.0, 300.0, false));
-    settle(&mut dom).await;
+    settle_quiet(&mut dom).await;
 
     assert_eq!(
         in_folder(&store, FROM),

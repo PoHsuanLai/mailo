@@ -2,7 +2,7 @@
 //! takes too, onto the undo stack, and into words.
 
 use super::super::data::account_rows;
-use super::super::motion::{Follow, tell};
+use super::super::motion::record;
 use super::folder_tree::{AccountFolders, Mailboxes, placed};
 use crate::ui::copy;
 use crate::ui::view::Shell;
@@ -91,19 +91,15 @@ pub(in crate::ui) fn perform(
 /// list, and the toast.
 pub(in crate::ui) fn act(
     store: &SqliteStore,
-    mut shell: Signal<Shell>,
+    shell: Signal<Shell>,
     mut revision: Signal<u64>,
     account: AccountId,
     work: FolderWork,
     delimiter: Option<char>,
 ) -> Result<(), Refusal> {
     let done = perform(store, account, work, delimiter)?;
-    let offer = match done.undo {
-        Some(undo) => Follow::Undo(shell.write().undo.push(undo)),
-        None => Follow::Nothing,
-    };
     revision += 1;
-    tell(done.said, offer);
+    record(shell, done.undo.into_iter().collect(), done.said);
     Ok(())
 }
 

@@ -46,14 +46,7 @@ pub(super) fn recipients(prefix: &str, people: &[Address]) -> Option<String> {
     let names: Vec<&str> = people
         .iter()
         .take(NAMED)
-        .map(|person| {
-            person
-                .name
-                .as_deref()
-                .map(str::trim)
-                .filter(|name| !name.is_empty())
-                .unwrap_or(person.email.as_str())
-        })
+        .map(|person| person.shown())
         .collect();
     let more = people.len().saturating_sub(NAMED);
     let named = names.join(", ");

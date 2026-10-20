@@ -56,25 +56,47 @@ pub(super) fn start_new(
         .map_err(String::from)
 }
 
-/// Begin a new message and open it in the composer, the pencil's, ⌘N's and ⌘K's Compose. With
-/// no account to send from, the window says so and offers Add Account (`no_account`); anything
-/// else that stops it goes to the log. `true` when the composer opened.
-pub(super) fn compose_new(store: &SqliteStore, mut shell: Signal<Shell>) -> bool {
-    let known = shell.peek().accounts.clone();
-    match start_new(store, &known) {
-        Ok(draft) => {
-            shell.write().compose(&draft);
-            true
+/// What to open the composer on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Writes {
+    /// A message that answers nothing: the pencil, ⌘N and ⌘K's New Message.
+    New,
+    /// A reply or forward of a conversation: the row's buttons, `r`, `a`, `f` and ⌘K's forward.
+    On(ThreadId, Composes),
+    /// A draft already stored: its row in Drafts, ⌘K's Recent, a `mailto:` link.
+    Draft(DraftId),
+}
+
+/// Open the composer on `what`. With no account to send from, a new message says so and offers
+/// Add Account (`no_account`); anything else that stops it goes to the log. The refusal comes
+/// back for a caller that says it somewhere of its own; `Ok` when the composer opened.
+pub(super) fn open_composer(
+    store: &SqliteStore,
+    mut shell: Signal<Shell>,
+    what: Writes,
+) -> Result<(), String> {
+    let opened = match what {
+        Writes::New => {
+            let known = shell.peek().accounts.clone();
+            let started = start_new(store, &known);
+            if let Err(why) = &started
+                && known.is_empty()
+                && mail_core::compose::sending_accounts(store).is_empty()
+            {
+                shell.write().no_account = true;
+                return Err(why.clone());
+            }
+            started.map(|draft| shell.write().compose(&draft))
         }
-        Err(_) if known.is_empty() && mail_core::compose::sending_accounts(store).is_empty() => {
-            shell.write().no_account = true;
-            false
+        Writes::On(thread, composes) => {
+            start_composing(store, thread, composes).map(|draft| shell.write().compose(&draft))
         }
-        Err(why) => {
-            eprintln!("compose: {why}");
-            false
-        }
+        Writes::Draft(id) => shell.write().compose_id(store, id),
+    };
+    if let Err(why) = &opened {
+        eprintln!("compose: {why}");
     }
+    opened
 }
 
 pub(super) fn start_composing(
@@ -143,6 +165,7 @@ pub(super) fn apply_label(
     apply(store, thread, Op::Label(label, membership))
 }
 
+#[cfg(test)]
 pub(super) fn apply_op(store: &SqliteStore, thread: ThreadId, kind: OpKind) -> bool {
     resolve(store, thread, kind).is_some_and(|op| apply(store, thread, op))
 }
@@ -170,6 +193,7 @@ pub(super) fn resolve(store: &SqliteStore, thread: ThreadId, kind: OpKind) -> Op
     }
 }
 
+#[cfg(test)]
 fn apply(store: &SqliteStore, thread: ThreadId, op: Op) -> bool {
     perform(store, thread, op).is_some()
 }

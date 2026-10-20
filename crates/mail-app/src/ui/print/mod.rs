@@ -421,7 +421,10 @@ mod native_print {
     {
         let made = made(store, job, paper, sources, zone, now).and_then(|printed| {
             let pdf = paper::pdf(&printed, paper)?;
-            Ok((paper::title(&printed), pdf))
+            Ok((
+                mail_domain::subject_or_none(&printed.subject).into_owned(),
+                pdf,
+            ))
         });
         match made {
             Ok((title, pdf)) => said((printer.dialog)(&pdf, &title)),

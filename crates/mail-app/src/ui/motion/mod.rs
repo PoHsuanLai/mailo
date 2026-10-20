@@ -154,7 +154,7 @@ pub(super) fn act(
 /// belongs to the list leaves with it: quire's `List` plays that exit.
 pub(super) fn act_all(
     store: &SqliteStore,
-    mut shell: Signal<Shell>,
+    shell: Signal<Shell>,
     mut revision: Signal<u64>,
     ops: Vec<(ThreadId, Op)>,
 ) -> usize {
@@ -172,15 +172,27 @@ pub(super) fn act_all(
         [op, ..] if count > 1 => mail_core::undo::said_of(op, count, &chrono::Local),
         _ => undos[0].said.clone(),
     };
-    let Some(handle) = shell.write().undo.push_all(undos) else {
+    if record(shell, undos, said).is_none() {
         return 0;
-    };
+    }
     revision += 1;
     if let Some(mut motion) = motion() {
         motion.dest.set(None);
-        motion.say(said, Follow::Undo(handle));
     }
     count
+}
+
+/// The one way an undoable action is kept and shown: `undos` go on the window's stack as one
+/// entry, taken back together by ⌘Z or by the toast's Undo, and `said` goes up in that toast.
+/// Nothing to undo is still said, in plain words, and keeps no entry.
+pub(in crate::ui) fn record(
+    mut shell: Signal<Shell>,
+    undos: Vec<Undo>,
+    said: String,
+) -> Option<UndoHandle> {
+    let handle = shell.write().undo.push_all(undos);
+    tell(said, handle.map_or(Follow::Nothing, Follow::Undo));
+    handle
 }
 
 /// Apply what a button means to each of `threads`, as one gesture ([`act_all`]).

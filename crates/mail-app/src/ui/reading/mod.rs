@@ -3,6 +3,7 @@ mod anyview;
 mod attachments;
 pub(super) mod blocks;
 mod cache;
+mod column;
 mod fetch;
 mod fit;
 mod fold;
@@ -18,6 +19,7 @@ use super::text::{attachment_rows, stamp};
 use crate::ui::view::Shell;
 use attachments::Attachments;
 pub(in crate::ui) use cache::{frames, looks, use_frames, use_looks, use_warming};
+pub(in crate::ui) use column::reading_column;
 use dioxus::prelude::*;
 use ds::components::content::avatar::{
     AvatarFace, AvatarShape, AvatarSize, AvatarTone, person_hue,
@@ -46,9 +48,8 @@ fn initial(name: &str) -> char {
 /// The sender's avatar: their first letter on the hue their address hashes to, as everywhere
 /// else a person is drawn.
 fn sender_face(message: &Message) -> AvatarFace {
-    let named = message.from.name.as_deref().filter(|name| !name.is_empty());
     AvatarFace {
-        initial: initial(named.unwrap_or(message.from.email.as_str())),
+        initial: initial(message.from.shown()),
         size: AvatarSize::Size34,
         tone: AvatarTone::Person(person_hue(&message.from.email)),
         shape: AvatarShape::Round,
@@ -638,17 +639,7 @@ fn link_items() -> Vec<super::menu::MenuItem> {
         (COPY_LINK, super::copy::menus::COPY_LINK, Icon::Copy),
     ]
     .into_iter()
-    .map(|(key, name, icon)| super::menu::MenuItem {
-        key: key.to_owned(),
-        tile: super::menu::Tile::Icon(icon),
-        name: name.to_owned(),
-        help: None,
-        right: super::menu::Right::None,
-        group: None,
-        marks: Vec::new(),
-        title: Vec::new(),
-        detail: Vec::new(),
-    })
+    .map(|(key, name, icon)| super::menu::MenuItem::icon(key, icon, name))
     .collect()
 }
 

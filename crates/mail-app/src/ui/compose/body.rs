@@ -24,6 +24,7 @@ use super::float::{
 use super::page::{Float, Page};
 use super::templates::{self, TemplateFloat, page_slash_items};
 use crate::ui::actions::{Heard, Own};
+use crate::ui::copy;
 use crate::ui::view::Shell;
 use mail_core::editor::{InputEvent, Mark, Node, Op, Presence, Range};
 
@@ -58,8 +59,8 @@ pub(in crate::ui) fn Body(
     let bar = read.selection.is_some()
         && (focus() == EditFocus::In || matches!(read.float, Float::Link(_)));
     drop(read);
-    let class = if only_empty { "c-body ph" } else { "c-body" };
-    let editable = rsx! { super::surface::Surface { page, shell, on_attach, class, marks, focus } };
+    let editable =
+        rsx! { super::surface::Surface { page, shell, on_attach, class: "c-body", marks, focus } };
     // Where the `/` and `@` menus float: the caret's own rect, and the float boxes and the bubble
     // are placed from the surface's measures.
     let (at, below, above) = (
@@ -75,6 +76,11 @@ pub(in crate::ui) fn Body(
     rsx! {
         div { class: "c-edit",
             {editable}
+            // The surface draws its own text, so the hint is an element laid over where the
+            // first paragraph starts, and lets every press through to the page.
+            if only_empty {
+                div { class: "c-hint", {copy::fields::WRITE_OR_SLASH} }
+            }
             match float {
                 // quire's menus, their cursor the editor's: the caret keeps the keyboard, and
                 // the page's keys move `active` and pick with it. A pick is followed by quire's

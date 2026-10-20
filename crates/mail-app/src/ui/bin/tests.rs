@@ -1,31 +1,17 @@
 use super::*;
 use crate::ui::view::Shell;
-use mail_domain::id::new_account_id;
 use mail_domain::*;
 
 fn summary_in(roles: &[MailboxRole]) -> ThreadSummary {
     ThreadSummary {
-        id: ThreadId::generate(),
-        account: new_account_id(),
-        subject: "s".to_owned(),
-        snippet: String::new(),
         from: Address {
             name: None,
             email: "a@example.test".to_owned(),
         },
-        participants: Vec::new(),
-        recipients: Vec::new(),
         last_date: chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
-        message_count: 1,
         read: ReadState::Read,
-        star: Star::Unstarred,
         mailboxes: roles.iter().copied().collect(),
-        labels: Vec::new(),
-        attachments: Attachments::None,
-        snooze: Snooze::Inactive,
-        pin: Pin::Unpinned,
-        mute: Mute::Unmuted,
-        follow_up: mail_domain::FollowUp::Inactive,
+        ..mail_domain::testing::summary()
     }
 }
 
@@ -48,9 +34,9 @@ fn only_trash_and_spam_are_bins_and_only_without_a_search() {
         ("Trash", "", Some(Bin::Trash)),
         ("Spam", "", Some(Bin::Spam)),
         ("Inbox", "", None),
-        ("Done", "", None),
+        ("Archive", "", None),
         ("Sent", "", None),
-        ("Kept", "", None),
+        ("Starred", "", None),
         // A search's results are not the bin's, even typed from there.
         ("Trash", "from:ada", None),
         ("Trash", "   ", Some(Bin::Trash)),

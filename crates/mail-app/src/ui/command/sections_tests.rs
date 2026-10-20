@@ -2,19 +2,12 @@
 //! and what a place's, a Space's or a person's row is and does.
 
 use super::*;
-use crate::ui::menu::{Run, Tone};
+use crate::ui::menu::{Run, Tile, Tone};
 
 fn row(key: &str, name: &str, group: &str) -> MenuItem {
     MenuItem {
-        key: key.to_owned(),
-        tile: Tile::Icon(Icon::Command),
-        name: name.to_owned(),
-        help: None,
-        right: Right::None,
         group: Some(group.to_owned()),
-        marks: Vec::new(),
-        title: Vec::new(),
-        detail: Vec::new(),
+        ..MenuItem::icon(key, Icon::Command, name)
     }
 }
 

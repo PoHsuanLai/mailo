@@ -55,13 +55,7 @@ where
         GroupKey::Mailbox => by_key(threads, |t| where_it_is(t).to_owned()),
         GroupKey::Property(property) => match property {
             Property::Date => date_bands(threads, now, zone),
-            Property::From | Property::Sender => by_key(threads, |t| {
-                t.from
-                    .name
-                    .clone()
-                    .filter(|name| !name.is_empty())
-                    .unwrap_or_else(|| t.from.email.clone())
-            }),
+            Property::From | Property::Sender => by_key(threads, |t| t.from.shown().to_owned()),
             Property::Subject => by_key(threads, |t| t.subject.clone()),
             Property::Attachments => two(threads, "With attachments", "Without", |t| {
                 matches!(t.attachments, Attachments::Present { .. })
@@ -108,32 +102,21 @@ fn where_it_is(thread: &ThreadSummary) -> &'static str {
 mod tests {
     use super::*;
     use crate::ui::view::PageGroup;
-    use mail_domain::id::new_account_id;
+
     use mail_domain::*;
 
     fn thread(subject: &str, read: ReadState, star: Star, labels: Vec<LabelId>) -> ThreadSummary {
         ThreadSummary {
-            id: ThreadId::generate(),
-            account: new_account_id(),
             subject: subject.to_owned(),
-            snippet: String::new(),
             from: Address {
                 name: None,
                 email: "a@example.test".to_owned(),
             },
-            participants: Vec::new(),
-            recipients: Vec::new(),
             last_date: Utc::now(),
-            message_count: 1,
             read,
             star,
-            mailboxes: MailboxSet::only(MailboxRole::Inbox),
             labels,
-            attachments: Attachments::None,
-            snooze: Snooze::Inactive,
-            pin: Pin::Unpinned,
-            mute: Mute::Unmuted,
-            follow_up: mail_domain::FollowUp::Inactive,
+            ..mail_domain::testing::summary()
         }
     }
 

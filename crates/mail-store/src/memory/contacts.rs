@@ -2,43 +2,21 @@
 //! in `tests/store/contacts.rs` hold it to.
 //!
 //! One difference, and it is about input rather than rules: this store holds no raw bytes, so
-//! it cannot see a `List-Id` header and judges a sender by its address alone.
+//! the list-header check has none to read and judges a sender by its address alone.
 
 use super::Inner;
 use crate::StoreError;
-use crate::contact::learn::{self, Event, Needle, Row, Seen};
-use crate::contact::{AddressBook, Contact, Kind, Origin};
+use crate::contact::learn::{self, Event, Needle, Row};
+use crate::contact::ledger::{self, Ledger};
+use crate::contact::{AddressBook, Contact, Origin};
 use chrono::{DateTime, Utc};
-use mail_domain::{Address, DraftId, MailboxRole, Message, MessageId};
+use mail_domain::{BlobId, DraftId, Message, MessageId};
 use porter_core::AccountId;
 
 impl Inner {
     pub(super) fn learn_fetched(&mut self, account: AccountId, id: MessageId, message: &Message) {
-        if matches!(message.mailbox, MailboxRole::Spam | MailboxRole::Drafts) {
-            return;
-        }
-        if !self.counted.insert(id) {
-            return;
-        }
-        let seen = Seen {
-            mailbox: message.mailbox,
-            date: message.date,
-            from: &message.from,
-            to: &message.to,
-            cc: &message.cc,
-            bcc: &message.bcc,
-            subject: &message.subject,
-            sender: Kind::Person,
-        };
-        let mut events = learn::events(&seen);
-        if message.mailbox == MailboxRole::Sent {
-            let print = learn::fingerprint([&message.to, &message.cc], &message.subject);
-            if let Some(at) = self.sent_prints.iter().position(|p| *p == print) {
-                self.sent_prints.remove(at);
-                events.retain(|(_, e)| *e == Event::Own);
-            }
-        }
-        self.hear(Some(account), &events);
+        // Nothing here fails: the trait's `Result` is for the SQLite store's rows.
+        let _ = ledger::learn_fetched(self, account, id, message, None);
     }
 
     pub(super) fn learn_submission(
@@ -49,36 +27,8 @@ impl Inner {
         rcpt_to: &[String],
         at: DateTime<Utc>,
     ) {
-        let envelope: Vec<Address> = rcpt_to
-            .iter()
-            .map(|email| Address {
-                name: None,
-                email: email.clone(),
-            })
-            .collect();
         let draft = self.drafts.get(&draft).cloned();
-        let (to, cc, bcc, subject) = match &draft {
-            Some(d) => (&d.to[..], &d.cc[..], &d.bcc[..], d.subject.as_str()),
-            None => (&envelope[..], &[][..], &[][..], ""),
-        };
-        let from = Address {
-            name: None,
-            email: mail_from.to_owned(),
-        };
-        self.sent_prints.push(learn::fingerprint([to, cc], subject));
-        let events = learn::sent(&from, [to, cc, bcc], at);
-        self.hear(Some(account), &events);
-    }
-
-    fn hear(&mut self, account: Option<AccountId>, events: &[(String, Event)]) {
-        for (address, event) in events {
-            let row = self
-                .contacts
-                .remove(address)
-                .unwrap_or_else(|| Row::new(address));
-            self.contacts
-                .insert(address.clone(), learn::apply(row, account.clone(), event));
-        }
+        let _ = ledger::learn_sent(self, account, draft.as_ref(), mail_from, rcpt_to, at);
     }
 
     /// Every row, in the order both stores rank them.
@@ -138,5 +88,44 @@ impl Inner {
 
     pub(super) fn write_book(&mut self, book: &AddressBook) {
         self.books.insert(book.url.clone(), book.clone());
+    }
+}
+
+impl Ledger for Inner {
+    fn first_count(&mut self, id: MessageId) -> Result<bool, StoreError> {
+        Ok(self.counted.insert(id))
+    }
+
+    fn head(&self, _raw: BlobId) -> Option<Vec<u8>> {
+        None
+    }
+
+    fn take_print(&mut self, print: &str) -> Result<bool, StoreError> {
+        let Some(at) = self.sent_prints.iter().position(|p| p == print) else {
+            return Ok(false);
+        };
+        self.sent_prints.remove(at);
+        Ok(true)
+    }
+
+    fn keep_print(&mut self, print: &str, _at: DateTime<Utc>) -> Result<(), StoreError> {
+        self.sent_prints.push(print.to_owned());
+        Ok(())
+    }
+
+    fn hear(
+        &mut self,
+        account: Option<AccountId>,
+        events: &[(String, Event)],
+    ) -> Result<(), StoreError> {
+        for (address, event) in events {
+            let row = self
+                .contacts
+                .remove(address)
+                .unwrap_or_else(|| Row::new(address));
+            self.contacts
+                .insert(address.clone(), learn::apply(row, account.clone(), event));
+        }
+        Ok(())
     }
 }

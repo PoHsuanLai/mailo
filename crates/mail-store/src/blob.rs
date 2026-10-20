@@ -98,9 +98,8 @@ impl BlobStore {
             fs::create_dir_all(dir).map_err(|e| StoreError::Blob(rel.clone(), e.to_string()))?;
             // Write-then-rename: a crash mid-write must not leave a truncated file sitting at
             // the name its hash promises.
-            let tmp = full.with_extension("part");
-            fs::write(&tmp, bytes).map_err(|e| StoreError::Blob(rel.clone(), e.to_string()))?;
-            fs::rename(&tmp, &full).map_err(|e| StoreError::Blob(rel.clone(), e.to_string()))?;
+            crate::file::write_atomic(&full, bytes, None)
+                .map_err(|e| StoreError::Blob(rel.clone(), e.to_string()))?;
 
             db.execute(
                 "INSERT INTO blobs (id, hash, size, path, inline, created_at)

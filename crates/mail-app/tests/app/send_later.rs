@@ -4,19 +4,15 @@
 //! it back while it waits; `mailo template …` keeps drafts to start from. Driven through
 //! `cli::parse` and `cli::run` against a real store, as a user would reach them.
 
+use crate::store::acct_account;
 use chrono::{DateTime, FixedOffset, TimeZone, Utc};
 use mail_app::cli;
 use mail_core::compose;
 use mail_core::template;
 use mail_core::{SqliteStore, Store};
-use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
-use porter_core::AccountId;
 use std::sync::Arc;
 
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
 const IDENTITY: IdentityId =
     IdentityId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b1"));
 
@@ -254,8 +250,8 @@ mod sending_later {
         let draft = a_draft(&store);
         let held =
             compose::send_later_in(&store, draft.id, "2026-09-25 09:00", now(), &utc()).unwrap();
-        let out = cli::compose::scheduled(&held, &utc());
-        assert!(out.contains("2026-09-25 09:00"), "{out}");
+        let out = cli::compose::scheduled(&held, now(), &utc());
+        assert!(out.contains("Tomorrow 09:00"), "{out}");
         assert!(out.contains(&format!("mailo unsend {}", draft.id)), "{out}");
 
         let leaves = Utc.with_ymd_and_hms(2026, 9, 25, 9, 0, 0).unwrap();
@@ -298,9 +294,9 @@ mod sending_later {
         let (store, _dir) = seeded();
         let draft = a_draft(&store);
         compose::send_later_in(&store, draft.id, "2026-09-25 09:00", now(), &utc()).unwrap();
-        let listed = cli::compose::drafts_in(&compose::drafts(&store).unwrap(), &utc());
+        let listed = cli::compose::drafts_in(&compose::drafts(&store).unwrap(), now(), &utc());
         assert!(listed.contains("scheduled"), "{listed}");
-        assert!(listed.contains("leaves 2026-09-25 09:00"), "{listed}");
+        assert!(listed.contains("leaves Tomorrow 09:00"), "{listed}");
     }
 
     #[test]

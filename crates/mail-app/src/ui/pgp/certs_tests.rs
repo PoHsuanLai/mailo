@@ -154,8 +154,8 @@ async fn an_identity_files_password_is_asked_in_a_sheet_and_never_drawn() {
     settle(&mut dom, &mut done).await;
     let page = markup(&dom);
     assert!(
-        page.contains("Imported your identity for me@example.test"),
-        "{page}"
+        !store.smime_certs().unwrap().is_empty(),
+        "the identity was not imported"
     );
     assert!(!page.contains(PASSWORD), "the password is in the markup");
     assert!(!page.contains(prompt), "still asking: {page}");
@@ -190,7 +190,6 @@ async fn deleting_a_certificate_with_its_private_key_is_asked_again_first() {
         !holds(&secrets, &mine),
         "the private key is still in the keyring"
     );
-    assert!(markup(&dom).contains("Deleted the certificate of me@example.test"));
 }
 
 #[tokio::test]
@@ -220,7 +219,6 @@ async fn a_certificate_is_trusted_and_the_trust_taken_back() {
     );
     settle(&mut dom, &mut untrusted).await;
     assert_eq!(trust(&store), KeyTrust::Unverified);
-    assert!(markup(&dom).contains("is no longer trusted"));
 }
 
 #[test]

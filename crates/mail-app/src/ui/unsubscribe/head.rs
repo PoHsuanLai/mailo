@@ -108,7 +108,7 @@ pub(in crate::ui) fn Confirm(
                 }
                 div { class: "acts",
                     Button {
-                        label: "Cancel",
+                        label: crate::ui::copy::controls::CANCEL,
                         answers: Answers::Escape,
                         onclick: on_primary(move || phase.set(Phase::Closed)),
         common: Common { aria_label: Some("Cancel".to_owned()), ..Common::default() },

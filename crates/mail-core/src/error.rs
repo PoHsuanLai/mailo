@@ -78,6 +78,9 @@ pub enum CoreError {
     NoAccounts,
     #[error("no config directory (neither XDG_CONFIG_HOME nor HOME is set)")]
     NoConfigDir,
+    /// A setting's file that is there and cannot be read, left as it is rather than written over.
+    #[error("{} cannot be read: {why}", .path.display())]
+    Damaged { path: PathBuf, why: String },
 
     // ---- profiles
     #[error(transparent)]

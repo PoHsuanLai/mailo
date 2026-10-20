@@ -33,8 +33,11 @@ pub mod signing;
 pub mod smime;
 pub mod state;
 pub mod template;
+#[cfg(feature = "testing")]
+pub mod testing;
 pub mod threading;
 pub mod view;
+pub mod words;
 
 pub use account::{
     AccountCaps, AccountPlan, ArchiveMeans, AuthPlan, Condstore, ConnectionBudget, ExpungeMeans,
@@ -46,7 +49,7 @@ pub use autocrypt::{AutocryptPeer, PreferEncrypt, Sighting};
 pub use content::{Attachment, Body, Inline, Label, PartContent};
 pub use draft::{Draft, PendingAttachment, ReplyScope, SendState};
 pub use error::{FolderError, ParseAddressError, ParseFingerprintError, ParseSectionError};
-pub use filter::{DateRange, Filed, Filter, Leaving, MatchCtx, Placed, TextMatch};
+pub use filter::{DateRange, Filed, Filter, Leaving, MatchCtx, Placed, TextMatch, Words};
 pub use folder::{
     Folder, FolderContents, FolderCtx, FolderWork, Holds, NonEmpty, SpecialUse, Subscription,
 };
@@ -85,3 +88,4 @@ pub use state::{
 pub use template::Template;
 pub use threading::{ThreadInput, normalize_id, thread};
 pub use view::{Cursor, GroupKey, Page, PageReq, Property, Query, Sort, SortDir, View, ViewKind};
+pub use words::{NO_SUBJECT, human_size, subject_or_none};

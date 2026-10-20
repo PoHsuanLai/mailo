@@ -23,7 +23,7 @@ use porter_core::AccountId;
 use std::sync::Arc;
 
 /// Every account there is, in order, and how the window names it.
-fn accounts() -> Vec<(AccountId, String)> {
+pub(in crate::ui) fn accounts() -> Vec<(AccountId, String)> {
     try_consume_context::<Arc<SqliteStore>>()
         .map(|store| {
             account_rows(&store)

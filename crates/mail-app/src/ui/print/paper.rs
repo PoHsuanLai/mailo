@@ -329,13 +329,3 @@ where
 pub(in crate::ui) fn pdf(printed: &Printed, paper: &Paper) -> Result<Vec<u8>, String> {
     ds_blitz::pdf(&printed.html, paper.spec).map_err(|error| error.to_string())
 }
-
-/// What a print dialog, and a PDF file, are titled: the subject, or "(no subject)".
-pub(in crate::ui) fn title(printed: &Printed) -> String {
-    let subject = printed.subject.trim();
-    if subject.is_empty() {
-        "(no subject)".to_owned()
-    } else {
-        subject.to_owned()
-    }
-}

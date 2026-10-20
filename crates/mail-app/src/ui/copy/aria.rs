@@ -18,7 +18,7 @@ pub const FAVOURITES: &str = "Favourites";
 pub const PLACES: &str = "Places";
 pub const FOLDERS: &str = "Folders";
 
-/// A row's ⋯: "Actions for Projects".
+/// A row's menu: "Actions for Projects".
 pub fn actions_for(name: &str) -> String {
     format!("Actions for {name}")
 }
@@ -31,8 +31,6 @@ pub const NEW_MESSAGE: &str = "New Message";
 pub const MORE: &str = "More";
 /// The menu the ⋯ opens.
 pub const LIST_OPTIONS: &str = "List options";
-/// The menu a right click on the list's title opens: the places one step away.
-pub const GO_TO: &str = "Go To";
 
 // The composer's foot.
 /// Send ▾: not "Send", which is the button beside it.
@@ -94,4 +92,18 @@ pub const HIDE_DETAILS: &str = "Hide Details";
 // The reader: an earlier message folded to one line, named for what pressing it does.
 pub fn open_message(sender: &str) -> String {
     format!("Show Message from {sender}")
+}
+/// A rule's condition row's menu of what it looks at.
+pub const CONDITION_FIELD: &str = "Condition field";
+/// A rule's condition row's menu of how it tests.
+pub const CONDITION_TEST: &str = "Condition test";
+/// A rule's condition row's button that takes it away.
+pub const REMOVE_CONDITION: &str = "Remove condition";
+/// A rule's button that opens the menu of actions.
+pub const ADD_ACTION: &str = "Add an action";
+/// An account tile's right-click menu.
+pub const ACCOUNT_MENU: &str = "Account";
+/// A row of the list, which opens it: "Open Offsite plans".
+pub fn open_row(subject: &str) -> String {
+    format!("Open {subject}")
 }

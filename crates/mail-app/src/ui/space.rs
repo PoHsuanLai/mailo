@@ -240,11 +240,27 @@ pub fn load(dirs: &WindowDirs) -> Spaces {
 
 /// The Spaces stored in `dirs`, if there are any that can be used. Nothing is written.
 pub fn stored(dirs: &WindowDirs) -> Option<Spaces> {
+    match read(dirs) {
+        ds_settings::SpacesLoad::Stored(spaces) => Some(spaces),
+        _ => None,
+    }
+}
+
+/// The Spaces file in `dirs` as it reads, without writing.
+fn read(dirs: &WindowDirs) -> ds_settings::SpacesLoad<Mail, Recall> {
     let raw_fix = |value: &mut serde_json::Value| {
         upgrade::name_accounts(value, &[]);
     };
-    match storage(Some(dirs)).load_spaces(raw_fix) {
-        ds_settings::SpacesLoad::Stored(spaces) => Some(spaces),
+    storage(Some(dirs)).load_spaces(raw_fix)
+}
+
+/// The file the Spaces are kept in, in the config directory.
+pub const FILE_NAME: &str = "spaces.json";
+
+/// Why `spaces.json` in `dirs` cannot be used: `None` when it is missing or reads.
+pub fn damage(dirs: &WindowDirs) -> Option<String> {
+    match read(dirs) {
+        ds_settings::SpacesLoad::Damaged(damaged) => Some(damaged.reason),
         _ => None,
     }
 }

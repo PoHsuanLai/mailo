@@ -107,7 +107,7 @@ fn where_role(
         (_, None) => {
             return Err(Unsaid::one(format!(
                 "in:{} (the server names no such folder)",
-                super::role_word(role)
+                role
             )));
         }
     };

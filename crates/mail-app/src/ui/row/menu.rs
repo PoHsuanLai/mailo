@@ -1,15 +1,15 @@
-//! A conversation row's menu: every action the row has, in one list a person asks for.
+//! A row's menu: every action the row has, in one list a person asks for.
 //!
 //! The row draws no action buttons. A button that sits where the pointer rests is pressed by a
 //! click that meant to open the conversation, and an archive or a trash nobody asked for is
 //! worse than one more click for the one they did. So the actions live here, opened by a right
-//! click at the pointer or by the row's single "More actions" button (quire's `RowMore`, the ⋯
-//! in the row's tail), and a stray click can only ever open this menu.
+//! click at the pointer, and a click on the row only ever opens it.
 //!
-//! The menu is fixed: about ten rows, built from the conversation's own state and nothing else,
-//! so it is the same in every place and every search that lists the conversation. The quieter
-//! actions (Mute, Mark as Spam, a window of its own, Print, Download) are the reader's ⋯ alone,
-//! and Remind is Send ▾'s.
+//! A conversation's menu is fixed: about ten rows, built from the conversation's own state and
+//! nothing else, so it is the same in every place and every search that lists the conversation.
+//! The quieter actions (Mute, Mark as Spam, a window of its own, Print, Download) are the reader's
+//! ⋯ alone, and Remind is Send ▾'s. A draft's holds Delete Draft, or for one held to leave at a
+//! time, Cancel Sending ([`draft_rows`]).
 //!
 //! The rows are data ([`groups`], [`rows`]) and pure, so what the menu lists is a table test;
 //! every pick goes back through the row's own `press`, so a pick on a picked row still acts on
@@ -43,31 +43,10 @@ pub(in crate::ui) enum Pick {
     /// Unsubscribe…: the popover that says what leaving the list will do. The reader's ⋯ only,
     /// and only while the conversation offers a way out.
     Unsubscribe,
-}
-
-/// What asked for the menu, which says where it hangs.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(super) enum Opener {
-    /// A right click: a context menu at this point.
-    Pointer(Rect),
-    /// The ⋯ button: a pop-up under its measured rect.
-    More(Rect),
-}
-
-impl Opener {
-    /// The rect a menu opened from here hangs from: the point, or the measured button.
-    pub(super) fn place(self) -> Rect {
-        match self {
-            Opener::Pointer(at) | Opener::More(at) => at,
-        }
-    }
-
-    fn placement(self) -> MenuPlacement {
-        match self {
-            Opener::Pointer(_) => MenuPlacement::Context,
-            Opener::More(_) => MenuPlacement::Popup,
-        }
-    }
+    /// Delete Draft, with an undo. A draft's row only.
+    DeleteDraft,
+    /// Cancel Sending: a message held for its time goes back to being a draft. Its row only.
+    CancelSending,
 }
 
 fn op(kind: OpKind) -> Pick {
@@ -154,6 +133,8 @@ pub(super) fn name(pick: Pick, summary: &ThreadSummary, now: DateTime<Utc>) -> &
         Pick::Print => menus::PRINT,
         Pick::View => menus::VIEW,
         Pick::Unsubscribe => menus::UNSUBSCRIBE,
+        Pick::DeleteDraft => menus::DELETE_DRAFT,
+        Pick::CancelSending => menus::CANCEL_SENDING,
         Pick::Press(Pressed::MoveTo) => menus::MOVE_TO,
         Pick::Press(Pressed::Op(kind)) => menus::offered(says(kind, summary, now)),
     }
@@ -165,6 +146,8 @@ fn icon(pick: Pick) -> Icon {
         Pick::Print => Icon::Printer,
         Pick::View => Icon::Panel,
         Pick::Unsubscribe => Icon::LogOut,
+        Pick::DeleteDraft => Icon::Trash,
+        Pick::CancelSending => Icon::X,
         Pick::Press(Pressed::MoveTo) => Icon::FolderInput,
         Pick::Press(Pressed::Op(kind)) => op_icon(kind),
     }
@@ -191,11 +174,20 @@ pub(in crate::ui) fn rows(
     out
 }
 
-/// The row's menu, hung where `opener` says, against the row's box `anchor` until a rect is
-/// known.
+/// A draft's menu: Cancel Sending while it is `held` for a time, Delete Draft otherwise.
+pub(super) fn draft_rows(held: bool) -> Vec<MenuItem<Pick>> {
+    let (pick, name) = if held {
+        (Pick::CancelSending, menus::CANCEL_SENDING)
+    } else {
+        (Pick::DeleteDraft, menus::DELETE_DRAFT)
+    };
+    vec![MenuItem::new(pick, name).with_image(MenuImage::Icon(icon(pick)))]
+}
+
+/// The row's menu, a context menu at `at`, against the row's box `anchor` until a rect is known.
 #[component]
 pub(super) fn RowMenu(
-    opener: Opener,
+    at: Rect,
     anchor: Option<MountedRef>,
     subject: String,
     items: Vec<MenuItem<Pick>>,
@@ -204,11 +196,11 @@ pub(super) fn RowMenu(
 ) -> Element {
     rsx! {
         Menu::<Pick> {
-            placement: opener.placement(),
-            anchor: crate::ui::menu::anchor_for(anchor, Some(opener.place())),
+            placement: MenuPlacement::Context,
+            anchor: crate::ui::menu::anchor_for(anchor, Some(at)),
             items,
             common: Common {
-                aria_label: Some(format!("Actions for {subject}")),
+                aria_label: Some(crate::ui::copy::aria::actions_for(&subject)),
                 ..Common::default()
             },
             onpick: on_pick,
@@ -223,7 +215,7 @@ mod tests {
     use crate::ui::copy::menus as m;
     use crate::ui::view::Shell;
     use chrono::TimeZone;
-    use mail_domain::id::new_account_id;
+
     use mail_domain::*;
 
     fn now() -> DateTime<Utc> {
@@ -232,27 +224,12 @@ mod tests {
 
     fn summary(tweak: impl FnOnce(&mut ThreadSummary)) -> ThreadSummary {
         let mut s = ThreadSummary {
-            id: ThreadId::generate(),
-            account: new_account_id(),
-            subject: "s".into(),
-            snippet: String::new(),
             from: Address {
                 name: None,
                 email: "a@example.test".into(),
             },
-            participants: vec![],
-            recipients: vec![],
             last_date: now(),
-            message_count: 1,
-            read: ReadState::Unread,
-            star: Star::Unstarred,
-            mailboxes: MailboxSet::only(MailboxRole::Inbox),
-            labels: vec![],
-            attachments: Attachments::None,
-            snooze: Snooze::Inactive,
-            pin: mail_domain::Pin::Unpinned,
-            mute: Mute::Unmuted,
-            follow_up: FollowUp::Inactive,
+            ..mail_domain::testing::summary()
         };
         tweak(&mut s);
         s

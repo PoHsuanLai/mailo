@@ -1,5 +1,5 @@
 //! A row's actions in the running window: a right click lists them all, a pick acts as the old
-//! strip's button did (undo included), the row's one button is the ⋯, and the picks that open a
+//! strip's button did (undo included), the row draws no button, and the picks that open a
 //! further menu open it.
 
 use crate::ui::app::App;
@@ -107,27 +107,69 @@ async fn mark_as_read_from_the_menu_is_undone_like_any_op() {
     );
 }
 
-/// Each row carries one button, quire's `RowMore` (the ⋯), which says it opens a menu and that
-/// the menu is shut. A press on it measures the button to hang the menu from, which a document
-/// with no renderer cannot do, so the press itself is `native_layout`'s, on Blitz.
+/// A row draws no buttons, not even a ⋯: a click on it opens it, and its actions are in its
+/// right-click menu.
 #[tokio::test]
-async fn each_row_carries_the_more_button_alone() {
-    let Window { dom, seen, .. } = window();
+async fn a_row_draws_no_buttons() {
+    let Window { dom, .. } = window();
     let page = dioxus_ssr::render(&dom);
-    let rows = listed_subjects(&page);
-    assert_eq!(
-        page.matches("class=\"ds-row-more\"").count(),
-        rows.len(),
-        "not one ⋯ per row:\n{page}"
-    );
-    assert_eq!(
-        seen.all("aria-label", "More actions").len(),
-        rows.len(),
-        "a ⋯ is not named More actions"
+    assert!(!listed_subjects(&page).is_empty(), "no rows:\n{page}");
+    assert!(
+        !page.contains("class=\"ds-row-more\""),
+        "a row draws a ⋯:\n{page}"
     );
     assert!(
         !page.contains("class=\"ds-strip"),
         "a row still draws the hover strip:\n{page}"
+    );
+}
+
+/// Move to…, picked from the reader's ⋯, opens its folders there and nowhere else, and holds
+/// the window's letter keys while it is open, as the row's menus do: an E typed toward its search
+/// does not archive the open conversation. Esc puts it away.
+#[tokio::test]
+async fn the_readers_move_menu_holds_the_keys_and_opens_once() {
+    let Window {
+        mut dom,
+        seen,
+        store,
+        dana,
+        subject,
+        ..
+    } = window();
+    let opened = click(&mut dom, crate::ui::fixtures::row_named(&seen, &subject));
+    let opened = settle(&mut dom, opened);
+    let more = *opened
+        .all("aria-label", "More")
+        .last()
+        .unwrap_or_else(|| panic!("the reader has no ⋯"));
+    let pressed = click(&mut dom, more);
+    let menu = settle(&mut dom, pressed);
+    crate::ui::fixtures::pick_named(&mut dom, &menu, menus::MOVE_TO).await;
+    let page = dioxus_ssr::render(&dom);
+    assert_eq!(
+        page.matches("aria-placeholder=\"Move to…\"").count(),
+        1,
+        "the folders are not open once, under the ⋯:\n{page}"
+    );
+    let changed = changes(&store);
+    crate::ui::fixtures::key(&mut dom, "e");
+    assert_eq!(changes(&store), changed, "E acted with Move to… open");
+    assert!(
+        store
+            .thread(dana)
+            .unwrap()
+            .summary
+            .mailboxes
+            .contains(MailboxRole::Inbox),
+        "E archived the conversation under Move to…"
+    );
+    crate::ui::fixtures::key(&mut dom, "Escape");
+    let page = dioxus_ssr::render(&dom);
+    assert_eq!(
+        page.matches("aria-placeholder=\"Move to…\"").count(),
+        0,
+        "Esc left it open"
     );
 }
 
@@ -248,7 +290,7 @@ async fn an_archived_conversation_s_menu_offers_move_to_inbox_and_not_archive() 
         ..
     } = window();
     assert!(crate::ui::ops::apply_op(&store, dana, OpKind::Archive));
-    let archive = seen.one("data-place", "Done");
+    let archive = seen.one("data-place", "Archive");
     let mut seen = seen.merge(click(&mut dom, archive));
     for _ in 0..12 {
         if tokio::time::timeout(std::time::Duration::from_millis(60), dom.wait_for_work())

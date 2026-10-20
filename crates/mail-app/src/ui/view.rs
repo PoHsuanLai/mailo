@@ -17,7 +17,7 @@ use serde::de::Deserializer;
 use serde::{Deserialize, Serialize};
 
 pub use mail_core::view::{
-    Place, Reach, Source, badge_filter, default_places, find_place, folder_filter, folder_of,
+    Place, Source, badge_filter, default_places, find_place, folder_filter, folder_of,
     is_label_place, place_key, places_with, saved_of, saved_place, scoped_badge,
 };
 
@@ -299,7 +299,7 @@ pub enum FileSheet {
     Export { query: String },
 }
 
-/// The Rules page of Settings: which account's rules and vacation reply it shows (`None` is the
+/// The Rules page of Settings: which account's rules (and, on its own page, vacation reply) it shows (`None` is the
 /// first account there is), and the pages of its pane (quire's `PanePath`, the list at its root).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RulesPage {
@@ -316,13 +316,19 @@ impl Default for RulesPage {
     }
 }
 
-/// A page of Settings' Rules pane: the list, a rule's own page pushed over it (`None` is a new
-/// rule), or the vacation reply's.
+/// A page of Settings' Rules pane: the list, or a rule's own page pushed over it (`None` is a new
+/// rule).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RulesAt {
     List,
     Rule(Option<RuleId>),
-    Vacation,
+}
+
+/// A page of Settings' Spaces pane: the list of Spaces, or one Space's own page pushed over it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpacesPage {
+    List,
+    Space(crate::ui::space::SpaceId),
 }
 
 /// A page of Settings' Accounts pane: the list of accounts, one account's own page pushed over
@@ -361,7 +367,11 @@ pub enum SettingsPage {
     /// Nothing about a key is kept in the shell: the page reads the store, and a passphrase, a
     /// password or a secret key never passes through it.
     Accounts,
+    /// Every Space, each with its own page: its name, colour, theme and accounts, and Delete.
+    Spaces,
     Rules,
+    /// An account's vacation reply, which its server sends.
+    Vacation,
     Keyboard,
 }
 
@@ -381,16 +391,15 @@ pub enum AccountStep {
 /// The Keyboard page of Settings: what the last change came to.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct KeyboardPage {
-    /// Why the last key was not taken, or the keymap not kept, in words, under the row it is
-    /// about.
+    /// Why the last key was not taken, or the keymap not kept, said in a dialog until it is
+    /// closed.
     pub said: Option<KeySaid>,
 }
 
-/// Why a change on the Keyboard page did not happen, and which row says so: an action's, or
-/// `None` for Reset All's.
+/// Why a change on the Keyboard page did not happen: the dialog's title and its reason.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeySaid {
-    pub about: Option<Shortcut>,
+    pub title: &'static str,
     pub text: String,
 }
 
@@ -452,6 +461,34 @@ pub enum SideList {
     Favourites,
 }
 
+/// A menu one of a conversation's actions opens before it acts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Further {
+    /// Snooze's times.
+    Snooze,
+    /// Label's labels.
+    Label,
+    /// Move To's folders.
+    Move,
+}
+
+/// Where a further menu was asked for, which is where it is drawn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Opened {
+    /// The conversation's row, from its menu.
+    Row,
+    /// The reader, from its ⋯.
+    Reader,
+}
+
+/// A further menu, open over one conversation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FurtherMenu {
+    pub thread: ThreadId,
+    pub further: Further,
+    pub opened: Opened,
+}
+
 /// Everything the shell is currently showing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Shell {
@@ -480,16 +517,12 @@ pub struct Shell {
     pub show_remote_images: bool,
     /// Where the reader sits. Per session, not persisted.
     pub peek: Peek,
-    /// The conversation whose label menu is open, if any.
-    ///
-    /// One at a time and identified by thread rather than by row index: a sync can land between
-    /// the click and the choice, and a menu pinned to "the fourth row" would then be labelling
-    /// something else.
-    pub labelling: Option<ThreadId>,
-    /// The conversation whose snooze menu is open, if any.
-    pub snoozing: Option<ThreadId>,
-    /// The conversation whose "Move to…" menu is open, if any. By thread, like `labelling`.
-    pub filing: Option<ThreadId>,
+    /// The further menu one of a conversation's actions opened (Snooze's times, Label's labels,
+    /// Move To's folders), if any. One at a time, and by thread rather than by row index: a sync
+    /// can land between the click and the choice, and a menu pinned to "the fourth row" would
+    /// then act on something else. Every opener sets it and every way out clears it, so the
+    /// window knows a menu has the keyboard whichever opened it.
+    pub further: Option<FurtherMenu>,
     /// The composer, when one is open.
     ///
     /// `Option` rather than a `mode` enum on `Shell`: composing does not replace reading, it
@@ -535,6 +568,8 @@ pub struct Shell {
     pub rules: RulesPage,
     /// Settings' Accounts pane: the list, or an account's page over it.
     pub accounts_pane: AccountsPane,
+    /// Settings' Spaces pane: the list, or a Space's page over it.
+    pub spaces_pane: PanePath<SpacesPage>,
     /// Settings while it is open, on the page shown. `None` is closed.
     pub settings: Option<SettingsPage>,
     /// The saved-view editor while it is open, with what its fields hold. `None` is closed.
@@ -597,11 +632,6 @@ pub struct Composing {
     /// else. One extra click is the whole of the protection, which is what every client that
     /// cannot offer undo does.
     pub confirming_discard: bool,
-    /// Drawn in this window's reader column. A new message (or a forward) opens in a compose
-    /// window of its own (`ui/window/compose.rs`); it stays here only once "Open in Main Window"
-    /// brought it here, in the compose window itself, or where no second window can open. A reply
-    /// is always drawn under its thread, whatever this says.
-    pub in_place: bool,
 }
 
 impl Composing {
@@ -617,7 +647,6 @@ impl Composing {
             attachments: Vec::new(),
             notice: None,
             confirming_discard: false,
-            in_place: false,
         }
     }
 
@@ -656,9 +685,7 @@ impl Default for Shell {
             show_remote_images: false,
             peek: Peek::Side,
             composing: None,
-            labelling: None,
-            snoozing: None,
-            filing: None,
+            further: None,
             accounts: Vec::new(),
             labels: Vec::new(),
             appearance: Appearance::default(),
@@ -674,6 +701,7 @@ impl Default for Shell {
             keymap: crate::ui::keymap::Keymap::default(),
             keyboard: KeyboardPage::default(),
             accounts_pane: AccountsPane::default(),
+            spaces_pane: PanePath::new(SpacesPage::List),
             settings: None,
             destroying: None,
             tidying: None,
@@ -924,14 +952,21 @@ impl Shell {
         self.composing = Some(Composing::of(draft));
     }
 
-    /// Open the composer on `draft` in this window's reader column, where a new message would
-    /// otherwise open in a window of its own: "Open in Main Window", and the compose window's own
-    /// page.
-    pub fn compose_in_place(&mut self, draft: &Draft) {
-        self.composing = Some(Composing {
-            in_place: true,
-            ..Composing::of(draft)
-        });
+    /// Open the composer on the stored draft `id`, read now. A draft that is gone is the error.
+    pub fn compose_id(&mut self, store: &impl mail_core::Store, id: DraftId) -> Result<(), String> {
+        let draft = mail_core::Store::draft(store, id).map_err(|why| why.to_string())?;
+        self.compose(&draft);
+        Ok(())
+    }
+
+    /// Open `menu`, or close it when that one is already open: a second press on what opened
+    /// it puts it away.
+    pub fn toggle_further(&mut self, menu: FurtherMenu) {
+        self.further = if self.further == Some(menu) {
+            None
+        } else {
+            Some(menu)
+        };
     }
 
     /// Drop the composer's widgets without writing them anywhere.
@@ -1111,31 +1146,14 @@ mod tests {
     use super::*;
     use chrono::{DateTime, TimeZone, Utc};
     use mail_core::place::pending_snooze;
-    use mail_domain::id::new_account_id;
 
     fn summary(tweak: impl FnOnce(&mut ThreadSummary)) -> ThreadSummary {
         let mut s = ThreadSummary {
-            id: ThreadId::generate(),
-            account: new_account_id(),
-            subject: "s".into(),
-            snippet: String::new(),
             from: Address {
                 name: None,
                 email: "a@b.test".into(),
             },
-            participants: vec![],
-            recipients: vec![],
-            last_date: Utc.timestamp_opt(1_700_000_000, 0).unwrap(),
-            message_count: 1,
-            read: ReadState::Unread,
-            star: Star::Unstarred,
-            mailboxes: MailboxSet::only(MailboxRole::Inbox),
-            labels: vec![],
-            attachments: Attachments::None,
-            snooze: Snooze::Inactive,
-            pin: Pin::Unpinned,
-            mute: Mute::Unmuted,
-            follow_up: mail_domain::FollowUp::Inactive,
+            ..mail_domain::testing::summary()
         };
         tweak(&mut s);
         s
@@ -1271,7 +1289,6 @@ mod tests {
 #[cfg(test)]
 mod composer_tests {
     use super::*;
-    use mail_domain::id::new_account_id;
 
     fn addr(name: Option<&str>, email: &str) -> Address {
         Address {
@@ -1282,23 +1299,12 @@ mod composer_tests {
 
     fn draft_of(to: Vec<Address>) -> Draft {
         Draft {
-            id: DraftId::generate(),
-            account: new_account_id(),
-            identity: IdentityId::generate(),
             to,
-            cc: Vec::new(),
             bcc: vec![addr(None, "blind@example.test")],
             subject: "Re: lunch".to_owned(),
             in_reply_to: Some(MessageId::generate()),
-            forward_of: None,
             text: "body".to_owned(),
-            html: None,
-            attachments: Vec::new(),
-            receipt: ReceiptRequest::Unrequested,
-            openpgp: OpenPgp::None,
-            smime: mail_domain::Smime::None,
-            state: SendState::Editing,
-            updated: chrono::Utc::now(),
+            ..Draft::blank(&mail_domain::testing::identity(), chrono::Utc::now())
         }
     }
 
@@ -1380,10 +1386,10 @@ mod listing_tests {
         }
         let text = |words: &str| Filter::Text(TextMatch::Contains(words.to_owned()));
         let cases = [
-            // Searching while in Done must not hide a result that lives in the Inbox.
+            // Searching while in Archive must not hide a result that lives in the Inbox.
             (
                 "a search replaces the place",
-                "Done",
+                "Archive",
                 "  lunch  ",
                 Want::Threads(text("lunch")),
             ),
@@ -1568,31 +1574,19 @@ mod keyboard {
     use chrono::{TimeZone, Utc};
     use mail_core::place::pin_op;
     use mail_core::view::{hover_actions, mute_op, op_for, step};
-    use mail_domain::id::new_account_id;
 
     fn summary(read: ReadState, star: Star, mailbox: MailboxRole) -> ThreadSummary {
         ThreadSummary {
-            id: ThreadId::generate(),
-            account: new_account_id(),
             subject: "lunch".to_owned(),
-            snippet: String::new(),
             from: Address {
                 name: None,
                 email: "ada@example.test".to_owned(),
             },
-            participants: vec![],
-            recipients: vec![],
             last_date: Utc.with_ymd_and_hms(2026, 9, 22, 0, 0, 0).unwrap(),
-            message_count: 1,
             read,
             star,
             mailboxes: MailboxSet::only(mailbox),
-            labels: vec![],
-            attachments: Attachments::None,
-            snooze: Snooze::Inactive,
-            pin: Pin::Unpinned,
-            mute: Mute::Unmuted,
-            follow_up: mail_domain::FollowUp::Inactive,
+            ..mail_domain::testing::summary()
         }
     }
 
@@ -1980,7 +1974,6 @@ mod discarding {
             attachments: Vec::new(),
             notice: None,
             confirming_discard: false,
-            in_place: false,
         }
     }
 
@@ -2012,23 +2005,11 @@ mod discarding {
         // The flag lives on the composer, so closing and reopening resets it. A confirmation
         // that survives the pane being closed is a trap set for the next draft.
         let draft = Draft {
-            id: DraftId::generate(),
-            account: new_account_id(),
-            identity: IdentityId::generate(),
-            to: vec![],
-            cc: vec![],
-            bcc: vec![],
             subject: "Re: lunch".to_owned(),
-            in_reply_to: None,
-            forward_of: None,
-            text: String::new(),
-            html: None,
-            attachments: vec![],
-            receipt: ReceiptRequest::Unrequested,
-            openpgp: OpenPgp::None,
-            smime: mail_domain::Smime::None,
-            state: SendState::Editing,
-            updated: Utc.with_ymd_and_hms(2026, 9, 22, 0, 0, 0).unwrap(),
+            ..Draft::blank(
+                &mail_domain::testing::identity(),
+                Utc.with_ymd_and_hms(2026, 9, 22, 0, 0, 0).unwrap(),
+            )
         };
         let mut shell = Shell::default();
         shell.compose(&draft);

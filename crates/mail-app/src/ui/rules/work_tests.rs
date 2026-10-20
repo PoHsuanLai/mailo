@@ -9,6 +9,7 @@ use mail_core::Store;
 use mail_domain::*;
 
 use super::work::{self, Draft, Step};
+use crate::ui::copy;
 use crate::ui::fixtures::{acct_account, realistic, seeded};
 
 fn draft(name: &str, query: &str, actions: Vec<RuleAction>) -> Draft {
@@ -50,7 +51,10 @@ fn a_rule_made_in_the_sheet_is_listed_moved_switched_and_deleted() {
     assert_eq!(listed[0].rule, bills);
     assert_eq!(listed[0].rule.name, "Bills");
     assert_eq!(listed[0].when, "from:bank.example subject:statement");
-    assert_eq!(listed[0].does, "Label “Bills” · Mark read");
+    assert_eq!(
+        listed[0].does,
+        format!("Label “Bills” · {}", copy::menus::MARK_AS_READ)
+    );
     assert_eq!(listed[0].rule.state, RuleState::Enabled);
     // What the CLI would make of the same words.
     assert_eq!(

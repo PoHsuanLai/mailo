@@ -21,6 +21,9 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use crate::drive;
+use crate::native::click;
+use crate::native::ms;
+use crate::native::thread;
 use drive::{Drive, Key};
 
 fn acct_account() -> AccountId {
@@ -199,10 +202,6 @@ struct Window {
     _dir: tempfile::TempDir,
 }
 
-fn ms(n: u64) -> Duration {
-    Duration::from_millis(n)
-}
-
 fn contexts(dir: &std::path::Path) -> RootContexts {
     mail_app::ui::native::contexts(
         seeded(dir),
@@ -236,12 +235,8 @@ fn open() -> Window {
     }
 }
 
-fn row(n: usize) -> String {
-    format!(".list .ds-list-item[*|aria-posinset=\"{n}\"] .ds-thread")
-}
-
 fn open_row(harness: &mut Harness, n: usize) {
-    let subject = format!("{} .ds-thread-sub", row(n));
+    let subject = format!("{} .ds-thread-sub", thread(n));
     let rect = harness
         .rect(&subject)
         .unwrap_or_else(|| panic!("{subject} is not drawn:\n{}", harness.html()));
@@ -249,14 +244,6 @@ fn open_row(harness: &mut Harness, n: usize) {
         x: Px(rect.origin.x.0 + 24.0),
         y: Px(rect.origin.y.0 + rect.size.height.0 / 2.0),
     });
-    harness.advance(ms(300));
-}
-
-fn click(harness: &mut Harness, selector: &str) {
-    let at = harness
-        .centre(selector)
-        .unwrap_or_else(|| panic!("{selector} is not drawn:\n{}", harness.html()));
-    harness.click(at);
     harness.advance(ms(300));
 }
 
@@ -364,7 +351,7 @@ fn hovering_fetches_nothing() {
     for n in 1..=3 {
         let at = window
             .harness
-            .centre(&format!("{} .ds-thread-from", row(n)))
+            .centre(&format!("{} .ds-thread-from", thread(n)))
             .expect("a row's sender");
         window.harness.pointer_move(at);
         window
@@ -379,7 +366,7 @@ fn hovering_fetches_nothing() {
     for n in 2..=3 {
         let at = window
             .harness
-            .centre(&format!("{} .ds-thread-from", row(n)))
+            .centre(&format!("{} .ds-thread-from", thread(n)))
             .expect("a row's sender");
         window.harness.pointer_move(at);
         window
@@ -595,7 +582,7 @@ fn the_windows_own_document_asks_for_nothing_remote() {
     harness.advance(ms(300));
     open_row(&mut harness, 1);
     let at = harness
-        .centre(&format!("{} .ds-thread-from", row(2)))
+        .centre(&format!("{} .ds-thread-from", thread(2)))
         .unwrap();
     harness.pointer_move(at);
     harness.advance(ms(700));

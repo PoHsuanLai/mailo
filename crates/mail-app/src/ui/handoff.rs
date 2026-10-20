@@ -17,7 +17,6 @@ use dioxus::prelude::*;
 #[cfg(not(windows))]
 pub(in crate::ui) fn use_handoff(shell: Signal<Shell>) {
     use crate::handoff::{ActivationToken, Requests};
-    use mail_core::Store as _;
 
     let Some(requests) = try_consume_context::<Requests>() else {
         return;
@@ -58,10 +57,11 @@ pub(in crate::ui) fn use_handoff(shell: Signal<Shell>) {
                         let store = consume_context::<std::sync::Arc<mail_core::SqliteStore>>();
                         let saved = super::start_mailto(&store, &link, chrono::Utc::now());
                         match saved {
-                            Ok(super::Start::Compose(id)) => match store.draft(id) {
-                                Ok(draft) => shell.write().compose(&draft),
-                                Err(why) => eprintln!("compose: {why}"),
-                            },
+                            Ok(super::Start::Compose(id)) => {
+                                if let Err(why) = shell.write().compose_id(&*store, id) {
+                                    eprintln!("compose: {why}");
+                                }
+                            }
                             Ok(_) => {}
                             Err(why) => eprintln!("{why}"),
                         }

@@ -19,7 +19,7 @@ mod desk;
 mod emoji;
 mod float;
 mod foot;
-mod hand;
+mod held;
 mod items;
 mod later;
 mod life;
@@ -51,7 +51,7 @@ use std::sync::Arc;
 
 use dioxus::prelude::*;
 use mail_core::{SqliteStore, Store};
-use mail_domain::{Change, ChangeId, DraftId, Patch};
+use mail_domain::{Change, ChangeId, Draft, DraftId, Patch, SendState};
 
 use attach::Attach;
 use body::Body;
@@ -61,19 +61,17 @@ use page::{Fold, Guard, List, Phase, Saved};
 use props::{Attached, Props};
 use seal::{BarAct, SealBar, SealWarn, Sealed, seal_and_queue};
 
-pub(in crate::ui) use desk::{Desk, park_current, reopen, show_queued, unpark, use_desk};
-use hand::Handed;
-pub use hand::Hub;
-pub(in crate::ui) use hand::use_handed;
+pub(in crate::ui) use desk::{Desk, park_current, reopen, show_queued, use_desk};
 pub(in crate::ui) use later::{cancel_scheduled, scheduled, send_again};
 pub(in crate::ui) use page::Page;
 pub(in crate::ui) use page::PageKind;
 pub(in crate::ui) use pill::SendPill;
 pub use spell::Dictionaries;
-pub(in crate::ui) use spell::{dictionaries, use_test_dictionaries};
+pub(in crate::ui) use spell::use_test_dictionaries;
 pub(in crate::ui) use templates::{every as every_template, template_rows};
 
 use super::press::on_primary;
+use crate::ui::copy;
 use crate::ui::view::Shell;
 use mail_core::password::Password;
 
@@ -92,28 +90,10 @@ impl Folding {
 }
 
 /// The draft being composed and where its page goes, or `None` when nothing is. A new message
-/// that is not held in place has a window of its own ([`to_window`]), so it is drawn nowhere here.
+/// is written in the reader column, as a reply is under its thread.
 pub(in crate::ui) fn composing(shell: &Shell) -> Option<(DraftId, PageKind)> {
     let open = shell.composing.as_ref()?;
-    match kind_of(open.draft) {
-        PageKind::New if !open.in_place && windows_open() => None,
-        kind => Some((open.draft, kind)),
-    }
-}
-
-/// The new message this window was asked to compose, which opens in a compose window of its own
-/// rather than here: a new message or a forward, not yet brought into place.
-pub(in crate::ui) fn to_window(shell: &Shell) -> Option<DraftId> {
-    let open = shell.composing.as_ref()?;
-    (!open.in_place && windows_open() && kind_of(open.draft) == PageKind::New).then_some(open.draft)
-}
-
-/// Whether this window can open another: it was launched (quire hands every launched window its
-/// `WindowHandle`) or handed a `ComposeWindows`. Where it cannot (a snapshot, quire's harness), a
-/// new message is drawn in place from its first frame.
-fn windows_open() -> bool {
-    try_consume_context::<crate::ui::window::ComposeWindows>().is_some()
-        || try_consume_context::<ds_blitz::WindowHandle>().is_some()
+    Some((open.draft, kind_of(open.draft)))
 }
 
 /// Whether `draft` answers a message (a reply, under its thread) or stands alone.
@@ -125,13 +105,43 @@ fn kind_of(draft: DraftId) -> PageKind {
     }
 }
 
-/// The page for `draft`. Loads it from where it was parked, else from the store.
+/// The page for `draft`: held for its time, or being written.
 #[component]
 pub(in crate::ui) fn ComposerPage(
     draft: DraftId,
     shell: Signal<Shell>,
     revision: Signal<u64>,
 ) -> Element {
+    // One held to leave at a time when it is opened is read, not written: the outbox has it as
+    // it was sealed. Cancel Sending makes it a draft again, and the page then writes it here.
+    // Asked once: a page scheduled while it is open folds away as it did.
+    let mut held = use_signal(|| {
+        let store = consume_context::<Arc<SqliteStore>>();
+        store
+            .draft(draft)
+            .ok()
+            .and_then(|stored| match stored.state {
+                SendState::Scheduled { at } => Some((stored, at)),
+                _ => None,
+            })
+    });
+    if let Some((stored, at)) = held() {
+        return rsx! {
+            held::HeldPage {
+                draft: stored,
+                at,
+                shell,
+                revision,
+                on_cancelled: move |()| held.set(None),
+            }
+        };
+    }
+    rsx! { Writing { draft, shell, revision } }
+}
+
+/// The composer on `draft`, loaded from where it was parked, else from the store.
+#[component]
+fn Writing(draft: DraftId, shell: Signal<Shell>, revision: Signal<u64>) -> Element {
     let desk = use_context::<Desk>();
     let loaded = use_hook(|| {
         let store = consume_context::<Arc<SqliteStore>>();
@@ -288,9 +298,9 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                 if !reply {
                     div { class: "c-head",
                         TextField {
-                            label: "Subject".to_owned(),
+                            label: copy::fields::SUBJECT.to_owned(),
                             bezel: FieldBezel::Plain,
-                            placeholder: "Subject".to_owned(),
+                            placeholder: copy::fields::SUBJECT.to_owned(),
                             value: subject,
                             oninput: move |value: String| {
                                 let mut write = page.write();
@@ -338,8 +348,6 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                 Attach { page, label: "Attach", bezel: Bezel::Toolbar }
                 MoreButton {
                     page,
-                    windowed: desk.hand.read().is_some(),
-                    on_main: move |()| to_main(page, shell, desk),
                     on_keep: move |()| desk::park(desk, page, shell),
                     on_delete: move |()| delete_draft(page, shell, desk, revision),
                 }
@@ -484,15 +492,8 @@ fn queued(
                 page: back,
                 refused: None,
             };
-            // A compose window hands the send to the main window, whose pill takes it (and its
-            // Undo) while this window closes.
-            match desk.hand.peek().clone() {
-                Some(hub) => hub.hand(Handed::Queued(outgoing)),
-                None => {
-                    desk.outbox.set(Some(outgoing));
-                    desk::unpark(desk, draft);
-                }
-            }
+            desk.outbox.set(Some(outgoing));
+            desk::unpark(desk, draft);
             revision += 1;
             // The page folds away on quire's clock, and goes once the fold has settled.
             folding.start();
@@ -511,26 +512,6 @@ fn escape(mut page: Signal<Page>, shell: Signal<Shell>, desk: Desk) {
     }
 }
 
-/// ⋯ › Open in Main Window, in a compose window: the page, saved and exactly as it is, goes to the
-/// main window's reader column, and this window's composer closes (so the window does).
-fn to_main(mut page: Signal<Page>, mut shell: Signal<Shell>, desk: Desk) {
-    let Some(hub) = desk.hand.peek().clone() else {
-        return;
-    };
-    let store = consume_context::<Arc<SqliteStore>>();
-    let saved = life::save(&store, &mut page.write(), chrono::Utc::now());
-    if let Err(why) = saved {
-        page.write().notice = Some(why);
-        return;
-    }
-    let mut moved = page.peek().clone();
-    moved.float = page::Float::Closed;
-    moved.selection = None;
-    hub.hand(Handed::ToMain(moved));
-    page.write().phase = Phase::Closed;
-    shell.write().close_composer();
-}
-
 /// The fold has run: the page goes, the pill stays.
 fn close(mut page: Signal<Page>, mut shell: Signal<Shell>, _desk: Desk) {
     if page.peek().phase != Phase::Folding {
@@ -546,12 +527,7 @@ fn close(mut page: Signal<Page>, mut shell: Signal<Shell>, _desk: Desk) {
 /// Delete the draft, as ⋯ › Delete Draft does, and offer it back. Saved first, so the undo
 /// brings back what was on the page; the undo is the window's (the toast's tab and ⌘Z), and puts
 /// the draft back in Drafts. A draft already on its way is refused, as before (334b758).
-fn delete_draft(
-    mut page: Signal<Page>,
-    mut shell: Signal<Shell>,
-    desk: Desk,
-    mut revision: Signal<u64>,
-) {
+fn delete_draft(mut page: Signal<Page>, shell: Signal<Shell>, desk: Desk, revision: Signal<u64>) {
     let store = consume_context::<Arc<SqliteStore>>();
     let draft = page.peek().draft;
     let kept = life::save(&store, &mut page.write(), chrono::Utc::now());
@@ -562,34 +538,79 @@ fn delete_draft(
             return;
         }
     };
-    match mail_core::compose::discard(&store, draft) {
-        Ok(_) => {
+    match deleted(&store, stored) {
+        Ok(undo) => {
             page.write().phase = Phase::Closed;
-            desk::unpark(desk, draft);
-            let account = stored.account.clone();
-            let undo = mail_core::undo::Undo {
-                said: "Draft deleted".to_owned(),
-                thread: None,
-                account,
-                forward: Patch {
-                    id: ChangeId::generate(),
-                    changes: vec![Change::DraftDelete(draft)],
-                },
-                inverse: Patch {
-                    id: ChangeId::generate(),
-                    changes: vec![Change::DraftUpsert(Box::new(stored))],
-                },
-                remote: None,
-                resend: None,
-            };
-            shell.write().close_composer();
-            revision += 1;
-            // A compose window closes as the draft goes: the main window holds the undo.
-            match desk.hand.peek().clone() {
-                Some(hub) => hub.hand(Handed::Undo(undo)),
-                None => desk::offer_undo(shell, undo),
-            }
+            forget(shell, revision, desk, draft, undo);
         }
         Err(why) => page.write().notice = Some(crate::ui::remedy::told(why)),
+    }
+}
+
+/// Discard `stored` and the undo that puts it back in Drafts.
+fn deleted(
+    store: &SqliteStore,
+    stored: Draft,
+) -> Result<mail_core::undo::Undo, mail_core::CoreError> {
+    mail_core::compose::discard(store, stored.id)?;
+    Ok(mail_core::undo::Undo {
+        said: crate::ui::copy::toasts::DRAFT_DELETED.to_owned(),
+        thread: None,
+        account: stored.account.clone(),
+        forward: Patch {
+            id: ChangeId::generate(),
+            changes: vec![Change::DraftDelete(stored.id)],
+        },
+        inverse: Patch {
+            id: ChangeId::generate(),
+            changes: vec![Change::DraftUpsert(Box::new(stored))],
+        },
+        remote: None,
+        resend: None,
+    })
+}
+
+/// The one teardown of a deleted draft, from the foot's ⋯, the row menu or anywhere else: it
+/// leaves Today and the parked pages, its composer closes if it is the one open, the lists are
+/// read again, and its undo is kept and offered.
+fn forget(
+    mut shell: Signal<Shell>,
+    mut revision: Signal<u64>,
+    desk: Desk,
+    draft: DraftId,
+    undo: mail_core::undo::Undo,
+) {
+    desk.parked
+        .clone()
+        .write()
+        .retain(|page| page.draft != draft);
+    desk::unpark(desk, draft);
+    if shell.peek().composing.as_ref().map(|open| open.draft) == Some(draft) {
+        shell.write().close_composer();
+    }
+    revision += 1;
+    let said = undo.said.clone();
+    crate::ui::motion::record(shell, vec![undo], said);
+}
+
+/// Delete the stored draft `draft`, as Drafts' row menu does, and offer it back. Its composer
+/// closes if it is the one open, and Today lists it no more.
+pub(in crate::ui) fn delete_stored_draft(
+    shell: Signal<Shell>,
+    revision: Signal<u64>,
+    draft: DraftId,
+) {
+    let store = consume_context::<Arc<SqliteStore>>();
+    let desk = consume_context::<Desk>();
+    let outcome = store
+        .draft(draft)
+        .map_err(mail_core::CoreError::from)
+        .and_then(|stored| deleted(&store, stored));
+    match outcome {
+        Ok(undo) => forget(shell, revision, desk, draft, undo),
+        Err(why) => crate::ui::motion::tell(
+            crate::ui::remedy::told(why),
+            crate::ui::motion::Follow::Nothing,
+        ),
     }
 }

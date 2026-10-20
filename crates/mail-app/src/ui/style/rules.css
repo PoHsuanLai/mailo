@@ -30,3 +30,9 @@
 .files-k { color: var(--ink-soft); }
 .rules-in { min-width: 0; }
 .files-bad { color: var(--danger); }
+/* A rule's conditions: a row each of menus and a value, stacked, then Add Condition. */
+.rules-conditions { display: grid; gap: var(--s-6); min-width: 0; }
+.rules-condition { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-6); min-width: 0; }
+/* The value takes what the menus leave, and its own line under them when that is too little. */
+.rules-value { flex: 1 1 9rem; min-width: 9rem; }
+.rules-condition-acts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-8); }

@@ -7,8 +7,8 @@
 use chrono::{DateTime, Utc};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::{
-    Address, Attachments, DateRange, Filter, FollowUp, LabelId, MailboxRole, MailboxSet, MatchCtx,
-    Mute, Pin, ReadState, Snooze, Star, TextMatch, ThreadId, ThreadSummary,
+    Address, Attachments, DateRange, Filter, LabelId, MailboxRole, MailboxSet, MatchCtx, Pin,
+    ReadState, Snooze, Star, TextMatch, ThreadId, ThreadSummary,
 };
 use porter_core::AccountId;
 use uuid::Uuid;
@@ -54,18 +54,11 @@ fn summary(tweak: impl FnOnce(&mut ThreadSummary)) -> ThreadSummary {
             addr(Some("Ada Lovelace"), "ada@example.com"),
             addr(Some("Bob Stone"), "bob@example.org"),
         ],
-        recipients: Vec::new(),
         last_date: ts("2024-01-10T12:00:00Z"),
         message_count: 2,
-        read: ReadState::Unread,
-        star: Star::Unstarred,
         mailboxes: MailboxSet::only(MailboxRole::Inbox).with(MailboxRole::Sent),
         labels: vec![LABEL_WORK],
-        attachments: Attachments::None,
-        snooze: Snooze::Inactive,
-        pin: Pin::Unpinned,
-        mute: Mute::Unmuted,
-        follow_up: FollowUp::Inactive,
+        ..mail_domain::testing::summary()
     };
     tweak(&mut s);
     s

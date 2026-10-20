@@ -56,6 +56,12 @@ impl Address {
             .filter(|name| !name.is_empty())
     }
 
+    /// What names this address to a reader: the display name when it says anything, else the
+    /// email.
+    pub fn shown(&self) -> &str {
+        self.display_name().unwrap_or(&self.email)
+    }
+
     /// `text` split at its last angle brackets: what comes before them, and what is inside.
     /// `None` when there is no `<` followed by a `>`.
     ///

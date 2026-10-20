@@ -7,12 +7,12 @@
 //! no GPU, so a picture's pixels are not drawn; the card's own markup says what it was given.
 
 use ds::prelude::ShortcutKey as Key;
-use ds_harness::{Clock, Harness, HarnessConfig};
 
 use super::native_preview::{
-    PEEK, VIEW, acct_account, carrying, click, item, ms, open_row, with_account,
+    PEEK, acct_account, carrying, click, item, ms, open_row, with_account,
 };
 use crate::drive::Drive;
+use crate::opening::{Open, open_window};
 use crate::settle::settle_until;
 use mail_core::{Arrival, SqliteStore, absorb};
 use mail_domain::*;
@@ -81,19 +81,7 @@ fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
 #[test]
 fn a_part_mailo_does_not_draw_gets_anyviews_card_and_an_svg_stays_unpreviewed() {
     let dir = tempfile::tempdir().unwrap();
-    let contexts = mail_app::ui::native::contexts(
-        seeded(dir.path()),
-        mail_app::ui::view::Appearance::default(),
-        None,
-        None,
-        mail_app::ui::Start::Inbox,
-    );
-    let config = HarnessConfig::new(VIEW)
-        .with_clock(Clock::Virtual)
-        .with_contexts(contexts);
-    let mut harness = Harness::new(mail_app::ui::native::root, config);
-    harness.advance(ms(300));
-    settle_until(&mut harness, |h| h.count(".list .ds-thread") > 0);
+    let mut harness = open_window(&seeded(dir.path()), Open::default());
     let harness = &mut harness;
     open_row(harness, 1);
     settle_until(harness, |h| h.count(".attachments .att-tile") == 3);

@@ -17,6 +17,7 @@
 //! the system's keymap (`AppConfig::with_keymap_overrides`), so they are read once, as mailo
 //! opens.
 
+use crate::ui::copy;
 use crate::ui::view::Shortcut;
 use std::path::Path;
 
@@ -158,6 +159,8 @@ pub enum Refused {
     Chord,
     /// Not an action that takes a key from the table.
     Fixed(Shortcut),
+    /// Given a key twice in `keyboard.json`.
+    Twice(Shortcut),
 }
 
 impl std::fmt::Display for Refused {
@@ -171,6 +174,9 @@ impl std::fmt::Display for Refused {
                 f.write_str("Keys held with Ctrl, Alt or Super are the window’s own.")
             }
             Refused::Fixed(action) => write!(f, "{} is always Esc.", name(*action)),
+            Refused::Twice(action) => {
+                f.write_str(&crate::ui::copy::errors::key_given_twice(name(*action)))
+            }
         }
     }
 }
@@ -233,9 +239,9 @@ pub fn name(action: Shortcut) -> &'static str {
         Shortcut::ExtendNext => "Select the next one too",
         Shortcut::ExtendPrevious => "Select the previous one too",
         Shortcut::Back => "Close",
-        Shortcut::Archive => "Archive",
-        Shortcut::Trash => "Move to Trash",
-        Shortcut::Spam => "Mark as spam",
+        Shortcut::Archive => copy::menus::ARCHIVE,
+        Shortcut::Trash => copy::menus::MOVE_TO_TRASH,
+        Shortcut::Spam => copy::menus::MARK_AS_SPAM,
         Shortcut::ToggleStar => "Star or unstar",
         Shortcut::ToggleRead => "Mark read or unread",
         Shortcut::TogglePin => "Pin or unpin",
@@ -271,42 +277,57 @@ struct Stored {
     bindings: Vec<Binding>,
 }
 
-/// The keys kept in `dir`, or the defaults when there are none or the file is damaged.
+/// The keys kept in `dir`, or the defaults when there are none or the file is damaged. The
+/// window asks before it opens over a damaged file ([`damage`]), and the file is then moved
+/// aside, so the defaults stand in only for a file the person agreed to set aside.
+pub fn load(dir: &Path) -> Keymap {
+    read(dir).unwrap_or_default()
+}
+
+/// Why `keyboard.json` in `dir` cannot be used: `None` when it is missing or reads.
 ///
 /// Damaged includes a file that parses but names an action twice, gives Esc's action a key,
 /// gives an action a key the window keeps, or leaves one key with two meanings. Half a
-/// hand-edited keymap is harder to reason about than none, so any of them throws the whole file
-/// out.
-pub fn load(dir: &Path) -> Keymap {
-    let Ok(bytes) = std::fs::read(dir.join(FILE_NAME)) else {
-        return Keymap::default();
-    };
-    serde_json::from_slice::<Stored>(&bytes)
-        .ok()
-        .and_then(|stored| parsed(stored.bindings))
-        .unwrap_or_default()
+/// hand-edited keymap is harder to reason about than none, so any of them is the whole file.
+pub fn damage(dir: &Path) -> Option<String> {
+    read(dir).err()
 }
 
-/// The keymap `bindings` describe, if it is one [`bind`] could have built.
-fn parsed(bindings: Vec<Binding>) -> Option<Keymap> {
+/// The keys kept in `dir`, the defaults when there is no file, or why the file cannot be used.
+fn read(dir: &Path) -> Result<Keymap, String> {
+    let bytes = match std::fs::read(dir.join(FILE_NAME)) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Keymap::default()),
+        Err(e) => return Err(e.to_string()),
+    };
+    let stored = serde_json::from_slice::<Stored>(&bytes).map_err(|e| e.to_string())?;
+    parsed(stored.bindings).map_err(|refused| refused.to_string())
+}
+
+/// The keymap `bindings` describe, if it is one [`bind`] could have built, else why not.
+fn parsed(bindings: Vec<Binding>) -> Result<Keymap, Refused> {
     let mut changed: Vec<(Shortcut, String)> = Vec::new();
     for Binding { action, key } in bindings {
-        let usable =
-            !defaults(action).is_empty() && !is_not_a_key(&key) && !KEPT.contains(&key.as_str());
-        if !usable || changed.iter().any(|(one, _)| *one == action) {
-            return None;
+        if defaults(action).is_empty() {
+            return Err(Refused::Fixed(action));
+        }
+        if is_not_a_key(&key) || KEPT.contains(&key.as_str()) {
+            return Err(Refused::Kept(key));
+        }
+        if changed.iter().any(|(one, _)| *one == action) {
+            return Err(Refused::Twice(action));
         }
         changed.push((action, key));
     }
     let map = Keymap { changed };
-    let mut held: Vec<String> = DEFAULTS
-        .iter()
-        .flat_map(|(action, _)| map.keys(*action))
-        .collect();
-    let all = held.len();
-    held.sort();
-    held.dedup();
-    (held.len() == all).then_some(map)
+    for (action, _) in DEFAULTS {
+        for key in map.keys(*action) {
+            if let Some(by) = map.held_elsewhere(&key, *action) {
+                return Err(Refused::Taken { key, by });
+            }
+        }
+    }
+    Ok(map)
 }
 
 /// Remember `map` in `dir`.
