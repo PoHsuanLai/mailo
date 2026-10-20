@@ -42,7 +42,7 @@ pub(super) struct Counts {
 
 pub(super) fn counts(store: &SqliteStore, space: &Space) -> Counts {
     let labels = query::known_labels(store);
-    let scope = space.payload.scope.filter();
+    let scope = space.payload.scope().filter();
     let now = chrono::Utc::now();
     let unread = |extra: Filter| {
         let mut parts = vec![Filter::Read(ReadState::Unread), extra];

@@ -9,7 +9,7 @@
 
 use ds::prelude::Point;
 use ds_blitz::{FocusFallback, NetPolicy, PrintOutcome};
-use ds_harness::{Clock, Driver, Harness, HarnessConfig, Query, Viewport};
+use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
 
 use crate::settle;
 use settle::settle_until;

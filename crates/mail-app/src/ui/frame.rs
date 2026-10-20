@@ -99,9 +99,7 @@ pub(super) fn use_followed_configuration(
             shell.write().keymap = keymap;
         }
         // A missing or damaged file changes nothing here: the main window's own load says why.
-        let ds_settings::SpacesLoad::Stored(stored) =
-            space::storage(Some(&dirs)).load_spaces(|_| {})
-        else {
+        let Some(stored) = space::stored(&dirs) else {
             return;
         };
         match handle {

@@ -1,8 +1,6 @@
 //! Lane 2: formatting in the composer as a modern editor (Notion, Bear, Apple Notes) does it,
 //! driven only by typing, the keyboard, the selection bubble, the `/` and `@` menus and paste.
 
-use ds_harness::{Driver, Query};
-
 use super::body::{composing, outline, run_is, select_back};
 use super::drive::{Drive, Key, PRIMARY};
 use super::window::{Window, parsed, queued};

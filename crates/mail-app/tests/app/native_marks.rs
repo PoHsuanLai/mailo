@@ -4,7 +4,7 @@
 //! here reads or touches the real store, config or cache.
 
 use ds_blitz::{FocusFallback, NetPolicy};
-use ds_harness::{Backdrop, Clock, Driver, Harness, HarnessConfig, Query, Viewport};
+use ds_harness::{Backdrop, Clock, Harness, HarnessConfig, Viewport};
 
 use crate::settle;
 use settle::settle_until;
@@ -138,7 +138,7 @@ fn open() -> Opened {
             vec![(
                 "Mail".to_owned(),
                 ds::prelude::SpaceLook::default(),
-                mail_app::ui::space::Mail::over(mail_app::ui::space::Scope::All),
+                mail_app::ui::space::Mail::default(),
             )],
             0,
         )),

@@ -6,7 +6,7 @@
 use ds::prelude::Point;
 use ds_blitz::{NetPolicy, PrintOutcome};
 use ds_harness::inset::{Policy, assert_insets};
-use ds_harness::{Clock, Driver, Harness, HarnessConfig, Query as Read, Viewport};
+use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
 
 use crate::settle;
 use settle::settle_until;
@@ -180,5 +180,44 @@ fn the_row_pushes_the_page_and_escape_and_command_bracket_come_back_to_it() {
         at_account(&harness),
         "Escape on the remove question went back past the page:\n{}",
         harness.html()
+    );
+}
+
+/// The width the text of the first element matching `selector` wants on one line, and the width
+/// of the box it is drawn in (both at scale 100%).
+fn text_and_box(harness: &Harness, selector: &str) -> (f32, f32) {
+    harness.with_doc(|doc| {
+        let id = doc
+            .query_selector(selector)
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| panic!("{selector} is not drawn"));
+        let node = doc.get_node(id).unwrap();
+        let layout = node
+            .element_data()
+            .and_then(|element| element.inline_layout_data.as_ref())
+            .unwrap_or_else(|| panic!("{selector} holds no text of its own"));
+        (layout.layout.full_width(), node.final_layout().size.width)
+    })
+}
+
+/// The remove question's buttons sit side by side in a narrow sheet, so the confirming one's
+/// label must fit inside its button: the text is no wider than the box it is drawn in.
+#[test]
+fn the_remove_question_s_confirm_label_fits_its_button() {
+    let (mut harness, _dir) = open();
+    push(&mut harness);
+    click(
+        &mut harness,
+        &format!("button[*|aria-label=\"Remove {ADDRESS}\"]"),
+    );
+    settle_until(&mut harness, |harness| harness.count(".ds-alert") == 1);
+    harness.advance(ms(400));
+
+    // The footer's first slot is the confirming button (the row is reversed on screen).
+    let (text, boxed) = text_and_box(&harness, ".ds-alert-slot:first-child .ds-button-label");
+    assert!(
+        text <= boxed + 0.5,
+        "the label wants {text}px and is drawn in {boxed}px"
     );
 }

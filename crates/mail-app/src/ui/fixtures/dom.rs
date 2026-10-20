@@ -519,6 +519,29 @@ impl Seen {
         self.one("data-place", path)
     }
 
+    /// The one element whose dynamic `name` attribute equals `value` that was made after the
+    /// element whose `name` is `inside`, the group it is in: an account tile, after the tiles'
+    /// row, rather than a list row that names the same account.
+    pub(in crate::ui) fn one_in(
+        &self,
+        name: &str,
+        inside: &str,
+        value: &str,
+    ) -> dioxus_core::ElementId {
+        let group = self.one(name, inside);
+        let after: Vec<dioxus_core::ElementId> = self
+            .ids(name, value)
+            .into_iter()
+            .filter(|id| id.0 > group.0)
+            .collect();
+        assert_eq!(
+            after.len(),
+            1,
+            "{name}={value:?} after {inside:?}: {after:?}"
+        );
+        after[0]
+    }
+
     /// The one element whose dynamic `name` attribute equals `value`.
     pub(in crate::ui) fn one(&self, name: &str, value: &str) -> dioxus_core::ElementId {
         let ids = self.ids(name, value);
@@ -798,13 +821,13 @@ mod tests {
                 icons.display()
             );
         }
-        // One Space over every account. The first-run layout is one Space per
-        // account, which would hide four of the five tiles.
+        // One Space, which every account joins as the window opens. The first-run layout is
+        // one Space per account, which would hide four of the five tiles.
         let spaces = crate::ui::space::built(
             vec![(
                 "Mail".to_owned(),
                 ds::prelude::SpaceLook::default(),
-                crate::ui::space::Mail::over(crate::ui::space::Scope::All),
+                crate::ui::space::Mail::default(),
             )],
             0,
         );

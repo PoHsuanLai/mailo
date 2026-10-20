@@ -7,14 +7,14 @@
 
 use ds::base::press::PointerButton;
 use ds_blitz::{NetPolicy, PrintOutcome};
-use ds_harness::{Clock, Driver, Harness, HarnessConfig, Query, Viewport};
+use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
 
 use crate::settle;
 use settle::settle_until;
 
 use crate::drive;
 use drive::{Drive, Key};
-use mail_app::ui::space::{Mail, Scope, Spaces};
+use mail_app::ui::space::{Mail, Spaces};
 use mail_core::SqliteStore;
 use mail_core::{Arrival, absorb};
 use mail_domain::id::account_id_from_uuid;
@@ -114,7 +114,7 @@ fn spaces(count: usize) -> Spaces {
                 (
                     format!("Space {n}"),
                     ds::style::space::look::SpaceLook::default(),
-                    Mail::over(Scope::All),
+                    Mail::of(vec![acct_account()]),
                 )
             })
             .collect(),
@@ -245,16 +245,16 @@ fn deleting_a_space_from_its_name_s_right_click_asks_first_and_escape_keeps_it()
     );
 }
 
-/// One Space draws no name over the sidebar: its menu is the foot's right click, and has no
-/// Delete Space….
+/// One Space still draws its name over the sidebar, and its menu (a right click on the name) has
+/// no Delete Space….
 #[test]
 fn the_only_space_has_no_delete_row() {
     let (mut harness, _dir) = open(1200, spaces(1));
-    assert_eq!(harness.count(NAME), 0, "one Space drew its name");
-    right_press(&mut harness, ".ds-spaces-foot");
+    assert_eq!(harness.count(NAME), 1, "one Space drew no name");
+    right_press(&mut harness, NAME);
     assert!(
         harness.count(MENU) > 0,
-        "the foot's right click did not open the Space's menu"
+        "a right click on the name did not open the Space's menu"
     );
     assert_eq!(
         harness.text_of(LAST_ROW).as_deref().map(str::trim),

@@ -13,7 +13,7 @@
 //! `TempDir`: nothing here touches the network, the real mail store or the real config.
 
 use ds_blitz::NetPolicy;
-use ds_harness::{Clock, Driver, Harness, HarnessConfig, Query, Viewport};
+use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
 use mail_app::ui::appearance::WindowDirs;
 use mail_core::SqliteStore;
 use mail_core::{Arrival, absorb};

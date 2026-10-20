@@ -1,4 +1,4 @@
-//! The frame, Favourites and the rows, rendered from the real `App`.
+//! The frame, the account tiles, Favourites and the rows, rendered from the real `App`.
 
 use super::app::App;
 use super::fixtures::{dispatching, rebuild_into, seeded, work};
@@ -42,26 +42,88 @@ fn row_containing(page: &str, subject: &str) -> String {
     page[start..end].to_owned()
 }
 
-/// The sidebar holds no account tile, badge, provider letter or "+", with one account or three:
-/// Add Account is in the Space's menu, and an account is told apart on its rows.
-#[test]
-fn the_sidebar_has_no_account_tiles() {
-    let (store, _dir) = seeded();
-    let one = page_of(store, None);
+/// Each account tile on `page`, as the markup after its class: quire's `PinTile`s (not the
+/// Add tile after them), local folders' among them, on quire's folder mark.
+fn account_tiles(page: &str) -> Vec<&str> {
+    page.split("class=\"ds-pin-tile\"")
+        .skip(1)
+        .filter(|rest| !rest.starts_with(" data-face=\"add\""))
+        .collect()
+}
+
+/// A Space of three accounts draws All and a tile for each, with its provider's mark, and the
+/// "+" after them; pressing Microsoft's tile leaves only Microsoft's rows in the list.
+#[tokio::test]
+async fn three_accounts_show_an_all_tile_and_the_microsoft_tile_filters() {
+    dispatching();
     let built = work();
-    let three = page_of(built.store, Some(built.dirs));
-    for page in [one, three] {
-        // An element's class, not the word: the page carries quire's stylesheet, which names it.
-        assert!(
-            !page.contains("class=\"ds-pin-tile"),
-            "a tile is drawn:\n{page}"
-        );
-        assert!(!page.contains("All accounts"), "All is offered:\n{page}");
-        assert!(
-            !page.contains("aria-label=\"Add Account\""),
-            "the + is drawn:\n{page}"
-        );
+    let mut dom = VirtualDom::new(App)
+        .with_root_context(built.store)
+        .with_root_context(built.dirs);
+    let seen = rebuild_into(&mut dom);
+    let page = dioxus_ssr::render(&dom);
+    assert_eq!(
+        account_tiles(&page).len(),
+        4,
+        "three accounts and All:\n{page}"
+    );
+    let pressed = account_tiles(&page)
+        .into_iter()
+        .filter(|rest| {
+            rest.split_once('>')
+                .unwrap_or_default()
+                .0
+                .contains("aria-pressed=\"true\"")
+        })
+        .count();
+    assert_eq!(pressed, 1, "more than one tile is pressed:\n{page}");
+    assert!(page.contains("aria-label=\"All accounts\""), "{page}");
+    assert!(
+        page.contains(&format!(
+            "aria-label=\"{}\"",
+            crate::ui::copy::aria::ADD_ACCOUNT
+        )),
+        "no +:\n{page}"
+    );
+
+    let tile = seen.one_in(
+        "aria-label",
+        crate::ui::copy::aria::ACCOUNTS_IN_SPACE,
+        "p.lai@corp.example",
+    );
+    let _ = super::fixtures::click(&mut dom, tile);
+    // The list's query answers off the render, so one render after the click can still show the
+    // rows from before it. Draw as work arrives until only Microsoft's rows are left, or give up.
+    let only_microsoft = |page: &str| {
+        page.contains("Open Unusual sign-in attempt blocked")
+            && !page.contains("Open This Week in Rust 566")
+            && !page.contains("Open Notes from the sync review")
+    };
+    let give_up = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+    let mut filtered = dioxus_ssr::render(&dom);
+    while !only_microsoft(&filtered) && tokio::time::Instant::now() < give_up {
+        let more = tokio::time::timeout(std::time::Duration::from_millis(200), dom.wait_for_work());
+        if more.await.is_ok() {
+            dom.render_immediate(&mut dioxus_core::NoOpMutations);
+        }
+        filtered = dioxus_ssr::render(&dom);
     }
+    assert!(
+        only_microsoft(&filtered),
+        "the Microsoft tile did not narrow the list to its rows:\n{filtered}"
+    );
+}
+
+/// One account is one tile, already the list's, and no All.
+#[test]
+fn one_account_has_no_all_tile() {
+    let (store, _dir) = seeded();
+    let page = page_of(store, None);
+    assert!(
+        !page.contains("All accounts"),
+        "a single account still offered All:\n{page}"
+    );
+    assert_eq!(account_tiles(&page).len(), 1, "{page}");
 }
 
 /// Favourites is drawn only once a conversation is pinned, and then lists it.

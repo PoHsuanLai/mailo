@@ -517,6 +517,9 @@ pub struct Shell {
     pub appearance: Appearance,
     /// Accounts the current Space shows.
     pub scope: crate::ui::space::Scope,
+    /// The account tile that is pressed: the list shows that account's mail alone. `None` is
+    /// every account in [`Self::scope`].
+    pub account: Option<AccountId>,
     /// How this page's rows are grouped. Not a store query.
     pub group: PageGroup,
     /// Which parts of a row this page draws.
@@ -660,6 +663,7 @@ impl Default for Shell {
             labels: Vec::new(),
             appearance: Appearance::default(),
             scope: crate::ui::space::Scope::All,
+            account: None,
             group: PageGroup::None,
             parts: PageParts::default(),
             page_menu: PageMenu::Closed,
@@ -774,17 +778,30 @@ impl Shell {
         }
     }
 
-    /// Narrow `filter` to the Space's accounts. A Space over every account leaves it alone.
+    /// Narrow `filter` to the accounts listed: the pressed tile's, else the Space's.
     fn with_account(&self, filter: Filter) -> Filter {
         mail_core::view::scoped(self.account_filter(), filter)
     }
 
-    /// The Space's accounts, as a filter. `None` is every account.
+    /// The accounts the list shows: the pressed tile's alone, else the Space's. A tile wins over
+    /// the Space, so pressing one account inside a Space of three shows that account; a tile for
+    /// an account the Space no longer shows is not pressed.
+    pub fn listed_scope(&self) -> crate::ui::space::Scope {
+        match &self.account {
+            Some(id) if self.scope.shows(id.clone()) => {
+                crate::ui::space::Scope::Accounts(vec![id.clone()])
+            }
+            _ => self.scope.clone(),
+        }
+    }
+
+    /// The accounts listed, as a filter. `None` is every account.
     ///
     /// The search pipeline narrows its candidates with this, so a search inside a Space finds
-    /// what [`Self::query`] would, and nothing from an account the Space leaves out.
+    /// what [`Self::query`] would, and nothing from an account the Space (or the pressed tile)
+    /// leaves out.
     pub fn account_filter(&self) -> Option<Filter> {
-        self.scope.filter()
+        self.listed_scope().filter()
     }
 
     /// Select a place, and drop any open thread that no longer belongs to the new list.

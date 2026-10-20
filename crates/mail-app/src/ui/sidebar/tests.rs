@@ -1,6 +1,6 @@
 use super::super::app::App;
 use crate::ui::fixtures::empty;
-use crate::ui::space::{Mail, Scope, built};
+use crate::ui::space::{Mail, built};
 use dioxus::prelude::*;
 use ds::prelude::SpaceLook;
 
@@ -10,13 +10,7 @@ async fn the_foot_dots_are_buttons_that_say_which_space_is_on() {
     let spaces = built(
         ["Work", "Home", "Club"]
             .into_iter()
-            .map(|name| {
-                (
-                    name.to_owned(),
-                    SpaceLook::default(),
-                    Mail::over(Scope::All),
-                )
-            })
+            .map(|name| (name.to_owned(), SpaceLook::default(), Mail::default()))
             .collect(),
         1,
     );
@@ -50,13 +44,7 @@ async fn the_foot_holds_the_dots_and_one_menu_button_and_no_settings_or_sidebar_
     let spaces = built(
         ["Work", "Home", "Club"]
             .into_iter()
-            .map(|name| {
-                (
-                    name.to_owned(),
-                    SpaceLook::default(),
-                    Mail::over(Scope::All),
-                )
-            })
+            .map(|name| (name.to_owned(), SpaceLook::default(), Mail::default()))
             .collect(),
         0,
     );
@@ -95,22 +83,16 @@ async fn the_foot_holds_the_dots_and_one_menu_button_and_no_settings_or_sidebar_
     }
 }
 
-/// With one Space there is no Space to tell apart: no name heads the sidebar and no dot stands in
-/// the foot. A second Space brings both.
+/// The Space's name heads the sidebar with one Space or several; the foot's dots come only with a
+/// second Space, when there are Spaces to tell apart.
 #[tokio::test]
-async fn one_space_draws_no_space_name_and_no_dot() {
+async fn the_space_s_name_heads_the_sidebar_and_a_second_space_brings_the_dots() {
     let page = |names: &[&str]| {
         let (store, _dir) = empty();
         let spaces = built(
             names
                 .iter()
-                .map(|name| {
-                    (
-                        (*name).to_owned(),
-                        SpaceLook::default(),
-                        Mail::over(Scope::All),
-                    )
-                })
+                .map(|name| ((*name).to_owned(), SpaceLook::default(), Mail::default()))
                 .collect(),
             0,
         );
@@ -121,9 +103,8 @@ async fn one_space_draws_no_space_name_and_no_dot() {
         dioxus_ssr::render(&dom)
     };
     let one = page(&["Work"]);
-    assert!(!one.contains("class=\"ds-space-head\""), "{one}");
+    assert!(one.contains("The Work Space"), "{one}");
     assert!(!one.contains("class=\"ds-spaces-dots\""), "{one}");
-    assert!(!one.contains("The Work Space"), "{one}");
     let two = page(&["Work", "Home"]);
     assert!(two.contains("The Work Space"), "{two}");
     assert!(two.contains("class=\"ds-spaces-dots\""), "{two}");

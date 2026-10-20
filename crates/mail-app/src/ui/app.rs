@@ -260,11 +260,23 @@ pub(super) fn App() -> Element {
     });
 
     // The Space's account list, whenever the Spaces change: the Space's menu (Accounts) edits
-    // it. Read through `peek`, so a shell change does not run this.
+    // it. Read through `peek`, so a shell change (a tile pressed) does not run this. Another
+    // Space, or a pressed tile whose account left the Space, goes back to every account.
+    let mut on_space = use_hook(|| CopyValue::new(None::<crate::ui::space::SpaceId>));
     use_effect(move || {
-        let scope = spaces.read().current().payload.scope.clone();
-        if shell.peek().scope != scope {
-            shell.write().scope = scope;
+        let (id, scope) = {
+            let all = spaces.read();
+            (all.current().id, all.current().payload.scope())
+        };
+        let moved = on_space.replace(Some(id)).is_some_and(|was| was != id);
+        let pressed = shell.peek().account.clone();
+        let left = pressed.is_some_and(|account| moved || !scope.shows(account));
+        if shell.peek().scope != scope || left {
+            let mut write = shell.write();
+            write.scope = scope;
+            if left {
+                write.account = None;
+            }
         }
     });
 
@@ -281,9 +293,10 @@ pub(super) fn App() -> Element {
     // `settings.toml` needs nothing here: the window's root watches it.
     super::frame::use_followed_configuration(shell, spaces, Some(handle), keys);
 
-    // An account removed, here or from a terminal, leaves every Space. Not
-    // while a part of the Space's menu is open: its close writes the Spaces. Run again when the
-    // part closes, which also takes the account out of the Space it kept.
+    // An account removed, here or from a terminal, leaves every Space; one added that no Space
+    // holds yet joins the Space on screen. Not while a part of the Space's menu is open: its
+    // close writes the Spaces. Run again when the part closes, which also takes the account out
+    // of the Space it kept.
     use_effect(move || {
         let _ = revision();
         if handle.editing().is_some() {
@@ -295,11 +308,12 @@ pub(super) fn App() -> Element {
         };
         let mut next = spaces.peek().clone();
         // The window opens the default Profile until it can open others.
-        if crate::ui::space::forget_unknown(&mut next, &ProfileId::default(), &known)
-            == crate::ui::space::Forgot::Changed
-        {
+        let profile = ProfileId::default();
+        let forgot = crate::ui::space::forget_unknown(&mut next, &profile, &known);
+        let adopted = crate::ui::space::adopt_unplaced(&mut next, &profile, &known);
+        if forgot == crate::ui::space::Forgot::Changed || adopted == ds_settings::Fixup::Changed {
             frame::keep(&next);
-            let scope = next.current().payload.scope.clone();
+            let scope = next.current().payload.scope();
             let mut spaces = spaces;
             spaces.set(next);
             shell.write().scope = scope;

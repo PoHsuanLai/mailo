@@ -176,6 +176,7 @@ fn AddAccountShell(wiring: Wiring, prefill: Option<String>) -> Element {
         let browse = Arc::clone(&wiring.0.browse);
         move || {
             let mut views = end.views.clone();
+            let inputs = end.inputs.clone();
             let browse = Arc::clone(&browse);
             async move {
                 while views.changed().await.is_ok() {
@@ -184,6 +185,21 @@ fn AddAccountShell(wiring: Wiring, prefill: Option<String>) -> Element {
                         continue;
                     };
                     let (next, out) = map::shown(sheet.peek().clone(), *view);
+                    // A review with nothing on it to choose or to read (mailo adds an account's
+                    // mail and nothing else of what a provider offers) is not drawn: what the
+                    // person typed and sent was the confirmation, and the account is added at
+                    // once. One that says what the provider lacks is still shown.
+                    if matches!(map::step_of(&next), Some(Step::Review(props)) if props.services.is_empty())
+                    {
+                        let (confirming, input) = map::acted(next, Action::Confirm);
+                        sheet.set(confirming);
+                        if let Some(input) = input {
+                            // The service has ended if nobody is receiving, and the window closes
+                            // with it.
+                            let _ = inputs.send(input);
+                        }
+                        continue;
+                    }
                     sheet.set(next);
                     for Out::OpenPage(page) in out {
                         // The address is on screen too, to copy, when no browser takes it.
@@ -219,6 +235,11 @@ fn AddAccountShell(wiring: Wiring, prefill: Option<String>) -> Element {
                 into_scope(&mut spaces, account);
             }
             revision += 1;
+            // Told to the other windows now, not by the effect that publishes `revision`: that
+            // runs on the next poll, and the window is closed before it comes.
+            if let Some(revisions) = try_consume_context::<crate::ui::revisions::Revisions>() {
+                revisions.bump();
+            }
         }
         if let Some(handle) = &handle {
             handle.close();
@@ -406,13 +427,12 @@ pub(super) fn account_at(address: &str) -> Option<AccountId> {
         .map(|row| row.id)
 }
 
-/// A new account joins the current Space when the Space is limited to some accounts.
+/// A new account joins the current Space, the one it was added from.
 pub(super) fn into_scope(spaces: &mut Signal<Spaces>, account: AccountId) {
     // The Spaces as they are on disk: this window's copy may be older than a Space another
     // window added or switched to meanwhile, and keeping it would undo that.
     if let Some(dirs) = try_consume_context::<crate::ui::appearance::WindowDirs>()
-        && let ds_settings::SpacesLoad::Stored(stored) =
-            space::storage(Some(&dirs)).load_spaces(|_| {})
+        && let Some(stored) = space::stored(&dirs)
         && *spaces.peek() != stored
     {
         spaces.set(stored);

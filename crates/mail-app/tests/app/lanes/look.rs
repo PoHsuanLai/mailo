@@ -2,7 +2,7 @@
 //! search panel's rows, an open menu's items, and the outbox's submissions.
 
 use chrono::{DateTime, Utc};
-use ds_harness::{Harness, Query as Read};
+use ds_harness::Harness;
 use mail_core::{SqliteStore, Store};
 use mail_domain::{
     DraftId, Filter, MailboxRole, PageReq, Property, ProtoOp, Query, Sort, SortDir, TextMatch,

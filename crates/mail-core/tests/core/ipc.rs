@@ -81,11 +81,11 @@ fn scratch(dir: &std::path::Path, name: &str) -> latchkey::Agent {
         .and_then(|name| name.to_str())
         .unwrap_or("test");
     let environment = latchkey::Environment {
-        runtime_dir: Some(dir.as_os_str()),
-        tmpdir: Some(dir.as_os_str()),
+        runtime_dir: Some(dir.as_os_str().to_owned()),
+        tmpdir: Some(dir.as_os_str().to_owned()),
         home: None,
-        local_app_data: Some(dir.as_os_str()),
-        user: Some(unique),
+        local_app_data: Some(dir.as_os_str().to_owned()),
+        user: Some(unique.to_owned()),
     };
     latchkey::Agent::in_environment(name, latchkey::here(), &environment).unwrap()
 }

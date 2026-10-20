@@ -1,13 +1,21 @@
-use super::{AccountPick, accounts_menu, toggled};
+use super::{AccountPick, Leaving, accounts_menu, toggled};
 use crate::ui::add_account::AddPick;
-use crate::ui::space::Scope;
 use ds::components::menus::item::item::{AfterPick, MenuItem};
-use ds::prelude::Check;
+use ds::prelude::{Availability, Check};
 use porter_core::AccountId;
 use uuid::Uuid;
 
 fn account(n: u128) -> AccountId {
     mail_domain::id::account_id_from_uuid(Uuid::from_u128(n))
+}
+
+fn ids(ns: &[u128]) -> Vec<AccountId> {
+    ns.iter().map(|n| account(*n)).collect()
+}
+
+/// Every account may leave the Space: each is in another one too.
+fn anywhere(_: &AccountId) -> Leaving {
+    Leaving::Allowed
 }
 
 fn named(ns: &[u128]) -> Vec<(AccountId, String)> {
@@ -64,13 +72,9 @@ fn add(title: &str) -> (String, Check, bool) {
 }
 
 #[test]
-fn accounts_are_checked_by_the_space_s_scope_and_stay_open_on_a_pick() {
+fn accounts_are_checked_by_the_space_s_accounts_and_stay_open_on_a_pick() {
     let all = named(&[1, 2, 3]);
-    let shown = rows(&accounts_menu(
-        &Scope::Accounts(vec![account(1), account(3)]),
-        &all,
-        &[],
-    ));
+    let shown = rows(&accounts_menu(&ids(&[1, 3]), &all, anywhere, &[]));
     assert_eq!(
         shown,
         [
@@ -81,10 +85,42 @@ fn accounts_are_checked_by_the_space_s_scope_and_stay_open_on_a_pick() {
             add("Add Account\u{2026}"),
         ]
     );
-    let every = rows(&accounts_menu(&Scope::All, &all, &[]));
-    assert!(
-        every[..3].iter().all(|(_, check, _)| *check == Check::On),
-        "{every:?}"
+}
+
+/// An account in no other Space cannot be taken out of this one, which would leave it in none;
+/// one the Space does not show can always be put in.
+#[test]
+fn an_account_s_last_space_cannot_let_it_go() {
+    let only_here = |id: &AccountId| {
+        if *id == account(1) {
+            Leaving::LastSpace
+        } else {
+            Leaving::Allowed
+        }
+    };
+    let menu = accounts_menu(&ids(&[1, 2]), &named(&[1, 2, 3]), only_here, &[]);
+    let [MenuItem::Submenu { children, .. }] = menu.as_slice() else {
+        panic!("not one Accounts submenu");
+    };
+    let open: Vec<(String, Availability)> = children
+        .iter()
+        .filter_map(|row| match row {
+            MenuItem::Item {
+                title,
+                availability,
+                value: AccountPick::Toggle(_),
+                ..
+            } => Some((title.clone(), *availability)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        open,
+        [
+            ("a1@example.test".to_owned(), Availability::Disabled),
+            ("a2@example.test".to_owned(), Availability::Enabled),
+            ("a3@example.test".to_owned(), Availability::Enabled),
+        ]
     );
 }
 
@@ -94,12 +130,17 @@ fn accounts_are_checked_by_the_space_s_scope_and_stay_open_on_a_pick() {
 #[test]
 fn add_account_ends_the_accounts_menu() {
     assert_eq!(
-        rows(&accounts_menu(&Scope::All, &[], &[])),
+        rows(&accounts_menu(&[], &[], anywhere, &[])),
         [add("Add Account\u{2026}")]
     );
     let google = (porter_provider::Issuer::Google, "Google".to_owned());
     assert_eq!(
-        rows(&accounts_menu(&Scope::All, &named(&[1]), &[google])),
+        rows(&accounts_menu(
+            &ids(&[1]),
+            &named(&[1]),
+            anywhere,
+            &[google]
+        )),
         [
             ("a1@example.test".to_owned(), Check::On, true),
             add("-"),
@@ -108,7 +149,7 @@ fn add_account_ends_the_accounts_menu() {
             add("Add Account > Other Account\u{2026}"),
         ]
     );
-    let menu = accounts_menu(&Scope::All, &[], &[]);
+    let menu = accounts_menu(&[], &[], anywhere, &[]);
     let [MenuItem::Submenu { children, .. }] = menu.as_slice() else {
         panic!("not one Accounts submenu");
     };
@@ -124,17 +165,14 @@ fn add_account_ends_the_accounts_menu() {
 
 #[test]
 fn a_pick_takes_an_account_out_or_puts_it_in() {
-    let all = [account(1), account(2), account(3)];
-    let of = |ns: &[u128]| Scope::Accounts(ns.iter().map(|n| account(*n)).collect());
-    // (scope, the account picked, the scope after)
+    // (the Space's accounts, the account picked, its accounts after)
     let cases = [
-        (Scope::All, 2, of(&[1, 3])),
-        (of(&[1]), 2, of(&[1, 2])),
-        (of(&[1, 2]), 2, of(&[1])),
-        // Every account again is every account, so one added later shows too.
-        (of(&[1, 3]), 2, Scope::All),
+        (ids(&[1]), 2, ids(&[1, 2])),
+        (ids(&[1, 2]), 2, ids(&[1])),
+        // Every account is only a list of them: one added later is not in it.
+        (ids(&[1, 3]), 2, ids(&[1, 3, 2])),
     ];
-    for (scope, n, after) in cases {
-        assert_eq!(toggled(&scope, account(n), &all), after, "{scope:?} {n}");
+    for (accounts, n, after) in cases {
+        assert_eq!(toggled(&accounts, account(n)), after, "{accounts:?} {n}");
     }
 }

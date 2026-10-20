@@ -321,10 +321,11 @@ fn choices_of(kind: FieldKind) -> Vec<Choice> {
 /// What a choice's slug is called.
 pub(super) fn choice_label(slug: &str) -> String {
     match slug {
-        // The plain name first and the protocol second, as quire's own forms word them.
-        "imap" => "Most servers (IMAP)",
-        "pop3" => "Older servers (POP)",
-        "jmap" => "Newer servers (JMAP)",
+        // The protocol's own name: a person who is choosing one knows it, or is told it by their
+        // provider in just these words.
+        "imap" => "IMAP",
+        "pop3" => "POP3",
+        "jmap" => "JMAP",
         "tls" => "Secure from the start (SSL/TLS)",
         "starttls" => "Secure after connecting (STARTTLS)",
         other => other,

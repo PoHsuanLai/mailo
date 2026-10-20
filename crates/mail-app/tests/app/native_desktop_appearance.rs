@@ -7,7 +7,7 @@
 
 use ds::prelude::*;
 use ds_blitz::NetPolicy;
-use ds_harness::{Clock, Driver, Harness, HarnessConfig, Viewport};
+use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
 use ds_settings::{AppName, AppearanceFile, ConfigRoot, Store, SystemPrefsSource};
 use mail_app::ui::native::DesktopSettings;
 use mail_core::SqliteStore;

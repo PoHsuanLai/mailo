@@ -1,6 +1,7 @@
 //! What an account's page says: the account's servers and sign-in as rows, what Remove takes
 //! with it, and why a removal did not happen. Pure, so each is a table test.
 
+use crate::ui::copy::controls::REMOVE;
 use crate::ui::files::work::messages;
 use mail_core::account::RemoveError;
 use mail_domain::{AccountPlan, AuthPlan, HttpAuth, Incoming, LeaveOnServer, Outgoing, Tls};
@@ -129,8 +130,9 @@ pub(super) struct Asking {
     pub confirm: &'static str,
 }
 
-/// What the confirming button says.
-pub(super) const REMOVE: &str = "Remove Account";
+// What the confirming button says is `REMOVE`, short on purpose: the question's title already
+// names the account, and the alert's two buttons share a 260px sheet, where "Remove Account" does
+// not fit its button.
 
 /// The confirmation for removing `address`, which holds `held` messages here. A POP3 server that
 /// deletes what it hands over has no copy left, and the alert says so rather than "on the

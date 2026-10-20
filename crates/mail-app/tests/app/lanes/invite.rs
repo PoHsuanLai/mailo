@@ -2,8 +2,6 @@
 //! Change answer then Decline sends another, and Save .ics writes the event where the window
 //! saves files.
 
-use ds_harness::Query;
-
 use super::drive::Key;
 use super::window::{Window, deliver, hours_ago, queued};
 

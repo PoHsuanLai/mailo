@@ -10,7 +10,7 @@
 //! touches the network, the real mail store or the real config.
 
 use ds::prelude::*;
-use ds_harness::{Clock, DocQuery, Driver, Harness, HarnessConfig, Query, Viewport};
+use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
 use std::time::Duration;
 
 use crate::drive;

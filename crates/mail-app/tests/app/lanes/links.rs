@@ -3,7 +3,6 @@
 //! `javascript:` link does nothing.
 
 use ds::prelude::Point;
-use ds_harness::{Driver, Query};
 
 use super::drive::Drive;
 use super::window::{Window, deliver, hours_ago, ms};

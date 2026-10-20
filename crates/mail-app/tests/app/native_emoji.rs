@@ -7,7 +7,7 @@
 //! The recent emoji are kept in the window's state directory, here a `TempDir`.
 
 use ds::prelude::{Point, ShortcutKey as Key};
-use ds_harness::{Clock, Driver, Harness, HarnessConfig, Query, Viewport};
+use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
 
 use crate::settle;
 use settle::settle_until;

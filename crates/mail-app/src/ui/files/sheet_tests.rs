@@ -227,7 +227,7 @@ async fn local_folders_leak_no_address_and_have_nothing_to_sync() {
     dispatching();
     let (store, dir) = crate::ui::fixtures::seeded();
     let local = import_locally(&store, &a_maildir(dir.path()));
-    // One Space over every account, the IMAP one among them.
+    // One Space, which every account joins as the window opens, the IMAP one among them.
     let everything = crate::ui::space::first_run(&[]);
     let mut dom = VirtualDom::new(crate::ui::app::App)
         .with_root_context(store.clone())
@@ -243,8 +243,9 @@ async fn local_folders_leak_no_address_and_have_nothing_to_sync() {
         "the address leaked: {page}"
     );
 
-    // A Space over the local folders alone.
-    let alone = crate::ui::space::first_run(std::slice::from_ref(&local));
+    // A Space over the local folders alone, on screen, with the IMAP account in a Space of its
+    // own: an account no Space holds would join the one on screen.
+    let alone = crate::ui::space::first_run(&[local.clone(), crate::ui::fixtures::acct_account()]);
     let mut dom = VirtualDom::new(crate::ui::app::App)
         .with_root_context(store.clone())
         .with_root_context(alone);

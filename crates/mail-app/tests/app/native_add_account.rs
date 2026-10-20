@@ -5,7 +5,7 @@
 //! add are fakes, the store is a `TempDir`'s, and nothing reaches the network or a keyring.
 
 use ds_blitz::Extent;
-use ds_harness::{Clock, Driver, Harness, HarnessConfig, Query, Viewport};
+use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
 use mail_app::ui::native::{
     AddAccountOpened, AddAccountSeams, AddAccountWiring, AddRequest, add_account_root,
 };
@@ -211,7 +211,11 @@ fn until(w: &mut Window, what: &str, done: impl Fn(&Harness) -> bool) {
 }
 
 fn step(w: &Window) -> Option<String> {
-    let html = w.harness.html();
+    step_of(&w.harness)
+}
+
+fn step_of(h: &Harness) -> Option<String> {
+    let html = h.html();
     let at = html.find("data-step=\"")? + "data-step=\"".len();
     Some(html[at..].split('"').next()?.to_owned())
 }
@@ -362,16 +366,16 @@ fn a_whole_password_add() {
         !w.harness.html().contains(SECRET),
         "the password reached the markup"
     );
-    w.harness.key(Key::Enter);
-    on_step(&mut w, "review");
-    assert!(
-        w.log.adds.lock().unwrap().is_empty(),
-        "nothing is added before the last button"
-    );
-    assert!(w.harness.html().contains("ada@example.test"));
+    // The form is the confirmation: with nothing to choose, no step of choices comes between it
+    // and the add.
     w.harness.key(Key::Enter);
     let log = w.log.clone();
-    until(&mut w, "the add did not happen", |_| {
+    until(&mut w, "the add did not happen", |h| {
+        assert_ne!(
+            step_of(h).as_deref(),
+            Some("review"),
+            "an empty review was drawn"
+        );
         !log.adds.lock().unwrap().is_empty()
     });
     assert_eq!(
@@ -415,8 +419,6 @@ fn a_whole_browser_add_opens_the_page_copies_the_link_and_adds_when_signed_in() 
     });
 
     w.script.release.notify_one();
-    on_step(&mut w, "review");
-    w.harness.key(Key::Enter);
     let log = w.log.clone();
     until(&mut w, "the add did not happen", |_| {
         !log.adds.lock().unwrap().is_empty()
@@ -461,8 +463,6 @@ fn a_failed_step_offers_try_again_which_asks_the_form_again() {
     );
     w.harness.key(Key::Tab);
     type_text(&mut w, SECRET);
-    w.harness.key(Key::Enter);
-    on_step(&mut w, "review");
     w.harness.key(Key::Enter);
     on_step(&mut w, "failed");
     assert_eq!(step(&w).as_deref(), Some("failed"));
@@ -574,7 +574,7 @@ fn a_whole_typed_pop3_add_through_the_window() {
         "Outgoing",
         "Sign in",
         "Server type",
-        "(IMAP)",
+        ">IMAP<",
         "(SSL/TLS)",
     ] {
         assert!(html.contains(word), "{word}:\n{html}");
@@ -585,7 +585,7 @@ fn a_whole_typed_pop3_add_through_the_window() {
     // POP3: the form changes at once (no sending): the guessed host and the ports follow.
     pick_protocol(&mut w, 2);
     let html = w.harness.html();
-    assert!(html.contains("Older servers (POP)"), "{html}");
+    assert!(html.contains(">POP3<"), "{html}");
     assert!(html.contains("pop.example.test"), "{html}");
     assert!(html.contains("995"), "{html}");
     assert_eq!(
@@ -595,9 +595,6 @@ fn a_whole_typed_pop3_add_through_the_window() {
     );
 
     continue_from_server(&mut w);
-    on_step(&mut w, "review");
-    assert!(w.log.adds.lock().unwrap().is_empty());
-    w.harness.key(Key::Enter);
     let log = w.log.clone();
     until(&mut w, "the add did not happen", |_| {
         !log.adds.lock().unwrap().is_empty()
@@ -706,10 +703,10 @@ fn the_window_asks_for_the_size_of_each_step() {
     pick_protocol(&mut w, 1);
     assert_eq!(*asked(&w).last().unwrap(), server, "and back");
     continue_from_server(&mut w);
-    on_step(&mut w, "review");
-    let review = *asked(&w).last().unwrap();
-    assert!(review.height < server.height, "{review:?}");
-    assert_eq!(review.width, list[0].width);
+    let log = w.log.clone();
+    until(&mut w, "the add did not happen", |_| {
+        !log.adds.lock().unwrap().is_empty()
+    });
 }
 
 /// A picture of each step, light and dark, painted headlessly by Blitz: set `MAILO_SHOTS` to the
@@ -751,8 +748,6 @@ fn render_each_step_to_files() {
         on_step(&mut w, "working");
         shoot(&mut w, "working");
         drop(held);
-        on_step(&mut w, "review");
-        shoot(&mut w, "review");
 
         let script = Script {
             add: Err("cannot save the account".to_owned().into()),
@@ -766,8 +761,6 @@ fn render_each_step_to_files() {
         type_text(&mut w, "ada@example.test");
         w.harness.key(Key::Tab);
         type_text(&mut w, SECRET);
-        w.harness.key(Key::Enter);
-        on_step(&mut w, "review");
         w.harness.key(Key::Enter);
         on_step(&mut w, "failed");
         shoot(&mut w, "failed");
@@ -797,7 +790,7 @@ fn drive_to(
             add: Err("cannot save the account".to_owned().into()),
             ..Script::default()
         },
-        "providers" | "sign-in" | "review" | "working" | "browser" => Script::default(),
+        "providers" | "sign-in" | "working" | "browser" => Script::default(),
         _ => no_servers(),
     };
     let hold = script.hold.clone();
@@ -846,11 +839,7 @@ fn drive_to(
         }
         return there(&mut w);
     }
-    on_step(&mut w, "review");
-    if target == "failed" {
-        w.harness.key(Key::Enter);
-        on_step(&mut w, "failed");
-    }
+    on_step(&mut w, "failed");
     there(&mut w)
 }
 
@@ -881,7 +870,6 @@ fn render_the_typed_forms_and_the_resized_steps() {
             "server-pop3",
             "server-jmap",
             "working",
-            "review",
             "failed",
             "browser",
         ] {

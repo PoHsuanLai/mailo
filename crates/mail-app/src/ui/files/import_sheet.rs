@@ -2,7 +2,6 @@
 
 use ds::base::press::Press;
 use ds::components::content::avatar::AvatarSize;
-use ds::components::controls::button_marks::Trailing;
 use ds::components::controls::button_model::Answers;
 use ds::components::fields::field_row::{FieldGroup, FieldRow, RowLayout};
 use ds::components::fields::text_field_model::Invalid;
@@ -165,7 +164,7 @@ pub(super) fn ImportSheet(shell: Signal<Shell>, revision: Signal<u64>) -> Elemen
                         Button {
                             label: chosen.label(),
                             icon: if chosen == Dest::Local { Icon::Inbox } else { Icon::Mail },
-                            trailing: Some(Trailing::Glyph(Icon::ChevronDown)),
+                            trailing: Some(Icon::ChevronDown),
                             shown: Some(if menu_open() { Shown::Visible } else { Shown::Hidden }),
                             onclick: move |_: Press| menu_open.set(!menu_open()),
                             common: Common {

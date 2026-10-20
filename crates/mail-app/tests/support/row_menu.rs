@@ -9,7 +9,7 @@
 use super::drive::Drive;
 use super::settle::settle_until;
 use ds::base::press::PointerButton;
-use ds_harness::{Harness, Query};
+use ds_harness::Harness;
 
 /// The open menu's children, items and rules alike, by position (1-based).
 fn child(n: usize) -> String {

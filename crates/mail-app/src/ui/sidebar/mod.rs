@@ -4,14 +4,17 @@ mod folder_row;
 mod folder_tree;
 mod folders;
 mod foot;
+mod join;
 mod panes;
 mod sync;
+mod tiles;
 
 pub(super) use self::folder_act::folder_places;
 use self::folder_tree::{Show, arrange, scope};
 use self::folders::FolderList;
 use self::panes::{Favourites, PlaceList, counts};
 pub(in crate::ui) use self::panes::{hex_colour, place_icon};
+use self::tiles::{AccountTiles, tile_rows};
 use crate::ui::copy;
 use crate::ui::space::{Handle, Mail};
 use crate::ui::view::Shell;
@@ -59,6 +62,12 @@ pub(super) fn Places(
         let store = consume_context::<std::sync::Arc<mail_core::SqliteStore>>();
         counts(&store, spaces.read().current())
     });
+    // The Space's account tiles, read again as mail arrives or the Space's accounts change.
+    let tiled = use_memo(move || {
+        let _ = revision();
+        let store = consume_context::<std::sync::Arc<mail_core::SqliteStore>>();
+        tile_rows(&store, spaces.read().current())
+    });
     // The accounts the Folders section is for. A memo, so a keystroke in the search box — a
     // shell change — does not read the folders again.
     let in_scope = use_memo(move || scope(&shell.read()));
@@ -91,10 +100,10 @@ pub(super) fn Places(
     } else {
         Shown::Visible
     };
-    // With one Space there is no Space to tell apart: no name heads the sidebar and no dot
-    // stands in the foot (quire's `SpacesFoot` draws none for one). Its menu is a right click on
-    // the foot, wherever it lands that is nobody else's.
-    let several = spaces.read().count() > 1;
+    // The current Space's name heads the sidebar, one Space or several: it says where you are,
+    // and a right click on it is the Space's menu. The dots stand in the foot only once there
+    // are several to tell apart (quire's `SpacesFoot` draws none for one), and the foot's own
+    // right click is the Space's menu too.
     rsx! {
         // Hidden, the sidebar floats over the card from the edge while the pointer is there
         // (quire's `EdgePeek`), and a click on the edge pins it again.
@@ -103,20 +112,19 @@ pub(super) fn Places(
             pinned,
             onpin: move |()| side_hidden.set(false),
             common: Common { extra_class: ExtraClass::parse("side").ok(), ..Common::default() },
-            // With several Spaces the current one's name heads the sidebar, as a browser's does;
-            // a right click on it is the Space's menu, and a plain press does nothing. Downloads
-            // stands at the row's right end, its list opening below it.
+            // The current Space's name heads the sidebar, as a browser's does; a right click on it
+            // is the Space's menu, and a plain press does nothing. Downloads stands at the row's
+            // right end, its list opening below it.
             div { class: "side-head",
                 div { class: "side-title",
-                    if several {
-                        SpaceHead { handle }
-                    }
+                    SpaceHead { handle }
                 }
                 crate::ui::downloads::DownloadsButton { shell }
             }
             div { class: "slide",
                 // A sign-in in the browser, while it waits: a quiet row at the top.
                 crate::ui::add_account::PendingSignIn {}
+                AccountTiles { shell, pages, handle, rows: tiled() }
                 Favourites { shell, pages, space: space.clone(), counted: counts_now }
                 PlaceList { shell, pages, badges, folded, scheduled: scheduled() }
                 if let Some(section) = folders() {
@@ -137,7 +145,7 @@ pub(super) fn Places(
                 },
                 SpacesFoot {
                     handle,
-                    new_payload: move |()| Mail::new_in(&ProfileId::default()),
+                    new_payload: move |()| Mail::new_in(&ProfileId::default(), crate::ui::space_menu::every_id()),
                     new_space: NewSpace::Hidden,
                     leading: rsx! {
                         div { class: "foot-lead",

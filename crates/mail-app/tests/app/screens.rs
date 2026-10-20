@@ -4,7 +4,7 @@
 
 use ds::prelude::*;
 use ds_blitz::{FocusFallback, NetPolicy, PrintOutcome};
-use ds_harness::{Clock, Driver, Harness, HarnessConfig, Query, Viewport};
+use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
 use ds_settings::Environment;
 use mail_core::SqliteStore;
 use mail_core::{Arrival, absorb};
