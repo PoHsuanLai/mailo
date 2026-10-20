@@ -123,7 +123,6 @@ article.frame:last-of-type .html { height: auto; min-height: 320px; flex: 1 0 32
 }
 .peek-picture { max-width: 100%; max-height: 72vh; display: block; }
 .peek-sheet { background: var(--foreign-ground); border: var(--hair) solid var(--line); }
-.peek-note { margin: var(--s-22) 0; color: var(--ink-faint); }
 /* anyview's card for a part mailo does not draw itself: the picture or lines over the file's facts. */
 .peek-card { width: 100%; max-width: 60ch; height: 100%; }
 /* A calendar file, a contact card or a forwarded message: a page of the reader's own type. */

@@ -145,7 +145,7 @@ fn a_part_mailo_does_not_draw_gets_anyviews_card_and_an_svg_stays_unpreviewed() 
     harness.key(Key::Right);
     settle_until(harness, |h| {
         h.attr(PEEK, "aria-label").as_deref() == Some("logo.svg")
-            && h.text_of(".ds-peek .peek-note").as_deref()
+            && h.text_of(".ds-peek .ds-empty-state-title").as_deref()
                 == Some(mail_app::ui::copy::status::NO_PREVIEW)
     });
     assert_eq!(

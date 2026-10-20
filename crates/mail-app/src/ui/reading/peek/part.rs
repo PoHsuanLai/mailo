@@ -271,7 +271,7 @@ pub(super) fn PartPeek(shell: Signal<Shell>) -> Element {
                 }
             }
         },
-        Some(Drawn::Said(why)) => rsx! { p { class: "peek-note", "{why}" } },
+        Some(Drawn::Said(why)) => rsx! { EmptyState { title: why } },
     };
     rsx! {
         ds::components::app::peek::Peek {
