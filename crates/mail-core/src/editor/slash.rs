@@ -128,7 +128,7 @@ const ITEMS: &[Item] = &[
     },
     Item {
         name: "Image",
-        help: "Embedded, never fetched.",
+        help: "Embedded in the message, not linked.",
         keywords: &["picture", "photo", "img"],
         icon: "image",
         markdown: "",

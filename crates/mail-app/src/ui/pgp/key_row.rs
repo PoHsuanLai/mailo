@@ -225,7 +225,7 @@ pub(in crate::ui) fn Asking(confirm: Signal<Confirm>, run: Callback<Job>, busy: 
             rsx! {
                 Alert {
                     title: format!("Delete {id}?"),
-                    message: Some(TextLine::from(format!("Deleting {id} also deletes its secret key. This cannot be undone."))),
+                    message: Some(TextLine::from(format!("Its secret key is deleted too. {}", crate::ui::copy::confirm::CANT_BE_UNDONE))),
                     style: AlertStyle::Critical,
                     buttons: vec![
                         AlertButton::new("Delete", AlertRole::Destructive, EventHandler::new(move |()| {
@@ -245,7 +245,7 @@ pub(in crate::ui) fn Asking(confirm: Signal<Confirm>, run: Callback<Job>, busy: 
             rsx! {
                 Alert {
                     title: format!("Delete {id}?"),
-                    message: Some(TextLine::from(format!("Deleting {id} also deletes its private key. This cannot be undone."))),
+                    message: Some(TextLine::from(format!("Its private key is deleted too. {}", crate::ui::copy::confirm::CANT_BE_UNDONE))),
                     style: AlertStyle::Critical,
                     buttons: vec![
                         AlertButton::new("Delete", AlertRole::Destructive, EventHandler::new(move |()| {
@@ -269,9 +269,9 @@ pub(in crate::ui) fn Asking(confirm: Signal<Confirm>, run: Callback<Job>, busy: 
                     common: in_card(),
                     onclose: move |()| confirm.set(Confirm::Nothing),
                     div { class: "keys-ask",
-                        Label { text: format!("{file} is an identity file. Type the password it was saved with to import it."), role: LabelRole::Secondary }
+                        Label { text: format!("{file} is an identity file. Type its password to import it."), role: LabelRole::Secondary }
                         Passphrase {
-                            prompt: format!("{file} is an identity file. Type the password it was saved with to import it."),
+                            prompt: format!("{file} is an identity file. Type its password to import it."),
                             act: "Import".to_owned(),
                             noun: "Password".to_owned(),
                             working: busy,

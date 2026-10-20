@@ -243,7 +243,7 @@ fn refusals_are_said_in_words() {
     let pop = Refusal::Folder(FolderError::SingleMailbox);
     assert!(refused(&pop).contains("POP3"));
     let exists = Refusal::Folder(FolderError::Exists("Work".to_owned()));
-    assert_eq!(refused(&exists), "There is already a folder called “Work”.");
+    assert_eq!(refused(&exists), "A folder called “Work” already exists.");
 }
 
 #[test]

@@ -185,7 +185,7 @@ async fn a_condition_the_rules_cannot_read_says_why_and_save_is_refused() {
     type_into(&mut dom, query, "frm:ada");
     let page = dioxus_ssr::render(&dom);
     assert!(
-        page.contains("“frm:” is not a word a rule knows."),
+        page.contains("Rules don’t know “frm:”."),
         "the refusal is not said: {page}"
     );
     assert!(

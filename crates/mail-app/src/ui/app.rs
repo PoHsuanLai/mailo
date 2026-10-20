@@ -904,7 +904,7 @@ mod tests {
         let page = dioxus_ssr::render(&dom);
         assert!(page.contains("No account to send from"), "{page}");
         assert!(
-            page.contains("Add an email account, then write your message."),
+            page.contains("Add an account to write a message."),
             "{page}"
         );
     }

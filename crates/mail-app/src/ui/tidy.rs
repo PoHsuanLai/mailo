@@ -1,9 +1,10 @@
 //! Tidy Up…: archive the read conversations the Inbox has kept longer than an age chosen.
 //!
 //! Opened from the sidebar's menu or ⌘K. The sheet lists what its button archives, in the Space shown:
-//! read, in the Inbox, and last written to before the age chosen. A conversation someone marked
-//! to keep in view is left be: starred, pinned, snoozed, or waiting on a reply. What the sheet
-//! counts is what its button archives ([`candidates`] is both), as one gesture with one undo.
+//! read, in the Inbox, and last written to before the age chosen, which a pop-up picks. A
+//! conversation someone marked to keep in view is left be: starred, pinned, snoozed, or waiting on
+//! a reply. What the sheet lists is what its button archives ([`candidates`] is both), as one
+//! gesture with one undo.
 
 use crate::ui::common::in_card;
 use crate::ui::copy;
@@ -11,13 +12,19 @@ use crate::ui::press::{SheetClose, available, on_primary};
 use crate::ui::view::Shell;
 use chrono::{DateTime, TimeDelta, Utc};
 use dioxus::prelude::*;
+use ds::components::content::avatar::{
+    AvatarFace, AvatarShape, AvatarSize, AvatarTone, person_hue,
+};
 use ds::components::content::label::{Label, LabelStyle};
 use ds::components::controls::button_model::Answers;
-use ds::components::controls::segmented::Tracking;
-use ds::components::fields::field_row::{FieldGroup, FieldRow, RowLayout};
-use ds::components::lists::row::row::Outline;
+use ds::components::fields::field_row::FieldRow;
+use ds::components::lists::list::model::ListStyle;
+use ds::components::lists::row::size::RowSize;
+use ds::components::menus::item::item::MenuItem;
+use ds::components::menus::pop_up_button::PopUpButton;
 use ds::components::overlays::sheet_attach::Attach;
 use ds::prelude::*;
+use mail_core::when::Clock;
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
 use std::sync::Arc;
@@ -132,7 +139,38 @@ fn run(shell: Signal<Shell>, revision: Signal<u64>) {
     crate::ui::motion::act_kind_all(&store, shell, revision, &threads, OpKind::Archive);
 }
 
-/// The sheet, over the window while it is open.
+/// One conversation Tidy Up would archive, drawn as a row like the app's other lists: the
+/// sender's face, the subject, who sent it, and when.
+fn row(summary: &ThreadSummary, now: DateTime<Utc>, clock: Clock) -> ListItem<String> {
+    let subject = mail_domain::subject_or_none(&summary.subject).into_owned();
+    let face = AvatarFace {
+        initial: summary
+            .from
+            .shown()
+            .chars()
+            .next()
+            .map_or('?', |c| c.to_ascii_uppercase()),
+        size: AvatarSize::Size28,
+        tone: AvatarTone::Person(person_hue(&summary.from.email)),
+        shape: AvatarShape::Round,
+    };
+    ListItem::row(
+        summary.id.to_string(),
+        subject.clone(),
+        rsx! {
+            Row {
+                leading: RowLeading::Avatar(face),
+                title: subject,
+                detail: Some(TextLine::from(summary.from.shown().to_owned())),
+                accessory: Accessory::Text(mail_core::when::listed(summary.last_date, now, &chrono::Local, clock)),
+                size: RowSize::Settings,
+            }
+        },
+    )
+}
+
+/// The sheet, over the window while it is open: the age in a form row, then what the button
+/// archives as a grouped list, laid out as a Settings page is.
 #[component]
 pub(in crate::ui) fn TidySheet(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
     let Some(age) = shell.read().tidying else {
@@ -141,49 +179,58 @@ pub(in crate::ui) fn TidySheet(shell: Signal<Shell>, revision: Signal<u64>) -> E
     // Read so an archive or a sync elsewhere redraws the count.
     let _ = revision();
     let store = consume_context::<Arc<SqliteStore>>();
-    let found = candidates(
-        &store,
-        shell.read().account_filter(),
-        age,
-        crate::ui::clock::now(),
-    );
+    let now = crate::ui::clock::now();
+    let clock = crate::ui::clock::hours();
+    let found = candidates(&store, shell.read().account_filter(), age, now);
     let count = found.len();
-    let ages: Vec<Choice<Age>> = Age::ALL
+    let ages: Vec<MenuItem<Age>> = Age::ALL
         .iter()
-        .map(|one| Choice::new(*one, one.label()))
+        .map(|one| MenuItem::new(*one, one.label()))
         .collect();
+    let mut rows: Vec<ListItem<String>> = found
+        .iter()
+        .take(SHOWN)
+        .map(|one| row(one, now, clock))
+        .collect();
+    if count > SHOWN {
+        let more = copy::confirm::tidy_more(count - SHOWN);
+        rows.push(ListItem::row(
+            "more".to_owned(),
+            more.clone(),
+            rsx! { Row { title: more, size: RowSize::Settings } },
+        ));
+    }
     rsx! {
         Sheet {
             label: copy::titles::TIDY_UP,
             attach: Attach::Window,
             common: in_card(),
             onclose: move |()| close(shell),
-            div { class: "sheet-form",
-                Label { text: copy::titles::TIDY_UP, style: LabelStyle::Title }
-                FieldGroup {
-                    FieldRow {
-                        label: copy::fields::OLDER_THAN,
-                        layout: RowLayout::Form,
-                        SegmentedControl::<Age> {
-                            label: copy::fields::OLDER_THAN.to_owned(),
-                            choices: ages,
-                            tracking: Tracking::SelectOne(age),
-                            onchange: move |one: Age| {
-                                let mut shell = shell;
-                                shell.write().tidying = Some(one);
-                            },
+            div { class: "tidy-sheet",
+                div { class: "tidy-title",
+                    Label { text: copy::titles::TIDY_UP, style: LabelStyle::Title }
+                }
+                Form {
+                    FormSection {
+                        FieldRow { label: copy::fields::OLDER_THAN,
+                            PopUpButton::<Age> {
+                                items: ages,
+                                value: Some(age),
+                                common: Common { aria_label: Some(copy::fields::OLDER_THAN.to_owned()), ..Common::default() },
+                                onpick: move |one: Age| {
+                                    let mut shell = shell;
+                                    shell.write().tidying = Some(one);
+                                },
+                            }
                         }
                     }
-                }
-                Label { text: copy::confirm::tidy_up(count) }
-                if count > 0 {
-                    div { class: "tidy-list",
-                        for summary in found.iter().take(SHOWN) {
-                            Row {
-                                key: "{summary.id}",
-                                title: mail_domain::subject_or_none(&summary.subject).into_owned(),
-                                outline: Outline::None,
-                            }
+                    if count == 0 {
+                        EmptyState { title: copy::confirm::TIDY_NOTHING }
+                    } else {
+                        FormSection {
+                            title: Some(copy::headers::TO_ARCHIVE.to_owned()),
+                            footer: Some(copy::confirm::TIDY_SKIPS.to_owned()),
+                            List::<String> { label: copy::headers::TO_ARCHIVE, items: rows, style: ListStyle::Grouped }
                         }
                     }
                 }

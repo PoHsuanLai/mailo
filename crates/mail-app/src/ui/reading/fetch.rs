@@ -89,7 +89,7 @@ pub(super) enum BodyFace {
     Pane(Phase, Again),
 }
 
-pub(super) const PROMPT: &str = "This message hasn't been downloaded yet.";
+pub(super) const PROMPT: &str = "This message isn't downloaded yet.";
 pub(super) const DOWNLOAD_MESSAGE: &str = "Download Message";
 pub(super) const BODY_FAILED: &str = "Couldn't download this message";
 
@@ -109,9 +109,9 @@ pub(super) fn one_line(why: &str) -> String {
 /// The plain-language reason a body could not be fetched. `account` is the address it belongs to.
 pub(super) fn body_reason(retry: &Retry, why: &str, account: &str) -> String {
     match retry {
-        Retry::NeedsReauth => format!("Sign in to {account} again to download it."),
-        Retry::NeedsGrant => format!("Allow Mail to use {account} again to download it."),
-        Retry::Fatal(_) => "This account's messages download with the next sync.".to_owned(),
+        Retry::NeedsReauth => format!("Sign in to {account} again to download."),
+        Retry::NeedsGrant => format!("Allow Mail to use {account} again to download."),
+        Retry::Fatal(_) => "This account's messages download on the next sync.".to_owned(),
         Retry::Now | Retry::After(_) => {
             let detail = one_line(why);
             if detail.is_empty() {

@@ -196,7 +196,7 @@ pub(super) fn start(
         let answer = match done {
             Ok(Ok(answer)) => answer,
             Ok(Err(why)) => Answer::Failed(why),
-            Err(e) => Answer::Failed(format!("the search of the server stopped: {e}")),
+            Err(e) => Answer::Failed(format!("Server search stopped: {e}")),
         };
         if let Some(entry) = asked
             .write()

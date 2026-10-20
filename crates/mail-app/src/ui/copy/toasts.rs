@@ -54,13 +54,13 @@ pub fn saved_to(path: &std::path::Path) -> String {
 
 // An account moved to Microsoft Graph, or not.
 pub fn graph_signed_in(name: &str) -> String {
-    format!("{name} now reads and sends through Microsoft Graph.")
+    format!("{name} now uses Microsoft Graph.")
 }
 
 pub fn graph_waits(name: &str) -> String {
-    format!("{name} is set up for Microsoft Graph and waits for you to sign in.")
+    format!("{name} will use Microsoft Graph once you sign in.")
 }
 
 pub fn graph_refused(name: &str, why: &str) -> String {
-    format!("{name} couldn’t move to Microsoft Graph. {why}")
+    format!("Couldn’t switch {name} to Microsoft Graph. {why}")
 }

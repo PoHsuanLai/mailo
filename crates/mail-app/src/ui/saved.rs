@@ -64,8 +64,8 @@ impl ViewDraft {
     ) -> Result<View, String> {
         self.draft.build(labels, zone).map_err(|refusal| {
             match refusal {
-                Refusal::NoName => "Give the view a name: it is what the sidebar calls it.",
-                Refusal::NoQuery => "Say what the view lists, as you would search for it.",
+                Refusal::NoName => "Give the view a name.",
+                Refusal::NoQuery => "Type a search for the view to list.",
             }
             .to_owned()
         })

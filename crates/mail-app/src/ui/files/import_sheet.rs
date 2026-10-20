@@ -226,7 +226,7 @@ pub(in crate::ui) fn dest_items(all: &[Dest], chosen: &Dest) -> Vec<MenuItem> {
                     "Local folders".to_owned(),
                     "This computer".to_owned(),
                     Icon::Inbox,
-                    Some("Never synced".to_owned()),
+                    Some("Not synced".to_owned()),
                 ),
                 Dest::Folder {
                     address, folder, ..

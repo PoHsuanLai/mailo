@@ -1100,7 +1100,7 @@ fn print_hands_the_pdf_to_the_dialog_and_says_what_became_of_it() {
         ),
         (
             || Ok(PrintOutcome::Opened(PathBuf::from("/tmp/Quarterly-1.pdf"))),
-            "Opened in your PDF viewer to print: /tmp/Quarterly-1.pdf".to_owned(),
+            "Opened in your PDF viewer: /tmp/Quarterly-1.pdf".to_owned(),
         ),
         (
             || Err(PrintError::NoViewer("xdg-open is missing".to_owned())),

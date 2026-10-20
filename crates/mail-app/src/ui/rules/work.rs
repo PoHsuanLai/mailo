@@ -97,7 +97,7 @@ fn refusal(why: &ConditionError) -> String {
         }
         ConditionError::BadHas => "has: takes attachment.".to_owned(),
         ConditionError::UnknownField { field } => {
-            format!("“{field}:” is not a word a rule knows. It knows {KNOWN}.")
+            format!("Rules don’t know “{field}:”. They know {KNOWN}.")
         }
     }
 }

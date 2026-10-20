@@ -93,7 +93,7 @@ pub struct ReadingSettings {
     /// they belong to.
     #[settings(
         label = "Send read receipts",
-        help = "When a message asks, tell the sender you opened it. Never for junk, or to another domain.",
+        help = "Tell the sender you opened a message that asks, except for junk or mail from another domain.",
         section = "Reading"
     )]
     pub read_receipts: ReadReceipts,
@@ -108,7 +108,7 @@ pub struct ReadingSettings {
     /// the desktop's Settings app can show and edit it like any other.
     #[settings(
         label = "Trusted senders",
-        help = "Only for mail verified as really coming from them.",
+        help = "Only for mail verified as theirs.",
         section = "Reading"
     )]
     pub trusted_image_senders: Vec<String>,

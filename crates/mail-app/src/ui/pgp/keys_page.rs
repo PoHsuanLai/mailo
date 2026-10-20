@@ -107,7 +107,7 @@ pub(in crate::ui) fn KeysPage(
         spawn(async move {
             let done = tokio::task::spawn_blocking(move || work(&store, &seams, job))
                 .await
-                .unwrap_or_else(|error| Err(format!("It stopped before it finished: {error}")));
+                .unwrap_or_else(|error| Err(format!("Stopped early: {error}")));
             match done {
                 Ok(Done::Said(text)) => said.set(Some(Ok(text))),
                 Ok(Done::Password(path)) => confirm.set(Confirm::Password(path)),

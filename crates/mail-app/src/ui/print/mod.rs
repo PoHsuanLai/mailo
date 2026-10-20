@@ -96,7 +96,7 @@ where
         })
         .map_err(|why| {
             eprintln!("save for printing: {why}");
-            format!("Could not save for printing: {why}")
+            format!("Couldn’t save for printing: {why}")
         })
 }
 
@@ -457,7 +457,7 @@ mod native_print {
             Ok(PrintOutcome::Printed) => "Sent to the printer.".to_owned(),
             Ok(PrintOutcome::Cancelled) => "Printing cancelled".to_owned(),
             Ok(PrintOutcome::Opened(path)) => {
-                format!("Opened in your PDF viewer to print: {}", path.display())
+                format!("Opened in your PDF viewer: {}", path.display())
             }
             Err(why) => {
                 eprintln!("print: {why}");

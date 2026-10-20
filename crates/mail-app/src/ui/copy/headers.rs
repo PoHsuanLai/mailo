@@ -47,3 +47,6 @@ pub const COMMANDS: &str = "Commands";
 pub const TEMPLATES: &str = "Templates";
 /// Under a Space's name in ⌘K, saying what it is.
 pub const SPACE: &str = "Space";
+
+/// Tidy Up's list of what its button archives.
+pub const TO_ARCHIVE: &str = "To archive";

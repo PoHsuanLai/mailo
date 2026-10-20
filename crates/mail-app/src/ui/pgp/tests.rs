@@ -428,8 +428,7 @@ fn every_verdict_is_said_in_words_and_a_bad_one_is_unmissable() {
                 line(Tone::Plain, "Not encrypted"),
                 line(
                     Tone::Bad,
-                    "Bad signature: the message was changed after it was signed, or the \
-                     signature is forged",
+                    "Bad signature: the message changed after signing, or the signature is forged",
                 ),
             ],
         ),
@@ -476,7 +475,7 @@ fn every_verdict_is_said_in_words_and_a_bad_one_is_unmissable() {
                 Verification::NoSignature,
             ),
             vec![
-                line(Tone::Bad, "Encrypted, and could not be read: tampered"),
+                line(Tone::Bad, "Encrypted, and couldn’t be read: tampered"),
                 line(Tone::Plain, "Not signed"),
             ],
         ),

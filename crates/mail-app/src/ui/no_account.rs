@@ -16,7 +16,7 @@ pub(super) fn NoAccountAlert(shell: Signal<Shell>) -> Element {
     rsx! {
         Alert {
             title: "No account to send from".to_owned(),
-            message: Some(TextLine::from("Add an email account, then write your message.")),
+            message: Some(TextLine::from("Add an account to write a message.")),
             style: AlertStyle::Warning,
             buttons: vec![
                 AlertButton::new("Add Account\u{2026}", AlertRole::Normal, EventHandler::new(move |()| {
