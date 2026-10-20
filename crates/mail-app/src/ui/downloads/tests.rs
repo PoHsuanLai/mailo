@@ -5,6 +5,7 @@ use super::log::Entry;
 use super::panel::{detail, icon_of};
 use chrono::{DateTime, Utc};
 use ds::prelude::Icon;
+use mail_core::when::Clock;
 use mail_domain::ThreadId;
 use std::path::PathBuf;
 
@@ -31,7 +32,7 @@ fn a_rows_second_line() {
         subject: "  Minutes of the board ".to_owned(),
     };
     let size = mail_core::attach::human_size(2048);
-    let when = crate::ui::menus::when_words(at(0), at(1), &chrono::Local);
+    let when = crate::ui::menus::when_words(at(0), at(1), &chrono::Local, Clock::H24);
     let cases = [
         (
             "from a message",
@@ -53,7 +54,11 @@ fn a_rows_second_line() {
         ),
     ];
     for (name, origin, there, want) in cases {
-        assert_eq!(detail(&entry(origin), there, at(1)), want, "{name}");
+        assert_eq!(
+            detail(&entry(origin), there, at(1), Clock::H24),
+            want,
+            "{name}"
+        );
     }
 }
 

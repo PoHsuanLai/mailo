@@ -11,6 +11,7 @@ use ds::components::fields::field_row::{FieldRow, RowLayout};
 use ds::components::fields::text_field_model::{FieldRows, Invalid};
 use ds::motion::detail::stamp::EventStamp;
 use ds::prelude::*;
+use mail_core::when::Clock;
 use mail_core::{SqliteStore, Store};
 use mail_domain::{DateRange, Vacation};
 use std::sync::Arc;
@@ -46,6 +47,10 @@ pub(in crate::ui) struct Away {
 }
 
 /// How a kept instant is written back into its field: what [`when`] reads.
+///
+/// Twenty-four hours whatever the person's clock: the field is typed into and read back
+/// (`rules::server::instant`), and this is the form its refusal asks for, so what it holds must be
+/// what it takes. Every time the page *says* follows the clock ([`span`]).
 fn typed<Tz: TimeZone>(at: Option<DateTime<Utc>>, zone: &Tz) -> String
 where
     Tz::Offset: std::fmt::Display,
@@ -124,6 +129,7 @@ pub(in crate::ui) fn save<Tz: TimeZone>(
     away: &Away,
     now: DateTime<Utc>,
     zone: &Tz,
+    clock: Clock,
 ) -> Result<String, String>
 where
     Tz::Offset: std::fmt::Display,
@@ -151,7 +157,7 @@ where
         if end <= now {
             return Err(format!(
                 "“Until” is already past: {}. A reply that has ended answers nobody.",
-                when_words(end, now, zone)
+                when_words(end, now, zone, clock)
             ));
         }
         if during.from.is_some_and(|start| end <= start) {
@@ -175,7 +181,7 @@ where
     Ok(format!(
         "Saved: “{}”, {}.",
         reply.subject,
-        span(&reply.during, now, zone)
+        span(&reply.during, now, zone, clock)
     ))
 }
 
@@ -202,11 +208,11 @@ fn addresses(typed: &str) -> Result<Vec<String>, String> {
 }
 
 /// When a reply runs, in words.
-fn span<Tz: TimeZone>(during: &DateRange, now: DateTime<Utc>, zone: &Tz) -> String
+fn span<Tz: TimeZone>(during: &DateRange, now: DateTime<Utc>, zone: &Tz, clock: Clock) -> String
 where
     Tz::Offset: std::fmt::Display,
 {
-    let at = |t: DateTime<Utc>| when_words(t, now, zone);
+    let at = |t: DateTime<Utc>| when_words(t, now, zone, clock);
     match (during.from, during.to) {
         (None, None) => "from now until it is turned off".to_owned(),
         (Some(a), None) => format!("from {} until it is turned off", at(a)),
@@ -249,6 +255,7 @@ pub(super) fn AwayPage(row: AccountRow, pushed: Callback<AccountRow>) -> Element
         };
     }
     let now = Utc::now();
+    let hours = crate::ui::clock::hours();
     let form = away();
     let on = form.reply == Reply::On;
     // A date that cannot be read is its field's error, and Keep Reply waits for both to read.
@@ -278,7 +285,7 @@ pub(super) fn AwayPage(row: AccountRow, pushed: Callback<AccountRow>) -> Element
                             away.write().reply = Reply::Off;
                             let store = consume_context::<Arc<SqliteStore>>();
                             let form = away.peek().clone();
-                            match save(&store, &off, &form, Utc::now(), &chrono::Local) {
+                            match save(&store, &off, &form, Utc::now(), &chrono::Local, hours) {
                                 Ok(_) => {
                                     refused.set(None);
                                     pushed.call(off.clone());
@@ -351,7 +358,7 @@ pub(super) fn AwayPage(row: AccountRow, pushed: Callback<AccountRow>) -> Element
                         onclick: on_primary(move || {
                             let store = consume_context::<Arc<SqliteStore>>();
                             let form = away.peek().clone();
-                            match save(&store, &keep, &form, Utc::now(), &chrono::Local) {
+                            match save(&store, &keep, &form, Utc::now(), &chrono::Local, hours) {
                                 Ok(_) => {
                                     refused.set(None);
                                     pushed.call(keep.clone());

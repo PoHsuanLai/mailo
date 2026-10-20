@@ -7,6 +7,7 @@
 //!
 //! [`Applied`]: mail_domain::Applied
 
+use crate::when::Clock;
 use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::{
     Change, DraftId, FolderWork, FollowUp, LabelId, MailboxRole, Membership, MessageId, Mute,
@@ -265,8 +266,8 @@ pub fn reverse_folder(work: &FolderWork) -> Option<FolderWork> {
     }
 }
 
-/// What the toast says an operation did.
-pub fn said<Tz: TimeZone>(op: &Op, zone: &Tz) -> String
+/// What the toast says an operation did, a time in it written as `clock` says.
+pub fn said<Tz: TimeZone>(op: &Op, zone: &Tz, clock: Clock) -> String
 where
     Tz::Offset: std::fmt::Display,
 {
@@ -281,14 +282,14 @@ where
         Op::SetStar(Star::Unstarred) => "Unstarred".to_owned(),
         Op::Label(_, Membership::In) => "Labelled".to_owned(),
         Op::Label(_, Membership::Out) => "Label removed".to_owned(),
-        Op::SetSnooze(Snooze::Until(at)) => format!("Snoozed until {}", when(*at, zone)),
+        Op::SetSnooze(Snooze::Until(at)) => format!("Snoozed until {}", when(*at, zone, clock)),
         Op::SetSnooze(Snooze::Inactive) => "Back in the inbox".to_owned(),
         Op::SetPin(Pin::Rank(_)) => "Pinned".to_owned(),
         Op::SetPin(Pin::Unpinned) => "Unpinned".to_owned(),
         Op::SetMute(Mute::Muted) => "Muted".to_owned(),
         Op::SetMute(Mute::Unmuted) => "Unmuted".to_owned(),
         Op::SetFollowUp(FollowUp::Until { at, .. }) => {
-            format!("Reminder set for {} if no reply", when(*at, zone))
+            format!("Reminder set for {} if no reply", when(*at, zone, clock))
         }
         Op::SetFollowUp(FollowUp::Returned { .. }) => "No reply yet".to_owned(),
         Op::SetFollowUp(FollowUp::Inactive) => "Reminder cleared".to_owned(),
@@ -299,11 +300,11 @@ where
 
 /// What the toast says one gesture did to several conversations: "Archived 3 conversations".
 /// One conversation is said as [`said`] says it.
-pub fn said_of<Tz: TimeZone>(op: &Op, count: usize, zone: &Tz) -> String
+pub fn said_of<Tz: TimeZone>(op: &Op, count: usize, zone: &Tz, clock: Clock) -> String
 where
     Tz::Offset: std::fmt::Display,
 {
-    let one = said(op, zone);
+    let one = said(op, zone, clock);
     if count == 1 {
         one
     } else {
@@ -311,11 +312,11 @@ where
     }
 }
 
-fn when<Tz: TimeZone>(at: DateTime<Utc>, zone: &Tz) -> String
+fn when<Tz: TimeZone>(at: DateTime<Utc>, zone: &Tz, clock: Clock) -> String
 where
     Tz::Offset: std::fmt::Display,
 {
-    crate::when::stamp(at, zone, crate::when::Stamp::Weekday)
+    crate::when::stamp(at, zone, crate::when::Stamp::Weekday, clock)
 }
 
 #[cfg(test)]

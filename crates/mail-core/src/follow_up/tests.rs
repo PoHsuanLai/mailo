@@ -106,7 +106,7 @@ fn the_named_times_and_a_typed_one_resolve_from_when_it_leaves() {
         ("", Err(())),
     ];
     for (choice, want) in cases {
-        let got = due(choice, from, &Utc);
+        let got = due(choice, from, &Utc, crate::when::Clock::H24);
         match want {
             Ok(at) => assert_eq!(got, Ok(at), "{choice:?}"),
             Err(()) => assert!(got.is_err(), "{choice:?} should be refused: {got:?}"),

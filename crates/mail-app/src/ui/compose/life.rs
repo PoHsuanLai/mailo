@@ -126,6 +126,7 @@ pub(in crate::ui) fn send<Tz: TimeZone>(
     anyway: Anyway,
     now: DateTime<Utc>,
     zone: &Tz,
+    clock: mail_core::when::Clock,
 ) -> Result<Sent, String>
 where
     Tz::Offset: std::fmt::Display,
@@ -150,13 +151,13 @@ where
     }
     page.guard = Guard::Clear;
     // A time that has gone is refused before anything is written, in the page's words.
-    let leaves = super::later::leaves(page.when, now, zone)?;
+    let leaves = super::later::leaves(page.when, now, zone, clock)?;
     // And a reminder that would come before the message leaves, the same way.
     let leaving = match leaves {
         Leaves::Now => now + GRACE,
         Leaves::At(at) => at,
     };
-    let remind = page.remind.due(leaving, zone)?;
+    let remind = page.remind.due(leaving, zone, clock)?;
     let saved = save(store, page, now)?;
     if page.protection != Protection::None {
         page.seal_bar = super::seal::sealable(store, &saved, now)?;

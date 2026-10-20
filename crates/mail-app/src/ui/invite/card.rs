@@ -96,14 +96,15 @@ pub(in crate::ui) struct Card {
     pub stand: Stand,
 }
 
-/// The card for `invite` in `message`, with times in `zone`.
+/// The card for `invite` in `message`, with times in `zone` by `clock`.
 pub(in crate::ui) fn card_of<Z: TimeZone>(
     message: MessageId,
     invite: &Invite,
     answered: Option<&InviteAnswer>,
     zone: &Z,
+    clock: mail_core::when::Clock,
 ) -> Card {
-    let when = show_when(&invite.when, zone);
+    let when = show_when(&invite.when, zone, clock);
     let tag = match invite.kind {
         Kind::Request(Revision::First) => Tag::Invitation,
         Kind::Request(Revision::Update { .. }) => Tag::Updated,

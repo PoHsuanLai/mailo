@@ -142,7 +142,11 @@ pub(in crate::ui) fn client() -> Result<reqwest::Client, String> {
 /// By sender rather than by `List-Id`: no filter can ask for a list, because the id is not a
 /// column — it is read from the raw message, which is exactly the per-row blob read this avoids.
 /// A list sends from one address, so `from:` it is the same set of conversations in practice.
-pub(in crate::ui) fn archive_from(store: &SqliteStore, sender: &str) -> Vec<Undo> {
+pub(in crate::ui) fn archive_from(
+    store: &SqliteStore,
+    sender: &str,
+    clock: mail_core::when::Clock,
+) -> Vec<Undo> {
     let query = Query {
         filter: Filter::And(vec![
             Filter::From(TextMatch::Exact(sender.to_owned())),
@@ -162,7 +166,7 @@ pub(in crate::ui) fn archive_from(store: &SqliteStore, sender: &str) -> Vec<Undo
     };
     page.items
         .iter()
-        .filter_map(|thread| ops::perform(store, thread.id, Op::Archive))
+        .filter_map(|thread| ops::perform(store, thread.id, Op::Archive, clock))
         .collect()
 }
 
@@ -175,7 +179,7 @@ pub(in crate::ui) fn archive_list(
     sender: &str,
     list: &str,
 ) {
-    let undone = archive_from(store, sender);
+    let undone = archive_from(store, sender, crate::ui::clock::hours());
     let count = undone.len();
     revision += 1;
     let text = match count {

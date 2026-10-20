@@ -85,6 +85,7 @@ fn window(dress: impl FnOnce(&mut Page), before: Before) -> (String, Work) {
                 Anyway::Yes,
                 Utc::now(),
                 &chrono::Local,
+                mail_core::when::Clock::H24,
             );
             let Ok(Sent::Queued { draft, due, when }) = sent else {
                 panic!("not scheduled: {sent:?}");

@@ -1446,6 +1446,8 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
     // What the process was started with: the commands that take a password or a passphrase from
     // the environment read it here, and the library reads nothing itself.
     let env = mail.environment().clone();
+    // The person's clock, which every time of day this writes follows: `main` decided it.
+    let clock = env.hours;
     // The Profile's own keys: the handle was built over its keyring service.
     let signing = mail.signing();
     match command {
@@ -1462,7 +1464,7 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
             if page.items.is_empty() {
                 return Ok(format!("no threads in {}\n", mailbox));
             }
-            Ok(render_list(&page.items))
+            Ok(render_list(&page.items, clock))
         }
         Command::Show { thread } => {
             let loaded = store.thread(*thread).map_err(|e| e.to_string())?;
@@ -1487,7 +1489,7 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
                     "\n--- {} <{}>  {}\n    {}",
                     message.from.name.as_deref().unwrap_or(""),
                     message.from.email,
-                    mail_core::when::stamp(message.date, &Local, Stamp::Full),
+                    mail_core::when::stamp(message.date, &Local, Stamp::Full, clock),
                     message.id
                 );
                 // Asked here rather than only in a window, so a request is never answered by
@@ -1497,7 +1499,7 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
                 }
                 // Likewise an invitation: said, with how to answer, and never answered for them.
                 if let Ok(state) = mail_core::invite::state(store, &message) {
-                    out.push_str(&invite::describe(&state, message.id));
+                    out.push_str(&invite::describe(&state, message.id, clock));
                 }
                 // OpenPGP: the signature checked and the encryption opened now, as it is shown,
                 // never before. The decrypted text is printed and kept nowhere.
@@ -1559,6 +1561,7 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
             *limit,
             &|name| labels_named(store, name),
             now,
+            clock,
         )),
         // Dispatched in main: it needs an async runtime and the store by Arc, which would make
         // this function untestable without one.
@@ -1613,7 +1616,7 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
             when,
             now,
         )
-        .map(|held| compose::scheduled(&held, now, &Local))
+        .map(|held| compose::scheduled(&held, now, &Local, clock))
         .map_err(remedy::error),
         Command::Unsend { draft } => mail_core::compose::unsend(store, *draft, now)
             .map(|back| compose::unsent(&back))
@@ -1635,7 +1638,7 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
             .map(|name| format!("deleted template {name:?}\n"))
             .map_err(remedy::error),
         Command::Drafts => mail_core::compose::drafts(store)
-            .map(|all| compose::drafts(&all, now))
+            .map(|all| compose::drafts(&all, now, clock))
             .map_err(remedy::error),
         Command::ListSnoozed { limit } => {
             let page = store
@@ -1644,7 +1647,7 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
             if page.items.is_empty() {
                 return Ok("nothing is snoozed\n".to_owned());
             }
-            Ok(render_list(&page.items))
+            Ok(render_list(&page.items, clock))
         }
         Command::ListPinned { limit } => {
             let page = store
@@ -1653,13 +1656,13 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
             if page.items.is_empty() {
                 return Ok("nothing is pinned\n".to_owned());
             }
-            Ok(render_list(&page.items))
+            Ok(render_list(&page.items, clock))
         }
         Command::Pin { thread } => mail_core::snooze::pin(store, *thread, now)
             .map(snooze::pinned)
             .map_err(remedy::error),
         Command::Snooze { thread, when } => mail_core::snooze::snooze(store, *thread, when, now)
-            .map(snooze::snoozed)
+            .map(|at| snooze::snoozed(at, clock))
             .map_err(remedy::error),
         Command::Wake { thread } => mail_core::snooze::wake(store, *thread, now)
             .map(|()| snooze::woke())
@@ -1762,7 +1765,7 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
             crate::edge::block_on(contacts::run(mail, command)).map_err(remedy::error)
         }
         Command::Print { target, out, pages } => {
-            let printed = mail_core::print::document(store, *target, &Local, now, *pages)
+            let printed = mail_core::print::document(store, *target, &Local, now, *pages, clock)
                 .map_err(remedy::error)?;
             match out {
                 PrintTo::Unsaid | PrintTo::Stdout => Ok(printed.html),
@@ -1774,7 +1777,7 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
                     .map_err(remedy::error),
             }
         }
-        Command::Invite(command) => invite::run(store, command, now).map_err(remedy::error),
+        Command::Invite(command) => invite::run(store, command, now, clock).map_err(remedy::error),
         Command::Rules(rules) => rules::run(store, rules, now).map_err(remedy::error),
         Command::Vacation(vacation) => {
             crate::edge::block_on(rules::run_vacation(mail, vacation)).map_err(remedy::error)
@@ -1935,7 +1938,7 @@ fn labels_named(store: &SqliteStore, name: &str) -> Vec<mail_domain::LabelId> {
     mail_core::query::named(&mail_core::query::known_labels(store))(name)
 }
 
-fn render_list(items: &[ThreadSummary]) -> String {
+fn render_list(items: &[ThreadSummary], clock: mail_core::when::Clock) -> String {
     let mut out = String::new();
     for summary in items {
         let _ = writeln!(
@@ -1946,7 +1949,7 @@ fn render_list(items: &[ThreadSummary]) -> String {
             } else {
                 " "
             },
-            mail_core::when::stamp(summary.last_date, &Local, Stamp::Row),
+            mail_core::when::stamp(summary.last_date, &Local, Stamp::Row, clock),
             summary.from.shown(),
             summary.subject,
             summary.id

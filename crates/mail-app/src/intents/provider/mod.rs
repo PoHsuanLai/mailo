@@ -36,6 +36,8 @@ pub struct Provider {
     stack: Mutex<UndoStack>,
     /// Shows a conversation in mailo's window: [`Opener::window`], or a test's stand-in.
     opener: Opener,
+    /// How the person keeps the hours of the day, for the times the answers write.
+    hours: mail_core::when::Clock,
 }
 
 /// What `mail.thread.open` does with the conversation it is given and the activation token that
@@ -123,7 +125,13 @@ impl Provider {
             secrets,
             stack: Mutex::new(UndoStack::default()),
             opener,
+            hours: mail_core::when::Clock::default(),
         }
+    }
+
+    /// The same, writing the hours of the day by `hours`: twenty-four until it is told.
+    pub fn with_hours(self, hours: mail_core::when::Clock) -> Provider {
+        Provider { hours, ..self }
     }
 
     /// The actions mailo answers, by the names the manifest gives them.

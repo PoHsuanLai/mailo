@@ -61,12 +61,13 @@ pub(in crate::ui) fn build<Tz>(
     job: Job,
     zone: &Tz,
     now: DateTime<Utc>,
+    clock: mail_core::when::Clock,
 ) -> Result<Printed, String>
 where
     Tz: TimeZone,
     Tz::Offset: std::fmt::Display,
 {
-    mail_core::print::document(store, *job.thread.as_uuid(), zone, now, job.pages)
+    mail_core::print::document(store, *job.thread.as_uuid(), zone, now, job.pages, clock)
         .map_err(crate::ui::remedy::told)
 }
 
@@ -83,12 +84,13 @@ pub(in crate::ui) fn save_into<Tz>(
     dir: &Path,
     zone: &Tz,
     now: DateTime<Utc>,
+    clock: mail_core::when::Clock,
 ) -> Result<std::path::PathBuf, String>
 where
     Tz: TimeZone,
     Tz::Offset: std::fmt::Display,
 {
-    saved_bytes(store, job, sources, zone, now)
+    saved_bytes(store, job, sources, zone, now, clock)
         .and_then(|(subject, bytes)| {
             mail_core::print::write_file_into(dir, &subject, SAVED_AS, &bytes).map_err(String::from)
         })
@@ -128,9 +130,18 @@ pub(in crate::ui) fn save(job: Job) {
     let dir = crate::ui::files::save_dir();
     let sources = Sources::window();
     let saving = crate::ui::downloads::Saving::quick();
+    let hours = crate::ui::clock::hours();
     dioxus::core::spawn_forever(async move {
         let done = tokio::task::spawn_blocking(move || {
-            save_into(&store, job, &sources, &dir, &chrono::Local, Utc::now())
+            save_into(
+                &store,
+                job,
+                &sources,
+                &dir,
+                &chrono::Local,
+                Utc::now(),
+                hours,
+            )
         })
         .await;
         let text = match done {
@@ -235,16 +246,17 @@ mod native_print {
         sources: &Sources,
         zone: &Tz,
         now: DateTime<Utc>,
+        clock: mail_core::when::Clock,
     ) -> Result<Printed, String>
     where
         Tz: TimeZone,
         Tz::Offset: std::fmt::Display,
     {
         let (Some(consent), Some(net)) = (&sources.consent, &sources.net) else {
-            return paper::printed(store, job, paper, None, zone, now);
+            return paper::printed(store, job, paper, None, zone, now, clock);
         };
         let Some((ticket, messages)) = consent.thread(job.thread) else {
-            return paper::printed(store, job, paper, None, zone, now);
+            return paper::printed(store, job, paper, None, zone, now, clock);
         };
         let consented = |id: MessageId| messages.contains(&id);
         let fetch = |urls: &[String]| {
@@ -259,7 +271,7 @@ mod native_print {
             consented: &consented,
             fetch: &fetch,
         };
-        paper::printed(store, job, paper, Some(&pictures), zone, now)
+        paper::printed(store, job, paper, Some(&pictures), zone, now, clock)
     }
 
     /// Fetch `urls` through `net`, all at once, and wait at most `wait` for them: those that
@@ -381,6 +393,7 @@ mod native_print {
         let store = consume_context::<Arc<SqliteStore>>();
         let paper = Paper::from_env();
         let sources = Sources::window();
+        let hours = crate::ui::clock::hours();
         dioxus::core::spawn_forever(async move {
             let done = tokio::task::spawn_blocking(move || {
                 let _claim = claim;
@@ -392,6 +405,7 @@ mod native_print {
                     &sources,
                     &chrono::Local,
                     Utc::now(),
+                    hours,
                 )
             })
             .await;
@@ -406,6 +420,7 @@ mod native_print {
     /// Build `job` with the remote images `sources` consents to, make it a PDF on `paper`, hand
     /// it to `printer`'s dialog, and say what became of it. Blocking, for as long as the fetches
     /// and the dialog take.
+    #[allow(clippy::too_many_arguments)]
     pub(in crate::ui) fn print_through<Tz>(
         store: &SqliteStore,
         job: Job,
@@ -414,12 +429,13 @@ mod native_print {
         sources: &Sources,
         zone: &Tz,
         now: DateTime<Utc>,
+        clock: mail_core::when::Clock,
     ) -> String
     where
         Tz: TimeZone,
         Tz::Offset: std::fmt::Display,
     {
-        let made = made(store, job, paper, sources, zone, now).and_then(|printed| {
+        let made = made(store, job, paper, sources, zone, now, clock).and_then(|printed| {
             let pdf = paper::pdf(&printed, paper)?;
             Ok((
                 mail_domain::subject_or_none(&printed.subject).into_owned(),
@@ -457,13 +473,14 @@ mod native_print {
         sources: &Sources,
         zone: &Tz,
         now: DateTime<Utc>,
+        clock: mail_core::when::Clock,
     ) -> Result<(String, Vec<u8>), String>
     where
         Tz: TimeZone,
         Tz::Offset: std::fmt::Display,
     {
         let paper = Paper::from_env();
-        let printed = made(store, job, &paper, sources, zone, now)?;
+        let printed = made(store, job, &paper, sources, zone, now, clock)?;
         let pdf = paper::pdf(&printed, &paper)?;
         Ok((printed.subject, pdf))
     }

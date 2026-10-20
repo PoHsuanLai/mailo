@@ -123,6 +123,7 @@ fn DownloadsList(
     let held = shelf.read();
     let empty = held.log.entries.is_empty() && held.going.is_empty();
     let now = chrono::Utc::now();
+    let hours = crate::ui::clock::hours();
     let mut items: Vec<ListItem<Key>> = held
         .going
         .iter()
@@ -162,7 +163,7 @@ fn DownloadsList(
                     Row {
                         leading: RowLeading::Icon(icon_of(&name)),
                         title: name.clone(),
-                        detail: Some(TextLine::from(detail(entry, here, now))),
+                        detail: Some(TextLine::from(detail(entry, here, now, hours))),
                         common: Common {
                             extra_class: if here { None } else { ExtraClass::parse("gone").ok() },
                             ..Common::default()
@@ -266,13 +267,18 @@ fn RowMenu(
 
 /// The row's second line: its size, when it was saved and the message it came from; or that the
 /// file is no longer where it was saved.
-pub(super) fn detail(entry: &Entry, here: bool, now: chrono::DateTime<chrono::Utc>) -> String {
+pub(super) fn detail(
+    entry: &Entry,
+    here: bool,
+    now: chrono::DateTime<chrono::Utc>,
+    clock: mail_core::when::Clock,
+) -> String {
     if !here {
         return "Moved or deleted".to_owned();
     }
     let mut parts = vec![
         mail_core::attach::human_size(entry.bytes),
-        crate::ui::menus::when_words(entry.at, now, &chrono::Local),
+        crate::ui::menus::when_words(entry.at, now, &chrono::Local, clock),
     ];
     if let Some(origin) = &entry.origin
         && !origin.subject.trim().is_empty()

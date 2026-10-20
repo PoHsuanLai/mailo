@@ -81,16 +81,22 @@ pub struct Options<'a> {
     /// A line under the "Printed" line when the printout names an image rather than drawing
     /// it. Escaped like every other text.
     pub missing_note: Option<&'a str>,
+    /// Whether the reader keeps a twelve-hour clock: `2:05 PM` rather than `14:05`. A bool and
+    /// not `mail-core`'s `when::Clock`, which this crate is below and cannot name; the caller
+    /// passes that choice down.
+    pub twelve_hour: bool,
 }
 
 impl<'a> Options<'a> {
-    /// `pages` and `labels`, and nothing more: the document's own stylesheet and no note.
+    /// `pages` and `labels`, and nothing more: the document's own stylesheet, no note, and
+    /// twenty-four hours.
     pub fn new(pages: Pages, labels: Labels<'a>) -> Options<'a> {
         Options {
             pages,
             labels,
             style: "",
             missing_note: None,
+            twelve_hour: false,
         }
     }
 }
@@ -170,7 +176,7 @@ where
         }
         let script = marker(said);
         let _ = writeln!(messages, "<article class=\"{class}\"{starts_page}{script}>");
-        header(&mut messages, sheet.message, zone, labels);
+        header(&mut messages, sheet.message, zone, options);
         body(&mut messages, sheet, labels);
         attachments(&mut messages, sheet.message, labels);
         messages.push_str("</article>\n");
@@ -205,7 +211,7 @@ where
     let _ = writeln!(
         out,
         "<p class=\"printed\">{}</p>",
-        escape(labels.printed).replace("{when}", &escape(&when(now, zone)))
+        escape(labels.printed).replace("{when}", &escape(&when(now, zone, options.twelve_hour)))
     );
     if left_out && let Some(note) = options.missing_note {
         let _ = writeln!(out, "<p class=\"paper-note\">{}</p>", escape(note));
@@ -354,11 +360,12 @@ border-top: 1px solid #ccc; margin-top: 1em; padding-top: .5em; }
 .attachments .size { color: #555; }
 ";
 
-fn header<Tz>(out: &mut String, message: &Message, zone: &Tz, labels: &Labels<'_>)
+fn header<Tz>(out: &mut String, message: &Message, zone: &Tz, options: &Options<'_>)
 where
     Tz: TimeZone,
     Tz::Offset: Display,
 {
+    let labels = &options.labels;
     let _ = writeln!(out, "<header class=\"headers\"{KEEP}>");
     let subject = message.subject.trim();
     let subject = if subject.is_empty() {
@@ -379,7 +386,11 @@ where
     if !message.cc.is_empty() {
         row(out, labels.cc, &addresses(&message.cc));
     }
-    row(out, labels.date, &when(message.date, zone));
+    row(
+        out,
+        labels.date,
+        &when(message.date, zone, options.twelve_hour),
+    );
     row(out, labels.subject, subject);
     out.push_str("</table>\n</header>\n");
 }
@@ -398,15 +409,20 @@ fn addresses(list: &[Address]) -> String {
     Address::join(list)
 }
 
-/// A date as a header shows it, in the reader's zone: `Thu, 24 Sep 2026 14:05 +08:00`.
-fn when<Tz>(instant: DateTime<Utc>, zone: &Tz) -> String
+/// A date as a header shows it, in the reader's zone and by the reader's clock:
+/// `Thu, 24 Sep 2026 14:05 +08:00`, or `Thu, 24 Sep 2026 2:05 PM +08:00`.
+///
+/// The hour is written as `mail-core`'s `when::time_of_day` writes it, which this crate cannot
+/// call; a test there holds the two to the same words.
+fn when<Tz>(instant: DateTime<Utc>, zone: &Tz, twelve_hour: bool) -> String
 where
     Tz: TimeZone,
     Tz::Offset: Display,
 {
+    let hour = if twelve_hour { "%-I:%M %p" } else { "%H:%M" };
     instant
         .with_timezone(zone)
-        .format("%a, %-d %b %Y %H:%M %:z")
+        .format(&format!("%a, %-d %b %Y {hour} %:z"))
         .to_string()
 }
 

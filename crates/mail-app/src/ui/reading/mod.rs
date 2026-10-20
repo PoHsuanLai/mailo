@@ -58,8 +58,12 @@ fn sender_face(message: &Message) -> AvatarFace {
 
 /// When `message` came, as a list row writes it: the time today, a weekday this week, a date
 /// beyond. The header's tooltip has the full date.
-fn when_short(message: &Message, now: chrono::DateTime<chrono::Utc>) -> String {
-    mail_core::when::listed(message.date, now, &chrono::Local)
+fn when_short(
+    message: &Message,
+    now: chrono::DateTime<chrono::Utc>,
+    clock: mail_core::when::Clock,
+) -> String {
+    mail_core::when::listed(message.date, now, &chrono::Local, clock)
 }
 
 /// The key [`super::unsubscribe::Lookout`] and [`super::receipt::Receipts`] are mounted under:
@@ -158,8 +162,9 @@ pub(super) fn Reader(
                 .thread(thread)
                 .is_ok_and(|loaded| loaded.summary.read == ReadState::Unread);
             if unread
-                && super::ops::resolve(&store, thread, OpKind::MarkRead)
-                    .is_some_and(|op| super::ops::perform(&store, thread, op).is_some())
+                && super::ops::resolve(&store, thread, OpKind::MarkRead).is_some_and(|op| {
+                    super::ops::perform(&store, thread, op, super::clock::hours()).is_some()
+                })
                 && let Some(mut revision) = revision
             {
                 revision += 1;
@@ -326,6 +331,7 @@ pub(super) fn Reader(
         })
         .collect();
     let now = super::clock::now();
+    let hours = super::clock::hours();
     // The images line, only while images are held back: it is drawn on the newest such message
     // and asks about its sender. Images once shown say nothing more.
     let blocked = shown
@@ -412,14 +418,14 @@ pub(super) fn Reader(
                     if fold == fold::Fold::Folded {
                         fold::FoldedLine {
                             message: message.clone(),
-                            when: (when_short(&message, now), stamp(&message)),
+                            when: (when_short(&message, now, hours), stamp(&message, hours)),
                             unfolded,
                         }
                     }
                     if fold != fold::Fold::Folded {
                         header::MessageHead {
                             detail: header::detail_at(at, count),
-                            when: (when_short(&message, now), stamp(&message)),
+                            when: (when_short(&message, now, hours), stamp(&message, hours)),
                             extras: (header::detail_at(at, count) == header::Detail::Full).then(|| header::Extras {
                                 checked: (message.id, message.body.raw()),
                                 landed,

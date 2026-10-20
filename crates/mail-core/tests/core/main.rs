@@ -15,6 +15,7 @@ mod live_watch;
 mod no_hidden_runtime;
 mod notifications;
 mod offline_sync;
+mod one_clock;
 mod search_scale;
 mod seed_live;
 mod sender_standing;

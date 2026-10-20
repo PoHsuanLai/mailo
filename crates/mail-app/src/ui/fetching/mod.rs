@@ -182,6 +182,7 @@ impl Fetching {
             &[(&link, self.pace(account))],
             now,
             &chrono::Local,
+            crate::ui::clock::hours(),
         ))
     }
 
@@ -192,7 +193,7 @@ impl Fetching {
             .iter()
             .filter_map(|id| links.get(id).map(|link| (link, self.pace(id))))
             .collect();
-        status_line(&shown, now, &chrono::Local)
+        status_line(&shown, now, &chrono::Local, crate::ui::clock::hours())
     }
 }
 

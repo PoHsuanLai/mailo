@@ -72,6 +72,7 @@ pub(in crate::ui) fn face<Tz: TimeZone>(
     state: Option<&SendState>,
     now: DateTime<Utc>,
     zone: &Tz,
+    clock: mail_core::when::Clock,
 ) -> Option<Face>
 where
     Tz::Offset: std::fmt::Display,
@@ -105,7 +106,7 @@ where
             Offer::Undo,
         )),
         SendState::Scheduled { at } => Some(calm(
-            format!("Scheduled for {}", when_in_sentence(*at, now, zone)),
+            format!("Scheduled for {}", when_in_sentence(*at, now, zone, clock)),
             Ring::Full,
             Offer::Cancel,
         )),
@@ -204,7 +205,13 @@ pub(in crate::ui) fn SendPill(shell: Signal<Shell>) -> Element {
     let store = consume_context::<Arc<SqliteStore>>();
     let state = store.draft(out.draft).ok().map(|draft| draft.state);
     let now = Utc::now();
-    let Some(face) = face(&out, state.as_ref(), now, &chrono::Local) else {
+    let Some(face) = face(
+        &out,
+        state.as_ref(),
+        now,
+        &chrono::Local,
+        crate::ui::clock::hours(),
+    ) else {
         return rsx! {};
     };
     let progress = face.gone(out.due, now);

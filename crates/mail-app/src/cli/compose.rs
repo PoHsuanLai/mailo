@@ -5,6 +5,7 @@
 
 use chrono::{DateTime, Local, TimeZone, Utc};
 use mail_core::compose::{AttachedFile, Composed, Scheduled, SignatureChange};
+use mail_core::when::Clock;
 use mail_domain::{Address, Draft, OpenPgp, ReceiptRequest, SendState, Smime};
 use std::fmt::Write as _;
 
@@ -118,12 +119,17 @@ pub fn queued(draft: &Draft, post: &mail_mime::Posting) -> String {
 
 /// A send held for later, as `mailo send --at` reports it, the time written in `zone` as the
 /// window writes it, against `now`.
-pub fn scheduled<Tz: TimeZone>(held: &Scheduled, now: DateTime<Utc>, zone: &Tz) -> String
+pub fn scheduled<Tz: TimeZone>(
+    held: &Scheduled,
+    now: DateTime<Utc>,
+    zone: &Tz,
+    clock: Clock,
+) -> String
 where
     Tz::Offset: std::fmt::Display,
 {
     let Scheduled { draft, post, at } = held;
-    let when = mail_core::when::upcoming(*at, now, zone);
+    let when = mail_core::when::upcoming(*at, now, zone, clock);
     let mut out = format!("{} will leave at {when}\n", draft.id);
     let _ = writeln!(out, "  from    {}", post.mail_from);
     let _ = writeln!(out, "  to      {}", post.rcpt_to.join(", "));
@@ -146,12 +152,17 @@ pub fn unsent(back: &Draft) -> String {
 }
 
 /// Every draft and where it got to, as `mailo drafts` lists them.
-pub fn drafts(drafts: &[Draft], now: DateTime<Utc>) -> String {
-    drafts_in(drafts, now, &Local)
+pub fn drafts(drafts: &[Draft], now: DateTime<Utc>, clock: Clock) -> String {
+    drafts_in(drafts, now, &Local, clock)
 }
 
 /// The same, with the zone a scheduled send's time is written in named.
-pub fn drafts_in<Tz: TimeZone>(drafts: &[Draft], now: DateTime<Utc>, zone: &Tz) -> String
+pub fn drafts_in<Tz: TimeZone>(
+    drafts: &[Draft],
+    now: DateTime<Utc>,
+    zone: &Tz,
+    clock: Clock,
+) -> String
 where
     Tz::Offset: std::fmt::Display,
 {
@@ -168,7 +179,7 @@ where
             let _ = write!(
                 out,
                 "  (leaves {})",
-                mail_core::when::upcoming(at, now, zone)
+                mail_core::when::upcoming(at, now, zone, clock)
             );
         }
         out.push('\n');

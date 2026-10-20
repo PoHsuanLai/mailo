@@ -26,6 +26,7 @@ use ds::prelude::*;
 use ds::root::common::Common;
 use ds::root::pass_through::ExtraClass;
 use mail_core::SqliteStore;
+use mail_core::when::Clock;
 use mail_domain::*;
 use porter_core::AccountId;
 use std::sync::Arc;
@@ -41,25 +42,34 @@ const SNOOZE: &[(&str, &str)] = &[
 /// The snooze menu's key for Choose Time…, which no phrase is.
 pub(super) const CHOOSE: &str = "choose";
 
-/// How a resolved snooze time is written on the row.
-pub(super) fn snooze_help<Tz: TimeZone>(at: DateTime<Utc>, zone: &Tz) -> String
+/// How a resolved snooze time is written on the row, its hour by `clock`.
+pub(super) fn snooze_help<Tz: TimeZone>(at: DateTime<Utc>, zone: &Tz, clock: Clock) -> String
 where
     Tz::Offset: std::fmt::Display,
 {
-    mail_core::when::stamp(at, zone, mail_core::when::Stamp::Full)
+    mail_core::when::stamp(at, zone, mail_core::when::Stamp::Full, clock)
 }
 
-/// The time a snooze lands on, short enough for the end of a menu row: `7:30 PM` today or
-/// tomorrow (the name says which), `Sat 9:00 AM` within the week, `Mon 12 Oct` past it.
-pub(super) fn snooze_hint<Tz: TimeZone>(at: DateTime<Utc>, now: DateTime<Utc>, zone: &Tz) -> String
+/// The time a snooze lands on, short enough for the end of a menu row: `19:30` (or `7:30 PM`)
+/// today or tomorrow (the name says which), `Sat 09:00` within the week, `Mon 12 Oct` past it.
+///
+/// The one menu that wrote twelve hours while every other time in the window wrote
+/// twenty-four; now the hour is `clock`'s, as everywhere else.
+pub(super) fn snooze_hint<Tz: TimeZone>(
+    at: DateTime<Utc>,
+    now: DateTime<Utc>,
+    zone: &Tz,
+    clock: Clock,
+) -> String
 where
     Tz::Offset: std::fmt::Display,
 {
     let there = at.with_timezone(zone);
     let days = (there.date_naive() - now.with_timezone(zone).date_naive()).num_days();
+    let hour = mail_core::when::time_of_day(&there, clock);
     match days {
-        ..=1 => there.format("%-I:%M %p").to_string(),
-        2..=6 => there.format("%a %-I:%M %p").to_string(),
+        ..=1 => hour,
+        2..=6 => format!("{} {hour}", there.format("%a")),
         _ => there.format("%a %-d %b").to_string(),
     }
 }
@@ -72,11 +82,12 @@ pub(in crate::ui) fn when_in_sentence<Tz: TimeZone>(
     at: DateTime<Utc>,
     now: DateTime<Utc>,
     zone: &Tz,
+    clock: Clock,
 ) -> String
 where
     Tz::Offset: std::fmt::Display,
 {
-    let words = mail_core::when::upcoming(at, now, zone);
+    let words = mail_core::when::upcoming(at, now, zone, clock);
     for day in ["Yesterday", "Today", "Tomorrow"] {
         if let Some(rest) = words.strip_prefix(day) {
             return format!("{}{rest}", day.to_lowercase());
@@ -87,7 +98,11 @@ where
 
 /// The snooze menu's rows: the four times, each with [`snooze_hint`] of
 /// [`mail_core::snooze::snooze_until`] at its end, then Choose Time….
-pub(super) fn snooze_items<Tz: TimeZone>(now: DateTime<Utc>, zone: &Tz) -> Vec<MenuItem>
+pub(super) fn snooze_items<Tz: TimeZone>(
+    now: DateTime<Utc>,
+    zone: &Tz,
+    clock: Clock,
+) -> Vec<MenuItem>
 where
     Tz::Offset: std::fmt::Display,
 {
@@ -99,7 +114,11 @@ where
         .iter()
         .filter_map(|(says, phrase)| {
             let at = mail_core::snooze::snooze_until(phrase, now, zone).ok()?;
-            Some(row(phrase, says, Right::Hint(snooze_hint(at, now, zone))))
+            Some(row(
+                phrase,
+                says,
+                Right::Hint(snooze_hint(at, now, zone, clock)),
+            ))
         })
         .chain([row(CHOOSE, copy::menus::CHOOSE_TIME, Right::None)])
         .collect()
@@ -111,6 +130,7 @@ pub(super) fn chosen_time<Tz: TimeZone>(
     typed: &str,
     now: DateTime<Utc>,
     zone: &Tz,
+    clock: Clock,
 ) -> Result<DateTime<Utc>, String>
 where
     Tz::Offset: std::fmt::Display,
@@ -120,7 +140,7 @@ where
     }
     let at = mail_core::snooze::snooze_until(typed, now, zone)?;
     if at <= now {
-        return Err(copy::errors::time_passed(&when_words(at, now, zone)));
+        return Err(copy::errors::time_passed(&when_words(at, now, zone, clock)));
     }
     Ok(at)
 }
@@ -190,7 +210,7 @@ pub(super) fn SnoozeMenu(
     }
     let now = Utc::now();
     // The Mac's menu has no second line, so each choice says its time at its trailing end.
-    let items = snooze_items(now, &chrono::Local);
+    let items = snooze_items(now, &chrono::Local, crate::ui::clock::hours());
     rsx! {
         Floating {
             anchor,
@@ -232,7 +252,8 @@ fn ChooseTime(
 ) -> Element {
     let mut typed = use_signal(String::new);
     let now = Utc::now();
-    let reading = chosen_time(&typed(), now, &chrono::Local);
+    let hours = crate::ui::clock::hours();
+    let reading = chosen_time(&typed(), now, &chrono::Local, hours);
     // What it reads is help under the field; a phrase it cannot read is the field's own refusal.
     let (validity, says) = match &reading {
         Ok(at) => (
@@ -241,6 +262,7 @@ fn ChooseTime(
                 *at,
                 now,
                 &chrono::Local,
+                hours,
             ))),
         ),
         Err(why) if typed().trim().is_empty() => (Validity::Valid, Some(why.clone())),
@@ -265,7 +287,7 @@ fn ChooseTime(
                     match menu_key(&event.key().to_string()) {
                         Some(MenuKey::Enter) => {
                             event.prevent_default();
-                            if let Ok(at) = chosen_time(&typed(), Utc::now(), &chrono::Local) {
+                            if let Ok(at) = chosen_time(&typed(), Utc::now(), &chrono::Local, hours) {
                                 on_chosen.call(at);
                             }
                         }

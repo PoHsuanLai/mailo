@@ -3,6 +3,7 @@
 use chrono::{DateTime, TimeZone, Utc};
 use mail_core::fetch::{Count, Link, Live, Pause, Step};
 use mail_core::sync::fresh::{self, Freshness, Pace};
+use mail_core::when::Clock;
 
 /// How much the line should draw the eye.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -55,6 +56,7 @@ pub fn status_line<Tz: TimeZone>(
     paced: &[(&Link, Pace)],
     now: DateTime<Utc>,
     zone: &Tz,
+    clock: Clock,
 ) -> StatusLine
 where
     Tz::Offset: std::fmt::Display,
@@ -65,12 +67,12 @@ where
     }
     if let Some(worst) = links.iter().filter_map(|link| trouble_rank(link)).max() {
         let worst = links.iter().find(|link| trouble_rank(link) == Some(worst));
-        return worst.map_or_else(|| line("", Tone::Plain), |link| trouble(link, zone));
+        return worst.map_or_else(|| line("", Tone::Plain), |link| trouble(link, zone, clock));
     }
     if let Some(since) = stalest(paced, now) {
-        return line(not_updated_since(since, now, zone), Tone::Warn);
+        return line(not_updated_since(since, now, zone, clock), Tone::Warn);
     }
-    updated(paced, now, zone)
+    updated(paced, now, zone, clock)
 }
 
 /// The oldest finished pass among `paced` that is older than its schedule allows.
@@ -89,15 +91,20 @@ pub(super) fn not_updated_since<Tz: TimeZone>(
     since: DateTime<Utc>,
     now: DateTime<Utc>,
     zone: &Tz,
+    clock: Clock,
 ) -> String
 where
     Tz::Offset: std::fmt::Display,
 {
     let (then, today) = (since.with_timezone(zone), now.with_timezone(zone));
     if then.date_naive() == today.date_naive() {
-        format!("Not updated since {}", clock(since, zone))
+        format!("Not updated since {}", clock_at(since, zone, clock))
     } else {
-        format!("Not updated since {}", then.format("%b %-d, %H:%M"))
+        format!(
+            "Not updated since {}, {}",
+            then.format("%b %-d"),
+            mail_core::when::time_of_day(&then, clock)
+        )
     }
 }
 
@@ -155,7 +162,7 @@ fn trouble_rank(link: &Link) -> Option<u8> {
     }
 }
 
-fn trouble<Tz: TimeZone>(link: &Link, zone: &Tz) -> StatusLine
+fn trouble<Tz: TimeZone>(link: &Link, zone: &Tz, clock: Clock) -> StatusLine
 where
     Tz::Offset: std::fmt::Display,
 {
@@ -170,7 +177,10 @@ where
                 Pause::ServerBusy => "Server busy",
             };
             line(
-                format!("{what} \u{b7} trying again at {}", clock(*until, zone)),
+                format!(
+                    "{what} \u{b7} trying again at {}",
+                    clock_at(*until, zone, clock)
+                ),
                 Tone::Warn,
             )
         }
@@ -180,7 +190,12 @@ where
 
 /// How long ago the least recently updated account finished a pass: by its own link, or by a
 /// pass another process recorded since (`Pace::finished`).
-fn updated<Tz: TimeZone>(paced: &[(&Link, Pace)], now: DateTime<Utc>, zone: &Tz) -> StatusLine
+fn updated<Tz: TimeZone>(
+    paced: &[(&Link, Pace)],
+    now: DateTime<Utc>,
+    zone: &Tz,
+    clock: Clock,
+) -> StatusLine
 where
     Tz::Offset: std::fmt::Display,
 {
@@ -204,7 +219,10 @@ where
             let said = "Up to date".to_owned();
             (said.clone(), said)
         }
-        Live::Polling => (ago(oldest, now, zone), ago_short(oldest, now, zone)),
+        Live::Polling => (
+            ago(oldest, now, zone, clock),
+            ago_short(oldest, now, zone, clock),
+        ),
     };
     let failed = currents
         .iter()
@@ -227,7 +245,12 @@ where
     }
 }
 
-pub(super) fn ago<Tz: TimeZone>(at: DateTime<Utc>, now: DateTime<Utc>, zone: &Tz) -> String
+pub(super) fn ago<Tz: TimeZone>(
+    at: DateTime<Utc>,
+    now: DateTime<Utc>,
+    zone: &Tz,
+    clock: Clock,
+) -> String
 where
     Tz::Offset: std::fmt::Display,
 {
@@ -236,12 +259,12 @@ where
         ..60 => "Updated just now".to_owned(),
         _ if minutes == 1 => "Updated 1 minute ago".to_owned(),
         _ if minutes < 60 => format!("Updated {minutes} minutes ago"),
-        _ => format!("Updated at {}", clock(at, zone)),
+        _ => format!("Updated at {}", clock_at(at, zone, clock)),
     }
 }
 
 /// [`ago`] in the sync mark's tip's fewer words: "3 min ago", "just now", "at 12:00".
-fn ago_short<Tz: TimeZone>(at: DateTime<Utc>, now: DateTime<Utc>, zone: &Tz) -> String
+fn ago_short<Tz: TimeZone>(at: DateTime<Utc>, now: DateTime<Utc>, zone: &Tz, clock: Clock) -> String
 where
     Tz::Offset: std::fmt::Display,
 {
@@ -249,16 +272,16 @@ where
     match (now - at).num_seconds() {
         ..60 => crate::ui::copy::status::JUST_NOW.to_owned(),
         _ if minutes < 60 => crate::ui::copy::status::minutes_ago(minutes),
-        _ => crate::ui::copy::status::at_clock(&clock(at, zone)),
+        _ => crate::ui::copy::status::at_clock(&clock_at(at, zone, clock)),
     }
 }
 
-/// HH:MM in the person's zone.
-pub(super) fn clock<Tz: TimeZone>(at: DateTime<Utc>, zone: &Tz) -> String
+/// The time of day in the person's zone, by their clock: `14:05`, or `2:05 PM`.
+pub(super) fn clock_at<Tz: TimeZone>(at: DateTime<Utc>, zone: &Tz, clock: Clock) -> String
 where
     Tz::Offset: std::fmt::Display,
 {
-    mail_core::when::stamp(at, zone, mail_core::when::Stamp::Clock)
+    mail_core::when::stamp(at, zone, mail_core::when::Stamp::Clock, clock)
 }
 
 #[cfg(test)]
@@ -285,7 +308,7 @@ mod tests {
 
     fn say(links: &[Link], now: DateTime<Utc>) -> StatusLine {
         let paced: Vec<(&Link, Pace)> = links.iter().map(|link| (link, hourly())).collect();
-        status_line(&paced, now, &Utc)
+        status_line(&paced, now, &Utc, Clock::H24)
     }
 
     fn current(at: DateTime<Utc>, live: Live, folders: usize) -> Link {
@@ -560,7 +583,7 @@ mod tests {
             ),
         ];
         for (name, links, now, text, tone) in cases {
-            let got = status_line(&links, now, &Utc);
+            let got = status_line(&links, now, &Utc, Clock::H24);
             assert_eq!((got.text.as_str(), got.tone), (text, tone), "{name}");
         }
     }

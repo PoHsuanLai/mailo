@@ -8,6 +8,7 @@
 //! text only, so its HTML (and every image or link in it) is never drawn.
 
 use crate::ui::copy;
+use mail_core::when::Clock;
 use mail_domain::{Address, MessageId};
 
 /// What Peek draws for a part mailo reads itself.
@@ -22,11 +23,11 @@ pub(super) struct Sheet {
 
 /// An iCalendar file, as the invitation card reads one: what it is, when and where, and who asked.
 /// `message` is the message it came in, which the card names. Times are in the reader's zone.
-pub(super) fn calendar(message: MessageId, bytes: &[u8]) -> Option<Sheet> {
+pub(super) fn calendar(message: MessageId, bytes: &[u8], clock: Clock) -> Option<Sheet> {
     let text = String::from_utf8_lossy(bytes);
     let calendar = mail_pim::ical::parse(&text).ok()?;
     let invite = mail_pim::summarise(&calendar, &[])?;
-    let card = crate::ui::invite::card_of(message, &invite, None, &chrono::Local);
+    let card = crate::ui::invite::card_of(message, &invite, None, &chrono::Local, clock);
     let facts = [
         Some((copy::fields::WHEN, card.when)),
         card.repeats.map(|repeats| (copy::fields::REPEATS, repeats)),
@@ -74,7 +75,7 @@ pub(super) fn contact(bytes: &[u8]) -> Option<Sheet> {
 
 /// A message, as a forward attaches one: its subject, who sent it to whom and when, and its plain
 /// text.
-pub(super) fn message(bytes: &[u8]) -> Option<Sheet> {
+pub(super) fn message(bytes: &[u8], clock: Clock) -> Option<Sheet> {
     let parsed = mail_mime::parse(bytes).ok()?;
     let to = parsed.to.iter().map(person).collect::<Vec<_>>().join(", ");
     let facts = [
@@ -86,7 +87,7 @@ pub(super) fn message(bytes: &[u8]) -> Option<Sheet> {
         parsed.date.map(|date| {
             (
                 copy::fields::DATE,
-                mail_core::when::stamp(date, &chrono::Local, mail_core::when::Stamp::Full),
+                mail_core::when::stamp(date, &chrono::Local, mail_core::when::Stamp::Full, clock),
             )
         }),
     ];
@@ -126,7 +127,7 @@ BEGIN:VEVENT\r\nUID:one@example.test\r\nDTSTAMP:20261001T090000Z\r\n\
 DTSTART:20261020T090000Z\r\nDTEND:20261020T100000Z\r\nSUMMARY:Design review\r\n\
 LOCATION:Room 4\r\nDESCRIPTION:Bring the mockups.\r\n\
 ORGANIZER;CN=Ada:mailto:ada@example.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
-        let sheet = calendar(MessageId::generate(), ics).expect("an event");
+        let sheet = calendar(MessageId::generate(), ics, Clock::H24).expect("an event");
         assert_eq!(sheet.title, "Design review");
         assert_eq!(
             labels(&sheet),
@@ -139,7 +140,7 @@ ORGANIZER;CN=Ada:mailto:ada@example.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
         assert_eq!(sheet.facts[1].1, "Room 4");
         assert_eq!(sheet.text.as_deref(), Some("Bring the mockups."));
         assert_eq!(
-            calendar(MessageId::generate(), b"BEGIN:VCALENDAR\r\n"),
+            calendar(MessageId::generate(), b"BEGIN:VCALENDAR\r\n", Clock::H24),
             None
         );
     }
@@ -168,7 +169,7 @@ ORG:Analytical Engines\r\nEND:VCARD\r\n";
         let eml = b"From: Ada <ada@example.test>\r\nTo: me@example.test\r\n\
 Subject: Lunch on Friday\r\nDate: Tue, 13 Oct 2026 09:00:00 +0000\r\n\
 MIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nSee you at noon.\r\n";
-        let sheet = message(eml).expect("a message");
+        let sheet = message(eml, Clock::H24).expect("a message");
         assert_eq!(sheet.title, "Lunch on Friday");
         assert_eq!(
             labels(&sheet),
@@ -180,7 +181,7 @@ MIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nSee you at n
         // HTML only: its markup is never drawn, so there is no text to show.
         let html = b"From: ada@example.test\r\nSubject: \r\nMIME-Version: 1.0\r\n\
 Content-Type: text/html\r\n\r\n<p>Hi <img src=\"https://tracker.test/p.gif\"></p>\r\n";
-        let sheet = message(html).expect("a message");
+        let sheet = message(html, Clock::H24).expect("a message");
         assert_eq!(sheet.title, copy::empty::NO_SUBJECT);
         assert_eq!(sheet.text.as_deref(), Some(copy::status::NO_TEXT));
     }

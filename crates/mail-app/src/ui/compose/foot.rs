@@ -51,6 +51,7 @@ pub(in crate::ui) fn send_items<Tz: TimeZone>(
     page: &Page,
     now: DateTime<Utc>,
     zone: &Tz,
+    clock: mail_core::when::Clock,
 ) -> Vec<Line<String>>
 where
     Tz::Offset: std::fmt::Display,
@@ -66,8 +67,8 @@ where
         .filter(|when| *when != When::Now)
         .filter_map(|when| {
             let at = when.due(now, zone)?;
-            let item = Line::new(when.key().to_owned(), when.label())
-                .with_hint(snooze_help(at, zone))
+            let item = Line::new(when.key().to_owned(), when.label(clock))
+                .with_hint(snooze_help(at, zone, clock))
                 .with_check(if page.when == when {
                     Check::On
                 } else {
@@ -77,7 +78,7 @@ where
         })
         .collect();
     let (hint, on) = match page.when {
-        When::At(at) => (Some(when_words(at, now, zone)), Check::On),
+        When::At(at) => (Some(when_words(at, now, zone, clock)), Check::On),
         _ => (None, Check::Off),
     };
     let mut pick = Line::new(LATER_PICK.to_owned(), PICK_LABEL).with_check(on);
@@ -85,7 +86,7 @@ where
         pick = pick.with_hint(hint);
     }
     later.push(pick);
-    let remind = menu_items("", &remind_choices(page.remind, now, zone), false);
+    let remind = menu_items("", &remind_choices(page.remind, now, zone, clock), false);
     let asked = if page.receipt == ReceiptRequest::Requested {
         Check::On
     } else {
@@ -211,7 +212,12 @@ pub(super) fn SendButton(page: Signal<Page>, on_send: EventHandler<()>) -> Eleme
     let float = page.read().float.clone();
     let open = float == Float::SendMenu;
     let items = if open {
-        send_items(&page.read(), super::super::clock::now(), &chrono::Local)
+        send_items(
+            &page.read(),
+            super::super::clock::now(),
+            &chrono::Local,
+            super::super::clock::hours(),
+        )
     } else {
         Vec::new()
     };

@@ -74,6 +74,7 @@ pub(in crate::ui) fn Spotlight(
                 store: &store,
                 keymap,
                 today: today.as_ref().unwrap_or(&none),
+                hours: crate::ui::clock::hours(),
             };
             panel_rows(&world, &drawn.read(), &open.listing, sidebar)
         })

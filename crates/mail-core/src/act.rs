@@ -203,8 +203,14 @@ pub fn caps_here(
 
 /// Apply one resolved operation: locally, and to the server when it has a server half.
 ///
-/// Returns what it takes to undo it, which the window keeps for the toast and ⌘Z.
-pub fn perform(store: &SqliteStore, thread: ThreadId, op: Op) -> Option<Undo> {
+/// Returns what it takes to undo it, which the window keeps for the toast and ⌘Z. The toast's
+/// words write a time as `clock` says.
+pub fn perform(
+    store: &SqliteStore,
+    thread: ThreadId,
+    op: Op,
+    clock: crate::when::Clock,
+) -> Option<Undo> {
     let loaded = store
         .thread(thread)
         .or_log("the conversation to act on could not be read")?;
@@ -257,7 +263,7 @@ pub fn perform(store: &SqliteStore, thread: ThreadId, op: Op) -> Option<Undo> {
         return None;
     }
     Some(Undo {
-        said: crate::undo::said(&op, &chrono::Local),
+        said: crate::undo::said(&op, &chrono::Local, clock),
         thread: Some(thread),
         account,
         forward: applied.forward,

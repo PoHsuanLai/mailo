@@ -30,7 +30,12 @@ pub(super) fn HeldPage(
 ) -> Element {
     let id = draft.id;
     let subject = mail_domain::subject_or_none(&draft.subject).into_owned();
-    let leaves = copy::status::leaves(&when_words(at, Utc::now(), &Local));
+    let leaves = copy::status::leaves(&when_words(
+        at,
+        Utc::now(),
+        &Local,
+        crate::ui::clock::hours(),
+    ));
     let lines = [
         (List::To, &draft.to),
         (List::Cc, &draft.cc),

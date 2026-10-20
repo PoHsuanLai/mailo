@@ -158,10 +158,11 @@ pub(super) fn act_all(
     mut revision: Signal<u64>,
     ops: Vec<(ThreadId, Op)>,
 ) -> usize {
+    let hours = crate::ui::clock::hours();
     let mut undos = Vec::new();
     let mut done = Vec::new();
     for (thread, op) in ops {
-        if let Some(undo) = perform(store, thread, op.clone()) {
+        if let Some(undo) = perform(store, thread, op.clone(), hours) {
             undos.push(undo);
             done.push(op);
         }
@@ -169,7 +170,7 @@ pub(super) fn act_all(
     let count = undos.len();
     let said = match done.as_slice() {
         [] => return 0,
-        [op, ..] if count > 1 => mail_core::undo::said_of(op, count, &chrono::Local),
+        [op, ..] if count > 1 => mail_core::undo::said_of(op, count, &chrono::Local, hours),
         _ => undos[0].said.clone(),
     };
     if record(shell, undos, said).is_none() {
