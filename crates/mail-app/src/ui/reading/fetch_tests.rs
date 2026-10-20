@@ -54,19 +54,19 @@ fn a_failed_body_says_what_to_do_about_it() {
         (
             Retry::NeedsReauth,
             "401",
-            "Sign in to ada@example.test again to download it.",
+            "Sign in to ada@example.test again to download.",
             Again::SignIn(Need::SignIn),
         ),
         (
             Retry::NeedsGrant,
             "revoked",
-            "Allow Mail to use ada@example.test again to download it.",
+            "Allow Mail to use ada@example.test again to download.",
             Again::SignIn(Need::Allow),
         ),
         (
             Retry::Fatal("POP3 cannot fetch one message".into()),
             "POP3 cannot fetch one message",
-            "This account's messages download with the next sync.",
+            "This account's messages download on the next sync.",
             Again::Withhold,
         ),
     ];
@@ -232,7 +232,7 @@ async fn a_message_without_a_body_shows_the_download_button() {
     let (store, thread, _dir) = headers_only();
     let markup = unescaped(&crate::ui::fixtures::reader_markup(store, thread));
     assert!(
-        markup.contains("This message hasn't been downloaded yet."),
+        markup.contains("This message isn't downloaded yet."),
         "{markup}"
     );
     assert!(

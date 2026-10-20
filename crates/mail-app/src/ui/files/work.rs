@@ -64,12 +64,12 @@ pub(in crate::ui) fn look(path: &Path) -> Looked {
 fn refused(path: &Path, why: &Refusal) -> String {
     let shown = path.display();
     match why {
-        Refusal::NothingThere => format!("There is nothing at {shown}."),
+        Refusal::NothingThere => format!("Nothing at {shown}."),
         Refusal::CannotReach(cause) => {
-            format!("{shown} cannot be reached: {}.", plain(cause))
+            format!("Can’t reach {shown}: {}.", plain(cause))
         }
-        Refusal::CannotOpen(cause) => format!("{shown} cannot be opened: {}.", plain(cause)),
-        Refusal::Empty => format!("{shown} is empty: there is no mail in it."),
+        Refusal::CannotOpen(cause) => format!("Can’t open {shown}: {}.", plain(cause)),
+        Refusal::Empty => format!("{shown} has no mail in it."),
         Refusal::Unreadable(said) => sentence(said),
     }
 }
@@ -77,8 +77,8 @@ fn refused(path: &Path, why: &Refusal) -> String {
 /// An I/O error as a person reads it: no `os error 13`.
 fn plain(cause: &IoCause) -> String {
     match cause.kind {
-        ErrorKind::PermissionDenied => "you do not have permission to read it".to_owned(),
-        ErrorKind::NotFound => "it is not there".to_owned(),
+        ErrorKind::PermissionDenied => "you don’t have permission to read it".to_owned(),
+        ErrorKind::NotFound => "it isn’t there".to_owned(),
         _ => match cause.text.split_once(" (os error") {
             Some((words, _)) => words.to_lowercase(),
             None => cause.text.clone(),
@@ -93,7 +93,7 @@ fn sentence(why: &dyn std::fmt::Display) -> String {
     let mut chars = why.chars();
     match chars.next() {
         Some(first) => format!("{}{}.", first.to_uppercase(), chars.as_str()),
-        None => "That cannot be read.".to_owned(),
+        None => "Can’t read that.".to_owned(),
     }
 }
 
@@ -236,7 +236,7 @@ pub(in crate::ui) fn import_then_send(
             let mut out = format!("{}. {} uploaded", done.said, report.appended);
             if report.still_queued > 0 {
                 out.push_str(&format!(
-                    "; {} still queued, the next sync tries again",
+                    "; {} still queued for the next sync",
                     report.still_queued
                 ));
             }
@@ -246,7 +246,7 @@ pub(in crate::ui) fn import_then_send(
             out
         }
         Err(why) => format!(
-            "{}. Not uploaded yet: {why}. It stays queued for the next sync.",
+            "{}. Not uploaded yet: {why}. Queued for the next sync.",
             done.said
         ),
     };

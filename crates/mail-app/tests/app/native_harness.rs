@@ -643,7 +643,7 @@ fn ctrl_p_hands_the_printout_over_and_says_how_it_ended() {
                     "/tmp/Flight-to-the-conference-1.pdf",
                 )))
             },
-            "Opened in your PDF viewer to print: /tmp/Flight-to-the-conference-1.pdf",
+            "Opened in your PDF viewer: /tmp/Flight-to-the-conference-1.pdf",
         ),
     ];
     for (case, answer, says) in CASES {

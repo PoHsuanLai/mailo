@@ -174,7 +174,7 @@ async fn deleting_a_key_with_its_secret_is_asked_again_first() {
 
     let mut asked = asking(&mut dom, seen.one("aria-label", &format!("Delete {id}")));
     let page = dioxus_ssr::render(&dom);
-    assert!(page.contains("cannot be undone"), "{page}");
+    assert!(page.contains("can’t be undone"), "{page}");
     assert!(
         store.pgp_key(mine.fingerprint).unwrap().is_some(),
         "deleted before the answer"
@@ -184,7 +184,7 @@ async fn deleting_a_key_with_its_secret_is_asked_again_first() {
     // Cancel, the alert's default, keeps it.
     click(&mut dom, alert_button(&asked, Some("return")));
     let _ = drain_seen(&mut dom);
-    assert!(!dioxus_ssr::render(&dom).contains("cannot be undone"));
+    assert!(!dioxus_ssr::render(&dom).contains("can’t be undone"));
     assert!(held(&secrets, &mine));
 
     asked = asking(&mut dom, seen.one("aria-label", &format!("Delete {id}")));

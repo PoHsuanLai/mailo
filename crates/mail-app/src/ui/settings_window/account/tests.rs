@@ -145,10 +145,7 @@ async fn remove_asks_then_removes_the_account_and_goes_back_to_the_list() {
     let asked = click(&mut dom, ask).merge(drain_seen(&mut dom));
     let page = dioxus_ssr::render(&dom);
     assert!(page.contains(&format!("Remove {ADDRESS}?")), "{page}");
-    assert!(
-        page.contains("Mail on the server is not touched."),
-        "{page}"
-    );
+    assert!(page.contains("Mail on the server isn’t deleted."), "{page}");
     assert_eq!(account_rows(&built.store).len(), before, "removed unasked");
 
     // Escape while the question is up stays on the page.

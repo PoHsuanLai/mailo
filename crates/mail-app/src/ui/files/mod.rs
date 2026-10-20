@@ -123,9 +123,7 @@ pub(in crate::ui) fn run(
                 phase.set(Phase::Finished(said));
             }
             Ok(Err(why)) => phase.set(Phase::Failed(why)),
-            Err(error) => phase.set(Phase::Failed(format!(
-                "It stopped before it finished: {error}"
-            ))),
+            Err(error) => phase.set(Phase::Failed(format!("Stopped early: {error}"))),
         }
         after();
     });

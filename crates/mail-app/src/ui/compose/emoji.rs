@@ -138,9 +138,9 @@ pub(super) fn Picker(page: Signal<Page>, on_done: EventHandler<()>) -> Element {
         })
         .collect();
     let empty = if typed.trim().is_empty() {
-        "The emoji you pick will be here.".to_owned()
+        "Emoji you pick appear here.".to_owned()
     } else {
-        format!("No emoji is called “{}”.", typed.trim())
+        format!("No emoji called “{}”.", typed.trim())
     };
     rsx! {
         div { class: "em-picker",

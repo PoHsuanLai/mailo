@@ -653,8 +653,14 @@ fn a_wrong_port_is_not_sent_and_is_marked_on_its_field() {
     type_text(&mut w, "x");
     w.harness.key(Key::Enter);
     w.harness.advance(Duration::from_millis(300));
-    let html = w.harness.html();
-    assert!(html.contains("is not valid"), "the port is marked:\n{html}");
+    // The field says so itself, whatever words quire's message uses this release.
+    assert!(
+        w.harness
+            .count("input[aria-label=\"Port\"][aria-invalid=\"true\"]")
+            == 1,
+        "the port is marked:\n{}",
+        w.harness.html()
+    );
     assert_eq!(step(&w).as_deref(), Some("sign-in"), "nothing was sent");
     assert!(w.log.adds.lock().unwrap().is_empty());
 }

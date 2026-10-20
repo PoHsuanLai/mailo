@@ -40,7 +40,7 @@ pub(in crate::ui) const SIGN_IN: &str = "Sign In";
 const LATER: &str = "Later";
 
 /// What the dialog says under its title.
-const MESSAGE: &str = "mailo can\u{2019}t fetch new mail until you do.";
+const MESSAGE: &str = "New mail stops arriving until you do.";
 
 /// The title when several accounts are asked about.
 const MANY: &str = "Some accounts need you to sign in again";

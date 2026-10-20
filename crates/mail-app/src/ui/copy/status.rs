@@ -60,7 +60,7 @@ pub fn no_preview(why: &str) -> String {
 pub const NO_TEXT: &str = "This message has no plain text";
 /// Why anyview drew no card: what follows "No preview: ".
 pub const TOOK_TOO_LONG: &str = "it took too long";
-pub const TOO_LARGE_TO_PEEK: &str = "the part is larger than a peek reads";
+pub const TOO_LARGE_TO_PEEK: &str = "it’s too large";
 pub fn no_attachment(index: usize) -> String {
     format!("there is no attachment {index}")
 }

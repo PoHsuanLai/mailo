@@ -153,7 +153,7 @@ fn a_key_another_action_holds_is_refused_by_that_action_s_name() {
         bind(&Keymap::default(), Shortcut::Archive, "s")
             .unwrap_err()
             .to_string(),
-        "S is already Star or unstar’s key."
+        "S is already used by Star or unstar."
     );
 }
 

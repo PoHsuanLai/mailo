@@ -266,7 +266,7 @@ fn the_alert_says_what_each_way_out_will_do() {
     let mailto = alert(MAILTO);
     assert!(
         mailto.contains(
-            "Leave announce.example.test? A message goes to leave@example.test from \
+            "Leave announce.example.test? This sends a message to leave@example.test from \
              me@example.test."
         ),
         "{mailto}"

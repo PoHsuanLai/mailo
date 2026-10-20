@@ -240,7 +240,7 @@ fn what_cannot_be_read_is_said_in_words() {
     let missing = dir.path().join("nowhere.mbox");
     assert_eq!(
         look(&missing),
-        Looked::Refused(format!("There is nothing at {}.", missing.display()))
+        Looked::Refused(format!("Nothing at {}.", missing.display()))
     );
 
     let plain_dir = dir.path().join("Photos");
@@ -255,10 +255,7 @@ fn what_cannot_be_read_is_said_in_words() {
     std::fs::write(&empty, b"").unwrap();
     assert_eq!(
         look(&empty),
-        Looked::Refused(format!(
-            "{} is empty: there is no mail in it.",
-            empty.display()
-        ))
+        Looked::Refused(format!("{} has no mail in it.", empty.display()))
     );
 
     assert_eq!(look(Path::new("")), Looked::Blank);
@@ -277,7 +274,7 @@ fn what_cannot_be_read_is_said_in_words() {
         assert_eq!(
             look(&locked),
             Looked::Refused(format!(
-                "{} cannot be opened: you do not have permission to read it.",
+                "Can’t open {}: you don’t have permission to read it.",
                 locked.display()
             ))
         );

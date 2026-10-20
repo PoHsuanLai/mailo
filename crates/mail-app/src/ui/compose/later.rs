@@ -82,7 +82,7 @@ where
     Tz::Offset: std::fmt::Display,
 {
     format!(
-        "{} has already passed. Pick a later time, or send it right away.",
+        "{} has passed. Pick a later time, or send it now.",
         when_words(at, now, zone, clock)
     )
 }

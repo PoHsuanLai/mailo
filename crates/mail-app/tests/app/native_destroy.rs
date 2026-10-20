@@ -206,7 +206,7 @@ fn empty_trash_asks_naming_the_count_and_then_the_list_empties_with_no_undo() {
     let said = alert_text(&harness);
     assert!(said.contains("Empty Trash?"), "{said}");
     assert!(said.contains("3 messages in Trash"), "the count: {said}");
-    assert!(said.contains("cannot be undone"), "{said}");
+    assert!(said.contains("can’t be undone"), "{said}");
     assert_eq!(held_in(&store, MailboxRole::Trash), before);
     assert_eq!(queued_deletions(&store), (0, 0));
 

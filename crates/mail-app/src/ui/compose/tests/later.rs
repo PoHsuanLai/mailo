@@ -40,12 +40,12 @@ fn the_sends_choice_is_when_the_outbox_lets_it_leave() {
         (
             "a typed time now gone",
             When::At(day(23, 9, 0)),
-            Err("Today 09:00 has already passed"),
+            Err("Today 09:00 has passed"),
         ),
         (
             "this very minute",
             When::At(now),
-            Err("Today 10:00 has already passed"),
+            Err("Today 10:00 has passed"),
         ),
     ];
     for (name, when, want) in cases {
@@ -67,11 +67,8 @@ fn a_typed_phrase_is_read_the_way_snooze_reads_it_and_a_past_one_is_refused() {
         ("today 17:30", Ok(day(23, 17, 30))),
         ("+2h", Ok(wednesday(12, 0))),
         ("tomorrow", Ok(day(24, 9, 0))),
-        (
-            "2026-09-01 10:00",
-            Err("Tue 1 Sep 10:00 has already passed"),
-        ),
-        ("today 8", Err("Today 08:00 has already passed")),
+        ("2026-09-01 10:00", Err("Tue 1 Sep 10:00 has passed")),
+        ("today 8", Err("Today 08:00 has passed")),
         ("", Err("Type a time")),
         ("soonish", Err("\"soonish\" is not a time I know")),
         (
@@ -438,7 +435,7 @@ async fn cancel_of_a_send_already_on_the_wire_says_so_and_changes_nothing() {
     );
     let markup = window.render();
     assert!(
-        markup.contains("Too late to take it back: that message is already being sent"),
+        markup.contains("Too late: that message is already being sent"),
         "the refusal was not said:\n{markup}"
     );
     assert_eq!(

@@ -167,12 +167,10 @@ impl std::fmt::Display for Refused {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Refused::Taken { key, by } => {
-                write!(f, "{} is already {}’s key.", spoken(key), name(*by))
+                write!(f, "{} is already used by {}.", spoken(key), name(*by))
             }
-            Refused::Kept(key) => write!(f, "{} is the window’s own key.", spoken(key)),
-            Refused::Chord => {
-                f.write_str("Keys held with Ctrl, Alt or Super are the window’s own.")
-            }
+            Refused::Kept(key) => write!(f, "{} is reserved.", spoken(key)),
+            Refused::Chord => f.write_str("Ctrl, Alt and Super shortcuts are reserved."),
             Refused::Fixed(action) => write!(f, "{} is always Esc.", name(*action)),
             Refused::Twice(action) => {
                 f.write_str(&crate::ui::copy::errors::key_given_twice(name(*action)))

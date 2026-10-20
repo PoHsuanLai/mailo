@@ -280,8 +280,8 @@ fn downloaded_toast(saved: &[PathBuf], absent: usize, failed: Option<&str>) -> S
     }
     let Some(first) = saved.first() else {
         return match absent {
-            1 => "Nothing was saved. This message hasn't been downloaded yet.",
-            _ => "Nothing was saved. These messages haven't been downloaded yet.",
+            1 => "Nothing saved. This message isn't downloaded yet.",
+            _ => "Nothing saved. These messages aren't downloaded yet.",
         }
         .to_owned();
     };
@@ -290,7 +290,7 @@ fn downloaded_toast(saved: &[PathBuf], absent: usize, failed: Option<&str>) -> S
         (1, 0) => fetch::saved_toast(first),
         (n, 0) => format!("Saved {n} messages to {folder}"),
         (n, absent) => format!(
-            "Saved {n} of {} messages to {folder}. The rest haven't been downloaded yet.",
+            "Saved {n} of {} messages to {folder}. The rest aren't downloaded yet.",
             n + absent
         ),
     }
@@ -309,7 +309,7 @@ fn download(thread: ThreadId) {
         let done = tokio::task::spawn_blocking(move || save_thread(&store, thread, &dir))
             .await
             .unwrap_or_else(|error| Downloaded {
-                failed: Some(format!("it stopped before it finished: {error}")),
+                failed: Some(format!("it stopped early: {error}")),
                 ..Downloaded::default()
             });
         for (path, origin) in &done.saved {
@@ -341,19 +341,19 @@ mod tests {
                 saved(2),
                 1,
                 None,
-                "Saved 2 of 3 messages to Downloads. The rest haven't been downloaded yet.",
+                "Saved 2 of 3 messages to Downloads. The rest aren't downloaded yet.",
             ),
             (
                 saved(0),
                 1,
                 None,
-                "Nothing was saved. This message hasn't been downloaded yet.",
+                "Nothing saved. This message isn't downloaded yet.",
             ),
             (
                 saved(0),
                 2,
                 None,
-                "Nothing was saved. These messages haven't been downloaded yet.",
+                "Nothing saved. These messages aren't downloaded yet.",
             ),
             (
                 saved(1),

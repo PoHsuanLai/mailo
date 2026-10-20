@@ -11,22 +11,23 @@ pub fn delete_space(name: &str) -> String {
 }
 
 /// What deleting a Space leaves: the mail, which is the accounts'.
-pub const DELETE_SPACE_KEEPS: &str =
-    "Your mail is not affected. Only the Space’s name, colour and accounts shown go.";
+pub const DELETE_SPACE_KEEPS: &str = "Your mail won’t be deleted. This can’t be undone.";
+
+/// The last line of an alert before something that has no way back.
+pub const CANT_BE_UNDONE: &str = "This can’t be undone.";
 
 /// Asked in a folder's row before the folder goes with the mail in it.
 pub fn delete_folder(name: &str, messages: &str) -> String {
     format!("Delete “{name}” and the {messages} in it?")
 }
 
-/// What Tidy Up will archive: the read Inbox conversations older than the age chosen.
-pub fn tidy_up(count: usize) -> String {
-    let stay = "Starred, pinned, snoozed and waiting ones stay.";
-    match count {
-        0 => "No read conversations in the Inbox are that old.".to_owned(),
-        1 => format!("1 read conversation in the Inbox is that old. {stay}"),
-        _ => format!("{count} read conversations in the Inbox are that old. {stay}"),
-    }
+/// Tidy Up with nothing to archive at the age chosen.
+pub const TIDY_NOTHING: &str = "Nothing that old in the Inbox.";
+/// Under Tidy Up's list: what it leaves alone.
+pub const TIDY_SKIPS: &str = "Skips starred, pinned, snoozed and waiting mail.";
+/// Under Tidy Up's list, when it names only some of what it archives.
+pub fn tidy_more(count: usize) -> String {
+    format!("{count} more")
 }
 
 /// Under [`super::titles::SETTINGS_UNREADABLE`]: each file and why, then what each button does.
@@ -36,8 +37,7 @@ pub fn settings_unreadable(files: &[(String, String)]) -> String {
         .map(|(name, why)| format!("{name}: {why}."))
         .collect();
     format!(
-        "{} Use Defaults keeps each file beside itself, renamed to end in “.bad”, and a setting whose \
-         value isn’t valid takes its default. Quit leaves them as they are.",
+        "{} Use Defaults sets each file aside as “.bad” and starts from defaults. Quit leaves them as they are.",
         said.join(" ")
     )
 }

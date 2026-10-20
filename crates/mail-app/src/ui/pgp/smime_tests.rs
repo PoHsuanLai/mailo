@@ -152,8 +152,7 @@ fn every_smime_verdict_is_said_in_words_and_a_changed_or_forged_one_is_unmissabl
                 line(Tone::Plain, "Not encrypted"),
                 line(
                     Tone::Good,
-                    "Good S/MIME signature by bea@example.test, from a certificate an \
-                     authority you trust issued",
+                    "Good S/MIME signature by bea@example.test, from a certificate you trust",
                 ),
                 line(Tone::Detail, DETAIL),
             ],
@@ -211,7 +210,7 @@ fn every_smime_verdict_is_said_in_words_and_a_changed_or_forged_one_is_unmissabl
                 line(Tone::Plain, "Not encrypted"),
                 line(
                     Tone::Unknown,
-                    "S/MIME signature made with Ed448, which is not checked",
+                    "S/MIME signature made with Ed448, which isn’t checked",
                 ),
                 line(Tone::Detail, DETAIL),
             ],
@@ -226,10 +225,7 @@ fn every_smime_verdict_is_said_in_words_and_a_changed_or_forged_one_is_unmissabl
             ),
             vec![
                 line(Tone::Plain, "Not encrypted"),
-                line(
-                    Tone::Warn,
-                    "S/MIME signature that cannot be read: no digest",
-                ),
+                line(Tone::Warn, "S/MIME signature that can’t be read: no digest"),
                 line(Tone::Detail, DETAIL),
             ],
         ),
@@ -248,8 +244,7 @@ fn every_smime_verdict_is_said_in_words_and_a_changed_or_forged_one_is_unmissabl
                 line(Tone::Plain, "Not encrypted"),
                 line(
                     Tone::Unknown,
-                    "Signed with S/MIME by a certificate neither the message nor you hold, so \
-                     the signature cannot be checked",
+                    "Signed with S/MIME by a certificate that isn’t in the message and that you don’t hold, so it can’t be checked",
                 ),
                 line(Tone::Unknown, "Only part of this message is signed"),
             ],
@@ -269,7 +264,7 @@ fn every_smime_verdict_is_said_in_words_and_a_changed_or_forged_one_is_unmissabl
                 line(
                     Tone::Unknown,
                     "Encrypted with S/MIME to certificates you hold no key for (CN=Cara, serial \
-                     07), so it cannot be read here",
+                     07), so it can’t be read here",
                 ),
                 line(Tone::Plain, "Not signed"),
             ],
@@ -285,7 +280,7 @@ fn every_smime_verdict_is_said_in_words_and_a_changed_or_forged_one_is_unmissabl
             vec![
                 line(
                     Tone::Bad,
-                    "Encrypted with S/MIME, and could not be read: tampered",
+                    "Encrypted with S/MIME, and couldn’t be read: tampered",
                 ),
                 line(Tone::Plain, "Not signed"),
             ],
@@ -302,33 +297,32 @@ fn each_certificate_problem_is_named_in_amber_and_says_what_it_means() {
         (
             CertProblem::Untrusted,
             "Untrusted: no authority you trust issued its certificate, so anyone could have \
-             made it. Trust it in Other Keys, under Accounts in Settings, only after checking \
-             it with its owner",
+             made it. Trust it in Other Keys (Settings › Accounts) only after checking with \
+             its owner",
         ),
         (
             CertProblem::Expired {
                 not_after: at(2025, 1, 1),
             },
             "Expired: a certificate in its chain stopped being valid on 2025-01-01, before the \
-             message says it was signed",
+             message was signed",
         ),
         (
             CertProblem::NotYetValid {
                 not_before: at(2027, 1, 1),
             },
-            "Not yet valid: a certificate in its chain was not valid until 2027-01-01, after \
-             the message says it was signed",
+            "Not yet valid: a certificate in its chain wasn’t valid until 2027-01-01, after \
+             the message was signed",
         ),
         (
             CertProblem::NotForEmail,
-            "Not for mail: its certificate was issued for something other than signing mail",
+            "Not for mail: its certificate wasn’t issued for signing mail",
         ),
         (
             CertProblem::NotFrom {
                 from: "mallory@example.test".to_owned(),
             },
-            "Signed with a certificate for someone else's address: it is not for \
-             mallory@example.test, who the message says it is from",
+            "Signed with a certificate for someone else’s address, not mallory@example.test",
         ),
         (
             CertProblem::NotFrom {
@@ -353,8 +347,8 @@ fn each_certificate_problem_is_named_in_amber_and_says_what_it_means() {
                 line(Tone::Plain, "Not encrypted"),
                 line(
                     Tone::Warn,
-                    "S/MIME signature by bea@example.test: the message is as it was signed, \
-                     but the certificate does not vouch for the sender",
+                    "S/MIME signature by bea@example.test: the message is unchanged, \
+                     but the certificate doesn’t vouch for the sender",
                 ),
                 line(Tone::Warn, words),
                 line(Tone::Detail, DETAIL),
@@ -387,9 +381,7 @@ async fn a_good_smime_signature_says_who_signed_and_their_certificate() {
         said[0],
         (
             "seal-line good".to_owned(),
-            "Good S/MIME signature by bea@example.test, from a certificate an authority you \
-             trust issued"
-                .to_owned()
+            "Good S/MIME signature by bea@example.test, from a certificate you trust".to_owned()
         )
     );
     assert_eq!(said[1].0, "seal-line detail");
