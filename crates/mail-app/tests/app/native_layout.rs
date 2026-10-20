@@ -542,12 +542,12 @@ fn tidy_up_keeps_its_controls_inside_its_sheet_in_a_narrow_window() {
     });
     harness.advance(ms(300));
     crate::row_menu::press_menu_item(&mut harness, "Tidy Up\u{2026}");
-    settle_until(&mut harness, |h| h.count(".sheet-form") == 1);
-    let sheet = rect(&harness, ".sheet-form");
+    settle_until(&mut harness, |h| h.count(".tidy-sheet") == 1);
+    let sheet = rect(&harness, ".tidy-sheet");
     let right = sheet.origin.x.0 + sheet.size.width.0;
     for selector in [
-        ".sheet-form [*|aria-label=\"Older than\"]",
-        ".sheet-form .sheet-actions",
+        ".tidy-sheet [*|aria-label=\"Older than\"]",
+        ".tidy-sheet .sheet-actions",
     ] {
         let part = rect(&harness, selector);
         assert!(
