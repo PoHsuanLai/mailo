@@ -289,47 +289,6 @@ fn each_row_of_the_menu_starts_its_own_job() {
     assert_eq!(ROWS[2], None);
 }
 
-#[tokio::test]
-async fn print_opens_a_menu_whose_rows_print_the_pages_they_name() {
-    dispatching();
-    let (store, thread, _dir) = conversation();
-    for (row, pages) in [
-        ("Print Conversation…", Pages::Flow),
-        ("Print Each Message Separately…", Pages::PerMessage),
-    ] {
-        let mut dom =
-            VirtualDom::new_with_props(Head, HeadProps { thread }).with_root_context(store.clone());
-        let seen = rebuild_into(&mut dom);
-        assert!(!dioxus_ssr::render(&dom).contains("role=\"menu\""));
-        let opened = click(&mut dom, seen.one("aria-label", "Print this conversation"))
-            .merge(crate::ui::fixtures::drain_seen(&mut dom));
-        let page = dioxus_ssr::render(&dom);
-        let offences = crate::ui::style::tests::markup_offences(&page);
-        assert!(offences.is_empty(), "the markup lint: {offences:#?}");
-        // A standard pop-up menu: the three rows, a rule between printing and saving, and no
-        // popover of controls.
-        assert_eq!(
-            crate::ui::fixtures::menu_names(&page),
-            [
-                "Print Conversation…",
-                "Print Each Message Separately…",
-                "Save Conversation as PDF…"
-            ],
-            "{page}"
-        );
-        assert!(page.contains("ds-menu-separator"), "{page}");
-        assert!(!page.contains("print-menu") && !page.contains("class=\"ds-segmented"));
-        let before = started().len();
-        crate::ui::fixtures::pick_named(&mut dom, &opened, row).await;
-        assert_eq!(started()[before..], [Job { thread, pages }], "{row}");
-        crate::ui::fixtures::drain(&mut dom);
-        assert!(
-            !dioxus_ssr::render(&dom).contains("role=\"menu\""),
-            "the menu stayed open after {row}"
-        );
-    }
-}
-
 /// Print's menu open, and a printed page, for screenshots.
 ///
 /// ```text

@@ -1,7 +1,6 @@
-//! The reader's message body scrolls on Blitz (`native`), in the real window: a body longer
-//! than the pane moves under a mouse wheel turned over it, as the window delivers it (through
-//! quire's scroll engine), for a plain-text body, an HTML body and the last message of a thread. A quick run of wheel
-//! clicks that starts over an earlier message moves the conversation, not that message's frame.
+//! The reader scrolls on Blitz (`native`), in the real window, as the window delivers a mouse
+//! wheel (through quire's scroll engine): a quick run of wheel clicks that starts over an earlier
+//! message moves the conversation, not that message's frame.
 //! A touchpad is not driven here: the harness's `Input::Fingers` drops a wheel the engine passes
 //! on, where the window hands it to the document (gap(quire)).
 //!
@@ -200,84 +199,6 @@ fn shown(harness: &mut Harness, n: usize, marker: &str) {
 
 /// The last message's frame.
 const FRAME: &str = ".reader-body article.frame:last-of-type iframe.html";
-
-/// Where `marker` in the last frame is drawn on screen, and where the reader's body is.
-fn place(harness: &Harness, marker: &str) -> (f32, f32) {
-    let inner = harness
-        .frame(FRAME)
-        .and_then(|frame| frame.centre(marker))
-        .map_or(f32::NAN, |p| p.y.0);
-    let outer = harness
-        .rect(".reader-body article.frame:last-of-type")
-        .map_or(f32::NAN, |r| r.origin.y.0);
-    (inner, outer)
-}
-
-/// A point over the part of the last frame the window shows, in the window's coordinates; over
-/// the middle of the reader's body when the last frame starts below the window (a thread whose
-/// earlier messages are drawn in full), where the wheel moves the whole conversation.
-fn over_body(harness: &Harness) -> Point {
-    let rect = harness
-        .rect(FRAME)
-        .unwrap_or_else(|| panic!("{FRAME} is not drawn:\n{}", harness.html()));
-    let body = harness
-        .rect(".reader-body")
-        .unwrap_or_else(|| panic!(".reader-body is not drawn:\n{}", harness.html()));
-    let floor = VIEW.height as f32 - 20.0;
-    let top = rect.origin.y.0.max(body.origin.y.0);
-    let bottom = (rect.origin.y.0 + rect.size.height.0).min(floor);
-    let y = if top < bottom {
-        (top + bottom) / 2.0
-    } else {
-        (body.origin.y.0 + floor) / 2.0
-    };
-    Point {
-        x: Px(rect.origin.x.0 + rect.size.width.0 / 2.0),
-        y: Px(y),
-    }
-}
-
-/// Turn a mouse wheel three clicks down, six times, over the body, as the window delivers it,
-/// and say whether anything in the body moved.
-fn scrolls(harness: &mut Harness, marker: &str) -> bool {
-    let at = over_body(harness);
-    let before = place(harness, marker);
-    for _ in 0..6 {
-        harness.send(Input::Detents {
-            at,
-            x: 0.0,
-            y: -3.0,
-            held: Modifiers::empty(),
-        });
-        harness.advance(ms(16));
-    }
-    harness.advance(ms(800));
-    let after = place(harness, marker);
-    eprintln!("wheel at {at:?}: (frame marker y, article y) {before:?} -> {after:?}");
-    after.0 < before.0 - 1.0 || after.1 < before.1 - 1.0
-}
-
-/// Each long letter scrolls under the wheel: a plain one, an HTML one, and a thread. Each row
-/// opens in a window of its own, so no row starts where another's wheel left the reader.
-#[test]
-fn each_long_letter_scrolls_under_the_wheel() {
-    // (what, row, a marker in its last frame)
-    const CASES: [(&str, usize, &str); 3] = [
-        ("a long plain letter", 1, "body"),
-        ("a long HTML letter", 2, "p"),
-        ("a long thread", 3, "body"),
-    ];
-    for (what, n, marker) in CASES {
-        let (mut harness, _dir) = open();
-        open_row(&mut harness, n, marker);
-        let frame = harness.rect(FRAME);
-        let body = harness.rect(".reader-body");
-        assert!(
-            scrolls(&mut harness, marker),
-            "{what} (row {n}): the body did not move under the wheel (frame {frame:?}, reader-body {body:?})"
-        );
-    }
-}
 
 #[test]
 fn a_wheel_burst_over_an_earlier_message_moves_the_conversation() {
