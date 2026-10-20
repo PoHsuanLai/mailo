@@ -60,7 +60,6 @@
 .sync-dot.bad { background: var(--danger); }
 .downloads { display: flex; flex-direction: column; gap: var(--s-4); width: 320px; max-height: 420px; overflow-y: auto; scrollbar-width: none; padding: var(--s-8); }
 .downloads-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s-8); padding: 0 var(--s-6); }
-.downloads-empty { margin: 0; padding: var(--s-10) var(--s-6); color: var(--ink-soft); }
 .downloads .gone { color: var(--ink-faint); }
 .downloads-row { display: block; }
 .card {
