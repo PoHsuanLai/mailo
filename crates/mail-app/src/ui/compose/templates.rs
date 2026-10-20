@@ -354,7 +354,7 @@ fn TemplateList(page: Signal<Page>, shell: Signal<Shell>, active: usize) -> Elem
             on_select: move |to: usize| page.write().float = Float::Templates { active: to },
             oninput: move |text: String| query.set(text),
             onpick: move |key: String| start_here(page, shell, &key),
-            onclose: move |()| {
+            onclose: move |_: PaletteClose| {
                 if matches!(page.peek().float, Float::Templates { .. }) {
                     page.write().float = Float::Closed;
                 }
