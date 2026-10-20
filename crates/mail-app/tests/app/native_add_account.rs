@@ -983,4 +983,41 @@ fn a_provider_with_no_client_offers_no_try_again_and_back_still_goes_back() {
     );
     click_text(&mut w, ".ds-acc-actions > :nth-child(1)");
     on_step(&mut w, "providers");
+
+/// An input method's preedit is drawn in the field before it is the field's text: the
+/// placeholder goes as composing starts, stays gone while it runs, and the commit is the text.
+#[test]
+fn pinyin_being_composed_hides_the_placeholder() {
+    use ds_harness::{ImeInput, Input};
+    let mut w = open_in(Script::default(), None, ds::prelude::Theme::Light);
+    on_step(&mut w, "providers");
+    type_text(&mut w, "fast");
+    w.harness.key(Key::Enter);
+    on_step(&mut w, "sign-in");
+    const PLACEHOLDER: &str = ".ds-input-placeholder";
+    let before = w.harness.count(PLACEHOLDER);
+    assert!(before > 0, "the sign-in fields have no placeholder");
+    w.harness.send(Input::Ime(ImeInput::Start));
+    w.harness.send(Input::Ime(ImeInput::Update {
+        text: "ni".to_owned(),
+        cursor: 2,
+    }));
+    w.harness.advance(Duration::from_millis(100));
+    assert_eq!(
+        w.harness.count(PLACEHOLDER),
+        before - 1,
+        "the placeholder stayed over the preedit"
+    );
+    w.harness
+        .send(Input::Ime(ImeInput::Commit("你".to_owned())));
+    w.harness.advance(Duration::from_millis(100));
+    assert_eq!(
+        w.harness.count(PLACEHOLDER),
+        before - 1,
+        "the committed text has the placeholder over it"
+    );
+    assert!(
+        w.harness.html().contains("value=\"你\""),
+        "the commit is not the text"
+    );
 }
