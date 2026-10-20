@@ -86,3 +86,6 @@ pub const SPACE_NEEDS_A_NAME: &str = "A Space needs a name.";
 pub fn key_given_twice(action: &str) -> String {
     format!("{action} is given a key twice.")
 }
+
+/// Send pressed with nobody to send to: To's error.
+pub const ADD_A_RECIPIENT: &str = "Add at least one person to send to.";

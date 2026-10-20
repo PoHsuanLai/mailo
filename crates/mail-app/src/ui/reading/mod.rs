@@ -147,6 +147,25 @@ pub(super) fn Reader(
         embedded.clone(),
         store.clone(),
     );
+    // Opening a conversation reads it: an unread one is marked read once it is drawn (on the
+    // server too, where the server keeps flags), with no toast and no undo, and the list loses
+    // its dot. The messages that were unread as it opened stay unfolded: the render gathered
+    // them into `unread` before this runs.
+    {
+        let store = store.clone();
+        use_effect(use_reactive!(|thread| {
+            let unread = store
+                .thread(thread)
+                .is_ok_and(|loaded| loaded.summary.read == ReadState::Unread);
+            if unread
+                && super::ops::resolve(&store, thread, OpKind::MarkRead)
+                    .is_some_and(|op| super::ops::perform(&store, thread, op).is_some())
+                && let Some(mut revision) = revision
+            {
+                revision += 1;
+            }
+        }));
+    }
     let Ok(loaded) = store.thread(thread) else {
         return rsx! {
             div { class: "reader-empty",

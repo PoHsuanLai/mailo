@@ -98,8 +98,8 @@ pub use launch::run;
 /// The window on Blitz, for a test to drive through `ds_harness::Harness`.
 pub mod native {
     pub use super::add_account::{
-        AddAccountWindows, Ask as AddAccountAsk, Browse as AddAccountBrowse, DirectSignIns,
-        Fit as AddAccountFit, OpenAddAccount, Opened as AddAccountOpened, Request as AddRequest,
+        AddAccountWindows, AddError, AddFault, Ask as AddAccountAsk, Browse as AddAccountBrowse,
+        DirectSignIns, OpenAddAccount, Opened as AddAccountOpened, Request as AddRequest,
         Seams as AddAccountSeams, SignInDirectly, Wiring as AddAccountWiring, add_account_root,
     };
     pub use super::brand::BrandCache;

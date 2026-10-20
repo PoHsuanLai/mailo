@@ -212,6 +212,17 @@ pub(in crate::ui) struct Wire {
     pub composing: Option<Range>,
 }
 
+/// What is typed in a recipient field that is not an address, once it was meant to become one:
+/// the field was left, Enter was pressed, or Send. The field marks itself with why, and Send
+/// waits; typing in the field again takes the mark off.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(in crate::ui) struct Misread {
+    pub list: List,
+    pub why: String,
+    /// Which refusal this is, so a second one is announced again.
+    pub count: u32,
+}
+
 /// The composer page.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::ui) struct Page {
@@ -261,6 +272,7 @@ pub(in crate::ui) struct Page {
     /// The contact groups offered above [`Page::people`] for what is typed in To or Cc, each
     /// already expanded to its members.
     pub groups: Vec<crate::ui::contacts::groups::Offer>,
+    pub misread: Option<Misread>,
     pub notice: Option<String>,
 }
 
@@ -320,8 +332,14 @@ impl Page {
             plain: Fold::Folded,
             people,
             groups: Vec::new(),
+            misread: None,
             notice: None,
         }
+    }
+
+    /// Why what is typed in `list` is not an address, while it is marked so.
+    pub(in crate::ui) fn misread(&self, list: List) -> Option<&Misread> {
+        self.misread.as_ref().filter(|misread| misread.list == list)
     }
 
     /// Something changed: the next debounced save has work.

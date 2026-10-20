@@ -28,6 +28,7 @@ impl Inner {
         at: DateTime<Utc>,
     ) {
         let draft = self.drafts.get(&draft).cloned();
+        // Learning who was written to is a hint: a send never fails over it.
         let _ = ledger::learn_sent(self, account, draft.as_ref(), mail_from, rcpt_to, at);
     }
 

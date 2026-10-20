@@ -38,8 +38,11 @@ use ds_shell::accounts::model::{
     FormPart, Limitation, ProblemKind as ShellProblemKind, ProviderEntry, ProviderKey,
     ProviderPick, Requirement, ServiceKey, ServiceLine, ServiceOffer, SignInFault as ShellFault,
 };
+use ds_shell::prelude::Recovery;
 pub(super) use mail_core::account::draft::{Action, Out, Sheet, acted, shown};
-use mail_core::account::draft::{CopyMark, Draft, FieldDraft, ListKey, is_manual, problem_of};
+use mail_core::account::draft::{
+    CopyMark, Draft, FieldDraft, ListKey, is_manual, problem_of, retries,
+};
 use porter_core::sheet::{
     FieldKind, FieldProblem, FieldSpec, FieldValue, Presence, ProblemKind, RowKind, ServiceState,
     SheetView, SignInFault,
@@ -99,10 +102,34 @@ pub(super) enum Step {
     Failed {
         provider: String,
         why: ShellFault,
+        /// What the sentence of `why` leaves out: the server's own words and the user name it
+        /// was given. The window fills it in from what the add was told ([`Step::said`]); the
+        /// sheet's view of a failure carries only the fault.
+        detail: Option<String>,
+        /// No "Try Again" where porter does not try again ([`retries`]); else quire's default.
+        recovery: Option<Recovery>,
     },
 }
 
 impl Step {
+    /// This step with what the last failed add said under it, if it is the failure.
+    pub(super) fn said(self, said: Option<String>) -> Step {
+        match self {
+            Step::Failed {
+                provider,
+                why,
+                recovery,
+                ..
+            } => Step::Failed {
+                provider,
+                why,
+                detail: said,
+                recovery,
+            },
+            other => other,
+        }
+    }
+
     /// The step's word, for its key and its `data-step`.
     pub(super) fn slug(&self) -> &'static str {
         match self {
@@ -206,6 +233,8 @@ pub(super) fn step_of(sheet: &Sheet) -> Option<Step> {
         } => Step::Failed {
             provider: provider_label(provider),
             why: fault_of(*fault),
+            detail: None,
+            recovery: (!retries(*fault)).then_some(Recovery::NoRetry),
         },
         SheetView::Done | SheetView::Consent(_) => return None,
     })
@@ -304,10 +333,11 @@ fn choices_of(kind: FieldKind) -> Vec<Choice> {
 /// What a choice's slug is called.
 pub(super) fn choice_label(slug: &str) -> String {
     match slug {
-        // The plain name first and the protocol second, as quire's own forms word them.
-        "imap" => "Most servers (IMAP)",
-        "pop3" => "Older servers (POP)",
-        "jmap" => "Newer servers (JMAP)",
+        // The protocol's own name: a person who is choosing one knows it, or is told it by their
+        // provider in just these words.
+        "imap" => "IMAP",
+        "pop3" => "POP3",
+        "jmap" => "JMAP",
         "tls" => "Secure from the start (SSL/TLS)",
         "starttls" => "Secure after connecting (STARTTLS)",
         other => other,

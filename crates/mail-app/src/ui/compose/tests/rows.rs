@@ -306,3 +306,34 @@ async fn delete_draft_can_be_taken_back() {
         .unwrap_or_else(|why| panic!("not back: {why}"));
     assert_eq!(back.subject, "Lunch on Friday");
 }
+
+/// What is typed that is not an address stays typed and marks its field, not the page; typing in
+/// the field takes the mark off, and an address committed there leaves no mark.
+#[test]
+fn what_is_not_an_address_marks_its_field() {
+    use super::super::recipients::{commit_typed, typed};
+    let (store, _dir) = seeded();
+    let mut page = page_of("");
+    page.typed_to = "/".to_owned();
+    assert!(!commit_typed(&mut page, List::To));
+    assert_eq!(page.typed_to, "/", "the entry was dropped");
+    assert!(page.misread(List::To).is_some(), "To is not marked");
+    assert!(page.misread(List::Cc).is_none(), "Cc is marked");
+    assert_eq!(page.notice, None, "the page put up a notice");
+
+    typed(
+        &mut page,
+        List::To,
+        "ada@example.test".to_owned(),
+        store.as_ref(),
+    );
+    assert!(page.misread(List::To).is_none(), "typing left the mark");
+    page.typed_to = "ada@".to_owned();
+    assert!(!commit_typed(&mut page, List::To));
+    assert!(!commit_typed(&mut page, List::To));
+    let count = page.misread(List::To).map(|misread| misread.count);
+    page.typed_to = "ada@example.test".to_owned();
+    assert!(commit_typed(&mut page, List::To));
+    assert!(page.misread.is_none(), "an address left the mark");
+    assert_eq!(count, Some(2), "a second refusal is not a new one");
+}

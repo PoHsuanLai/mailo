@@ -323,6 +323,7 @@ impl Ledger for Rows<'_> {
     }
 
     fn head(&self, raw: BlobId) -> Option<Vec<u8>> {
+        // A blob that cannot be read says nothing, rather than stopping an ingest over a hint.
         self.store.blobs.head(self.db, raw, HEAD).ok()
     }
 

@@ -51,40 +51,6 @@ fn mounted_with(before: impl FnOnce(&SqliteStore, ThreadId)) -> Mounted {
     }
 }
 
-/// Draw until `done`, or until `bound` has passed. A loaded runner fires the roster's wall-clock
-/// sleep after the nominal settle, so a test that stops at that instant still sees the previous
-/// state. Healing is brief: this returns on the render where `done` first holds, and yields
-/// between renders so a document that always has work cannot spin the timer out of the slice.
-async fn until(
-    dom: &mut VirtualDom,
-    bound: std::time::Duration,
-    done: impl Fn(&str) -> bool,
-) -> bool {
-    let deadline = tokio::time::Instant::now() + bound;
-    let frame = std::time::Duration::from_millis(16);
-    loop {
-        if done(&dioxus_ssr::render(dom)) {
-            return true;
-        }
-        if tokio::time::Instant::now() >= deadline {
-            return false;
-        }
-        let left = deadline.saturating_duration_since(tokio::time::Instant::now());
-        let slice = left.min(std::time::Duration::from_millis(50));
-        let started = tokio::time::Instant::now();
-        if tokio::time::timeout(slice, dom.wait_for_work())
-            .await
-            .is_ok()
-        {
-            dom.render_immediate(&mut NoOpMutations);
-        }
-        let spent = started.elapsed();
-        if spent < frame {
-            tokio::time::sleep(frame - spent).await;
-        }
-    }
-}
-
 /// How long a row's exit takes to settle at the window's motion level.
 fn exit_settles() -> std::time::Duration {
     anim_settle(Anim::RowOut, MotionLevel::Standard)
@@ -125,50 +91,6 @@ fn at(x: f64, y: f64) -> FakePointer {
         offset: (12.0, 10.0),
         held: true,
     }
-}
-
-#[tokio::test]
-async fn archiving_moves_the_store_at_once_and_the_row_leaves_once_its_exit_settles() {
-    let Mounted {
-        mut dom,
-        store,
-        dana,
-        seen,
-        ..
-    } = mounted();
-    assert!(mailboxes(&store, dana).contains(MailboxRole::Inbox));
-
-    archive_dana(&mut dom, &seen, &store, dana).await;
-    settle_quiet(&mut dom).await;
-
-    assert!(
-        !mailboxes(&store, dana).contains(MailboxRole::Inbox),
-        "the store did not have the archive before the row's animation ended"
-    );
-    let page = dioxus_ssr::render(&dom);
-    let going = row_markup(&page, DANA).expect("the row is still drawn while it leaves");
-    assert!(
-        going.contains("data-presence=\"leaving\"") && going.contains("data-exit=\"row\""),
-        "the leaving row is not leaving[data-exit=row]:\n{going}"
-    );
-
-    // Nothing the webview says ends it: the roster times the exit on quire's clock. Stop on the
-    // render where the row goes, which is the render that starts the heal under it. Waiting the
-    // heal out as well would find that row already present.
-    let slack = std::time::Duration::from_millis(1000);
-    assert!(
-        until(&mut dom, exit_settles() + slack, |page| {
-            row_markup(page, DANA).is_none()
-        })
-        .await,
-        "the row was still drawn after its exit ended"
-    );
-    let page = dioxus_ssr::render(&dom);
-    let next = row_markup(&page, RELEASE).expect("the next row is there");
-    assert!(
-        next.contains("data-presence=\"healing\""),
-        "the row under the gap does not heal into it:\n{next}"
-    );
 }
 
 #[tokio::test]

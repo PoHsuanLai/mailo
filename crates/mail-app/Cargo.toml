@@ -116,26 +116,26 @@ dioxus = { version = "0.7" }
 # chordkit, the keymap core quire resolves keys with (actions, chords with a `Primary` modifier, the
 # display). quire re-exports only `StandardAction`; mailo names `Action`, `AppAction`, `Context` and
 # `Chord` as well. The rev quire pins (`docs/workspace-deps.toml`), so one chordkit is built.
-chordkit = { git = "https://github.com/PoHsuanLai/chordkit.git", rev = "7b80eddb86559909eeb63b882d5563d36f5bad37" }
-ds = { git = "https://github.com/PoHsuanLai/quire.git", rev = "9ddcbceecbb2490526a2f5a2f3344334333d72be" }  # 9ddcbcee (type audit wave 2; forks blitz 4b236792, blitz-kit f0e9dc3)
+chordkit = { git = "https://github.com/PoHsuanLai/chordkit.git", rev = "eb0deff12add543565ec41eecffda646ede43cf0" }
+ds = { git = "https://github.com/PoHsuanLai/quire.git", rev = "5a3b660e72156132104f51e9a1f203e262515f5d" }  # 5a3b660e (v0.3.35; forks blitz 851fa7dd, blitz-kit 878dc799)
 # Settings I/O: `appearance.toml` (imported once from `appearance.json`), the settings portal.
-ds-settings = { git = "https://github.com/PoHsuanLai/quire.git", rev = "9ddcbceecbb2490526a2f5a2f3344334333d72be", features = ["dioxus"] }  # 9ddcbcee (type audit wave 2; forks blitz 4b236792, blitz-kit f0e9dc3)
+ds-settings = { git = "https://github.com/PoHsuanLai/quire.git", rev = "5a3b660e72156132104f51e9a1f203e262515f5d", features = ["dioxus"] }  # 5a3b660e (v0.3.35; forks blitz 851fa7dd, blitz-kit 878dc799)
 # The account sheets' views (step E5): `ds_shell::accounts`, the parts `sill` draws the same sheet with.
 # Only the accounts module is used; the shell's own surfaces (bar, dock, lock) are not drawn here.
-ds-shell = { git = "https://github.com/PoHsuanLai/quire.git", rev = "9ddcbceecbb2490526a2f5a2f3344334333d72be" }  # 9ddcbcee (type audit wave 2; forks blitz 4b236792, blitz-kit f0e9dc3)
+ds-shell = { git = "https://github.com/PoHsuanLai/quire.git", rev = "5a3b660e72156132104f51e9a1f203e262515f5d" }  # 5a3b660e (v0.3.35; forks blitz 851fa7dd, blitz-kit 878dc799)
 # anyview, the viewer's light tier, at the rev of its main that names the quire rev above (the same
 # spelling as quire, so one quire is built). `anyview-core` is the vocabulary (`Input`, `ReadAt`:
 # how the store's bytes go in); `anyview-peek` the peek worker and, with `pane`, the card that draws
 # what was peeked. Headless otherwise: no media player, no D-Bus.
-anyview-core = { git = "https://github.com/PoHsuanLai/anyview.git", rev = "cf3753beaa162567714b081552f8db374b5eb520", optional = true }
-anyview-peek = { git = "https://github.com/PoHsuanLai/anyview.git", rev = "cf3753beaa162567714b081552f8db374b5eb520", default-features = false, features = ["pane"], optional = true }
+anyview-core = { git = "https://github.com/PoHsuanLai/anyview.git", rev = "1a4e7a5f87344d6fb6bd1961334b60b30fd8962a", optional = true }
+anyview-peek = { git = "https://github.com/PoHsuanLai/anyview.git", rev = "1a4e7a5f87344d6fb6bd1961334b60b30fd8962a", default-features = false, features = ["pane"], optional = true }
 # `mailo.toml`, and the `appearance.toml` written once on the first run after the move.
 toml = "1"
 # The window: quire's Blitz host (the window, its fonts, focus, clipboard, PDF output), and
 # `print`: the system's print dialog for a PDF (the desktop portal on Linux, else the PDF opened
 # in the viewer); `spell`: the composer's spelling, against the system's Hunspell dictionaries
 # (none is bundled); `pdf` also rasterises a PDF attachment's first page (`PdfFileThumb`).
-ds-blitz = { git = "https://github.com/PoHsuanLai/quire.git", rev = "9ddcbceecbb2490526a2f5a2f3344334333d72be", features = ["pdf", "print", "spell"] }  # 9ddcbcee (type audit wave 2; forks blitz 4b236792, blitz-kit f0e9dc3)
+ds-blitz = { git = "https://github.com/PoHsuanLai/quire.git", rev = "5a3b660e72156132104f51e9a1f203e262515f5d", features = ["pdf", "print", "spell"] }  # 5a3b660e (v0.3.35; forks blitz 851fa7dd, blitz-kit 878dc799)
 blitz-dom = { workspace = true }
 dioxus-native-dom = { workspace = true }
 base64 = "0.22"
@@ -149,6 +149,10 @@ uuid = { workspace = true }
 webbrowser = "=1.2.4"
 # `mailo contacts sync` takes a URL and hands it to the CardDAV client, which speaks `url`.
 url = "2"
+# The store's file, watched so the window hears another process's commit as it lands
+# (`ui/fetching/external.rs`). Already in the lock through quire's settings, at this version and
+# with its default features. CC0-1.0.
+notify = "8.2"
 
 # The native file dialog beside the Import and Export sheets' typed path. Pinned at the version
 # dioxus-desktop linked when the window was a webview (F158); moving it is a decision of its own.
@@ -222,15 +226,13 @@ p256 = { version = "0.13", features = ["ecdsa"] }
 # A paused clock, so a test drives the search box's debounce instead of sleeping through it.
 tokio = { version = "1", features = ["test-util"] }
 dioxus-ssr = "0.7"
-# A watch's door in a scratch directory (`ui::fetching::external`'s tests), never the person's.
-latchkey.workspace = true
 uuid = { workspace = true }
 proptest = "1"
 # The linter (`lint::assert_clean`, the markup lint) and the test driver (`Harness`, `Driver`,
 # `Query`, `snapshot`; `pdf` is `Harness::pdf` for the print tests): quire's own crates, at the
 # same tag.
-ds-lint = { git = "https://github.com/PoHsuanLai/quire.git", rev = "9ddcbceecbb2490526a2f5a2f3344334333d72be" }  # 9ddcbcee (type audit wave 2; forks blitz 4b236792, blitz-kit f0e9dc3)
-ds-harness = { git = "https://github.com/PoHsuanLai/quire.git", rev = "9ddcbceecbb2490526a2f5a2f3344334333d72be", features = ["pdf"] }  # 9ddcbcee (type audit wave 2; forks blitz 4b236792, blitz-kit f0e9dc3)
+ds-lint = { git = "https://github.com/PoHsuanLai/quire.git", rev = "5a3b660e72156132104f51e9a1f203e262515f5d" }  # 5a3b660e (v0.3.35; forks blitz 851fa7dd, blitz-kit 878dc799)
+ds-harness = { git = "https://github.com/PoHsuanLai/quire.git", rev = "5a3b660e72156132104f51e9a1f203e262515f5d", features = ["pdf"] }  # 5a3b660e (v0.3.35; forks blitz 851fa7dd, blitz-kit 878dc799)
 
 [lints]
 workspace = true

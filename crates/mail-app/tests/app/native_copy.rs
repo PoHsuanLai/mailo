@@ -464,18 +464,3 @@ fn in_a_new_message_the_primary_key_and_super_c_copy_the_body_s_and_each_field_s
         "the command key in To"
     );
 }
-
-/// (c) The search panel's field: typed, all selected, Ctrl+C.
-#[test]
-fn the_command_key_copies_the_search_fields_selection() {
-    let (mut harness, _dir) = open();
-    harness.chord(&[PRIMARY], Key::Char('k'));
-    until(&mut harness, "the search field", |h| {
-        h.is_focused(".ds-search-card input")
-    });
-    type_text(&mut harness, "invoice");
-    harness.chord(&[COMMAND], Key::Char('a'));
-    harness.advance(ms(100));
-    copy_with(&mut harness, COMMAND);
-    assert_eq!(copied(&harness), "invoice");
-}

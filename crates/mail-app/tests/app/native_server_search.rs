@@ -353,14 +353,12 @@ fn a_search_that_finds_mail_here_still_ends_with_the_offer() {
         h.count(OFFER) == 1
     });
     assert_eq!(calls.load(Ordering::SeqCst), 0, "not asked by itself");
-    // Emptying the box is the place again, with nothing offered. The box is emptied from its
-    // start with Delete: on macOS Blitz leaves Backspace in a field to the system's key bindings,
-    // which a headless window never gets, so Backspace deletes nothing there.
+    // Emptying the box is the place again, with nothing offered. The box is emptied by selecting
+    // all and cutting: on macOS Blitz leaves Backspace, Delete and the arrows in a field to the
+    // system's key bindings, which a headless window never gets.
     press(&mut harness, ".ds-search-card input");
-    harness.key(Key::Home);
-    for _ in 0.."flight".len() {
-        harness.key(Key::Delete);
-    }
+    harness.chord(&[PRIMARY], Key::Char('a'));
+    harness.chord(&[PRIMARY], Key::Char('x'));
     until(&mut harness, "the place coming back", |h| {
         h.count(OFFER) == 0
     });
