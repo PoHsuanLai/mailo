@@ -47,6 +47,13 @@ const REVIEW: u32 = 147;
 /// One line a review adds for a service a provider lacks.
 const SERVICE: u32 = 44;
 
+/// About how many characters one line of a failure's detail holds at the narrow width.
+const DETAIL_CHARS: usize = 52;
+/// One line of a failure's detail, with its leading.
+const DETAIL_LINE: u32 = 20;
+/// The room between a failure's buttons and its detail.
+const DETAIL_GAP: u32 = 12;
+
 /// The size of the window while it shows `step`; none while it shows nothing.
 pub(super) fn extent(step: Option<&Step>) -> Extent {
     match step {
@@ -76,7 +83,17 @@ pub(super) fn extent(step: Option<&Step>) -> Extent {
         Some(Step::Review(props)) => {
             Extent::new(NARROW, REVIEW + props.services.len() as u32 * SERVICE)
         }
-        Some(Step::Working { .. } | Step::Failed { .. }) => Extent::new(NARROW, SENTENCE),
+        Some(Step::Working { .. }) => Extent::new(NARROW, SENTENCE),
+        // The sentence, and the lines of what the server said under it.
+        Some(Step::Failed { detail, .. }) => {
+            let lines = detail
+                .as_deref()
+                .map_or(0, |said| said.chars().count().div_ceil(DETAIL_CHARS) as u32);
+            Extent::new(
+                NARROW,
+                SENTENCE + if lines > 0 { DETAIL_GAP } else { 0 } + lines * DETAIL_LINE,
+            )
+        }
     }
 }
 

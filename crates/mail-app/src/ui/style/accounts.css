@@ -4,6 +4,7 @@
 .add-account-window { display: flex; justify-content: center; align-items: flex-start; box-sizing: border-box; min-height: 100vh; color: var(--ink); }
 .add-account-window:focus { outline: none; }
 .add-account-step { display: flex; flex-direction: column; width: 100%; min-width: 0; }
+.add-account-detail { margin: var(--s-12) var(--s-22) 0; font-size: var(--fs-control); line-height: 1.25; color: var(--ink-soft); overflow-wrap: anywhere; user-select: text; }
 .acct-actions { display: flex; flex-direction: column; align-items: flex-end; gap: var(--s-8); }
 /* A sign-in in the browser while it waits, at the top of the sidebar: a spinner, what it waits
    for, and the button that stops it. */
