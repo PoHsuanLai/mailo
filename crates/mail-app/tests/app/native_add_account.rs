@@ -493,9 +493,9 @@ fn a_refused_login_says_what_the_server_said_under_the_sentence() {
     w.harness.key(Key::Enter);
     on_step(&mut w, "sign-in");
     w.harness.key(Key::Tab);
+    // A password account has nothing to choose, so the empty review is not drawn and the form's
+    // Return adds the account.
     type_text(&mut w, SECRET);
-    w.harness.key(Key::Enter);
-    on_step(&mut w, "review");
     w.harness.key(Key::Enter);
     on_step(&mut w, "failed");
     let html = w.harness.html();
