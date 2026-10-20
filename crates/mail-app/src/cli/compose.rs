@@ -62,7 +62,7 @@ pub fn composed(composed: &Composed) -> String {
     if let Some(why) = &composed.refused {
         let _ = writeln!(
             out,
-            "  but it cannot be sent that way yet: {}",
+            "  but it can't be sent that way yet: {}",
             super::remedy::told(why)
         );
     }
@@ -130,7 +130,7 @@ where
     let _ = writeln!(out, "  subject {}", draft.subject);
     let _ = writeln!(
         out,
-        "\nit goes with the first `mailo sync` after then, or on the minute from a running \
+        "\nit is sent with the first `mailo sync` after then, or on the minute from a running \
          `mailo watch`.\ntake it back before then with: mailo unsend {}",
         draft.id
     );

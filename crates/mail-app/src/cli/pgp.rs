@@ -240,7 +240,7 @@ fn run_typed(
                         let _ = writeln!(
                             out,
                             "  with its secret half, now in your keyring, still behind its \
-                             passphrase: you will be asked for it when it signs or decrypts"
+                             passphrase: you'll be asked for it when it signs or decrypts"
                         );
                     }
                 }
@@ -326,7 +326,7 @@ pub fn describe(protected: &Protected) -> String {
         Encryption::CannotDecrypt { to } => {
             let ids: Vec<String> = to.iter().map(ToString::to_string).collect();
             out.push_str(&format!(
-                "    encrypted to keys you do not hold ({}); it cannot be read here\n",
+                "    encrypted to keys you don't hold ({}); it can't be read here\n",
                 ids.join(", ")
             ));
         }
@@ -335,7 +335,7 @@ pub fn describe(protected: &Protected) -> String {
              (set MAILO_PGP_PASSPHRASE, or run from a terminal to be asked)\n"
         )),
         Encryption::Unreadable { why } => {
-            out.push_str(&format!("    encrypted, and could not be read: {why}\n"));
+            out.push_str(&format!("    encrypted, and couldn't be read: {why}\n"));
         }
     }
     let part = |coverage: &Coverage| match coverage {
@@ -407,12 +407,12 @@ pub fn discovered(found: &[Discovered]) -> String {
             Discovery::NoKey => {
                 let _ = writeln!(
                     out,
-                    "no OpenPGP key for {address}: the message cannot be sent encrypted until \
-                     one is imported"
+                    "no OpenPGP key for {address}: the message can't be sent encrypted until \
+                     you import one"
                 );
             }
             Discovery::Failed(e) => {
-                let _ = writeln!(out, "could not look up {address}'s key: {e}");
+                let _ = writeln!(out, "couldn't look up {address}'s key: {e}");
             }
         }
     }

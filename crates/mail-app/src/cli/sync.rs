@@ -153,8 +153,8 @@ fn meaning(diagnosis: mail_proto::Diagnosis) -> &'static str {
              an App Password does."
         }
         Diagnosis::ProtocolSwitchedOff => {
-            "the protocol is switched off for this mailbox. An administrator enables it; the \
-             credential is not the problem."
+            "the protocol is switched off for this mailbox. An administrator can enable it; your \
+             credential isn't the problem."
         }
     }
 }

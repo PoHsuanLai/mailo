@@ -273,13 +273,13 @@ pub fn describe(protected: &Protected) -> String {
         SmimeEncryption::NotEncrypted => {}
         SmimeEncryption::Decrypted => out.push_str("    S/MIME encrypted; decrypted for reading\n"),
         SmimeEncryption::CannotDecrypt { to } => out.push_str(&format!(
-            "    S/MIME encrypted to certificates you hold no key for ({}); it cannot be read \
+            "    S/MIME encrypted to certificates you hold no key for ({}); it can't be read \
              here\n",
             to.join("; ")
         )),
         SmimeEncryption::Unreadable { why } => {
             out.push_str(&format!(
-                "    S/MIME encrypted, and could not be read: {why}\n"
+                "    S/MIME encrypted, and couldn't be read: {why}\n"
             ));
         }
     }
@@ -322,7 +322,7 @@ pub fn describe(protected: &Protected) -> String {
             part(coverage)
         )),
         SmimeVerification::UnknownSigner { coverage } => out.push_str(&format!(
-            "    S/MIME signed by a certificate neither the message nor you hold; it cannot be \
+            "    S/MIME signed by a certificate neither the message nor you hold; it can't be \
              checked{}\n",
             part(coverage)
         )),
@@ -332,7 +332,7 @@ pub fn describe(protected: &Protected) -> String {
 
 fn problem(problem: &CertProblem) -> String {
     match problem {
-        CertProblem::Untrusted => "its certificate is not issued by an authority you trust \
+        CertProblem::Untrusted => "its certificate isn't issued by an authority you trust \
                                    (trust it with `mailo smime trust <fingerprint>`)"
             .to_owned(),
         CertProblem::Expired { not_after } => {
@@ -342,15 +342,15 @@ fn problem(problem: &CertProblem) -> String {
             )
         }
         CertProblem::NotYetValid { not_before } => format!(
-            "a certificate in it was not valid until {}",
+            "a certificate in it wasn't valid until {}",
             not_before.format("%Y-%m-%d")
         ),
-        CertProblem::NotForEmail => "its certificate is not for signing mail".to_owned(),
+        CertProblem::NotForEmail => "its certificate isn't for signing mail".to_owned(),
         CertProblem::NotFrom { from } if from.is_empty() => {
             "the message names no sender to check the certificate against".to_owned()
         }
         CertProblem::NotFrom { from } => {
-            format!("its certificate is not for {from}, who the message says it is from")
+            format!("its certificate isn't for {from}, who the message says it is from")
         }
     }
 }

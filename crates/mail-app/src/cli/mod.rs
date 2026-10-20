@@ -575,7 +575,7 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
                     )
                 })?
                 .parse()
-                .map_err(|_| "that is not an attachment number".to_owned())?;
+                .map_err(|_| "that isn't an attachment number".to_owned())?;
             Ok(Command::Detach {
                 draft: DraftId::from_uuid(uuid),
                 index,
@@ -1180,8 +1180,8 @@ fn parse_manual(args: &[String]) -> Result<Option<Setup>, String> {
             usage()
         )),
         _ => Err(format!(
-            "manual setup needs --smtp and one of --imap or --pop3; an account that \
-             can only receive, or only send, is not one this can configure\n\n{}",
+            "manual setup needs --smtp and one of --imap or --pop3; mailo can't \
+             set up an account that only receives or only sends\n\n{}",
             usage()
         )),
     }
@@ -1252,7 +1252,7 @@ fn host_port(raw: &str, default: u16) -> Result<(String, u16), String> {
             }
             Ok((host.to_owned(), port))
         }
-        None if raw.is_empty() => Err("a server name cannot be empty".to_owned()),
+        None if raw.is_empty() => Err("a server name can't be empty".to_owned()),
         None => Ok((raw.to_owned(), default)),
     }
 }
@@ -1283,8 +1283,7 @@ usage: mailo <command>
   compose --to a@b[,c@d] [--cc …] [--bcc …] [--subject S] [--from address]
           [--request-receipt] [--sign] [--encrypt] [--smime]
                              a new message; the body is read from stdin. --sign and
-                             --encrypt make it OpenPGP (PGP/MIME) when it is sent, or
-                             S/MIME with --smime
+                             --encrypt use OpenPGP (PGP/MIME), or S/MIME with --smime
   pgp keys                    the OpenPGP keys held, yours and your correspondents'
   pgp generate <address>      make a key for one of your identities
   pgp import <file>           import keys, public or secret, armored or binary
@@ -1372,15 +1371,15 @@ usage: mailo <command>
   signature <address> [--clear]
                              set it from stdin, or take it off
   account add <address> [--yes]
-                             (set MAILO_PASSWORD for a password account). For a domain
-                             the preset table does not know, the servers are looked up
-                             and shown for confirmation first; --yes accepts them
+                             (set MAILO_PASSWORD for a password account). An unknown
+                             domain is looked up and its servers shown for
+                             confirmation first; --yes accepts them
   account discover <address> what that lookup finds, without adding anything
   account remove <address> [--yes]
                              what removing it takes from this computer; --yes removes
                              it, its mail here and its saved sign-in
   account add <address> --imap HOST[:PORT] --smtp HOST[:PORT] [--login NAME]
-                             for a server the preset table does not know
+                             for a server with no preset
   account add <address> --pop3 HOST[:PORT] --smtp HOST[:PORT] [--login NAME]
                              the same, for a server that offers only POP3
   account add <address> --jmap [URL] [--login NAME]
@@ -1411,13 +1410,12 @@ usage: mailo <command>
                              this removes a label and deletes no message
   folder subscribe|unsubscribe <account> <name>
   icons refresh              fetch each account's provider icon again
-  watch [--no-notify]        keep fetching until stopped; uses IDLE where the
-                             server offers it, and polls where it does not.
-                             New unread inbox mail raises a desktop notification
-                             unless --no-notify or `notify off`
+  watch [--no-notify]        keep fetching until stopped (IDLE where offered, else
+                             polling); notifies of new unread inbox mail unless
+                             --no-notify or `notify off`
   intents                    answer the desktop's intent router (org.quire.Mail on the
                              session bus) until the session ends; the router starts it
-                             on demand, so it is rarely typed
+                             on demand
   notify [on|off]            turn new-mail notifications on or off (default on)
   --write-schema <dir>       write mailo.settings.toml, the schema the desktop's
                              Settings app draws mailo's page from
