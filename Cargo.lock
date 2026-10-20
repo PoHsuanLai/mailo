@@ -307,7 +307,7 @@ source = "git+https://github.com/PoHsuanLai/anyview.git?rev=cf3753beaa162567714b
 dependencies = [
  "anyview-core",
  "bzip2",
- "ds-core",
+ "ds-core 0.1.0 (git+https://github.com/PoHsuanLai/quire.git?rev=9ddcbceecbb2490526a2f5a2f3344334333d72be)",
  "flate2",
  "lzma-rust2",
  "quick-xml",
@@ -335,7 +335,7 @@ version = "0.1.0-beta.1"
 source = "git+https://github.com/PoHsuanLai/anyview.git?rev=cf3753beaa162567714b081552f8db374b5eb520#cf3753beaa162567714b081552f8db374b5eb520"
 dependencies = [
  "chordkit",
- "ds-core",
+ "ds-core 0.1.0 (git+https://github.com/PoHsuanLai/quire.git?rev=9ddcbceecbb2490526a2f5a2f3344334333d72be)",
  "infer",
  "jiff",
  "serde",
@@ -359,7 +359,7 @@ version = "0.1.0-beta.1"
 source = "git+https://github.com/PoHsuanLai/anyview.git?rev=cf3753beaa162567714b081552f8db374b5eb520#cf3753beaa162567714b081552f8db374b5eb520"
 dependencies = [
  "anyview-core",
- "ds-helpers",
+ "ds-helpers 0.1.0 (git+https://github.com/PoHsuanLai/quire.git?rev=9ddcbceecbb2490526a2f5a2f3344334333d72be)",
  "rustix",
 ]
 
@@ -369,7 +369,7 @@ version = "0.1.0-beta.1"
 source = "git+https://github.com/PoHsuanLai/anyview.git?rev=cf3753beaa162567714b081552f8db374b5eb520#cf3753beaa162567714b081552f8db374b5eb520"
 dependencies = [
  "anyview-core",
- "ds-core",
+ "ds-core 0.1.0 (git+https://github.com/PoHsuanLai/quire.git?rev=9ddcbceecbb2490526a2f5a2f3344334333d72be)",
  "icns",
  "image",
  "jxl-oxide",
@@ -394,9 +394,9 @@ dependencies = [
  "anyview-image",
  "anyview-text",
  "dioxus",
- "ds",
- "ds-blitz",
- "ds-core",
+ "ds 0.1.0 (git+https://github.com/PoHsuanLai/quire.git?rev=9ddcbceecbb2490526a2f5a2f3344334333d72be)",
+ "ds-blitz 0.1.0 (git+https://github.com/PoHsuanLai/quire.git?rev=9ddcbceecbb2490526a2f5a2f3344334333d72be)",
+ "ds-core 0.1.0 (git+https://github.com/PoHsuanLai/quire.git?rev=9ddcbceecbb2490526a2f5a2f3344334333d72be)",
  "log",
  "thiserror 2.0.21",
 ]
@@ -411,7 +411,7 @@ dependencies = [
  "calamine",
  "chardetng",
  "csv",
- "ds-core",
+ "ds-core 0.1.0 (git+https://github.com/PoHsuanLai/quire.git?rev=9ddcbceecbb2490526a2f5a2f3344334333d72be)",
  "encoding_rs",
  "pulldown-cmark",
  "serde_json",
@@ -2594,14 +2594,29 @@ checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
 [[package]]
 name = "ds"
 version = "0.1.0"
+dependencies = [
+ "chordkit",
+ "dioxus",
+ "ds-core 0.1.0",
+ "ds-intents 0.1.0",
+ "ds-motion 0.1.0",
+ "ds-style 0.1.0",
+ "serde",
+ "thiserror 2.0.21",
+ "toml",
+]
+
+[[package]]
+name = "ds"
+version = "0.1.0"
 source = "git+https://github.com/PoHsuanLai/quire.git?rev=9ddcbceecbb2490526a2f5a2f3344334333d72be#9ddcbceecbb2490526a2f5a2f3344334333d72be"
 dependencies = [
  "chordkit",
  "dioxus",
- "ds-core",
- "ds-intents",
- "ds-motion",
- "ds-style",
+ "ds-core 0.1.0 (git+https://github.com/PoHsuanLai/quire.git?rev=9ddcbceecbb2490526a2f5a2f3344334333d72be)",
+ "ds-intents 0.1.0 (git+https://github.com/PoHsuanLai/quire.git?rev=9ddcbceecbb2490526a2f5a2f3344334333d72be)",
+ "ds-motion 0.1.0 (git+https://github.com/PoHsuanLai/quire.git?rev=9ddcbceecbb2490526a2f5a2f3344334333d72be)",
+ "ds-style 0.1.0 (git+https://github.com/PoHsuanLai/quire.git?rev=9ddcbceecbb2490526a2f5a2f3344334333d72be)",
  "serde",
  "thiserror 2.0.21",
  "toml",
@@ -2610,9 +2625,53 @@ dependencies = [
 [[package]]
 name = "ds-behaviour"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire.git?rev=9ddcbceecbb2490526a2f5a2f3344334333d72be#9ddcbceecbb2490526a2f5a2f3344334333d72be"
 dependencies = [
- "ds-core",
+ "ds-core 0.1.0",
+]
+
+[[package]]
+name = "ds-blitz"
+version = "0.1.0"
+dependencies = [
+ "anyrender",
+ "anyrender_vello_hybrid",
+ "arboard",
+ "blitz-dom",
+ "blitz-html",
+ "blitz-kit",
+ "blitz-paint",
+ "blitz-shell",
+ "blitz-traits",
+ "chordkit",
+ "chordkit-gnome",
+ "chordkit-kde",
+ "dioxus",
+ "dioxus-asset-resolver",
+ "dioxus-native",
+ "dioxus-native-dom",
+ "dirs",
+ "ds 0.1.0",
+ "ds-desktop 0.1.0",
+ "ds-helpers 0.1.0",
+ "ds-peer 0.1.0",
+ "image",
+ "keyboard-types 0.7.0",
+ "memfd",
+ "parley",
+ "pdfrum",
+ "pdfrum-anyrender",
+ "peniko",
+ "raw-window-handle",
+ "spellbook",
+ "thiserror 2.0.21",
+ "tokio",
+ "wayland-backend",
+ "wayland-client",
+ "wayland-protocols",
+ "webbrowser",
+ "wgpu",
+ "wgpu_context",
+ "zbus",
 ]
 
 [[package]]
@@ -2636,20 +2695,16 @@ dependencies = [
  "dioxus-asset-resolver",
  "dioxus-native",
  "dioxus-native-dom",
- "dirs",
- "ds",
- "ds-desktop",
- "ds-helpers",
- "ds-peer",
+ "ds 0.1.0 (git+https://github.com/PoHsuanLai/quire.git?rev=9ddcbceecbb2490526a2f5a2f3344334333d72be)",
+ "ds-desktop 0.1.0 (git+https://github.com/PoHsuanLai/quire.git?rev=9ddcbceecbb2490526a2f5a2f3344334333d72be)",
+ "ds-helpers 0.1.0 (git+https://github.com/PoHsuanLai/quire.git?rev=9ddcbceecbb2490526a2f5a2f3344334333d72be)",
  "image",
  "keyboard-types 0.7.0",
- "memfd",
  "parley",
  "pdfrum",
  "pdfrum-anyrender",
  "peniko",
  "raw-window-handle",
- "spellbook",
  "thiserror 2.0.21",
  "tokio",
  "wayland-backend",
@@ -2658,7 +2713,18 @@ dependencies = [
  "webbrowser",
  "wgpu",
  "wgpu_context",
- "zbus",
+]
+
+[[package]]
+name = "ds-core"
+version = "0.1.0"
+dependencies = [
+ "chordkit",
+ "ds-core-derive 0.1.0",
+ "futures-timer",
+ "keyboard-types 0.7.0",
+ "serde",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -2667,11 +2733,21 @@ version = "0.1.0"
 source = "git+https://github.com/PoHsuanLai/quire.git?rev=9ddcbceecbb2490526a2f5a2f3344334333d72be#9ddcbceecbb2490526a2f5a2f3344334333d72be"
 dependencies = [
  "chordkit",
- "ds-core-derive",
+ "ds-core-derive 0.1.0 (git+https://github.com/PoHsuanLai/quire.git?rev=9ddcbceecbb2490526a2f5a2f3344334333d72be)",
  "futures-timer",
  "keyboard-types 0.7.0",
  "serde",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "ds-core-derive"
+version = "0.1.0"
+dependencies = [
+ "proc-macro-crate",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]
@@ -2688,15 +2764,21 @@ dependencies = [
 [[package]]
 name = "ds-desktop"
 version = "0.1.0"
+dependencies = [
+ "ds-peer 0.1.0",
+]
+
+[[package]]
+name = "ds-desktop"
+version = "0.1.0"
 source = "git+https://github.com/PoHsuanLai/quire.git?rev=9ddcbceecbb2490526a2f5a2f3344334333d72be#9ddcbceecbb2490526a2f5a2f3344334333d72be"
 dependencies = [
- "ds-peer",
+ "ds-peer 0.1.0 (git+https://github.com/PoHsuanLai/quire.git?rev=9ddcbceecbb2490526a2f5a2f3344334333d72be)",
 ]
 
 [[package]]
 name = "ds-harness"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire.git?rev=9ddcbceecbb2490526a2f5a2f3344334333d72be#9ddcbceecbb2490526a2f5a2f3344334333d72be"
 dependencies = [
  "anyrender",
  "anyrender_vello_cpu",
@@ -2709,9 +2791,9 @@ dependencies = [
  "chordkit",
  "dioxus",
  "dioxus-native-dom",
- "ds",
- "ds-blitz",
- "ds-core",
+ "ds 0.1.0",
+ "ds-blitz 0.1.0",
+ "ds-core 0.1.0",
  "image",
  "keyboard-types 0.7.0",
  "parley",
@@ -2726,9 +2808,20 @@ dependencies = [
 [[package]]
 name = "ds-helpers"
 version = "0.1.0"
+dependencies = [
+ "ds-peer 0.1.0",
+ "rustix",
+ "serde",
+ "thiserror 2.0.21",
+ "toml",
+]
+
+[[package]]
+name = "ds-helpers"
+version = "0.1.0"
 source = "git+https://github.com/PoHsuanLai/quire.git?rev=9ddcbceecbb2490526a2f5a2f3344334333d72be#9ddcbceecbb2490526a2f5a2f3344334333d72be"
 dependencies = [
- "ds-peer",
+ "ds-peer 0.1.0 (git+https://github.com/PoHsuanLai/quire.git?rev=9ddcbceecbb2490526a2f5a2f3344334333d72be)",
  "rustix",
  "serde",
  "thiserror 2.0.21",
@@ -2738,19 +2831,34 @@ dependencies = [
 [[package]]
 name = "ds-intents"
 version = "0.1.0"
+dependencies = [
+ "ds-core 0.1.0",
+]
+
+[[package]]
+name = "ds-intents"
+version = "0.1.0"
 source = "git+https://github.com/PoHsuanLai/quire.git?rev=9ddcbceecbb2490526a2f5a2f3344334333d72be#9ddcbceecbb2490526a2f5a2f3344334333d72be"
 dependencies = [
- "ds-core",
+ "ds-core 0.1.0 (git+https://github.com/PoHsuanLai/quire.git?rev=9ddcbceecbb2490526a2f5a2f3344334333d72be)",
 ]
 
 [[package]]
 name = "ds-lint"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire.git?rev=9ddcbceecbb2490526a2f5a2f3344334333d72be#9ddcbceecbb2490526a2f5a2f3344334333d72be"
 dependencies = [
  "cssparser 0.37.0",
- "ds-core",
- "ds-style",
+ "ds-core 0.1.0",
+ "ds-style 0.1.0",
+]
+
+[[package]]
+name = "ds-motion"
+version = "0.1.0"
+dependencies = [
+ "dioxus",
+ "ds-core 0.1.0",
+ "ds-style 0.1.0",
 ]
 
 [[package]]
@@ -2759,8 +2867,16 @@ version = "0.1.0"
 source = "git+https://github.com/PoHsuanLai/quire.git?rev=9ddcbceecbb2490526a2f5a2f3344334333d72be#9ddcbceecbb2490526a2f5a2f3344334333d72be"
 dependencies = [
  "dioxus",
- "ds-core",
- "ds-style",
+ "ds-core 0.1.0 (git+https://github.com/PoHsuanLai/quire.git?rev=9ddcbceecbb2490526a2f5a2f3344334333d72be)",
+ "ds-style 0.1.0 (git+https://github.com/PoHsuanLai/quire.git?rev=9ddcbceecbb2490526a2f5a2f3344334333d72be)",
+]
+
+[[package]]
+name = "ds-peer"
+version = "0.1.0"
+dependencies = [
+ "futures-timer",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -2775,17 +2891,17 @@ dependencies = [
 [[package]]
 name = "ds-settings"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire.git?rev=9ddcbceecbb2490526a2f5a2f3344334333d72be#9ddcbceecbb2490526a2f5a2f3344334333d72be"
 dependencies = [
  "dioxus",
  "ds-behaviour",
- "ds-core",
- "ds-helpers",
- "ds-peer",
+ "ds-core 0.1.0",
+ "ds-helpers 0.1.0",
+ "ds-peer 0.1.0",
  "ds-settings-derive",
- "ds-style",
+ "ds-style 0.1.0",
  "futures-timer",
  "notify",
+ "objc2-core-foundation",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -2797,7 +2913,6 @@ dependencies = [
 [[package]]
 name = "ds-settings-derive"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire.git?rev=9ddcbceecbb2490526a2f5a2f3344334333d72be#9ddcbceecbb2490526a2f5a2f3344334333d72be"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2807,14 +2922,25 @@ dependencies = [
 [[package]]
 name = "ds-shell"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/quire.git?rev=9ddcbceecbb2490526a2f5a2f3344334333d72be#9ddcbceecbb2490526a2f5a2f3344334333d72be"
 dependencies = [
  "dioxus",
- "ds",
- "ds-core",
- "ds-motion",
- "ds-style",
+ "ds 0.1.0",
+ "ds-core 0.1.0",
+ "ds-motion 0.1.0",
+ "ds-style 0.1.0",
  "zeroize",
+]
+
+[[package]]
+name = "ds-style"
+version = "0.1.0"
+dependencies = [
+ "dioxus",
+ "ds-core 0.1.0",
+ "ds-core-derive 0.1.0",
+ "image",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2823,8 +2949,8 @@ version = "0.1.0"
 source = "git+https://github.com/PoHsuanLai/quire.git?rev=9ddcbceecbb2490526a2f5a2f3344334333d72be#9ddcbceecbb2490526a2f5a2f3344334333d72be"
 dependencies = [
  "dioxus",
- "ds-core",
- "ds-core-derive",
+ "ds-core 0.1.0 (git+https://github.com/PoHsuanLai/quire.git?rev=9ddcbceecbb2490526a2f5a2f3344334333d72be)",
+ "ds-core-derive 0.1.0 (git+https://github.com/PoHsuanLai/quire.git?rev=9ddcbceecbb2490526a2f5a2f3344334333d72be)",
  "image",
  "serde",
  "serde_json",
@@ -3510,13 +3636,14 @@ dependencies = [
 [[package]]
 name = "glifo"
 version = "0.2.0"
-source = "git+https://github.com/PoHsuanLai/vello?rev=3e43d4af1f1955f2efc2cd52e50350811a1386ca#3e43d4af1f1955f2efc2cd52e50350811a1386ca"
+source = "git+https://github.com/PoHsuanLai/vello?rev=84b2c9f7debed7d15f48d0ec9ea8575c16a56938#84b2c9f7debed7d15f48d0ec9ea8575c16a56938"
 dependencies = [
  "bytemuck",
  "foldhash 0.2.0",
  "hashbrown 0.17.1",
  "log",
  "peniko",
+ "png",
  "skrifa 0.44.0",
  "smallvec",
  "vello_common 0.1.0",
@@ -5102,8 +5229,8 @@ dependencies = [
  "dioxus",
  "dioxus-native-dom",
  "dioxus-ssr",
- "ds",
- "ds-blitz",
+ "ds 0.1.0",
+ "ds-blitz 0.1.0",
  "ds-harness",
  "ds-lint",
  "ds-settings",
@@ -5216,6 +5343,7 @@ name = "mail-domain"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "mail-domain",
  "porter-core",
  "porter-provider",
  "proptest",
@@ -9864,7 +9992,7 @@ checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
 [[package]]
 name = "vello_common"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/vello?rev=3e43d4af1f1955f2efc2cd52e50350811a1386ca#3e43d4af1f1955f2efc2cd52e50350811a1386ca"
+source = "git+https://github.com/PoHsuanLai/vello?rev=84b2c9f7debed7d15f48d0ec9ea8575c16a56938#84b2c9f7debed7d15f48d0ec9ea8575c16a56938"
 dependencies = [
  "bytemuck",
  "fearless_simd",
@@ -9894,7 +10022,7 @@ dependencies = [
 [[package]]
 name = "vello_cpu"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/vello?rev=3e43d4af1f1955f2efc2cd52e50350811a1386ca#3e43d4af1f1955f2efc2cd52e50350811a1386ca"
+source = "git+https://github.com/PoHsuanLai/vello?rev=84b2c9f7debed7d15f48d0ec9ea8575c16a56938#84b2c9f7debed7d15f48d0ec9ea8575c16a56938"
 dependencies = [
  "bytemuck",
  "crossbeam-channel",
@@ -9921,7 +10049,7 @@ dependencies = [
 [[package]]
 name = "vello_hybrid"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/vello?rev=3e43d4af1f1955f2efc2cd52e50350811a1386ca#3e43d4af1f1955f2efc2cd52e50350811a1386ca"
+source = "git+https://github.com/PoHsuanLai/vello?rev=84b2c9f7debed7d15f48d0ec9ea8575c16a56938#84b2c9f7debed7d15f48d0ec9ea8575c16a56938"
 dependencies = [
  "bytemuck",
  "glifo 0.2.0",
@@ -9936,7 +10064,7 @@ dependencies = [
 [[package]]
 name = "vello_sparse_shaders"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/vello?rev=3e43d4af1f1955f2efc2cd52e50350811a1386ca#3e43d4af1f1955f2efc2cd52e50350811a1386ca"
+source = "git+https://github.com/PoHsuanLai/vello?rev=84b2c9f7debed7d15f48d0ec9ea8575c16a56938#84b2c9f7debed7d15f48d0ec9ea8575c16a56938"
 dependencies = [
  "wesl",
  "wesl-macros",

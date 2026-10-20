@@ -983,6 +983,7 @@ fn a_provider_with_no_client_offers_no_try_again_and_back_still_goes_back() {
     );
     click_text(&mut w, ".ds-acc-actions > :nth-child(1)");
     on_step(&mut w, "providers");
+}
 
 /// An input method's preedit is drawn in the field before it is the field's text: the
 /// placeholder goes as composing starts, stays gone while it runs, and the commit is the text.

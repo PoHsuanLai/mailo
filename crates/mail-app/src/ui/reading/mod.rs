@@ -158,7 +158,8 @@ pub(super) fn Reader(
                 .thread(thread)
                 .is_ok_and(|loaded| loaded.summary.read == ReadState::Unread);
             if unread
-                && super::ops::apply_op(&store, thread, OpKind::MarkRead)
+                && super::ops::resolve(&store, thread, OpKind::MarkRead)
+                    .is_some_and(|op| super::ops::perform(&store, thread, op).is_some())
                 && let Some(mut revision) = revision
             {
                 revision += 1;
