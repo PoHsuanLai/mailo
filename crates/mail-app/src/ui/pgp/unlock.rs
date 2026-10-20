@@ -9,6 +9,8 @@
 
 use ds::components::content::label::LabelRole;
 use ds::components::controls::button_model::Answers;
+use ds::components::fields::text_field_model::Invalid;
+use ds::motion::detail::stamp::EventStamp;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::root::pass_through::ExtraClass;
@@ -33,13 +35,31 @@ pub(in crate::ui) fn Unlock(
     working: Busy,
     on_unlock: EventHandler<Password>,
 ) -> Element {
+    // Each passphrase handed on is an attempt, and the wrong one's refusal is stamped with the
+    // count, so a second wrong one is announced again.
+    let mut attempts = use_signal(|| 0u32);
+    let validity = if tried == Tried::Wrong {
+        Validity::Invalid(Invalid {
+            message: WRONG.into(),
+            stamp: EventStamp(attempts()),
+        })
+    } else {
+        Validity::Valid
+    };
     rsx! {
         div { class: "unlock", role: "group", aria_label: "{prompt}",
             p { class: "say", Label { text: prompt.clone(), role: LabelRole::Secondary } }
-            if tried == Tried::Wrong {
-                p { class: "why", role: "alert", Label { text: WRONG, role: LabelRole::Secondary } }
+            Passphrase {
+                prompt: prompt.clone(),
+                act,
+                noun,
+                working,
+                validity,
+                on_unlock: move |passphrase| {
+                    attempts += 1;
+                    on_unlock.call(passphrase);
+                },
             }
-            Passphrase { prompt: prompt.clone(), act, noun, working, on_unlock }
         }
     }
 }
@@ -49,13 +69,14 @@ pub(in crate::ui) const WRONG: &str = "Wrong passphrase.";
 
 /// The field and its button, nothing else: for a place that says the prompt itself (the
 /// composer's banner, which says it as the banner's text). `prompt` names the field for
-/// assistive technology.
+/// assistive technology; `validity` is the field's own refusal of what was last typed.
 #[component]
 pub(in crate::ui) fn Passphrase(
     prompt: String,
     act: String,
     noun: Option<String>,
     working: Busy,
+    #[props(default)] validity: Validity,
     on_unlock: EventHandler<Password>,
 ) -> Element {
     let typed = use_hook(|| Rc::new(RefCell::new(Password::default())));
@@ -82,6 +103,7 @@ pub(in crate::ui) fn Passphrase(
                 kind: FieldKind::Secure,
                 label: label.clone(),
                 value: String::new(),
+                validity,
                 placeholder: label,
                 oninput: move |value: String| *held.borrow_mut() = Password::new(value),
                 common: Common { extra_class: ExtraClass::parse("unlock-field").ok(), ..Common::default() },

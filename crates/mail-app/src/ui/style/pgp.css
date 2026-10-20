@@ -7,7 +7,7 @@
 
 /* The passphrase field: in the reader under a locked message, and in the composer's warning bar. */
 .unlock { display: grid; gap: var(--s-6); padding: var(--s-8) var(--s-10); }
-.unlock .say, .unlock .why { margin: 0; }
+.unlock .say { margin: 0; }
 .unlock-row { display: flex; align-items: center; gap: var(--s-8); }
 .unlock-field { flex: 1; min-width: 0; }
 
