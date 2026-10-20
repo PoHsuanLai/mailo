@@ -331,6 +331,7 @@ pub(in crate::ui) fn sends_items<Tz: chrono::TimeZone>(
     page: &Page,
     now: chrono::DateTime<chrono::Utc>,
     zone: &Tz,
+    clock: mail_core::when::Clock,
 ) -> Vec<MenuItem>
 where
     Tz::Offset: std::fmt::Display,
@@ -344,7 +345,7 @@ where
     let mut items: Vec<MenuItem> = When::ALL
         .into_iter()
         .map(|choice| {
-            let help = choice.due(now, zone).map(|at| snooze_help(at, zone));
+            let help = choice.due(now, zone).map(|at| snooze_help(at, zone, clock));
             let icon = if choice == When::Now {
                 Icon::Send
             } else {
@@ -353,14 +354,17 @@ where
             row(
                 choice.key(),
                 icon,
-                choice.label().to_owned(),
+                choice.label(clock),
                 help,
                 choice == when,
             )
         })
         .collect();
     let (help, on) = match when {
-        When::At(at) => (Some(super::super::menus::when_words(at, now, zone)), true),
+        When::At(at) => (
+            Some(super::super::menus::when_words(at, now, zone, clock)),
+            true,
+        ),
         _ => (None, false),
     };
     items.push(row(PICK_KEY, Icon::Clock, PICK_LABEL.to_owned(), help, on));
@@ -376,13 +380,14 @@ fn SendsRow(page: Signal<Page>) -> Element {
         return rsx! {};
     }
     let now = chrono::Utc::now();
-    let items = sends_items(&page.read(), now, &chrono::Local);
+    let hours = super::super::clock::hours();
+    let items = sends_items(&page.read(), now, &chrono::Local, hours);
     rsx! {
         ChoiceRow {
             page,
             label: "Sends",
             row: "sends",
-            value: when.shown(now, &chrono::Local),
+            value: when.shown(now, &chrono::Local, hours),
             float: Float::Sends,
             items,
             on_pick: move |key: String| {

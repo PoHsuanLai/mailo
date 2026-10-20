@@ -652,7 +652,13 @@ where
     ));
     out.push_str(&format!(
         "Date: {}\r\n",
-        crate::when::stamp(original.date, zone, crate::when::Stamp::Quote)
+        // Twenty-four hours, as the attribution line in [`quoted`] is written.
+        crate::when::stamp(
+            original.date,
+            zone,
+            crate::when::Stamp::Quote,
+            crate::when::Clock::H24
+        )
     ));
     out.push_str(&format!("Subject: {}\r\n", original.subject));
     // `To` and `Cc` as they were. Omitted when empty rather than written as a blank header,
@@ -808,7 +814,16 @@ where
         .unwrap_or_else(|| original.from.email.clone());
     // In the sender's own zone. Quoted in UTC this said "at 01:02" for a message written at
     // 09:02, in a line the recipient reads and cannot correct.
-    let when = crate::when::stamp(original.date, zone, crate::when::Stamp::Quote);
+    //
+    // Twenty-four hours, whatever this person's clock: the line is read in someone else's
+    // mailbox, by a reader whose clock is not known here, and it is the one reading nobody takes
+    // for the other half of the day.
+    let when = crate::when::stamp(
+        original.date,
+        zone,
+        crate::when::Stamp::Quote,
+        crate::when::Clock::H24,
+    );
     let mut out = String::new();
     if !body.is_empty() {
         out.push_str(body.trim_end());
@@ -1066,7 +1081,14 @@ fn queue_inner(
         && at <= now
     {
         return Err(CoreError::SendTimePassed {
-            stamp: crate::when::stamp(at, &Local, crate::when::Stamp::Full),
+            // The command line's refusal (it names `--at`); the window refuses a time that
+            // has passed before it gets here, in its own words.
+            stamp: crate::when::stamp(
+                at,
+                &Local,
+                crate::when::Stamp::Full,
+                crate::when::Clock::H24,
+            ),
         });
     }
     let mut draft = store.draft(draft)?;

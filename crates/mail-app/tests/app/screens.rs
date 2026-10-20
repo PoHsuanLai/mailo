@@ -198,7 +198,12 @@ fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
         .thread_by_rfc_id(acct_account(), "offsite3@example.test")
         .unwrap()
         .expect("the offsite conversation was stored");
-    mail_core::act::perform(&store, offsite, Op::SetRead(ReadState::Read));
+    mail_core::act::perform(
+        &store,
+        offsite,
+        Op::SetRead(ReadState::Read),
+        mail_core::when::Clock::H24,
+    );
     // An invitation: one row of answers and Details (row 4).
     let invite = format!(
         "From: Ada Lovelace <ada@example.test>\r\nTo: me@example.test\r\nSubject: Invitation: Design review\r\nDate: {}\r\nMessage-ID: <review-mail@example.test>\r\nMIME-Version: 1.0\r\nContent-Type: multipart/alternative; boundary=\"alt\"\r\n\r\n--alt\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\nYou are invited to Design review.\r\n--alt\r\nContent-Type: text/calendar; charset=UTF-8; method=REQUEST\r\n\r\nBEGIN:VCALENDAR\r\nPRODID:-//Example//Calendar//EN\r\nVERSION:2.0\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\nUID:review-shots@example.test\r\nSEQUENCE:0\r\nDTSTAMP:20260920T101500Z\r\nDTSTART;TZID=Europe/Berlin:20261105T140000\r\nDTEND;TZID=Europe/Berlin:20261105T150000\r\nSUMMARY:Design review\r\nLOCATION:Room 2\r\nDESCRIPTION:We walk through the new reader and the compose window.\r\nSTATUS:CONFIRMED\r\nORGANIZER;CN=Ada Lovelace:mailto:ada@example.test\r\nATTENDEE;CN=Ada Lovelace;PARTSTAT=ACCEPTED;ROLE=CHAIR:mailto:ada@example.test\r\nATTENDEE;CN=Me;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:me@example.test\r\nATTENDEE;CN=Grace Hopper;PARTSTAT=TENTATIVE:mailto:grace@example.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n--alt--\r\n",
@@ -241,7 +246,12 @@ fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
             .thread_by_rfc_id(acct_account(), &id)
             .unwrap()
             .expect("the old conversation was stored");
-        mail_core::act::perform(&store, thread, Op::SetRead(ReadState::Read));
+        mail_core::act::perform(
+            &store,
+            thread,
+            Op::SetRead(ReadState::Read),
+            mail_core::when::Clock::H24,
+        );
     }
     // A few labels, for the label picker.
     {

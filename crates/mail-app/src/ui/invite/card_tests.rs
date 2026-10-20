@@ -32,7 +32,13 @@ fn card(calendar: &str, answered: Option<(Attendance, u32)>) -> Card {
         comment: Some("See you there".to_owned()),
         answered_at: Utc.timestamp_opt(1_790_000_000, 0).unwrap(),
     });
-    card_of(message, &invite, answered.as_ref(), &east())
+    card_of(
+        message,
+        &invite,
+        answered.as_ref(),
+        &east(),
+        mail_core::when::Clock::H24,
+    )
 }
 
 fn drawn(card: Card) -> String {
@@ -193,7 +199,13 @@ fn the_organisers_time_is_said_only_when_it_differs() {
     let invite = mail_pim::summarise(&parsed, &[ME]).unwrap();
     // Berlin in October is two hours east of UTC.
     let berlin = FixedOffset::east_opt(2 * 3600).unwrap();
-    let same = card_of(MessageId::generate(), &invite, None, &berlin);
+    let same = card_of(
+        MessageId::generate(),
+        &invite,
+        None,
+        &berlin,
+        mail_core::when::Clock::H24,
+    );
     assert_eq!(same.theirs, None);
     assert!(!drawn(same).contains("Their time"));
 }

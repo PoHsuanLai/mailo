@@ -43,6 +43,7 @@ fn main() {
     if let Ok(exe) = std::env::current_exe() {
         environment.program = mail_core::Program::of_executable(&exe);
     }
+    environment.hours = mail_app::edge::clock();
     mail_app::edge::install_environment(environment);
     // The OAuth clients it signs in as: porter's files and mailo's earlier one. Chosen here and
     // handed down, so no library and no test reads them for itself.

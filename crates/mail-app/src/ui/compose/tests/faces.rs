@@ -108,7 +108,13 @@ fn the_pill_wears_the_face_of_the_send() {
     ];
     for (name, when, state, after_ms, want) in cases {
         let now = at(0) + chrono::TimeDelta::milliseconds(after_ms);
-        let got = face(&outgoing(when, due), Some(&state), now, &Utc);
+        let got = face(
+            &outgoing(when, due),
+            Some(&state),
+            now,
+            &Utc,
+            mail_core::when::Clock::H24,
+        );
         let want = want.map(|(text, ring, mood, offer)| Face {
             text: text.to_owned(),
             ring,
@@ -137,6 +143,7 @@ fn a_scheduled_send_reads_scheduled_for_with_cancel() {
             Some(&SendState::Scheduled { at: due }),
             at(0),
             &Utc,
+            mail_core::when::Clock::H24,
         )
         .unwrap_or_else(|| panic!("no pill for {when:?}"));
         assert_eq!(got.text, *want, "{when:?}");

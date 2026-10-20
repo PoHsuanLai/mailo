@@ -5,6 +5,7 @@ use crate::ui::today::{Today, at};
 use chrono::{TimeZone, Utc};
 use mail_core::SqliteStore;
 use mail_core::Store;
+use mail_core::when::Clock;
 use mail_domain::{Address, Draft, DraftId, ThreadId};
 
 fn time(minute: i64) -> chrono::DateTime<Utc> {
@@ -32,7 +33,7 @@ fn recent_lists_this_spaces_conversations_newest_first_then_its_drafts() {
     today.opened(SpaceId(1), elsewhere, at(time(9)));
     today.park(SpaceId(0), draft, "Plans", at(time(7)));
 
-    let keys: Vec<String> = rows(&store, &today, SpaceId(0), time(10))
+    let keys: Vec<String> = rows(&store, &today, SpaceId(0), time(10), Clock::H24)
         .into_iter()
         .map(|row| row.key)
         .collect();
@@ -44,7 +45,7 @@ fn recent_lists_this_spaces_conversations_newest_first_then_its_drafts() {
 #[test]
 fn recent_is_empty_with_nothing_opened() {
     let (store, _dir) = seeded();
-    assert!(rows(&store, &Today::default(), SpaceId(0), time(10)).is_empty());
+    assert!(rows(&store, &Today::default(), SpaceId(0), time(10), Clock::H24).is_empty());
 }
 
 /// However much was opened, Recent lists a handful; the rest are a search away.
@@ -64,7 +65,10 @@ fn recent_lists_at_most_a_handful_of_conversations() {
     for (minute, thread) in threads.iter().enumerate() {
         today.opened(SpaceId(0), *thread, at(time(minute as i64)));
     }
-    assert_eq!(rows(&store, &today, SpaceId(0), time(10)).len(), SHOWN);
+    assert_eq!(
+        rows(&store, &today, SpaceId(0), time(10), Clock::H24).len(),
+        SHOWN
+    );
 }
 
 /// A row's key reads back as what it stands for.
@@ -117,14 +121,15 @@ fn each_draft_is_named_by_what_is_in_it_and_an_empty_or_gone_one_is_left_out() {
     let gone = parked(&store, &mut today, "Gone", &[], "", 5);
     mail_core::compose::discard(&store, gone.id).unwrap_or_else(|why| panic!("{why}"));
 
-    let got: Vec<(String, String, Option<String>)> = rows(&store, &today, SpaceId(0), time(10))
-        .into_iter()
-        .map(|row| (row.key, row.name, row.help))
-        .collect();
+    let got: Vec<(String, String, Option<String>)> =
+        rows(&store, &today, SpaceId(0), time(10), Clock::H24)
+            .into_iter()
+            .map(|row| (row.key, row.name, row.help))
+            .collect();
     let when = |draft: &Draft| {
         Some(format!(
             "Draft \u{b7} {}",
-            mail_core::when::listed(draft.updated, time(10), &chrono::Local)
+            mail_core::when::listed(draft.updated, time(10), &chrono::Local, Clock::H24)
         ))
     };
     // Newest put aside first.

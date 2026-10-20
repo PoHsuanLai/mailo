@@ -379,6 +379,7 @@ fn send_page(
         // The window's clock, which a reminder asked for here is later measured against.
         super::clock::now(),
         &chrono::Local,
+        super::clock::hours(),
     );
     match sent {
         Ok(Sent::Sealing { leaves, remind }) => {

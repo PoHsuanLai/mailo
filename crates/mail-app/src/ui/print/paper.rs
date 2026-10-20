@@ -308,6 +308,7 @@ pub(in crate::ui) fn printed<Tz>(
     pictures: Option<&Pictures<'_>>,
     zone: &Tz,
     now: chrono::DateTime<chrono::Utc>,
+    clock: mail_core::when::Clock,
 ) -> Result<Printed, String>
 where
     Tz: chrono::TimeZone,
@@ -319,6 +320,7 @@ where
         labels: LABELS,
         style: &style,
         missing_note: Some(PICTURES_NOTE),
+        twelve_hour: clock == mail_core::when::Clock::H12,
     };
     mail_core::print::document_with(store, *job.thread.as_uuid(), zone, now, &options, pictures)
         .map_err(String::from)

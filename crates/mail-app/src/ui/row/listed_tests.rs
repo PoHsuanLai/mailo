@@ -104,7 +104,7 @@ fn each_row_draws_the_lines_it_has() {
         ),
     ];
     for (listed, snippets, lines, name) in cases {
-        let row = listed.row(None, *snippets, now(), &Utc);
+        let row = listed.row(None, *snippets, now(), &Utc, mail_core::when::Clock::H24);
         assert_eq!(
             (row.lines, row.name.as_str()),
             (*lines, *name),
@@ -117,8 +117,11 @@ fn each_row_draws_the_lines_it_has() {
         );
     }
     let held = Listed::Draft(draft("", &[], SendState::Scheduled { at }));
-    let row = held.row(None, true, now(), &Utc);
-    assert_eq!(row.time, crate::ui::menus::when_words(at, now(), &Utc));
+    let row = held.row(None, true, now(), &Utc, mail_core::when::Clock::H24);
+    assert_eq!(
+        row.time,
+        crate::ui::menus::when_words(at, now(), &Utc, mail_core::when::Clock::H24)
+    );
     assert_eq!(row.label, copy::aria::open_row(copy::empty::NO_SUBJECT));
     assert_eq!(held.held(), Some(at));
 }
@@ -129,14 +132,22 @@ fn each_row_draws_the_lines_it_has() {
 fn a_row_is_drawn_from_its_state_and_its_search() {
     let unread = Listed::Thread(summary("Three blockers left", ReadState::Unread));
     assert_eq!(
-        unread.row(None, true, now(), &Utc).emphasis,
+        unread
+            .row(None, true, now(), &Utc, mail_core::when::Clock::H24)
+            .emphasis,
         Emphasis::Strong
     );
     let read = Listed::Thread(summary("Three blockers left", ReadState::Read));
-    assert_eq!(read.row(None, true, now(), &Utc).emphasis, Emphasis::Plain);
+    assert_eq!(
+        read.row(None, true, now(), &Utc, mail_core::when::Clock::H24)
+            .emphasis,
+        Emphasis::Plain
+    );
     let drafted = Listed::Draft(draft("Notes", &[], SendState::Editing));
     assert_eq!(
-        drafted.row(None, true, now(), &Utc).emphasis,
+        drafted
+            .row(None, true, now(), &Utc, mail_core::when::Clock::H24)
+            .emphasis,
         Emphasis::Plain
     );
 
@@ -145,7 +156,7 @@ fn a_row_is_drawn_from_its_state_and_its_search() {
         snippet: "blockers left".into(),
         snippet_marks: std::iter::once(0..8).collect(),
     };
-    let row = read.row(Some(&hit), true, now(), &Utc);
+    let row = read.row(Some(&hit), true, now(), &Utc, mail_core::when::Clock::H24);
     assert!(
         matches!(row.subject, TextLine::Runs(_)),
         "{:?}",

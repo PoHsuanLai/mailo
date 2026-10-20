@@ -7,7 +7,7 @@ use crate::intents::wire::{
     Snip, Target,
 };
 use chrono::{Local, Utc};
-use mail_core::when::{Stamp, stamp};
+use mail_core::when::{Clock, Stamp, stamp};
 use mail_core::{SqliteStore, Store};
 use mail_domain::{Address, Message, ThreadId, ThreadSummary};
 use std::fmt::Write as _;
@@ -39,7 +39,7 @@ fn third_party(value: String, space: &str) -> Labelled<String> {
     }
 }
 
-fn entity_of(summary: &ThreadSummary, space: &str) -> EntityRef {
+fn entity_of(summary: &ThreadSummary, space: &str, hours: Clock) -> EntityRef {
     EntityRef {
         id: thread_id(summary.id),
         title: third_party(summary.subject.clone(), space),
@@ -47,7 +47,7 @@ fn entity_of(summary: &ThreadSummary, space: &str) -> EntityRef {
             format!(
                 "{}, {}",
                 who(&summary.from),
-                stamp(summary.last_date, &Local, Stamp::Full)
+                stamp(summary.last_date, &Local, Stamp::Full, hours)
             ),
             space,
         ),
@@ -85,7 +85,7 @@ impl Provider {
             .unwrap_or_default()
             .iter()
             .map(|summary| Hit {
-                entity: entity_of(summary, SPACE),
+                entity: entity_of(summary, SPACE, self.hours),
                 why: None,
             })
             .collect()
@@ -123,7 +123,7 @@ impl Provider {
             return Err(AppRefusal::Unsupported);
         };
         let (thread, _) = self.loaded(id)?;
-        let text: String = thread_text(&self.store, &thread)
+        let text: String = thread_text(&self.store, &thread, self.hours)
             .chars()
             .take(READ)
             .collect();
@@ -197,7 +197,7 @@ impl Provider {
 }
 
 /// The messages of `thread` as one text: who, when, then the words.
-fn thread_text(store: &SqliteStore, thread: &mail_domain::Thread) -> String {
+fn thread_text(store: &SqliteStore, thread: &mail_domain::Thread, hours: Clock) -> String {
     let mut out = format!("{}\n", thread.summary.subject);
     for id in &thread.messages {
         let Ok(message) = store.message(*id) else {
@@ -208,7 +208,7 @@ fn thread_text(store: &SqliteStore, thread: &mail_domain::Thread) -> String {
             "\n--- {} <{}>  {}\n{}\n",
             message.from.name.as_deref().unwrap_or(""),
             message.from.email,
-            stamp(message.date, &Local, Stamp::Full),
+            stamp(message.date, &Local, Stamp::Full, hours),
             message
                 .body
                 .text()

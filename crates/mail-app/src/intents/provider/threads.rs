@@ -88,7 +88,7 @@ impl Provider {
         }
         let mut done: Vec<Undo> = Vec::new();
         for (id, thread) in &named {
-            match mail_core::act::perform(&self.store, *thread, op.clone()) {
+            match mail_core::act::perform(&self.store, *thread, op.clone(), self.hours) {
                 Some(undo) => done.push(undo),
                 None => {
                     for part in done.iter().rev() {
@@ -98,7 +98,7 @@ impl Provider {
                 }
             }
         }
-        let said = mail_core::undo::said_of(&op, done.len(), &Local);
+        let said = mail_core::undo::said_of(&op, done.len(), &Local, self.hours);
         let handle = self
             .stack
             .lock()

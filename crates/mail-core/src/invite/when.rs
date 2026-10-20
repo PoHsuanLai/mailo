@@ -7,6 +7,8 @@ use chrono::{NaiveDateTime, Offset, TimeZone, Weekday};
 use mail_pim::ical::{EventZone, RepeatEnd, RepeatUnit, Repeats};
 use mail_pim::{Unplaced, When};
 
+use crate::when::{Clock, time_of_day};
+
 /// A time said for the reader.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WhenShown {
@@ -18,8 +20,9 @@ pub struct WhenShown {
 
 const DAY: &str = "%a %-d %b %Y";
 
-/// `when` said in the reader's zone, and in the organiser's when that reads differently.
-pub fn show_when<Z: TimeZone>(when: &When, reader: &Z) -> WhenShown {
+/// `when` said in the reader's zone, and in the organiser's when that reads differently, the
+/// hours as the reader's `clock` writes them.
+pub fn show_when<Z: TimeZone>(when: &When, reader: &Z, clock: Clock) -> WhenShown {
     match when {
         When::Unstated => WhenShown {
             yours: "no time given".to_owned(),
@@ -35,6 +38,7 @@ pub fn show_when<Z: TimeZone>(when: &When, reader: &Z) -> WhenShown {
         },
         When::Timed { start, end, zone } => {
             let yours = span(
+                clock,
                 start.with_timezone(reader).naive_local(),
                 end.map(|e| e.with_timezone(reader).naive_local()),
             );
@@ -45,6 +49,7 @@ pub fn show_when<Z: TimeZone>(when: &When, reader: &Z) -> WhenShown {
                     let at = start.with_timezone(tz);
                     (at.offset().fix() != reader_offset).then(|| {
                         let text = span(
+                            clock,
                             at.naive_local(),
                             end.map(|e| e.with_timezone(tz).naive_local()),
                         );
@@ -53,6 +58,7 @@ pub fn show_when<Z: TimeZone>(when: &When, reader: &Z) -> WhenShown {
                 }
                 EventZone::Rules { tzid, offset } => (*offset != reader_offset).then(|| {
                     let text = span(
+                        clock,
                         start.with_timezone(offset).naive_local(),
                         end.map(|e| e.with_timezone(offset).naive_local()),
                     );
@@ -64,11 +70,14 @@ pub fn show_when<Z: TimeZone>(when: &When, reader: &Z) -> WhenShown {
         When::Floating { start, end, why } => WhenShown {
             yours: match why {
                 Unplaced::AsWritten => {
-                    format!("{} (local time, wherever you are)", span(*start, *end))
+                    format!(
+                        "{} (local time, wherever you are)",
+                        span(clock, *start, *end)
+                    )
                 }
                 Unplaced::UnknownZone(tzid) => format!(
                     "{} (in time zone \"{tzid}\", which could not be identified)",
-                    span(*start, *end)
+                    span(clock, *start, *end)
                 ),
             },
             theirs: None,
@@ -77,12 +86,13 @@ pub fn show_when<Z: TimeZone>(when: &When, reader: &Z) -> WhenShown {
 }
 
 /// "Thu 1 Oct 2026, 09:00–10:00", or with both days when it ends on another.
-fn span(start: NaiveDateTime, end: Option<NaiveDateTime>) -> String {
-    let first = format!("{}, {}", start.format(DAY), start.format("%H:%M"));
+fn span(clock: Clock, start: NaiveDateTime, end: Option<NaiveDateTime>) -> String {
+    let hour = |at: &NaiveDateTime| time_of_day(at, clock);
+    let first = format!("{}, {}", start.format(DAY), hour(&start));
     match end {
         None => first,
-        Some(end) if end.date() == start.date() => format!("{first}–{}", end.format("%H:%M")),
-        Some(end) => format!("{first} – {}, {}", end.format(DAY), end.format("%H:%M")),
+        Some(end) if end.date() == start.date() => format!("{first}–{}", hour(&end)),
+        Some(end) => format!("{first} – {}, {}", end.format(DAY), hour(&end)),
     }
 }
 
@@ -165,7 +175,7 @@ mod tests {
             zone: EventZone::Utc,
         };
         let taipei = resolve_iana("Asia/Taipei").unwrap();
-        let shown = show_when(&when, &taipei);
+        let shown = show_when(&when, &taipei, Clock::H24);
         assert_eq!(shown.yours, "Fri 2 Oct 2026, 21:00–22:00");
         assert_eq!(shown.theirs, None);
     }
@@ -174,7 +184,7 @@ mod tests {
     fn the_organisers_zone_is_named_when_it_reads_differently() {
         let when = timed(iana("Asia/Taipei"));
         let london = resolve_iana("Europe/London").unwrap();
-        let shown = show_when(&when, &london);
+        let shown = show_when(&when, &london, Clock::H24);
         assert_eq!(shown.yours, "Thu 1 Oct 2026, 08:00–09:00");
         assert_eq!(
             shown.theirs.as_deref(),
@@ -182,7 +192,7 @@ mod tests {
         );
         // A reader in the organiser's zone is told once.
         let taipei = resolve_iana("Asia/Taipei").unwrap();
-        let shown = show_when(&when, &taipei);
+        let shown = show_when(&when, &taipei, Clock::H24);
         assert_eq!(shown.yours, "Thu 1 Oct 2026, 15:00–16:00");
         assert_eq!(shown.theirs, None);
     }
@@ -197,7 +207,7 @@ mod tests {
                 offset: FixedOffset::west_opt(7 * 3600).unwrap(),
             },
         };
-        let shown = show_when(&when, &Utc);
+        let shown = show_when(&when, &Utc, Clock::H24);
         assert_eq!(shown.yours, "Fri 10 Jul 2026, 16:00–17:30");
         assert_eq!(
             shown.theirs.as_deref(),
@@ -213,15 +223,21 @@ mod tests {
             last: day(2),
         };
         assert_eq!(
-            show_when(&two, &Utc).yours,
+            show_when(&two, &Utc, Clock::H24).yours,
             "Thu 1 Oct 2026 – Fri 2 Oct 2026, all day"
         );
         let one = When::AllDay {
             first: day(1),
             last: day(1),
         };
-        assert_eq!(show_when(&one, &Utc).yours, "Thu 1 Oct 2026, all day");
-        assert_eq!(show_when(&When::Unstated, &Utc).yours, "no time given");
+        assert_eq!(
+            show_when(&one, &Utc, Clock::H24).yours,
+            "Thu 1 Oct 2026, all day"
+        );
+        assert_eq!(
+            show_when(&When::Unstated, &Utc, Clock::H24).yours,
+            "no time given"
+        );
     }
 
     #[test]
@@ -237,7 +253,7 @@ mod tests {
             why: Unplaced::AsWritten,
         };
         assert_eq!(
-            show_when(&as_written, &Utc).yours,
+            show_when(&as_written, &Utc, Clock::H24).yours,
             "Thu 1 Oct 2026, 09:00–10:00 (local time, wherever you are)"
         );
         let unknown = When::Floating {
@@ -246,7 +262,7 @@ mod tests {
             why: Unplaced::UnknownZone("Nowhere/Bogus".to_owned()),
         };
         assert!(
-            show_when(&unknown, &Utc)
+            show_when(&unknown, &Utc, Clock::H24)
                 .yours
                 .contains("which could not be identified")
         );

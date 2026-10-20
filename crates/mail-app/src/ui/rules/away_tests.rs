@@ -76,7 +76,15 @@ fn a_reply_kept_from_the_sheet_reads_back_as_it_was_typed() {
     );
     assert_eq!(store.vacation(acct_own()).unwrap(), None);
 
-    let said = away::save(&store, &row, &filled("2026-10-12 09:00"), now(), &Utc).unwrap();
+    let said = away::save(
+        &store,
+        &row,
+        &filled("2026-10-12 09:00"),
+        now(),
+        &Utc,
+        mail_core::when::Clock::H24,
+    )
+    .unwrap();
     assert!(
         said.starts_with("Saved: “Away until October”, from "),
         "{said}"
@@ -113,7 +121,7 @@ fn a_reply_kept_from_the_sheet_reads_back_as_it_was_typed() {
         reply: Reply::Off,
         ..back
     };
-    away::save(&store, &row, &off, now(), &Utc).unwrap();
+    away::save(&store, &row, &off, now(), &Utc, mail_core::when::Clock::H24).unwrap();
     assert_eq!(store.vacation(acct_own()).unwrap(), None);
 }
 
@@ -121,7 +129,14 @@ fn a_reply_kept_from_the_sheet_reads_back_as_it_was_typed() {
 fn a_reply_that_has_already_ended_is_refused_in_words() {
     let (store, _dir) = crate::ui::fixtures::empty();
     let row = own_server(&store);
-    let past = away::save(&store, &row, &filled("2026-09-01"), now(), &Utc);
+    let past = away::save(
+        &store,
+        &row,
+        &filled("2026-09-01"),
+        now(),
+        &Utc,
+        mail_core::when::Clock::H24,
+    );
     let why = past.unwrap_err();
     assert!(why.starts_with("“Until” is already past: "), "{why}");
     assert!(why.contains("answers nobody"), "{why}");
@@ -145,7 +160,15 @@ fn a_reply_that_has_already_ended_is_refused_in_words() {
             until: (*until).to_owned(),
             ..filled("")
         };
-        let why = away::save(&store, &row, &form, now(), &Utc).unwrap_err();
+        let why = away::save(
+            &store,
+            &row,
+            &form,
+            now(),
+            &Utc,
+            mail_core::when::Clock::H24,
+        )
+        .unwrap_err();
         assert!(why.contains(said), "{from}–{until}: {why}");
     }
     // A snooze's words are a time too.
@@ -207,7 +230,14 @@ fn an_account_whose_provider_has_no_sieve_is_never_pushed() {
             "{}: {why}",
             row.address
         );
-        let form = away::save(&built.store, row, &filled("2026-10-12"), now(), &Utc);
+        let form = away::save(
+            &built.store,
+            row,
+            &filled("2026-10-12"),
+            now(),
+            &Utc,
+            mail_core::when::Clock::H24,
+        );
         assert!(
             form.is_err(),
             "{}: a reply nobody will send was kept",

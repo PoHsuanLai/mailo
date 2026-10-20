@@ -24,6 +24,7 @@ pub(super) fn search(
     limit: u32,
     label: &dyn Fn(&str) -> Vec<LabelId>,
     now: DateTime<Utc>,
+    clock: mail_core::when::Clock,
 ) -> String {
     let take = usize::try_from(limit).unwrap_or(usize::MAX);
     // Asked for the top results' worth more, so removing them still leaves `limit` rows.
@@ -55,12 +56,12 @@ pub(super) fn search(
         return format!("nothing matches {needle:?}\n");
     }
     let mut out = String::new();
-    for line in render_list(&top).lines() {
+    for line in render_list(&top, clock).lines() {
         out.push_str(TOP);
         out.push_str(line);
         out.push('\n');
     }
-    for line in render_list(&rest).lines() {
+    for line in render_list(&rest, clock).lines() {
         out.push_str(NOT_TOP);
         out.push_str(line);
         out.push('\n');

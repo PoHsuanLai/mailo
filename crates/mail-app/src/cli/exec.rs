@@ -446,7 +446,8 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) {
                 store.clone(),
                 crate::edge::signing(),
                 crate::intents::Opener::window(),
-            );
+            )
+            .with_hours(crate::edge::environment().hours);
             match crate::intents::serve(provider) {
                 Ok(()) | Err(crate::intents::ServeError::Taken) => return,
                 Err(why) => {
