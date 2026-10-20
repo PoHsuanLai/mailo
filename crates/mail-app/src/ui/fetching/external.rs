@@ -5,128 +5,71 @@
 //! committed to by another connection ([`SqliteStore::data_version`]), and moves the revision
 //! when it has.
 //!
-//! # Told, and looking
+//! # Heard, and looking
 //!
-//! Looking every [`LOOK`] puts up to that long between the watch storing a message and the
-//! window showing it. Where a watch (or the daemon) is running, the window subscribes at its door
-//! (`mail_core::ipc::changes`) and is told as each pass ends, and it looks then. What it does on
-//! being told is the same look: the data version, not the message, decides whether anything
-//! moved, so a pass that stored nothing moves nothing and being told and looking never count one
-//! commit twice.
+//! A commit is a write to the database's file or the `-wal` beside it, and the system says when
+//! one is written to, so the window looks then: whoever committed, a watch, the daemon or `mailo`
+//! on the command line, and whether or not it is still running. The data version, not the event,
+//! decides whether anything moved, so the window's own commits (which are writes to the same
+//! files) and a pass that stored nothing move nothing, and one commit is never counted twice.
 //!
-//! The looking goes on while subscribed to the watch, every [`TOLD`] rather than every
-//! [`LOOK`], for what no pass says: `mailo` on the command line, or a daemon that stored
-//! something and then failed to write the line. Subscribed to the daemon it stays at [`LOOK`]:
-//! the daemon is not what stores pushed mail, and a watch started after it would otherwise go
-//! unheard for a [`TOLD`]. When the subscription ends — the watch stopped, or was restarted into
-//! a new build — the window is back to looking every [`LOOK`] at once, and knocks again every
-//! [`KNOCK`] until something answers.
+//! The directory is watched rather than the files: SQLite removes the `-wal` when the last
+//! connection closes and makes it again with the next, and a watch on the file would go with it.
 //!
-//! Told while the writer is busy, the look cannot read the data version; it looks again every
-//! [`OWED`] until it can, rather than leaving what it was told about to the next [`TOLD`].
+//! The looking goes on, every [`STEADY`], for whatever the system does not say (a platform that
+//! reports a write late, or not at all when it does not grow the file), and every [`LOOK`] when
+//! the file could not be watched. Heard while the writer is busy, the look cannot read the data
+//! version; it looks again every [`OWED`] until it can, rather than leaving what it heard to the
+//! next [`STEADY`].
+//!
+//! (Until 2026-10 the window subscribed at the watch's door and was told as each pass ended,
+//! which held a connection and a thread in the watch for each window; `mail_core::ipc::door`
+//! says what that cost.)
 
 use dioxus::prelude::*;
 use mail_core::SqliteStore;
-use mail_core::ipc::client::Changes;
+use notify::{EventKind, RecursiveMode, Watcher as _};
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
+use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 
-/// How often the window looks when nothing will tell it.
+/// How often the window looks when the store's file could not be watched.
 #[cfg(not(test))]
 const LOOK: Duration = Duration::from_secs(2);
 #[cfg(test)]
 pub(super) const LOOK: Duration = Duration::from_millis(30);
 
-/// How often the window looks while a daemon tells it of each pass.
+/// How often the window looks while the system says when the store is written to.
 #[cfg(not(test))]
-const TOLD: Duration = Duration::from_secs(15);
-/// Long enough in a test that a change seen within a few looks was told, not looked for.
+const STEADY: Duration = Duration::from_secs(15);
+/// Long enough in a test that a change seen within a few looks was heard, not looked for.
 #[cfg(test)]
-pub(super) const TOLD: Duration = Duration::from_secs(60);
+const STEADY: Duration = Duration::from_secs(60);
 
-/// How soon to look again after being told while the writer was busy.
+/// How soon to look again after hearing a write while the writer was busy.
 const OWED: Duration = Duration::from_millis(50);
-
-/// How long after finding no door, or losing one, the window knocks again.
-#[cfg(not(test))]
-const KNOCK: Duration = Duration::from_secs(10);
-#[cfg(test)]
-pub(super) const KNOCK: Duration = Duration::from_millis(30);
-
-/// Where the window subscribes: the doors to knock on, in order, the first that answers kept,
-/// with how often to look while subscribed there. The real ones unless a test provided its own,
-/// as [`super::Passer`] is.
-#[derive(Clone)]
-pub(in crate::ui) struct Doors(pub Arc<dyn Fn() -> Option<(Changes, Duration)> + Send + Sync>);
-
-impl Doors {
-    /// The watch's door, then the daemon's. The watch is the one that holds the connections and
-    /// stores pushed mail; the daemon stores only what it is asked to sync.
-    #[cfg(not(test))]
-    pub(in crate::ui) fn server() -> Self {
-        Self(Arc::new(|| {
-            [
-                (mail_core::ipc::watching::agent(), TOLD),
-                (mail_core::ipc::agent(), LOOK),
-            ]
-            .into_iter()
-            .filter_map(|(agent, every)| Some((agent.ok()?, every)))
-            // A daemon from another build answers with an error. Not said: the window cannot
-            // fix it and looks instead, and `mailo ping` says it to whoever can.
-            .find_map(|(agent, every)| {
-                let changes = mail_core::ipc::client::subscribe(&agent).ok().flatten()?;
-                Some((changes, every))
-            })
-        }))
-    }
-
-    /// Not in a test build: the person's real watch, if there is one, must not move what a test
-    /// sees.
-    #[cfg(test)]
-    pub(in crate::ui) fn server() -> Self {
-        Self(Arc::new(|| None))
-    }
-}
-
-/// What the subscribing thread tells the looking loop.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Heard {
-    /// A door answered: the passes will be told, so looking can slow down to this.
-    Subscribed(Duration),
-    /// A pass ended that may have stored something.
-    Changed,
-    /// The subscription ended: back to looking often.
-    Dropped,
-}
 
 /// Move `revision` whenever another connection has committed to `store`. Once, from
 /// [`super::use_fetching`].
-pub(super) fn use_external_changes(
-    mut revision: Signal<u64>,
-    store: Arc<SqliteStore>,
-    doors: Doors,
-) {
+pub(super) fn use_external_changes(mut revision: Signal<u64>, store: Arc<SqliteStore>) {
     let _looking = use_future(move || {
         let store = store.clone();
-        let doors = doors.clone();
         async move {
-            let mut heard = subscribe(doors);
+            let mut written = store.file().and_then(watch);
             let mut seen = store.data_version();
-            let mut every = LOOK;
             let mut owed = false;
             loop {
-                let wait = if owed { OWED } else { every };
-                let said = next(&mut heard, wait).await;
-                match said {
-                    Some(Heard::Subscribed(pace)) => every = pace,
-                    Some(Heard::Dropped) => every = LOOK,
-                    Some(Heard::Changed) | None => {}
-                }
+                let every = match (owed, &written) {
+                    (true, _) => OWED,
+                    (false, Some(_)) => STEADY,
+                    (false, None) => LOOK,
+                };
+                let heard = next(&mut written, every).await;
                 let now = store.data_version();
-                // A busy writer answers nothing this time. Told of a pass, look again soon
+                // A busy writer answers nothing this time. Having heard a write, look again soon
                 // rather than at the next look; otherwise the next look will do.
-                owed = now.is_none() && (owed || said == Some(Heard::Changed));
+                owed = now.is_none() && (owed || heard);
                 if now.is_some() && now != seen {
                     seen = now;
                     revision += 1;
@@ -136,54 +79,67 @@ pub(super) fn use_external_changes(
     });
 }
 
-/// What the thread says next, or `None` when `every` passes first.
-async fn next(heard: &mut Option<UnboundedReceiver<Heard>>, every: Duration) -> Option<Heard> {
-    let Some(rx) = heard else {
-        tokio::time::sleep(every).await;
-        return None;
+/// The system's word that the store's file was written to: the watch, kept for as long as the
+/// window looks, and what it says.
+struct Written {
+    _watcher: notify::RecommendedWatcher,
+    said: UnboundedReceiver<()>,
+}
+
+/// Watch the database at `file`, and the `-wal` beside it, or `None` when this system will not.
+fn watch(file: &Path) -> Option<Written> {
+    let name = file.file_name()?.to_owned();
+    let mut wal = name.clone();
+    wal.push("-wal");
+    let dir = match file.parent() {
+        Some(dir) if !dir.as_os_str().is_empty() => dir,
+        _ => Path::new("."),
     };
-    match tokio::time::timeout(every, rx.recv()).await {
-        Ok(Some(said)) => Some(said),
-        Err(_) => None,
-        // The thread could not be started, or has ended: nothing will be said again, so the
-        // rest is looking, as often as with no door.
+    let (tx, said) = unbounded_channel();
+    let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
+        let ours = match event {
+            // Reading is not committing, and the window's own readers read all the time.
+            Ok(event) => {
+                !matches!(event.kind, EventKind::Access(_))
+                    && event
+                        .paths
+                        .iter()
+                        .any(|path| path.file_name().is_some_and(|it| it == name || it == wal))
+            }
+            // What could not be said (a queue that overflowed) may have been a commit.
+            Err(_) => true,
+        };
+        if ours {
+            // Gone only when the window is, which is not a write to say anything about.
+            let _ = tx.send(());
+        }
+    })
+    .ok()?;
+    watcher.watch(dir, RecursiveMode::NonRecursive).ok()?;
+    Some(Written {
+        _watcher: watcher,
+        said,
+    })
+}
+
+/// Whether the store was written to before `every` passed. Writes heard together are one look.
+async fn next(written: &mut Option<Written>, every: Duration) -> bool {
+    let Some(heard) = written.as_mut() else {
+        tokio::time::sleep(every).await;
+        return false;
+    };
+    match tokio::time::timeout(every, heard.said.recv()).await {
+        Ok(Some(())) => {
+            while heard.said.try_recv().is_ok() {}
+            true
+        }
+        Err(_) => false,
+        // The watch has ended, so nothing will be said again: look once now, and from then on
+        // as often as with no watch.
         Ok(None) => {
-            *heard = None;
-            Some(Heard::Dropped)
+            *written = None;
+            true
         }
-    }
-}
-
-/// Knock on `doors` on a thread of its own, and keep knocking, for as long as the window listens.
-///
-/// A thread rather than a task: a subscription is a blocking read that can last the whole
-/// session, and the window's runtime should not lend a worker to it.
-fn subscribe(doors: Doors) -> Option<UnboundedReceiver<Heard>> {
-    let (tx, rx) = unbounded_channel();
-    std::thread::Builder::new()
-        .name("mailo-changes".to_owned())
-        .spawn(move || knock(&doors, &tx))
-        .ok()?;
-    Some(rx)
-}
-
-/// Subscribe, listen until the subscription ends, and again, until the window stops listening.
-fn knock(doors: &Doors, tx: &UnboundedSender<Heard>) {
-    while !tx.is_closed() {
-        if let Some((mut changes, every)) = (doors.0)() {
-            if tx.send(Heard::Subscribed(every)).is_err() {
-                return;
-            }
-            while changes.wait().is_ok() {
-                if tx.send(Heard::Changed).is_err() {
-                    return;
-                }
-            }
-            if tx.send(Heard::Dropped).is_err() {
-                return;
-            }
-        }
-        std::thread::sleep(KNOCK);
     }
 }
 

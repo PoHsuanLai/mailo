@@ -31,7 +31,7 @@ use crate::blob::BlobStore;
 use crate::{StoreError, migrate};
 use parking_lot::{ReentrantMutex, ReentrantMutexGuard};
 use rusqlite::{Connection, OptionalExtension};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// A connection to the on-disk database, plus the blob store beside it.
 ///
@@ -77,6 +77,8 @@ pub struct SqliteStore {
     /// open file handles without limit; `try_lock` in turn takes the first free one.
     readers: Vec<ReentrantMutex<Connection>>,
     blobs: BlobStore,
+    /// The database's file, for [`SqliteStore::file`]. `None` for an in-memory database.
+    file: Option<PathBuf>,
     /// The directory a test store's blobs live in, removed with the store.
     #[cfg(feature = "testing")]
     pub(crate) scratch: Option<tempfile::TempDir>,
@@ -97,6 +99,7 @@ impl SqliteStore {
         let path = db_path.as_ref().to_path_buf();
         let db = Connection::open(&path).map_err(StoreError::db)?;
         let mut store = Self::from_connection(db, blob_root)?;
+        store.file = Some(path.clone());
         // After `from_connection`, which is what runs the migrations: a reader opened against an
         // unmigrated file would be a connection whose schema does not exist yet.
         for _ in 0..READERS {
@@ -153,6 +156,7 @@ impl SqliteStore {
             db: ReentrantMutex::new(db),
             readers: Vec::new(),
             blobs: BlobStore::new(blob_root.as_ref().to_path_buf()),
+            file: None,
             #[cfg(feature = "testing")]
             scratch: None,
         };
@@ -311,6 +315,12 @@ impl SqliteStore {
     /// mutex that is a deadlock, and a deadlock has no error message.
     pub(crate) fn connection(&self) -> ReentrantMutexGuard<'_, Connection> {
         self.db.lock()
+    }
+
+    /// The file the database is in, when it is in one: what another process's commit writes to
+    /// (with the `-wal` beside it), so what a window watches to learn of one. `None` in memory.
+    pub fn file(&self) -> Option<&Path> {
+        self.file.as_deref()
     }
 
     /// A number that differs from the last one it returned once another connection has
