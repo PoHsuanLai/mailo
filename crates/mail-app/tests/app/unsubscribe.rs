@@ -179,7 +179,7 @@ fn show_lists_every_way_out_and_marks_the_one_it_would_take() {
     .unwrap();
     assert!(out.contains("Weekly News <news.example.test>"), "{out}");
     assert!(
-        out.contains("  web page   https://example.test/page (shown, never opened)"),
+        out.contains("  web page   https://example.test/page (shown, not opened)"),
         "{out}"
     );
     assert!(

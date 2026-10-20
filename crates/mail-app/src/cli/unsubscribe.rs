@@ -48,7 +48,7 @@ fn method_line(method: &Unsubscribe) -> String {
             }
             line
         }
-        Unsubscribe::Web { url } => format!("web page   {url} (shown, never opened)"),
+        Unsubscribe::Web { url } => format!("web page   {url} (shown, not opened)"),
     }
 }
 

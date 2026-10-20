@@ -681,7 +681,7 @@ mod reading {
             .unwrap();
         assert!(matches!(&opened.encryption, Encryption::CannotDecrypt { to } if !to.is_empty()));
         assert!(opened.shown.is_none());
-        assert!(cli::pgp::describe(&opened).contains("keys you do not hold"));
+        assert!(cli::pgp::describe(&opened).contains("keys you don't hold"));
     }
 
     #[test]

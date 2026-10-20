@@ -118,7 +118,7 @@ pub fn prepare(command: Option<Command>) -> Prepared {
         }) => {
             let mut body = String::new();
             if let Err(e) = std::io::Read::read_to_string(&mut std::io::stdin(), &mut body) {
-                eprintln!("cannot read the message body: {e}");
+                eprintln!("can't read the message body: {e}");
                 std::process::exit(1);
             }
             Some(Command::Reply {
@@ -140,7 +140,7 @@ pub fn prepare(command: Option<Command>) -> Prepared {
         }) => {
             let mut body = String::new();
             if let Err(e) = std::io::Read::read_to_string(&mut std::io::stdin(), &mut body) {
-                eprintln!("cannot read the message body: {e}");
+                eprintln!("can't read the message body: {e}");
                 std::process::exit(1);
             }
             Some(Command::Compose {
@@ -163,7 +163,7 @@ pub fn prepare(command: Option<Command>) -> Prepared {
         }) => {
             let mut body = String::new();
             if let Err(e) = std::io::Read::read_to_string(&mut std::io::stdin(), &mut body) {
-                eprintln!("cannot read the covering note: {e}");
+                eprintln!("can't read the covering note: {e}");
                 std::process::exit(1);
             }
             Some(Command::Forward {
@@ -181,7 +181,7 @@ pub fn prepare(command: Option<Command>) -> Prepared {
         }) => {
             let mut text = String::new();
             if let Err(e) = std::io::Read::read_to_string(&mut std::io::stdin(), &mut text) {
-                eprintln!("cannot read the signature: {e}");
+                eprintln!("can't read the signature: {e}");
                 std::process::exit(1);
             }
             Some(Command::Signature {
@@ -483,7 +483,7 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) {
                 return;
             }
             Err(mail_core::ipc::watching::Refused::Failed(why)) => {
-                eprintln!("cannot tell whether a mailo watch is running: {why}");
+                eprintln!("can't tell whether a mailo watch is running: {why}");
                 std::process::exit(1);
             }
         };

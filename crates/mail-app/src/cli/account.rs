@@ -68,12 +68,12 @@ fn asking(address: &str, held: u64, incoming: Option<&Incoming>) -> String {
             "This server deletes mail once it is downloaded, so these {mail} are the only copy \
              and will be gone for good."
         ),
-        _ => "Mail on the server is not touched.".to_owned(),
+        _ => "Mail on the server isn't deleted.".to_owned(),
     };
     format!(
         "removing {address} takes its {mail} on this computer, its folders and rules and its \
-         saved sign-in. {server} Keys and certificates stay.\nNothing was removed. Run it again \
-         with --yes to remove it."
+         saved sign-in. {server} Keys and certificates aren't removed.\nNothing was removed. Add --yes to \
+         remove it."
     )
 }
 
@@ -143,9 +143,9 @@ pub(super) fn added(added: &Added) -> String {
                 Some(GraphSetup::Refused(why)) => {
                     let _ = writeln!(
                         out,
-                        "warning: signed in, but Graph would not issue a token for \
-                         sending ({why}). Mail will be received; sending needs Graph's \
-                         Mail.Send permission on the app registration, consented to."
+                        "warning: signed in, but Graph won't issue a sending token \
+                         ({why}). Receiving works; sending needs the Mail.Send permission, with \
+                         consent, on the app registration."
                     );
                 }
                 None => {}
@@ -165,8 +165,8 @@ pub(super) fn added(added: &Added) -> String {
                     let _ = writeln!(
                         out,
                         "signed in; token stored in the keyring\n\
-                         warning: could not record the client id ({why}), so renewing this \
-                         sign-in will need MAILO_OAUTH_CLIENT_ID set again"
+                         warning: couldn't record the client id ({why}); renewing this \
+                         sign-in needs MAILO_OAUTH_CLIENT_ID set again"
                     );
                 }
             }
@@ -277,13 +277,13 @@ fn password_warning_words(warning: PasswordWarning) -> &'static str {
     match warning {
         PasswordWarning::Microsoft365 => {
             "Microsoft 365 turned off password authentication for IMAP, POP and SMTP, so a \
-             password will be rejected however it is stored. These mailboxes need OAuth, which \
-             is queued in plan.md and not written yet."
+             password is rejected however it's stored. These mailboxes need OAuth, which isn't \
+             supported yet."
         }
         PasswordWarning::Google => {
             "Google stopped accepting account passwords for IMAP and SMTP. An App Password (which \
              needs two-factor authentication switched on) still works here; the account's own \
-             password will not."
+             password won't."
         }
     }
 }
@@ -352,14 +352,14 @@ mod tests {
             (
                 12,
                 Some(pop3(LeaveOnServer::Keep)),
-                "not touched",
+                "isn't deleted",
                 "only copy",
             ),
             (
                 12,
                 Some(pop3(LeaveOnServer::DeleteAfterFetch)),
                 "these 12 messages are the only copy",
-                "not touched",
+                "isn't deleted",
             ),
         ];
         for (held, incoming, has, lacks) in cases {
