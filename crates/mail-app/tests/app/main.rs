@@ -46,6 +46,7 @@ mod native_anyview;
 mod native_brand;
 mod native_compose_align;
 mod native_compose_here;
+mod native_compose_to;
 mod native_control_sizes;
 mod native_copy;
 mod native_damaged_settings;
