@@ -59,6 +59,7 @@ fn SettingsShell() -> Element {
             Shell {
                 settings: Some(first.page()),
                 accounts_pane: first.pane(),
+                spaces_pane: first.spaces_pane(),
                 appearance: try_consume_context::<crate::ui::view::Appearance>()
                     .unwrap_or_default(),
                 keymap: dirs

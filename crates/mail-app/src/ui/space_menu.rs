@@ -1,6 +1,7 @@
 //! The Space's menu: quire's (`SpaceMenu`), with mail's Accounts ▸ in its slot.
 //!
-//! Edit Space…, Appearance, the card's accent, New Space and Delete are the kit's. Accounts
+//! Appearance, New Space and Delete are the kit's; Edit Space… opens the Space's page in Settings
+//! (`settings_window::open_space`), where its name, colour, theme and accounts are. Accounts
 //! lists every account with a check on the ones the Space shows; a pick puts it in or takes it
 //! out and leaves the menu open, so several can be switched. Under them is Add Account: the
 //! providers that sign in straight in the browser, then Other Account…, or with none of those
@@ -154,6 +155,7 @@ pub(in crate::ui) fn MailSpaceMenu(handle: Handle, mut today: Signal<Today>) -> 
                 AccountPick::Add(pick) => picked(pick),
             },
             kept: "Your mail".to_owned(),
+            on_edit: move |space: SpaceId| crate::ui::settings_window::open_space(space),
             on_deleted: move |space: SpaceId| {
                 today.write().drop_space(space);
                 if let Some(dirs) = try_consume_context::<WindowDirs>() {

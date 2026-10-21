@@ -473,15 +473,12 @@ fn a_failed_step_offers_try_again_which_asks_the_form_again() {
     );
 }
 
-#[test]
-fn a_refused_login_says_what_the_server_said_under_the_sentence() {
-    use mail_app::ui::native::{AddError, AddFault};
-    let said = "mail.example.test did not accept the sign-in as ada@example.test: \
-                -ERR [AUTH] Authentication failed. Some servers want the user name without \
-                the part after the @.";
+/// The sheet after a password sign-in whose add fails with `fault`, the server's words `said`.
+fn add_fails(fault: mail_app::ui::native::AddFault, said: &str) -> Window {
+    use mail_app::ui::native::AddError;
     let script = Script {
         add: Err(AddError {
-            fault: AddFault::Refused,
+            fault,
             detail: said.to_owned(),
         }),
         ..Script::default()
@@ -497,15 +494,28 @@ fn a_refused_login_says_what_the_server_said_under_the_sentence() {
     type_text(&mut w, SECRET);
     w.harness.key(Key::Enter);
     on_step(&mut w, "failed");
+    w
+}
+
+#[test]
+fn a_refused_login_says_what_the_server_said_under_the_sentence() {
+    use mail_app::ui::native::AddFault;
+    let said = "mail.example.test did not accept the sign-in as ada@example.test: \
+                -ERR [AUTH] Authentication failed. Some servers want the user name without \
+                the part after the @.";
+    let mut w = add_fails(AddFault::Refused, said);
     let html = w.harness.html();
+    // The sentence is quire's, whatever words this release uses: a refusal has a sentence, and
+    // it is not the one for an account that could not be saved.
+    let refused = w.harness.text_of(".ds-acc-caption");
+    let unsaved = add_fails(AddFault::Unsaved, said)
+        .harness
+        .text_of(".ds-acc-caption");
     assert!(
-        html.contains("The provider did not accept what was entered."),
+        refused.as_deref().is_some_and(|s| !s.is_empty()),
         "the sheet's sentence for a refusal:\n{html}"
     );
-    assert!(
-        !html.contains("could not be saved"),
-        "a refused login is not a failure to save:\n{html}"
-    );
+    assert_ne!(refused, unsaved, "a refused login is not a failure to save");
     assert_eq!(
         w.harness.text_of(".add-account-detail").as_deref(),
         Some(said),

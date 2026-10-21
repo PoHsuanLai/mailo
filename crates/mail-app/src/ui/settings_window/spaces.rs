@@ -1,15 +1,17 @@
 //! Spaces: a pane of two levels, as Accounts is. Its root lists each Space by its colour and its
 //! name, with how many accounts it shows, a chevron row that pushes the Space's own page; then
-//! New Space. A Space's page is what the Space's menu holds (Edit Space…, Appearance, Accounts ▸),
-//! as rows: its name, its colour (quire's presets), its theme, the accounts it shows, and, last
-//! and alone, Delete Space…, which asks first and is there only while another Space is.
+//! New Space. A Space's page is what the Space's menu holds (Appearance, Accounts ▸), and where its
+//! Edit Space… opens: its name, its colour (quire's presets, and Custom, whose popover holds the
+//! colour field), its theme, the accounts it shows, and, last and alone, Delete Space…, which asks
+//! first and is there only while another Space is.
 //!
 //! The Space's menu, a right click on the Space's name, stays the quick way in; this is where
 //! the same things are found. A Space needs a name: an emptied name field is its error and is
 //! not kept, and leaving the field puts the name back. The window edits the Spaces through its
 //! own quire handle ([`super::root`]): a pick is written at once (`frame::keep`) and the other windows read the
 //! file again. A name is changed as it is typed and written when the field is left, on Return,
-//! or when the page is left. The editor's full colour field stays Edit Space…'s, in the menu.
+//! or when the page is left. A colour is shown as it is dragged and written when Custom's popover
+//! closes, or at once for a preset.
 
 use crate::ui::copy;
 use crate::ui::space::{Handle, Mail, SpaceId, held_elsewhere};
@@ -217,7 +219,8 @@ fn SpacePage(shell: Signal<Shell>, handle: Handle, space: SpaceId) -> Element {
                 FieldRow { label: copy::fields::COLOUR,
                     PresetSwatches {
                         look: look.clone(),
-                        onchange: move |look: SpaceLook| handle.apply(space, |one| one.look = look),
+                        onchange: move |look: SpaceLook| handle.change(space, |one| one.look = look),
+                        oncommit: move |()| handle.commit(),
                         common: Common { aria_label: Some(copy::fields::COLOUR.to_owned()), ..Common::default() },
                     }
                 }

@@ -231,3 +231,57 @@ fn a_right_click_on_the_bare_sidebar_opens_the_space_s_menu() {
         "the dot's menu is its own Space's"
     );
 }
+
+/// Every place the window asked the Settings window to open at.
+#[derive(Default)]
+struct SettingsAsks(std::sync::Mutex<Vec<Option<mail_app::ui::native::SettingsAt>>>);
+
+impl mail_app::ui::native::OpenSettings for SettingsAsks {
+    fn open(&self, at: Option<mail_app::ui::native::SettingsAt>) {
+        if let Ok(mut asks) = self.0.lock() {
+            asks.push(at);
+        }
+    }
+}
+
+/// Edit Space… opens the Space's page in Settings, and nothing in the main window: the menu
+/// closes and no sheet opens.
+#[test]
+fn edit_space_opens_the_space_s_page_in_settings() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = seeded(dir.path());
+    let two = spaces(2);
+    let first = two.current().id;
+    let asks = Arc::new(SettingsAsks::default());
+    let recorder = Arc::clone(&asks);
+    let mut harness = open_window(
+        &store,
+        Open {
+            view: view(1200),
+            spaces: Some(two),
+            with: Some(Box::new(move |contexts| {
+                contexts.with(mail_app::ui::native::SettingsWindows(recorder))
+            })),
+            ..Open::default()
+        },
+    );
+    right_press(&mut harness, NAME);
+    assert_eq!(
+        harness
+            .text_of(".ds-menu-item:first-child")
+            .as_deref()
+            .map(str::trim),
+        Some("Edit Space\u{2026}")
+    );
+    press(&mut harness, ".ds-menu-item:first-child");
+    assert_eq!(harness.count(MENU), 0, "the menu stayed up");
+    assert_eq!(
+        harness.count(".ds-sheet"),
+        0,
+        "a sheet opened in the main window"
+    );
+    assert_eq!(
+        asks.0.lock().map(|asks| asks.clone()).unwrap_or_default(),
+        [Some(mail_app::ui::native::SettingsAt::Space(first))]
+    );
+}

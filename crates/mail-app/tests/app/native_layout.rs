@@ -556,3 +556,40 @@ fn tidy_up_keeps_its_controls_inside_its_sheet_in_a_narrow_window() {
         );
     }
 }
+
+#[test]
+fn tidy_up_does_not_move_under_a_two_finger_drag() {
+    use ds::host::gesture::GesturePhase;
+    use ds_harness::Input;
+    let (mut harness, _dir) = open(1200, spaces(1));
+    let menu = rect(&harness, "[*|aria-label=\"Sidebar Menu\"]");
+    harness.click(Point {
+        x: Px(menu.origin.x.0 + menu.size.width.0 / 2.0),
+        y: Px(menu.origin.y.0 + menu.size.height.0 / 2.0),
+    });
+    harness.advance(ms(300));
+    crate::row_menu::press_menu_item(&mut harness, "Tidy Up\u{2026}");
+    settle_until(&mut harness, |h| h.count(".tidy-sheet") == 1);
+    harness.advance(ms(800));
+    let rest = rect(&harness, ".tidy-title");
+    let at = Point {
+        x: Px(rest.origin.x.0 + 100.0),
+        y: Px(rest.origin.y.0 + 60.0),
+    };
+    let still = |harness: &Harness, when: &str| {
+        let now = rect(harness, ".tidy-title");
+        assert!(
+            (now.origin.y.0 - rest.origin.y.0).abs() < 0.5,
+            "{when}, the title is where it was, {rest:?}, not at {now:?}"
+        );
+    };
+    harness.send(Input::fingers(at, Px(0.0), Px(0.0), GesturePhase::Began));
+    for _ in 0..6 {
+        harness.send(Input::fingers(at, Px(0.0), Px(40.0), GesturePhase::Changed));
+        harness.advance(ms(16));
+    }
+    still(&harness, "while the fingers pull it down");
+    harness.send(Input::fingers(at, Px(0.0), Px(0.0), GesturePhase::Ended));
+    harness.advance(ms(1500));
+    still(&harness, "after they lift");
+}

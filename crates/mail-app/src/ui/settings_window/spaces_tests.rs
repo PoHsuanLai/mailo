@@ -49,6 +49,10 @@ fn a_space_s_page_has_its_name_colour_theme_and_accounts_and_no_delete_when_it_i
         PRESETS.len(),
         "{page}"
     );
+    assert!(
+        page.contains("aria-label=\"Custom\""),
+        "Custom, after the presets: {page}"
+    );
     assert!(page.contains(copy::fields::APPEARANCE), "{page}");
     assert!(page.contains(copy::aria::ACCOUNTS_IN_SPACE), "{page}");
     assert!(
@@ -114,5 +118,25 @@ fn a_new_space_opens_its_page_and_can_be_deleted_after_asking() {
     assert!(
         dioxus_ssr::render(&dom).contains(copy::controls::NEW_SPACE),
         "the pane went back to the list"
+    );
+}
+
+#[test]
+fn the_window_opens_on_the_space_s_page_it_is_asked_for() {
+    let built = work();
+    let first = on_disk(&built).current().id;
+    let asked = crate::ui::settings_window::SettingsAsked::default();
+    asked.ask(crate::ui::settings_window::SettingsAt::Space(first));
+    crate::ui::fixtures::dispatching();
+    let mut dom = VirtualDom::new(crate::ui::settings_window::settings_root)
+        .with_root_context(built.store.clone())
+        .with_root_context(built.dirs.clone())
+        .with_root_context(asked);
+    let _ = crate::ui::fixtures::rebuild_into(&mut dom).merge(drain_seen(&mut dom));
+    let page = dioxus_ssr::render(&dom);
+    assert!(page.contains("data-page=\"Spaces\""), "{page}");
+    assert!(
+        page.contains("value=\"Work\""),
+        "not on the Space's page: {page}"
     );
 }

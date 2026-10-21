@@ -474,8 +474,8 @@ pub(super) fn App() -> Element {
         // A Space's menu, or the part it opened, owns the keyboard while it shows: the name
         // field takes letters, the colour field's handles the arrows, and quire's layer stack
         // closes it on Escape. A part that holds no focus (the Delete question) never sees the
-        // key, so an Escape that reaches the window closes it here. The Edit Space sheet is left
-        // to itself: its Escape puts back the name and colour it opened on.
+        // key, so an Escape that reaches the window closes it here. Edit Space… opens Settings
+        // instead of the kit's sheet (`space_menu`), so `Edit` never shows here.
         if let Some(open) = handle.open() {
             if key == "Escape" && !matches!(open.showing, Showing::Menu | Showing::Edit) {
                 handle.close_menu();
