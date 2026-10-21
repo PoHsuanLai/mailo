@@ -444,6 +444,7 @@ impl Reader {
                 let n = response
                     .get("id")
                     .and_then(Value::as_str)
+                    // An id this batch did not send names no message here: there is nothing to fill.
                     .and_then(|n| n.parse::<usize>().ok());
                 let ok = response.get("status").and_then(Value::as_u64) == Some(200);
                 let found = response
