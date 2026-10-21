@@ -21,7 +21,7 @@ use chunks::{Limit, Slots};
 use keyring_core::CredentialStore;
 use mail_domain::signing::{SigningKeyId, SigningKeyRef, SigningSecret};
 use std::sync::Arc;
-#[cfg(feature = "keyring")]
+#[cfg(any(feature = "keyring", test))]
 use std::sync::Mutex;
 use stored::Stored;
 
@@ -260,7 +260,7 @@ impl Slots for Keyring {
         if let Some(dir) = scenario::dir() {
             return scenario::read(&dir, &self.scenario_name(name));
         }
-        StoreSlots::new(store()?, self.service.clone()).read(name)
+        on_store(|store| StoreSlots::new(store, self.service.clone()).read(name))
     }
 
     fn write(&self, name: &str, value: &str) -> Result<(), RuntimeError> {
@@ -268,7 +268,7 @@ impl Slots for Keyring {
         if let Some(dir) = scenario::dir() {
             return scenario::write(&dir, &self.scenario_name(name), value);
         }
-        StoreSlots::new(store()?, self.service.clone()).write(name, value)
+        on_store(|store| StoreSlots::new(store, self.service.clone()).write(name, value))
     }
 
     fn delete(&self, name: &str) -> Result<(), RuntimeError> {
@@ -276,7 +276,7 @@ impl Slots for Keyring {
         if let Some(dir) = scenario::dir() {
             return scenario::delete(&dir, &self.scenario_name(name));
         }
-        StoreSlots::new(store()?, self.service.clone()).delete(name)
+        on_store(|store| StoreSlots::new(store, self.service.clone()).delete(name))
     }
 }
 
@@ -355,25 +355,108 @@ fn refused(e: keyring_core::Error) -> RuntimeError {
     RuntimeError::Secrets(Failure::caused(e))
 }
 
-/// The store, opened on first use and kept.
+/// `call` on the platform's store, opened on first use and kept.
 ///
 /// A store that could not be opened is tried again on the next use, not remembered as missing:
 /// a Secret Service that was not up when the first sync ran (a session whose keyring daemon
-/// starts late) is up for the second.
+/// starts late) is up for the second. A kept store that stops answering is opened again, as
+/// [`Kept`] says.
 #[cfg(feature = "keyring")]
-fn store() -> Result<Arc<CredentialStore>, RuntimeError> {
-    static OPENED: Mutex<Option<Arc<CredentialStore>>> = Mutex::new(None);
-    let mut opened = OPENED
-        .lock()
-        .map_err(|_| RuntimeError::Secrets(Failure::said("the keyring was poisoned by a panic")))?;
-    if let Some(store) = opened.as_ref() {
-        return Ok(store.clone());
+fn on_store<T>(
+    call: impl Fn(Arc<CredentialStore>) -> Result<T, RuntimeError>,
+) -> Result<T, RuntimeError> {
+    static OPENED: Kept<CredentialStore> = Kept::new();
+    OPENED.run(
+        || {
+            open().map_err(|e| {
+                RuntimeError::Secrets(Failure::new("no keyring to keep signing keys in", e))
+            })
+        },
+        call,
+    )
+}
+
+/// A store opened on first use and kept until it stops answering.
+///
+/// The Secret Service store holds a connection, and a session, with the daemon that was running
+/// when it opened. When that daemon goes (the desktop session ends, and the next one starts a
+/// daemon of its own), every call on the kept store fails, and a process that outlives the
+/// session, `mailo watch`, would never reach the new daemon. So a call that finds the store
+/// unreachable forgets it, and a call that used a kept store is tried once more on a fresh one.
+#[cfg(any(feature = "keyring", test))]
+struct Kept<S: ?Sized> {
+    slot: Mutex<Option<Arc<S>>>,
+}
+
+#[cfg(any(feature = "keyring", test))]
+impl<S: ?Sized> Kept<S> {
+    const fn new() -> Self {
+        Self {
+            slot: Mutex::new(None),
+        }
     }
-    let store = open().map_err(|e| {
-        RuntimeError::Secrets(Failure::new("no keyring to keep signing keys in", e))
-    })?;
-    *opened = Some(store.clone());
-    Ok(store)
+
+    fn slot(&self) -> std::sync::MutexGuard<'_, Option<Arc<S>>> {
+        self.slot
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn open(
+        &self,
+        open: &impl Fn() -> Result<Arc<S>, RuntimeError>,
+    ) -> Result<Arc<S>, RuntimeError> {
+        let store = open()?;
+        *self.slot() = Some(store.clone());
+        Ok(store)
+    }
+
+    /// Forgets `store`, unless another call has already put a newer one in its place.
+    fn forget(&self, store: &Arc<S>) {
+        let mut slot = self.slot();
+        if slot.as_ref().is_some_and(|held| Arc::ptr_eq(held, store)) {
+            *slot = None;
+        }
+    }
+
+    fn run<T>(
+        &self,
+        open: impl Fn() -> Result<Arc<S>, RuntimeError>,
+        call: impl Fn(Arc<S>) -> Result<T, RuntimeError>,
+    ) -> Result<T, RuntimeError> {
+        let held = self.slot().clone();
+        let kept = held.is_some();
+        let store = match held {
+            Some(store) => store,
+            None => self.open(&open)?,
+        };
+        let answer = call(store.clone());
+        if !answer.as_ref().is_err_and(unreachable) {
+            return answer;
+        }
+        self.forget(&store);
+        if !kept {
+            return answer;
+        }
+        let fresh = self.open(&open)?;
+        let answer = call(fresh.clone());
+        if answer.as_ref().is_err_and(unreachable) {
+            self.forget(&fresh);
+        }
+        answer
+    }
+}
+
+/// Whether `error` is the store not answering, rather than an answer about an entry.
+#[cfg(any(feature = "keyring", test))]
+fn unreachable(error: &RuntimeError) -> bool {
+    let RuntimeError::Secrets(failure) = error else {
+        return false;
+    };
+    matches!(
+        std::error::Error::source(failure).and_then(|source| source.downcast_ref()),
+        Some(keyring_core::Error::PlatformFailure(_) | keyring_core::Error::NoStorageAccess(_))
+    )
 }
 
 /// Linux and the BSDs: the Secret Service, which GNOME Keyring, KWallet and KeePassXC provide.
@@ -414,7 +497,9 @@ compile_error!("mailo keeps signing keys in the platform keyring, and knows none
 /// A build without the `keyring` feature has no platform keyring to open: a signing key is kept
 /// in whatever [`SigningStore`] the caller hands in, or not at all.
 #[cfg(not(feature = "keyring"))]
-fn store() -> Result<Arc<CredentialStore>, RuntimeError> {
+fn on_store<T>(
+    _: impl Fn(Arc<CredentialStore>) -> Result<T, RuntimeError>,
+) -> Result<T, RuntimeError> {
     Err(RuntimeError::Secrets(Failure::said(
         "this build has no platform keyring to keep signing keys in",
     )))
@@ -440,6 +525,68 @@ mod tests {
     use super::*;
     use mail_domain::id::account_id_from_uuid;
     use mail_domain::signing::SigningKeyId;
+
+    /// keyring-core's `error` as a store call hands it on.
+    fn said(error: keyring_core::Error) -> RuntimeError {
+        refused(error)
+    }
+
+    fn gone() -> RuntimeError {
+        said(keyring_core::Error::PlatformFailure(Box::new(
+            std::io::Error::other("the daemon left the bus"),
+        )))
+    }
+
+    #[test]
+    fn a_kept_store_that_stops_answering_is_opened_again_within_the_same_call() {
+        use std::sync::atomic::{AtomicU32, Ordering};
+        let kept: Kept<u32> = Kept::new();
+        let opens = AtomicU32::new(0);
+        let open = || Ok(Arc::new(opens.fetch_add(1, Ordering::SeqCst) + 1));
+        // The daemon restarts after the first store is opened: only stores from 2 on answer.
+        let read = |store: Arc<u32>| match *store >= 2 {
+            true => Ok(*store),
+            false => Err(gone()),
+        };
+        let first = kept.run(open, |store| Ok(*store));
+        assert_eq!(first.ok(), Some(1));
+        assert_eq!(
+            kept.run(open, read).ok(),
+            Some(2),
+            "the call reached the new daemon"
+        );
+        assert_eq!(
+            kept.run(open, read).ok(),
+            Some(2),
+            "and the new store is kept"
+        );
+        assert_eq!(opens.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn a_store_that_answers_about_an_entry_is_kept() {
+        use std::sync::atomic::{AtomicU32, Ordering};
+        let kept: Kept<()> = Kept::new();
+        let opens = AtomicU32::new(0);
+        let open = || {
+            opens.fetch_add(1, Ordering::SeqCst);
+            Ok(Arc::new(()))
+        };
+        let missing = kept.run(open, |_| Err::<(), _>(said(keyring_core::Error::NoEntry)));
+        assert!(missing.is_err());
+        let refused = kept.run(open, |_| {
+            Err::<(), _>(RuntimeError::Secrets(Failure::said("no such signing key")))
+        });
+        assert!(refused.is_err());
+        assert_eq!(opens.load(Ordering::SeqCst), 1, "opened once, never again");
+        let down = kept.run(open, |_| Err::<(), _>(gone()));
+        assert!(down.is_err());
+        assert_eq!(
+            opens.load(Ordering::SeqCst),
+            2,
+            "an unreachable store is opened again"
+        );
+    }
 
     const OPENPGP: &str = include_str!("../tests/fixtures/keyring/openpgp.json");
     const SMIME: &str = include_str!("../tests/fixtures/keyring/smime.json");
