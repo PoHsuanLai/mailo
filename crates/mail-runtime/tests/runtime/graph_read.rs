@@ -128,7 +128,7 @@ async fn serve(script: Script) -> (u16, Seen) {
                     let mut body = vec![0; length];
                     reader.read_exact(&mut body).await.unwrap();
                     request.body = String::from_utf8_lossy(&body).into_owned();
-                    let answer = script(&request, port);
+                    let answer = graph(&request).unwrap_or_else(|| script(&request, port));
                     seen.lock().unwrap().push(request);
                     let reply = format!(
                         "HTTP/1.1 {}\r\ncontent-type: application/json\r\n{}\
@@ -155,8 +155,61 @@ fn me(port: u16) -> String {
 // ---------------------------------------------------------------------------------------------
 // Graph's side: a mailbox of folders and messages.
 
-/// A delta entry for message `n`, in the shape Graph returns with the properties asked for.
-fn entry(id: &str, n: u32, read: bool, size: u64) -> Value {
+/// What every Graph answers whatever the mailbox: a delta that asks to expand extended
+/// properties is refused, as Graph refuses it, and a `$batch` gets each message's properties.
+fn graph(request: &Request) -> Option<Answer> {
+    if request.path().ends_with("/messages/delta") && request.target.contains("expand") {
+        return Some(status(
+            "400 Bad Request",
+            r#"{"error":{"code":"BadRequest","message":"Parsing OData Select and Expand failed: Value cannot be null. (Parameter 'initialState')"}}"#,
+        ));
+    }
+    if request.method != "POST" || request.path() != "/v1.0/$batch" {
+        return None;
+    }
+    let body = request.json();
+    let responses: Vec<Value> = body["requests"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|asked| {
+            let url = asked["url"].as_str().unwrap_or_default();
+            let id = url
+                .strip_prefix("/me/messages/")
+                .and_then(|rest| rest.split('?').next())
+                .unwrap_or_default();
+            let known = PROPERTIES.iter().find(|(known, ..)| *known == id);
+            match (known, url.contains("expand")) {
+                (Some((_, size, parent)), true) => {
+                    let mut found =
+                        vec![json!({ "id": "Integer 0xe08", "value": size.to_string() })];
+                    if let Some(parent) = parent {
+                        found.push(json!({ "id": "String 0x1042", "value": parent }));
+                        found.push(json!({ "id": "String 0x1039", "value": parent }));
+                    }
+                    json!({ "id": asked["id"], "status": 200,
+                            "body": { "id": id, "singleValueExtendedProperties": found } })
+                }
+                _ => json!({ "id": asked["id"], "status": 404,
+                             "body": { "error": { "code": "ErrorItemNotFound" } } }),
+            }
+        })
+        .collect();
+    Some(ok(json!({ "responses": responses })))
+}
+
+/// Each message's size, and the message it answers, as its extended properties say.
+const PROPERTIES: [(&str, u64, Option<&str>); 6] = [
+    ("G1", 2_000, None),
+    ("G2", 900_000, None),
+    ("G3", 1_000, None),
+    ("G4", 500, Some("<m1@example.test>")),
+    ("S7", 4_000, None),
+    ("S8", 4_000, None),
+];
+
+/// A delta entry for message `n`, in the shape Graph returns with the properties selected.
+fn entry(id: &str, n: u32, read: bool) -> Value {
     json!({
         "id": id,
         "internetMessageId": format!("<m{n}@example.test>"),
@@ -169,7 +222,6 @@ fn entry(id: &str, n: u32, read: bool, size: u64) -> Value {
         "toRecipients": [ { "emailAddress": { "name": "Me", "address": "me@example.test" } } ],
         "ccRecipients": [],
         "hasAttachments": false,
-        "singleValueExtendedProperties": [ { "id": "Integer 0xe08", "value": size.to_string() } ],
     })
 }
 
@@ -337,16 +389,16 @@ fn inbox_script() -> Script {
         ) {
             ("/v1.0/me/mailFolders/inbox/messages/delta", query) if query.contains("select") => {
                 ok(json!({
-                    "value": [ entry("G1", 1, true, 2_000), entry("G2", 2, false, 900_000) ],
+                    "value": [ entry("G1", 1, true), entry("G2", 2, false) ],
                     "@odata.nextLink": format!("{delta}?$skiptoken=page2"),
                 }))
             }
             (_, "$skiptoken=page2") => ok(json!({
-                "value": [ entry("G3", 3, false, 1_000) ],
+                "value": [ entry("G3", 3, false) ],
                 "@odata.deltaLink": format!("{delta}?$deltatoken=d1"),
             })),
             (_, "$deltatoken=d1") => ok(json!({
-                "value": [ entry("G4", 4, false, 500), entry("G2", 2, true, 900_000), removed("G3") ],
+                "value": [ entry("G4", 4, false), entry("G2", 2, true), removed("G3") ],
                 "@odata.deltaLink": format!("{delta}?$deltatoken=d2"),
             })),
             (_, "$deltatoken=d2") => ok(json!({
@@ -532,8 +584,8 @@ async fn a_first_sync_follows_the_pages_and_keeps_the_delta_link() {
     let deltas = delta_requests(&seen);
     assert_eq!(deltas.len(), 2);
     assert!(
-        deltas[0].target.contains("select=") && deltas[0].target.contains("expand="),
-        "the first request names what it wants: {}",
+        deltas[0].target.contains("select=") && !deltas[0].target.contains("expand"),
+        "the first request names what it wants, and nothing a delta refuses: {}",
         deltas[0].target
     );
     assert_eq!(
@@ -541,6 +593,16 @@ async fn a_first_sync_follows_the_pages_and_keeps_the_delta_link() {
         Some("odata.maxpagesize=100"),
         "pages are sized"
     );
+    let batches: Vec<Request> = seen
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|r| r.path() == "/v1.0/$batch")
+        .cloned()
+        .collect();
+    assert_eq!(batches.len(), 1, "three messages' properties in one batch");
+    let asked = batches[0].json()["requests"].as_array().unwrap().len();
+    assert_eq!(asked, 3);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -559,7 +621,15 @@ async fn a_later_sync_takes_what_is_new_what_changed_and_what_left() {
         .unwrap();
 
     assert_eq!(report.headers_fetched, 1, "only message 4 is new");
-    assert!(held(&it.store, 4).is_some());
+    let answer = held(&it.store, 4).expect("message 4 is stored");
+    assert!(
+        answer
+            .in_reply_to
+            .as_deref()
+            .is_some_and(|parent| parent.contains("m1@example.test")),
+        "the threading header Graph keeps as an extended property: {:?}",
+        answer.in_reply_to
+    );
     assert_eq!(
         held(&it.store, 2).unwrap().read,
         ReadState::Read,
@@ -1051,9 +1121,9 @@ fn search_script() -> Script {
             return answer;
         }
         if request.path() == "/v1.0/me/messages" {
-            let mut hit = entry("S7", 7, true, 4_000);
+            let mut hit = entry("S7", 7, true);
             hit["parentFolderId"] = json!("ID-ARCHIVE");
-            let mut hidden = entry("S8", 8, false, 4_000);
+            let mut hidden = entry("S8", 8, false);
             hidden["parentFolderId"] = json!("ID-HIDDEN");
             return ok(json!({
                 "value": [ hit, hidden ],
