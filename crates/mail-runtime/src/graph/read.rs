@@ -407,6 +407,10 @@ impl Reader {
         token: &str,
     ) -> Result<(), RuntimeError> {
         let batch_url = format!("{}/$batch", self.me.trim_end_matches("/me"));
+        let query = url::form_urlencoded::Serializer::new(String::new())
+            .append_pair("$select", "id")
+            .append_pair("$expand", EXPAND)
+            .finish();
         for chunk in described.chunks_mut(BATCH) {
             let requests: Vec<Value> = chunk
                 .iter()
@@ -415,12 +419,7 @@ impl Reader {
                     let RemoteRef::Graph { id, .. } = remote else {
                         return None;
                     };
-                    let mut url = url::Url::parse("https://graph.invalid/me/messages/").ok()?;
-                    url.path_segments_mut().ok()?.pop().push(id);
-                    url.query_pairs_mut()
-                        .append_pair("$select", "id")
-                        .append_pair("$expand", EXPAND);
-                    let relative = format!("{}?{}", url.path(), url.query().unwrap_or_default());
+                    let relative = format!("/me/messages/{}?{query}", segment(id));
                     Some(json!({ "id": n.to_string(), "method": "GET", "url": relative }))
                 })
                 .collect();
