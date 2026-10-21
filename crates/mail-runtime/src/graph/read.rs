@@ -83,6 +83,9 @@ const REFERENCES_TAG: u32 = 0x1039;
 const EXPAND: &str = "singleValueExtendedProperties($filter=id eq 'Integer 0x0E08' or \
     id eq 'String 0x1042' or id eq 'String 0x1039')";
 
+/// Requests in one `$batch`, Graph's most.
+const BATCH: usize = 20;
+
 /// Graph's names for the folders a role lives in. Every mailbox answers to these, whatever
 /// language its display names are in.
 const WELL_KNOWN: [(&str, MailboxRole); 6] = [
@@ -313,6 +316,8 @@ impl Reader {
             gone: Vec::new(),
         };
         self.arrivals.clear();
+        // Messages the walk described, waiting for their extended properties.
+        let mut described: Vec<(RemoteRef, Value)> = Vec::new();
         let mut seen = 0usize;
         // Each page names the next; a server that never stops naming one must not keep this here.
         for _ in 0..10_000 {
@@ -327,7 +332,7 @@ impl Reader {
                     seen = 0;
                     ingest.flags.clear();
                     ingest.gone.clear();
-                    self.arrivals.clear();
+                    described.clear();
                     continue;
                 }
                 None => {
@@ -356,12 +361,9 @@ impl Reader {
                     ingest.gone.push(remote);
                     continue;
                 }
-                let described = describe(item);
-                self.sizes.insert(remote.clone(), described.size);
-                ingest
-                    .flags
-                    .push((remote.clone(), described.read, described.star));
-                self.arrivals.push((remote, described.headers));
+                let (read, star) = flags(item);
+                ingest.flags.push((remote.clone(), read, star));
+                described.push((remote, item.clone()));
             }
             if let Some(end) = page.get("@odata.deltaLink").and_then(Value::as_str) {
                 ingest.cursor = Some(SyncCursor::Graph {
@@ -383,8 +385,79 @@ impl Reader {
                 break;
             }
         }
+        self.properties(&mut described, token).await?;
+        for (remote, item) in described {
+            let described = describe(&item);
+            self.sizes.insert(remote.clone(), described.size);
+            self.arrivals.push((remote, described.headers));
+        }
         ingest.validity = validity;
         Ok(ingest)
+    }
+
+    /// Each message's size and threading headers, added to its delta entry.
+    ///
+    /// Graph keeps them as extended properties, and a delta query refuses to expand those (`400
+    /// Parsing OData Select and Expand failed`), so they are asked of each message on its own,
+    /// twenty to a `$batch`. A message that has gone since the delta named it keeps what the
+    /// delta said, and the next delta says it left.
+    async fn properties(
+        &self,
+        described: &mut [(RemoteRef, Value)],
+        token: &str,
+    ) -> Result<(), RuntimeError> {
+        let batch_url = format!("{}/$batch", self.me.trim_end_matches("/me"));
+        let query = url::form_urlencoded::Serializer::new(String::new())
+            .append_pair("$select", "id")
+            .append_pair("$expand", EXPAND)
+            .finish();
+        for chunk in described.chunks_mut(BATCH) {
+            let requests: Vec<Value> = chunk
+                .iter()
+                .enumerate()
+                .filter_map(|(n, (remote, _))| {
+                    let RemoteRef::Graph { id, .. } = remote else {
+                        return None;
+                    };
+                    let relative = format!("/me/messages/{}?{query}", segment(id));
+                    Some(json!({ "id": n.to_string(), "method": "GET", "url": relative }))
+                })
+                .collect();
+            if requests.is_empty() {
+                continue;
+            }
+            let body = json!({ "requests": requests });
+            let Answer::Done(bytes) = self
+                .call(reqwest::Method::POST, &batch_url, token, Some(&body))
+                .await?
+            else {
+                continue;
+            };
+            let answered: Value = serde_json::from_slice(&bytes)
+                .map_err(|e| RuntimeError::Connect(Failure::new("Microsoft Graph", e)))?;
+            for response in answered
+                .get("responses")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                let n = response
+                    .get("id")
+                    .and_then(Value::as_str)
+                    // An id this batch did not send names no message here: there is nothing to fill.
+                    .and_then(|n| n.parse::<usize>().ok());
+                let ok = response.get("status").and_then(Value::as_u64) == Some(200);
+                let found = response
+                    .get("body")
+                    .and_then(|b| b.get("singleValueExtendedProperties"));
+                if let (Some(n), true, Some(found)) = (n, ok, found)
+                    && let Some((_, item)) = chunk.get_mut(n)
+                {
+                    item["singleValueExtendedProperties"] = found.clone();
+                }
+            }
+        }
+        Ok(())
     }
 
     /// The first request of a delta over `path`, naming everything the walk wants.
@@ -396,9 +469,9 @@ impl Reader {
             segment(&folder)
         ))
         .map_err(|e| RuntimeError::Connect(Failure::new("Microsoft Graph", e)))?;
+        // No `$expand`: a delta refuses the extended properties, which `properties` asks for.
         url.query_pairs_mut()
             .append_pair("$select", SELECT)
-            .append_pair("$expand", EXPAND)
             // Newest first, so the first pass over a large folder fetches this week's mail.
             .append_pair("$orderby", "receivedDateTime desc");
         Ok(url.to_string())
@@ -896,6 +969,20 @@ fn describe(item: &Value) -> Described {
     }
     h.push_str("\r\n");
 
+    let (read, star) = flags(item);
+    let size = property(SIZE_TAG)
+        .and_then(|s| s.trim().parse().ok())
+        .unwrap_or(u64::MAX);
+    Described {
+        headers: h.into_bytes(),
+        read,
+        star,
+        size,
+    }
+}
+
+/// Whether a delta entry is read, and whether it is flagged.
+fn flags(item: &Value) -> (ReadState, Star) {
     let read = match item.get("isRead").and_then(Value::as_bool) {
         Some(true) => ReadState::Read,
         _ => ReadState::Unread,
@@ -908,15 +995,7 @@ fn describe(item: &Value) -> Described {
         Some("flagged") => Star::Starred,
         _ => Star::Unstarred,
     };
-    let size = property(SIZE_TAG)
-        .and_then(|s| s.trim().parse().ok())
-        .unwrap_or(u64::MAX);
-    Described {
-        headers: h.into_bytes(),
-        read,
-        star,
-        size,
-    }
+    (read, star)
 }
 
 /// The value of the extended property with `tag` on a delta entry.
