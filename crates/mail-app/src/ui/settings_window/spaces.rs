@@ -1,6 +1,7 @@
 //! Spaces: a pane of two levels, as Accounts is. Its root lists each Space by its colour and its
 //! name, with how many accounts it shows, a chevron row that pushes the Space's own page; then
-//! New Space. A row's right click moves its Space up or down the order (`space_order`). A Space's page is what the Space's menu holds (Appearance, Accounts ▸), and where its
+//! New Space, in a list of its own. A Space's row leads with its grip: dragged up or down by it,
+//! the Space takes its new place in the order, which is the sidebar's and ⌘1 to ⌘9's. A Space's page is what the Space's menu holds (Appearance, Accounts ▸), and where its
 //! Edit Space… opens: its name, its colour (quire's presets, and Custom, whose popover holds the
 //! colour field), its theme, the accounts it shows, and, last and alone, Delete Space…, which asks
 //! first and is there only while another Space is.
@@ -13,13 +14,11 @@
 //! or when the page is left. A colour is shown as it is dragged and written when Custom's popover
 //! closes, or at once for a preset.
 
-use super::space_order::{Open, SpaceMenu};
 use crate::ui::copy;
 use crate::ui::space::{Handle, Mail, SpaceId, held_elsewhere};
 use crate::ui::space_menu::{accounts, every_id, toggled};
 use crate::ui::view::{Shell, SpacesPage};
 use dioxus::prelude::*;
-use ds::base::press::{PointerButton, Press};
 use ds::base::vocab::RowState;
 use ds::components::app::space_editor::swatches::PresetSwatches;
 use ds::components::controls::button_model::ButtonRole;
@@ -105,10 +104,9 @@ pub(super) fn Spaces(shell: Signal<Shell>, handle: Handle) -> Element {
 #[component]
 fn SpaceList(shell: Signal<Shell>, handle: Handle) -> Element {
     let scheme = use_scope().scheme;
-    let mut menu: Open = use_signal(|| None);
     let held = handle.spaces();
     let spaces = held.read();
-    // A right click moves a Space in the order; one alone has nowhere to go.
+    // A Space alone has nowhere to be dragged.
     let several = spaces.count() > 1;
     let mut items: Vec<ListItem<String>> = Vec::new();
     for space in spaces.list() {
@@ -130,13 +128,7 @@ fn SpaceList(shell: Signal<Shell>, handle: Handle) -> Element {
                     title: name.clone(),
                     accessory: Accessory::Text(copy::status::accounts_shown(space.payload.accounts.len())),
                     size: RowSize::Settings,
-                    onclick: move |press: Press| {
-                        if press.button != PointerButton::Secondary {
-                            push(shell, id);
-                        } else if several {
-                            menu.set(Some((id, Rect { origin: press.at, size: Size::default() })));
-                        }
-                    },
+                    onclick: move |_| push(shell, id),
                     common: Common {
                         id: Some(row_id(id)),
                         aria_label: Some(copy::aria::details_for(&name)),
@@ -146,7 +138,7 @@ fn SpaceList(shell: Signal<Shell>, handle: Handle) -> Element {
             },
         ));
     }
-    items.push(ListItem::row(
+    let new = vec![ListItem::row(
         NEW.to_owned(),
         copy::controls::NEW_SPACE.to_owned(),
         rsx! {
@@ -164,15 +156,21 @@ fn SpaceList(shell: Signal<Shell>, handle: Handle) -> Element {
                 },
             }
         },
-    ));
+    )];
+    let ids: Vec<SpaceId> = spaces.list().iter().map(|space| space.id).collect();
     rsx! {
         Form {
             FormSection {
-                List::<String> { label: copy::titles::SPACES, items, style: ListStyle::Grouped }
+                List::<String> {
+                    label: copy::titles::SPACES,
+                    items,
+                    style: ListStyle::Grouped,
+                    onreorder: several.then(|| EventHandler::new(move |keys: Vec<String>| reorder(handle, &ids, &keys))),
+                }
             }
-        }
-        if let Some((space, at)) = menu() {
-            SpaceMenu { handle, space, at, open: menu }
+            FormSection {
+                List::<String> { label: copy::aria::ADD_A_SPACE, items: new, style: ListStyle::Grouped }
+            }
         }
     }
 }
@@ -336,6 +334,22 @@ fn account_row(
             }
         },
     )
+}
+
+/// Put the Spaces in the order `keys` (their rows' ids) were dropped in, and write it. `ids` are
+/// the Spaces the list was drawn with; a key that names none of them is passed over.
+fn reorder(handle: Handle, ids: &[SpaceId], keys: &[String]) {
+    let order = keys
+        .iter()
+        .filter_map(|key| ids.iter().copied().find(|id| row_id(*id) == *key));
+    let mut spaces = handle.spaces();
+    {
+        let mut spaces = spaces.write();
+        for (index, id) in order.enumerate() {
+            spaces.move_to(id, index);
+        }
+    }
+    handle.commit();
 }
 
 /// Push `space`'s page over the list.

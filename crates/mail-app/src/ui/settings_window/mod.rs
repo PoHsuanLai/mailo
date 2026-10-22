@@ -36,7 +36,6 @@ mod keys;
 mod offline;
 mod root;
 mod rows;
-mod space_order;
 mod spaces;
 
 pub(in crate::ui) use account::Seams as AccountSeams;
