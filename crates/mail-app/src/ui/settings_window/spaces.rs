@@ -1,6 +1,6 @@
 //! Spaces: a pane of two levels, as Accounts is. Its root lists each Space by its colour and its
 //! name, with how many accounts it shows, a chevron row that pushes the Space's own page; then
-//! New Space. A Space's page is what the Space's menu holds (Appearance, Accounts ▸), and where its
+//! New Space. A row's right click moves its Space up or down the order (`space_order`). A Space's page is what the Space's menu holds (Appearance, Accounts ▸), and where its
 //! Edit Space… opens: its name, its colour (quire's presets, and Custom, whose popover holds the
 //! colour field), its theme, the accounts it shows, and, last and alone, Delete Space…, which asks
 //! first and is there only while another Space is.
@@ -13,11 +13,13 @@
 //! or when the page is left. A colour is shown as it is dragged and written when Custom's popover
 //! closes, or at once for a preset.
 
+use super::space_order::{Open, SpaceMenu};
 use crate::ui::copy;
 use crate::ui::space::{Handle, Mail, SpaceId, held_elsewhere};
 use crate::ui::space_menu::{accounts, every_id, toggled};
 use crate::ui::view::{Shell, SpacesPage};
 use dioxus::prelude::*;
+use ds::base::press::{PointerButton, Press};
 use ds::base::vocab::RowState;
 use ds::components::app::space_editor::swatches::PresetSwatches;
 use ds::components::controls::button_model::ButtonRole;
@@ -103,8 +105,11 @@ pub(super) fn Spaces(shell: Signal<Shell>, handle: Handle) -> Element {
 #[component]
 fn SpaceList(shell: Signal<Shell>, handle: Handle) -> Element {
     let scheme = use_scope().scheme;
+    let mut menu: Open = use_signal(|| None);
     let held = handle.spaces();
     let spaces = held.read();
+    // A right click moves a Space in the order; one alone has nowhere to go.
+    let several = spaces.count() > 1;
     let mut items: Vec<ListItem<String>> = Vec::new();
     for space in spaces.list() {
         let id = space.id;
@@ -125,7 +130,13 @@ fn SpaceList(shell: Signal<Shell>, handle: Handle) -> Element {
                     title: name.clone(),
                     accessory: Accessory::Text(copy::status::accounts_shown(space.payload.accounts.len())),
                     size: RowSize::Settings,
-                    onclick: move |_| push(shell, id),
+                    onclick: move |press: Press| {
+                        if press.button != PointerButton::Secondary {
+                            push(shell, id);
+                        } else if several {
+                            menu.set(Some((id, Rect { origin: press.at, size: Size::default() })));
+                        }
+                    },
                     common: Common {
                         id: Some(row_id(id)),
                         aria_label: Some(copy::aria::details_for(&name)),
@@ -159,6 +170,9 @@ fn SpaceList(shell: Signal<Shell>, handle: Handle) -> Element {
             FormSection {
                 List::<String> { label: copy::titles::SPACES, items, style: ListStyle::Grouped }
             }
+        }
+        if let Some((space, at)) = menu() {
+            SpaceMenu { handle, space, at, open: menu }
         }
     }
 }

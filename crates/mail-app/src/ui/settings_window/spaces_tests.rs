@@ -1,9 +1,12 @@
 //! Settings › Spaces over the reference fixture: the list of Spaces, a Space's page pushed from
-//! its row, and each of the page's edits written to the Spaces file the other windows read.
+//! its row, each of the page's edits written to the Spaces file the other windows read, and a
+//! Space moved in the order from its row's right click.
 
 use super::super::tests::opened_on;
 use crate::ui::copy;
-use crate::ui::fixtures::{Work, click, drain_seen, work};
+use crate::ui::fixtures::{
+    Seen, Work, click, drain_seen, menu_names, pick_named, right_click, settle_quiet_seen, work,
+};
 use crate::ui::space::{Spaces, stored};
 use crate::ui::view::SettingsPage;
 use dioxus::dioxus_core::VirtualDom;
@@ -138,5 +141,94 @@ fn the_window_opens_on_the_space_s_page_it_is_asked_for() {
     assert!(
         page.contains("value=\"Work\""),
         "not on the Space's page: {page}"
+    );
+}
+
+/// Three Spaces, Home, Work and Travel in that order, written where the window reads them.
+fn three(built: &Work) {
+    let spaces = crate::ui::space::built(
+        ["Home", "Work", "Travel"]
+            .into_iter()
+            .map(|name| {
+                (
+                    name.to_owned(),
+                    ds::prelude::SpaceLook::default(),
+                    crate::ui::space::Mail::default(),
+                )
+            })
+            .collect(),
+        0,
+    );
+    crate::ui::space::save(Some(&built.dirs), &spaces).expect("the Spaces were written");
+}
+
+fn names(built: &Work) -> Vec<String> {
+    on_disk(built)
+        .list()
+        .iter()
+        .map(|one| one.name.clone())
+        .collect()
+}
+
+/// Right-click the row of the Space named `name`, and wait for its menu.
+async fn menu_of(dom: &mut VirtualDom, seen: &Seen, built: &Work, name: &str) -> Seen {
+    let id = on_disk(built)
+        .list()
+        .iter()
+        .find(|one| one.name == name)
+        .expect("the Space")
+        .id;
+    let row = seen.one("id", &format!("spaces-pane-open-{}", id.0));
+    let opened = right_click(dom, row);
+    let mut more = settle_quiet_seen(dom).await;
+    more = more.merge(opened);
+    more
+}
+
+#[tokio::test]
+async fn a_space_moves_up_and_down_the_order_from_its_row_s_right_click() {
+    let built = work();
+    three(&built);
+    let (mut dom, seen) = opened_on(&built, SettingsPage::Spaces);
+
+    let opened = menu_of(&mut dom, &seen, &built, "Home").await;
+    assert_eq!(
+        menu_names(&dioxus_ssr::render(&dom)),
+        [copy::menus::MOVE_DOWN],
+        "the first Space cannot move up"
+    );
+    pick_named(&mut dom, &opened, copy::menus::MOVE_DOWN).await;
+    assert_eq!(names(&built), ["Work", "Home", "Travel"]);
+    let page = dioxus_ssr::render(&dom);
+    assert!(
+        page.find(">Work<") < page.find(">Home<"),
+        "the list is not in the new order: {page}"
+    );
+
+    let seen = settle_quiet_seen(&mut dom).await.merge(seen);
+    let opened = menu_of(&mut dom, &seen, &built, "Travel").await;
+    assert_eq!(
+        menu_names(&dioxus_ssr::render(&dom)),
+        [copy::menus::MOVE_UP],
+        "the last Space cannot move down"
+    );
+    pick_named(&mut dom, &opened, copy::menus::MOVE_UP).await;
+    assert_eq!(names(&built), ["Work", "Travel", "Home"]);
+    assert_eq!(
+        on_disk(&built).current().name,
+        "Home",
+        "the Space on screen changed"
+    );
+}
+
+#[tokio::test]
+async fn a_lone_space_s_right_click_opens_nothing() {
+    let built = work();
+    let (mut dom, seen) = opened_on(&built, SettingsPage::Spaces);
+    let name = names(&built).remove(0);
+    menu_of(&mut dom, &seen, &built, &name).await;
+    assert!(
+        menu_names(&dioxus_ssr::render(&dom)).is_empty(),
+        "a menu with nowhere to move"
     );
 }
