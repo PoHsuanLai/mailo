@@ -123,7 +123,7 @@ pub(in crate::ui) fn SenderName(shown: String, in_mail: String, address: String)
                 asked.set(Asked::Menu(crate::ui::row::point_rect(event.client_coordinates())));
             },
             onmounted: move |event: MountedEvent| at.set(Some(MountedRef(event.data()))),
-            Label { text: shown, style: LabelStyle::Headline, common: crate::ui::common::classed("ds-truncate") }
+            Label { text: shown, style: LabelStyle::Headline, common: crate::ui::common::classed("truncate") }
         }
         match asked() {
             Asked::Resting => rsx! {},

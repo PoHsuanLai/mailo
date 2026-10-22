@@ -9,10 +9,14 @@ use ds::root::pass_through::ExtraClass;
 use ds::style::icon::family::PlateFamily;
 
 /// A component's own layout class: quire writes it after its own, never in place of one, so a
-/// mailo rule can size or place the element without naming a `ds-` class.
+/// mailo rule can size or place the element without naming a `ds-` class. quire refuses a `ds-`
+/// class here (its prefix is reserved), and a refused class is dropped; a debug build says so,
+/// since every class passed is a literal and a dropped one silently undoes its rule.
 pub(in crate::ui) fn classed(class: &str) -> Common {
+    let extra_class = ExtraClass::parse(class);
+    debug_assert!(extra_class.is_ok(), "quire refuses the class {class:?}");
     Common {
-        extra_class: ExtraClass::parse(class).ok(),
+        extra_class: extra_class.ok(),
         ..Common::default()
     }
 }

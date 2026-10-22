@@ -140,3 +140,78 @@ fn a_saved_attachment_is_listed_opened_shown_and_cleared() {
         "the stored list kept the file: {stored}"
     );
 }
+
+const LONG_SUBJECT: &str = "The board's papers";
+/// A long name with spaces, which would wrap, and one with none, which would run out of its tile.
+const LONG_NAMES: [&str; 3] = [
+    "Quarterly report for the board meeting, final revised version three.pdf",
+    "Quarterly_report_for_the_board_meeting_final_revised_version_three.pdf",
+    "a.txt",
+];
+
+fn with_long_names(store: &mail_core::SqliteStore) {
+    let parts: String = LONG_NAMES
+        .iter()
+        .map(|name| {
+            format!(
+                "--mix\r\nContent-Type: text/plain; charset=UTF-8; name=\"{name}\"\r\n\
+                 Content-Disposition: attachment; filename=\"{name}\"\r\n\r\nThe papers.\r\n"
+            )
+        })
+        .collect();
+    let raw = format!(
+        "From: Grace Hopper <grace@example.test>\r\nTo: Me <me@example.test>\r\n\
+         Subject: {LONG_SUBJECT}\r\nDate: {}\r\nMessage-ID: <papers1@example.test>\r\n\
+         MIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=\"mix\"\r\n\r\n\
+         --mix\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\nThe papers are attached.\r\n\
+         {parts}--mix--\r\n",
+        hours_ago(0)
+    );
+    deliver(store, "papers1", &raw);
+}
+
+/// A long name keeps to its tile's one line, cut short before its extension: it does not wrap to
+/// make the strip taller, which takes the room from the body above, nor run out of the border.
+#[test]
+fn a_long_name_is_cut_short_inside_its_tile() {
+    let mut window = Window::open(with_long_names);
+    window.open_subject(LONG_SUBJECT);
+    window.until("the reader shows the three tiles", |h| {
+        h.count(".reader .att-tile") == 3
+    });
+    let tile = |n: usize| format!(".reader .att-strip > .att-tile:nth-child({n})");
+    let rect = |selector: &str| window.harness.rect(selector).expect(selector);
+    // The strip draws its tiles one height, so a name is held to the one line a short one takes.
+    let line = rect(&format!("{} .att-name", tile(3))).size.height.0;
+    for n in 1..=2 {
+        let long = rect(&tile(n));
+        let name = rect(&format!("{} .att-name", tile(n)));
+        assert!(
+            name.size.height.0 <= line + 0.5,
+            "tile {n}'s name takes more than one line: {name:?}, a line is {line}"
+        );
+        for part in [
+            ".att-name",
+            ".att-name > :first-child",
+            ".att-name > :last-child",
+        ] {
+            let inside = rect(&format!("{} {part}", tile(n)));
+            assert!(
+                inside.origin.x.0 >= long.origin.x.0 - 0.5
+                    && inside.origin.x.0 + inside.size.width.0
+                        <= long.origin.x.0 + long.size.width.0 + 0.5,
+                "tile {n}'s {part} runs out of the tile: {inside:?} {long:?}"
+            );
+        }
+        assert_eq!(
+            window.text(&format!("{} .att-name > :last-child", tile(n))),
+            ".pdf",
+            "tile {n} lost its extension"
+        );
+        // The whole name is still there to read out, and on its Save button.
+        assert_eq!(
+            window.text(&format!("{} .att-name", tile(n))),
+            LONG_NAMES[n - 1]
+        );
+    }
+}

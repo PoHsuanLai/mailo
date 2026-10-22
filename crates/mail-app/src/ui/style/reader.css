@@ -90,7 +90,12 @@ article.frame:last-of-type .html { height: auto; min-height: 320px; flex: 1 0 32
   flex: none; width: 120px; display: flex; flex-direction: column; align-items: center; gap: var(--s-4);
   padding: var(--s-8);
 }
-.att-text { display: grid; width: 100%; min-width: 0; text-align: center; }
+/* The name and the size, one line each in the tile's width (a track of exactly that width, so a long
+   name cannot widen the tile or wrap to make it taller): the name's stem is cut short, its extension
+   kept (`attachments.rs`). */
+.att-text { display: grid; grid-template-columns: minmax(0, 1fr); width: 100%; min-width: 0; text-align: center; }
+.att-name { display: flex; justify-content: center; min-width: 0; }
+.att-name > :last-child:not(:first-child) { flex: none; white-space: nowrap; }
 .att-mark, .att-away { width: 56px; height: 56px; flex: none; display: grid; place-items: center; color: var(--ink-soft); }
 .att-thumb {
   width: 56px; height: 56px; flex: none; display: grid; place-items: center; overflow: hidden;

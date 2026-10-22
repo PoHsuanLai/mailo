@@ -5,6 +5,10 @@
 /* Line heights, named once: message text 1.65, a title 1.15 (the subject, tight over the lines
    under it), a heading written in a message 1.25. quire has no line-height token. */
 .app, .add-account-window { --lh-read: 1.65; --lh-title: 1.15; --lh-head: 1.25; }
+/* One line, cut short with an ellipsis where it no longer fits (Blitz draws `text-overflow`), and
+   whole where it does: no fade over text that fits. mailo's own, since a `ds-` class is quire's to
+   put on its elements (`common::classed`). */
+.truncate { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 /* Positioned: the edge strip, the peeking sidebar and the send pill are placed against the window. */
 .app {
   position: relative;

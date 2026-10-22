@@ -1,7 +1,9 @@
 //! What a message has attached, and saving it.
 //!
 //! The parts are a strip of tiles under the body: a thumbnail (`thumb.rs`) that opens Peek, or a
-//! paperclip for a part not yet here, over the name and the size, with Save or Download.
+//! paperclip for a part not yet here, over the name and the size, with Save or Download. The tile
+//! keeps its width and its one line of name however long the name is: the name is cut short
+//! before its extension, which stays.
 //!
 //! Save writes a part that is already here; Download fetches one still on the server and then
 //! writes it. The name is the one the file will be written under. There is no file chooser: it
@@ -72,6 +74,7 @@ pub(super) fn Attachments(
             Kept::OnServer => copy::controls::DOWNLOAD,
         };
         let name = row.name.clone();
+        let (stem, extension) = split_name(&name);
         let kept = row.kept;
         let saved_name = name.clone();
         let again_name = name.clone();
@@ -100,8 +103,13 @@ pub(super) fn Attachments(
                             super::peek::open(shell, message, index);
                         }
                     },
-                    Label { text: name.clone(), style: LabelStyle::Footnote, common: classed("ds-truncate") }
-                    Label { text: row.size.clone(), role: LabelRole::Tertiary, style: LabelStyle::Footnote, common: classed("ds-truncate") }
+                    div { class: "att-name",
+                        Label { text: stem.to_owned(), style: LabelStyle::Footnote, common: classed("truncate") }
+                        if !extension.is_empty() {
+                            Label { text: extension.to_owned(), style: LabelStyle::Footnote }
+                        }
+                    }
+                    Label { text: row.size.clone(), role: LabelRole::Tertiary, style: LabelStyle::Footnote, common: classed("truncate") }
                 }
                 Button {
                     bezel: Bezel::Inline,
@@ -156,6 +164,16 @@ pub(super) fn Attachments(
             div { class: "att-strip", role: "list", aria_label: "Attachments", {tiles.into_iter()} }
             {failures.into_iter()}
         }
+    }
+}
+
+/// A name as its tile shows it: what is cut short when it does not fit, and the extension, kept
+/// whole so a long name still says what kind of file it is (`report-…final.pdf`). A name with no
+/// extension, or a dot file, is all stem.
+fn split_name(name: &str) -> (&str, &str) {
+    match name.rfind('.') {
+        Some(dot) if dot > 0 && (2..=6).contains(&(name.len() - dot)) => name.split_at(dot),
+        _ => (name, ""),
     }
 }
 
@@ -245,4 +263,27 @@ fn start(
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::split_name;
+
+    #[test]
+    fn a_name_keeps_its_extension_apart() {
+        assert_eq!(split_name("minutes.pdf"), ("minutes", ".pdf"));
+        assert_eq!(split_name("photos.tar.gz"), ("photos.tar", ".gz"));
+        assert_eq!(split_name("Report v2.docx"), ("Report v2", ".docx"));
+    }
+
+    #[test]
+    fn a_name_with_no_extension_is_all_stem() {
+        assert_eq!(split_name("README"), ("README", ""));
+        assert_eq!(split_name(".profile"), (".profile", ""));
+        assert_eq!(split_name("ends with a dot."), ("ends with a dot.", ""));
+        assert_eq!(
+            split_name("v1.0 notes for the meeting"),
+            ("v1.0 notes for the meeting", "")
+        );
+    }
 }
