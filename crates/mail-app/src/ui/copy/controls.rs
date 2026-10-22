@@ -74,3 +74,7 @@ pub const ADD_CONDITION: &str = "Add Condition";
 pub const EDIT_AS_TEXT: &str = "Edit as Text";
 /// A rule's condition, from text back to rows.
 pub const EDIT_AS_CONDITIONS: &str = "Edit as Conditions";
+/// Makes mailo the application that opens email links (the launch question, Settings › General).
+pub const MAKE_DEFAULT: &str = "Make Default";
+/// Declines the launch question for good; Settings › General still offers it.
+pub const NOT_NOW: &str = "Not Now";

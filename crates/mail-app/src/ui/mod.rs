@@ -30,6 +30,7 @@ mod compose;
 mod contacts;
 mod data;
 mod debounce;
+pub mod default_mail;
 mod destroy;
 mod downloads;
 mod fetching;

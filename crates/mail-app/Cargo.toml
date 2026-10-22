@@ -182,8 +182,11 @@ rpassword = "7"
 # The application delegate (open-URL, Dock reopen): the one crate allowed `unsafe`.
 mail-appkit.workspace = true
 objc2 = "0.6"
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString"] }
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSResponder", "NSDockTile"] }
+# `NSWorkspace`'s mailto: handler and the request to change it (`mail_handler`), which hears its
+# answer in a block.
+block2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSBundle", "NSURL", "NSError", "NSFileManager"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSResponder", "NSDockTile", "NSWorkspace", "block2"] }
 
 # On macOS and Windows, the system's own dialog, which rfd uses with no feature at all.
 [target.'cfg(any(target_os = "macos", windows))'.dependencies]

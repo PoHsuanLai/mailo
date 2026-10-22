@@ -139,7 +139,7 @@ fn every_schema_key_is_on_general_or_left_to_detent_on_purpose() {
         .flat_map(|section| section.lines.iter())
         .filter_map(|line| match line {
             super::general::Line::Key(path) => Some(*path),
-            super::general::Line::TrustedSenders => None,
+            super::general::Line::TrustedSenders | super::general::Line::DefaultMail => None,
         })
         .collect();
     let left = ["window.provider_marks", "reading.trusted_image_senders"];

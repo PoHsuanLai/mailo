@@ -29,6 +29,8 @@ pub(super) enum Line {
     Key(&'static str),
     /// The row that opens the trusted senders' page.
     TrustedSenders,
+    /// Which application opens email links, with Make Default (`crate::ui::default_mail`).
+    DefaultMail,
 }
 
 /// A group of General: its header, and its rows in the order drawn.
@@ -50,6 +52,7 @@ pub(super) const SECTIONS: [Section; 2] = [
     Section {
         title: copy::headers::MAIL,
         lines: &[
+            Line::DefaultMail,
             Line::Key("notifications.new_mail"),
             Line::Key("reading.read_receipts"),
             Line::Key("compose.spelling"),
@@ -145,6 +148,7 @@ fn Groups(on_trusted: EventHandler<()>) -> Element {
                                 },
                                 None => rsx! {},
                             },
+                            Line::DefaultMail => rsx! { crate::ui::default_mail::DefaultMailRow {} },
                             Line::TrustedSenders => rsx! {
                                 List::<String> {
                                     label: copy::titles::TRUSTED_SENDERS,

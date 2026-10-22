@@ -41,3 +41,10 @@ pub fn settings_unreadable(files: &[(String, String)]) -> String {
         said.join(" ")
     )
 }
+
+/// Asked once at launch while another application opens email links; Settings › General's row
+/// asks the same later.
+pub const MAKE_DEFAULT_MAIL: &str = "Make mailo Your Default Mail App?";
+/// Under [`MAKE_DEFAULT_MAIL`]: what changes, and where to change it back.
+pub const MAKE_DEFAULT_MAIL_BODY: &str =
+    "Email links will open a new message in mailo. You can change this in Settings.";

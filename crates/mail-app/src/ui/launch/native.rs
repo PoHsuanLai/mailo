@@ -109,6 +109,12 @@ pub(super) fn run(opening: Opening) -> Result<(), ds_blitz::LaunchError> {
         Some(launcher) if !mail_core::ipc::watching::running() => config.with_context(launcher),
         _ => config,
     };
+    // Which application opens email links, and the system's question to make it mailo. Only an
+    // installed mailo.app has one; a test's window has none, so no test changes the real handler.
+    let config = match crate::mail_handler::platform() {
+        Some(handlers) => config.with_context(handlers),
+        None => config,
+    };
     // Another program's ask to open a conversation here (a banner's click, `mailo open`).
     let config = match crate::handoff::serve() {
         Some(requests) => config.with_context(requests),
