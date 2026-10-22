@@ -5098,6 +5098,7 @@ dependencies = [
  "anyview-peek",
  "base64 0.22.1",
  "blitz-dom",
+ "block2 0.6.2",
  "chordkit",
  "chrono",
  "cms",

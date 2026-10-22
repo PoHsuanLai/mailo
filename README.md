@@ -179,7 +179,9 @@ download them from the run's artifacts): a `.deb` and an `.rpm`, `mailo-<version
 `mailo.app`, and `mailo-x86_64.msi`. **The macOS and Windows packages are unsigned.** macOS says the
 developer cannot be verified: open it once from Finder with Control-click, Open. Windows SmartScreen
 warns about an unrecognised app: More info, Run anyway. Both register mailo for `mailto:` links, to
-be chosen as the mail handler in Mail's settings or in Windows' Default apps. To build them
+be chosen as the mail handler in Mail's settings or in Windows' Default apps. On macOS mailo also
+asks once, at a launch with an account, whether to become the default mail app, and Settings ›
+General says which app it is and offers Make Default; the system confirms either way. To build them
 yourself: `packaging/macos/bundle.sh`, or `cargo wix` with `packaging/windows/main.wxs` as the CI
 job does.
 

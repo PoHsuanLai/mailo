@@ -91,3 +91,9 @@ pub fn apply_to_existing(count: Option<usize>) -> String {
 /// A rule's condition written as text: the field's name and its example.
 pub const CONDITION: &str = "Condition";
 pub const CONDITION_EXAMPLE: &str = "from:bank.example subject:statement";
+/// Settings › General: which application opens email links.
+pub const DEFAULT_MAIL_APP: &str = "Default mail app";
+/// The application that opens email links, when it is mailo.
+pub const THIS_APP: &str = "mailo";
+/// The application that opens email links, when there is none.
+pub const NO_MAIL_APP: &str = "None";

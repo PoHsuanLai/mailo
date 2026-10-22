@@ -12,6 +12,7 @@ pub mod edge;
 pub mod handoff;
 pub mod intents;
 pub mod launcher;
+pub mod mail_handler;
 pub mod said;
 pub mod session;
 pub mod settings;

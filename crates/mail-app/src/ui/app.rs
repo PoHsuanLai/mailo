@@ -751,6 +751,8 @@ pub(super) fn App() -> Element {
                 super::no_account::NoAccountAlert { shell }
             }
             super::reauth::ReauthPrompt {}
+            // Once, at a launch with an account: make mailo the application email links open.
+            super::default_mail::DefaultMailQuestion { shell }
         }
         }
     }
