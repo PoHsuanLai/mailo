@@ -18,6 +18,7 @@
 
 use ds::components::content::label::{LabelRole, LabelStyle};
 use ds::components::controls::button_model::Bezel;
+use ds::host::measure::{RectProbe, use_rect};
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::icon::render::Glyph;
@@ -74,7 +75,6 @@ pub(super) fn Attachments(
             Kept::OnServer => copy::controls::DOWNLOAD,
         };
         let name = row.name.clone();
-        let (stem, extension) = split_name(&name);
         let kept = row.kept;
         let saved_name = name.clone();
         let again_name = name.clone();
@@ -103,12 +103,7 @@ pub(super) fn Attachments(
                             super::peek::open(shell, message, index);
                         }
                     },
-                    div { class: "att-name",
-                        Label { text: stem.to_owned(), style: LabelStyle::Footnote, common: classed("truncate") }
-                        if !extension.is_empty() {
-                            Label { text: extension.to_owned(), style: LabelStyle::Footnote }
-                        }
-                    }
+                    Name { name: name.clone() }
                     Label { text: row.size.clone(), role: LabelRole::Tertiary, style: LabelStyle::Footnote, common: classed("truncate") }
                 }
                 Button {
@@ -163,6 +158,52 @@ pub(super) fn Attachments(
         div { class: "attachments",
             div { class: "att-strip", role: "list", aria_label: "Attachments", {tiles.into_iter()} }
             {failures.into_iter()}
+        }
+    }
+}
+
+/// A tile's name: the stem, cut short where it does not fit, then the extension. The whole name is
+/// its tooltip while it is cut, and only then: a name drawn whole says all a tip would. It is cut
+/// when the stem and the extension take the row's whole width, which a name that fits leaves room
+/// in (it is centred); each is measured as laid out.
+#[component]
+fn Name(name: String) -> Element {
+    let row = use_rect();
+    let stem_at = use_rect();
+    let extension_at = use_rect();
+    let width = |probe: RectProbe| probe.rect().map(|rect| rect.size.width.0);
+    let cut = match (width(row), width(stem_at)) {
+        (Some(row), Some(stem)) => stem + width(extension_at).unwrap_or(0.0) >= row - 0.5,
+        _ => false,
+    };
+    let (stem, extension) = split_name(&name);
+    let stem = rsx! {
+        Label {
+            text: stem.to_owned(),
+            style: LabelStyle::Footnote,
+            common: Common {
+                mounted: Some(EventHandler::new(move |event| stem_at.on_mounted(event))),
+                ..classed("truncate")
+            },
+        }
+    };
+    rsx! {
+        div { class: "att-name", onmounted: move |event| row.on_mounted(event),
+            if cut {
+                Tooltip { text: name.clone(), {stem} }
+            } else {
+                {stem}
+            }
+            if !extension.is_empty() {
+                Label {
+                    text: extension.to_owned(),
+                    style: LabelStyle::Footnote,
+                    common: Common {
+                        mounted: Some(EventHandler::new(move |event| extension_at.on_mounted(event))),
+                        ..Common::default()
+                    },
+                }
+            }
         }
     }
 }

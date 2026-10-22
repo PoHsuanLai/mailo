@@ -2,7 +2,9 @@
 //! button and opens from there; its right click shows it in its folder, leads back to its
 //! message, and clears the list while the file stays.
 
-use super::window::{Window, deliver, hours_ago};
+use ds::prelude::{Point, Px};
+
+use super::window::{Window, deliver, hours_ago, ms};
 
 const SUBJECT: &str = "Notes from Thursday";
 const NAME: &str = "notes.txt";
@@ -212,6 +214,38 @@ fn a_long_name_is_cut_short_inside_its_tile() {
         assert_eq!(
             window.text(&format!("{} .att-name", tile(n))),
             LONG_NAMES[n - 1]
+        );
+    }
+
+    // A name cut short shows itself whole as its tooltip; one drawn whole has none.
+    for (n, tip) in [
+        (1, Some(LONG_NAMES[0])),
+        (2, Some(LONG_NAMES[1])),
+        (3, None),
+    ] {
+        {
+            use super::drive::Drive as _;
+            window.harness.pointer_move(Point {
+                x: Px(5.0),
+                y: Px(790.0),
+            });
+        }
+        window.harness.advance(ms(2500));
+        assert_eq!(
+            window.harness.count(".ds-tooltip"),
+            0,
+            "a tip stands with the pointer away"
+        );
+        let at = window.centre(&format!("{} .att-name > :first-child", tile(n)));
+        {
+            use super::drive::Drive as _;
+            window.harness.pointer_move(at);
+        }
+        window.harness.advance(ms(1300));
+        assert_eq!(
+            window.harness.text_of(".ds-tooltip").as_deref(),
+            tip,
+            "tile {n}'s tooltip"
         );
     }
 }
