@@ -1,7 +1,9 @@
 //! What a message has attached, and saving it.
 //!
 //! The parts are a strip of tiles under the body: a thumbnail (`thumb.rs`) that opens Peek, or a
-//! paperclip for a part not yet here, over the name and the size, with Save or Download.
+//! paperclip for a part not yet here, over the name and the size, with Save or Download. The tile
+//! keeps its width and its one line of name however long the name is: the name is cut short
+//! before its extension, which stays.
 //!
 //! Save writes a part that is already here; Download fetches one still on the server and then
 //! writes it. The name is the one the file will be written under. There is no file chooser: it
@@ -16,6 +18,7 @@
 
 use ds::components::content::label::{LabelRole, LabelStyle};
 use ds::components::controls::button_model::Bezel;
+use ds::host::measure::{RectProbe, use_rect};
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::icon::render::Glyph;
@@ -100,8 +103,8 @@ pub(super) fn Attachments(
                             super::peek::open(shell, message, index);
                         }
                     },
-                    Label { text: name.clone(), style: LabelStyle::Footnote, common: classed("ds-truncate") }
-                    Label { text: row.size.clone(), role: LabelRole::Tertiary, style: LabelStyle::Footnote, common: classed("ds-truncate") }
+                    Name { name: name.clone() }
+                    Label { text: row.size.clone(), role: LabelRole::Tertiary, style: LabelStyle::Footnote, common: classed("truncate") }
                 }
                 Button {
                     bezel: Bezel::Inline,
@@ -156,6 +159,62 @@ pub(super) fn Attachments(
             div { class: "att-strip", role: "list", aria_label: "Attachments", {tiles.into_iter()} }
             {failures.into_iter()}
         }
+    }
+}
+
+/// A tile's name: the stem, cut short where it does not fit, then the extension. The whole name is
+/// its tooltip while it is cut, and only then: a name drawn whole says all a tip would. It is cut
+/// when the stem and the extension take the row's whole width, which a name that fits leaves room
+/// in (it is centred); each is measured as laid out.
+#[component]
+fn Name(name: String) -> Element {
+    let row = use_rect();
+    let stem_at = use_rect();
+    let extension_at = use_rect();
+    let width = |probe: RectProbe| probe.rect().map(|rect| rect.size.width.0);
+    let cut = match (width(row), width(stem_at)) {
+        (Some(row), Some(stem)) => stem + width(extension_at).unwrap_or(0.0) >= row - 0.5,
+        _ => false,
+    };
+    let (stem, extension) = split_name(&name);
+    let stem = rsx! {
+        Label {
+            text: stem.to_owned(),
+            style: LabelStyle::Footnote,
+            common: Common {
+                mounted: Some(EventHandler::new(move |event| stem_at.on_mounted(event))),
+                ..classed("truncate")
+            },
+        }
+    };
+    rsx! {
+        div { class: "att-name", onmounted: move |event| row.on_mounted(event),
+            if cut {
+                Tooltip { text: name.clone(), {stem} }
+            } else {
+                {stem}
+            }
+            if !extension.is_empty() {
+                Label {
+                    text: extension.to_owned(),
+                    style: LabelStyle::Footnote,
+                    common: Common {
+                        mounted: Some(EventHandler::new(move |event| extension_at.on_mounted(event))),
+                        ..Common::default()
+                    },
+                }
+            }
+        }
+    }
+}
+
+/// A name as its tile shows it: what is cut short when it does not fit, and the extension, kept
+/// whole so a long name still says what kind of file it is (`report-…final.pdf`). A name with no
+/// extension, or a dot file, is all stem.
+fn split_name(name: &str) -> (&str, &str) {
+    match name.rfind('.') {
+        Some(dot) if dot > 0 && (2..=6).contains(&(name.len() - dot)) => name.split_at(dot),
+        _ => (name, ""),
     }
 }
 
@@ -245,4 +304,27 @@ fn start(
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::split_name;
+
+    #[test]
+    fn a_name_keeps_its_extension_apart() {
+        assert_eq!(split_name("minutes.pdf"), ("minutes", ".pdf"));
+        assert_eq!(split_name("photos.tar.gz"), ("photos.tar", ".gz"));
+        assert_eq!(split_name("Report v2.docx"), ("Report v2", ".docx"));
+    }
+
+    #[test]
+    fn a_name_with_no_extension_is_all_stem() {
+        assert_eq!(split_name("README"), ("README", ""));
+        assert_eq!(split_name(".profile"), (".profile", ""));
+        assert_eq!(split_name("ends with a dot."), ("ends with a dot.", ""));
+        assert_eq!(
+            split_name("v1.0 notes for the meeting"),
+            ("v1.0 notes for the meeting", "")
+        );
+    }
 }

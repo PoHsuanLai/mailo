@@ -396,7 +396,7 @@ pub(super) fn ThreadList(
                             PickBar { shell, revision, threads }
                         } else {
                             div { class: "list-title",
-                                Label { text: place.clone(), style: LabelStyle::Title, common: classed("ds-truncate") }
+                                Label { text: place.clone(), style: LabelStyle::Title, common: classed("truncate") }
                             }
                             if let Some(said) = search_note {
                                 Label {

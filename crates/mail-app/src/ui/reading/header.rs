@@ -98,7 +98,7 @@ pub(super) fn MessageHead(
             header { class: "msg-head", "data-detail": "compact",
                 Avatar { initial: face.initial, size: AvatarSize::Size22, tone: face.tone }
                 div { class: "msg-line",
-                    Label { text: name, style: LabelStyle::Headline, common: crate::ui::common::classed("ds-truncate") }
+                    Label { text: name, style: LabelStyle::Headline, common: crate::ui::common::classed("truncate") }
                     {date}
                 }
             }
@@ -227,10 +227,10 @@ fn full_head(
                     {date}
                 }
                 if let Some(to) = to {
-                    Label { text: to, role: LabelRole::Secondary, style: LabelStyle::Footnote, common: crate::ui::common::classed("ds-truncate") }
+                    Label { text: to, role: LabelRole::Secondary, style: LabelStyle::Footnote, common: crate::ui::common::classed("truncate") }
                 }
                 if let Some(cc) = cc {
-                    Label { text: cc, role: LabelRole::Secondary, style: LabelStyle::Footnote, common: crate::ui::common::classed("ds-truncate") }
+                    Label { text: cc, role: LabelRole::Secondary, style: LabelStyle::Footnote, common: crate::ui::common::classed("truncate") }
                 }
             }
         }
