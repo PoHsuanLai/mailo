@@ -3,7 +3,7 @@
 
 use super::direct::{
     AddPick, DirectSignIns, Entry, SignInDirectly, Signing, add_menu, entry, entry_for_plan,
-    offered_redirects, picked, redirects, told, waiting_words,
+    offered_redirects, picked, redirects, told,
 };
 use super::provider::offered_specs;
 use super::{AddAccountWindows, Ask, OpenAddAccount};
@@ -132,64 +132,53 @@ fn the_toast_says_how_it_ended_in_plain_words() {
     let again = Mode::Again {
         address: "you@example.test".to_owned(),
     };
-    type Case<'a> = (&'a str, Mode, Result<String, SignInError>, &'a str, Follow);
+    type Case<'a> = (
+        &'a str,
+        Mode,
+        Result<String, SignInError>,
+        Option<(&'a str, Follow)>,
+    );
     let cases: Vec<Case> = vec![
         (
             "added",
             Mode::Add,
             Ok("you@example.test".to_owned()),
-            "Added you@example.test",
-            Follow::Nothing,
+            Some(("Added you@example.test", Follow::Nothing)),
         ),
         (
             "signed in again",
             again.clone(),
             Ok("you@example.test".to_owned()),
-            "Signed in to you@example.test",
-            Follow::Nothing,
+            Some(("Signed in to you@example.test", Follow::Nothing)),
         ),
         (
             "closed in the browser",
             Mode::Add,
             Err(SignInError::Declined),
-            "Sign-in cancelled",
-            Follow::Nothing,
+            Some(("Sign-in cancelled", Follow::Nothing)),
         ),
-        (
-            "cancelled here",
-            Mode::Add,
-            Err(SignInError::Cancelled),
-            "Sign-in cancelled",
-            Follow::Nothing,
-        ),
-        (
-            "too long",
-            Mode::Add,
-            Err(SignInError::TimedOut),
-            "The sign-in took too long. Try again when you're ready.",
-            Follow::SignIn(super::Retry::Direct {
-                issuer: google,
-                mode: Mode::Add,
-            }),
-        ),
+        // Replaced by another pick, or never heard back from: nothing was on screen waiting.
+        ("replaced", Mode::Add, Err(SignInError::Cancelled), None),
+        ("too long", Mode::Add, Err(SignInError::TimedOut), None),
         (
             "no client",
             again.clone(),
             Err(SignInError::NoClient(google)),
-            "Mail has no sign-in set up for Google.",
-            Follow::SignIn(super::Retry::Window(Ask {
-                address: Some("you@example.test".to_owned()),
-            })),
+            Some((
+                "Mail has no sign-in set up for Google.",
+                Follow::SignIn(super::Retry::Window(Ask {
+                    address: Some("you@example.test".to_owned()),
+                })),
+            )),
         ),
     ];
-    for (name, mode, outcome, text, follow) in cases {
+    for (name, mode, outcome, want) in cases {
         assert_eq!(
             told(google, &mode, &outcome),
-            (text.to_owned(), follow),
+            want.map(|(text, follow)| (text.to_owned(), follow)),
             "{name}"
         );
     }
-    assert_eq!(waiting_words(google), "Signing in with Google\u{2026}");
 }
 
 /// A direct sign-in of the test's: it has the clients it is given, records each sign-in asked
@@ -306,7 +295,7 @@ async fn google_from_the_space_menu_signs_in_in_the_browser_with_no_window() {
     pick_add(&dom, "Google");
     settle_quiet_seen(&mut dom).await;
 
-    // The page is asked for once, no window is, and the row says what it waits for.
+    // The page is asked for once and no window is; nothing is drawn while it waits.
     assert_eq!(*fake.asked.lock().unwrap(), [(Issuer::Google, Mode::Add)]);
     assert!(
         windows.0.lock().unwrap().is_empty(),
@@ -314,20 +303,25 @@ async fn google_from_the_space_menu_signs_in_in_the_browser_with_no_window() {
     );
     let page = dioxus_ssr::render(&dom);
     assert!(
-        page.contains("Signing in with Google"),
-        "no pending row: {page}"
+        !page.contains("Signing in with"),
+        "a row waits for the browser: {page}"
     );
-    assert!(page.contains("Cancel sign-in"), "no way to stop it: {page}");
 
-    // A second pick while it waits opens no second page.
+    // A second pick while it waits (the first page never came back) starts it afresh, and the
+    // one it replaced ends without a word.
     dom.in_scope(ScopeId::APP, || {
         super::direct::start(Issuer::Google, Mode::Add)
     });
     settle_quiet_seen(&mut dom).await;
     assert_eq!(
-        fake.asked.lock().unwrap().len(),
-        1,
-        "a second page was opened"
+        *fake.asked.lock().unwrap(),
+        [(Issuer::Google, Mode::Add), (Issuer::Google, Mode::Add)],
+        "the page was not opened again"
+    );
+    let page = dioxus_ssr::render(&dom);
+    assert!(
+        !page.contains("Sign-in cancelled"),
+        "the replaced sign-in said so: {page}"
     );
 
     // The browser comes back: the account is in the store and the toast says so.
@@ -343,10 +337,6 @@ async fn google_from_the_space_menu_signs_in_in_the_browser_with_no_window() {
         }
     }
     assert!(page.contains("Added you@example.test"), "no toast: {page}");
-    assert!(
-        !page.contains("Signing in with Google"),
-        "the row stayed: {page}"
-    );
     assert!(
         windows.0.lock().unwrap().is_empty(),
         "a window was asked for"

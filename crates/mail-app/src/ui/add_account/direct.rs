@@ -7,10 +7,14 @@
 //! then Other Account…, which opens the add-account window for every provider that needs a form.
 //!
 //! The sign-in itself is `mail_core::account::sign_in_with`. What is here is its one-at-a-time
-//! state ([`Phase`], shared by every window on the event loop's thread), the quiet row at the top
-//! of the sidebar while it waits ([`PendingSignIn`]), and what the main window says when it ends
-//! ([`DirectSignInWatch`]): a toast, the shared revision moved so every window draws the account,
-//! and the current Space taking it in, as the add-account window does.
+//! state ([`Phase`], shared by every window on the event loop's thread) and what the main window
+//! says when it ends ([`DirectSignInWatch`]): a toast, the shared revision moved so every window
+//! draws the account, and the current Space taking it in, as the add-account window does.
+//!
+//! Nothing is drawn while it waits. mailo cannot see the browser: a page that never comes back (a
+//! tab closed, an organisation's "Need admin approval") would leave a spinner up until [`WAIT`]
+//! runs out. So a pick while one waits starts it afresh, and a sign-in that was replaced or ran out
+//! of time ends without a word; one that worked, or was declined in the browser, says so.
 
 use std::cell::{Cell, RefCell};
 use std::future::Future;
@@ -19,15 +23,9 @@ use std::sync::Arc;
 
 use chrono::Utc;
 use dioxus::prelude::*;
-use ds::components::content::label::{Label, LabelStyle};
-use ds::components::controls::button_model::{Bezel, ImagePosition};
-use ds::components::controls::progress::model::{Progress, ProgressStyle};
-use ds::components::controls::progress::view::ProgressIndicator;
 use ds::host::measure::MountedRef;
-use ds::motion::detail::operation::{Operation, PendingToken};
 use ds::prelude::*;
-use ds::style::tokens::control_size::ControlSize;
-use mail_core::account::direct::{WAIT, name_of, signs_in_directly};
+use mail_core::account::direct::{WAIT, signs_in_directly};
 use mail_core::account::{Mode, SignInError};
 use mail_core::{OAuthClients, SqliteStore};
 use mail_domain::AuthPlan;
@@ -230,13 +228,11 @@ pub(in crate::ui) fn offered_redirects() -> Vec<(Issuer, String)> {
 pub(in crate::ui) enum Phase {
     #[default]
     Idle,
-    /// The browser is open, and the main window waits for it. `raised` counts the picks made
-    /// while it waits, each of which brings its row back to the person's eye.
+    /// The browser is open, and the main window waits for it.
     Waiting {
         run: u64,
         issuer: Issuer,
         mode: Mode,
-        raised: u32,
     },
     /// It ended: the address added, or why not.
     Ended {
@@ -264,20 +260,10 @@ fn phase_now() -> Phase {
 /// Sign in with `issuer` in the browser: `mode`'s account added, or signed in again. Call it from
 /// an event handler, in any window.
 ///
-/// One at a time: a pick while one waits brings its row back instead of opening a second page.
-/// With no client for the issuer, or nothing here to run a direct sign-in, the window opens
-/// instead, and says why.
+/// One at a time: a pick while one waits replaces it, quietly (its page may never come back), and
+/// opens the page again. With no client for the issuer, or nothing here to run a direct sign-in,
+/// the window opens instead, and says why.
 pub(in crate::ui) fn start(issuer: Issuer, mode: Mode) {
-    if matches!(phase_now(), Phase::Waiting { .. }) {
-        PHASE.with(|phase| {
-            phase.send_modify(|now| {
-                if let Phase::Waiting { raised, .. } = now {
-                    *raised += 1;
-                }
-            });
-        });
-        return;
-    }
     let ready = runner().is_some_and(|runner| runner.0.has_client(issuer))
         && WATCHED.with(|watched| *watched.borrow() > 0);
     if !ready {
@@ -288,20 +274,10 @@ pub(in crate::ui) fn start(issuer: Issuer, mode: Mode) {
         runs.set(runs.get() + 1);
         runs.get()
     });
+    // A sign-in still waiting stops once it is no longer the one waiting (`drive`).
     PHASE.with(|phase| {
-        let _ = phase.send_replace(Phase::Waiting {
-            run,
-            issuer,
-            mode,
-            raised: 0,
-        });
+        let _ = phase.send_replace(Phase::Waiting { run, issuer, mode });
     });
-}
-
-/// Stop the sign-in that waits. Its page stays open in the browser, and coming back to it finds
-/// nobody listening.
-pub(in crate::ui) fn cancel() {
-    end_with(None, Err(SignInError::Cancelled));
 }
 
 /// End the waiting sign-in (`run`'s, when named) with `outcome`. A sign-in that has already ended
@@ -370,13 +346,15 @@ pub(in crate::ui) fn retry(retry: Retry) {
     }
 }
 
-/// What the toast says when a sign-in ends, and what its button offers.
+/// What the toast says when a sign-in ends, and what its button offers; nothing for one that was
+/// replaced by another or ran out of time, which nothing on screen was waiting for.
 pub(in crate::ui) fn told(
     issuer: Issuer,
     mode: &Mode,
     outcome: &Result<String, SignInError>,
-) -> (String, Follow) {
-    match outcome {
+) -> Option<(String, Follow)> {
+    Some(match outcome {
+        Err(SignInError::Cancelled | SignInError::TimedOut) => return None,
         Ok(address) => {
             let text = match mode {
                 Mode::Add => format!("Added {address}"),
@@ -384,9 +362,7 @@ pub(in crate::ui) fn told(
             };
             (text, Follow::Nothing)
         }
-        Err(SignInError::Declined | SignInError::Cancelled) => {
-            ("Sign-in cancelled".to_owned(), Follow::Nothing)
-        }
+        Err(SignInError::Declined) => ("Sign-in cancelled".to_owned(), Follow::Nothing),
         // Nothing to try again here: the window explains what is missing and offers the rest.
         Err(why @ (SignInError::NoClient(_) | SignInError::NotMail(_))) => (
             why.to_string(),
@@ -399,7 +375,7 @@ pub(in crate::ui) fn told(
                 mode: mode.clone(),
             }),
         ),
-    }
+    })
 }
 
 /// The direct sign-in's phase, as a signal of this window's.
@@ -507,55 +483,8 @@ fn settle(
             revisions.bump();
         }
     }
-    let (text, follow) = told(issuer, mode, outcome);
-    crate::ui::motion::tell(text, follow);
-}
-
-/// The words of the row while `issuer`'s sign-in waits.
-pub(in crate::ui) fn waiting_words(issuer: Issuer) -> String {
-    format!("Signing in with {}\u{2026}", name_of(issuer))
-}
-
-/// The quiet row at the top of the sidebar while a direct sign-in waits: a spinner, what it waits
-/// for, and a button that stops it. Draws nothing otherwise.
-#[component]
-pub(in crate::ui) fn PendingSignIn() -> Element {
-    let phase = use_phase();
-    let Phase::Waiting { issuer, raised, .. } = phase() else {
-        return rsx! {};
-    };
-    let words = waiting_words(issuer);
-    rsx! {
-        // Keyed by the picks made while it waits: each one draws the row afresh, so it comes in
-        // again where the person is looking.
-        div { key: "{raised}", class: "direct-sign-in", role: "status",
-            Spinning {}
-            div { class: "direct-sign-in-words",
-                Label { text: words, style: LabelStyle::Footnote }
-            }
-            Button {
-                size: ControlSize::Small,
-                bezel: Bezel::Toolbar,
-                image: ImagePosition::Only,
-                icon: Icon::X,
-                label: "Cancel sign-in",
-                title: Some("Stop Waiting for the Browser".to_owned()),
-                onclick: crate::ui::press::on_primary(cancel),
-            }
-        }
-    }
-}
-
-/// quire's small spinner, for as long as it shows.
-#[component]
-fn Spinning() -> Element {
-    let token = use_hook(PendingToken::start);
-    rsx! {
-        ProgressIndicator {
-            style: ProgressStyle::Spinner,
-            progress: Progress::Unknown(Operation::Running(token)),
-            size: ControlSize::Small,
-        }
+    if let Some((text, follow)) = told(issuer, mode, outcome) {
+        crate::ui::motion::tell(text, follow);
     }
 }
 

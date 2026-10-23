@@ -147,8 +147,6 @@ pub(super) fn Places(
                 crate::ui::downloads::DownloadsButton { shell }
             }
             div { class: "slide", oncontextmenu: space_menu,
-                // A sign-in in the browser, while it waits: a quiet row at the top.
-                crate::ui::add_account::PendingSignIn {}
                 AccountTiles { shell, pages, handle, rows: tiled() }
                 Favourites { shell, pages, space: space.clone(), counted: counts_now }
                 PlaceList { shell, pages, badges, folded, scheduled: scheduled() }
