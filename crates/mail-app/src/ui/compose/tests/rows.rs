@@ -38,6 +38,7 @@ fn titles(items: &[Line<String>]) -> Vec<String> {
             Line::Separator => "—".to_owned(),
             Line::Header(title) => format!("# {title}"),
             Line::Info { title, .. } => format!("i {title}"),
+            Line::Swatches(row) => format!("o {}", row.title),
         })
         .collect()
 }

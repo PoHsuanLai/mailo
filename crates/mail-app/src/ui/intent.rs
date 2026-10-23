@@ -35,13 +35,13 @@ pub(in crate::ui) enum Intent {
     Settings,
     SelectAll,
     OpenInWindow,
-    /// A mail key, Esc, ⌘N (as [`Shortcut::Compose`]) or ⌘⌫ (as [`Shortcut::Trash`]).
+    /// A mail key, Esc, ⌘N (as [`Shortcut::Compose`]) or Move to Trash (as [`Shortcut::Trash`]).
     Mail(Shortcut),
 }
 
 /// What `heard` asks of a window of this `scope`, if anything.
 ///
-/// A field keeps ⌘A and Shift+Enter and ⌘⌫ for itself; a thread window has no sidebar, search,
+/// A field keeps ⌘A and Shift+Enter and Move to Trash for itself; a thread window has no sidebar, search,
 /// settings, list to step through or other conversation to start, so those are nothing there.
 pub(in crate::ui) fn intent(heard: Option<Heard>, scope: Scope) -> Option<Intent> {
     let chosen = match heard? {
@@ -53,9 +53,11 @@ pub(in crate::ui) fn intent(heard: Option<Heard>, scope: Scope) -> Option<Intent
         Heard::Standard(StandardAction::SelectAll) => Intent::SelectAll,
         Heard::Standard(StandardAction::New) => Intent::Mail(Shortcut::Compose),
         Heard::Own(Own::OpenInWindow) => Intent::OpenInWindow,
-        // ⌘⌫ trashes what the list has open, which a field keeps for itself and a thread window
-        // answers with its own `#`.
-        Heard::Own(Own::TrashOpen) if scope == Scope::List => Intent::Mail(Shortcut::Trash),
+        // Move to Trash (⌘⌫, or Delete in CUA) trashes what is open, as `#` does; a field keeps
+        // the press for itself.
+        Heard::Standard(StandardAction::MoveToTrash) if scope != Scope::Typing => {
+            Intent::Mail(Shortcut::Trash)
+        }
         _ => return None,
     };
     let allowed = match (scope, chosen) {
@@ -162,9 +164,17 @@ mod tests {
             (own(Own::OpenInWindow), List, Some(OpenInWindow)),
             (own(Own::OpenInWindow), Typing, None),
             (own(Own::OpenInWindow), Window, None),
-            (own(Own::TrashOpen), List, Some(Mail(Shortcut::Trash))),
-            (own(Own::TrashOpen), Typing, None),
-            (own(Own::TrashOpen), Window, None),
+            (
+                standard(StandardAction::MoveToTrash),
+                List,
+                Some(Mail(Shortcut::Trash)),
+            ),
+            (
+                standard(StandardAction::MoveToTrash),
+                Window,
+                Some(Mail(Shortcut::Trash)),
+            ),
+            (standard(StandardAction::MoveToTrash), Typing, None),
             (own(Own::Send), List, None),
             (standard(StandardAction::Undo), List, None),
         ];

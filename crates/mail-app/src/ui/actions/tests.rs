@@ -1,7 +1,8 @@
 use super::{
-    Heard, IDS, OWN, Own, app_action, app_id, declared, escape, groups, heard_in, hint_own,
-    hint_standard, overrides_of, tip_of,
+    Heard, IDS, OWN, Own, app_action, app_id, escape, groups, heard_in, hint_own, hint_standard,
+    overrides_of, register_on, shortcut_of, tip_of,
 };
+use crate::ui::intent::{Intent, Scope, intent};
 use crate::ui::keymap::{Keymap as User, bind, load, save};
 use crate::ui::view::Shortcut;
 use chordkit::{Action, Context, Desktop, Keymap as Chords, Overrides, Platform, StandardAction};
@@ -33,14 +34,17 @@ fn every_platform() -> [Platform; 6] {
 
 /// `platform`'s conventions with the keys the person chose laid over them and every action mailo
 /// declares registered, as a window has them: quire applies the overrides to what the source
-/// gives, then makes the registration.
-fn registered_with(platform: Platform, user: &User) -> Chords {
+/// gives, then makes the registration, a chord at a time. What was refused comes back too.
+fn settled_with(platform: Platform, user: &User) -> (Chords, Vec<String>) {
     let (mut map, problems) = Chords::conventional(platform).with_overrides(&overrides_of(user));
     assert!(problems.is_empty(), "{platform:?}: {problems:?}");
     let app = app_id().expect("mail is an app name");
-    map.register_with(&declared(&app))
-        .unwrap_or_else(|why| panic!("{platform:?}: {why}"));
-    map
+    let refused = register_on(&mut map, &app);
+    (map, refused)
+}
+
+fn registered_with(platform: Platform, user: &User) -> Chords {
+    settled_with(platform, user).0
 }
 
 /// [`registered_with`] for a person who changed nothing.
@@ -67,10 +71,13 @@ fn every_action_has_a_default_chord_and_no_two_collide() {
     for id in &named {
         assert!(rows.iter().any(|(action, _)| action.id() == *id), "{id}");
     }
-    // On every platform the keymap takes them all (it refuses a chord a standard action or
-    // another action holds), and each default chord is the one its action is bound to.
+    // On every platform each default chord is bound to its action, or to the standard action
+    // that does the same in a mailo window (Move to Trash holds Delete in CUA, and it trashes as
+    // `#` does): the keymap refuses a chord a standard action or another action holds, and such a
+    // refusal may cost nothing that the press did before. Nothing else is refused.
     for platform in every_platform() {
-        let map = registered(platform);
+        let (map, refused) = settled_with(platform, &User::default());
+        let mut standing_in = 0;
         for (action, chord) in &rows {
             let live = chord
                 .resolve(platform, Context::Normal)
@@ -80,6 +87,18 @@ fn every_action_has_a_default_chord_and_no_two_collide() {
                 .iter()
                 .find(|(_, held)| *held == live)
                 .map(|(holder, _)| holder.clone());
+            if let Some(Action::Standard(standard)) = &holder {
+                let same = shortcut_of(action).map(|shortcut| Some(Intent::Mail(shortcut)));
+                assert_eq!(
+                    Some(intent(Some(Heard::Standard(*standard)), Scope::List)),
+                    same,
+                    "{platform:?}: {standard:?} holds {} and does not do {}",
+                    live.display(platform),
+                    action.id()
+                );
+                standing_in += 1;
+                continue;
+            }
             assert_eq!(
                 holder,
                 Some(Action::App(action.clone())),
@@ -87,6 +106,7 @@ fn every_action_has_a_default_chord_and_no_two_collide() {
                 live.display(platform)
             );
         }
+        assert_eq!(refused.len(), standing_in, "{platform:?}: {refused:?}");
     }
 }
 
@@ -281,7 +301,31 @@ fn a_press_is_the_action_the_platform_s_chord_names() {
             Key::Backspace,
             SUPER,
             false,
-            Some(Chord(Own::TrashOpen)),
+            Some(Standard(StandardAction::MoveToTrash)),
+        ),
+        (
+            "Delete",
+            ours(),
+            Key::Delete,
+            NONE,
+            false,
+            Some(Mail(Shortcut::Trash)),
+        ),
+        (
+            "Delete in CUA",
+            windows,
+            Key::Delete,
+            NONE,
+            false,
+            Some(Standard(StandardAction::MoveToTrash)),
+        ),
+        (
+            "# in CUA, beside the Delete it gave up",
+            windows,
+            character("#"),
+            SHIFT,
+            false,
+            Some(Mail(Shortcut::Trash)),
         ),
         (
             "⌘Return",

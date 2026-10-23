@@ -578,7 +578,7 @@ pub(super) fn App() -> Element {
             }
             return;
         }
-        // ⌘N writes a message wherever the caret is, ⌘⌫ trashes while reading. No bare letter is
+        // ⌘N writes a message wherever the caret is, Move to Trash trashes while reading. No bare letter is
         // a shortcut with ⌘ held: ⌘C is copy, and ⌘A was select-all above. Esc still closes.
         let Some(Intent::Mail(action)) = intent else {
             return;

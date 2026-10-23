@@ -8,7 +8,8 @@
 //!   and on our desktop, Ctrl elsewhere): the single-key mail actions of [`DEFAULTS`]
 //!   (`mail.next` is `j` and Down) and the chords of [`Own`] (`mail.search` is `Primary+K`).
 //!   Standard actions are never declared: ⌘N is `StandardAction::New`, ⌘F `Find`, ⌘P `Print`,
-//!   ⌘Z `Undo`, ⌘, `Settings`, ⌃⌘S `ToggleSidebar`, ⌘A `SelectAll`, ⌘B, ⌘I, ⌘U the editor's.
+//!   ⌘Z `Undo`, ⌘, `Settings`, ⌃⌘S `ToggleSidebar`, ⌘A `SelectAll`, ⌘⌫ `MoveToTrash` (Delete
+//!   where the platform says so), ⌘B, ⌘I, ⌘U the editor's.
 //!   ⌘1 to ⌘9 are quire's: the Spaces kit reads `SwitchChord::Primary` itself.
 //! - [`heard`], which names what a press asks of mailo. The keys the person chose in
 //!   `keyboard.json` are chordkit `Overrides` ([`overrides_of`]) that the launch lays over the
@@ -66,8 +67,6 @@ const ALSO: &[(Shortcut, &str)] = &[
 pub(in crate::ui) enum Own {
     /// ⌘K: the search bar. In the composer's body it is Link, as it has always been there.
     Search,
-    /// ⌘⌫: trash the open conversation, while reading.
-    TrashOpen,
     /// Strikethrough in the composer.
     Strikethrough,
     /// Inline code in the composer.
@@ -85,11 +84,6 @@ pub(in crate::ui) enum Own {
 /// Each [`Own`] action with its id and its default chords. `Primary` is ⌘ or Ctrl.
 const OWN: &[(Own, &str, &[&str])] = &[
     (Own::Search, "mail.search", &["Primary+K"]),
-    (
-        Own::TrashOpen,
-        "mail.trash-open",
-        &["Primary+Backspace", "Primary+Delete"],
-    ),
     (
         Own::Strikethrough,
         "mail.strikethrough",
@@ -285,13 +279,15 @@ fn singles() -> Vec<(AppAction, DefaultChord)> {
 type Group = Vec<(AppAction, DefaultChord)>;
 
 /// Everything mailo declares, in groups. The keymap takes one registration per app and refuses
-/// it whole when one chord is taken (the system's own settings can give ⌘K to something), so
-/// [`register`] adds the groups one at a time and drops the group that is refused: the single
-/// keys are one group and each chord of [`Own`] is its own, so a clash costs that action alone.
+/// it whole when one chord is taken (the system's own settings can give ⌘K to something, and a
+/// platform's standard action can hold a key of [`DEFAULTS`]: Move to Trash is Delete in CUA), so
+/// [`settle`] adds the groups one at a time and drops the group that is refused. Each chord is a
+/// group of its own, so a clash costs that chord alone and the action keeps its other keys.
 fn groups() -> Vec<Group> {
-    std::iter::once(singles())
-        .chain(OWN.iter().map(|(_, id, chords)| rows(id, chords)))
-        .filter(|group| !group.is_empty())
+    singles()
+        .into_iter()
+        .chain(OWN.iter().flat_map(|(_, id, chords)| rows(id, chords)))
+        .map(|row| vec![row])
         .collect()
 }
 
@@ -307,11 +303,30 @@ fn registration(app: &AppId, groups: &[Group]) -> Registration {
     )
 }
 
-/// Every action mailo declares, as one registration, for a keymap that is not a window's (the
-/// tests').
+/// Adds [`groups`] one at a time through `register`, which takes the whole registration so far
+/// and refuses it whole on a clash, keeping each group it accepts. What was refused is returned,
+/// one conflict per dropped group.
+fn settle<E: std::fmt::Display>(
+    app: &AppId,
+    mut register: impl FnMut(&Registration) -> Result<(), E>,
+) -> Vec<String> {
+    let mut taken: Vec<Group> = Vec::new();
+    let mut refused = Vec::new();
+    for group in groups() {
+        taken.push(group);
+        if let Err(conflict) = register(&registration(app, &taken)) {
+            refused.push(conflict.to_string());
+            taken.pop();
+        }
+    }
+    refused
+}
+
+/// Registers what mailo declares on a keymap that is not a window's (the tests'), as a window
+/// does; what was refused is returned.
 #[cfg(test)]
-pub(in crate::ui) fn declared(app: &AppId) -> Registration {
-    registration(app, &groups())
+pub(in crate::ui) fn register_on(map: &mut chordkit::Keymap, app: &AppId) -> Vec<String> {
+    settle(app, |registration| map.register_with(registration))
 }
 
 /// mailo's name as chordkit takes it.
@@ -367,13 +382,8 @@ fn register(keys: &Keys) {
     let Some(app) = app_id() else {
         return;
     };
-    let mut taken: Vec<Group> = Vec::new();
-    for group in groups() {
-        taken.push(group);
-        if let Err(conflict) = keys.register(&app, &registration(&app, &taken)) {
-            eprintln!("keys: {conflict}");
-            taken.pop();
-        }
+    for conflict in settle(&app, |registration| keys.register(&app, registration)) {
+        eprintln!("keys: {conflict}");
     }
 }
 
