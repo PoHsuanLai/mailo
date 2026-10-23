@@ -208,7 +208,7 @@ pub(super) fn SnoozeMenu(
             }
         };
     }
-    let now = Utc::now();
+    let now = crate::ui::clock::now();
     // The Mac's menu has no second line, so each choice says its time at its trailing end.
     let items = snooze_items(now, &chrono::Local, crate::ui::clock::hours());
     rsx! {
@@ -222,7 +222,7 @@ pub(super) fn SnoozeMenu(
                     choosing.set(true);
                     return;
                 }
-                match mail_core::snooze::snooze_until(&phrase, Utc::now(), &chrono::Local) {
+                match mail_core::snooze::snooze_until(&phrase, crate::ui::clock::now(), &chrono::Local) {
                     Ok(at) => {
                         done();
                         snooze(at);
@@ -251,7 +251,7 @@ fn ChooseTime(
     on_close: EventHandler<()>,
 ) -> Element {
     let mut typed = use_signal(String::new);
-    let now = Utc::now();
+    let now = crate::ui::clock::now();
     let hours = crate::ui::clock::hours();
     let reading = chosen_time(&typed(), now, &chrono::Local, hours);
     // What it reads is help under the field; a phrase it cannot read is the field's own refusal.
@@ -287,7 +287,7 @@ fn ChooseTime(
                     match menu_key(&event.key().to_string()) {
                         Some(MenuKey::Enter) => {
                             event.prevent_default();
-                            if let Ok(at) = chosen_time(&typed(), Utc::now(), &chrono::Local, hours) {
+                            if let Ok(at) = chosen_time(&typed(), crate::ui::clock::now(), &chrono::Local, hours) {
                                 on_chosen.call(at);
                             }
                         }

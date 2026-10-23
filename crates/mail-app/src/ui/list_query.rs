@@ -61,7 +61,7 @@ pub(super) fn use_list(
     });
     let mut drawn = use_signal(|| {
         let store = consume_context::<Arc<SqliteStore>>();
-        listed(&store, request.peek().1.clone(), chrono::Utc::now())
+        listed(&store, request.peek().1.clone(), crate::ui::clock::now())
     });
     let mut reached = use_signal(|| *pages.peek());
     let mut answered = use_signal(|| request.peek().2.clone());
@@ -71,11 +71,11 @@ pub(super) fn use_list(
         let (generation, request, question) = request();
         let depth = *pages.peek();
         let store = consume_context::<Arc<SqliteStore>>();
+        let now = crate::ui::clock::now();
         async move {
-            let done: Listed =
-                tokio::task::spawn_blocking(move || listed(&store, request, chrono::Utc::now()))
-                    .await
-                    .unwrap_or_default();
+            let done: Listed = tokio::task::spawn_blocking(move || listed(&store, request, now))
+                .await
+                .unwrap_or_default();
             // A keystroke since this was asked for means the box no longer says this. Drawing it
             // would flash an answer to a question nobody is asking.
             if debounced.is_latest(generation) {
