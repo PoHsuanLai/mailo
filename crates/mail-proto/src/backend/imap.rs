@@ -1316,21 +1316,16 @@ fn flag_list(text: &str) -> Vec<String> {
 /// `HIGHESTMODSEQ` is `None` rather than zero when missing, because zero is a value a server
 /// could legitimately report and "did not say" is not a modseq.
 fn mailbox_state(untagged: &[crate::Untagged]) -> (u32, u32, Option<u64>) {
-    let find = |key: &str| -> Option<u64> {
-        untagged
-            .iter()
-            .filter_map(|u| {
-                let at = u.text.find(key)? + key.len();
-                let rest = &u.text[at..];
-                let end = rest.find([']', ' ']).unwrap_or(rest.len());
-                rest[..end].trim().parse::<u64>().ok()
-            })
-            .next_back()
+    let number = |name: &str| {
+        crate::imap::response_code(untagged, name)
+            // Out of range is taken as unreported, as a missing code is.
+            .and_then(|n| u32::try_from(n).ok())
+            .unwrap_or(0)
     };
     (
-        find("UIDVALIDITY ").unwrap_or(0) as u32,
-        find("UIDNEXT ").unwrap_or(0) as u32,
-        find("HIGHESTMODSEQ "),
+        number("UIDVALIDITY"),
+        number("UIDNEXT"),
+        crate::imap::response_code(untagged, "HIGHESTMODSEQ"),
     )
 }
 

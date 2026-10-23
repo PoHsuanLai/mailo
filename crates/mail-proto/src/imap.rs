@@ -31,6 +31,11 @@ use mail_domain::SaslMech;
 use porter_core::Credential;
 use std::fmt;
 
+/// The most a response may hold before it is complete: a message's bytes in a `FETCH`, with room
+/// to spare. A server that sends more without ending the response is refused rather than let
+/// grow the client's memory until it is killed.
+pub const MAX_RESPONSE: usize = 256 * 1024 * 1024;
+
 /// How a mailbox is opened (RFC 3501 sections 6.3.1 and 6.3.2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Access {
@@ -375,6 +380,7 @@ pub struct ImapSession {
     buf: Vec<u8>,
     transcript: ImapTranscript,
     counter: u32,
+    max_response: usize,
 }
 
 impl ImapSession {
@@ -395,7 +401,16 @@ impl ImapSession {
             buf: Vec::new(),
             transcript: ImapTranscript::default(),
             counter: 0,
+            max_response: MAX_RESPONSE,
         })
+    }
+
+    /// The same session, failing a response that grows past `bytes` without ending rather than
+    /// past [`MAX_RESPONSE`].
+    #[must_use]
+    pub fn with_max_response(mut self, bytes: usize) -> Self {
+        self.max_response = bytes;
+        self
     }
 
     /// Capabilities seen so far.
@@ -620,12 +635,9 @@ impl ImapSession {
                 date,
                 raw,
             } => {
-                for flag in flags {
-                    if forbidden(flag) {
-                        return Err(ProtoError::Malformed(
-                            "flag contains CR, LF, or NUL".to_owned(),
-                        ));
-                    }
+                // An atom, so a flag cannot close the list it is in and add to the command.
+                if let Some(flag) = flags.iter().find(|flag| !is_flag(flag)) {
+                    return Err(ProtoError::Malformed(format!("{flag:?} is not a flag")));
                 }
                 // RFC 3501's date-time, always in UTC so the zone is never a guess.
                 let date = date
@@ -651,6 +663,13 @@ impl ImapSession {
                 format!("UID MOVE {set} {}", quoted(&mutf7::encode(mailbox)))
             }
         };
+        // Whatever field a value came in through, a line break in it would end this command
+        // and start another of the value's choosing.
+        if forbidden(&body) {
+            return Err(ProtoError::Malformed(
+                "a command contains CR, LF or NUL".to_owned(),
+            ));
+        }
         Ok(format!("{tag} {body}\r\n").into_bytes())
     }
 
@@ -669,7 +688,7 @@ impl ImapSession {
             // handle it before parsing: IDLE's `+` is the signal that we are actually idling.
             if self.buf.starts_with(b"+") {
                 let Some(end) = find_line(&self.buf) else {
-                    return Progress::Need(vec![IoNeed::Read]);
+                    return self.read_more();
                 };
                 self.buf.drain(..end);
                 match self.phase.clone() {
@@ -724,7 +743,7 @@ impl ImapSession {
             }
             if starts_with_ignore_case(&self.buf, b"* ESEARCH") {
                 let Some(end) = find_line(&self.buf) else {
-                    return Progress::Need(vec![IoNeed::Read]);
+                    return self.read_more();
                 };
                 let raw: Vec<u8> = self.buf.drain(..end).collect();
                 let during = match &self.phase {
@@ -739,33 +758,57 @@ impl ImapSession {
                 continue;
             }
 
-            let snapshot = self.buf.clone();
-            let consumed = match imap_proto::parser::parse_response(&snapshot) {
+            // Taken out of `self` while it is parsed, since the response borrows it and recording
+            // the response needs `self`; put back before anything returns. Moved, not copied: a
+            // copy of a large `FETCH` on every read is quadratic in the message's size.
+            let buf = std::mem::take(&mut self.buf);
+            let parsed = imap_proto::parser::parse_response(&buf);
+            let (consumed, progress) = match parsed {
                 Ok((rest, response)) => {
-                    let used = snapshot.len() - rest.len();
-                    if let Some(progress) = self.absorb(&response, &snapshot[..used]) {
-                        return progress;
-                    }
-                    used
+                    let used = buf.len() - rest.len();
+                    (used, self.absorb(&response, &buf[..used]))
                 }
                 // Not a failure: the rest is still on the wire.
-                Err(nom::Err::Incomplete(_)) => return Progress::Need(vec![IoNeed::Read]),
+                Err(nom::Err::Incomplete(_)) => {
+                    self.buf = buf;
+                    return self.read_more();
+                }
                 Err(_) => {
                     // The response as text, not as `nom`'s error. `{e:?}` prints the remaining
                     // input as a `Vec<u8>` of decimal numbers — five hundred integers where the
                     // answer is one line of IMAP, which is a diagnostic nobody can read and the
                     // only thing the field ever sees.
+                    let said = excerpt(&buf);
+                    self.buf = buf;
                     return self.fail(ProtoError::Malformed(format!(
-                        "could not parse a response: {}",
-                        excerpt(&snapshot)
+                        "could not parse a response: {said}"
                     )));
                 }
             };
+            // Consumed whatever was recorded: left in the buffer, the next read would parse it
+            // again. A response that ended the session leaves nothing that matters behind it.
+            self.buf = buf;
             self.buf.drain(..consumed);
+            if let Some(progress) = progress {
+                return progress;
+            }
         }
     }
 
-    /// Record one response. Returns `Some` when the session should stop or move on.
+    /// Ask for more of a response that has not ended, unless it is already over the session's
+    /// limit ([`MAX_RESPONSE`] unless [`Self::with_max_response`] set another).
+    fn read_more(&mut self) -> Progress<ImapTranscript> {
+        if self.buf.len() > self.max_response {
+            return self.fail(ProtoError::Malformed(format!(
+                "a response grew past {} bytes without ending",
+                self.max_response
+            )));
+        }
+        Progress::Need(vec![IoNeed::Read])
+    }
+
+    /// Record one response. Returns `Some` when the session should stop or move on. Its bytes are
+    /// consumed by [`Self::drain`], which owns the buffer while this runs.
     fn absorb(&mut self, response: &Response<'_>, raw: &[u8]) -> Option<Progress<ImapTranscript>> {
         let text = String::from_utf8_lossy(raw).trim_end().to_owned();
         let bytes = raw.to_vec();
@@ -820,9 +863,6 @@ impl ImapSession {
                         {
                             return Some(self.fail(refusal));
                         }
-                        // Consume before issuing the next command, or these bytes would be
-                        // re-parsed on the next pass.
-                        self.buf.drain(..raw.len());
                         Some(self.issue(index + 1))
                     }
                     imap_proto::Status::No => {
@@ -856,10 +896,6 @@ impl ImapSession {
                 // Ending it in protocol, with `DONE`, rather than dropping the socket: the
                 // connection stays reusable and the server is not left wondering.
                 if news && let Phase::Idling { index, tag } = self.phase.clone() {
-                    // `drain` returns as soon as this does, and does not consume the line
-                    // itself. Left in the buffer, the next read parses this EXISTS again
-                    // before the tagged OK that answers DONE.
-                    self.buf.drain(..raw.len());
                     self.phase = Phase::IdleEnding { index, tag };
                     return Some(Progress::Need(vec![
                         IoNeed::Write(b"DONE\r\n".to_vec()),
@@ -971,10 +1007,13 @@ impl Machine for ImapSession {
                             self.buf.drain(..used);
                             self.issue(0)
                         }
-                        Err(nom::Err::Incomplete(_)) => Progress::Need(vec![IoNeed::Read]),
-                        Err(e) => self.fail(ProtoError::Malformed(format!(
-                            "could not parse the greeting: {e:?}"
-                        ))),
+                        Err(nom::Err::Incomplete(_)) => self.read_more(),
+                        Err(_) => {
+                            let said = excerpt(&self.buf);
+                            self.fail(ProtoError::Malformed(format!(
+                                "could not parse the greeting: {said}"
+                            )))
+                        }
                     };
                 }
                 self.drain()
@@ -1024,24 +1063,36 @@ fn classify(text: &str, refused: Option<&ImapCommand>) -> ProtoError {
 
 /// The last `UIDNEXT` the server reported on this connection, from `SELECT`'s response code.
 fn reported_uidnext(untagged: &[Untagged]) -> Option<u32> {
-    untagged
-        .iter()
-        .filter_map(|u| {
-            let at = u.text.find("[UIDNEXT ")? + "[UIDNEXT ".len();
-            let rest = &u.text[at..];
-            rest[..rest.find(']')?].trim().parse().ok()
-        })
-        .next_back()
+    // A UIDNEXT past u32 is not one a server may send: taken as unreported.
+    response_code(untagged, "UIDNEXT").and_then(|n| u32::try_from(n).ok())
 }
 
 /// The `UIDVALIDITY` the last `SELECT` or `EXAMINE` reported, if any did.
 fn reported_uidvalidity(untagged: &[Untagged]) -> Option<u32> {
+    // Out of range is taken as unreported, which a destructive walk refuses.
+    response_code(untagged, "UIDVALIDITY").and_then(|n| u32::try_from(n).ok())
+}
+
+/// The number the last `* OK [NAME n]` status response gave for `name`, if one did.
+///
+/// Only status responses are read: the same words in a message's subject or body, which arrive
+/// in a `FETCH`, are the message's and not the server's, and taking them for the server's would
+/// let a message decide which mailbox a destructive command thinks it is in.
+pub(crate) fn response_code(untagged: &[Untagged], name: &str) -> Option<u64> {
     untagged
         .iter()
         .filter_map(|u| {
-            let at = u.text.find("[UIDVALIDITY ")? + "[UIDVALIDITY ".len();
-            let rest = &u.text[at..];
-            rest[..rest.find(']')?].trim().parse().ok()
+            let code = u
+                .text
+                .get(..6)
+                .filter(|head| head.eq_ignore_ascii_case("* OK ["))?;
+            let rest = &u.text[code.len()..];
+            let end = rest.find(']')?;
+            let (key, value) = rest[..end].split_once(' ')?;
+            key.eq_ignore_ascii_case(name)
+                // A value that is not a number is not that code's.
+                .then(|| value.trim().parse().ok())
+                .flatten()
         })
         .next_back()
 }
@@ -1096,7 +1147,6 @@ fn check_set(set: &str) -> Result<(), ProtoError> {
     }
 }
 
-/// An IMAP quoted string, with `\` and `"` escaped.
 /// The beginning of a response, printable, for an error a person has to read.
 ///
 /// Lossy on purpose: bytes that are not text are exactly what one wants to see in a message
@@ -1116,6 +1166,7 @@ fn excerpt(bytes: &[u8]) -> String {
     }
 }
 
+/// An IMAP quoted string, with `\` and `"` escaped.
 fn quoted(value: &str) -> String {
     let mut out = String::with_capacity(value.len() + 2);
     out.push('"');
@@ -1127,6 +1178,15 @@ fn quoted(value: &str) -> String {
     }
     out.push('"');
     out
+}
+
+/// A flag as RFC 3501 writes one: an atom, `\` before it for a system flag.
+fn is_flag(flag: &str) -> bool {
+    let atom = flag.strip_prefix('\\').unwrap_or(flag);
+    !atom.is_empty()
+        && atom
+            .bytes()
+            .all(|b| b.is_ascii_graphic() && !b"(){%*\"\\]".contains(&b))
 }
 
 fn forbidden(value: &str) -> bool {
