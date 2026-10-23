@@ -81,6 +81,16 @@ pub fn provider(plan: &AccountPlan) -> Provider {
     from_host(plan)
 }
 
+/// What a window calls the service `plan` is on: its provider's name, or, on a host it does not
+/// know, how mail is fetched from it, so a POP3 account on its own server reads POP3 and not IMAP.
+pub fn service_name(plan: &AccountPlan) -> &'static str {
+    match (provider(plan), &plan.incoming) {
+        (Provider::Imap, Incoming::Pop3 { .. }) => "POP3",
+        (Provider::Imap, Incoming::Jmap { .. }) => "JMAP",
+        (known, _) => known.title(),
+    }
+}
+
 /// The host of a JMAP session URL, or nothing when it has none.
 fn session_host(session: &str) -> &str {
     let rest = session.split_once("://").map_or(session, |(_, rest)| rest);
@@ -125,8 +135,10 @@ fn is_host(host: &str, root: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{Provider, provider};
-    use mail_domain::{AccountPlan, AuthPlan, Incoming, Outgoing, SaslMech, Tls, Username};
+    use super::{Provider, provider, service_name};
+    use mail_domain::{
+        AccountPlan, AuthPlan, HttpAuth, Incoming, LeaveOnServer, Outgoing, SaslMech, Tls, Username,
+    };
 
     struct Case {
         name: &'static str,
@@ -270,6 +282,45 @@ mod tests {
             }
         }
         assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    #[test]
+    fn an_unknown_host_is_named_by_how_its_mail_is_fetched() {
+        let imap = plan(&Case {
+            name: "imap",
+            address: "a@example.test",
+            host: "mail.example.test",
+            graph: false,
+            expect: Provider::Imap,
+        });
+        let pop3 = AccountPlan {
+            incoming: Incoming::Pop3 {
+                host: "mail.example.test".to_owned(),
+                port: 995,
+                tls: Tls::Implicit,
+                leave: LeaveOnServer::DeleteAfterFetch,
+            },
+            ..imap.clone()
+        };
+        let jmap = AccountPlan {
+            incoming: Incoming::Jmap {
+                session: "https://mail.example.test/.well-known/jmap".to_owned(),
+                auth: HttpAuth::Basic,
+            },
+            ..imap.clone()
+        };
+        let gmail_pop3 = AccountPlan {
+            address: "a@gmail.com".to_owned(),
+            ..pop3.clone()
+        };
+        assert_eq!(service_name(&imap), "IMAP");
+        assert_eq!(service_name(&pop3), "POP3");
+        assert_eq!(service_name(&jmap), "JMAP");
+        assert_eq!(
+            service_name(&gmail_pop3),
+            "Google",
+            "a known provider keeps its name"
+        );
     }
 }
 

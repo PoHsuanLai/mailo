@@ -42,7 +42,7 @@ use crate::ui::actions::{self, Own};
 use crate::ui::copy;
 use crate::ui::provider_chip::ProvChip;
 use crate::ui::view::Shell;
-use mail_core::provider::provider;
+use mail_core::provider::{provider, service_name};
 
 #[component]
 pub(in crate::ui) fn Props(page: Signal<Page>, shell: Signal<Shell>) -> Element {
@@ -252,7 +252,7 @@ fn FromRow(page: Signal<Page>, shell: Signal<Shell>) -> Element {
                     .to_ascii_uppercase(),
                 color: super::super::command::avatar_color(&row.address),
             },
-            help: Some(provider(&row.plan).title().to_owned()),
+            help: Some(service_name(&row.plan).to_owned()),
             right: Right::Check(row.id == from),
             ..MenuItem::plain(row.id.to_string(), row.address.clone())
         })
