@@ -4,3 +4,9 @@
 .settings { display: grid; grid-template-columns: 13rem minmax(0, 1fr); height: 100%; min-height: 0; }
 .settings-scroll { height: 100%; min-height: 0; overflow-y: auto; scrollbar-width: none; }
 .settings-page { min-width: 0; }
+/* A row that adds something leads with a plus in a dashed ring (`common::add_mark`), as the "+"
+   after the sidebar's account tiles: plain beside the colour of the rows it adds to. */
+.add-mark {
+  box-sizing: border-box; display: grid; place-items: center; width: var(--row-icon-tile); height: var(--row-icon-tile);
+  border: var(--hair) dashed var(--ink-faint); border-radius: var(--r-pill); color: var(--ink-soft);
+}

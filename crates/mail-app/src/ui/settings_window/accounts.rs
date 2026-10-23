@@ -15,7 +15,7 @@
 use super::account::{AccountPage, back, row_of};
 use super::rows::link_row;
 use crate::ui::add_account::Join;
-use crate::ui::common::tile;
+use crate::ui::common::{add_mark, tile};
 use crate::ui::copy;
 use crate::ui::data::account_rows;
 use crate::ui::provider_chip;
@@ -129,10 +129,11 @@ fn AccountList(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
             },
         ));
     }
-    items.push(link_row(
+    // Add Account… is a list of its own under the accounts, as New Space is under the Spaces.
+    let add = vec![link_row(
         ADD,
         copy::controls::ADD_ACCOUNT,
-        tile(Icon::Plus, PlateFamily::Blue),
+        add_mark(),
         move |_| {
             crate::ui::add_account::add_from(Join::Nowhere, |offered| adding.set(Some(offered)))
         },
@@ -143,7 +144,7 @@ fn AccountList(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
             })),
             ..Common::default()
         },
-    ));
+    )];
     let other_keys = vec![link_row(
         OTHER_KEYS_ROW,
         copy::titles::OTHER_KEYS,
@@ -158,6 +159,9 @@ fn AccountList(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
         Form {
             FormSection {
                 List::<String> { label: copy::titles::ACCOUNTS, items, style: ListStyle::Grouped }
+            }
+            FormSection {
+                List::<String> { label: copy::aria::ADD_ACCOUNT, items: add, style: ListStyle::Grouped }
             }
             FormSection {
                 List::<String> { label: copy::titles::OTHER_KEYS, items: other_keys, style: ListStyle::Grouped }

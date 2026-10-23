@@ -1,20 +1,19 @@
-//! The keys and certificates Settings lists, as one group of rows: an account's own on its page
-//! (its Encryption group), and every other on the Other Keys page under Accounts. OpenPGP keys
-//! come first, then S/MIME certificates, each a row of quire's list with its actions; a key to
-//! make when the account has none; Import for each kind; and the questions asked before an act
-//! that cannot be undone (`key_row::Asking`).
+//! The keys and certificates Settings lists: an account's own on its page (its Encryption
+//! group), and every other on the Other Keys page under Accounts. OpenPGP keys come first, then
+//! S/MIME certificates, each a row of quire's list with its actions; under them, a list of its
+//! own of what adds to them, a key to make when the account has none and Import for each kind;
+//! and the questions asked before an act that cannot be undone (`key_row::Asking`).
 
 use dioxus::prelude::*;
 use ds::components::lists::list::model::ListStyle;
 use ds::components::lists::row::size::RowSize;
 use ds::prelude::*;
 use ds::root::common::Common;
-use ds::style::icon::family::PlateFamily;
 use mail_core::{SqliteStore, Store};
 use mail_domain::SecretHeld;
 use std::sync::Arc;
 
-use super::super::common::{Told, tile};
+use super::super::common::{Told, add_mark};
 use super::super::data::account_rows;
 use super::super::press::{available, on_primary};
 use super::certs::{IMPORT, cert_items, quiet_item};
@@ -145,15 +144,20 @@ pub(in crate::ui) fn KeysPage(
     if let Some(quiet) = quiet {
         items.push(quiet_item(quiet));
     }
+    let (cert_rows, cert_import) = cert_items(certs, confirm, run, busy());
+    items.extend(cert_rows);
+    // What adds to the list is a list of its own under it, as Add Account… is under the
+    // accounts: a key to make, then Import for each kind.
+    let mut adds: Vec<ListItem<String>> = Vec::new();
     for address in make {
         let label = format!("Make a key for {address}");
         let make = address.clone();
-        items.push(ListItem::row(
+        adds.push(ListItem::row(
             format!(" make {address}"),
             label.clone(),
             rsx! {
                 Row {
-                    leading: tile(Icon::Plus, PlateFamily::Green),
+                    leading: add_mark(),
                     title: address.clone(),
                     detail: Some(TextLine::from("No key of your own yet")),
                     size: RowSize::Settings,
@@ -169,14 +173,12 @@ pub(in crate::ui) fn KeysPage(
             },
         ));
     }
-    let (cert_rows, cert_import) = cert_items(certs, confirm, run, busy());
-    items.extend(cert_rows);
-    items.push(ListItem::row(
+    adds.push(ListItem::row(
         IMPORT.to_owned(),
         import_label.to_owned(),
         rsx! {
             Row {
-                leading: tile(Icon::Plus, PlateFamily::Green),
+                leading: add_mark(),
                 title: copy::fields::OPENPGP_KEY,
                 detail: Some(TextLine::from("Yours sign and decrypt; theirs encrypt and verify.")),
                 size: RowSize::Settings,
@@ -191,15 +193,22 @@ pub(in crate::ui) fn KeysPage(
             }
         },
     ));
-    items.push(cert_import);
+    adds.push(cert_import);
     let title = match whose {
         Whose::Account(_) => Some(copy::headers::ENCRYPTION.to_owned()),
         Whose::Others => None,
     };
+    let empty = items.is_empty();
     rsx! {
         Told { title: crate::ui::copy::titles::KEYS_FAILED, said }
-        FormSection { title,
-            List::<String> { label: copy::headers::ENCRYPTION, items, style: ListStyle::Grouped }
+        // The group's title heads its first list: the keys, or with none, what adds one.
+        if !items.is_empty() {
+            FormSection { title: title.clone(),
+                List::<String> { label: copy::headers::ENCRYPTION, items, style: ListStyle::Grouped }
+            }
+        }
+        FormSection { title: if empty { title } else { None },
+            List::<String> { label: copy::aria::ADD_A_KEY, items: adds, style: ListStyle::Grouped }
         }
         Asking { confirm, run, busy: busy() }
     }

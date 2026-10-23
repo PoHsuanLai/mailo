@@ -20,7 +20,7 @@ use mail_core::SigningStore;
 use mail_core::SqliteStore;
 use mail_domain::{CertFingerprint, CertSource, KeyTrust, SecretHeld, SmimeCert};
 
-use super::super::common::tile;
+use super::super::common::{add_mark, tile};
 use super::super::press::{available, on_primary};
 use super::super::sidebar::tagged;
 use super::key_row::Confirm;
@@ -187,7 +187,7 @@ pub(super) fn cert_items(
         import_label.to_owned(),
         rsx! {
             Row {
-                leading: tile(Icon::Plus, PlateFamily::Green),
+                leading: add_mark(),
                 title: crate::ui::copy::fields::SMIME_CERTIFICATE,
                 detail: Some(TextLine::from("A certificate, or your identity as a PKCS#12 file.")),
                 size: RowSize::Settings,
