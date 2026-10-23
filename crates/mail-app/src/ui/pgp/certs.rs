@@ -6,9 +6,10 @@
 //! when the file turns out to need one: typed into a [`Password`], moved into the one import
 //! that uses it, and dropped with it — never drawn, never in a signal.
 
+use ds::base::press::{PointerButton, Press};
 use ds::components::content::text_runs::RunTone;
-use ds::components::controls::button_model::{Bezel, ButtonRole};
 use ds::components::lists::row::size::RowSize;
+use ds::components::menus::item::item::MenuItem as Line;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::icon::family::PlateFamily;
@@ -23,9 +24,11 @@ use mail_domain::{CertFingerprint, CertSource, KeyTrust, SecretHeld, SmimeCert};
 use super::super::common::{add_mark, tile};
 use super::super::press::{available, on_primary};
 use super::super::sidebar::tagged;
+use super::actions::{Act, Opened, RowActions, line};
 use super::key_row::Confirm;
 use super::keys::{Done, Job, write};
 use super::{Busy, Seams, cert_short, whose};
+use crate::ui::copy::menus;
 use mail_core::password::Password;
 use mail_core::pgp::WithSecret;
 use mail_core::smime::SmimeError;
@@ -253,63 +256,48 @@ fn CertRow(cert: SmimeCert, confirm: Signal<Confirm>, run: Callback<Job>, busy: 
         .filter(|part| !part.is_empty())
         .collect::<Vec<_>>()
         .join(" · ");
-    let (copied, saved, deleted) = (cert.clone(), cert.clone(), cert.clone());
     let mut confirm = confirm;
+    let mut opened = use_signal(|| Opened::Closed);
+    let can = available(!working);
+    let trust = if trusted {
+        line(Act::Distrust, menus::DONT_TRUST, None)
+    } else {
+        line(Act::Trust, menus::TRUST, Some(Icon::CircleCheck))
+            .with_tip(menus::CHECK_THE_FINGERPRINT)
+    };
+    let items = vec![
+        line(Act::Copy, menus::COPY_CERTIFICATE, Some(Icon::Copy)),
+        line(Act::Save, menus::SAVE_CERTIFICATE, Some(Icon::Download)).with_availability(can),
+        trust.with_availability(can),
+        Line::Separator,
+        line(Act::Delete, menus::DELETE, Some(Icon::Trash)).with_availability(can),
+    ];
+    let acted = cert.clone();
+    let onpick = move |act: Act| match act {
+        Act::Copy => {
+            if let Ok(pem) = mail_core::smime::certs::export(&acted) {
+                super::super::hover::copy(&pem);
+                super::super::motion::tell(
+                    "Certificate copied".to_owned(),
+                    super::super::motion::Follow::Nothing,
+                );
+            }
+        }
+        Act::Save => run.call(Job::Cert(CertJob::Save(acted.clone()))),
+        Act::Trust => run.call(Job::Cert(CertJob::Trust(fingerprint, KeyTrust::Verified))),
+        Act::Distrust => run.call(Job::Cert(CertJob::Trust(fingerprint, KeyTrust::Unverified))),
+        Act::Delete if acted.secret == SecretHeld::Held => {
+            confirm.set(Confirm::DeleteCert(fingerprint));
+        }
+        Act::Delete => run.call(Job::Cert(CertJob::Delete(
+            acted.clone(),
+            WithSecret::Refuse,
+        ))),
+        Act::ExportSecret | Act::Verify => {}
+    };
     let actions = rsx! {
-                Button {
-                    label: "Copy",
-                    bezel: Bezel::Inline,
-                    onclick: on_primary(move || {
-                        if let Ok(pem) = mail_core::smime::certs::export(&copied) {
-                            super::super::hover::copy(&pem);
-                            super::super::motion::tell(
-                                "Certificate copied".to_owned(),
-                                super::super::motion::Follow::Nothing,
-                            );
-                        }
-                    }),
-                    common: Common { aria_label: Some(format!("Copy the certificate {id}")), ..Common::default() },
-                }
-                Button {
-                    label: "Save…",
-                    bezel: Bezel::Inline,
-                    availability: available(!working),
-                    onclick: on_primary(move || run.call(Job::Cert(CertJob::Save(saved.clone())))),
-        common: Common { aria_label: Some(format!("Save the certificate {id}")), ..Common::default() },
-    }
-                if trusted {
-                    Button {
-                        label: "Don't trust",
-                        bezel: Bezel::Inline,
-                        availability: available(!working),
-                        onclick: on_primary(move || run.call(Job::Cert(CertJob::Trust(fingerprint, KeyTrust::Unverified)))),
-        common: Common { aria_label: Some(format!("Stop trusting {id}")), ..Common::default() },
-    }
-                } else {
-                    Button {
-                        label: "Trust",
-                        bezel: Bezel::Inline,
-                        title: "Check the fingerprint first".to_owned(),
-                        availability: available(!working),
-                        onclick: on_primary(move || run.call(Job::Cert(CertJob::Trust(fingerprint, KeyTrust::Verified)))),
-        common: Common { aria_label: Some(format!("Trust {id}")), ..Common::default() },
-    }
-                }
-                Button {
-                    label: "Delete",
-                    bezel: Bezel::Inline,
-                    role: ButtonRole::Destructive,
-                    availability: available(!working),
-                    onclick: on_primary(move || {
-                        if deleted.secret == SecretHeld::Held {
-                            confirm.set(Confirm::DeleteCert(fingerprint));
-                        } else {
-                            run.call(Job::Cert(CertJob::Delete(deleted.clone(), WithSecret::Refuse)));
-                        }
-                    }),
-                    common: Common { aria_label: Some(format!("Delete {id}")), ..Common::default() },
-                }
-        };
+        RowActions { label: format!("Actions for {id}"), items, opened, onpick }
+    };
     let title = TextLine::Runs(vec![
         TextRun::new(cert.subject.clone(), RunTone::Strong),
         TextRun::new(format!("  {id}"), RunTone::Faint),
@@ -325,6 +313,12 @@ fn CertRow(cert: SmimeCert, confirm: Signal<Confirm>, run: Callback<Job>, busy: 
             detail: Some(TextLine::from(meta)),
             size: RowSize::Settings,
             accessory: Accessory::Slot(actions),
+            // A right click anywhere on the row opens its menu at the pointer.
+            onclick: move |press: Press| {
+                if press.button == PointerButton::Secondary {
+                    opened.set(Opened::At(press.at));
+                }
+            },
             common: tagged("mine", if mine { "yes" } else { "no" }),
         }
     }

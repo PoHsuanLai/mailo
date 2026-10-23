@@ -1,10 +1,12 @@
 //! One OpenPGP key in the keys Settings lists, its actions, and the questions the page
 //! asks again before an act that cannot be undone — for the certificates' rows too.
 
+use ds::base::press::{PointerButton, Press};
 use ds::components::content::label::LabelRole;
 use ds::components::content::text_runs::RunTone;
-use ds::components::controls::button_model::{Answers, Bezel, ButtonRole};
+use ds::components::controls::button_model::Answers;
 use ds::components::lists::row::size::RowSize;
+use ds::components::menus::item::item::MenuItem as Line;
 use ds::components::overlays::alert_model::{AlertButton, AlertRole, AlertStyle};
 use ds::components::overlays::sheet_width::SheetWidth;
 use ds::prelude::*;
@@ -19,9 +21,11 @@ use mail_domain::{CertFingerprint, Fingerprint, KeySource, KeyTrust, PgpKey, Sec
 use super::super::common::{in_card, tile};
 use super::super::press::{available, on_primary};
 use super::super::sidebar::tagged;
+use super::actions::{Act, Opened, RowActions, line};
 use super::certs::CertJob;
 use super::keys::Job;
 use super::{Busy, Passphrase, cert_short, short, who};
+use crate::ui::copy::menus;
 use mail_core::Store;
 use mail_core::password::Password;
 use mail_core::pgp::WithSecret;
@@ -103,63 +107,47 @@ pub(in crate::ui) fn KeyRow(
         .filter(|part| !part.is_empty())
         .collect::<Vec<_>>()
         .join(" · ");
-    let (copy_key, save_key, delete_key) = (pgp.clone(), pgp.clone(), pgp.clone());
     let mut confirm = confirm;
+    let mut opened = use_signal(|| Opened::Closed);
+    let can = available(!working);
+    let mut items = vec![
+        line(Act::Copy, menus::COPY_PUBLIC_KEY, Some(Icon::Copy)),
+        line(Act::Save, menus::SAVE_PUBLIC_KEY, Some(Icon::Download)).with_availability(can),
+    ];
+    if mine {
+        items.push(
+            line(Act::ExportSecret, menus::EXPORT_SECRET_KEY, Some(Icon::Key))
+                .with_availability(can),
+        );
+    }
+    if !verified {
+        items.push(
+            line(Act::Verify, menus::MARK_VERIFIED, Some(Icon::CircleCheck))
+                .with_tip(menus::CHECK_THE_FINGERPRINT)
+                .with_availability(can),
+        );
+    }
+    items.push(Line::Separator);
+    items.push(line(Act::Delete, menus::DELETE, Some(Icon::Trash)).with_availability(can));
+    let onpick = move |act: Act| match act {
+        Act::Copy => {
+            if let Ok(armored) = mail_core::pgp::keys::export_public(&pgp) {
+                super::super::hover::copy(&armored);
+                super::super::motion::tell(
+                    "Public key copied".to_owned(),
+                    super::super::motion::Follow::Nothing,
+                );
+            }
+        }
+        Act::Save => run.call(Job::SavePublic(pgp.clone())),
+        Act::ExportSecret => confirm.set(Confirm::ExportSecret(fingerprint)),
+        Act::Verify => run.call(Job::Verify(fingerprint)),
+        Act::Delete if pgp.secret == SecretHeld::Held => confirm.set(Confirm::Delete(fingerprint)),
+        Act::Delete => run.call(Job::Delete(pgp.clone(), WithSecret::Refuse)),
+        Act::Trust | Act::Distrust => {}
+    };
     let actions = rsx! {
-        Button {
-            label: "Copy public",
-            bezel: Bezel::Inline,
-            onclick: on_primary(move || {
-                if let Ok(armored) = mail_core::pgp::keys::export_public(&copy_key) {
-                    super::super::hover::copy(&armored);
-                    super::super::motion::tell(
-                        "Public key copied".to_owned(),
-                        super::super::motion::Follow::Nothing,
-                    );
-                }
-            }),
-            common: Common { aria_label: Some(format!("Copy the public key {id}")), ..Common::default() },
-        }
-        Button {
-            label: "Save public…",
-            bezel: Bezel::Inline,
-            availability: available(!working),
-            onclick: on_primary(move || run.call(Job::SavePublic(save_key.clone()))),
-            common: Common { aria_label: Some(format!("Save the public key {id}")), ..Common::default() },
-        }
-        if mine {
-            Button {
-                label: "Export secret…",
-                bezel: Bezel::Inline,
-                availability: available(!working),
-                onclick: on_primary(move || confirm.set(Confirm::ExportSecret(fingerprint))),
-                common: Common { aria_label: Some(format!("Export the secret key {id}")), ..Common::default() },
-            }
-        }
-        if !verified {
-            Button {
-                label: "Verify",
-                bezel: Bezel::Inline,
-                title: "Check the fingerprint first".to_owned(),
-                availability: available(!working),
-                onclick: on_primary(move || run.call(Job::Verify(fingerprint))),
-                common: Common { aria_label: Some(format!("Mark {id} verified")), ..Common::default() },
-            }
-        }
-        Button {
-            label: "Delete",
-            bezel: Bezel::Inline,
-            role: ButtonRole::Destructive,
-            availability: available(!working),
-            onclick: on_primary(move || {
-                if delete_key.secret == SecretHeld::Held {
-                    confirm.set(Confirm::Delete(fingerprint));
-                } else {
-                    run.call(Job::Delete(delete_key.clone(), WithSecret::Refuse));
-                }
-            }),
-            common: Common { aria_label: Some(format!("Delete {id}")), ..Common::default() },
-        }
+        RowActions { label: format!("Actions for {id}"), items, opened, onpick }
     };
     let title = TextLine::Runs(vec![
         TextRun::new(name, RunTone::Strong),
@@ -176,6 +164,12 @@ pub(in crate::ui) fn KeyRow(
             detail: Some(TextLine::from(meta)),
             size: RowSize::Settings,
             accessory: Accessory::Slot(actions),
+            // A right click anywhere on the row opens its menu at the pointer.
+            onclick: move |press: Press| {
+                if press.button == PointerButton::Secondary {
+                    opened.set(Opened::At(press.at));
+                }
+            },
             common: tagged("mine", if mine { "yes" } else { "no" }),
         }
     }

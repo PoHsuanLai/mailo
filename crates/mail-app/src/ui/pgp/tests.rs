@@ -924,13 +924,7 @@ async fn render_the_reader_badges_and_the_keys_sheet_to_a_file() {
         ));
     }
     let (mut sheet, seen) = super::keys_tests::sheet(&store, seams_with(secrets));
-    super::keys_tests::asking(
-        &mut sheet,
-        seen.one(
-            "aria-label",
-            &format!("Delete {}", super::short(key.fingerprint)),
-        ),
-    );
+    super::keys_tests::pick(&mut sheet, &seen, &super::short(key.fingerprint), "Delete").await;
     body.push_str(&format!(
         "<div class=\"app\" style=\"position:relative;width:760px;height:560px;margin:16px\">{}</div>",
         dioxus_ssr::render(&sheet)

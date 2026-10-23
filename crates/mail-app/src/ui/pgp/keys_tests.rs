@@ -19,7 +19,9 @@ use mail_domain::*;
 use super::keys::{KeysPage, Whose, ordered};
 use super::short;
 use super::tests::{own_key, seams_with, someone_elses};
-use crate::ui::fixtures::{Seen, click, dispatching, drain_seen, rebuild_into, seeded};
+use crate::ui::fixtures::{
+    Seen, click, dispatching, drain_seen, later, rebuild_into, right_click, seeded,
+};
 
 /// The page inside a quire root, as the Settings window has it: its alerts and sheets float in
 /// the root's overlay.
@@ -45,10 +47,27 @@ pub(super) fn sheet(store: &Arc<SqliteStore>, seams: super::Seams) -> (VirtualDo
     (dom, seen)
 }
 
-/// Press `element`, then let the alert or sheet it asks for land in the overlay: what that
-/// render set.
-pub(super) fn asking(dom: &mut VirtualDom, element: dioxus_core::ElementId) -> Seen {
-    click(dom, element).merge(drain_seen(dom))
+/// Open the ⋯ menu of the row whose short id is `id` and pick `name` from it: what the renders
+/// after the pick set, its alert or sheet among them. quire's menu floats in the root's overlay,
+/// drawn a render or two after the press that asks for it.
+pub(super) async fn pick(dom: &mut VirtualDom, seen: &Seen, id: &str, name: &str) -> Seen {
+    let mut opened = click(dom, seen.one("aria-label", &format!("Actions for {id}")));
+    for _ in 0..8 {
+        opened = opened.merge(drain_seen(dom));
+    }
+    let markup = dioxus_ssr::render(dom);
+    let rows: Vec<&str> = markup.split("class=\"ds-menu-item\"").skip(1).collect();
+    let at = rows
+        .iter()
+        .position(|row| {
+            row.split("class=\"ds-menu-item")
+                .next()
+                .is_some_and(|row| row.contains(&format!(">{name}<")))
+        })
+        .unwrap_or_else(|| panic!("the menu of {id} has no {name:?}: {markup}"));
+    let item = opened.fixed("class", "ds-menu-item")[at];
+    // The menu blinks the picked row before it closes and hands the pick on.
+    click(dom, item).merge(later(dom).await)
 }
 
 /// The alert's button that answers `answers` ("return" for its default, "escape" for a Cancel
@@ -166,13 +185,80 @@ async fn the_page_lists_own_keys_first_with_what_is_known_of_each() {
     assert!(!page.contains("Make a key for"), "{page}");
 }
 
+/// The titles of the menu drawn now, in order: each item's words, its markup left out.
+fn menu_titles(dom: &VirtualDom) -> Vec<String> {
+    let markup = dioxus_ssr::render(dom);
+    markup
+        .split("class=\"ds-menu-item\"")
+        .skip(1)
+        .map(|row| {
+            let row = row.split("</li>").next().unwrap_or(row);
+            let mut words = String::new();
+            let mut inside = true;
+            for c in row.chars() {
+                match c {
+                    '<' => inside = true,
+                    '>' => inside = false,
+                    c if !inside => words.push(c),
+                    _ => {}
+                }
+            }
+            words.trim().to_owned()
+        })
+        .collect()
+}
+
+/// A key's row holds one control, its ⋯, and its acts are a menu: under the ⋯, or at the pointer
+/// for a right click anywhere on the row. Export is offered only for a key whose secret half is
+/// here, and Mark as Verified only for one not verified.
+#[tokio::test]
+async fn a_keys_acts_are_one_menu_under_its_more_button_or_a_right_click() {
+    let (store, _dir, secrets, mine, _) = two_keys();
+    let (mut dom, seen) = sheet(&store, seams_with(secrets.clone()));
+    let page = dioxus_ssr::render(&dom);
+    for gone in ["Copy public", "Save public", "Export secret"] {
+        assert!(
+            !page.contains(gone),
+            "a key's row still draws {gone}: {page}"
+        );
+    }
+
+    let _ = click(
+        &mut dom,
+        seen.one(
+            "aria-label",
+            &format!("Actions for {}", short(mine.fingerprint)),
+        ),
+    );
+    let _ = later(&mut dom).await;
+    let own = menu_titles(&dom);
+    assert!(own.contains(&"Export Secret Key…".to_owned()), "{own:?}");
+    assert_eq!(
+        own.first().map(String::as_str),
+        Some("Copy Public Key"),
+        "{own:?}"
+    );
+    assert_eq!(own.last().map(String::as_str), Some("Delete"), "{own:?}");
+
+    // Another key's, by a right click on its row, in a window of its own.
+    let (mut dom, seen) = sheet(&store, seams_with(secrets));
+    let _ = right_click(&mut dom, seen.one("data-mine", "no"));
+    let _ = later(&mut dom).await;
+    let other = menu_titles(&dom);
+    assert!(
+        !other.contains(&"Export Secret Key…".to_owned()),
+        "{other:?}"
+    );
+    assert!(other.contains(&"Mark as Verified".to_owned()), "{other:?}");
+}
+
 #[tokio::test]
 async fn deleting_a_key_with_its_secret_is_asked_again_first() {
     let (store, _dir, secrets, mine, _) = two_keys();
     let (mut dom, seen) = sheet(&store, seams_with(secrets.clone()));
     let id = short(mine.fingerprint);
 
-    let mut asked = asking(&mut dom, seen.one("aria-label", &format!("Delete {id}")));
+    let mut asked = pick(&mut dom, &seen, &id, "Delete").await;
     let page = dioxus_ssr::render(&dom);
     assert!(page.contains("can’t be undone"), "{page}");
     assert!(
@@ -187,7 +273,7 @@ async fn deleting_a_key_with_its_secret_is_asked_again_first() {
     assert!(!dioxus_ssr::render(&dom).contains("can’t be undone"));
     assert!(held(&secrets, &mine));
 
-    asked = asking(&mut dom, seen.one("aria-label", &format!("Delete {id}")));
+    asked = pick(&mut dom, &seen, &id, "Delete").await;
     let mut done = click(&mut dom, alert_button(&asked, None));
     settle(&mut dom, &mut done).await;
     assert!(store.pgp_key(mine.fingerprint).unwrap().is_none());
@@ -204,13 +290,7 @@ async fn deleting_a_key_with_its_secret_is_asked_again_first() {
 async fn a_key_without_a_secret_is_deleted_at_once() {
     let (store, _dir, secrets, _, theirs) = two_keys();
     let (mut dom, seen) = sheet(&store, seams_with(secrets));
-    let mut done = click(
-        &mut dom,
-        seen.one(
-            "aria-label",
-            &format!("Delete {}", short(theirs.fingerprint)),
-        ),
-    );
+    let mut done = pick(&mut dom, &seen, &short(theirs.fingerprint), "Delete").await;
     settle(&mut dom, &mut done).await;
     assert!(store.pgp_key(theirs.fingerprint).unwrap().is_none());
     // The toast's Undo puts the key back whole.
@@ -237,10 +317,7 @@ async fn exporting_the_secret_key_is_asked_again_and_only_then_written() {
     let (mut dom, seen) = sheet(&store, seams);
     let id = short(mine.fingerprint);
 
-    let asked = asking(
-        &mut dom,
-        seen.one("aria-label", &format!("Export the secret key {id}")),
-    );
+    let asked = pick(&mut dom, &seen, &id, "Export Secret Key…").await;
     let page = dioxus_ssr::render(&dom);
     assert!(
         page.contains("Anyone with this file can read your mail"),
@@ -293,13 +370,13 @@ async fn generate_verify_and_import_go_through_the_keyring_handed_in() {
     let theirs = store.pgp_key(bea.fingerprint()).unwrap().unwrap();
 
     let all = seen.merge(made).merge(imported);
-    let mut verified = click(
+    let mut verified = pick(
         &mut dom,
-        all.one(
-            "aria-label",
-            &format!("Mark {} verified", short(theirs.fingerprint)),
-        ),
-    );
+        &all,
+        &short(theirs.fingerprint),
+        "Mark as Verified",
+    )
+    .await;
     settle(&mut dom, &mut verified).await;
     assert_eq!(
         store.pgp_key(bea.fingerprint()).unwrap().unwrap().trust,
@@ -311,10 +388,7 @@ async fn generate_verify_and_import_go_through_the_keyring_handed_in() {
 async fn every_class_on_the_page_is_styled() {
     let (store, _dir, secrets, mine, _) = two_keys();
     let (mut dom, seen) = sheet(&store, seams_with(secrets));
-    asking(
-        &mut dom,
-        seen.one("aria-label", &format!("Delete {}", short(mine.fingerprint))),
-    );
+    pick(&mut dom, &seen, &short(mine.fingerprint), "Delete").await;
     let page = dioxus_ssr::render(&dom);
     assert!(page.contains("ds-alert"), "{page}");
     let offences = crate::ui::style::tests::markup_offences(&page);
