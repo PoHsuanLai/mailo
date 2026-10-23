@@ -78,6 +78,7 @@ pub(super) fn control_of(kind: &KeyKind) -> Control {
         | KeyKind::Shortcut
         | KeyKind::List(_)
         | KeyKind::Rows { .. }
+        | KeyKind::Provided { .. }
         | KeyKind::Live { .. } => Control::Shown,
     }
 }

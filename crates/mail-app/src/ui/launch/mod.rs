@@ -11,7 +11,8 @@ use crate::ui::space::Spaces;
 use crate::ui::view::Appearance;
 use dioxus::prelude::*;
 use ds::base::spawner::Spawner;
-use ds_settings::{AppName, ConfigRoot, Store, SystemPrefsSource, UserStyle, use_environment};
+use ds::style::kit::{StyleHomes, Styles, UserStyle};
+use ds_settings::{AppName, ConfigRoot, Store, SystemPrefsSource, use_environment};
 use mail_core::SqliteStore;
 use mail_core::provider::icon::Loaded;
 use std::sync::Arc;
@@ -99,7 +100,7 @@ impl DesktopSettings {
 /// and detent use) and the desktop's preferences, both watched, as one signal `App`'s root
 /// reads (`ds_settings::use_environment`), so a theme, accent or motion change restyles this
 /// window while it runs; the person's own `style.css`, watched the same way and drawn after
-/// quire's and mailo's sheets (CONSUMING.md section 12); and mailo's own settings
+/// quire's and mailo's sheets unless "Use my styles" is off (CONSUMING.md section 12); and mailo's own settings
 /// (`crate::settings`), watched so a change made in the desktop's Settings app reaches the window. `main` migrated mailo's old appearance
 /// file into the desktop's before the window opened (`appearance::adopt`). Only the launched
 /// window watches; a test renders `App` (or [`Shell`]) without this and never touches the real
@@ -111,9 +112,20 @@ pub(super) fn ShellRoot() -> Element {
     let spawner: Arc<dyn Spawner> = Arc::new(ds_blitz::TokioSpawner::current());
     let environment = use_environment(store.clone(), settings.prefs.clone(), Arc::clone(&spawner));
     use_context_provider(|| environment);
-    let mut user_style = use_signal({
+    // The person's stylesheet, the desktop's `quire/style.css`, allowed to name files in its own
+    // folder. mailo reads no `style.css` of its own: `appearance::adopt` brought the one it had
+    // into the desktop's folder, where it is now, and drawing the old copy too would apply it
+    // twice.
+    let mut styles = use_signal({
         let store = store.clone();
-        move || store.load::<UserStyle>().value
+        move || Styles {
+            desktop: store.load::<UserStyle>().value,
+            homes: StyleHomes {
+                desktop: store.dir(),
+                ..StyleHomes::default()
+            },
+            ..Styles::default()
+        }
     });
     use_future(move || {
         let store = store.clone();
@@ -121,11 +133,11 @@ pub(super) fn ShellRoot() -> Element {
         async move {
             let mut watch = store.watch::<UserStyle>(&*spawner);
             while let Some(loaded) = watch.changed().await {
-                user_style.set(loaded.value);
+                styles.write().desktop = loaded.value;
             }
         }
     });
-    use_context_provider(|| ReadSignal::new(user_style));
+    use_context_provider(|| ReadSignal::new(styles));
     // mailo's own settings (`mailo/settings.toml`), watched the same way: detent writes the same
     // file, and the window follows it.
     super::prefs::use_window_settings();

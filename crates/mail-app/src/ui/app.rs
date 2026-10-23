@@ -22,7 +22,8 @@ use ds::components::app::spaces::{Showing, SwitchChord, Switched, use_spaces};
 use ds::components::chrome::split_view::model::{Collapsing, PaneSize, PaneSpec, SplitPane};
 use ds::components::chrome::split_view::view::SplitView;
 use ds::prelude::*;
-use ds_settings::{Environment, UserStyle};
+use ds::style::kit::Styles;
+use ds_settings::Environment;
 use mail_core::profile::ProfileId;
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
@@ -791,11 +792,11 @@ fn environment() -> Environment {
     try_consume_context::<Environment>().unwrap_or_default()
 }
 
-/// The person's own stylesheet, live when `launch` watches the config directory, else empty.
-fn user_style() -> ReadSignal<UserStyle> {
-    match try_consume_context::<ReadSignal<UserStyle>>() {
+/// The person's own stylesheets, live when `launch` watches the config directory, else none.
+fn styles() -> ReadSignal<Styles> {
+    match try_consume_context::<ReadSignal<Styles>>() {
         Some(live) => live,
-        None => ReadSignal::new(use_signal(UserStyle::default)),
+        None => ReadSignal::new(use_signal(Styles::default)),
     }
 }
 
@@ -827,7 +828,8 @@ pub(super) fn Frame(
             stack: Some(environment.material_stack()),
             // One Look: Inter. The editorial faces are the design system's, not mail chrome's.
             typeface: Some(Typeface::System),
-            user_style: user_style(),
+            styles: styles(),
+            custom_styles: environment.settings.appearance.custom_styles,
             surface: Some("window"),
             sheet,
             {children}
