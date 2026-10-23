@@ -23,11 +23,17 @@ const MAX_ANSWER: usize = 1024 * 1024;
 ///
 /// A builder so a test can add a root it trusts and point the names at a local listener.
 pub fn client_builder() -> reqwest::ClientBuilder {
-    reqwest::Client::builder()
+    crate::public::guarded(reqwest::Client::builder())
         .timeout(TIMEOUT)
         .connect_timeout(TIMEOUT)
         .https_only(true)
-        .redirect(Policy::limited(3))
+        .redirect(Policy::custom(|attempt| {
+            if attempt.previous().len() >= 3 || !crate::public::url_is_public(attempt.url()) {
+                attempt.stop()
+            } else {
+                attempt.follow()
+            }
+        }))
 }
 
 /// [`client_builder`], built.
@@ -61,6 +67,10 @@ pub async fn fetch(http: &reqwest::Client, places: &WkdUrls, address: &str) -> O
 }
 
 async fn one(http: &reqwest::Client, url: &str, address: &str) -> Option<Cert> {
+    // An address at a domain that is an address literal names no directory to ask.
+    if !reqwest::Url::parse(url).is_ok_and(|url| crate::public::url_is_public(&url)) {
+        return None;
+    }
     let response = http.get(url).send().await.ok()?;
     if !response.status().is_success() {
         return None;

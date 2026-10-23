@@ -73,10 +73,17 @@ pub struct ImageFetcher {
 impl ImageFetcher {
     /// A fetcher that spawns its fetches on `runtime`.
     pub fn new(runtime: Handle) -> Result<Self, RuntimeError> {
-        let client = reqwest::Client::builder()
+        let client = crate::public::guarded(reqwest::Client::builder())
             .timeout(Duration::from_secs(20))
             .connect_timeout(Duration::from_secs(10))
-            .redirect(reqwest::redirect::Policy::limited(3))
+            .https_only(true)
+            .redirect(reqwest::redirect::Policy::custom(|attempt| {
+                if attempt.previous().len() >= 3 || !public_https(attempt.url()) {
+                    attempt.stop()
+                } else {
+                    attempt.follow()
+                }
+            }))
             .referer(false)
             .build()
             .map_err(|e| RuntimeError::Connect(Failure::new("cannot build an HTTP client", e)))?;
@@ -100,7 +107,16 @@ impl ImageFetcher {
     }
 }
 
+/// Whether `url` is one an image may be fetched from: `https:`, on the public internet.
+fn public_https(url: &reqwest::Url) -> bool {
+    url.scheme() == "https" && crate::public::url_is_public(url)
+}
+
 async fn get(client: &reqwest::Client, url: &str) -> Option<Image> {
+    if !reqwest::Url::parse(url).is_ok_and(|url| public_https(&url)) {
+        log::debug!("an image is not on a public https address, and was not fetched");
+        return None;
+    }
     let response = match client.get(url).send().await {
         Ok(response) => response,
         Err(e) => {

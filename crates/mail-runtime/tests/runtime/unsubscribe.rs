@@ -287,3 +287,38 @@ async fn a_server_that_does_not_answer_is_unreachable() {
     assert!(matches!(err.retry(), Retry::After(_)));
     drop(closed);
 }
+
+/// A list address, or a redirect, inside the reader's own network is never posted to: the
+/// request would be the reader's machine acting on a stranger's behalf where they cannot reach.
+#[tokio::test]
+async fn the_local_network_is_never_posted_to() {
+    let (inside, connections) = plain_server().await;
+    let direct: HttpsUrl = format!("https://127.0.0.1:{}/u", inside.port())
+        .parse()
+        .unwrap();
+    let (addr, _) = tls_server(always(OK)).await;
+    let err = unsubscribe::one_click(&client(addr, None), &direct)
+        .await
+        .expect_err("a loopback address is refused");
+    assert!(
+        matches!(err, UnsubscribeFailure::NotPublic { .. }),
+        "{err:?}"
+    );
+    assert!(matches!(err.retry(), Retry::Fatal(_)));
+
+    for to in [
+        format!("https://127.0.0.1:{}/u", inside.port()),
+        "https://169.254.169.254/latest/meta-data/".to_owned(),
+        "https://printer.local/u".to_owned(),
+    ] {
+        let (addr, _) = tls_server(move |_, _| redirect("307 Temporary Redirect", &to)).await;
+        let err = unsubscribe::one_click(&client(addr, None), &url(addr, "/u"))
+            .await
+            .expect_err("a redirect inside is refused");
+        assert!(
+            matches!(err, UnsubscribeFailure::NotPublic { .. }),
+            "{err:?}"
+        );
+    }
+    assert_eq!(*connections.lock().unwrap(), 0, "the inside was contacted");
+}
