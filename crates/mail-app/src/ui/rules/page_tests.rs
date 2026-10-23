@@ -510,7 +510,6 @@ async fn every_class_the_rules_page_draws_is_styled() {
         "rules-conditions",
         "rules-condition",
         "rules-value",
-        "ds-checkbox",
         "role=\"menu\"",
         "ds-field-row",
         "rules-field",

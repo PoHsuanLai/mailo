@@ -4,7 +4,7 @@
 
 use dioxus::prelude::*;
 use ds::components::controls::button_model::{Bezel, ImagePosition};
-use ds::components::fields::field_row::{FieldRow, RowLayout};
+use ds::components::fields::field_row::FieldRow;
 use ds::components::fields::text_field_model::Invalid;
 use ds::components::menus::item::item::MenuItem as Choice;
 use ds::components::menus::pop_up_button::PopUpButton;
@@ -65,18 +65,15 @@ pub(super) fn ConditionRows(
         return rsx! {
             FieldRow {
                 label: copy::fields::WHEN_ALL_MATCH,
-                layout: RowLayout::Form,
+                div { class: "rules-conditions",
                 TextField {
                     label: copy::fields::CONDITION.to_owned(),
                     value: query.clone(),
                     placeholder: copy::fields::CONDITION_EXAMPLE.to_owned(),
                     validity,
+                    common: classed("rules-field"),
                     oninput: move |value: String| on_query.call(value),
                 }
-            }
-            FieldRow {
-                label: "",
-                layout: RowLayout::Form,
                 Button {
                     label: copy::controls::EDIT_AS_CONDITIONS,
                     common: Common { aria_label: Some(copy::controls::EDIT_AS_CONDITIONS.to_owned()), ..Common::default() },
@@ -88,6 +85,7 @@ pub(super) fn ConditionRows(
                         writing.set(Writing::Rows);
                     }),
                 }
+                }
             }
         };
     }
@@ -96,7 +94,6 @@ pub(super) fn ConditionRows(
     rsx! {
         FieldRow {
             label: copy::fields::WHEN_ALL_MATCH,
-            layout: RowLayout::Form,
             div { class: "rules-conditions",
                 for (at, row) in shown.iter().cloned().enumerate() {
                     ConditionRow {
