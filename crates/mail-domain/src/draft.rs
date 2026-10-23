@@ -177,8 +177,7 @@ impl Draft {
     ///
     /// `text` is left empty for the same reason as [`Draft::reply_to`]: the forwarded
     /// original is composed at render time, not frozen into the row. `attachments` is empty
-    /// too — re-attaching the original's parts means reading blobs, which is I/O and belongs
-    /// in `mail-runtime` before it hands us a [`PendingAttachment`].
+    /// too: which of the original's parts are held, and fit, is the store's to say.
     pub fn forward_of(
         msg: &Message,
         identity: &crate::account::Identity,
