@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="windows-1252"?>
 <!--
   mailo's Windows installer, for WiX Toolset v3 through cargo-wix, which the `package` job in
-  .github/workflows/ci.yml runs on this file after a release build. cargo-wix defines Version, CargoTargetDir and CargoTargetBinDir. The icon is drawn from the SVG
-  every package uses into $(var.CargoTargetDir)\wix\mailo.ico before this is built (the `package`
-  job in .github/workflows/ci.yml, with packaging/windows/make-ico.py).
+  .github/workflows/ci.yml runs on this file after a release build. cargo-wix defines Version, CargoTargetDir and CargoTargetBinDir. The icon,
+  packaging/windows/mailo.ico, is copied to $(var.CargoTargetDir)\wix\mailo.ico before this is built
+  (the `package` job in .github/workflows/ci.yml).
 
   Per machine, into Program Files\mailo, with a Start menu entry. mailo is registered as a handler
   for mailto: links (Settings, Apps, Default apps), which starts `mailo.exe "mailto:…"`, the

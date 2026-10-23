@@ -28,7 +28,7 @@ ensure_compositor
 new_session
 check "1. dist/install.sh installs, and is idempotent" install_mailo
 check "1. the desktop entry is where sill looks" test -f "$PREFIX_DIR/share/applications/mailo.desktop"
-check "1. the icon is where sill looks" test -f "$PREFIX_DIR/share/icons/hicolor/scalable/apps/mailo.svg"
+check "1. the icon is where sill looks" test -f "$PREFIX_DIR/share/icons/hicolor/512x512/apps/mailo.png"
 check "1. the unit is in place" test -f "$UNIT_DIR/mailo-watch.service"
 start_imap
 seed_account

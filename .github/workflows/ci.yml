@@ -270,11 +270,6 @@ jobs:
             target/generate-rpm/*.rpm
           if-no-files-found: error
 
-      # The icon for macOS and Windows is drawn at build time from the one SVG Linux installs.
-      - name: Icon renderer
-        if: runner.os != 'Linux'
-        run: cargo install --locked resvg
-
       # macOS: mailo.app in a .dmg.
       - name: mailo.app and .dmg
         if: runner.os == 'macOS'
@@ -295,13 +290,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p target/wix
-          svg=packaging/icons/hicolor/scalable/apps/mailo.svg
-          for size in 16 24 32 48 64 256; do
-            resvg --width "$size" --height "$size" "$svg" "target/wix/icon-$size.png"
-          done
-          python packaging/windows/make-ico.py target/wix/mailo.ico \
-            target/wix/icon-16.png target/wix/icon-24.png target/wix/icon-32.png \
-            target/wix/icon-48.png target/wix/icon-64.png target/wix/icon-256.png
+          cp packaging/windows/mailo.ico target/wix/mailo.ico
       - name: MSI
         if: runner.os == 'Windows'
         shell: pwsh

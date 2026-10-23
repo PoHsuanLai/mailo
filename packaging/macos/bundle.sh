@@ -3,8 +3,7 @@
 #
 #   ./packaging/macos/bundle.sh
 #
-# Needs Xcode's command line tools (iconutil, hdiutil, plutil, codesign, all part of macOS) and `resvg`
-# (`cargo install resvg`), which draws the icon from the one SVG every package uses. Lands in
+# Needs Xcode's command line tools (hdiutil, plutil, codesign, all part of macOS). Lands in
 # target/macos/: mailo.app and mailo-<version>.dmg.
 set -euo pipefail
 
@@ -12,9 +11,8 @@ root="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$root"
 target="${CARGO_TARGET_DIR:-$root/target}"
 out="$target/macos"
-svg=packaging/icons/hicolor/scalable/apps/mailo.svg
 
-for tool in resvg iconutil hdiutil plutil codesign; do
+for tool in hdiutil plutil codesign; do
     if ! command -v "$tool" >/dev/null 2>&1; then
         echo "bundle.sh: $tool is missing" >&2
         exit 1
@@ -35,15 +33,8 @@ cp "$target/release/mailo" "$app/Contents/MacOS/mailo"
 sed "s/@VERSION@/$version/g" packaging/macos/Info.plist >"$app/Contents/Info.plist"
 plutil -lint "$app/Contents/Info.plist"
 
-# The icon, drawn at every size an .icns holds.
-iconset="$out/mailo.iconset"
-mkdir -p "$iconset"
-for size in 16 32 128 256 512; do
-    resvg --width "$size" --height "$size" "$svg" "$iconset/icon_${size}x${size}.png"
-    resvg --width "$((size * 2))" --height "$((size * 2))" "$svg" "$iconset/icon_${size}x${size}@2x.png"
-done
-iconutil -c icns "$iconset" -o "$app/Contents/Resources/mailo.icns"
-rm -rf "$iconset"
+# The icon, at every size an .icns holds, drawn on macOS's rounded square with its margin.
+cp packaging/macos/mailo.icns "$app/Contents/Resources/mailo.icns"
 
 # An ad-hoc signature over the whole bundle, under the bundle identifier. The linker already signs
 # the binary ad hoc, but under a name taken from its hash and with Info.plist and the icon outside
