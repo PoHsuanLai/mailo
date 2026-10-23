@@ -165,8 +165,12 @@ const FRAME_LINK: &str = "#0066cc";
 /// defaults, as a mail client's are, with quotes, code and headings drawn as the composer draws
 /// them, so a message written here reads as it was written, with nothing wider than the frame where Blitz can say so
 /// (a table's own percentage `max-width` does not hold a fixed-width table nested in an
-/// auto-width one: a pane under 600 px still cuts a 600 px newsletter's right edge). An image
-/// keeps the size its attributes give it, so a blocked one still holds its place. The sender's
+/// auto-width one: a pane under 600 px still cuts a 600 px newsletter's right edge). Neither rule
+/// that does so makes a table cell narrower than a browser would: a long word wraps only where a
+/// line overflows (`break-word`, not `anywhere`, which lets a cell squeeze "iOS" to a letter a
+/// line), and an image shrinks to the frame but no icon to nothing (`max(100%, 64px)`: a bare
+/// percentage counts as nothing when a table sizes its columns). An image keeps the size its
+/// attributes give it, so a blocked one still holds its place. The sender's
 /// `<style>` comes later in the document and its `<body>` colours and style sit on the body
 /// itself, so either wins, a `padding: 0` included, and a full-bleed design stays one.
 fn html_sheet() -> String {
@@ -174,8 +178,8 @@ fn html_sheet() -> String {
         ":root {{ color-scheme: light; }} html, body {{ margin: 0; }} \
          body {{ padding: 16px; font-family: {FRAME_FONT}; font-size: {FRAME_TEXT_SIZE}; \
          line-height: {FRAME_TEXT_LINE}; color: {FRAME_INK}; background: {FRAME_PAPER}; \
-         overflow-wrap: anywhere; }} \
-         img {{ max-width: 100%; }} table {{ max-width: 100%; }} \
+         overflow-wrap: break-word; }} \
+         img {{ max-width: max(100%, 64px); }} table {{ max-width: 100%; }} \
          blockquote {{ margin: 0 0 1em; padding-left: 12px; \
          border-left: {FRAME_QUOTE_BAR} solid {FRAME_INK_SOFT}; color: {FRAME_INK_SOFT}; }} \
          pre, code {{ font-family: {FRAME_CODE_FONT}; font-size: {FRAME_CODE_SIZE}; }} \
@@ -263,6 +267,21 @@ mod tests {
             "{page}"
         );
         assert!(!html_sheet().contains("height: auto"), "{}", html_sheet());
+    }
+
+    /// Nothing a sender sizes small in a table is squeezed past what a browser draws: a word
+    /// is broken only where its line overflows, and an icon in a cell keeps its size while a
+    /// large image still shrinks to the frame (a Teams mail's "iOS" button drew its label a letter
+    /// a line, with no icon).
+    #[test]
+    fn the_sheet_keeps_a_table_cell_as_wide_as_a_browser_would() {
+        let sheet = html_sheet();
+        assert!(sheet.contains("overflow-wrap: break-word;"), "{sheet}");
+        assert!(!sheet.contains("anywhere"), "{sheet}");
+        assert!(
+            sheet.contains("img { max-width: max(100%, 64px); }"),
+            "{sheet}"
+        );
     }
 
     /// A reply's quoted tail reaches both frames folded, behind the toggle.
