@@ -151,7 +151,32 @@ where
     let mut draft = Draft::forward_of(&original, &identity, now);
     draft.to = to.to_vec();
     draft.text = forwarded(&signed(body, &identity), &original, zone);
+    draft.attachments = carried(&original);
     Ok(draft)
+}
+
+/// The files a forward passes on: `original`'s attachments that are held here, in order, while
+/// they fit in [`ATTACHMENT_BUDGET`].
+///
+/// A picture the HTML embeds by `cid:` is not one, since the forward goes as text. A part still
+/// on the server is left behind, as is one past the budget: the forward is still worth sending
+/// without it, and the composer shows what it carries.
+fn carried(original: &Message) -> Vec<PendingAttachment> {
+    let mut total = 0u64;
+    original
+        .attachments
+        .iter()
+        .filter(|a| a.inline == Inline::Attached)
+        .filter_map(|a| {
+            let blob = a.blob()?;
+            total = total.saturating_add(a.size);
+            (total <= ATTACHMENT_BUDGET).then(|| PendingAttachment {
+                name: a.name.clone(),
+                mime: a.mime.clone(),
+                blob,
+            })
+        })
+        .collect()
 }
 
 /// Every account that can send, as `(address, id)`, oldest first.

@@ -67,7 +67,6 @@ fn send_to_grace(window: &mut Window) {
 }
 
 #[test]
-#[ignore = "gap: f forwards the text alone; the original's attachments are not carried (Draft::forward_of leaves attachments empty)"]
 fn f_forwards_the_message_with_its_pdf() {
     let mut window = opened();
     window.press(&[], Key::Char('f'), 1);
@@ -134,8 +133,8 @@ fn f_forwards_the_text_under_a_header_and_forward_as_attachment_encloses_the_mes
     let enclosed = sent
         .iter()
         .map(|one| parsed(&one.raw))
-        .find(|mail| !mail.attachments.is_empty())
-        .expect("a forward with an attachment");
+        .find(|mail| mail.attachments.iter().any(|a| a.mime == "message/rfc822"))
+        .expect("a forward enclosing the message");
     assert_eq!(enclosed.attachments.len(), 1);
     let part = &enclosed.attachments[0];
     assert_eq!(part.mime, "message/rfc822");
