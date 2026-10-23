@@ -17,13 +17,12 @@ use ds::components::menus::item::item::MenuItem as Choice;
 use ds::components::menus::pop_up_button::PopUpButton;
 use ds::prelude::*;
 use ds::root::common::Common;
-use ds::style::icon::family::PlateFamily;
 use mail_core::SqliteStore;
 use mail_domain::{Rule, RuleState};
 use porter_core::AccountId;
 use std::sync::Arc;
 
-use super::super::common::{classed, tile};
+use super::super::common::{add_mark, classed};
 use super::super::data::AccountRow;
 use super::super::files::Phase;
 use super::super::menu::{Floating, MenuItem};
@@ -109,12 +108,13 @@ pub(super) fn RulesList(
         ));
     }
     let new_id = row_id(&RulesAt::Rule(None));
-    items.push(ListItem::row(
+    // New Rule is a list of its own under the rules, as New Space is under the Spaces.
+    let add = vec![ListItem::row(
         NEW.to_owned(),
         copy::controls::NEW_RULE.to_owned(),
         rsx! {
             Row {
-                leading: tile(Icon::Plus, PlateFamily::Blue),
+                leading: add_mark(),
                 title: copy::controls::NEW_RULE,
                 size: RowSize::Settings,
                 accessory: Accessory::Chevron,
@@ -122,7 +122,8 @@ pub(super) fn RulesList(
                 common: Common { id: new_id, aria_label: Some(copy::controls::NEW_RULE.to_owned()), ..Common::default() },
             }
         },
-    ));
+    )];
+    let empty = items.is_empty();
     // Said only where the server will not run them: elsewhere they run there too, unremarked.
     let here_only = reach(&row.plan)
         .is_err()
@@ -130,8 +131,14 @@ pub(super) fn RulesList(
     rsx! {
         AccountChoice { shell, rows, row: row.clone(), said }
         Form {
-            FormSection { footer: here_only,
-                List::<String> { label: copy::titles::RULES, items, style: ListStyle::Grouped }
+            // With no rules yet, New Rule stands alone and says where they would run.
+            if !empty {
+                FormSection { footer: here_only.clone(),
+                    List::<String> { label: copy::titles::RULES, items, style: ListStyle::Grouped }
+                }
+            }
+            FormSection { footer: if empty { here_only } else { None },
+                List::<String> { label: copy::aria::ADD_A_RULE, items: add, style: ListStyle::Grouped }
             }
             RunProgress { phase, name: running() }
         }

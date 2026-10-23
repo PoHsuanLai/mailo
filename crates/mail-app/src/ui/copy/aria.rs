@@ -12,6 +12,10 @@ pub const SYNC_NOW: &str = "Sync Now";
 pub const ACCOUNTS_IN_SPACE: &str = "Accounts in This Space";
 /// Settings › Spaces' list under the Spaces, which holds New Space.
 pub const ADD_A_SPACE: &str = "Add a Space";
+/// The keys Settings list under the keys, which holds Make a Key and Import.
+pub const ADD_A_KEY: &str = "Add a Key";
+/// Settings › Rules' list under the rules, which holds New Rule.
+pub const ADD_A_RULE: &str = "Add a Rule";
 /// The "+" after the account tiles.
 pub const ADD_ACCOUNT: &str = "Add Account";
 /// The sync mark while an account in view waits for its sign-in: a press asks about it again.

@@ -241,6 +241,58 @@ async fn every_page_is_drawn_in_the_window_from_its_sidebar_row() {
     }
 }
 
+/// Each page that lists things, the add row under them, and the label of the list it stands in.
+const ADDS: &[(SettingsPage, &str, &str)] = &[
+    (
+        SettingsPage::Accounts,
+        crate::ui::copy::controls::ADD_ACCOUNT,
+        crate::ui::copy::aria::ADD_ACCOUNT,
+    ),
+    (
+        SettingsPage::Spaces,
+        crate::ui::copy::controls::NEW_SPACE,
+        crate::ui::copy::aria::ADD_A_SPACE,
+    ),
+    (
+        SettingsPage::Rules,
+        crate::ui::copy::controls::NEW_RULE,
+        crate::ui::copy::aria::ADD_A_RULE,
+    ),
+];
+
+/// Accounts, Spaces and Rules set their add row alike: in a list of its own under the things it
+/// adds to, led by the plain dashed plus and not a coloured tile.
+#[tokio::test]
+async fn every_add_row_stands_in_a_list_of_its_own_led_by_the_plain_plus() {
+    let built = work();
+    for (page, row, list) in ADDS {
+        let (dom, _seen) = opened_on(&built, *page);
+        let markup = dioxus_ssr::render(&dom);
+        let at = markup
+            .find(&format!("aria-label=\"{list}\" data-style=\"grouped\""))
+            .unwrap_or_else(|| panic!("{page:?} has no {list:?} list: {markup}"));
+        let added = &markup[at..];
+        let end = added[1..]
+            .find("class=\"ds-list\"")
+            .map_or(added.len(), |end| end + 1);
+        let added = &added[..end];
+        assert!(
+            added.contains(row),
+            "{page:?}: {row:?} is not in {list:?}: {added}"
+        );
+        assert_eq!(
+            added.matches("role=\"option\"").count(),
+            1,
+            "{page:?}: {added}"
+        );
+        assert!(added.contains("class=\"add-mark\""), "{page:?}: {added}");
+        assert!(
+            !added.contains("ds-tile"),
+            "{page:?} leads with a tile: {added}"
+        );
+    }
+}
+
 #[tokio::test]
 async fn an_open_window_turns_to_the_page_asked_for() {
     let built = work();

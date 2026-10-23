@@ -3,10 +3,11 @@
 use crate::ui::copy;
 use dioxus::prelude::*;
 use ds::components::overlays::alert_model::{AlertButton, AlertRole, AlertStyle};
-use ds::prelude::{Alert, Icon, RowLeading, TextLine, TileFace};
+use ds::prelude::{Alert, Icon, IconSize, RowLeading, TextLine, TileFace};
 use ds::root::common::Common;
 use ds::root::pass_through::ExtraClass;
 use ds::style::icon::family::PlateFamily;
+use ds::style::icon::render::Glyph;
 
 /// A component's own layout class: quire writes it after its own, never in place of one, so a
 /// mailo rule can size or place the element without naming a `ds-` class. quire refuses a `ds-`
@@ -60,6 +61,17 @@ pub(in crate::ui) fn Told(title: String, said: Signal<Option<Result<String, Stri
 /// never a colour.
 pub(in crate::ui) fn tile(icon: Icon, family: PlateFamily) -> RowLeading {
     RowLeading::Tile(TileFace::Plate(icon, family))
+}
+
+/// What leads a row that adds something (Add Account…, New Space, New Rule, a key to import): a
+/// plus in a dashed ring, plain where the rows above it lead with colour, as the "+" after the
+/// sidebar's account tiles is drawn (`style/settings.css`).
+pub(in crate::ui) fn add_mark() -> RowLeading {
+    RowLeading::Element(rsx! {
+        span { class: "add-mark",
+            Glyph { icon: Icon::Plus, size: IconSize::Compact }
+        }
+    })
 }
 
 /// A row of mutually exclusive buttons. The caller's options say which is on, and the

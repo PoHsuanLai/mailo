@@ -34,7 +34,6 @@ use ds::motion::detail::stamp::EventStamp;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::appearance::theme::Theme;
-use ds::style::icon::family::PlateFamily;
 use ds::style::scope::use_scope;
 use ds::style::space::dot_paint::DotPaint;
 use ds::style::space::look::SpaceLook;
@@ -150,7 +149,7 @@ fn SpaceList(shell: Signal<Shell>, handle: Handle) -> Element {
         copy::controls::NEW_SPACE.to_owned(),
         rsx! {
             Row {
-                leading: crate::ui::common::tile(Icon::Plus, PlateFamily::Blue),
+                leading: crate::ui::common::add_mark(),
                 title: copy::controls::NEW_SPACE,
                 size: RowSize::Settings,
                 onclick: move |_| {
