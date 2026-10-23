@@ -506,9 +506,8 @@ async fn every_class_the_rules_page_draws_is_styled() {
     for class in [
         "ds-toggle",
         "data-validity=\"invalid\"",
-        "rules-action",
-        "rules-conditions",
-        "rules-condition",
+        "rules-line",
+        "rules-end",
         "rules-value",
         "role=\"menu\"",
         "ds-field-row",

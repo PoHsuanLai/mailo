@@ -35,9 +35,9 @@ fn make_the_rule(settings: &mut Harness, store: &SqliteStore) {
     scroll_to(
         settings,
         ".settings-scroll",
-        ".ds-field-row[*|aria-label=\"Do\"] .ds-button",
+        "[*|aria-label=\"Add an action\"]",
     );
-    click(settings, ".ds-field-row[*|aria-label=\"Do\"] .ds-button");
+    click(settings, "[*|aria-label=\"Add an action\"]");
     super::hands::menu_item(settings, "Archive");
     scroll_to(settings, ".settings-scroll", ".ds-toggle");
     click(settings, ".ds-toggle");

@@ -277,7 +277,7 @@ fn RuleEditor(
                 }
             }
         }
-        FormSection {
+        FormSection { title: Some(copy::fields::WHEN_ALL_MATCH.to_owned()),
             ConditionRows {
                 writing,
                 rows,
@@ -289,19 +289,20 @@ fn RuleEditor(
                     }
                 },
             }
-            FieldRow {
-                label: "Do",
-                div { class: "rules-actions",
+        }
+        // What the rule does, a line each, then the line that adds one.
+        FormSection { title: Some("Do".to_owned()),
                     for (at, action) in draft.actions.iter().enumerate() {
-                        div { key: "{at}", class: "rules-action",
+                        div { key: "{at}", class: "rules-line",
                             Glyph { icon: icon_of(action), size: IconSize::Compact }
                             Label { text: copy::menus::rule_action(action) }
                             Button {
                                 bezel: Bezel::Toolbar,
                                 image: ImagePosition::Only,
-                                icon: Icon::X,
+                                icon: Icon::Minus,
                                 label: format!("Remove {}", copy::menus::rule_action(action)),
                                 title: Some("Remove".to_owned()),
+                                common: classed("rules-end"),
                                 onclick: on_primary(move || {
                                     if let Some(draft) = editing.write().as_mut()
                                         && at < draft.actions.len()
@@ -312,6 +313,7 @@ fn RuleEditor(
                             }
                         }
                     }
+                div { class: "rules-line",
                     Button {
                         label: copy::aria::ADD_ACTION,
                         icon: Icon::Plus,
@@ -365,7 +367,6 @@ fn RuleEditor(
                         }
                     }
                 }
-            }
         }
         FormSection {
             FieldRow {
