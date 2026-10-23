@@ -237,7 +237,7 @@ fn this_client_reads_what_openssl_signs_and_encrypts() {
     );
     assert!(ok, "{err}");
     let opened = smime::open(&gcm, &keys(&[bob()], &anchors)).unwrap();
-    assert_eq!(opened.encryption, SmimeEncryption::Decrypted);
+    assert_eq!(opened.encryption, SmimeEncryption::DecryptedAuthenticated);
     // RSA-OAEP key transport.
     let (ok, oaep, err) = openssl(
         dir.path(),

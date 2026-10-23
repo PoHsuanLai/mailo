@@ -96,7 +96,9 @@ pub fn open_message(
         .or_log("the signer's certificate was not kept");
     if matches!(
         protected.encryption,
-        SmimeEncryption::Decrypted | SmimeEncryption::NotEncrypted
+        SmimeEncryption::Decrypted
+            | SmimeEncryption::DecryptedAuthenticated
+            | SmimeEncryption::NotEncrypted
     ) {
         keep(raw_id, &protected);
     }
@@ -157,7 +159,9 @@ fn opened(
     };
     let readable = matches!(
         opened.encryption,
-        SmimeEncryption::Decrypted | SmimeEncryption::NotEncrypted
+        SmimeEncryption::Decrypted
+            | SmimeEncryption::DecryptedAuthenticated
+            | SmimeEncryption::NotEncrypted
     );
     let shown = if readable {
         mail_mime::parse(&opened.message).ok()

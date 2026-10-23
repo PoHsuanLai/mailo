@@ -292,7 +292,14 @@ pub enum SmimeEncryption {
     /// Not encrypted.
     NotEncrypted,
     /// Encrypted, and opened with the user's key; what is shown is the decrypted content.
+    ///
+    /// The encryption did not prove the content unchanged (CBC, which is most S/MIME mail): a
+    /// changed ciphertext decrypts to changed text, and remote content in it could carry the rest
+    /// of the message away (EFAIL, 2018).
     Decrypted,
+    /// As [`SmimeEncryption::Decrypted`], by encryption that also proved the content unchanged
+    /// (AES-GCM in authenticated enveloped data, RFC 5083).
+    DecryptedAuthenticated,
     /// Encrypted to certificates none of which is the user's, each named as the message names
     /// it: its issuer and serial number, or its subject key identifier.
     CannotDecrypt { to: Vec<String> },

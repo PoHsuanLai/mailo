@@ -155,6 +155,20 @@ impl Looks {
         }
     }
 
+    /// Whether the body `message` was opened to may load remote content: not when it was
+    /// decrypted from S/MIME encryption that did not prove it unchanged
+    /// ([`SmimeEncryption::Decrypted`]), whatever the reader's settings or buttons say.
+    pub fn opened_may_load_remote(&self, message: &Message) -> bool {
+        let Some(Opening::Opened(sealed)) = self.sealed_last(message.id, message.body.raw()) else {
+            return true;
+        };
+        !matches!(
+            &sealed.protection,
+            Protection::Smime(protected)
+                if protected.encryption == SmimeEncryption::Decrypted
+        )
+    }
+
     /// The subject `message` was opened to, when that differs from the stored one: an encrypted
     /// message's real subject travels inside it, and the outside says `...`.
     pub fn opened_subject(&self, message: &Message) -> Option<String> {

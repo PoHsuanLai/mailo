@@ -110,3 +110,7 @@ pub fn accounts_need_attention(count: usize) -> String {
 
 /// Under the rules of an account whose server cannot run them: mailo runs them as it syncs.
 pub const RULES_RUN_HERE: &str = "Runs only while mailo is open.";
+
+/// An S/MIME message decrypted from encryption that cannot show it unchanged (CBC), in the seal's
+/// lines: why its remote images do not load.
+pub const SMIME_NOT_AUTHENTICATED: &str = "Encrypted with S/MIME and decrypted for reading, but the encryption can\u{2019}t show the message wasn\u{2019}t changed, so its remote images stay blocked";

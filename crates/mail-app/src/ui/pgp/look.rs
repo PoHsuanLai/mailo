@@ -91,7 +91,10 @@ fn look_of(opening: Opening) -> Look {
                 Protection::Smime(protected) => (
                     Scheme::Smime,
                     mark_of(
-                        protected.encryption == SmimeEncryption::Decrypted,
+                        matches!(
+                            protected.encryption,
+                            SmimeEncryption::Decrypted | SmimeEncryption::DecryptedAuthenticated
+                        ),
                         matches!(protected.verification, SmimeVerification::Good { .. }),
                     ),
                     said_smime(&protected),
