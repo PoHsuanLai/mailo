@@ -215,3 +215,26 @@ fn every_control_in_settings_is_the_size_its_place_calls_for() {
         sizes_hold(&harness, page);
     }
 }
+
+/// An account's row in Settings › Accounts leads with its provider's mark at a row's size: no
+/// wider than the row's leading tiles (Add Account…'s), so it never runs into the address.
+#[test]
+fn an_accounts_provider_mark_is_a_rows_size() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut harness = harness(mail_app::ui::native::settings_root, dir.path());
+    let row = ".ds-sidebar [*|aria-label=\"Accounts\"]";
+    settle_until(&mut harness, |h| h.count(row) == 1);
+    let at = harness.centre(row).unwrap();
+    harness.click(at);
+    let mark = ".settings-page[*|data-page=\"Accounts\"] .ds-row-leading .ds-provider";
+    settle_until(&mut harness, |h| h.count(mark) == 1);
+    harness.advance(ms(300));
+    let mark = harness.rect(mark).unwrap();
+    let tile = harness
+        .rect(".settings-page[*|data-page=\"Accounts\"] .ds-row-leading .ds-icon-tile")
+        .unwrap();
+    assert!(
+        mark.size.width.0 <= tile.size.width.0 && mark.size.height.0 <= tile.size.height.0,
+        "the account's mark is {mark:?}, a row's tile {tile:?}"
+    );
+}
