@@ -46,9 +46,10 @@ const LEAST: f32 = 0.4;
 
 /// The zoom that fits `frame`'s document to the frame's width: the frame's width over the
 /// document's own (a newsletter laid out for 800 px, its tables and pictures fixed at that width,
-/// in a narrower pane). The document's width is read in its own pixels, whatever zoom it is drawn
-/// at now, so a read taken before a new zoom has landed asks for the same one. `None` when it
-/// fits, or is not laid out.
+/// in a narrower pane), and 1 when it fits, so a pane widened while the page is still read lets
+/// it grow back. The document's width is read in its own pixels, whatever zoom it is drawn at
+/// now, so a read taken before a new zoom has landed asks for the same one. `None` when it is not
+/// laid out.
 fn fitting(frame: &MountedData) -> Option<f32> {
     let handle = frame.downcast::<NodeHandle>()?;
     let doc = handle.try_doc()?;
@@ -60,7 +61,14 @@ fn fitting(frame: &MountedData) -> Option<f32> {
         .root_element()
         .primary_styles()
         .map_or(drawn, |style| style.effective_zoom.unzoom(drawn));
-    (width > 0.0 && own > width + 1.0).then(|| (width / own).max(LEAST))
+    if width <= 0.0 {
+        return None;
+    }
+    Some(if own > width + 1.0 {
+        (width / own).max(LEAST)
+    } else {
+        1.0
+    })
 }
 
 /// How wide `doc` is laid out, in its pixels as drawn: its widest box under `<body>`, and the
